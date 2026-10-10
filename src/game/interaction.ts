@@ -2,7 +2,7 @@ import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, TOUCH, Vector2, Vector3
 import { Editor, pieceCentre, poseForCentre } from "../editor/editor";
 import { buildCarModel, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
-import { settle, shrinkAway, wobbleBack, type PiecePose } from "../render/flourishes";
+import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
 import { setRim } from "../render/materials";
 import { ghostMesh } from "../render/track-view";
 import { damp } from "../lib/tween";
@@ -74,8 +74,10 @@ export class Interaction {
   onPlaced: ((snapped: boolean) => void) | null = null;
   /** Called when a piece is picked up off the mat. */
   onPickup: (() => void) | null = null;
-  /** Called when a drop is refused by the landscape. */
+  /** Called when a drop, rotate or flip is refused by the landscape. */
   onRefused: (() => void) | null = null;
+  /** Called when a placed piece is rotated or flipped. */
+  onTurned: (() => void) | null = null;
   private mode: Mode = { kind: "idle" };
   private selectedPiece = -1;
   private selectedCar = -1;
@@ -121,6 +123,8 @@ export class Interaction {
 
   /** Per frame: keep a dragged piece under the pointer while the view edge-pans, and animate the held piece. */
   tick(dt: number): void {
+    this.time += dt;
+    this.game.trackView.pulse(this.time);
     const m = this.mode;
     if ((m.kind === "drag-piece" || m.kind === "drag-train") && this.game.director.edgePanning) this.updateDrag(this.lastX, this.lastY);
     if (m.kind === "drag-piece" && dt > 0) {
@@ -147,6 +151,7 @@ export class Interaction {
     }
   }
 
+  private time = 0;
   private readonly tiltMatrix = new Matrix4();
   private readonly tiltEuler = new Euler();
   private readonly scaleVec = new Vector3();
@@ -382,7 +387,33 @@ export class Interaction {
     if (!p) return;
     const c = pieceCentre(this.game.layout, id);
     const pose = poseForCentre(p.type, p.flipped, c.x, c.z, p.pose.heading + Math.PI / 4);
-    if (this.allowed(p.type, p.flipped, pose, p.y)) this.editor().rotate(id, Math.PI / 4);
+    if (!this.allowed(p.type, p.flipped, pose, p.y)) {
+      this.onRefused?.();
+      return;
+    }
+    const before = { x: p.pose.x, y: p.y, z: p.pose.z, heading: p.pose.heading };
+    if (this.editor().rotate(id, Math.PI / 4)) this.animateChange(id, (mesh, after, done) => turn(mesh, before, after, done));
+  }
+
+  /**
+   * Show an edit to a placed piece as a little animation: a stand-in mesh moves from the old look to the new while
+   * the real piece (already changed in the layout) is hidden.
+   */
+  private animateChange(id: number, make: (mesh: Mesh, after: PiecePose, done: () => void) => Flourish): void {
+    const g = this.game;
+    const p = g.layout.getPiece(id);
+    if (!p) return;
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut]);
+    mesh.castShadow = true;
+    g.scene.add(mesh);
+    g.trackView.setHidden(id, true);
+    g.flourishes.add(
+      make(mesh, { x: p.pose.x, y: p.y, z: p.pose.z, heading: p.pose.heading }, () => {
+        g.scene.remove(mesh);
+        g.trackView.setHidden(id, false);
+      }),
+    );
+    this.onTurned?.();
   }
 
   /** Check a would-be piece position against the landscape, explaining a refusal. */
@@ -410,8 +441,15 @@ export class Interaction {
       m.ghost.visible = visible;
       return;
     }
-    const p = this.selectedPiece === -1 ? undefined : this.game.layout.getPiece(this.selectedPiece);
-    if (p && this.allowed(p.type, !p.flipped, p.pose, p.y)) this.editor().flip(this.selectedPiece);
+    const id = this.selectedPiece;
+    const p = id === -1 ? undefined : this.game.layout.getPiece(id);
+    if (!p) return;
+    if (!this.allowed(p.type, !p.flipped, p.pose, p.y)) {
+      this.onRefused?.();
+      return;
+    }
+    // Flipped: hop up and drop back down as the mirror image.
+    if (this.editor().flip(id)) this.animateChange(id, (mesh, after, done) => settle(mesh, { ...after, y: after.y + 10 }, after, done));
   }
 
   deleteSelected(): void {

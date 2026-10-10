@@ -1,6 +1,10 @@
 import {
+  BackSide,
+  Box3,
   BufferGeometry,
   Color,
+  MeshBasicMaterial,
+  Vector3,
   CylinderGeometry,
   Group,
   InstancedMesh,
@@ -67,8 +71,8 @@ export class TrackView {
   private levers = new Map<number, Mesh>();
   private readonly tints = new Map<number, Color>();
   private highlighted = -1;
-  /** Pieces drawn elsewhere for now (a stand-in mesh is animating in their place). */
-  private readonly hidden = new Set<number>();
+  /** Pieces drawn elsewhere for now (stand-in meshes animating in their place), with how many stand-ins each. */
+  private readonly hidden = new Map<number, number>();
   private readonly leverGeometry = switchLeverGeometry();
 
   constructor(
@@ -120,7 +124,7 @@ export class TrackView {
       ids.forEach((id, i) => {
         const p = this.layout.getPiece(id)!;
         mesh.setMatrixAt(i, pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading, m));
-        mesh.setColorAt(i, id === this.highlighted ? new Color(1.25, 1.12, 0.85) : this.tintFor(id));
+        mesh.setColorAt(i, this.tintFor(id));
       });
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -145,6 +149,46 @@ export class TrackView {
     }
 
     this.syncLevers();
+    this.syncOutline();
+  }
+
+  private outline: Mesh | null = null;
+  private readonly outlineMaterial = new MeshBasicMaterial({ color: new Color("#fff1c2"), side: BackSide, transparent: true, opacity: 0.85, depthWrite: false });
+
+  /**
+   * The selected piece gets a soft light outline: its own shape drawn back-faces-only, a little larger, so only a
+   * rim shows around the edges.
+   */
+  private syncOutline(): void {
+    const p = this.highlighted === -1 || this.hidden.has(this.highlighted) ? undefined : this.layout.getPiece(this.highlighted);
+    if (!p || this.layout.isLifted(this.highlighted)) {
+      if (this.outline) this.outline.visible = false;
+      return;
+    }
+    const geometry = pieceGeometry(p.type, p.flipped);
+    if (!this.outline) {
+      this.outline = new Mesh(geometry, this.outlineMaterial);
+      this.outline.matrixAutoUpdate = false;
+      this.outline.renderOrder = 2;
+      this.group.add(this.outline);
+    }
+    this.outline.geometry = geometry;
+    this.outline.visible = true;
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox ?? new Box3();
+    const size = box.getSize(new Vector3());
+    const centre = box.getCenter(new Vector3());
+    const grow = 2.4;
+    // Scale about the piece's own centre so the shell stands evenly proud of every side.
+    const scale = new Matrix4().makeTranslation(centre.x, centre.y, centre.z)
+      .multiply(new Matrix4().makeScale((size.x + grow * 2) / size.x, (size.y + grow) / size.y, (size.z + grow * 2) / size.z))
+      .multiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z));
+    this.outline.matrix.copy(pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading)).multiply(scale);
+  }
+
+  /** Gentle breathing of the selection outline (call per frame with elapsed seconds). */
+  pulse(time: number): void {
+    if (this.outline?.visible) this.outlineMaterial.opacity = 0.62 + 0.28 * Math.sin(time * 3.2);
   }
 
   private syncLevers(): void {
@@ -179,12 +223,15 @@ export class TrackView {
     }
   }
 
-  /** Hide or show a piece (while a stand-in animates in its place). Re-syncs. */
+  /**
+   * Hide a piece while a stand-in animates in its place, and show it again when that's done. Counted, so two
+   * overlapping animations (rotate twice quickly) keep it hidden until both finish. Re-syncs on change.
+   */
   setHidden(id: number, hidden: boolean): void {
-    if (hidden === this.hidden.has(id)) return;
-    if (hidden) this.hidden.add(id);
+    const n = (this.hidden.get(id) ?? 0) + (hidden ? 1 : -1);
+    if (n > 0) this.hidden.set(id, n);
     else this.hidden.delete(id);
-    this.sync();
+    if ((n > 0) !== (n - (hidden ? 1 : -1) > 0)) this.sync();
   }
 
   /** Refresh only switch levers (after a switch flips). */
@@ -195,7 +242,7 @@ export class TrackView {
   setHighlight(pieceId: number): void {
     if (this.highlighted === pieceId) return;
     this.highlighted = pieceId;
-    this.sync();
+    this.syncOutline();
   }
 
   /** Map a raycast hit to a piece id, or -1. */

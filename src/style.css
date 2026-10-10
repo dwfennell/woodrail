@@ -76,3 +76,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
   .tray-item { width: 70px; height: 80px; }
   .card { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 124px); min-width: 0; width: calc(100% - 24px); }
 }
+
+/* ---- motion ---------------------------------------------------------------------------------------------- */
+@keyframes card-in { from { opacity: 0; transform: translate(-50%, 14px) scale(0.96); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: none; } }
+.card:not([hidden]) { animation: card-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.15); }
+.menu:not([hidden]) { animation: pop-in 0.18s ease-out; transform-origin: top right; }
+.chip, .tray-item, .menu-item, .tab { transition: transform 0.22s cubic-bezier(0.3, 1.6, 0.5, 1), filter 0.15s, background-color 0.15s; }
+.chip:active, .tray-item:active { transform: translateY(1px) scale(0.93); transition-duration: 0.06s; }
+@media (prefers-reduced-motion: reduce) { .card:not([hidden]), .menu:not([hidden]) { animation: none; } }
