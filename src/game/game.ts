@@ -17,14 +17,13 @@ import { TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
 import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
+import type { Landscape } from "../landscape";
 import { PIECE_TYPES, type Layout } from "../track";
+import type { World } from "./world";
 
 const MAX_STEPS_PER_FRAME = 8;
 
-export interface GameWorld {
-  layout: Layout;
-  sim: Sim;
-}
+export type GameWorld = World;
 
 /** Owns the renderer, scene, camera and frame loop. Input and UI attach to it. */
 export class Game {
@@ -44,6 +43,8 @@ export class Game {
   events: SimEvent[] = [];
   layout: Layout;
   sim: Sim;
+  landscape: Landscape;
+  stations: Map<number, number>;
   paused = false;
   /** Called once per frame after the simulation steps, before rendering. */
   onFrame: ((dt: number) => void) | null = null;
@@ -59,6 +60,8 @@ export class Game {
   ) {
     this.layout = world.layout;
     this.sim = world.sim;
+    this.landscape = world.landscape;
+    this.stations = world.stations;
     this.quality = detectQuality();
 
     this.renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -100,11 +103,17 @@ export class Game {
   setWorld(world: GameWorld): void {
     this.layout = world.layout;
     this.sim = world.sim;
+    this.landscape = world.landscape;
+    this.stations = world.stations;
     this.scene.remove(this.trackView.group);
     (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
     this.physics.setLayout(this.layout);
+  }
+
+  get world(): World {
+    return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations };
   }
 
   /** Call after any layout edit. */

@@ -1,13 +1,15 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
+import type { World } from "../game/world";
+import { generateLandscape } from "../landscape";
 import { CAR_KINDS, Sim, type CarKind } from "../sim";
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
 
 /**
- * Save format, version 1. Plain JSON validated with Zod; only this module knows its shape.
- * (The spec's zip container with binary chunks arrives when there is binary data to store.)
+ * Save format, version 2. Plain JSON validated with Zod; only this module knows its shape.
+ * The landscape is regenerated from its seed. No backward compatibility until the game reaches v1.
  */
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 const pieceSchema = z.object({
   id: z.number().int().positive(),
@@ -39,6 +41,8 @@ const trainSchema = z.object({
 
 const saveSchema = z.object({
   version: z.literal(SAVE_VERSION),
+  landscape: z.object({ seed: z.number().int(), starter: z.boolean() }),
+  towns: z.array(z.object({ id: z.number().int().min(0), stationPieceId: z.number().int().positive() })),
   pieces: z.array(pieceSchema),
   switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(1)])),
   trains: z.array(trainSchema),
@@ -46,7 +50,8 @@ const saveSchema = z.object({
 
 export type SaveData = z.infer<typeof saveSchema>;
 
-export function serializeWorld(layout: Layout, sim: Sim): SaveData {
+export function serializeWorld(world: World): SaveData {
+  const { layout, sim } = world;
   const pieces: SaveData["pieces"] = [];
   const switches: SaveData["switches"] = [];
   for (const id of layout.pieceIds()) {
@@ -62,11 +67,18 @@ export function serializeWorld(layout: Layout, sim: Sim): SaveData {
       lead: { ...t.bogies[0] },
     };
   });
-  return { version: SAVE_VERSION, pieces, switches, trains };
+  return {
+    version: SAVE_VERSION,
+    landscape: { seed: world.landscape.seed, starter: world.landscape.starter },
+    towns: [...world.stations].map(([id, stationPieceId]) => ({ id, stationPieceId })),
+    pieces,
+    switches,
+    trains,
+  };
 }
 
 /** Rebuild a world from saved data. Never throws on bad input. */
-export function deserializeWorld(data: unknown): Result<{ layout: Layout; sim: Sim }, string> {
+export function deserializeWorld(data: unknown): Result<World, string> {
   const parsed = saveSchema.safeParse(data);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -80,6 +92,13 @@ export function deserializeWorld(data: unknown): Result<{ layout: Layout; sim: S
     }
   }
   for (const [id, state] of save.switches) if (layout.getPiece(id)) layout.setSwitchState(id, state);
+  const landscape = generateLandscape(save.landscape.seed, { starter: save.landscape.starter });
+  const stations = new Map<number, number>();
+  for (const town of landscape.towns) {
+    const saved = save.towns.find((t) => t.id === town.id);
+    if (!saved || layout.getPiece(saved.stationPieceId)?.type !== "station") return err(`invalid save: station for town ${town.id} is missing`);
+    stations.set(town.id, saved.stationPieceId);
+  }
   const sim = new Sim(layout);
   for (const t of save.trains) {
     const lead = layout.getPiece(t.lead.pieceId);
@@ -97,21 +116,21 @@ export function deserializeWorld(data: unknown): Result<{ layout: Layout; sim: S
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
     });
   }
-  return ok({ layout, sim });
+  return ok({ layout, sim, landscape, stations });
 }
 
-const STORAGE_KEY = "woodrail.autosave.v1";
+const STORAGE_KEY = "woodrail.autosave.v2";
 
-export function saveToStorage(layout: Layout, sim: Sim): boolean {
+export function saveToStorage(world: World): boolean {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeWorld(layout, sim)));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeWorld(world)));
     return true;
   } catch {
     return false;
   }
 }
 
-export function loadFromStorage(): Result<{ layout: Layout; sim: Sim }, string> | null {
+export function loadFromStorage(): Result<World, string> | null {
   let raw: string | null = null;
   try {
     raw = localStorage.getItem(STORAGE_KEY);

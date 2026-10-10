@@ -2,11 +2,9 @@ import { ToyAudio } from "./audio/audio";
 import { Editor } from "./editor/editor";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
-import { buildStarterWorld } from "./game/starter";
+import { buildStarterWorld, createWorld } from "./game/world";
 import { loadFromStorage, saveToStorage } from "./persist/save";
 import { qualityFor, saveQualityOverride } from "./render/quality";
-import { Sim } from "./sim";
-import { Layout } from "./track";
 import { Hud } from "./ui/hud";
 import "./style.css";
 
@@ -55,8 +53,8 @@ function boot(): void {
       flip: () => interaction.flipSelected(),
       deletePiece: () => interaction.deleteSelected(),
       newLayout: () => {
-        const layout = new Layout();
-        setWorld({ layout, sim: new Sim(layout) });
+        setWorld(createWorld(Math.floor(Math.random() * 1_000_000)));
+        game.frameLayout();
       },
       resetStarter: () => {
         setWorld(buildStarterWorld());
@@ -96,13 +94,13 @@ function boot(): void {
 
   function scheduleSave(): void {
     clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(() => saveToStorage(game.layout, game.sim), 600);
+    saveTimer = window.setTimeout(() => saveToStorage(game.world), 600);
   }
 
   // Save train positions periodically and when the page is hidden.
-  setInterval(() => saveToStorage(game.layout, game.sim), 5000);
+  setInterval(() => saveToStorage(game.world), 5000);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") saveToStorage(game.layout, game.sim);
+    if (document.visibilityState === "hidden") saveToStorage(game.world);
   });
 
   const listen = (x: number, z: number): [number, number] => {

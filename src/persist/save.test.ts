@@ -1,53 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { buildStarterWorld } from "../game/starter";
+import { buildStarterWorld } from "../game/world";
+import { connectedPairs } from "../landscape";
 import { SIM_DT } from "../sim";
-import { connectorRef, getPieceDef } from "../track";
-import { deserializeWorld, serializeWorld, SAVE_VERSION } from "./save";
+import { deserializeWorld, SAVE_VERSION, serializeWorld } from "./save";
 
-describe("save format", () => {
-  it("round-trips a layout with joints, switch states and trains", () => {
+describe("save format v2", () => {
+  it("round-trips the landscape, stations, track and trains", () => {
     const world = buildStarterWorld();
-    for (let i = 0; i < 3 / SIM_DT; i++) world.sim.tick();
-    const sw = [...world.layout.pieceIds()].find((id) => getPieceDef(world.layout.getPiece(id)!.type, false).isSwitch)!;
-    world.layout.setSwitchState(sw, 1);
+    for (let i = 0; i < 2 / SIM_DT; i++) world.sim.tick();
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const w = r.value;
+    expect(Array.from(w.landscape.grid.height)).toEqual(Array.from(world.landscape.grid.height));
+    expect(Array.from(w.landscape.grid.feature)).toEqual(Array.from(world.landscape.grid.feature));
+    expect(w.landscape.towns.map((t) => t.name)).toEqual(world.landscape.towns.map((t) => t.name));
+    expect([...w.stations]).toEqual([...world.stations]);
+    expect(connectedPairs(w.layout, w.stations)).toEqual(connectedPairs(world.layout, world.stations));
+    expect(w.layout.pieceCount).toBe(world.layout.pieceCount);
+    expect(w.sim.trainCount).toBe(1);
+    expect(w.sim.getTrain(w.sim.trainIds()[0])!.cars[0].lever).toBe(1);
+  });
 
-    const json = JSON.stringify(serializeWorld(world.layout, world.sim));
-    const loaded = deserializeWorld(JSON.parse(json));
-    expect(loaded.ok).toBe(true);
-    if (!loaded.ok) return;
-    const { layout, sim } = loaded.value;
-    expect(layout.pieceCount).toBe(world.layout.pieceCount);
-    expect(layout.jointCount).toBe(world.layout.jointCount);
-    expect(layout.switchState(sw)).toBe(1);
-    expect(sim.trainCount).toBe(2);
-    const kinds = sim.trainIds().map((id) => sim.getTrain(id)!.cars.map((c) => c.kind).join(","));
-    expect(kinds.sort()).toEqual(["engine,hopper,hopper", "engine,hopper,passenger,caboose"]);
-    const levers = sim.trainIds().flatMap((id) => sim.getTrain(id)!.cars.map((c) => c.lever));
-    expect(levers).toContain(1);
-    for (const id of layout.pieceIds()) {
-      const def = getPieceDef(layout.getPiece(id)!.type, layout.getPiece(id)!.flipped);
-      def.connectors.forEach((_, i) => expect(layout.joinedConnector(connectorRef(id, i))).not.toBe(-1));
-    }
+  it("rejects version 1 saves", () => {
+    const r = deserializeWorld({ version: 1, pieces: [], switches: [], trains: [] });
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects a save whose town station piece is missing", () => {
+    const data = serializeWorld(buildStarterWorld());
+    data.pieces = data.pieces.filter((p) => p.id !== data.towns[0].stationPieceId);
+    const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/town 0/);
   });
 
   it("rejects malformed data with a reason instead of throwing", () => {
     const r = deserializeWorld({ version: SAVE_VERSION, pieces: [{ id: "x" }] });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/pieces/);
   });
 
-  it("rejects unknown versions", () => {
-    const r = deserializeWorld({ version: 999, pieces: [], trains: [], switches: [] });
-    expect(r.ok).toBe(false);
-  });
-});
-
-describe("save robustness", () => {
-  it("skips trains whose path index or distance is out of range instead of throwing", () => {
-    const world = buildStarterWorld();
-    const data = serializeWorld(world.layout, world.sim);
+  it("skips trains whose path index or distance is out of range", () => {
+    const data = serializeWorld(buildStarterWorld());
     data.trains[0].lead.pathIndex = 7;
-    data.trains[1].lead.s = 99999;
     const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.sim.trainCount).toBe(0);

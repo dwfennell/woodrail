@@ -103,11 +103,11 @@ export class Hud {
     this.menu.hidden = true;
     const quality = button(`Graphics: ${qualityLabel()}`, "Switch graphics quality (reloads)", () => h.toggleQuality(), "menu-item");
     this.menu.append(
-      button("Starter layout", "Reset to the starter layout", () => {
+      button("Starter map", "Back to the starter map", () => {
         this.menu.hidden = true;
         h.resetStarter();
       }, "menu-item"),
-      button("Clear the floor", "Start an empty layout", () => {
+      button("New map", "Generate a new landscape of towns, hills and rivers", () => {
         this.menu.hidden = true;
         h.newLayout();
       }, "menu-item"),
