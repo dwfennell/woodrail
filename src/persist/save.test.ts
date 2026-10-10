@@ -41,3 +41,15 @@ describe("save format", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+describe("save robustness", () => {
+  it("skips trains whose path index or distance is out of range instead of throwing", () => {
+    const world = buildStarterWorld();
+    const data = serializeWorld(world.layout, world.sim);
+    data.trains[0].lead.pathIndex = 7;
+    data.trains[1].lead.s = 99999;
+    const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.sim.trainCount).toBe(0);
+  });
+});

@@ -31,8 +31,12 @@ function boot(): void {
     document.body,
     {
       trayPointerDown: (item, e) => interaction.startTrayDrag(item, e),
-      undo: () => editor.undo(),
-      redo: () => editor.redo(),
+      undo: () => {
+        if (!interaction.busy) editor.undo();
+      },
+      redo: () => {
+        if (!interaction.busy) editor.redo();
+      },
       rerailAll: () => {
         let n = 0;
         for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed && game.rerail(id) !== -1) n++;

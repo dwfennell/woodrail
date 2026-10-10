@@ -1,6 +1,6 @@
 import { Group, MOUSE, Plane, Raycaster, TOUCH, Vector2, Vector3, type Mesh, type Object3D } from "three";
 import { Editor, poseForCentre } from "../editor/editor";
-import { buildCarModel } from "../render/train-models";
+import { buildCarModel, disposeObject } from "../render/train-models";
 import { ghostMesh, pieceMatrix } from "../render/track-view";
 import { CAR_SPECS, COUPLER_GAP, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
 import { findSnap, getPieceDef, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
@@ -63,10 +63,15 @@ export class Interaction {
     c.mouseButtons = { LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE };
     c.touches = { ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_ROTATE };
     window.addEventListener("pointerdown", (e) => this.notePointer(e), { capture: true });
+    const lift = (e: PointerEvent) => this.touches.delete(e.pointerId);
+    window.addEventListener("pointerup", lift, { capture: true });
+    window.addEventListener("pointercancel", lift, { capture: true });
     canvas.addEventListener("pointerdown", (e) => this.onCanvasDown(e), { capture: true });
     window.addEventListener("pointermove", (e) => this.onMove(e));
     window.addEventListener("pointerup", (e) => this.onUp(e));
-    window.addEventListener("pointercancel", () => this.cancel());
+    window.addEventListener("pointercancel", (e) => {
+      if (this.mode.kind !== "idle" && this.mode.pointerId === e.pointerId) this.cancel();
+    });
     window.addEventListener("keydown", (e) => this.onKey(e));
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   }
@@ -103,6 +108,11 @@ export class Interaction {
   // ---- pointer ----------------------------------------------------------------------------------------------
 
   private onCanvasDown(e: PointerEvent): void {
+    // Two fingers always move the camera: a second touch abandons any press or drag in progress.
+    if (e.pointerType === "touch" && this.touches.size > 1) {
+      this.cancel();
+      return;
+    }
     if (this.mode.kind !== "idle") return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     const hit = this.pick(e.clientX, e.clientY);
@@ -123,7 +133,10 @@ export class Interaction {
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
       if (m.press.kind === "piece") this.beginPieceMove(m.press.pieceId, m.pointerId, m.ground);
-      else if (m.press.kind === "car") this.beginTrainPickup(m.press.carId, m.pointerId);
+      else if (m.press.kind === "car") {
+        this.beginTrainPickup(m.press.carId, m.pointerId);
+        if (this.mode.kind === "idle") return;
+      }
       else {
         this.mode = { kind: "idle" };
         this.game.controls.enabled = true;
@@ -155,6 +168,7 @@ export class Interaction {
       this.changed();
     } else if (m.kind === "drag-train") {
       this.game.scene.remove(m.ghost);
+      disposeObject(m.ghost);
       if (m.origin) this.placeTrain(m.cars, m.origin);
     }
     this.mode = { kind: "idle" };
@@ -362,7 +376,12 @@ export class Interaction {
   private beginTrainPickup(carId: number, pointerId: number): void {
     const sim = this.game.sim;
     const found = sim.findCar(carId);
-    if (!found) return;
+    if (!found || found.train.derailed) {
+      // Derailed cars are tapped to re-rail, not dragged.
+      this.mode = { kind: "idle" };
+      this.game.controls.enabled = true;
+      return;
+    }
     this.clearSelection();
     this.hud.hideCards();
     const t = found.train;
@@ -375,6 +394,7 @@ export class Interaction {
 
   private dropTrain(m: Extract<Mode, { kind: "drag-train" }>): void {
     this.game.scene.remove(m.ghost);
+    disposeObject(m.ghost);
     this.mode = { kind: "idle" };
     if (m.overTray) {
       if (m.origin) this.hud.toast("Back in the box");
@@ -427,6 +447,10 @@ export class Interaction {
   private onKey(e: KeyboardEvent): void {
     if ((e.target as HTMLElement)?.tagName === "INPUT") return;
     const mod = e.ctrlKey || e.metaKey;
+    if (mod && this.busy && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
+      e.preventDefault();
+      return;
+    }
     if (mod && e.key.toLowerCase() === "z") {
       e.preventDefault();
       if (e.shiftKey) this.editor().redo();
@@ -494,8 +518,16 @@ export class Interaction {
     return Math.round(Math.atan2(d.z, d.x) / (Math.PI / 4)) * (Math.PI / 4);
   }
 
-  /** Track whether the latest pointer is touch (for the lifted drag offset). */
+  private readonly touches = new Set<number>();
+
+  /** Track touch pointers (for multi-touch) and whether the latest pointer is touch (for the lifted drag offset). */
   notePointer(e: PointerEvent): void {
     this.lastPointerWasTouch = e.pointerType === "touch";
+    if (e.pointerType === "touch") this.touches.add(e.pointerId);
+  }
+
+  /** True while a press or drag is in progress (undo/redo must wait). */
+  get busy(): boolean {
+    return this.mode.kind !== "idle";
   }
 }

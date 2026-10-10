@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
 import { CAR_KINDS, Sim, type CarKind } from "../sim";
-import { Layout, PIECE_TYPES, type PieceTypeId } from "../track";
+import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
 
 /**
  * Save format, version 1. Plain JSON validated with Zod; only this module knows its shape.
@@ -82,7 +82,10 @@ export function deserializeWorld(data: unknown): Result<{ layout: Layout; sim: S
   for (const [id, state] of save.switches) if (layout.getPiece(id)) layout.setSwitchState(id, state);
   const sim = new Sim(layout);
   for (const t of save.trains) {
-    if (!layout.getPiece(t.lead.pieceId)) continue;
+    const lead = layout.getPiece(t.lead.pieceId);
+    if (!lead) continue;
+    const path = getPieceDef(lead.type, lead.flipped).paths[t.lead.pathIndex];
+    if (!path || t.lead.s < 0 || t.lead.s > pathLength(path.geom)) continue;
     const placed = sim.addTrain(
       t.cars.map((c) => c.kind),
       t.lead,

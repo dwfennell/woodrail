@@ -2,7 +2,7 @@ import { Color, Group, MeshStandardMaterial, Quaternion, Vector3, type Object3D 
 import type { CarPose } from "../physics/derail-physics";
 import { CAR_KINDS, type SimSnapshot } from "../sim";
 import type { Materials } from "./materials";
-import { buildCarModel, WHEEL_RADIUS, type CarModel } from "./train-models";
+import { buildCarModel, disposeObject, WHEEL_RADIUS, type CarModel } from "./train-models";
 
 interface CarEntry {
   model: CarModel;
@@ -42,7 +42,7 @@ export class TrainView {
         const kind = CAR_KINDS[snap.kinds[i]];
         const model = buildCarModel(kind, this.mats, kind === "engine" ? this.engineCount++ % 2 : id);
         model.root.traverse((obj) => (obj.userData.carId = id));
-        if (model.lamp) model.lamp.material = (model.lamp.material as MeshStandardMaterial).clone();
+        if (model.lamp) model.lamp.userData.ownsMaterial = true;
         this.group.add(model.root);
         entry = { model, lastX: x, lastZ: z, spin: 0, tip: 0 };
         this.cars.set(id, entry);
@@ -89,6 +89,7 @@ export class TrainView {
     for (const [id, entry] of this.cars) {
       if (!seen.has(id)) {
         this.group.remove(entry.model.root);
+        disposeObject(entry.model.root);
         this.cars.delete(id);
       }
     }

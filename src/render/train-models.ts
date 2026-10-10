@@ -159,3 +159,13 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0): CarM
 }
 
 export { WHEEL_RADIUS };
+
+/** Free the GPU geometry a car model owns. Lacquer and wood materials are shared caches and are kept. */
+export function disposeObject(root: import("three").Object3D): void {
+  root.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry.dispose();
+    if (mesh.userData.ownsMaterial) (mesh.material as Material).dispose();
+  });
+}

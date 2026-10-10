@@ -12,6 +12,8 @@ interface PieceRecord {
 interface Command {
   do(): void;
   undo(): void;
+  /** Existing pieces this command moves or reshapes (trains standing on them derail). */
+  moves?: number[];
 }
 
 const HISTORY_LIMIT = 100;
@@ -105,6 +107,7 @@ export class Editor {
       undo: () => {
         this.layout.dropPiece(id, start.pose, start.y);
       },
+      moves: [id],
     });
     return true;
   }
@@ -123,7 +126,7 @@ export class Editor {
       this.layout.removePiece(id);
       this.layout.restorePiece(id, rec.type, rec.pose, rec.y, flipped);
     };
-    this.run({ do: () => swap(!rec.flipped), undo: () => swap(rec.flipped) });
+    this.run({ do: () => swap(!rec.flipped), undo: () => swap(rec.flipped), moves: [id] });
     return true;
   }
 
@@ -132,7 +135,7 @@ export class Editor {
     if (!c) return;
     c.undo();
     this.redoStack.push(c);
-    this.changed();
+    this.changed(c.moves);
   }
 
   redo(): void {
@@ -140,7 +143,7 @@ export class Editor {
     if (!c) return;
     c.do();
     this.undoStack.push(c);
-    this.changed();
+    this.changed(c.moves);
   }
 
   clearHistory(): void {
@@ -153,11 +156,11 @@ export class Editor {
     this.undoStack.push(c);
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
     this.redoStack = [];
-    this.changed();
+    this.changed(c.moves);
   }
 
-  private changed(): void {
-    this.sim.trackChanged();
+  private changed(moves: number[] = []): void {
+    this.sim.trackChanged(moves);
     this.onChange();
   }
 

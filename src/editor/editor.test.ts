@@ -82,3 +82,30 @@ describe("Editor", () => {
     expect(sim.getTrain(r.trainId)!.derailed).toBe(true);
   });
 });
+
+describe("Editor edits under trains", () => {
+  for (const [name, act] of [
+    ["rotate", (e: Editor, id: number) => e.rotate(id, Math.PI / 4)],
+    ["move", (e: Editor, id: number) => e.move(id, { x: 400, z: 300, heading: 0 }, 0)],
+    ["flip", (e: Editor, id: number) => e.flip(id)],
+  ] as const) {
+    it(`${name} of a piece a train stands on derails the train`, () => {
+      const { sim, editor } = setup();
+      const id = editor.place("curve-large", { x: 0, z: 0, heading: 0 }, 0, false);
+      const r = sim.addTrain(["engine"], { pieceId: id, pathIndex: 0, reversed: false, s: 100 });
+      if (r.kind !== "placed") throw new Error("not placed");
+      act(editor, id);
+      expect(sim.getTrain(r.trainId)!.derailed).toBe(true);
+    });
+  }
+
+  it("editing an unrelated piece leaves trains running", () => {
+    const { sim, editor } = setup();
+    const a = editor.place("straight-216", { x: 0, z: 0, heading: 0 }, 0, false);
+    const b = editor.place("straight-54", { x: 900, z: 0, heading: 0 }, 0, false);
+    const r = sim.addTrain(["engine"], { pieceId: a, pathIndex: 0, reversed: false, s: 150 });
+    if (r.kind !== "placed") throw new Error("not placed");
+    editor.rotate(b, Math.PI / 4);
+    expect(sim.getTrain(r.trainId)!.derailed).toBe(false);
+  });
+});

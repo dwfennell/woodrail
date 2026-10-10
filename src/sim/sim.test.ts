@@ -292,3 +292,13 @@ describe("joint events", () => {
     expect(joints.map((e) => (e.kind === "joint" ? e.bogie : -1))).toEqual([0, 1]);
   });
 });
+
+describe("occupied track", () => {
+  it("refuses to place a train on top of another train", () => {
+    const { layout, ids } = longLine(6);
+    const sim = new Sim(layout);
+    expect(sim.addTrain(["engine", "hopper"], { pieceId: ids[3], pathIndex: 0, reversed: false, s: 100 }).kind).toBe("placed");
+    expect(sim.addTrain(["engine"], { pieceId: ids[3], pathIndex: 0, reversed: false, s: 60 }).kind).toBe("no-room");
+    expect(sim.addTrain(["engine"], { pieceId: ids[5], pathIndex: 0, reversed: false, s: 150 }).kind).toBe("placed");
+  });
+});

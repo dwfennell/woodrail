@@ -144,6 +144,7 @@ export class Sim {
       flipCursor(this.layout, c);
       bogies.push(c);
     }
+    if (this.occupied(bogies)) return { kind: "no-room" };
     const train: Train = {
       id: this.nextTrainId++,
       cars: kinds.map((kind) => ({ id: this.nextCarId++, kind, facing: 1, frontPole: "N", lever: 0 })),
@@ -156,6 +157,29 @@ export class Sim {
     this.trains.set(train.id, train);
     this.refreshWorld(train);
     return { kind: "placed", trainId: train.id };
+  }
+
+  /** Would a train with these axles overlap a car already on the floor? */
+  private occupied(bogies: Cursor[]): boolean {
+    const w = createWorldSample();
+    for (const b of bogies) {
+      cursorWorld(this.layout, b, w);
+      for (const t of this.trains.values()) {
+        for (let c = 0; c < t.cars.length; c++) {
+          const f = t.world[2 * c];
+          const r = t.world[2 * c + 1];
+          const inset = CAR_SPECS[t.cars[c].kind].bogieInset;
+          const dx = f.x - r.x;
+          const dz = f.z - r.z;
+          const len = Math.hypot(dx, dz) || 1;
+          const proj = ((w.x - r.x) * dx + (w.z - r.z) * dz) / len;
+          if (proj < -inset - 10 || proj > len + inset + 10) continue;
+          const lateral = Math.abs((w.x - r.x) * dz - (w.z - r.z) * dx) / len;
+          if (lateral < 20 && Math.abs(w.y - f.y) < 30) return true;
+        }
+      }
+    }
+    return false;
   }
 
   removeTrain(id: number): boolean {
@@ -178,12 +202,15 @@ export class Sim {
     return true;
   }
 
-  /** Call after the layout changes: trains on removed or lifted pieces derail. */
-  trackChanged(): void {
+  /**
+   * Call after the layout changes: trains on removed or lifted pieces derail, as do trains on any piece in
+   * `moved` (rotated, moved or flipped out from under them).
+   */
+  trackChanged(moved: readonly number[] = []): void {
     for (const train of this.trains.values()) {
       if (train.derailed) continue;
       for (const b of train.bogies) {
-        if (!this.layout.getPiece(b.pieceId) || this.layout.isLifted(b.pieceId)) {
+        if (!this.layout.getPiece(b.pieceId) || this.layout.isLifted(b.pieceId) || moved.includes(b.pieceId)) {
           this.derail(train);
           break;
         }
@@ -354,7 +381,8 @@ export class Sim {
       for (const b of this.trains.values()) {
         if (b === a || b.derailed || !this.trains.has(a.id)) continue;
         const reach = Math.max(4, a.speed * SIM_DT + 2);
-        for (const front of [false, true]) {
+        for (let side = 0; side < 2; side++) {
+          const front = side === 1;
           const bPole = this.endFace(b, front, otherFace);
           if (Math.hypot(face.x - otherFace.x, face.z - otherFace.z) > reach || Math.abs(face.y - otherFace.y) > 20) continue;
           const closing = a.speed + (front ? b.speed : -b.speed);
