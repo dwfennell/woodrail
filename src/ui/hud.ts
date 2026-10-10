@@ -1,6 +1,6 @@
 import type { CarKind } from "../sim";
 import type { PieceTypeId } from "../track";
-import { pieceIcon, trainIcon } from "./icons";
+import { pieceIcon, trainIcon, uiIcon } from "./icons";
 
 export type TrayItem = { kind: "piece"; type: PieceTypeId; label: string } | { kind: "train"; cars: CarKind[]; label: string };
 
@@ -46,6 +46,20 @@ export interface HudHandlers {
   resetStarter(): void;
   toggleQuality(): void;
   closeCards(): void;
+  toggleSound(): void;
+  /** Any HUD button pressed (for a soft click). */
+  buttonTap(): void;
+}
+
+export interface HudOptions {
+  /** Rendered pictures of tray items by key (`piece:<type>` or `train:<label>`); SVG drawings are the fallback. */
+  thumbnails?: ReadonlyMap<string, string>;
+  muted: boolean;
+}
+
+/** Tray thumbnail key for an item. */
+export function trayKey(item: TrayItem): string {
+  return item.kind === "piece" ? `piece:${item.type}` : `train:${item.label}`;
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", html = ""): HTMLElementTagNameMap[K] => {
@@ -73,6 +87,8 @@ export class Hud {
   private readonly undoBtn: HTMLButtonElement;
   private readonly redoBtn: HTMLButtonElement;
   private readonly pauseBtn: HTMLButtonElement;
+  private readonly rerailBtn: HTMLButtonElement;
+  private readonly soundBtn: HTMLButtonElement;
   private readonly engineCard = el("div", "card engine-card");
   private readonly carCard = el("div", "card car-card");
   private readonly pieceCard = el("div", "card piece-card");
@@ -85,17 +101,24 @@ export class Hud {
   readonly perf = el("div", "perf");
   private toastTimer = 0;
 
-  constructor(parent: HTMLElement, h: HudHandlers, qualityLabel: () => string) {
+  constructor(parent: HTMLElement, h: HudHandlers, qualityLabel: () => string, opts: HudOptions) {
     parent.appendChild(this.root);
+    this.root.addEventListener("pointerdown", (e) => {
+      const t = e.target as HTMLElement;
+      if (t.closest("button") && !t.closest(".tray-item")) h.buttonTap();
+    });
 
     const top = el("header", "topbar");
-    top.appendChild(el("div", "brand", `<span class="brand-mark"></span>Woodrail`));
+    top.appendChild(el("div", "brand", `<span class="brand-mark"></span><span class="brand-name">Woodrail</span>`));
     const actions = el("div", "actions");
-    this.undoBtn = button("↶", "Undo (Ctrl+Z)", h.undo);
-    this.redoBtn = button("↷", "Redo (Ctrl+Shift+Z)", h.redo);
-    this.pauseBtn = button("❚❚", "Pause (Space)", h.togglePause);
-    actions.append(this.undoBtn, this.redoBtn, button("Re-rail", "Put derailed trains back on the track", h.rerailAll, "chip text"), this.pauseBtn);
-    actions.append(button("☰", "Menu", () => this.toggleMenu()));
+    this.undoBtn = button(uiIcon("undo"), "Undo (Ctrl+Z)", h.undo);
+    this.redoBtn = button(uiIcon("redo"), "Redo (Ctrl+Shift+Z)", h.redo);
+    this.pauseBtn = button(uiIcon("pause"), "Pause (Space)", h.togglePause);
+    this.rerailBtn = button("Re-rail", "Put derailed trains back on the track", h.rerailAll, "chip text attention");
+    this.rerailBtn.hidden = true;
+    this.soundBtn = button(uiIcon(opts.muted ? "mute" : "sound"), opts.muted ? "Sound on" : "Sound off", h.toggleSound);
+    actions.append(this.rerailBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn);
+    actions.append(button(uiIcon("menu"), "Menu", () => this.toggleMenu()));
     top.appendChild(actions);
     this.root.appendChild(top);
 
@@ -161,11 +184,21 @@ export class Hud {
     // Tray with tabs
     const tabs = el("div", "tabs");
     const scroller = el("div", "scroller");
+    // Fade whichever ends have more items scrolled out of view.
+    const edges = () => {
+      this.tray.classList.toggle("more-left", scroller.scrollLeft > 4);
+      this.tray.classList.toggle("more-right", scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 4);
+    };
+    scroller.addEventListener("scroll", edges, { passive: true });
+    window.addEventListener("resize", edges);
     const fill = (items: TrayItem[]) => {
       scroller.innerHTML = "";
+      scroller.scrollLeft = 0;
       for (const item of items) {
         const b = el("button", "tray-item");
-        b.innerHTML = `<span class="icon">${item.kind === "piece" ? pieceIcon(item.type) : trainIcon(item.cars)}</span><span class="label">${item.label}</span>`;
+        const thumb = opts.thumbnails?.get(trayKey(item));
+        const picture = thumb ? `<img src="${thumb}" alt="" draggable="false">` : item.kind === "piece" ? pieceIcon(item.type) : trainIcon(item.cars);
+        b.innerHTML = `<span class="icon">${picture}</span><span class="label">${item.label}</span>`;
         b.title = `Drag onto the floor: ${item.label}`;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
@@ -173,6 +206,7 @@ export class Hud {
         });
         scroller.appendChild(b);
       }
+      requestAnimationFrame(edges);
     };
     for (const [name, items] of [
       ["Track", TRACK_ITEMS],
@@ -195,15 +229,33 @@ export class Hud {
     this.help.innerHTML = `
       <div class="help-card">
         <h2>Welcome to Woodrail</h2>
-        <ul>
-          <li><b>Build:</b> drag pieces from the tray. Pegs snap into holes when they're close.</li>
-          <li><b>Edit:</b> tap a piece to rotate, flip or delete it. Drag it to move it.</li>
-          <li><b>Trains:</b> drag a train onto the track, then tap the engine to start it.</li>
-          <li><b>Switches:</b> tap the yellow lever to change the points.</li>
-          <li><b>Camera:</b> drag the floor to pan. Pinch or scroll to zoom. Right-drag or two-finger twist to orbit.</li>
-        </ul>
-        <p class="help-keys">Keys: R rotate · F flip · Del delete · Ctrl+Z undo · Space pause · \` performance</p>
+        <div class="tips">
+          <div class="tip"><span class="tip-art art-build"></span><b>Build</b><span>Drag track from the tray. Pegs click into holes when they're close.</span></div>
+          <div class="tip"><span class="tip-art art-run"></span><b>Run</b><span>Drop a train on the track and tap the engine to set it going.</span></div>
+          <div class="tip"><span class="tip-art art-look"></span><b>Look around</b><span>Drag to pan, pinch or scroll to zoom, double-tap to take a closer look.</span></div>
+        </div>
+        <details class="more-help">
+          <summary>More help</summary>
+          <ul>
+            <li><b>Edit:</b> tap a piece to rotate, flip or delete it. Drag it to move it; drop it on the tray to put it away.</li>
+            <li><b>Switches:</b> tap the yellow lever to change the points.</li>
+            <li><b>Towns:</b> join two stations with track to connect their towns.</li>
+            <li><b>Camera:</b> right-drag or two-finger twist to orbit.</li>
+          </ul>
+          <p class="help-keys">Keys: R rotate · F flip · Del delete · Ctrl+Z undo · Space pause · \` performance</p>
+        </details>
       </div>`;
+    // Illustrate the tips with the same rendered pictures as the tray.
+    const art: [string, string | undefined][] = [
+      [".art-build", opts.thumbnails?.get("piece:curve-large")],
+      [".art-run", opts.thumbnails?.get("train:Full train")],
+    ];
+    for (const [sel, url] of art) {
+      const node = this.help.querySelector<HTMLElement>(sel);
+      if (node && url) node.style.backgroundImage = `url(${url})`;
+    }
+    const look = this.help.querySelector<HTMLElement>(".art-look");
+    if (look) look.innerHTML = `<svg viewBox="0 0 48 48" width="44" height="44" fill="none" stroke="#6a4a2c" stroke-width="3" stroke-linecap="round"><circle cx="21" cy="21" r="11"/><path d="m29.5 29.5 9 9"/><path d="M21 16v10M16 21h10"/></svg>`;
     const ok = button("Let's play", "Close help", () => {
       this.help.hidden = true;
       try {
@@ -241,8 +293,31 @@ export class Hud {
   }
 
   setPaused(paused: boolean): void {
-    this.pauseBtn.textContent = paused ? "▶" : "❚❚";
+    this.pauseBtn.innerHTML = uiIcon(paused ? "play" : "pause");
     this.pauseBtn.title = paused ? "Resume (Space)" : "Pause (Space)";
+    this.pauseBtn.setAttribute("aria-label", this.pauseBtn.title);
+    this.pauseBtn.classList.toggle("active", paused);
+  }
+
+  setMuted(muted: boolean): void {
+    this.soundBtn.innerHTML = uiIcon(muted ? "mute" : "sound");
+    this.soundBtn.title = muted ? "Sound on" : "Sound off";
+    this.soundBtn.setAttribute("aria-label", this.soundBtn.title);
+  }
+
+  /** Show the Re-rail button only while something is off the rails. */
+  setRerailVisible(visible: boolean): void {
+    if (this.rerailBtn.hidden === !visible) return;
+    this.rerailBtn.hidden = !visible;
+  }
+
+  /** A short buzz on phones that support it. */
+  haptic(kind: "snap" | "refuse"): void {
+    try {
+      navigator.vibrate?.(kind === "snap" ? 12 : [18, 40, 18]);
+    } catch {
+      // vibration blocked (e.g. no user gesture yet): skip it
+    }
   }
 
   showEngineCard(lever: number, following: boolean): void {
@@ -278,8 +353,12 @@ export class Hud {
     this.pieceCard.hidden = true;
   }
 
-  toast(message: string): void {
+  toast(message: string, celebrate = false): void {
     this.toastEl.textContent = message;
+    this.toastEl.classList.toggle("celebrate", celebrate);
+    this.toastEl.classList.remove("show");
+    // Restart the slide-in even when a toast is already showing.
+    void this.toastEl.offsetWidth;
     this.toastEl.classList.add("show");
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), 2200);

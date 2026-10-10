@@ -125,6 +125,41 @@ export class ToyAudio {
     this.knock(0.55, 520, 0.08, 0);
   }
 
+  /** A little random pitch spread so repeated sounds don't feel canned. */
+  private vary(f: number): number {
+    return f * (0.94 + Math.random() * 0.12);
+  }
+
+  /** Lifting a piece off the felt: a light, dry tick. */
+  pickup(): void {
+    this.knock(0.22, this.vary(980), 0.035, 0);
+  }
+
+  /** Putting a piece down: a seated peg clacks firmly; a loose piece lands with a soft thud on felt. */
+  putdown(snapped: boolean): void {
+    if (snapped) {
+      this.knock(0.55, this.vary(520), 0.08, 0);
+      setTimeout(() => this.knock(0.25, this.vary(780), 0.04, 0), 28);
+    } else this.knock(0.3, this.vary(340), 0.07, 0);
+  }
+
+  /** Turning a piece in place: two quick wooden ticks. */
+  rotate(): void {
+    this.knock(0.2, this.vary(860), 0.03, 0);
+    setTimeout(() => this.knock(0.16, this.vary(700), 0.03, 0), 60);
+  }
+
+  /** A button press: barely there. */
+  tap(): void {
+    this.knock(0.1, this.vary(1500), 0.02, 0);
+  }
+
+  /** "Nuh-uh": the landscape won't allow that. */
+  refuse(): void {
+    this.knock(0.28, this.vary(300), 0.06, 0);
+    setTimeout(() => this.knock(0.24, this.vary(240), 0.07, 0), 110);
+  }
+
   crash(volume: number, pan: number): void {
     for (let i = 0; i < 5; i++) {
       setTimeout(() => this.knock(volume * (0.9 - i * 0.15), 260 + Math.random() * 500, 0.09, pan + (Math.random() - 0.5) * 0.3), i * 70 + Math.random() * 40);

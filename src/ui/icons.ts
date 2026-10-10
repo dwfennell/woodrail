@@ -96,3 +96,20 @@ export function trainIcon(kinds: readonly CarKind[]): string {
   }
   return `<svg viewBox="0 0 ${x + 4} 66" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
 }
+
+const UI_PATHS = {
+  undo: `<path d="M9 7 4.5 11.5 9 16"/><path d="M5 11.5h9.5a5 5 0 0 1 0 10H11"/>`,
+  redo: `<path d="m15 7 4.5 4.5L15 16"/><path d="M19 11.5H9.5a5 5 0 0 0 0 10H13"/>`,
+  pause: `<rect x="6.5" y="5" width="3.6" height="14" rx="1.4" fill="currentColor" stroke="none"/><rect x="13.9" y="5" width="3.6" height="14" rx="1.4" fill="currentColor" stroke="none"/>`,
+  play: `<path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.6-6.8a.8.8 0 0 0 0-1.4L9.2 4.5a.8.8 0 0 0-1.2.7Z" fill="currentColor" stroke="none"/>`,
+  sound: `<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke-linejoin="round"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/>`,
+  mute: `<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke-linejoin="round"/><path d="m16 9.5 5 5"/><path d="m21 9.5-5 5"/>`,
+  menu: `<path d="M5 7h14"/><path d="M5 12h14"/><path d="M5 17h14"/>`,
+} as const;
+
+export type UiIcon = keyof typeof UI_PATHS;
+
+/** A small line icon for the top bar, drawn in the current text colour. */
+export function uiIcon(name: UiIcon): string {
+  return `<svg class="ui-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${UI_PATHS[name]}</svg>`;
+}

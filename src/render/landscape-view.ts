@@ -7,6 +7,7 @@ import { buildStation, buildTown } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltMat, buildFeltRibbons } from "./dressing/felt";
 import { buildTrees, treePlacements } from "./dressing/trees";
+import type { Flourish } from "./flourishes";
 import type { Materials } from "./materials";
 
 export { MAT_THICKNESS } from "./dressing/felt";
@@ -34,6 +35,25 @@ export class LandscapeView {
       m.map?.dispose();
       m.dispose();
     }
+  }
+
+  /** A bright pulse on these towns' signs (a celebration when they're connected). */
+  flash(towns: readonly number[]): Flourish {
+    const mats = towns.map((id) => this.signs.get(id)).filter((m): m is MeshStandardMaterial => !!m);
+    let t = 0;
+    const base = mats.map((m) => m.emissiveIntensity);
+    return {
+      update: (dt) => {
+        t += dt;
+        const k = Math.max(0, Math.sin((t / 1.2) * Math.PI * 3)) * (1 - t / 1.2);
+        mats.forEach((m, i) => {
+          m.emissive.set("#ffcf6b");
+          m.emissiveIntensity = base[i] + k * 1.4;
+        });
+        return t < 1.2;
+      },
+      dispose: () => mats.forEach((m) => (m.emissiveIntensity = 0.55)),
+    };
   }
 
   /** Light the signs of connected towns. */

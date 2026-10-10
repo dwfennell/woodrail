@@ -1,13 +1,16 @@
 import { Vector3 } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor } from "./editor/editor";
+import { frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld } from "./game/world";
 import { connectedPairs } from "./landscape";
 import { loadFromStorage, saveToStorage } from "./persist/save";
 import { qualityFor, saveQualityOverride } from "./render/quality";
-import { Hud } from "./ui/hud";
+import { renderThumbnails } from "./render/thumbnails";
+import { Hud, TRACK_ITEMS, TRAIN_ITEMS, trayKey } from "./ui/hud";
+import { loadMuted, saveMuted } from "./ui/prefs";
 import "./style.css";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
@@ -26,6 +29,15 @@ function boot(): void {
   let saveTimer = 0;
   let interaction: Interaction;
   const audio = new ToyAudio();
+  let muted = loadMuted();
+  audio.setMuted(muted);
+  const thumbnails = renderThumbnails(
+    game.renderer,
+    game.mats,
+    [...TRACK_ITEMS, ...TRAIN_ITEMS].map((item) =>
+      item.kind === "piece" ? { key: trayKey(item), kind: "piece" as const, type: item.type } : { key: trayKey(item), kind: "train" as const, cars: item.cars },
+    ),
+  );
 
   const hud = new Hud(
     document.body,
@@ -71,14 +83,29 @@ function boot(): void {
         hud.hideCards();
         interaction.clearSelection();
       },
+      toggleSound: () => {
+        muted = !muted;
+        audio.setMuted(muted);
+        saveMuted(muted);
+        hud.setMuted(muted);
+      },
+      buttonTap: () => audio.tap(),
     },
     () => (game.quality.tier === "high" ? "High" : "Battery saver"),
+    { thumbnails, muted },
   );
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
   interaction.onPlaced = (snapped) => {
-    if (snapped) audio.snap();
+    audio.putdown(snapped);
+    if (snapped) hud.haptic("snap");
   };
+  interaction.onPickup = () => audio.pickup();
+  interaction.onRefused = () => {
+    audio.refuse();
+    hud.haptic("refuse");
+  };
+  interaction.onTurned = () => audio.rotate();
 
   function setWorld(world: GameWorld): void {
     game.setWorld(world);
@@ -100,8 +127,9 @@ function boot(): void {
     const fresh = pairs.filter(([a, b]) => !announced.has(`${a}-${b}`));
     for (const [a, b] of fresh) announced.add(`${a}-${b}`);
     if (!announce || fresh.length === 0) return;
-    hud.toast(fresh.map(([a, b]) => `${name(a)} ↔ ${name(b)}`).join(", ") + " connected!");
+    hud.toast(fresh.map(([a, b]) => `${name(a)} ↔ ${name(b)}`).join(", ") + " connected!", true);
     audio.chime();
+    game.flourishes.add(game.landscapeView.flash(fresh.flat()));
   }
 
   function onChange(): void {
@@ -144,11 +172,17 @@ function boot(): void {
       hud.setPaused(game.paused);
     }
   });
-  /** Glide from the whole-mat view down to the first train (skipped by any input). */
+  /** Glide from the whole-mat view down to the first train, framing all of it (skipped by any input). */
   function flyIn(delay: number): void {
     const id = game.sim.trainIds()[0];
-    const p = id === undefined ? undefined : game.sim.getTrain(id)?.world[0];
-    if (p) game.director.glideTo(new Vector3(p.x, p.y, p.z), 700, { phi: 1.0, duration: 2.6, delay });
+    const t = id === undefined ? undefined : game.sim.getTrain(id);
+    if (!t) return;
+    const a = t.world[0];
+    const b = t.world[t.world.length - 1];
+    const centre = new Vector3((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+    const radius = Math.hypot(a.x - b.x, a.z - b.z) / 2 + 90;
+    const distance = Math.max(700, frameDistance(radius, game.camera.fov, game.camera.aspect));
+    game.director.glideTo(centre, distance, { phi: 1.0, duration: 2.6, delay });
   }
   const skipGlide = () => {
     if (game.director.busy) game.director.cancel();
@@ -175,6 +209,9 @@ function boot(): void {
       hum += listen(t.world[0].x, t.world[0].z)[0];
     }
     audio.setHum(game.paused ? 0 : hum);
+    let derailed = false;
+    for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
+    hud.setRerailVisible(derailed);
     if (dt > 0) fps += (1 / dt - fps) * 0.05;
     if (!hud.perf.hidden) {
       const info = game.renderer.info.render;
