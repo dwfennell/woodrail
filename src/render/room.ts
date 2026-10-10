@@ -1,7 +1,5 @@
 import {
   BoxGeometry,
-  ConeGeometry,
-  CylinderGeometry,
   DirectionalLight,
   Group,
   HemisphereLight,
@@ -12,20 +10,14 @@ import {
   Color,
   Fog,
   type WebGLRenderer,
-  ExtrudeGeometry,
-  Shape,
-  type Material,
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { Materials } from "./materials";
-import { rng } from "./textures";
 import type { QualitySettings } from "./quality";
 
-export const RUG_WIDTH = 2800;
-export const RUG_DEPTH = 2000;
-const RUG_THICKNESS = 7;
-export const FLOOR_Y = -RUG_THICKNESS;
+/** The floorboards sit just below the felt mat, whose top is the play surface at y = 0. */
+export const FLOOR_Y = -4;
 
 export interface Room {
   group: Group;
@@ -50,17 +42,13 @@ export function createRoom(scene: Scene, renderer: WebGLRenderer, mats: Material
   scene.background = new Color("#cbbba3");
   scene.fog = new Fog("#cbbba3", 9000, 26000);
 
-  // Floor and rug: the rug's top is the play surface at y = 0.
+  // Floorboards.
   const floor = shadowed(new Mesh(new PlaneGeometry(30000, 30000), mats.floor), false, true);
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = FLOOR_Y;
   const floorUv = floor.geometry.getAttribute("uv");
   for (let i = 0; i < floorUv.count; i++) floorUv.setXY(i, floorUv.getX(i) * 30000, floorUv.getY(i) * 30000);
   group.add(floor);
-
-  const rug = shadowed(new Mesh(new RoundedBoxGeometry(RUG_WIDTH, RUG_THICKNESS, RUG_DEPTH, 2, 3), mats.rug), false, true);
-  rug.position.y = -RUG_THICKNESS / 2;
-  group.add(rug);
 
   // Walls behind and to the left, with skirting boards.
   const wallH = 6000;
@@ -80,7 +68,7 @@ export function createRoom(scene: Scene, renderer: WebGLRenderer, mats: Material
   skirtLeft.position.set(-5600 + 9, FLOOR_Y + 60, 0);
   group.add(skirtLeft);
 
-  addToys(group, mats);
+  addToyBox(group, mats);
 
   // Light: warm low sun from a window to the right, soft sky fill.
   const sun = new DirectionalLight(new Color("#ffdcb0"), 4.2);
@@ -113,76 +101,8 @@ export function createRoom(scene: Scene, renderer: WebGLRenderer, mats: Material
   return { group, sun, fitShadow };
 }
 
-/** Wooden building blocks and trees around the edge of the rug: a toy town waiting to grow. */
-function addToys(group: Group, mats: Materials): void {
-  const r = rng(2024);
-  const colors = ["#c8442f", "#2f6db5", "#e6b52c", "#3c8f4e", "#f0ebe0"];
-  const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)];
-  const place = (m: Mesh, x: number, z: number, y = 0, rot = r() * Math.PI) => {
-    m.position.set(x, y, z);
-    m.rotation.y = rot;
-    shadowed(m);
-    group.add(m);
-  };
-
-  const house = (x: number, z: number, scale: number) => {
-    const body: Material = pick([mats.lacquer("#f0ebe0"), mats.lacquer("#e9d9b8"), mats.naturalWood]);
-    const roof = mats.lacquer(pick(["#c8442f", "#2f6db5", "#3c8f4e"]));
-    const w = 70 * scale;
-    const h = 60 * scale;
-    const d = 60 * scale;
-    const g = new Group();
-    const b = shadowed(new Mesh(new RoundedBoxGeometry(w, h, d, 2, 2.5), body));
-    b.position.y = h / 2;
-    g.add(b);
-    const tri = new Shape();
-    tri.moveTo(-w / 2 - 4, 0);
-    tri.lineTo(w / 2 + 4, 0);
-    tri.lineTo(0, h * 0.62);
-    tri.lineTo(-w / 2 - 4, 0);
-    const roofGeo = new ExtrudeGeometry(tri, { depth: d + 6, bevelEnabled: true, bevelSize: 1.5, bevelThickness: 1.5, bevelSegments: 2 });
-    roofGeo.translate(0, 0, -(d + 6) / 2);
-    const rf = shadowed(new Mesh(roofGeo, roof));
-    rf.position.y = h;
-    g.add(rf);
-    for (const side of [-1, 0, 1]) {
-      const win = new Mesh(new BoxGeometry(w * 0.16, h * 0.2, 1.5), mats.glass);
-      win.position.set(side * w * 0.28, h * 0.68, d / 2 + 0.5);
-      g.add(win);
-    }
-    const sideWin = new Mesh(new BoxGeometry(1.5, h * 0.22, d * 0.3), mats.glass);
-    sideWin.position.set(w / 2 + 0.5, h * 0.5, 0);
-    g.add(sideWin);
-    const door = new Mesh(new BoxGeometry(w * 0.18, h * 0.4, 1.5), mats.lacquer("#6b4a2f"));
-    door.position.set(w * 0.25, h * 0.2, d / 2 + 0.6);
-    g.add(door);
-    g.position.set(x, 0, z);
-    g.rotation.y = r() * 0.6 - 0.3;
-    group.add(g);
-  };
-
-  const tree = (x: number, z: number, scale: number) => {
-    const trunk = new Mesh(new CylinderGeometry(6 * scale, 7 * scale, 30 * scale, 16), mats.naturalWood);
-    place(trunk, x, z, 15 * scale);
-    const crown = new Mesh(new ConeGeometry(30 * scale, 75 * scale, 24), mats.lacquer(pick(["#3c8f4e", "#2f7a43", "#5aa05a"])));
-    place(crown, x, z, 30 * scale + 37 * scale);
-  };
-
-  const block = (x: number, z: number) => {
-    const kind = r();
-    const mat = mats.lacquer(pick(colors));
-    if (kind < 0.4) place(new Mesh(new RoundedBoxGeometry(44, 44, 44, 2, 2.5), mat), x, z, 22);
-    else if (kind < 0.7) place(new Mesh(new CylinderGeometry(22, 22, 70, 32), mat), x, z, 35);
-    else place(new Mesh(new RoundedBoxGeometry(88, 22, 44, 2, 2.5), mat), x, z, 11);
-  };
-
-  // A little town along the back of the rug, a copse to the left, loose blocks scattered at the front.
-  for (let i = 0; i < 6; i++) house(-1100 + i * 330 + r() * 80, -820 - r() * 100, 0.9 + r() * 0.5);
-  for (let i = 0; i < 8; i++) tree(-1250 + r() * 250, -560 + i * 130 + r() * 60, 0.8 + r() * 0.6);
-  for (let i = 0; i < 6; i++) tree(1080 + r() * 220, -800 + r() * 280, 0.7 + r() * 0.5);
-  for (let i = 0; i < 12; i++) block(-1100 + r() * 2200, 760 + r() * 180);
-
-  // The toy box everything came out of, off the rug in the corner.
+/** The toy box everything came out of, off the mat in the corner. */
+function addToyBox(group: Group, mats: Materials): void {
   const box = shadowed(new Mesh(new RoundedBoxGeometry(900, 520, 600, 3, 8), mats.lacquer("#b8432f")));
   box.position.set(-2900, FLOOR_Y + 260, -2600);
   box.rotation.y = 0.25;

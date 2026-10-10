@@ -173,44 +173,6 @@ export function oakFloorTextures(anisotropy: number, size = 1024): SurfaceTextur
   return toTextures(c, 1 / tile, 1 / tile, anisotropy);
 }
 
-/** Wool rug with a patterned border. Covers the whole rug once (uv 0..1). */
-export function rugTextures(anisotropy: number, size = 1024): SurfaceTextures {
-  const W = size;
-  const H = size;
-  const c = canvases(W, H);
-  const n1 = makeNoise(41, 256);
-  const n2 = makeNoise(43, 32);
-  const cream = hex("#e4d5b8");
-  const oat = hex("#3f5a6e");
-  const blue = hex("#2f4658");
-  const rust = hex("#b5603f");
-  const ink = hex("#1f2e3b");
-  fill(c, W, H, (px, py) => {
-    const u = px / W;
-    const v = py / H;
-    const edge = Math.min(u, v, 1 - u, 1 - v);
-    let col: RGB = mix(oat, blue, fbm(n2, u * 6, v * 6, 3) * 0.8);
-    if (edge < 0.035) col = ink;
-    else if (edge < 0.05) col = cream;
-    else if (edge < 0.085) {
-      const t = (u + v) * 60;
-      col = Math.sin(t) > 0 ? blue : rust;
-    } else if (edge < 0.1) col = cream;
-    else if (edge < 0.11) col = blue;
-    else {
-      const du = Math.abs(u - 0.5) * 2;
-      const dv = Math.abs(v - 0.5) * 2;
-      const diamond = du + dv;
-      if (Math.abs(diamond - 0.55) < 0.02 || Math.abs(diamond - 0.62) < 0.008) col = rust;
-      else if (diamond < 0.18 && Math.abs(diamond - 0.12) < 0.03) col = blue;
-    }
-    const fuzz = n1(u * 256, v * 256);
-    col = mix(col, [0, 0, 0], fuzz * 0.08);
-    return [col, 0.95, fuzz];
-  });
-  return toTextures(c, 1, 1, anisotropy);
-}
-
 /** Matt painted plaster wall with faint roller texture. */
 export function wallTextures(anisotropy: number): SurfaceTextures {
   const W = 512;
@@ -225,32 +187,44 @@ export function wallTextures(anisotropy: number): SurfaceTextures {
   return toTextures(c, 1 / 1000, 1 / 1000, anisotropy);
 }
 
-/** Fine wool weave bump, tiled many times across the rug. */
-export function weaveTexture(anisotropy: number): Texture {
+/** Felt: tiled fibre noise for the bump map, plus a gentle colour mottling texture. */
+export function feltTextures(anisotropy: number, base: string, repeat: number): { map: Texture; bumpMap: Texture } {
   const N = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = N;
-  const ctx = canvas.getContext("2d")!;
-  const img = ctx.createImageData(N, N);
-  const n = makeNoise(61, 64);
+  const color = document.createElement("canvas");
+  const bump = document.createElement("canvas");
+  color.width = color.height = bump.width = bump.height = N;
+  const cc = color.getContext("2d")!;
+  const bc = bump.getContext("2d")!;
+  const ci = cc.createImageData(N, N);
+  const bi = bc.createImageData(N, N);
+  const n1 = makeNoise(71, 32);
+  const n2 = makeNoise(73, 128);
+  const rgb = hex(base);
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
-      const row = Math.floor(y / 8);
-      const shift = row % 2 ? 4 : 0;
-      const fx = ((x + shift) % 8) / 8;
-      const fy = (y % 8) / 8;
-      const loop = Math.sin(fx * Math.PI) * Math.sin(fy * Math.PI);
-      const v = clamp01(loop * 0.8 + n((x / N) * 64, (y / N) * 64) * 0.35);
+      const u = x / N;
+      const v = y / N;
+      const mottle = fbm(n1, u * 4, v * 4, 3);
+      const fibre = fbm(n2, u * 128, v * 128, 2);
+      const k = 0.88 + mottle * 0.18 + (fibre - 0.5) * 0.08;
       const i = (y * N + x) * 4;
-      img.data[i] = img.data[i + 1] = img.data[i + 2] = v * 255;
-      img.data[i + 3] = 255;
+      ci.data[i] = Math.min(255, rgb[0] * k);
+      ci.data[i + 1] = Math.min(255, rgb[1] * k);
+      ci.data[i + 2] = Math.min(255, rgb[2] * k);
+      ci.data[i + 3] = 255;
+      bi.data[i] = bi.data[i + 1] = bi.data[i + 2] = fibre * 255;
+      bi.data[i + 3] = 255;
     }
   }
-  ctx.putImageData(img, 0, 0);
-  const t = new CanvasTexture(canvas);
-  t.wrapS = t.wrapT = RepeatWrapping;
-  t.repeat.set(70, 50);
-  t.colorSpace = LinearSRGBColorSpace;
-  t.anisotropy = anisotropy;
-  return t;
+  cc.putImageData(ci, 0, 0);
+  bc.putImageData(bi, 0, 0);
+  const make = (c: HTMLCanvasElement, srgb: boolean) => {
+    const t = new CanvasTexture(c);
+    t.wrapS = t.wrapT = RepeatWrapping;
+    t.repeat.set(repeat, repeat);
+    t.colorSpace = srgb ? SRGBColorSpace : LinearSRGBColorSpace;
+    t.anisotropy = anisotropy;
+    return t;
+  };
+  return { map: make(color, true), bumpMap: make(bump, false) };
 }

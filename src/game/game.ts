@@ -9,6 +9,7 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { LandscapeView } from "../render/landscape-view";
 import { createMaterials, type Materials } from "../render/materials";
 import { createPost, type Post } from "../render/post";
 import { detectQuality, type QualitySettings } from "../render/quality";
@@ -17,7 +18,7 @@ import { TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
 import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import type { Landscape } from "../landscape";
+import { MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
 import { PIECE_TYPES, type Layout } from "../track";
 import type { World } from "./world";
 
@@ -35,6 +36,7 @@ export class Game {
   readonly mats: Materials;
   readonly room: Room;
   readonly trackView: TrackView;
+  landscapeView: LandscapeView;
   readonly trainView: TrainView;
   readonly post: Post;
   readonly snapshot: SimSnapshot = createSnapshot();
@@ -79,13 +81,15 @@ export class Game {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.minDistance = 120;
-    this.controls.maxDistance = 7000;
+    this.controls.maxDistance = 9000;
     this.controls.maxPolarAngle = 1.42;
     this.controls.screenSpacePanning = false;
 
     this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy(), this.quality.textureSize);
     this.room = createRoom(this.scene, this.renderer, this.mats, this.quality);
     TrackView.prebuild(PIECE_TYPES);
+    this.landscapeView = new LandscapeView(this.landscape, this.mats);
+    this.scene.add(this.landscapeView.group);
     this.trackView = new TrackView(this.layout, this.mats);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
@@ -105,6 +109,10 @@ export class Game {
     this.sim = world.sim;
     this.landscape = world.landscape;
     this.stations = world.stations;
+    this.scene.remove(this.landscapeView.group);
+    this.landscapeView.dispose();
+    this.landscapeView = new LandscapeView(this.landscape, this.mats);
+    this.scene.add(this.landscapeView.group);
     this.scene.remove(this.trackView.group);
     (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats);
     this.scene.add(this.trackView.group);
@@ -143,12 +151,14 @@ export class Game {
       minZ = Math.min(minZ, p.pose.z);
       maxZ = Math.max(maxZ, p.pose.z);
     }
-    if (minX === Infinity) {
-      minX = maxX = minZ = maxZ = 0;
-    }
+    // Always include the felt mat.
+    minX = Math.min(minX, -MAT_WIDTH / 2);
+    maxX = Math.max(maxX, MAT_WIDTH / 2);
+    minZ = Math.min(minZ, -MAT_DEPTH / 2);
+    maxZ = Math.max(maxZ, MAT_DEPTH / 2);
     const cx = (minX + maxX) / 2;
     const cz = (minZ + maxZ) / 2;
-    const radius = Math.max(450, Math.hypot(maxX - minX, maxZ - minZ) / 2 + 250);
+    const radius = Math.hypot(maxX - minX, maxZ - minZ) / 2;
     const fov = (this.camera.fov * Math.PI) / 180;
     const fit = radius / Math.tan(fov / 2) / Math.min(1, this.camera.aspect);
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();

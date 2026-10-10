@@ -1,5 +1,5 @@
 import { Color, MeshPhysicalMaterial, MeshStandardMaterial, Vector2 } from "three";
-import { beechTextures, oakFloorTextures, rugTextures, wallTextures, weaveTexture, type SurfaceTextures } from "./textures";
+import { beechTextures, feltTextures, oakFloorTextures, wallTextures, type SurfaceTextures } from "./textures";
 
 export interface Materials {
   track: MeshPhysicalMaterial;
@@ -7,9 +7,15 @@ export interface Materials {
   trackCut: MeshStandardMaterial;
   trackGhost: MeshPhysicalMaterial;
   trackGhostSnap: MeshPhysicalMaterial;
+  trackGhostBlocked: MeshPhysicalMaterial;
+  felt: MeshPhysicalMaterial;
+  riverFelt: MeshPhysicalMaterial;
+  roadFelt: MeshPhysicalMaterial;
+  blockWood: MeshPhysicalMaterial;
+  blockWoodDark: MeshPhysicalMaterial;
+  blockTop: MeshPhysicalMaterial;
   naturalWood: MeshPhysicalMaterial;
   floor: MeshPhysicalMaterial;
-  rug: MeshPhysicalMaterial;
   wall: MeshStandardMaterial;
   skirting: MeshPhysicalMaterial;
   magnet: MeshStandardMaterial;
@@ -60,17 +66,6 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
     clearcoatRoughness: 0.25,
   });
 
-  const rugTex = rugTextures(anisotropy, textureSize);
-  const rug = new MeshPhysicalMaterial({
-    map: rugTex.map,
-    bumpMap: weaveTexture(anisotropy),
-    bumpScale: 1.6,
-    roughness: 0.97,
-    sheen: 0.45,
-    sheenRoughness: 0.85,
-    sheenColor: new Color("#c9b9a0"),
-  });
-
   const wallTex = wallTextures(anisotropy);
   const wall = new MeshStandardMaterial({ map: wallTex.map, bumpMap: wallTex.bumpMap, bumpScale: 0.6, roughness: 0.92 });
 
@@ -93,14 +88,41 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
 
   const trackCut = new MeshStandardMaterial({ map: beech.map, color: new Color("#a88866"), roughness: 0.85, bumpMap: beech.bumpMap, bumpScale: 0.4 });
 
+  const feltMaterial = (color: string, repeat: number, sheen: string) => {
+    const t = feltTextures(anisotropy, color, repeat);
+    return new MeshPhysicalMaterial({
+      map: t.map,
+      bumpMap: t.bumpMap,
+      bumpScale: 1.2,
+      roughness: 0.96,
+      sheen: 0.7,
+      sheenRoughness: 0.75,
+      sheenColor: new Color(sheen),
+    });
+  };
+  // Felt textures tile in uv space; the mat's uvs span 0..1, so repeat across its 3.2 m.
+  const felt = feltMaterial("#4f7f3c", 24, "#a9c890");
+  const riverFelt = feltMaterial("#2f6a9e", 2, "#a8c8ec");
+  const roadFelt = feltMaterial("#8b8a84", 2, "#e2e0d8");
+  const blockWood = woodMaterial(beech, 0.5);
+  const blockWoodDark = woodMaterial(beech, 0.5);
+  blockWoodDark.color = new Color("#d9b48c");
+  const blockTop = new MeshPhysicalMaterial({ color: new Color("#5e9446"), roughness: 0.5, clearcoat: 0.6, clearcoatRoughness: 0.3, bumpMap: beech.bumpMap, bumpScale: 0.3 });
+
   return {
     track,
     trackCut,
+    trackGhostBlocked: ghost("#ff6b5a"),
+    felt,
+    riverFelt,
+    roadFelt,
+    blockWood,
+    blockWoodDark,
+    blockTop,
     trackGhost: ghost("#ffffff"),
     trackGhostSnap: ghost("#9be37b"),
     naturalWood: woodMaterial(beech, 0.5),
     floor,
-    rug,
     wall,
     skirting: new MeshPhysicalMaterial({ color: new Color("#f4efe6"), roughness: 0.4, clearcoat: 0.5 }),
     magnet: new MeshStandardMaterial({ color: new Color("#2a2b2e"), metalness: 0.85, roughness: 0.3 }),
