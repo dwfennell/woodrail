@@ -1,0 +1,76 @@
+import { describe, expect, it } from "vitest";
+import { LARGE_CURVE_RADIUS, RISER_HEIGHT } from "./constants";
+import { angleDiff } from "./math";
+import { createSample, pathLength, samplePath } from "./path";
+import { getPieceDef, MAX_CONNECTORS, PIECE_TYPES } from "./pieces";
+
+const variants = PIECE_TYPES.flatMap((type) => [false, true].map((flipped) => ({ type, flipped })));
+
+describe("piece catalog invariants", () => {
+  it.each(variants)("$type flipped=$flipped: paths start and end exactly at their connectors", ({ type, flipped }) => {
+    const def = getPieceDef(type, flipped);
+    expect(def.connectors.length).toBeLessThanOrEqual(MAX_CONNECTORS);
+    for (const p of def.paths) {
+      const from = def.connectors[p.from];
+      const start = samplePath(p.geom, 0, createSample());
+      expect(start.x).toBeCloseTo(from.pose.x, 9);
+      expect(start.z).toBeCloseTo(from.pose.z, 9);
+      expect(start.y).toBeCloseTo(from.y, 9);
+      expect(angleDiff(start.heading, from.pose.heading + Math.PI)).toBeCloseTo(0, 9);
+      if (p.to === null) continue;
+      const to = def.connectors[p.to];
+      const end = samplePath(p.geom, pathLength(p.geom), createSample());
+      expect(end.x).toBeCloseTo(to.pose.x, 9);
+      expect(end.z).toBeCloseTo(to.pose.z, 9);
+      expect(end.y).toBeCloseTo(to.y, 9);
+      expect(angleDiff(end.heading, to.pose.heading)).toBeCloseTo(0, 9);
+    }
+  });
+});
+
+describe("specific pieces", () => {
+  it("straights have a socket at the origin and a peg at the far end", () => {
+    const d = getPieceDef("straight-144", false);
+    expect(d.connectors.map((c) => c.kind)).toEqual(["socket", "peg"]);
+    expect(d.connectors[1].pose.x).toBe(144);
+  });
+
+  it("large curve turns 45° left; flipped turns 45° right", () => {
+    const left = getPieceDef("curve-large", false);
+    const right = getPieceDef("curve-large", true);
+    expect(left.connectors[1].pose.z).toBeCloseTo(LARGE_CURVE_RADIUS * (1 - Math.SQRT1_2));
+    expect(right.connectors[1].pose.z).toBeCloseTo(-LARGE_CURVE_RADIUS * (1 - Math.SQRT1_2));
+  });
+
+  it("switch has one trunk and two branches, and is a switch", () => {
+    const d = getPieceDef("switch", false);
+    expect(d.isSwitch).toBe(true);
+    expect(d.paths.map((p) => p.from)).toEqual([0, 0]);
+    expect(d.paths.map((p) => p.to)).toEqual([1, 2]);
+  });
+
+  it("ramp climbs one riser height", () => {
+    const d = getPieceDef("ramp", false);
+    expect(d.connectors[1].y - d.connectors[0].y).toBe(RISER_HEIGHT);
+  });
+
+  it("riser is a support with no track", () => {
+    const d = getPieceDef("riser", false);
+    expect(d.connectors).toHaveLength(0);
+    expect(d.supportHeight).toBe(RISER_HEIGHT);
+  });
+
+  it("buffer path ends inside the piece", () => {
+    expect(getPieceDef("buffer", false).paths[0].to).toBeNull();
+  });
+
+  it("adapters have matching connector kinds at both ends", () => {
+    expect(getPieceDef("adapter-peg", false).connectors.map((c) => c.kind)).toEqual(["peg", "peg"]);
+    expect(getPieceDef("adapter-socket", false).connectors.map((c) => c.kind)).toEqual(["socket", "socket"]);
+  });
+
+  it("returns the same cached object on repeat calls; non-flippable ignores flip", () => {
+    expect(getPieceDef("switch", true)).toBe(getPieceDef("switch", true));
+    expect(getPieceDef("straight-54", true)).toBe(getPieceDef("straight-54", false));
+  });
+});
