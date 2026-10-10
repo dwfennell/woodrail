@@ -67,7 +67,7 @@ function firCrown(): BufferGeometry {
     [0, 0], [19, 0], [21, 1.5], [20, 4], [12, 16], [16.5, 16.5], [17.5, 18.5], [16, 20.5],
     [9, 32], [12.5, 32.5], [13.5, 34.5], [12, 36.5], [2, 52], [0.8, 54], [0, 54.5],
   ].map(([x, y]) => new Vector2(x, y));
-  return new LatheGeometry(p, 18);
+  return new LatheGeometry(p, 14);
 }
 
 function instanced(geometry: BufferGeometry, material: Material, count: number): InstancedMesh {
@@ -84,18 +84,19 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
   const firs = placements.filter((t) => t.kind === "fir");
   const balls = placements.filter((t) => t.kind === "ball");
 
-  const base = new CylinderGeometry(13, 14.5, BASE_H, 18);
+  const base = new CylinderGeometry(13, 14.5, BASE_H, 14);
   base.translate(0, BASE_H / 2, 0);
   const trunk = new CylinderGeometry(4, 5, TRUNK_H, 8, 1, true);
   trunk.translate(0, BASE_H + TRUNK_H / 2, 0);
   const fir = firCrown();
   fir.translate(0, BASE_H + TRUNK_H - 6, 0);
-  const ball = new SphereGeometry(19, 18, 12);
+  const ball = new SphereGeometry(19, 14, 10);
   ball.scale(1, 1.05, 1);
   ball.translate(0, BASE_H + TRUNK_H + 13, 0);
 
   const crownMat = mats.lacquer("#ffffff");
   const bases = instanced(base, mats.naturalWood, placements.length);
+  bases.castShadow = false; // flat discs: their shadow would hide under them anyway
   const trunks = instanced(trunk, mats.naturalWood, placements.length);
   const firMesh = instanced(fir, crownMat, firs.length);
   const ballMesh = instanced(ball, crownMat, balls.length);

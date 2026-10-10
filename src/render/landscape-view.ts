@@ -67,7 +67,7 @@ export class LandscapeView {
 
   private build(): void {
     const { grid } = this.land;
-    const b = new Batcher();
+    const b = new Batcher(this.mats.paint);
 
     // The felt play mat, and felt rivers and roads laid on it.
     this.group.add(buildFeltMat(this.mats));

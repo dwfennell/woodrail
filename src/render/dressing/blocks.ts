@@ -1,6 +1,7 @@
-import { Color, Group, InstancedMesh, Matrix4, type BufferGeometry, type Material } from "three";
+import { BoxGeometry, Color, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, type BufferGeometry, type Material } from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { CELL, COLS, ROWS, type LandscapeGrid } from "../../landscape";
+import { CELL, COLS, hillSlabs, ROWS, type LandscapeGrid } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
 import { BEECH_UV_SCALE, type Materials } from "../materials";
 
@@ -18,6 +19,8 @@ export interface BlockInstance {
   tone: number;
   /** Whether this is the top block of its stack (painted green on top). */
   top: boolean;
+  /** False for blocks buried inside a hill: a block on top and a neighbour against every side. */
+  exposed: boolean;
 }
 
 function hash(a: number, b: number, c: number, d: number): number {
@@ -32,6 +35,9 @@ export function blockInstances(grid: LandscapeGrid, seed: number): BlockInstance
   for (let row = 0; row < ROWS; row++) {
     for (let col = 0; col < COLS; col++) {
       const h = grid.height[grid.index(col, row)];
+      const side = (dc: number, dr: number) => (grid.inBounds(col + dc, row + dr) ? grid.height[grid.index(col + dc, row + dr)] : 0);
+      // A side face is covered at this level when the neighbour's stack is taller than the level.
+      const covered = Math.min(side(1, 0), side(-1, 0), side(0, 1), side(0, -1));
       for (let level = 0; level < h; level++) {
         out.push({
           x: grid.centreX(col),
@@ -39,6 +45,7 @@ export function blockInstances(grid: LandscapeGrid, seed: number): BlockInstance
           y: level * RISER_HEIGHT,
           tone: hash(col, row, level, seed) % BLOCK_TONES.length,
           top: level === h - 1,
+          exposed: level === h - 1 || covered <= level,
         });
       }
     }
@@ -60,16 +67,40 @@ function instanced(geometry: BufferGeometry, material: Material, count: number):
   return mesh;
 }
 
+/** Layer seen only by the sun's shadow camera: cheap stand-ins that cast shadows for detailed scenery. */
+export const SHADOW_PROXY_LAYER = 1;
+
+/**
+ * Hill shadows come from the merged rectangles (a few dozen plain boxes) instead of hundreds of rounded blocks:
+ * same silhouette from the sun, a fraction of the shadow-pass cost.
+ */
+function shadowProxy(grid: LandscapeGrid): Mesh | null {
+  const boxes = hillSlabs(grid).map((s) => {
+    const g = new BoxGeometry(s.x1 - s.x0 - GAP, RISER_HEIGHT - GAP, s.z1 - s.z0 - GAP);
+    g.translate((s.x0 + s.x1) / 2, (s.level - 1) * RISER_HEIGHT + RISER_HEIGHT / 2, (s.z0 + s.z1) / 2);
+    return g;
+  });
+  if (boxes.length === 0) return null;
+  const merged = mergeGeometries(boxes);
+  for (const b of boxes) b.dispose();
+  const mesh = new Mesh(merged, new MeshBasicMaterial());
+  mesh.castShadow = true;
+  mesh.layers.set(SHADOW_PROXY_LAYER);
+  return mesh;
+}
+
 /** Hills as individual rounded beech blocks, the top of each stack painted grass green. Two draw calls. */
 export function buildBlocks(grid: LandscapeGrid, seed: number, mats: Materials): Group {
   const group = new Group();
-  const blocks = blockInstances(grid, seed);
+  const blocks = blockInstances(grid, seed).filter((b) => b.exposed);
   const tops = blocks.filter((b) => b.top);
   const size = CELL - GAP;
-  const body = scaleUv(new RoundedBoxGeometry(size, RISER_HEIGHT - GAP, size, 2, 3), size * BEECH_UV_SCALE.x, (RISER_HEIGHT - GAP) * BEECH_UV_SCALE.y);
+  const body = scaleUv(new RoundedBoxGeometry(size, RISER_HEIGHT - GAP, size, 1, 2.5), size * BEECH_UV_SCALE.x, (RISER_HEIGHT - GAP) * BEECH_UV_SCALE.y);
   const paint = scaleUv(new RoundedBoxGeometry(size + 0.6, PAINT, size + 0.6, 1, 1.6), size * BEECH_UV_SCALE.x, size * BEECH_UV_SCALE.y);
   const wood = instanced(body, mats.blockWood, blocks.length);
   const grass = instanced(paint, mats.blockTop, tops.length);
+  wood.castShadow = false;
+  grass.castShadow = false;
   const m = new Matrix4();
   const c = new Color();
   blocks.forEach((b, i) => {
@@ -85,5 +116,7 @@ export function buildBlocks(grid: LandscapeGrid, seed: number, mats: Materials):
     grass.setColorAt(i, c.set(GRASS_TONES[b.tone % GRASS_TONES.length]));
   });
   group.add(wood, grass);
+  const proxy = shadowProxy(grid);
+  if (proxy) group.add(proxy);
   return group;
 }

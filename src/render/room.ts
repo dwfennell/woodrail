@@ -12,6 +12,7 @@ import {
   type WebGLRenderer,
 } from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
 import type { Materials } from "./materials";
 import type { QualitySettings } from "./quality";
 
@@ -77,6 +78,8 @@ export function createRoom(scene: Scene, renderer: WebGLRenderer, mats: Material
   sun.shadow.normalBias = 0.6;
   sun.shadow.radius = 2.5;
   sun.shadow.blurSamples = 12;
+  // The shadow camera also sees the shadow-only stand-ins (see SHADOW_PROXY_LAYER).
+  sun.shadow.camera.layers.enable(SHADOW_PROXY_LAYER);
   scene.add(sun);
   scene.add(sun.target);
   scene.add(new HemisphereLight(new Color("#ffeedd"), new Color("#6b4a30"), 0.12));

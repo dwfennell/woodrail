@@ -28,3 +28,26 @@ describe("blockInstances", () => {
     for (const x of a) expect(x.tone).toBeLessThan(BLOCK_TONES.length);
   });
 });
+
+describe("buried blocks", () => {
+  it("skips only blocks hidden on every side and from above", () => {
+    const land = generateLandscape(7, { starter: true });
+    const g = land.grid;
+    const all = blockInstances(g, 7);
+    const shown = all.filter((b) => b.exposed);
+    expect(shown.length).toBeLessThan(all.length);
+    // Every top block is exposed, and so is every block on the mat's edge.
+    for (const b of all) if (b.top) expect(b.exposed).toBe(true);
+    for (const b of all) {
+      if (b.exposed) continue;
+      const i = g.cellAtWorld(b.x, b.z);
+      const col = i % 50;
+      const row = (i - col) / 50;
+      const level = b.y / RISER_HEIGHT;
+      for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        expect(g.inBounds(col + dc, row + dr)).toBe(true);
+        expect(g.height[g.index(col + dc, row + dr)]).toBeGreaterThan(level);
+      }
+    }
+  });
+});

@@ -17,8 +17,8 @@ export interface Materials {
   stitch: MeshStandardMaterial;
   riverFelt: MeshPhysicalMaterial;
   roadFelt: MeshPhysicalMaterial;
-  blockWood: MeshPhysicalMaterial;
-  blockTop: MeshPhysicalMaterial;
+  blockWood: MeshStandardMaterial;
+  blockTop: MeshStandardMaterial;
   naturalWood: MeshPhysicalMaterial;
   floor: MeshPhysicalMaterial;
   wall: MeshStandardMaterial;
@@ -27,6 +27,8 @@ export interface Materials {
   coal: MeshStandardMaterial;
   glass: MeshPhysicalMaterial;
   lacquer: (color: string) => MeshPhysicalMaterial;
+  /** Lacquer in any colour, taken from the geometry's vertex colours (for merged static scenery). */
+  paint: MeshPhysicalMaterial;
 }
 
 function woodMaterial(t: SurfaceTextures, bump: number): MeshPhysicalMaterial {
@@ -86,6 +88,8 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
         bumpMap: beech.bumpMap,
         bumpScale: 0.25,
       });
+      // Static scenery batches swap this for `paint` plus vertex colours (one draw call for every colour).
+      m.userData.paintColor = color;
       lacquerCache.set(color, m);
     }
     return m;
@@ -114,17 +118,10 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
   const riverFelt = feltMaterial("#2a63a0", 1, "#86b4e8", 0.08);
   const roadFelt = feltMaterial("#8d8a82", 1, "#e8e4da", 0.05);
   const stitch = new MeshStandardMaterial({ map: stitchTexture(anisotropy), transparent: true, alphaTest: 0.3, roughness: 0.9 });
-  const blockWood = woodMaterial(beech, 0.5);
+  // Building blocks are bare, unvarnished beech: matte, and a cheap shader for the hundreds on screen.
+  const blockWood = new MeshStandardMaterial({ map: beech.map, roughnessMap: beech.roughnessMap, bumpMap: beech.bumpMap, bumpScale: 0.5, roughness: 0.92 });
   // Satin green paint over beech: the grain still shows through faintly.
-  const blockTop = new MeshPhysicalMaterial({
-    map: beech.map,
-    color: new Color("#79b851"),
-    roughness: 0.55,
-    clearcoat: 0.25,
-    clearcoatRoughness: 0.5,
-    bumpMap: beech.bumpMap,
-    bumpScale: 0.35,
-  });
+  const blockTop = new MeshStandardMaterial({ map: beech.map, color: new Color("#79b851"), roughness: 0.6, bumpMap: beech.bumpMap, bumpScale: 0.35 });
 
   const held = withRim(woodMaterial(beech, 0.6));
 
@@ -150,6 +147,7 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
     coal: new MeshStandardMaterial({ color: new Color("#1c1a19"), roughness: 0.7, metalness: 0.1 }),
     glass: new MeshPhysicalMaterial({ color: new Color("#1d2633"), roughness: 0.1, clearcoat: 1, metalness: 0.2 }),
     lacquer,
+    paint: new MeshPhysicalMaterial({ vertexColors: true, roughness: 0.38, clearcoat: 1, clearcoatRoughness: 0.12, bumpMap: beech.bumpMap, bumpScale: 0.25 }),
   };
 }
 
