@@ -1,15 +1,23 @@
-import { Group, MOUSE, Plane, Raycaster, TOUCH, Vector2, Vector3, type Mesh, type Object3D } from "three";
+import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, TOUCH, Vector2, Vector3, type Mesh, type Object3D } from "three";
 import { Editor, pieceCentre, poseForCentre } from "../editor/editor";
 import { buildCarModel, disposeObject } from "../render/train-models";
-import { ghostMesh, pieceMatrix } from "../render/track-view";
+import { dustPuff } from "../render/dust";
+import { settle, shrinkAway, wobbleBack, type PiecePose } from "../render/flourishes";
+import { setRim } from "../render/materials";
+import { ghostMesh } from "../render/track-view";
+import { damp } from "../lib/tween";
 import { CAR_SPECS, COUPLER_GAP, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, checkPlacement, groundUnder, type BlockReason } from "../landscape";
 import { findSnap, getPieceDef, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { isDoubleTap, type TapRecord } from "./camera-director";
+import { dropOutcome } from "./drop";
 import type { Game } from "./game";
 
 const DRAG_THRESHOLD = 6;
+/** How high a held piece floats above where it would land (mm). */
+const HOLD_LIFT = 12;
+const MAX_TILT = (2 * Math.PI) / 180;
 const TRAIN_DROP_RANGE = 70;
 
 type Press = { kind: "car"; carId: number } | { kind: "lever"; pieceId: number } | { kind: "piece"; pieceId: number };
@@ -34,6 +42,12 @@ type Mode =
       looseY: number;
       blocked: BlockReason | null;
       overTray: boolean;
+      /** Where the held piece is heading (snapped or loose, plus the lift)… */
+      goal: PiecePose;
+      /** …and where it's drawn: it trails the goal slightly, for weight. */
+      shown: PiecePose & { scale: number; tiltX: number; tiltZ: number };
+      /** True until the piece has been drawn once (new pieces appear in place rather than flying in). */
+      fresh: boolean;
     }
   | {
       kind: "drag-train";
@@ -46,10 +60,22 @@ type Mode =
       overTray: boolean;
     };
 
+/** Signed shortest turn from angle a to angle b. */
+function angleDelta(a: number, b: number): number {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
 /** Pointer, touch and keyboard input: the object under the pointer decides what a gesture does. */
 export class Interaction {
   /** Called after a piece is put down; `snapped` when its peg seated. */
   onPlaced: ((snapped: boolean) => void) | null = null;
+  /** Called when a piece is picked up off the mat. */
+  onPickup: (() => void) | null = null;
+  /** Called when a drop is refused by the landscape. */
+  onRefused: (() => void) | null = null;
   private mode: Mode = { kind: "idle" };
   private selectedPiece = -1;
   private selectedCar = -1;
@@ -93,11 +119,37 @@ export class Interaction {
     );
   }
 
-  /** Per frame: keep a dragged piece under the pointer while the view edge-pans beneath it. */
-  tick(): void {
+  /** Per frame: keep a dragged piece under the pointer while the view edge-pans, and animate the held piece. */
+  tick(dt: number): void {
     const m = this.mode;
     if ((m.kind === "drag-piece" || m.kind === "drag-train") && this.game.director.edgePanning) this.updateDrag(this.lastX, this.lastY);
+    if (m.kind === "drag-piece" && dt > 0) {
+      const s = m.shown;
+      const px = s.x;
+      const pz = s.z;
+      const lambda = m.snap.kind === "snapped" ? 40 : 26;
+      s.x = damp(s.x, m.goal.x, lambda, dt);
+      s.z = damp(s.z, m.goal.z, lambda, dt);
+      s.y = damp(s.y, m.goal.y, 18, dt);
+      s.heading = damp(s.heading, s.heading + angleDelta(s.heading, m.goal.heading), 30, dt);
+      s.scale = damp(s.scale, 1, 16, dt);
+      // Lean a degree or two into the direction of travel, like a toy held loosely in the fingers.
+      const vx = (s.x - px) / dt;
+      const vz = (s.z - pz) / dt;
+      const clampTilt = (v: number) => Math.max(-MAX_TILT, Math.min(MAX_TILT, v * 0.00004));
+      s.tiltX = damp(s.tiltX, clampTilt(vz), 12, dt);
+      s.tiltZ = damp(s.tiltZ, clampTilt(-vx), 12, dt);
+      const mat = m.ghost.matrix;
+      mat.makeRotationY(-s.heading);
+      mat.premultiply(this.tiltMatrix.makeRotationFromEuler(this.tiltEuler.set(s.tiltX, 0, s.tiltZ)));
+      mat.scale(this.scaleVec.setScalar(s.scale));
+      mat.setPosition(s.x, s.y, s.z);
+    }
   }
+
+  private readonly tiltMatrix = new Matrix4();
+  private readonly tiltEuler = new Euler();
+  private readonly scaleVec = new Vector3();
 
   // ---- tray -------------------------------------------------------------------------------------------------
 
@@ -105,9 +157,8 @@ export class Interaction {
     this.cancel();
     this.clearSelection();
     if (item.kind === "piece") {
-      const ghost = ghostMesh(item.type, false, this.game.mats.trackGhost);
+      const ghost = this.heldMesh(item.type, false);
       ghost.visible = false;
-      this.game.scene.add(ghost);
       this.mode = {
         kind: "drag-piece",
         pointerId: e.pointerId,
@@ -123,6 +174,9 @@ export class Interaction {
         looseY: 0,
         blocked: null,
         overTray: true,
+        goal: { x: 0, y: 0, z: 0, heading: 0 },
+        shown: { x: 0, y: 0, z: 0, heading: 0, scale: 0.6, tiltX: 0, tiltZ: 0 },
+        fresh: true,
       };
     } else {
       const cars = item.cars.map((kind) => ({ kind, facing: 1 as const, lever: 0 as const }));
@@ -350,9 +404,10 @@ export class Interaction {
       const m = this.mode;
       if (!getPieceDef(m.type, false).flippable) return;
       m.flipped = !m.flipped;
+      const visible = m.ghost.visible;
       this.game.scene.remove(m.ghost);
-      m.ghost = ghostMesh(m.type, m.flipped, this.game.mats.trackGhost);
-      this.game.scene.add(m.ghost);
+      m.ghost = this.heldMesh(m.type, m.flipped);
+      m.ghost.visible = visible;
       return;
     }
     const p = this.selectedPiece === -1 ? undefined : this.game.layout.getPiece(this.selectedPiece);
@@ -364,7 +419,16 @@ export class Interaction {
     const id = this.selectedPiece;
     this.clearSelection();
     this.hud.hideCards();
-    this.editor().remove(id);
+    const p = this.game.layout.getPiece(id);
+    if (!this.editor().remove(id) || !p) return;
+    // A stand-in lifts and shrinks away where the piece was.
+    const g = this.game;
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut]);
+    mesh.castShadow = true;
+    mesh.position.set(p.pose.x, p.y, p.pose.z);
+    mesh.rotation.y = -p.pose.heading;
+    g.scene.add(mesh);
+    g.flourishes.add(shrinkAway(mesh, () => g.scene.remove(mesh)));
   }
 
   // ---- dragging pieces --------------------------------------------------------------------------------------
@@ -379,8 +443,7 @@ export class Interaction {
     layout.liftPiece(pieceId);
     this.game.sim.trackChanged();
     this.changed();
-    const ghost = ghostMesh(p.type, p.flipped, this.game.mats.trackGhost);
-    this.game.scene.add(ghost);
+    const ghost = this.heldMesh(p.type, p.flipped);
     const centre = poseForCentre(p.type, p.flipped, 0, 0, p.pose.heading);
     // offset from the grab point to the piece centre, so the piece doesn't jump under the finger
     const cx = p.pose.x - centre.x;
@@ -400,7 +463,24 @@ export class Interaction {
       looseY: p.y,
       blocked: null,
       overTray: false,
+      goal: { x: p.pose.x, y: p.y + HOLD_LIFT, z: p.pose.z, heading: p.pose.heading },
+      // Starts exactly where the piece lay, then lifts.
+      shown: { x: p.pose.x, y: p.y, z: p.pose.z, heading: p.pose.heading, scale: 1, tiltX: 0, tiltZ: 0 },
+      fresh: false,
     };
+    this.onPickup?.();
+  }
+
+  /** A held piece: the real wooden piece (not a see-through ghost), with a rim glow for snap / blocked. */
+  private heldMesh(type: PieceTypeId, flipped: boolean): Mesh {
+    const mats = this.game.mats;
+    setRim(mats.held, "#ffffff", 0);
+    const mesh = ghostMesh(type, flipped, [mats.held, mats.trackCut]);
+    mesh.castShadow = true;
+    mesh.renderOrder = 0;
+    mesh.matrixAutoUpdate = false;
+    this.game.scene.add(mesh);
+    return mesh;
   }
 
   private updateDrag(x: number, y: number): void {
@@ -434,10 +514,18 @@ export class Interaction {
       const reason = clearance.kind === "blocked" ? clearance.reason : null;
       if (reason && reason !== m.blocked && !m.overTray) this.hud.toast(BLOCK_MESSAGES[reason]);
       m.blocked = reason;
-      const mats = this.game.mats;
-      m.ghost.material = reason ? mats.trackGhostBlocked : m.snap.kind === "snapped" ? mats.trackGhostSnap : mats.trackGhost;
-      m.ghost.matrixAutoUpdate = false;
-      m.ghost.matrix.copy(pieceMatrix(pose.x, py + 1.5, pose.z, pose.heading));
+      const held = this.game.mats.held;
+      if (reason) setRim(held, "#ff4a3a", 1.2);
+      else if (m.snap.kind === "snapped") setRim(held, "#7ddc58", 0.9);
+      else setRim(held, "#fff2d8", 0.12);
+      m.goal.x = pose.x;
+      m.goal.y = py + HOLD_LIFT;
+      m.goal.z = pose.z;
+      m.goal.heading = pose.heading;
+      if (m.fresh && m.ghost.visible) {
+        Object.assign(m.shown, m.goal);
+        m.fresh = false;
+      }
       return;
     }
     m.ghost.visible = !m.overTray && !!ground;
@@ -459,33 +547,72 @@ export class Interaction {
 
   private dropPiece(m: Extract<Mode, { kind: "drag-piece" }>): void {
     this.game.director.setEdgePointer(null);
-    this.game.scene.remove(m.ghost);
     this.mode = { kind: "idle" };
+    const g = this.game;
     const ed = this.editor();
     const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
     const y = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
-    const final = checkPlacement(this.game.landscape, m.type, m.flipped, pose, y);
-    m.blocked = final.kind === "blocked" ? final.reason : null;
-    if (m.blocked && !m.overTray) {
-      // Can't go there: a new piece goes back in the tray, a moved piece returns to where it was.
-      if (m.pieceId !== -1 && m.from) {
-        this.game.layout.dropPiece(m.pieceId, m.from.pose, m.from.y);
-        this.changed();
+    const final = checkPlacement(g.landscape, m.type, m.flipped, pose, y);
+    const mesh = m.ghost;
+    const shown: PiecePose = { x: m.shown.x, y: m.shown.y, z: m.shown.z, heading: m.shown.heading };
+    const discard = () => g.scene.remove(mesh);
+    const isNew = m.pieceId === -1;
+    switch (dropOutcome({ blocked: final.kind === "blocked", overTray: m.overTray, isNew })) {
+      case "place": {
+        const snapped = m.snap.kind === "snapped";
+        const id = isNew ? ed.place(m.type, pose, y, m.flipped) : (ed.move(m.pieceId, pose, y, m.from!), m.pieceId);
+        g.trackView.setHidden(id, true);
+        setRim(g.mats.held, "#ffffff", 0);
+        g.flourishes.add(
+          settle(mesh, shown, { x: pose.x, y, z: pose.z, heading: pose.heading }, () => {
+            discard();
+            g.trackView.setHidden(id, false);
+          }),
+        );
+        if (m.snap.kind === "snapped") {
+          const c = getPieceDef(m.type, m.flipped).connectors[m.snap.connector].pose;
+          const ch = Math.cos(pose.heading);
+          const sh = Math.sin(pose.heading);
+          g.flourishes.add(dustPuff(g.scene, pose.x + c.x * ch - c.z * sh, y, pose.z + c.x * sh + c.z * ch));
+        }
+        this.onPlaced?.(snapped);
+        return;
       }
-      return;
-    }
-    if (m.overTray) {
-      if (m.pieceId !== -1) {
+      case "return": {
+        // Can't go there: float back to where it was.
+        const from = m.from!;
+        g.layout.dropPiece(m.pieceId, from.pose, from.y);
+        g.trackView.setHidden(m.pieceId, true);
+        this.changed();
+        const id = m.pieceId;
+        g.flourishes.add(
+          wobbleBack(mesh, shown, { x: from.pose.x, y: from.y, z: from.pose.z, heading: from.pose.heading }, () => {
+            discard();
+            g.trackView.setHidden(id, false);
+          }),
+        );
+        this.onRefused?.();
+        return;
+      }
+      case "to-tray": {
+        if (m.overTray || !mesh.visible) {
+          discard();
+          return;
+        }
+        // A new piece that can't go there: shake "no", then back in the box.
+        g.flourishes.add(wobbleBack(mesh, shown, shown, () => g.flourishes.add(shrinkAway(mesh, discard))));
+        this.onRefused?.();
+        return;
+      }
+      case "delete": {
         // Dragged back into the box: delete (undo restores it where it was).
-        this.game.layout.dropPiece(m.pieceId, m.from!.pose, m.from!.y);
+        discard();
+        g.layout.dropPiece(m.pieceId, m.from!.pose, m.from!.y);
         ed.remove(m.pieceId);
         this.hud.toast("Back in the box");
+        return;
       }
-      return;
     }
-    if (m.pieceId === -1) ed.place(m.type, pose, y, m.flipped);
-    else ed.move(m.pieceId, pose, y, m.from!);
-    this.onPlaced?.(m.snap.kind === "snapped");
   }
 
   // ---- dragging trains --------------------------------------------------------------------------------------

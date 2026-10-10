@@ -11,6 +11,7 @@ import {
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LandscapeView } from "../render/landscape-view";
 import { createMaterials, type Materials } from "../render/materials";
+import { Flourishes } from "../render/flourishes";
 import { createPost, type Post } from "../render/post";
 import { detectQuality, type QualitySettings } from "../render/quality";
 import { createRoom, type Room } from "../render/room";
@@ -35,6 +36,8 @@ export class Game {
   readonly camera: PerspectiveCamera;
   readonly controls: OrbitControls;
   readonly director: CameraDirector;
+  /** Short cosmetic animations (pieces settling, wobbling back, shrinking away, dust). */
+  readonly flourishes = new Flourishes();
   readonly quality: QualitySettings;
   readonly mats: Materials;
   readonly room: Room;
@@ -110,6 +113,7 @@ export class Game {
 
   /** Swap in a different layout and simulation (new game, load). */
   setWorld(world: GameWorld): void {
+    this.flourishes.clear();
     this.layout = world.layout;
     this.sim = world.sim;
     this.landscape = world.landscape;
@@ -238,6 +242,7 @@ export class Game {
     this.simMs = performance.now() - t0;
     this.trainView.update(this.snapshot, dt, (id, out) => this.physics.poseOf(id, out));
     this.onFrame?.(dt);
+    this.flourishes.update(dt);
     this.director.update(dt, this.canvas.clientWidth, this.canvas.clientHeight);
     this.controls.update(dt);
     const t = this.controls.target;

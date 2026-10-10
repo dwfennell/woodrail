@@ -9,6 +9,8 @@ export interface Materials {
   trackGhost: MeshPhysicalMaterial;
   trackGhostSnap: MeshPhysicalMaterial;
   trackGhostBlocked: MeshPhysicalMaterial;
+  /** A piece held in the hand: real wood with an adjustable glowing rim (see `setRim`). */
+  held: MeshPhysicalMaterial;
   felt: MeshPhysicalMaterial;
   /** Darker felt binding strip around the mat's edge, and the cream stitches on it. */
   hemFelt: MeshPhysicalMaterial;
@@ -124,7 +126,10 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
     bumpScale: 0.35,
   });
 
+  const held = withRim(woodMaterial(beech, 0.6));
+
   return {
+    held,
     track,
     trackCut,
     trackGhostBlocked: ghost("#ff6b5a"),
@@ -146,6 +151,37 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
     glass: new MeshPhysicalMaterial({ color: new Color("#1d2633"), roughness: 0.1, clearcoat: 1, metalness: 0.2 }),
     lacquer,
   };
+}
+
+const RIM_KEY = "rim";
+
+/** Add a fresnel rim glow, driven by `userData.rimColor` / `userData.rimStrength` uniforms. */
+function withRim(m: MeshPhysicalMaterial): MeshPhysicalMaterial {
+  const uniforms = { rimColor: { value: new Color("#ffffff") }, rimStrength: { value: 0 } };
+  m.userData[RIM_KEY] = uniforms;
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform vec3 rimColor;\nuniform float rimStrength;")
+      .replace(
+        "#include <opaque_fragment>",
+        "float rimF = pow(1.0 - clamp(dot(normalize(vViewPosition), normal), 0.0, 1.0), 2.2);\noutgoingLight += rimColor * rimF * rimStrength;\n#include <opaque_fragment>",
+      );
+  };
+  m.customProgramCacheKey = () => RIM_KEY;
+  return m;
+}
+
+/**
+ * Set the held-piece glow: green when it will snap, red when blocked, off otherwise. The wood takes a light wash of
+ * the same colour so the state reads even face-on, where a rim alone is invisible.
+ */
+export function setRim(m: MeshPhysicalMaterial, color: string, strength: number): void {
+  const u = m.userData[RIM_KEY] as { rimColor: { value: Color }; rimStrength: { value: number } } | undefined;
+  if (!u) return;
+  u.rimColor.value.set(color);
+  u.rimStrength.value = strength;
+  m.color.set("#ffffff").lerp(u.rimColor.value, Math.min(0.6, strength * 0.5));
 }
 
 /** Size (mm) of one felt texture tile on the river and road ribbons. */

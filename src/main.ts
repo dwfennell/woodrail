@@ -157,7 +157,7 @@ function boot(): void {
   window.addEventListener("keydown", skipGlide, { capture: true });
 
   game.onFrame = (dt) => {
-    interaction.tick();
+    interaction.tick(dt);
     let hum = 0;
     for (const e of game.events) {
       const p = carPoint(e.trainId, e.kind === "joint" ? e.bogie : 0);
