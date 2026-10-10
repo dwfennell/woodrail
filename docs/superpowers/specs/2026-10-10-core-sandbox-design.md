@@ -36,6 +36,7 @@ Depots and cargo, progression, town, audio, Steam/desktop packaging, multiple ro
 - **Rendering:** Three.js, WebGL renderer initially; migrate to the WebGPU renderer when its post-processing support is sufficient. Scene code must not depend on WebGL-only APIs beyond the renderer/post-processing setup.
 - **Physics:** Rapier (WASM), loaded lazily on first derail.
 - **UI:** HTML/CSS overlay with Preact or Solid (choice made in the implementation plan). No React.
+- **Validation:** Zod.
 - **Tests:** Vitest (unit/simulation), Playwright (end-to-end, desktop + emulated phone).
 - **Mobile is first-class.** Every feature must work well with touch on a phone and with mouse/keyboard on desktop before it is done.
 
@@ -244,7 +245,7 @@ Every editor action is a reversible command. History depth ~100. Train state is 
 
 - A save is a **zip container** (`.woodrail`) holding `layout.json` and optional binary chunks. Milestone 1 writes `layout.json` and `thumbnail.webp`. Later milestones add binary chunks (e.g. town grids) without changing the container.
 - `layout.json` contains: format version, pieces (type, position, yaw, base height, flipped), joints (connector pair + seating error), switch states, trains (cars, order, polarity, path positions, engine lever), and derailed car transforms.
-- Every load is validated against a typed schema (Zod or equivalent; one source for both TS types and runtime validation).
+- Every load is validated with Zod (one source for both TS types and runtime validation). Zod failures are converted to `invalid(reason)` results, using `safeParse`, never `parse`.
 - Versioned migrations upgrade old files step by step.
 - No code outside `persist/` knows the on-disk format.
 
@@ -256,7 +257,7 @@ Every editor action is a reversible command. History depth ~100. Train state is 
 
 ## 10. Error handling
 
-- Expected outcomes (no snap, invalid file, no route) are result values, not exceptions.
+- Expected outcomes (no snap, invalid file, no route) are result values, not exceptions. Domain code uses plain discriminated unions; edges that can fail in several ways (file import, IndexedDB, asset loading, Rapier load) use a small shared `Result<T, E>` type in `src/lib/result.ts`. No effect-system library.
 - The frame loop has a top-level guard: an unexpected exception is logged and the loop continues.
 - WebGL context loss is recovered (§7.8). Rapier load failure disables derail mode gracefully (cars stop instead of tumbling) and is reported once.
 
