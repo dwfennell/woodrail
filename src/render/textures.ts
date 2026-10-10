@@ -187,37 +187,56 @@ export function wallTextures(anisotropy: number): SurfaceTextures {
   return toTextures(c, 1 / 1000, 1 / 1000, anisotropy);
 }
 
-/** Felt: tiled fibre noise for the bump map, plus a gentle colour mottling texture. */
+/**
+ * Felt: a tile of short, randomly oriented fibres (about 0.2 mm per pixel at the default repeat) for the bump and a
+ * matching speckle in the colour map. Broad colour mottling is added separately in world space (see `mottleTexture`).
+ */
 export function feltTextures(anisotropy: number, base: string, repeat: number): { map: Texture; bumpMap: Texture } {
-  const N = 256;
-  const color = document.createElement("canvas");
+  const N = 512;
   const bump = document.createElement("canvas");
-  color.width = color.height = bump.width = bump.height = N;
-  const cc = color.getContext("2d")!;
+  bump.width = bump.height = N;
   const bc = bump.getContext("2d")!;
-  const ci = cc.createImageData(N, N);
-  const bi = bc.createImageData(N, N);
-  const n1 = makeNoise(71, 32);
-  const n2 = makeNoise(73, 128);
-  const rgb = hex(base);
-  for (let y = 0; y < N; y++) {
-    for (let x = 0; x < N; x++) {
-      const u = x / N;
-      const v = y / N;
-      const mottle = fbm(n1, u * 4, v * 4, 3);
-      const fibre = fbm(n2, u * 128, v * 128, 2);
-      const k = 0.88 + mottle * 0.18 + (fibre - 0.5) * 0.08;
-      const i = (y * N + x) * 4;
-      ci.data[i] = Math.min(255, rgb[0] * k);
-      ci.data[i + 1] = Math.min(255, rgb[1] * k);
-      ci.data[i + 2] = Math.min(255, rgb[2] * k);
-      ci.data[i + 3] = 255;
-      bi.data[i] = bi.data[i + 1] = bi.data[i + 2] = fibre * 255;
-      bi.data[i + 3] = 255;
+  bc.fillStyle = "#808080";
+  bc.fillRect(0, 0, N, N);
+  const r = rng(91);
+  bc.lineCap = "round";
+  for (let k = 0; k < 9000; k++) {
+    const x = r() * N;
+    const y = r() * N;
+    const a = r() * Math.PI * 2;
+    const len = 6 + r() * 22;
+    const bend = (r() - 0.5) * len * 0.6;
+    const light = r() < 0.5;
+    bc.strokeStyle = light ? `rgba(255,255,255,${0.1 + r() * 0.16})` : `rgba(0,0,0,${0.08 + r() * 0.14})`;
+    bc.lineWidth = 0.6 + r() * 1.1;
+    const ex = Math.cos(a) * len;
+    const ey = Math.sin(a) * len;
+    const mx = ex / 2 - Math.sin(a) * bend;
+    const my = ey / 2 + Math.cos(a) * bend;
+    // Draw wrapped copies near the edges so the tile repeats seamlessly.
+    for (const ox of x < 32 ? [0, N] : x > N - 32 ? [0, -N] : [0]) {
+      for (const oy of y < 32 ? [0, N] : y > N - 32 ? [0, -N] : [0]) {
+        bc.beginPath();
+        bc.moveTo(x + ox, y + oy);
+        bc.quadraticCurveTo(x + ox + mx, y + oy + my, x + ox + ex, y + oy + ey);
+        bc.stroke();
+      }
     }
   }
+  const bi = bc.getImageData(0, 0, N, N);
+  const color = document.createElement("canvas");
+  color.width = color.height = N;
+  const cc = color.getContext("2d")!;
+  const ci = cc.createImageData(N, N);
+  const rgb = hex(base);
+  for (let i = 0; i < N * N * 4; i += 4) {
+    const k = 0.86 + (bi.data[i] / 255) * 0.26;
+    ci.data[i] = Math.min(255, rgb[0] * k);
+    ci.data[i + 1] = Math.min(255, rgb[1] * k);
+    ci.data[i + 2] = Math.min(255, rgb[2] * k);
+    ci.data[i + 3] = 255;
+  }
   cc.putImageData(ci, 0, 0);
-  bc.putImageData(bi, 0, 0);
   const make = (c: HTMLCanvasElement, srgb: boolean) => {
     const t = new CanvasTexture(c);
     t.wrapS = t.wrapT = RepeatWrapping;
@@ -227,4 +246,47 @@ export function feltTextures(anisotropy: number, base: string, repeat: number): 
     return t;
   };
   return { map: make(color, true), bumpMap: make(bump, false) };
+}
+
+/** Soft, tileable low-frequency noise (linear, centred on 0.5) for broad colour variation across large surfaces. */
+export function mottleTexture(): Texture {
+  const N = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = N;
+  const ctx = c.getContext("2d")!;
+  const img = ctx.createImageData(N, N);
+  const n = makeNoise(37, 8);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const v = fbm(n, (x / N) * 8, (y / N) * 8, 4);
+      const i = (y * N + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = clamp01(v) * 255;
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = new CanvasTexture(c);
+  t.wrapS = t.wrapT = RepeatWrapping;
+  t.colorSpace = LinearSRGBColorSpace;
+  return t;
+}
+
+/** Dashed thread for the stitched hem: cream stitches along u on a transparent background. */
+export function stitchTexture(anisotropy: number): Texture {
+  const c = document.createElement("canvas");
+  c.width = 64;
+  c.height = 16;
+  const ctx = c.getContext("2d")!;
+  ctx.clearRect(0, 0, 64, 16);
+  ctx.fillStyle = "#efe6cf";
+  ctx.beginPath();
+  ctx.roundRect(8, 5, 40, 6, 3);
+  ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.fillRect(10, 10, 36, 1.5);
+  const t = new CanvasTexture(c);
+  t.wrapS = RepeatWrapping;
+  t.colorSpace = SRGBColorSpace;
+  t.anisotropy = anisotropy;
+  return t;
 }

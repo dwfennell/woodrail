@@ -22,8 +22,6 @@ import {
   COLS,
   FEAT_TREE,
   hillSlabs,
-  MAT_DEPTH,
-  MAT_WIDTH,
   ROWS,
   SURF_RIVER,
   SURF_ROAD,
@@ -31,9 +29,10 @@ import {
   type Town,
 } from "../landscape";
 import { RISER_HEIGHT, TRACK_WIDTH } from "../track";
+import { buildFeltMat, buildFeltRibbons } from "./dressing/felt";
 import type { Materials } from "./materials";
 
-export const MAT_THICKNESS = 4;
+export { MAT_THICKNESS } from "./dressing/felt";
 const CAP = 7; // painted grass layer on top of each block layer
 const ROOF_COLORS = ["#c8442f", "#2f6db5", "#3c8f4e", "#6b4a8f"];
 const WALL_COLORS = ["#f0ebe0", "#e9d9b8", "#f3e3c3"];
@@ -99,24 +98,12 @@ export class LandscapeView {
     const b = new Batcher();
     const r = rng(this.land.seed * 31 + 7);
 
-    // The felt play mat.
-    const mat = new Mesh(new RoundedBoxGeometry(MAT_WIDTH, MAT_THICKNESS, MAT_DEPTH, 2, 2), this.mats.felt);
-    mat.position.y = -MAT_THICKNESS / 2;
-    mat.receiveShadow = true;
-    this.group.add(mat);
-
-    // Rivers and roads: thin felt pieces, slightly overlapping so the strips read as continuous.
-    for (let row = 0; row < ROWS; row++) {
-      for (let col = 0; col < COLS; col++) {
-        const i = grid.index(col, row);
-        const s = grid.surface[i];
-        if (s !== SURF_RIVER && s !== SURF_ROAD) continue;
-        const thick = s === SURF_RIVER ? 1.6 : 1.1;
-        const g = new RoundedBoxGeometry(CELL + 6, thick, CELL + 6, 1, Math.min(thick / 2, 0.7));
-        g.translate(grid.centreX(col), thick / 2 - 0.2, grid.centreZ(row));
-        b.add(s === SURF_RIVER ? this.mats.riverFelt : this.mats.roadFelt, g);
-      }
-    }
+    // The felt play mat, and felt rivers and roads laid on it.
+    this.group.add(buildFeltMat(this.mats));
+    const river = buildFeltRibbons(grid, SURF_RIVER, this.mats.riverFelt, 1.6);
+    const road = buildFeltRibbons(grid, SURF_ROAD, this.mats.roadFelt, 1.1);
+    if (river) this.group.add(river);
+    if (road) this.group.add(road);
 
     // Hills: stacked wooden blocks with painted grass tops, one slab per merged rectangle per layer.
     for (const slab of hillSlabs(grid)) {

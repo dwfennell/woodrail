@@ -1,5 +1,6 @@
 import { Color, MeshPhysicalMaterial, MeshStandardMaterial, Vector2 } from "three";
-import { beechTextures, feltTextures, oakFloorTextures, wallTextures, type SurfaceTextures } from "./textures";
+import type { Texture } from "three";
+import { beechTextures, feltTextures, mottleTexture, oakFloorTextures, stitchTexture, wallTextures, type SurfaceTextures } from "./textures";
 
 export interface Materials {
   track: MeshPhysicalMaterial;
@@ -9,6 +10,9 @@ export interface Materials {
   trackGhostSnap: MeshPhysicalMaterial;
   trackGhostBlocked: MeshPhysicalMaterial;
   felt: MeshPhysicalMaterial;
+  /** Darker felt binding strip around the mat's edge, and the cream stitches on it. */
+  hemFelt: MeshPhysicalMaterial;
+  stitch: MeshStandardMaterial;
   riverFelt: MeshPhysicalMaterial;
   roadFelt: MeshPhysicalMaterial;
   blockWood: MeshPhysicalMaterial;
@@ -88,22 +92,27 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
 
   const trackCut = new MeshStandardMaterial({ map: beech.map, color: new Color("#a88866"), roughness: 0.85, bumpMap: beech.bumpMap, bumpScale: 0.4 });
 
-  const feltMaterial = (color: string, repeat: number, sheen: string) => {
+  const mottle = mottleTexture();
+  const feltMaterial = (color: string, repeat: number, sheen: string, mottleStrength: number) => {
     const t = feltTextures(anisotropy, color, repeat);
-    return new MeshPhysicalMaterial({
+    const m = new MeshPhysicalMaterial({
       map: t.map,
       bumpMap: t.bumpMap,
-      bumpScale: 1.2,
-      roughness: 0.96,
-      sheen: 0.7,
-      sheenRoughness: 0.75,
+      bumpScale: 1.6,
+      roughness: 1,
+      sheen: 0.6,
+      sheenRoughness: 0.8,
       sheenColor: new Color(sheen),
     });
+    return withWorldMottle(m, mottle, 1400, mottleStrength);
   };
-  // Felt textures tile in uv space; the mat's uvs span 0..1, so repeat across its 3.2 m.
-  const felt = feltMaterial("#4f7f3c", 24, "#a9c890");
-  const riverFelt = feltMaterial("#2f6a9e", 2, "#a8c8ec");
-  const roadFelt = feltMaterial("#8b8a84", 2, "#e2e0d8");
+  // Felt textures tile in uv space. The mat's uvs span 0..1 (repeat across its 3.2 m); the river and road ribbons
+  // have uvs in mm / FELT_TILE.
+  const felt = feltMaterial("#477834", 24, "#8fbf6a", 0.1);
+  const hemFelt = feltMaterial("#2f5223", 24, "#6f9a55", 0.05);
+  const riverFelt = feltMaterial("#2a63a0", 1, "#86b4e8", 0.08);
+  const roadFelt = feltMaterial("#8d8a82", 1, "#e8e4da", 0.05);
+  const stitch = new MeshStandardMaterial({ map: stitchTexture(anisotropy), transparent: true, alphaTest: 0.3, roughness: 0.9 });
   const blockWood = woodMaterial(beech, 0.5);
   const blockWoodDark = woodMaterial(beech, 0.5);
   blockWoodDark.color = new Color("#d9b48c");
@@ -114,6 +123,8 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
     trackCut,
     trackGhostBlocked: ghost("#ff6b5a"),
     felt,
+    hemFelt,
+    stitch,
     riverFelt,
     roadFelt,
     blockWood,
@@ -130,6 +141,33 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
     glass: new MeshPhysicalMaterial({ color: new Color("#1d2633"), roughness: 0.1, clearcoat: 1, metalness: 0.2 }),
     lacquer,
   };
+}
+
+/** Size (mm) of one felt texture tile on the river and road ribbons. */
+export const FELT_TILE = 133;
+
+/**
+ * Multiply a material's base colour by a low-frequency noise sampled in world xz (period `scale` mm), so large felt
+ * areas vary gently in tone instead of reading as one flat colour.
+ */
+function withWorldMottle<T extends MeshStandardMaterial>(m: T, tex: Texture, scale: number, strength: number): T {
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.mottleMap = { value: tex };
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec2 vMottleUv;")
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>\nvMottleUv = (modelMatrix * vec4(transformed, 1.0)).xz / ${scale.toFixed(1)};`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform sampler2D mottleMap;\nvarying vec2 vMottleUv;")
+      .replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>\nfloat mottle = texture2D(mottleMap, vMottleUv).r * 0.6 + texture2D(mottleMap, vMottleUv * 3.7).r * 0.4;\ndiffuseColor.rgb *= 1.0 + (mottle - 0.5) * ${(strength * 2).toFixed(3)};`,
+      );
+  };
+  m.customProgramCacheKey = () => `mottle-${scale}-${strength}`;
+  return m;
 }
 
 export const BEECH_UV_SCALE = new Vector2(1 / 512, 1 / 128);
