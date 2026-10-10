@@ -9,6 +9,7 @@ import {
   routeFrom,
   samplePath,
 } from "../src/track";
+import { checkPlacement, generateLandscape, groundUnder } from "../src/landscape";
 import { runGroup } from "./run";
 
 for (const ovals of [30, 200]) {
@@ -46,5 +47,18 @@ await runGroup("path sampling", {
   "samplePath (arc)": () => {
     s = (s + 1.7) % len;
     samplePath(geom, s, out);
+  },
+});
+
+const land = generateLandscape(11);
+const stationPose = land.towns[0].station;
+let k = 0;
+await runGroup("landscape", {
+  "checkPlacement (drag frame, curve)": () => {
+    k = (k + 1) % 50;
+    checkPlacement(land, "curve-large", false, { x: stationPose.x + k * 3, z: stationPose.z + 120, heading: 0.3 }, 0);
+  },
+  "groundUnder": () => {
+    groundUnder(land, "straight-216", false, { x: -300 + k, z: 200, heading: 0 });
   },
 });

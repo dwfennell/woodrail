@@ -18,7 +18,7 @@ import { TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
 import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
+import { hillSlabs, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
 import { PIECE_TYPES, type Layout } from "../track";
 import type { World } from "./world";
 
@@ -94,6 +94,7 @@ export class Game {
     this.scene.add(this.trackView.group);
     this.trackView.sync();
     this.physics = new DerailPhysics(this.layout);
+    this.physics.setSlabs(hillSlabs(this.landscape.grid));
     this.trainView = new TrainView(this.mats);
     this.scene.add(this.trainView.group);
     this.post = createPost(this.renderer, this.scene, this.camera, this.quality);
@@ -118,6 +119,7 @@ export class Game {
     this.scene.add(this.trackView.group);
     this.trackView.sync();
     this.physics.setLayout(this.layout);
+    this.physics.setSlabs(hillSlabs(this.landscape.grid));
   }
 
   get world(): World {

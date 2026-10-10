@@ -1,5 +1,6 @@
 import type RAPIER_NS from "@dimforge/rapier3d-compat";
 import { Euler, Quaternion, Vector3 } from "three";
+import type { Slab } from "../landscape";
 import { CAR_SPECS, type Train } from "../sim";
 import { createSample, getPieceDef, pathLength, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH, type Layout } from "../track";
 
@@ -44,6 +45,7 @@ export class DerailPhysics {
   private trackColliders: RAPIER_NS.Collider[] = [];
   private trackDirty = true;
   private readonly cars = new Map<number, CarBody>();
+  private slabs: readonly Slab[] = [];
   private readonly pending: Train[] = [];
   private accumulator = 0;
   failed = false;
@@ -58,6 +60,12 @@ export class DerailPhysics {
 
   get active(): boolean {
     return this.cars.size > 0;
+  }
+
+  /** Hill blocks of the current map: static colliders so tumbling cars land on them. */
+  setSlabs(slabs: readonly Slab[]): void {
+    this.slabs = slabs;
+    this.trackDirty = true;
   }
 
   /** Track changed: rebuild static colliders before the next step. */
@@ -106,6 +114,17 @@ export class DerailPhysics {
     const s = createSample();
     const half = TRACK_WIDTH / 2;
     const add = (desc: RAPIER_NS.ColliderDesc) => this.trackColliders.push(world.createCollider(desc.setFriction(0.6).setRestitution(0.15)));
+    for (const slab of this.slabs) {
+      const hx = (slab.x1 - slab.x0) / 2;
+      const hz = (slab.z1 - slab.z0) / 2;
+      add(
+        R.ColliderDesc.cuboid(hx * MM, (RISER_HEIGHT / 2) * MM, hz * MM).setTranslation(
+          (slab.x0 + hx) * MM,
+          ((slab.level - 0.5) * RISER_HEIGHT) * MM,
+          (slab.z0 + hz) * MM,
+        ),
+      );
+    }
     for (const id of this.layout.pieceIds()) {
       if (this.layout.isLifted(id)) continue;
       const p = this.layout.getPiece(id)!;
