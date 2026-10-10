@@ -21,19 +21,18 @@ import {
   CELL,
   COLS,
   FEAT_TREE,
-  hillSlabs,
   ROWS,
   SURF_RIVER,
   SURF_ROAD,
   type Landscape,
   type Town,
 } from "../landscape";
-import { RISER_HEIGHT, TRACK_WIDTH } from "../track";
+import { TRACK_WIDTH } from "../track";
+import { buildBlocks } from "./dressing/blocks";
 import { buildFeltMat, buildFeltRibbons } from "./dressing/felt";
 import type { Materials } from "./materials";
 
 export { MAT_THICKNESS } from "./dressing/felt";
-const CAP = 7; // painted grass layer on top of each block layer
 const ROOF_COLORS = ["#c8442f", "#2f6db5", "#3c8f4e", "#6b4a8f"];
 const WALL_COLORS = ["#f0ebe0", "#e9d9b8", "#f3e3c3"];
 
@@ -105,20 +104,8 @@ export class LandscapeView {
     if (river) this.group.add(river);
     if (road) this.group.add(road);
 
-    // Hills: stacked wooden blocks with painted grass tops, one slab per merged rectangle per layer.
-    for (const slab of hillSlabs(grid)) {
-      const w = slab.x1 - slab.x0;
-      const d = slab.z1 - slab.z0;
-      const cx = (slab.x0 + slab.x1) / 2;
-      const cz = (slab.z0 + slab.z1) / 2;
-      const base = (slab.level - 1) * RISER_HEIGHT;
-      const wood = new RoundedBoxGeometry(w - 1, RISER_HEIGHT - CAP, d - 1, 2, 2.5);
-      wood.translate(cx, base + (RISER_HEIGHT - CAP) / 2, cz);
-      b.add(slab.level % 2 ? this.mats.blockWood : this.mats.blockWoodDark, wood);
-      const cap = new RoundedBoxGeometry(w - 1, CAP, d - 1, 2, 2.5);
-      cap.translate(cx, base + RISER_HEIGHT - CAP / 2, cz);
-      b.add(this.mats.blockTop, cap);
-    }
+    // Hills: stacks of individual wooden blocks, painted green on top.
+    this.group.add(buildBlocks(grid, this.land.seed, this.mats));
 
     // Trees: lacquered cones and lollipops, standing on whatever block they grew on.
     for (let row = 0; row < ROWS; row++) {

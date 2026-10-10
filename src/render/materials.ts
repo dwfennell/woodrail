@@ -16,7 +16,6 @@ export interface Materials {
   riverFelt: MeshPhysicalMaterial;
   roadFelt: MeshPhysicalMaterial;
   blockWood: MeshPhysicalMaterial;
-  blockWoodDark: MeshPhysicalMaterial;
   blockTop: MeshPhysicalMaterial;
   naturalWood: MeshPhysicalMaterial;
   floor: MeshPhysicalMaterial;
@@ -114,9 +113,16 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
   const roadFelt = feltMaterial("#8d8a82", 1, "#e8e4da", 0.05);
   const stitch = new MeshStandardMaterial({ map: stitchTexture(anisotropy), transparent: true, alphaTest: 0.3, roughness: 0.9 });
   const blockWood = woodMaterial(beech, 0.5);
-  const blockWoodDark = woodMaterial(beech, 0.5);
-  blockWoodDark.color = new Color("#d9b48c");
-  const blockTop = new MeshPhysicalMaterial({ color: new Color("#5e9446"), roughness: 0.5, clearcoat: 0.6, clearcoatRoughness: 0.3, bumpMap: beech.bumpMap, bumpScale: 0.3 });
+  // Satin green paint over beech: the grain still shows through faintly.
+  const blockTop = new MeshPhysicalMaterial({
+    map: beech.map,
+    color: new Color("#79b851"),
+    roughness: 0.55,
+    clearcoat: 0.25,
+    clearcoatRoughness: 0.5,
+    bumpMap: beech.bumpMap,
+    bumpScale: 0.35,
+  });
 
   return {
     track,
@@ -128,7 +134,6 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
     riverFelt,
     roadFelt,
     blockWood,
-    blockWoodDark,
     blockTop,
     trackGhost: ghost("#ffffff"),
     trackGhostSnap: ghost("#9be37b"),
