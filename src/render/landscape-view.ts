@@ -1,4 +1,4 @@
-import { BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SRGBColorSpace } from "three";
+import { BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SRGBColorSpace, type InstancedMesh, type MeshBasicMaterial } from "three";
 import { CELL, COLS, ROWS, SURF_RIVER, SURF_ROAD, type Landscape, type Town } from "../landscape";
 import { SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
@@ -16,6 +16,7 @@ export { MAT_THICKNESS } from "./dressing/felt";
 export class LandscapeView {
   readonly group = new Group();
   private signs = new Map<number, MeshStandardMaterial>();
+  private connected = new Set<number>();
 
   constructor(
     private readonly land: Landscape,
@@ -29,7 +30,16 @@ export class LandscapeView {
   dispose(): void {
     this.group.traverse((o) => {
       const m = o as Mesh;
-      if (m.isMesh) m.geometry.dispose();
+      if (!m.isMesh) return;
+      m.geometry.dispose();
+      // Instanced meshes hold per-instance buffers that only their own dispose() frees.
+      if ((m as InstancedMesh).isInstancedMesh) (m as InstancedMesh).dispose();
+      // Materials made just for this view (shared ones from Materials are kept).
+      if (m.userData.ownsMaterial) {
+        const mat = m.material as MeshBasicMaterial;
+        mat.alphaMap?.dispose();
+        mat.dispose();
+      }
     });
     for (const m of this.signs.values()) {
       m.map?.dispose();
@@ -39,25 +49,27 @@ export class LandscapeView {
 
   /** A bright pulse on these towns' signs (a celebration when they're connected). */
   flash(towns: readonly number[]): Flourish {
-    const mats = towns.map((id) => this.signs.get(id)).filter((m): m is MeshStandardMaterial => !!m);
+    const ids = towns.filter((id) => this.signs.has(id));
     let t = 0;
-    const base = mats.map((m) => m.emissiveIntensity);
     return {
       update: (dt) => {
         t += dt;
         const k = Math.max(0, Math.sin((t / 1.2) * Math.PI * 3)) * (1 - t / 1.2);
-        mats.forEach((m, i) => {
+        for (const id of ids) {
+          const m = this.signs.get(id)!;
           m.emissive.set("#ffcf6b");
-          m.emissiveIntensity = base[i] + k * 1.4;
-        });
+          m.emissiveIntensity = (this.connected.has(id) ? 0.55 : 0) + k * 1.4;
+        }
         return t < 1.2;
       },
-      dispose: () => mats.forEach((m) => (m.emissiveIntensity = 0.55)),
+      // Settle on whatever the sign should show now: the connection may have been undone mid-flash.
+      dispose: () => this.setConnected(this.connected),
     };
   }
 
   /** Light the signs of connected towns. */
   setConnected(towns: ReadonlySet<number>): void {
+    this.connected = new Set(towns);
     for (const [id, m] of this.signs) {
       const on = towns.has(id);
       m.emissive.set(on ? "#ffcf6b" : "#000000");

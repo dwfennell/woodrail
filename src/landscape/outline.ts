@@ -73,7 +73,9 @@ export function traceRegions(mask: (col: number, row: number) => boolean, cols: 
  */
 export function smoothLoop(loop: Loop, relax = 8, iterations = 2): Loop {
   let pts = loop;
-  for (let k = 0; k < relax * 2; k++) {
+  // Small patches have no staircases to straighten, and relaxing would shrink them away: scale with outline length.
+  const passes = Math.min(relax, Math.floor(loop.length / 8));
+  for (let k = 0; k < passes * 2; k++) {
     const f = k % 2 === 0 ? 0.5 : -0.53;
     const n = pts.length;
     const next: Loop = new Array(n);

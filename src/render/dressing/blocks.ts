@@ -84,6 +84,7 @@ function shadowProxy(grid: LandscapeGrid): Mesh | null {
   const merged = mergeGeometries(boxes);
   for (const b of boxes) b.dispose();
   const mesh = new Mesh(merged, new MeshBasicMaterial());
+  mesh.userData.ownsMaterial = true;
   mesh.castShadow = true;
   mesh.layers.set(SHADOW_PROXY_LAYER);
   return mesh;

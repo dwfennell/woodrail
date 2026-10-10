@@ -199,6 +199,8 @@ export class Interaction {
     }
     if (this.mode.kind !== "idle") return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    // Finish any settle/turn first: animating pieces are hidden from picking until their stand-in is done.
+    this.game.flourishes.clear();
     const hit = this.pick(e.clientX, e.clientY);
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     if (!hit) {
@@ -528,7 +530,8 @@ export class Interaction {
     this.lastY = y;
     m.overTray = this.hud.isOverTray(x, y);
     const r = this.game.canvas.getBoundingClientRect();
-    this.game.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch });
+    const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
+    this.game.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop });
     const ground = this.groundAt(x, y);
     if (m.kind === "drag-piece") {
       m.ghost.visible = !m.overTray && !!ground;

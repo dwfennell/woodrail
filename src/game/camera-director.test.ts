@@ -71,3 +71,21 @@ describe("lerpAngle", () => {
     expect(lerpAngle(0.1, 0.5, 1)).toBeCloseTo(0.5, 9);
   });
 });
+
+import { PerspectiveCamera } from "three";
+import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { CameraDirector } from "./camera-director";
+
+describe("CameraDirector edge pan", () => {
+  it("pans toward the camera when dragging just above the tray (the screen's usable bottom)", () => {
+    const camera = new PerspectiveCamera(30, 1000 / 800, 5, 40000);
+    camera.position.set(0, 600, 600);
+    const controls = { target: new Vector3(), minDistance: 100, maxDistance: 9000, maxPolarAngle: 1.42, addEventListener: () => {} } as unknown as OrbitControls;
+    camera.lookAt(controls.target);
+    const d = new CameraDirector(camera, controls);
+    // Tray covers y 600..800; the pointer is just above it.
+    d.setEdgePointer({ x: 500, y: 590, touch: false, bottom: 600 });
+    d.update(1 / 30, 1000, 800);
+    expect(controls.target.z).toBeGreaterThan(0);
+  });
+});

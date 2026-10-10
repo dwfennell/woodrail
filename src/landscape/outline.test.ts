@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateLandscape } from "./generate";
 import { COLS, ROWS, SURF_RIVER, SURF_ROAD } from "./grid";
-import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
+import { insideLoops, loopArea, smoothLoop, traceRegions, type Loop } from "./outline";
 
 const fromRows = (rows: string[]) => (c: number, r: number) => rows[r]?.[c] === "#";
 
@@ -62,5 +62,15 @@ describe("smoothLoop on generated maps", () => {
         }
       }
     }
+  });
+});
+
+describe("smoothLoop on small patches", () => {
+  const area = (rows: string[], w: number, h: number) => Math.abs(loopArea(smoothLoop(traceRegions(fromRows(rows), w, h)[0])));
+  it("keeps a single-cell patch mostly covered", () => {
+    expect(area([".....", "..#..", "....."], 5, 3)).toBeGreaterThan(0.6);
+  });
+  it("keeps a two-cell patch mostly covered", () => {
+    expect(area(["......", ".##...", "......"], 6, 3)).toBeGreaterThan(1.4);
   });
 });

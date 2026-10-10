@@ -15,7 +15,7 @@ import { Flourishes } from "../render/flourishes";
 import { createPost, type Post } from "../render/post";
 import { detectQuality, type QualitySettings } from "../render/quality";
 import { createRoom, type Room } from "../render/room";
-import { shadowRadiusFor, shouldRefit } from "../render/shadow-fit";
+import { shadowRadiusForView, shouldRefit } from "../render/shadow-fit";
 import { TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
 import { DerailPhysics } from "../physics/derail-physics";
@@ -123,6 +123,7 @@ export class Game {
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
     this.scene.remove(this.trackView.group);
+    this.trackView.dispose();
     (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
@@ -247,7 +248,7 @@ export class Game {
     this.controls.update(dt);
     const t = this.controls.target;
     const dist = this.camera.position.distanceTo(t);
-    const radius = shadowRadiusFor(dist);
+    const radius = shadowRadiusForView(this.camera, t);
     if (shouldRefit(this.room.shadowFit, t.x, t.z, radius)) this.room.fitShadow(t.x, t.z, radius);
     this.post.setFocus(dist);
     this.post.render(this.clock.elapsedTime);

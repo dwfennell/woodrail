@@ -80,7 +80,7 @@ export class CameraDirector {
   private readonly zoomAnchor = new Vector3();
   private followed: (() => Vector3 | null) | null = null;
   private readonly edge = { dx: 0, dy: 0 };
-  private edgePointer: { x: number; y: number; zone: number } | null = null;
+  private edgePointer: { x: number; y: number; zone: number; bottom?: number } | null = null;
   private readonly tmp = new Vector3();
   private readonly tmp2 = new Vector3();
   private readonly right = new Vector3();
@@ -148,9 +148,12 @@ export class CameraDirector {
     this.zoomAnchor.copy(anchor ?? c.target);
   }
 
-  /** While dragging a piece: pan when the pointer nears a screen edge (null when not dragging). */
-  setEdgePointer(p: { x: number; y: number; touch: boolean } | null): void {
-    this.edgePointer = p ? { x: p.x, y: p.y, zone: p.touch ? 72 : 48 } : null;
+  /**
+   * While dragging a piece: pan when the pointer nears a screen edge (null when not dragging). `bottom` is where the
+   * usable view ends (the top of the tray), so the bottom edge zone sits just above it.
+   */
+  setEdgePointer(p: { x: number; y: number; touch: boolean; bottom?: number } | null): void {
+    this.edgePointer = p ? { x: p.x, y: p.y, zone: p.touch ? 72 : 48, bottom: p.bottom } : null;
   }
 
   /** True when the last update panned the view (dragged things under the pointer need re-placing). */
@@ -200,7 +203,7 @@ export class CameraDirector {
     }
 
     if (this.edgePointer) {
-      edgePan(this.edgePointer.x, this.edgePointer.y, viewW, viewH, this.edgePointer.zone, this.edge);
+      edgePan(this.edgePointer.x, this.edgePointer.y, viewW, this.edgePointer.bottom ?? viewH, this.edgePointer.zone, this.edge);
       if (this.edge.dx !== 0 || this.edge.dy !== 0) {
         const dist = cam.position.distanceTo(c.target);
         cam.getWorldDirection(this.forward);

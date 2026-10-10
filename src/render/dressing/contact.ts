@@ -39,6 +39,7 @@ export function buildContactShadows(prints: readonly Footprint[]): InstancedMesh
   const mesh = new InstancedMesh(plane, material, Math.max(1, prints.length));
   mesh.count = prints.length;
   mesh.renderOrder = 1;
+  mesh.userData.ownsMaterial = true;
   const m = new Matrix4();
   const q = new Quaternion();
   const up = new Vector3(0, 1, 0);

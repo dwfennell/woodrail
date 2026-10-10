@@ -253,6 +253,16 @@ export class TrackView {
     return -1;
   }
 
+  /** Free this view's GPU buffers (piece geometry is a shared cache and is kept). */
+  dispose(): void {
+    for (const { mesh } of this.meshes.values()) mesh.dispose();
+    this.meshes.clear();
+    this.bufferMesh?.mesh.dispose();
+    this.bufferMesh = null;
+    this.leverGeometry.dispose();
+    this.outlineMaterial.dispose();
+  }
+
   /** Warm the CSG geometry cache for every piece type (call during loading). */
   static prebuild(types: readonly PieceTypeId[]): void {
     for (const t of types) {
