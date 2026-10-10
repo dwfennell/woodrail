@@ -141,3 +141,30 @@ describe("Layout editing", () => {
     expect(l.switchState(s)).toBe(0);
   });
 });
+
+describe("Layout review fixes", () => {
+  it("re-seats a freed neighbour with a free connector already at the same spot", () => {
+    const l = new Layout();
+    const a = l.addPiece("straight-144", P(0, 0));
+    const b = l.addPiece("straight-144", P(144, 0));
+    const c = l.addPiece("straight-108", P(144, 0)); // overlaps b; its socket stays free
+    expect(l.jointCount).toBe(1);
+    l.removePiece(b);
+    expect(l.joinedConnector(connectorRef(a, 1))).toBe(connectorRef(c, 0));
+  });
+
+  it("lifting a piece frees its neighbours so it can snap back into its own gap", () => {
+    const l = new Layout();
+    l.addPiece("straight-144", P(0, 0));
+    const b = l.addPiece("straight-144", P(144, 0));
+    l.addPiece("straight-144", P(288, 0));
+    l.liftPiece(b);
+    expect(l.jointCount).toBe(0);
+    expect(l.isLifted(b)).toBe(true);
+    const out: number[] = [];
+    expect(l.queryFreeConnectors(144, 0, 2, out)).toBe(1); // a's peg is free; b's own socket is not offered
+    l.dropPiece(b, P(144, 0), 0);
+    expect(l.isLifted(b)).toBe(false);
+    expect(l.jointCount).toBe(2);
+  });
+});

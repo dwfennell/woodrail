@@ -36,6 +36,7 @@ export const createWorldConnector = (): WorldConnector => ({ x: 0, z: 0, heading
 const scratchA = createWorldConnector();
 const scratchB = createWorldConnector();
 const candidates: number[] = [];
+const detachScratch: number[] = [];
 
 export class Layout {
   private nextId = 1;
@@ -44,6 +45,7 @@ export class Layout {
   private readonly jointMap = new Map<number, Joint>();
   private readonly freeConnectors = new SpatialHash(SPATIAL_CELL_SIZE);
   private readonly switchStates = new Map<number, number>();
+  private readonly lifted = new Set<number>();
 
   get pieceCount(): number {
     return this.pieces.size;
@@ -74,19 +76,39 @@ export class Layout {
 
   removePiece(id: number): boolean {
     if (!this.pieces.has(id)) return false;
-    this.detachAll(id);
+    if (!this.lifted.delete(id)) this.detachAll(id);
     this.pieces.delete(id);
     this.switchStates.delete(id);
     return true;
   }
 
   movePiece(id: number, pose: Pose, y: number): boolean {
+    if (!this.liftPiece(id)) return false;
+    return this.dropPiece(id, pose, y);
+  }
+
+  /** Take a piece out of the joint graph (e.g. while it is being dragged). Its neighbours become free. */
+  liftPiece(id: number): boolean {
+    if (!this.pieces.has(id)) return false;
+    if (this.lifted.has(id)) return true;
+    this.detachAll(id);
+    this.lifted.add(id);
+    return true;
+  }
+
+  /** Put a lifted piece down at a new pose and seat it. */
+  dropPiece(id: number, pose: Pose, y: number): boolean {
     const piece = this.pieces.get(id);
     if (!piece) return false;
-    this.detachAll(id);
+    if (!this.lifted.has(id)) this.detachAll(id);
+    this.lifted.delete(id);
     this.pieces.set(id, { ...piece, pose: { ...pose }, y });
     this.seatAll(id);
     return true;
+  }
+
+  isLifted(id: number): boolean {
+    return this.lifted.has(id);
   }
 
   worldConnector(ref: number, out: WorldConnector): WorldConnector {
@@ -162,6 +184,9 @@ export class Layout {
   private detachAll(id: number): void {
     const piece = this.pieces.get(id)!;
     const count = getPieceDef(piece.type, piece.flipped).connectors.length;
+    // First take every own connector out of the graph, so freed partners cannot re-seat onto this piece.
+    const partners = detachScratch;
+    partners.length = 0;
     for (let i = 0; i < count; i++) {
       const ref = connectorRef(id, i);
       const partner = this.joinedTo.get(ref);
@@ -172,8 +197,9 @@ export class Layout {
       this.joinedTo.delete(ref);
       this.joinedTo.delete(partner);
       this.jointMap.delete(Math.min(ref, partner));
-      const pw = this.worldConnector(partner, scratchB);
-      this.freeConnectors.insert(partner, pw.x, pw.z);
+      partners.push(partner);
     }
+    // Freed partners may now meet another free connector at the same spot (overlapping pieces).
+    for (let i = 0; i < partners.length; i++) this.seatConnector(partners[i]);
   }
 }
