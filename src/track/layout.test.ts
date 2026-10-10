@@ -168,3 +168,22 @@ describe("Layout review fixes", () => {
     expect(l.jointCount).toBe(2);
   });
 });
+
+describe("Layout.restorePiece", () => {
+  it("re-adds a piece with its original id and seats it", () => {
+    const l = new Layout();
+    l.addPiece("straight-144", P(0, 0));
+    const b = l.addPiece("straight-144", P(144, 0));
+    l.removePiece(b);
+    expect(l.restorePiece(b, "straight-144", P(144, 0), 0, false)).toBe(true);
+    expect(l.getPiece(b)!.type).toBe("straight-144");
+    expect(l.jointCount).toBe(1);
+    expect(l.addPiece("straight-54", P(500, 500))).toBeGreaterThan(b);
+  });
+
+  it("refuses an id that is in use", () => {
+    const l = new Layout();
+    const a = l.addPiece("straight-144", P(0, 0));
+    expect(l.restorePiece(a, "straight-54", P(0, 0), 0, false)).toBe(false);
+  });
+});

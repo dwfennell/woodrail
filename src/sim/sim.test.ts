@@ -237,3 +237,44 @@ describe("determinism and snapshot", () => {
     expect(snap.transforms[1]).toBeCloseTo(0); // y on the floor
   });
 });
+
+describe("track edits under trains", () => {
+  it("removing a piece a train is standing on derails that train only", () => {
+    const { layout, ids } = longLine(10);
+    const sim = new Sim(layout);
+    const a = sim.addTrain(["engine"], { pieceId: ids[2], pathIndex: 0, reversed: false, s: 150 });
+    const b = sim.addTrain(["engine"], { pieceId: ids[7], pathIndex: 0, reversed: false, s: 150 });
+    if (a.kind !== "placed" || b.kind !== "placed") throw new Error("not placed");
+    layout.removePiece(ids[2]);
+    sim.trackChanged();
+    expect(sim.getTrain(a.trainId)!.derailed).toBe(true);
+    expect(sim.getTrain(b.trainId)!.derailed).toBe(false);
+    sim.tick(); // must not touch the removed piece
+  });
+
+  it("lifting a piece derails trains on it", () => {
+    const { layout, ids } = longLine(4);
+    const sim = new Sim(layout);
+    const a = sim.addTrain(["engine"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
+    if (a.kind !== "placed") throw new Error("not placed");
+    layout.liftPiece(ids[1]);
+    sim.trackChanged();
+    expect(sim.getTrain(a.trainId)!.derailed).toBe(true);
+  });
+
+  it("rerail puts a derailed train back on the nearest track", () => {
+    const { layout, ids } = chain(["straight-216", "straight-216"]);
+    const sim = new Sim(layout);
+    const r = sim.addTrain(["engine", "hopper"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
+    if (r.kind !== "placed") throw new Error("not placed");
+    sim.setLever(sim.getTrain(r.trainId)!.cars[0].id, 1);
+    run(sim, 3);
+    expect(sim.getTrain(r.trainId)!.derailed).toBe(true);
+    const back = sim.rerail(r.trainId);
+    expect(back).not.toBe(-1);
+    const t = sim.getTrain(back)!;
+    expect(t.derailed).toBe(false);
+    expect(t.cars.map((c) => c.kind)).toEqual(["engine", "hopper"]);
+    expect(t.cars[0].lever).toBe(0);
+  });
+});

@@ -32,6 +32,7 @@ export function findSnap(
   pose: Pose,
   y: number,
   excludePieceId = -1,
+  captureRadius = SNAP_CAPTURE_RADIUS,
 ): SnapResult {
   const def = getPieceDef(type, flipped);
   let best: SnapResult = NONE;
@@ -40,14 +41,14 @@ export function findSnap(
     const c = def.connectors[i];
     transformPose(pose, c.pose, local);
     const cy = y + c.y;
-    const n = layout.queryFreeConnectors(local.x, local.z, SNAP_CAPTURE_RADIUS, candidates);
+    const n = layout.queryFreeConnectors(local.x, local.z, captureRadius, candidates);
     for (let j = 0; j < n; j++) {
       const ref = candidates[j];
       if (pieceOfRef(ref) === excludePieceId) continue;
       const t = layout.worldConnector(ref, target);
       if (t.kind === c.kind) continue;
       const distance = Math.hypot(t.x - local.x, t.z - local.z);
-      if (distance > SNAP_CAPTURE_RADIUS || Math.abs(t.y - cy) > SNAP_HEIGHT_TOLERANCE) continue;
+      if (distance > captureRadius || Math.abs(t.y - cy) > SNAP_HEIGHT_TOLERANCE) continue;
       if (distance >= bestDistance) continue;
       bestDistance = distance;
       const snapped = solveParentPose(c.pose, { x: t.x, z: t.z, heading: t.heading + Math.PI }, { x: 0, z: 0, heading: 0 });

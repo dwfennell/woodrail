@@ -74,6 +74,15 @@ export class Layout {
     return id;
   }
 
+  /** Re-add a piece under a specific id (undo, loading saves). Returns false if the id is taken. */
+  restorePiece(id: number, type: PieceTypeId, pose: Pose, y: number, flipped: boolean): boolean {
+    if (this.pieces.has(id)) return false;
+    this.pieces.set(id, { id, type, flipped, pose: { ...pose }, y });
+    if (id >= this.nextId) this.nextId = id + 1;
+    this.seatAll(id);
+    return true;
+  }
+
   removePiece(id: number): boolean {
     if (!this.pieces.has(id)) return false;
     if (!this.lifted.delete(id)) this.detachAll(id);

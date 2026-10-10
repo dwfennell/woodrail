@@ -13,6 +13,7 @@ import {
   type RouteMemory,
   type WorldSample,
 } from "./cursor";
+import { nearestCursor } from "./nearest";
 
 export const SIM_HZ = 120;
 export const SIM_DT = 1 / SIM_HZ;
@@ -173,6 +174,36 @@ export class Sim {
     const car = found.train.cars[found.index];
     car.facing = car.facing === 1 ? -1 : 1;
     return true;
+  }
+
+  /** Call after the layout changes: trains on removed or lifted pieces derail. */
+  trackChanged(): void {
+    for (const train of this.trains.values()) {
+      if (train.derailed) continue;
+      for (const b of train.bogies) {
+        if (!this.layout.getPiece(b.pieceId) || this.layout.isLifted(b.pieceId)) {
+          this.derail(train);
+          break;
+        }
+      }
+    }
+  }
+
+  /** Put a (derailed) train back on the nearest track, motor off. Returns the new train id, or -1 if there is no room. */
+  rerail(trainId: number, maxDistance = 150): number {
+    const train = this.trains.get(trainId);
+    if (!train) return -1;
+    const lead = train.world[0];
+    const kinds = train.cars.map((c) => c.kind);
+    for (const heading of [lead.heading, lead.heading + Math.PI]) {
+      const near = nearestCursor(this.layout, lead.x, lead.z, maxDistance, heading);
+      if (!near) return -1;
+      this.trains.delete(trainId);
+      const placed = this.addTrain(kinds, near.cursor);
+      if (placed.kind === "placed") return placed.trainId;
+      this.trains.set(trainId, train);
+    }
+    return -1;
   }
 
   toggleSwitch(pieceId: number): void {

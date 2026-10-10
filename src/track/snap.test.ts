@@ -108,3 +108,12 @@ describe("loop closure", () => {
     expect(l.jointCount).toBe(7);
   });
 });
+
+describe("findSnap capture radius", () => {
+  it("accepts a larger capture radius (zoomed-out dragging)", () => {
+    const l = new Layout();
+    l.addPiece("straight-144", P(0, 0));
+    expect(findSnap(l, "straight-144", false, P(184, 0), 0).kind).toBe("none");
+    expect(findSnap(l, "straight-144", false, P(184, 0), 0, -1, 60).kind).toBe("snapped");
+  });
+});

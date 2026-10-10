@@ -99,6 +99,7 @@ export class TrackView {
 
     const groups = new Map<string, number[]>();
     for (const id of this.layout.pieceIds()) {
+      if (this.layout.isLifted(id)) continue;
       const p = this.layout.getPiece(id)!;
       const def = getPieceDef(p.type, p.flipped);
       const key = `${p.type}|${def === getPieceDef(p.type, false) ? 0 : 1}`;
@@ -149,7 +150,7 @@ export class TrackView {
     for (const id of this.layout.pieceIds()) {
       const p = this.layout.getPiece(id)!;
       const def = getPieceDef(p.type, p.flipped);
-      if (!def.isSwitch) continue;
+      if (!def.isSwitch || this.layout.isLifted(id)) continue;
       live.add(id);
       let lever = this.levers.get(id);
       if (!lever) {
