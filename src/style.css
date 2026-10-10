@@ -1,0 +1,13 @@
+:root {
+  --ink: #2b2118;
+  --paper: #f6efe3;
+  --beech: #e7c89a;
+  --accent: #c8442f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; color: var(--ink); font-family: "Nunito", system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#loading { position: fixed; inset: 0; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #f3e6cf, #cbb595); transition: opacity 0.6s ease; z-index: 50; }
+#loading.done { opacity: 0; pointer-events: none; }
+#loading h1 { font-size: clamp(32px, 7vw, 64px); letter-spacing: 0.04em; margin: 0; color: var(--ink); }
+#loading p { margin: 8px 0 0; opacity: 0.7; text-align: center; }

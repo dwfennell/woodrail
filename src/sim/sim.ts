@@ -65,6 +65,8 @@ export interface SimSnapshot {
   kinds: Uint8Array;
   trainIds: Int32Array;
   derailed: Uint8Array;
+  /** Engine lever (-1, 0, 1); 0 for unpowered cars. */
+  levers: Int8Array;
   transforms: Float32Array;
 }
 
@@ -75,6 +77,7 @@ export function createSnapshot(capacity = 64): SimSnapshot {
     kinds: new Uint8Array(capacity),
     trainIds: new Int32Array(capacity),
     derailed: new Uint8Array(capacity),
+    levers: new Int8Array(capacity),
     transforms: new Float32Array(capacity * 6),
   };
 }
@@ -199,6 +202,7 @@ export class Sim {
         snap.kinds[i] = CAR_SPECS[car.kind].index;
         snap.trainIds[i] = train.id;
         snap.derailed[i] = train.derailed ? 1 : 0;
+        snap.levers[i] = car.lever;
         snap.transforms[o] = (f.x + r.x) / 2;
         snap.transforms[o + 1] = (f.y + r.y) / 2;
         snap.transforms[o + 2] = (f.z + r.z) / 2;

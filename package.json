@@ -26,9 +26,16 @@
   "private": true,
   "type": "module",
   "devDependencies": {
+    "@types/three": "^0.186.0",
     "tinybench": "^6.2.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "polygon-clipping": "^0.15.7",
+    "three": "^0.186.1",
+    "three-bvh-csg": "^0.0.18",
+    "three-mesh-bvh": "^0.9.16"
   }
 }
