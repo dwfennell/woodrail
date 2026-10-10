@@ -67,6 +67,24 @@ src/
 6. Step physics (only if any body is awake)
 7. Publish state snapshot → renderer interpolates and draws
 
+### 3.1 Worker-ready simulation boundary
+
+Later milestones (cargo, town simulation) will add CPU load that should not compete with rendering on phones. The simulation core is therefore designed from day one to be movable into a Web Worker without restructuring:
+
+- **Commands in, snapshots out.** The only ways into the simulation core (`track/` + `sim/` + `physics/`) are serializable commands (place piece, flip switch, pick up car, …). The only way out is a state snapshot. No caller holds references to live simulation objects.
+- **Snapshots are flat typed arrays** (e.g. one `Float32Array` of car transforms, one of piece states) plus a small change list for structural edits (piece added/removed). They are cheap to copy or transfer to another thread and need no per-frame object allocation.
+- **Milestone 1 runs the core on the main thread** behind this interface. Moving it to a worker is a later, local change when profiling justifies it (and will require cross-origin isolation headers if we use `SharedArrayBuffer`).
+- **Drag previews stay on the main thread.** The dragged piece's position and its snap preview are computed locally against a read-only copy of connector positions, so dragging never waits on a round-trip.
+
+### 3.2 Hot-path rules
+
+Code that runs every tick or every frame (`sim/`, physics sync, render sync, input) follows these rules:
+
+- No per-tick allocation: reuse scratch vectors and matrices; no closures, spread, or array methods that allocate (`map`, `filter`) in hot loops.
+- No Zod, `Result` objects, or other wrappers in hot paths; use plain discriminated unions or numeric codes.
+- Spatial lookups (snapping candidates, collision candidates, picking) use a uniform-grid spatial hash, not linear scans, so cost stays flat as layouts grow into the thousands of pieces.
+- Track geometry evaluation (position/tangent at distance along a path) is closed-form for lines and arcs; no iterative curve sampling at runtime.
+
 ## 4. Track system (`track/`)
 
 ### 4.1 Dimensions
@@ -274,3 +292,8 @@ Every editor action is a reversible command. History depth ~100. Train state is 
 - **Mid-range phone (iPhone 12 / Pixel 6 class):** 60 fps at mobile tier with 150 pieces and 3 trains; ≥30 fps with 300 pieces.
 - **Load:** interactive in under 5 s on a decent connection. KTX2-compressed textures; Rapier loaded lazily on first derail.
 - **Techniques:** shared geometry per piece type, instanced/batched draw calls, merged static scenery, shadow map updates only when something moves.
+- **Headroom target (simulation core):** a 2,000-piece layout with 20 trains must simulate in under 2 ms per tick on desktop, so later milestones have budget to spend.
+- **Measured, not assumed:**
+  - `vitest bench` benchmarks for snapping, path advancement and a full sim tick at 300 and 2,000 pieces, run in CI; a regression of more than 20% fails the build.
+  - A toggleable in-game performance overlay (frame time, sim time, draw calls, triangles, physics bodies) available in all builds.
+  - A deterministic "stress layout" fixture used by both the benchmarks and manual device testing.
