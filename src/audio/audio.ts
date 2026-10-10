@@ -102,6 +102,25 @@ export class ToyAudio {
     this.knock(volume * 0.25, 900, 0.03, pan);
   }
 
+  /** A cheerful two-note chime: towns connected. */
+  chime(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || this.muted) return;
+    const t = ctx.currentTime;
+    [784, 1175].forEach((f, k) => {
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t + k * 0.13);
+      g.gain.linearRampToValueAtTime(0.18, t + k * 0.13 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + k * 0.13 + 0.7);
+      osc.connect(g).connect(this.master!);
+      osc.start(t + k * 0.13);
+      osc.stop(t + k * 0.13 + 0.75);
+    });
+  }
+
   snap(): void {
     this.knock(0.55, 520, 0.08, 0);
   }

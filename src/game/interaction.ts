@@ -3,6 +3,7 @@ import { Editor, poseForCentre } from "../editor/editor";
 import { buildCarModel, disposeObject } from "../render/train-models";
 import { ghostMesh, pieceMatrix } from "../render/track-view";
 import { CAR_SPECS, COUPLER_GAP, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
+import { BLOCK_MESSAGES, checkPlacement, groundUnder, type BlockReason } from "../landscape";
 import { findSnap, getPieceDef, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import type { Game } from "./game";
@@ -28,6 +29,9 @@ type Mode =
       ghost: Mesh;
       snap: SnapResult;
       pose: Pose;
+      /** Base height for a loose (unsnapped) drop: the ground under the piece. */
+      looseY: number;
+      blocked: BlockReason | null;
       overTray: boolean;
     }
   | {
@@ -97,6 +101,8 @@ export class Interaction {
         ghost,
         snap: { kind: "none" },
         pose: { x: 0, z: 0, heading: 0 },
+        looseY: 0,
+        blocked: null,
         overTray: true,
       };
     } else {
@@ -132,6 +138,12 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
+      if (m.press.kind === "piece" && this.townOfStation(m.press.pieceId)) {
+        // Stations are part of their town and stay put.
+        this.mode = { kind: "idle" };
+        this.game.controls.enabled = true;
+        return;
+      }
       if (m.press.kind === "piece") this.beginPieceMove(m.press.pieceId, m.pointerId, m.ground);
       else if (m.press.kind === "car") {
         this.beginTrainPickup(m.press.carId, m.pointerId);
@@ -185,7 +197,9 @@ export class Interaction {
       return;
     }
     if (p.kind === "piece") {
-      this.selectPiece(p.pieceId);
+      const town = this.townOfStation(p.pieceId);
+      if (town) this.hud.toast(`${town} station`);
+      else this.selectPiece(p.pieceId);
       return;
     }
     const found = g.sim.findCar(p.carId);
@@ -255,7 +269,25 @@ export class Interaction {
       this.mode.heading += Math.PI / 4;
       return;
     }
-    if (this.selectedPiece !== -1) this.editor().rotate(this.selectedPiece, Math.PI / 4);
+    if (this.selectedPiece !== -1 && this.editor().rotate(this.selectedPiece, Math.PI / 4)) this.undoIfBlocked(this.selectedPiece);
+  }
+
+  /** Undo the last edit if it left the piece somewhere the landscape doesn't allow. */
+  private undoIfBlocked(id: number): void {
+    const p = this.game.layout.getPiece(id);
+    if (!p) return;
+    const c = checkPlacement(this.game.landscape, p.type, p.flipped, p.pose, p.y);
+    if (c.kind === "blocked") {
+      this.editor().undo();
+      this.hud.toast(BLOCK_MESSAGES[c.reason]);
+    }
+  }
+
+  private townOfStation(pieceId: number): string | null {
+    for (const [townId, stationId] of this.game.stations) {
+      if (stationId === pieceId) return this.game.landscape.towns.find((t) => t.id === townId)?.name ?? null;
+    }
+    return null;
   }
 
   flipSelected(): void {
@@ -268,7 +300,7 @@ export class Interaction {
       this.game.scene.add(m.ghost);
       return;
     }
-    if (this.selectedPiece !== -1) this.editor().flip(this.selectedPiece);
+    if (this.selectedPiece !== -1 && this.editor().flip(this.selectedPiece)) this.undoIfBlocked(this.selectedPiece);
   }
 
   deleteSelected(): void {
@@ -309,6 +341,8 @@ export class Interaction {
       ghost,
       snap: { kind: "none" },
       pose: { ...p.pose },
+      looseY: p.y,
+      blocked: null,
       overTray: false,
     };
   }
@@ -330,9 +364,15 @@ export class Interaction {
       const low = findSnap(this.game.layout, m.type, m.flipped, m.pose, 0, m.pieceId, capture);
       const high = findSnap(this.game.layout, m.type, m.flipped, m.pose, RISER_HEIGHT, m.pieceId, capture);
       m.snap = low.kind === "snapped" && (high.kind !== "snapped" || low.distance <= high.distance) ? low : high;
+      m.looseY = groundUnder(this.game.landscape, m.type, m.flipped, m.pose);
       const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
-      const py = m.snap.kind === "snapped" ? m.snap.y : 0;
-      m.ghost.material = m.snap.kind === "snapped" ? this.game.mats.trackGhostSnap : this.game.mats.trackGhost;
+      const py = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
+      const clearance = checkPlacement(this.game.landscape, m.type, m.flipped, pose, py);
+      const reason = clearance.kind === "blocked" ? clearance.reason : null;
+      if (reason && reason !== m.blocked && !m.overTray) this.hud.toast(BLOCK_MESSAGES[reason]);
+      m.blocked = reason;
+      const mats = this.game.mats;
+      m.ghost.material = reason ? mats.trackGhostBlocked : m.snap.kind === "snapped" ? mats.trackGhostSnap : mats.trackGhost;
       m.ghost.matrixAutoUpdate = false;
       m.ghost.matrix.copy(pieceMatrix(pose.x, py + 1.5, pose.z, pose.heading));
       return;
@@ -356,7 +396,15 @@ export class Interaction {
     this.mode = { kind: "idle" };
     const ed = this.editor();
     const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
-    const y = m.snap.kind === "snapped" ? m.snap.y : 0;
+    const y = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
+    if (m.blocked && !m.overTray) {
+      // Can't go there: a new piece goes back in the tray, a moved piece returns to where it was.
+      if (m.pieceId !== -1 && m.from) {
+        this.game.layout.dropPiece(m.pieceId, m.from.pose, m.from.y);
+        this.changed();
+      }
+      return;
+    }
     if (m.overTray) {
       if (m.pieceId !== -1) {
         // Dragged back into the box: delete (undo restores it where it was).

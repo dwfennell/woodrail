@@ -3,6 +3,7 @@ import { Editor } from "./editor/editor";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld } from "./game/world";
+import { connectedPairs } from "./landscape";
 import { loadFromStorage, saveToStorage } from "./persist/save";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { Hud } from "./ui/hud";
@@ -79,6 +80,8 @@ function boot(): void {
 
   function setWorld(world: GameWorld): void {
     game.setWorld(world);
+    connected = new Set();
+    updateConnections(false);
     game.follow(-1);
     editor = new Editor(game.layout, game.sim, () => onChange());
     interaction.clearSelection();
@@ -86,8 +89,26 @@ function boot(): void {
     onChange();
   }
 
+  let connected = new Set<string>();
+  function updateConnections(announce: boolean): void {
+    const pairs = connectedPairs(game.layout, game.stations);
+    const next = new Set(pairs.map(([a, b]) => `${a}-${b}`));
+    const towns = new Set<number>(pairs.flat());
+    game.landscapeView.setConnected(towns);
+    if (announce) {
+      for (const [a, b] of pairs) {
+        if (connected.has(`${a}-${b}`)) continue;
+        const name = (id: number) => game.landscape.towns.find((t) => t.id === id)?.name ?? "?";
+        hud.toast(`${name(a)} ↔ ${name(b)} connected!`);
+        audio.chime();
+      }
+    }
+    connected = next;
+  }
+
   function onChange(): void {
     game.trackChanged();
+    updateConnections(true);
     hud.setHistory(editor.canUndo, editor.canRedo);
     scheduleSave();
   }
@@ -151,6 +172,7 @@ function boot(): void {
   };
 
   hud.setHistory(false, false);
+  updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction });
   game.start();
   loading?.classList.add("done");
