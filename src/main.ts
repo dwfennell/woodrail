@@ -175,14 +175,24 @@ function boot(): void {
   /** Glide from the whole-mat view down to the first train, framing all of it (skipped by any input). */
   function flyIn(delay: number): void {
     const id = game.sim.trainIds()[0];
-    const t = id === undefined ? undefined : game.sim.getTrain(id);
-    if (!t) return;
+    if (id === undefined || !game.sim.getTrain(id)) return;
+    // The middle of the train, wherever it has got to (it may be setting off during the glide).
+    const middle = (out: Vector3): boolean => {
+      const t = game.sim.getTrain(id);
+      if (!t) return false;
+      const a = t.world[0];
+      const b = t.world[t.world.length - 1];
+      out.set((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+      return true;
+    };
+    const t = game.sim.getTrain(id)!;
     const a = t.world[0];
     const b = t.world[t.world.length - 1];
-    const centre = new Vector3((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
     const radius = Math.hypot(a.x - b.x, a.z - b.z) / 2 + 90;
     const distance = Math.max(700, frameDistance(radius, game.camera.fov, game.camera.aspect));
-    game.director.glideTo(centre, distance, { phi: 1.0, duration: 2.6, delay });
+    const centre = new Vector3();
+    middle(centre);
+    game.director.glideTo(centre, distance, { phi: 1.0, duration: 2.6, delay, track: middle });
   }
   const skipGlide = () => {
     if (game.director.busy) game.director.cancel();

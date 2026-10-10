@@ -61,6 +61,8 @@ interface Shot {
   elapsed: number;
   duration: number;
   delay: number;
+  /** Keep the destination on something moving (writes into the given vector; false when it's gone). */
+  track?: (out: Vector3) => boolean;
 }
 
 const EDGE_PAN_SPEED = 0.9; // view distances per second at full push
@@ -103,14 +105,18 @@ export class CameraDirector {
   }
 
   /** Glide to look at `target` from `distance`, at polar angle `phi` (keeps the current heading unless given). */
-  glideTo(target: Vector3, distance: number, opts: { phi?: number; theta?: number; duration?: number; delay?: number } = {}): void {
+  glideTo(
+    target: Vector3,
+    distance: number,
+    opts: { phi?: number; theta?: number; duration?: number; delay?: number; track?: (out: Vector3) => boolean } = {},
+  ): void {
     const c = this.controls;
     const from = new Spherical().setFromVector3(this.tmp.subVectors(this.camera.position, c.target));
     const to = new Spherical(distance, opts.phi ?? from.phi, opts.theta ?? from.theta);
     to.radius = Math.min(c.maxDistance, Math.max(c.minDistance, to.radius));
     to.phi = Math.min(c.maxPolarAngle, Math.max(0.05, to.phi));
     this.zoomGoal = -1;
-    this.shot = { fromTarget: c.target.clone(), toTarget: target.clone(), from, to, elapsed: 0, duration: opts.duration ?? 0.7, delay: opts.delay ?? 0 };
+    this.shot = { fromTarget: c.target.clone(), toTarget: target.clone(), from, to, elapsed: 0, duration: opts.duration ?? 0.7, delay: opts.delay ?? 0, track: opts.track };
   }
 
   /** Frame a point of interest of the given radius, keeping the viewing direction. Never zooms out. */
@@ -157,6 +163,7 @@ export class CameraDirector {
 
     if (this.shot) {
       const s = this.shot;
+      if (s.track && !s.track(s.toTarget)) s.track = undefined;
       if (s.delay > 0) s.delay -= dt;
       else {
         s.elapsed += dt;
