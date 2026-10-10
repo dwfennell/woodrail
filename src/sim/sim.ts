@@ -1,0 +1,377 @@
+import type { Layout } from "../track";
+import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type Pole } from "./cars";
+import {
+  ADV_BUFFER,
+  ADV_OK,
+  ADV_OPEN_END,
+  advanceCursor,
+  createAdvance,
+  createWorldSample,
+  cursorWorld,
+  flipCursor,
+  type Cursor,
+  type RouteMemory,
+  type WorldSample,
+} from "./cursor";
+
+export const SIM_HZ = 120;
+export const SIM_DT = 1 / SIM_HZ;
+
+// Motion tuning (mm, s).
+export const ENGINE_SPEED = 120;
+const DRIVE_RESPONSE = 3; // 1/s: how quickly a motor pulls toward its target speed
+const GRAVITY = 600; // mm/s² per unit slope — toy-scaled so ramps matter without stalling trains
+const ROLLING_FRICTION = 40; // mm/s² when coasting
+const LOAD_PER_CAR = 0.05; // fractional speed loss per trailing car per engine
+const COUPLE_MAX_SPEED = 220; // closing speed above which contact is a crash
+const SIDE_HIT_DISTANCE = 12;
+
+export interface Car {
+  readonly id: number;
+  readonly kind: CarKind;
+  /** +1 when the car's own front points toward the train's front. */
+  facing: 1 | -1;
+  /** Pole on the car's own front face; the rear face has the opposite pole. */
+  readonly frontPole: Pole;
+  /** Engines only: -1 reverse, 0 off, 1 forward, relative to the car's own front. */
+  lever: -1 | 0 | 1;
+}
+
+export interface Train {
+  readonly id: number;
+  cars: Car[];
+  /** Two per car in train order: car0 front, car0 rear, car1 front, … */
+  bogies: Cursor[];
+  /** Speed along the train's front direction, always ≥ 0 (a negative result flips the train). */
+  speed: number;
+  derailed: boolean;
+  memory: RouteMemory;
+  /** World samples of each bogie, refreshed every tick. */
+  world: WorldSample[];
+}
+
+export type SimEvent =
+  | { readonly kind: "derailed"; readonly trainId: number }
+  | { readonly kind: "coupled"; readonly trainId: number; readonly absorbedTrainId: number }
+  | { readonly kind: "repelled"; readonly trainId: number }
+  | { readonly kind: "buffer"; readonly trainId: number };
+
+export type AddTrainResult = { readonly kind: "placed"; readonly trainId: number } | { readonly kind: "no-room" };
+
+/** Flat per-car state for the renderer. transforms stride 6: x, y, z, heading, pitch, roll. */
+export interface SimSnapshot {
+  count: number;
+  ids: Int32Array;
+  kinds: Uint8Array;
+  trainIds: Int32Array;
+  derailed: Uint8Array;
+  transforms: Float32Array;
+}
+
+export function createSnapshot(capacity = 64): SimSnapshot {
+  return {
+    count: 0,
+    ids: new Int32Array(capacity),
+    kinds: new Uint8Array(capacity),
+    trainIds: new Int32Array(capacity),
+    derailed: new Uint8Array(capacity),
+    transforms: new Float32Array(capacity * 6),
+  };
+}
+
+const adv = createAdvance();
+const face = { x: 0, y: 0, z: 0 };
+const otherFace = { x: 0, y: 0, z: 0 };
+
+export class Sim {
+  private nextTrainId = 1;
+  private nextCarId = 1;
+  private readonly trains = new Map<number, Train>();
+  private events: SimEvent[] = [];
+
+  constructor(readonly layout: Layout) {}
+
+  get trainCount(): number {
+    return this.trains.size;
+  }
+
+  trainIds(): number[] {
+    return [...this.trains.keys()];
+  }
+
+  getTrain(id: number): Train | undefined {
+    return this.trains.get(id);
+  }
+
+  findCar(carId: number): { train: Train; index: number } | undefined {
+    for (const train of this.trains.values()) {
+      const index = train.cars.findIndex((c) => c.id === carId);
+      if (index !== -1) return { train, index };
+    }
+    return undefined;
+  }
+
+  drainEvents(): SimEvent[] {
+    const e = this.events;
+    this.events = [];
+    return e;
+  }
+
+  /** Place a train whose leading axle sits at `at`, cars trailing behind it. */
+  addTrain(kinds: readonly CarKind[], at: Cursor): AddTrainResult {
+    const offsets: number[] = [];
+    let d = 0;
+    for (let i = 0; i < kinds.length; i++) {
+      const spec = CAR_SPECS[kinds[i]];
+      if (i > 0) d += COUPLER_GAP + spec.bogieInset;
+      offsets.push(d);
+      d += spec.length - 2 * spec.bogieInset;
+      offsets.push(d);
+      d += spec.bogieInset;
+    }
+    const bogies: Cursor[] = [];
+    for (const off of offsets) {
+      const c = { ...at };
+      flipCursor(this.layout, c);
+      advanceCursor(this.layout, c, off, null, adv);
+      if (adv.status !== ADV_OK) return { kind: "no-room" };
+      flipCursor(this.layout, c);
+      bogies.push(c);
+    }
+    const train: Train = {
+      id: this.nextTrainId++,
+      cars: kinds.map((kind) => ({ id: this.nextCarId++, kind, facing: 1, frontPole: "N", lever: 0 })),
+      bogies,
+      speed: 0,
+      derailed: false,
+      memory: new Map(),
+      world: bogies.map(() => createWorldSample()),
+    };
+    this.trains.set(train.id, train);
+    this.refreshWorld(train);
+    return { kind: "placed", trainId: train.id };
+  }
+
+  removeTrain(id: number): boolean {
+    return this.trains.delete(id);
+  }
+
+  setLever(carId: number, lever: -1 | 0 | 1): boolean {
+    const found = this.findCar(carId);
+    if (!found || !CAR_SPECS[found.train.cars[found.index].kind].powered) return false;
+    found.train.cars[found.index].lever = lever;
+    return true;
+  }
+
+  /** Turn a car around in place (swaps which magnet faces which way). */
+  flipCar(carId: number): boolean {
+    const found = this.findCar(carId);
+    if (!found) return false;
+    const car = found.train.cars[found.index];
+    car.facing = car.facing === 1 ? -1 : 1;
+    return true;
+  }
+
+  toggleSwitch(pieceId: number): void {
+    this.layout.setSwitchState(pieceId, this.layout.switchState(pieceId) === 0 ? 1 : 0);
+  }
+
+  tick(): void {
+    for (const train of this.trains.values()) if (!train.derailed) this.move(train);
+    this.resolveContacts();
+  }
+
+  writeSnapshot(snap: SimSnapshot): SimSnapshot {
+    let n = 0;
+    for (const t of this.trains.values()) n += t.cars.length;
+    if (snap.ids.length < n) Object.assign(snap, createSnapshot(Math.max(n, snap.ids.length * 2)));
+    let i = 0;
+    for (const train of this.trains.values()) {
+      for (let c = 0; c < train.cars.length; c++) {
+        const car = train.cars[c];
+        const f = train.world[2 * c];
+        const r = train.world[2 * c + 1];
+        const dx = f.x - r.x;
+        const dz = f.z - r.z;
+        const flat = Math.hypot(dx, dz);
+        const o = i * 6;
+        snap.ids[i] = car.id;
+        snap.kinds[i] = CAR_SPECS[car.kind].index;
+        snap.trainIds[i] = train.id;
+        snap.derailed[i] = train.derailed ? 1 : 0;
+        snap.transforms[o] = (f.x + r.x) / 2;
+        snap.transforms[o + 1] = (f.y + r.y) / 2;
+        snap.transforms[o + 2] = (f.z + r.z) / 2;
+        // Heading of the car's own front; pitch positive when its own front is higher.
+        const heading = Math.atan2(dz, dx) + (car.facing === 1 ? 0 : Math.PI);
+        snap.transforms[o + 3] = heading;
+        snap.transforms[o + 4] = Math.atan2(f.y - r.y, flat) * car.facing;
+        snap.transforms[o + 5] = 0;
+        i++;
+      }
+    }
+    snap.count = n;
+    return snap;
+  }
+
+  private move(train: Train): void {
+    let net = 0;
+    for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
+    let grade = 0;
+    for (const w of train.world) grade += w.slope;
+    grade /= train.world.length;
+
+    let v = train.speed;
+    if (net !== 0) {
+      const engines = Math.abs(net);
+      const target = Math.sign(net) * ENGINE_SPEED * Math.max(0.3, 1 - (LOAD_PER_CAR * (train.cars.length - 1)) / engines);
+      v += DRIVE_RESPONSE * (target - v) * SIM_DT;
+      v -= GRAVITY * grade * SIM_DT;
+    } else {
+      v -= GRAVITY * grade * SIM_DT;
+      const f = ROLLING_FRICTION * SIM_DT;
+      v = Math.abs(v) <= f ? 0 : v - Math.sign(v) * f;
+    }
+    if (v < 0) {
+      this.flipTrain(train);
+      v = -v;
+    }
+    train.speed = v;
+    if (v === 0) return;
+
+    const lead = train.bogies[0];
+    advanceCursor(this.layout, lead, v * SIM_DT, train.memory, adv, train.bogies.length);
+    const moved = adv.moved;
+    const status = adv.status;
+    for (let i = 1; i < train.bogies.length; i++) {
+      advanceCursor(this.layout, train.bogies[i], moved, train.memory, adv, train.bogies.length);
+    }
+    if (status === ADV_BUFFER) {
+      train.speed = 0;
+      this.events.push({ kind: "buffer", trainId: train.id });
+    } else if (status === ADV_OPEN_END) {
+      this.derail(train);
+    }
+    this.refreshWorld(train);
+  }
+
+  private flipTrain(train: Train): void {
+    train.cars.reverse();
+    for (const car of train.cars) car.facing = car.facing === 1 ? -1 : 1;
+    train.bogies.reverse();
+    for (const b of train.bogies) flipCursor(this.layout, b);
+    train.world.reverse();
+    train.memory.clear();
+    train.speed = -train.speed;
+    this.refreshWorld(train);
+  }
+
+  /** Move a train backward by `d` without changing its orientation. */
+  private retreat(train: Train, d: number): void {
+    if (d <= 0) return;
+    for (const b of train.bogies) {
+      flipCursor(this.layout, b);
+      advanceCursor(this.layout, b, d, null, adv);
+      flipCursor(this.layout, b);
+    }
+    this.refreshWorld(train);
+  }
+
+  private derail(train: Train): void {
+    if (train.derailed) return;
+    train.derailed = true;
+    this.events.push({ kind: "derailed", trainId: train.id });
+  }
+
+  private refreshWorld(train: Train): void {
+    for (let i = 0; i < train.bogies.length; i++) cursorWorld(this.layout, train.bogies[i], train.world[i]);
+  }
+
+  /** End face of a train: its front (car 0, train-front side) or rear (last car, train-rear side). */
+  private endFace(train: Train, front: boolean, out: { x: number; y: number; z: number }): Pole {
+    const c = front ? 0 : train.cars.length - 1;
+    const car = train.cars[c];
+    const f = train.world[2 * c];
+    const r = train.world[2 * c + 1];
+    const len = Math.hypot(f.x - r.x, f.z - r.z) || 1;
+    const inset = CAR_SPECS[car.kind].bogieInset;
+    const sign = front ? 1 : -1;
+    const from = front ? f : r;
+    out.x = from.x + (sign * (f.x - r.x) * inset) / len;
+    out.z = from.z + (sign * (f.z - r.z) * inset) / len;
+    out.y = from.y;
+    // Pole on the train-front side of the car is its own front pole when facing forward.
+    const trainFrontPole = car.facing === 1 ? car.frontPole : opposite(car.frontPole);
+    return front ? trainFrontPole : opposite(trainFrontPole);
+  }
+
+  private resolveContacts(): void {
+    for (const a of this.trains.values()) {
+      if (a.derailed || a.speed <= 0) continue;
+      const aPole = this.endFace(a, true, face);
+      for (const b of this.trains.values()) {
+        if (b === a || b.derailed || !this.trains.has(a.id)) continue;
+        const reach = Math.max(4, a.speed * SIM_DT + 2);
+        for (const front of [false, true]) {
+          const bPole = this.endFace(b, front, otherFace);
+          if (Math.hypot(face.x - otherFace.x, face.z - otherFace.z) > reach || Math.abs(face.y - otherFace.y) > 20) continue;
+          const closing = a.speed + (front ? b.speed : -b.speed);
+          if (closing <= 0) continue;
+          if (closing > COUPLE_MAX_SPEED) {
+            this.derail(a);
+            this.derail(b);
+          } else if (aPole !== bPole) {
+            this.couple(a, b, front);
+          } else {
+            // Repelling magnets hold the trains apart: undo this tick's approach.
+            this.retreat(a, a.speed * SIM_DT);
+            a.speed = 0;
+            if (front) {
+              this.retreat(b, b.speed * SIM_DT);
+              b.speed = 0;
+            }
+            this.events.push({ kind: "repelled", trainId: a.id });
+          }
+          return this.resolveContacts();
+        }
+        if (this.hitsSide(b)) {
+          this.derail(a);
+          this.derail(b);
+        }
+      }
+    }
+  }
+
+  /** Does the current `face` point strike the side of one of b's cars (not its end faces)? */
+  private hitsSide(b: Train): boolean {
+    for (let c = 0; c < b.cars.length; c++) {
+      const f = b.world[2 * c];
+      const r = b.world[2 * c + 1];
+      const dx = f.x - r.x;
+      const dz = f.z - r.z;
+      const len2 = dx * dx + dz * dz || 1;
+      const t = ((face.x - r.x) * dx + (face.z - r.z) * dz) / len2;
+      if (t < 0 || t > 1) continue;
+      const px = r.x + t * dx;
+      const pz = r.z + t * dz;
+      if (Math.hypot(face.x - px, face.z - pz) < SIDE_HIT_DISTANCE && Math.abs(face.y - f.y) < 20) return true;
+    }
+    return false;
+  }
+
+  /** a's front touched b (b's front if `bFront`, else its rear). b ends up ahead of a in one train. */
+  private couple(a: Train, b: Train, bFront: boolean): void {
+    if (bFront) this.flipTrain(b);
+    const massOf = (t: Train) => t.cars.reduce((m, c) => m + CAR_SPECS[c.kind].mass, 0);
+    const ma = massOf(a);
+    const mb = massOf(b);
+    const v = (a.speed * ma + b.speed * mb) / (ma + mb);
+    b.cars = [...b.cars, ...a.cars];
+    b.bogies = [...b.bogies, ...a.bogies];
+    b.world = [...b.world, ...a.world];
+    for (const [k, m] of a.memory) if (!b.memory.has(k)) b.memory.set(k, m);
+    b.speed = v;
+    this.trains.delete(a.id);
+    this.events.push({ kind: "coupled", trainId: b.id, absorbedTrainId: a.id });
+  }
+}
