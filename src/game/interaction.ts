@@ -43,6 +43,8 @@ type Mode =
 
 /** Pointer, touch and keyboard input: the object under the pointer decides what a gesture does. */
 export class Interaction {
+  /** Called after a piece is put down; `snapped` when its peg seated. */
+  onPlaced: ((snapped: boolean) => void) | null = null;
   private mode: Mode = { kind: "idle" };
   private selectedPiece = -1;
   private selectedCar = -1;
@@ -350,11 +352,9 @@ export class Interaction {
       }
       return;
     }
-    if (m.pieceId === -1) {
-      ed.place(m.type, pose, y, m.flipped);
-    } else {
-      ed.move(m.pieceId, pose, y, m.from!);
-    }
+    if (m.pieceId === -1) ed.place(m.type, pose, y, m.flipped);
+    else ed.move(m.pieceId, pose, y, m.from!);
+    this.onPlaced?.(m.snap.kind === "snapped");
   }
 
   // ---- dragging trains --------------------------------------------------------------------------------------

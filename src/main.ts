@@ -1,3 +1,4 @@
+import { ToyAudio } from "./audio/audio";
 import { Editor } from "./editor/editor";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
@@ -24,6 +25,7 @@ function boot(): void {
   let editor = new Editor(game.layout, game.sim, () => onChange());
   let saveTimer = 0;
   let interaction: Interaction;
+  const audio = new ToyAudio();
 
   const hud = new Hud(
     document.body,
@@ -52,7 +54,10 @@ function boot(): void {
         const layout = new Layout();
         setWorld({ layout, sim: new Sim(layout) });
       },
-      resetStarter: () => setWorld(buildStarterWorld()),
+      resetStarter: () => {
+        setWorld(buildStarterWorld());
+        game.frameLayout();
+      },
       toggleQuality: () => {
         saveQualityOverride(game.quality.tier === "high" ? "mobile" : "high");
         location.reload();
@@ -66,6 +71,9 @@ function boot(): void {
   );
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
+  interaction.onPlaced = (snapped) => {
+    if (snapped) audio.snap();
+  };
 
   function setWorld(world: GameWorld): void {
     game.setWorld(world);
@@ -93,6 +101,18 @@ function boot(): void {
     if (document.visibilityState === "hidden") saveToStorage(game.layout, game.sim);
   });
 
+  const listen = (x: number, z: number): [number, number] => {
+    // Volume falls off with distance from the camera's focus; pan follows screen position.
+    const t = game.controls.target;
+    const cam = game.camera.position;
+    const d = Math.hypot(x - t.x, z - t.z) + cam.distanceTo(t) * 0.35;
+    const volume = Math.min(1, 500 / (d + 150));
+    const right = { x: Math.cos(game.camera.rotation.y), z: -Math.sin(game.camera.rotation.y) };
+    const pan = ((x - t.x) * right.x + (z - t.z) * right.z) / 900;
+    return [volume, pan];
+  };
+  const carPoint = (trainId: number, bogie = 0) => game.sim.getTrain(trainId)?.world[bogie];
+
   // Performance overlay (backtick).
   let fps = 60;
   window.addEventListener("keydown", (e) => {
@@ -104,6 +124,23 @@ function boot(): void {
     }
   });
   game.onFrame = (dt) => {
+    let hum = 0;
+    for (const e of game.events) {
+      const p = carPoint(e.trainId, e.kind === "joint" ? e.bogie : 0);
+      if (!p) continue;
+      const [v, pan] = listen(p.x, p.z);
+      if (e.kind === "joint") audio.clack(v, pan);
+      else if (e.kind === "coupled") audio.magnet(v, pan);
+      else if (e.kind === "repelled") audio.bump(v, pan);
+      else if (e.kind === "derailed") audio.crash(v, pan);
+      else if (e.kind === "buffer") audio.magnet(v * 0.6, pan);
+    }
+    for (const id of game.sim.trainIds()) {
+      const t = game.sim.getTrain(id)!;
+      if (t.derailed || t.speed < 5 || !t.cars.some((c) => c.kind === "engine" && c.lever !== 0)) continue;
+      hum += listen(t.world[0].x, t.world[0].z)[0];
+    }
+    audio.setHum(game.paused ? 0 : hum);
     if (dt > 0) fps += (1 / dt - fps) * 0.05;
     if (!hud.perf.hidden) {
       const info = game.renderer.info.render;

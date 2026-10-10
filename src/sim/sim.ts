@@ -55,7 +55,9 @@ export type SimEvent =
   | { readonly kind: "derailed"; readonly trainId: number }
   | { readonly kind: "coupled"; readonly trainId: number; readonly absorbedTrainId: number }
   | { readonly kind: "repelled"; readonly trainId: number }
-  | { readonly kind: "buffer"; readonly trainId: number };
+  | { readonly kind: "buffer"; readonly trainId: number }
+  /** An axle rolled over a joint between pieces (the toy's clickety-clack). */
+  | { readonly kind: "joint"; readonly trainId: number; readonly bogie: number };
 
 export type AddTrainResult = { readonly kind: "placed"; readonly trainId: number } | { readonly kind: "no-room" };
 
@@ -276,11 +278,15 @@ export class Sim {
     if (v === 0) return;
 
     const lead = train.bogies[0];
+    let piece = lead.pieceId;
     advanceCursor(this.layout, lead, v * SIM_DT, train.memory, adv, train.bogies.length);
     const moved = adv.moved;
     const status = adv.status;
+    if (lead.pieceId !== piece) this.events.push({ kind: "joint", trainId: train.id, bogie: 0 });
     for (let i = 1; i < train.bogies.length; i++) {
+      piece = train.bogies[i].pieceId;
       advanceCursor(this.layout, train.bogies[i], moved, train.memory, adv, train.bogies.length);
+      if (train.bogies[i].pieceId !== piece) this.events.push({ kind: "joint", trainId: train.id, bogie: i });
     }
     if (status === ADV_BUFFER) {
       train.speed = 0;

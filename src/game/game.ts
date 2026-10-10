@@ -93,6 +93,7 @@ export class Game {
 
     window.addEventListener("resize", () => this.resize());
     this.resize();
+    this.frameLayout();
   }
 
   /** Swap in a different layout and simulation (new game, load). */
@@ -118,6 +119,33 @@ export class Game {
     if (!t) return -1;
     const rest = this.physics.restingPoint(t.cars[0].id);
     return this.sim.rerail(trainId, 150, rest ?? undefined);
+  }
+
+  /** Point the camera at the layout from the current viewing direction, fitting it on screen. */
+  frameLayout(): void {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const id of this.layout.pieceIds()) {
+      const p = this.layout.getPiece(id)!;
+      minX = Math.min(minX, p.pose.x);
+      maxX = Math.max(maxX, p.pose.x);
+      minZ = Math.min(minZ, p.pose.z);
+      maxZ = Math.max(maxZ, p.pose.z);
+    }
+    if (minX === Infinity) {
+      minX = maxX = minZ = maxZ = 0;
+    }
+    const cx = (minX + maxX) / 2;
+    const cz = (minZ + maxZ) / 2;
+    const radius = Math.max(450, Math.hypot(maxX - minX, maxZ - minZ) / 2 + 250);
+    const fov = (this.camera.fov * Math.PI) / 180;
+    const fit = radius / Math.tan(fov / 2) / Math.min(1, this.camera.aspect);
+    const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+    this.controls.target.set(cx, 0, cz);
+    this.camera.position.set(cx, 0, cz).addScaledVector(dir, Math.min(fit * 0.62, this.controls.maxDistance));
+    this.controls.update();
   }
 
   follow(carId: number): void {

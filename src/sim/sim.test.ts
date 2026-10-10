@@ -278,3 +278,17 @@ describe("track edits under trains", () => {
     expect(t.cars[0].lever).toBe(0);
   });
 });
+
+describe("joint events", () => {
+  it("emits one joint event per axle crossing a joint", () => {
+    const { layout, ids } = longLine(6);
+    const sim = new Sim(layout);
+    const r = sim.addTrain(["engine"], { pieceId: ids[2], pathIndex: 0, reversed: false, s: 150 });
+    if (r.kind !== "placed") throw new Error("not placed");
+    sim.setLever(sim.getTrain(r.trainId)!.cars[0].id, 1);
+    run(sim, 1.6); // ~150 mm: both axles cross the joint at the end of ids[2], 66 mm and 122 mm ahead
+    const joints = sim.drainEvents().filter((e) => e.kind === "joint");
+    expect(joints.length).toBe(2);
+    expect(joints.map((e) => (e.kind === "joint" ? e.bogie : -1))).toEqual([0, 1]);
+  });
+});
