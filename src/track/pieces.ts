@@ -43,7 +43,8 @@ export type PieceTypeId =
   | "bridge"
   | "buffer"
   | "adapter-peg"
-  | "adapter-socket";
+  | "adapter-socket"
+  | "station";
 
 export interface PieceDef {
   readonly type: PieceTypeId;
@@ -174,6 +175,8 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   },
   "adapter-peg": straight("adapter-peg", ADAPTER_LENGTH, "peg", "peg"),
   "adapter-socket": straight("adapter-socket", ADAPTER_LENGTH, "socket", "socket"),
+  // Placed by the landscape generator in each town; the platform and building are render-only dressing.
+  station: straight("station", 216),
 };
 
 export const PIECE_TYPES = Object.keys(CATALOG) as readonly PieceTypeId[];

@@ -74,3 +74,12 @@ describe("specific pieces", () => {
     expect(getPieceDef("straight-54", true)).toBe(getPieceDef("straight-54", false));
   });
 });
+
+describe("station piece", () => {
+  it("is a 216 mm straight with socket and peg", () => {
+    const d = getPieceDef("station", false);
+    expect(d.connectors.map((c) => c.kind)).toEqual(["socket", "peg"]);
+    expect(d.connectors[1].pose.x).toBe(216);
+    expect(PIECE_TYPES).toContain("station");
+  });
+});
