@@ -1,3 +1,4 @@
+import { Vector3 } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor } from "./editor/editor";
 import { Game, type GameWorld } from "./game/game";
@@ -60,6 +61,7 @@ function boot(): void {
       resetStarter: () => {
         setWorld(buildStarterWorld());
         game.frameLayout();
+        flyIn(0.2);
       },
       toggleQuality: () => {
         saveQualityOverride(game.quality.tier === "high" ? "mobile" : "high");
@@ -142,7 +144,20 @@ function boot(): void {
       hud.setPaused(game.paused);
     }
   });
+  /** Glide from the whole-mat view down to the first train (skipped by any input). */
+  function flyIn(delay: number): void {
+    const id = game.sim.trainIds()[0];
+    const p = id === undefined ? undefined : game.sim.getTrain(id)?.world[0];
+    if (p) game.director.glideTo(new Vector3(p.x, p.y, p.z), 700, { phi: 1.0, duration: 2.6, delay });
+  }
+  const skipGlide = () => {
+    if (game.director.busy) game.director.cancel();
+  };
+  window.addEventListener("pointerdown", skipGlide, { capture: true });
+  window.addEventListener("keydown", skipGlide, { capture: true });
+
   game.onFrame = (dt) => {
+    interaction.tick();
     let hum = 0;
     for (const e of game.events) {
       const p = carPoint(e.trainId, e.kind === "joint" ? e.bogie : 0);
@@ -171,6 +186,7 @@ function boot(): void {
   updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction });
   game.start();
+  flyIn(0.6);
   loading?.classList.add("done");
 }
 

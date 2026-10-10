@@ -21,6 +21,7 @@ import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
 import { hillSlabs, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
 import { PIECE_TYPES, type Layout } from "../track";
+import { CameraDirector } from "./camera-director";
 import type { World } from "./world";
 
 const MAX_STEPS_PER_FRAME = 8;
@@ -33,6 +34,7 @@ export class Game {
   readonly scene = new Scene();
   readonly camera: PerspectiveCamera;
   readonly controls: OrbitControls;
+  readonly director: CameraDirector;
   readonly quality: QualitySettings;
   readonly mats: Materials;
   readonly room: Room;
@@ -85,6 +87,7 @@ export class Game {
     this.controls.maxDistance = 9000;
     this.controls.maxPolarAngle = 1.42;
     this.controls.screenSpacePanning = false;
+    this.director = new CameraDirector(this.camera, this.controls);
 
     this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy(), this.quality.textureSize);
     this.room = createRoom(this.scene, this.renderer, this.mats, this.quality);
@@ -170,8 +173,23 @@ export class Game {
     this.controls.update();
   }
 
+  /** Follow a car with the camera (or stop following with −1). */
   follow(carId: number): void {
     this.followCarId = carId;
+    const at = new Vector3();
+    this.director.follow(
+      carId === -1
+        ? null
+        : () => {
+            if (this.followCarId !== carId) return null;
+            const obj = this.trainView.carObject(carId);
+            if (!obj) {
+              this.followCarId = -1;
+              return null;
+            }
+            return at.set(obj.position.x, obj.position.y + 20, obj.position.z);
+          },
+    );
   }
 
   get following(): number {
@@ -219,8 +237,8 @@ export class Game {
     if (!this.paused) this.physics.step(dt);
     this.simMs = performance.now() - t0;
     this.trainView.update(this.snapshot, dt, (id, out) => this.physics.poseOf(id, out));
-    this.updateFollow();
     this.onFrame?.(dt);
+    this.director.update(dt, this.canvas.clientWidth, this.canvas.clientHeight);
     this.controls.update(dt);
     const t = this.controls.target;
     const dist = this.camera.position.distanceTo(t);
@@ -228,18 +246,5 @@ export class Game {
     if (shouldRefit(this.room.shadowFit, t.x, t.z, radius)) this.room.fitShadow(t.x, t.z, radius);
     this.post.setFocus(dist);
     this.post.render(this.clock.elapsedTime);
-  }
-
-  private updateFollow(): void {
-    if (this.followCarId === -1) return;
-    const obj = this.trainView.carObject(this.followCarId);
-    if (!obj) {
-      this.followCarId = -1;
-      return;
-    }
-    const target = new Vector3(obj.position.x, obj.position.y + 20, obj.position.z);
-    const delta = target.clone().sub(this.controls.target);
-    this.controls.target.add(delta.multiplyScalar(0.12));
-    this.camera.position.add(delta);
   }
 }

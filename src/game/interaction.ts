@@ -6,6 +6,7 @@ import { CAR_SPECS, COUPLER_GAP, createWorldSample, cursorWorld, nearestCursor, 
 import { BLOCK_MESSAGES, checkPlacement, groundUnder, type BlockReason } from "../landscape";
 import { findSnap, getPieceDef, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
+import { isDoubleTap, type TapRecord } from "./camera-director";
 import type { Game } from "./game";
 
 const DRAG_THRESHOLD = 6;
@@ -78,6 +79,24 @@ export class Interaction {
     });
     window.addEventListener("keydown", (e) => this.onKey(e));
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    // Wheel zoom is ours (eased, toward the pointer): stop it before OrbitControls sees it. Pinch stays with them.
+    window.addEventListener(
+      "wheel",
+      (e) => {
+        if (e.target !== canvas) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const lines = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+        game.director.zoomAt(this.groundAt(e.clientX, e.clientY), Math.max(-120, Math.min(120, e.deltaY * lines)));
+      },
+      { capture: true, passive: false },
+    );
+  }
+
+  /** Per frame: keep a dragged piece under the pointer while the view edge-pans beneath it. */
+  tick(): void {
+    const m = this.mode;
+    if ((m.kind === "drag-piece" || m.kind === "drag-train") && this.game.director.edgePanning) this.updateDrag(this.lastX, this.lastY);
   }
 
   // ---- tray -------------------------------------------------------------------------------------------------
@@ -124,9 +143,10 @@ export class Interaction {
     const hit = this.pick(e.clientX, e.clientY);
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     if (!hit) {
-      // Empty floor: the camera pans; a tap here deselects (handled on pointerup via press of nothing).
+      // Empty floor: the camera pans; a tap here deselects, and a double tap focuses on that spot.
       this.hud.hideCards();
       this.clearSelection();
+      this.floorDown = this.touches.size <= 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
       return;
     }
     this.game.controls.enabled = false;
@@ -159,19 +179,53 @@ export class Interaction {
   }
 
   private onUp(e: PointerEvent): void {
+    const f = this.floorDown;
+    if (f && f.id === e.pointerId) {
+      this.floorDown = null;
+      if (Math.hypot(e.clientX - f.x, e.clientY - f.y) < DRAG_THRESHOLD && e.timeStamp - f.t < 300 && this.touches.size <= 1) {
+        const ground = this.groundAt(e.clientX, e.clientY);
+        if (this.noteTap(e) && ground) this.game.director.focus(ground, 260);
+      } else this.lastTap = null;
+    }
     const m = this.mode;
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     this.game.controls.enabled = true;
     if (m.kind === "press") {
       this.mode = { kind: "idle" };
-      this.tap(m.press);
+      if (m.press.kind !== "lever" && this.noteTap(e)) this.focusOn(m.press);
+      else this.tap(m.press);
       return;
     }
     if (m.kind === "drag-piece") this.dropPiece(m);
     else this.dropTrain(m);
   }
 
+  private floorDown: { id: number; x: number; y: number; t: number } | null = null;
+  private lastTap: TapRecord | null = null;
+
+  /** Record a tap; true when it completes a double tap (which then starts afresh). */
+  private noteTap(e: PointerEvent): boolean {
+    const now = { t: e.timeStamp, x: e.clientX, y: e.clientY };
+    const double = isDoubleTap(this.lastTap, now);
+    this.lastTap = double ? null : now;
+    return double;
+  }
+
+  /** Double tap on a piece or car: glide the camera to frame it. */
+  private focusOn(p: Press): void {
+    const g = this.game;
+    if (p.kind === "piece") {
+      const c = pieceCentre(g.layout, p.pieceId);
+      const piece = g.layout.getPiece(p.pieceId);
+      g.director.focus(new Vector3(c.x, piece?.y ?? 0, c.z), 180);
+    } else if (p.kind === "car") {
+      const obj = g.trainView.carObject(p.carId);
+      if (obj) g.director.focus(obj.position.clone(), 160);
+    }
+  }
+
   private cancel(): void {
+    this.game.director.setEdgePointer(null);
     const m = this.mode;
     this.game.controls.enabled = true;
     if (m.kind === "drag-piece") {
@@ -352,7 +406,11 @@ export class Interaction {
   private updateDrag(x: number, y: number): void {
     const m = this.mode;
     if (m.kind !== "drag-piece" && m.kind !== "drag-train") return;
+    this.lastX = x;
+    this.lastY = y;
     m.overTray = this.hud.isOverTray(x, y);
+    const r = this.game.canvas.getBoundingClientRect();
+    this.game.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch });
     const ground = this.groundAt(x, y);
     if (m.kind === "drag-piece") {
       m.ghost.visible = !m.overTray && !!ground;
@@ -396,7 +454,11 @@ export class Interaction {
     }
   }
 
+  private lastX = 0;
+  private lastY = 0;
+
   private dropPiece(m: Extract<Mode, { kind: "drag-piece" }>): void {
+    this.game.director.setEdgePointer(null);
     this.game.scene.remove(m.ghost);
     this.mode = { kind: "idle" };
     const ed = this.editor();
@@ -448,6 +510,7 @@ export class Interaction {
   }
 
   private dropTrain(m: Extract<Mode, { kind: "drag-train" }>): void {
+    this.game.director.setEdgePointer(null);
     this.game.scene.remove(m.ghost);
     disposeObject(m.ghost);
     this.mode = { kind: "idle" };
