@@ -11,7 +11,6 @@ import {
   Fog,
   type WebGLRenderer,
 } from "three";
-import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { Materials } from "./materials";
 import type { QualitySettings } from "./quality";
@@ -24,6 +23,8 @@ export interface Room {
   sun: DirectionalLight;
   /** Fit the sun's shadow camera around an area centred at (x, z). */
   fitShadow(x: number, z: number, radius: number): void;
+  /** The area the shadow camera currently covers. */
+  readonly shadowFit: { x: number; z: number; radius: number };
 }
 
 function shadowed<T extends Mesh>(m: T, cast = true, receive = true): T {
@@ -38,7 +39,7 @@ export function createRoom(scene: Scene, renderer: WebGLRenderer, mats: Material
 
   const pmrem = new PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.environmentIntensity = 0.28;
+  scene.environmentIntensity = 0.22;
   scene.background = new Color("#cbbba3");
   scene.fog = new Fog("#cbbba3", 9000, 26000);
 
@@ -68,22 +69,24 @@ export function createRoom(scene: Scene, renderer: WebGLRenderer, mats: Material
   skirtLeft.position.set(-5600 + 9, FLOOR_Y + 60, 0);
   group.add(skirtLeft);
 
-  addToyBox(group, mats);
-
-  // Light: warm low sun from a window to the right, soft sky fill.
-  const sun = new DirectionalLight(new Color("#ffdcb0"), 4.2);
+  // Light: warm, low late-afternoon sun from a window to the right, soft sky fill.
+  const sun = new DirectionalLight(new Color("#ffd2a1"), 5.4);
   sun.castShadow = true;
   sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
   sun.shadow.bias = -0.00015;
   sun.shadow.normalBias = 0.6;
-  sun.shadow.radius = 4;
+  sun.shadow.radius = 2.5;
   sun.shadow.blurSamples = 12;
   scene.add(sun);
   scene.add(sun.target);
-  scene.add(new HemisphereLight(new Color("#ffeedd"), new Color("#6b4a30"), 0.18));
+  scene.add(new HemisphereLight(new Color("#ffeedd"), new Color("#6b4a30"), 0.12));
 
-  const sunDir = { x: 0.7, y: 0.55, z: 0.45 };
+  const sunDir = { x: 0.72, y: 0.5, z: 0.48 };
+  const shadowFit = { x: 0, z: 0, radius: 2000 };
   const fitShadow = (x: number, z: number, radius: number) => {
+    shadowFit.x = x;
+    shadowFit.z = z;
+    shadowFit.radius = radius;
     const dist = 6000;
     sun.position.set(x + sunDir.x * dist, sunDir.y * dist, z + sunDir.z * dist);
     sun.target.position.set(x, 0, z);
@@ -98,17 +101,5 @@ export function createRoom(scene: Scene, renderer: WebGLRenderer, mats: Material
   };
   fitShadow(0, 0, 2000);
 
-  return { group, sun, fitShadow };
-}
-
-/** The toy box everything came out of, off the mat in the corner. */
-function addToyBox(group: Group, mats: Materials): void {
-  const box = shadowed(new Mesh(new RoundedBoxGeometry(900, 520, 600, 3, 8), mats.lacquer("#b8432f")));
-  box.position.set(-2900, FLOOR_Y + 260, -2600);
-  box.rotation.y = 0.25;
-  group.add(box);
-  const lid = shadowed(new Mesh(new RoundedBoxGeometry(940, 40, 640, 3, 10), mats.lacquer("#e6b52c")));
-  lid.position.set(-2600, FLOOR_Y + 20, -1900);
-  lid.rotation.y = -0.4;
-  group.add(lid);
+  return { group, sun, fitShadow, shadowFit };
 }

@@ -125,10 +125,10 @@ function building(
   }
 }
 
-/** All of a town's buildings, each facing toward the town centre. */
-export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batcher): void {
+/** All of a town's buildings, each facing toward the town centre. Returns their footprints (centre and size). */
+export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batcher): { cx: number; cz: number; w: number; d: number }[] {
   const { grid } = land;
-  town.buildings.forEach((bld) => {
+  return town.buildings.map((bld) => {
     let minX = Infinity;
     let maxX = -Infinity;
     let minZ = Infinity;
@@ -146,7 +146,9 @@ export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batch
     const tx = town.centre.x - cx;
     const tz = town.centre.z - cz;
     const front = Math.abs(tx) > Math.abs(tz) ? { x: Math.sign(tx) || 1, z: 0 } : { x: 0, z: Math.sign(tz) || 1 };
-    building(b, mats, { cx, cz, w: maxX - minX - 12, d: maxZ - minZ - 12 }, { floors: bld.floors, kind: bld.kind, roof: bld.roof, seed: bld.id * 7 + town.id * 13, front });
+    const box = { cx, cz, w: maxX - minX - 12, d: maxZ - minZ - 12 };
+    building(b, mats, box, { floors: bld.floors, kind: bld.kind, roof: bld.roof, seed: bld.id * 7 + town.id * 13, front });
+    return box;
   });
 }
 

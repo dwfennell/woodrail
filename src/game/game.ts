@@ -14,6 +14,7 @@ import { createMaterials, type Materials } from "../render/materials";
 import { createPost, type Post } from "../render/post";
 import { detectQuality, type QualitySettings } from "../render/quality";
 import { createRoom, type Room } from "../render/room";
+import { shadowRadiusFor, shouldRefit } from "../render/shadow-fit";
 import { TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
 import { DerailPhysics } from "../physics/derail-physics";
@@ -88,7 +89,7 @@ export class Game {
     this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy(), this.quality.textureSize);
     this.room = createRoom(this.scene, this.renderer, this.mats, this.quality);
     TrackView.prebuild(PIECE_TYPES);
-    this.landscapeView = new LandscapeView(this.landscape, this.mats);
+    this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
     this.trackView = new TrackView(this.layout, this.mats);
     this.scene.add(this.trackView.group);
@@ -112,7 +113,7 @@ export class Game {
     this.stations = world.stations;
     this.scene.remove(this.landscapeView.group);
     this.landscapeView.dispose();
-    this.landscapeView = new LandscapeView(this.landscape, this.mats);
+    this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
     this.scene.remove(this.trackView.group);
     (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats);
@@ -221,7 +222,11 @@ export class Game {
     this.updateFollow();
     this.onFrame?.(dt);
     this.controls.update(dt);
-    this.post.setFocus(this.camera.position.distanceTo(this.controls.target));
+    const t = this.controls.target;
+    const dist = this.camera.position.distanceTo(t);
+    const radius = shadowRadiusFor(dist);
+    if (shouldRefit(this.room.shadowFit, t.x, t.z, radius)) this.room.fitShadow(t.x, t.z, radius);
+    this.post.setFocus(dist);
     this.post.render(this.clock.elapsedTime);
   }
 

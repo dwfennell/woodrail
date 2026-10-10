@@ -1,9 +1,10 @@
 import { BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SRGBColorSpace } from "three";
-import { SURF_RIVER, SURF_ROAD, type Landscape, type Town } from "../landscape";
+import { CELL, COLS, ROWS, SURF_RIVER, SURF_ROAD, type Landscape, type Town } from "../landscape";
 import { SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
 import { buildBlocks } from "./dressing/blocks";
 import { buildStation, buildTown } from "./dressing/buildings";
+import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltMat, buildFeltRibbons } from "./dressing/felt";
 import { buildTrees, treePlacements } from "./dressing/trees";
 import type { Materials } from "./materials";
@@ -18,6 +19,8 @@ export class LandscapeView {
   constructor(
     private readonly land: Landscape,
     private readonly mats: Materials,
+    /** Draw soft blob shadows under scenery (for devices without ambient occlusion). */
+    private readonly contactShadows = false,
   ) {
     this.build();
   }
@@ -57,15 +60,29 @@ export class LandscapeView {
     this.group.add(buildBlocks(grid, this.land.seed, this.mats));
 
     // Turned-wood toy trees, standing on whatever block they grew on.
-    this.group.add(buildTrees(treePlacements(this.land), this.mats));
+    const trees = treePlacements(this.land);
+    this.group.add(buildTrees(trees, this.mats));
+    const prints: Footprint[] = trees.map((t) => ({ x: t.x, z: t.z, y: t.y, rx: 24 * t.scale, rz: 24 * t.scale, heading: 0, strength: 1 }));
 
     for (const town of this.land.towns) {
-      buildTown(this.land, town, this.mats, b);
+      for (const h of buildTown(this.land, town, this.mats, b)) prints.push({ x: h.cx, z: h.cz, y: 0, rx: h.w / 2 + 12, rz: h.d / 2 + 12, heading: 0, strength: 1 });
       buildStation(town, this.mats, b);
       this.buildSign(town, b);
     }
 
     b.build(this.group);
+
+    if (this.contactShadows) {
+      // Hill edges: a blob under each ground-level block that has open felt beside it.
+      for (let row = 0; row < ROWS; row++) {
+        for (let col = 0; col < COLS; col++) {
+          if (grid.height[grid.index(col, row)] === 0) continue;
+          const open = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dc, dr]) => grid.inBounds(col + dc, row + dr) && grid.height[grid.index(col + dc, row + dr)] === 0);
+          if (open) prints.push({ x: grid.centreX(col), z: grid.centreZ(row), y: 0, rx: CELL * 0.66, rz: CELL * 0.66, heading: 0, strength: 0.9 });
+        }
+      }
+      this.group.add(buildContactShadows(prints));
+    }
   }
 
   /** Name board on two posts at the back of the platform; glows when the town is connected. */

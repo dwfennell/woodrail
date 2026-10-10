@@ -7,7 +7,10 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import type { QualitySettings } from "./quality";
 
-/** Subtle lens vignette and film grain: the "macro photo of a real toy" finish. */
+/**
+ * The "macro photo of a real toy" finish: a gentle warm grade (lifted, warm shadows and a soft S-curve), lens
+ * vignette and fine film grain. Runs after tone mapping, on display-referred colour.
+ */
 const LensShader = {
   uniforms: { tDiffuse: { value: null }, time: { value: 0 }, resolution: { value: new Vector2(1, 1) } },
   vertexShader: /* glsl */ `
@@ -21,10 +24,15 @@ const LensShader = {
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233)) + time) * 43758.5453); }
     void main() {
       vec4 c = texture2D(tDiffuse, vUv);
+      float luma = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+      // Warm the shadows and mids a touch; keep highlights neutral.
+      c.rgb += vec3(0.022, 0.010, -0.012) * (1.0 - luma);
+      // Soft S-curve for a little more depth.
+      c.rgb = mix(c.rgb, c.rgb * c.rgb * (3.0 - 2.0 * c.rgb), 0.22);
       vec2 d = vUv - 0.5;
       d.x *= resolution.x / resolution.y;
-      float vig = smoothstep(1.05, 0.35, length(d));
-      c.rgb *= mix(0.72, 1.0, vig);
+      float vig = smoothstep(1.05, 0.3, length(d));
+      c.rgb *= mix(0.78, 1.0, vig);
       c.rgb += (hash(vUv * resolution) - 0.5) * 0.018;
       gl_FragColor = c;
     }`,
@@ -44,9 +52,9 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
   let gtao: GTAOPass | null = null;
   if (quality.ambientOcclusion) {
     gtao = new GTAOPass(scene, camera, 1, 1);
-    gtao.updateGtaoMaterial({ radius: 18, distanceExponent: 1.4, thickness: 8, scale: 1.1, samples: 16 });
+    gtao.updateGtaoMaterial({ radius: 12, distanceExponent: 1.4, thickness: 5, scale: 1.2, samples: 16 });
     gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
-    gtao.blendIntensity = 0.85;
+    gtao.blendIntensity = 1;
     composer.addPass(gtao);
   }
 
