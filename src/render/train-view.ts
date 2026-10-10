@@ -1,4 +1,5 @@
-import { Color, Group, MeshStandardMaterial, type Object3D } from "three";
+import { Color, Group, MeshStandardMaterial, Quaternion, Vector3, type Object3D } from "three";
+import type { CarPose } from "../physics/derail-physics";
 import { CAR_KINDS, type SimSnapshot } from "../sim";
 import type { Materials } from "./materials";
 import { buildCarModel, WHEEL_RADIUS, type CarModel } from "./train-models";
@@ -25,7 +26,9 @@ export class TrainView {
 
   constructor(private readonly mats: Materials) {}
 
-  update(snap: SimSnapshot, dt: number): void {
+  private readonly pose: CarPose = { position: new Vector3(), quaternion: new Quaternion() };
+
+  update(snap: SimSnapshot, dt: number, physicsPose?: (carId: number, out: CarPose) => CarPose | null): void {
     const seen = new Set<number>();
     for (let i = 0; i < snap.count; i++) {
       const id = snap.ids[i];
@@ -61,7 +64,16 @@ export class TrainView {
       entry.lastX = x;
       entry.lastZ = z;
 
-      // Until rigid-body physics lands, a derailed car topples onto its side.
+      if (snap.derailed[i] && physicsPose?.(id, this.pose)) {
+        root.position.copy(this.pose.position);
+        root.quaternion.copy(this.pose.quaternion);
+        entry.lastX = root.position.x;
+        entry.lastZ = root.position.z;
+        entry.tip = 0;
+        continue;
+      }
+
+      // Without physics (still loading, or unavailable) a derailed car simply topples onto its side.
       const targetTip = snap.derailed[i] ? 1 : 0;
       entry.tip += (targetTip - entry.tip) * Math.min(1, dt * 6);
       root.rotation.x = entry.tip * (Math.PI / 2) * (id % 2 ? 1 : -1);

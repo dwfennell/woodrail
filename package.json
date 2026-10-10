@@ -33,6 +33,7 @@
     "vitest": "^5.0.3"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
     "polygon-clipping": "^0.15.7",
     "three": "^0.186.1",
     "three-bvh-csg": "^0.0.18",

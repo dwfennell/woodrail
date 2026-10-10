@@ -175,7 +175,7 @@ export class Interaction {
     const found = g.sim.findCar(p.carId);
     if (!found) return;
     if (found.train.derailed) {
-      const back = g.sim.rerail(found.train.id);
+      const back = g.rerail(found.train.id);
       this.hud.toast(back === -1 ? "No track nearby to put it back on" : "Back on the rails");
       this.changed();
       return;

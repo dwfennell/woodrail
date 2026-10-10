@@ -15,7 +15,8 @@ import { detectQuality, type QualitySettings } from "../render/quality";
 import { createRoom, type Room } from "../render/room";
 import { TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
-import { createSnapshot, SIM_DT, type Sim, type SimSnapshot } from "../sim";
+import { DerailPhysics } from "../physics/derail-physics";
+import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
 import { PIECE_TYPES, type Layout } from "../track";
 
 const MAX_STEPS_PER_FRAME = 8;
@@ -38,6 +39,9 @@ export class Game {
   readonly trainView: TrainView;
   readonly post: Post;
   readonly snapshot: SimSnapshot = createSnapshot();
+  readonly physics: DerailPhysics;
+  /** Simulation events from the latest frame (derailments, couplings, …). */
+  events: SimEvent[] = [];
   layout: Layout;
   sim: Sim;
   paused = false;
@@ -82,6 +86,7 @@ export class Game {
     this.trackView = new TrackView(this.layout, this.mats);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
+    this.physics = new DerailPhysics(this.layout);
     this.trainView = new TrainView(this.mats);
     this.scene.add(this.trainView.group);
     this.post = createPost(this.renderer, this.scene, this.camera, this.quality);
@@ -98,6 +103,21 @@ export class Game {
     (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
+    this.physics.setLayout(this.layout);
+  }
+
+  /** Call after any layout edit. */
+  trackChanged(): void {
+    this.trackView.sync();
+    this.physics.markTrackDirty();
+  }
+
+  /** Re-rail a derailed train near where its lead car came to rest. Returns the new train id or -1. */
+  rerail(trainId: number): number {
+    const t = this.sim.getTrain(trainId);
+    if (!t) return -1;
+    const rest = this.physics.restingPoint(t.cars[0].id);
+    return this.sim.rerail(trainId, 150, rest ?? undefined);
   }
 
   follow(carId: number): void {
@@ -135,9 +155,20 @@ export class Game {
       }
       if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
     }
-    this.simMs = performance.now() - t0;
+    this.events = this.sim.drainEvents();
+    for (const e of this.events) {
+      if (e.kind === "derailed") {
+        const t = this.sim.getTrain(e.trainId);
+        if (t) this.physics.derail(t);
+      }
+    }
     this.sim.writeSnapshot(this.snapshot);
-    this.trainView.update(this.snapshot, dt);
+    const derailedCars = new Set<number>();
+    for (let i = 0; i < this.snapshot.count; i++) if (this.snapshot.derailed[i]) derailedCars.add(this.snapshot.ids[i]);
+    this.physics.retain((id) => derailedCars.has(id));
+    if (!this.paused) this.physics.step(dt);
+    this.simMs = performance.now() - t0;
+    this.trainView.update(this.snapshot, dt, (id, out) => this.physics.poseOf(id, out));
     this.updateFollow();
     this.onFrame?.(dt);
     this.controls.update(dt);

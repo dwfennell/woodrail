@@ -190,13 +190,14 @@ export class Sim {
   }
 
   /** Put a (derailed) train back on the nearest track, motor off. Returns the new train id, or -1 if there is no room. */
-  rerail(trainId: number, maxDistance = 150): number {
+  rerail(trainId: number, maxDistance = 150, near?: { x: number; z: number }): number {
     const train = this.trains.get(trainId);
     if (!train) return -1;
     const lead = train.world[0];
+    const at = near ?? lead;
     const kinds = train.cars.map((c) => c.kind);
     for (const heading of [lead.heading, lead.heading + Math.PI]) {
-      const near = nearestCursor(this.layout, lead.x, lead.z, maxDistance, heading);
+      const near = nearestCursor(this.layout, at.x, at.z, maxDistance, heading);
       if (!near) return -1;
       this.trains.delete(trainId);
       const placed = this.addTrain(kinds, near.cursor);

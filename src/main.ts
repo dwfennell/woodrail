@@ -33,7 +33,7 @@ function boot(): void {
       redo: () => editor.redo(),
       rerailAll: () => {
         let n = 0;
-        for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed && game.sim.rerail(id) !== -1) n++;
+        for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed && game.rerail(id) !== -1) n++;
         hud.toast(n ? `Re-railed ${n} train${n > 1 ? "s" : ""}` : "Nothing to re-rail");
         scheduleSave();
       },
@@ -77,7 +77,7 @@ function boot(): void {
   }
 
   function onChange(): void {
-    game.trackView.sync();
+    game.trackChanged();
     hud.setHistory(editor.canUndo, editor.canRedo);
     scheduleSave();
   }
