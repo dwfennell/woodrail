@@ -19,7 +19,7 @@ This iteration delivers the world and the building challenge only. It deliberate
 - "New map" generates a varied, deterministic (per seed) landscape with 3–4 towns, every pair reachable by track.
 - Dragged track turns red with a reason when it would hit a building, cross a river without a bridge, cut into a hill, or hit a tree; it can be laid on hill tops at block height.
 - Connecting two stations by track lights both town signs and announces the connection.
-- Saves include the map; milestone-1 saves still load.
+- Saves include the map (older saves are discarded — no compatibility until v1).
 - Desktop and mobile performance targets from the core spec still hold.
 
 ### Out of scope
@@ -100,7 +100,7 @@ Hill block stacks become static cuboid colliders (merged per slab) when derail p
 ## 6. Persistence
 
 - Save format **version 2** adds `landscape: { seed }` and `towns: [{ id, stationPieceId }]` (towns are regenerated from the seed; the ids bind them to the saved station pieces).
-- **Migration 1 → 2:** a milestone-1 save loads with an empty flat mat (no towns, no hills) so existing layouts are preserved.
+- **No backward compatibility yet:** until a working v1 of the game exists, older saves are simply rejected (the result is an `invalid` value) and the game starts the starter map. No migrations.
 - Loading validates as before (Zod, result values, never throws).
 
 ## 7. Testing
@@ -109,6 +109,6 @@ Hill block stacks become static cuboid colliders (merged per slab) when derail p
 - **Clearance:** straight over river blocked, bridge over river clear; piece at y = 64 on a 1-block hill clear, at y = 0 blocked (`hill`); house square blocked; tree blocked; off-mat blocked; snapping onto a station's free peg allowed.
 - **Drop height:** loose drop on a 2-block hill gets y = 128.
 - **Connections:** route between two stations → connected; removing a middle piece → disconnected; switch state irrelevant.
-- **Persistence:** v2 round-trip reproduces the identical landscape; v1 save migrates to an empty mat.
+- **Persistence:** v2 round-trip reproduces the identical landscape; a v1 save is rejected with a reason.
 - **Benchmarks:** `checkPlacement` per drag frame stays under 20 µs at 2,000 pieces.
 - Visual review via screenshots on desktop and phone viewports.
