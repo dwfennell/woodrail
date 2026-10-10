@@ -1,0 +1,33 @@
+{
+  "name": "woodrail",
+  "version": "1.0.0",
+  "description": "",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "bench": "vitest bench --run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dwfennell/woodrail.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/dwfennell/woodrail/issues"
+  },
+  "homepage": "https://github.com/dwfennell/woodrail#readme",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  }
+}
