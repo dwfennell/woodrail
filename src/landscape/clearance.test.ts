@@ -76,3 +76,18 @@ describe("groundUnder", () => {
     expect(groundUnder(flat(), "straight-216", false, P(0, 0))).toBe(0);
   });
 });
+
+describe("station ends across many maps", () => {
+  const seat = (end: { x: number; z: number; heading: number }, peg: boolean) =>
+    // On the peg end a piece seats by its socket (origin at the end); on the socket end by its peg (origin 54 mm back).
+    peg ? P(end.x, end.z, end.heading) : P(end.x + Math.cos(end.heading) * 54, end.z + Math.sin(end.heading) * 54, end.heading + Math.PI);
+
+  it.each(Array.from({ length: 200 }, (_, i) => i + 1))("seed %i: a short straight seats on both ends of every station", (seed) => {
+    const land = generateLandscape(seed);
+    for (const town of land.towns) {
+      const [socketEnd, pegEnd] = stationEnds(town);
+      expect(checkPlacement(land, "straight-54", false, seat(pegEnd, true), 0), `${town.name} peg end`).toEqual({ kind: "clear" });
+      expect(checkPlacement(land, "straight-54", false, seat(socketEnd, false), 0), `${town.name} socket end`).toEqual({ kind: "clear" });
+    }
+  });
+});

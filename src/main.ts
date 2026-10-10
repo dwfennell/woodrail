@@ -80,7 +80,7 @@ function boot(): void {
 
   function setWorld(world: GameWorld): void {
     game.setWorld(world);
-    connected = new Set();
+    announced = new Set();
     updateConnections(false);
     game.follow(-1);
     editor = new Editor(game.layout, game.sim, () => onChange());
@@ -89,21 +89,17 @@ function boot(): void {
     onChange();
   }
 
-  let connected = new Set<string>();
+  /** Pairs already celebrated on this map: lifting and replacing a piece mustn't re-announce them. */
+  let announced = new Set<string>();
   function updateConnections(announce: boolean): void {
     const pairs = connectedPairs(game.layout, game.stations);
-    const next = new Set(pairs.map(([a, b]) => `${a}-${b}`));
-    const towns = new Set<number>(pairs.flat());
-    game.landscapeView.setConnected(towns);
-    if (announce) {
-      for (const [a, b] of pairs) {
-        if (connected.has(`${a}-${b}`)) continue;
-        const name = (id: number) => game.landscape.towns.find((t) => t.id === id)?.name ?? "?";
-        hud.toast(`${name(a)} ↔ ${name(b)} connected!`);
-        audio.chime();
-      }
-    }
-    connected = next;
+    game.landscapeView.setConnected(new Set<number>(pairs.flat()));
+    const name = (id: number) => game.landscape.towns.find((t) => t.id === id)?.name ?? "?";
+    const fresh = pairs.filter(([a, b]) => !announced.has(`${a}-${b}`));
+    for (const [a, b] of fresh) announced.add(`${a}-${b}`);
+    if (!announce || fresh.length === 0) return;
+    hud.toast(fresh.map(([a, b]) => `${name(a)} ↔ ${name(b)}`).join(", ") + " connected!");
+    audio.chime();
   }
 
   function onChange(): void {

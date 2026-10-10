@@ -1,6 +1,6 @@
-import { createSample, getPieceDef, pathLength, samplePath, type PieceTypeId, type Pose } from "../track";
+import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
 import { FEAT_BUILDING, FEAT_STATION, FEAT_TREE, SURF_RIVER, SURF_ROAD, SURF_TOWN } from "./grid";
-import type { Landscape } from "./generate";
+import { STATION_LENGTH, type Landscape } from "./generate";
 
 export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "tree" | "off-mat";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
@@ -68,6 +68,19 @@ function forEachSample(
   }
 }
 
+/** Is a plan point on a town's station track or platform (not just in one of its squares)? */
+function inStationFootprint(land: Landscape, townId: number, x: number, z: number): boolean {
+  const town = land.towns[townId];
+  if (!town) return false;
+  const dx = Math.cos(town.station.heading);
+  const dz = Math.sin(town.station.heading);
+  const px = x - town.centre.x;
+  const pz = z - town.centre.z;
+  const d = px * dx + pz * dz;
+  const l = -px * dz + pz * dx;
+  return Math.abs(d) < STATION_LENGTH / 2 && l > -TRACK_WIDTH / 2 - 2 && l < 120;
+}
+
 /** Can a piece be placed here? Called on every pointer move while dragging. */
 export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): Clearance {
   const g = land.grid;
@@ -81,8 +94,11 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
       const s = g.surface[i];
       if (f === FEAT_BUILDING) result = BLOCKED.building;
       else if (f === FEAT_TREE) result = BLOCKED.tree;
-      else if (f === FEAT_STATION) result = BLOCKED.station;
-      else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
+      else if (f === FEAT_STATION) {
+        // Station squares are marked by their centres; only the real footprint (track + platform) blocks,
+        // so pieces seated on a station end can overlap the edge of its end squares.
+        if (inStationFootprint(land, g.owner[i], x, z)) result = BLOCKED.station;
+      } else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
       else if (s === SURF_RIVER && !isBridge) result = BLOCKED.river;
       else if (y + trackY < g.groundY(i) - 0.5) result = BLOCKED.hill;
     }

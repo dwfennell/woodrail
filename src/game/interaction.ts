@@ -1,5 +1,5 @@
 import { Group, MOUSE, Plane, Raycaster, TOUCH, Vector2, Vector3, type Mesh, type Object3D } from "three";
-import { Editor, poseForCentre } from "../editor/editor";
+import { Editor, pieceCentre, poseForCentre } from "../editor/editor";
 import { buildCarModel, disposeObject } from "../render/train-models";
 import { ghostMesh, pieceMatrix } from "../render/track-view";
 import { CAR_SPECS, COUPLER_GAP, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
@@ -269,18 +269,19 @@ export class Interaction {
       this.mode.heading += Math.PI / 4;
       return;
     }
-    if (this.selectedPiece !== -1 && this.editor().rotate(this.selectedPiece, Math.PI / 4)) this.undoIfBlocked(this.selectedPiece);
+    const id = this.selectedPiece;
+    const p = id === -1 ? undefined : this.game.layout.getPiece(id);
+    if (!p) return;
+    const c = pieceCentre(this.game.layout, id);
+    const pose = poseForCentre(p.type, p.flipped, c.x, c.z, p.pose.heading + Math.PI / 4);
+    if (this.allowed(p.type, p.flipped, pose, p.y)) this.editor().rotate(id, Math.PI / 4);
   }
 
-  /** Undo the last edit if it left the piece somewhere the landscape doesn't allow. */
-  private undoIfBlocked(id: number): void {
-    const p = this.game.layout.getPiece(id);
-    if (!p) return;
-    const c = checkPlacement(this.game.landscape, p.type, p.flipped, p.pose, p.y);
-    if (c.kind === "blocked") {
-      this.editor().undo();
-      this.hud.toast(BLOCK_MESSAGES[c.reason]);
-    }
+  /** Check a would-be piece position against the landscape, explaining a refusal. */
+  private allowed(type: PieceTypeId, flipped: boolean, pose: Pose, y: number): boolean {
+    const c = checkPlacement(this.game.landscape, type, flipped, pose, y);
+    if (c.kind === "blocked") this.hud.toast(BLOCK_MESSAGES[c.reason]);
+    return c.kind === "clear";
   }
 
   private townOfStation(pieceId: number): string | null {
@@ -300,7 +301,8 @@ export class Interaction {
       this.game.scene.add(m.ghost);
       return;
     }
-    if (this.selectedPiece !== -1 && this.editor().flip(this.selectedPiece)) this.undoIfBlocked(this.selectedPiece);
+    const p = this.selectedPiece === -1 ? undefined : this.game.layout.getPiece(this.selectedPiece);
+    if (p && this.allowed(p.type, !p.flipped, p.pose, p.y)) this.editor().flip(this.selectedPiece);
   }
 
   deleteSelected(): void {
@@ -361,10 +363,13 @@ export class Interaction {
       const gz = (lift ?? ground).z + m.offset.z;
       m.pose = poseForCentre(m.type, m.flipped, gx, gz, m.heading);
       const capture = this.captureRadius(x, y);
-      const low = findSnap(this.game.layout, m.type, m.flipped, m.pose, 0, m.pieceId, capture);
-      const high = findSnap(this.game.layout, m.type, m.flipped, m.pose, RISER_HEIGHT, m.pieceId, capture);
-      m.snap = low.kind === "snapped" && (high.kind !== "snapped" || low.distance <= high.distance) ? low : high;
       m.looseY = groundUnder(this.game.landscape, m.type, m.flipped, m.pose);
+      // Look for pegs at floor level, one riser up, and on whatever hill the piece is over.
+      m.snap = { kind: "none" };
+      for (const level of new Set([0, RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
+        const s = findSnap(this.game.layout, m.type, m.flipped, m.pose, level, m.pieceId, capture);
+        if (s.kind === "snapped" && (m.snap.kind !== "snapped" || s.distance < m.snap.distance)) m.snap = s;
+      }
       const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
       const py = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
       const clearance = checkPlacement(this.game.landscape, m.type, m.flipped, pose, py);
@@ -397,6 +402,8 @@ export class Interaction {
     const ed = this.editor();
     const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
     const y = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
+    const final = checkPlacement(this.game.landscape, m.type, m.flipped, pose, y);
+    m.blocked = final.kind === "blocked" ? final.reason : null;
     if (m.blocked && !m.overTray) {
       // Can't go there: a new piece goes back in the tray, a moved piece returns to where it was.
       if (m.pieceId !== -1 && m.from) {

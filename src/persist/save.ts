@@ -96,8 +96,10 @@ export function deserializeWorld(data: unknown): Result<World, string> {
   const stations = new Map<number, number>();
   for (const town of landscape.towns) {
     const saved = save.towns.find((t) => t.id === town.id);
-    if (!saved || layout.getPiece(saved.stationPieceId)?.type !== "station") return err(`invalid save: station for town ${town.id} is missing`);
-    stations.set(town.id, saved.stationPieceId);
+    const piece = saved ? layout.getPiece(saved.stationPieceId) : undefined;
+    if (!piece || piece.type !== "station") return err(`invalid save: station for town ${town.id} is missing`);
+    if (Math.hypot(piece.pose.x - town.station.x, piece.pose.z - town.station.z) > 0.5) return err(`invalid save: station for town ${town.id} is not at its town`);
+    stations.set(town.id, piece.id);
   }
   const sim = new Sim(layout);
   for (const t of save.trains) {

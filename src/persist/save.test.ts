@@ -48,3 +48,12 @@ describe("save format v2", () => {
     if (r.ok) expect(r.value.sim.trainCount).toBe(0);
   });
 });
+
+describe("station binding", () => {
+  it("rejects stations swapped between towns", () => {
+    const data = serializeWorld(buildStarterWorld());
+    const [a, b] = data.towns;
+    [a.stationPieceId, b.stationPieceId] = [b.stationPieceId, a.stationPieceId];
+    expect(deserializeWorld(JSON.parse(JSON.stringify(data))).ok).toBe(false);
+  });
+});
