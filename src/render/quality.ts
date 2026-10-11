@@ -6,12 +6,11 @@ export interface QualitySettings {
   readonly maxPixelRatio: number;
   readonly ambientOcclusion: boolean;
   readonly depthOfField: boolean;
-  readonly textureSize: number;
 }
 
 const TIERS: Record<QualityTier, QualitySettings> = {
-  high: { tier: "high", shadowMapSize: 4096, maxPixelRatio: 2, ambientOcclusion: true, depthOfField: true, textureSize: 1024 },
-  mobile: { tier: "mobile", shadowMapSize: 2048, maxPixelRatio: 1.5, ambientOcclusion: false, depthOfField: false, textureSize: 512 },
+  high: { tier: "high", shadowMapSize: 4096, maxPixelRatio: 2, ambientOcclusion: true, depthOfField: true },
+  mobile: { tier: "mobile", shadowMapSize: 2048, maxPixelRatio: 1.5, ambientOcclusion: false, depthOfField: false },
 };
 
 const STORAGE_KEY = "woodrail.quality";

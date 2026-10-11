@@ -1,6 +1,6 @@
 import { Color, MeshPhysicalMaterial, MeshStandardMaterial, Vector2 } from "three";
 import type { Texture } from "three";
-import { beechTextures, feltTextures, mottleTexture, oakFloorTextures, stitchTexture, wallTextures, type SurfaceTextures } from "./textures";
+import { beechTextures, feltTextures, mottleTexture, stitchTexture, type SurfaceTextures } from "./textures";
 
 export interface Materials {
   track: MeshPhysicalMaterial;
@@ -20,9 +20,6 @@ export interface Materials {
   blockWood: MeshStandardMaterial;
   blockTop: MeshStandardMaterial;
   naturalWood: MeshPhysicalMaterial;
-  floor: MeshPhysicalMaterial;
-  wall: MeshStandardMaterial;
-  skirting: MeshPhysicalMaterial;
   magnet: MeshStandardMaterial;
   coal: MeshStandardMaterial;
   glass: MeshPhysicalMaterial;
@@ -46,7 +43,7 @@ function woodMaterial(t: SurfaceTextures, bump: number): MeshPhysicalMaterial {
   });
 }
 
-export function createMaterials(anisotropy: number, textureSize: number): Materials {
+export function createMaterials(anisotropy: number): Materials {
   const beech = beechTextures(anisotropy);
   const track = woodMaterial(beech, 0.6);
 
@@ -61,20 +58,6 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
       emissive: new Color(color),
       emissiveIntensity: 0.15,
     });
-
-  const floorTex = oakFloorTextures(anisotropy, textureSize);
-  const floor = new MeshPhysicalMaterial({
-    map: floorTex.map,
-    roughnessMap: floorTex.roughnessMap,
-    bumpMap: floorTex.bumpMap,
-    bumpScale: 1.2,
-    roughness: 1,
-    clearcoat: 0.6,
-    clearcoatRoughness: 0.25,
-  });
-
-  const wallTex = wallTextures(anisotropy);
-  const wall = new MeshStandardMaterial({ map: wallTex.map, bumpMap: wallTex.bumpMap, bumpScale: 0.6, roughness: 0.92 });
 
   const lacquerCache = new Map<string, MeshPhysicalMaterial>();
   const lacquer = (color: string) => {
@@ -111,9 +94,8 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
     });
     return withWorldMottle(m, mottle, 1400, mottleStrength);
   };
-  // Felt textures tile in uv space. The mat's uvs span 0..1 (repeat across its 3.2 m); the river and road ribbons
-  // have uvs in mm / FELT_TILE.
-  const felt = feltMaterial("#477834", 24, "#8fbf6a", 0.1);
+  // Felt textures tile in uv space: the ground, river and road uvs are in mm / FELT_TILE; the hem strips span 0..1.
+  const felt = feltMaterial("#477834", 1, "#8fbf6a", 0.1);
   const hemFelt = feltMaterial("#2f5223", 24, "#6f9a55", 0.05);
   const riverFelt = feltMaterial("#2a63a0", 1, "#86b4e8", 0.08);
   const roadFelt = feltMaterial("#8d8a82", 1, "#e8e4da", 0.05);
@@ -140,9 +122,6 @@ export function createMaterials(anisotropy: number, textureSize: number): Materi
     trackGhost: ghost("#ffffff"),
     trackGhostSnap: ghost("#9be37b"),
     naturalWood: woodMaterial(beech, 0.5),
-    floor,
-    wall,
-    skirting: new MeshPhysicalMaterial({ color: new Color("#f4efe6"), roughness: 0.4, clearcoat: 0.5 }),
     magnet: new MeshStandardMaterial({ color: new Color("#2a2b2e"), metalness: 0.85, roughness: 0.3 }),
     coal: new MeshStandardMaterial({ color: new Color("#1c1a19"), roughness: 0.7, metalness: 0.1 }),
     glass: new MeshPhysicalMaterial({ color: new Color("#1d2633"), roughness: 0.1, clearcoat: 1, metalness: 0.2 }),

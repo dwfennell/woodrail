@@ -1,76 +1,76 @@
 import {
-  BoxGeometry,
+  BackSide,
+  BufferAttribute,
+  Color,
   DirectionalLight,
+  Fog,
   Group,
   HemisphereLight,
   Mesh,
-  PlaneGeometry,
+  MeshBasicMaterial,
   PMREMGenerator,
   Scene,
-  Color,
-  Fog,
+  SphereGeometry,
+  type Camera,
   type WebGLRenderer,
 } from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
-import type { Materials } from "./materials";
+import { HAZE_COLOR, HAZE_FAR, HAZE_NEAR, installHaze } from "./haze";
 import type { QualitySettings } from "./quality";
 
-/** The floorboards sit just below the felt mat, whose top is the play surface at y = 0. */
-export const FLOOR_Y = -4;
+/** Pale blue high overhead; the horizon is the haze colour so hazed ground meets the sky without a seam. */
+export const SKY_ZENITH = "#a9c6db";
+const SKY_RADIUS = 30000;
 
-export interface Room {
+export interface Stage {
   group: Group;
   sun: DirectionalLight;
   /** Fit the sun's shadow camera around an area centred at (x, z). */
   fitShadow(x: number, z: number, radius: number): void;
   /** The area the shadow camera currently covers. */
   readonly shadowFit: { x: number; z: number; radius: number };
+  /** Keep the sky centred on the camera (call once per frame, before rendering). */
+  update(camera: Camera): void;
 }
 
-function shadowed<T extends Mesh>(m: T, cast = true, receive = true): T {
-  m.castShadow = cast;
-  m.receiveShadow = receive;
-  return m;
+/** A sky dome coloured by elevation: haze at and below the horizon, rising to pale blue. */
+function buildSky(): Mesh {
+  const g = new SphereGeometry(SKY_RADIUS, 32, 16);
+  const pos = g.getAttribute("position");
+  const colors = new Float32Array(pos.count * 3);
+  const haze = new Color(HAZE_COLOR);
+  const zenith = new Color(SKY_ZENITH);
+  const c = new Color();
+  for (let i = 0; i < pos.count; i++) {
+    const e = Math.max(0, pos.getY(i) / SKY_RADIUS);
+    const t = Math.min(1, e / 0.55);
+    c.copy(haze).lerp(zenith, t * t * (3 - 2 * t));
+    c.toArray(colors, i * 3);
+  }
+  g.setAttribute("color", new BufferAttribute(colors, 3));
+  const sky = new Mesh(g, new MeshBasicMaterial({ vertexColors: true, side: BackSide, fog: false, depthWrite: false }));
+  sky.renderOrder = -1;
+  sky.frustumCulled = false;
+  return sky;
 }
 
-export function createRoom(scene: Scene, renderer: WebGLRenderer, mats: Materials, quality: QualitySettings): Room {
+/** Lights, sky and haze: the world around the toys. */
+export function createStage(scene: Scene, renderer: WebGLRenderer, quality: QualitySettings): Stage {
+  installHaze();
   const group = new Group();
   scene.add(group);
 
   const pmrem = new PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environmentIntensity = 0.22;
-  scene.background = new Color("#cbbba3");
-  scene.fog = new Fog("#cbbba3", 9000, 26000);
+  scene.background = new Color(HAZE_COLOR);
+  scene.fog = new Fog(HAZE_COLOR, HAZE_NEAR, HAZE_FAR);
 
-  // Floorboards.
-  const floor = shadowed(new Mesh(new PlaneGeometry(30000, 30000), mats.floor), false, true);
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = FLOOR_Y;
-  const floorUv = floor.geometry.getAttribute("uv");
-  for (let i = 0; i < floorUv.count; i++) floorUv.setXY(i, floorUv.getX(i) * 30000, floorUv.getY(i) * 30000);
-  group.add(floor);
+  const sky = buildSky();
+  group.add(sky);
 
-  // Walls behind and to the left, with skirting boards.
-  const wallH = 6000;
-  const back = new Mesh(new PlaneGeometry(30000, wallH), mats.wall);
-  back.position.set(0, FLOOR_Y + wallH / 2, -4200);
-  back.receiveShadow = true;
-  group.add(back);
-  const left = new Mesh(new PlaneGeometry(30000, wallH), mats.wall);
-  left.rotation.y = Math.PI / 2;
-  left.position.set(-5600, FLOOR_Y + wallH / 2, 0);
-  left.receiveShadow = true;
-  group.add(left);
-  const skirtBack = shadowed(new Mesh(new BoxGeometry(30000, 120, 18), mats.skirting));
-  skirtBack.position.set(0, FLOOR_Y + 60, -4200 + 9);
-  group.add(skirtBack);
-  const skirtLeft = shadowed(new Mesh(new BoxGeometry(18, 120, 30000), mats.skirting));
-  skirtLeft.position.set(-5600 + 9, FLOOR_Y + 60, 0);
-  group.add(skirtLeft);
-
-  // Light: warm, low late-afternoon sun from a window to the right, soft sky fill.
+  // Light: warm, low late-afternoon sun, soft sky fill.
   const sun = new DirectionalLight(new Color("#ffd2a1"), 5.4);
   sun.castShadow = true;
   sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
@@ -104,5 +104,10 @@ export function createRoom(scene: Scene, renderer: WebGLRenderer, mats: Material
   };
   fitShadow(0, 0, 2000);
 
-  return { group, sun, fitShadow, shadowFit };
+  const update = (camera: Camera) => {
+    sky.position.copy(camera.position);
+    sky.updateMatrixWorld();
+  };
+
+  return { group, sun, fitShadow, shadowFit, update };
 }

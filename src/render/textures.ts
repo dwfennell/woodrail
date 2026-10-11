@@ -124,69 +124,6 @@ export function beechTextures(anisotropy: number): SurfaceTextures {
   return toTextures(c, 1 / 512, 1 / 128, anisotropy);
 }
 
-/** Oak floorboards: 2048 mm square tile, boards 150 mm wide running along x, staggered butt joints. */
-export function oakFloorTextures(anisotropy: number, size = 1024): SurfaceTextures {
-  const W = size;
-  const H = size;
-  const tile = 2048;
-  const c = canvases(W, H);
-  const n1 = makeNoise(5, 64);
-  const n2 = makeNoise(9, 128);
-  const r = rng(77);
-  const boardW = 150;
-  const rows = Math.floor(tile / boardW) + 1;
-  const boards: { start: number; tone: number; shift: number }[][] = [];
-  for (let row = 0; row < rows; row++) {
-    const list: { start: number; tone: number; shift: number }[] = [];
-    let x = -r() * 1200;
-    while (x < tile) {
-      list.push({ start: x, tone: r(), shift: r() * 100 });
-      x += 700 + r() * 900;
-    }
-    boards.push(list);
-  }
-  const base = hex("#b07c4c");
-  const darker = hex("#7d522d");
-  const honey = hex("#c8955e");
-  fill(c, W, H, (px, py) => {
-    const mmX = (px / W) * tile;
-    const mmY = (py / H) * tile;
-    const row = Math.floor(mmY / boardW);
-    const inRow = mmY - row * boardW;
-    const list = boards[row % boards.length];
-    let b = list[0];
-    for (const cand of list) if (cand.start <= mmX) b = cand;
-    const along = mmX - b.start;
-    const edgeDist = Math.min(inRow, boardW - inRow, Math.abs(along), 1e9);
-    const gap = edgeDist < 1.6 ? 1 : 0;
-    const u = (mmX + b.shift * 10) / tile;
-    const v = (mmY + b.shift) / tile;
-    const g = v * 140 + fbm(n1, u * 6, v * 30, 4) * 4;
-    const ring = Math.pow(Math.abs(Math.sin(g * Math.PI)), 3);
-    const streak = fbm(n2, u * 60, v * 8, 3);
-    let col = mix(base, b.tone > 0.5 ? honey : darker, Math.abs(b.tone - 0.5) * 0.9);
-    col = mix(col, darker, ring * 0.35 + streak * 0.2);
-    if (gap) col = mix(col, hex("#2a1a10"), 0.85);
-    const bevel = clamp01(1 - edgeDist / 4);
-    return [col, gap ? 0.9 : 0.38 + ring * 0.1 + streak * 0.15, gap ? 0 : 0.6 - bevel * 0.35 - ring * 0.1];
-  });
-  return toTextures(c, 1 / tile, 1 / tile, anisotropy);
-}
-
-/** Matt painted plaster wall with faint roller texture. */
-export function wallTextures(anisotropy: number): SurfaceTextures {
-  const W = 512;
-  const H = 512;
-  const c = canvases(W, H);
-  const n1 = makeNoise(51, 128);
-  const paint = hex("#efe6d8");
-  fill(c, W, H, (px, py) => {
-    const f = fbm(n1, (px / W) * 64, (py / H) * 64, 3);
-    return [mix(paint, hex("#e2d6c4"), f * 0.4), 0.85, f];
-  });
-  return toTextures(c, 1 / 1000, 1 / 1000, anisotropy);
-}
-
 /**
  * Felt: a tile of short, randomly oriented fibres (about 0.2 mm per pixel at the default repeat) for the bump and a
  * matching speckle in the colour map. Broad colour mottling is added separately in world space (see `mottleTexture`).

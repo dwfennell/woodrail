@@ -5,12 +5,10 @@ import { Batcher } from "./dressing/batcher";
 import { buildBlocks } from "./dressing/blocks";
 import { buildStation, buildTown } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
-import { buildFeltMat, buildFeltRibbons } from "./dressing/felt";
+import { buildFeltGround, buildFeltRibbons } from "./dressing/felt";
 import { buildTrees, treePlacements } from "./dressing/trees";
 import type { Flourish } from "./flourishes";
 import type { Materials } from "./materials";
-
-export { MAT_THICKNESS } from "./dressing/felt";
 
 /** Draws the felt mat and everything on it: block hills, rivers, roads, trees, towns, stations and name signs. */
 export class LandscapeView {
@@ -81,8 +79,8 @@ export class LandscapeView {
     const { grid } = this.land;
     const b = new Batcher(this.mats.paint);
 
-    // The felt play mat, and felt rivers and roads laid on it.
-    this.group.add(buildFeltMat(this.mats));
+    // The felt ground, and felt rivers and roads laid on it.
+    this.group.add(buildFeltGround(this.mats));
     const river = buildFeltRibbons(grid, SURF_RIVER, this.mats.riverFelt, 1.6);
     const road = buildFeltRibbons(grid, SURF_ROAD, this.mats.roadFelt, 1.1);
     if (river) this.group.add(river);

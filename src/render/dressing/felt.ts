@@ -1,22 +1,31 @@
 import { ExtrudeGeometry, Group, Mesh, PlaneGeometry, Shape, Path, type BufferGeometry, type Material } from "three";
-import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, COLS, MAT_DEPTH, MAT_WIDTH, ROWS, type LandscapeGrid } from "../../landscape";
 import { insideLoops, loopArea, smoothLoop, traceRegions, type Loop } from "../../landscape/outline";
 import { FELT_TILE, type Materials } from "../materials";
 
-export const MAT_THICKNESS = 4;
+/** The felt ground runs this far (mm) past the mat on every side: well into the total haze. */
+const GROUND_REACH = 4000;
 const HEM_INSET = 14;
 const HEM_WIDTH = 9;
 const STITCH_LENGTH = 9;
 
-/** The felt play mat: a 4 mm slab with softly rounded edges, a darker bound hem and a running stitch around it. */
-export function buildFeltMat(mats: Materials): Group {
+/**
+ * The felt ground: one sheet running from the mat out under the scenery into the haze, with a darker bound hem and a
+ * running stitch marking the edge of the buildable mat.
+ */
+export function buildFeltGround(mats: Materials): Group {
   const group = new Group();
-  const slab = new Mesh(new RoundedBoxGeometry(MAT_WIDTH, MAT_THICKNESS, MAT_DEPTH, 3, 2), mats.felt);
-  slab.position.y = -MAT_THICKNESS / 2;
-  slab.receiveShadow = true;
-  group.add(slab);
+  const w = MAT_WIDTH + 2 * GROUND_REACH;
+  const d = MAT_DEPTH + 2 * GROUND_REACH;
+  const sheet = new PlaneGeometry(w, d);
+  sheet.rotateX(-Math.PI / 2);
+  // Felt tiles in mm, like the river and road ribbons.
+  const uv = sheet.getAttribute("uv");
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * w) / FELT_TILE, (uv.getY(i) * d) / FELT_TILE);
+  const ground = new Mesh(sheet, mats.felt);
+  ground.receiveShadow = true;
+  group.add(ground);
 
   // Hem: four strips just inside the edge, a hair above the surface, each with a stitch line down its middle.
   const hem: BufferGeometry[] = [];

@@ -14,7 +14,7 @@ import { createMaterials, type Materials } from "../render/materials";
 import { Flourishes } from "../render/flourishes";
 import { createPost, type Post } from "../render/post";
 import { detectQuality, type QualitySettings } from "../render/quality";
-import { createRoom, type Room } from "../render/room";
+import { createStage, type Stage } from "../render/stage";
 import { shadowRadiusForView, shouldRefit } from "../render/shadow-fit";
 import { TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
@@ -40,7 +40,7 @@ export class Game {
   readonly flourishes = new Flourishes();
   readonly quality: QualitySettings;
   readonly mats: Materials;
-  readonly room: Room;
+  readonly stage: Stage;
   readonly trackView: TrackView;
   landscapeView: LandscapeView;
   readonly trainView: TrainView;
@@ -92,8 +92,8 @@ export class Game {
     this.controls.screenSpacePanning = false;
     this.director = new CameraDirector(this.camera, this.controls);
 
-    this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy(), this.quality.textureSize);
-    this.room = createRoom(this.scene, this.renderer, this.mats, this.quality);
+    this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy());
+    this.stage = createStage(this.scene, this.renderer, this.quality);
     TrackView.prebuild(PIECE_TYPES);
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
@@ -249,7 +249,8 @@ export class Game {
     const t = this.controls.target;
     const dist = this.camera.position.distanceTo(t);
     const radius = shadowRadiusForView(this.camera, t);
-    if (shouldRefit(this.room.shadowFit, t.x, t.z, radius)) this.room.fitShadow(t.x, t.z, radius);
+    if (shouldRefit(this.stage.shadowFit, t.x, t.z, radius)) this.stage.fitShadow(t.x, t.z, radius);
+    this.stage.update(this.camera);
     this.post.setFocus(dist);
     this.post.render(this.clock.elapsedTime);
   }
