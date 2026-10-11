@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Vector3 } from "three";
-import { clampView, edgePan, frameDistance, isDoubleTap, lerpAngle } from "./camera-director";
+import { clampTarget, clampView, edgePan, frameDistance, isDoubleTap, lerpAngle } from "./camera-director";
 
 describe("frameDistance", () => {
   it("fits a sphere to the narrower side of the frustum", () => {
@@ -11,6 +11,27 @@ describe("frameDistance", () => {
     expect(frameDistance(100, 30, 0.5)).toBeGreaterThan(d);
     const hHalf = Math.atan(Math.tan((15 * Math.PI) / 180) * 0.5);
     expect(Math.sin(hHalf) * frameDistance(100, 30, 0.5)).toBeCloseTo(100, 6);
+  });
+});
+
+describe("clampTarget", () => {
+  it("keeps the look-at point over the mat, moving the camera with it", () => {
+    const t = new Vector3(3000, 0, -2500);
+    const p = new Vector3(3500, 800, -1500);
+    clampTarget(t, p, 2240, 1664);
+    expect(t.x).toBe(2240);
+    expect(t.z).toBe(-1664);
+    expect(p.x).toBe(2740);
+    expect(p.z).toBe(-664);
+    expect(p.y).toBe(800);
+  });
+
+  it("leaves a target on the mat alone", () => {
+    const t = new Vector3(100, 20, -50);
+    const p = new Vector3(600, 900, 700);
+    clampTarget(t, p, 2240, 1664);
+    expect(t.toArray()).toEqual([100, 20, -50]);
+    expect(p.toArray()).toEqual([600, 900, 700]);
   });
 });
 

@@ -21,6 +21,16 @@ export function clampView(target: Vector3, position: Vector3, minDist: number, m
   position.copy(target).add(off.setFromSpherical(sph));
 }
 
+/** Keep the look-at point within ±halfW × ±halfD (the mat), moving the camera by the same amount (in place). */
+export function clampTarget(target: Vector3, position: Vector3, halfW: number, halfD: number): void {
+  const x = Math.min(halfW, Math.max(-halfW, target.x));
+  const z = Math.min(halfD, Math.max(-halfD, target.z));
+  position.x += x - target.x;
+  position.z += z - target.z;
+  target.x = x;
+  target.z = z;
+}
+
 /**
  * How hard to pan when the pointer is near a screen edge: −1..1 per axis, zero outside a `zone`-pixel band,
  * ramping in quadratically.
@@ -85,6 +95,8 @@ export class CameraDirector {
   private readonly tmp2 = new Vector3();
   private readonly right = new Vector3();
   private readonly forward = new Vector3();
+  /** Half extents of the area the camera may look at (the mat). */
+  bounds = { halfW: Infinity, halfD: Infinity };
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -218,6 +230,13 @@ export class CameraDirector {
       }
     }
 
-    clampView(c.target, cam.position, c.minDistance, c.maxDistance, c.maxPolarAngle);
+    this.constrain();
+  }
+
+  /** Pull the view back within bounds: target over the mat, distance and tilt within limits. */
+  constrain(): void {
+    const c = this.controls;
+    clampTarget(c.target, this.camera.position, this.bounds.halfW, this.bounds.halfD);
+    clampView(c.target, this.camera.position, c.minDistance, c.maxDistance, c.maxPolarAngle);
   }
 }

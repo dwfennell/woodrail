@@ -87,10 +87,11 @@ export class Game {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.minDistance = 120;
-    this.controls.maxDistance = 9000;
+    this.controls.maxDistance = 12000;
     this.controls.maxPolarAngle = 1.42;
     this.controls.screenSpacePanning = false;
     this.director = new CameraDirector(this.camera, this.controls);
+    this.director.bounds = { halfW: MAT_WIDTH / 2, halfD: MAT_DEPTH / 2 };
 
     this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy());
     this.stage = createStage(this.scene, this.renderer, this.quality);
@@ -246,6 +247,8 @@ export class Game {
     this.flourishes.update(dt);
     this.director.update(dt, this.canvas.clientWidth, this.canvas.clientHeight);
     this.controls.update(dt);
+    // After the controls' own pan, so the view never renders past the mat's edge.
+    this.director.constrain();
     const t = this.controls.target;
     const dist = this.camera.position.distanceTo(t);
     const radius = shadowRadiusForView(this.camera, t);

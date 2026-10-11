@@ -3,7 +3,7 @@ import { Vector3, type PerspectiveCamera } from "three";
 /** Fitting the sun's shadow frustum to what the camera sees, so shadows stay crisp up close. */
 
 const MIN_RADIUS = 500;
-const MAX_RADIUS = 2200;
+const MAX_RADIUS = 3200;
 
 /** Whether the shadow frustum should be refitted: the view has panned or zoomed enough to matter. */
 export function shouldRefit(current: { x: number; z: number; radius: number }, x: number, z: number, radius: number): boolean {
