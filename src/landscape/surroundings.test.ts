@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RISER_HEIGHT } from "../track";
 import { CELL, MAT_DEPTH, MAT_WIDTH } from "./grid";
 import { generateSurroundings, outsideDistance, RING_WIDTH, SCENERY_MARGIN } from "./surroundings";
 
@@ -44,34 +45,34 @@ describe("generateSurroundings", () => {
     const s = generateSurroundings(seed);
     const tops = s.blocks.filter((b) => b.top);
     const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
-    const near = tops.filter((b) => outsideDistance(b.x, b.z) < 900).map((b) => b.y + b.size);
-    const far = tops.filter((b) => outsideDistance(b.x, b.z) > 2000).map((b) => b.y + b.size);
+    const near = tops.filter((b) => outsideDistance(b.x, b.z) < 900).map((b) => b.y + b.height);
+    const far = tops.filter((b) => outsideDistance(b.x, b.z) > 2000).map((b) => b.y + b.height);
     expect(mean(far)).toBeGreaterThan(mean(near) * 1.5);
   });
 
   it("hills don't dip where the near and far bands meet", () => {
     const tops: { d: number; h: number }[] = [];
-    for (const seed of seeds) for (const b of generateSurroundings(seed).blocks) if (b.top) tops.push({ d: outsideDistance(b.x, b.z), h: b.y + b.size });
+    for (const seed of seeds) for (const b of generateSurroundings(seed).blocks) if (b.top) tops.push({ d: outsideDistance(b.x, b.z), h: b.y + b.height });
     const mean = (lo: number, hi: number) => {
       const xs = tops.filter((t) => t.d >= lo && t.d < hi).map((t) => t.h);
       return xs.reduce((a, b) => a + b, 0) / xs.length;
     };
     // The last column of the near band and the first of the far band stand as tall as the hills just inside them.
-    expect(mean(1440, 1536)).toBeGreaterThan(mean(1200, 1400) * 0.95);
-    expect(mean(1536, 1700)).toBeGreaterThan(mean(1200, 1400));
+    expect(mean(1584 - CELL, 1584)).toBeGreaterThan(mean(1250, 1450) * 0.95);
+    expect(mean(1584, 1750)).toBeGreaterThan(mean(1250, 1450));
   });
 
   it.each(seeds)("seed %i: only blocks that can be seen are listed", (seed) => {
     const s = generateSurroundings(seed);
     const key = (b: { x: number; z: number; y: number }) => `${b.x},${b.z},${b.y}`;
     const columns = new Map<string, number>();
-    for (const b of s.blocks) if (b.top) columns.set(`${b.x},${b.z}`, b.y + b.size);
+    for (const b of s.blocks) if (b.top) columns.set(`${b.x},${b.z}`, b.y + b.height);
     expect(new Set(s.blocks.map(key)).size).toBe(s.blocks.length);
     for (const b of s.blocks) {
       if (b.top) continue;
       // A block below the top shows only where some neighbouring column is lower than its top.
       const around = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => columns.get(`${b.x + dx * b.size},${b.z + dz * b.size}`) ?? 0);
-      expect(Math.min(...around)).toBeLessThan(b.y + b.size);
+      expect(Math.min(...around)).toBeLessThan(b.y + b.height);
     }
   });
 
@@ -91,11 +92,29 @@ describe("generateSurroundings", () => {
     }
   });
 
+  it("scenery blocks have the mat's proportions: a square wide and a riser tall (double in the far band)", () => {
+    const s = generateSurroundings(3);
+    for (const b of s.blocks) {
+      expect(b.height / b.size).toBeCloseTo(RISER_HEIGHT / CELL, 9);
+      expect((b.y / b.height) % 1).toBeCloseTo(0, 9);
+    }
+    const tops = new Set(s.blocks.filter((b) => b.top).map((b) => b.y + b.height));
+    for (const t of s.trees) if (t.y > 0) expect(tops.has(t.y)).toBe(true);
+  });
+
+  it("scenery blocks line up with the mat's grid lines, so the hills keep its rhythm", () => {
+    const whole = (v: number) => Math.abs(v - Math.round(v)) < 1e-9;
+    for (const b of generateSurroundings(4).blocks) {
+      expect(whole((b.x - b.size / 2 + MAT_WIDTH / 2) / CELL)).toBe(true);
+      expect(whole((b.z - b.size / 2 + MAT_DEPTH / 2) / CELL)).toBe(true);
+    }
+  });
+
   it("trees stand on the ground or on a block top", () => {
     const s = generateSurroundings(9);
     expect(s.trees.length).toBeGreaterThan(40);
     const tops = new Map<string, number>();
-    for (const b of s.blocks) if (b.top) tops.set(`${b.x},${b.z}`, b.y + b.size);
+    for (const b of s.blocks) if (b.top) tops.set(`${b.x},${b.z}`, b.y + b.height);
     for (const t of s.trees) {
       if (t.y === 0) continue;
       expect([...tops.entries()].some(([k, y]) => {
