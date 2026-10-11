@@ -10,6 +10,8 @@ import {
   samplePath,
 } from "../src/track";
 import { checkPlacement, checkSupport, generateLandscape, looseHeight } from "../src/landscape";
+import { Sim } from "../src/sim";
+import { Economy } from "../src/economy";
 import { runGroup } from "./run";
 
 const land = generateLandscape(11);
@@ -65,3 +67,32 @@ await runGroup("landscape", {
     checkPlacement(land, "curve-large", false, { x: stationPose.x + k * 3, z: stationPose.z + 120, heading: 0.3 }, 0);
   },
 });
+
+// A full sim tick (+ economy) with 20 timber trains on the biggest stress layout, 20 of its pieces acting as depots.
+{
+  const { layout } = buildStressLayout(200);
+  const sim = new Sim(layout);
+  const ids = [...layout.pieceIds()];
+  let placed = 0;
+  for (let k = 0; placed < 20 && k < ids.length; k += 37) {
+    const r = sim.addTrain(["engine", "timber", "timber", "timber"], { pieceId: ids[k], pathIndex: 0, reversed: false, s: 1 });
+    if (r.kind !== "placed") continue;
+    sim.setLever(sim.getTrain(r.trainId)!.cars[0].id, 1);
+    placed++;
+  }
+  const plain = new Sim(layout);
+  const economy = new Economy(layout, sim);
+  for (let k = 0; k < 20; k++) {
+    const d = economy.addDepot(k % 2 ? "forest" : "sawmill", ids[(k * 97 + 11) % ids.length]);
+    d.piles[0] = 6;
+  }
+  await runGroup(`sim @ ${ids.length} pieces, ${placed} trains`, {
+    "sim.tick + economy.tick": () => {
+      sim.tick();
+      economy.tick();
+    },
+    "empty sim.tick (baseline)": () => {
+      plain.tick();
+    },
+  });
+}

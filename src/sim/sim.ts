@@ -109,6 +109,11 @@ export class Sim {
   private nextCarId = 1;
   private readonly trains = new Map<number, Train>();
   private events: SimEvent[] = [];
+  /**
+   * Optional speed limit for a powered train this tick (mm/s), set by the economy so trains crawl through depots and
+   * halt with a wagon under the crane. Infinity for no limit; 0 holds the train where it is.
+   */
+  speedCap: ((train: Train) => number) | null = null;
 
   constructor(readonly layout: Layout) {}
 
@@ -323,6 +328,8 @@ export class Sim {
       const target = Math.sign(net) * ENGINE_SPEED * Math.max(0.3, 1 - (LOAD_PER_CAR * (train.cars.length - 1)) / engines);
       v += DRIVE_RESPONSE * (target - v) * SIM_DT;
       v -= GRAVITY * grade * SIM_DT;
+      const cap = this.speedCap ? this.speedCap(train) : Infinity;
+      if (v > cap) v = cap;
     } else {
       v -= GRAVITY * grade * SIM_DT;
       const f = ROLLING_FRICTION * SIM_DT;
