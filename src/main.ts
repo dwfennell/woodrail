@@ -246,8 +246,12 @@ function boot(): void {
     interaction.tick(dt);
     let hum = 0;
     for (const e of game.events) {
-      const p = carPoint(e.trainId, e.kind === "joint" ? e.bogie : 0);
+      const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);
       if (!p) continue;
+      if (e.kind === "turned") {
+        audio.rotate();
+        continue;
+      }
       const [v, pan] = listen(p.x, p.z);
       if (e.kind === "joint") audio.clack(v, pan);
       else if (e.kind === "coupled") audio.magnet(v, pan);

@@ -1,4 +1,4 @@
-import type { Layout } from "../track";
+import { getPieceDef, type Layout } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -19,6 +19,8 @@ export const SIM_HZ = 120;
 export const SIM_DT = 1 / SIM_HZ;
 /** A train resting on a turnback buffer waits this long (2 s) before driving back. */
 export const TURNBACK_TICKS = 2 * SIM_HZ;
+/** How far (mm) a turned train is set down away from the buffer it turned at. */
+const TURN_CLEARANCE = 0.05;
 
 // Motion tuning (mm, s).
 export const ENGINE_SPEED = 120;
@@ -60,6 +62,8 @@ export type SimEvent =
   | { readonly kind: "coupled"; readonly trainId: number; readonly absorbedTrainId: number }
   | { readonly kind: "repelled"; readonly trainId: number }
   | { readonly kind: "buffer"; readonly trainId: number }
+  /** A train was lifted and turned round at a turnback buffer (it has a new id; its cars keep theirs). */
+  | { readonly kind: "turned"; readonly trainId: number; readonly newTrainId: number }
   /** An axle rolled over a joint between pieces (the toy's clickety-clack). */
   | { readonly kind: "joint"; readonly trainId: number; readonly bogie: number };
 
@@ -288,7 +292,14 @@ export class Sim {
     for (const train of this.trains.values()) {
       if (train.derailed) continue;
       if (train.turnback >= 0 && --train.turnback < 0) {
-        // Waited long enough at a turnback buffer: every engine's lever goes the other way.
+        // Waited long enough at a turnback buffer: lift the train and turn it round, so it heads back out the way
+        // it came, its engine leading as before.
+        const turned = this.turnAround(train);
+        if (turned) {
+          this.events.push({ kind: "turned", trainId: train.id, newTrainId: turned.id });
+          continue; // moves from next tick, as a new train
+        }
+        // No room to set it down turned round: just send it back.
         for (const car of train.cars) if (car.kind === "engine") car.lever = (-car.lever) as -1 | 0 | 1;
       }
       this.move(train);
@@ -384,9 +395,61 @@ export class Sim {
     train.bogies.reverse();
     for (const b of train.bogies) flipCursor(this.layout, b);
     train.world.reverse();
-    train.memory.clear();
+    this.rememberStraddledSwitches(train);
     train.speed = -train.speed;
     this.refreshWorld(train);
+  }
+
+  /**
+   * Turn a train end for end where it stands, as a child lifts a toy train and puts it back the other way round: the
+   * same stretch of track, the cars in mirrored order (what was nearest the front is now at the far end, leading),
+   * each car facing the other way. Cars keep their ids and levers, so the engine drives off away from where it was
+   * heading. Returns the new train, or null (and leaves the train as it was) if it doesn't fit.
+   */
+  private turnAround(train: Train): Train | null {
+    const n = train.bogies.length;
+    // The new front axle goes where the old rear axle was, heading back the other way.
+    const lead = { ...train.bogies[n - 1] };
+    flipCursor(this.layout, lead);
+    // Its axles span the same stretch as before (the far one where the old front one was, which is as far as the
+    // track goes at a buffer); a whisker out from the buffer, so rounding never puts that axle past its end.
+    advanceCursor(this.layout, lead, TURN_CLEARANCE, null, adv);
+    const kinds = train.cars.map((c) => c.kind);
+    const ids = train.cars.map((c) => c.id);
+    const facings = train.cars.map((c) => c.facing);
+    const levers = train.cars.map((c) => c.lever);
+    this.trains.delete(train.id);
+    // Mirrored: the old front car is the new front car, now at the other end of the stretch.
+    const placed = this.addTrain(kinds, lead, ids);
+    if (placed.kind !== "placed") {
+      this.trains.set(train.id, train);
+      return null;
+    }
+    const t = this.trains.get(placed.trainId)!;
+    t.cars.forEach((car, i) => {
+      car.facing = facings[i];
+      car.lever = levers[i];
+    });
+    return t;
+  }
+
+  /**
+   * After a train turns round, the switch choices it remembered no longer apply. But a train that turns round while
+   * part of it is on a switch (heading out along one of its paths) must have the rest follow that same path when they
+   * come onto the switch from its trunk, whichever way the switch is set now: otherwise the train splits.
+   */
+  private rememberStraddledSwitches(train: Train): void {
+    train.memory.clear();
+    const b = train.bogies;
+    for (let i = b.length - 1; i >= 0; i--) {
+      const c = b[i];
+      // On a switch, travelling from its trunk end out along a path; the axles behind it (higher indices) follow.
+      if (c.reversed || train.memory.has(c.pieceId)) continue;
+      const piece = this.layout.getPiece(c.pieceId);
+      if (!piece || !getPieceDef(piece.type, piece.flipped).isSwitch) continue;
+      const behind = b.length - 1 - i;
+      if (behind > 0) train.memory.set(c.pieceId, { path: c.pathIndex, remaining: behind });
+    }
   }
 
   /** Move a train backward by `d` without changing its orientation. */

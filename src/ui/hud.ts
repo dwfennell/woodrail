@@ -58,6 +58,11 @@ export interface HudHandlers {
   buttonTap(): void;
 }
 
+/** Movement (px) before a press on a tray item becomes a scroll or a pick-up. */
+const TRAY_DECIDE_PX = 8;
+/** A flung tray slows with this time constant (ms). */
+const TRAY_GLIDE_MS = 320;
+
 export interface HudOptions {
   /** Rendered pictures of tray items by key (`piece:<type>` or `train:<label>`); SVG drawings are the fallback. */
   thumbnails?: ReadonlyMap<string, string>;
@@ -113,7 +118,10 @@ export class Hud {
   readonly perf = el("div", "perf");
   private toastTimer = 0;
 
+  private readonly handlers: HudHandlers;
+
   constructor(parent: HTMLElement, h: HudHandlers, qualityLabel: () => string, opts: HudOptions) {
+    this.handlers = h;
     parent.appendChild(this.root);
     this.root.addEventListener("pointerdown", (e) => {
       const t = e.target as HTMLElement;
@@ -223,7 +231,7 @@ export class Hud {
         b.title = `Drag onto the floor: ${item.label}`;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          h.trayPointerDown(item, e);
+          this.trayPress(item, e, scroller);
         });
         scroller.appendChild(b);
       }
@@ -366,6 +374,74 @@ export class Hud {
     this.hideCards();
     this.pieceCard.hidden = false;
     this.flipBtn.disabled = !flippable;
+  }
+
+  /**
+   * A press on a tray item: after a few pixels, a mostly upward drag picks the item up (out onto the mat) and a
+   * mostly sideways one scrolls the tray, gliding on when let go. Decided by us, so it behaves the same every time.
+   */
+  private trayPress(item: TrayItem, down: PointerEvent, scroller: HTMLElement): void {
+    this.trayGlide = 0;
+    const id = down.pointerId;
+    const x0 = down.clientX;
+    const y0 = down.clientY;
+    const scroll0 = scroller.scrollLeft;
+    let mode: "undecided" | "scroll" = "undecided";
+    let lastX = x0;
+    let lastT = down.timeStamp;
+    let velocity = 0; // px per ms, of the content
+    const move = (e: PointerEvent) => {
+      if (e.pointerId !== id) return;
+      const dx = e.clientX - x0;
+      const dy = e.clientY - y0;
+      if (mode === "undecided") {
+        if (Math.hypot(dx, dy) < TRAY_DECIDE_PX) return;
+        if (-dy > Math.abs(dx) * 0.7) {
+          // Up and out: pick the item up.
+          stop();
+          this.handlers.trayPointerDown(item, e);
+          return;
+        }
+        mode = "scroll";
+      }
+      scroller.scrollLeft = scroll0 - dx;
+      const dt = Math.max(1, e.timeStamp - lastT);
+      velocity = velocity * 0.4 + ((lastX - e.clientX) / dt) * 0.6;
+      lastX = e.clientX;
+      lastT = e.timeStamp;
+    };
+    const up = (e: PointerEvent) => {
+      if (e.pointerId !== id) return;
+      stop();
+      // A quick swipe glides on, slowing down.
+      if (mode === "scroll" && e.timeStamp - lastT < 80 && Math.abs(velocity) > 0.05) this.glideTray(scroller, velocity);
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  }
+
+  /** Bumped to stop a running tray glide. */
+  private trayGlide = 0;
+
+  private glideTray(scroller: HTMLElement, velocity: number): void {
+    const run = ++this.trayGlide;
+    let v = velocity;
+    let last = performance.now();
+    const step = (now: number) => {
+      if (run !== this.trayGlide) return;
+      const dt = Math.min(50, now - last);
+      last = now;
+      scroller.scrollLeft += v * dt;
+      v *= Math.exp(-dt / TRAY_GLIDE_MS);
+      if (Math.abs(v) > 0.02) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   showDepotCard(title: string): void {

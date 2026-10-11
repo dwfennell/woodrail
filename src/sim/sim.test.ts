@@ -225,6 +225,37 @@ describe("switches", () => {
   });
 });
 
+describe("reversing through a switch", () => {
+  it("a train that reverses while straddling a switch goes back the way it came, all of it", () => {
+    // Trunk ← switch → straight branch (curves) and curved branch (two straights), the train coming off the curved
+    // branch onto the trunk (a trailing move), then reversing halfway through with the switch set straight.
+    const { layout, ids } = chain(["straight-216", "straight-216", "switch", "curve-large", "curve-large"]);
+    const branchA = appendPiece(layout, "straight-216", false, connectorRef(ids[2], 2));
+    const branchB = appendPiece(layout, "straight-216", false, connectorRef(branchA, 1));
+    const sim = new Sim(layout);
+    layout.setSwitchState(ids[2], 1);
+    const r = sim.addTrain(["engine", "passenger", "passenger"], { pieceId: branchA, pathIndex: 0, reversed: true, s: 120 });
+    if (r.kind !== "placed") throw new Error("not placed");
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    sim.setLever(engine, 1);
+    run(sim, 3.2); // the front is out on the trunk, the back still on the curved branch
+    const mid = sim.getTrain(r.trainId)!;
+    expect(mid.bogies.some((b) => b.pieceId === ids[1])).toBe(true);
+    expect(mid.bogies.some((b) => b.pieceId === branchA || (b.pieceId === ids[2] && b.pathIndex === 1))).toBe(true);
+    layout.setSwitchState(ids[2], 0);
+    sim.setLever(engine, -1);
+    run(sim, 4);
+    const t = sim.getTrain(r.trainId)!;
+    expect(t.derailed).toBe(false);
+    // Nobody went down the straight branch: every axle is on the curved side (or still on the switch's curved path).
+    for (const b of t.bogies) {
+      expect([ids[3], ids[4]]).not.toContain(b.pieceId);
+      if (b.pieceId === ids[2]) expect(b.pathIndex).toBe(1);
+    }
+    expect(t.bogies.some((b) => b.pieceId === branchA || b.pieceId === branchB)).toBe(true);
+  });
+});
+
 describe("coupling", () => {
   function twoTrains(rearKindsOfFront: Parameters<Sim["addTrain"]>[0]) {
     const { layout, ids } = longLine(14);

@@ -22,7 +22,6 @@ const LAMP_COLORS: Record<number, [Color, number]> = {
 export class TrainView {
   readonly group = new Group();
   private readonly cars = new Map<number, CarEntry>();
-  private engineCount = 0;
 
   constructor(private readonly mats: Materials) {}
 
@@ -40,7 +39,8 @@ export class TrainView {
       const z = snap.transforms[o + 2];
       if (!entry) {
         const kind = CAR_KINDS[snap.kinds[i]];
-        const model = buildCarModel(kind, this.mats, kind === "engine" ? this.engineCount++ % 2 : id);
+        // The colour scheme follows the car (its id survives being picked up and put down), not the order models were built.
+        const model = buildCarModel(kind, this.mats, kind === "engine" ? id % 2 : id);
         model.root.traverse((obj) => (obj.userData.carId = id));
         if (model.lamp) model.lamp.userData.ownsMaterial = true;
         this.group.add(model.root);
