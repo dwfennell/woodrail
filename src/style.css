@@ -62,6 +62,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 130px); background: rgba(250, 243, 230, 0.95); backdrop-filter: blur(10px); border-radius: 18px; box-shadow: 0 10px 34px rgba(60, 40, 20, 0.3); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
 .card-title { font-weight: 800; font-size: 15px; color: #6a4a2c; }
 .card-row, .lever-row { display: flex; gap: 8px; }
+.depot-stock { font-size: 14px; font-weight: 700; color: #7a5532; font-variant-numeric: tabular-nums; text-align: center; }
+.depot-card .card-row { flex-wrap: wrap; justify-content: center; }
 .lever { width: 60px; height: 50px; font-size: 20px; }
 .close { position: absolute; top: 6px; right: 8px; border: none; background: transparent; font-size: 16px; color: #8a6a4a; cursor: pointer; padding: 6px; }
 

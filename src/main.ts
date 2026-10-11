@@ -90,6 +90,8 @@ function boot(): void {
         hud.setMuted(muted);
       },
       buttonTap: () => audio.tap(),
+      depotAuto: () => interaction.toggleDepotAuto(),
+      depotWaitFull: () => interaction.toggleDepotWaitFull(),
     },
     () => (game.quality.tier === "high" ? "High" : "Battery saver"),
     { thumbnails, muted },
@@ -215,6 +217,7 @@ function boot(): void {
   window.addEventListener("keydown", skipGlide, { capture: true });
 
   game.onFrame = (dt) => {
+    interaction.refreshDepotCard();
     interaction.tick(dt);
     let hum = 0;
     for (const e of game.events) {

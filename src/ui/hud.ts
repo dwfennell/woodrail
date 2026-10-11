@@ -49,6 +49,10 @@ export interface HudHandlers {
   resetStarter(): void;
   toggleQuality(): void;
   closeCards(): void;
+  /** Depot card: turn automatic loading on or off. */
+  depotAuto(): void;
+  /** Depot card: trains wait for a full load, or not. */
+  depotWaitFull(): void;
   toggleSound(): void;
   /** Any HUD button pressed (for a soft click). */
   buttonTap(): void;
@@ -95,6 +99,11 @@ export class Hud {
   private readonly engineCard = el("div", "card engine-card");
   private readonly carCard = el("div", "card car-card");
   private readonly pieceCard = el("div", "card piece-card");
+  private readonly depotCard = el("div", "card depot-card");
+  private readonly depotTitle = el("div", "card-title");
+  private readonly depotStock = el("div", "depot-stock");
+  private depotAutoBtn!: HTMLButtonElement;
+  private depotWaitBtn!: HTMLButtonElement;
   private readonly flipBtn: HTMLButtonElement;
   private readonly leverBtns: HTMLButtonElement[] = [];
   private readonly followBtn: HTMLButtonElement;
@@ -183,6 +192,15 @@ export class Hud {
     pieceRow.append(button("Rotate", "Rotate 45° (R)", h.rotate, "chip text"), this.flipBtn, button("Delete", "Remove this piece (Del)", h.deletePiece, "chip text danger"));
     this.pieceCard.append(el("div", "card-title", "Track piece"), pieceRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.pieceCard);
+
+    // Depot card: what's on its piles, and how it treats trains.
+    this.depotCard.hidden = true;
+    this.depotAutoBtn = button("Automatic", "The crane loads and unloads trains by itself", h.depotAuto, "chip text");
+    this.depotWaitBtn = button("Wait for a full load", "Trains wait under the crane until each wagon is full", h.depotWaitFull, "chip text");
+    const depotRow = el("div", "card-row");
+    depotRow.append(this.depotAutoBtn, this.depotWaitBtn);
+    this.depotCard.append(this.depotTitle, this.depotStock, depotRow, button("✕", "Close", h.closeCards, "close"));
+    this.root.appendChild(this.depotCard);
 
     // Tray with tabs
     const tabs = el("div", "tabs");
@@ -350,7 +368,31 @@ export class Hud {
     this.flipBtn.disabled = !flippable;
   }
 
+  showDepotCard(title: string): void {
+    this.hideCards();
+    this.depotTitle.textContent = title;
+    this.depotCard.hidden = false;
+  }
+
+  /**
+   * Refresh the open depot card: one line per pile ("Logs ●●●○○…  5"), and the two switches. `waitFull` is null
+   * where it doesn't apply (a depot that gives nothing).
+   */
+  updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = ""): void {
+    const text = piles.map((p) => `${p.label} ${p.count}/${p.cap}`).join("   ·   ") + (note ? `   ·   ${note}` : "");
+    if (this.depotStock.textContent !== text) this.depotStock.textContent = text;
+    this.depotAutoBtn.classList.toggle("active", auto);
+    this.depotWaitBtn.hidden = waitFull === null;
+    this.depotWaitBtn.classList.toggle("active", !!waitFull);
+    this.depotWaitBtn.disabled = !auto;
+  }
+
+  get depotCardOpen(): boolean {
+    return !this.depotCard.hidden;
+  }
+
   hideCards(): void {
+    this.depotCard.hidden = true;
     this.engineCard.hidden = true;
     this.carCard.hidden = true;
     this.pieceCard.hidden = true;

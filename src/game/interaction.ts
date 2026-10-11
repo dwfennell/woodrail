@@ -14,6 +14,8 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES } from "./world";
+import { cargoDropTarget } from "./cargo-drop";
+import { CARGO, PILE_CAP, ROLE, type CargoKind, type CargoSlot } from "../economy";
 
 const DRAG_THRESHOLD = 6;
 /** How high a held piece floats above where it would land (mm). */
@@ -21,7 +23,14 @@ const HOLD_LIFT = 12;
 const MAX_TILT = (2 * Math.PI) / 180;
 const TRAIN_DROP_RANGE = 70;
 
-type Press = { kind: "car"; carId: number } | { kind: "lever"; pieceId: number } | { kind: "piece"; pieceId: number };
+type Press =
+  | { kind: "car"; carId: number }
+  | { kind: "lever"; pieceId: number }
+  | { kind: "piece"; pieceId: number }
+  /** A depot's yard, building or crane (economy depot id). */
+  | { kind: "depot"; depotId: number }
+  /** A log or plank bundle on a pile or wagon. */
+  | { kind: "cargo"; slot: CargoSlot; cargo: CargoKind };
 
 type Mode =
   | { kind: "idle" }
@@ -51,6 +60,14 @@ type Mode =
       shown: PiecePose & { scale: number; tiltX: number; tiltZ: number };
       /** True until the piece has been drawn once (new pieces appear in place rather than flying in). */
       fresh: boolean;
+    }
+  | {
+      kind: "drag-cargo";
+      pointerId: number;
+      from: CargoSlot;
+      cargo: CargoKind;
+      ghost: Group;
+      overTray: boolean;
     }
   | {
       kind: "drag-train";
@@ -235,6 +252,7 @@ export class Interaction {
         return;
       }
       if (m.press.kind === "piece") this.beginPieceMove(m.press.pieceId, m.pointerId, m.ground);
+      else if (m.press.kind === "cargo") this.beginCargoDrag(m.press.slot, m.press.cargo, m.pointerId);
       else if (m.press.kind === "car") {
         this.beginTrainPickup(m.press.carId, m.pointerId);
         if (this.mode.kind === "idle") return;
@@ -267,6 +285,7 @@ export class Interaction {
       return;
     }
     if (m.kind === "drag-piece") this.dropPiece(m);
+    else if (m.kind === "drag-cargo") this.dropCargo(m, e.clientX, e.clientY);
     else this.dropTrain(m);
   }
 
@@ -306,6 +325,9 @@ export class Interaction {
       this.game.scene.remove(m.ghost);
       disposeObject(m.ghost);
       if (m.origin) this.placeTrain(m.cars, m.origin);
+    } else if (m.kind === "drag-cargo") {
+      this.game.scene.remove(m.ghost);
+      this.game.depotView.dragging = null;
     }
     this.mode = { kind: "idle" };
   }
@@ -321,9 +343,20 @@ export class Interaction {
       return;
     }
     if (p.kind === "piece") {
-      const fixed = this.fixedLabel(p.pieceId);
-      if (fixed) this.hud.toast(fixed);
+      const depot = g.economy.depotAtPiece(p.pieceId);
+      if (depot) this.openDepot(depot.id);
+      else if (this.fixedLabel(p.pieceId)) this.hud.toast(this.fixedLabel(p.pieceId)!);
       else this.selectPiece(p.pieceId);
+      return;
+    }
+    if (p.kind === "depot") {
+      this.openDepot(p.depotId);
+      return;
+    }
+    if (p.kind === "cargo") {
+      // A tap on cargo opens whatever it's on: its depot, or its wagon.
+      if (p.slot.kind === "pile") this.openDepot(p.slot.depotId);
+      else this.tap({ kind: "car", carId: p.slot.carId });
       return;
     }
     const found = g.sim.findCar(p.carId);
@@ -353,6 +386,98 @@ export class Interaction {
     if (this.selectedPiece !== -1) this.game.trackView.setHighlight(-1);
     this.selectedPiece = -1;
     this.selectedCar = -1;
+    this.selectedDepot = -1;
+  }
+
+  // ---- depots and cargo -------------------------------------------------------------------------------------
+
+  /** Economy depot whose card is open, or −1. */
+  private selectedDepot = -1;
+
+  private depotTitle(depotId: number): string {
+    const d = this.game.economy.depot(depotId);
+    if (!d) return "";
+    if (d.role === "town") return `${this.game.landscape.towns.find((t) => t.id === d.townId)?.name ?? ""} goods`;
+    return DEPOT_NAMES[d.role];
+  }
+
+  private openDepot(depotId: number): void {
+    this.clearSelection();
+    this.selectedDepot = depotId;
+    this.hud.showDepotCard(this.depotTitle(depotId));
+    this.refreshDepotCard();
+  }
+
+  /** Keep the open depot card's pile counts current (call every frame). */
+  refreshDepotCard(): void {
+    if (this.selectedDepot === -1 || !this.hud.depotCardOpen) return;
+    const d = this.game.economy.depot(this.selectedDepot);
+    if (!d) return;
+    const role = ROLE[d.role];
+    const piles: { label: string; count: number; cap: number }[] = [];
+    for (const kind of [role.takes, role.gives]) if (kind) piles.push({ label: CARGO[kind].label, count: d.piles[CARGO[kind].index], cap: PILE_CAP });
+    const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
+    this.hud.updateDepotCard(piles, d.auto, role.gives ? d.waitFull : null, d.role === "town" ? `Delivered ${delivered}` : "");
+  }
+
+  toggleDepotAuto(): void {
+    const d = this.game.economy.depot(this.selectedDepot);
+    if (!d) return;
+    this.game.economy.setAuto(d.id, !d.auto);
+    this.hud.toast(d.auto ? "The crane works trains by itself" : "Trains run straight through; move cargo by hand");
+    this.refreshDepotCard();
+    this.changed();
+  }
+
+  toggleDepotWaitFull(): void {
+    const d = this.game.economy.depot(this.selectedDepot);
+    if (!d) return;
+    this.game.economy.setWaitFull(d.id, !d.waitFull);
+    this.refreshDepotCard();
+    this.changed();
+  }
+
+  private beginCargoDrag(from: CargoSlot, cargo: CargoKind, pointerId: number): void {
+    this.clearSelection();
+    this.hud.hideCards();
+    const ghost = this.game.depotView.makeHeld(cargo);
+    this.game.scene.add(ghost);
+    this.game.depotView.dragging = from;
+    this.onPickup?.();
+    this.mode = { kind: "drag-cargo", pointerId, from, cargo, ghost, overTray: false };
+  }
+
+  private dropCargo(m: Extract<Mode, { kind: "drag-cargo" }>, x: number, y: number): void {
+    const g = this.game;
+    g.director.setEdgePointer(null);
+    g.scene.remove(m.ghost);
+    g.depotView.dragging = null;
+    this.mode = { kind: "idle" };
+    const ground = this.groundAt(x, y);
+    const under = this.pick(x, y);
+    const carId = under?.kind === "car" ? under.carId : under?.kind === "cargo" && under.slot.kind === "car" ? under.slot.carId : -1;
+    const to = ground
+      ? cargoDropTarget({
+          kind: m.cargo,
+          from: m.from,
+          x: ground.x,
+          z: ground.z,
+          carId,
+          piles: g.depotView.piles(),
+          carAccepts: (id, kind) => g.economy.carAccepts(id, kind),
+          pileAccepts: (id, kind) => {
+            const d = g.economy.depot(id);
+            return !!d && g.economy.pileAccepts(d, kind);
+          },
+        })
+      : null;
+    if (to && g.economy.moveCargo(m.from, to)) {
+      this.onPlaced?.(true);
+      this.changed();
+    } else {
+      this.onRefused?.();
+      this.hud.toast(m.cargo === "log" ? "Logs go on a timber wagon or the sawmill's log pile" : "Planks go on a timber wagon or a station's goods pile");
+    }
   }
 
   // ---- card actions -----------------------------------------------------------------------------------------
@@ -571,7 +696,7 @@ export class Interaction {
 
   private updateDrag(x: number, y: number): void {
     const m = this.mode;
-    if (m.kind !== "drag-piece" && m.kind !== "drag-train") return;
+    if (m.kind !== "drag-piece" && m.kind !== "drag-train" && m.kind !== "drag-cargo") return;
     this.lastX = x;
     this.lastY = y;
     m.overTray = this.hud.isOverTray(x, y);
@@ -580,6 +705,14 @@ export class Interaction {
     // A drag coming up out of the tray passes through the bottom band: only pan once it has left the band.
     this.game.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
     const ground = this.groundAt(x, y);
+    if (m.kind === "drag-cargo") {
+      m.ghost.visible = !m.overTray && !!ground;
+      if (!ground) return;
+      // Held above the ground (and, on touch, a little ahead of the finger so it can be seen).
+      const at = (this.lastPointerWasTouch ? this.touchLift(x, y) : null) ?? ground;
+      m.ghost.position.set(at.x, 34, at.z);
+      return;
+    }
     if (m.kind === "drag-piece") {
       m.ghost.visible = !m.overTray && !!ground;
       if (!ground) return;
@@ -835,8 +968,18 @@ export class Interaction {
   private pick(x: number, y: number): Press | null {
     this.setNdc(x, y);
     const g = this.game;
-    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group], true);
+    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group], true);
     for (const h of hits) {
+      const slot = g.depotView.cargoAt(h.object, h.instanceId);
+      if (slot) {
+        const cargo = slot.kind === "pile" ? slot.cargo : g.economy.cargoOf(slot.carId).kind;
+        if (cargo) return { kind: "cargo", slot, cargo };
+      }
+      if (g.depotView.isDepotPart(h.object)) {
+        const depotId = g.depotView.depotNear(h.point.x, h.point.z);
+        if (depotId !== -1) return { kind: "depot", depotId };
+        continue;
+      }
       const carId = g.trainView.carAt(h.object as Object3D);
       if (carId !== -1) return { kind: "car", carId };
       if (h.object.userData.kind === "switch-lever") return { kind: "lever", pieceId: h.object.userData.pieceId as number };

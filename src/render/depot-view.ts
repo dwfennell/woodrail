@@ -1,7 +1,7 @@
 import { BoxGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, Object3D, Quaternion, Vector3, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { CARGO, type CargoKind, type DepotRole, type DepotState, type Economy } from "../economy";
+import { CARGO, type CargoKind, type CargoSlot, type DepotRole, type DepotState, type Economy } from "../economy";
 import type { Layout, Pose } from "../track";
 import { TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
@@ -124,6 +124,10 @@ export class DepotView {
   private readonly straps: InstancedMesh;
   private readonly carried: Record<CargoKind, Group>;
   private static readonly MAX_UNITS = 2048;
+  /** Which pile or wagon each drawn unit belongs to this frame (by instance index), for picking. */
+  private readonly owners: Record<CargoKind, CargoSlot[]> = { log: [], planks: [] };
+  /** A unit being carried by hand: one fewer is drawn at its source. */
+  dragging: CargoSlot | null = null;
 
   constructor(private readonly mats: Materials) {
     const log = new CylinderGeometry(LOG_RADIUS, LOG_RADIUS, LOG_LENGTH, 14).rotateZ(Math.PI / 2);
@@ -291,14 +295,18 @@ export class DepotView {
   /** Draw piles, wagon loads and cranes for this frame. */
   update(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, dt: number): void {
     const n = { log: 0, planks: 0 };
-    const put = (kind: CargoKind, m: Matrix4) => {
+    const put = (kind: CargoKind, m: Matrix4, owner: CargoSlot) => {
       if (kind === "log") {
-        if (n.log < DepotView.MAX_UNITS) this.logs.setMatrixAt(n.log++, m);
+        if (n.log >= DepotView.MAX_UNITS) return;
+        this.owners.log[n.log] = owner;
+        this.logs.setMatrixAt(n.log++, m);
       } else if (n.planks < DepotView.MAX_UNITS) {
+        this.owners.planks[n.planks] = owner;
         this.boards.setMatrixAt(n.planks, m);
         this.straps.setMatrixAt(n.planks++, m);
       }
     };
+    const drag = this.dragging;
     this.carried.log.visible = false;
     this.carried.planks.visible = false;
 
@@ -318,10 +326,12 @@ export class DepotView {
         if (!site.layout.piles[kind]) continue;
         let count = site.depot.piles[CARGO[kind].index];
         if (move && !move.toPile && move.kind === kind) count--; // being lifted off this pile
+        if (drag?.kind === "pile" && drag.depotId === site.depot.id && drag.cargo === kind) count--; // in a hand
+        const owner: CargoSlot = { kind: "pile", depotId: site.depot.id, cargo: kind };
         for (let k = 0; k < count; k++) {
           const yaw = this.pileUnit(site, kind, k, _v);
           _q.setFromAxisAngle(_up, yaw);
-          put(kind, _m.compose(_v, _q, _s));
+          put(kind, _m.compose(_v, _q, _s), owner);
         }
       }
     }
@@ -333,8 +343,9 @@ export class DepotView {
       if (!cargo.kind || cargo.count === 0) continue;
       const car = carObject(id);
       if (!car) continue;
-      const count = cargo.count - (liftedFromCar.get(id) ?? 0);
-      for (let k = 0; k < count; k++) put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m));
+      const count = cargo.count - (liftedFromCar.get(id) ?? 0) - (drag?.kind === "car" && drag.carId === id ? 1 : 0);
+      const owner: CargoSlot = { kind: "car", carId: id };
+      for (let k = 0; k < count; k++) put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m), owner);
     }
 
     // Cranes.
@@ -346,7 +357,12 @@ export class DepotView {
     this.logs.count = n.log;
     this.boards.count = n.planks;
     this.straps.count = n.planks;
-    for (const m of [this.logs, this.boards, this.straps]) m.instanceMatrix.needsUpdate = true;
+    for (const m of [this.logs, this.boards, this.straps]) {
+      m.instanceMatrix.needsUpdate = true;
+      // Units move every frame: let the next raycast recompute the bounds it tests first.
+      m.boundingSphere = null;
+      m.boundingBox = null;
+    }
   }
 
   private updateCrane(
@@ -431,6 +447,61 @@ export class DepotView {
     crane.rope.position.copy(crane.trolley.position);
     crane.rope.scale.set(1, ropeLen, 1);
     void dt;
+  }
+
+  /** The pile or wagon a picked cargo unit belongs to, or null. */
+  cargoAt(object: Object3D, instanceId: number | undefined): CargoSlot | null {
+    if (instanceId === undefined) return null;
+    if (object === this.logs) return this.owners.log[instanceId] ?? null;
+    if (object === this.boards || object === this.straps) return this.owners.planks[instanceId] ?? null;
+    return null;
+  }
+
+  /** Is this object part of a depot (building, crane or cargo)? */
+  isDepotPart(object: Object3D): boolean {
+    for (let o: Object3D | null = object; o; o = o.parent) if (o === this.group) return true;
+    return false;
+  }
+
+  /** The depot (economy id) whose yard is nearest a ground point, within `range` mm; −1 if none. */
+  depotNear(x: number, z: number, range = 140): number {
+    let best = -1;
+    let bestD = range;
+    for (const site of this.sites) {
+      const c = site.layout.crane;
+      const pile = site.layout.piles.log ?? site.layout.piles.planks!;
+      for (const [t, l] of [[c.t, c.l], [pile.t, pile.l], [site.layout.trackT, 0]]) {
+        toWorld(site.pose, t, l, 0, _v);
+        const d = Math.hypot(_v.x - x, _v.z - z);
+        if (d < bestD) {
+          bestD = d;
+          best = site.depot.id;
+        }
+      }
+    }
+    return best;
+  }
+
+  /** Every pile in the world (economy depot id, cargo, ground centre), for dropping cargo by hand. */
+  piles(): { depotId: number; cargo: CargoKind; x: number; z: number }[] {
+    const out: { depotId: number; cargo: CargoKind; x: number; z: number }[] = [];
+    for (const site of this.sites) {
+      for (const kind of ["log", "planks"] as const) {
+        const spot = site.layout.piles[kind];
+        if (!spot) continue;
+        toWorld(site.pose, spot.t, spot.l, 0, _v);
+        out.push({ depotId: site.depot.id, cargo: kind, x: _v.x, z: _v.z });
+      }
+    }
+    return out;
+  }
+
+  /** A loose copy of a unit for the hand to carry. */
+  makeHeld(kind: CargoKind): Group {
+    const g = this.carried[kind].clone();
+    g.visible = true;
+    g.traverse((o) => (o.castShadow = true));
+    return g;
   }
 
   dispose(): void {
