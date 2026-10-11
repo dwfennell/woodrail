@@ -701,7 +701,7 @@ export class Interaction {
       this.changed();
       return;
     }
-    if (m.target && this.placeTrain(m.cars, m.target)) {
+    if (m.target && this.placeTrain(m.cars, m.target, true)) {
       this.changed();
       return;
     }
@@ -710,12 +710,11 @@ export class Interaction {
     this.changed();
   }
 
-  private placeTrain(cars: { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1 }[], at: Cursor): boolean {
+  /** Put a train down: exactly at `at` (back where it was picked up), or `around` it (a drop, centred on the point). */
+  private placeTrain(cars: { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1 }[], at: Cursor, around = false): boolean {
     const sim = this.game.sim;
-    const r = sim.addTrain(
-      cars.map((c) => c.kind),
-      at,
-    );
+    const kinds = cars.map((c) => c.kind);
+    const r = around ? sim.addTrainAround(kinds, at) : sim.addTrain(kinds, at);
     if (r.kind !== "placed") return false;
     const t = sim.getTrain(r.trainId)!;
     t.cars.forEach((car, i) => {
@@ -737,6 +736,9 @@ export class Interaction {
       g.add(model);
       x = model.position.x - spec.length / 2;
     });
+    // Centred between the first and last bogies, as a dropped train is placed (see `Sim.addTrainAround`).
+    const span = -(x + CAR_SPECS[cars[cars.length - 1].kind].bogieInset);
+    for (const m of g.children) m.position.x += span / 2;
     g.visible = false;
     this.game.scene.add(g);
     return g;
