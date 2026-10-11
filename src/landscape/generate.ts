@@ -237,16 +237,19 @@ function placeTowns(random: () => number, starter: boolean): Town[] {
     cells: [],
     buildings: [],
   });
+  // Stations face a map direction with their midpoint on a square's centre: the track runs down the middle of a
+  // row (or column) and both ends, 1½ squares away, fall on square edges, on the pieces' 18 mm lattice.
+  const snap = (v: number, half: number) => (Math.floor((v + half) / CELL) + 0.5) * CELL - half;
   if (starter) {
-    const z = -200 + random() * 300;
+    const z = snap(-200 + random() * 300, MAT_DEPTH / 2);
     towns.push(make(-540, z, 0));
     towns.push(make(540, z, 0));
   }
   let guard = 0;
   while (towns.length < count && guard++ < 5000) {
-    const x = -MAT_WIDTH / 2 + EDGE_MARGIN + random() * (MAT_WIDTH - 2 * EDGE_MARGIN);
-    const z = -MAT_DEPTH / 2 + EDGE_MARGIN + random() * (MAT_DEPTH - 2 * EDGE_MARGIN);
-    const heading = Math.floor(random() * 8) * (Math.PI / 4);
+    const x = snap(-MAT_WIDTH / 2 + EDGE_MARGIN + random() * (MAT_WIDTH - 2 * EDGE_MARGIN), MAT_WIDTH / 2);
+    const z = snap(-MAT_DEPTH / 2 + EDGE_MARGIN + random() * (MAT_DEPTH - 2 * EDGE_MARGIN), MAT_DEPTH / 2);
+    const heading = Math.floor(random() * 4) * (Math.PI / 2);
     if (towns.some((t) => Math.hypot(t.centre.x - x, t.centre.z - z) < MIN_TOWN_SPACING)) continue;
     towns.push(make(x, z, normaliseHeading(heading)));
   }

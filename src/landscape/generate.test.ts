@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CELL, COLS, FEAT_BUILDING, FEAT_NONE, FEAT_TREE, ROWS, SURF_RIVER } from "./grid";
-import { corridorCells, generateLandscape, reachable } from "./generate";
+import { CELL, COLS, FEAT_BUILDING, FEAT_NONE, FEAT_TREE, MAT_DEPTH, MAT_WIDTH, ROWS, SURF_RIVER } from "./grid";
+import { corridorCells, generateLandscape, reachable, stationEnds } from "./generate";
 
 const SEEDS = Array.from({ length: 200 }, (_, i) => i + 1);
 
@@ -63,11 +63,28 @@ describe("generateLandscape", () => {
     expect(rivers).toBeGreaterThan(25);
   });
 
-  it("lays out a 70 × 52 square mat with up to three rivers", () => {
-    expect(COLS).toBe(70);
-    expect(ROWS).toBe(52);
+  it("lays out a 62 × 46 square mat with five to seven towns", () => {
+    expect(COLS).toBe(62);
+    expect(ROWS).toBe(46);
     const counts = new Set(SEEDS.slice(0, 60).map((seed) => generateLandscape(seed).towns.length));
     expect(counts).toEqual(new Set([5, 6, 7]));
+  });
+
+  it("puts every station on the grid: facing a map direction, midpoint on a square centre, ends on the 18 mm lattice", () => {
+    const whole = (v: number) => Math.abs(v - Math.round(v)) < 1e-9;
+    for (let seed = 1; seed <= 200; seed++) {
+      for (const town of [...generateLandscape(seed).towns, ...generateLandscape(seed, { starter: true }).towns]) {
+        expect(whole(town.station.heading / (Math.PI / 2)), `seed ${seed} ${town.name} heading`).toBe(true);
+        expect(whole((town.centre.x + MAT_WIDTH / 2) / CELL - 0.5), `seed ${seed} ${town.name} x`).toBe(true);
+        expect(whole((town.centre.z + MAT_DEPTH / 2) / CELL - 0.5), `seed ${seed} ${town.name} z`).toBe(true);
+        for (const end of stationEnds(town)) {
+          expect(whole((end.x + MAT_WIDTH / 2) / 18)).toBe(true);
+          expect(whole((end.z + MAT_DEPTH / 2) / 18)).toBe(true);
+          expect(Math.abs(end.x)).toBeLessThan(MAT_WIDTH / 2);
+          expect(Math.abs(end.z)).toBeLessThan(MAT_DEPTH / 2);
+        }
+      }
+    }
   });
 
   it("starter maps have five towns", () => {

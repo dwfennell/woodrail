@@ -37,9 +37,9 @@ describe("checkPlacement", () => {
 
   it("a ramp can climb onto a hill", () => {
     const land = flat();
-    // hill begins where the ramp's high end rests
-    setCells(land, 200, 600, -100, 100, (i) => (land.grid.height[i] = 1));
-    expect(checkPlacement(land, "ramp", false, P(-20, 0), 0)).toEqual({ kind: "clear" });
+    // The ramp covers three squares (0..216); the hill begins on the next square, where its high end rests.
+    setCells(land, 220, 600, -100, 100, (i) => (land.grid.height[i] = 1));
+    expect(checkPlacement(land, "ramp", false, P(0, 0), 0)).toEqual({ kind: "clear" });
   });
 
   it("blocks buildings, trees, town squares and the mat edge", () => {
