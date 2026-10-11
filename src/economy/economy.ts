@@ -53,6 +53,13 @@ export interface CarCargo {
   count: number;
 }
 
+/** Something the crane did this tick (for sounds and small effects). */
+export interface EconomyEvent {
+  readonly kind: "loaded" | "unloaded";
+  readonly depotId: number;
+  readonly cargo: CargoKind;
+}
+
 export type CargoSlot = { readonly kind: "pile"; readonly depotId: number; readonly cargo: CargoKind } | { readonly kind: "car"; readonly carId: number };
 
 const EMPTY: CarCargo = { kind: null, count: 0 };
@@ -68,6 +75,7 @@ export class Economy {
   /** Town id → plank bundles delivered there (by train or by hand). */
   readonly delivered = new Map<number, number>();
   private readonly services = new Map<number, Service>();
+  private events: EconomyEvent[] = [];
 
   constructor(
     readonly layout: Layout,
@@ -352,8 +360,13 @@ export class Economy {
       }
       if (++s.ticks < CRANE_TICKS) continue;
       s.ticks = 0;
-      if (this.canUnload(d, s.carId)) this.unloadOne(d, s.carId);
-      else this.loadOne(d, s.carId);
+      if (this.canUnload(d, s.carId)) {
+        this.events.push({ kind: "unloaded", depotId: d.id, cargo: this.cargoOf(s.carId).kind! });
+        this.unloadOne(d, s.carId);
+      } else {
+        this.events.push({ kind: "loaded", depotId: d.id, cargo: ROLE[d.role].gives! });
+        this.loadOne(d, s.carId);
+      }
     }
   }
 
@@ -378,6 +391,12 @@ export class Economy {
         d.timer = 0;
       }
     }
+  }
+
+  drainEvents(): EconomyEvent[] {
+    const e = this.events;
+    this.events = [];
+    return e;
   }
 
   /** Forget cargo on cars, and visits of trains, that no longer exist. */

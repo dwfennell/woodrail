@@ -161,4 +161,16 @@ describe("automatic servicing", () => {
     expect(wagons).toHaveLength(3);
     for (const car of wagons) expect(w.economy.cargoOf(car.id)).toEqual({ kind: "log", count: 3 });
   });
+
+  it("reports each crane move: three unloads, then three loads, for a wagon at the sawmill", () => {
+    const w = setup("sawmill", 1, ["engine", "timber"]);
+    w.economy.setCargo(w.wagons()[0].id, "log", 3);
+    w.depot.piles[CARGO.planks.index] = PILE_CAP;
+    const kinds: string[] = [];
+    for (let i = 0; i < 40 * SIM_HZ; i++) {
+      w.step();
+      for (const e of w.economy.drainEvents()) kinds.push(`${e.kind}:${e.cargo}`);
+    }
+    expect(kinds).toEqual(["unloaded:log", "unloaded:log", "unloaded:log", "loaded:planks", "loaded:planks", "loaded:planks"]);
+  });
 });

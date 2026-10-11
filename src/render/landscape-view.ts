@@ -22,6 +22,7 @@ const RAIL_H = 3;
 export class LandscapeView {
   readonly group = new Group();
   private signs = new Map<number, MeshStandardMaterial>();
+  private readonly signNames = new Map<number, string>();
   private connected = new Set<number>();
 
   constructor(
@@ -137,6 +138,7 @@ export class LandscapeView {
   private buildSign(town: Town, b: Batcher): void {
     const pose = signPose(town);
     const sign = this.makeSign(town.name);
+    this.signNames.set(town.id, town.name);
     const board = new Mesh(new BoxGeometry(SIGN_WIDTH, SIGN_HEIGHT, SIGN_THICKNESS), [this.mats.blockWood, this.mats.blockWood, this.mats.blockWood, this.mats.blockWood, sign, sign]);
     board.rotation.y = -pose.heading;
     board.position.set(pose.x, SIGN_Y, pose.z);
@@ -159,25 +161,55 @@ export class LandscapeView {
     this.signs.set(town.id, sign);
   }
 
+  /** Show how many plank bundles have reached a town, on its sign (from the first one on). */
+  setDelivered(townId: number, count: number): void {
+    const m = this.signs.get(townId);
+    const name = this.signNames.get(townId);
+    if (!m || !name || !(m.map instanceof CanvasTexture)) return;
+    drawSign(m.map.image as HTMLCanvasElement, name, count);
+    m.map.needsUpdate = true;
+  }
+
   private makeSign(name: string): MeshStandardMaterial {
     const canvas = document.createElement("canvas");
     canvas.width = 512;
     canvas.height = 128;
-    const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#2f5d3a";
-    ctx.fillRect(0, 0, 512, 128);
-    ctx.strokeStyle = "#f3e3c3";
-    ctx.lineWidth = 8;
-    ctx.strokeRect(10, 10, 492, 108);
-    ctx.fillStyle = "#f8efdc";
-    ctx.font = "800 64px Nunito, system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(name, 256, 68, 470);
+    drawSign(canvas, name, 0);
     const tex = new CanvasTexture(canvas);
     tex.colorSpace = SRGBColorSpace;
     tex.anisotropy = 4;
     return new MeshStandardMaterial({ map: tex, roughness: 0.6, emissiveMap: tex, emissive: new Color("#ffffff"), emissiveIntensity: SIGN_SELF_LIGHT });
   }
+
+
 }
 
+
+/** Paint a town's name board: its name, and once planks have arrived, a little plank-bundle badge with the count. */
+function drawSign(canvas: HTMLCanvasElement, name: string, delivered: number): void {
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#2f5d3a";
+  ctx.fillRect(0, 0, 512, 128);
+  ctx.strokeStyle = "#f3e3c3";
+  ctx.lineWidth = 8;
+  ctx.strokeRect(10, 10, 492, 108);
+  ctx.fillStyle = "#f8efdc";
+  ctx.font = "800 64px Nunito, system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  if (delivered <= 0) {
+    ctx.fillText(name, 256, 68, 470);
+    return;
+  }
+  ctx.fillText(name, 196, 68, 340);
+  // Badge: three stacked planks with a red strap, and the count.
+  const x = 384;
+  ctx.fillStyle = "#e3bf8c";
+  for (let k = 0; k < 3; k++) ctx.fillRect(x, 40 + k * 16, 44, 12);
+  ctx.fillStyle = "#c8442f";
+  ctx.fillRect(x + 18, 36, 8, 52);
+  ctx.fillStyle = "#f8efdc";
+  ctx.font = "800 44px Nunito, system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(String(delivered), x + 54, 68, 70);
+}

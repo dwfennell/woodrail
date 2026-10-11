@@ -112,6 +112,7 @@ function boot(): void {
 
   function setWorld(world: GameWorld): void {
     game.setWorld(world);
+    shownDelivered = new Map();
     announced = new Set();
     updateConnections(false);
     game.follow(-1);
@@ -123,6 +124,7 @@ function boot(): void {
 
   /** Pairs already celebrated on this map: lifting and replacing a piece mustn't re-announce them. */
   let announced = new Set<string>();
+  let timberHinted = false;
   function updateConnections(announce: boolean): void {
     const pairs = connectedPairs(game.layout, game.stations);
     game.landscapeView.setConnected(new Set<number>(pairs.flat()));
@@ -132,6 +134,14 @@ function boot(): void {
     if (!announce || fresh.length === 0) return;
     hud.toast(fresh.map(([a, b]) => `${name(a)} ↔ ${name(b)}`).join(", ") + " connected!", true);
     audio.chime();
+    // After the first connection, point at the next thing to try (once, and only if there's no timber train yet).
+    if (!timberHinted && game.landscape.depots.length > 0) {
+      timberHinted = true;
+      window.setTimeout(() => {
+        const hasTimber = game.sim.trainIds().some((id) => game.sim.getTrain(id)?.cars.some((c) => c.kind === "timber"));
+        if (!hasTimber) hud.toast("Try a timber train: forest logs → sawmill → planks for the towns", false, 6000);
+      }, 3500);
+    }
     game.flourishes.add(game.landscapeView.flash(fresh.flat()));
   }
 
@@ -164,6 +174,15 @@ function boot(): void {
     return [volume, pan];
   };
   const carPoint = (trainId: number, bogie = 0) => game.sim.getTrain(trainId)?.world[bogie];
+  /** Where a depot's crane works (world plan point). */
+  const depotPoint = (depotId: number) => {
+    const d = game.economy.depot(depotId);
+    const p = d && game.layout.getPiece(d.pieceId);
+    if (!d || !p) return null;
+    return { x: p.pose.x + Math.cos(p.pose.heading) * d.craneAt, z: p.pose.z + Math.sin(p.pose.heading) * d.craneAt };
+  };
+  let sawClock = 0;
+  let shownDelivered = new Map<number, number>();
 
   // Performance overlay (backtick).
   let fps = 60;
@@ -236,6 +255,30 @@ function boot(): void {
       hum += listen(t.world[0].x, t.world[0].z)[0];
     }
     audio.setHum(game.paused ? 0 : hum);
+
+    // Cranes: a clunk per unit, and a chime when planks reach a town. Saws buzz while they cut.
+    for (const e of game.economy.drainEvents()) {
+      const at = depotPoint(e.depotId);
+      if (!at) continue;
+      const [v, pan] = listen(at.x, at.z);
+      audio.clunk(v, pan);
+      if (e.kind === "unloaded" && game.economy.depot(e.depotId)?.role === "town") audio.chime();
+    }
+    sawClock += dt;
+    if (sawClock > 0.5 && !game.paused) {
+      sawClock = 0;
+      for (const d of game.economy.allDepots()) {
+        if (d.role !== "sawmill" || !game.economy.working(d)) continue;
+        const at = depotPoint(d.id);
+        if (at) audio.saw(...listen(at.x, at.z));
+      }
+    }
+    // Delivery counts on the town signs.
+    for (const [townId, n] of game.economy.delivered) {
+      if (shownDelivered.get(townId) === n) continue;
+      shownDelivered.set(townId, n);
+      game.landscapeView.setDelivered(townId, n);
+    }
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);

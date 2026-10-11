@@ -121,6 +121,35 @@ export class ToyAudio {
     });
   }
 
+  /** A wooden clunk: a log or plank bundle set down by a crane. */
+  clunk(volume: number, pan: number): void {
+    this.knock(volume * 0.8, 120 * this.vary(1), 0.22, pan);
+    this.knock(volume * 0.35, 260 * this.vary(1), 0.08, pan);
+  }
+
+  /** A short buzz of the sawmill's blade cutting (call about twice a second while it works). */
+  saw(volume: number, pan: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || this.muted || volume <= 0.02) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(190 * this.vary(1), t);
+    osc.frequency.linearRampToValueAtTime(160, t + 0.45);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 900;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.035 * volume, t + 0.05);
+    g.gain.linearRampToValueAtTime(0.0001, t + 0.5);
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    osc.connect(lp).connect(g).connect(panner).connect(this.master);
+    osc.start(t);
+    osc.stop(t + 0.55);
+  }
+
   /** A small toy bell, two quick strikes, as an engine sets off. */
   bell(): void {
     const ctx = this.ctx;
