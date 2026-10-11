@@ -11,29 +11,36 @@ export interface Slab {
 
 /** Greedy rectangle merge per block level, so hills render (and collide) as a few big blocks, not many cubes. */
 export function hillSlabs(grid: LandscapeGrid): Slab[] {
+  return mergeSlabs((c, r) => grid.height[grid.index(c, r)], COLS, ROWS, -MAT_WIDTH / 2, -MAT_DEPTH / 2, CELL, MAX_HEIGHT);
+}
+
+/** Greedy rectangle merge of any grid of block heights (`height(col, row)`), cells `cell` mm square from (x0, z0). */
+export function mergeSlabs(
+  height: (col: number, row: number) => number,
+  cols: number,
+  rows: number,
+  x0: number,
+  z0: number,
+  cell: number,
+  maxLevel: number,
+): Slab[] {
   const slabs: Slab[] = [];
-  const used = new Uint8Array(COLS * ROWS);
-  for (let level = 1; level <= MAX_HEIGHT; level++) {
+  const used = new Uint8Array(cols * rows);
+  for (let level = 1; level <= maxLevel; level++) {
     used.fill(0);
-    const wants = (c: number, r: number) => grid.height[grid.index(c, r)] >= level && !used[grid.index(c, r)];
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
+    const wants = (c: number, r: number) => height(c, r) >= level && !used[r * cols + c];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
         if (!wants(c, r)) continue;
         let w = 1;
-        while (c + w < COLS && wants(c + w, r)) w++;
+        while (c + w < cols && wants(c + w, r)) w++;
         let h = 1;
-        grow: while (r + h < ROWS) {
+        grow: while (r + h < rows) {
           for (let k = 0; k < w; k++) if (!wants(c + k, r + h)) break grow;
           h++;
         }
-        for (let dr = 0; dr < h; dr++) for (let k = 0; k < w; k++) used[grid.index(c + k, r + dr)] = 1;
-        slabs.push({
-          x0: -MAT_WIDTH / 2 + c * CELL,
-          z0: -MAT_DEPTH / 2 + r * CELL,
-          x1: -MAT_WIDTH / 2 + (c + w) * CELL,
-          z1: -MAT_DEPTH / 2 + (r + h) * CELL,
-          level,
-        });
+        for (let dr = 0; dr < h; dr++) for (let k = 0; k < w; k++) used[(r + dr) * cols + c + k] = 1;
+        slabs.push({ x0: x0 + c * cell, z0: z0 + r * cell, x1: x0 + (c + w) * cell, z1: z0 + (r + h) * cell, level });
       }
     }
   }
