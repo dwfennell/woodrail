@@ -10,8 +10,8 @@ export const STATION_ROOF_TOP = 14 + 48 + 2.5;
 const ALONG = 108;
 /** Over the station house, behind the platform and its canopy. */
 const LATERAL = TRACK_WIDTH / 2 + 58;
-/** Height of the board's centre: on short posts above the roof, so roofs and the canopy never hide it. */
-export const SIGN_Y = STATION_ROOF_TOP + 8 + SIGN_HEIGHT / 2;
+/** Height of the board's centre: on posts above the roof, its bottom above the canopy, so neither hides it. */
+export const SIGN_Y = STATION_ROOF_TOP + 24 + SIGN_HEIGHT / 2;
 
 /**
  * Where a town's station name board stands (centre of the board in plan, facing the track). It stays within the

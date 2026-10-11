@@ -10,6 +10,10 @@ const ROOF_COLORS = ["#c8442f", "#2f6db5", "#3c8f4e", "#6b4a8f"];
 const WALL_COLORS = ["#f0ebe0", "#e9d9b8", "#f3e3c3", "#f6dcc8", "#dfe8e4"];
 const DOOR_COLORS = ["#7a3b26", "#2f5d8a", "#3c6e3e", "#8a2f3a"];
 const FLOOR_H = 40;
+/** Underside of the station canopy: clear of the tallest engine (chimney top ≈ 63 mm above the track base). */
+export const CANOPY_Y = 76;
+/** Lateral distance of the canopy's far posts from the station track's centre line. */
+const CANOPY_FAR = TRACK_WIDTH / 2 + 6;
 const OVERHANG = 6;
 
 /** A rectangular window frame (outer w × h, border width `border`), 1.8 mm deep, its back on z = 0. */
@@ -28,6 +32,17 @@ function frameRing(w: number, h: number, border: number): BufferGeometry {
   return new ExtrudeGeometry(outer, { depth: 1.8, bevelEnabled: false });
 }
 
+const FLOWER_COLORS = ["#d9443a", "#e6b52c", "#e98aa8", "#f3ead8"];
+/** Window glass as on a printed wooden toy: a pale sky-blue pane with a cream cross of glazing bars. */
+const PANE_COLOR = "#a9cfe6";
+
+/** A printed-look pane (w × h) with glazing bars; `place` positions geometry authored facing +z, `out` mm proud. */
+export function printedPane(b: Batcher, mats: Materials, w: number, h: number, place: (g: BufferGeometry, out: number) => BufferGeometry): void {
+  b.add(mats.lacquer(PANE_COLOR), place(new BoxGeometry(w, h, 1), 0.3));
+  b.add(mats.lacquer("#fbf6ec"), place(new BoxGeometry(1.4, h, 1), 0.9));
+  b.add(mats.lacquer("#fbf6ec"), place(new BoxGeometry(w, 1.4, 1), 0.9));
+}
+
 const pick = <T,>(list: readonly T[], n: number): T => list[((n % list.length) + list.length) % list.length];
 
 /**
@@ -44,7 +59,8 @@ export function building(
   const h = FLOOR_H * opts.floors + 6;
   const body = new RoundedBoxGeometry(w, h, d, 2, 2.5);
   body.translate(cx, h / 2, cz);
-  b.add(mats.lacquer(pick(WALL_COLORS, opts.seed)), body);
+  // Like a wooden toy: most walls are bare beech under a painted roof; some are painted.
+  b.add(opts.seed % 5 < 3 ? mats.blockWood : mats.lacquer(pick(WALL_COLORS, opts.seed)), body);
   const roofMat = mats.lacquer(ROOF_COLORS[opts.roof]);
 
   if (opts.kind === "house") {
@@ -105,11 +121,16 @@ export function building(
         if (ground && s === 1 && k === 0) continue; // the door goes here
         const ww = Math.min(14, faceWidth * 0.28);
         // The frame stands proud of the wall; the glass sits back inside it.
-        b.add(frameMat, place(frameRing(ww + 4, 16, 2), u, 16 + f * FLOOR_H, s, 0));
-        const pane = new BoxGeometry(ww, 12, 1);
-        b.add(mats.glass, place(pane, u, 16 + f * FLOOR_H, s, 0.3));
+        const y = 16 + f * FLOOR_H;
+        b.add(frameMat, place(frameRing(ww + 4, 16, 2), u, y, s, 0));
+        printedPane(b, mats, ww, 12, (g, out) => place(g, u, y, s, out));
         const sill = new BoxGeometry(ww + 6, 2, 3);
         b.add(frameMat, place(sill, u, 9 + f * FLOOR_H, s, 1.2));
+        if (opts.kind === "house" && ground && s === 1) {
+          // A window box of flowers under the front windows.
+          b.add(mats.lacquer("#3c8f4e"), place(new RoundedBoxGeometry(ww + 4, 4, 4, 1, 1), u, 6, s, 3));
+          b.add(mats.lacquer(pick(FLOWER_COLORS, opts.seed + k)), place(new RoundedBoxGeometry(ww, 2.5, 3, 1, 1), u, 9, s, 3));
+        }
       }
     }
   }
@@ -121,8 +142,14 @@ export function building(
   knob.rotateX(Math.PI / 2);
   b.add(mats.lacquer("#d9a93a"), place(knob, doorU + 4, 12, 1, 1.8));
   if (opts.kind === "shop") {
-    const awning = new RoundedBoxGeometry(faceWidth * 0.8, 3, 11, 1, 1);
-    b.add(mats.lacquer("#c8442f"), place(awning, 0, h * 0.62, 1, 5));
+    // Striped awning over the front, sloping down and out.
+    const stripes = 5;
+    const aw = faceWidth * 0.8;
+    for (let i = 0; i < stripes; i++) {
+      const strip = new BoxGeometry(aw / stripes, 2.5, 13);
+      strip.rotateX(0.35);
+      b.add(mats.lacquer(i % 2 ? "#fbf6ec" : "#c8442f"), place(strip, -aw / 2 + (aw / stripes) * (i + 0.5), h * 0.62, 1, 6));
+    }
   }
 }
 
@@ -153,7 +180,10 @@ export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batch
   });
 }
 
-/** The fixed station: platform with a yellow edge line, canopy on posts and a little station house. */
+/**
+ * The fixed station: platform with a yellow edge line, a canopy over both platform and track (trains run under the
+ * roof, as with a wooden toy station) and a little beech station house.
+ */
 export function buildStation(town: Town, mats: Materials, b: Batcher): void {
   const s = town.station;
   const dx = Math.cos(s.heading);
@@ -167,14 +197,25 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
   const side = TRACK_WIDTH / 2;
   b.add(mats.blockWood, place(new RoundedBoxGeometry(196, 14, 38, 2, 2.5), 108, side + 21, 7));
   b.add(mats.lacquer("#e6b52c"), place(new RoundedBoxGeometry(196, 2, 4, 1, 0.8), 108, side + 4, 14.5));
-  for (const t of [48, 108, 168]) b.add(mats.lacquer("#f0ebe0"), place(new CylinderGeometry(2.2, 2.2, 46, 10), t, side + 30, 14 + 23));
-  b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(150, 4, 46, 1, 1.5), 108, side + 22, 14 + 48));
-  b.add(mats.lacquer("#e9d9b8"), place(new RoundedBoxGeometry(70, 46, 30, 2, 2.5), 108, side + 58, 14 + 23));
+  // Canopy posts: on the platform, and opposite them beside the track.
+  const postH = CANOPY_Y - 14;
+  for (const t of [36, 108, 180]) b.add(mats.lacquer("#f0ebe0"), place(new CylinderGeometry(2.2, 2.2, postH, 10), t, side + 30, 14 + postH / 2));
+  for (const t of [36, 180]) b.add(mats.lacquer("#f0ebe0"), place(new CylinderGeometry(2.2, 2.2, CANOPY_Y, 10), t, -CANOPY_FAR, CANOPY_Y / 2));
+  const canopyW = side + 34 + CANOPY_FAR;
+  const canopyMid = (side + 34 - CANOPY_FAR) / 2;
+  b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(176, 4, canopyW, 1, 1.5), 108, canopyMid, CANOPY_Y + 2));
+  b.add(mats.lacquer("#fbf6ec"), place(new RoundedBoxGeometry(178, 3, canopyW + 2, 1, 1.2), 108, canopyMid, CANOPY_Y - 0.5));
+  b.add(mats.blockWood, place(new RoundedBoxGeometry(70, 46, 30, 2, 2.5), 108, side + 58, 14 + 23));
   b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(80, 5, 38, 1, 1.5), 108, side + 58, STATION_ROOF_TOP - 2.5));
   // Station house door and windows facing the platform.
   b.add(mats.lacquer("#7a3b26"), place(new RoundedBoxGeometry(12, 24, 2, 1, 0.8), 108, side + 42.5, 14 + 12));
   for (const t of [86, 130]) {
-    b.add(mats.lacquer("#fbf6ec"), place(new BoxGeometry(16, 14, 1.6), t, side + 42.6, 14 + 26));
-    b.add(mats.glass, place(new BoxGeometry(12, 10, 1), t, side + 42.2, 14 + 26));
+    // Authored facing +z; the platform face looks toward −lateral.
+    const face = (g: BufferGeometry, out: number) => {
+      g.rotateY(Math.PI);
+      return place(g, t, side + 42.6 - out, 14 + 26);
+    };
+    b.add(mats.lacquer("#fbf6ec"), face(new BoxGeometry(16, 14, 1.6), -0.4));
+    printedPane(b, mats, 12, 10, face);
   }
 }

@@ -56,6 +56,8 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0): CarM
   const W = spec.width;
   const root = new Group();
   const wheels: Mesh[] = [];
+  // Windows look printed on, as on a wooden toy: a pale sky-blue pane, not dark glass.
+  const pane = mats.lacquer("#a9cfe6");
 
   // Chassis: natural beech slab.
   add(root, new RoundedBoxGeometry(L - 6, 8, W - 2, 2, 2), mats.naturalWood, 0, DECK, 0);
@@ -104,7 +106,7 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0): CarM
     add(root, new SphereGeometry(6, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), trim, L * 0.02, top + 24, 0);
     // Cab with windows and a rounded roof.
     add(root, new RoundedBoxGeometry(L * 0.32, 32, W, 2, 2.5), body, -L * 0.3, top + 16, 0);
-    for (const z of [-W / 2 - 0.4, W / 2 + 0.4]) add(root, new BoxGeometry(L * 0.18, 10, 1), mats.glass, -L * 0.3, top + 22, z);
+    for (const z of [-W / 2 - 0.4, W / 2 + 0.4]) add(root, new BoxGeometry(L * 0.18, 10, 1), pane, -L * 0.3, top + 22, z);
     add(root, new RoundedBoxGeometry(L * 0.38, 4, W + 6, 2, 1.8), trim, -L * 0.3, top + 34, 0);
     lamp = add(
       root,
@@ -142,13 +144,13 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0): CarM
     const windows = kind === "passenger" ? 4 : 2;
     for (let i = 0; i < windows; i++) {
       const x = -bodyLen / 2 + (bodyLen / windows) * (i + 0.5);
-      for (const z of [-W / 2 - 0.4, W / 2 + 0.4]) add(root, new BoxGeometry(bodyLen / windows - 7, h * 0.36, 1), mats.glass, x, top + h * 0.62, z);
+      for (const z of [-W / 2 - 0.4, W / 2 + 0.4]) add(root, new BoxGeometry(bodyLen / windows - 7, h * 0.36, 1), pane, x, top + h * 0.62, z);
     }
     add(root, new RoundedBoxGeometry(bodyLen + 8, 5, W + 5, 2, 2), trim, 0, top + h + 1.5, 0);
     if (kind === "caboose") {
       add(root, new RoundedBoxGeometry(bodyLen * 0.35, 14, W * 0.7, 2, 2), body, 0, top + h + 9, 0);
       add(root, new RoundedBoxGeometry(bodyLen * 0.45, 3, W * 0.85, 1, 1.2), trim, 0, top + h + 17, 0);
-      for (const z of [-W * 0.35 - 0.4, W * 0.35 + 0.4]) add(root, new BoxGeometry(bodyLen * 0.22, 6, 1), mats.glass, 0, top + h + 9, z);
+      for (const z of [-W * 0.35 - 0.4, W * 0.35 + 0.4]) add(root, new BoxGeometry(bodyLen * 0.22, 6, 1), pane, 0, top + h + 9, z);
     }
   }
 

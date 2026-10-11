@@ -2,7 +2,8 @@
 
 **Date:** 2026-10-11
 **Status:** Draft for review
-**Builds on:** `2026-10-10-core-sandbox-design.md`, `2026-10-10-block-landscape-design.md`, `2026-10-10-bigger-world-design.md`
+**Builds on:** `2026-10-10-core-sandbox-design.md`, `2026-10-10-block-landscape-design.md`, `2026-10-10-bigger-world-design.md`,
+`2026-10-11-grid-72-design.md` (72 mm squares, 62 × 46 mat, stations on the grid facing map directions)
 
 ## 1. Intent
 
@@ -58,7 +59,9 @@ All depots are **drive-through**: the track runs under or through the building, 
 | Sawmill | `depot-sawmill` | logs | planks | Long open-sided shed over the track, a big saw blade that spins while working, log pile on one side, plank pile on the other, overhead gantry crane |
 | Town station | `station` (existing) | planks | — | Existing station plus a small goods gantry at one end of the platform and a plank pile beside it |
 
-Depot piece length is 216 mm (as the station), so all depots share one clearance and generation path.
+Depot piece length is 216 mm (as the station: exactly 3 squares of the 72 mm grid), so all depots share one clearance
+and generation path. Like stations, depots face one of the four map directions, are centred on a square, and have
+their ends on square edges, so a run of straights and large curves from a station closes on a depot.
 
 ### 3.1 Stock
 
@@ -160,8 +163,8 @@ Manual play is always available alongside automation:
 - Extend `generateLandscape` (deterministic per seed):
   - 1–2 **forest yards** on grass near tree clusters, preferring the foot of hills; extra trees planted around them.
   - 1 **sawmill**, placed between the forests and the towns (closer to the middle of the map than the forests).
-  - Depots use the same flat area, approach corridors and minimum separation rules as stations (900 mm from any
-    station or depot).
+  - Depots use the same flat area, approach corridors, grid snapping and minimum separation rules as stations
+    (900 mm from any station or depot).
 - Reachability validation covers every station and depot pair (the existing grid A* check).
 - **Starter map:** one forest and the sawmill sit on reasonable routes from the first two towns, so the first timber
   loop is easy to find. After the first two towns are joined, a hint suggests "Try a timber train".
@@ -169,17 +172,38 @@ Manual play is always available alongside automation:
 
 ## 9. Rendering and audio
 
-- Depot buildings follow the existing building style (`render/dressing/buildings.ts`): rounded painted boxes, lacquer,
-  bare beech for working parts (crane arms, stakes, saw table), a few strong colours, details as decals.
+- Depot buildings follow the toy style rules (§9.1) and reuse `render/dressing/buildings.ts` helpers.
 - **Moving parts:** crane swing and lift, saw blade spin, plank pile slide. Driven by the snapshot's crane phase,
   interpolated like train motion.
 - Cargo pieces are instanced per kind (one draw call per kind for all piles and wagons).
 - Sounds: soft wooden clunk on load and unload, saw whirr while the sawmill works, a gentle chime when planks reach
   a town. All through the existing audio module and its toggle.
 
+### 9.1 Toy style rules
+
+Every building, car and prop follows the same rules, taken from wooden toy railway sets. The first pass of these
+rules has been applied to the existing towns, stations and trains (see §9.2).
+
+- **Bare beech first.** Bodies and working parts (walls, crane arms, stakes, platforms, saw tables) are natural beech;
+  colour goes on roofs, trims, doors and a few accents. Some buildings are painted for variety.
+- **A few strong colours:** the existing toy palette (red, blue, green, yellow, purple), lacquered.
+- **Printed, not modelled, detail.** Windows are pale sky-blue panes with cream glazing bars, as if printed on;
+  never dark glass holes. Signs and markings are decals.
+- **Drive-through.** Buildings that serve trains put their roof over the track, so trains run under it.
+- **Chunky working parts** a child could grab: cranks, chutes, levers, oversized crane hooks.
+- **Rounded edges** on everything (rounded boxes, bevels), and scenery stays batched into few draw calls.
+
+### 9.2 Applied to what exists
+
+- **Houses and shops:** most walls bare beech under coloured roofs (some still painted), printed windows, flower
+  boxes under the front windows of houses, a red-and-white striped awning on shops.
+- **Stations:** the canopy now spans platform and track on posts both sides, its underside 76 mm up (clear of the
+  engine's chimney); the station house is beech with printed windows; the name board stands higher, above the canopy.
+- **Trains:** car and cab windows are printed panes instead of dark glass.
+
 ## 10. Persistence
 
-- Save version 4. Adds: depots (piece id, auto, wait-full, piles, timers), cargo per car, per-town delivered count,
+- Save version 5 (the 72 mm grid took version 4). Adds: depots (piece id, auto, wait-full, piles, timers), cargo per car, per-town delivered count,
   `timber` car kind and `buffer-turnback` pieces.
 - Older saves are discarded, as with previous version bumps (no compatibility before v1).
 
