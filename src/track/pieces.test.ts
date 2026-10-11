@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { connectorRef, createWorldConnector, Layout } from "./layout";
+import { appendPiece } from "./snap";
 import { LARGE_CURVE_RADIUS, RISER_HEIGHT } from "./constants";
 import { angleDiff } from "./math";
 import { createSample, pathLength, samplePath } from "./path";
@@ -83,3 +85,17 @@ describe("station piece", () => {
     expect(PIECE_TYPES).toContain("station");
   });
 });
+
+describe("large curves on the grid", () => {
+  it("two large curves turn track centred on a row into track centred on a column, ending on a square edge", () => {
+    const layout = new Layout();
+    // x = 0 is a square edge and z = 36 a square centre (72 mm squares from the mat's middle).
+    const a = layout.addPiece("curve-large", { x: 0, z: 36, heading: 0 });
+    const b = appendPiece(layout, "curve-large", false, connectorRef(a, 1));
+    const end = layout.worldConnector(connectorRef(b, 1), createWorldConnector());
+    const whole = (v: number) => Math.abs(v - Math.round(v)) < 1e-9;
+    expect(whole((end.x - 36) / 72)).toBe(true);
+    expect(whole(end.z / 72)).toBe(true);
+  });
+});
+
