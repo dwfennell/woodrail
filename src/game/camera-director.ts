@@ -128,7 +128,7 @@ export class CameraDirector {
     to.radius = Math.min(c.maxDistance, Math.max(c.minDistance, to.radius));
     to.phi = Math.min(c.maxPolarAngle, Math.max(0.05, to.phi));
     this.zoomGoal = -1;
-    this.shot = { fromTarget: c.target.clone(), toTarget: target.clone(), from, to, elapsed: 0, duration: opts.duration ?? 0.7, delay: opts.delay ?? 0, track: opts.track };
+    this.shot = { fromTarget: c.target.clone(), toTarget: this.onMat(target.clone()), from, to, elapsed: 0, duration: opts.duration ?? 0.7, delay: opts.delay ?? 0, track: opts.track };
   }
 
   /** Frame a point of interest of the given radius, keeping the viewing direction. Never zooms out. */
@@ -157,7 +157,15 @@ export class CameraDirector {
     const current = this.camera.position.distanceTo(c.target);
     const base = this.zoomGoal > 0 ? this.zoomGoal : current;
     this.zoomGoal = Math.min(c.maxDistance, Math.max(c.minDistance, base * Math.exp(deltaY * ZOOM_RATE)));
-    this.zoomAnchor.copy(anchor ?? c.target);
+    // A pointer out over the scenery anchors at the nearest point on the mat, where the view is allowed to go.
+    this.onMat(this.zoomAnchor.copy(anchor ?? c.target));
+  }
+
+  /** Move a point onto the area the camera may look at (in place). */
+  private onMat(p: Vector3): Vector3 {
+    p.x = Math.min(this.bounds.halfW, Math.max(-this.bounds.halfW, p.x));
+    p.z = Math.min(this.bounds.halfD, Math.max(-this.bounds.halfD, p.z));
+    return p;
   }
 
   /**
@@ -179,6 +187,7 @@ export class CameraDirector {
     if (this.shot) {
       const s = this.shot;
       if (s.track && !s.track(s.toTarget)) s.track = undefined;
+      this.onMat(s.toTarget);
       if (s.delay > 0) s.delay -= dt;
       else {
         s.elapsed += dt;
@@ -211,7 +220,7 @@ export class CameraDirector {
     } else if (this.followed && this.shot) {
       // Keep the glide's destination on the moving train.
       const p = this.followed();
-      if (p) this.shot.toTarget.copy(p);
+      if (p) this.onMat(this.shot.toTarget.copy(p));
     }
 
     if (this.edgePointer) {

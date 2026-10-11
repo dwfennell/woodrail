@@ -45,6 +45,17 @@ export interface Post {
   render(time: number): void;
 }
 
+const APERTURE = 0.0000045;
+const SHARP_RANGE = 1500;
+
+/**
+ * Depth-of-field aperture for a focus distance. The blur grows with raw depth offset, so beyond close-up range the
+ * aperture narrows in proportion: the miniature look stays the same instead of a wide view blurring away entirely.
+ */
+export function apertureFor(distance: number): number {
+  return APERTURE * Math.min(1, SHARP_RANGE / distance);
+}
+
 export function createPost(renderer: WebGLRenderer, scene: Scene, camera: PerspectiveCamera, quality: QualitySettings): Post {
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
@@ -60,7 +71,7 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
 
   let bokeh: BokehPass | null = null;
   if (quality.depthOfField) {
-    bokeh = new BokehPass(scene, camera, { focus: 1500, aperture: 0.0000045, maxblur: 0.006 });
+    bokeh = new BokehPass(scene, camera, { focus: 1500, aperture: apertureFor(1500), maxblur: 0.006 });
     composer.addPass(bokeh);
   }
 
@@ -76,7 +87,10 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
       lens.uniforms.resolution.value.set(w, h);
     },
     setFocus(distance) {
-      if (bokeh) (bokeh.uniforms as Record<string, { value: number }>).focus.value = distance;
+      if (!bokeh) return;
+      const u = bokeh.uniforms as Record<string, { value: number }>;
+      u.focus.value = distance;
+      u.aperture.value = apertureFor(distance);
     },
     render(time) {
       lens.uniforms.time.value = time % 100;

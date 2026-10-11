@@ -102,7 +102,7 @@ export class LandscapeView {
     }
 
     // The toy countryside around the mat, fading into the haze.
-    this.group.add(buildSurroundings(generateSurroundings(this.land.seed), this.mats, b));
+    this.group.add(buildSurroundings(generateSurroundings(this.land.seed), this.mats));
 
     b.build(this.group);
 

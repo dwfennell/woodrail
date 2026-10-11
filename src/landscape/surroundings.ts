@@ -25,9 +25,8 @@ export interface OuterBlock {
   z: number;
   /** Bottom of the block. */
   y: number;
-  /** Width and depth (blocks are cubes: this is also their height). */
+  /** Width, depth and height (blocks are cubes). */
   size: number;
-  height: number;
   /** Top block of its stack (painted green on top). */
   top: boolean;
   /** Arbitrary number for picking a colour tone. */
@@ -106,9 +105,17 @@ function lattice(size: number, halfW: number, halfD: number): Lattice {
 const cx = (l: Lattice, c: number) => l.x0 + (c + 0.5) * l.size;
 const cz = (l: Lattice, r: number) => l.z0 + (r + 0.5) * l.size;
 
-/** Lower any column more than one block above an open neighbour (closed cells count as flat ground). */
-function relax(l: Lattice): void {
-  const at = (c: number, r: number) => (c < 0 || r < 0 || c >= l.cols || r >= l.rows || !l.open[r * l.cols + c] ? 0 : l.height[r * l.cols + c]);
+/**
+ * Lower any column more than one block above a neighbour. Closed cells inside the lattice count as flat ground when
+ * `closedIsGround` (the margin beside the mat); otherwise they, like cells past the lattice's edge, belong to the
+ * other band and don't hold the hills down.
+ */
+function relax(l: Lattice, closedIsGround: boolean): void {
+  const at = (c: number, r: number) => {
+    if (c < 0 || r < 0 || c >= l.cols || r >= l.rows) return Infinity;
+    const i = r * l.cols + c;
+    return l.open[i] ? l.height[i] : closedIsGround ? 0 : Infinity;
+  };
   let changed = true;
   while (changed) {
     changed = false;
@@ -200,7 +207,7 @@ export function generateSurroundings(seed: number): Surroundings {
       near.height[i] = Math.max(0, Math.min(NEAR_MAX, Math.floor((n - 0.5 + 0.35 * ramp) * 7)));
     }
   }
-  relax(near);
+  relax(near, true);
 
   for (let r = 0; r < far.rows; r++) {
     for (let c = 0; c < far.cols; c++) {
@@ -218,7 +225,7 @@ export function generateSurroundings(seed: number): Surroundings {
       far.height[i] = Math.max(0, Math.min(FAR_MAX, Math.floor((n - 0.38 + 0.45 * ramp) * 8)));
     }
   }
-  relax(far);
+  relax(far, false);
 
   const blocks: OuterBlock[] = [];
   const trees: OuterTree[] = [];
@@ -237,7 +244,7 @@ export function generateSurroundings(seed: number): Surroundings {
         const lowest = Math.min(at(c + 1, r), at(c - 1, r), at(c, r + 1), at(c, r - 1));
         for (let level = 0; level < h; level++) {
           if (level < h - 1 && lowest > level) continue;
-          blocks.push({ x, z, y: level * l.size, size: l.size, height: l.size, top: level === h - 1, tone: Math.floor(random() * 1024) });
+          blocks.push({ x, z, y: level * l.size, size: l.size, top: level === h - 1, tone: Math.floor(random() * 1024) });
         }
         const jitter = l.size / 4;
         if (cleared(x, z, l.size / 2 + 30)) continue;

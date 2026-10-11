@@ -1,7 +1,7 @@
 import { Group } from "three";
 import { CELL, outsideDistance, type Surroundings } from "../../landscape";
 import type { Materials } from "../materials";
-import type { Batcher } from "./batcher";
+import { Batcher } from "./batcher";
 import { blockMeshes, shadowProxy } from "./blocks";
 import { building } from "./buildings";
 import { buildTrees, MAX_LEAN, TREE_GREENS, type TreePlacement } from "./trees";
@@ -10,9 +10,9 @@ const ROUNDED_REACH = 700;
 
 /**
  * The scenery around the mat: bevelled blocks beside it, plain ones beyond (big ones for the distant "mountains"),
- * trees and hamlets. Only the near hills cast shadows, through merged stand-ins; houses go into the shared batch.
+ * trees and hamlets. Only the near hills cast shadows, through merged stand-ins.
  */
-export function buildSurroundings(s: Surroundings, mats: Materials, b: Batcher): Group {
+export function buildSurroundings(s: Surroundings, mats: Materials): Group {
   const group = new Group();
   // Next to the mat the blocks are bevelled like the mat's own; further out the haze hides the difference.
   const close = s.blocks.filter((k) => k.size === CELL && outsideDistance(k.x, k.z) < ROUNDED_REACH);
@@ -40,8 +40,10 @@ export function buildSurroundings(s: Surroundings, mats: Materials, b: Batcher):
   forest.traverse((o) => (o.castShadow = false));
   group.add(forest);
 
+  const b = new Batcher(mats.paint);
   s.houses.forEach((h, i) =>
     building(b, mats, { cx: h.cx, cz: h.cz, w: h.w, d: h.d }, { floors: h.floors, kind: "house", roof: h.roof, seed: i * 11 + 3, front: h.front }),
   );
+  b.build(group, false);
   return group;
 }

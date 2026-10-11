@@ -78,8 +78,10 @@ function instanced(geometry: BufferGeometry, material: Material, count: number):
   return mesh;
 }
 
-/** Turned-wood toy trees on round wooden bases: five instanced draw calls for the whole map. */
-/** `lowDetail` trees have fewer facets and cheaper materials, for distant scenery. */
+/**
+ * Turned-wood toy trees on round wooden bases: four instanced draw calls for the whole map. `lowDetail` trees (for
+ * distant scenery) have fewer facets, cheaper materials and no bases: three draws.
+ */
 export function buildTrees(placements: readonly TreePlacement[], mats: Materials, lowDetail = false): Group {
   const round = lowDetail ? 7 : 14;
   const group = new Group();

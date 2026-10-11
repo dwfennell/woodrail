@@ -110,3 +110,36 @@ describe("CameraDirector edge pan", () => {
     expect(controls.target.z).toBeGreaterThan(0);
   });
 });
+
+describe("CameraDirector over the scenery around the mat", () => {
+  const setup = () => {
+    const camera = new PerspectiveCamera(30, 1000 / 800, 5, 40000);
+    camera.position.set(0, 1500, 1500);
+    const controls = { target: new Vector3(), minDistance: 100, maxDistance: 14000, maxPolarAngle: 1.42, addEventListener: () => {} } as unknown as OrbitControls;
+    camera.lookAt(controls.target);
+    const d = new CameraDirector(camera, controls);
+    d.bounds = { halfW: 2240, halfD: 1664 };
+    return { camera, controls, d };
+  };
+
+  it("glides toward the nearest point on the mat, easing all the way, when asked to look off it", () => {
+    const { controls, d } = setup();
+    d.glideTo(new Vector3(6000, 0, 0), 1500, { duration: 1 });
+    const xs: number[] = [];
+    for (let i = 0; i < 60; i++) {
+      d.update(1 / 60, 1000, 800);
+      xs.push(controls.target.x);
+    }
+    // Halfway through an ease-in-out the target is halfway to its (clamped) destination, not already at the edge.
+    expect(xs[29]).toBeGreaterThan(900);
+    expect(xs[29]).toBeLessThan(1300);
+    expect(xs[59]).toBeCloseTo(2240, 0);
+  });
+
+  it("zooming at a point far out in the haze doesn't lurch the view to the mat's edge", () => {
+    const { controls, d } = setup();
+    d.zoomAt(new Vector3(30000, 0, 0), -200);
+    d.update(1 / 60, 1000, 800);
+    expect(controls.target.x).toBeLessThan(400);
+  });
+});

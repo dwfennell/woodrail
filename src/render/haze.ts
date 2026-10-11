@@ -20,7 +20,7 @@ const smoothstep = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-/** The haze amount the shader computes, for a point at plan (x, z) seen from `cameraDistance` mm away. */
+/** The haze amount at plan (x, z) seen from `cameraDistance` mm away (the shader uses view depth, a close stand-in). */
 export function hazeAt(x: number, z: number, cameraDistance: number): number {
   return smoothstep(HAZE_NEAR, HAZE_FAR, outsideDistance(x, z) + HAZE_VIEW * cameraDistance);
 }

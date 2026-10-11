@@ -44,22 +44,34 @@ describe("generateSurroundings", () => {
     const s = generateSurroundings(seed);
     const tops = s.blocks.filter((b) => b.top);
     const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
-    const near = tops.filter((b) => outsideDistance(b.x, b.z) < 900).map((b) => b.y + b.height);
-    const far = tops.filter((b) => outsideDistance(b.x, b.z) > 2000).map((b) => b.y + b.height);
+    const near = tops.filter((b) => outsideDistance(b.x, b.z) < 900).map((b) => b.y + b.size);
+    const far = tops.filter((b) => outsideDistance(b.x, b.z) > 2000).map((b) => b.y + b.size);
     expect(mean(far)).toBeGreaterThan(mean(near) * 1.5);
+  });
+
+  it("hills don't dip where the near and far bands meet", () => {
+    const tops: { d: number; h: number }[] = [];
+    for (const seed of seeds) for (const b of generateSurroundings(seed).blocks) if (b.top) tops.push({ d: outsideDistance(b.x, b.z), h: b.y + b.size });
+    const mean = (lo: number, hi: number) => {
+      const xs = tops.filter((t) => t.d >= lo && t.d < hi).map((t) => t.h);
+      return xs.reduce((a, b) => a + b, 0) / xs.length;
+    };
+    // The last column of the near band and the first of the far band stand as tall as the hills just inside them.
+    expect(mean(1440, 1536)).toBeGreaterThan(mean(1200, 1400) * 0.95);
+    expect(mean(1536, 1700)).toBeGreaterThan(mean(1200, 1400));
   });
 
   it.each(seeds)("seed %i: only blocks that can be seen are listed", (seed) => {
     const s = generateSurroundings(seed);
     const key = (b: { x: number; z: number; y: number }) => `${b.x},${b.z},${b.y}`;
     const columns = new Map<string, number>();
-    for (const b of s.blocks) if (b.top) columns.set(`${b.x},${b.z}`, b.y + b.height);
+    for (const b of s.blocks) if (b.top) columns.set(`${b.x},${b.z}`, b.y + b.size);
     expect(new Set(s.blocks.map(key)).size).toBe(s.blocks.length);
     for (const b of s.blocks) {
       if (b.top) continue;
       // A block below the top shows only where some neighbouring column is lower than its top.
       const around = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => columns.get(`${b.x + dx * b.size},${b.z + dz * b.size}`) ?? 0);
-      expect(Math.min(...around)).toBeLessThan(b.y + b.height);
+      expect(Math.min(...around)).toBeLessThan(b.y + b.size);
     }
   });
 
@@ -83,7 +95,7 @@ describe("generateSurroundings", () => {
     const s = generateSurroundings(9);
     expect(s.trees.length).toBeGreaterThan(40);
     const tops = new Map<string, number>();
-    for (const b of s.blocks) if (b.top) tops.set(`${b.x},${b.z}`, b.y + b.height);
+    for (const b of s.blocks) if (b.top) tops.set(`${b.x},${b.z}`, b.y + b.size);
     for (const t of s.trees) {
       if (t.y === 0) continue;
       expect([...tops.entries()].some(([k, y]) => {
