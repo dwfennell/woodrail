@@ -62,12 +62,12 @@ const BASE_H = 4;
 const TRUNK_H = 26;
 
 /** A turned fir: three tiers, each with a rounded lip, like a lathe-made toy tree. Base at y = 0. */
-function firCrown(): BufferGeometry {
+function firCrown(segments: number): BufferGeometry {
   const p = [
     [0, 0], [19, 0], [21, 1.5], [20, 4], [12, 16], [16.5, 16.5], [17.5, 18.5], [16, 20.5],
     [9, 32], [12.5, 32.5], [13.5, 34.5], [12, 36.5], [2, 52], [0.8, 54], [0, 54.5],
   ].map(([x, y]) => new Vector2(x, y));
-  return new LatheGeometry(p, 14);
+  return new LatheGeometry(p, segments);
 }
 
 function instanced(geometry: BufferGeometry, material: Material, count: number): InstancedMesh {
@@ -79,25 +79,28 @@ function instanced(geometry: BufferGeometry, material: Material, count: number):
 }
 
 /** Turned-wood toy trees on round wooden bases: five instanced draw calls for the whole map. */
-export function buildTrees(placements: readonly TreePlacement[], mats: Materials): Group {
+/** `lowDetail` trees have fewer facets and cheaper materials, for distant scenery. */
+export function buildTrees(placements: readonly TreePlacement[], mats: Materials, lowDetail = false): Group {
+  const round = lowDetail ? 7 : 14;
   const group = new Group();
   const firs = placements.filter((t) => t.kind === "fir");
   const balls = placements.filter((t) => t.kind === "ball");
 
-  const base = new CylinderGeometry(13, 14.5, BASE_H, 14);
+  const base = new CylinderGeometry(13, 14.5, BASE_H, round);
   base.translate(0, BASE_H / 2, 0);
   const trunk = new CylinderGeometry(4, 5, TRUNK_H, 8, 1, true);
   trunk.translate(0, BASE_H + TRUNK_H / 2, 0);
-  const fir = firCrown();
+  const fir = firCrown(round);
   fir.translate(0, BASE_H + TRUNK_H - 6, 0);
-  const ball = new SphereGeometry(19, 14, 10);
+  const ball = new SphereGeometry(19, round, lowDetail ? 6 : 10);
   ball.scale(1, 1.05, 1);
   ball.translate(0, BASE_H + TRUNK_H + 13, 0);
 
-  const crownMat = mats.lacquer("#ffffff");
-  const bases = instanced(base, mats.naturalWood, placements.length);
+  const crownMat = lowDetail ? mats.scenery.crown : mats.lacquer("#ffffff");
+  const woodMat = lowDetail ? mats.scenery.wood : mats.naturalWood;
+  const bases = instanced(base, woodMat, placements.length);
   bases.castShadow = false; // flat discs: their shadow would hide under them anyway
-  const trunks = instanced(trunk, mats.naturalWood, placements.length);
+  const trunks = instanced(trunk, woodMat, placements.length);
   const firMesh = instanced(fir, crownMat, firs.length);
   const ballMesh = instanced(ball, crownMat, balls.length);
 
@@ -115,7 +118,7 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
     scl.setScalar(t.scale);
     q.setFromAxisAngle(up, t.yaw);
     m.compose(pos, q, scl);
-    bases.setMatrixAt(i, m);
+    if (!lowDetail) bases.setMatrixAt(i, m);
     axis.set(Math.cos(t.leanDir), 0, Math.sin(t.leanDir));
     tilt.setFromAxisAngle(axis, t.lean);
     q.premultiply(tilt);
@@ -126,6 +129,11 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
     crowns.setMatrixAt(k, m);
     crowns.setColorAt(k, c.set(TREE_GREENS[t.tint]));
   });
-  group.add(bases, trunks, firMesh, ballMesh);
+  group.add(trunks, firMesh, ballMesh);
+  // Distant trees go without their base discs: too small to see through the haze.
+  if (lowDetail) {
+    bases.dispose();
+    base.dispose();
+  } else group.add(bases);
   return group;
 }

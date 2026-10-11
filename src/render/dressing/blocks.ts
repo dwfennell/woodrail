@@ -1,9 +1,9 @@
 import { BoxGeometry, Color, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, type BufferGeometry, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { CELL, COLS, hillSlabs, ROWS, type LandscapeGrid, type Slab } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
 import { BEECH_UV_SCALE, type Materials } from "../materials";
+import { chamferedBox } from "./chamfer";
 
 /** Beech tones (multiplied over the wood texture) so a hill reads as a stack of separate blocks. */
 export const BLOCK_TONES = ["#ffffff", "#f4e4cc", "#ead3b0", "#fbefdc", "#e2c7a0"];
@@ -97,37 +97,51 @@ export interface BlockSpot {
   y: number;
   top: boolean;
   tone: number;
+  /** A block of a different size than the batch's: drawn as a scaled copy. */
+  size?: number;
 }
 
 /**
- * Cube blocks of one size as two instanced draws: the beech bodies and the green paint on top of each stack.
- * `rounded` blocks have softened edges (for close up); plain boxes are for distant scenery. Neither casts shadows.
+ * Cube blocks as two instanced draws: the beech bodies and the green paint on top of each stack.
+ * `rounded` blocks have bevelled edges (for close up); plain boxes are for distant scenery. Neither casts shadows.
+ * `roundedPaint` does the same for the thin green tops (whose bevel only shows very close).
  */
-export function blockMeshes(blocks: readonly BlockSpot[], size: number, mats: Materials, rounded: boolean): Group {
+export function blockMeshes(
+  blocks: readonly BlockSpot[],
+  size: number,
+  materials: { wood: Material; top: Material },
+  rounded: boolean,
+  roundedPaint = rounded,
+): Group {
   const group = new Group();
   const tops = blocks.filter((b) => b.top);
   const k = size / CELL;
   const w = size - GAP * k;
   const h = size - GAP * k;
   const uv = (g: BufferGeometry, v: number) => scaleUv(g, w * BEECH_UV_SCALE.x, v * BEECH_UV_SCALE.y);
-  const body = uv(rounded ? new RoundedBoxGeometry(w, h, w, 1, 2.5 * k) : new BoxGeometry(w, h, w), h);
+  const body = uv(rounded ? chamferedBox(w, h, w, 2.5 * k) : new BoxGeometry(w, h, w), h);
   const paintH = PAINT * k;
-  const paint = uv(rounded ? new RoundedBoxGeometry(w + 0.6, paintH, w + 0.6, 1, 1.6 * k) : new BoxGeometry(w + 0.6 * k, paintH, w + 0.6 * k), w);
-  const wood = instanced(body, mats.blockWood, blocks.length);
-  const grass = instanced(paint, mats.blockTop, tops.length);
+  const paint = uv(roundedPaint ? chamferedBox(w + 0.6, paintH, w + 0.6, 1.6 * k) : new BoxGeometry(w + 0.6 * k, paintH, w + 0.6 * k), w);
+  const wood = instanced(body, materials.wood, blocks.length);
+  const grass = instanced(paint, materials.top, tops.length);
   wood.castShadow = false;
   grass.castShadow = false;
   const m = new Matrix4();
   const c = new Color();
+  const scale = new Matrix4();
   blocks.forEach((b, i) => {
+    const s = (b.size ?? size) / size;
     // Turn alternate blocks a quarter so the grain doesn't line up across the whole hill.
     m.makeRotationY(((b.tone + Math.round(b.x / size)) % 2) * (Math.PI / 2));
-    m.setPosition(b.x, b.y + size / 2, b.z);
+    if (s !== 1) m.multiply(scale.makeScale(s, s, s));
+    m.setPosition(b.x, b.y + (size * s) / 2, b.z);
     wood.setMatrixAt(i, m);
     wood.setColorAt(i, c.set(BLOCK_TONES[b.tone % BLOCK_TONES.length]));
   });
   tops.forEach((b, i) => {
-    m.makeTranslation(b.x, b.y + size - paintH / 2 + 0.3 * k, b.z);
+    const s = (b.size ?? size) / size;
+    m.makeScale(s, s, s);
+    m.setPosition(b.x, b.y + s * (size - paintH / 2 + 0.3 * k), b.z);
     grass.setMatrixAt(i, m);
     grass.setColorAt(i, c.set(GRASS_TONES[b.tone % GRASS_TONES.length]));
   });
@@ -137,7 +151,7 @@ export function blockMeshes(blocks: readonly BlockSpot[], size: number, mats: Ma
 
 /** Hills as individual rounded beech blocks, the top of each stack painted grass green. Two draw calls. */
 export function buildBlocks(grid: LandscapeGrid, seed: number, mats: Materials): Group {
-  const group = blockMeshes(blockInstances(grid, seed).filter((b) => b.exposed), CELL, mats, true);
+  const group = blockMeshes(blockInstances(grid, seed).filter((b) => b.exposed), CELL, { wood: mats.blockWood, top: mats.blockTop }, true);
   const proxy = shadowProxy(hillSlabs(grid));
   if (proxy) group.add(proxy);
   return group;

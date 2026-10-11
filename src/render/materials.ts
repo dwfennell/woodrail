@@ -26,6 +26,17 @@ export interface Materials {
   lacquer: (color: string) => MeshPhysicalMaterial;
   /** Lacquer in any colour, taken from the geometry's vertex colours (for merged static scenery). */
   paint: MeshPhysicalMaterial;
+  /** Cheaper stand-ins for the scenery around the mat, where distance and haze hide the finer shading. */
+  scenery: SceneryMaterials;
+}
+
+export interface SceneryMaterials {
+  /** Block and tree wood: beech colour, no bump or roughness maps. */
+  wood: MeshStandardMaterial;
+  /** Green block tops. */
+  top: MeshStandardMaterial;
+  /** Tree crowns (colour per instance), satin instead of clear-coated lacquer. */
+  crown: MeshStandardMaterial;
 }
 
 function woodMaterial(t: SurfaceTextures, bump: number): MeshPhysicalMaterial {
@@ -107,6 +118,12 @@ export function createMaterials(anisotropy: number): Materials {
 
   const held = withRim(woodMaterial(beech, 0.6));
 
+  const scenery: SceneryMaterials = {
+    wood: new MeshStandardMaterial({ map: beech.map, roughness: 0.9 }),
+    top: new MeshStandardMaterial({ map: beech.map, color: new Color("#79b851"), roughness: 0.65 }),
+    crown: new MeshStandardMaterial({ roughness: 0.45 }),
+  };
+
   return {
     held,
     track,
@@ -126,6 +143,7 @@ export function createMaterials(anisotropy: number): Materials {
     coal: new MeshStandardMaterial({ color: new Color("#1c1a19"), roughness: 0.7, metalness: 0.1 }),
     glass: new MeshPhysicalMaterial({ color: new Color("#1d2633"), roughness: 0.1, clearcoat: 1, metalness: 0.2 }),
     lacquer,
+    scenery,
     paint: new MeshPhysicalMaterial({ vertexColors: true, roughness: 0.38, clearcoat: 1, clearcoatRoughness: 0.12, bumpMap: beech.bumpMap, bumpScale: 0.25 }),
   };
 }

@@ -35,6 +35,6 @@ describe("shadowRadiusForView", () => {
   });
 
   it("covers the whole bigger mat from the farthest view", () => {
-    expect(view(12000, 0.6)).toBeGreaterThanOrEqual(Math.hypot(2240, 1664));
+    expect(view(14000, 0.6)).toBeGreaterThanOrEqual(Math.hypot(2240, 1664));
   });
 });

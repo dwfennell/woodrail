@@ -87,7 +87,7 @@ export class Game {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.minDistance = 120;
-    this.controls.maxDistance = 12000;
+    this.controls.maxDistance = 14000;
     this.controls.maxPolarAngle = 1.42;
     this.controls.screenSpacePanning = false;
     this.director = new CameraDirector(this.camera, this.controls);

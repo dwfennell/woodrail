@@ -23,7 +23,7 @@ describe("haze", () => {
 
   it("leaves the mat clear even from the farthest camera and hides the ring's outer edge", () => {
     expect(HAZE_NEAR).toBeLessThan(HAZE_FAR);
-    expect(hazeAt(MAT_WIDTH / 2, MAT_DEPTH / 2, 12000)).toBe(0);
+    expect(hazeAt(MAT_WIDTH / 2, MAT_DEPTH / 2, 14000)).toBe(0);
     expect(hazeAt(MAT_WIDTH / 2 + 3000, 0, 1000)).toBe(1);
     const mid = hazeAt(MAT_WIDTH / 2 + 1500, 0, 3000);
     expect(mid).toBeGreaterThan(0.2);

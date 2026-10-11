@@ -1,4 +1,4 @@
-import { ExtrudeGeometry, Group, Mesh, PlaneGeometry, Shape, Path, type BufferGeometry, type Material } from "three";
+import { ExtrudeGeometry, Group, Mesh, Path, PlaneGeometry, Shape, type BufferGeometry, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, COLS, MAT_DEPTH, MAT_WIDTH, ROWS, type LandscapeGrid } from "../../landscape";
 import { insideLoops, loopArea, smoothLoop, traceRegions, type Loop } from "../../landscape/outline";
