@@ -16,31 +16,31 @@ describe("Layout seating", () => {
     expect(l.jointAt(connectorRef(a, 1))!.posError).toBeCloseTo(0);
   });
 
-  it("seats within ±1.5 mm and records the error", () => {
+  it("seats within 9 mm and records the error: half the 18 mm step between straight lengths, so any straight run closes", () => {
     const l = new Layout();
     l.addPiece("straight-144", P(0, 0));
-    l.addPiece("straight-144", P(145, 0));
+    l.addPiece("straight-144", P(152, 3));
     expect(l.jointCount).toBe(1);
-    expect([...l.joints()][0].posError).toBeCloseTo(1);
+    expect([...l.joints()][0].posError).toBeCloseTo(Math.hypot(8, 3));
   });
 
   it("does not seat beyond the position tolerance", () => {
     const l = new Layout();
     l.addPiece("straight-144", P(0, 0));
-    l.addPiece("straight-144", P(147, 0));
+    l.addPiece("straight-144", P(154, 0));
     expect(l.jointCount).toBe(0);
   });
 
-  it("seats within ±2° and not beyond", () => {
+  it("seats within ±4° and not beyond", () => {
     const ok = new Layout();
     ok.addPiece("straight-144", P(0, 0));
-    ok.addPiece("straight-144", P(144, 0, deg(1.5)));
+    ok.addPiece("straight-144", P(144, 0, deg(3.5)));
     expect(ok.jointCount).toBe(1);
-    expect([...ok.joints()][0].angleError).toBeCloseTo(deg(1.5));
+    expect([...ok.joints()][0].angleError).toBeCloseTo(deg(3.5));
 
     const bad = new Layout();
     bad.addPiece("straight-144", P(0, 0));
-    bad.addPiece("straight-144", P(144, 0, deg(3)));
+    bad.addPiece("straight-144", P(144, 0, deg(5)));
     expect(bad.jointCount).toBe(0);
   });
 

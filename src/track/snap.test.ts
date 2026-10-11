@@ -99,13 +99,23 @@ describe("loop closure", () => {
     expect(Math.max(...errors)).toBeGreaterThan(1);
   });
 
-  it("a loop that is ~3.6 mm off (1.5°) does not close", () => {
+  it("a loop that is ~3.6 mm off (1.5°) still closes, like real wooden track", () => {
     const l = new Layout();
     const ids = curveChain(l, 7);
     const exact = l.getPiece(appendPiece(l, "curve-large", false, connectorRef(ids[6], 1)))!;
     l.removePiece(exact.id);
     l.addPiece("curve-large", { ...exact.pose, heading: exact.pose.heading + deg(1.5) });
-    expect(l.jointCount).toBe(7);
+    expect(l.jointCount).toBe(8);
+  });
+
+  it("a loop that is 6° off does not close", () => {
+    const l = new Layout();
+    const ids = curveChain(l, 7);
+    const exact = l.getPiece(appendPiece(l, "curve-large", false, connectorRef(ids[6], 1)))!;
+    l.removePiece(exact.id);
+    l.addPiece("curve-large", { ...exact.pose, heading: exact.pose.heading + deg(6) });
+    // Turned about its socket, the piece holds at neither end.
+    expect(l.jointCount).toBe(6);
   });
 });
 

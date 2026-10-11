@@ -17,7 +17,8 @@ interface Disc {
 }
 
 const RADIUS = TRACK_WIDTH / 2 - 6;
-const END_INSET = 16;
+/** Far enough in that a piece pushed 9 mm into its neighbour (the joint's play) still clears it. */
+const END_INSET = 20;
 const STEP = 14;
 /** Bands that overlap by less than this still count as clear (pieces resting on a riser touch it). */
 const SLACK = 2;

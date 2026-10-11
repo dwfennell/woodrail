@@ -18,9 +18,10 @@ export const BRIDGE_LENGTH = 216;
 export const BUFFER_LENGTH = 54;
 export const ADAPTER_LENGTH = 54;
 
-// Joint play: how far a peg can be from perfectly seated and still hold.
-export const JOINT_POS_TOLERANCE = 1.5;
-export const JOINT_ANGLE_TOLERANCE = (2 * Math.PI) / 180;
+// Joint play: how far a peg can be from perfectly seated and still hold. Generous, like real wooden track: straight
+// lengths step by 18 mm, so 9 mm lets any straight run close between two fixed ends (station to station).
+export const JOINT_POS_TOLERANCE = 9;
+export const JOINT_ANGLE_TOLERANCE = (4 * Math.PI) / 180;
 
 // Drag snapping: how close a dragged connector must come to a free one to snap.
 export const SNAP_CAPTURE_RADIUS = 30;
