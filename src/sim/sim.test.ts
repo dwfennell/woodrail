@@ -151,6 +151,24 @@ describe("running", () => {
   });
 });
 
+describe("joint play", () => {
+  it("runs across a joint 8 mm and 3° off, as when closing a run between two stations", () => {
+    const layout = new Layout();
+    const a = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    const b = layout.addPiece("straight-216", { x: 222, z: 5, heading: (3 * Math.PI) / 180 });
+    const c = appendPiece(layout, "straight-216", false, connectorRef(b, 1));
+    expect(layout.jointCount).toBe(2);
+    const sim = new Sim(layout);
+    const t = sim.addTrain(["engine", "hopper"], { pieceId: a, pathIndex: 0, reversed: false, s: 150 });
+    if (t.kind !== "placed") throw new Error("not placed");
+    sim.setLever(sim.getTrain(t.trainId)!.cars[0].id, 1);
+    run(sim, 2.5);
+    const train = sim.getTrain(t.trainId)!;
+    expect(train.derailed).toBe(false);
+    expect([b, c]).toContain(train.bogies[train.bogies.length - 1].pieceId);
+  });
+});
+
 describe("switches", () => {
   it("takes the branch when the switch is set, and the whole train follows it", () => {
     const { layout, ids } = chain(["straight-216", "straight-216", "switch", "curve-large", "curve-large"], [false, false, false, false, false]);
