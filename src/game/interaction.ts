@@ -32,6 +32,9 @@ type Press =
   /** A log or plank bundle on a pile or wagon. */
   | { kind: "cargo"; slot: CargoSlot; cargo: CargoKind };
 
+/** A car held in the hand: what it is, which way it faces, its lever, and (when picked up) its id and load. */
+type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; cargo?: { kind: CargoKind; count: number } };
+
 type Mode =
   | { kind: "idle" }
   | { kind: "press"; press: Press; pointerId: number; x: number; y: number; ground: Vector3 }
@@ -72,7 +75,7 @@ type Mode =
   | {
       kind: "drag-train";
       pointerId: number;
-      cars: { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number }[];
+      cars: HeldCar[];
       /** Where it came from, to put it back if the drop misses the track. */
       origin: Cursor | null;
       ghost: Group;
@@ -453,7 +456,7 @@ export class Interaction {
     g.scene.remove(m.ghost);
     g.depotView.dragging = null;
     this.mode = { kind: "idle" };
-    const ground = this.groundAt(x, y);
+    const ground = m.overTray ? null : this.groundAt(x, y);
     const under = this.pick(x, y);
     const carId = under?.kind === "car" ? under.carId : under?.kind === "cargo" && under.slot.kind === "car" ? under.slot.carId : -1;
     const to = ground
@@ -857,7 +860,11 @@ export class Interaction {
     this.clearSelection();
     this.hud.hideCards();
     const t = found.train;
-    const cars = t.cars.map((c) => ({ kind: c.kind, facing: c.facing, lever: c.lever, id: c.id }));
+    // The load goes with the train in the hand, so it survives the cars being off the track for a moment.
+    const cars: HeldCar[] = t.cars.map((c) => {
+      const cargo = this.game.economy.cargoOf(c.id);
+      return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
+    });
     const origin = t.derailed ? null : { ...t.bogies[0] };
     sim.removeTrain(t.id);
     this.changed();
@@ -884,7 +891,7 @@ export class Interaction {
   }
 
   /** Put a train down: exactly at `at` (back where it was picked up), or `around` it (a drop, centred on the point). */
-  private placeTrain(cars: { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number }[], at: Cursor, around = false): boolean {
+  private placeTrain(cars: HeldCar[], at: Cursor, around = false): boolean {
     const sim = this.game.sim;
     const kinds = cars.map((c) => c.kind);
     const ids = cars.every((c) => c.id !== undefined) ? cars.map((c) => c.id!) : undefined;
@@ -894,6 +901,8 @@ export class Interaction {
     t.cars.forEach((car, i) => {
       if (cars[i].facing === -1) sim.flipCar(car.id);
       if (car.kind === "engine") sim.setLever(car.id, cars[i].lever);
+      const cargo = cars[i].cargo;
+      if (cargo) this.game.economy.setCargo(car.id, cargo.kind, cargo.count);
     });
     return true;
   }

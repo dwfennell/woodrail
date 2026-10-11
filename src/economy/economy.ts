@@ -11,6 +11,7 @@ const AT_CRANE = 0.5;
 
 /** One train's visit to a depot. Allocated once per train and reused. */
 interface Service {
+  readonly trainId: number;
   phase: number;
   depotId: number;
   /** The car under the crane while halted. */
@@ -216,11 +217,16 @@ export class Economy {
     return gives !== null && (c.kind === null || c.kind === gives) && c.count < WAGON_CAPACITY && d.piles[CARGO[gives].index] > 0;
   }
 
-  /** With "wait for a full load", a wagon that could take more of the depot's goods waits for them. */
+  /**
+   * With "wait for a full load", a wagon that could take more of the depot's goods waits for them, but only while
+   * more are coming: goods on the pile, or the depot making them. (A sawmill out of logs isn't, so a train never waits
+   * there for planks that would need the logs on its own later wagons.)
+   */
   private waitsForLoad(d: DepotState, carId: number): boolean {
     const gives = ROLE[d.role].gives;
     const c = this.cargoOf(carId);
-    return d.waitFull && gives !== null && (c.kind === null || c.kind === gives) && c.count < WAGON_CAPACITY && !this.canUnload(d, carId);
+    if (!d.waitFull || gives === null || (c.kind !== null && c.kind !== gives) || c.count >= WAGON_CAPACITY || this.canUnload(d, carId)) return false;
+    return d.piles[CARGO[gives].index] > 0 || this.working(d);
   }
 
   /** The car under the crane at a depot right now, or −1. */
@@ -251,7 +257,7 @@ export class Economy {
 
   private service(trainId: number): Service {
     let s = this.services.get(trainId);
-    if (!s) this.services.set(trainId, (s = { phase: NONE, depotId: -1, carId: -1, ticks: 0, done: new Set() }));
+    if (!s) this.services.set(trainId, (s = { trainId, phase: NONE, depotId: -1, carId: -1, ticks: 0, done: new Set() }));
     return s;
   }
 
@@ -337,11 +343,16 @@ export class Economy {
 
   /** Crane work for every halted train: one unit per move, unloading before loading. */
   private work(): void {
-    for (const [trainId, s] of this.services) {
+    for (const s of this.services.values()) {
       if (s.phase !== HALTED) continue;
-      const train = this.sim.getTrain(trainId);
+      const train = this.sim.getTrain(s.trainId);
       const d = this.depots[s.depotId];
-      if (!train || train.derailed || !d || !d.auto || !this.sim.findCar(s.carId)) {
+      if (!train) {
+        // Gone (coupled into another train, or removed): forget its visit.
+        this.services.delete(s.trainId);
+        continue;
+      }
+      if (train.derailed || !d || !d.auto || !this.sim.findCar(s.carId)) {
         this.endVisit(s);
         continue;
       }

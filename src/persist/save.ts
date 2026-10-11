@@ -3,7 +3,7 @@ import { err, ok, type Result } from "../lib/result";
 import { createEconomy, depotPieceType, type World } from "../game/world";
 import { generateLandscape } from "../landscape";
 import { CAR_KINDS, Sim, type CarKind } from "../sim";
-import { CARGO_KINDS, PILE_CAP, WAGON_CAPACITY, type CargoKind } from "../economy";
+import { CARGO, CARGO_KINDS, PILE_CAP, ROLE, WAGON_CAPACITY, type CargoKind } from "../economy";
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
 
 /**
@@ -134,8 +134,9 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     if (!state) continue;
     state.auto = d.auto;
     state.waitFull = d.waitFull;
-    state.piles[0] = d.piles[0];
-    state.piles[1] = d.piles[1];
+    // Only the piles this kind of depot uses (its input and output) can hold anything.
+    const role = ROLE[state.role];
+    for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = role.takes === kind || role.gives === kind ? d.piles[CARGO[kind].index] : 0;
     state.timer = d.timer;
   }
   for (const [townId, n] of save.delivered) if (landscape.towns.some((t) => t.id === townId)) economy.delivered.set(townId, n);

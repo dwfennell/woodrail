@@ -230,6 +230,8 @@ export class Sim {
     const found = this.findCar(carId);
     if (!found || !CAR_SPECS[found.train.cars[found.index].kind].powered) return false;
     found.train.cars[found.index].lever = lever;
+    // Whoever set the lever has decided where the train goes: a pending turnback no longer applies.
+    found.train.turnback = -1;
     return true;
   }
 
@@ -239,6 +241,7 @@ export class Sim {
     if (!found) return false;
     const car = found.train.cars[found.index];
     car.facing = car.facing === 1 ? -1 : 1;
+    found.train.turnback = -1;
     return true;
   }
 

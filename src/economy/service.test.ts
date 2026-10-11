@@ -173,4 +173,16 @@ describe("automatic servicing", () => {
     }
     expect(kinds).toEqual(["unloaded:log", "unloaded:log", "unloaded:log", "loaded:planks", "loaded:planks", "loaded:planks"]);
   });
+
+  it("wait-for-full never holds a wagon at a sawmill with no logs coming (the logs are on a later wagon)", () => {
+    const w = setup("sawmill", 1, ["engine", "timber", "timber"]);
+    w.economy.setWaitFull(w.depot.id, true);
+    const [empty, loaded] = w.wagons();
+    w.economy.setCargo(loaded.id, "log", 3);
+    for (let i = 0; i < 120 * SIM_HZ; i++) w.step();
+    expect(w.economy.cargoOf(loaded.id).kind === "log").toBe(false);
+    // The whole train is past the depot.
+    expect(w.train().bogies.some((b) => b.pieceId === w.depot.pieceId)).toBe(false);
+    void empty;
+  });
 });

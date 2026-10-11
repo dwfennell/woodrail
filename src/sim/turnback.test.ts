@@ -40,4 +40,18 @@ describe("turnback buffer", () => {
     expect(train.speed).toBe(0);
     expect(train.cars[0].lever).toBe(1);
   });
+
+  it("a lever change during the wait cancels the turnback", () => {
+    const { sim, train } = line("buffer-turnback");
+    let i = 0;
+    while (train.turnback < 0 && i++ < 20 * SIM_HZ) sim.tick();
+    expect(train.turnback).toBeGreaterThan(0);
+    for (let k = 0; k < SIM_HZ / 2; k++) sim.tick();
+    const engine = train.cars.find((c) => c.kind === "engine")!;
+    sim.setLever(engine.id, -1);
+    for (let k = 0; k < 3 * SIM_HZ; k++) sim.tick();
+    // Still heading away from the buffer, lever as the player left it.
+    expect(engine.lever).toBe(-1);
+    expect(Math.max(...train.world.map((w) => w.x))).toBeLessThan(330);
+  });
 });

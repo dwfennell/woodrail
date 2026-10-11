@@ -129,6 +129,16 @@ describe("economy in saves", () => {
     expect(w.economy.delivered.get(1)).toBe(9);
   });
 
+  it("loads piles a depot doesn't use as empty", () => {
+    const world = timberWorld();
+    const data = serializeWorld(world);
+    const forest = world.economy.allDepots().find((d) => d.role === "forest")!;
+    data.depots[forest.id].piles = [3, 12];
+    const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(Array.from(r.value.economy.depot(forest.id)!.piles)).toEqual([3, 0]);
+  });
+
   it("a train saved half way through loading carries on loading after a load", () => {
     const world = timberWorld();
     // Run until the crane is working on the first wagon.
