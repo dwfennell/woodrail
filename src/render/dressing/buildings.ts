@@ -238,7 +238,8 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
 
   // A few peg-doll passengers waiting on the platform.
   const r = rng(town.id * 97 + 11);
-  const spots = [24, 50, 96, 120, 168, 190];
+  // (The socket end of the platform is the goods corner: crane and plank pile.)
+  const spots = [96, 120, 158, 168, 190];
   const count = 2 + Math.floor(r() * 3);
   for (let k = 0; k < count; k++) {
     const t = spots.splice(Math.floor(r() * spots.length), 1)[0];

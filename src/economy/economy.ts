@@ -44,6 +44,8 @@ export interface DepotState {
   readonly piles: Int32Array;
   /** Ticks into the current production (forest, sawmill) or use (town) cycle. */
   timer: number;
+  /** Where wagons stop for the crane: distance (mm) from the depot path's `from` end. */
+  readonly craneAt: number;
 }
 
 export interface CarCargo {
@@ -74,8 +76,11 @@ export class Economy {
     sim.speedCap = (train) => this.capFor(train);
   }
 
-  addDepot(role: DepotRole, pieceId: number, townId = -1): DepotState {
-    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, piles: new Int32Array(2), timer: 0 };
+  /** Register a depot on a piece. `craneAt` defaults to the middle of the piece's track. */
+  addDepot(role: DepotRole, pieceId: number, townId = -1, craneAt?: number): DepotState {
+    const p = this.layout.getPiece(pieceId);
+    const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
+    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, piles: new Int32Array(2), timer: 0, craneAt: craneAt ?? len / 2 };
     this.depots.push(d);
     this.byPiece.set(pieceId, d);
     return d;
@@ -222,6 +227,20 @@ export class Economy {
     return -1;
   }
 
+  /**
+   * What the crane at a depot is carrying right now: the cargo, which way (from the wagon to a pile, or the other
+   * way), the car, and progress 0–1. Null when the crane is idle or waiting.
+   */
+  craneMove(depotId: number): { kind: CargoKind; toPile: boolean; carId: number; phase: number } | null {
+    for (const s of this.services.values()) {
+      if (s.phase !== HALTED || s.depotId !== depotId || s.ticks === 0) continue;
+      const d = this.depots[depotId];
+      if (this.canUnload(d, s.carId)) return { kind: this.cargoOf(s.carId).kind!, toPile: true, carId: s.carId, phase: s.ticks / CRANE_TICKS };
+      if (this.canLoad(d, s.carId)) return { kind: ROLE[d.role].gives!, toPile: false, carId: s.carId, phase: s.ticks / CRANE_TICKS };
+    }
+    return null;
+  }
+
   private service(trainId: number): Service {
     let s = this.services.get(trainId);
     if (!s) this.services.set(trainId, (s = { phase: NONE, depotId: -1, carId: -1, ticks: 0, done: new Set() }));
@@ -263,15 +282,16 @@ export class Economy {
     s.phase = CRAWLING;
     let cap = CRAWL_SPEED;
     const len = this.depotLength(d);
+    const crane = d.craneAt;
     for (let c = 0; c < train.cars.length; c++) {
       const car = train.cars[c];
       if (s.done.has(car.id) || !this.needsService(d, car.id)) continue;
       const front = train.bogies[2 * c];
       const rear = train.bogies[2 * c + 1];
       if (front.pieceId !== d.pieceId || rear.pieceId !== d.pieceId) continue;
-      // Distance still to go before the car's centre is under the crane (the middle of the depot track).
+      // Distance still to go before the car's centre is under the crane.
       const centre = (along(front, len) + along(rear, len)) / 2;
-      const ahead = (len / 2 - centre) * (front.reversed ? -1 : 1);
+      const ahead = (crane - centre) * (front.reversed ? -1 : 1);
       if (ahead < -AT_CRANE) {
         s.done.add(car.id); // it rolled past: leave it be
         continue;

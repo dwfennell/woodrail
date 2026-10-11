@@ -18,7 +18,9 @@ import { createStage, type Stage } from "../render/stage";
 import { shadowRadiusForView, shouldRefit } from "../render/shadow-fit";
 import { TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
+import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
+import { DepotView } from "../render/depot-view";
 import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
 import { findCrossings, hillSlabs, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
@@ -46,6 +48,7 @@ export class Game {
   landscapeView: LandscapeView;
   readonly trainView: TrainView;
   readonly crossingsView: CrossingsView;
+  readonly depotView: DepotView;
   readonly post: Post;
   readonly snapshot: SimSnapshot = createSnapshot();
   readonly physics: DerailPhysics;
@@ -56,6 +59,7 @@ export class Game {
   landscape: Landscape;
   stations: Map<number, number>;
   depots: Map<number, number>;
+  economy: Economy;
   paused = false;
   /** Called once per frame after the simulation steps, before rendering. */
   onFrame: ((dt: number) => void) | null = null;
@@ -74,6 +78,7 @@ export class Game {
     this.landscape = world.landscape;
     this.stations = world.stations;
     this.depots = world.depots;
+    this.economy = world.economy;
     this.quality = detectQuality();
 
     this.renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -109,6 +114,9 @@ export class Game {
     this.physics.setSlabs(hillSlabs(this.landscape.grid));
     this.trainView = new TrainView(this.mats);
     this.scene.add(this.trainView.group);
+    this.depotView = new DepotView(this.mats);
+    this.scene.add(this.depotView.group);
+    this.depotView.setWorld(this.economy, this.layout);
     this.crossingsView = new CrossingsView(this.mats);
     this.scene.add(this.crossingsView.group);
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
@@ -127,6 +135,7 @@ export class Game {
     this.landscape = world.landscape;
     this.stations = world.stations;
     this.depots = world.depots;
+    this.economy = world.economy;
     this.scene.remove(this.landscapeView.group);
     this.landscapeView.dispose();
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
@@ -139,15 +148,17 @@ export class Game {
     this.physics.setLayout(this.layout);
     this.physics.setSlabs(hillSlabs(this.landscape.grid));
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
+    this.depotView.setWorld(this.economy, this.layout);
   }
 
   get world(): World {
-    return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots };
+    return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy };
   }
 
   /** Call after any layout edit. */
   trackChanged(): void {
     this.trackView.sync();
+    this.economy.prune();
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.physics.markTrackDirty();
   }
@@ -234,6 +245,7 @@ export class Game {
       let steps = 0;
       while (this.accumulator >= SIM_DT && steps < MAX_STEPS_PER_FRAME) {
         this.sim.tick();
+        this.economy.tick();
         this.accumulator -= SIM_DT;
         steps++;
       }
@@ -254,6 +266,7 @@ export class Game {
     this.simMs = performance.now() - t0;
     this.trainView.update(this.snapshot, dt, (id, out) => this.physics.poseOf(id, out));
     this.crossingsView.update(this.snapshot, dt);
+    this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), dt);
     this.onFrame?.(dt);
     this.flourishes.update(dt);
     this.director.update(dt, this.canvas.clientWidth, this.canvas.clientHeight);

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
-import { depotPieceType, type World } from "../game/world";
+import { createEconomy, depotPieceType, type World } from "../game/world";
 import { generateLandscape } from "../landscape";
 import { CAR_KINDS, Sim, type CarKind } from "../sim";
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
@@ -125,7 +125,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
     });
   }
-  return ok({ layout, sim, landscape, stations, depots });
+  return ok({ layout, sim, landscape, stations, depots, economy: createEconomy(layout, sim, landscape, stations, depots) });
 }
 
 const STORAGE_KEY = "woodrail.autosave.v2";
