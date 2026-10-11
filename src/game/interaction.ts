@@ -8,7 +8,7 @@ import { ghostMesh } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { CAR_SPECS, COUPLER_GAP, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, checkPlacement, groundUnder, type BlockReason } from "../landscape";
-import { findSnap, getPieceDef, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
+import { findOverlap, findSnap, getPieceDef, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
@@ -389,7 +389,7 @@ export class Interaction {
     if (!p) return;
     const c = pieceCentre(this.game.layout, id);
     const pose = poseForCentre(p.type, p.flipped, c.x, c.z, p.pose.heading + Math.PI / 4);
-    if (!this.allowed(p.type, p.flipped, pose, p.y)) {
+    if (!this.allowed(id, p.type, p.flipped, pose, p.y)) {
       this.onRefused?.();
       return;
     }
@@ -418,11 +418,18 @@ export class Interaction {
     this.onTurned?.();
   }
 
-  /** Check a would-be piece position against the landscape, explaining a refusal. */
-  private allowed(type: PieceTypeId, flipped: boolean, pose: Pose, y: number): boolean {
+  /** Why a piece can't go here (the landscape, or another piece in the way), or null when it can. */
+  private blockedBy(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): BlockReason | null {
     const c = checkPlacement(this.game.landscape, type, flipped, pose, y);
-    if (c.kind === "blocked") this.hud.toast(BLOCK_MESSAGES[c.reason]);
-    return c.kind === "clear";
+    if (c.kind === "blocked") return c.reason;
+    return findOverlap(this.game.layout, type, flipped, pose, y, ignoreId) === -1 ? null : "piece";
+  }
+
+  /** Check a would-be position for piece `id`, explaining a refusal. */
+  private allowed(id: number, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): boolean {
+    const reason = this.blockedBy(type, flipped, pose, y, id);
+    if (reason) this.hud.toast(BLOCK_MESSAGES[reason]);
+    return reason === null;
   }
 
   private townOfStation(pieceId: number): string | null {
@@ -446,7 +453,7 @@ export class Interaction {
     const id = this.selectedPiece;
     const p = id === -1 ? undefined : this.game.layout.getPiece(id);
     if (!p) return;
-    if (!this.allowed(p.type, !p.flipped, p.pose, p.y)) {
+    if (!this.allowed(id, p.type, !p.flipped, p.pose, p.y)) {
       this.onRefused?.();
       return;
     }
@@ -551,8 +558,7 @@ export class Interaction {
       }
       const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
       const py = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
-      const clearance = checkPlacement(this.game.landscape, m.type, m.flipped, pose, py);
-      const reason = clearance.kind === "blocked" ? clearance.reason : null;
+      const reason = this.blockedBy(m.type, m.flipped, pose, py, m.pieceId);
       if (reason && reason !== m.blocked && !m.overTray) this.hud.toast(BLOCK_MESSAGES[reason]);
       m.blocked = reason;
       const held = this.game.mats.held;
@@ -593,12 +599,12 @@ export class Interaction {
     const ed = this.editor();
     const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
     const y = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
-    const final = checkPlacement(g.landscape, m.type, m.flipped, pose, y);
+    const final = this.blockedBy(m.type, m.flipped, pose, y, m.pieceId);
     const mesh = m.ghost;
     const shown: PiecePose = { x: m.shown.x, y: m.shown.y, z: m.shown.z, heading: m.shown.heading };
     const discard = () => g.scene.remove(mesh);
     const isNew = m.pieceId === -1;
-    switch (dropOutcome({ blocked: final.kind === "blocked", overTray: m.overTray, isNew })) {
+    switch (dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew })) {
       case "place": {
         const snapped = m.snap.kind === "snapped";
         const id = isNew ? ed.place(m.type, pose, y, m.flipped) : (ed.move(m.pieceId, pose, y, m.from!), m.pieceId);

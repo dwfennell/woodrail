@@ -1,12 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { buildStarterWorld } from "../game/world";
+import { buildStarterWorld, type World } from "../game/world";
+import { appendPiece, connectorRef } from "../track";
 import { connectedPairs } from "../landscape";
 import { SIM_DT } from "../sim";
 import { deserializeWorld, SAVE_VERSION, serializeWorld } from "./save";
 
+/** The starter map with its first two towns joined by a line and a train running on it. */
+function worldWithTrain(): World {
+  const world = buildStarterWorld();
+  const [a] = world.landscape.towns;
+  let last = world.stations.get(a.id)!;
+  const line: number[] = [];
+  for (let i = 0; i < 4; i++) line.push((last = appendPiece(world.layout, "straight-216", false, connectorRef(last, 1))));
+  const placed = world.sim.addTrain(["engine", "hopper", "passenger", "caboose"], { pieceId: line[1], pathIndex: 0, reversed: false, s: 120 });
+  if (placed.kind === "placed") world.sim.setLever(world.sim.getTrain(placed.trainId)!.cars[0].id, 1);
+  return world;
+}
+
 describe("save format v2", () => {
   it("round-trips the landscape, stations, track and trains", () => {
-    const world = buildStarterWorld();
+    const world = worldWithTrain();
     for (let i = 0; i < 2 / SIM_DT; i++) world.sim.tick();
     const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
     expect(r.ok).toBe(true);
@@ -28,7 +41,7 @@ describe("save format v2", () => {
   });
 
   it("rejects a save whose town station piece is missing", () => {
-    const data = serializeWorld(buildStarterWorld());
+    const data = serializeWorld(worldWithTrain());
     data.pieces = data.pieces.filter((p) => p.id !== data.towns[0].stationPieceId);
     const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
     expect(r.ok).toBe(false);
@@ -41,7 +54,7 @@ describe("save format v2", () => {
   });
 
   it("skips trains whose path index or distance is out of range", () => {
-    const data = serializeWorld(buildStarterWorld());
+    const data = serializeWorld(worldWithTrain());
     data.trains[0].lead.pathIndex = 7;
     const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
     expect(r.ok).toBe(true);
@@ -51,7 +64,7 @@ describe("save format v2", () => {
 
 describe("station binding", () => {
   it("rejects stations swapped between towns", () => {
-    const data = serializeWorld(buildStarterWorld());
+    const data = serializeWorld(worldWithTrain());
     const [a, b] = data.towns;
     [a.stationPieceId, b.stationPieceId] = [b.stationPieceId, a.stationPieceId];
     expect(deserializeWorld(JSON.parse(JSON.stringify(data))).ok).toBe(false);

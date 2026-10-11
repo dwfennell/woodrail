@@ -172,27 +172,40 @@ function boot(): void {
       hud.setPaused(game.paused);
     }
   });
-  /** Glide from the whole-mat view down to the first train, framing all of it (skipped by any input). */
+  /**
+   * The opening shot: glide from the whole mat down to the first train (following it as it sets off) or, on a bare
+   * map, to the first two towns with a hint to join them. Any input skips it.
+   */
   function flyIn(delay: number): void {
     const id = game.sim.trainIds()[0];
-    if (id === undefined || !game.sim.getTrain(id)) return;
-    // The middle of the train, wherever it has got to (it may be setting off during the glide).
-    const middle = (out: Vector3): boolean => {
-      const t = game.sim.getTrain(id);
-      if (!t) return false;
-      const a = t.world[0];
-      const b = t.world[t.world.length - 1];
-      out.set((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
-      return true;
-    };
-    const t = game.sim.getTrain(id)!;
-    const a = t.world[0];
-    const b = t.world[t.world.length - 1];
-    const radius = Math.hypot(a.x - b.x, a.z - b.z) / 2 + 90;
-    const distance = Math.max(700, frameDistance(radius, game.camera.fov, game.camera.aspect));
-    const centre = new Vector3();
-    middle(centre);
-    game.director.glideTo(centre, distance, { phi: 1.0, duration: 2.6, delay, track: middle });
+    if (id !== undefined && game.sim.getTrain(id)) {
+      // The middle of the train, wherever it has got to.
+      const middle = (out: Vector3): boolean => {
+        const t = game.sim.getTrain(id);
+        if (!t) return false;
+        const a = t.world[0];
+        const b = t.world[t.world.length - 1];
+        out.set((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+        return true;
+      };
+      const t = game.sim.getTrain(id)!;
+      const radius = Math.hypot(t.world[0].x - t.world[t.world.length - 1].x, t.world[0].z - t.world[t.world.length - 1].z) / 2 + 90;
+      const centre = new Vector3();
+      middle(centre);
+      game.director.glideTo(centre, Math.max(700, frameDistance(radius, game.camera.fov, game.camera.aspect)), { phi: 1.0, duration: 2.6, delay, track: middle });
+      return;
+    }
+    const [a, b] = game.landscape.towns;
+    if (!a || !b) return;
+    const centre = new Vector3((a.centre.x + b.centre.x) / 2, 0, (a.centre.z + b.centre.z) / 2);
+    const radius = Math.hypot(a.centre.x - b.centre.x, a.centre.z - b.centre.z) / 2 + 140;
+    game.director.glideTo(centre, frameDistance(radius, game.camera.fov, game.camera.aspect), { phi: 0.95, duration: 2.6, delay });
+    // A bare map: suggest the first job once the camera has arrived.
+    if (game.layout.pieceCount === game.stations.size) {
+      window.setTimeout(() => {
+        if (game.layout.pieceCount === game.stations.size) hud.toast(`Join ${a.name} and ${b.name} with track`, false, 6000);
+      }, (delay + 2.4) * 1000);
+    }
   }
   const skipGlide = () => {
     if (game.director.busy) game.director.cancel();

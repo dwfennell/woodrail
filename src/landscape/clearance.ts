@@ -2,7 +2,8 @@ import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type Pi
 import { FEAT_BUILDING, FEAT_STATION, FEAT_TREE, SURF_RIVER, SURF_ROAD, SURF_TOWN } from "./grid";
 import { STATION_LENGTH, type Landscape } from "./generate";
 
-export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "tree" | "off-mat";
+/** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
+export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "tree" | "off-mat" | "piece";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -13,6 +14,7 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   hill: "Too low — the hill is in the way",
   tree: "A tree is in the way",
   "off-mat": "Keep the track on the mat",
+  piece: "Another piece is in the way",
 };
 
 const CLEAR: Clearance = { kind: "clear" };
@@ -24,6 +26,7 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   hill: { kind: "blocked", reason: "hill" },
   tree: { kind: "blocked", reason: "tree" },
   "off-mat": { kind: "blocked", reason: "off-mat" },
+  piece: { kind: "blocked", reason: "piece" },
 };
 
 const STEP = 16;

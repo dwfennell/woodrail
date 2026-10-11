@@ -353,7 +353,7 @@ export class Hud {
     this.pieceCard.hidden = true;
   }
 
-  toast(message: string, celebrate = false): void {
+  toast(message: string, celebrate = false, ms = 2200): void {
     this.toastEl.textContent = message;
     this.toastEl.classList.toggle("celebrate", celebrate);
     this.toastEl.classList.remove("show");
@@ -361,7 +361,7 @@ export class Hud {
     void this.toastEl.offsetWidth;
     this.toastEl.classList.add("show");
     clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), 2200);
+    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), ms);
   }
 
   /** Is the screen point over the tray (dropping there cancels / deletes)? */

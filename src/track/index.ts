@@ -1,6 +1,7 @@
 export * from "./constants";
 export * from "./layout";
 export * from "./math";
+export * from "./overlap";
 export * from "./path";
 export * from "./pieces";
 export * from "./routing";
