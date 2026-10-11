@@ -58,7 +58,8 @@ export function pieceIcon(type: PieceTypeId): string {
       for (const g of [-GROOVE_SPACING / 2, GROOVE_SPACING / 2]) body += `<path d="${d(pts, g)}" stroke="#a5784b" stroke-width="5" fill="none"/>`;
     if (def.paths.some((p) => p.to === null)) {
       const end = lines[0][lines[0].length - 1];
-      body += `<rect x="${end.x - ox + 10}" y="${size - (end.z - oz) - 22}" width="16" height="44" rx="4" fill="#c8442f"/>`;
+      body += `<rect x="${end.x - ox + 10}" y="${size - (end.z - oz) - 22}" width="16" height="44" rx="4" fill="${type === "buffer-turnback" ? "#e6b52c" : "#c8442f"}"/>`;
+      if (type === "buffer-turnback") body += `<path d="M${end.x - ox + 18} ${size - (end.z - oz) - 22} l14 6 -14 6z" fill="#c8442f"/>`;
     }
     if (def.paths[0]?.geom.rise) body += `<text x="${size / 2}" y="${size - 8}" font-size="${size / 6}" text-anchor="middle" fill="#7a5532" font-family="system-ui" font-weight="700">▲</text>`;
     if (type === "bridge") body += `<text x="${size / 2}" y="${size - 8}" font-size="${size / 7}" text-anchor="middle" fill="#7a5532" font-family="system-ui" font-weight="700">⌒</text>`;

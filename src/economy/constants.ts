@@ -15,5 +15,3 @@ export const TOWN_USE_TICKS = ticks(30);
 export const CRANE_TICKS = ticks(1.2);
 /** A train on a working depot crawls at this speed (mm/s). */
 export const CRAWL_SPEED = 30;
-/** A train at a turnback buffer waits this long before driving back. */
-export const TURNBACK_TICKS = ticks(2);

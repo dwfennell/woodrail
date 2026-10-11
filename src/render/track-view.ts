@@ -17,10 +17,10 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { getPieceDef, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceTypeId } from "../track";
+import { getPieceDef, pathLength, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
-import { buildBufferBlockGeometry, buildPieceGeometry } from "./track-geometry";
+import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry } from "./track-geometry";
 
 const geometryCache = new Map<string, BufferGeometry>();
 const bufferBlockCache = new Map<string, BufferGeometry | null>();
@@ -39,6 +39,20 @@ export function pieceGeometry(type: PieceTypeId, flipped: boolean): BufferGeomet
 function bufferBlock(type: PieceTypeId): BufferGeometry | null {
   if (!bufferBlockCache.has(type)) bufferBlockCache.set(type, buildBufferBlockGeometry(getPieceDef(type, false)));
   return bufferBlockCache.get(type)!;
+}
+
+const BUFFER_RED = new Color("#c8442f");
+const TURNBACK_YELLOW = new Color("#e6b52c");
+
+function turnbackFlagParts(): { pole: BufferGeometry; flag: BufferGeometry } {
+  const def = getPieceDef("buffer-turnback", false);
+  const len = pathLength(def.paths[0].geom);
+  // On top of the buffer block (see buildBufferBlockGeometry), toward its back edge.
+  const x = len + BUFFER_EXTRA - 6;
+  const y = TRACK_THICKNESS + 25;
+  const pole = new CylinderGeometry(1.4, 1.4, 30, 8).translate(x, y + 15, 12);
+  const flag = new BoxGeometry(12, 8, 1.2).translate(x - 6.5, y + 26, 12);
+  return { pole, flag };
 }
 
 /** Matrix placing piece-local geometry at a plan pose (plan x/z → world x/z; heading h → rotation.y = -h). */
@@ -73,6 +87,10 @@ export class TrackView {
   readonly group = new Group();
   private meshes = new Map<string, { mesh: InstancedMesh; ids: number[] }>();
   private bufferMesh: { mesh: InstancedMesh; ids: number[] } | null = null;
+  private flagMeshes: InstancedMesh[] = [];
+  private flagIds: number[] = [];
+  /** Turnback flag: a pole standing on the buffer block and a pennant, in piece-local space. */
+  private readonly flagParts = turnbackFlagParts();
   private levers = new Map<number, Mesh>();
   /** A toy semaphore signal beside each switch: arm level for the straight route, raised for the branch. */
   private signals = new Map<number, { root: Group; arm: Group }>();
@@ -116,6 +134,12 @@ export class TrackView {
       this.bufferMesh.mesh.dispose();
       this.bufferMesh = null;
     }
+    for (const f of this.flagMeshes) {
+      this.group.remove(f);
+      f.dispose();
+    }
+    this.flagMeshes = [];
+    this.flagIds = [];
 
     const groups = new Map<string, number[]>();
     for (const id of this.layout.pieceIds()) {
@@ -150,16 +174,39 @@ export class TrackView {
     }
 
     if (bufferIds.length > 0) {
-      const mesh = new InstancedMesh(bufferBlock("buffer")!, this.mats.lacquer("#c8442f"), bufferIds.length);
+      // Plain buffers are red; turnback buffers yellow, each with a red flag on a white pole.
+      const turnback = (id: number) => this.layout.getPiece(id)!.type === "buffer-turnback";
+      const colours = bufferIds.map((id) => (turnback(id) ? TURNBACK_YELLOW : BUFFER_RED));
+      const mesh = new InstancedMesh(bufferBlock("buffer")!, this.mats.lacquer("#ffffff"), bufferIds.length);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       bufferIds.forEach((id, i) => {
         const p = this.layout.getPiece(id)!;
         mesh.setMatrixAt(i, pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading, m));
+        mesh.setColorAt(i, colours[i]);
       });
       mesh.userData.kind = "track";
       this.group.add(mesh);
       this.bufferMesh = { mesh, ids: bufferIds };
+
+      const flagIds = bufferIds.filter(turnback);
+      if (flagIds.length > 0) {
+        const pole = new InstancedMesh(this.flagParts.pole, this.mats.lacquer("#f6f1e6"), flagIds.length);
+        const flag = new InstancedMesh(this.flagParts.flag, this.mats.lacquer("#c8442f"), flagIds.length);
+        flagIds.forEach((id, i) => {
+          const p = this.layout.getPiece(id)!;
+          pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading, m);
+          pole.setMatrixAt(i, m);
+          flag.setMatrixAt(i, m);
+        });
+        for (const f of [pole, flag]) {
+          f.castShadow = true;
+          f.userData.kind = "track";
+          this.group.add(f);
+        }
+        this.flagMeshes = [pole, flag];
+        this.flagIds = flagIds;
+      }
     }
 
     this.syncLevers();
@@ -303,6 +350,7 @@ export class TrackView {
     if (object.userData.kind === "switch-lever") return object.userData.pieceId as number;
     for (const { mesh, ids } of this.meshes.values()) if (mesh === object && instanceId !== undefined) return ids[instanceId];
     if (this.bufferMesh && this.bufferMesh.mesh === object && instanceId !== undefined) return this.bufferMesh.ids[instanceId];
+    if (this.flagMeshes.includes(object as InstancedMesh) && instanceId !== undefined) return this.flagIds[instanceId];
     return -1;
   }
 

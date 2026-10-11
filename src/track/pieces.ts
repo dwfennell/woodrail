@@ -42,6 +42,7 @@ export type PieceTypeId =
   | "riser"
   | "bridge"
   | "buffer"
+  | "buffer-turnback"
   | "adapter-peg"
   | "adapter-socket"
   | "station"
@@ -169,6 +170,15 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   bridge: straight("bridge", BRIDGE_LENGTH, "socket", "peg", RISER_HEIGHT),
   buffer: {
     type: "buffer",
+    connectors: [{ kind: "socket", pose: pose(0, 0, Math.PI), y: 0 }],
+    paths: [{ from: 0, to: null, geom: { kind: "line", start: pose(0, 0, 0), length: BUFFER_LENGTH, y0: 0, rise: 0 } }],
+    flippable: false,
+    isSwitch: false,
+    supportHeight: 0,
+  },
+  // A buffer that sends trains back: they wait a moment, then their engines reverse.
+  "buffer-turnback": {
+    type: "buffer-turnback",
     connectors: [{ kind: "socket", pose: pose(0, 0, Math.PI), y: 0 }],
     paths: [{ from: 0, to: null, geom: { kind: "line", start: pose(0, 0, 0), length: BUFFER_LENGTH, y0: 0, rise: 0 } }],
     flippable: false,

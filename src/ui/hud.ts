@@ -17,6 +17,7 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "bridge", label: "Bridge" },
   { kind: "piece", type: "riser", label: "Riser" },
   { kind: "piece", type: "buffer", label: "Buffer" },
+  { kind: "piece", type: "buffer-turnback", label: "Turnback" },
   { kind: "piece", type: "adapter-peg", label: "Peg–peg" },
   { kind: "piece", type: "adapter-socket", label: "Hole–hole" },
 ];

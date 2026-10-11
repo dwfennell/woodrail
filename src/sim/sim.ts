@@ -17,6 +17,8 @@ import { nearestCursor } from "./nearest";
 
 export const SIM_HZ = 120;
 export const SIM_DT = 1 / SIM_HZ;
+/** A train resting on a turnback buffer waits this long (2 s) before driving back. */
+export const TURNBACK_TICKS = 2 * SIM_HZ;
 
 // Motion tuning (mm, s).
 export const ENGINE_SPEED = 120;
@@ -40,6 +42,8 @@ export interface Car {
 
 export interface Train {
   readonly id: number;
+  /** Ticks left before a train resting on a turnback buffer reverses; −1 when not waiting. */
+  turnback: number;
   cars: Car[];
   /** Two per car in train order: car0 front, car0 rear, car1 front, … */
   bogies: Cursor[];
@@ -182,6 +186,7 @@ export class Sim {
     if (this.occupied(bogies)) return { kind: "no-room" };
     const train: Train = {
       id: this.nextTrainId++,
+      turnback: -1,
       cars: kinds.map((kind, i) => ({ id: carIds?.[i] ?? this.nextCarId++, kind, facing: 1, frontPole: "N", lever: 0 })),
       bogies,
       speed: 0,
@@ -277,7 +282,14 @@ export class Sim {
   }
 
   tick(): void {
-    for (const train of this.trains.values()) if (!train.derailed) this.move(train);
+    for (const train of this.trains.values()) {
+      if (train.derailed) continue;
+      if (train.turnback >= 0 && --train.turnback < 0) {
+        // Waited long enough at a turnback buffer: every engine's lever goes the other way.
+        for (const car of train.cars) if (car.kind === "engine") car.lever = (-car.lever) as -1 | 0 | 1;
+      }
+      this.move(train);
+    }
     this.resolveContacts();
   }
 
@@ -355,6 +367,7 @@ export class Sim {
     }
     if (status === ADV_BUFFER) {
       train.speed = 0;
+      if (train.turnback < 0 && this.layout.getPiece(lead.pieceId)?.type === "buffer-turnback") train.turnback = TURNBACK_TICKS;
       this.events.push({ kind: "buffer", trainId: train.id });
     } else if (status === ADV_OPEN_END) {
       this.derail(train);

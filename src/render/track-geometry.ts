@@ -36,7 +36,7 @@ const PEG_NECK_LENGTH = 8;
 const PEG_NECK_WIDTH = 6;
 const PEG_HEAD_RADIUS = 6;
 const SOCKET_CLEARANCE = 0.6;
-const BUFFER_EXTRA = 38; // body continues past the buffer path end to carry the stop block
+export const BUFFER_EXTRA = 38; // body continues past the buffer path end to carry the stop block
 const TOP_RADIUS = 2.5;
 const BOTTOM_RADIUS = 1;
 
