@@ -138,12 +138,11 @@ export class Sim {
     return e;
   }
 
-  /** Place a train whose leading axle sits at `at`, cars trailing behind it. */
   /**
    * Put a train down over a dropped point: centred on it, or slid along the track (still covering the point) when a
-   * dead end or a switch is too close for it to be centred.
+   * dead end or a switch is too close for it to be centred. `carIds` as for `addTrain`.
    */
-  addTrainAround(kinds: readonly CarKind[], at: Cursor): AddTrainResult {
+  addTrainAround(kinds: readonly CarKind[], at: Cursor, carIds?: readonly number[]): AddTrainResult {
     const offsets = bogieOffsets(kinds);
     const span = offsets[offsets.length - 1];
     // Shifts of the front ahead of the point, nearest centred first; 0 lays the train out behind the point.
@@ -154,13 +153,17 @@ export class Sim {
     for (const shift of shifts) {
       const front = { ...at };
       if (shift > 0 && advanceCursor(this.layout, front, shift, null, adv).status !== ADV_OK) continue;
-      const r = this.addTrain(kinds, front);
+      const r = this.addTrain(kinds, front, carIds);
       if (r.kind === "placed") return r;
     }
     return { kind: "no-room" };
   }
 
-  addTrain(kinds: readonly CarKind[], at: Cursor): AddTrainResult {
+  /**
+   * Place a train whose leading axle sits at `at`, cars trailing behind it. `carIds` reuses the ids of cars being put
+   * back (picked up, re-railed), so anything keyed by car id (cargo) stays with them.
+   */
+  addTrain(kinds: readonly CarKind[], at: Cursor, carIds?: readonly number[]): AddTrainResult {
     const offsets = bogieOffsets(kinds);
     const bogies: Cursor[] = [];
     for (const off of offsets) {
@@ -174,7 +177,7 @@ export class Sim {
     if (this.occupied(bogies)) return { kind: "no-room" };
     const train: Train = {
       id: this.nextTrainId++,
-      cars: kinds.map((kind) => ({ id: this.nextCarId++, kind, facing: 1, frontPole: "N", lever: 0 })),
+      cars: kinds.map((kind, i) => ({ id: carIds?.[i] ?? this.nextCarId++, kind, facing: 1, frontPole: "N", lever: 0 })),
       bogies,
       speed: 0,
       derailed: false,
@@ -252,11 +255,12 @@ export class Sim {
     const lead = train.world[0];
     const at = near ?? lead;
     const kinds = train.cars.map((c) => c.kind);
+    const ids = train.cars.map((c) => c.id);
     for (const heading of [lead.heading, lead.heading + Math.PI]) {
       const near = nearestCursor(this.layout, at.x, at.z, maxDistance, heading);
       if (!near) return -1;
       this.trains.delete(trainId);
-      const placed = this.addTrain(kinds, near.cursor);
+      const placed = this.addTrain(kinds, near.cursor, ids);
       if (placed.kind === "placed") return placed.trainId;
       this.trains.set(trainId, train);
     }

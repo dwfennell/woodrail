@@ -55,7 +55,7 @@ type Mode =
   | {
       kind: "drag-train";
       pointerId: number;
-      cars: { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1 }[];
+      cars: { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number }[];
       /** Where it came from, to put it back if the drop misses the track. */
       origin: Cursor | null;
       ghost: Group;
@@ -724,7 +724,7 @@ export class Interaction {
     this.clearSelection();
     this.hud.hideCards();
     const t = found.train;
-    const cars = t.cars.map((c) => ({ kind: c.kind, facing: c.facing, lever: c.lever }));
+    const cars = t.cars.map((c) => ({ kind: c.kind, facing: c.facing, lever: c.lever, id: c.id }));
     const origin = t.derailed ? null : { ...t.bogies[0] };
     sim.removeTrain(t.id);
     this.changed();
@@ -751,10 +751,11 @@ export class Interaction {
   }
 
   /** Put a train down: exactly at `at` (back where it was picked up), or `around` it (a drop, centred on the point). */
-  private placeTrain(cars: { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1 }[], at: Cursor, around = false): boolean {
+  private placeTrain(cars: { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number }[], at: Cursor, around = false): boolean {
     const sim = this.game.sim;
     const kinds = cars.map((c) => c.kind);
-    const r = around ? sim.addTrainAround(kinds, at) : sim.addTrain(kinds, at);
+    const ids = cars.every((c) => c.id !== undefined) ? cars.map((c) => c.id!) : undefined;
+    const r = around ? sim.addTrainAround(kinds, at, ids) : sim.addTrain(kinds, at, ids);
     if (r.kind !== "placed") return false;
     const t = sim.getTrain(r.trainId)!;
     t.cars.forEach((car, i) => {
