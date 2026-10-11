@@ -1,16 +1,17 @@
 import { BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SRGBColorSpace, type InstancedMesh, type MeshBasicMaterial } from "three";
-import { CELL, COLS, ROWS, SURF_RIVER, SURF_ROAD, type Landscape, type Town } from "../landscape";
+import { CELL, COLS, generateSurroundings, ROWS, SURF_RIVER, SURF_ROAD, type Landscape, type Town } from "../landscape";
 import { SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
 import { buildBlocks } from "./dressing/blocks";
 import { buildStation, buildTown } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltGround, buildFeltRibbons } from "./dressing/felt";
+import { buildSurroundings } from "./dressing/surroundings";
 import { buildTrees, treePlacements } from "./dressing/trees";
 import type { Flourish } from "./flourishes";
 import type { Materials } from "./materials";
 
-/** Draws the felt mat and everything on it: block hills, rivers, roads, trees, towns, stations and name signs. */
+/** Draws the felt mat and everything on it (block hills, rivers, roads, trees, towns, stations, name signs) and the scenery around it. */
 export class LandscapeView {
   readonly group = new Group();
   private signs = new Map<number, MeshStandardMaterial>();
@@ -99,6 +100,9 @@ export class LandscapeView {
       buildStation(town, this.mats, b);
       this.buildSign(town, b);
     }
+
+    // The toy countryside around the mat, fading into the haze.
+    this.group.add(buildSurroundings(generateSurroundings(this.land.seed), this.mats, b));
 
     b.build(this.group);
 

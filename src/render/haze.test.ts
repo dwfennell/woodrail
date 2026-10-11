@@ -6,17 +6,19 @@ import { HAZE_FAR, HAZE_NEAR, hazeAt, installHaze } from "./haze";
 describe("haze", () => {
   it("measures fog from the mat's edge, not from the camera", () => {
     installHaze();
-    const chunk = ShaderChunk.fog_vertex;
+    const chunk = ShaderChunk.fog_fragment;
     expect(chunk).toContain(`${MAT_WIDTH / 2}.0`);
     expect(chunk).toContain(`${MAT_DEPTH / 2}.0`);
-    expect(chunk).toContain("vFogDepth");
+    // Measured per pixel from the interpolated plan position, not per vertex.
+    expect(ShaderChunk.fog_vertex).toContain("vHaze");
+    expect(ShaderChunk.fog_vertex).not.toContain("hazeOut");
   });
 
   it("installs once", () => {
     installHaze();
-    const once = ShaderChunk.fog_vertex;
+    const once = ShaderChunk.fog_fragment;
     installHaze();
-    expect(ShaderChunk.fog_vertex).toBe(once);
+    expect(ShaderChunk.fog_fragment).toBe(once);
   });
 
   it("leaves the mat clear even from the farthest camera and hides the ring's outer edge", () => {

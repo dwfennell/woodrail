@@ -26,13 +26,28 @@ export function hazeAt(x: number, z: number, cameraDistance: number): number {
 }
 
 /**
- * Replace the fog vertex chunk (once, before any material compiles). World position comes from the view-space
- * position, so it works in every built-in shader, instanced or not: world = camera + transpose(view rotation) · mv.
+ * Replace three's fog chunks (once, before any material compiles). The vertex shader passes on plan position and view
+ * depth, both exact under interpolation, and the haze is measured per pixel, so it is right even across one huge
+ * triangle such as the felt ground. World position comes from the view-space position, which works in every
+ * built-in shader, instanced or not: world = camera + transpose(view rotation) · mv.
  */
 export function installHaze(): void {
+  ShaderChunk.fog_pars_vertex = `#ifdef USE_FOG
+  varying vec3 vHaze;
+#endif`;
   ShaderChunk.fog_vertex = `#ifdef USE_FOG
   vec3 hazeWorld = cameraPosition + (vec4(mvPosition.xyz, 0.0) * viewMatrix).xyz;
-  vec2 hazeOut = max(abs(hazeWorld.xz) - vec2(${MAT_WIDTH / 2}.0, ${MAT_DEPTH / 2}.0), 0.0);
-  vFogDepth = length(hazeOut) + ${HAZE_VIEW.toFixed(3)} * -mvPosition.z;
+  vHaze = vec3(hazeWorld.xz, -mvPosition.z);
+#endif`;
+  ShaderChunk.fog_pars_fragment = `#ifdef USE_FOG
+  uniform vec3 fogColor;
+  uniform float fogNear;
+  uniform float fogFar;
+  varying vec3 vHaze;
+#endif`;
+  ShaderChunk.fog_fragment = `#ifdef USE_FOG
+  vec2 hazeOut = max(abs(vHaze.xy) - vec2(${MAT_WIDTH / 2}.0, ${MAT_DEPTH / 2}.0), 0.0);
+  float fogFactor = smoothstep(fogNear, fogFar, length(hazeOut) + ${HAZE_VIEW.toFixed(3)} * vHaze.z);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
 #endif`;
 }

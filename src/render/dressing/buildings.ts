@@ -33,7 +33,7 @@ const pick = <T,>(list: readonly T[], n: number): T => list[((n % list.length) +
  * A painted wooden toy building facing `front` (unit axis vector): body, overhanging roof, framed windows set back
  * behind their frames, a front door, and sometimes a chimney.
  */
-function building(
+export function building(
   b: Batcher,
   mats: Materials,
   box: { cx: number; cz: number; w: number; d: number },

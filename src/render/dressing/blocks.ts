@@ -1,7 +1,7 @@
 import { BoxGeometry, Color, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, type BufferGeometry, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { CELL, COLS, hillSlabs, ROWS, type LandscapeGrid } from "../../landscape";
+import { CELL, COLS, hillSlabs, ROWS, type LandscapeGrid, type Slab } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
 import { BEECH_UV_SCALE, type Materials } from "../materials";
 
@@ -71,11 +71,11 @@ function instanced(geometry: BufferGeometry, material: Material, count: number):
 export const SHADOW_PROXY_LAYER = 1;
 
 /**
- * Hill shadows come from the merged rectangles (a few dozen plain boxes) instead of hundreds of rounded blocks:
+ * Hill shadows come from merged rectangles (a few dozen plain boxes) instead of hundreds of rounded blocks:
  * same silhouette from the sun, a fraction of the shadow-pass cost.
  */
-function shadowProxy(grid: LandscapeGrid): Mesh | null {
-  const boxes = hillSlabs(grid).map((s) => {
+export function shadowProxy(slabs: readonly Slab[]): Mesh | null {
+  const boxes = slabs.map((s) => {
     const g = new BoxGeometry(s.x1 - s.x0 - GAP, RISER_HEIGHT - GAP, s.z1 - s.z0 - GAP);
     g.translate((s.x0 + s.x1) / 2, (s.level - 1) * RISER_HEIGHT + RISER_HEIGHT / 2, (s.z0 + s.z1) / 2);
     return g;
@@ -90,14 +90,29 @@ function shadowProxy(grid: LandscapeGrid): Mesh | null {
   return mesh;
 }
 
-/** Hills as individual rounded beech blocks, the top of each stack painted grass green. Two draw calls. */
-export function buildBlocks(grid: LandscapeGrid, seed: number, mats: Materials): Group {
+/** Where a block sits (bottom centre), whether it is the top of its stack, and its tone (any integer). */
+export interface BlockSpot {
+  x: number;
+  z: number;
+  y: number;
+  top: boolean;
+  tone: number;
+}
+
+/**
+ * Cube blocks of one size as two instanced draws: the beech bodies and the green paint on top of each stack.
+ * `rounded` blocks have softened edges (for close up); plain boxes are for distant scenery. Neither casts shadows.
+ */
+export function blockMeshes(blocks: readonly BlockSpot[], size: number, mats: Materials, rounded: boolean): Group {
   const group = new Group();
-  const blocks = blockInstances(grid, seed).filter((b) => b.exposed);
   const tops = blocks.filter((b) => b.top);
-  const size = CELL - GAP;
-  const body = scaleUv(new RoundedBoxGeometry(size, RISER_HEIGHT - GAP, size, 1, 2.5), size * BEECH_UV_SCALE.x, (RISER_HEIGHT - GAP) * BEECH_UV_SCALE.y);
-  const paint = scaleUv(new RoundedBoxGeometry(size + 0.6, PAINT, size + 0.6, 1, 1.6), size * BEECH_UV_SCALE.x, size * BEECH_UV_SCALE.y);
+  const k = size / CELL;
+  const w = size - GAP * k;
+  const h = size - GAP * k;
+  const uv = (g: BufferGeometry, v: number) => scaleUv(g, w * BEECH_UV_SCALE.x, v * BEECH_UV_SCALE.y);
+  const body = uv(rounded ? new RoundedBoxGeometry(w, h, w, 1, 2.5 * k) : new BoxGeometry(w, h, w), h);
+  const paintH = PAINT * k;
+  const paint = uv(rounded ? new RoundedBoxGeometry(w + 0.6, paintH, w + 0.6, 1, 1.6 * k) : new BoxGeometry(w + 0.6 * k, paintH, w + 0.6 * k), w);
   const wood = instanced(body, mats.blockWood, blocks.length);
   const grass = instanced(paint, mats.blockTop, tops.length);
   wood.castShadow = false;
@@ -106,18 +121,24 @@ export function buildBlocks(grid: LandscapeGrid, seed: number, mats: Materials):
   const c = new Color();
   blocks.forEach((b, i) => {
     // Turn alternate blocks a quarter so the grain doesn't line up across the whole hill.
-    m.makeRotationY(((b.tone + Math.round(b.x / CELL)) % 2) * (Math.PI / 2));
-    m.setPosition(b.x, b.y + RISER_HEIGHT / 2, b.z);
+    m.makeRotationY(((b.tone + Math.round(b.x / size)) % 2) * (Math.PI / 2));
+    m.setPosition(b.x, b.y + size / 2, b.z);
     wood.setMatrixAt(i, m);
-    wood.setColorAt(i, c.set(BLOCK_TONES[b.tone]));
+    wood.setColorAt(i, c.set(BLOCK_TONES[b.tone % BLOCK_TONES.length]));
   });
   tops.forEach((b, i) => {
-    m.makeTranslation(b.x, b.y + RISER_HEIGHT - PAINT / 2 + 0.3, b.z);
+    m.makeTranslation(b.x, b.y + size - paintH / 2 + 0.3 * k, b.z);
     grass.setMatrixAt(i, m);
     grass.setColorAt(i, c.set(GRASS_TONES[b.tone % GRASS_TONES.length]));
   });
   group.add(wood, grass);
-  const proxy = shadowProxy(grid);
+  return group;
+}
+
+/** Hills as individual rounded beech blocks, the top of each stack painted grass green. Two draw calls. */
+export function buildBlocks(grid: LandscapeGrid, seed: number, mats: Materials): Group {
+  const group = blockMeshes(blockInstances(grid, seed).filter((b) => b.exposed), CELL, mats, true);
+  const proxy = shadowProxy(hillSlabs(grid));
   if (proxy) group.add(proxy);
   return group;
 }

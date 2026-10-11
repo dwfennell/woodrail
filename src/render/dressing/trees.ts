@@ -18,7 +18,7 @@ import type { Materials } from "../materials";
 
 export const MAX_LEAN = 0.05;
 const JITTER = 14;
-const TREE_GREENS = ["#3f8f4a", "#2f7a43", "#5ba356", "#6fae4f", "#4c9a3c"];
+export const TREE_GREENS = ["#3f8f4a", "#2f7a43", "#5ba356", "#6fae4f", "#4c9a3c"];
 
 export interface TreePlacement {
   x: number;
