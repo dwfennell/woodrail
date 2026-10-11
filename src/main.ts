@@ -202,9 +202,9 @@ function boot(): void {
     const radius = Math.hypot(a.centre.x - b.centre.x, a.centre.z - b.centre.z) / 2 + 140;
     game.director.glideTo(centre, frameDistance(radius, game.camera.fov, game.camera.aspect), { phi: 0.95, duration: 2.6, delay });
     // A bare map: suggest the first job once the camera has arrived.
-    if (game.layout.pieceCount === game.stations.size) {
+    if (game.layout.pieceCount === game.stations.size + game.depots.size) {
       window.setTimeout(() => {
-        if (game.layout.pieceCount === game.stations.size) hud.toast(`Join ${a.name} and ${b.name} with track`, false, 6000);
+        if (game.layout.pieceCount === game.stations.size + game.depots.size) hud.toast(`Join ${a.name} and ${b.name} with track`, false, 6000);
       }, (delay + 2.4) * 1000);
     }
   }

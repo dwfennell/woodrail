@@ -1,6 +1,10 @@
-import { generateLandscape, type Landscape } from "../landscape";
+import { generateLandscape, type DepotKind, type Landscape } from "../landscape";
 import { Sim } from "../sim";
-import { Layout } from "../track";
+import { Layout, type PieceTypeId } from "../track";
+
+export const depotPieceType = (kind: DepotKind): PieceTypeId => (kind === "forest" ? "depot-forest" : "depot-sawmill");
+
+export const DEPOT_NAMES: Record<DepotKind, string> = { forest: "Forest yard", sawmill: "Sawmill" };
 
 export interface World {
   layout: Layout;
@@ -8,6 +12,8 @@ export interface World {
   landscape: Landscape;
   /** Town id → its station piece id. */
   stations: Map<number, number>;
+  /** Depot id → its depot piece id. */
+  depots: Map<number, number>;
 }
 
 export const STARTER_SEED = 7;
@@ -18,7 +24,9 @@ export function createWorld(seed: number, starter = false): World {
   const layout = new Layout();
   const stations = new Map<number, number>();
   for (const town of landscape.towns) stations.set(town.id, layout.addPiece("station", town.station));
-  return { layout, sim: new Sim(layout), landscape, stations };
+  const depots = new Map<number, number>();
+  for (const depot of landscape.depots) depots.set(depot.id, layout.addPiece(depotPieceType(depot.kind), depot.piece));
+  return { layout, sim: new Sim(layout), landscape, stations, depots };
 }
 
 /**

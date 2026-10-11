@@ -55,6 +55,7 @@ export class Game {
   sim: Sim;
   landscape: Landscape;
   stations: Map<number, number>;
+  depots: Map<number, number>;
   paused = false;
   /** Called once per frame after the simulation steps, before rendering. */
   onFrame: ((dt: number) => void) | null = null;
@@ -72,6 +73,7 @@ export class Game {
     this.sim = world.sim;
     this.landscape = world.landscape;
     this.stations = world.stations;
+    this.depots = world.depots;
     this.quality = detectQuality();
 
     this.renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -124,6 +126,7 @@ export class Game {
     this.sim = world.sim;
     this.landscape = world.landscape;
     this.stations = world.stations;
+    this.depots = world.depots;
     this.scene.remove(this.landscapeView.group);
     this.landscapeView.dispose();
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
@@ -139,7 +142,7 @@ export class Game {
   }
 
   get world(): World {
-    return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations };
+    return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots };
   }
 
   /** Call after any layout edit. */

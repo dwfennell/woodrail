@@ -4,6 +4,7 @@ import {
   CELL,
   COLS,
   FEAT_BUILDING,
+  FEAT_DEPOT,
   FEAT_FIELD,
   FEAT_SHED,
   FEAT_NONE,
@@ -42,6 +43,18 @@ export interface Town {
   buildings: Building[];
 }
 
+export type DepotKind = "forest" | "sawmill";
+
+/** A fixed goods depot: a 216 mm track piece through a yard, laid out like a station (yard on the +lateral side). */
+export interface Depot {
+  id: number;
+  kind: DepotKind;
+  /** Midpoint of the depot track (on a square centre). */
+  centre: { x: number; z: number };
+  /** Pose of the depot piece's origin (its socket end). */
+  piece: Pose;
+}
+
 /** A fenced 2 × 2-square paddock of toy animals. */
 export interface Field {
   id: number;
@@ -67,6 +80,7 @@ export interface Landscape {
   corridors: number[];
   fields: Field[];
   shed: Shed | null;
+  depots: Depot[];
 }
 
 export const STATION_LENGTH = 216;
@@ -83,7 +97,11 @@ const NAMES = ["Applebury", "Millbrook", "Oakhollow", "Pinecrest", "Thimble Cros
 
 /** The two outward ends of a town's station: socket end and peg end, each heading away from the station. */
 export function stationEnds(town: Town): [Pose, Pose] {
-  const s = town.station;
+  return pieceEnds(town.station);
+}
+
+/** The two outward ends of a fixed 216 mm piece (station or depot) at pose `s`. */
+export function pieceEnds(s: Pose): [Pose, Pose] {
   return [
     { x: s.x, z: s.z, heading: s.heading + Math.PI },
     { x: s.x + Math.cos(s.heading) * STATION_LENGTH, z: s.z + Math.sin(s.heading) * STATION_LENGTH, heading: s.heading },
@@ -115,7 +133,30 @@ function attemptLandscape(seed: number, starter: boolean): Landscape {
   const random = rng(seed);
   const grid = new LandscapeGrid();
   const towns = placeTowns(random, starter);
+  const depots = placeDepots(seed, towns, starter);
   const protectedCells = new Set<number>();
+
+  // Depots: track and yard squares, and their approach corridors, measured like stations.
+  for (const depot of depots) {
+    const dx = Math.cos(depot.piece.heading);
+    const dz = Math.sin(depot.piece.heading);
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        const i = grid.index(col, row);
+        const px = grid.centreX(col) - depot.centre.x;
+        const pz = grid.centreZ(row) - depot.centre.z;
+        const d = px * dx + pz * dz;
+        const l = -px * dz + pz * dx;
+        const ad = Math.abs(d);
+        if ((ad < HALF_STATION && Math.abs(l) < 26) || (ad < HALF_STATION - 8 && l >= 26 && l < 120)) {
+          grid.feature[i] = FEAT_DEPOT;
+          grid.owner[i] = depot.id;
+        } else if (ad >= HALF_STATION - 32 && ad < HALF_STATION + CORRIDOR_LENGTH && Math.abs(l) < CORRIDOR_HALF_WIDTH) {
+          protectedCells.add(i);
+        }
+      }
+    }
+  }
 
   // Stations, platforms, corridors and town areas, measured from each station line (works for any heading).
   for (const town of towns) {
@@ -174,7 +215,8 @@ function attemptLandscape(seed: number, starter: boolean): Landscape {
     }
   }
 
-  const locked = (i: number) => protectedCells.has(i) || grid.surface[i] === SURF_TOWN || grid.feature[i] === FEAT_STATION;
+  const locked = (i: number) =>
+    protectedCells.has(i) || grid.surface[i] === SURF_TOWN || grid.feature[i] === FEAT_STATION || grid.feature[i] === FEAT_DEPOT;
 
   // Hills from smooth noise, in whole blocks.
   const hillNoise = valueNoise(seed * 7 + 1);
@@ -258,7 +300,57 @@ function attemptLandscape(seed: number, starter: boolean): Landscape {
     }
   }
 
-  return { seed, starter, grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null };
+  return { seed, starter, grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null, depots };
+}
+
+/**
+ * Forest yards and a sawmill (their own random stream, so towns are unchanged by them). Each sits at least
+ * `MIN_TOWN_SPACING` from every town and other depot, snapped like a station. Forests take the candidate deepest in
+ * the trees (the tree noise); the sawmill the candidate nearest the middle of the towns. On the starter map the
+ * sawmill goes near the first town and the forest near the second, so the first timber loop is close at hand.
+ */
+function placeDepots(seed: number, towns: readonly Town[], starter: boolean): Depot[] {
+  const random = rng(seed * 47 + 5);
+  const treeNoise = valueNoise(seed * 13 + 5);
+  const snap = (v: number, half: number) => (Math.floor((v + half) / CELL) + 0.5) * CELL - half;
+  const depots: Depot[] = [];
+  const taken = () => [...towns.map((t) => t.centre), ...depots.map((d) => d.centre)];
+  const candidates = (): { x: number; z: number; heading: number }[] => {
+    const out: { x: number; z: number; heading: number }[] = [];
+    for (let guard = 0; guard < 2000 && out.length < 16; guard++) {
+      const x = snap(-MAT_WIDTH / 2 + EDGE_MARGIN + random() * (MAT_WIDTH - 2 * EDGE_MARGIN), MAT_WIDTH / 2);
+      const z = snap(-MAT_DEPTH / 2 + EDGE_MARGIN + random() * (MAT_DEPTH - 2 * EDGE_MARGIN), MAT_DEPTH / 2);
+      const heading = normaliseHeading(Math.floor(random() * 4) * (Math.PI / 2));
+      if (taken().some((c) => Math.hypot(c.x - x, c.z - z) < MIN_TOWN_SPACING)) continue;
+      out.push({ x, z, heading });
+    }
+    return out;
+  };
+  const add = (kind: DepotKind, score: (c: { x: number; z: number }) => number) => {
+    const list = candidates();
+    if (list.length === 0) return;
+    let best = list[0];
+    for (const c of list) if (score(c) < score(best)) best = c;
+    const { x, z, heading } = best;
+    depots.push({
+      id: depots.length,
+      kind,
+      centre: { x, z },
+      piece: { x: x - Math.cos(heading) * HALF_STATION, z: z - Math.sin(heading) * HALF_STATION, heading },
+    });
+  };
+  const near = (p: { x: number; z: number }) => (c: { x: number; z: number }) => Math.hypot(c.x - p.x, c.z - p.z);
+  const inTrees = (c: { x: number; z: number }) => -treeNoise((c.x + MAT_WIDTH / 2) / CELL / 5, (c.z + MAT_DEPTH / 2) / CELL / 5);
+  if (starter) {
+    add("sawmill", near(towns[0].centre));
+    add("forest", near(towns[1].centre));
+    return depots;
+  }
+  const mid = { x: towns.reduce((a, t) => a + t.centre.x, 0) / towns.length, z: towns.reduce((a, t) => a + t.centre.z, 0) / towns.length };
+  add("sawmill", near(mid));
+  const forests = random() < 0.5 ? 1 : 2;
+  for (let k = 0; k < forests; k++) add("forest", inTrees);
+  return depots;
 }
 
 /**
@@ -557,10 +649,11 @@ export function reachable(land: Landscape): boolean {
     }
     next++;
   }
-  // Each town's reachable components: those touching its corridor squares next to the station ends.
-  const reach = land.towns.map((town) => {
+  // Each town's and depot's reachable components: those touching its corridor squares next to its piece's ends.
+  const sites = [...land.towns.map((t) => t.station), ...land.depots.map((d) => d.piece)];
+  const reach = sites.map((site) => {
     const set = new Set<number>();
-    for (const end of stationEnds(town)) {
+    for (const end of pieceEnds(site)) {
       const ahead = { x: end.x + Math.cos(end.heading) * 40, z: end.z + Math.sin(end.heading) * 40 };
       const i = g.cellAtWorld(ahead.x, ahead.z);
       if (i !== -1 && component[i] !== -1) set.add(component[i]);

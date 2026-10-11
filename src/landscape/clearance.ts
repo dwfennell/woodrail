@@ -1,9 +1,9 @@
 import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
-import { FEAT_BUILDING, FEAT_FIELD, FEAT_SHED, FEAT_STATION, FEAT_TREE, SURF_RIVER, SURF_ROAD, SURF_TOWN } from "./grid";
+import { FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, FEAT_TREE, SURF_RIVER, SURF_ROAD, SURF_TOWN } from "./grid";
 import { STATION_LENGTH, type Landscape } from "./generate";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
-export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "tree" | "field" | "shed" | "off-mat" | "piece" | "unsupported";
+export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "tree" | "field" | "shed" | "depot" | "off-mat" | "piece" | "unsupported";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -15,6 +15,7 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   tree: "A tree is in the way",
   field: "That's a farm field — go around it",
   shed: "The engine shed is in the way",
+  depot: "The depot is in the way",
   "off-mat": "That's past the edge of the map",
   piece: "Another piece is in the way",
   unsupported: "Needs something under that end",
@@ -30,6 +31,7 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   tree: { kind: "blocked", reason: "tree" },
   field: { kind: "blocked", reason: "field" },
   shed: { kind: "blocked", reason: "shed" },
+  depot: { kind: "blocked", reason: "depot" },
   "off-mat": { kind: "blocked", reason: "off-mat" },
   piece: { kind: "blocked", reason: "piece" },
   unsupported: { kind: "blocked", reason: "unsupported" },
@@ -80,11 +82,21 @@ function forEachSample(
 /** Is a plan point on a town's station track or platform (not just in one of its squares)? */
 function inStationFootprint(land: Landscape, townId: number, x: number, z: number): boolean {
   const town = land.towns[townId];
-  if (!town) return false;
-  const dx = Math.cos(town.station.heading);
-  const dz = Math.sin(town.station.heading);
-  const px = x - town.centre.x;
-  const pz = z - town.centre.z;
+  return town ? inFixedFootprint(town.centre, town.station.heading, x, z) : false;
+}
+
+/** Is a plan point on a depot's track or yard? */
+function inDepotFootprint(land: Landscape, depotId: number, x: number, z: number): boolean {
+  const depot = land.depots[depotId];
+  return depot ? inFixedFootprint(depot.centre, depot.piece.heading, x, z) : false;
+}
+
+/** Track plus the 120 mm strip on its +lateral side, for a fixed 216 mm piece centred at `centre`. */
+function inFixedFootprint(centre: { x: number; z: number }, heading: number, x: number, z: number): boolean {
+  const dx = Math.cos(heading);
+  const dz = Math.sin(heading);
+  const px = x - centre.x;
+  const pz = z - centre.z;
   const d = px * dx + pz * dz;
   const l = -px * dz + pz * dx;
   return Math.abs(d) < STATION_LENGTH / 2 && l > -TRACK_WIDTH / 2 - 2 && l < 120;
@@ -104,6 +116,9 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
       if (f === FEAT_BUILDING) result = BLOCKED.building;
       else if (f === FEAT_TREE) result = BLOCKED.tree;
       else if (f === FEAT_FIELD) result = BLOCKED.field;
+      else if (f === FEAT_DEPOT) {
+        if (inDepotFootprint(land, g.owner[i], x, z)) result = BLOCKED.depot;
+      }
       else if (f === FEAT_SHED) result = BLOCKED.shed;
       else if (f === FEAT_STATION) {
         // Station squares are marked by their centres; only the real footprint (track + platform) blocks,

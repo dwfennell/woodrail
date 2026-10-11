@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
-import type { World } from "../game/world";
+import { depotPieceType, type World } from "../game/world";
 import { generateLandscape } from "../landscape";
 import { CAR_KINDS, Sim, type CarKind } from "../sim";
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
@@ -101,6 +101,13 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     if (Math.hypot(piece.pose.x - town.station.x, piece.pose.z - town.station.z) > 0.5) return err(`invalid save: station for town ${town.id} is not at its town`);
     stations.set(town.id, piece.id);
   }
+  const depots = new Map<number, number>();
+  for (const depot of landscape.depots) {
+    const type = depotPieceType(depot.kind);
+    const piece = [...layout.pieceIds()].map((id) => layout.getPiece(id)!).find((p) => p.type === type && Math.hypot(p.pose.x - depot.piece.x, p.pose.z - depot.piece.z) < 0.5);
+    if (!piece) return err(`invalid save: depot ${depot.id} is missing`);
+    depots.set(depot.id, piece.id);
+  }
   const sim = new Sim(layout);
   for (const t of save.trains) {
     const lead = layout.getPiece(t.lead.pieceId);
@@ -118,7 +125,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
     });
   }
-  return ok({ layout, sim, landscape, stations });
+  return ok({ layout, sim, landscape, stations, depots });
 }
 
 const STORAGE_KEY = "woodrail.autosave.v2";

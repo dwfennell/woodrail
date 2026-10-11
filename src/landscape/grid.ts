@@ -22,6 +22,8 @@ export const FEAT_STATION = 3;
 export const FEAT_FIELD = 4;
 /** The decorative engine shed. */
 export const FEAT_SHED = 5;
+/** A depot's track and yard (owner: depot id). */
+export const FEAT_DEPOT = 6;
 
 const X0 = -MAT_WIDTH / 2;
 const Z0 = -MAT_DEPTH / 2;

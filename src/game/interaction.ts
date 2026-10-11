@@ -13,6 +13,7 @@ import type { Hud, TrayItem } from "../ui/hud";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
 import type { Game } from "./game";
+import { DEPOT_NAMES } from "./world";
 
 const DRAG_THRESHOLD = 6;
 /** How high a held piece floats above where it would land (mm). */
@@ -227,8 +228,8 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
-      if (m.press.kind === "piece" && this.townOfStation(m.press.pieceId)) {
-        // Stations are part of their town and stay put.
+      if (m.press.kind === "piece" && this.fixedLabel(m.press.pieceId)) {
+        // Stations and depots are part of the map and stay put.
         this.mode = { kind: "idle" };
         this.game.controls.enabled = true;
         return;
@@ -320,8 +321,8 @@ export class Interaction {
       return;
     }
     if (p.kind === "piece") {
-      const town = this.townOfStation(p.pieceId);
-      if (town) this.hud.toast(`${town} station`);
+      const fixed = this.fixedLabel(p.pieceId);
+      if (fixed) this.hud.toast(fixed);
       else this.selectPiece(p.pieceId);
       return;
     }
@@ -459,9 +460,19 @@ export class Interaction {
     return reason === null;
   }
 
-  private townOfStation(pieceId: number): string | null {
+  /** The name of a fixed piece (a town's station or a depot), or null for ordinary track. */
+  private fixedLabel(pieceId: number): string | null {
     for (const [townId, stationId] of this.game.stations) {
-      if (stationId === pieceId) return this.game.landscape.towns.find((t) => t.id === townId)?.name ?? null;
+      if (stationId === pieceId) {
+        const name = this.game.landscape.towns.find((t) => t.id === townId)?.name;
+        return name ? `${name} station` : null;
+      }
+    }
+    for (const [depotId, id] of this.game.depots) {
+      if (id === pieceId) {
+        const depot = this.game.landscape.depots.find((d) => d.id === depotId);
+        return depot ? DEPOT_NAMES[depot.kind] : null;
+      }
     }
     return null;
   }

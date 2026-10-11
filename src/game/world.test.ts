@@ -17,10 +17,12 @@ describe("createWorld", () => {
 });
 
 describe("buildStarterWorld", () => {
-  it("starts bare: just the towns' stations, no track and no trains", () => {
+  it("starts bare: just the towns' stations and the depots, no track and no trains", () => {
     const w = buildStarterWorld();
-    for (const id of w.layout.pieceIds()) expect(w.layout.getPiece(id)!.type).toBe("station");
-    expect(w.layout.pieceCount).toBe(w.landscape.towns.length);
+    const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+    for (const id of w.layout.pieceIds()) expect(fixed.has(id)).toBe(true);
+    expect(w.layout.pieceCount).toBe(w.landscape.towns.length + w.landscape.depots.length);
+    for (const d of w.landscape.depots) expect(w.layout.getPiece(w.depots.get(d.id)!)!.type).toBe(d.kind === "forest" ? "depot-forest" : "depot-sawmill");
     expect(w.sim.trainCount).toBe(0);
     expect(connectedPairs(w.layout, w.stations)).toEqual([]);
   });
