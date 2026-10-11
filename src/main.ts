@@ -44,10 +44,10 @@ function boot(): void {
     {
       trayPointerDown: (item, e) => interaction.startTrayDrag(item, e),
       undo: () => {
-        if (!interaction.busy) editor.undo();
+        interaction.undo();
       },
       redo: () => {
-        if (!interaction.busy) editor.redo();
+        interaction.redo();
       },
       rerailAll: () => {
         let n = 0;

@@ -195,6 +195,9 @@ export class Interaction {
     // Two fingers always move the camera: a second touch abandons any press or drag in progress.
     if (e.pointerType === "touch" && this.touches.size > 1) {
       this.cancel();
+      // A pinch is never a tap, nor half of a double tap.
+      this.floorDown = null;
+      this.lastTap = null;
       return;
     }
     if (this.mode.kind !== "idle") return;
@@ -604,6 +607,10 @@ export class Interaction {
     const shown: PiecePose = { x: m.shown.x, y: m.shown.y, z: m.shown.z, heading: m.shown.heading };
     const discard = () => g.scene.remove(mesh);
     const isNew = m.pieceId === -1;
+    // The stand-in stops sharing the held-piece material (the next piece picked up re-tints that): plain wood when
+    // it's going down, see-through red when it's refused.
+    const refused = final !== null || m.overTray;
+    mesh.material = refused ? [g.mats.trackGhostBlocked, g.mats.trackGhostBlocked] : [g.mats.track, g.mats.trackCut];
     switch (dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew })) {
       case "place": {
         const snapped = m.snap.kind === "snapped";
@@ -745,11 +752,11 @@ export class Interaction {
     }
     if (mod && e.key.toLowerCase() === "z") {
       e.preventDefault();
-      if (e.shiftKey) this.editor().redo();
-      else this.editor().undo();
+      if (e.shiftKey) this.redo();
+      else this.undo();
     } else if (mod && e.key.toLowerCase() === "y") {
       e.preventDefault();
-      this.editor().redo();
+      this.redo();
     } else if (e.key === "r" || e.key === "R") this.rotateSelected();
     else if (e.key === "f" || e.key === "F") this.flipSelected();
     else if (e.key === "Delete" || e.key === "Backspace") this.deleteSelected();
@@ -816,6 +823,19 @@ export class Interaction {
   notePointer(e: PointerEvent): void {
     this.lastPointerWasTouch = e.pointerType === "touch";
     if (e.pointerType === "touch") this.touches.add(e.pointerId);
+  }
+
+  /** Undo, finishing any piece animation first so the change shows at once. */
+  undo(): void {
+    if (this.busy) return;
+    this.game.flourishes.clear();
+    this.editor().undo();
+  }
+
+  redo(): void {
+    if (this.busy) return;
+    this.game.flourishes.clear();
+    this.editor().redo();
   }
 
   /** True while a press or drag is in progress (undo/redo must wait). */
