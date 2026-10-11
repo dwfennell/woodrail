@@ -396,6 +396,8 @@ export class Interaction {
 
   /** Economy depot whose card is open, or −1. */
   private selectedDepot = -1;
+  /** What the open depot card last showed. */
+  private readonly shownDepot = { id: -1, a: -1, b: -1, auto: false, wait: false, delivered: -1 };
 
   private depotTitle(depotId: number): string {
     const d = this.game.economy.depot(depotId);
@@ -407,6 +409,7 @@ export class Interaction {
   private openDepot(depotId: number): void {
     this.clearSelection();
     this.selectedDepot = depotId;
+    this.shownDepot.id = -1;
     this.hud.showDepotCard(this.depotTitle(depotId));
     this.refreshDepotCard();
   }
@@ -416,6 +419,16 @@ export class Interaction {
     if (this.selectedDepot === -1 || !this.hud.depotCardOpen) return;
     const d = this.game.economy.depot(this.selectedDepot);
     if (!d) return;
+    // Only redraw the card when something on it changed (this runs every frame).
+    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
+    const shown = this.shownDepot;
+    if (shown.id === d.id && shown.a === d.piles[0] && shown.b === d.piles[1] && shown.auto === d.auto && shown.wait === d.waitFull && shown.delivered === delivered0) return;
+    shown.id = d.id;
+    shown.a = d.piles[0];
+    shown.b = d.piles[1];
+    shown.auto = d.auto;
+    shown.wait = d.waitFull;
+    shown.delivered = delivered0;
     const role = ROLE[d.role];
     const piles: { label: string; count: number; cap: number }[] = [];
     for (const kind of [role.takes, role.gives]) if (kind) piles.push({ label: CARGO[kind].label, count: d.piles[CARGO[kind].index], cap: PILE_CAP });

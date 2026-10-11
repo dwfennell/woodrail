@@ -183,6 +183,12 @@ function boot(): void {
   };
   let sawClock = 0;
   let shownDelivered = new Map<number, number>();
+  /** Update a town's sign when its delivery count changes (made once: called every frame). */
+  const showDelivered = (n: number, townId: number) => {
+    if (shownDelivered.get(townId) === n) return;
+    shownDelivered.set(townId, n);
+    game.landscapeView.setDelivered(townId, n);
+  };
 
   // Performance overlay (backtick).
   let fps = 60;
@@ -274,11 +280,7 @@ function boot(): void {
       }
     }
     // Delivery counts on the town signs.
-    for (const [townId, n] of game.economy.delivered) {
-      if (shownDelivered.get(townId) === n) continue;
-      shownDelivered.set(townId, n);
-      game.landscapeView.setDelivered(townId, n);
-    }
+    game.economy.delivered.forEach(showDelivered);
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);

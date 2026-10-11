@@ -1,7 +1,7 @@
 import { BoxGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, Object3D, Quaternion, Vector3, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { CARGO, type CargoKind, type CargoSlot, type DepotRole, type DepotState, type Economy } from "../economy";
+import { CARGO, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
 import type { Layout, Pose } from "../track";
 import { TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
@@ -102,7 +102,15 @@ interface Site {
   layout: DepotLayout;
   crane: CraneParts;
   blade: Mesh | null;
+  /** This frame's crane move (scratch, reused), and whether there is one. */
+  readonly move: CraneMove;
+  moving: boolean;
+  /** Picking owners for this depot's piles, made once. */
+  readonly pileOwners: Record<CargoKind, CargoSlot>;
 }
+
+const KINDS: readonly CargoKind[] = ["log", "planks"];
+const ease = (x: number) => x * x * (3 - 2 * x);
 
 const _m = new Matrix4();
 const _q = new Quaternion();
@@ -128,6 +136,12 @@ export class DepotView {
   private readonly owners: Record<CargoKind, CargoSlot[]> = { log: [], planks: [] };
   /** A unit being carried by hand: one fewer is drawn at its source. */
   dragging: CargoSlot | null = null;
+  /** Picking owners for wagon loads by car id, made once per car. */
+  private readonly carOwners = new Map<number, CargoSlot>();
+  /** Units drawn so far this frame, by kind. */
+  private nLog = 0;
+  private nPlanks = 0;
+  private readonly cargoMeshes: InstancedMesh[];
 
   constructor(private readonly mats: Materials) {
     const log = new CylinderGeometry(LOG_RADIUS, LOG_RADIUS, LOG_LENGTH, 14).rotateZ(Math.PI / 2);
@@ -141,6 +155,7 @@ export class DepotView {
     this.boards = this.instanced(boards, mats.naturalWood);
     this.straps = this.instanced(strap, strapMat);
     this.group.add(this.logs, this.boards, this.straps);
+    this.cargoMeshes = [this.logs, this.boards, this.straps];
     // The unit on the crane hook (one of each kind, shown as needed).
     const carriedLog = new Group().add(new Mesh(log, logMat));
     const carriedBundle = new Group().add(new Mesh(boards, mats.naturalWood), new Mesh(strap, strapMat));
@@ -171,12 +186,22 @@ export class DepotView {
       });
     }
     this.sites = [];
+    this.carOwners.clear();
     const b = new Batcher(this.mats.paint);
     for (const depot of economy.allDepots()) {
       const piece = layout.getPiece(depot.pieceId);
       if (!piece) continue;
       const spec = DEPOT_LAYOUT[depot.role];
-      const site: Site = { depot, pose: piece.pose, layout: spec, crane: this.buildCrane(piece.pose, spec.crane), blade: null };
+      const site: Site = {
+        depot,
+        pose: piece.pose,
+        layout: spec,
+        crane: this.buildCrane(piece.pose, spec.crane),
+        blade: null,
+        move: { kind: "log", toPile: false, carId: -1, phase: 0 },
+        moving: false,
+        pileOwners: { log: { kind: "pile", depotId: depot.id, cargo: "log" }, planks: { kind: "pile", depotId: depot.id, cargo: "planks" } },
+      };
       this.buildStatic(site, b);
       if (depot.role === "sawmill") site.blade = this.buildBlade(piece.pose);
       // Park the hook over the track.
@@ -292,46 +317,54 @@ export class DepotView {
     return out.makeTranslation(slot.x, TIMBER_DECK + slot.y, slot.z).premultiply(car.matrixWorld);
   }
 
-  /** Draw piles, wagon loads and cranes for this frame. */
+  /** Draw one unit of cargo this frame. */
+  private put(kind: CargoKind, m: Matrix4, owner: CargoSlot): void {
+    if (kind === "log") {
+      if (this.nLog >= DepotView.MAX_UNITS) return;
+      this.owners.log[this.nLog] = owner;
+      this.logs.setMatrixAt(this.nLog++, m);
+    } else if (this.nPlanks < DepotView.MAX_UNITS) {
+      this.owners.planks[this.nPlanks] = owner;
+      this.boards.setMatrixAt(this.nPlanks, m);
+      this.straps.setMatrixAt(this.nPlanks++, m);
+    }
+  }
+
+  /** Is a crane lifting a unit off this car right now? */
+  private liftedOff(carId: number): number {
+    for (const site of this.sites) if (site.moving && site.move.toPile && site.move.carId === carId) return 1;
+    return 0;
+  }
+
+  private carOwner(carId: number): CargoSlot {
+    let o = this.carOwners.get(carId);
+    if (!o) this.carOwners.set(carId, (o = { kind: "car", carId }));
+    return o;
+  }
+
+  /** Draw piles, wagon loads and cranes for this frame. Allocation-free. */
   update(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, dt: number): void {
-    const n = { log: 0, planks: 0 };
-    const put = (kind: CargoKind, m: Matrix4, owner: CargoSlot) => {
-      if (kind === "log") {
-        if (n.log >= DepotView.MAX_UNITS) return;
-        this.owners.log[n.log] = owner;
-        this.logs.setMatrixAt(n.log++, m);
-      } else if (n.planks < DepotView.MAX_UNITS) {
-        this.owners.planks[n.planks] = owner;
-        this.boards.setMatrixAt(n.planks, m);
-        this.straps.setMatrixAt(n.planks++, m);
-      }
-    };
+    this.nLog = 0;
+    this.nPlanks = 0;
     const drag = this.dragging;
     this.carried.log.visible = false;
     this.carried.planks.visible = false;
 
-    // Which unit (if any) is on a crane hook, so it isn't also drawn on its pile or wagon.
-    const lifted = new Map<number, { kind: CargoKind; toPile: boolean; carId: number; phase: number }>();
-    for (const site of this.sites) {
-      const move = economy.craneMove(site.depot.id);
-      if (move) lifted.set(site.depot.id, move);
-    }
-    const liftedFromCar = new Map<number, number>();
-    for (const m of lifted.values()) if (m.toPile) liftedFromCar.set(m.carId, 1);
+    // Which unit (if any) is on each crane's hook, so it isn't also drawn on its pile or wagon.
+    for (const site of this.sites) site.moving = economy.craneMove(site.depot.id, site.move);
 
     // Piles.
     for (const site of this.sites) {
-      const move = lifted.get(site.depot.id);
-      for (const kind of ["log", "planks"] as const) {
+      for (const kind of KINDS) {
         if (!site.layout.piles[kind]) continue;
         let count = site.depot.piles[CARGO[kind].index];
-        if (move && !move.toPile && move.kind === kind) count--; // being lifted off this pile
+        if (site.moving && !site.move.toPile && site.move.kind === kind) count--; // being lifted off this pile
         if (drag?.kind === "pile" && drag.depotId === site.depot.id && drag.cargo === kind) count--; // in a hand
-        const owner: CargoSlot = { kind: "pile", depotId: site.depot.id, cargo: kind };
+        const owner = site.pileOwners[kind];
         for (let k = 0; k < count; k++) {
           const yaw = this.pileUnit(site, kind, k, _v);
           _q.setFromAxisAngle(_up, yaw);
-          put(kind, _m.compose(_v, _q, _s), owner);
+          this.put(kind, _m.compose(_v, _q, _s), owner);
         }
       }
     }
@@ -343,21 +376,21 @@ export class DepotView {
       if (!cargo.kind || cargo.count === 0) continue;
       const car = carObject(id);
       if (!car) continue;
-      const count = cargo.count - (liftedFromCar.get(id) ?? 0) - (drag?.kind === "car" && drag.carId === id ? 1 : 0);
-      const owner: CargoSlot = { kind: "car", carId: id };
-      for (let k = 0; k < count; k++) put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m), owner);
+      const count = cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0);
+      const owner = this.carOwner(id);
+      for (let k = 0; k < count; k++) this.put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m), owner);
     }
 
     // Cranes.
-    for (const site of this.sites) this.updateCrane(site, economy, lifted.get(site.depot.id) ?? null, carObject, dt);
+    for (const site of this.sites) this.updateCrane(site, economy, carObject);
 
     // The saw spins while the sawmill is cutting.
     for (const site of this.sites) if (site.blade && economy.working(site.depot)) site.blade.rotateZ(dt * 14);
 
-    this.logs.count = n.log;
-    this.boards.count = n.planks;
-    this.straps.count = n.planks;
-    for (const m of [this.logs, this.boards, this.straps]) {
+    this.logs.count = this.nLog;
+    this.boards.count = this.nPlanks;
+    this.straps.count = this.nPlanks;
+    for (const m of this.cargoMeshes) {
       m.instanceMatrix.needsUpdate = true;
       // Units move every frame: let the next raycast recompute the bounds it tests first.
       m.boundingSphere = null;
@@ -365,14 +398,15 @@ export class DepotView {
     }
   }
 
-  private updateCrane(
-    site: Site,
-    economy: Economy,
-    move: { kind: CargoKind; toPile: boolean; carId: number; phase: number } | null,
-    carObject: (id: number) => Object3D | undefined,
-    dt: number,
-  ): void {
+  /** World centre of the k-th unit on a car (or over the depot track if the car's model is missing). */
+  private onCar(site: Site, car: Object3D | undefined, kind: CargoKind, k: number, out: Vector3): Vector3 {
+    if (car) return out.setFromMatrixPosition(this.wagonUnit(car, kind, Math.max(0, k), _m));
+    return toWorld(site.pose, site.layout.trackT, 0, 30, out);
+  }
+
+  private updateCrane(site: Site, economy: Economy, carObject: (id: number) => Object3D | undefined): void {
     const { crane, pose, layout } = site;
+    const move = site.moving ? site.move : null;
     // The unit hangs well clear below the arm or beam while it travels.
     const travelY = layout.crane.height - 14;
     let unitYaw = -pose.heading;
@@ -381,26 +415,19 @@ export class DepotView {
       const car = carObject(move.carId);
       const cargo = economy.cargoOf(move.carId);
       const pileCount = site.depot.piles[CARGO[move.kind].index];
-      const onPile = (k: number, out: Vector3) => this.pileUnit(site, move.kind, Math.max(0, k), out);
-      const onCar = (k: number, out: Vector3) => {
-        if (car) out.setFromMatrixPosition(this.wagonUnit(car, move.kind, Math.max(0, k), _m));
-        else toWorld(pose, layout.trackT, 0, 30, out);
-        return out;
-      };
       let pileYaw: number;
       if (move.toPile) {
-        onCar(cargo.count - 1, _a);
-        pileYaw = onPile(pileCount, _b);
+        this.onCar(site, car, move.kind, cargo.count - 1, _a);
+        pileYaw = this.pileUnit(site, move.kind, pileCount, _b);
       } else {
-        pileYaw = onPile(pileCount - 1, _a);
-        onCar(cargo.count, _b);
+        pileYaw = this.pileUnit(site, move.kind, Math.max(0, pileCount - 1), _a);
+        this.onCar(site, car, move.kind, cargo.count, _b);
       }
       // Lift (first quarter), travel (middle half), lower (last quarter).
       const p = move.phase;
       const lift = Math.min(1, p / 0.25);
       const travel = Math.min(1, Math.max(0, (p - 0.25) / 0.5));
       const lower = Math.max(0, (p - 0.75) / 0.25);
-      const ease = (x: number) => x * x * (3 - 2 * x);
       const startY = _a.y;
       const endY = _b.y;
       const y = p < 0.25 ? startY + (travelY - startY) * ease(lift) : p < 0.75 ? travelY : travelY + (endY - travelY) * ease(lower);
@@ -446,7 +473,6 @@ export class DepotView {
     const ropeLen = Math.max(0.5, crane.trolley.position.y - topY - (move ? 0 : HOOK_DROP));
     crane.rope.position.copy(crane.trolley.position);
     crane.rope.scale.set(1, ropeLen, 1);
-    void dt;
   }
 
   /** The pile or wagon a picked cargo unit belongs to, or null. */

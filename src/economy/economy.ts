@@ -54,6 +54,16 @@ export interface CarCargo {
   count: number;
 }
 
+/** A crane move in progress (filled in by `Economy.craneMove`; allocate one per caller and reuse it). */
+export interface CraneMove {
+  kind: CargoKind;
+  /** From the wagon to a pile (true), or the other way. */
+  toPile: boolean;
+  carId: number;
+  /** 0–1 through the move. */
+  phase: number;
+}
+
 /** Something the crane did this tick (for sounds and small effects). */
 export interface EconomyEvent {
   readonly kind: "loaded" | "unloaded";
@@ -77,6 +87,8 @@ export class Economy {
   readonly delivered = new Map<number, number>();
   private readonly services = new Map<number, Service>();
   private events: EconomyEvent[] = [];
+  /** The other half of the event double buffer (no new array each drain). */
+  private drained: EconomyEvent[] = [];
 
   constructor(
     readonly layout: Layout,
@@ -243,16 +255,26 @@ export class Economy {
 
   /**
    * What the crane at a depot is carrying right now: the cargo, which way (from the wagon to a pile, or the other
-   * way), the car, and progress 0–1. Null when the crane is idle or waiting.
+   * way), the car, and progress 0–1, written into `out`. False when the crane is idle or waiting.
    */
-  craneMove(depotId: number): { kind: CargoKind; toPile: boolean; carId: number; phase: number } | null {
+  craneMove(depotId: number, out: CraneMove): boolean {
     for (const s of this.services.values()) {
       if (s.phase !== HALTED || s.depotId !== depotId || s.ticks === 0) continue;
       const d = this.depots[depotId];
-      if (this.canUnload(d, s.carId)) return { kind: this.cargoOf(s.carId).kind!, toPile: true, carId: s.carId, phase: s.ticks / CRANE_TICKS };
-      if (this.canLoad(d, s.carId)) return { kind: ROLE[d.role].gives!, toPile: false, carId: s.carId, phase: s.ticks / CRANE_TICKS };
+      out.carId = s.carId;
+      out.phase = s.ticks / CRANE_TICKS;
+      if (this.canUnload(d, s.carId)) {
+        out.kind = this.cargoOf(s.carId).kind!;
+        out.toPile = true;
+        return true;
+      }
+      if (this.canLoad(d, s.carId)) {
+        out.kind = ROLE[d.role].gives!;
+        out.toPile = false;
+        return true;
+      }
     }
-    return null;
+    return false;
   }
 
   private service(trainId: number): Service {
@@ -404,9 +426,12 @@ export class Economy {
     }
   }
 
-  drainEvents(): EconomyEvent[] {
+  /** Events since the last drain. The returned array is reused: read it before the next drain. */
+  drainEvents(): readonly EconomyEvent[] {
     const e = this.events;
-    this.events = [];
+    this.events = this.drained;
+    this.events.length = 0;
+    this.drained = e;
     return e;
   }
 
