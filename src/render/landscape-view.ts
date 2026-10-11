@@ -1,6 +1,6 @@
 import { BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SRGBColorSpace, type InstancedMesh, type MeshBasicMaterial } from "three";
 import { CELL, COLS, generateSurroundings, ROWS, SURF_RIVER, SURF_ROAD, type Landscape, type Town } from "../landscape";
-import { SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose } from "../landscape/sign";
+import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF_TOP } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
 import { buildBlocks } from "./dressing/blocks";
 import { buildStation, buildTown } from "./dressing/buildings";
@@ -10,6 +10,9 @@ import { buildSurroundings } from "./dressing/surroundings";
 import { buildTrees, treePlacements } from "./dressing/trees";
 import type { Flourish } from "./flourishes";
 import type { Materials } from "./materials";
+
+/** How brightly an unconnected name board lights itself (connected ones glow warm). */
+const SIGN_SELF_LIGHT = 0.3;
 
 /** Draws the felt mat and everything on it (block hills, rivers, roads, trees, towns, stations, name signs) and the scenery around it. */
 export class LandscapeView {
@@ -57,7 +60,7 @@ export class LandscapeView {
         for (const id of ids) {
           const m = this.signs.get(id)!;
           m.emissive.set("#ffcf6b");
-          m.emissiveIntensity = (this.connected.has(id) ? 0.55 : 0) + k * 1.4;
+          m.emissiveIntensity = (this.connected.has(id) ? 0.55 : SIGN_SELF_LIGHT) + k * 1.4;
         }
         return t < 1.2;
       },
@@ -71,8 +74,9 @@ export class LandscapeView {
     this.connected = new Set(towns);
     for (const [id, m] of this.signs) {
       const on = towns.has(id);
-      m.emissive.set(on ? "#ffcf6b" : "#000000");
-      m.emissiveIntensity = on ? 0.55 : 0;
+      // Unconnected boards still carry a little light of their own, so the name reads on the shady side.
+      m.emissive.set(on ? "#ffcf6b" : "#ffffff");
+      m.emissiveIntensity = on ? 0.55 : SIGN_SELF_LIGHT;
     }
   }
 
@@ -119,20 +123,21 @@ export class LandscapeView {
     }
   }
 
-  /** Name board on two posts at the back of the platform; glows when the town is connected. */
+  /** Name board on two posts on the station house roof; glows when the town is connected. */
   private buildSign(town: Town, b: Batcher): void {
     const pose = signPose(town);
     const sign = this.makeSign(town.name);
-    const board = new Mesh(new BoxGeometry(SIGN_WIDTH, 22, SIGN_THICKNESS), [this.mats.blockWood, this.mats.blockWood, this.mats.blockWood, this.mats.blockWood, sign, sign]);
+    const board = new Mesh(new BoxGeometry(SIGN_WIDTH, SIGN_HEIGHT, SIGN_THICKNESS), [this.mats.blockWood, this.mats.blockWood, this.mats.blockWood, this.mats.blockWood, sign, sign]);
     board.rotation.y = -pose.heading;
     board.position.set(pose.x, SIGN_Y, pose.z);
     board.castShadow = true;
     this.group.add(board);
     const dx = Math.cos(pose.heading);
     const dz = Math.sin(pose.heading);
-    for (const off of [-34, 34]) {
-      const post = new CylinderGeometry(2.4, 2.4, SIGN_Y - 14, 10);
-      post.translate(pose.x + dx * off, 14 + (SIGN_Y - 14) / 2, pose.z + dz * off);
+    const postH = SIGN_Y - STATION_ROOF_TOP;
+    for (const off of [-28, 28]) {
+      const post = new CylinderGeometry(2.4, 2.4, postH, 10);
+      post.translate(pose.x + dx * off, STATION_ROOF_TOP + postH / 2, pose.z + dz * off);
       b.add(this.mats.naturalWood, post);
     }
     this.signs.set(town.id, sign);
@@ -156,7 +161,7 @@ export class LandscapeView {
     const tex = new CanvasTexture(canvas);
     tex.colorSpace = SRGBColorSpace;
     tex.anisotropy = 4;
-    return new MeshStandardMaterial({ map: tex, roughness: 0.6, emissiveMap: tex, emissive: new Color("#000000") });
+    return new MeshStandardMaterial({ map: tex, roughness: 0.6, emissiveMap: tex, emissive: new Color("#ffffff"), emissiveIntensity: SIGN_SELF_LIGHT });
   }
 }
 

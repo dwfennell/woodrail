@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TRACK_WIDTH } from "../track";
 import { generateLandscape, STATION_LENGTH } from "./generate";
-import { SIGN_THICKNESS, SIGN_WIDTH, signPose } from "./sign";
+import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF_TOP } from "./sign";
 
 describe("signPose", () => {
   it("keeps the name board on the platform, clear of the station track, on every map", () => {
@@ -26,5 +26,12 @@ describe("signPose", () => {
         }
       }
     }
+  });
+
+  it("stands on the station house roof, above the canopy, where a camera looking down can read it", () => {
+    expect(SIGN_Y - SIGN_HEIGHT / 2).toBeGreaterThan(STATION_ROOF_TOP + 4);
+    // Big enough to read at a normal play distance: at least as wide as the station house.
+    expect(SIGN_WIDTH).toBeGreaterThanOrEqual(110);
+    expect(SIGN_HEIGHT).toBeGreaterThanOrEqual(28);
   });
 });

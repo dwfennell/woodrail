@@ -1,14 +1,17 @@
 import { TRACK_WIDTH } from "../track";
 import type { Town } from "./generate";
 
-export const SIGN_WIDTH = 84;
+export const SIGN_WIDTH = 120;
+export const SIGN_HEIGHT = 32;
 export const SIGN_THICKNESS = 3;
-/** Along the station from its socket end: beyond the station house, inside the platform. */
-const ALONG = 160;
-/** At the back edge of the platform, clear of the canopy posts. */
-const LATERAL = TRACK_WIDTH / 2 + 37;
-/** Height of the board's centre: low enough to sit under the canopy. */
-export const SIGN_Y = 41;
+/** Top of the station house's roof, which the board stands on. */
+export const STATION_ROOF_TOP = 14 + 48 + 2.5;
+/** Along the station from its socket end: over the middle of the station house. */
+const ALONG = 108;
+/** Over the station house, behind the platform and its canopy. */
+const LATERAL = TRACK_WIDTH / 2 + 58;
+/** Height of the board's centre: on short posts above the roof, so roofs and the canopy never hide it. */
+export const SIGN_Y = STATION_ROOF_TOP + 8 + SIGN_HEIGHT / 2;
 
 /**
  * Where a town's station name board stands (centre of the board in plan, facing the track). It stays within the
