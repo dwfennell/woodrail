@@ -9,6 +9,16 @@ export function frameDistance(radius: number, fovDeg: number, aspect: number): n
   return radius / Math.sin(Math.min(vHalf, hHalf));
 }
 
+/**
+ * Near clipping plane for a camera `distance` from what it looks at. Depth precision falls with the square of
+ * distance over the near plane, so a fixed close plane makes the felt's hem, the rivers and the blocks' painted tops
+ * shimmer against what's under them in wide views. Scaling it with distance keeps that steady while staying well
+ * short of anything in view (the camera is never steeper than its polar limit above the ground).
+ */
+export function nearPlaneFor(distance: number): number {
+  return Math.max(5, distance / 30);
+}
+
 const sph = new Spherical();
 const off = new Vector3();
 
