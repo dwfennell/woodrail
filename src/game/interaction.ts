@@ -1,4 +1,4 @@
-import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, TOUCH, Vector2, Vector3, type Mesh, type Object3D } from "three";
+import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, type Mesh, type Object3D, type TOUCH } from "three";
 import { Editor, pieceCentre, poseForCentre, type RiserAt } from "../editor/editor";
 import { buildCarModel, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
@@ -20,6 +20,8 @@ import { CARGO, PILE_CAP, ROLE, type CargoKind, type CargoSlot } from "../econom
 const DRAG_THRESHOLD = 6;
 /** How high a held piece floats above where it would land (mm). */
 const HOLD_LIFT = 12;
+/** An OrbitControls touch mapping that does nothing (it falls through to "no gesture"). */
+const NO_TOUCH = -1 as unknown as TOUCH;
 const MAX_TILT = (2 * Math.PI) / 180;
 const TRAIN_DROP_RANGE = 70;
 
@@ -119,7 +121,8 @@ export class Interaction {
     const canvas = game.canvas;
     const c = game.controls;
     c.mouseButtons = { LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE };
-    c.touches = { ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_ROTATE };
+    // Touch moves the camera through TouchCamera (Maps-style gestures); OrbitControls keeps the mouse.
+    c.touches = { ONE: NO_TOUCH, TWO: NO_TOUCH };
     window.addEventListener("pointerdown", (e) => this.notePointer(e), { capture: true });
     const lift = (e: PointerEvent) => this.touches.delete(e.pointerId);
     window.addEventListener("pointerup", lift, { capture: true });

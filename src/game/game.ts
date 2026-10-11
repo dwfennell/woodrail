@@ -26,6 +26,7 @@ import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } fro
 import { findCrossings, hillSlabs, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
 import { PIECE_TYPES, type Layout } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
+import { TouchCamera } from "./touch-camera";
 import type { World } from "./world";
 
 const MAX_STEPS_PER_FRAME = 8;
@@ -39,6 +40,7 @@ export class Game {
   readonly camera: PerspectiveCamera;
   readonly controls: OrbitControls;
   readonly director: CameraDirector;
+  readonly touchCamera: TouchCamera;
   /** Short cosmetic animations (pieces settling, wobbling back, shrinking away, dust). */
   readonly flourishes = new Flourishes();
   readonly quality: QualitySettings;
@@ -94,13 +96,18 @@ export class Game {
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.target.set(0, 0, 0);
     this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
+    // Mouse drags glide on a little after release (touch has its own gestures and glide: see TouchCamera).
+    this.controls.dampingFactor = 0.05;
     this.controls.minDistance = 120;
     this.controls.maxDistance = 14000;
     this.controls.maxPolarAngle = 1.42;
     this.controls.screenSpacePanning = false;
     this.director = new CameraDirector(this.camera, this.controls);
     this.director.bounds = { halfW: MAT_WIDTH / 2, halfD: MAT_DEPTH / 2 };
+    this.touchCamera = new TouchCamera(canvas, this.camera, this.controls.target, this.controls, () => this.controls.enabled, () => {
+      // Same as the controls starting a drag: any glide or eased zoom gives way to the fingers.
+      this.controls.dispatchEvent({ type: "start" });
+    });
 
     this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy());
     this.stage = createStage(this.scene, this.renderer, this.quality);
@@ -269,6 +276,9 @@ export class Game {
     this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), dt);
     this.onFrame?.(dt);
     this.flourishes.update(dt);
+    // A finger fling glides on between touches (a director glide or zoom takes over from it).
+    if (this.director.busy) this.touchCamera.gestures.stop();
+    else if (!this.touchCamera.touching) this.touchCamera.gestures.glide(dt);
     this.director.update(dt, this.canvas.clientWidth, this.canvas.clientHeight);
     this.controls.update(dt);
     // After the controls' own pan, so the view never renders past the mat's edge.
