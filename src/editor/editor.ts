@@ -18,6 +18,12 @@ interface Command {
 
 const HISTORY_LIMIT = 100;
 
+/** A riser to put down under a piece. */
+export interface RiserAt {
+  pose: Pose;
+  y: number;
+}
+
 /** Piece-local centre: the mean of its connector positions (origin for pieces without connectors). */
 export function localCentre(type: PieceTypeId, flipped: boolean): { x: number; z: number } {
   const cs = getPieceDef(type, flipped).connectors;
@@ -67,15 +73,19 @@ export class Editor {
     return this.redoStack.length > 0;
   }
 
-  place(type: PieceTypeId, pose: Pose, y: number, flipped: boolean): number {
+  /** Place a piece, with any risers it rests on (`risers`, added in the same undo step). */
+  place(type: PieceTypeId, pose: Pose, y: number, flipped: boolean, risers: readonly RiserAt[] = []): number {
     let id = -1;
+    const supports = this.supports(risers);
     this.run({
       do: () => {
+        supports.add();
         if (id === -1) id = this.layout.addPiece(type, pose, y, flipped);
         else this.layout.restorePiece(id, type, pose, y, flipped);
       },
       undo: () => {
         this.layout.removePiece(id);
+        supports.remove();
       },
     });
     return id;
@@ -96,16 +106,19 @@ export class Editor {
   }
 
   /** Move a piece (it may currently be lifted for dragging; `from` is where it was picked up). */
-  move(id: number, pose: Pose, y: number, from?: { pose: Pose; y: number }): boolean {
+  move(id: number, pose: Pose, y: number, from?: { pose: Pose; y: number }, risers: readonly RiserAt[] = []): boolean {
     const rec = this.record(id);
     if (!rec) return false;
     const start = from ?? { pose: rec.pose, y: rec.y };
+    const supports = this.supports(risers);
     this.run({
       do: () => {
+        supports.add();
         this.layout.dropPiece(id, pose, y);
       },
       undo: () => {
         this.layout.dropPiece(id, start.pose, start.y);
+        supports.remove();
       },
       moves: [id],
     });
@@ -162,6 +175,22 @@ export class Editor {
   private changed(moves: number[] = []): void {
     this.sim.trackChanged(moves);
     this.onChange();
+  }
+
+  /** Risers to put down with a piece: added the first time, restored with the same ids on redo. */
+  private supports(risers: readonly RiserAt[]): { add(): void; remove(): void } {
+    const ids: number[] = [];
+    return {
+      add: () => {
+        risers.forEach((r, i) => {
+          if (ids[i] === undefined) ids[i] = this.layout.addPiece("riser", r.pose, r.y);
+          else this.layout.restorePiece(ids[i], "riser", r.pose, r.y, false);
+        });
+      },
+      remove: () => {
+        for (const id of ids) this.layout.removePiece(id);
+      },
+    };
   }
 
   private record(id: number): PieceRecord | null {

@@ -23,6 +23,32 @@ describe("Editor", () => {
     expect(changes()).toBe(3);
   });
 
+  it("places a piece with the risers under it as one step", () => {
+    const { layout, editor } = setup();
+    const risers = [{ pose: { x: 216, z: 0, heading: 0 }, y: 0 }, { pose: { x: 216, z: 0, heading: 0 }, y: 64 }];
+    const id = editor.place("straight-216", { x: 0, z: 0, heading: 0 }, 128, false, risers);
+    const types = () => [...layout.pieceIds()].map((i) => layout.getPiece(i)!.type).sort();
+    expect(types()).toEqual(["riser", "riser", "straight-216"]);
+    editor.undo();
+    expect(layout.pieceCount).toBe(0);
+    editor.redo();
+    expect(types()).toEqual(["riser", "riser", "straight-216"]);
+    expect(layout.getPiece(id)!.y).toBe(128);
+  });
+
+  it("moves a piece with the risers it now needs as one step", () => {
+    const { layout, editor } = setup();
+    const id = editor.place("straight-216", { x: 0, z: 0, heading: 0 }, 0, false);
+    editor.move(id, { x: 0, z: 0, heading: 0 }, 64, undefined, [
+      { pose: { x: 0, z: 0, heading: 0 }, y: 0 },
+      { pose: { x: 216, z: 0, heading: 0 }, y: 0 },
+    ]);
+    expect(layout.pieceCount).toBe(3);
+    editor.undo();
+    expect(layout.pieceCount).toBe(1);
+    expect(layout.getPiece(id)!.y).toBe(0);
+  });
+
   it("remove restores joints on undo", () => {
     const { layout, editor } = setup();
     editor.place("straight-144", { x: 0, z: 0, heading: 0 }, 0, false);

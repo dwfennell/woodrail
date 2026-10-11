@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPieceDef } from "../track";
-import { BLOCK_MESSAGES, checkPlacement, groundUnder } from "./clearance";
+import { BLOCK_MESSAGES, checkPlacement } from "./clearance";
 import { FEAT_BUILDING, FEAT_TREE, LandscapeGrid, MAT_WIDTH, SURF_RIVER, SURF_TOWN } from "./grid";
 import { generateLandscape, stationEnds, type Landscape } from "./generate";
 
@@ -66,15 +66,6 @@ describe("checkPlacement", () => {
     const h = socket.heading + Math.PI;
     const origin = P(socket.x - Math.cos(h) * def.connectors[1].pose.x, socket.z - Math.sin(h) * def.connectors[1].pose.x, h);
     expect(checkPlacement(land, "straight-144", false, origin, 0)).toEqual({ kind: "clear" });
-  });
-});
-
-describe("groundUnder", () => {
-  it("is the highest ground beneath the piece", () => {
-    const land = flat();
-    setCells(land, -50, 300, -100, 100, (i) => (land.grid.height[i] = 2));
-    expect(groundUnder(land, "straight-216", false, P(0, 0))).toBe(128);
-    expect(groundUnder(flat(), "straight-216", false, P(0, 0))).toBe(0);
   });
 });
 

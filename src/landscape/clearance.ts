@@ -3,7 +3,7 @@ import { FEAT_BUILDING, FEAT_STATION, FEAT_TREE, SURF_RIVER, SURF_ROAD, SURF_TOW
 import { STATION_LENGTH, type Landscape } from "./generate";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
-export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "tree" | "off-mat" | "piece";
+export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "tree" | "off-mat" | "piece" | "unsupported";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -15,6 +15,7 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   tree: "A tree is in the way",
   "off-mat": "That's past the edge of the map",
   piece: "Another piece is in the way",
+  unsupported: "Needs something under that end",
 };
 
 const CLEAR: Clearance = { kind: "clear" };
@@ -27,6 +28,7 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   tree: { kind: "blocked", reason: "tree" },
   "off-mat": { kind: "blocked", reason: "off-mat" },
   piece: { kind: "blocked", reason: "piece" },
+  unsupported: { kind: "blocked", reason: "unsupported" },
 };
 
 const STEP = 16;
@@ -108,16 +110,4 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
     return result === CLEAR;
   });
   return result;
-}
-
-/** Highest ground (mm) under a piece's samples: the base height for a loose drop. */
-export function groundUnder(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose): number {
-  const g = land.grid;
-  let max = 0;
-  forEachSample(type, flipped, pose, (x, z) => {
-    const i = g.cellAtWorld(x, z);
-    if (i !== -1) max = Math.max(max, g.groundY(i));
-    return true;
-  });
-  return max;
 }
