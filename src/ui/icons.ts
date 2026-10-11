@@ -71,6 +71,7 @@ const CAR_COLORS: Record<CarKind, [string, string]> = {
   hopper: ["#e6b52c", "#2f6db5"],
   passenger: ["#2f6db5", "#f0ebe0"],
   caboose: ["#c8442f", "#f0ebe0"],
+  timber: ["#e3bf8c", "#c8442f"],
 };
 
 /** Side-view SVG of a car or a short train. */
@@ -86,6 +87,10 @@ export function trainIcon(kinds: readonly CarKind[]): string {
       body += `<rect x="${x + 4}" y="14" width="${L * 0.34}" height="32" rx="3" fill="${main}"/>`;
       body += `<rect x="${x}" y="11" width="${L * 0.42}" height="5" rx="2" fill="${trim}"/>`;
       body += `<rect x="${x + L * 0.7}" y="12" width="8" height="15" rx="2" fill="#222"/>`;
+    } else if (k === "timber") {
+      // Flat deck with four red stakes.
+      body += `<rect x="${x + 2}" y="40" width="${L - 4}" height="6" rx="2" fill="${main}"/>`;
+      for (const sx of [x + 6, x + 16, x + L - 20, x + L - 10]) body += `<rect x="${sx}" y="26" width="4" height="15" rx="1.5" fill="${trim}"/>`;
     } else {
       body += `<rect x="${x + 4}" y="${k === "hopper" ? 28 : 22}" width="${L - 8}" height="${k === "hopper" ? 18 : 24}" rx="3" fill="${main}"/>`;
       if (k === "hopper") body += `<ellipse cx="${x + L / 2}" cy="28" rx="${L / 2 - 8}" ry="5" fill="#222"/>`;

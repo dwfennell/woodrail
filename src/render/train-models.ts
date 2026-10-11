@@ -21,6 +21,8 @@ const WHEEL_RADIUS = 6.5;
 /** Wheel centres ride in the groove floor. */
 export const AXLE_HEIGHT = TRACK_THICKNESS - GROOVE_DEPTH + WHEEL_RADIUS - 0.5;
 const DECK = AXLE_HEIGHT + 4;
+/** Top of the timber wagon's deck, where cargo sits (car-local y). */
+export const TIMBER_DECK = DECK + 4 + 4;
 
 export interface CarModel {
   root: Group;
@@ -35,6 +37,7 @@ const PALETTES: Record<CarKind, { body: string; trim: string }> = {
   hopper: { body: "#e6b52c", trim: "#2f6db5" },
   passenger: { body: "#2f6db5", trim: "#f0ebe0" },
   caboose: { body: "#c8442f", trim: "#f0ebe0" },
+  timber: { body: "#c8442f", trim: "#c8442f" },
 };
 
 function add(group: Group, geo: import("three").BufferGeometry, mat: Material, x: number, y: number, z: number): Mesh {
@@ -136,6 +139,16 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0): CarM
       const m = add(root, lump, mats.coal, x, y, z);
       m.rotation.set(r() * 3, r() * 3, r() * 3);
       m.scale.setScalar(0.7 + r() * 0.6);
+    }
+  } else if (kind === "timber") {
+    // Flat beech deck with a low rim and four red-capped stakes; cargo rides on the deck (see TIMBER_DECK).
+    const inner = L - 12;
+    add(root, new RoundedBoxGeometry(inner, 4, W, 1, 1.5), mats.naturalWood, 0, top + 2, 0);
+    for (const x of [-inner / 2 + 6, inner / 2 - 6]) {
+      for (const z of [-W / 2 + 2.5, W / 2 - 2.5]) {
+        add(root, new CylinderGeometry(1.8, 1.8, 18, 10), mats.naturalWood, x, top + 4 + 9, z);
+        add(root, new SphereGeometry(2.4, 12, 8), body, x, top + 4 + 18, z);
+      }
     }
   } else {
     const h = kind === "passenger" ? 30 : 26;
