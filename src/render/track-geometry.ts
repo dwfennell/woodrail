@@ -305,6 +305,8 @@ function bridgeSupport(def: PieceDef): BufferGeometry {
 function riserGeometry(): BufferGeometry {
   const g = onlyCsgAttributes(new RoundedBoxGeometry(TRACK_WIDTH + 6, RISER_HEIGHT, TRACK_WIDTH + 6, 3, 3).toNonIndexed());
   g.translate(0, RISER_HEIGHT / 2, 0);
+  // All body: meshes draw a body + cut material pair, and only faces in a group get drawn.
+  g.addGroup(0, g.attributes.position.count, SLOT_BODY);
   return g;
 }
 

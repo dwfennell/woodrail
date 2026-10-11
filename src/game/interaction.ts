@@ -1,5 +1,5 @@
 import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, TOUCH, Vector2, Vector3, type Mesh, type Object3D } from "three";
-import { Editor, pieceCentre, poseForCentre } from "../editor/editor";
+import { Editor, pieceCentre, poseForCentre, type RiserAt } from "../editor/editor";
 import { buildCarModel, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
@@ -7,7 +7,7 @@ import { setRim } from "../render/materials";
 import { ghostMesh } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { CAR_SPECS, COUPLER_GAP, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
-import { BLOCK_MESSAGES, checkPlacement, groundUnder, type BlockReason } from "../landscape";
+import { BLOCK_MESSAGES, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { findOverlap, findSnap, getPieceDef, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { isDoubleTap, type TapRecord } from "./camera-director";
@@ -38,9 +38,11 @@ type Mode =
       ghost: Mesh;
       snap: SnapResult;
       pose: Pose;
-      /** Base height for a loose (unsnapped) drop: the ground under the piece. */
+      /** Base height for a loose (unsnapped) drop: high enough to rest on what's under its ends. */
       looseY: number;
       blocked: BlockReason | null;
+      /** Risers to put under the piece's ends that are in the air (added with it). */
+      risers: RiserAt[];
       overTray: boolean;
       /** Where the held piece is heading (snapped or loose, plus the lift)… */
       goal: PiecePose;
@@ -178,6 +180,7 @@ export class Interaction {
         pose: { x: 0, z: 0, heading: 0 },
         looseY: 0,
         blocked: null,
+        risers: [],
         overTray: true,
         goal: { x: 0, y: 0, z: 0, heading: 0 },
         shown: { x: 0, y: 0, z: 0, heading: 0, scale: 0.6, tiltX: 0, tiltZ: 0 },
@@ -428,9 +431,26 @@ export class Interaction {
     return findOverlap(this.game.layout, type, flipped, pose, y, ignoreId) === -1 ? null : "piece";
   }
 
-  /** Check a would-be position for piece `id`, explaining a refusal. */
+  /**
+   * Can a piece go here, and what holds it up: null and the risers to add under ends in the air, or why not (the
+   * landscape, another piece, nothing under an end, or no room for its risers).
+   */
+  private placement(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): { reason: BlockReason | null; risers: RiserAt[] } {
+    const reason = this.blockedBy(type, flipped, pose, y, ignoreId);
+    if (reason) return { reason, risers: [] };
+    const s = checkSupport(this.game.landscape, this.game.layout, type, flipped, pose, y, ignoreId);
+    if (s.kind === "unsupported") return { reason: "unsupported", risers: [] };
+    for (const r of s.risers) {
+      const why = this.blockedBy("riser", false, r.pose, r.y, ignoreId);
+      if (why) return { reason: why, risers: [] };
+    }
+    return { reason: null, risers: s.risers };
+  }
+
+  /** Check a would-be position for piece `id` (turned or flipped in place: no risers are added), explaining a refusal. */
   private allowed(id: number, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): boolean {
-    const reason = this.blockedBy(type, flipped, pose, y, id);
+    const p = this.placement(type, flipped, pose, y, id);
+    const reason = p.reason ?? (p.risers.length > 0 ? "unsupported" : null);
     if (reason) this.hud.toast(BLOCK_MESSAGES[reason]);
     return reason === null;
   }
@@ -512,6 +532,7 @@ export class Interaction {
       pose: { ...p.pose },
       looseY: p.y,
       blocked: null,
+      risers: [],
       overTray: false,
       goal: { x: p.pose.x, y: p.y + HOLD_LIFT, z: p.pose.z, heading: p.pose.heading },
       // Starts exactly where the piece lay, then lifts.
@@ -541,7 +562,8 @@ export class Interaction {
     m.overTray = this.hud.isOverTray(x, y);
     const r = this.game.canvas.getBoundingClientRect();
     const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
-    this.game.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop });
+    // A drag coming up out of the tray passes through the bottom band: only pan once it has left the band.
+    this.game.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
     const ground = this.groundAt(x, y);
     if (m.kind === "drag-piece") {
       m.ghost.visible = !m.overTray && !!ground;
@@ -551,19 +573,23 @@ export class Interaction {
       const gx = (lift ?? ground).x + m.offset.x;
       const gz = (lift ?? ground).z + m.offset.z;
       m.pose = poseForCentre(m.type, m.flipped, gx, gz, m.heading);
+      // A riser over another riser stacks squarely on top of it.
+      const stack = getPieceDef(m.type, m.flipped).connectors.length === 0 ? riserStackAt(this.game.layout, m.pose.x, m.pose.z, m.pieceId) : null;
+      if (stack) m.pose = { ...stack.pose };
       const capture = this.captureRadius(x, y);
-      m.looseY = groundUnder(this.game.landscape, m.type, m.flipped, m.pose);
-      // Look for pegs at floor level, one riser up, and on whatever hill the piece is over.
+      m.looseY = looseHeight(this.game.landscape, this.game.layout, m.type, m.flipped, m.pose, m.pieceId);
+      // Look for pegs on the floor, up to a few risers up, and on whatever the piece is over.
       m.snap = { kind: "none" };
-      for (const level of new Set([0, RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
+      for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
         const s = findSnap(this.game.layout, m.type, m.flipped, m.pose, level, m.pieceId, capture);
         if (s.kind === "snapped" && (m.snap.kind !== "snapped" || s.distance < m.snap.distance)) m.snap = s;
       }
       const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
       const py = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
-      const reason = this.blockedBy(m.type, m.flipped, pose, py, m.pieceId);
+      const { reason, risers } = this.placement(m.type, m.flipped, pose, py, m.pieceId);
       if (reason && reason !== m.blocked && !m.overTray) this.hud.toast(BLOCK_MESSAGES[reason]);
       m.blocked = reason;
+      m.risers = risers;
       const held = this.game.mats.held;
       if (reason) setRim(held, "#ff4a3a", 1.2);
       else if (m.snap.kind === "snapped") setRim(held, "#7ddc58", 0.9);
@@ -602,7 +628,7 @@ export class Interaction {
     const ed = this.editor();
     const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
     const y = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
-    const final = this.blockedBy(m.type, m.flipped, pose, y, m.pieceId);
+    const { reason: final, risers } = this.placement(m.type, m.flipped, pose, y, m.pieceId);
     const mesh = m.ghost;
     const shown: PiecePose = { x: m.shown.x, y: m.shown.y, z: m.shown.z, heading: m.shown.heading };
     const discard = () => g.scene.remove(mesh);
@@ -614,7 +640,7 @@ export class Interaction {
     switch (dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew })) {
       case "place": {
         const snapped = m.snap.kind === "snapped";
-        const id = isNew ? ed.place(m.type, pose, y, m.flipped) : (ed.move(m.pieceId, pose, y, m.from!), m.pieceId);
+        const id = isNew ? ed.place(m.type, pose, y, m.flipped, risers) : (ed.move(m.pieceId, pose, y, m.from!, risers), m.pieceId);
         g.trackView.setHidden(id, true);
         setRim(g.mats.held, "#ffffff", 0);
         g.flourishes.add(
@@ -700,7 +726,7 @@ export class Interaction {
       this.changed();
       return;
     }
-    if (m.target && this.placeTrain(m.cars, m.target)) {
+    if (m.target && this.placeTrain(m.cars, m.target, true)) {
       this.changed();
       return;
     }
@@ -709,12 +735,11 @@ export class Interaction {
     this.changed();
   }
 
-  private placeTrain(cars: { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1 }[], at: Cursor): boolean {
+  /** Put a train down: exactly at `at` (back where it was picked up), or `around` it (a drop, centred on the point). */
+  private placeTrain(cars: { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1 }[], at: Cursor, around = false): boolean {
     const sim = this.game.sim;
-    const r = sim.addTrain(
-      cars.map((c) => c.kind),
-      at,
-    );
+    const kinds = cars.map((c) => c.kind);
+    const r = around ? sim.addTrainAround(kinds, at) : sim.addTrain(kinds, at);
     if (r.kind !== "placed") return false;
     const t = sim.getTrain(r.trainId)!;
     t.cars.forEach((car, i) => {
@@ -736,6 +761,9 @@ export class Interaction {
       g.add(model);
       x = model.position.x - spec.length / 2;
     });
+    // Centred between the first and last bogies, as a dropped train is placed (see `Sim.addTrainAround`).
+    const span = -(x + CAR_SPECS[cars[cars.length - 1].kind].bogieInset);
+    for (const m of g.children) m.position.x += span / 2;
     g.visible = false;
     this.game.scene.add(g);
     return g;

@@ -1,8 +1,8 @@
 import { RISER_HEIGHT } from "../track";
 
-export const CELL = 64;
-export const COLS = 70;
-export const ROWS = 52;
+export const CELL = 72;
+export const COLS = 62;
+export const ROWS = 46;
 export const MAT_WIDTH = COLS * CELL;
 export const MAT_DEPTH = ROWS * CELL;
 export const MAX_HEIGHT = 3;
@@ -20,7 +20,10 @@ export const FEAT_STATION = 3;
 const X0 = -MAT_WIDTH / 2;
 const Z0 = -MAT_DEPTH / 2;
 
-/** The felt mat divided into 64 mm squares (one block = one riser height). Flat typed arrays, row-major. */
+/**
+ * The felt mat divided into 72 mm squares (4 × 18, so track lengths fit); a block is a square wide and one riser
+ * tall. Flat typed arrays, row-major.
+ */
 export class LandscapeGrid {
   readonly height = new Uint8Array(COLS * ROWS);
   readonly surface = new Uint8Array(COLS * ROWS);

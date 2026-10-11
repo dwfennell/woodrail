@@ -19,6 +19,13 @@ describe("findOverlap", () => {
     expect(findOverlap(l, "straight-216", false, at(108, -108, Math.PI / 2), 0, -1)).not.toBe(-1);
   });
 
+  it("allows a piece pushed into its neighbour by the joint's play, as when closing a run between two stations", () => {
+    const l = new Layout();
+    l.addPiece("straight-216", at(0, 0));
+    // A run 9 mm too long, bent in by the 4° the joint allows.
+    expect(findOverlap(l, "straight-144", false, at(207, 0, (4 * Math.PI) / 180), 0, -1)).toBe(-1);
+  });
+
   it("allows pieces joined end to end, including curves", () => {
     const l = new Layout();
     const a = l.addPiece("straight-216", at(0, 0));

@@ -9,7 +9,7 @@ import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "
  * Save format, version 3. Plain JSON validated with Zod; only this module knows its shape.
  * The landscape is regenerated from its seed. No backward compatibility until the game reaches v1.
  */
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 const pieceSchema = z.object({
   id: z.number().int().positive(),

@@ -1,5 +1,6 @@
 import { Group } from "three";
 import { CELL, outsideDistance, type Surroundings } from "../../landscape";
+import { RISER_HEIGHT } from "../../track";
 import type { Materials } from "../materials";
 import { Batcher } from "./batcher";
 import { blockMeshes, shadowProxy } from "./blocks";
@@ -17,8 +18,8 @@ export function buildSurroundings(s: Surroundings, mats: Materials): Group {
   // Next to the mat the blocks are bevelled like the mat's own; further out the haze hides the difference.
   const close = s.blocks.filter((k) => k.size === CELL && outsideDistance(k.x, k.z) < ROUNDED_REACH);
   const plain = s.blocks.filter((k) => k.size !== CELL || outsideDistance(k.x, k.z) >= ROUNDED_REACH);
-  group.add(blockMeshes(close, CELL, { wood: mats.blockWood, top: mats.blockTop }, true, false));
-  group.add(blockMeshes(plain, CELL, mats.scenery, false));
+  group.add(blockMeshes(close, CELL, RISER_HEIGHT, { wood: mats.blockWood, top: mats.blockTop }, true, false));
+  group.add(blockMeshes(plain, CELL, RISER_HEIGHT, mats.scenery, false));
   const proxy = shadowProxy(s.slabs);
   if (proxy) group.add(proxy);
 

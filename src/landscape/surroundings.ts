@@ -1,4 +1,5 @@
 import { rng } from "../lib/rng";
+import { RISER_HEIGHT } from "../track";
 import { CELL, MAT_DEPTH, MAT_WIDTH } from "./grid";
 import { valueNoise } from "./noise";
 import { mergeSlabs, type Slab } from "./slabs";
@@ -8,12 +9,12 @@ import { mergeSlabs, type Slab } from "./slabs";
  * them. Decoration only — nothing outside the mat can be built on. Deterministic per seed.
  */
 
-/** How far the scenery reaches beyond the mat's edge (mm). */
-export const RING_WIDTH = 3072;
+/** How far the scenery reaches beyond the mat's edge (mm): whole far-band squares, so they keep the mat's grid. */
+export const RING_WIDTH = 21 * 2 * CELL;
 /** A flat strip of felt just outside the mat's hem, so the edge of the buildable area reads. */
 export const SCENERY_MARGIN = 2 * CELL;
 /** The near band uses normal blocks; beyond it, double-size blocks build up into "mountains". */
-const NEAR_WIDTH = 1536;
+const NEAR_WIDTH = 11 * 2 * CELL;
 const BIG = 2 * CELL;
 const NEAR_MAX = 3;
 const FAR_MAX = 6;
@@ -25,8 +26,10 @@ export interface OuterBlock {
   z: number;
   /** Bottom of the block. */
   y: number;
-  /** Width, depth and height (blocks are cubes). */
+  /** Width and depth of the block's square. */
   size: number;
+  /** Height of the block: the mat's proportions, a riser per square (so double in the far band). */
+  height: number;
   /** Top block of its stack (painted green on top). */
   top: boolean;
   /** Arbitrary number for picking a colour tone. */
@@ -240,11 +243,12 @@ export function generateSurroundings(seed: number): Surroundings {
         const x = cx(l, c);
         const z = cz(l, r);
         const h = l.height[i];
+        const bh = l.size * (RISER_HEIGHT / CELL);
         // A block below the top shows only where a neighbouring column is lower than its own top.
         const lowest = Math.min(at(c + 1, r), at(c - 1, r), at(c, r + 1), at(c, r - 1));
         for (let level = 0; level < h; level++) {
           if (level < h - 1 && lowest > level) continue;
-          blocks.push({ x, z, y: level * l.size, size: l.size, top: level === h - 1, tone: Math.floor(random() * 1024) });
+          blocks.push({ x, z, y: level * bh, size: l.size, height: bh, top: level === h - 1, tone: Math.floor(random() * 1024) });
         }
         const jitter = l.size / 4;
         if (cleared(x, z, l.size / 2 + 30)) continue;
@@ -252,7 +256,7 @@ export function generateSurroundings(seed: number): Surroundings {
           trees.push({
             x: x + (random() * 2 - 1) * jitter,
             z: z + (random() * 2 - 1) * jitter,
-            y: h * l.size,
+            y: h * bh,
             scale: nearBand ? 0.9 + random() * 0.4 : 1.4 + random() * 0.6,
             variant: random(),
           });

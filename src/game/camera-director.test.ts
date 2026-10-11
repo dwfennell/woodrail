@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Vector3 } from "three";
-import { clampTarget, clampView, edgePan, frameDistance, isDoubleTap, lerpAngle } from "./camera-director";
+import { clampTarget, clampView, edgePan, frameDistance, isDoubleTap, lerpAngle, nearPlaneFor } from "./camera-director";
 
 describe("frameDistance", () => {
   it("fits a sphere to the narrower side of the frustum", () => {
@@ -11,6 +11,19 @@ describe("frameDistance", () => {
     expect(frameDistance(100, 30, 0.5)).toBeGreaterThan(d);
     const hHalf = Math.atan(Math.tan((15 * Math.PI) / 180) * 0.5);
     expect(Math.sin(hHalf) * frameDistance(100, 30, 0.5)).toBeCloseTo(100, 6);
+  });
+});
+
+describe("nearPlaneFor", () => {
+  it("pulls the near plane out as the camera backs off, so distant layers a fraction of a mm apart don't flicker", () => {
+    // 24-bit depth: the smallest depth step at distance z is about z² / (near · 2²⁴).
+    const step = (z: number) => (z * z) / (nearPlaneFor(z) * 2 ** 24);
+    for (const d of [120, 420, 1500, 4000, 9000, 14000]) expect(step(d)).toBeLessThan(0.1);
+  });
+
+  it("stays close enough that nothing between the camera and its target is cut away", () => {
+    for (const d of [120, 420, 1500, 4000, 14000]) expect(nearPlaneFor(d)).toBeLessThanOrEqual(Math.max(5, d * 0.04));
+    expect(nearPlaneFor(120)).toBe(5);
   });
 });
 
@@ -108,6 +121,31 @@ describe("CameraDirector edge pan", () => {
     d.setEdgePointer({ x: 500, y: 590, touch: false, bottom: 600 });
     d.update(1 / 30, 1000, 800);
     expect(controls.target.z).toBeGreaterThan(0);
+  });
+
+  it("waits for a drag out of the tray to leave the edge band before panning, then pans when it comes back", () => {
+    const camera = new PerspectiveCamera(30, 1000 / 800, 5, 40000);
+    camera.position.set(0, 600, 600);
+    const controls = { target: new Vector3(), minDistance: 100, maxDistance: 9000, maxPolarAngle: 1.42, addEventListener: () => {} } as unknown as OrbitControls;
+    camera.lookAt(controls.target);
+    const d = new CameraDirector(camera, controls);
+    // Just out of the tray: inside the bottom band, but the finger is only passing through.
+    d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600, waitForExit: true });
+    d.update(1 / 30, 1000, 800);
+    expect(controls.target.z).toBe(0);
+    expect(d.edgePanning).toBe(false);
+    // Up into the open view, then back down to the edge on purpose.
+    d.setEdgePointer({ x: 500, y: 300, touch: true, bottom: 600, waitForExit: true });
+    d.update(1 / 30, 1000, 800);
+    d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600, waitForExit: true });
+    d.update(1 / 30, 1000, 800);
+    expect(controls.target.z).toBeGreaterThan(0);
+    // Back over the tray (no pointer) and out again: waits again.
+    const z = controls.target.z;
+    d.setEdgePointer(null);
+    d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600, waitForExit: true });
+    d.update(1 / 30, 1000, 800);
+    expect(controls.target.z).toBe(z);
   });
 });
 

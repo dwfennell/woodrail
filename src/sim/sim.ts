@@ -59,6 +59,21 @@ export type SimEvent =
   /** An axle rolled over a joint between pieces (the toy's clickety-clack). */
   | { readonly kind: "joint"; readonly trainId: number; readonly bogie: number };
 
+/** Distance of each bogie behind the front one, for a train of these cars. */
+function bogieOffsets(kinds: readonly CarKind[]): number[] {
+  const offsets: number[] = [];
+  let d = 0;
+  for (let i = 0; i < kinds.length; i++) {
+    const spec = CAR_SPECS[kinds[i]];
+    if (i > 0) d += COUPLER_GAP + spec.bogieInset;
+    offsets.push(d);
+    d += spec.length - 2 * spec.bogieInset;
+    offsets.push(d);
+    d += spec.bogieInset;
+  }
+  return offsets;
+}
+
 export type AddTrainResult = { readonly kind: "placed"; readonly trainId: number } | { readonly kind: "no-room" };
 
 /** Flat per-car state for the renderer. transforms stride 6: x, y, z, heading, pitch, roll. */
@@ -124,17 +139,29 @@ export class Sim {
   }
 
   /** Place a train whose leading axle sits at `at`, cars trailing behind it. */
-  addTrain(kinds: readonly CarKind[], at: Cursor): AddTrainResult {
-    const offsets: number[] = [];
-    let d = 0;
-    for (let i = 0; i < kinds.length; i++) {
-      const spec = CAR_SPECS[kinds[i]];
-      if (i > 0) d += COUPLER_GAP + spec.bogieInset;
-      offsets.push(d);
-      d += spec.length - 2 * spec.bogieInset;
-      offsets.push(d);
-      d += spec.bogieInset;
+  /**
+   * Put a train down over a dropped point: centred on it, or slid along the track (still covering the point) when a
+   * dead end or a switch is too close for it to be centred.
+   */
+  addTrainAround(kinds: readonly CarKind[], at: Cursor): AddTrainResult {
+    const offsets = bogieOffsets(kinds);
+    const span = offsets[offsets.length - 1];
+    // Shifts of the front ahead of the point, nearest centred first; 0 lays the train out behind the point.
+    const step = 6;
+    const shifts = [span / 2];
+    for (let k = step; k <= span / 2; k += step) shifts.push(span / 2 + k, span / 2 - k);
+    shifts.push(0, span);
+    for (const shift of shifts) {
+      const front = { ...at };
+      if (shift > 0 && advanceCursor(this.layout, front, shift, null, adv).status !== ADV_OK) continue;
+      const r = this.addTrain(kinds, front);
+      if (r.kind === "placed") return r;
     }
+    return { kind: "no-room" };
+  }
+
+  addTrain(kinds: readonly CarKind[], at: Cursor): AddTrainResult {
+    const offsets = bogieOffsets(kinds);
     const bogies: Cursor[] = [];
     for (const off of offsets) {
       const c = { ...at };

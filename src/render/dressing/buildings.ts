@@ -1,6 +1,7 @@
 import { BoxGeometry, CylinderGeometry, ExtrudeGeometry, Shape, type BufferGeometry } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { CELL, COLS, type Landscape, type Town } from "../../landscape";
+import { STATION_ROOF_TOP } from "../../landscape/sign";
 import { TRACK_WIDTH } from "../../track";
 import type { Materials } from "../materials";
 import type { Batcher } from "./batcher";
@@ -169,7 +170,7 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
   for (const t of [48, 108, 168]) b.add(mats.lacquer("#f0ebe0"), place(new CylinderGeometry(2.2, 2.2, 46, 10), t, side + 30, 14 + 23));
   b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(150, 4, 46, 1, 1.5), 108, side + 22, 14 + 48));
   b.add(mats.lacquer("#e9d9b8"), place(new RoundedBoxGeometry(70, 46, 30, 2, 2.5), 108, side + 58, 14 + 23));
-  b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(80, 5, 38, 1, 1.5), 108, side + 58, 14 + 48));
+  b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(80, 5, 38, 1, 1.5), 108, side + 58, STATION_ROOF_TOP - 2.5));
   // Station house door and windows facing the platform.
   b.add(mats.lacquer("#7a3b26"), place(new RoundedBoxGeometry(12, 24, 2, 1, 0.8), 108, side + 42.5, 14 + 12));
   for (const t of [86, 130]) {

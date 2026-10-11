@@ -13,6 +13,15 @@ const meshOf = (type: Parameters<typeof getPieceDef>[0], flipped = false) =>
   new Mesh(buildPieceGeometry(getPieceDef(type, flipped)), new MeshBasicMaterial());
 
 describe("buildPieceGeometry", () => {
+  it("every piece's faces are in material groups (meshes use a body + cut material pair, which draws only grouped faces)", () => {
+    for (const type of ["riser", "straight-144", "ramp", "bridge", "switch", "crossing"] as const) {
+      const g = buildPieceGeometry(getPieceDef(type, false));
+      const count = g.index ? g.index.count : g.attributes.position.count;
+      const covered = g.groups.reduce((n, gr) => n + Math.min(gr.count, count - gr.start), 0);
+      expect(covered, type).toBe(count);
+    }
+  });
+
   it("straight spans its length plus the peg, full width and thickness", () => {
     const m = meshOf("straight-144");
     const box = new Box3().setFromObject(m);

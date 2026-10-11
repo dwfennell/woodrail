@@ -22,7 +22,7 @@ import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
 import { hillSlabs, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
 import { PIECE_TYPES, type Layout } from "../track";
-import { CameraDirector } from "./camera-director";
+import { CameraDirector, nearPlaneFor } from "./camera-director";
 import type { World } from "./world";
 
 const MAX_STEPS_PER_FRAME = 8;
@@ -251,6 +251,11 @@ export class Game {
     this.director.constrain();
     const t = this.controls.target;
     const dist = this.camera.position.distanceTo(t);
+    const near = nearPlaneFor(dist);
+    if (Math.abs(near - this.camera.near) > 0.5) {
+      this.camera.near = near;
+      this.camera.updateProjectionMatrix();
+    }
     const radius = shadowRadiusForView(this.camera, t);
     if (shouldRefit(this.stage.shadowFit, t.x, t.z, radius)) this.stage.fitShadow(t.x, t.z, radius);
     this.stage.update(this.camera);

@@ -44,6 +44,42 @@ describe("placing trains", () => {
     expect(front.x - rear.x).toBeCloseTo(e.length - e.bogieInset + COUPLER_GAP + h.length - h.bogieInset, 5);
   });
 
+  it("centres a dropped train on the drop point", () => {
+    const { layout, ids } = longLine();
+    const sim = new Sim(layout);
+    const at = { pieceId: ids[3], pathIndex: 0, reversed: false, s: 100 };
+    const r = sim.addTrainAround(["engine", "hopper"], at);
+    expect(r.kind).toBe("placed");
+    if (r.kind !== "placed") return;
+    const t = sim.getTrain(r.trainId)!;
+    const front = cursorWorld(layout, t.bogies[0], createWorldSample());
+    const rear = cursorWorld(layout, t.bogies[3], createWorldSample());
+    const drop = cursorWorld(layout, at, createWorldSample());
+    expect((front.x + rear.x) / 2).toBeCloseTo(drop.x, 0);
+  });
+
+  it("slides a train dropped near a dead end along the track until it fits, still over the drop point", () => {
+    const { layout, ids } = chain(["straight-216", "straight-216"]);
+    const sim = new Sim(layout);
+    // 20 mm from the open end behind: laid out behind the point, it wouldn't fit.
+    const at = { pieceId: ids[0], pathIndex: 0, reversed: false, s: 20 };
+    expect(sim.addTrain(["engine", "hopper"], at).kind).toBe("no-room");
+    const r = sim.addTrainAround(["engine", "hopper"], at);
+    expect(r.kind).toBe("placed");
+    if (r.kind !== "placed") return;
+    const t = sim.getTrain(r.trainId)!;
+    const xs = t.bogies.map((b) => cursorWorld(layout, b, createWorldSample()).x);
+    const drop = cursorWorld(layout, at, createWorldSample()).x;
+    expect(Math.min(...xs)).toBeLessThanOrEqual(drop + 1e-6);
+    expect(Math.max(...xs)).toBeGreaterThanOrEqual(drop - 1e-6);
+  });
+
+  it("still refuses a train longer than the track it's dropped on", () => {
+    const { layout, ids } = chain(["straight-54"]);
+    const sim = new Sim(layout);
+    expect(sim.addTrainAround(["engine", "hopper", "caboose"], { pieceId: ids[0], pathIndex: 0, reversed: false, s: 27 }).kind).toBe("no-room");
+  });
+
   it("refuses to place a train where the track runs out", () => {
     const { layout, ids } = chain(["straight-54"]);
     const sim = new Sim(layout);
@@ -148,6 +184,24 @@ describe("running", () => {
     if (r.kind !== "placed") throw new Error("not placed");
     run(sim, 1);
     expect(sim.getTrain(r.trainId)!.speed).toBeGreaterThan(20);
+  });
+});
+
+describe("joint play", () => {
+  it("runs across a joint 8 mm and 3° off, as when closing a run between two stations", () => {
+    const layout = new Layout();
+    const a = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    const b = layout.addPiece("straight-216", { x: 222, z: 5, heading: (3 * Math.PI) / 180 });
+    const c = appendPiece(layout, "straight-216", false, connectorRef(b, 1));
+    expect(layout.jointCount).toBe(2);
+    const sim = new Sim(layout);
+    const t = sim.addTrain(["engine", "hopper"], { pieceId: a, pathIndex: 0, reversed: false, s: 150 });
+    if (t.kind !== "placed") throw new Error("not placed");
+    sim.setLever(sim.getTrain(t.trainId)!.cars[0].id, 1);
+    run(sim, 2.5);
+    const train = sim.getTrain(t.trainId)!;
+    expect(train.derailed).toBe(false);
+    expect([b, c]).toContain(train.bogies[train.bogies.length - 1].pieceId);
   });
 });
 

@@ -37,3 +37,17 @@ describe("buildStarterWorld", () => {
     expect(connectedPairs(w.layout, w.stations)).toContainEqual([a.id, b.id]);
   });
 });
+
+describe("stations on the grid", () => {
+  it("four long straights join the starter stations exactly", () => {
+    const w = buildStarterWorld();
+    const [a] = w.landscape.towns;
+    let last = w.stations.get(a.id)!;
+    // The station's peg end (connector 1) faces the other town.
+    for (let i = 0; i < 4; i++) last = appendPiece(w.layout, "straight-216", false, connectorRef(last, 1));
+    const joint = w.layout.jointAt(connectorRef(last, 1));
+    expect(joint).toBeDefined();
+    expect(joint!.posError).toBeLessThan(1e-6);
+    expect(joint!.angleError).toBeLessThan(1e-6);
+  });
+});

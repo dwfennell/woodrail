@@ -9,6 +9,16 @@ export function frameDistance(radius: number, fovDeg: number, aspect: number): n
   return radius / Math.sin(Math.min(vHalf, hHalf));
 }
 
+/**
+ * Near clipping plane for a camera `distance` from what it looks at. Depth precision falls with the square of
+ * distance over the near plane, so a fixed close plane makes the felt's hem, the rivers and the blocks' painted tops
+ * shimmer against what's under them in wide views. Scaling it with distance keeps that steady while staying well
+ * short of anything in view (the camera is never steeper than its polar limit above the ground).
+ */
+export function nearPlaneFor(distance: number): number {
+  return Math.max(5, distance / 30);
+}
+
 const sph = new Spherical();
 const off = new Vector3();
 
@@ -91,6 +101,8 @@ export class CameraDirector {
   private followed: (() => Vector3 | null) | null = null;
   private readonly edge = { dx: 0, dy: 0 };
   private edgePointer: { x: number; y: number; zone: number; bottom?: number } | null = null;
+  /** A drag that asked to wait hasn't yet left the edge band: no panning until it does. */
+  private edgeWaiting = false;
   private readonly tmp = new Vector3();
   private readonly tmp2 = new Vector3();
   private readonly right = new Vector3();
@@ -170,9 +182,11 @@ export class CameraDirector {
 
   /**
    * While dragging a piece: pan when the pointer nears a screen edge (null when not dragging). `bottom` is where the
-   * usable view ends (the top of the tray), so the bottom edge zone sits just above it.
+   * usable view ends (the top of the tray), so the bottom edge zone sits just above it. With `waitForExit`, a pointer
+   * that arrives inside the band (a drag coming up out of the tray) doesn't pan until it has left the band once.
    */
-  setEdgePointer(p: { x: number; y: number; touch: boolean; bottom?: number } | null): void {
+  setEdgePointer(p: { x: number; y: number; touch: boolean; bottom?: number; waitForExit?: boolean } | null): void {
+    if (p && !this.edgePointer) this.edgeWaiting = !!p.waitForExit;
     this.edgePointer = p ? { x: p.x, y: p.y, zone: p.touch ? 72 : 48, bottom: p.bottom } : null;
   }
 
@@ -225,7 +239,9 @@ export class CameraDirector {
 
     if (this.edgePointer) {
       edgePan(this.edgePointer.x, this.edgePointer.y, viewW, this.edgePointer.bottom ?? viewH, this.edgePointer.zone, this.edge);
-      if (this.edge.dx !== 0 || this.edge.dy !== 0) {
+      const inBand = this.edge.dx !== 0 || this.edge.dy !== 0;
+      if (!inBand) this.edgeWaiting = false;
+      if (inBand && !this.edgeWaiting) {
         const dist = cam.position.distanceTo(c.target);
         cam.getWorldDirection(this.forward);
         this.forward.y = 0;
