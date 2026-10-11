@@ -281,25 +281,36 @@ function onlyCsgAttributes(g: BufferGeometry): BufferGeometry {
 /** Marker materials: faces from body brushes vs faces carved by cutters (grooves, keyholes). */
 const BODY = new MeshBasicMaterial();
 const CUT = new MeshBasicMaterial();
+const PAINT = new MeshBasicMaterial();
 /** Material slot indices in the returned geometry's groups. */
 export const SLOT_BODY = 0;
 export const SLOT_CUT = 1;
+/** Painted parts of a piece (the bridge's viaduct). */
+export const SLOT_PAINT = 2;
 
 const evaluator = new Evaluator();
 evaluator.useGroups = true;
 evaluator.attributes = ["position", "normal", "uv"];
 
-/** Bridge: arched support under the deck. */
+/** Bridge: a painted viaduct under the deck, two round arches on three piers. */
 function bridgeSupport(def: PieceDef): BufferGeometry {
   const path = def.paths[0].geom;
   const len = pathLength(path);
   const block = onlyCsgAttributes(new RoundedBoxGeometry(len - 6, RISER_HEIGHT + 2, TRACK_WIDTH - 4, 3, 2).toNonIndexed());
   block.translate(len / 2, RISER_HEIGHT / 2 - 1, 0);
-  const arch = onlyCsgAttributes(new CylinderGeometry(len * 0.42, len * 0.42, TRACK_WIDTH + 10, 48).toNonIndexed());
-  arch.rotateX(Math.PI / 2);
-  arch.translate(len / 2, -len * 0.2, 0);
-  const result = evaluator.evaluate(brush(block), brush(arch), SUBTRACTION);
-  return slotGroups(result);
+  let result = brush(block, PAINT);
+  const radius = len * 0.19;
+  for (const at of [0.28, 0.72]) {
+    const arch = onlyCsgAttributes(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40).toNonIndexed());
+    arch.rotateX(Math.PI / 2);
+    // Arch tops at three quarters of the deck height; the openings reach the ground.
+    arch.translate(len * at, RISER_HEIGHT * 0.75 - radius, 0);
+    const opening = onlyCsgAttributes(new BoxGeometry(radius * 2, RISER_HEIGHT * 0.75 - radius + 2, TRACK_WIDTH + 10).toNonIndexed());
+    opening.translate(len * at, (RISER_HEIGHT * 0.75 - radius) / 2 - 1, 0);
+    result = evaluator.evaluate(result, brush(arch), SUBTRACTION);
+    result = evaluator.evaluate(result, brush(opening), SUBTRACTION);
+  }
+  return result.geometry;
 }
 
 function riserGeometry(): BufferGeometry {
@@ -340,11 +351,14 @@ function flatBlockBody(def: PieceDef): BufferGeometry {
   return onlyCsgAttributes(g.toNonIndexed());
 }
 
-/** Re-index CSG output groups so materialIndex is SLOT_BODY or SLOT_CUT. */
+/** Re-index CSG output groups so materialIndex is SLOT_BODY, SLOT_CUT or SLOT_PAINT. */
 function slotGroups(result: Brush): BufferGeometry {
   const g = result.geometry;
   const mats = (Array.isArray(result.material) ? result.material : [result.material]) as Material[];
-  for (const group of g.groups) group.materialIndex = mats[group.materialIndex ?? 0] === CUT ? SLOT_CUT : SLOT_BODY;
+  for (const group of g.groups) {
+    const m = mats[group.materialIndex ?? 0];
+    group.materialIndex = m === CUT ? SLOT_CUT : m === PAINT ? SLOT_PAINT : SLOT_BODY;
+  }
   return g;
 }
 
@@ -358,9 +372,10 @@ export function buildPieceGeometry(def: PieceDef): BufferGeometry {
       : brush(flatBlockBody(def));
 
   if (def.type === "bridge") {
-    const support = bridgeSupport(def);
-    support.clearGroups();
-    result = evaluator.evaluate(result, brush(support), ADDITION);
+    // Keep the viaduct's own (painted) group through the union.
+    const support = new Brush(bridgeSupport(def), [PAINT, PAINT, PAINT]);
+    support.updateMatrixWorld();
+    result = evaluator.evaluate(result, support, ADDITION);
   }
 
   for (const p of def.paths) {

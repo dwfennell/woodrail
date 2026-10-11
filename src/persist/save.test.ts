@@ -35,8 +35,8 @@ describe("save format v2", () => {
     expect(w.sim.getTrain(w.sim.trainIds()[0])!.cars[0].lever).toBe(1);
   });
 
-  it("is at version 4 (72 mm grid)", () => {
-    expect(SAVE_VERSION).toBe(4);
+  it("is at version 5 (lanes, paddocks and the engine shed)", () => {
+    expect(SAVE_VERSION).toBe(5);
   });
 
   it("rejects version 1 saves", () => {

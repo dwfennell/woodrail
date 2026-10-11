@@ -4,6 +4,8 @@ import {
   CELL,
   COLS,
   FEAT_BUILDING,
+  FEAT_FIELD,
+  FEAT_SHED,
   FEAT_NONE,
   FEAT_STATION,
   FEAT_TREE,
@@ -13,6 +15,7 @@ import {
   MAX_HEIGHT,
   ROWS,
   SURF_GRASS,
+  SURF_LANE,
   SURF_RIVER,
   SURF_ROAD,
   SURF_TOWN,
@@ -39,6 +42,22 @@ export interface Town {
   buildings: Building[];
 }
 
+/** A fenced 2 × 2-square paddock of toy animals. */
+export interface Field {
+  id: number;
+  /** Its four squares, row-major from the top-left one. */
+  cells: number[];
+  animal: "cow" | "sheep";
+}
+
+/** The decorative engine shed: 2 × 2 squares near a town, its doors facing along `heading`. */
+export interface Shed {
+  cells: number[];
+  x: number;
+  z: number;
+  heading: number;
+}
+
 export interface Landscape {
   seed: number;
   starter: boolean;
@@ -46,6 +65,8 @@ export interface Landscape {
   towns: Town[];
   /** Cells kept clear for track: station approaches (and the starter strip). */
   corridors: number[];
+  fields: Field[];
+  shed: Shed | null;
 }
 
 export const STATION_LENGTH = 216;
@@ -56,6 +77,8 @@ const TOWN_RADIUS = 210;
 const CORRIDOR_LENGTH = 6 * CELL;
 const CORRIDOR_HALF_WIDTH = 2 * CELL;
 
+/** Chance that a town has a country lane. */
+const LANE_CHANCE = 0.8;
 const NAMES = ["Applebury", "Millbrook", "Oakhollow", "Pinecrest", "Thimble Cross", "Larkfield", "Brambleton", "Copperdale", "Willowmere", "Fernhill", "Hazelwick", "Puddleby", "Kettle Green", "Foxley", "Tumbledown", "Ashcombe"];
 
 /** The two outward ends of a town's station: socket end and peg end, each heading away from the station. */
@@ -78,7 +101,11 @@ export function generateLandscape(seed: number, options: { starter?: boolean } =
   for (let attempt = 0; attempt < 20; attempt++) {
     const land = attemptLandscape(seed + attempt * 1000, starter);
     land.seed = seed;
-    if (reachable(land)) return land;
+    if (reachable(land)) {
+      addShed(land);
+      addFields(land);
+      return land;
+    }
     last = land;
   }
   return last!;
@@ -218,7 +245,191 @@ function attemptLandscape(seed: number, starter: boolean): Landscape {
     }
   }
 
-  return { seed, starter, grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE) };
+  // Country lanes from the towns out to the edge of the mat, crossing open grass (their own random stream, so the
+  // rest of the map is unchanged by them).
+  const laneRandom = rng(seed * 31 + 7);
+  for (const town of towns) {
+    if (laneRandom() >= LANE_CHANCE) continue;
+    const path = laneWalk(grid, town, laneRandom);
+    if (!path) continue;
+    for (const i of path) {
+      grid.surface[i] = SURF_LANE;
+      grid.feature[i] = FEAT_NONE;
+    }
+  }
+
+  return { seed, starter, grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null };
+}
+
+/**
+ * The engine shed: a 2 × 2 block of open grass a few squares from the first town that has room (its own random
+ * stream), its doors facing the same way as that town's station. Kept only if every town can still reach every other.
+ */
+function addShed(land: Landscape): void {
+  const g = land.grid;
+  const random = rng(land.seed * 43 + 9);
+  const corridors = new Set(land.corridors);
+  const open = (col: number, row: number, h: number) => {
+    if (!g.inBounds(col, row)) return false;
+    const i = g.index(col, row);
+    return g.height[i] === h && g.surface[i] === SURF_GRASS && g.feature[i] === FEAT_NONE && !corridors.has(i);
+  };
+  const clearAround = (col: number, row: number) => {
+    if (!g.inBounds(col, row)) return false;
+    const i = g.index(col, row);
+    return g.feature[i] !== FEAT_BUILDING && g.feature[i] !== FEAT_STATION && g.surface[i] !== SURF_RIVER;
+  };
+  for (const town of land.towns) {
+    const tc = g.cellAtWorld(town.centre.x, town.centre.z);
+    const tcol = tc % COLS;
+    const trow = (tc - tcol) / COLS;
+    for (let tries = 0; tries < 120; tries++) {
+      const col = tcol + Math.round((random() * 2 - 1) * 7);
+      const row = trow + Math.round((random() * 2 - 1) * 7);
+      if (!g.inBounds(col, row)) continue;
+      const h = g.height[g.index(col, row)];
+      let ok = true;
+      for (let r = -1; r <= 2 && ok; r++) {
+        for (let c = -1; c <= 2 && ok; c++) {
+          ok = r >= 0 && r <= 1 && c >= 0 && c <= 1 ? open(col + c, row + r, h) : clearAround(col + c, row + r);
+        }
+      }
+      if (!ok) continue;
+      const cells = [g.index(col, row), g.index(col + 1, row), g.index(col, row + 1), g.index(col + 1, row + 1)];
+      for (const i of cells) g.feature[i] = FEAT_SHED;
+      if (!reachable(land)) {
+        for (const i of cells) g.feature[i] = FEAT_NONE;
+        continue;
+      }
+      land.shed = { cells, x: g.centreX(col) + CELL / 2, z: g.centreZ(row) + CELL / 2, heading: town.station.heading };
+      return;
+    }
+  }
+}
+
+/**
+ * A few fenced paddocks of animals on open grass, away from towns, lanes, rivers and station approaches (their own
+ * random stream). Each is kept only if every town can still reach every other.
+ */
+function addFields(land: Landscape): void {
+  const g = land.grid;
+  const random = rng(land.seed * 37 + 3);
+  const corridors = new Set(land.corridors);
+  const count = 1 + Math.floor(random() * 3);
+  const open = (col: number, row: number, h: number) => {
+    if (!g.inBounds(col, row)) return false;
+    const i = g.index(col, row);
+    return g.height[i] === h && g.surface[i] === SURF_GRASS && g.feature[i] === FEAT_NONE && !corridors.has(i);
+  };
+  // Anything but plain felt, trees and other open grass nearby keeps a paddock away.
+  const quiet = (col: number, row: number) => {
+    if (!g.inBounds(col, row)) return false;
+    const i = g.index(col, row);
+    return g.surface[i] === SURF_GRASS && (g.feature[i] === FEAT_NONE || g.feature[i] === FEAT_TREE);
+  };
+  for (let tries = 0; tries < 300 && land.fields.length < count; tries++) {
+    const col = 2 + Math.floor(random() * (COLS - 5));
+    const row = 2 + Math.floor(random() * (ROWS - 5));
+    const animal = random() < 0.5 ? "cow" : "sheep";
+    const h = g.height[g.index(col, row)];
+    let ok = true;
+    for (let r = -1; r <= 2 && ok; r++) {
+      for (let c = -1; c <= 2 && ok; c++) {
+        const inside = r >= 0 && r <= 1 && c >= 0 && c <= 1;
+        ok = inside ? open(col + c, row + r, h) : quiet(col + c, row + r);
+      }
+    }
+    if (!ok) continue;
+    const cells = [g.index(col, row), g.index(col + 1, row), g.index(col, row + 1), g.index(col + 1, row + 1)];
+    const id = land.fields.length;
+    for (const i of cells) {
+      g.feature[i] = FEAT_FIELD;
+      g.owner[i] = id;
+    }
+    if (!reachable(land)) {
+      for (const i of cells) g.feature[i] = FEAT_NONE;
+      continue;
+    }
+    land.fields.push({ id, cells, animal });
+  }
+}
+
+/**
+ * A lane leaving a town on its platform side (away from the station track) and running to the edge of the mat over
+ * flat grass: the cheapest route, where every square costs 1, a turn costs 4 and clearing a tree costs 3, so lanes
+ * run in long straight stretches with a few bends. Null if no route exists.
+ */
+function laneWalk(grid: LandscapeGrid, town: Town, random: () => number): number[] | null {
+  const dx = Math.cos(town.station.heading);
+  const dz = Math.sin(town.station.heading);
+  const dc = Math.round(-dz);
+  const dr = Math.round(dx);
+  const open = (i: number) =>
+    grid.height[i] === 0 && (grid.surface[i] === SURF_GRASS || grid.surface[i] === SURF_LANE) && (grid.feature[i] === FEAT_NONE || grid.feature[i] === FEAT_TREE);
+  // Leave the town straight out from its centre.
+  const centre = grid.cellAtWorld(town.centre.x, town.centre.z);
+  if (centre === -1) return null;
+  let col = centre % COLS;
+  let row = (centre - col) / COLS;
+  for (let k = 0; k < 12 && grid.inBounds(col, row) && grid.surface[grid.index(col, row)] !== SURF_GRASS; k++) {
+    col += dc;
+    row += dr;
+  }
+  if (!grid.inBounds(col, row) || !open(grid.index(col, row))) return null;
+
+  // Dijkstra over (square, direction) states. Directions: 0 +col, 1 +row, 2 −col, 3 −row.
+  const DC = [1, 0, -1, 0];
+  const DR = [0, 1, 0, -1];
+  const n = COLS * ROWS;
+  const cost = new Float64Array(n * 4).fill(Infinity);
+  const from = new Int32Array(n * 4).fill(-1);
+  // A little per-map jitter in the tree cost, so lanes from neighbouring towns don't all look alike.
+  const treeCost = 2.5 + random();
+  const startDir = DC.findIndex((c, d) => c === dc && DR[d] === dr);
+  const start = grid.index(col, row) * 4 + startDir;
+  cost[start] = 0;
+  const queue: [number, number][] = [[0, start]];
+  const edge = (c: number, r: number) => c === 0 || r === 0 || c === COLS - 1 || r === ROWS - 1;
+  let goal = -1;
+  while (queue.length) {
+    // Small grid: a sorted insert keeps this simple and fast enough.
+    const [c0, state] = queue.shift()!;
+    if (c0 > cost[state]) continue;
+    const cell = state >> 2;
+    const dir = state & 3;
+    const cc = cell % COLS;
+    const cr = (cell - cc) / COLS;
+    if (edge(cc, cr) || (grid.surface[cell] === SURF_LANE && cell !== grid.index(col, row))) {
+      goal = state;
+      break;
+    }
+    for (let d = 0; d < 4; d++) {
+      if (d === ((dir + 2) & 3)) continue;
+      const nc = cc + DC[d];
+      const nr = cr + DR[d];
+      if (!grid.inBounds(nc, nr)) continue;
+      const ni = grid.index(nc, nr);
+      if (!open(ni)) continue;
+      const step = 1 + (d === dir ? 0 : 4) + (grid.feature[ni] === FEAT_TREE ? treeCost : 0);
+      const next = ni * 4 + d;
+      const total = c0 + step;
+      if (total >= cost[next]) continue;
+      cost[next] = total;
+      from[next] = state;
+      let lo = 0;
+      let hi = queue.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (queue[mid][0] < total) lo = mid + 1;
+        else hi = mid;
+      }
+      queue.splice(lo, 0, [total, next]);
+    }
+  }
+  if (goal === -1) return null;
+  const path: number[] = [];
+  for (let st = goal; st !== -1; st = from[st]) path.push(st >> 2);
+  return path.reverse();
 }
 
 function placeTowns(random: () => number, starter: boolean): Town[] {
@@ -324,7 +535,7 @@ function riverWalk(grid: LandscapeGrid, random: () => number, locked: (i: number
 export function reachable(land: Landscape): boolean {
   const g = land.grid;
   const component = new Int32Array(COLS * ROWS).fill(-1);
-  const passable = (i: number) => g.feature[i] === FEAT_NONE && (g.surface[i] === SURF_GRASS || g.surface[i] === SURF_RIVER);
+  const passable = (i: number) => g.feature[i] === FEAT_NONE && (g.surface[i] === SURF_GRASS || g.surface[i] === SURF_RIVER || g.surface[i] === SURF_LANE);
   let next = 0;
   for (let i = 0; i < component.length; i++) {
     if (component[i] !== -1 || !passable(i)) continue;

@@ -106,6 +106,7 @@ function boot(): void {
     hud.haptic("refuse");
   };
   interaction.onTurned = () => audio.rotate();
+  interaction.onDepart = () => audio.bell();
 
   function setWorld(world: GameWorld): void {
     game.setWorld(world);

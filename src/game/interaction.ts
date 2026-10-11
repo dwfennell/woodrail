@@ -80,6 +80,8 @@ export class Interaction {
   onRefused: (() => void) | null = null;
   /** Called when a placed piece is rotated or flipped. */
   onTurned: (() => void) | null = null;
+  /** An engine was set going from a standstill. */
+  onDepart: (() => void) | null = null;
   private mode: Mode = { kind: "idle" };
   private selectedPiece = -1;
   private selectedCar = -1;
@@ -356,6 +358,8 @@ export class Interaction {
 
   setLever(v: -1 | 0 | 1): void {
     if (this.selectedCar === -1) return;
+    const was = this.game.sim.findCar(this.selectedCar);
+    if (was && was.train.cars[was.index].lever === 0 && v !== 0) this.onDepart?.();
     this.game.sim.setLever(this.selectedCar, v);
     this.hud.updateEngineCard(v, this.game.following === this.selectedCar);
     this.changed();
@@ -411,7 +415,7 @@ export class Interaction {
     const g = this.game;
     const p = g.layout.getPiece(id);
     if (!p) return;
-    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut]);
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint]);
     mesh.castShadow = true;
     g.scene.add(mesh);
     g.trackView.setHidden(id, true);
@@ -493,7 +497,7 @@ export class Interaction {
     if (!this.editor().remove(id) || !p) return;
     // A stand-in lifts and shrinks away where the piece was.
     const g = this.game;
-    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut]);
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint]);
     mesh.castShadow = true;
     mesh.position.set(p.pose.x, p.y, p.pose.z);
     mesh.rotation.y = -p.pose.heading;
@@ -546,7 +550,7 @@ export class Interaction {
   private heldMesh(type: PieceTypeId, flipped: boolean): Mesh {
     const mats = this.game.mats;
     setRim(mats.held, "#ffffff", 0);
-    const mesh = ghostMesh(type, flipped, [mats.held, mats.trackCut]);
+    const mesh = ghostMesh(type, flipped, [mats.held, mats.trackCut, mats.held]);
     mesh.castShadow = true;
     mesh.renderOrder = 0;
     mesh.matrixAutoUpdate = false;
@@ -636,7 +640,7 @@ export class Interaction {
     // The stand-in stops sharing the held-piece material (the next piece picked up re-tints that): plain wood when
     // it's going down, see-through red when it's refused.
     const refused = final !== null || m.overTray;
-    mesh.material = refused ? [g.mats.trackGhostBlocked, g.mats.trackGhostBlocked] : [g.mats.track, g.mats.trackCut];
+    mesh.material = refused ? [g.mats.trackGhostBlocked, g.mats.trackGhostBlocked, g.mats.trackGhostBlocked] : [g.mats.track, g.mats.trackCut, g.mats.bridgePaint];
     switch (dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew })) {
       case "place": {
         const snapped = m.snap.kind === "snapped";

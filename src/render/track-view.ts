@@ -1,5 +1,6 @@
 import {
   BackSide,
+  BoxGeometry,
   Box3,
   BufferGeometry,
   Color,
@@ -14,6 +15,7 @@ import {
   SphereGeometry,
   type Material,
 } from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { getPieceDef, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
@@ -45,6 +47,9 @@ export function pieceMatrix(x: number, y: number, z: number, heading: number, ou
 }
 
 const SWITCH_LEVER_OFFSET = TRACK_WIDTH / 2 + 9;
+const SIGNAL_HEIGHT = 54;
+/** Arm angle above level when the switch is set to its branch. */
+const SIGNAL_RAISED = 0.75;
 
 /** Lever beside the trunk of a switch, leaning toward the selected route. Tap target for flipping. */
 function switchLeverGeometry(): BufferGeometry {
@@ -69,6 +74,15 @@ export class TrackView {
   private meshes = new Map<string, { mesh: InstancedMesh; ids: number[] }>();
   private bufferMesh: { mesh: InstancedMesh; ids: number[] } | null = null;
   private levers = new Map<number, Mesh>();
+  /** A toy semaphore signal beside each switch: arm level for the straight route, raised for the branch. */
+  private signals = new Map<number, { root: Group; arm: Group }>();
+  private readonly signalParts = {
+    base: new CylinderGeometry(5, 6, 3, 16).translate(0, 1.5, 0),
+    post: new CylinderGeometry(1.7, 1.9, SIGNAL_HEIGHT, 10).translate(0, SIGNAL_HEIGHT / 2, 0),
+    cap: new SphereGeometry(2.6, 14, 10).translate(0, SIGNAL_HEIGHT + 1, 0),
+    arm: new RoundedBoxGeometry(4.5, 3, 24, 1, 1).translate(0, 0, 12),
+    stripe: new BoxGeometry(4.8, 3.3, 3).translate(0, 0, 19),
+  };
   private readonly tints = new Map<number, Color>();
   private highlighted = -1;
   /** Pieces drawn elsewhere for now (stand-in meshes animating in their place), with how many stand-ins each. */
@@ -118,7 +132,7 @@ export class TrackView {
     const bufferIds: number[] = [];
     for (const [key, ids] of groups) {
       const [type, flipped] = key.split("|") as [PieceTypeId, string];
-      const mesh = new InstancedMesh(pieceGeometry(type, flipped === "1"), [this.mats.track, this.mats.trackCut], ids.length);
+      const mesh = new InstancedMesh(pieceGeometry(type, flipped === "1"), [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       ids.forEach((id, i) => {
@@ -214,6 +228,31 @@ export class TrackView {
       local.updateMatrix();
       lever.matrixAutoUpdate = false;
       lever.matrix.copy(pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading)).multiply(local.matrix);
+
+      // Signal at the trunk end on the lever's side, its arm reaching away from the track.
+      let signal = this.signals.get(id);
+      if (!signal) {
+        const root = new Group();
+        root.matrixAutoUpdate = false;
+        const parts = this.signalParts;
+        const post = new Group();
+        post.add(this.part(parts.base, this.mats.naturalWood, id), this.part(parts.post, this.mats.lacquer("#f6f1e6"), id), this.part(parts.cap, this.mats.magnet, id));
+        const arm = new Group();
+        arm.position.y = SIGNAL_HEIGHT - 8;
+        arm.add(this.part(parts.arm, this.mats.lacquer("#c8442f"), id), this.part(parts.stripe, this.mats.lacquer("#f6f1e6"), id));
+        post.add(arm);
+        root.add(post);
+        this.group.add(root);
+        signal = { root, arm };
+        this.signals.set(id, signal);
+      }
+      const post = signal.root.children[0];
+      post.position.set(6, 0, -branchSide * (SWITCH_LEVER_OFFSET + 4));
+      // Arm geometry points along +z; turn it to reach away from the track, then raise it for the branch.
+      post.rotation.y = branchSide > 0 ? Math.PI : 0;
+      signal.arm.rotation.x = this.layout.switchState(id) === 1 ? -SIGNAL_RAISED : 0;
+      signal.root.matrix.copy(pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading));
+      signal.root.updateMatrixWorld(true);
     }
     for (const [id, lever] of this.levers) {
       if (!live.has(id)) {
@@ -221,6 +260,20 @@ export class TrackView {
         this.levers.delete(id);
       }
     }
+    for (const [id, signal] of this.signals) {
+      if (!live.has(id)) {
+        this.group.remove(signal.root);
+        this.signals.delete(id);
+      }
+    }
+  }
+
+  /** A signal part; tapping it flips the switch, like the lever. */
+  private part(geometry: BufferGeometry, material: Material, pieceId: number): Mesh {
+    const m = new Mesh(geometry, material);
+    m.castShadow = true;
+    m.userData = { kind: "switch-lever", pieceId };
+    return m;
   }
 
   /**

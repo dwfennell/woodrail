@@ -11,11 +11,17 @@ export const SURF_GRASS = 0;
 export const SURF_RIVER = 1;
 export const SURF_ROAD = 2;
 export const SURF_TOWN = 3;
+/** A country lane: felt road outside the towns that track may cross (a level crossing). */
+export const SURF_LANE = 4;
 
 export const FEAT_NONE = 0;
 export const FEAT_TREE = 1;
 export const FEAT_BUILDING = 2;
 export const FEAT_STATION = 3;
+/** A fenced paddock with toy animals in it (track goes around). */
+export const FEAT_FIELD = 4;
+/** The decorative engine shed. */
+export const FEAT_SHED = 5;
 
 const X0 = -MAT_WIDTH / 2;
 const Z0 = -MAT_DEPTH / 2;

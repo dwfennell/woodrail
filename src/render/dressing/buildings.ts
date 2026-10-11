@@ -1,6 +1,7 @@
-import { BoxGeometry, CylinderGeometry, ExtrudeGeometry, Shape, type BufferGeometry } from "three";
+import { BoxGeometry, CylinderGeometry, ExtrudeGeometry, Shape, SphereGeometry, type BufferGeometry } from "three";
+import { rng } from "../../lib/rng";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { CELL, COLS, type Landscape, type Town } from "../../landscape";
+import { CELL, COLS, type Landscape, type Shed, type Town } from "../../landscape";
 import { STATION_ROOF_TOP } from "../../landscape/sign";
 import { TRACK_WIDTH } from "../../track";
 import type { Materials } from "../materials";
@@ -217,5 +218,114 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
     };
     b.add(mats.lacquer("#fbf6ec"), face(new BoxGeometry(16, 14, 1.6), -0.4));
     printedPane(b, mats, 12, 10, face);
+  }
+  // Clock over the door: a cream face in a red rim, with two dark hands.
+  const clockFace = (g: BufferGeometry, out: number) => {
+    g.rotateX(Math.PI / 2);
+    return place(g, 108, side + 43 - out, 14 + 36);
+  };
+  b.add(mats.lacquer("#c8442f"), clockFace(new CylinderGeometry(6.5, 6.5, 1.6, 24), 0.8));
+  b.add(mats.lacquer("#fbf6ec"), clockFace(new CylinderGeometry(5.2, 5.2, 1.6, 24), 1.4));
+  b.add(mats.lacquer("#2a2b2e"), place(new BoxGeometry(0.9, 4.2, 0.6).translate(0, 1.8, 0), 108, side + 43 - 2.4, 14 + 36));
+  b.add(mats.lacquer("#2a2b2e"), place(new BoxGeometry(3.2, 0.9, 0.6).translate(1.4, 0, 0), 108, side + 43 - 2.4, 14 + 36));
+
+  // Benches facing the track, between the canopy posts.
+  for (const t of [72, 144]) {
+    b.add(mats.naturalWood, place(new RoundedBoxGeometry(24, 2, 7, 1, 0.8), t, side + 27, 14 + 6));
+    b.add(mats.naturalWood, place(new RoundedBoxGeometry(24, 7, 1.6, 1, 0.6), t, side + 30.5, 14 + 10));
+    for (const e of [-10, 10]) b.add(mats.lacquer("#2f6db5"), place(new BoxGeometry(2, 5, 6), t + e, side + 27, 14 + 2.5));
+  }
+
+  // A few peg-doll passengers waiting on the platform.
+  const r = rng(town.id * 97 + 11);
+  const spots = [24, 50, 96, 120, 168, 190];
+  const count = 2 + Math.floor(r() * 3);
+  for (let k = 0; k < count; k++) {
+    const t = spots.splice(Math.floor(r() * spots.length), 1)[0];
+    const lateral = side + 10 + r() * 8;
+    pegDoll(b, mats, (g) => place(g, t, lateral, 14), r);
+  }
+}
+
+const PEG_COATS = ["#c8442f", "#2f6db5", "#3c8f4e", "#e6b52c", "#6b4a8f", "#e98aa8"];
+const PEG_HATS = ["#2a2b2e", "#7a3b26", "#c8442f", "#2f6db5"];
+
+/** A turned peg doll (about 18 mm tall): painted coat, bare beech head, and sometimes a hat. */
+export function pegDoll(b: Batcher, mats: Materials, place: (g: BufferGeometry) => BufferGeometry, r: () => number): void {
+  const coat = PEG_COATS[Math.floor(r() * PEG_COATS.length)];
+  b.add(mats.lacquer(coat), place(new CylinderGeometry(3.2, 4.2, 11, 14).translate(0, 5.5, 0)));
+  b.add(mats.naturalWood, place(new SphereGeometry(3.4, 14, 10).translate(0, 14, 0)));
+  if (r() < 0.6) {
+    const hat = PEG_HATS[Math.floor(r() * PEG_HATS.length)];
+    b.add(mats.lacquer(hat), place(new CylinderGeometry(4, 4, 0.9, 14).translate(0, 16.4, 0)));
+    b.add(mats.lacquer(hat), place(new CylinderGeometry(2.6, 2.8, 3, 14).translate(0, 18.2, 0)));
+  }
+}
+
+/** Arched door outline (w × h, round top), authored facing +z with its back on z = 0. */
+function archedDoor(w: number, h: number, depth: number): BufferGeometry {
+  const shape = new Shape();
+  shape.moveTo(-w / 2, 0);
+  shape.lineTo(w / 2, 0);
+  shape.lineTo(w / 2, h - w / 2);
+  shape.absarc(0, h - w / 2, w / 2, 0, Math.PI, false);
+  shape.lineTo(-w / 2, 0);
+  return new ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 12 });
+}
+
+/**
+ * The engine shed: a long beech shed under a red gable roof, two tall arched green doors at the end facing along
+ * its heading, printed windows down the sides and a vent on the ridge.
+ */
+export function buildShed(land: Landscape, shed: Shed, mats: Materials, b: Batcher): void {
+  const y = land.grid.groundY(shed.cells[0]);
+  const dx = Math.cos(shed.heading);
+  const dz = Math.sin(shed.heading);
+  const yaw = -shed.heading;
+  // Local shed coordinates: a along the heading (doors at +a), l across, height up from the ground.
+  const place = (g: BufferGeometry, a: number, l: number, h: number) => {
+    g.rotateY(yaw);
+    g.translate(shed.x + dx * a - dz * l, y + h, shed.z + dz * a + dx * l);
+    return g;
+  };
+  const LEN = 124;
+  const WIDE = 96;
+  const WALL = 52;
+  b.add(mats.blockWood, place(new RoundedBoxGeometry(LEN, WALL, WIDE, 2, 2.5), 0, 0, WALL / 2));
+  // Gable roof, ridge running along the shed.
+  const rise = WIDE * 0.42;
+  const tri = new Shape();
+  tri.moveTo(-WIDE / 2 - OVERHANG, -1);
+  tri.lineTo(WIDE / 2 + OVERHANG, -1);
+  tri.lineTo(0, rise);
+  tri.lineTo(-WIDE / 2 - OVERHANG, -1);
+  const roof = new ExtrudeGeometry(tri, { depth: LEN + OVERHANG * 2, bevelEnabled: true, bevelSize: 1.2, bevelThickness: 1.2, bevelSegments: 2 });
+  // Authored with the ridge along z; turn it so the ridge runs along a (local x).
+  roof.translate(0, 0, -(LEN + OVERHANG * 2) / 2);
+  roof.rotateY(Math.PI / 2);
+  b.add(mats.lacquer("#c8442f"), place(roof, 0, 0, WALL));
+  b.add(mats.lacquer("#2a2b2e"), place(new RoundedBoxGeometry(30, 10, 14, 1, 1.5), 0, 0, WALL + rise + 3));
+  b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(36, 3, 20, 1, 1), 0, 0, WALL + rise + 9));
+
+  // Doors on the front end (+a), facing out: authored facing +z, turned to face +a.
+  const front = (g: BufferGeometry, l: number, h: number, out: number) => {
+    g.rotateY(Math.PI / 2);
+    return place(g, LEN / 2 + out, l, h);
+  };
+  for (const l of [-WIDE / 4, WIDE / 4]) {
+    b.add(mats.lacquer("#fbf6ec"), front(archedDoor(38, 46, 1.6), l, 0, -0.2));
+    b.add(mats.lacquer("#2f5d3a"), front(archedDoor(32, 42, 1.6), l, 0, 0.4));
+    b.add(mats.lacquer("#fbf6ec"), front(new BoxGeometry(1.4, 26, 1), l, 13, 2.2));
+  }
+  // Printed windows down both sides.
+  for (const side of [1, -1]) {
+    for (const a of [-36, 0, 36]) {
+      const face = (g: BufferGeometry, out: number) => {
+        if (side < 0) g.rotateY(Math.PI);
+        return place(g, a, side * (WIDE / 2 + out), 34);
+      };
+      b.add(mats.lacquer("#fbf6ec"), face(new BoxGeometry(20, 16, 1.6), 0.2));
+      printedPane(b, mats, 16, 12, face);
+    }
   }
 }

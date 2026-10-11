@@ -121,6 +121,28 @@ export class ToyAudio {
     });
   }
 
+  /** A small toy bell, two quick strikes, as an engine sets off. */
+  bell(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || this.muted) return;
+    const t = ctx.currentTime;
+    for (const k of [0, 0.16]) {
+      // A bell: a bright fundamental plus inharmonic partials, each fading at its own rate.
+      for (const [ratio, vol, decay] of [[1, 0.12, 0.9], [2.76, 0.05, 0.45], [5.4, 0.025, 0.2]] as const) {
+        const osc = ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = 1320 * ratio;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, t + k);
+        g.gain.linearRampToValueAtTime(vol, t + k + 0.004);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + k + decay);
+        osc.connect(g).connect(this.master);
+        osc.start(t + k);
+        osc.stop(t + k + decay + 0.05);
+      }
+    }
+  }
+
   snap(): void {
     this.knock(0.55, 520, 0.08, 0);
   }

@@ -23,6 +23,8 @@ export interface Materials {
   magnet: MeshStandardMaterial;
   coal: MeshStandardMaterial;
   glass: MeshPhysicalMaterial;
+  /** The painted viaduct under bridge pieces (track geometry's third slot). */
+  bridgePaint: MeshPhysicalMaterial;
   lacquer: (color: string) => MeshPhysicalMaterial;
   /** Lacquer in any colour, taken from the geometry's vertex colours (for merged static scenery). */
   paint: MeshPhysicalMaterial;
@@ -143,6 +145,7 @@ export function createMaterials(anisotropy: number): Materials {
     coal: new MeshStandardMaterial({ color: new Color("#1c1a19"), roughness: 0.7, metalness: 0.1 }),
     glass: new MeshPhysicalMaterial({ color: new Color("#1d2633"), roughness: 0.1, clearcoat: 1, metalness: 0.2 }),
     lacquer,
+    bridgePaint: lacquer("#c8442f"),
     scenery,
     paint: new MeshPhysicalMaterial({ vertexColors: true, roughness: 0.38, clearcoat: 1, clearcoatRoughness: 0.12, bumpMap: beech.bumpMap, bumpScale: 0.25 }),
   };

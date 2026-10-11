@@ -25,7 +25,7 @@ export interface TreePlacement {
   z: number;
   /** Ground height under the tree. */
   y: number;
-  kind: "fir" | "ball";
+  kind: "fir" | "ball" | "discs";
   scale: number;
   lean: number;
   leanDir: number;
@@ -46,7 +46,7 @@ export function treePlacements(land: Landscape): TreePlacement[] {
         x: g.centreX(col) + (r() * 2 - 1) * JITTER,
         z: g.centreZ(row) + (r() * 2 - 1) * JITTER,
         y: g.groundY(i),
-        kind: r() < 0.55 ? "fir" : "ball",
+        kind: treeKind(r()),
         scale: 0.8 + r() * 0.4,
         lean: r() * MAX_LEAN,
         leanDir: r() * Math.PI * 2,
@@ -56,6 +56,11 @@ export function treePlacements(land: Landscape): TreePlacement[] {
     }
   }
   return out;
+}
+
+/** Which turned shape a tree is, from a uniform random number. */
+export function treeKind(v: number): TreePlacement["kind"] {
+  return v < 0.45 ? "fir" : v < 0.8 ? "ball" : "discs";
 }
 
 const BASE_H = 4;
@@ -70,6 +75,20 @@ function firCrown(segments: number): BufferGeometry {
   return new LatheGeometry(p, segments);
 }
 
+/** Stacked discs, widest at the bottom, each with rounded edges, like a stacking toy. Base at y = 0. */
+function discCrown(segments: number): BufferGeometry {
+  const p: Vector2[] = [new Vector2(0, 0)];
+  let y = 0;
+  for (const [r, h] of [[18, 9], [15, 8.5], [11.5, 8], [7.5, 7.5]]) {
+    // Each disc: a short drum with rounded top and bottom edges, then a narrow neck to the next.
+    p.push(new Vector2(r - 2, y), new Vector2(r, y + 2), new Vector2(r, y + h - 2), new Vector2(r - 2, y + h), new Vector2(4, y + h));
+    y += h + 1;
+    p.push(new Vector2(4, y));
+  }
+  p.push(new Vector2(0, y));
+  return new LatheGeometry(p, segments);
+}
+
 function instanced(geometry: BufferGeometry, material: Material, count: number): InstancedMesh {
   const mesh = new InstancedMesh(geometry, material, Math.max(1, count));
   mesh.count = count;
@@ -79,14 +98,15 @@ function instanced(geometry: BufferGeometry, material: Material, count: number):
 }
 
 /**
- * Turned-wood toy trees on round wooden bases: four instanced draw calls for the whole map. `lowDetail` trees (for
- * distant scenery) have fewer facets, cheaper materials and no bases: three draws.
+ * Turned-wood toy trees on round wooden bases: five instanced draw calls for the whole map. `lowDetail` trees (for
+ * distant scenery) have fewer facets, cheaper materials and no bases: four draws.
  */
 export function buildTrees(placements: readonly TreePlacement[], mats: Materials, lowDetail = false): Group {
   const round = lowDetail ? 7 : 14;
   const group = new Group();
   const firs = placements.filter((t) => t.kind === "fir");
   const balls = placements.filter((t) => t.kind === "ball");
+  const stacks = placements.filter((t) => t.kind === "discs");
 
   const base = new CylinderGeometry(13, 14.5, BASE_H, round);
   base.translate(0, BASE_H / 2, 0);
@@ -97,6 +117,8 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
   const ball = new SphereGeometry(19, round, lowDetail ? 6 : 10);
   ball.scale(1, 1.05, 1);
   ball.translate(0, BASE_H + TRUNK_H + 13, 0);
+  const discs = discCrown(round);
+  discs.translate(0, BASE_H + TRUNK_H - 4, 0);
 
   const crownMat = lowDetail ? mats.scenery.crown : mats.lacquer("#ffffff");
   const woodMat = lowDetail ? mats.scenery.wood : mats.naturalWood;
@@ -105,6 +127,7 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
   const trunks = instanced(trunk, woodMat, placements.length);
   const firMesh = instanced(fir, crownMat, firs.length);
   const ballMesh = instanced(ball, crownMat, balls.length);
+  const discMesh = instanced(discs, crownMat, stacks.length);
 
   const m = new Matrix4();
   const q = new Quaternion();
@@ -114,7 +137,7 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
   const scl = new Vector3();
   const c = new Color();
   const up = new Vector3(0, 1, 0);
-  const counts = { fir: 0, ball: 0 };
+  const counts = { fir: 0, ball: 0, discs: 0 };
   placements.forEach((t, i) => {
     pos.set(t.x, t.y, t.z);
     scl.setScalar(t.scale);
@@ -126,12 +149,12 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
     q.premultiply(tilt);
     m.compose(pos, q, scl);
     trunks.setMatrixAt(i, m);
-    const crowns = t.kind === "fir" ? firMesh : ballMesh;
+    const crowns = t.kind === "fir" ? firMesh : t.kind === "ball" ? ballMesh : discMesh;
     const k = counts[t.kind]++;
     crowns.setMatrixAt(k, m);
     crowns.setColorAt(k, c.set(TREE_GREENS[t.tint]));
   });
-  group.add(trunks, firMesh, ballMesh);
+  group.add(trunks, firMesh, ballMesh, discMesh);
   // Distant trees go without their base discs: too small to see through the haze.
   if (lowDetail) {
     bases.dispose();

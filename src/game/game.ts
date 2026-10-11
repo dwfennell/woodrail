@@ -18,9 +18,10 @@ import { createStage, type Stage } from "../render/stage";
 import { shadowRadiusForView, shouldRefit } from "../render/shadow-fit";
 import { TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
+import { CrossingsView } from "../render/crossings-view";
 import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { hillSlabs, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
+import { findCrossings, hillSlabs, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
 import { PIECE_TYPES, type Layout } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import type { World } from "./world";
@@ -44,6 +45,7 @@ export class Game {
   readonly trackView: TrackView;
   landscapeView: LandscapeView;
   readonly trainView: TrainView;
+  readonly crossingsView: CrossingsView;
   readonly post: Post;
   readonly snapshot: SimSnapshot = createSnapshot();
   readonly physics: DerailPhysics;
@@ -105,6 +107,9 @@ export class Game {
     this.physics.setSlabs(hillSlabs(this.landscape.grid));
     this.trainView = new TrainView(this.mats);
     this.scene.add(this.trainView.group);
+    this.crossingsView = new CrossingsView(this.mats);
+    this.scene.add(this.crossingsView.group);
+    this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.post = createPost(this.renderer, this.scene, this.camera, this.quality);
 
     window.addEventListener("resize", () => this.resize());
@@ -130,6 +135,7 @@ export class Game {
     this.trackView.sync();
     this.physics.setLayout(this.layout);
     this.physics.setSlabs(hillSlabs(this.landscape.grid));
+    this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
   }
 
   get world(): World {
@@ -139,6 +145,7 @@ export class Game {
   /** Call after any layout edit. */
   trackChanged(): void {
     this.trackView.sync();
+    this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.physics.markTrackDirty();
   }
 
@@ -243,6 +250,7 @@ export class Game {
     if (!this.paused) this.physics.step(dt);
     this.simMs = performance.now() - t0;
     this.trainView.update(this.snapshot, dt, (id, out) => this.physics.poseOf(id, out));
+    this.crossingsView.update(this.snapshot, dt);
     this.onFrame?.(dt);
     this.flourishes.update(dt);
     this.director.update(dt, this.canvas.clientWidth, this.canvas.clientHeight);

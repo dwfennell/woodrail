@@ -70,7 +70,7 @@ export function renderThumbnails(renderer: WebGLRenderer, mats: Materials, subje
   for (const s of subjects) {
     let subject: Object3D;
     if (s.kind === "piece") {
-      const mesh = new Mesh(pieceGeometry(s.type, false), [mats.track, mats.trackCut]);
+      const mesh = new Mesh(pieceGeometry(s.type, false), [mats.track, mats.trackCut, mats.bridgePaint]);
       // Long pieces lie diagonally so they fill the square tile.
       mesh.rotation.y = 0.5;
       subject = mesh;

@@ -5,7 +5,7 @@ import type { Materials } from "../materials";
 import { Batcher } from "./batcher";
 import { blockMeshes, shadowProxy } from "./blocks";
 import { building } from "./buildings";
-import { buildTrees, MAX_LEAN, TREE_GREENS, type TreePlacement } from "./trees";
+import { buildTrees, MAX_LEAN, TREE_GREENS, treeKind, type TreePlacement } from "./trees";
 
 const ROUNDED_REACH = 700;
 
@@ -29,7 +29,7 @@ export function buildSurroundings(s: Surroundings, mats: Materials): Group {
       x: t.x,
       z: t.z,
       y: t.y,
-      kind: v < 0.55 ? "fir" : "ball",
+      kind: treeKind(v),
       scale: t.scale,
       lean: ((v * 97) % 1) * MAX_LEAN,
       leanDir: ((v * 331) % 1) * Math.PI * 2,

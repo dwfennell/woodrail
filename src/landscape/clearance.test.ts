@@ -5,7 +5,7 @@ import { FEAT_BUILDING, FEAT_TREE, LandscapeGrid, MAT_WIDTH, SURF_RIVER, SURF_TO
 import { generateLandscape, stationEnds, type Landscape } from "./generate";
 
 function flat(): Landscape {
-  return { seed: 0, starter: false, grid: new LandscapeGrid(), towns: [], corridors: [] };
+  return { seed: 0, starter: false, grid: new LandscapeGrid(), towns: [], corridors: [], fields: [], shed: null };
 }
 function setCells(land: Landscape, x0: number, x1: number, z0: number, z1: number, fn: (i: number) => void): void {
   const g = land.grid;

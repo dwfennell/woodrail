@@ -1,13 +1,14 @@
 import { BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SRGBColorSpace, type InstancedMesh, type MeshBasicMaterial } from "three";
-import { CELL, COLS, generateSurroundings, ROWS, SURF_RIVER, SURF_ROAD, type Landscape, type Town } from "../landscape";
+import { CELL, COLS, generateSurroundings, ROWS, SURF_LANE, SURF_RIVER, SURF_ROAD, type Landscape, type Town } from "../landscape";
 import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF_TOP } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
 import { buildBlocks } from "./dressing/blocks";
-import { buildStation, buildTown } from "./dressing/buildings";
+import { buildShed, buildStation, buildTown } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltGround, buildFeltRibbons } from "./dressing/felt";
 import { buildSurroundings } from "./dressing/surroundings";
 import { buildTrees, treePlacements } from "./dressing/trees";
+import { buildField } from "./dressing/fields";
 import type { Flourish } from "./flourishes";
 import type { Materials } from "./materials";
 
@@ -15,6 +16,9 @@ import type { Materials } from "./materials";
 const SIGN_SELF_LIGHT = 0.3;
 
 /** Draws the felt mat and everything on it (block hills, rivers, roads, trees, towns, stations, name signs) and the scenery around it. */
+const POST_RADIUS = 2.4;
+const RAIL_H = 3;
+
 export class LandscapeView {
   readonly group = new Group();
   private signs = new Map<number, MeshStandardMaterial>();
@@ -88,8 +92,10 @@ export class LandscapeView {
     this.group.add(buildFeltGround(this.mats));
     const river = buildFeltRibbons(grid, SURF_RIVER, this.mats.riverFelt, 1.6);
     const road = buildFeltRibbons(grid, SURF_ROAD, this.mats.roadFelt, 1.1);
+    const lane = buildFeltRibbons(grid, SURF_LANE, this.mats.roadFelt, 1.1);
     if (river) this.group.add(river);
     if (road) this.group.add(road);
+    if (lane) this.group.add(lane);
 
     // Hills: stacks of individual wooden blocks, painted green on top.
     this.group.add(buildBlocks(grid, this.land.seed, this.mats));
@@ -104,6 +110,10 @@ export class LandscapeView {
       buildStation(town, this.mats, b);
       this.buildSign(town, b);
     }
+
+    // Fenced paddocks of toy animals.
+    for (const field of this.land.fields) buildField(this.land, field, this.mats, b);
+    if (this.land.shed) buildShed(this.land, this.land.shed, this.mats, b);
 
     // The toy countryside around the mat, fading into the haze.
     this.group.add(buildSurroundings(generateSurroundings(this.land.seed), this.mats));
@@ -134,12 +144,18 @@ export class LandscapeView {
     this.group.add(board);
     const dx = Math.cos(pose.heading);
     const dz = Math.sin(pose.heading);
-    const postH = SIGN_Y - STATION_ROOF_TOP;
+    // The board sits on a rail carried by two short posts, so nothing crosses the lettering on either face.
+    const bottom = SIGN_Y - SIGN_HEIGHT / 2;
+    const postH = bottom - RAIL_H - STATION_ROOF_TOP;
     for (const off of [-28, 28]) {
-      const post = new CylinderGeometry(2.4, 2.4, postH, 10);
+      const post = new CylinderGeometry(POST_RADIUS, POST_RADIUS, postH, 10);
       post.translate(pose.x + dx * off, STATION_ROOF_TOP + postH / 2, pose.z + dz * off);
       b.add(this.mats.naturalWood, post);
     }
+    const rail = new BoxGeometry(SIGN_WIDTH * 0.75, RAIL_H, SIGN_THICKNESS + 3);
+    rail.rotateY(-pose.heading);
+    rail.translate(pose.x, bottom - RAIL_H / 2, pose.z);
+    b.add(this.mats.naturalWood, rail);
     this.signs.set(town.id, sign);
   }
 

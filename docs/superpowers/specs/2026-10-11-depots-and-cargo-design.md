@@ -203,7 +203,8 @@ rules has been applied to the existing towns, stations and trains (see §9.2).
 
 ## 10. Persistence
 
-- Save version 5 (the 72 mm grid took version 4). Adds: depots (piece id, auto, wait-full, piles, timers), cargo per car, per-town delivered count,
+- Save version 6 (the 72 mm grid took version 4; lanes, paddocks and the engine shed took 5). Depots are generated with their own random stream, like lanes,
+  paddocks and the shed, so adding them does not reshuffle the rest of the map. Adds: depots (piece id, auto, wait-full, piles, timers), cargo per car, per-town delivered count,
   `timber` car kind and `buffer-turnback` pieces.
 - Older saves are discarded, as with previous version bumps (no compatibility before v1).
 
@@ -215,7 +216,8 @@ Recorded so the design leaves room for them:
   farm → milk tanker / hay → town; harbour on the map edge → containers → towns; mail and passengers between stations.
 - **Alternating switch** that sends trains left and right in turn, for sharing one line between several depots.
 - **Player-placed depots** and buildings.
-- **Lifting bridge** over rivers, **level crossings** on roads, **turntable** and **engine shed**.
+- **Lifting bridge** over rivers, **turntable**, **tunnel portals**, and using the engine shed for parking (level
+  crossings and the decorative shed are built: see `2026-10-11-life-on-the-line-design.md`).
 - **Cargo spills** on derail, picked up by hand.
 
 ## 12. Testing

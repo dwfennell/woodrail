@@ -25,7 +25,7 @@ describe("treePlacements", () => {
       expect(t.scale).toBeGreaterThanOrEqual(0.8);
       expect(t.scale).toBeLessThanOrEqual(1.2);
     }
-    expect(new Set(trees.map((t) => t.kind)).size).toBe(2);
+    expect(new Set(trees.map((t) => t.kind)).size).toBe(3);
   });
 
   it("is deterministic per map", () => {
