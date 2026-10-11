@@ -1,8 +1,8 @@
 import { RISER_HEIGHT } from "../track";
 
 export const CELL = 64;
-export const COLS = 50;
-export const ROWS = 37;
+export const COLS = 70;
+export const ROWS = 52;
 export const MAT_WIDTH = COLS * CELL;
 export const MAT_DEPTH = ROWS * CELL;
 export const MAX_HEIGHT = 3;

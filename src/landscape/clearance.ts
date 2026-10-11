@@ -13,7 +13,7 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   river: "Needs a bridge over the river",
   hill: "Too low — the hill is in the way",
   tree: "A tree is in the way",
-  "off-mat": "Keep the track on the mat",
+  "off-mat": "That's past the edge of the map",
   piece: "Another piece is in the way",
 };
 

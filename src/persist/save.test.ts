@@ -35,6 +35,10 @@ describe("save format v2", () => {
     expect(w.sim.getTrain(w.sim.trainIds()[0])!.cars[0].lever).toBe(1);
   });
 
+  it("is at version 3", () => {
+    expect(SAVE_VERSION).toBe(3);
+  });
+
   it("rejects version 1 saves", () => {
     const r = deserializeWorld({ version: 1, pieces: [], switches: [], trains: [] });
     expect(r.ok).toBe(false);

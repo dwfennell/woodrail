@@ -18,8 +18,9 @@ describe("generateLandscape", () => {
   it.each(SEEDS)("seed %i: valid towns, flat protected areas, gentle hills, all towns reachable", (seed) => {
     const land = generateLandscape(seed);
     const g = land.grid;
-    expect(land.towns.length).toBeGreaterThanOrEqual(3);
-    expect(land.towns.length).toBeLessThanOrEqual(4);
+    expect(land.towns.length).toBeGreaterThanOrEqual(5);
+    expect(land.towns.length).toBeLessThanOrEqual(7);
+    expect(new Set(land.towns.map((t) => t.name)).size).toBe(land.towns.length);
     for (let i = 0; i < land.towns.length; i++) {
       const t = land.towns[i];
       expect(Math.abs(Math.round(t.station.heading / (Math.PI / 4)) * (Math.PI / 4) - t.station.heading)).toBeLessThan(1e-9);
@@ -60,6 +61,17 @@ describe("generateLandscape", () => {
     expect(trees).toBe(40);
     expect(buildings).toBe(40);
     expect(rivers).toBeGreaterThan(25);
+  });
+
+  it("lays out a 70 × 52 square mat with up to three rivers", () => {
+    expect(COLS).toBe(70);
+    expect(ROWS).toBe(52);
+    const counts = new Set(SEEDS.slice(0, 60).map((seed) => generateLandscape(seed).towns.length));
+    expect(counts).toEqual(new Set([5, 6, 7]));
+  });
+
+  it("starter maps have five towns", () => {
+    expect(generateLandscape(7, { starter: true }).towns).toHaveLength(5);
   });
 
   it("starter maps line up towns 0 and 1 with a clear strip between them", () => {

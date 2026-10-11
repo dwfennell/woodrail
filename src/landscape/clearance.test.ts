@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPieceDef } from "../track";
-import { checkPlacement, groundUnder } from "./clearance";
+import { BLOCK_MESSAGES, checkPlacement, groundUnder } from "./clearance";
 import { FEAT_BUILDING, FEAT_TREE, LandscapeGrid, MAT_WIDTH, SURF_RIVER, SURF_TOWN } from "./grid";
 import { generateLandscape, stationEnds, type Landscape } from "./generate";
 
@@ -53,6 +53,7 @@ describe("checkPlacement", () => {
     setCells(town, 60, 80, -10, 10, (i) => (town.grid.surface[i] = SURF_TOWN));
     expect(checkPlacement(town, "straight-216", false, P(0, 0), 0)).toEqual({ kind: "blocked", reason: "town" });
     expect(checkPlacement(flat(), "straight-216", false, P(MAT_WIDTH / 2 - 100, 0), 0)).toEqual({ kind: "blocked", reason: "off-mat" });
+    expect(BLOCK_MESSAGES["off-mat"]).toBe("That's past the edge of the map");
   });
 
   it("a straight seated on a station end is clear", () => {

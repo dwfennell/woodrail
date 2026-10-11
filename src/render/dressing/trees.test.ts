@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CELL, FEAT_TREE, generateLandscape } from "../../landscape";
+import { CELL, COLS, FEAT_TREE, generateLandscape } from "../../landscape";
 import { MAX_LEAN, treePlacements } from "./trees";
 
 describe("treePlacements", () => {
@@ -14,7 +14,7 @@ describe("treePlacements", () => {
     for (const t of trees) {
       const i = g.cellAtWorld(t.x, t.z);
       expect(g.feature[i]).toBe(FEAT_TREE);
-      expect(Math.abs(t.x - g.centreX(i % 50))).toBeLessThanOrEqual(CELL / 2 - 14);
+      expect(Math.abs(t.x - g.centreX(i % COLS))).toBeLessThanOrEqual(CELL / 2 - 14);
       expect(t.y).toBe(g.groundY(i));
     }
   });

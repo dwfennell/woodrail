@@ -56,7 +56,7 @@ const TOWN_RADIUS = 210;
 const CORRIDOR_LENGTH = 6 * CELL;
 const CORRIDOR_HALF_WIDTH = 2 * CELL;
 
-const NAMES = ["Applebury", "Millbrook", "Oakhollow", "Pinecrest", "Thimble Cross", "Larkfield", "Brambleton", "Copperdale", "Willowmere", "Fernhill"];
+const NAMES = ["Applebury", "Millbrook", "Oakhollow", "Pinecrest", "Thimble Cross", "Larkfield", "Brambleton", "Copperdale", "Willowmere", "Fernhill", "Hazelwick", "Puddleby", "Kettle Green", "Foxley", "Tumbledown", "Ashcombe"];
 
 /** The two outward ends of a town's station: socket end and peg end, each heading away from the station. */
 export function stationEnds(town: Town): [Pose, Pose] {
@@ -162,7 +162,8 @@ function attemptLandscape(seed: number, starter: boolean): Landscape {
   relaxHeights(grid);
 
   // Felt rivers: random walks from one edge to the opposite edge, avoiding towns and corridors.
-  const riverCount = random() < 0.7 ? 1 : 2;
+  const pick = random();
+  const riverCount = pick < 0.35 ? 1 : pick < 0.8 ? 2 : 3;
   for (let r = 0; r < riverCount; r++) {
     for (let tries = 0; tries < 8; tries++) {
       const path = riverWalk(grid, random, locked);
@@ -221,7 +222,7 @@ function attemptLandscape(seed: number, starter: boolean): Landscape {
 }
 
 function placeTowns(random: () => number, starter: boolean): Town[] {
-  const count = starter ? 3 : random() < 0.5 ? 3 : 4;
+  const count = starter ? 5 : 5 + Math.floor(random() * 3);
   const names = [...NAMES];
   for (let i = names.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));

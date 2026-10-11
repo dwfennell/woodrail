@@ -6,10 +6,10 @@ import { CAR_KINDS, Sim, type CarKind } from "../sim";
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
 
 /**
- * Save format, version 2. Plain JSON validated with Zod; only this module knows its shape.
+ * Save format, version 3. Plain JSON validated with Zod; only this module knows its shape.
  * The landscape is regenerated from its seed. No backward compatibility until the game reaches v1.
  */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 const pieceSchema = z.object({
   id: z.number().int().positive(),

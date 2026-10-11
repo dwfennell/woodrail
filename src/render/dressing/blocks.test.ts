@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateLandscape } from "../../landscape";
+import { COLS, generateLandscape } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
 import { BLOCK_TONES, blockInstances } from "./blocks";
 
@@ -41,8 +41,8 @@ describe("buried blocks", () => {
     for (const b of all) {
       if (b.exposed) continue;
       const i = g.cellAtWorld(b.x, b.z);
-      const col = i % 50;
-      const row = (i - col) / 50;
+      const col = i % COLS;
+      const row = (i - col) / COLS;
       const level = b.y / RISER_HEIGHT;
       for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         expect(g.inBounds(col + dc, row + dr)).toBe(true);
