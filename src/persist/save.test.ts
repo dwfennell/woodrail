@@ -35,8 +35,14 @@ describe("save format v2", () => {
     expect(w.sim.getTrain(w.sim.trainIds()[0])!.cars[0].lever).toBe(1);
   });
 
-  it("is at version 5 (lanes, paddocks and the engine shed)", () => {
-    expect(SAVE_VERSION).toBe(5);
+  it("is at version 6 (depots and cargo)", () => {
+    expect(SAVE_VERSION).toBe(6);
+  });
+
+  it("refuses version 5 saves", () => {
+    const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
+    data.version = 5;
+    expect(deserializeWorld(JSON.parse(JSON.stringify(data))).ok).toBe(false);
   });
 
   it("rejects version 1 saves", () => {
@@ -72,5 +78,67 @@ describe("station binding", () => {
     const [a, b] = data.towns;
     [a.stationPieceId, b.stationPieceId] = [b.stationPieceId, a.stationPieceId];
     expect(deserializeWorld(JSON.parse(JSON.stringify(data))).ok).toBe(false);
+  });
+});
+
+describe("economy in saves", () => {
+  /** The starter map with a timber train standing just before its forest yard, and some history. */
+  function timberWorld(): World {
+    const world = buildStarterWorld();
+    const forest = world.landscape.depots.find((d) => d.kind === "forest")!;
+    const pieceId = world.depots.get(forest.id)!;
+    const p = world.layout.getPiece(pieceId)!.pose;
+    const c = Math.cos(p.heading);
+    const s = Math.sin(p.heading);
+    const b1 = world.layout.addPiece("straight-216", { x: p.x - c * 216, z: p.z - s * 216, heading: p.heading });
+    world.layout.addPiece("straight-216", { x: p.x - c * 432, z: p.z - s * 432, heading: p.heading });
+    world.layout.addPiece("straight-216", { x: p.x + c * 216, z: p.z + s * 216, heading: p.heading });
+    const placed = world.sim.addTrain(["engine", "timber", "timber"], { pieceId: b1, pathIndex: 0, reversed: false, s: 200 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const t = world.sim.getTrain(placed.trainId)!;
+    world.sim.setLever(t.cars[0].id, 1);
+    const d = world.economy.depotAtPiece(pieceId)!;
+    d.piles[0] = 7;
+    d.waitFull = true;
+    world.economy.setCargo(t.cars[2].id, "log", 2);
+    world.economy.delivered.set(1, 9);
+    return world;
+  }
+  const step = (w: World, seconds: number) => {
+    for (let i = 0; i < seconds / SIM_DT; i++) {
+      w.sim.tick();
+      w.economy.tick();
+    }
+  };
+  const roundTrip = (w: World) => {
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
+    if (!r.ok) throw new Error(r.error);
+    return r.value;
+  };
+
+  it("round-trips piles, timers, switches, cargo on wagons and deliveries", () => {
+    const world = timberWorld();
+    step(world, 3);
+    const w = roundTrip(world);
+    for (const d of world.economy.allDepots()) {
+      const e = w.economy.depot(d.id)!;
+      expect([e.role, e.pieceId, e.auto, e.waitFull, e.timer, Array.from(e.piles)]).toEqual([d.role, d.pieceId, d.auto, d.waitFull, d.timer, Array.from(d.piles)]);
+    }
+    const cargo = (x: World) => x.sim.trainIds().flatMap((id) => x.sim.getTrain(id)!.cars.map((c) => x.economy.cargoOf(c.id)));
+    expect(cargo(w)).toEqual(cargo(world));
+    expect(w.economy.delivered.get(1)).toBe(9);
+  });
+
+  it("a train saved half way through loading carries on loading after a load", () => {
+    const world = timberWorld();
+    // Run until the crane is working on the first wagon.
+    let i = 0;
+    while (world.economy.servicedCar(0) === -1 && world.economy.allDepots().every((d) => world.economy.servicedCar(d.id) === -1) && i++ < 60 / SIM_DT) step(world, SIM_DT);
+    step(world, 1.5);
+    const w = roundTrip(world);
+    const wagons = (x: World) => x.sim.getTrain(x.sim.trainIds()[0])!.cars.filter((c) => c.kind === "timber");
+    const before = w.economy.cargoOf(wagons(w)[0].id).count;
+    step(w, 10);
+    expect(w.economy.cargoOf(wagons(w)[0].id).count).toBeGreaterThan(before);
   });
 });

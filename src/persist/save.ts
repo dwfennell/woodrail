@@ -3,13 +3,14 @@ import { err, ok, type Result } from "../lib/result";
 import { createEconomy, depotPieceType, type World } from "../game/world";
 import { generateLandscape } from "../landscape";
 import { CAR_KINDS, Sim, type CarKind } from "../sim";
+import { CARGO_KINDS, PILE_CAP, WAGON_CAPACITY, type CargoKind } from "../economy";
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
 
 /**
- * Save format, version 5. Plain JSON validated with Zod; only this module knows its shape.
+ * Save format, version 6. Plain JSON validated with Zod; only this module knows its shape.
  * The landscape is regenerated from its seed. No backward compatibility until the game reaches v1.
  */
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 const pieceSchema = z.object({
   id: z.number().int().positive(),
@@ -28,6 +29,7 @@ const trainSchema = z.object({
         kind: z.enum(CAR_KINDS as unknown as [CarKind, ...CarKind[]]),
         facing: z.union([z.literal(1), z.literal(-1)]),
         lever: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
+        cargo: z.object({ kind: z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]]), count: z.number().int().min(1).max(WAGON_CAPACITY) }).optional(),
       }),
     )
     .min(1),
@@ -46,6 +48,18 @@ const saveSchema = z.object({
   pieces: z.array(pieceSchema),
   switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(1)])),
   trains: z.array(trainSchema),
+  /** Economy depots by id (landscape depots first, then one per town station). */
+  depots: z.array(
+    z.object({
+      id: z.number().int().min(0),
+      auto: z.boolean(),
+      waitFull: z.boolean(),
+      piles: z.tuple([z.number().int().min(0).max(PILE_CAP), z.number().int().min(0).max(PILE_CAP)]),
+      timer: z.number().int().min(0),
+    }),
+  ),
+  /** Plank bundles delivered, by town id. */
+  delivered: z.array(z.tuple([z.number().int().min(0), z.number().int().min(0)])),
 });
 
 export type SaveData = z.infer<typeof saveSchema>;
@@ -63,7 +77,10 @@ export function serializeWorld(world: World): SaveData {
   const trains: SaveData["trains"] = sim.trainIds().map((id) => {
     const t = sim.getTrain(id)!;
     return {
-      cars: t.cars.map((c) => ({ kind: c.kind, facing: c.facing, lever: c.lever })),
+      cars: t.cars.map((c) => {
+        const cargo = world.economy.cargoOf(c.id);
+        return { kind: c.kind, facing: c.facing, lever: c.lever, ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
+      }),
       lead: { ...t.bogies[0] },
     };
   });
@@ -74,6 +91,8 @@ export function serializeWorld(world: World): SaveData {
     pieces,
     switches,
     trains,
+    depots: world.economy.allDepots().map((d) => ({ id: d.id, auto: d.auto, waitFull: d.waitFull, piles: [d.piles[0], d.piles[1]] as [number, number], timer: d.timer })),
+    delivered: [...world.economy.delivered],
   };
 }
 
@@ -109,6 +128,17 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     depots.set(depot.id, piece.id);
   }
   const sim = new Sim(layout);
+  const economy = createEconomy(layout, sim, landscape, stations, depots);
+  for (const d of save.depots) {
+    const state = economy.depot(d.id);
+    if (!state) continue;
+    state.auto = d.auto;
+    state.waitFull = d.waitFull;
+    state.piles[0] = d.piles[0];
+    state.piles[1] = d.piles[1];
+    state.timer = d.timer;
+  }
+  for (const [townId, n] of save.delivered) if (landscape.towns.some((t) => t.id === townId)) economy.delivered.set(townId, n);
   for (const t of save.trains) {
     const lead = layout.getPiece(t.lead.pieceId);
     if (!lead) continue;
@@ -123,9 +153,11 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     train.cars.forEach((car, i) => {
       if (t.cars[i].facing === -1) sim.flipCar(car.id);
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
+      const cargo = t.cars[i].cargo;
+      if (cargo && car.kind === "timber") economy.setCargo(car.id, cargo.kind, cargo.count);
     });
   }
-  return ok({ layout, sim, landscape, stations, depots, economy: createEconomy(layout, sim, landscape, stations, depots) });
+  return ok({ layout, sim, landscape, stations, depots, economy });
 }
 
 const STORAGE_KEY = "woodrail.autosave.v2";
