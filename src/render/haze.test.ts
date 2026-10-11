@@ -44,6 +44,8 @@ describe("haze", () => {
     it("never cuts the mat, the felt ground, or scenery beyond the target", () => {
       expect(cutawayAt({ x: edge - 100, y: 40, z: 0 }, camera, targetPlan)).toBe(0);
       expect(cutawayAt({ x: edge + 300, y: 1, z: 0 }, camera, targetPlan)).toBe(0);
+      // …but the foot of a block's side (not facing up) does go, so no outline of the blocks is left behind.
+      expect(cutawayAt({ x: edge + 300, y: 1, z: 0 }, camera, targetPlan, false)).toBe(1);
       expect(cutawayAt({ x: -edge - 300, y: 400, z: 0 }, camera, targetPlan)).toBe(0);
     });
 

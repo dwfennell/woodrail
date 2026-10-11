@@ -15,8 +15,8 @@ export const HAZE_FAR = 2900;
 /** How much distance from the camera adds (a little aerial perspective). */
 export const HAZE_VIEW = 0.03;
 
-/** Scenery lower than this (mm) is never cut away (the felt ground and its hem stay put). */
-export const CUTAWAY_MIN_HEIGHT = 6;
+/** Flat surfaces lower than this (mm) are ground and never cut away (the felt and its hem stay put). */
+export const CUTAWAY_MIN_HEIGHT = 3;
 /**
  * Scenery whose plan distance from the camera is under this fraction of the target's is fully cut away; it fades
  * back in by FADE_END (of the target's distance).
@@ -25,11 +25,17 @@ export const CUTAWAY_FADE_START = 0.8;
 export const CUTAWAY_FADE_END = 0.95;
 
 /**
- * How much of a scenery point is cut away (0–1), as the shader decides: points outside the mat, above the ground, and
- * nearer the camera (in plan) than the point it looks at.
+ * How much of a scenery point is cut away (0–1), as the shader decides: points outside the mat that aren't flat
+ * ground (facing up, at ground level), nearer the camera (in plan) than the point it looks at.
  */
-export function cutawayAt(point: { x: number; y: number; z: number }, camera: { x: number; z: number }, targetPlanDistance: number): number {
-  if (outsideDistance(point.x, point.z) <= 1 || point.y <= CUTAWAY_MIN_HEIGHT) return 0;
+export function cutawayAt(
+  point: { x: number; y: number; z: number },
+  camera: { x: number; z: number },
+  targetPlanDistance: number,
+  facingUp = true,
+): number {
+  const ground = facingUp && point.y < CUTAWAY_MIN_HEIGHT;
+  if (outsideDistance(point.x, point.z) <= 1 || ground) return 0;
   const h = Math.hypot(point.x - camera.x, point.z - camera.z);
   return 1 - smoothstep(CUTAWAY_FADE_START, CUTAWAY_FADE_END, h / Math.max(targetPlanDistance, 1));
 }
@@ -70,7 +76,11 @@ export function installHaze(): void {
   // Cutaway: scenery outside the mat, standing above the ground and between the camera and the point it looks at,
   // dithers away so it never walls off the view. (The camera always looks at its target, on the ground: find it
   // along the view direction.)
-  if (hazeOutside > 1.0 && vHaze.w > ${CUTAWAY_MIN_HEIGHT.toFixed(1)}) {
+  // Only the felt ground stays: flat (facing straight up) and at ground level. Block sides, bevels and tops all go.
+  vec3 hazeWorldPos = vec3(vHaze.x, vHaze.w, vHaze.y);
+  vec3 hazeNormal = normalize(cross(dFdx(hazeWorldPos), dFdy(hazeWorldPos)));
+  bool hazeGround = abs(hazeNormal.y) > 0.95 && vHaze.w < ${CUTAWAY_MIN_HEIGHT.toFixed(1)};
+  if (hazeOutside > 1.0 && !hazeGround) {
     vec3 hazeFwd = -vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
     if (hazeFwd.y < -0.01) {
       float hazeT = cameraPosition.y / -hazeFwd.y;

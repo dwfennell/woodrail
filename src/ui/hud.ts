@@ -32,6 +32,28 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["caboose"], label: "Caboose" },
 ];
 
+/** A shelf of the tray: a few related items behind one button. */
+export interface TrayGroup {
+  label: string;
+  items: TrayItem[];
+}
+
+const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === t)!);
+
+export const TRACK_GROUPS: TrayGroup[] = [
+  { label: "Straight", items: pieces("straight-216", "straight-144", "straight-108", "straight-54") },
+  { label: "Curve", items: pieces("curve-large", "curve-small") },
+  { label: "Switch", items: pieces("switch", "crossing") },
+  { label: "Ups & downs", items: pieces("ramp", "bridge", "riser") },
+  { label: "Ends", items: pieces("buffer", "buffer-turnback") },
+  { label: "Adapters", items: pieces("adapter-peg", "adapter-socket") },
+];
+
+export const TRAIN_GROUPS: TrayGroup[] = [
+  { label: "Trains", items: TRAIN_ITEMS.slice(0, 2) },
+  { label: "Engine & wagons", items: TRAIN_ITEMS.slice(2) },
+];
+
 export interface HudHandlers {
   trayPointerDown(item: TrayItem, e: PointerEvent): void;
   undo(): void;
@@ -49,6 +71,10 @@ export interface HudHandlers {
   resetStarter(): void;
   toggleQuality(): void;
   closeCards(): void;
+  /** Tray: turn the piece in hand and the ones taken out next (an eighth turn). */
+  trayTurn(): void;
+  /** Tray: mirror the piece in hand and the ones taken out next. */
+  trayFlip(): void;
   /** Depot card: turn automatic loading on or off. */
   depotAuto(): void;
   /** Depot card: trains wait for a full load, or not. */
@@ -119,6 +145,7 @@ export class Hud {
   private toastTimer = 0;
 
   private readonly handlers: HudHandlers;
+  private flipTrayBtn!: HTMLButtonElement;
 
   constructor(parent: HTMLElement, h: HudHandlers, qualityLabel: () => string, opts: HudOptions) {
     this.handlers = h;
@@ -220,36 +247,74 @@ export class Hud {
     };
     scroller.addEventListener("scroll", edges, { passive: true });
     window.addEventListener("resize", edges);
-    const fill = (items: TrayItem[]) => {
+    const picture = (item: TrayItem) => {
+      const thumb = opts.thumbnails?.get(trayKey(item));
+      return thumb ? `<img src="${thumb}" alt="" draggable="false">` : item.kind === "piece" ? pieceIcon(item.type) : trainIcon(item.cars);
+    };
+    const show = () => requestAnimationFrame(edges);
+    // Top level: one button per group; open one to see its items, with a way back first in the row.
+    const showGroups = (groups: TrayGroup[]) => {
+      this.trayGlide++;
       scroller.innerHTML = "";
       scroller.scrollLeft = 0;
-      for (const item of items) {
-        const b = el("button", "tray-item");
-        const thumb = opts.thumbnails?.get(trayKey(item));
-        const picture = thumb ? `<img src="${thumb}" alt="" draggable="false">` : item.kind === "piece" ? pieceIcon(item.type) : trainIcon(item.cars);
-        b.innerHTML = `<span class="icon">${picture}</span><span class="label">${item.label}</span>`;
-        b.title = `Drag onto the floor: ${item.label}`;
+      this.tray.classList.remove("in-group");
+      for (const group of groups) {
+        const b = el("button", "tray-item tray-group");
+        b.innerHTML = `<span class="icon">${picture(group.items[0])}</span><span class="label">${group.label}</span><span class="count">${group.items.length}</span>`;
+        b.title = `${group.label}: ${group.items.map((i) => i.label).join(", ")}`;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(item, e, scroller);
+          this.trayPress(e, scroller, { tap: () => showItems(groups, group) });
         });
         scroller.appendChild(b);
       }
-      requestAnimationFrame(edges);
+      show();
     };
-    for (const [name, items] of [
-      ["Track", TRACK_ITEMS],
-      ["Trains", TRAIN_ITEMS],
+    const showItems = (groups: TrayGroup[], group: TrayGroup) => {
+      this.trayGlide++;
+      scroller.innerHTML = "";
+      scroller.scrollLeft = 0;
+      this.tray.classList.add("in-group");
+      const back = el("button", "tray-item tray-back");
+      back.innerHTML = `<span class="icon">‹</span><span class="label">Back</span>`;
+      back.title = "Back to all kinds";
+      back.addEventListener("click", () => showGroups(groups));
+      scroller.appendChild(back);
+      for (const item of group.items) {
+        const b = el("button", "tray-item");
+        b.innerHTML = `<span class="icon">${picture(item)}</span><span class="label">${item.label}</span>`;
+        b.title = `Drag onto the floor: ${item.label}`;
+        b.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move) });
+        });
+        scroller.appendChild(b);
+      }
+      show();
+    };
+    for (const [name, groups] of [
+      ["Track", TRACK_GROUPS],
+      ["Trains", TRAIN_GROUPS],
     ] as const) {
       const t = button(name, `${name} pieces`, () => {
         tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === t));
-        fill(items);
+        this.tray.classList.toggle("track-tab", groups === TRACK_GROUPS);
+        // Tapping a tab (even the open one) goes back to its groups.
+        showGroups(groups);
       }, "tab");
       tabs.appendChild(t);
     }
     (tabs.firstChild as HTMLButtonElement).classList.add("active");
-    fill(TRACK_ITEMS);
-    this.tray.append(tabs, scroller);
+    this.tray.classList.add("track-tab");
+    showGroups(TRACK_GROUPS);
+    // Turn and flip, for track pieces: set how the next piece comes out, or turn the one in hand (with another finger).
+    const orient = el("div", "tray-orient");
+    this.flipTrayBtn = button("⇋ Flip", "Mirror the next piece (or the one you're holding)", () => this.handlers.trayFlip(), "chip text");
+    orient.append(
+      button(`↻ Turn<span class="turn-arrow">↑</span>`, "Turn the next piece (or the one you're holding) an eighth of a turn", () => this.handlers.trayTurn(), "chip text"),
+      this.flipTrayBtn,
+    );
+    this.tray.append(orient, tabs, scroller);
     this.root.appendChild(this.tray);
 
     this.root.appendChild(this.toastEl);
@@ -377,11 +442,12 @@ export class Hud {
   }
 
   /**
-   * A press on a tray item: after a few pixels, a mostly upward drag picks the item up (out onto the mat) and a
-   * mostly sideways one scrolls the tray, gliding on when let go. Decided by us, so it behaves the same every time.
+   * A press in the tray: after a few pixels, a mostly upward drag picks the item up (`pick`, out onto the mat) and a
+   * mostly sideways one scrolls the tray, gliding on when let go; a press that hardly moves is a tap (`tap`).
+   * Decided by us, so it behaves the same every time.
    */
-  private trayPress(item: TrayItem, down: PointerEvent, scroller: HTMLElement): void {
-    this.trayGlide = 0;
+  private trayPress(down: PointerEvent, scroller: HTMLElement, on: { pick?: (move: PointerEvent) => void; tap?: () => void }): void {
+    this.trayGlide++;
     const id = down.pointerId;
     const x0 = down.clientX;
     const y0 = down.clientY;
@@ -396,10 +462,10 @@ export class Hud {
       const dy = e.clientY - y0;
       if (mode === "undecided") {
         if (Math.hypot(dx, dy) < TRAY_DECIDE_PX) return;
-        if (-dy > Math.abs(dx) * 0.7) {
+        if (on.pick && -dy > Math.abs(dx) * 0.7) {
           // Up and out: pick the item up.
           stop();
-          this.handlers.trayPointerDown(item, e);
+          on.pick(e);
           return;
         }
         mode = "scroll";
@@ -413,8 +479,9 @@ export class Hud {
     const up = (e: PointerEvent) => {
       if (e.pointerId !== id) return;
       stop();
+      if (mode === "undecided" && e.type === "pointerup") on.tap?.();
       // A quick swipe glides on, slowing down.
-      if (mode === "scroll" && e.timeStamp - lastT < 80 && Math.abs(velocity) > 0.05) this.glideTray(scroller, velocity);
+      else if (mode === "scroll" && e.timeStamp - lastT < 80 && Math.abs(velocity) > 0.05) this.glideTray(scroller, velocity);
     };
     const stop = () => {
       window.removeEventListener("pointermove", move);
@@ -442,6 +509,12 @@ export class Hud {
       if (Math.abs(v) > 0.02) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
+  }
+
+  /** Show how tray pieces will come out: the Turn arrow points their way, and Flip lights up when mirroring. */
+  setTrayOrientation(turns: number, flipped: boolean): void {
+    this.tray.style.setProperty("--tray-turn", `${turns * 45}deg`);
+    this.flipTrayBtn.classList.toggle("active", flipped);
   }
 
   showDepotCard(title: string): void {

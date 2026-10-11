@@ -58,6 +58,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .tray-item .icon svg { width: 76%; height: 76%; }
 .tray-item .icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 3px 2px rgba(80, 50, 20, 0.22)); pointer-events: none; }
 .tray-item .label { font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+/* A group: a little tab in the corner says how many pieces are inside. */
+.tray-group { position: relative; }
+.tray-group .count { position: absolute; top: 5px; right: 6px; min-width: 18px; height: 18px; border-radius: 9px; background: #e3bf8c; color: #5a3d22; font-size: 11px; font-weight: 800; display: grid; place-items: center; padding: 0 4px; }
+/* Back: a narrow, plain button at the start of an open group. */
+.tray-item.tray-back { width: 56px; background: rgba(120, 80, 40, 0.1); box-shadow: none; }
+.tray-item.tray-back .icon { font-size: 34px; font-weight: 800; color: #7a5a3a; height: 52px; width: auto; }
 
 .card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 130px); background: rgba(250, 243, 230, 0.95); backdrop-filter: blur(10px); border-radius: 18px; box-shadow: 0 10px 34px rgba(60, 40, 20, 0.3); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
 .card-title { font-weight: 800; font-size: 15px; color: #6a4a2c; }
@@ -114,3 +120,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .chip, .tray-item, .menu-item, .tab { transition: transform 0.22s cubic-bezier(0.3, 1.6, 0.5, 1), filter 0.15s, background-color 0.15s; }
 .chip:active, .tray-item:active { transform: translateY(1px) scale(0.93); transition-duration: 0.06s; }
 @media (prefers-reduced-motion: reduce) { .card:not([hidden]), .menu:not([hidden]) { animation: none; } }
+
+/* Turn / Flip: above the tray while a group of track pieces is open. */
+.tray-orient { position: absolute; right: 12px; top: -44px; display: none; gap: 6px; }
+.tray.track-tab.in-group .tray-orient { display: flex; }
+.tray-orient .chip { padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+/* The Turn button's arrow points the way the next piece will face. */
+.tray-orient .turn-arrow { display: inline-block; transform: rotate(var(--tray-turn, 0deg)); transition: transform 0.2s ease; margin-left: 4px; }

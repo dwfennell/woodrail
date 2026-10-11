@@ -91,6 +91,14 @@ function boot(): void {
       },
       buttonTap: () => audio.tap(),
       depotAuto: () => interaction.toggleDepotAuto(),
+      trayTurn: () => {
+        interaction.turnTrayPiece();
+        hud.setTrayOrientation(interaction.trayTurns, interaction.trayFlipped);
+      },
+      trayFlip: () => {
+        interaction.flipTrayPiece();
+        hud.setTrayOrientation(interaction.trayTurns, interaction.trayFlipped);
+      },
       depotWaitFull: () => interaction.toggleDepotWaitFull(),
     },
     () => (game.quality.tier === "high" ? "High" : "Battery saver"),

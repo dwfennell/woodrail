@@ -190,14 +190,16 @@ export class Interaction {
     this.cancel();
     this.clearSelection();
     if (item.kind === "piece") {
-      const ghost = this.heldMesh(item.type, false);
+      // Comes out turned and flipped as set in the tray.
+      const flipped = this.trayFlipped && getPieceDef(item.type, false).flippable;
+      const ghost = this.heldMesh(item.type, flipped);
       ghost.visible = false;
       this.mode = {
         kind: "drag-piece",
         pointerId: e.pointerId,
         type: item.type,
-        flipped: false,
-        heading: this.cameraHeading(),
+        flipped,
+        heading: this.cameraHeading() + (this.trayTurns * Math.PI) / 4,
         pieceId: -1,
         from: null,
         offset: { x: 0, z: 0 },
@@ -216,6 +218,24 @@ export class Interaction {
       const cars = item.cars.map((kind) => ({ kind, facing: 1 as const, lever: 0 as const }));
       this.mode = { kind: "drag-train", pointerId: e.pointerId, cars, origin: null, ghost: this.trainGhost(cars), target: null, overTray: true };
     }
+  }
+
+  /** How pieces come out of the tray: eighth turns from facing away from the camera, and mirrored or not. */
+  trayTurns = 0;
+  trayFlipped = false;
+
+  /** Tray "Turn": turns the piece in hand (if any) and every piece taken out after it. */
+  turnTrayPiece(): void {
+    if (this.mode.kind === "drag-piece") this.rotateSelected();
+    this.trayTurns = (this.trayTurns + 1) % 8;
+    this.onTurned?.();
+  }
+
+  /** Tray "Flip": mirrors the piece in hand (if any) and every piece taken out after it. */
+  flipTrayPiece(): void {
+    if (this.mode.kind === "drag-piece") this.flipSelected();
+    this.trayFlipped = !this.trayFlipped;
+    this.onTurned?.();
   }
 
   // ---- pointer ----------------------------------------------------------------------------------------------
