@@ -541,7 +541,8 @@ export class Interaction {
     m.overTray = this.hud.isOverTray(x, y);
     const r = this.game.canvas.getBoundingClientRect();
     const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
-    this.game.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop });
+    // A drag coming up out of the tray passes through the bottom band: only pan once it has left the band.
+    this.game.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
     const ground = this.groundAt(x, y);
     if (m.kind === "drag-piece") {
       m.ghost.visible = !m.overTray && !!ground;

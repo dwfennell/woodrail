@@ -122,6 +122,31 @@ describe("CameraDirector edge pan", () => {
     d.update(1 / 30, 1000, 800);
     expect(controls.target.z).toBeGreaterThan(0);
   });
+
+  it("waits for a drag out of the tray to leave the edge band before panning, then pans when it comes back", () => {
+    const camera = new PerspectiveCamera(30, 1000 / 800, 5, 40000);
+    camera.position.set(0, 600, 600);
+    const controls = { target: new Vector3(), minDistance: 100, maxDistance: 9000, maxPolarAngle: 1.42, addEventListener: () => {} } as unknown as OrbitControls;
+    camera.lookAt(controls.target);
+    const d = new CameraDirector(camera, controls);
+    // Just out of the tray: inside the bottom band, but the finger is only passing through.
+    d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600, waitForExit: true });
+    d.update(1 / 30, 1000, 800);
+    expect(controls.target.z).toBe(0);
+    expect(d.edgePanning).toBe(false);
+    // Up into the open view, then back down to the edge on purpose.
+    d.setEdgePointer({ x: 500, y: 300, touch: true, bottom: 600, waitForExit: true });
+    d.update(1 / 30, 1000, 800);
+    d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600, waitForExit: true });
+    d.update(1 / 30, 1000, 800);
+    expect(controls.target.z).toBeGreaterThan(0);
+    // Back over the tray (no pointer) and out again: waits again.
+    const z = controls.target.z;
+    d.setEdgePointer(null);
+    d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600, waitForExit: true });
+    d.update(1 / 30, 1000, 800);
+    expect(controls.target.z).toBe(z);
+  });
 });
 
 describe("CameraDirector over the scenery around the mat", () => {
