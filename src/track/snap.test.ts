@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { connectorRef, Layout } from "./layout";
-import type { Pose } from "./math";
+import { solveParentPose, transformPose, type Pose } from "./math";
+import { getPieceDef } from "./pieces";
 import { appendPiece, findSnap } from "./snap";
+import { SNAP_CAPTURE_RADIUS } from "./constants";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -125,5 +127,66 @@ describe("findSnap capture radius", () => {
     l.addPiece("straight-144", P(0, 0));
     expect(findSnap(l, "straight-144", false, P(184, 0), 0).kind).toBe("none");
     expect(findSnap(l, "straight-144", false, P(184, 0), 0, -1, 60).kind).toBe("snapped");
+  });
+});
+
+describe("auto-fit (ends that don't match turn or mirror the piece to fit)", () => {
+  /** A long straight from the origin along +x: hole (socket) at x = 0, peg at x = 216. */
+  function base() {
+    const layout = new Layout();
+    layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    return layout;
+  }
+  const centre = (type: Parameters<typeof getPieceDef>[0], flipped: boolean, pose: Pose) => {
+    const d = getPieceDef(type, flipped);
+    let x = 0;
+    let z = 0;
+    for (const c of d.connectors) {
+      const w = transformPose(pose, c.pose, { x: 0, z: 0, heading: 0 });
+      x += w.x;
+      z += w.z;
+    }
+    return { x: x / d.connectors.length, z: z / d.connectors.length };
+  };
+
+  it("a straight held peg-to-peg seats turned round, where it was held", () => {
+    const layout = base();
+    // Held turned round: its peg end at x = 216 (against the other peg), its hole end out at x = 432.
+    const held = { x: 432, z: 0, heading: Math.PI };
+    expect(findSnap(layout, "straight-216", false, held, 0).kind).toBe("none");
+    const s = findSnap(layout, "straight-216", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn");
+    expect(s.kind).toBe("snapped");
+    if (s.kind !== "snapped") return;
+    expect(s.pose.x).toBeCloseTo(216, 6);
+    expect(s.pose.z).toBeCloseTo(0, 6);
+    expect(Math.cos(s.pose.heading)).toBeCloseTo(1, 6);
+  });
+
+  it("a curve held peg-to-peg seats mirrored when allowed, so it still bends the way it was held", () => {
+    const layout = base();
+    // Hold a curve with its peg end against the straight's peg (facing back along −x), bending away beyond it.
+    const peg = getPieceDef("curve-large", false).connectors[1];
+    const held = solveParentPose(peg.pose, { x: 216, z: 0, heading: Math.PI }, { x: 0, z: 0, heading: 0 });
+    const was = centre("curve-large", false, held);
+    const turned = findSnap(layout, "curve-large", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn");
+    const fitted = findSnap(layout, "curve-large", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
+    expect(turned.kind).toBe("snapped");
+    expect(fitted.kind).toBe("snapped");
+    if (turned.kind !== "snapped" || fitted.kind !== "snapped") return;
+    expect(fitted.flipped).toBe(true);
+    const away = (s: typeof fitted) => {
+      const c = centre("curve-large", s.flipped, s.pose);
+      return Math.hypot(c.x - was.x, c.z - was.z);
+    };
+    expect(away(fitted)).toBeLessThan(1);
+    expect(away(turned)).toBeGreaterThan(away(fitted) + 20);
+  });
+
+  it("an exact fit nearby still wins over a turned one", () => {
+    const layout = base();
+    // Held the right way round, its hole end at the straight's peg.
+    const s = findSnap(layout, "straight-216", false, { x: 217, z: 0, heading: 0 }, 0, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
+    expect(s.kind).toBe("snapped");
+    if (s.kind === "snapped") expect(s.flipped).toBe(false);
   });
 });

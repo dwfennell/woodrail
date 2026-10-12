@@ -44,7 +44,10 @@ type Mode =
       kind: "drag-piece";
       pointerId: number;
       type: PieceTypeId;
+      /** As drawn and placed: may be mirrored from `heldFlipped` while snapped, to fit the connector it meets. */
       flipped: boolean;
+      /** Mirrored or not, as the player chose. */
+      heldFlipped: boolean;
       heading: number;
       /** Existing piece being moved, or -1 for a new piece from the tray. */
       pieceId: number;
@@ -199,6 +202,7 @@ export class Interaction {
         pointerId: e.pointerId,
         type: item.type,
         flipped,
+        heldFlipped: flipped,
         heading: this.cameraHeading() + (this.trayTurns * Math.PI) / 4,
         pieceId: -1,
         from: null,
@@ -645,7 +649,8 @@ export class Interaction {
     if (this.mode.kind === "drag-piece") {
       const m = this.mode;
       if (!getPieceDef(m.type, false).flippable) return;
-      m.flipped = !m.flipped;
+      m.heldFlipped = !m.heldFlipped;
+      m.flipped = m.heldFlipped;
       const visible = m.ghost.visible;
       this.game.scene.remove(m.ghost);
       m.ghost = this.heldMesh(m.type, m.flipped);
@@ -702,6 +707,7 @@ export class Interaction {
       pointerId,
       type: p.type,
       flipped: p.flipped,
+      heldFlipped: p.flipped,
       heading: p.pose.heading,
       pieceId,
       from,
@@ -759,17 +765,28 @@ export class Interaction {
       const lift = this.lastPointerWasTouch ? this.touchLift(x, y) : null;
       const gx = (lift ?? ground).x + m.offset.x;
       const gz = (lift ?? ground).z + m.offset.z;
-      m.pose = poseForCentre(m.type, m.flipped, gx, gz, m.heading);
+      m.pose = poseForCentre(m.type, m.heldFlipped, gx, gz, m.heading);
       // A riser over another riser stacks squarely on top of it.
-      const stack = getPieceDef(m.type, m.flipped).connectors.length === 0 ? riserStackAt(this.game.layout, m.pose.x, m.pose.z, m.pieceId) : null;
+      const stack = getPieceDef(m.type, m.heldFlipped).connectors.length === 0 ? riserStackAt(this.game.layout, m.pose.x, m.pose.z, m.pieceId) : null;
       if (stack) m.pose = { ...stack.pose };
       const capture = this.captureRadius(x, y);
-      m.looseY = looseHeight(this.game.landscape, this.game.layout, m.type, m.flipped, m.pose, m.pieceId);
-      // Look for pegs on the floor, up to a few risers up, and on whatever the piece is over.
+      m.looseY = looseHeight(this.game.landscape, this.game.layout, m.type, m.heldFlipped, m.pose, m.pieceId);
+      // Look for pegs on the floor, up to a few risers up, and on whatever the piece is over. Ends that don't match
+      // (peg to peg, hole to hole) turn the piece round, or for a new piece mirror it, so it fits.
+      const autoFit = m.pieceId === -1 ? "turn-or-mirror" : "turn";
       m.snap = { kind: "none" };
       for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
-        const s = findSnap(this.game.layout, m.type, m.flipped, m.pose, level, m.pieceId, capture);
+        const s = findSnap(this.game.layout, m.type, m.heldFlipped, m.pose, level, m.pieceId, capture, autoFit);
         if (s.kind === "snapped" && (m.snap.kind !== "snapped" || s.distance < m.snap.distance)) m.snap = s;
+      }
+      const fitFlipped = m.snap.kind === "snapped" ? m.snap.flipped : m.heldFlipped;
+      if (fitFlipped !== m.flipped) {
+        // Show it mirrored (or back as held) while it fits that way.
+        m.flipped = fitFlipped;
+        const visible = m.ghost.visible;
+        this.game.scene.remove(m.ghost);
+        m.ghost = this.heldMesh(m.type, m.flipped);
+        m.ghost.visible = visible;
       }
       const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
       const py = m.snap.kind === "snapped" ? m.snap.y : m.looseY;

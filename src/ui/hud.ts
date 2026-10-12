@@ -417,6 +417,7 @@ export class Hud {
   showEngineCard(lever: number, following: boolean): void {
     this.hideCards();
     this.engineCard.hidden = false;
+    this.root.classList.add("card-open");
     this.updateEngineCard(lever, following);
   }
 
@@ -433,11 +434,13 @@ export class Hud {
   showCarCard(): void {
     this.hideCards();
     this.carCard.hidden = false;
+    this.root.classList.add("card-open");
   }
 
   showPieceCard(flippable: boolean): void {
     this.hideCards();
     this.pieceCard.hidden = false;
+    this.root.classList.add("card-open");
     this.flipBtn.disabled = !flippable;
   }
 
@@ -521,6 +524,7 @@ export class Hud {
     this.hideCards();
     this.depotTitle.textContent = title;
     this.depotCard.hidden = false;
+    this.root.classList.add("card-open");
   }
 
   /**
@@ -541,6 +545,7 @@ export class Hud {
   }
 
   hideCards(): void {
+    this.root.classList.remove("card-open");
     this.depotCard.hidden = true;
     this.engineCard.hidden = true;
     this.carCard.hidden = true;
