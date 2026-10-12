@@ -1,52 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { COLS, generateLandscape } from "../../landscape";
+import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from "three";
+import { CELL, CORNER_RADIUS, CORNERS, insideBlock } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
-import { BLOCK_TONES, blockInstances } from "./blocks";
+import { roundedChamferedBox } from "./chamfer";
 
-describe("blockInstances", () => {
-  const land = generateLandscape(7, { starter: true });
-  const { grid } = land;
+const GAP = 0.8;
 
-  it("places one block per cell per level", () => {
-    let total = 0;
-    for (let i = 0; i < grid.height.length; i++) total += grid.height[i];
-    expect(blockInstances(grid, 7)).toHaveLength(total);
-  });
-
-  it("stacks blocks at whole riser heights", () => {
-    for (const b of blockInstances(grid, 7)) {
-      expect(b.y % RISER_HEIGHT).toBe(0);
-      expect(b.y).toBeLessThan(grid.height[grid.cellAtWorld(b.x, b.z)] * RISER_HEIGHT);
-    }
-  });
-
-  it("varies the wood tone, deterministically", () => {
-    const a = blockInstances(grid, 7);
-    const b = blockInstances(grid, 7);
-    expect(a.map((x) => x.tone)).toEqual(b.map((x) => x.tone));
-    expect(new Set(a.map((x) => x.tone)).size).toBeGreaterThanOrEqual(3);
-    for (const x of a) expect(x.tone).toBeLessThan(BLOCK_TONES.length);
-  });
-});
-
-describe("buried blocks", () => {
-  it("skips only blocks hidden on every side and from above", () => {
-    const land = generateLandscape(7, { starter: true });
-    const g = land.grid;
-    const all = blockInstances(g, 7);
-    const shown = all.filter((b) => b.exposed);
-    expect(shown.length).toBeLessThan(all.length);
-    // Every top block is exposed, and so is every block on the mat's edge.
-    for (const b of all) if (b.top) expect(b.exposed).toBe(true);
-    for (const b of all) {
-      if (b.exposed) continue;
-      const i = g.cellAtWorld(b.x, b.z);
-      const col = i % COLS;
-      const row = (i - col) / COLS;
-      const level = b.y / RISER_HEIGHT;
-      for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        expect(g.inBounds(col + dc, row + dr)).toBe(true);
-        expect(g.height[g.index(col + dc, row + dr)]).toBeGreaterThan(level);
+describe("rounded hill blocks as drawn", () => {
+  it("are solid from above exactly where the hill model says (bar the gap and bevels)", () => {
+    for (const corners of [0, 1, 6, 9, 15]) {
+      const g = roundedChamferedBox(CELL - GAP, RISER_HEIGHT - GAP, CELL - GAP, 2.5, corners, CORNER_RADIUS - GAP / 2);
+      const mesh = new Mesh(g, new MeshBasicMaterial());
+      const ray = new Raycaster();
+      for (let x = -34; x <= 34; x += 2) {
+        for (let z = -34; z <= 34; z += 2) {
+          // Distance from the model's edge: skip a margin for the gap, the bevel and the arc's facets.
+          let margin = Math.min(CELL / 2 - Math.abs(x), CELL / 2 - Math.abs(z));
+          for (const { sx, sz, bit } of CORNERS) {
+            if (!(corners & bit)) continue;
+            const d = Math.hypot(x - sx * (CELL / 2 - CORNER_RADIUS), z - sz * (CELL / 2 - CORNER_RADIUS));
+            if ((x - sx * (CELL / 2 - CORNER_RADIUS)) * sx > 0 && (z - sz * (CELL / 2 - CORNER_RADIUS)) * sz > 0) margin = Math.min(margin, Math.abs(CORNER_RADIUS - d));
+          }
+          if (margin < 4) continue;
+          ray.set(new Vector3(x, 100, z), new Vector3(0, -1, 0));
+          const hit = ray.intersectObject(mesh).length > 0;
+          expect(hit, `corners ${corners} @ ${x},${z}`).toBe(insideBlock(corners, x, z));
+        }
       }
     }
   });

@@ -23,7 +23,7 @@ import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
 import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { bridgeLevels, findCrossings, type HeldPiece, hillSlabs, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
+import { bridgeLevels, findCrossings, type HeldPiece, hillPieces, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
 import { PIECE_TYPES, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
@@ -158,7 +158,10 @@ export class Game {
     this.trackView.sync();
     this.physics = new DerailPhysics(this.layout);
     this.physics.bridgeLevels = this.bridgeLevelsOf;
-    this.physics.setSlabs(hillSlabs(this.landscape.grid));
+    {
+      const pieces = hillPieces(this.landscape.grid);
+      this.physics.setSlabs(pieces.slabs, pieces.round);
+    }
     this.trainView = new TrainView(this.mats);
     this.scene.add(this.trainView.group);
     this.depotView = new DepotView(this.mats);
@@ -210,7 +213,10 @@ export class Game {
     this.scene.add(this.trackView.group);
     this.trackView.sync();
     this.physics.setLayout(this.layout);
-    this.physics.setSlabs(hillSlabs(this.landscape.grid));
+    {
+      const pieces = hillPieces(this.landscape.grid);
+      this.physics.setSlabs(pieces.slabs, pieces.round);
+    }
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.depotView.setWorld(this.economy, this.layout);
   }

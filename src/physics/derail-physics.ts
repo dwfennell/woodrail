@@ -1,6 +1,6 @@
 import type RAPIER_NS from "@dimforge/rapier3d-compat";
 import { Euler, Quaternion, Vector3 } from "three";
-import type { Slab } from "../landscape";
+import { blockOutline, type RoundBlock, type Slab } from "../landscape";
 import { CAR_SPECS, type Train } from "../sim";
 import { createSample, getPieceDef, pathLength, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PlacedPiece } from "../track";
 
@@ -46,6 +46,8 @@ export class DerailPhysics {
   private trackDirty = true;
   private readonly cars = new Map<number, CarBody>();
   private slabs: readonly Slab[] = [];
+  /** Hill blocks with rounded corners: convex hulls of their outlines. */
+  private roundBlocks: readonly RoundBlock[] = [];
   private readonly pending: Train[] = [];
   private accumulator = 0;
   failed = false;
@@ -72,8 +74,9 @@ export class DerailPhysics {
   }
 
   /** Hill blocks of the current map: static colliders so tumbling cars land on them. */
-  setSlabs(slabs: readonly Slab[]): void {
+  setSlabs(slabs: readonly Slab[], round: readonly RoundBlock[] = []): void {
     this.slabs = slabs;
+    this.roundBlocks = round;
     this.trackDirty = true;
   }
 
@@ -123,6 +126,17 @@ export class DerailPhysics {
     const s = createSample();
     const half = TRACK_WIDTH / 2;
     const add = (desc: RAPIER_NS.ColliderDesc) => this.trackColliders.push(world.createCollider(desc.setFriction(0.6).setRestitution(0.15)));
+    for (const b of this.roundBlocks) {
+      const outline = blockOutline(b.corners, 0, 4);
+      const points = new Float32Array(outline.length * 6);
+      outline.forEach((p, i) => {
+        for (const [k, y] of [(b.level - 1) * RISER_HEIGHT, b.level * RISER_HEIGHT].entries()) {
+          points.set([(b.x + p.x) * MM, y * MM, (b.z + p.z) * MM], (i * 2 + k) * 3);
+        }
+      });
+      const hull = R.ColliderDesc.convexHull(points);
+      if (hull) add(hull);
+    }
     for (const slab of this.slabs) {
       const hx = (slab.x1 - slab.x0) / 2;
       const hz = (slab.z1 - slab.z0) / 2;
