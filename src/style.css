@@ -142,7 +142,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .title-logo { margin: 0; font-size: clamp(34px, 9.5vw, 88px); }
 .title-logo .wb { animation: wb-drop 0.55s cubic-bezier(0.3, 1.5, 0.5, 1) calc(0.45s + var(--i) * 0.07s) backwards; }
 @keyframes wb-drop { from { translate: 0 -1.4em; opacity: 0; } 40% { opacity: 1; } }
-.title-tag { margin: 12px 0 0; font-weight: 700; color: #fff8ec; text-shadow: 0 1px 8px rgba(30, 18, 8, 0.7); }
 .title-cards { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; width: min(720px, 100%); }
 .title-card { flex: 1 1 260px; max-width: 340px; border-radius: 20px; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 4px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 16px 50px rgba(30, 20, 10, 0.35); }
 .title-card h2 { margin: 0; font-size: 26px; display: flex; align-items: center; gap: 8px; }
