@@ -250,7 +250,7 @@ Goal (user, 2026-10-12): rendering costs the same on any size of map. Only the s
   because three's bounding spheres for flat, wide tiles are nearly always in view. Things that fill an area (a plot's
   blocks, a tile of felt) get boxes covering their whole rectangle (`setCullRects`); scattered things (trees, scenery)
   a box per plot-sized patch of their points. `cullTiles` runs only on frames that are drawn.
-- **Reach:** nothing is drawn beyond 1.6× the camera's distance (at least 5 m), and everything, the land too, fades
+- **Reach:** nothing is drawn beyond 2.5× the camera's distance (at least 8 m; it was 1.6× and 5 m, which hazed the top of a phone screen), and everything, the land too, fades
   into the haze before then (the reach is carried in `fogColor.b`). The camera's farthest zoom is fixed at 14 m, so
   only so much of the world can ever be in view.
 - **Full detail at every distance** (user, playtest 2026-10-12: "reduce texture not detail"). An earlier version

@@ -90,8 +90,8 @@ const viewProjection = new Matrix4();
  * least `MIN_REACH`. Land fades into the haze before it (see `haze.ts`), so nothing ends abruptly. The camera's
  * distance is capped, so however big the world grows, only so much of it is ever drawn.
  */
-export const REACH_FACTOR = 1.6;
-export const MIN_REACH = 5000;
+export const REACH_FACTOR = 2.5;
+export const MIN_REACH = 8000;
 export const viewReach = (cameraDistance: number): number => Math.max(MIN_REACH, REACH_FACTOR * cameraDistance);
 
 /**
