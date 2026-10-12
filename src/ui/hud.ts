@@ -1,5 +1,7 @@
+import type { GameMode } from "../game/modes";
 import type { CarKind, CarLook } from "../sim";
 import type { PieceTypeId } from "../track";
+import { blockWord } from "./blocks";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 
 export type TrayItem = { kind: "piece"; type: PieceTypeId; label: string; auto?: boolean } | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string };
@@ -101,6 +103,10 @@ export interface HudHandlers {
   /** Add the plot chosen on the land card. */
   buyLand(): void;
   resetStarter(): void;
+  /** Game mode: start the goals again on the starter map. */
+  newGame(): void;
+  /** Back to the title screen. */
+  titleScreen(): void;
   toggleQuality(): void;
   closeCards(): void;
   /** Tray: turn the piece in hand and the ones taken out next (an eighth turn). */
@@ -178,6 +184,10 @@ export class Hud {
   private readonly toastEl = el("div", "toast");
   private readonly menu = el("div", "menu");
   private readonly help = el("div", "help");
+  private readonly modeTag = el("span", "mode-tag");
+  /** Menu items for each mode's maps. */
+  private readonly sandboxItems: HTMLButtonElement[];
+  private readonly gameItems: HTMLButtonElement[];
   readonly perf = el("div", "perf");
   private toastTimer = 0;
 
@@ -193,7 +203,10 @@ export class Hud {
     });
 
     const top = el("header", "topbar");
-    top.appendChild(el("div", "brand", `<span class="brand-mark"></span><span class="brand-name">Woodrail</span>`));
+    const brand = el("div", "brand");
+    brand.append(blockWord("W", "brand-block"), el("span", "brand-name", "Woodrail"));
+    brand.appendChild(this.modeTag);
+    top.appendChild(brand);
     const actions = el("div", "actions");
     this.undoBtn = button(uiIcon("undo"), "Undo (Ctrl+Z)", h.undo);
     this.redoBtn = button(uiIcon("redo"), "Redo (Ctrl+Shift+Z)", h.redo);
@@ -210,7 +223,7 @@ export class Hud {
     // Menu
     this.menu.hidden = true;
     const quality = button(`Graphics: ${qualityLabel()}`, "Switch graphics quality (reloads)", () => h.toggleQuality(), "menu-item");
-    this.menu.append(
+    this.sandboxItems = [
       button("Starter map", "Back to the starter map", () => {
         this.menu.hidden = true;
         h.resetStarter();
@@ -219,6 +232,20 @@ export class Hud {
         this.menu.hidden = true;
         h.newLayout();
       }, "menu-item"),
+    ];
+    this.gameItems = [
+      button("New game", "Start the goals again on the starter map", () => {
+        this.menu.hidden = true;
+        h.newGame();
+      }, "menu-item"),
+    ];
+    this.menu.append(
+      button("Title screen", "Save and go back to the title screen", () => {
+        this.menu.hidden = true;
+        h.titleScreen();
+      }, "menu-item"),
+      ...this.sandboxItems,
+      ...this.gameItems,
       quality,
       button("How to play", "Show help", () => {
         this.menu.hidden = true;
@@ -409,7 +436,11 @@ export class Hud {
 
     this.perf.hidden = true;
     this.root.appendChild(this.perf);
+    this.setMode("sandbox");
+  }
 
+  /** Show the help card if this player hasn't closed it before. */
+  firstVisitHelp(): void {
     let seen = false;
     try {
       seen = localStorage.getItem("woodrail.helpSeen") === "1";
@@ -417,6 +448,20 @@ export class Hud {
       seen = false;
     }
     if (!seen) this.showHelp();
+  }
+
+  /** Label the mode by the logo and offer its own map items in the menu. */
+  setMode(mode: GameMode): void {
+    this.modeTag.innerHTML = mode === "game" ? `Game <span class="beta">Beta</span>` : "Sandbox";
+    this.modeTag.className = `mode-tag mode-${mode}`;
+    for (const b of this.sandboxItems) b.hidden = mode !== "sandbox";
+    for (const b of this.gameItems) b.hidden = mode !== "game";
+  }
+
+  /** Hide or show the whole play overlay (the title screen covers the game). */
+  setVisible(visible: boolean): void {
+    this.root.hidden = !visible;
+    if (!visible) this.menu.hidden = true;
   }
 
   showHelp(): void {

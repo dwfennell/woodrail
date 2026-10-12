@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
 import { depotPieceType, STATION_CRANE_AT, type World } from "../game/world";
+import type { GameMode } from "../game/modes";
 import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import { CARGO, CARGO_KINDS, Economy, PILE_CAP, ROLE, WAGON_CAPACITY, type CargoKind } from "../economy";
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
@@ -178,21 +179,34 @@ export function deserializeWorld(data: unknown): Result<World, string> {
   return ok({ layout, sim, landscape, stations, depots, economy });
 }
 
-const STORAGE_KEY = "woodrail.autosave.v2";
+/**
+ * One autosave per mode. Moved on with save version 8 (the landscape saved square by square): older saves can't load,
+ * so the title shouldn't offer to carry them on.
+ */
+const STORAGE_KEYS: Record<GameMode, string> = { sandbox: "woodrail.autosave.v3", game: "woodrail.game.v2" };
 
-export function saveToStorage(world: World): boolean {
+export function saveToStorage(world: World, mode: GameMode = "sandbox"): boolean {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeWorld(world)));
+    localStorage.setItem(STORAGE_KEYS[mode], JSON.stringify(serializeWorld(world)));
     return true;
   } catch {
     return false;
   }
 }
 
-export function loadFromStorage(): Result<World, string> | null {
+/** True when the mode has an autosave (valid or not: loading says which). */
+export function hasSave(mode: GameMode): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEYS[mode]) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export function loadFromStorage(mode: GameMode = "sandbox"): Result<World, string> | null {
   let raw: string | null = null;
   try {
-    raw = localStorage.getItem(STORAGE_KEY);
+    raw = localStorage.getItem(STORAGE_KEYS[mode]);
   } catch {
     return null;
   }
@@ -204,4 +218,24 @@ export function loadFromStorage(): Result<World, string> | null {
     return err("autosave is not valid JSON");
   }
   return deserializeWorld(data);
+}
+
+/** Game mode: the ids of the goals done, kept beside the game's autosave. */
+const GOALS_KEY = "woodrail.game.goals.v1";
+
+export function saveGoals(ids: readonly string[]): void {
+  try {
+    localStorage.setItem(GOALS_KEY, JSON.stringify(ids));
+  } catch {
+    // storage unavailable: goals are checked again from the railway next time
+  }
+}
+
+export function loadGoals(): string[] {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(GOALS_KEY) ?? "[]");
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
 }
