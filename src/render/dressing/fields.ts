@@ -1,4 +1,4 @@
-import { BoxGeometry, ConeGeometry, CylinderGeometry, IcosahedronGeometry, SphereGeometry, type BufferGeometry } from "three";
+import { BoxGeometry, ConeGeometry, CylinderGeometry, ExtrudeGeometry, IcosahedronGeometry, Shape, SphereGeometry, type BufferGeometry } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { rng } from "../../lib/rng";
 import { CELL, COLS, type Field, type FieldStock, type Landscape } from "../../landscape";
@@ -29,7 +29,7 @@ export interface FieldDressing {
   /** The side (0 top, 1 right, 2 bottom, 3 left) with a gate in it, or -1. */
   gateSide: number;
   /** What stands in each corner (top-left, top-right, bottom-right, bottom-left). */
-  corners: ("hay" | "haystack" | "trough" | "hives" | "coop" | null)[];
+  corners: ("hay" | "haystack" | "trough" | "hives" | "coop" | "barn" | null)[];
   crop: "wheat" | "greens";
 }
 
@@ -41,14 +41,17 @@ export function fieldDressing(seed: number, field: Field): FieldDressing {
   const crop = d() < 0.5 ? "wheat" : "greens";
   const props: FieldDressing["corners"] = [];
   if (field.animal === "chicken") props.push("coop");
+  // About half the other fields have a red barn in a corner.
+  else if (d() < 0.5) props.push("barn");
   const extras: ("hay" | "haystack" | "trough" | "hives")[] = [d() < 0.5 ? "hay" : "haystack", "hives"];
   if (field.animal !== "crops" && field.animal !== "chicken") extras.push("trough", "trough");
   for (let i = extras.length - 1; i > 0; i--) {
     const j = Math.floor(d() * (i + 1));
     [extras[i], extras[j]] = [extras[j], extras[i]];
   }
-  const want = field.animal === "chicken" ? Math.floor(d() * 2) : 1 + Math.floor(d() * 2);
-  for (const e of extras) if (props.length < want + (field.animal === "chicken" ? 1 : 0) && !props.includes(e)) props.push(e);
+  const building = props.length;
+  const want = building ? Math.floor(d() * 2) : 1 + Math.floor(d() * 2);
+  for (const e of extras) if (props.length < want + building && !props.includes(e)) props.push(e);
   const corners: FieldDressing["corners"] = [null, null, null, null];
   const start = Math.floor(d() * 4);
   props.forEach((p, k) => (corners[(start + k * 2 + (k >= 2 ? 1 : 0)) % 4] = p));
@@ -117,8 +120,9 @@ export function buildField(land: Landscape, field: Field, mats: Materials, b: Ba
     else if (prop === "haystack") haystack(add, place);
     else if (prop === "trough") trough(add, place);
     else if (prop === "hives") beehives(add, place, d);
+    else if (prop === "barn") barn(add, place);
     else coop(add, place);
-    occupied.push({ ...local(20, 18), r: prop === "hives" || prop === "trough" ? 16 : 22 });
+    occupied.push(prop === "barn" ? { ...local(26, 22), r: 32 } : { ...local(20, 18), r: prop === "hives" || prop === "trough" ? 16 : 22 });
   });
 
   if (field.animal === "crops") {
@@ -252,6 +256,47 @@ function coop(add: Add, place: Place): void {
   const ramp = new BoxGeometry(5, 0.8, 12);
   ramp.rotateX(0.55).translate(cx + 4, 2.6, cz + 12.5);
   add(null, place(ramp));
+}
+
+/**
+ * A red barn in the corner: plank walls with white trim, a gambrel roof, big X-braced doors facing into the field
+ * and a hay loft door above them.
+ */
+function barn(add: Add, place: Place): void {
+  const red = "#b8432f";
+  const white = "#f6f1e6";
+  const [cx, cz] = [26, 20];
+  const [w, d, h] = [42, 28, 22];
+  add(red, place(new RoundedBoxGeometry(w, h, d, 1, 1.2).translate(cx, h / 2, cz)));
+  // Gambrel roof: steep lower slopes, shallow upper ones; its outline extruded along the barn.
+  const half = d / 2 + 2;
+  const roof = new Shape();
+  roof.moveTo(-half, 0);
+  roof.lineTo(-half + 4, 9);
+  roof.lineTo(0, 15);
+  roof.lineTo(half - 4, 9);
+  roof.lineTo(half, 0);
+  roof.lineTo(-half, 0);
+  const roofGeo = new ExtrudeGeometry(roof, { depth: w + 4, bevelEnabled: true, bevelSize: 0.8, bevelThickness: 0.8, bevelSegments: 1 });
+  roofGeo.translate(0, 0, -(w + 4) / 2).rotateY(Math.PI / 2).translate(cx, h - 0.5, cz);
+  add("#5a5d63", place(roofGeo));
+  // Gable ends in red under the roof, with a round loft window.
+  for (const s of [-1, 1]) {
+    const gable = new ExtrudeGeometry(roof, { depth: 1, bevelEnabled: false });
+    gable.scale(0.92, 0.92, 1).rotateY(Math.PI / 2).translate(cx + s * (w / 2 - 0.5), h - 0.5, cz);
+    add(red, place(gable));
+  }
+  // Doors on the side facing the field (+z): two leaves with white frames and X braces.
+  const face = cz + d / 2 + 0.4;
+  add(white, place(new BoxGeometry(20, 17, 0.8).translate(cx, 8.5, face)));
+  for (const lx of [-5, 5]) {
+    add(red, place(new BoxGeometry(8.4, 15, 1).translate(cx + lx, 8, face + 0.3)));
+    for (const r of [0.95, -0.95]) add(white, place(new BoxGeometry(1.2, 16, 0.6).rotateZ(r * 0.52).translate(cx + lx, 8, face + 0.9)));
+  }
+  // Loft door and the white trim along the eaves and corners.
+  add(white, place(new BoxGeometry(9, 7, 0.8).translate(cx, h + 5, face - 2.6)));
+  add(red, place(new BoxGeometry(7, 5, 1).translate(cx, h + 5, face - 2.2)));
+  for (const lx of [-w / 2, w / 2]) for (const lz of [-d / 2, d / 2]) add(white, place(new BoxGeometry(1.6, h, 1.6).translate(cx + lx, h / 2, cz + lz)));
 }
 
 // ——— Middle-of-the-field things ———

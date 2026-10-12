@@ -57,7 +57,7 @@ describe("field dressing", () => {
     expect(walls).toBeGreaterThan(20);
     expect(walls).toBeLessThan(160);
     expect(gates).toBeGreaterThan(40);
-    expect([...corners].sort()).toEqual(["coop", "hay", "haystack", "hives", "trough"]);
+    expect([...corners].sort()).toEqual(["barn", "coop", "hay", "haystack", "hives", "trough"]);
   });
 
   it("everything stays inside the field's 2 × 2 squares", () => {
