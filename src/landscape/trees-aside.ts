@@ -29,6 +29,8 @@ export interface HeldPiece {
   type: PieceTypeId;
   flipped: boolean;
   pose: Pose;
+  /** Base height it would go down at. */
+  y: number;
 }
 
 /**

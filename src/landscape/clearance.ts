@@ -2,6 +2,7 @@ import { createSample, getPieceDef, isBridge, pathLength, samplePath, TRACK_WIDT
 import { CELL, COLS, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, MAT_DEPTH, MAT_WIDTH, ROWS, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
 import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
 import { groundAt } from "./corners";
+import { cutsHills } from "./cuttings";
 import { STATION_LENGTH, type Landscape } from "./generate";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
@@ -153,6 +154,8 @@ function distanceToLoops(loops: readonly Loop[], x: number, z: number): number {
 export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): Clearance {
   const g = land.grid;
   const overRiver = isBridge(type);
+  // A ramp may cut a channel into hills up to the height of its top end.
+  const cutTop = cutsHills(type) ? y + Math.max(...getPieceDef(type, flipped).connectors.map((c) => c.y)) : -Infinity;
   let result = CLEAR;
   forEachSample(type, flipped, pose, (x, z, trackY) => {
     const i = g.cellAtWorld(x, z);
@@ -172,7 +175,11 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
         if (inStationFootprint(land, g.owner[i], x, z)) result = BLOCKED.station;
       } else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
       else if (!overRiver && inRiver(g, x, z)) result = BLOCKED.river;
-      else if (y + trackY < groundAt(g, x, z) - 0.5) result = BLOCKED.hill;
+      else {
+        // Below the hill top here: a hill in the way, unless a ramp cuts its way in (no higher than its top end).
+        const ground = groundAt(g, x, z);
+        if (y + trackY < ground - 0.5 && ground > cutTop + 0.5) result = BLOCKED.hill;
+      }
     }
     return result === CLEAR;
   });
