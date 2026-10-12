@@ -17,7 +17,7 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { getPieceDef, isBridge, pathLength, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceTypeId, type PlacedPiece } from "../track";
+import { canStandOnArches, getPieceDef, isBridge, pathLength, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceTypeId, type PlacedPiece } from "../track";
 import { MAX_BRIDGE_LEVELS } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
@@ -377,12 +377,12 @@ export class TrackView {
     }
   }
 
-  /** Build the taller bridges' arches in idle moments after loading, so lifting a bridge higher never stalls. */
+  /** Build the taller bridges' (and raised ramps') arches in idle moments after loading, so lifting a bridge higher never stalls. */
   static warmBridges(types: readonly PieceTypeId[]): void {
     const queue: [PieceTypeId, boolean, number][] = [];
     for (const t of types) {
-      if (!isBridge(t)) continue;
-      for (let levels = 2; levels <= MAX_BRIDGE_LEVELS; levels++) for (const flipped of [false, true]) queue.push([t, flipped, levels]);
+      if (!canStandOnArches(t)) continue;
+      for (let levels = isBridge(t) ? 2 : 1; levels <= MAX_BRIDGE_LEVELS; levels++) for (const flipped of [false, true]) queue.push([t, flipped, levels]);
     }
     const idle = (fn: () => void) => ("requestIdleCallback" in window ? window.requestIdleCallback(fn) : setTimeout(fn, 50));
     const next = () => {

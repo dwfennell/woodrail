@@ -45,7 +45,7 @@ export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Straight", items: pieces("straight-216", "straight-144", "straight-108", "straight-54") },
   { label: "Curve", items: pieces("curve-large", "curve-small") },
   { label: "Switch", items: pieces("switch", "crossing") },
-  { label: "Ups & downs", items: pieces("ramp", "bridge", "bridge-curve", "riser") },
+  { label: "Ups & downs", items: pieces("ramp", "riser", "bridge", "bridge-curve") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback") },
   { label: "Adapters", items: pieces("adapter-peg", "adapter-socket") },
 ];

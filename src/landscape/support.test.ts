@@ -89,6 +89,25 @@ describe("checkSupport", () => {
     }
   });
 
+  it("a ramp up off the ground stands on arches; one on the ground is a plain ramp", () => {
+    for (const levels of [1, 2, 3]) {
+      expect(bridgeLevels(flat(), "ramp", false, P(0, Z), levels * RISER_HEIGHT)).toBe(levels);
+      expect(checkSupport(flat(), new Layout(), "ramp", false, P(0, Z), levels * RISER_HEIGHT, -1)).toEqual({ kind: "held", risers: [] });
+    }
+    // Its high end would top the tallest a bridge goes.
+    expect(bridgeLevels(flat(), "ramp", false, P(0, Z), 4 * RISER_HEIGHT)).toBe(0);
+    expect(bridgeLevels(flat(), "ramp", false, P(0, Z), 0)).toBe(0);
+    expect(checkSupport(flat(), new Layout(), "ramp", false, P(0, Z), 0, -1)).toEqual({ kind: "held", risers: [{ pose: P(216, Z), y: 0 }] });
+  });
+
+  it("track joined to the top of a ramp on arches rests there", () => {
+    const layout = new Layout();
+    layout.addPiece("ramp", P(0, Z), RISER_HEIGHT);
+    // Near end on the ramp's high end, two levels up; the far end over the felt gets two risers.
+    const s = checkSupport(flat(), layout, "straight-216", false, P(216, Z), 2 * RISER_HEIGHT, -1);
+    expect(s).toEqual({ kind: "held", risers: [0, 1].map((k) => ({ pose: P(432, Z), y: k * RISER_HEIGHT })) });
+  });
+
   it("a bridge's arches reach the lowest ground under it", () => {
     const land = flat();
     hill(land, 144, 504, -144, 216, 1);

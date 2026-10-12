@@ -203,6 +203,9 @@ export const PIECE_TYPES = Object.keys(CATALOG) as readonly PieceTypeId[];
 /** Bridges stand on their own arches, down to the ground under them. */
 export const isBridge = (type: PieceTypeId): boolean => type === "bridge" || type === "bridge-curve";
 
+/** Pieces that stand on arches when raised: bridges always, a ramp when its low end is up off the ground. */
+export const canStandOnArches = (type: PieceTypeId): boolean => isBridge(type) || type === "ramp";
+
 const mirrorPose = (p: Pose): Pose => pose(p.x, -p.z, normalizeAngle(-p.heading));
 
 function mirrorGeom(g: PathGeom): PathGeom {

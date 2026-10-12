@@ -309,13 +309,20 @@ function bridgeSupport(def: PieceDef, height: number): BufferGeometry {
     samplePath(path, at, p);
     frames.push({ x: p.x, y: p.y, z: p.z, heading: p.heading, s: at });
   }
-  let result = brush(sweep(viaductProfile(height), frames), PAINT);
+  // On a slope (a bridge ramp) the body hangs deeper at the high end, then is cut level at the ground.
+  const rise = path.kind === "line" ? path.rise : 0;
+  let result = brush(sweep(viaductProfile(height + rise), frames), PAINT);
+  const ground = -height;
+  if (rise > 0) {
+    const below = onlyCsgAttributes(new BoxGeometry(len * 2, rise * 2, TRACK_WIDTH * 2).toNonIndexed());
+    below.translate(len / 2, ground - 1 - rise, 0);
+    result = evaluator.evaluate(result, brush(below), SUBTRACTION);
+  }
   // Arch tops a spandrel below the deck; the openings reach the ground.
   const radius = len * 0.19;
-  const archTop = -RISER_HEIGHT / 4;
-  const ground = -height;
   for (const at of [0.28, 0.72]) {
     samplePath(path, len * at, p);
+    const archTop = p.y - RISER_HEIGHT / 4;
     const arch = onlyCsgAttributes(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40).toNonIndexed());
     arch.rotateX(Math.PI / 2);
     arch.translate(0, archTop - radius, 0);
@@ -410,7 +417,7 @@ export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
       ? brush(sweep(bodyProfile(), framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0)))
       : brush(flatBlockBody(def));
 
-  if (levels > 0) {
+  if (levels > 0 && def.paths.length === 1) {
     // Keep the viaduct's own (painted) group through the union.
     const support = new Brush(bridgeSupport(def, levels * RISER_HEIGHT), [PAINT, PAINT, PAINT]);
     support.updateMatrixWorld();

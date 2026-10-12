@@ -39,6 +39,18 @@ describe("buildPieceGeometry", () => {
     expect(ray.intersectObject(curve).length).toBeGreaterThan(0);
   });
 
+  it("a raised ramp's arches stand level on the ground under its slope", () => {
+    const m = new Mesh(buildPieceGeometry(getPieceDef("ramp", false), 1), new MeshBasicMaterial());
+    const box = new Box3().setFromObject(m);
+    expect(box.min.y).toBeCloseTo(-RISER_HEIGHT - 1, 0);
+    expect(box.max.y).toBeGreaterThan(RISER_HEIGHT);
+    // Viaduct reaches the ground at both ends (just in from each end, below the deck).
+    for (const x of [8, 208]) {
+      const ray = new Raycaster(new Vector3(x, -RISER_HEIGHT + 2, -100), new Vector3(0, 0, 1));
+      expect(ray.intersectObject(m).length, `x ${x}`).toBeGreaterThan(0);
+    }
+  });
+
   it("without levels a bridge is just its deck", () => {
     const box = new Box3().setFromObject(meshOf("bridge"));
     expect(box.min.y).toBeGreaterThan(-1);

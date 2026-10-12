@@ -166,8 +166,8 @@ export class DerailPhysics {
           // A bridge's viaduct, under the deck down to the ground.
           if (arches > 0) {
             add(
-              R.ColliderDesc.cuboid((segLen / 2) * MM, (arches / 2) * MM, (half - 2) * MM)
-                .setTranslation(wx * MM, (p.y + my - arches / 2) * MM, wz * MM)
+              R.ColliderDesc.cuboid((segLen / 2) * MM, ((my + arches) / 2) * MM, (half - 2) * MM)
+                .setTranslation(wx * MM, (p.y + (my - arches) / 2) * MM, wz * MM)
                 .setRotation(new Quaternion().setFromEuler(new Euler(0, -yaw, 0))),
             );
           }

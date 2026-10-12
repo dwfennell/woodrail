@@ -8,7 +8,7 @@ import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { CAR_SPECS, COUPLER_GAP, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, bridgeLevels, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { findOverlap, findSnap, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
+import { findOverlap, findSnap, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
@@ -777,6 +777,9 @@ export class Interaction {
       m.snap = { kind: "none" };
       for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
         const s = findSnap(this.game.layout, m.type, m.heldFlipped, m.pose, level, m.pieceId, capture, autoFit);
+        // A bridge only joins track it can stand at (raised track, another bridge): beside track on the ground it
+        // keeps to its own height, a level up.
+        if (s.kind === "snapped" && isBridge(m.type) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
         if (s.kind === "snapped" && (m.snap.kind !== "snapped" || s.distance < m.snap.distance)) m.snap = s;
       }
       const fitFlipped = m.snap.kind === "snapped" ? m.snap.flipped : m.heldFlipped;
@@ -794,9 +797,11 @@ export class Interaction {
       if (reason && reason !== m.blocked && !m.overTray) this.hud.toast(BLOCK_MESSAGES[reason]);
       m.blocked = reason;
       m.risers = risers;
-      if (isBridge(m.type)) {
-        // A bridge's arches reach down to the ground under it (one level while it can't stand here).
-        const levels = Math.max(1, bridgeLevels(this.game.landscape, m.type, m.flipped, pose, py));
+      if (canStandOnArches(m.type)) {
+        // A bridge's arches reach down to the ground under it (one level while it can't stand here); a ramp has
+        // arches only while it's up off the ground.
+        const arches = bridgeLevels(this.game.landscape, m.type, m.flipped, pose, py);
+        const levels = isBridge(m.type) ? Math.max(1, arches) : arches;
         const geometry = pieceGeometry(m.type, m.flipped, levels);
         if (m.ghost.geometry !== geometry) m.ghost.geometry = geometry;
       }

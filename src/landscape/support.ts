@@ -1,4 +1,4 @@
-import { createSample, getPieceDef, isBridge, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, type Layout, type PieceTypeId, type Pose } from "../track";
+import { canStandOnArches, createSample, getPieceDef, isBridge, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
 
 /** How close to a riser's centre a track end must be to rest on it (a riser is 46 mm across). */
@@ -57,14 +57,17 @@ function groundOver(land: Landscape, type: PieceTypeId, flipped: boolean, pose: 
 }
 
 /**
- * How many riser heights a bridge's arches stand, from the lowest ground under it up to its deck at `y`; 0 when the
- * deck isn't a whole number of levels (1 to MAX_BRIDGE_LEVELS) above the ground.
+ * How many riser heights a bridge's (or raised ramp's) arches stand, from the lowest ground under it up to its base at
+ * `y` (a ramp's low end); 0 when that isn't a whole number of levels above the ground, or the deck would top
+ * MAX_BRIDGE_LEVELS. A ramp with 0 is a plain ramp, held up the usual way.
  */
 export function bridgeLevels(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): number {
-  if (!isBridge(type)) return 0;
+  if (!canStandOnArches(type)) return 0;
   const n = (y - groundUnder(land, type, flipped, pose)) / RISER_HEIGHT;
   const whole = Math.round(n);
-  return whole >= 1 && whole <= MAX_BRIDGE_LEVELS && Math.abs(n - whole) * RISER_HEIGHT <= TOL ? whole : 0;
+  // A bridge ramp's high end counts toward the limit too.
+  const rise = Math.max(0, ...getPieceDef(type, flipped).connectors.map((c) => c.y)) / RISER_HEIGHT;
+  return whole >= 1 && whole + rise <= MAX_BRIDGE_LEVELS && Math.abs(n - whole) * RISER_HEIGHT <= TOL ? whole : 0;
 }
 
 /** Where a piece rests: each track end at its own height, and a riser on its base. (Bridges stand on their arches.) */
@@ -80,7 +83,7 @@ function feet(type: PieceTypeId, flipped: boolean, pose: Pose): Foot[] {
   }));
 }
 
-/** Risers and bridges near a point (the only pieces that hold others up), gathered in one pass over the layout. */
+/** Risers, bridges and ramps near a point (the pieces that can hold others up), gathered in one pass over the layout. */
 interface Holder {
   type: PieceTypeId;
   flipped: boolean;
@@ -97,7 +100,7 @@ function gatherHolders(layout: Layout, x: number, z: number, ignoreId: number): 
   for (const id of layout.pieceIds()) {
     if (id === ignoreId) continue;
     const p = layout.getPiece(id)!;
-    if (p.type !== "riser" && !isBridge(p.type)) continue;
+    if (p.type !== "riser" && !canStandOnArches(p.type)) continue;
     if (Math.abs(p.pose.x - x) > r || Math.abs(p.pose.z - z) > r || layout.isLifted(id)) continue;
     holders.push(p);
   }
@@ -137,7 +140,8 @@ function restHeights(land: Landscape, near: readonly Holder[], x: number, z: num
   for (const p of near) {
     if (p.type === "riser") {
       if (Math.hypot(p.pose.x - x, p.pose.z - z) <= RISER_REACH) out.push(p.y + RISER_HEIGHT);
-    } else {
+    } else if (isBridge(p.type) || bridgeLevels(land, p.type, p.flipped, p.pose, p.y) > 0) {
+      // Bridge ends, and the ends of a ramp on arches.
       for (const f of feet(p.type, p.flipped, p.pose)) {
         if (Math.hypot(f.x - x, f.z - z) <= JOINT_POS_TOLERANCE) out.push(p.y + f.dy);
       }
@@ -181,6 +185,8 @@ export function checkSupport(
   }
   // A bridge needs no risers: its arches reach the ground, if it isn't too high (or too low) for them.
   if (isBridge(type)) return bridgeLevels(land, type, flipped, pose, y) > 0 ? { kind: "held", risers } : { kind: "unsupported" };
+  // So does a ramp up off the ground (coming off a bridge or raised track).
+  if (bridgeLevels(land, type, flipped, pose, y) > 0) return { kind: "held", risers };
   const near = gatherHolders(layout, pose.x, pose.z, ignoreId);
   for (const f of feet(type, flipped, pose)) {
     const fy = y + f.dy;
