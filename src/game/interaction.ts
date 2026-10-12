@@ -8,7 +8,7 @@ import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, bridgeLevels, CELL, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { findOverlap, findSnap, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { findOverlap, findSnap, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
@@ -75,6 +75,8 @@ type Mode =
       heading: number;
       /** Existing piece being moved, or -1 for a new piece from the tray. */
       pieceId: number;
+      /** The auto straight: held as a long straight, it takes the length that meets a free end along its line. */
+      auto?: boolean;
       from: { pose: Pose; y: number } | null;
       offset: { x: number; z: number };
       ghost: Mesh;
@@ -235,6 +237,7 @@ export class Interaction {
         heldFlipped: flipped,
         heading: this.cameraHeading() + (this.trayTurns * Math.PI) / 4,
         pieceId: -1,
+        auto: item.auto,
         from: null,
         offset: { x: 0, z: 0 },
         ghost,
@@ -819,9 +822,11 @@ export class Interaction {
       const sy = this.lastPointerWasTouch ? y - TOUCH_LIFT_PX : y;
       // Where the piece would be held at a given height: under the finger as seen at that height (a raised end shows
       // well in front of the ground under it).
+      // The auto straight is held, and seeks a seat, as the long straight it starts as.
+      const holdType: PieceTypeId = m.auto ? "straight-216" : m.type;
       const heldAt = (height: number): Pose | null => {
         const p = this.planeAt(x, sy, height);
-        return p && poseForCentre(m.type, m.heldFlipped, p.x + m.offset.x, p.z + m.offset.z, m.heading);
+        return p && poseForCentre(holdType, m.heldFlipped, p.x + m.offset.x, p.z + m.offset.z, m.heading);
       };
       // Loose, a piece's first end lands on a quarter-square grid, so square-laid track lines up with the squares and
       // with other track.
@@ -830,8 +835,8 @@ export class Interaction {
         pose.z = Math.round(pose.z / PLACE_GRID) * PLACE_GRID;
         return pose;
       };
-      m.pose = loose(heldAt(0) ?? poseForCentre(m.type, m.heldFlipped, ground.x + m.offset.x, ground.z + m.offset.z, m.heading));
-      m.looseY = looseHeight(this.game.landscape, this.game.layout, m.type, m.heldFlipped, m.pose, m.pieceId);
+      m.pose = loose(heldAt(0) ?? poseForCentre(holdType, m.heldFlipped, ground.x + m.offset.x, ground.z + m.offset.z, m.heading));
+      m.looseY = looseHeight(this.game.landscape, this.game.layout, holdType, m.heldFlipped, m.pose, m.pieceId);
       // Resting up off the ground (on a hill, a riser, as a bridge), it's held where the finger points at that height.
       if (m.looseY > 0) {
         const up = heldAt(m.looseY);
@@ -846,11 +851,21 @@ export class Interaction {
       const autoFit = m.pieceId === -1 ? "turn-or-mirror" : "turn";
       m.snap = { kind: "none" };
       for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
-        const s = findSnap(this.game.layout, m.type, m.heldFlipped, heldAt(level) ?? m.pose, level, m.pieceId, capture, autoFit);
+        const s = findSnap(this.game.layout, holdType, m.heldFlipped, heldAt(level) ?? m.pose, level, m.pieceId, capture, autoFit);
         // A bridge only joins track it can stand at (raised track, another bridge): beside track on the ground it
         // keeps to its own height, a level up.
-        if (s.kind === "snapped" && isBridge(m.type) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
+        if (s.kind === "snapped" && isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
         if (s.kind === "snapped" && (m.snap.kind !== "snapped" || s.distance < m.snap.distance)) m.snap = s;
+      }
+      if (m.auto) {
+        // Shrink to meet a free end along its line, if one is in reach (else stay long).
+        const fit = m.snap.kind === "snapped" && m.snap.connector <= 1 ? fitAutoStraight(this.game.layout, m.snap.pose, m.snap.y, m.snap.connector as 0 | 1, [m.pieceId]) : null;
+        if (fit && m.snap.kind === "snapped") m.snap = { ...m.snap, pose: fit.pose };
+        const type = fit?.type ?? "straight-216";
+        if (type !== m.type) {
+          m.type = type;
+          m.ghost.geometry = pieceGeometry(type, false);
+        }
       }
       const fitFlipped = m.snap.kind === "snapped" ? m.snap.flipped : m.heldFlipped;
       if (fitFlipped !== m.flipped) {

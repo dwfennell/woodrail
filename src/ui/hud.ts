@@ -2,9 +2,11 @@ import type { CarKind, CarLook } from "../sim";
 import type { PieceTypeId } from "../track";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 
-export type TrayItem = { kind: "piece"; type: PieceTypeId; label: string } | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string };
+export type TrayItem = { kind: "piece"; type: PieceTypeId; label: string; auto?: boolean } | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string };
 
 export const TRACK_ITEMS: TrayItem[] = [
+  // Starts as a long straight and shrinks (in 18 mm steps) to meet a free end along its line.
+  { kind: "piece", type: "straight-216", label: "Auto", auto: true },
   { kind: "piece", type: "straight-216", label: "Long" },
   { kind: "piece", type: "straight-144", label: "Medium" },
   { kind: "piece", type: "straight-108", label: "Short" },
@@ -55,10 +57,10 @@ export interface TrayGroup {
   items: TrayItem[];
 }
 
-const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === t)!);
+const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === t && !i.auto)!);
 
 export const TRACK_GROUPS: TrayGroup[] = [
-  { label: "Straight", items: pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36") },
+  { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36")] },
   { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short") },
   { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "crossing", "crossing-45") },
   { label: "Ups & downs", items: pieces("ramp", "riser", "bridge", "bridge-curve") },
@@ -116,7 +118,7 @@ export interface HudOptions {
 
 /** Tray thumbnail key for an item. */
 export function trayKey(item: TrayItem): string {
-  return item.kind === "piece" ? `piece:${item.type}` : `train:${item.label}`;
+  return item.kind === "piece" ? `piece:${item.type}${item.auto ? ":auto" : ""}` : `train:${item.label}`;
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", html = ""): HTMLElementTagNameMap[K] => {

@@ -38,6 +38,12 @@ export type PieceTypeId =
   | "straight-216"
   | "straight-36"
   | "straight-288"
+  | "straight-72"
+  | "straight-90"
+  | "straight-126"
+  | "straight-162"
+  | "straight-180"
+  | "straight-198"
   | "curve-large"
   | "curve-small"
   | "curve-wide"
@@ -159,6 +165,13 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   // A tiny straight for closing small gaps, and an extra-long one for big runs.
   "straight-36": straight("straight-36", 36),
   "straight-288": straight("straight-288", 288),
+  // The lengths in between, every 18 mm: what the auto straight shrinks to (not in the tray on their own).
+  "straight-72": straight("straight-72", 72),
+  "straight-90": straight("straight-90", 90),
+  "straight-126": straight("straight-126", 126),
+  "straight-162": straight("straight-162", 162),
+  "straight-180": straight("straight-180", 180),
+  "straight-198": straight("straight-198", 198),
   // S-curves shift the line sideways by a square, or half a square, ending the way they started.
   "s-curve": sCurve("s-curve", 216, 72),
   "s-curve-short": sCurve("s-curve-short", 144, 36),
