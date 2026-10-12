@@ -1,88 +1,9 @@
 import type { GameMode } from "../game/modes";
-import type { CarKind, CarLook } from "../sim";
-import type { PieceTypeId } from "../track";
 import { blockWord } from "./blocks";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
+import { trayKey, trayTabs, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 
-export type TrayItem = { kind: "piece"; type: PieceTypeId; label: string; auto?: boolean } | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string };
-
-export const TRACK_ITEMS: TrayItem[] = [
-  // Starts as a long straight and shrinks (in 18 mm steps) to meet a free end along its line.
-  { kind: "piece", type: "straight-216", label: "Auto", auto: true },
-  { kind: "piece", type: "straight-216", label: "Long" },
-  { kind: "piece", type: "straight-144", label: "Medium" },
-  { kind: "piece", type: "straight-108", label: "Short" },
-  { kind: "piece", type: "straight-54", label: "Mini" },
-  { kind: "piece", type: "straight-36", label: "Tiny" },
-  { kind: "piece", type: "straight-288", label: "Extra long" },
-  { kind: "piece", type: "curve-large", label: "Curve" },
-  { kind: "piece", type: "curve-small", label: "Tight curve" },
-  { kind: "piece", type: "curve-wide", label: "Wide curve" },
-  { kind: "piece", type: "s-curve", label: "S-curve" },
-  { kind: "piece", type: "s-curve-short", label: "Short S" },
-  { kind: "piece", type: "switch", label: "Switch" },
-  { kind: "piece", type: "switch-y", label: "Y switch" },
-  { kind: "piece", type: "switch-3way", label: "Three-way" },
-  { kind: "piece", type: "crossing", label: "Crossing" },
-  { kind: "piece", type: "crossing-45", label: "45° crossing" },
-  { kind: "piece", type: "crossover", label: "Crossover" },
-  { kind: "piece", type: "double-straight", label: "Double track" },
-  { kind: "piece", type: "double-curve", label: "Double curve" },
-  { kind: "piece", type: "ramp-curve", label: "Curved ramp" },
-  { kind: "piece", type: "balloon-loop-small", label: "Small loop" },
-  { kind: "piece", type: "wye", label: "Wye" },
-  { kind: "piece", type: "ramp", label: "Ramp" },
-  { kind: "piece", type: "bridge", label: "Bridge" },
-  { kind: "piece", type: "bridge-curve", label: "Curved bridge" },
-  { kind: "piece", type: "riser", label: "Riser" },
-  { kind: "piece", type: "buffer", label: "Buffer" },
-  { kind: "piece", type: "buffer-turnback", label: "Turnback" },
-  { kind: "piece", type: "balloon-loop", label: "Balloon loop" },
-  { kind: "piece", type: "adapter-peg", label: "Peg–peg" },
-  { kind: "piece", type: "adapter-socket", label: "Hole–hole" },
-  { kind: "piece", type: "joiner", label: "Peg joiner" },
-];
-
-export const TRAIN_ITEMS: TrayItem[] = [
-  { kind: "train", cars: ["engine", "hopper", "passenger", "caboose"], label: "Full train" },
-  { kind: "train", cars: ["engine", "timber", "timber", "timber"], label: "Timber train" },
-  { kind: "train", cars: ["engine"], label: "Engine" },
-  { kind: "train", cars: ["engine"], looks: ["tank"], label: "Tank engine" },
-  { kind: "train", cars: ["engine"], looks: ["diesel"], label: "Diesel" },
-  { kind: "train", cars: ["engine"], looks: ["electric"], label: "Electric" },
-  { kind: "train", cars: ["hopper"], label: "Coal wagon" },
-  { kind: "train", cars: ["timber"], label: "Timber wagon" },
-  { kind: "train", cars: ["passenger"], label: "Coach" },
-  { kind: "train", cars: ["passenger"], looks: ["dining"], label: "Dining car" },
-  { kind: "train", cars: ["passenger"], looks: ["sleeper"], label: "Sleeper" },
-  { kind: "train", cars: ["passenger"], looks: ["double-decker"], label: "Double-decker" },
-  { kind: "train", cars: ["caboose"], label: "Caboose" },
-  { kind: "train", cars: ["caboose"], looks: ["bay-window"], label: "Bay-window caboose" },
-];
-
-/** A shelf of the tray: a few related items behind one button. */
-export interface TrayGroup {
-  label: string;
-  items: TrayItem[];
-}
-
-const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === t && !i.auto)!);
-
-export const TRACK_GROUPS: TrayGroup[] = [
-  { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36", "double-straight")] },
-  { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short", "double-curve") },
-  { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45") },
-  { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "riser", "bridge", "bridge-curve") },
-  { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
-  { label: "Adapters", items: pieces("adapter-peg", "adapter-socket", "joiner") },
-];
-
-export const TRAIN_GROUPS: TrayGroup[] = [
-  { label: "Trains", items: TRAIN_ITEMS.slice(0, 2) },
-  { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
-  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber")) },
-  { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
-];
+export { trayKey, type TrayItem } from "./tray-catalogue";
 
 export interface HudHandlers {
   trayPointerDown(item: TrayItem, e: PointerEvent): void;
@@ -133,10 +54,6 @@ export interface HudOptions {
   muted: boolean;
 }
 
-/** Tray thumbnail key for an item. */
-export function trayKey(item: TrayItem): string {
-  return item.kind === "piece" ? `piece:${item.type}${item.auto ? ":auto" : ""}` : `train:${item.label}`;
-}
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", html = ""): HTMLElementTagNameMap[K] => {
   const e = document.createElement(tag);
@@ -343,16 +260,18 @@ export class Hud {
       }
       show();
     };
-    const showItems = (groups: TrayGroup[], group: TrayGroup) => {
+    const showItems = (groups: TrayGroup[], group: TrayGroup, back = true) => {
       this.trayGlide++;
       scroller.innerHTML = "";
       scroller.scrollLeft = 0;
       this.tray.classList.add("in-group");
-      const back = el("button", "tray-item tray-back");
-      back.innerHTML = `<span class="icon">‹</span><span class="label">Back</span>`;
-      back.title = "Back to all kinds";
-      back.addEventListener("click", () => showGroups(groups));
-      scroller.appendChild(back);
+      if (back) {
+        const b = el("button", "tray-item tray-back");
+        b.innerHTML = `<span class="icon">‹</span><span class="label">Back</span>`;
+        b.title = "Back to all kinds";
+        b.addEventListener("click", () => showGroups(groups));
+        scroller.appendChild(b);
+      }
       for (const item of group.items) {
         const b = el("button", "tray-item");
         b.innerHTML = `<span class="icon">${picture(item)}</span><span class="label">${item.label}</span>`;
@@ -365,21 +284,24 @@ export class Hud {
       }
       show();
     };
-    for (const [name, groups] of [
-      ["Track", TRACK_GROUPS],
-      ["Trains", TRAIN_GROUPS],
-    ] as const) {
-      const t = button(name, `${name} pieces`, () => {
-        tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === t));
-        this.tray.classList.toggle("track-tab", groups === TRACK_GROUPS);
+    // The tabs for the mode; a tab with a single shelf opens straight onto its items.
+    const openTab = (tab: TrayTab) => {
+      tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));
+      this.tray.classList.toggle("track-tab", !!tab.orient);
+      if (tab.groups.length === 1) showItems(tab.groups, tab.groups[0], false);
+      else showGroups(tab.groups);
+    };
+    this.showTabs = (mode) => {
+      tabs.innerHTML = "";
+      const list = trayTabs(mode);
+      for (const tab of list) {
         // Tapping a tab (even the open one) goes back to its groups.
-        showGroups(groups);
-      }, "tab");
-      tabs.appendChild(t);
-    }
-    (tabs.firstChild as HTMLButtonElement).classList.add("active");
-    this.tray.classList.add("track-tab");
-    showGroups(TRACK_GROUPS);
+        const t = button(tab.label, `${tab.label}`, () => openTab(tab), "tab");
+        t.dataset.tab = tab.id;
+        tabs.appendChild(t);
+      }
+      openTab(list[0]);
+    };
     // Turn and flip, for track pieces: set how the next piece comes out, or turn the one in hand (with another finger).
     const orient = el("div", "tray-orient");
     this.flipTrayBtn = button("⇋ Flip", "Mirror the next piece (or the one you're holding)", () => this.handlers.trayFlip(), "chip text");
@@ -451,7 +373,15 @@ export class Hud {
   }
 
   /** Label the mode by the logo and offer its own map items in the menu. */
+  /** Rebuild the tray's tabs for a mode (set in the constructor, where the tray is built). */
+  private showTabs: (mode: GameMode) => void = () => {};
+  private trayMode: GameMode | null = null;
+
   setMode(mode: GameMode): void {
+    if (mode !== this.trayMode) {
+      this.trayMode = mode;
+      this.showTabs(mode);
+    }
     this.modeTag.innerHTML = mode === "game" ? `Game <span class="beta">Beta</span>` : "Sandbox";
     this.modeTag.className = `mode-tag mode-${mode}`;
     for (const b of this.sandboxItems) b.hidden = mode !== "sandbox";
