@@ -69,7 +69,7 @@ describe("Layout seating", () => {
     const l = new Layout();
     l.addPiece("straight-144", P(0, 0));
     l.addPiece("ramp", P(144, 0));
-    l.addPiece("bridge", P(360, 0), 0); // bridge track sits at RISER_HEIGHT on its own legs
+    l.addPiece("bridge", P(360, 0), 64); // a bridge is track at its deck height, on its own arches
     expect(l.jointCount).toBe(2);
   });
 

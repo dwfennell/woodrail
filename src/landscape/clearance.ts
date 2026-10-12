@@ -1,4 +1,4 @@
-import { bridgeLevels, createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
+import { createSample, getPieceDef, isBridge, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
 import { FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, FEAT_TREE, SURF_RIVER, SURF_ROAD, SURF_TOWN } from "./grid";
 import { STATION_LENGTH, type Landscape } from "./generate";
 
@@ -105,7 +105,7 @@ function inFixedFootprint(centre: { x: number; z: number }, heading: number, x: 
 /** Can a piece be placed here? Called on every pointer move while dragging. */
 export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): Clearance {
   const g = land.grid;
-  const isBridge = bridgeLevels(type) > 0;
+  const overRiver = isBridge(type);
   let result = CLEAR;
   forEachSample(type, flipped, pose, (x, z, trackY) => {
     const i = g.cellAtWorld(x, z);
@@ -125,7 +125,7 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
         // so pieces seated on a station end can overlap the edge of its end squares.
         if (inStationFootprint(land, g.owner[i], x, z)) result = BLOCKED.station;
       } else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
-      else if (s === SURF_RIVER && !isBridge) result = BLOCKED.river;
+      else if (s === SURF_RIVER && !overRiver) result = BLOCKED.river;
       else if (y + trackY < g.groundY(i) - 0.5) result = BLOCKED.hill;
     }
     return result === CLEAR;

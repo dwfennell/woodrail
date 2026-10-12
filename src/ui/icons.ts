@@ -1,5 +1,5 @@
 import { CAR_SPECS, type CarKind } from "../sim";
-import { bridgeLevels, createSample, getPieceDef, GROOVE_SPACING, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId } from "../track";
+import { createSample, isBridge, getPieceDef, GROOVE_SPACING, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId } from "../track";
 
 /** Top-down SVG of a piece, generated from its path data. */
 export function pieceIcon(type: PieceTypeId): string {
@@ -62,8 +62,7 @@ export function pieceIcon(type: PieceTypeId): string {
       if (type === "buffer-turnback") body += `<path d="M${end.x - ox + 18} ${size - (end.z - oz) - 22} l14 6 -14 6z" fill="#c8442f"/>`;
     }
     if (def.paths[0]?.geom.rise) body += `<text x="${size / 2}" y="${size - 8}" font-size="${size / 6}" text-anchor="middle" fill="#7a5532" font-family="system-ui" font-weight="700">▲</text>`;
-    const levels = bridgeLevels(type);
-    if (levels > 0) body += `<text x="${size / 2}" y="${size - 8}" font-size="${size / 7}" text-anchor="middle" fill="#7a5532" font-family="system-ui" font-weight="700">${"⌒".repeat(levels)}</text>`;
+    if (isBridge(type)) body += `<text x="${size / 2}" y="${size - 8}" font-size="${size / 7}" text-anchor="middle" fill="#7a5532" font-family="system-ui" font-weight="700">⌒</text>`;
   }
   return `<svg viewBox="0 0 ${size.toFixed(1)} ${size.toFixed(1)}" xmlns="http://www.w3.org/2000/svg">${body}</svg>`;
 }

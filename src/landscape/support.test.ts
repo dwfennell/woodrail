@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Layout, RISER_HEIGHT } from "../track";
 import { LandscapeGrid } from "./grid";
 import type { Landscape } from "./generate";
-import { checkSupport, looseHeight, riserStackAt } from "./support";
+import { bridgeLevels, checkSupport, looseHeight, riserStackAt } from "./support";
 
 function flat(): Landscape {
   return { seed: 0, starter: false, grid: new LandscapeGrid(), towns: [], corridors: [], fields: [], shed: null, depots: [] };
@@ -61,9 +61,9 @@ describe("checkSupport", () => {
     expect(s).toEqual({ kind: "held", risers: [{ pose: P(216, Z), y: 0 }] });
   });
 
-  it("track joined to a bridge's end is held there (the bridge stands on its arch)", () => {
+  it("track joined to a bridge's end is held there (the bridge stands on its arches)", () => {
     const layout = new Layout();
-    layout.addPiece("bridge", P(0, Z), 0);
+    layout.addPiece("bridge", P(0, Z), RISER_HEIGHT);
     // Far end over the felt one riser up: needs a riser; the bridge end holds the near one.
     const s = checkSupport(flat(), layout, "straight-216", false, P(216, Z), RISER_HEIGHT, -1);
     expect(s).toEqual({ kind: "held", risers: [{ pose: P(432, Z), y: 0 }] });
@@ -71,20 +71,32 @@ describe("checkSupport", () => {
 
   it("track joined to a tall bridge's end is held at its deck height", () => {
     const layout = new Layout();
-    layout.addPiece("bridge-3", P(0, Z), 0);
+    layout.addPiece("bridge", P(0, Z), 3 * RISER_HEIGHT);
     // Near end on the bridge, three risers up; the far end over the felt gets a stack of three.
     const s = checkSupport(flat(), layout, "straight-216", false, P(216, Z), 3 * RISER_HEIGHT, -1);
     expect(s).toEqual({ kind: "held", risers: [0, 1, 2].map((k) => ({ pose: P(432, Z), y: k * RISER_HEIGHT })) });
   });
 
-  it("tall and curved bridges stand on the felt too", () => {
-    for (const type of ["bridge-2", "bridge-3", "bridge-curve"] as const) {
-      expect(checkSupport(flat(), new Layout(), type, false, P(0, Z), 0, -1), type).toEqual({ kind: "held", risers: [] });
+  it("a bridge stands on its own arches, one to four levels up, and needs no risers", () => {
+    for (const type of ["bridge", "bridge-curve"] as const) {
+      for (const levels of [1, 2, 3, 4]) {
+        expect(checkSupport(flat(), new Layout(), type, false, P(0, Z), levels * RISER_HEIGHT, -1), `${type} ${levels}`).toEqual({ kind: "held", risers: [] });
+        expect(bridgeLevels(flat(), type, false, P(0, Z), levels * RISER_HEIGHT)).toBe(levels);
+      }
+      for (const y of [0, RISER_HEIGHT / 2, 5 * RISER_HEIGHT]) {
+        expect(checkSupport(flat(), new Layout(), type, false, P(0, Z), y, -1), `${type} at ${y}`).toEqual({ kind: "unsupported" });
+      }
     }
   });
 
-  it("a bridge stands on the felt at both ends", () => {
-    expect(checkSupport(flat(), new Layout(), "bridge", false, P(0, Z), 0, -1)).toEqual({ kind: "held", risers: [] });
+  it("a bridge's arches reach the lowest ground under it", () => {
+    const land = flat();
+    hill(land, 144, 504, -144, 216, 1);
+    // The deck two levels up: its far end is over the hill, but the arches stand on the felt.
+    expect(bridgeLevels(land, "bridge", false, P(0, Z), 2 * RISER_HEIGHT)).toBe(2);
+    // Dropped loose, a bridge stands one level above the highest ground under it.
+    expect(looseHeight(land, new Layout(), "bridge", false, P(0, Z), -1)).toBe(2 * RISER_HEIGHT);
+    expect(looseHeight(flat(), new Layout(), "bridge", false, P(0, Z), -1)).toBe(RISER_HEIGHT);
   });
 
   it("an end resting on a riser is held", () => {

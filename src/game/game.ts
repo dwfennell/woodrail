@@ -23,8 +23,8 @@ import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
 import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { findCrossings, hillSlabs, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
-import { PIECE_TYPES, type Layout } from "../track";
+import { bridgeLevels, findCrossings, hillSlabs, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
+import { PIECE_TYPES, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
 import type { World } from "./world";
@@ -112,12 +112,14 @@ export class Game {
     this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy());
     this.stage = createStage(this.scene, this.renderer, this.quality);
     TrackView.prebuild(PIECE_TYPES);
+    TrackView.warmBridges(PIECE_TYPES);
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
-    this.trackView = new TrackView(this.layout, this.mats);
+    this.trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
     this.physics = new DerailPhysics(this.layout);
+    this.physics.bridgeLevels = this.bridgeLevelsOf;
     this.physics.setSlabs(hillSlabs(this.landscape.grid));
     this.trainView = new TrainView(this.mats);
     this.scene.add(this.trainView.group);
@@ -149,7 +151,7 @@ export class Game {
     this.scene.add(this.landscapeView.group);
     this.scene.remove(this.trackView.group);
     this.trackView.dispose();
-    (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats);
+    (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
     this.physics.setLayout(this.layout);
@@ -157,6 +159,9 @@ export class Game {
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.depotView.setWorld(this.economy, this.layout);
   }
+
+  /** How many riser heights a placed bridge's arches reach down to the ground (0 for other pieces). */
+  readonly bridgeLevelsOf = (p: PlacedPiece): number => bridgeLevels(this.landscape, p.type, p.flipped, p.pose, p.y);
 
   get world(): World {
     return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy };

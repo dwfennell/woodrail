@@ -16,8 +16,6 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "ramp", label: "Ramp" },
   { kind: "piece", type: "bridge", label: "Bridge" },
   { kind: "piece", type: "bridge-curve", label: "Curved bridge" },
-  { kind: "piece", type: "bridge-2", label: "Tall bridge" },
-  { kind: "piece", type: "bridge-3", label: "Viaduct" },
   { kind: "piece", type: "riser", label: "Riser" },
   { kind: "piece", type: "buffer", label: "Buffer" },
   { kind: "piece", type: "buffer-turnback", label: "Turnback" },
@@ -47,8 +45,7 @@ export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Straight", items: pieces("straight-216", "straight-144", "straight-108", "straight-54") },
   { label: "Curve", items: pieces("curve-large", "curve-small") },
   { label: "Switch", items: pieces("switch", "crossing") },
-  { label: "Ups & downs", items: pieces("ramp", "riser") },
-  { label: "Bridges", items: pieces("bridge", "bridge-curve", "bridge-2", "bridge-3") },
+  { label: "Ups & downs", items: pieces("ramp", "bridge", "bridge-curve", "riser") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback") },
   { label: "Adapters", items: pieces("adapter-peg", "adapter-socket") },
 ];

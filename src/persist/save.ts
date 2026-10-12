@@ -4,13 +4,15 @@ import { createEconomy, depotPieceType, type World } from "../game/world";
 import { generateLandscape } from "../landscape";
 import { CAR_KINDS, Sim, type CarKind } from "../sim";
 import { CARGO, CARGO_KINDS, PILE_CAP, ROLE, WAGON_CAPACITY, type CargoKind } from "../economy";
-import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
+import { getPieceDef, isBridge, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
 
 /**
- * Save format, version 6. Plain JSON validated with Zod; only this module knows its shape.
- * The landscape is regenerated from its seed. No backward compatibility until the game reaches v1.
+ * Save format, version 7. Plain JSON validated with Zod; only this module knows its shape.
+ * The landscape is regenerated from its seed. No backward compatibility until the game reaches v1, except that
+ * version 6 saves still load (their bridges stored the height of their arches' feet, not their decks).
  */
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
+const BRIDGE_FEET_VERSION = 6;
 
 const pieceSchema = z.object({
   id: z.number().int().positive(),
@@ -42,7 +44,7 @@ const trainSchema = z.object({
 });
 
 const saveSchema = z.object({
-  version: z.literal(SAVE_VERSION),
+  version: z.union([z.literal(SAVE_VERSION), z.literal(BRIDGE_FEET_VERSION)]),
   landscape: z.object({ seed: z.number().int(), starter: z.boolean() }),
   towns: z.array(z.object({ id: z.number().int().min(0), stationPieceId: z.number().int().positive() })),
   pieces: z.array(pieceSchema),
@@ -106,7 +108,8 @@ export function deserializeWorld(data: unknown): Result<World, string> {
   const save = parsed.data;
   const layout = new Layout();
   for (const p of [...save.pieces].sort((a, b) => a.id - b.id)) {
-    if (!layout.restorePiece(p.id, p.type, { x: p.x, z: p.z, heading: p.heading }, p.y, p.flipped)) {
+    const y = save.version === BRIDGE_FEET_VERSION && isBridge(p.type) ? p.y + RISER_HEIGHT : p.y;
+    if (!layout.restorePiece(p.id, p.type, { x: p.x, z: p.z, heading: p.heading }, y, p.flipped)) {
       return err(`invalid save: duplicate piece id ${p.id}`);
     }
   }

@@ -17,7 +17,8 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { getPieceDef, pathLength, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceTypeId } from "../track";
+import { getPieceDef, isBridge, pathLength, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceTypeId, type PlacedPiece } from "../track";
+import { MAX_BRIDGE_LEVELS } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
 import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry } from "./track-geometry";
@@ -25,12 +26,13 @@ import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry } from "./tr
 const geometryCache = new Map<string, BufferGeometry>();
 const bufferBlockCache = new Map<string, BufferGeometry | null>();
 
-export function pieceGeometry(type: PieceTypeId, flipped: boolean): BufferGeometry {
+/** A piece's geometry; `levels` is how many riser heights a bridge's arches reach below its deck. */
+export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0): BufferGeometry {
   const def = getPieceDef(type, flipped);
-  const key = `${type}:${def === getPieceDef(type, false) ? "n" : "f"}`;
+  const key = `${type}:${def === getPieceDef(type, false) ? "n" : "f"}:${levels}`;
   let g = geometryCache.get(key);
   if (!g) {
-    g = buildPieceGeometry(def);
+    g = buildPieceGeometry(def, levels);
     geometryCache.set(key, g);
   }
   return g;
@@ -110,6 +112,8 @@ export class TrackView {
   constructor(
     private readonly layout: Layout,
     private readonly mats: Materials,
+    /** How many riser heights a placed bridge's arches reach down (from the ground under it). */
+    private readonly bridgeLevels: (piece: PlacedPiece) => number = () => 0,
   ) {}
 
   private tintFor(id: number): Color {
@@ -146,7 +150,7 @@ export class TrackView {
       if (this.layout.isLifted(id) || this.hidden.has(id)) continue;
       const p = this.layout.getPiece(id)!;
       const def = getPieceDef(p.type, p.flipped);
-      const key = `${p.type}|${def === getPieceDef(p.type, false) ? 0 : 1}`;
+      const key = `${p.type}|${def === getPieceDef(p.type, false) ? 0 : 1}|${this.bridgeLevels(p)}`;
       let list = groups.get(key);
       if (!list) groups.set(key, (list = []));
       list.push(id);
@@ -155,8 +159,8 @@ export class TrackView {
     const m = new Matrix4();
     const bufferIds: number[] = [];
     for (const [key, ids] of groups) {
-      const [type, flipped] = key.split("|") as [PieceTypeId, string];
-      const mesh = new InstancedMesh(pieceGeometry(type, flipped === "1"), [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
+      const [type, flipped, levels] = key.split("|") as [PieceTypeId, string, string];
+      const mesh = new InstancedMesh(pieceGeometry(type, flipped === "1", Number(levels)), [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       ids.forEach((id, i) => {
@@ -226,7 +230,7 @@ export class TrackView {
       if (this.outline) this.outline.visible = false;
       return;
     }
-    const geometry = pieceGeometry(p.type, p.flipped);
+    const geometry = pieceGeometry(p.type, p.flipped, this.bridgeLevels(p));
     if (!this.outline) {
       this.outline = new Mesh(geometry, this.outlineMaterial);
       this.outline.matrixAutoUpdate = false;
@@ -367,15 +371,33 @@ export class TrackView {
   /** Warm the CSG geometry cache for every piece type (call during loading). */
   static prebuild(types: readonly PieceTypeId[]): void {
     for (const t of types) {
-      pieceGeometry(t, false);
-      pieceGeometry(t, true);
+      const levels = isBridge(t) ? 1 : 0;
+      pieceGeometry(t, false, levels);
+      pieceGeometry(t, true, levels);
     }
+  }
+
+  /** Build the taller bridges' arches in idle moments after loading, so lifting a bridge higher never stalls. */
+  static warmBridges(types: readonly PieceTypeId[]): void {
+    const queue: [PieceTypeId, boolean, number][] = [];
+    for (const t of types) {
+      if (!isBridge(t)) continue;
+      for (let levels = 2; levels <= MAX_BRIDGE_LEVELS; levels++) for (const flipped of [false, true]) queue.push([t, flipped, levels]);
+    }
+    const idle = (fn: () => void) => ("requestIdleCallback" in window ? window.requestIdleCallback(fn) : setTimeout(fn, 50));
+    const next = () => {
+      const job = queue.shift();
+      if (!job) return;
+      pieceGeometry(...job);
+      idle(next);
+    };
+    idle(next);
   }
 }
 
 /** A stand-in mesh for a piece (held, settling, shrinking away). Pass [face, groove] materials for real wood. */
-export function ghostMesh(type: PieceTypeId, flipped: boolean, material: Material | Material[]): Mesh {
-  const mesh = new Mesh(pieceGeometry(type, flipped), material);
+export function ghostMesh(type: PieceTypeId, flipped: boolean, material: Material | Material[], levels = 0): Mesh {
+  const mesh = new Mesh(pieceGeometry(type, flipped, levels), material);
   mesh.renderOrder = 10;
   return mesh;
 }

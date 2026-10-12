@@ -2,7 +2,7 @@ import type RAPIER_NS from "@dimforge/rapier3d-compat";
 import { Euler, Quaternion, Vector3 } from "three";
 import type { Slab } from "../landscape";
 import { CAR_SPECS, type Train } from "../sim";
-import { bridgeLevels, createSample, getPieceDef, pathLength, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH, type Layout } from "../track";
+import { createSample, getPieceDef, pathLength, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PlacedPiece } from "../track";
 
 type Rapier = typeof RAPIER_NS;
 
@@ -49,6 +49,9 @@ export class DerailPhysics {
   private readonly pending: Train[] = [];
   private accumulator = 0;
   failed = false;
+
+  /** How many riser heights a bridge's arches reach below its deck. */
+  bridgeLevels: (piece: PlacedPiece) => number = () => 0;
 
   constructor(private layout: Layout) {}
 
@@ -136,6 +139,7 @@ export class DerailPhysics {
         add(R.ColliderDesc.cuboid(23 * MM, (RISER_HEIGHT / 2) * MM, 23 * MM).setTranslation(p.pose.x * MM, (p.y + RISER_HEIGHT / 2) * MM, p.pose.z * MM).setRotation(q));
         continue;
       }
+      const arches = this.bridgeLevels(p) * RISER_HEIGHT;
       for (const path of def.paths) {
         const len = pathLength(path.geom);
         const n = Math.max(1, Math.ceil(len / 24));
@@ -159,11 +163,11 @@ export class DerailPhysics {
               .setTranslation(wx * MM, (p.y + my + TRACK_THICKNESS / 2) * MM, wz * MM)
               .setRotation(q),
           );
-          // A bridge's viaduct, under the deck down to its base.
-          if (bridgeLevels(p.type) > 0) {
+          // A bridge's viaduct, under the deck down to the ground.
+          if (arches > 0) {
             add(
-              R.ColliderDesc.cuboid((segLen / 2) * MM, (my / 2) * MM, (half - 2) * MM)
-                .setTranslation(wx * MM, (p.y + my / 2) * MM, wz * MM)
+              R.ColliderDesc.cuboid((segLen / 2) * MM, (arches / 2) * MM, (half - 2) * MM)
+                .setTranslation(wx * MM, (p.y + my - arches / 2) * MM, wz * MM)
                 .setRotation(new Quaternion().setFromEuler(new Euler(0, -yaw, 0))),
             );
           }

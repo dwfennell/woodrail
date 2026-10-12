@@ -14,26 +14,34 @@ const meshOf = (type: Parameters<typeof getPieceDef>[0], flipped = false) =>
 
 describe("buildPieceGeometry", () => {
   it("every piece's faces are in material groups (meshes use a body + cut material pair, which draws only grouped faces)", () => {
-    for (const type of ["riser", "straight-144", "ramp", "bridge", "bridge-curve", "bridge-3", "switch", "crossing"] as const) {
-      const g = buildPieceGeometry(getPieceDef(type, false));
+    for (const type of ["riser", "straight-144", "ramp", "bridge", "bridge-curve", "switch", "crossing"] as const) {
+      const g = buildPieceGeometry(getPieceDef(type, false), type.startsWith("bridge") ? 2 : 0);
       const count = g.index ? g.index.count : g.attributes.position.count;
       const covered = g.groups.reduce((n, gr) => n + Math.min(gr.count, count - gr.start), 0);
       expect(covered, type).toBe(count);
     }
   });
 
-  it("bridges stand on their arches from the ground up to their deck, curved ones along the curve", () => {
-    for (const [type, levels] of [["bridge", 1], ["bridge-2", 2], ["bridge-3", 3], ["bridge-curve", 1]] as const) {
-      const box = new Box3().setFromObject(meshOf(type));
-      expect(box.min.y, type).toBeLessThan(0);
-      expect(box.max.y, type).toBeCloseTo(levels * RISER_HEIGHT + TRACK_THICKNESS, 0);
+  it("a bridge's arches reach from its deck down as many levels as asked, curved ones along the curve", () => {
+    for (const type of ["bridge", "bridge-curve"] as const) {
+      for (const levels of [1, 3]) {
+        const box = new Box3().setFromObject(new Mesh(buildPieceGeometry(getPieceDef(type, false), levels), new MeshBasicMaterial()));
+        expect(box.min.y, `${type} ${levels}`).toBeCloseTo(-levels * RISER_HEIGHT - 1, 0);
+        expect(box.max.y, `${type} ${levels}`).toBeCloseTo(TRACK_THICKNESS, 0);
+      }
     }
     // Under the middle of the curve (off the straight line between its ends) there is viaduct, below the deck.
-    const curve = meshOf("bridge-curve");
+    const curve = new Mesh(buildPieceGeometry(getPieceDef("bridge-curve", false), 1), new MeshBasicMaterial());
     const mid = getPieceDef("bridge-curve", false).paths[0].geom;
     const s = createSample();
     samplePath(mid, pathLength(mid) * 0.5, s);
-    expect(topHeightAt(curve, s.x, s.z)).toBeGreaterThan(RISER_HEIGHT);
+    const ray = new Raycaster(new Vector3(s.x, -RISER_HEIGHT / 2, s.z - 100), new Vector3(0, 0, 1));
+    expect(ray.intersectObject(curve).length).toBeGreaterThan(0);
+  });
+
+  it("without levels a bridge is just its deck", () => {
+    const box = new Box3().setFromObject(meshOf("bridge"));
+    expect(box.min.y).toBeGreaterThan(-1);
   });
 
   it("straight spans its length plus the peg, full width and thickness", () => {

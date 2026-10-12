@@ -17,7 +17,6 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import polygonClipping, { type Polygon } from "polygon-clipping";
 import { ADDITION, Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
 import {
-  bridgeLevels,
   createSample,
   GROOVE_SPACING,
   GROOVE_WIDTH,
@@ -293,11 +292,13 @@ const evaluator = new Evaluator();
 evaluator.useGroups = true;
 evaluator.attributes = ["position", "normal", "uv"];
 
-/** Bridge: a painted viaduct under the deck (straight or curved, one or more levels tall), two round arches on three piers. */
-function bridgeSupport(def: PieceDef): BufferGeometry {
+/**
+ * Bridge: a painted viaduct `height` tall under the deck (which is at y = 0), straight or curved, two round arches on
+ * three piers.
+ */
+function bridgeSupport(def: PieceDef, height: number): BufferGeometry {
   const path = def.paths[0].geom;
   const len = pathLength(path);
-  const height = path.y0;
   // The viaduct body: a softly rounded block swept along the deck, from just below the ground to just under the track.
   const inset = 3;
   const frames: Frame[] = [];
@@ -311,14 +312,15 @@ function bridgeSupport(def: PieceDef): BufferGeometry {
   let result = brush(sweep(viaductProfile(height), frames), PAINT);
   // Arch tops a spandrel below the deck; the openings reach the ground.
   const radius = len * 0.19;
-  const archTop = height - RISER_HEIGHT / 4;
+  const archTop = -RISER_HEIGHT / 4;
+  const ground = -height;
   for (const at of [0.28, 0.72]) {
     samplePath(path, len * at, p);
     const arch = onlyCsgAttributes(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40).toNonIndexed());
     arch.rotateX(Math.PI / 2);
     arch.translate(0, archTop - radius, 0);
-    const opening = onlyCsgAttributes(new BoxGeometry(radius * 2, archTop - radius + 2, TRACK_WIDTH + 10).toNonIndexed());
-    opening.translate(0, (archTop - radius) / 2 - 1, 0);
+    const opening = onlyCsgAttributes(new BoxGeometry(radius * 2, archTop - radius - ground + 2, TRACK_WIDTH + 10).toNonIndexed());
+    opening.translate(0, (archTop - radius + ground) / 2 - 1, 0);
     for (const g of [arch, opening]) {
       g.rotateY(-p.heading);
       g.translate(p.x, 0, p.z);
@@ -399,7 +401,8 @@ function slotGroups(result: Brush): BufferGeometry {
 }
 
 /** Geometry for a piece type in piece-local space (plan x/z → world x/z, y up, track base at y = 0). */
-export function buildPieceGeometry(def: PieceDef): BufferGeometry {
+/** `levels`: for a bridge, how many riser heights its arches reach down below the deck. */
+export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
   if (def.paths.length === 0) return riserGeometry();
 
   let result =
@@ -407,9 +410,9 @@ export function buildPieceGeometry(def: PieceDef): BufferGeometry {
       ? brush(sweep(bodyProfile(), framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0)))
       : brush(flatBlockBody(def));
 
-  if (bridgeLevels(def.type) > 0) {
+  if (levels > 0) {
     // Keep the viaduct's own (painted) group through the union.
-    const support = new Brush(bridgeSupport(def), [PAINT, PAINT, PAINT]);
+    const support = new Brush(bridgeSupport(def, levels * RISER_HEIGHT), [PAINT, PAINT, PAINT]);
     support.updateMatrixWorld();
     result = evaluator.evaluate(result, support, ADDITION);
   }

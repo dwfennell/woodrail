@@ -1,4 +1,4 @@
-import { bridgeLevels, getPieceDef, JOINT_POS_TOLERANCE, RISER_HEIGHT, type Layout, type PieceTypeId, type Pose } from "../track";
+import { createSample, getPieceDef, isBridge, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
 
 /** How close to a riser's centre a track end must be to rest on it (a riser is 46 mm across). */
@@ -9,6 +9,8 @@ const EDGE_REACH = 10;
 const TOL = 1;
 /** The most risers added under one end of a dropped piece. */
 export const MAX_AUTO_RISERS = 3;
+/** The tallest a bridge's arches stand, in riser heights. */
+export const MAX_BRIDGE_LEVELS = 4;
 
 export interface RiserPlacement {
   pose: Pose;
@@ -25,10 +27,47 @@ interface Foot {
   dy: number;
 }
 
+const bridgeSample = createSample();
+
+/** The lowest ground under a piece's track. */
+function groundUnder(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose): number {
+  return groundAlong(land, type, flipped, pose, Math.min, Infinity);
+}
+
+/** Ground heights along a piece's track (plan samples along its paths), folded with `pick`. */
+function groundAlong(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, pick: (a: number, b: number) => number, start: number): number {
+  const ch = Math.cos(pose.heading);
+  const sh = Math.sin(pose.heading);
+  let out = start;
+  for (const path of getPieceDef(type, flipped).paths) {
+    const len = pathLength(path.geom);
+    const n = Math.max(2, Math.ceil(len / 18));
+    for (let k = 0; k <= n; k++) {
+      samplePath(path.geom, (len * k) / n, bridgeSample);
+      const i = land.grid.cellAtWorld(pose.x + bridgeSample.x * ch - bridgeSample.z * sh, pose.z + bridgeSample.x * sh + bridgeSample.z * ch);
+      out = pick(out, i === -1 ? 0 : land.grid.groundY(i));
+    }
+  }
+  return Number.isFinite(out) ? out : 0;
+}
+
+/** The highest ground under a piece's track. */
+function groundOver(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose): number {
+  return groundAlong(land, type, flipped, pose, Math.max, -Infinity);
+}
+
 /**
- * Where a piece rests: each track end at its own height, except a bridge, which stands on its arch at both ends,
- * and a riser, on its base.
+ * How many riser heights a bridge's arches stand, from the lowest ground under it up to its deck at `y`; 0 when the
+ * deck isn't a whole number of levels (1 to MAX_BRIDGE_LEVELS) above the ground.
  */
+export function bridgeLevels(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): number {
+  if (!isBridge(type)) return 0;
+  const n = (y - groundUnder(land, type, flipped, pose)) / RISER_HEIGHT;
+  const whole = Math.round(n);
+  return whole >= 1 && whole <= MAX_BRIDGE_LEVELS && Math.abs(n - whole) * RISER_HEIGHT <= TOL ? whole : 0;
+}
+
+/** Where a piece rests: each track end at its own height, and a riser on its base. (Bridges stand on their arches.) */
 function feet(type: PieceTypeId, flipped: boolean, pose: Pose): Foot[] {
   const def = getPieceDef(type, flipped);
   if (def.connectors.length === 0) return [{ x: pose.x, z: pose.z, dy: 0 }];
@@ -37,7 +76,7 @@ function feet(type: PieceTypeId, flipped: boolean, pose: Pose): Foot[] {
   return def.connectors.map((c) => ({
     x: pose.x + c.pose.x * ch - c.pose.z * sh,
     z: pose.z + c.pose.x * sh + c.pose.z * ch,
-    dy: bridgeLevels(type) > 0 ? 0 : c.y,
+    dy: c.y,
   }));
 }
 
@@ -58,7 +97,7 @@ function gatherHolders(layout: Layout, x: number, z: number, ignoreId: number): 
   for (const id of layout.pieceIds()) {
     if (id === ignoreId) continue;
     const p = layout.getPiece(id)!;
-    if (p.type !== "riser" && bridgeLevels(p.type) === 0) continue;
+    if (p.type !== "riser" && !isBridge(p.type)) continue;
     if (Math.abs(p.pose.x - x) > r || Math.abs(p.pose.z - z) > r || layout.isLifted(id)) continue;
     holders.push(p);
   }
@@ -100,7 +139,7 @@ function restHeights(land: Landscape, near: readonly Holder[], x: number, z: num
       if (Math.hypot(p.pose.x - x, p.pose.z - z) <= RISER_REACH) out.push(p.y + RISER_HEIGHT);
     } else {
       for (const f of feet(p.type, p.flipped, p.pose)) {
-        if (Math.hypot(f.x - x, f.z - z) <= JOINT_POS_TOLERANCE) out.push(p.y + bridgeLevels(p.type) * RISER_HEIGHT);
+        if (Math.hypot(f.x - x, f.z - z) <= JOINT_POS_TOLERANCE) out.push(p.y + f.dy);
       }
     }
   }
@@ -115,6 +154,8 @@ export function looseHeight(land: Landscape, layout: Layout, type: PieceTypeId, 
     const i = land.grid.cellAtWorld(pose.x, pose.z);
     return Math.max(stack?.top ?? 0, i === -1 ? 0 : land.grid.groundY(i));
   }
+  // A bridge dropped loose stands one level above the highest ground under it.
+  if (isBridge(type)) return groundOver(land, type, flipped, pose) + RISER_HEIGHT;
   let y = 0;
   for (const f of feet(type, flipped, pose)) y = Math.max(y, Math.max(0, ...restHeights(land, near, f.x, f.z)) - f.dy);
   return y;
@@ -138,6 +179,8 @@ export function checkSupport(
     // A riser rests on whatever it was dropped on (see `looseHeight`).
     return { kind: "held", risers };
   }
+  // A bridge needs no risers: its arches reach the ground, if it isn't too high (or too low) for them.
+  if (isBridge(type)) return bridgeLevels(land, type, flipped, pose, y) > 0 ? { kind: "held", risers } : { kind: "unsupported" };
   const near = gatherHolders(layout, pose.x, pose.z, ignoreId);
   for (const f of feet(type, flipped, pose)) {
     const fy = y + f.dy;

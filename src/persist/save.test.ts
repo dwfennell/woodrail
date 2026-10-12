@@ -35,8 +35,19 @@ describe("save format v2", () => {
     expect(w.sim.getTrain(w.sim.trainIds()[0])!.cars[0].lever).toBe(1);
   });
 
-  it("is at version 6 (depots and cargo)", () => {
-    expect(SAVE_VERSION).toBe(6);
+  it("is at version 7 (bridges stored at their deck height)", () => {
+    expect(SAVE_VERSION).toBe(7);
+  });
+
+  it("loads version 6 saves, lifting their bridges from their feet to their decks", () => {
+    const world = worldWithTrain();
+    const bridge = world.layout.addPiece("bridge", { x: 0, z: 0, heading: 0 }, 64);
+    const data = serializeWorld(world) as unknown as { version: number; pieces: { id: number; y: number }[] };
+    data.version = 6;
+    data.pieces.find((p) => p.id === bridge)!.y = 0;
+    const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.layout.getPiece(bridge)!.y).toBe(64);
   });
 
   it("refuses version 5 saves", () => {

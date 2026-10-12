@@ -15,7 +15,7 @@ import {
   type WebGLRenderer,
 } from "three";
 import { CAR_SPECS, COUPLER_GAP, type CarKind } from "../sim";
-import type { PieceTypeId } from "../track";
+import { isBridge, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
 import { buildCarModel, disposeObject } from "./train-models";
 import { pieceGeometry } from "./track-view";
@@ -70,7 +70,7 @@ export function renderThumbnails(renderer: WebGLRenderer, mats: Materials, subje
   for (const s of subjects) {
     let subject: Object3D;
     if (s.kind === "piece") {
-      const mesh = new Mesh(pieceGeometry(s.type, false), [mats.track, mats.trackCut, mats.bridgePaint]);
+      const mesh = new Mesh(pieceGeometry(s.type, false, isBridge(s.type) ? 1 : 0), [mats.track, mats.trackCut, mats.bridgePaint]);
       // Long pieces lie diagonally so they fill the square tile.
       mesh.rotation.y = 0.5;
       subject = mesh;

@@ -4,11 +4,11 @@ import { buildCarModel, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
 import { setRim } from "../render/materials";
-import { ghostMesh } from "../render/track-view";
+import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { CAR_SPECS, COUPLER_GAP, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
-import { BLOCK_MESSAGES, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { findOverlap, findSnap, getPieceDef, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
+import { BLOCK_MESSAGES, bridgeLevels, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
+import { findOverlap, findSnap, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
@@ -584,7 +584,7 @@ export class Interaction {
     const g = this.game;
     const p = g.layout.getPiece(id);
     if (!p) return;
-    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint]);
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p));
     mesh.castShadow = true;
     g.scene.add(mesh);
     g.trackView.setHidden(id, true);
@@ -677,7 +677,7 @@ export class Interaction {
     if (!this.editor().remove(id) || !p) return;
     // A stand-in lifts and shrinks away where the piece was.
     const g = this.game;
-    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint]);
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p));
     mesh.castShadow = true;
     mesh.position.set(p.pose.x, p.y, p.pose.z);
     mesh.rotation.y = -p.pose.heading;
@@ -794,6 +794,12 @@ export class Interaction {
       if (reason && reason !== m.blocked && !m.overTray) this.hud.toast(BLOCK_MESSAGES[reason]);
       m.blocked = reason;
       m.risers = risers;
+      if (isBridge(m.type)) {
+        // A bridge's arches reach down to the ground under it (one level while it can't stand here).
+        const levels = Math.max(1, bridgeLevels(this.game.landscape, m.type, m.flipped, pose, py));
+        const geometry = pieceGeometry(m.type, m.flipped, levels);
+        if (m.ghost.geometry !== geometry) m.ghost.geometry = geometry;
+      }
       const held = this.game.mats.held;
       if (reason) setRim(held, "#ff4a3a", 1.2);
       else if (m.snap.kind === "snapped") setRim(held, "#7ddc58", 0.9);
