@@ -95,3 +95,42 @@ describe("findOverlap with switches, crossings, ramps and bridges", () => {
     expect(hits).toEqual([]);
   });
 });
+
+describe("findOverlap with bridges' arches", () => {
+  // A bridge along x from 0 to 216, its deck at `deck`, its arches reaching down to the felt.
+  const withBridge = (deck: number) => {
+    const l = new Layout();
+    const id = l.addPiece("bridge", at(0, 0), deck);
+    const arches = (mine = 0) => ({ mine, of: (p: { id: number }) => (p.id === id ? deck : 0) });
+    return { l, id, arches };
+  };
+  // Arch openings are centred at 0.28 and 0.72 of the bridge (x = 60 and 156); a pier stands at x = 108.
+
+  it("lets track pass under a bridge through an arch opening", () => {
+    const { l, arches } = withBridge(RISER_HEIGHT);
+    expect(findOverlap(l, "straight-216", false, at(60, -108, Math.PI / 2), 0, -1, arches())).toBe(-1);
+  });
+
+  it("refuses track run into a bridge's pier, from the felt or a level up", () => {
+    const { l, id, arches } = withBridge(2 * RISER_HEIGHT);
+    expect(findOverlap(l, "straight-216", false, at(108, -108, Math.PI / 2), 0, -1, arches())).toBe(id);
+    // A level up (on a hill): still into the pier; but the tall arch openings of a two-level bridge let it through.
+    expect(findOverlap(l, "straight-216", false, at(108, -108, Math.PI / 2), RISER_HEIGHT, -1, arches())).toBe(id);
+    expect(findOverlap(l, "straight-216", false, at(60, -108, Math.PI / 2), RISER_HEIGHT, -1, arches())).toBe(-1);
+  });
+
+  it("refuses a bridge whose pier would stand on track", () => {
+    const l = new Layout();
+    const track = l.addPiece("straight-216", at(108, -108, Math.PI / 2));
+    expect(findOverlap(l, "bridge", false, at(0, 0), RISER_HEIGHT, -1, { mine: RISER_HEIGHT, of: () => 0 })).toBe(track);
+    // Without arches (as before), only the deck counts: a riser above is clear.
+    expect(findOverlap(l, "bridge", false, at(0, 0), RISER_HEIGHT, -1)).toBe(-1);
+  });
+
+  it("still joins track end to end with a bridge", () => {
+    const { l, id, arches } = withBridge(RISER_HEIGHT);
+    expect(findOverlap(l, "straight-216", false, at(216, 0), RISER_HEIGHT, -1, arches())).toBe(-1);
+    appendPiece(l, "straight-216", false, connectorRef(id, 1));
+    expect(findOverlap(l, "straight-216", false, at(-216, 0), RISER_HEIGHT, -1, arches())).toBe(-1);
+  });
+});

@@ -18,6 +18,12 @@ export const BRIDGE_LENGTH = 216;
 export const BUFFER_LENGTH = 54;
 export const ADAPTER_LENGTH = 54;
 
+// Arches under bridges (and raised ramps): two round openings, centred at these fractions of the length, with radius
+// this fraction of the length, their crowns this far below the deck.
+export const ARCH_CENTRES = [0.28, 0.72] as const;
+export const ARCH_RADIUS = 0.19;
+export const ARCH_CROWN_DROP = RISER_HEIGHT / 4;
+
 // Joint play: how far a peg can be from perfectly seated and still hold. Generous, like real wooden track: straight
 // lengths step by 18 mm, so 9 mm lets any straight run close between two fixed ends (station to station).
 export const JOINT_POS_TOLERANCE = 9;

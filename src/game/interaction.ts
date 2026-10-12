@@ -8,7 +8,7 @@ import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { CAR_SPECS, COUPLER_GAP, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, bridgeLevels, CELL, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { findOverlap, findSnap, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
+import { findOverlap, findSnap, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
@@ -620,7 +620,10 @@ export class Interaction {
   private blockedBy(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): BlockReason | null {
     const c = checkPlacement(this.game.landscape, type, flipped, pose, y);
     if (c.kind === "blocked") return c.reason;
-    return findOverlap(this.game.layout, type, flipped, pose, y, ignoreId) === -1 ? null : "piece";
+    // Bridges' and raised ramps' arches are solid down to the ground (but for their openings).
+    const g = this.game;
+    const arches = { mine: bridgeLevels(g.landscape, type, flipped, pose, y) * RISER_HEIGHT, of: (p: PlacedPiece) => g.bridgeLevelsOf(p) * RISER_HEIGHT };
+    return findOverlap(g.layout, type, flipped, pose, y, ignoreId, arches) === -1 ? null : "piece";
   }
 
   /**

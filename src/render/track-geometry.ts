@@ -17,6 +17,9 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import polygonClipping, { type Polygon } from "polygon-clipping";
 import { ADDITION, Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
 import {
+  ARCH_CENTRES,
+  ARCH_CROWN_DROP,
+  ARCH_RADIUS,
   createSample,
   GROOVE_SPACING,
   GROOVE_WIDTH,
@@ -319,10 +322,10 @@ function bridgeSupport(def: PieceDef, height: number): BufferGeometry {
     result = evaluator.evaluate(result, brush(below), SUBTRACTION);
   }
   // Arch tops a spandrel below the deck; the openings reach the ground.
-  const radius = len * 0.19;
-  for (const at of [0.28, 0.72]) {
+  const radius = len * ARCH_RADIUS;
+  for (const at of ARCH_CENTRES) {
     samplePath(path, len * at, p);
-    const archTop = p.y - RISER_HEIGHT / 4;
+    const archTop = p.y - ARCH_CROWN_DROP;
     const arch = onlyCsgAttributes(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40).toNonIndexed());
     arch.rotateX(Math.PI / 2);
     arch.translate(0, archTop - radius, 0);
