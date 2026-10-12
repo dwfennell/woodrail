@@ -1,4 +1,4 @@
-import { Box3, type BufferGeometry, type Material, type Mesh, type Object3D } from "three";
+import { Box3, BufferAttribute, type BufferGeometry, type Material, type Mesh, type Object3D } from "three";
 import { Kit } from "../../catalogue/kit";
 import { loadAsset } from "../../catalogue/registry";
 import type { Footprint } from "../../props/placement";
@@ -26,7 +26,8 @@ export class PropLibrary {
   onLoaded: ((assetId: string) => void) | null = null;
 
   constructor(private readonly mats: Materials) {
-    this.kit = new Kit(mats);
+    // Fewer segments than the catalogue viewer's: props are small on screen, and many.
+    this.kit = new Kit(mats, PROP_DETAIL);
   }
 
   /** The model if it's built (null if the asset doesn't exist; undefined if not loaded yet). */
@@ -55,6 +56,9 @@ export class PropLibrary {
   }
 }
 
+/** Kit detail for props (see `Kit`). */
+const PROP_DETAIL = 0.5;
+
 const box = new Box3();
 
 /** Merge a built model's meshes by material (transforms applied), and measure it. */
@@ -67,7 +71,11 @@ export function bake(root: Object3D, mats: Materials): Omit<PropModel, "name"> {
     const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
     b.add(material, mesh.geometry.clone().applyMatrix4(mesh.matrixWorld));
   });
-  const parts = [...b.merged()].map(([material, geometry]) => ({ material, geometry }));
+  const parts = [...b.merged()].map(([material, geometry]) => {
+    // Every part in a material is drawn from one batch, which needs the same attributes throughout.
+    if (!geometry.getAttribute("uv")) geometry.setAttribute("uv", new BufferAttribute(new Float32Array(geometry.getAttribute("position").count * 2), 2));
+    return { material, geometry };
+  });
   box.makeEmpty();
   for (const p of parts) {
     p.geometry.computeBoundingBox();

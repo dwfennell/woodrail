@@ -1,4 +1,4 @@
-import { Euler, Group, type InstancedMesh, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, Mesh, type Object3D, type TOUCH } from "three";
+import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, Mesh, type Object3D, type TOUCH } from "three";
 import { Editor, pieceCentre, poseForCentre, type RiserAt } from "../editor/editor";
 import { buildCarModel, carVariant, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
@@ -1445,7 +1445,7 @@ export class Interaction {
       const carId = g.trainView.carAt(h.object as Object3D);
       if (carId !== -1) return { kind: "car", carId };
       if (h.object.userData.kind === "switch-lever") return { kind: "lever", pieceId: h.object.userData.pieceId as number };
-      const propId = g.propsView.propAt(h.object as InstancedMesh, h.instanceId);
+      const propId = g.propsView.propAt(h.object, h.batchId);
       if (propId !== -1) return { kind: "prop", propId };
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
       if (pieceId !== -1) return { kind: "piece", pieceId };

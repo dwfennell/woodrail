@@ -24,7 +24,20 @@ import type { Materials } from "../render/materials";
  * y is up, assets stand on y = 0 and face +x (a train's front) unless they've no front.
  */
 export class Kit {
-  constructor(readonly mats: Materials) {}
+  /**
+   * `detail` below 1 builds with fewer segments round curves (in the game, where models are small on screen and many):
+   * at most `detail` of the usual count, and about one segment per few mm of circumference, never fewer than 6.
+   */
+  constructor(
+    readonly mats: Materials,
+    readonly detail = 1,
+  ) {}
+
+  /** Segments round a curve of radius `r` (mm), at most `n`. */
+  private seg(n: number, r: number): number {
+    if (this.detail >= 1) return n;
+    return Math.max(6, Math.min(Math.ceil(n * this.detail), Math.ceil((2 * Math.PI * r) / 2.5)));
+  }
 
   // ——— Materials ———
 
@@ -65,56 +78,59 @@ export class Kit {
   /** A box with rounded edges (radius `r`), its base on y = `y`, centred on x/z. */
   box(mat: Material, w: number, h: number, d: number, r = 1.5, x = 0, y = 0, z = 0): Mesh {
     const rr = Math.min(r, w / 2 - 0.01, h / 2 - 0.01, d / 2 - 0.01);
-    const g = rr > 0.05 ? new RoundedBoxGeometry(w, h, d, 2, rr) : new BoxGeometry(w, h, d);
+    const g = rr > 0.05 ? new RoundedBoxGeometry(w, h, d, this.detail >= 1 ? 2 : 1, rr) : new BoxGeometry(w, h, d);
     return this.mesh(g, mat, x, y + h / 2, z);
   }
 
   /** An upright cylinder (or a cone frustum, `rTop` ≠ `rBottom`), its base on y = `y`. */
   cyl(mat: Material, rBottom: number, h: number, x = 0, y = 0, z = 0, rTop = rBottom, segments = 28): Mesh {
-    return this.mesh(new CylinderGeometry(rTop, rBottom, h, segments), mat, x, y + h / 2, z);
+    return this.mesh(new CylinderGeometry(rTop, rBottom, h, this.seg(segments, Math.max(rTop, rBottom))), mat, x, y + h / 2, z);
   }
 
   /** A cylinder lying along x (an axle, a log, a boiler), centred at (x, y, z). */
   cylX(mat: Material, r: number, length: number, x = 0, y = 0, z = 0, segments = 28): Mesh {
-    const g = new CylinderGeometry(r, r, length, segments);
+    const g = new CylinderGeometry(r, r, length, this.seg(segments, r));
     g.rotateZ(Math.PI / 2);
     return this.mesh(g, mat, x, y, z);
   }
 
   /** A cylinder lying along z (a wheel's axle across the track, a drum), centred at (x, y, z). */
   cylZ(mat: Material, r: number, length: number, x = 0, y = 0, z = 0, segments = 28): Mesh {
-    const g = new CylinderGeometry(r, r, length, segments);
+    const g = new CylinderGeometry(r, r, length, this.seg(segments, r));
     g.rotateX(Math.PI / 2);
     return this.mesh(g, mat, x, y, z);
   }
 
   /** A ball, centred at (x, y, z). Squash with `sy`. */
   ball(mat: Material, r: number, x = 0, y = 0, z = 0, sy = 1): Mesh {
-    const m = this.mesh(new SphereGeometry(r, 24, 16), mat, x, y, z);
+    const m = this.mesh(new SphereGeometry(r, this.seg(24, r), Math.max(4, Math.ceil(this.seg(24, r) * 0.67))), mat, x, y, z);
     m.scale.y = sy;
     return m;
   }
 
   /** A cone, its base on y = `y`. */
   cone(mat: Material, r: number, h: number, x = 0, y = 0, z = 0, segments = 24): Mesh {
-    return this.mesh(new ConeGeometry(r, h, segments), mat, x, y + h / 2, z);
+    return this.mesh(new ConeGeometry(r, h, this.seg(segments, r)), mat, x, y + h / 2, z);
   }
 
   /** A capsule (a pill), upright, its base on y = `y`. */
   capsule(mat: Material, r: number, length: number, x = 0, y = 0, z = 0): Mesh {
-    return this.mesh(new CapsuleGeometry(r, length, 6, 16), mat, x, y + length / 2 + r, z);
+    return this.mesh(new CapsuleGeometry(r, length, this.detail >= 1 ? 6 : 3, this.seg(16, r)), mat, x, y + length / 2 + r, z);
   }
 
   /** A ring (torus) lying flat in x/z, centred at (x, y, z); `upright` stands it in the x/y plane. */
   ring(mat: Material, r: number, tube: number, x = 0, y = 0, z = 0, upright = false, arc = Math.PI * 2): Mesh {
-    const g = new TorusGeometry(r, tube, 12, 32, arc);
+    const g = new TorusGeometry(r, tube, this.seg(12, tube), this.seg(32, r), arc);
     if (!upright) g.rotateX(Math.PI / 2);
     return this.mesh(g, mat, x, y, z);
   }
 
   /** A turned shape: (radius, height) profile points from the bottom up, spun round y; its base on y = `y`. */
   lathe(mat: Material, profile: readonly [number, number][], x = 0, y = 0, z = 0, segments = 32): Mesh {
-    return this.mesh(new LatheGeometry(profile.map(([r, h]) => new Vector2(r, h)), segments), mat, x, y, z);
+    return this.mesh(new LatheGeometry(
+        profile.map(([r, h]) => new Vector2(r, h)),
+        this.seg(segments, Math.max(...profile.map(([r]) => r))),
+      ), mat, x, y, z);
   }
 
   /**

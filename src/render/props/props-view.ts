@@ -1,13 +1,24 @@
-import { Group, InstancedMesh, Matrix4, Quaternion, Vector3 } from "three";
-import type { Prop, PropStore } from "../../props/store";
-import type { PropLibrary, PropModel } from "./library";
+import { BatchedMesh, Group, Matrix4, Quaternion, Vector3, type Material, type Object3D } from "three";
+import type { PropStore } from "../../props/store";
+import type { PropLibrary } from "./library";
 
-/** Instances of one model: a mesh per part, sharing the instance list. */
+/** Every prop part in one material: each model's geometry stored once, each prop an instance of it. */
 interface Batch {
-  meshes: InstancedMesh[];
-  capacity: number;
-  /** Prop id of each instance, in order. */
-  ids: number[];
+  mesh: BatchedMesh;
+  /** Geometry id of each model's part in this batch. */
+  geometryOf: Map<string, number>;
+  /** Prop id of each instance. */
+  propOf: Map<number, number>;
+  /** Room for this many vertices of geometry (grown by doubling). */
+  vertices: number;
+}
+
+/** A prop as drawn: its instances, and the pose and visibility they were last set for. */
+interface Drawn {
+  asset: string;
+  instances: { batch: Batch; id: number }[];
+  key: string;
+  visible: boolean;
 }
 
 const m = new Matrix4();
@@ -15,17 +26,20 @@ const q = new Quaternion();
 const up = new Vector3(0, 1, 0);
 const pos = new Vector3();
 const one = new Vector3(1, 1, 1);
-const zero = new Vector3(0, 0, 0);
+
+const START_INSTANCES = 64;
+const START_VERTICES = 1 << 16;
 
 /**
- * Draws the props: one instanced mesh per (model, part), so draw calls grow with the number of different models
- * placed, not with copies. `sync` rewrites the instance matrices when the props change (keyed by the store's version);
- * nothing runs per frame.
+ * Draws the props: one `BatchedMesh` per material (a handful in all), holding every model's part in that material once
+ * and an instance per prop. Draw calls stay the same however many props and models there are; each instance is
+ * frustum-culled on its own. `sync` updates only the props that changed (keyed by the store's version); nothing runs
+ * per frame.
  */
 export class PropsView {
   readonly group = new Group();
-  private readonly batches = new Map<string, Batch>();
-  /** What the instances were last written for: the store's version and the hidden prop. */
+  private readonly batches = new Map<Material, Batch>();
+  private readonly drawn = new Map<number, Drawn>();
   private syncedFor = "";
   /** Models asked for and not yet loaded. */
   private readonly waiting = new Set<string>();
@@ -35,92 +49,119 @@ export class PropsView {
   }
 
   /**
-   * Bring the instances up to date with the store. `hidden` is a prop being moved (drawn by the hand instead): its
-   * instance shrinks to nothing where it stands, so the batch's bounds don't stretch. Returns true if anything changed.
+   * Bring the instances up to date with the store. `hidden` is a prop being moved (drawn by the hand instead). `force`
+   * after a model has loaded, to draw the props that were waiting for it. Returns true if anything changed.
    */
   sync(store: PropStore, hidden = -1, force = false): boolean {
     const key = `${store.version}|${hidden}`;
     if (key === this.syncedFor && !force) return false;
     this.syncedFor = key;
-    const byAsset = new Map<string, Prop[]>();
+    const touched = new Set<Batch>();
+    for (const [id, d] of this.drawn) {
+      const p = store.get(id);
+      if (p && p.asset === d.asset) continue;
+      for (const inst of d.instances) {
+        inst.batch.mesh.deleteInstance(inst.id);
+        inst.batch.propOf.delete(inst.id);
+        touched.add(inst.batch);
+      }
+      this.drawn.delete(id);
+    }
     for (const p of store.all()) {
-      let list = byAsset.get(p.asset);
-      if (!list) byAsset.set(p.asset, (list = []));
-      list.push(p);
-    }
-    for (const [asset, batch] of this.batches) {
-      if (!byAsset.has(asset)) {
-        for (const mesh of batch.meshes) mesh.count = 0;
-        batch.ids.length = 0;
-      }
-    }
-    for (const [asset, props] of byAsset) {
-      const model = this.library.model(asset);
-      if (model === undefined) {
-        if (!this.waiting.has(asset)) {
-          this.waiting.add(asset);
-          void this.library.load(asset).then(() => this.waiting.delete(asset));
+      let d = this.drawn.get(p.id);
+      if (!d) {
+        const model = this.library.model(p.asset);
+        if (model === undefined) {
+          if (!this.waiting.has(p.asset)) {
+            this.waiting.add(p.asset);
+            void this.library.load(p.asset).then(() => this.waiting.delete(p.asset));
+          }
+          continue;
         }
-        continue;
+        if (model === null) continue;
+        d = { asset: p.asset, instances: [], key: "", visible: true };
+        for (const part of model.parts) {
+          const batch = this.batchFor(part.material);
+          let gid = batch.geometryOf.get(p.asset);
+          if (gid === undefined) {
+            const need = part.geometry.getAttribute("position").count;
+            const mesh = batch.mesh;
+            if (mesh.unusedVertexCount < need) {
+              batch.vertices = Math.max(batch.vertices * 2, batch.vertices + need);
+              mesh.setGeometrySize(batch.vertices, batch.vertices * 2);
+            }
+            gid = mesh.addGeometry(part.geometry);
+            batch.geometryOf.set(p.asset, gid);
+          }
+          if (batch.mesh.instanceCount >= batch.mesh.maxInstanceCount) batch.mesh.setInstanceCount(batch.mesh.maxInstanceCount * 2);
+          const id = batch.mesh.addInstance(gid);
+          batch.propOf.set(id, p.id);
+          d.instances.push({ batch, id });
+          touched.add(batch);
+        }
+        this.drawn.set(p.id, d);
       }
-      if (model === null) continue;
-      const batch = this.batchFor(asset, model, props.length);
-      batch.ids.length = 0;
-      props.forEach((p, i) => {
-        batch.ids.push(p.id);
+      const poseKey = `${p.x}|${p.z}|${p.heading}|${p.y}`;
+      if (poseKey !== d.key) {
+        d.key = poseKey;
         q.setFromAxisAngle(up, -p.heading);
-        m.compose(pos.set(p.x, p.y, p.z), q, p.id === hidden ? zero : one);
-        for (const mesh of batch.meshes) mesh.setMatrixAt(i, m);
-      });
-      for (const mesh of batch.meshes) {
-        mesh.count = props.length;
-        mesh.instanceMatrix.needsUpdate = true;
-        mesh.computeBoundingSphere();
+        m.compose(pos.set(p.x, p.y, p.z), q, one);
+        for (const inst of d.instances) {
+          inst.batch.mesh.setMatrixAt(inst.id, m);
+          touched.add(inst.batch);
+        }
+      }
+      const visible = p.id !== hidden;
+      if (visible !== d.visible) {
+        d.visible = visible;
+        for (const inst of d.instances) inst.batch.mesh.setVisibleAt(inst.id, visible);
       }
     }
+    for (const b of touched) b.mesh.computeBoundingSphere();
     return true;
   }
 
-  /** The prop id an intersected instance stands for (or −1). */
-  propAt(mesh: InstancedMesh, instanceId: number | undefined): number {
-    if (instanceId === undefined) return -1;
-    for (const batch of this.batches.values()) if (batch.meshes.includes(mesh)) return batch.ids[instanceId] ?? -1;
+  /** The prop id an intersected batch instance stands for (or −1). */
+  propAt(object: Object3D, batchId: number | undefined): number {
+    if (batchId === undefined) return -1;
+    for (const b of this.batches.values()) if (b.mesh === object) return b.propOf.get(batchId) ?? -1;
     return -1;
   }
 
-  /** The batch for a model, with room for `n` instances (grown by doubling, rebuilt only then). */
-  private batchFor(asset: string, model: PropModel, n: number): Batch {
-    let batch = this.batches.get(asset);
-    if (batch && batch.capacity >= n) return batch;
-    const capacity = Math.max(4, batch ? batch.capacity * 2 : 4, n);
-    if (batch) for (const mesh of batch.meshes) {
-      this.group.remove(mesh);
-      mesh.dispose();
-    }
-    const meshes = model.parts.map((part) => {
-      const mesh = new InstancedMesh(part.geometry, part.material, capacity);
-      mesh.castShadow = true;
+  private batchFor(material: Material): Batch {
+    let batch = this.batches.get(material);
+    if (!batch) {
+      const mesh = new BatchedMesh(START_INSTANCES, START_VERTICES, START_VERTICES * 2, material);
+      mesh.castShadow = !this.far;
       mesh.receiveShadow = true;
-      mesh.count = 0;
-      mesh.name = asset;
+      mesh.sortObjects = material.transparent;
+      mesh.name = "props";
       this.group.add(mesh);
-      return mesh;
-    });
-    batch = { meshes, capacity, ids: batch?.ids ?? [] };
-    this.batches.set(asset, batch);
+      batch = { mesh, geometryOf: new Map(), propOf: new Map(), vertices: START_VERTICES };
+      this.batches.set(material, batch);
+    }
     return batch;
   }
 
-  /** Draw call count (for the performance readout). */
+  private far = false;
+
+  /** Zoomed far out, props stop casting shadows: too small to see, and the shadow pass would draw them all again. */
+  setFar(far: boolean): void {
+    this.far = far;
+    for (const b of this.batches.values()) b.mesh.castShadow = !far;
+  }
+
+  /** Draw calls (one per material in use), for the performance readout. */
   get drawCalls(): number {
     let n = 0;
-    for (const b of this.batches.values()) if (b.ids.length > 0) n += b.meshes.length;
+    for (const b of this.batches.values()) if (b.propOf.size > 0) n++;
     return n;
   }
 
   dispose(): void {
-    for (const b of this.batches.values()) for (const mesh of b.meshes) mesh.dispose();
+    for (const b of this.batches.values()) b.mesh.dispose();
     this.batches.clear();
+    this.drawn.clear();
     this.group.clear();
   }
 }

@@ -551,6 +551,7 @@ export class Game {
     if (far !== this.farDetail) {
       this.farDetail = far;
       this.mats.setFar(far);
+      this.propsView.setFar(far);
       this.dirty = true;
     }
     const near = nearPlaneFor(dist);
