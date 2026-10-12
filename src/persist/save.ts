@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
 import { createEconomy, depotPieceType, type World } from "../game/world";
+import type { GameMode } from "../game/modes";
 import { generateLandscape } from "../landscape";
 import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import { CARGO, CARGO_KINDS, PILE_CAP, ROLE, WAGON_CAPACITY, type CargoKind } from "../economy";
@@ -168,21 +169,31 @@ export function deserializeWorld(data: unknown): Result<World, string> {
   return ok({ layout, sim, landscape, stations, depots, economy });
 }
 
-const STORAGE_KEY = "woodrail.autosave.v2";
+/** One autosave per mode. Sandbox keeps the key from before there were modes, so those railways carry over. */
+const STORAGE_KEYS: Record<GameMode, string> = { sandbox: "woodrail.autosave.v2", game: "woodrail.game.v1" };
 
-export function saveToStorage(world: World): boolean {
+export function saveToStorage(world: World, mode: GameMode = "sandbox"): boolean {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeWorld(world)));
+    localStorage.setItem(STORAGE_KEYS[mode], JSON.stringify(serializeWorld(world)));
     return true;
   } catch {
     return false;
   }
 }
 
-export function loadFromStorage(): Result<World, string> | null {
+/** True when the mode has an autosave (valid or not: loading says which). */
+export function hasSave(mode: GameMode): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEYS[mode]) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export function loadFromStorage(mode: GameMode = "sandbox"): Result<World, string> | null {
   let raw: string | null = null;
   try {
-    raw = localStorage.getItem(STORAGE_KEY);
+    raw = localStorage.getItem(STORAGE_KEYS[mode]);
   } catch {
     return null;
   }

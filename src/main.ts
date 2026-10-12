@@ -5,8 +5,9 @@ import { frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld } from "./game/world";
-import { connectedPairs } from "./landscape";
-import { loadFromStorage, saveToStorage } from "./persist/save";
+import { connectedPairs, MAT_DEPTH, MAT_WIDTH } from "./landscape";
+import { loadLastMode, saveLastMode, type GameMode } from "./game/modes";
+import { hasSave, loadFromStorage, saveToStorage } from "./persist/save";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -14,6 +15,7 @@ import { TrackView } from "./render/track-view";
 import { PIECE_TYPES } from "./track";
 import { Hud, TRACK_ITEMS, TRAIN_ITEMS, trayKey } from "./ui/hud";
 import { loadMuted, saveMuted } from "./ui/prefs";
+import { TitleScreen } from "./ui/title";
 import "./style.css";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
@@ -25,18 +27,26 @@ function linkedSeed(): number | null {
   return m ? Number(m[1]) : null;
 }
 
-function initialWorld(): GameWorld {
-  const saved = loadFromStorage();
+/**
+ * The world to open with. A linked map opens in Sandbox (fresh, unless the sandbox autosave is already that map, so
+ * reloading keeps your track); otherwise the last mode's autosave, or the starter map.
+ */
+function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean } {
   const seed = linkedSeed();
-  // A linked map starts fresh, unless the autosave is already that map (so reloading keeps your track).
-  if (seed !== null && !(saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter)) return createWorld(seed);
-  if (saved?.ok) return saved.value;
-  if (saved && !saved.ok) console.warn(`Woodrail: ignoring autosave (${saved.error})`);
-  return buildStarterWorld();
+  const mode = seed !== null ? "sandbox" : loadLastMode();
+  const saved = loadFromStorage(mode);
+  if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${mode} autosave (${saved.error})`);
+  if (seed !== null) {
+    const same = saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter;
+    return { world: same ? saved.value : createWorld(seed), mode, linked: true };
+  }
+  return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: false };
 }
 
 function boot(savedThumbnails: Map<string, string> | null): void {
-  const game = new Game(canvas, initialWorld());
+  const opening = initialWorld();
+  const game = new Game(canvas, opening.world);
+  let mode = opening.mode;
   // Stations and depots never shift to take up joint play.
   const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
   let editor = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece);
@@ -95,6 +105,12 @@ function boot(savedThumbnails: Map<string, string> | null): void {
         game.frameLayout();
         flyIn(0.2);
       },
+      newGame: () => {
+        setWorld(buildStarterWorld());
+        save();
+        flyIn(0.2);
+      },
+      titleScreen: () => showTitle(),
       toggleQuality: () => {
         saveQualityOverride(game.quality.tier === "high" ? "mobile" : "high");
         location.reload();
@@ -182,14 +198,69 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   function scheduleSave(): void {
     clearTimeout(saveTimer);
-    saveTimer = window.setTimeout(() => saveToStorage(game.world), 600);
+    saveTimer = window.setTimeout(save, 600);
   }
 
+  /** Save the railway under its mode (not while the title screen shows it turning behind: nothing is being played). */
+  function save(): void {
+    if (playing) saveToStorage(game.world, mode);
+  }
+  /** False while the title is up. */
+  let playing = false;
+
   // Save train positions periodically and when the page is hidden.
-  setInterval(() => saveToStorage(game.world), 5000);
+  setInterval(save, 5000);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") saveToStorage(game.world);
+    if (document.visibilityState === "hidden") save();
   });
+
+  const title = new TitleScreen(document.body, { play }, { thumbnails });
+
+  /** Paused or not when the title came up (the game pauses behind the title, so the still backdrop costs nothing). */
+  let pausedBeforeTitle = false;
+
+  /** Save, then show the title over a still, wide view of the map. */
+  function showTitle(): void {
+    save();
+    playing = false;
+    clearTimeout(saveTimer);
+    interaction.clearSelection();
+    hud.hideCards();
+    hud.setVisible(false);
+    game.follow(-1);
+    const radius = Math.hypot(MAT_WIDTH, MAT_DEPTH) / 2;
+    game.director.glideTo(new Vector3(0, 0, 0), frameDistance(radius * 0.8, game.camera.fov, game.camera.aspect), { phi: 0.9, duration: 1.4 });
+    pausedBeforeTitle = game.paused;
+    game.paused = true;
+    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") });
+  }
+
+  /** Leave the title for a mode: carry on with its railway, or start it afresh. */
+  function play(next: GameMode, fresh: boolean): void {
+    if (fresh) setWorld(next === "game" ? buildStarterWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
+    else if (next !== mode) {
+      const saved = loadFromStorage(next);
+      if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
+      setWorld(saved?.ok ? saved.value : buildStarterWorld());
+    }
+    enter(next);
+    flyIn(0.1);
+  }
+
+  /** Start playing a mode on the world now loaded. */
+  function enter(next: GameMode): void {
+    mode = next;
+    saveLastMode(mode);
+    title.hide();
+    game.director.cancel();
+    game.paused = pausedBeforeTitle;
+    hud.setPaused(game.paused);
+    hud.setMode(mode);
+    hud.setVisible(true);
+    playing = true;
+    save();
+    hud.firstVisitHelp();
+  }
 
   const listen = (x: number, z: number): [number, number] => {
     // Volume falls off with distance from the camera's focus; pan follows screen position.
@@ -222,7 +293,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   let fps = 60;
   window.addEventListener("keydown", (e) => {
     if (e.key === "`") hud.perf.hidden = !hud.perf.hidden;
-    if (e.key === " " && (e.target as HTMLElement).tagName !== "BUTTON") {
+    if (e.key === " " && !title.shown && (e.target as HTMLElement).tagName !== "BUTTON") {
       e.preventDefault();
       game.paused = !game.paused;
       hud.setPaused(game.paused);
@@ -324,9 +395,12 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode });
   game.start();
-  flyIn(0.6);
+  if (opening.linked) {
+    enter(mode);
+    flyIn(0.6);
+  } else showTitle();
   loading?.classList.add("done");
 }
 

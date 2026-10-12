@@ -3,15 +3,15 @@
   --paper: #f6efe3;
   --beech: #e7c89a;
   --accent: #c8442f;
+  /* A pale beech board with a faint grain, and its thickness showing along the bottom edge. */
+  --wood-panel: repeating-linear-gradient(91deg, transparent 0 13px, rgba(170, 120, 60, 0.035) 14px 15px, transparent 16px 37px, rgba(170, 120, 60, 0.05) 38px 39px, transparent 40px 52px), linear-gradient(170deg, #fbf3e4, #f1e0c2);
+  --wood-panel-edge: inset 0 1px 0 #fffaf0, inset 0 -5px 0 rgba(176, 122, 68, 0.35);
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; color: var(--ink); font-family: "Nunito", system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
 #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-#loading { position: fixed; inset: 0; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #f3e6cf, #cbb595); transition: opacity 0.6s ease; z-index: 50; }
-#loading.done { opacity: 0; pointer-events: none; }
-#loading h1 { font-size: clamp(32px, 7vw, 64px); letter-spacing: 0.04em; margin: 0; color: var(--ink); }
-#loading p { margin: 8px 0 0; opacity: 0.7; text-align: center; }
+/* The loading screen and the wooden block letters are styled in index.html, so they show before scripts load. */
 
 /* ---- HUD ------------------------------------------------------------------------------------------------ */
 .hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
@@ -80,7 +80,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .toast.celebrate { background: #fff3c9; border-left-color: #e6b52c; }
 
 .help { position: absolute; inset: 0; background: rgba(40, 28, 16, 0.35); display: grid; place-items: center; padding: 16px; }
-.help-card { background: #faf3e6; border-radius: 22px; padding: 22px 24px; max-width: 520px; box-shadow: 0 20px 60px rgba(30, 20, 10, 0.4); display: flex; flex-direction: column; gap: 6px; }
+.help-card { background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); border-radius: 22px; padding: 22px 24px; max-width: 520px; display: flex; flex-direction: column; gap: 6px; }
 .help-card h2 { margin: 0 0 4px; font-size: 24px; }
 .help-card ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
 .tips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 4px 0 6px; }
@@ -129,3 +129,32 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .tray-orient .chip { padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 /* The Turn button's arrow points the way the next piece will face. */
 .tray-orient .turn-arrow { display: inline-block; transform: rotate(var(--tray-turn, 0deg)); transition: transform 0.2s ease; margin-left: 4px; }
+
+/* ---- title screen ---------------------------------------------------------------------------------------- */
+.mode-tag { font-size: 12px; font-weight: 800; letter-spacing: 0.02em; padding: 3px 9px; border-radius: 999px; background: #ead7b8; color: #5a3f24; margin-left: 2px; white-space: nowrap; }
+.mode-tag.mode-game { background: #d9ead2; color: #2d5a2a; }
+.beta { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; padding: 1px 6px; border-radius: 999px; background: #c8442f; color: #fff; vertical-align: 2px; }
+.title-screen { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(16px, 4vh, 36px); padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); background: radial-gradient(ellipse at 50% 45%, rgba(40, 28, 16, 0) 30%, rgba(40, 28, 16, 0.45)); overflow-y: auto; }
+.title-screen[hidden] { display: none; }
+.title-screen:not([hidden]) { animation: title-in 0.5s ease-out; }
+@keyframes title-in { from { opacity: 0; } }
+.title-head { text-align: center; }
+.title-logo { margin: 0; font-size: clamp(34px, 9.5vw, 88px); }
+.title-logo .wb { animation: wb-drop 0.55s cubic-bezier(0.3, 1.5, 0.5, 1) calc(0.45s + var(--i) * 0.07s) backwards; }
+@keyframes wb-drop { from { translate: 0 -1.4em; opacity: 0; } 40% { opacity: 1; } }
+.title-tag { margin: 12px 0 0; font-weight: 700; color: #fff8ec; text-shadow: 0 1px 8px rgba(30, 18, 8, 0.7); }
+.title-cards { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; width: min(720px, 100%); }
+.title-card { flex: 1 1 260px; max-width: 340px; border-radius: 20px; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 4px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 16px 50px rgba(30, 20, 10, 0.35); }
+.title-card h2 { margin: 0; font-size: 26px; display: flex; align-items: center; gap: 8px; }
+.title-card p { margin: 0 0 10px; line-height: 1.45; color: #5c4632; }
+.title-art { width: 84px; height: 84px; border-radius: 16px; background: #efe0c6 center / 112% no-repeat; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.06); margin-bottom: 6px; }
+.title-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+.title-buttons .chip { flex: 1; justify-content: center; }
+@media (max-width: 560px), (max-height: 520px) {
+  .title-card { padding: 14px 16px 16px; display: grid; grid-template-columns: 64px 1fr; column-gap: 12px; }
+  .title-art { width: 64px; height: 64px; grid-row: span 2; }
+  .title-card h2 { font-size: 22px; }
+  .title-card p { margin-bottom: 6px; font-size: 14px; }
+  .title-buttons { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) { .title-screen:not([hidden]), .title-logo .wb { animation: none; } }
