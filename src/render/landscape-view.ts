@@ -1,5 +1,5 @@
 import { BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SRGBColorSpace, type InstancedMesh, type MeshBasicMaterial } from "three";
-import { CELL, COLS, generateSurroundings, ROWS, SURF_LANE, SURF_RIVER, SURF_ROAD, treesAside, type Landscape, type Town, type TreeSpot } from "../landscape";
+import { CELL, COLS, generateSurroundings, ROWS, SURF_LANE, SURF_RIVER, SURF_ROAD, TreeClearance, type HeldPiece, type Landscape, type Town, type TreeSpot } from "../landscape";
 import type { Layout } from "../track";
 import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF_TOP } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
@@ -32,11 +32,14 @@ export class LandscapeView {
   private signs = new Map<number, MeshStandardMaterial>();
   private readonly signNames = new Map<number, string>();
   private connected = new Set<number>();
-  private trees: TreePlacement[] = [];
   private placeTrees: PlaceTrees = () => {};
-  /** Where the trees stand now (null before the first sync), and the hop animation moving them, if any. */
-  private treeSpots: (TreeSpot | null)[] | null = null;
-  private hop: Flourish | null = null;
+  private clearance!: TreeClearance;
+  /** A piece held over the mat, that trees are keeping clear of. */
+  private held: HeldPiece | null = null;
+  /** Each tree as drawn, where its hop started and where it's going, and how far along it is (≥ 1: there). */
+  private treeAnim = { shown: [] as Required<TreeAt>[], from: [] as Required<TreeAt>[], to: [] as Required<TreeAt>[], progress: new Float32Array(0) };
+  /** The animation moving trees, while any are on the move. */
+  private treeHop: Flourish | null = null;
 
   constructor(
     private readonly land: Landscape,
@@ -88,58 +91,84 @@ export class LandscapeView {
   }
 
   /**
-   * Trees step aside from track (see `treesAside`); call after the layout changes. With `animate`, trees that move
-   * hop to their new spots, ones with no room shrink away and ones coming back grow: returns that animation (or null
-   * when nothing moved).
+   * Trees step aside from track (see `treesAside`); call after the layout changes. With `animate`, the trees that
+   * move hop there: returns the animation to run, if one has to start.
    */
   syncTrees(layout: Layout, animate = false): Flourish | null {
-    const to = treesAside(this.land.grid, layout, this.trees);
-    this.hop?.dispose();
-    const from = this.treeSpots;
-    this.treeSpots = to;
-    const moving: number[] = [];
-    if (animate && from) to.forEach((t, i) => {
-      const f = from[i];
-      if (f !== t && (f === null || t === null || f.x !== t.x || f.z !== t.z)) moving.push(i);
+    this.clearance.setLayout(layout);
+    return this.retarget(this.clearance.spots(this.held ?? undefined), animate);
+  }
+
+  /** Trees hop aside for a piece held over the mat, and back when it moves on (null: nothing held). */
+  previewTrees(held: HeldPiece | null): Flourish | null {
+    this.held = held;
+    return this.retarget(this.clearance.spots(held ?? undefined), true);
+  }
+
+  /** Stop keeping clear of a held piece, without moving any trees yet (the next sync does). */
+  forgetHeld(): void {
+    this.held = null;
+  }
+
+  /** Send each tree whose spot changed toward it (hopping, shrinking away or springing up). */
+  private retarget(spots: readonly (TreeSpot | null)[], animate: boolean): Flourish | null {
+    const a = this.treeAnim;
+    let started = 0;
+    spots.forEach((spot, i) => {
+      const shown = a.shown[i];
+      const goal = spot ? { x: spot.x, z: spot.z, y: spot.y, s: 1 } : { x: a.to[i].x, z: a.to[i].z, y: a.to[i].y, s: 0 };
+      const to = a.to[i];
+      if (to.x === goal.x && to.z === goal.z && to.s === goal.s) return;
+      if (!animate) {
+        Object.assign(shown, goal);
+        Object.assign(to, goal);
+        a.progress[i] = 1;
+        return;
+      }
+      Object.assign(a.from[i], shown);
+      Object.assign(to, goal);
+      // Each tree sets off a moment after the last, so they scatter rather than move as one.
+      a.progress[i] = -Math.min(TREE_HOP_STAGGER * started++, TREE_HOP_SPREAD) / TREE_HOP_TIME;
     });
-    if (moving.length === 0) {
-      this.placeTrees(to);
+    if (!animate || started === 0) {
+      if (!this.treeHop) this.placeTrees(a.shown);
       return null;
     }
-    // Each tree sets off a moment after the last, so they scatter rather than move as one.
-    const delay = moving.map((_, k) => Math.min(TREE_HOP_STAGGER * k, TREE_HOP_SPREAD));
-    const frame: (TreeAt | null)[] = to.map((t) => (t ? { ...t } : null));
-    const spots = from!;
-    let time = 0;
-    let done = false;
+    if (this.treeHop) return null;
     const hop: Flourish = {
       update: (dt) => {
-        time += dt;
         let running = false;
-        moving.forEach((i, k) => {
-          const p = Math.min(1, Math.max(0, (time - delay[k]) / TREE_HOP_TIME));
+        for (let i = 0; i < a.shown.length; i++) {
+          if (a.progress[i] >= 1) continue;
+          a.progress[i] = Math.min(1, a.progress[i] + dt / TREE_HOP_TIME);
+          const p = Math.max(0, a.progress[i]);
           if (p < 1) running = true;
-          const a = spots[i];
-          const b = to[i];
-          if (a && b) {
-            // A hop: across in an arc, with a little squash on landing.
-            const e = easeInOutCubic(p);
-            frame[i] = { x: a.x + (b.x - a.x) * e, z: a.z + (b.z - a.z) * e, y: a.y + (b.y - a.y) * e + 4 * TREE_HOP_HEIGHT * p * (1 - p), s: 1 - 0.12 * Math.sin(Math.PI * p) };
-          } else if (a) frame[i] = { ...a, s: 1 - easeInOutCubic(p) }; // no room: shrinks away
-          else if (b) frame[i] = { ...b, s: easeOutBack(p) }; // back again: grows
-        });
-        this.placeTrees(running ? frame : to);
+          const from = a.from[i];
+          const to = a.to[i];
+          const shown = a.shown[i];
+          const e = easeInOutCubic(p);
+          const moving = Math.hypot(to.x - from.x, to.z - from.z) > 1;
+          // A hop: across in an arc, with a little squash on landing; or shrinking away, or springing up.
+          shown.x = from.x + (to.x - from.x) * e;
+          shown.z = from.z + (to.z - from.z) * e;
+          shown.y = from.y + (to.y - from.y) * e + (moving ? 4 * TREE_HOP_HEIGHT * p * (1 - p) : 0);
+          const grow = to.s > from.s ? easeOutBack(p) : e;
+          shown.s = (from.s + (to.s - from.s) * grow) * (moving ? 1 - 0.12 * Math.sin(Math.PI * p) : 1);
+        }
+        this.placeTrees(a.shown);
         return running;
       },
       dispose: () => {
-        if (done) return;
-        done = true;
-        if (this.hop === hop) this.hop = null;
-        this.placeTrees(to);
+        // Finished, or cut short: every tree where it's going.
+        for (let i = 0; i < a.shown.length; i++) {
+          Object.assign(a.shown[i], a.to[i]);
+          a.progress[i] = 1;
+        }
+        this.placeTrees(a.shown);
+        if (this.treeHop === hop) this.treeHop = null;
       },
     };
-    this.hop = hop;
-    hop.update(0);
+    this.treeHop = hop;
     return hop;
   }
 
@@ -172,7 +201,9 @@ export class LandscapeView {
 
     // Turned-wood toy trees, standing on whatever block they grew on.
     const trees = treePlacements(this.land);
-    this.trees = trees;
+    this.clearance = new TreeClearance(this.land.grid, trees);
+    const spot = (t: TreePlacement): Required<TreeAt> => ({ x: t.x, z: t.z, y: t.y, s: 1 });
+    this.treeAnim = { shown: trees.map(spot), from: trees.map(spot), to: trees.map(spot), progress: new Float32Array(trees.length).fill(1) };
     const treeGroup = buildTrees(trees, this.mats);
     this.placeTrees = treeGroup.userData.place as PlaceTrees;
     this.group.add(treeGroup);

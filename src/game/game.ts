@@ -23,7 +23,7 @@ import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
 import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { bridgeLevels, findCrossings, hillSlabs, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
+import { bridgeLevels, findCrossings, type HeldPiece, hillSlabs, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
 import { PIECE_TYPES, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
@@ -177,6 +177,19 @@ export class Game {
     this.economy.prune();
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.physics.markTrackDirty();
+  }
+
+  /**
+   * Trees hop aside for a piece held over the mat (null: nothing held, they go back). Without `retarget` this only
+   * forgets the held piece, for the layout change that follows a drop to settle the trees.
+   */
+  previewTrees(held: HeldPiece | null, retarget = true): void {
+    if (!retarget) {
+      this.landscapeView.forgetHeld();
+      return;
+    }
+    const hop = this.landscapeView.previewTrees(held);
+    if (hop) this.flourishes.add(hop);
   }
 
   /** Re-rail a derailed train near where its lead car came to rest. Returns the new train id or -1. */

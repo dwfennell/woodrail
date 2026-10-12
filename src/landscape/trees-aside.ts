@@ -1,4 +1,4 @@
-import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type Layout } from "../track";
+import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type Layout, type PieceTypeId, type Pose } from "../track";
 import { FEAT_NONE, FEAT_TREE, SURF_GRASS, type LandscapeGrid } from "./grid";
 
 /** Where a tree stands in plan, and the ground height there. */
@@ -23,6 +23,13 @@ const STEP = 12;
 
 const sample = createSample();
 
+/** A piece about to go down (held over the mat): trees step aside for it as for placed track. */
+export interface HeldPiece {
+  type: PieceTypeId;
+  flipped: boolean;
+  pose: Pose;
+}
+
 /**
  * Trees are scenery: track never has to go round them. Each tree that track (or a riser) passes over or close by
  * steps aside to the nearest clear spot on its own level — grass, clear of track and of other trees — or, with no
@@ -30,39 +37,63 @@ const sample = createSample();
  *
  * Returns one entry per tree, in order: where it stands now, or null if it has been taken away.
  */
-export function treesAside(grid: LandscapeGrid, layout: Layout, trees: readonly TreeSpot[]): (TreeSpot | null)[] {
-  const track = trackPoints(layout);
-  if (track.size === 0) return trees.map((t) => t);
-  const blocked = (x: number, z: number) => nearTrack(track, x, z, TREE_CLEARANCE);
-  const out: (TreeSpot | null)[] = trees.map((t) => (blocked(t.x, t.z) ? null : t));
-  const crowded = (x: number, z: number) => out.some((o) => o !== null && Math.hypot(o.x - x, o.z - z) < TREE_SPACING);
-  trees.forEach((t, i) => {
-    if (out[i] !== null) return;
-    // Step away from the nearest track if there's room that way, else round to either side: on the smallest ring
-    // with a clear spot.
-    const near = nearestTrack(track, t.x, t.z);
-    const away = near ? Math.atan2(t.z - near.z, t.x - near.x) : 0;
-    for (const r of RINGS) {
-      let best: TreeSpot | null = null;
-      let bestTurn = Infinity;
-      for (let k = 0; k < DIRECTIONS; k++) {
-        const a = away + (k * 2 * Math.PI) / DIRECTIONS;
-        const x = t.x + Math.cos(a) * r;
-        const z = t.z + Math.sin(a) * r;
-        if (!standable(grid, x, z, t.y) || blocked(x, z) || crowded(x, z)) continue;
-        const turn = Math.min(k, DIRECTIONS - k);
-        if (turn < bestTurn) {
-          bestTurn = turn;
-          best = { x, z, y: t.y };
+export function treesAside(grid: LandscapeGrid, layout: Layout, trees: readonly TreeSpot[], held?: HeldPiece): (TreeSpot | null)[] {
+  const c = new TreeClearance(grid, trees);
+  c.setLayout(layout);
+  return c.spots(held);
+}
+
+/** `treesAside` for one map, keeping the placed track's sample points between calls (while a piece is held). */
+export class TreeClearance {
+  private track = new Map<number, number[]>();
+
+  constructor(
+    private readonly grid: LandscapeGrid,
+    private readonly trees: readonly TreeSpot[],
+  ) {}
+
+  /** Call when the layout changes. */
+  setLayout(layout: Layout): void {
+    this.track = trackPoints(layout);
+  }
+
+  /** Where each tree stands, given the layout and (optionally) a piece held over the mat. */
+  spots(held?: HeldPiece): (TreeSpot | null)[] {
+    const { grid, trees, track } = this;
+    const extra = new Map<number, number[]>();
+    if (held) addPiece(extra, held.type, held.flipped, held.pose);
+    if (track.size === 0 && extra.size === 0) return trees.map((t) => t);
+    const blocked = (x: number, z: number) => nearTrack(track, x, z, TREE_CLEARANCE) || nearTrack(extra, x, z, TREE_CLEARANCE);
+    const out: (TreeSpot | null)[] = trees.map((t) => (blocked(t.x, t.z) ? null : t));
+    const crowded = (x: number, z: number) => out.some((o) => o !== null && Math.hypot(o.x - x, o.z - z) < TREE_SPACING);
+    trees.forEach((t, i) => {
+      if (out[i] !== null) return;
+      // Step away from the nearest track if there's room that way, else round to either side: on the smallest ring
+      // with a clear spot.
+      const near = nearestTrack(extra, t.x, t.z) ?? nearestTrack(track, t.x, t.z);
+      const away = near ? Math.atan2(t.z - near.z, t.x - near.x) : 0;
+      for (const r of RINGS) {
+        let best: TreeSpot | null = null;
+        let bestTurn = Infinity;
+        for (let k = 0; k < DIRECTIONS; k++) {
+          const a = away + (k * 2 * Math.PI) / DIRECTIONS;
+          const x = t.x + Math.cos(a) * r;
+          const z = t.z + Math.sin(a) * r;
+          if (!standable(grid, x, z, t.y) || blocked(x, z) || crowded(x, z)) continue;
+          const turn = Math.min(k, DIRECTIONS - k);
+          if (turn < bestTurn) {
+            bestTurn = turn;
+            best = { x, z, y: t.y };
+          }
+        }
+        if (best) {
+          out[i] = best;
+          return;
         }
       }
-      if (best) {
-        out[i] = best;
-        return;
-      }
-    }
-  });
-  return out;
+    });
+    return out;
+  }
 }
 
 /** Plain grass with nothing on it (or other trees), at the tree's own ground height. */
@@ -77,32 +108,37 @@ const BUCKET = 64;
 
 function trackPoints(layout: Layout): Map<number, number[]> {
   const buckets = new Map<number, number[]>();
+  for (const id of layout.pieceIds()) {
+    if (layout.isLifted(id)) continue;
+    const p = layout.getPiece(id)!;
+    addPiece(buckets, p.type, p.flipped, p.pose);
+  }
+  return buckets;
+}
+
+/** Add a piece's sample points (along its paths; a riser's centre) to buckets. */
+function addPiece(buckets: Map<number, number[]>, type: PieceTypeId, flipped: boolean, pose: Pose): void {
   const add = (x: number, z: number) => {
     const key = bucketKey(Math.floor(x / BUCKET), Math.floor(z / BUCKET));
     let list = buckets.get(key);
     if (!list) buckets.set(key, (list = []));
     list.push(x, z);
   };
-  for (const id of layout.pieceIds()) {
-    if (layout.isLifted(id)) continue;
-    const p = layout.getPiece(id)!;
-    const def = getPieceDef(p.type, p.flipped);
-    if (def.paths.length === 0) {
-      add(p.pose.x, p.pose.z);
-      continue;
-    }
-    const ch = Math.cos(p.pose.heading);
-    const sh = Math.sin(p.pose.heading);
-    for (const path of def.paths) {
-      const len = pathLength(path.geom);
-      const n = Math.max(1, Math.ceil(len / STEP));
-      for (let k = 0; k <= n; k++) {
-        samplePath(path.geom, (len * k) / n, sample);
-        add(p.pose.x + sample.x * ch - sample.z * sh, p.pose.z + sample.x * sh + sample.z * ch);
-      }
+  const def = getPieceDef(type, flipped);
+  if (def.paths.length === 0) {
+    add(pose.x, pose.z);
+    return;
+  }
+  const ch = Math.cos(pose.heading);
+  const sh = Math.sin(pose.heading);
+  for (const path of def.paths) {
+    const len = pathLength(path.geom);
+    const n = Math.max(1, Math.ceil(len / STEP));
+    for (let k = 0; k <= n; k++) {
+      samplePath(path.geom, (len * k) / n, sample);
+      add(pose.x + sample.x * ch - sample.z * sh, pose.z + sample.x * sh + sample.z * ch);
     }
   }
-  return buckets;
 }
 
 const bucketKey = (bx: number, bz: number): number => (bx + 4096) * 8192 + (bz + 4096);

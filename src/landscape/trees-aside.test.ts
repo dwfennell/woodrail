@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Layout } from "../track";
 import { FEAT_BUILDING, LandscapeGrid, SURF_RIVER } from "./grid";
-import { TREE_CLEARANCE, treesAside } from "./trees-aside";
+import { TREE_CLEARANCE, TreeClearance, treesAside } from "./trees-aside";
 
 const P = (x: number, z: number, heading = 0) => ({ x, z, heading });
 /** Distance (plan) from a point to the line z = 0 between x = 0 and x = 216: a straight laid along x. */
@@ -54,5 +54,17 @@ describe("treesAside", () => {
     expect(treesAside(new LandscapeGrid(), layout, trees)[0]).not.toEqual(trees[0]);
     layout.removePiece(id);
     expect(treesAside(new LandscapeGrid(), layout, trees)).toEqual(trees);
+  });
+
+  it("steps trees aside for a piece held over them, and back when it's moved on", () => {
+    const layout = new Layout();
+    const trees = [{ x: 100, z: 8, y: 0 }];
+    const c = new TreeClearance(new LandscapeGrid(), trees);
+    c.setLayout(layout);
+    const [aside] = c.spots({ type: "straight-216", flipped: false, pose: P(0, 0) });
+    expect(aside).not.toBeNull();
+    expect(offStraight(aside!)).toBeGreaterThanOrEqual(TREE_CLEARANCE);
+    expect(c.spots({ type: "straight-216", flipped: false, pose: P(0, 600) })).toEqual(trees);
+    expect(c.spots()).toEqual(trees);
   });
 });

@@ -362,6 +362,8 @@ export class Interaction {
     if (m.kind === "drag-piece") {
       this.game.scene.remove(m.ghost);
       if (m.pieceId !== -1 && m.from) this.game.layout.dropPiece(m.pieceId, m.from.pose, m.from.y);
+      this.treeKey = "";
+      this.game.previewTrees(null);
       this.changed();
     } else if (m.kind === "drag-train") {
       this.game.scene.remove(m.ghost);
@@ -836,6 +838,12 @@ export class Interaction {
       if (reason && reason !== m.blocked && !m.overTray) this.hud.toast(BLOCK_MESSAGES[reason]);
       m.blocked = reason;
       m.risers = risers;
+      // Trees hop out of the way of where the piece would go (and back when it moves on).
+      const treeKey = reason || m.overTray ? "" : `${m.type}|${m.flipped}|${Math.round(pose.x)}|${Math.round(pose.z)}|${pose.heading.toFixed(3)}`;
+      if (treeKey !== this.treeKey) {
+        this.treeKey = treeKey;
+        this.game.previewTrees(treeKey ? { type: m.type, flipped: m.flipped, pose } : null);
+      }
       if (canStandOnArches(m.type)) {
         // A bridge's arches reach down to the ground under it (one level while it can't stand here); a ramp has
         // arches only while it's up off the ground.
@@ -874,8 +882,18 @@ export class Interaction {
 
   private lastX = 0;
   private lastY = 0;
+  /** What the trees last made way for while a piece was held ("" for nothing). */
+  private treeKey = "";
 
   private dropPiece(m: Extract<Mode, { kind: "drag-piece" }>): void {
+    // Trees stay aside for a piece now placed (the layout change settles them), and go back where nothing was.
+    this.treeKey = "";
+    this.game.previewTrees(null, false);
+    this.putDown(m);
+    this.game.previewTrees(null);
+  }
+
+  private putDown(m: Extract<Mode, { kind: "drag-piece" }>): void {
     this.game.director.setEdgePointer(null);
     this.mode = { kind: "idle" };
     const g = this.game;
