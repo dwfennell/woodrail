@@ -9,6 +9,7 @@ import { connectedPairs } from "./landscape";
 import { loadFromStorage, saveToStorage } from "./persist/save";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails } from "./render/thumbnails";
+import { loadCached, saveCached } from "./render/piece-cache";
 import { TrackView } from "./render/track-view";
 import { PIECE_TYPES } from "./track";
 import { Hud, TRACK_ITEMS, TRAIN_ITEMS, trayKey } from "./ui/hud";
@@ -34,7 +35,7 @@ function initialWorld(): GameWorld {
   return buildStarterWorld();
 }
 
-function boot(): void {
+function boot(savedThumbnails: Map<string, string> | null): void {
   const game = new Game(canvas, initialWorld());
   // Stations and depots never shift to take up joint play.
   const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
@@ -44,13 +45,19 @@ function boot(): void {
   const audio = new ToyAudio();
   let muted = loadMuted();
   audio.setMuted(muted);
-  const thumbnails = renderThumbnails(
-    game.renderer,
-    game.mats,
-    [...TRACK_ITEMS, ...TRAIN_ITEMS].map((item) =>
-      item.kind === "piece" ? { key: trayKey(item), kind: "piece" as const, type: item.type } : { key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks },
-    ),
-  );
+  // Tray pictures: saved from an earlier visit to this build, or drawn now (and saved for next time).
+  const trayItems = [...TRACK_ITEMS, ...TRAIN_ITEMS];
+  let thumbnails = savedThumbnails;
+  if (!thumbnails || trayItems.some((item) => !thumbnails!.has(trayKey(item)))) {
+    thumbnails = renderThumbnails(
+      game.renderer,
+      game.mats,
+      trayItems.map((item) =>
+        item.kind === "piece" ? { key: trayKey(item), kind: "piece" as const, type: item.type } : { key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks },
+      ),
+    );
+    void saveCached("thumbnails", __BUILD_ID__, thumbnails);
+  }
 
   const hud = new Hud(
     document.body,
@@ -327,9 +334,9 @@ function boot(): void {
 requestAnimationFrame(() =>
   setTimeout(() => {
     const t0 = performance.now();
-    void TrackView.prebuildInWorkers(PIECE_TYPES).then(() => {
+    void Promise.all([TrackView.prebuildInWorkers(PIECE_TYPES), loadCached<Map<string, string>>("thumbnails", __BUILD_ID__)]).then(([, thumbs]) => {
       console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms`);
-      boot();
+      boot(thumbs);
     });
   }, 30),
 );

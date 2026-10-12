@@ -24,6 +24,7 @@ import type { Materials } from "./materials";
 import { rng } from "./textures";
 import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry } from "./track-geometry";
 import type { PieceJob, PieceResult } from "./piece-worker";
+import { loadCached, saveCached } from "./piece-cache";
 
 const geometryCache = new Map<string, BufferGeometry>();
 const bufferBlockCache = new Map<string, BufferGeometry | null>();
@@ -408,7 +409,21 @@ export class TrackView {
    */
   static async prebuildInWorkers(types: readonly PieceTypeId[]): Promise<void> {
     if (typeof Worker === "undefined") return;
+    const results: PieceResult[] = [];
+    const take = (r: PieceResult) => {
+      const g = new BufferGeometry();
+      for (const a of r.attributes) g.setAttribute(a.name, new BufferAttribute(a.array, a.itemSize));
+      if (r.index) g.setIndex(new BufferAttribute(r.index, 1));
+      for (const gr of r.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
+      g.computeBoundingBox();
+      g.computeBoundingSphere();
+      geometryCache.set(`${r.type}:n:${r.levels}`, g);
+      results.push(r);
+    };
+    // Saved from an earlier visit to this same build: nothing to carve.
+    for (const r of (await loadCached<PieceResult[]>("pieces", __BUILD_ID__)) ?? []) take(r);
     const jobs: PieceJob[] = types.filter((t) => !geometryCache.has(`${t}:n:${isBridge(t) ? 1 : 0}`)).map((t) => ({ type: t, levels: isBridge(t) ? 1 : 0 }));
+    if (jobs.length === 0) return;
     // Largest first, so the slow ones don't finish last on their own.
     const cost = (t: PieceTypeId) => getPieceDef(t, false).paths.reduce((n, p) => n + pathLength(p.geom), 0) * getPieceDef(t, false).paths.length;
     jobs.sort((a, b) => cost(b.type) - cost(a.type));
@@ -425,14 +440,7 @@ export class TrackView {
           worker.postMessage(job);
         };
         worker.onmessage = (e: MessageEvent<PieceResult>) => {
-          const r = e.data;
-          const g = new BufferGeometry();
-          for (const a of r.attributes) g.setAttribute(a.name, new BufferAttribute(a.array, a.itemSize));
-          if (r.index) g.setIndex(new BufferAttribute(r.index, 1));
-          for (const gr of r.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
-          g.computeBoundingBox();
-          g.computeBoundingSphere();
-          geometryCache.set(`${r.type}:n:${r.levels}`, g);
+          take(e.data);
           next();
         };
         // A worker that fails leaves its pieces to be built on the main thread as before.
@@ -446,7 +454,10 @@ export class TrackView {
       await Promise.all(Array.from({ length: count }, () => run(new Worker(new URL("./piece-worker.ts", import.meta.url), { type: "module" }))));
     } catch {
       // No module workers here: `prebuild` does it all.
+      return;
     }
+    // Keep them for next time (in the background: the game needn't wait for the save).
+    if (results.length === types.length) void saveCached("pieces", __BUILD_ID__, results);
   }
 
   /** Warm the CSG geometry cache for every piece type (call during loading). */
