@@ -8,9 +8,11 @@ import {
   Color,
   SphereGeometry,
   TorusGeometry,
+  type BufferGeometry,
   type Material,
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
 import { CAR_SPECS, type CarKind } from "../sim";
 import { GROOVE_SPACING, TRACK_THICKNESS } from "../track";
 import type { Materials } from "./materials";
@@ -18,6 +20,7 @@ import { rng } from "./textures";
 import { GROOVE_DEPTH } from "./track-geometry";
 
 const WHEEL_RADIUS = 6.5;
+const WHEEL_WIDTH = 4.5;
 /** Wheel centres ride in the groove floor. */
 export const AXLE_HEIGHT = TRACK_THICKNESS - GROOVE_DEPTH + WHEEL_RADIUS - 0.5;
 const DECK = AXLE_HEIGHT + 4;
@@ -39,6 +42,42 @@ const PALETTES: Record<CarKind, { body: string; trim: string }> = {
   caboose: { body: "#c8442f", trim: "#f0ebe0" },
   timber: { body: "#c8442f", trim: "#c8442f" },
 };
+
+/** Wheel arches clear the wheel by this much (mm). */
+const WHEEL_ARCH_GAP = 1.5;
+const chassisCache = new Map<CarKind, BufferGeometry>();
+const chassisCsg = new Evaluator();
+
+/** A car's chassis slab (centred on y = 0, sitting at DECK), with wheel arches cut out over its wheels. */
+function chassisGeometry(kind: CarKind): BufferGeometry {
+  let g = chassisCache.get(kind);
+  if (g) return g;
+  const spec = CAR_SPECS[kind];
+  const slab = new RoundedBoxGeometry(spec.length - 6, 8, spec.width - 2, 2, 2);
+  slab.deleteAttribute("normal");
+  slab.computeVertexNormals();
+  let result = new Brush(slab.toNonIndexed());
+  result.updateMatrixWorld();
+  const axleX = spec.length / 2 - spec.bogieInset;
+  // Each arch: a round cut around the wheel, from just inside the wheel out through the side of the slab.
+  const inner = GROOVE_SPACING / 2 - WHEEL_WIDTH / 2 - WHEEL_ARCH_GAP;
+  const depth = spec.width / 2 - inner + 2;
+  for (const x of [-axleX, axleX]) {
+    for (const side of [-1, 1]) {
+      const cut = new CylinderGeometry(WHEEL_RADIUS + WHEEL_ARCH_GAP, WHEEL_RADIUS + WHEEL_ARCH_GAP, depth, 28);
+      cut.rotateX(Math.PI / 2);
+      cut.translate(x, AXLE_HEIGHT - DECK, side * (inner + depth / 2));
+      const brush = new Brush(cut.toNonIndexed());
+      brush.updateMatrixWorld();
+      result = chassisCsg.evaluate(result, brush, SUBTRACTION);
+    }
+  }
+  g = result.geometry;
+  g.clearGroups();
+  g.computeBoundingSphere();
+  chassisCache.set(kind, g);
+  return g;
+}
 
 function add(group: Group, geo: import("three").BufferGeometry, mat: Material, x: number, y: number, z: number): Mesh {
   const m = new Mesh(geo, mat);
@@ -62,11 +101,11 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0): CarM
   // Windows look printed on, as on a wooden toy: a pale sky-blue pane, not dark glass.
   const pane = mats.lacquer("#a9cfe6");
 
-  // Chassis: natural beech slab.
-  add(root, new RoundedBoxGeometry(L - 6, 8, W - 2, 2, 2), mats.naturalWood, 0, DECK, 0);
+  // Chassis: natural beech slab, with an arch cut over each wheel so the wheels stand clear of it.
+  add(root, chassisGeometry(kind), mats.naturalWood, 0, DECK, 0);
 
   // Wheels: lacquered discs with a metal hub, riding in the grooves.
-  const wheelGeo = new CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, 4.5, 28);
+  const wheelGeo = new CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, WHEEL_WIDTH, 28);
   wheelGeo.rotateX(Math.PI / 2);
   const hubGeo = new CylinderGeometry(1.6, 1.6, 6, 12);
   hubGeo.rotateX(Math.PI / 2);
