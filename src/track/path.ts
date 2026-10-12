@@ -14,6 +14,18 @@ export type PathGeom =
       readonly sweep: number;
       readonly y0: number;
       readonly rise: number;
+    }
+  /**
+   * An S: an arc of `sweep` (signed as for arcs), then the same arc bending back the other way, ending on the start's
+   * heading but shifted sideways.
+   */
+  | {
+      readonly kind: "s";
+      readonly start: Pose;
+      readonly radius: number;
+      readonly sweep: number;
+      readonly y0: number;
+      readonly rise: number;
     };
 
 export interface PathSample {
@@ -31,7 +43,7 @@ export function createSample(): PathSample {
 }
 
 export function pathLength(g: PathGeom): number {
-  return g.kind === "line" ? g.length : g.radius * Math.abs(g.sweep);
+  return g.kind === "line" ? g.length : g.radius * Math.abs(g.sweep) * (g.kind === "s" ? 2 : 1);
 }
 
 /** Closed-form sample at distance s (clamped to [0, length]). Writes into and returns `out`. No allocation. */
@@ -50,10 +62,19 @@ export function samplePath(g: PathGeom, s: number, out: PathSample): PathSample 
     return out;
   }
 
+  if (g.kind === "arc") return arcAt(g.start.x, g.start.z, h0, g.radius, g.sweep >= 0 ? 1 : -1, d, out);
+  // An S: the first arc, then from its end the second, bending back.
+  const half = len / 2;
   const sign = g.sweep >= 0 ? 1 : -1;
-  const r = g.radius;
-  const cx = g.start.x - sign * r * Math.sin(h0);
-  const cz = g.start.z + sign * r * Math.cos(h0);
+  if (d <= half) return arcAt(g.start.x, g.start.z, h0, g.radius, sign, d, out);
+  arcAt(g.start.x, g.start.z, h0, g.radius, sign, half, out);
+  return arcAt(out.x, out.z, out.heading, g.radius, -sign, d - half, out);
+}
+
+/** A point `d` along an arc of radius `r` from (x, z) heading `h0`, turning left (`sign` 1) or right (−1). Sets x, z, heading. */
+function arcAt(x: number, z: number, h0: number, r: number, sign: number, d: number, out: PathSample): PathSample {
+  const cx = x - sign * r * Math.sin(h0);
+  const cz = z + sign * r * Math.cos(h0);
   const h = h0 + (sign * d) / r;
   out.x = cx + sign * r * Math.sin(h);
   out.z = cz - sign * r * Math.cos(h);

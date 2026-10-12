@@ -11,6 +11,8 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "straight-54", label: "Mini" },
   { kind: "piece", type: "curve-large", label: "Curve" },
   { kind: "piece", type: "curve-small", label: "Tight curve" },
+  { kind: "piece", type: "s-curve", label: "S-curve" },
+  { kind: "piece", type: "s-curve-short", label: "Short S" },
   { kind: "piece", type: "switch", label: "Switch" },
   { kind: "piece", type: "crossing", label: "Crossing" },
   { kind: "piece", type: "ramp", label: "Ramp" },
@@ -43,7 +45,7 @@ const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i
 
 export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Straight", items: pieces("straight-216", "straight-144", "straight-108", "straight-54") },
-  { label: "Curve", items: pieces("curve-large", "curve-small") },
+  { label: "Curve", items: pieces("curve-large", "curve-small", "s-curve", "s-curve-short") },
   { label: "Switch", items: pieces("switch", "crossing") },
   { label: "Ups & downs", items: pieces("ramp", "riser", "bridge", "bridge-curve") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback") },

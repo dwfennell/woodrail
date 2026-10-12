@@ -7,7 +7,7 @@ export function pieceIcon(type: PieceTypeId): string {
   const s = createSample();
   const lines: { x: number; z: number }[][] = def.paths.map((p) => {
     const len = pathLength(p.geom);
-    const n = p.geom.kind === "arc" ? 16 : 1;
+    const n = p.geom.kind === "line" ? 1 : 16;
     const pts: { x: number; z: number }[] = [];
     for (let i = 0; i <= n; i++) {
       samplePath(p.geom, (len * i) / n, s);

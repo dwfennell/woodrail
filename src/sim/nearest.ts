@@ -17,6 +17,7 @@ function closestS(g: PathGeom, lx: number, lz: number): number {
     const s = (lx - g.start.x) * Math.cos(h0) + (lz - g.start.z) * Math.sin(h0);
     return s < 0 ? 0 : s > len ? len : s;
   }
+  if (g.kind === "s") return closestByScan(g, len, lx, lz);
   const sign = g.sweep >= 0 ? 1 : -1;
   const cx = g.start.x - sign * g.radius * Math.sin(h0);
   const cz = g.start.z + sign * g.radius * Math.cos(h0);
@@ -29,6 +30,33 @@ function closestS(g: PathGeom, lx: number, lz: number): number {
   samplePath(g, len, sample);
   const d1 = Math.hypot(sample.x - lx, sample.z - lz);
   return d0 <= d1 ? 0 : len;
+}
+
+/** Closest distance along a path by sampling it, then refining around the best sample (for S paths). */
+function closestByScan(g: PathGeom, len: number, lx: number, lz: number): number {
+  let best = 0;
+  let bestD = Infinity;
+  const coarse = 32;
+  for (let k = 0; k <= coarse; k++) {
+    const at = (len * k) / coarse;
+    samplePath(g, at, sample);
+    const d = Math.hypot(sample.x - lx, sample.z - lz);
+    if (d < bestD) {
+      bestD = d;
+      best = at;
+    }
+  }
+  const step = len / coarse;
+  for (let k = -16; k <= 16; k++) {
+    const at = Math.max(0, Math.min(len, best + (step * k) / 16));
+    samplePath(g, at, sample);
+    const d = Math.hypot(sample.x - lx, sample.z - lz);
+    if (d < bestD) {
+      bestD = d;
+      best = at;
+    }
+  }
+  return best;
 }
 
 /**

@@ -99,7 +99,7 @@ interface Frame {
 /** Samples along a path, optionally extended straight past either end. */
 function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number): Frame[] {
   const len = pathLength(geom);
-  const curved = geom.kind === "arc" || geom.rise !== 0;
+  const curved = geom.kind !== "line" || geom.rise !== 0;
   const steps = curved ? Math.max(8, Math.ceil(len / 3)) : 1;
   const out: Frame[] = [];
   const p = createSample();
@@ -305,7 +305,7 @@ function bridgeSupport(def: PieceDef, height: number): BufferGeometry {
   // The viaduct body: a softly rounded block swept along the deck, from just below the ground to just under the track.
   const inset = 3;
   const frames: Frame[] = [];
-  const steps = path.kind === "arc" ? Math.max(8, Math.ceil(len / 4)) : 1;
+  const steps = path.kind !== "line" ? Math.max(8, Math.ceil(len / 4)) : 1;
   const p = createSample();
   for (let i = 0; i <= steps; i++) {
     const at = inset + ((len - 2 * inset) * i) / steps;

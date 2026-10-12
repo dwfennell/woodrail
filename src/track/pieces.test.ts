@@ -99,3 +99,31 @@ describe("large curves on the grid", () => {
   });
 });
 
+
+describe("S-curves", () => {
+  it("shift the line sideways and end on the heading they started on", () => {
+    for (const [type, length, offset] of [["s-curve", 216, 72], ["s-curve-short", 144, 36]] as const) {
+      for (const flipped of [false, true]) {
+        const def = getPieceDef(type, flipped);
+        const g = def.paths[0].geom;
+        const s = createSample();
+        samplePath(g, pathLength(g), s);
+        expect(s.x, type).toBeCloseTo(length, 6);
+        expect(s.z, type).toBeCloseTo(flipped ? -offset : offset, 6);
+        expect(Math.cos(s.heading), type).toBeCloseTo(1, 9);
+        // Halfway, it's turned the most and is halfway across.
+        samplePath(g, pathLength(g) / 2, s);
+        expect(s.z, type).toBeCloseTo((flipped ? -offset : offset) / 2, 6);
+        expect(Math.abs(s.heading), type).toBeGreaterThan(0.3);
+        const peg = def.connectors[1].pose;
+        expect(peg.x).toBeCloseTo(length, 6);
+        expect(peg.z).toBeCloseTo(flipped ? -offset : offset, 6);
+      }
+    }
+  });
+
+  it("the full S uses the large curve's radius", () => {
+    const g = getPieceDef("s-curve", false).paths[0].geom;
+    expect(g.kind === "s" && g.radius).toBeCloseTo(LARGE_CURVE_RADIUS, 6);
+  });
+});

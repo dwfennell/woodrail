@@ -36,6 +36,8 @@ export type PieceTypeId =
   | "straight-216"
   | "curve-large"
   | "curve-small"
+  | "s-curve"
+  | "s-curve-short"
   | "switch"
   | "crossing"
   | "ramp"
@@ -106,6 +108,27 @@ function curve(type: PieceTypeId, radius: number): PieceDef {
   };
 }
 
+/**
+ * An S-curve `length` long that shifts the line `offset` to the left (flip it for right), ending on its starting
+ * heading: two equal arcs bending opposite ways.
+ */
+function sCurve(type: PieceTypeId, length: number, offset: number): PieceDef {
+  // Each arc turns θ with radius r: 2r·sin θ = length and 2r·(1 − cos θ) = offset, so tan(θ/2) = offset / length.
+  const sweep = 2 * Math.atan(offset / length);
+  const radius = length / (2 * Math.sin(sweep));
+  return {
+    type,
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(length, offset, 0), y: 0 },
+    ],
+    paths: [{ from: 0, to: 1, geom: { kind: "s", start: pose(0, 0, 0), radius, sweep, y0: 0, rise: 0 } }],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  };
+}
+
 const half = CROSSING_SIZE / 2;
 
 const CATALOG: Record<PieceTypeId, PieceDef> = {
@@ -115,6 +138,9 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   "straight-216": straight("straight-216", 216),
   "curve-large": curve("curve-large", LARGE_CURVE_RADIUS),
   "curve-small": curve("curve-small", SMALL_CURVE_RADIUS),
+  // S-curves shift the line sideways by a square, or half a square, ending the way they started.
+  "s-curve": sCurve("s-curve", 216, 72),
+  "s-curve-short": sCurve("s-curve-short", 144, 36),
   switch: {
     type: "switch",
     connectors: [
