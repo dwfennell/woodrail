@@ -1,4 +1,4 @@
-import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, type Mesh, type Object3D, type TOUCH } from "three";
+import { Euler, Group, type InstancedMesh, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, Mesh, type Object3D, type TOUCH } from "three";
 import { Editor, pieceCentre, poseForCentre, type RiserAt } from "../editor/editor";
 import { buildCarModel, carVariant, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
@@ -7,9 +7,13 @@ import { setRim } from "../render/materials";
 import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
-import { BLOCK_MESSAGES, bridgeLevels, CELL, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
+import { BLOCK_MESSAGES, bridgeLevels, CELL, hillsOf, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { findOverlap, findSnap, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
+import { checkProp, pieceHitsProp, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
+import { placeOn } from "../props/kinds";
+import type { PropPose } from "../props/store";
+import { FootprintOutline } from "../render/props/outline";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
 import type { Game } from "./game";
@@ -56,7 +60,9 @@ type Press =
   /** A depot's yard, building or crane (economy depot id). */
   | { kind: "depot"; depotId: number }
   /** A log or plank bundle on a pile or wagon. */
-  | { kind: "cargo"; slot: CargoSlot; cargo: CargoKind };
+  | { kind: "cargo"; slot: CargoSlot; cargo: CargoKind }
+  /** A placed prop (catalogue model). */
+  | { kind: "prop"; propId: number };
 
 /** A car held in the hand: what it is, which way it faces, its lever, and (when picked up) its id and load. */
 type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; look?: CarLook; cargo?: { kind: CargoKind; count: number } };
@@ -104,6 +110,24 @@ type Mode =
       overTray: boolean;
     }
   | {
+      kind: "drag-prop";
+      pointerId: number;
+      asset: string;
+      /** Prop being moved, or −1 for a new one from the tray. */
+      propId: number;
+      /** Where a moved prop stood (to put it back). */
+      from: PropPose | null;
+      heading: number;
+      /** From the grab point to the prop's origin, so it doesn't jump under the finger. */
+      offset: { x: number; z: number };
+      ghost: Group;
+      pose: PropPose;
+      blocked: PropBlock | null;
+      overTray: boolean;
+      /** The track, sampled once for the drag (it doesn't change meanwhile). */
+      track: TrackIndex;
+    }
+  | {
       kind: "drag-train";
       pointerId: number;
       cars: HeldCar[];
@@ -141,6 +165,9 @@ export class Interaction {
   onFloorTap: ((ground: Vector3, x: number, y: number) => boolean) | null = null;
   private mode: Mode = { kind: "idle" };
   private selectedPiece = -1;
+  private selectedProp = -1;
+  /** Round the selected prop, or under the held one (green where it can go, red where it can't). */
+  private readonly propOutline = new FootprintOutline();
   private selectedCar = -1;
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
@@ -156,6 +183,7 @@ export class Interaction {
   ) {
     const canvas = game.canvas;
     const c = game.controls;
+    game.scene.add(this.propOutline.line);
     // A left drag pans through TouchCamera, like one finger (the ground stays under the pointer); OrbitControls keeps
     // the right button (turn and tilt) and the middle (zoom).
     c.mouseButtons = { LEFT: NO_MOUSE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE };
@@ -193,8 +221,8 @@ export class Interaction {
     this.game.trackView.pulse(this.time);
     const m = this.mode;
     // Held things cast shadows.
-    if (m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-cargo") this.game.moveShadows();
-    if ((m.kind === "drag-piece" || m.kind === "drag-train") && this.game.director.edgePanning) this.updateDrag(this.lastX, this.lastY);
+    if (m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-cargo" || m.kind === "drag-prop") this.game.moveShadows();
+    if ((m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-prop") && this.game.director.edgePanning) this.updateDrag(this.lastX, this.lastY);
     if (m.kind === "drag-piece" && dt > 0) {
       const s = m.shown;
       const px = s.x;
@@ -256,6 +284,8 @@ export class Interaction {
         shown: { x: 0, y: 0, z: 0, heading: 0, scale: 0.6, tiltX: 0, tiltZ: 0 },
         fresh: true,
       };
+    } else if (item.kind === "prop") {
+      this.mode = this.propDrag(item.asset, -1, e.pointerId, this.cameraHeading() + (this.trayTurns * Math.PI) / 4, null, { x: 0, z: 0 });
     } else {
       // Ids now, so the train in the hand wears the colours it will have on the track.
       const ids = this.game.sim.newCarIds(item.cars.length);
@@ -300,6 +330,7 @@ export class Interaction {
     let hit = this.pick(e.clientX, e.clientY);
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
     if (hit?.kind === "piece" && !this.withinReach(hit.pieceId)) hit = null;
+    if (hit?.kind === "prop" && !this.propWithinReach(hit.propId)) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     if (!hit) {
       // Empty floor: the camera pans; a tap here deselects, and a double tap focuses on that spot.
@@ -325,6 +356,7 @@ export class Interaction {
       }
       if (m.press.kind === "piece") this.beginPieceMove(m.press.pieceId, m.pointerId, m.ground);
       else if (m.press.kind === "cargo") this.beginCargoDrag(m.press.slot, m.press.cargo, m.pointerId);
+      else if (m.press.kind === "prop") this.beginPropMove(m.press.propId, m.pointerId, m.ground);
       else if (m.press.kind === "car") {
         this.beginTrainPickup(m.press.carId, m.pointerId);
         if (this.mode.kind === "idle") return;
@@ -358,6 +390,7 @@ export class Interaction {
       return;
     }
     if (m.kind === "drag-piece") this.dropPiece(m);
+    else if (m.kind === "drag-prop") this.dropProp(m);
     else if (m.kind === "drag-cargo") this.dropCargo(m, e.clientX, e.clientY);
     else this.dropTrain(m);
   }
@@ -380,6 +413,9 @@ export class Interaction {
       const c = pieceCentre(g.layout, p.pieceId);
       const piece = g.layout.getPiece(p.pieceId);
       g.director.focus(new Vector3(c.x, piece?.y ?? 0, c.z), 180);
+    } else if (p.kind === "prop") {
+      const prop = g.props.get(p.propId);
+      if (prop) g.director.focus(new Vector3(prop.x, prop.y, prop.z), 160);
     } else if (p.kind === "car") {
       const obj = g.trainView.carObject(p.carId);
       if (obj) g.director.focus(obj.position.clone(), 160);
@@ -403,6 +439,10 @@ export class Interaction {
     } else if (m.kind === "drag-cargo") {
       this.game.scene.remove(m.ghost);
       this.game.depotView.dragging = null;
+    } else if (m.kind === "drag-prop") {
+      this.game.scene.remove(m.ghost);
+      this.propOutline.hide();
+      this.game.propsChanged(-1);
     }
     this.mode = { kind: "idle" };
   }
@@ -426,6 +466,10 @@ export class Interaction {
     }
     if (p.kind === "depot") {
       this.openDepot(p.depotId);
+      return;
+    }
+    if (p.kind === "prop") {
+      this.selectProp(p.propId);
       return;
     }
     if (p.kind === "cargo") {
@@ -459,6 +503,8 @@ export class Interaction {
 
   clearSelection(): void {
     if (this.selectedPiece !== -1) this.game.trackView.setHighlight(-1);
+    if (this.selectedProp !== -1) this.propOutline.hide();
+    this.selectedProp = -1;
     this.selectedPiece = -1;
     this.selectedCar = -1;
     this.selectedDepot = -1;
@@ -608,6 +654,15 @@ export class Interaction {
       this.mode.heading += Math.PI / 4;
       return;
     }
+    if (this.mode.kind === "drag-prop") {
+      this.mode.heading += Math.PI / 4;
+      this.updateDrag(this.lastX, this.lastY);
+      return;
+    }
+    if (this.selectedProp !== -1) {
+      this.turnProp(this.selectedProp);
+      return;
+    }
     const id = this.selectedPiece;
     const p = id === -1 ? undefined : this.game.layout.getPiece(id);
     if (!p) return;
@@ -650,6 +705,7 @@ export class Interaction {
     const g = this.game;
     const arches = { mine: bridgeLevels(g.landscape, type, flipped, pose, y) * RISER_HEIGHT, of: (p: PlacedPiece) => g.bridgeLevelsOf(p) * RISER_HEIGHT };
     if (findOverlap(g.layout, type, flipped, pose, y, ignoreId, arches) !== -1) return "piece";
+    if (pieceHitsProp(g.props, g.propLibrary.footprint, type, flipped, pose)) return "prop";
     // A ramp cutting into a hill mustn't take the ground from under other track.
     return cutUndermines(g.landscape, g.layout, type, flipped, pose, y, ignoreId) === -1 ? null : "undercut";
   }
@@ -732,6 +788,13 @@ export class Interaction {
   }
 
   deleteSelected(): void {
+    if (this.selectedProp !== -1) {
+      const id = this.selectedProp;
+      this.clearSelection();
+      this.hud.hideCards();
+      this.removeProp(id);
+      return;
+    }
     if (this.selectedPiece === -1) return;
     const id = this.selectedPiece;
     this.clearSelection();
@@ -804,7 +867,7 @@ export class Interaction {
 
   private updateDrag(x: number, y: number): void {
     const m = this.mode;
-    if (m.kind !== "drag-piece" && m.kind !== "drag-train" && m.kind !== "drag-cargo") return;
+    if (m.kind !== "drag-piece" && m.kind !== "drag-train" && m.kind !== "drag-cargo" && m.kind !== "drag-prop") return;
     this.lastX = x;
     this.lastY = y;
     m.overTray = this.hud.isOverTray(x, y);
@@ -813,6 +876,10 @@ export class Interaction {
     // A drag coming up out of the tray passes through the bottom band: only pan once it has left the band.
     this.game.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
     const ground = this.groundAt(x, y);
+    if (m.kind === "drag-prop") {
+      this.updatePropDrag(m, x, y);
+      return;
+    }
     if (m.kind === "drag-cargo") {
       m.ghost.visible = !m.overTray && !!ground;
       if (!ground) return;
@@ -1170,6 +1237,168 @@ export class Interaction {
     }
   }
 
+  // ---- props -----------------------------------------------------------------------------------------------
+
+  /** A prop in the hand: its model (built when it arrives, if it isn't yet) and the drag state. */
+  private propDrag(asset: string, propId: number, pointerId: number, heading: number, from: PropPose | null, offset: { x: number; z: number }): Extract<Mode, { kind: "drag-prop" }> {
+    const g = this.game;
+    const ghost = new Group();
+    ghost.visible = false;
+    const dress = () => {
+      const model = g.propLibrary.model(asset);
+      if (!model) return;
+      for (const part of model.parts) {
+        const mesh = new Mesh(part.geometry, part.material);
+        mesh.castShadow = true;
+        ghost.add(mesh);
+      }
+    };
+    if (g.propLibrary.model(asset) !== undefined) dress();
+    else
+      void g.propLibrary.load(asset).then(() => {
+        dress();
+        if (this.mode.kind === "drag-prop" && this.mode.ghost === ghost) this.updateDrag(this.lastX, this.lastY);
+      });
+    g.scene.add(ghost);
+    return { kind: "drag-prop", pointerId, asset, propId, from, heading, offset, ghost, pose: { x: 0, z: 0, heading, y: 0 }, blocked: null, overTray: true, track: new TrackIndex(g.layout) };
+  }
+
+  private beginPropMove(propId: number, pointerId: number, ground: Vector3): void {
+    const g = this.game;
+    const p = g.props.get(propId);
+    if (!p) return;
+    this.clearSelection();
+    this.hud.hideCards();
+    const from: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
+    this.mode = this.propDrag(p.asset, propId, pointerId, p.heading, from, { x: p.x - ground.x, z: p.z - ground.z });
+    this.mode.overTray = false;
+    // Drawn by the hand while it moves, not where it stood.
+    g.propsChanged(propId);
+    this.onPickup?.();
+  }
+
+  private updatePropDrag(m: Extract<Mode, { kind: "drag-prop" }>, x: number, y: number): void {
+    const g = this.game;
+    const sy = this.lastPointerWasTouch ? y - TOUCH_LIFT_PX : y;
+    const hills = hillsOf(g.landscape.grid);
+    // Held over the ground under the finger: on a hill, where the finger points at the hill's height.
+    let at = this.planeAt(x, sy, 0);
+    if (!at) {
+      m.ghost.visible = false;
+      this.propOutline.hide();
+      return;
+    }
+    const h = hills.groundAt(at.x + m.offset.x, at.z + m.offset.z);
+    if (h > 0) at = this.planeAt(x, sy, h) ?? at;
+    const pose = { x: Math.round((at.x + m.offset.x) / 2) * 2, z: Math.round((at.z + m.offset.z) / 2) * 2, heading: m.heading };
+    const fp = g.propLibrary.footprint(m.asset);
+    let ground = hills.groundAt(pose.x, pose.z);
+    let blocked: PropBlock | null = null;
+    if (fp) {
+      const c = checkProp({ land: g.landscape, track: m.track, props: g.props, footprint: g.propLibrary.footprint }, fp, pose, placeOn(m.asset), m.propId);
+      if (c.kind === "clear") ground = c.y;
+      else blocked = c.reason;
+    }
+    if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(PROP_MESSAGES[blocked]);
+    m.blocked = blocked;
+    m.pose = { ...pose, y: ground };
+    m.ghost.visible = !m.overTray;
+    m.ghost.position.set(pose.x, ground + 6, pose.z);
+    m.ghost.rotation.set(0, -pose.heading, 0);
+    if (m.overTray || !fp) this.propOutline.hide();
+    else this.propOutline.show(fp, pose.x, ground, pose.z, pose.heading, blocked ? "#ff4a3a" : "#7ddc58");
+  }
+
+  private dropProp(m: Extract<Mode, { kind: "drag-prop" }>): void {
+    const g = this.game;
+    g.director.setEdgePointer(null);
+    this.mode = { kind: "idle" };
+    g.scene.remove(m.ghost);
+    this.propOutline.hide();
+    if (m.overTray) {
+      // Back in the box: a moved prop is removed (undoably), a new one never was.
+      g.propsChanged(-1);
+      if (m.propId !== -1) this.removeProp(m.propId);
+      return;
+    }
+    const fp = g.propLibrary.footprint(m.asset);
+    if (m.blocked || !fp) {
+      this.onRefused?.();
+      g.propsChanged(-1);
+      return;
+    }
+    const store = g.props;
+    const pose = { ...m.pose };
+    if (m.propId === -1) {
+      let id = -1;
+      this.editor().editProps({
+        do: () => {
+          id = store.add(m.asset, pose, id === -1 ? undefined : id).id;
+        },
+        undo: () => {
+          store.remove(id);
+        },
+      });
+    } else {
+      const id = m.propId;
+      const from = m.from!;
+      this.editor().editProps({ do: () => store.move(id, pose), undo: () => store.move(id, from) });
+    }
+    g.propsChanged(-1);
+    this.onPlaced?.(false);
+  }
+
+  private selectProp(id: number): void {
+    const g = this.game;
+    const p = g.props.get(id);
+    if (!p) return;
+    this.clearSelection();
+    this.selectedProp = id;
+    this.propOutline.show(g.propLibrary.footprint(p.asset) ?? null, p.x, p.y, p.z, p.heading);
+    this.hud.showPieceCard(false, g.propLibrary.model(p.asset)?.name ?? "Model", false);
+  }
+
+  /** Turn a placed prop an eighth, if it still fits. */
+  private turnProp(id: number): void {
+    const g = this.game;
+    const p = g.props.get(id);
+    const fp = p && g.propLibrary.footprint(p.asset);
+    if (!p || !fp) return;
+    const from: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
+    const to = { x: p.x, z: p.z, heading: p.heading + Math.PI / 4 };
+    const c = checkProp({ land: g.landscape, track: new TrackIndex(g.layout), props: g.props, footprint: g.propLibrary.footprint }, fp, to, placeOn(p.asset), id);
+    if (c.kind === "blocked") {
+      this.hud.toast(PROP_MESSAGES[c.reason]);
+      this.onRefused?.();
+      return;
+    }
+    const after = { ...to, y: c.y };
+    this.editor().editProps({ do: () => g.props.move(id, after), undo: () => g.props.move(id, from) });
+    g.propsChanged();
+    this.propOutline.show(fp, after.x, after.y, after.z, after.heading);
+    this.onTurned?.();
+  }
+
+  /** Take a prop away (undoably). */
+  private removeProp(id: number): void {
+    const g = this.game;
+    const p = g.props.get(id);
+    if (!p) return;
+    const pose: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
+    this.editor().editProps({ do: () => g.props.remove(id), undo: () => g.props.add(p.asset, pose, id) });
+    g.propsChanged();
+  }
+
+  /** Is a prop close enough to pick up? (As for track: big enough on screen to take hold of.) */
+  private propWithinReach(propId: number): boolean {
+    const g = this.game;
+    const p = g.props.get(propId);
+    if (!p) return false;
+    const distance = Math.hypot(p.x - g.camera.position.x, p.y - g.camera.position.y, p.z - g.camera.position.z);
+    const pxPerMm = g.canvas.clientHeight / (2 * distance * Math.tan((g.camera.fov * Math.PI) / 360));
+    return GRAB_PIECE_MM * pxPerMm >= GRAB_MIN_PX;
+  }
+
   // ---- helpers ----------------------------------------------------------------------------------------------
 
   private lastPointerWasTouch = false;
@@ -1201,7 +1430,7 @@ export class Interaction {
   private pick(x: number, y: number): Press | null {
     this.setNdc(x, y);
     const g = this.game;
-    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group], true);
+    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group], true);
     for (const h of hits) {
       const slot = g.depotView.cargoAt(h.object, h.instanceId);
       if (slot) {
@@ -1216,6 +1445,8 @@ export class Interaction {
       const carId = g.trainView.carAt(h.object as Object3D);
       if (carId !== -1) return { kind: "car", carId };
       if (h.object.userData.kind === "switch-lever") return { kind: "lever", pieceId: h.object.userData.pieceId as number };
+      const propId = g.propsView.propAt(h.object as InstancedMesh, h.instanceId);
+      if (propId !== -1) return { kind: "prop", propId };
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
       if (pieceId !== -1) return { kind: "piece", pieceId };
     }

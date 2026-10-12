@@ -1,12 +1,18 @@
 import type { GameMode } from "../game/modes";
 import type { CarKind, CarLook } from "../sim";
 import type { PieceTypeId } from "../track";
+import { fileOf, loadFile } from "../catalogue/registry";
+import { BRIDGE_PROP_SHELVES, PROP_TABS, type PropShelf } from "../catalogue/shelves";
 
 /**
  * What the tray offers, as data: tabs, each holding shelves (groups), each holding items. Which tabs show depends on
  * the mode: Sandbox has everything, Game mode the railway itself.
  */
-export type TrayItem = { kind: "piece"; type: PieceTypeId; label: string; auto?: boolean } | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string };
+export type TrayItem =
+  | { kind: "piece"; type: PieceTypeId; label: string; auto?: boolean }
+  | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string }
+  /** A catalogue model, placed as a decorative prop. */
+  | { kind: "prop"; asset: string; label: string };
 
 export const TRACK_ITEMS: TrayItem[] = [
   // Starts as a long straight and shrinks (in 18 mm steps) to meet a free end along its line.
@@ -95,24 +101,44 @@ export interface TrayTab {
   label: string;
   modes: readonly GameMode[];
   groups: TrayGroup[];
-  /** Pieces come out turned (and flipped) as set in the tray: show Turn and Flip while one of its shelves is open. */
-  orient?: boolean;
+  /** Shelves of catalogue models (Sandbox only), after `groups`: their code loads when the tab is first opened. */
+  props?: readonly PropShelf[];
+  /**
+   * Things come out turned as set in the tray: show Turn (and, for track, Flip) while one of its shelves is open.
+   * "turn" for props, which don't mirror.
+   */
+  orient?: "turn" | "turn-flip";
 }
 
 const BOTH: readonly GameMode[] = ["sandbox", "game"];
+const SANDBOX: readonly GameMode[] = ["sandbox"];
 
 export const TRAY_TABS: TrayTab[] = [
-  { id: "track", label: "Track", modes: BOTH, groups: TRACK_GROUPS, orient: true },
+  { id: "track", label: "Track", modes: BOTH, groups: TRACK_GROUPS, orient: "turn-flip" },
   { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS },
-  { id: "bridges", label: "Bridges", modes: BOTH, groups: BRIDGE_GROUPS, orient: true },
+  { id: "bridges", label: "Bridges", modes: BOTH, groups: BRIDGE_GROUPS, props: BRIDGE_PROP_SHELVES, orient: "turn-flip" },
+  ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
 ];
 
-/** The tabs a mode shows, in order. */
+/** The tabs a mode shows, in order (outside Sandbox, without catalogue models). */
 export function trayTabs(mode: GameMode): TrayTab[] {
-  return TRAY_TABS.filter((t) => t.modes.includes(mode));
+  return TRAY_TABS.filter((t) => t.modes.includes(mode)).map((t) => (mode === "sandbox" || !t.props ? t : { ...t, props: undefined }));
+}
+
+/** Shelves of catalogue models as tray groups, named from the catalogue (loads the files they're in). */
+export async function propGroups(shelves: readonly PropShelf[]): Promise<TrayGroup[]> {
+  const names = new Map<string, string>();
+  await Promise.all(
+    [...new Set(shelves.flatMap((s) => s.assets.map(fileOf)))].map(async (file) => {
+      if (!file) return;
+      for (const [id, asset] of await loadFile(file)) names.set(id, asset.name);
+    }),
+  );
+  return shelves.map((s) => ({ label: s.label, items: s.assets.filter((id) => names.has(id)).map((asset): TrayItem => ({ kind: "prop", asset, label: names.get(asset)! })) }));
 }
 
 /** Tray thumbnail key for an item. */
 export function trayKey(item: TrayItem): string {
-  return item.kind === "piece" ? `piece:${item.type}${item.auto ? ":auto" : ""}` : `train:${item.label}`;
+  if (item.kind === "piece") return `piece:${item.type}${item.auto ? ":auto" : ""}`;
+  return item.kind === "prop" ? `prop:${item.asset}` : `train:${item.label}`;
 }

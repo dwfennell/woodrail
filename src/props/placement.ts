@@ -1,5 +1,6 @@
 import { addTrackPoints, BUCKET, bucketKey, FEAT_BUILDING, FEAT_DEPOT, FEAT_SHED, FEAT_STATION, hillsOf, SURF_RIVER, trackPoints, type Landscape } from "../landscape";
 import { TRACK_WIDTH, type Layout, type PieceTypeId, type Pose } from "../track";
+import type { PlaceOn } from "./kinds";
 import type { PropStore } from "./store";
 
 /** A model's ground footprint: a rectangle in its own frame (x forward), centred at (cx, cz), half sizes hw × hd. */
@@ -138,10 +139,11 @@ export interface PropCheck {
 
 /**
  * Can a prop with footprint `fp` stand at `pose`? On owned land, level, clear of buildings, stations, depots, track
- * and other props. Boats (`water`) float with their middle on the river; nothing else may touch it. Gives the height
- * it stands at.
+ * and other props. Boats (`on` water) float with their middle on the river; bridges (`any`) may span it; nothing else
+ * may touch it. Gives the height it stands at.
  */
-export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | "z" | "heading">, water: boolean, ignoreId = -1): PropClearance {
+export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | "z" | "heading">, on: PlaceOn, ignoreId = -1): PropClearance {
+  const water = on === "water";
   const grid = ctx.land.grid;
   const hills = hillsOf(grid);
   const pts = samples(fp, pose);
@@ -156,7 +158,7 @@ export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | 
     if (f === FEAT_STATION) return { kind: "blocked", reason: "station" };
     if (f === FEAT_DEPOT) return { kind: "blocked", reason: "depot" };
     const river = grid.surface[cell] === SURF_RIVER;
-    if (river && !water) return { kind: "blocked", reason: "river" };
+    if (river && on === "land") return { kind: "blocked", reason: "river" };
     const g = hills.groundAt(x, z);
     if (Number.isNaN(y)) y = g;
     else if (Math.abs(g - y) > LEVEL) return { kind: "blocked", reason: "uneven" };

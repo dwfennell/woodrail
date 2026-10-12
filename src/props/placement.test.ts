@@ -38,29 +38,31 @@ describe("checkProp", () => {
   it("stands on clear grass, at the ground's height", () => {
     const { g, ctx } = setup();
     const at = findCell(g, grass(g));
-    expect(checkProp(ctx, SMALL, { ...at, heading: 0 }, false)).toEqual({ kind: "clear", y: expect.any(Number) });
+    expect(checkProp(ctx, SMALL, { ...at, heading: 0 }, "land")).toEqual({ kind: "clear", y: expect.any(Number) });
   });
 
   it("not off the land, not on a house; boats only on the river", () => {
     const { g, ctx } = setup();
     const ext = g.extent();
-    expect(checkProp(ctx, SMALL, { x: ext.x1 + 500, z: 0, heading: 0 }, false)).toEqual({ kind: "blocked", reason: "off-land" });
+    expect(checkProp(ctx, SMALL, { x: ext.x1 + 500, z: 0, heading: 0 }, "land")).toEqual({ kind: "blocked", reason: "off-land" });
     const house = findCell(g, (i) => g.feature[i] === FEAT_BUILDING, 0);
-    expect(checkProp(ctx, SMALL, { ...house, heading: 0 }, false)).toMatchObject({ reason: "building" });
+    expect(checkProp(ctx, SMALL, { ...house, heading: 0 }, "land")).toMatchObject({ reason: "building" });
     const river = findCell(g, (i) => g.surface[i] === SURF_RIVER, 0);
-    expect(checkProp(ctx, SMALL, { ...river, heading: 0 }, false)).toMatchObject({ reason: "river" });
-    expect(checkProp(ctx, SMALL, { ...river, heading: 0 }, true)).toMatchObject({ kind: "clear" });
+    expect(checkProp(ctx, SMALL, { ...river, heading: 0 }, "land")).toMatchObject({ reason: "river" });
+    expect(checkProp(ctx, SMALL, { ...river, heading: 0 }, "water")).toMatchObject({ kind: "clear" });
+    // A bridge may span the river, or stand on dry land.
+    expect(checkProp(ctx, SMALL, { ...river, heading: 0 }, "any")).toMatchObject({ kind: "clear" });
     const dry = findCell(g, grass(g));
-    expect(checkProp(ctx, SMALL, { ...dry, heading: 0 }, true)).toMatchObject({ reason: "dry" });
+    expect(checkProp(ctx, SMALL, { ...dry, heading: 0 }, "water")).toMatchObject({ reason: "dry" });
   });
 
   it("not over another prop (unless it's the one being moved)", () => {
     const { g, ctx, props } = setup();
     const at = findCell(g, grass(g));
     const p = props.add("x", { ...at, heading: 0, y: 0 });
-    expect(checkProp(ctx, SMALL, { x: at.x + 12, z: at.z, heading: 0.3 }, false)).toMatchObject({ reason: "prop" });
-    expect(checkProp(ctx, SMALL, { x: at.x + 12, z: at.z, heading: 0.3 }, false, p.id)).toMatchObject({ kind: "clear" });
-    expect(checkProp(ctx, SMALL, { x: at.x + 24, z: at.z, heading: 0 }, false)).toMatchObject({ kind: "clear" });
+    expect(checkProp(ctx, SMALL, { x: at.x + 12, z: at.z, heading: 0.3 }, "land")).toMatchObject({ reason: "prop" });
+    expect(checkProp(ctx, SMALL, { x: at.x + 12, z: at.z, heading: 0.3 }, "land", p.id)).toMatchObject({ kind: "clear" });
+    expect(checkProp(ctx, SMALL, { x: at.x + 24, z: at.z, heading: 0 }, "land")).toMatchObject({ kind: "clear" });
   });
 
   it("not on the track; and track can't be laid through a prop", () => {
@@ -70,7 +72,7 @@ describe("checkProp", () => {
     const piece = w.layout.getPiece(id)!;
     const mid = { x: piece.pose.x + Math.cos(piece.pose.heading) * 108, z: piece.pose.z + Math.sin(piece.pose.heading) * 108 };
     const track = new TrackIndex(w.layout);
-    expect(checkProp({ ...ctx, track }, SMALL, { ...mid, heading: 0 }, false)).toMatchObject({ reason: "track" });
+    expect(checkProp({ ...ctx, track }, SMALL, { ...mid, heading: 0 }, "land")).toMatchObject({ reason: "track" });
     // Beside the track: a rail's half width plus a little.
     const side = { x: mid.x - Math.sin(piece.pose.heading) * 34, z: mid.z + Math.cos(piece.pose.heading) * 34 };
     expect(track.hits(SMALL, { ...side, heading: 0 })).toBe(false);
@@ -92,7 +94,7 @@ describe("checkProp", () => {
       if (grass(g)(i) && grass(g)(j) && g.height[j] > g.height[i]) edge = { x: g.centreX(col) + CELL / 2, z: g.centreZ(row) };
     });
     expect(edge).not.toBeNull();
-    expect(checkProp(ctx, SMALL, { ...edge!, heading: 0 }, false)).toMatchObject({ reason: "uneven" });
+    expect(checkProp(ctx, SMALL, { ...edge!, heading: 0 }, "land")).toMatchObject({ reason: "uneven" });
   });
 });
 

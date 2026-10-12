@@ -30,6 +30,8 @@ interface Command {
   moves?: number[];
   /** Pieces this command put down: joint play near them is taken up afterwards (part of the same undo step). */
   seats?: () => number[];
+  /** Changes only props (not the track): undo and redo skip the track's work and tell `onPropsChange`. */
+  props?: boolean;
 }
 
 const HISTORY_LIMIT = 100;
@@ -82,6 +84,14 @@ export class Editor {
     /** Pieces that never shift to take up joint play (stations, depots). Track under a train never shifts either. */
     private readonly fixed: (pieceId: number) => boolean = () => false,
   ) {}
+
+  /** Called after a props-only edit is done, undone or redone (instead of `onChange`). */
+  onPropsChange: (() => void) | null = null;
+
+  /** Do a props edit as one undo step. */
+  editProps(c: { do(): void; undo(): void }): void {
+    this.run({ ...c, props: true });
+  }
 
   get canUndo(): boolean {
     return this.undoStack.length > 0;
@@ -184,7 +194,7 @@ export class Editor {
     if (!c) return;
     c.undo();
     this.redoStack.push(c);
-    this.changed(c.moves);
+    this.changed(c);
   }
 
   redo(): void {
@@ -192,7 +202,7 @@ export class Editor {
     if (!c) return;
     c.do();
     this.undoStack.push(c);
-    this.changed(c.moves);
+    this.changed(c);
   }
 
   clearHistory(): void {
@@ -210,11 +220,15 @@ export class Editor {
     this.undoStack.push(c);
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
     this.redoStack = [];
-    this.changed(c.moves);
+    this.changed(c);
   }
 
-  private changed(moves: number[] = []): void {
-    this.sim.trackChanged(moves);
+  private changed(c: Command): void {
+    if (c.props) {
+      this.onPropsChange?.();
+      return;
+    }
+    this.sim.trackChanged(c.moves ?? []);
     this.onChange();
   }
 

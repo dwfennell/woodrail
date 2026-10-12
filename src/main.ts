@@ -1,4 +1,4 @@
-import { Vector3 } from "three";
+import { Group, Mesh, Vector3 } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor } from "./editor/editor";
 import { frameDistance } from "./game/camera-director";
@@ -11,12 +11,12 @@ import { hasSave, loadFromStorage, loadGoals, saveGoals, saveToStorage } from ".
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
 import { qualityFor, saveQualityOverride } from "./render/quality";
-import { renderThumbnails } from "./render/thumbnails";
+import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { TrackView } from "./render/track-view";
 import { PIECE_TYPES } from "./track";
 import { Hud } from "./ui/hud";
-import { TRACK_ITEMS, TRAIN_ITEMS, trayKey } from "./ui/tray-catalogue";
+import { TRACK_ITEMS, TRAIN_ITEMS, trayKey, type TrayItem } from "./ui/tray-catalogue";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TitleScreen } from "./ui/title";
 import "./style.css";
@@ -52,7 +52,17 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   let mode = opening.mode;
   // Stations and depots never shift to take up joint play.
   const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
-  let editor = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece);
+  /** An editor for the world's track and props (props-only edits skip the track's work). */
+  const makeEditor = () => {
+    const ed = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece);
+    ed.onPropsChange = () => {
+      game.propsChanged();
+      hud.setHistory(ed.canUndo, ed.canRedo);
+      scheduleSave();
+    };
+    return ed;
+  };
+  let editor = makeEditor();
   let saveTimer = 0;
   let interaction: Interaction;
   const audio = new ToyAudio();
@@ -60,15 +70,21 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   audio.setMuted(muted);
   // Tray pictures: saved from an earlier visit to this build, or drawn now (and saved for next time).
   const trayItems = [...TRACK_ITEMS, ...TRAIN_ITEMS];
-  let thumbnails = savedThumbnails;
-  if (!thumbnails || trayItems.some((item) => !thumbnails!.has(trayKey(item)))) {
-    thumbnails = renderThumbnails(
+  const thumbnails = new Map(savedThumbnails ?? []);
+  const unseen = trayItems.filter((item) => !thumbnails.has(trayKey(item)));
+  if (unseen.length > 0) {
+    const drawn = renderThumbnails(
       game.renderer,
       game.mats,
-      trayItems.map((item) =>
-        item.kind === "piece" ? { key: trayKey(item), kind: "piece" as const, type: item.type } : { key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks },
+      unseen.flatMap((item): ThumbnailSubject[] =>
+        item.kind === "piece"
+          ? [{ key: trayKey(item), kind: "piece" as const, type: item.type }]
+          : item.kind === "train"
+            ? [{ key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks }]
+            : [],
       ),
     );
+    for (const [k, v] of drawn) thumbnails.set(k, v);
     void saveCached("thumbnails", __BUILD_ID__, thumbnails);
   }
 
@@ -137,10 +153,42 @@ function boot(savedThumbnails: Map<string, string> | null): void {
         hud.setTrayOrientation(interaction.trayTurns, interaction.trayFlipped);
       },
       depotWaitFull: () => interaction.toggleDepotWaitFull(),
+      needThumbnails: (items) => drawPropThumbnails(items),
     },
     () => (game.quality.tier === "high" ? "High" : "Battery saver"),
     { thumbnails, muted },
   );
+
+  // Catalogue models' tray pictures: drawn when their shelf is first shown, one a frame (each builds the model, if it
+  // isn't yet), then kept with the start-up pictures for the next visit.
+  const thumbQueue: string[] = [];
+  let studio: ThumbnailStudio | null = null;
+  let thumbSaveTimer = 0;
+  function drawPropThumbnails(items: TrayItem[]): void {
+    const idle = thumbQueue.length === 0;
+    for (const item of items) if (item.kind === "prop" && !thumbQueue.includes(item.asset)) thumbQueue.push(item.asset);
+    if (idle && thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
+  }
+  function nextThumbnail(): void {
+    const asset = thumbQueue[0];
+    if (asset === undefined) return;
+    void game.propLibrary.load(asset).then((model) => {
+      thumbQueue.shift();
+      if (model) {
+        studio ??= new ThumbnailStudio(game.renderer);
+        const subject = new Group();
+        for (const part of model.parts) subject.add(new Mesh(part.geometry, part.material));
+        subject.rotation.y = -0.6;
+        const url = studio.shoot(subject);
+        const key = `prop:${asset}`;
+        hud.setThumbnail(key, url);
+        thumbnails.set(key, url);
+        clearTimeout(thumbSaveTimer);
+        thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", __BUILD_ID__, thumbnails), 2000);
+      }
+      if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
+    });
+  }
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
   interaction.onPlaced = (snapped) => {
@@ -266,7 +314,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     announced = new Set();
     updateConnections(false);
     game.follow(-1);
-    editor = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece);
+    editor = makeEditor();
     interaction.clearSelection();
     hud.hideCards();
     onChange();

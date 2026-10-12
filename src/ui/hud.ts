@@ -1,7 +1,7 @@
 import type { GameMode } from "../game/modes";
 import { blockWord } from "./blocks";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
-import { trayKey, trayTabs, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
+import { propGroups, trayKey, trayTabs, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
 
@@ -41,6 +41,8 @@ export interface HudHandlers {
   toggleSound(): void;
   /** Any HUD button pressed (for a soft click). */
   buttonTap(): void;
+  /** Tray items shown without a picture yet: draw them (a few at a time) and hand each back with `setThumbnail`. */
+  needThumbnails(items: TrayItem[]): void;
 }
 
 /** Movement (px) before a press on a tray item becomes a scroll or a pick-up. */
@@ -85,6 +87,7 @@ export class Hud {
   private readonly engineCard = el("div", "card engine-card");
   private readonly carCard = el("div", "card car-card");
   private readonly pieceCard = el("div", "card piece-card");
+  private readonly pieceTitle = el("div", "card-title", "Track piece");
   private readonly depotCard = el("div", "card depot-card");
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
   private readonly landCard = el("div", "card land-card");
@@ -109,10 +112,13 @@ export class Hud {
   private toastTimer = 0;
 
   private readonly handlers: HudHandlers;
+  /** Tray pictures by key: those drawn at start-up, and catalogue models' as they're drawn. */
+  private readonly thumbs: Map<string, string>;
   private flipTrayBtn!: HTMLButtonElement;
 
   constructor(parent: HTMLElement, h: HudHandlers, qualityLabel: () => string, opts: HudOptions) {
     this.handlers = h;
+    this.thumbs = new Map(opts.thumbnails ?? []);
     parent.appendChild(this.root);
     this.root.addEventListener("pointerdown", (e) => {
       const t = e.target as HTMLElement;
@@ -207,7 +213,7 @@ export class Hud {
     this.flipBtn = button("Flip", "Mirror this piece (F)", h.flip, "chip text");
     const pieceRow = el("div", "card-row");
     pieceRow.append(button("Rotate", "Rotate 45° (R)", h.rotate, "chip text"), this.flipBtn, button("Delete", "Remove this piece (Del)", h.deletePiece, "chip text danger"));
-    this.pieceCard.append(el("div", "card-title", "Track piece"), pieceRow, button("✕", "Close", h.closeCards, "close"));
+    this.pieceCard.append(this.pieceTitle, pieceRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.pieceCard);
 
     // Depot card: what's on its piles, and how it treats trains.
@@ -237,11 +243,21 @@ export class Hud {
     };
     scroller.addEventListener("scroll", edges, { passive: true });
     window.addEventListener("resize", edges);
+    // Pictures not drawn yet (catalogue models, drawn on demand) wait as a placeholder until `setThumbnail`.
+    const missing: TrayItem[] = [];
     const picture = (item: TrayItem) => {
-      const thumb = opts.thumbnails?.get(trayKey(item));
-      return thumb ? `<img src="${thumb}" alt="" draggable="false">` : item.kind === "piece" ? pieceIcon(item.type) : trainIcon(item.cars);
+      const key = trayKey(item);
+      const thumb = this.thumbs.get(key);
+      if (thumb) return `<img src="${thumb}" alt="" draggable="false">`;
+      if (item.kind === "piece") return pieceIcon(item.type);
+      if (item.kind === "train") return trainIcon(item.cars);
+      missing.push(item);
+      return `<span class="thumb-pending" data-thumb="${key}"></span>`;
     };
-    const show = () => requestAnimationFrame(edges);
+    const show = () => {
+      requestAnimationFrame(edges);
+      if (missing.length > 0) this.handlers.needThumbnails(missing.splice(0));
+    };
     // Top level: one button per group; open one to see its items, with a way back first in the row.
     const showGroups = (groups: TrayGroup[]) => {
       this.trayGlide++;
@@ -285,11 +301,32 @@ export class Hud {
       show();
     };
     // The tabs for the mode; a tab with a single shelf opens straight onto its items.
+    // A tab's catalogue shelves, once loaded (their code is fetched the first time the tab opens).
+    const loadedGroups = new Map<string, TrayGroup[]>();
+    let openId = "";
     const openTab = (tab: TrayTab) => {
+      openId = tab.id;
       tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));
       this.tray.classList.toggle("track-tab", !!tab.orient);
-      if (tab.groups.length === 1) showItems(tab.groups, tab.groups[0], false);
-      else showGroups(tab.groups);
+      this.tray.classList.toggle("turn-only", tab.orient === "turn");
+      let groups = tab.groups;
+      if (tab.props) {
+        const loaded = loadedGroups.get(tab.id);
+        if (loaded) groups = [...tab.groups, ...loaded];
+        else {
+          void propGroups(tab.props).then((g) => {
+            loadedGroups.set(tab.id, g);
+            if (openId === tab.id) openTab(tab);
+          });
+          if (groups.length === 0) {
+            this.trayGlide++;
+            scroller.innerHTML = `<div class="tray-loading">Unpacking…</div>`;
+            return;
+          }
+        }
+      }
+      if (groups.length === 1) showItems(groups, groups[0], false);
+      else showGroups(groups);
     };
     this.showTabs = (mode) => {
       tabs.innerHTML = "";
@@ -304,7 +341,7 @@ export class Hud {
     };
     // Turn and flip, for track pieces: set how the next piece comes out, or turn the one in hand (with another finger).
     const orient = el("div", "tray-orient");
-    this.flipTrayBtn = button("⇋ Flip", "Mirror the next piece (or the one you're holding)", () => this.handlers.trayFlip(), "chip text");
+    this.flipTrayBtn = button("⇋ Flip", "Mirror the next piece (or the one you're holding)", () => this.handlers.trayFlip(), "chip text tray-flip");
     orient.append(
       button(`↻ Turn<span class="turn-arrow">↑</span>`, "Turn the next piece (or the one you're holding) an eighth of a turn", () => this.handlers.trayTurn(), "chip text"),
       this.flipTrayBtn,
@@ -359,6 +396,18 @@ export class Hud {
     this.perf.hidden = true;
     this.root.appendChild(this.perf);
     this.setMode("sandbox");
+  }
+
+  /** A tray picture drawn: keep it, and put it in place of any placeholder showing. */
+  setThumbnail(key: string, url: string): void {
+    this.thumbs.set(key, url);
+    for (const node of this.tray.querySelectorAll<HTMLElement>(`[data-thumb="${CSS.escape(key)}"]`)) {
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = "";
+      img.draggable = false;
+      node.replaceWith(img);
+    }
   }
 
   /** Show the help card if this player hasn't closed it before. */
@@ -458,10 +507,13 @@ export class Hud {
     this.root.classList.add("card-open");
   }
 
-  showPieceCard(flippable: boolean): void {
+  /** The card for a selected track piece, or (with a title, and no Flip) a prop. */
+  showPieceCard(flippable: boolean, title = "Track piece", canFlip = true): void {
     this.hideCards();
     this.pieceCard.hidden = false;
     this.root.classList.add("card-open");
+    this.pieceTitle.textContent = title;
+    this.flipBtn.hidden = !canFlip;
     this.flipBtn.disabled = !flippable;
   }
 

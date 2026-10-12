@@ -183,3 +183,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 @keyframes goal-pop { 30% { transform: scale(1.35); background: #8fd08a; } }
 .goals-new { align-self: flex-start; }
 @media (prefers-reduced-motion: reduce) { .goal.arrive, .goals.ticked .goals-count { animation: none; } }
+
+/* ---- catalogue models in the tray ------------------------------------------------------------------------ */
+.tray.turn-only .tray-flip { display: none; }
+.thumb-pending { display: block; width: 100%; height: 100%; min-height: 44px; border-radius: 10px; background: linear-gradient(90deg, rgba(160, 110, 60, 0.08), rgba(160, 110, 60, 0.18), rgba(160, 110, 60, 0.08)); background-size: 200% 100%; animation: thumb-wait 1.3s linear infinite; }
+@keyframes thumb-wait { to { background-position: -200% 0; } }
+.tray-loading { padding: 26px 18px; font-weight: 800; color: #8a6440; }
+@media (prefers-reduced-motion: reduce) { .thumb-pending { animation: none; } }

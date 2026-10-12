@@ -7,6 +7,7 @@ import type { Materials } from "../materials";
 
 /** A catalogue model baked for drawing many copies: a few merged parts, and its size on the ground. */
 export interface PropModel {
+  name: string;
   /** One geometry per material (every lacquer colour folded into the vertex-coloured paint). */
   parts: { geometry: BufferGeometry; material: Material }[];
   footprint: Footprint;
@@ -42,7 +43,7 @@ export class PropLibrary {
     let p = this.pending.get(assetId);
     if (!p) {
       p = loadAsset(assetId).then((asset) => {
-        const model = asset ? bake(asset.build(this.kit), this.mats) : null;
+        const model = asset ? { name: asset.name, ...bake(asset.build(this.kit), this.mats) } : null;
         this.models.set(assetId, model);
         this.pending.delete(assetId);
         this.onLoaded?.(assetId);
@@ -57,7 +58,7 @@ export class PropLibrary {
 const box = new Box3();
 
 /** Merge a built model's meshes by material (transforms applied), and measure it. */
-export function bake(root: Object3D, mats: Materials): PropModel {
+export function bake(root: Object3D, mats: Materials): Omit<PropModel, "name"> {
   root.updateMatrixWorld(true);
   const b = new Batcher(mats.paint);
   root.traverse((o) => {
