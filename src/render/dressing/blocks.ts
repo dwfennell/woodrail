@@ -1,9 +1,9 @@
 import { BoxGeometry, Color, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, type BufferGeometry, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { CELL, COLS, hillSlabs, ROWS, type LandscapeGrid, type Slab } from "../../landscape";
+import { blockCorners, CELL, COLS, CORNER_RADIUS, hillSlabs, ROWS, type LandscapeGrid, type Slab } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
 import { BEECH_UV_SCALE, type Materials } from "../materials";
-import { chamferedBox } from "./chamfer";
+import { roundedChamferedBox } from "./chamfer";
 
 /** Beech tones (multiplied over the wood texture) so a hill reads as a stack of separate blocks. */
 export const BLOCK_TONES = ["#ffffff", "#f4e4cc", "#ead3b0", "#fbefdc", "#e2c7a0"];
@@ -21,6 +21,8 @@ export interface BlockInstance {
   top: boolean;
   /** False for blocks buried inside a hill: a block on top and a neighbour against every side. */
   exposed: boolean;
+  /** Corners rounded off where the hill's edge turns (see the landscape's `blockCorners`). */
+  corners: number;
 }
 
 function hash(a: number, b: number, c: number, d: number): number {
@@ -46,6 +48,7 @@ export function blockInstances(grid: LandscapeGrid, seed: number): BlockInstance
           tone: hash(col, row, level, seed) % BLOCK_TONES.length,
           top: level === h - 1,
           exposed: level === h - 1 || covered <= level,
+          corners: blockCorners(grid, col, row, level),
         });
       }
     }
@@ -99,6 +102,8 @@ export interface BlockSpot {
   tone: number;
   /** A block of a different size than the batch's: drawn as a scaled copy. */
   size?: number;
+  /** Corners rounded off (see the landscape's `blockCorners`). */
+  corners?: number;
 }
 
 /**
@@ -115,47 +120,59 @@ export function blockMeshes(
   roundedPaint = rounded,
 ): Group {
   const group = new Group();
-  const tops = blocks.filter((b) => b.top);
   const k = size / CELL;
   const w = size - GAP * k;
   const h = height - GAP * k;
-  const uv = (g: BufferGeometry, v: number) => scaleUv(g, w * BEECH_UV_SCALE.x, v * BEECH_UV_SCALE.y);
-  const body = uv(rounded ? chamferedBox(w, h, w, 2.5 * k) : new BoxGeometry(w, h, w), h);
   const paintH = PAINT * k;
-  // The green paint is a layer of its own on top of a shorter block (same width, nothing overlapping), so no faces
-  // lie close enough together to flicker.
-  const paint = uv(roundedPaint ? chamferedBox(w, paintH, w, 1.6 * k) : new BoxGeometry(w, paintH, w), w);
-  const wood = instanced(body, materials.wood, blocks.length);
-  const grass = instanced(paint, materials.top, tops.length);
-  wood.castShadow = false;
-  grass.castShadow = false;
+  // Rounded corners (see the landscape's `blockCorners`) follow the same circle with the gap taken off.
+  const round = (CORNER_RADIUS - GAP / 2) * k;
+  const uv = (g: BufferGeometry, v: number) => scaleUv(g, w * BEECH_UV_SCALE.x, v * BEECH_UV_SCALE.y);
   const m = new Matrix4();
   const c = new Color();
   const scale = new Matrix4();
   const foot = (GAP * k) / 2;
-  blocks.forEach((b, i) => {
-    const s = (b.size ?? size) / size;
-    const bodyH = b.top ? h - paintH : h;
-    // Turn alternate blocks a quarter so the grain doesn't line up across the whole hill.
-    m.makeRotationY(((b.tone + Math.round(b.x / size)) % 2) * (Math.PI / 2));
-    m.multiply(scale.makeScale(s, (s * bodyH) / h, s));
-    m.setPosition(b.x, b.y + s * (foot + bodyH / 2), b.z);
-    wood.setMatrixAt(i, m);
-    wood.setColorAt(i, c.set(BLOCK_TONES[b.tone % BLOCK_TONES.length]));
-  });
-  tops.forEach((b, i) => {
-    const s = (b.size ?? size) / size;
-    m.makeScale(s, s, s);
-    m.setPosition(b.x, b.y + s * (foot + h - paintH / 2), b.z);
-    grass.setMatrixAt(i, m);
-    grass.setColorAt(i, c.set(GRASS_TONES[b.tone % GRASS_TONES.length]));
-  });
-  group.add(wood, grass);
+  // One pair of instanced draws per corner pattern in use.
+  const byCorners = new Map<number, BlockSpot[]>();
+  for (const b of blocks) {
+    const key = rounded ? (b.corners ?? 0) : 0;
+    let list = byCorners.get(key);
+    if (!list) byCorners.set(key, (list = []));
+    list.push(b);
+  }
+  for (const [corners, list] of byCorners) {
+    const tops = list.filter((b) => b.top);
+    const body = uv(rounded ? roundedChamferedBox(w, h, w, 2.5 * k, corners, round) : new BoxGeometry(w, h, w), h);
+    // The green paint is a layer of its own on top of a shorter block (same width, nothing overlapping), so no faces
+    // lie close enough together to flicker.
+    const paint = uv(roundedPaint ? roundedChamferedBox(w, paintH, w, 1.6 * k, corners, round) : new BoxGeometry(w, paintH, w), w);
+    const wood = instanced(body, materials.wood, list.length);
+    const grass = instanced(paint, materials.top, tops.length);
+    wood.castShadow = false;
+    grass.castShadow = false;
+    list.forEach((b, i) => {
+      const s = (b.size ?? size) / size;
+      const bodyH = b.top ? h - paintH : h;
+      // Turn alternate square blocks a quarter so the grain doesn't line up across the whole hill.
+      m.makeRotationY(corners === 0 ? ((b.tone + Math.round(b.x / size)) % 2) * (Math.PI / 2) : 0);
+      m.multiply(scale.makeScale(s, (s * bodyH) / h, s));
+      m.setPosition(b.x, b.y + s * (foot + bodyH / 2), b.z);
+      wood.setMatrixAt(i, m);
+      wood.setColorAt(i, c.set(BLOCK_TONES[b.tone % BLOCK_TONES.length]));
+    });
+    tops.forEach((b, i) => {
+      const s = (b.size ?? size) / size;
+      m.makeScale(s, s, s);
+      m.setPosition(b.x, b.y + s * (foot + h - paintH / 2), b.z);
+      grass.setMatrixAt(i, m);
+      grass.setColorAt(i, c.set(GRASS_TONES[b.tone % GRASS_TONES.length]));
+    });
+    group.add(wood, grass);
+  }
   return group;
 }
 
 /** How far inside a hill's outer faces its dark core stands (mm): behind the blocks, seen only down the seams. */
-const CORE_INSET = 3;
+const CORE_INSET = 13; // clear of rounded corners too (they cut in about 11 mm at the diagonal)
 
 /**
  * The inside of a hill: one dark box per slab, just inside the blocks, so looking down a seam between blocks shows

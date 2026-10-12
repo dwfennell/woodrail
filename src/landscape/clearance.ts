@@ -1,6 +1,7 @@
 import { createSample, getPieceDef, isBridge, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
 import { CELL, COLS, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, MAT_DEPTH, MAT_WIDTH, ROWS, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
 import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
+import { groundAt } from "./corners";
 import { STATION_LENGTH, type Landscape } from "./generate";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
@@ -171,7 +172,7 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
         if (inStationFootprint(land, g.owner[i], x, z)) result = BLOCKED.station;
       } else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
       else if (!overRiver && inRiver(g, x, z)) result = BLOCKED.river;
-      else if (y + trackY < g.groundY(i) - 0.5) result = BLOCKED.hill;
+      else if (y + trackY < groundAt(g, x, z) - 0.5) result = BLOCKED.hill;
     }
     return result === CLEAR;
   });
