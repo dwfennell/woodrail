@@ -4,8 +4,8 @@ import { Editor } from "./editor/editor";
 import { frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
-import { buildStarterWorld, createWorld } from "./game/world";
-import { connectedPairs } from "./landscape";
+import { buildStarterWorld, createWorld, landForSale, plotsForSale } from "./game/world";
+import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, type Landscape, type PlotCoord } from "./landscape";
 import { loadFromStorage, saveToStorage } from "./persist/save";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails } from "./render/thumbnails";
@@ -75,8 +75,10 @@ function boot(): void {
       resetStarter: () => {
         setWorld(buildStarterWorld());
         game.frameLayout();
-        flyIn(0.2);
+        openingView();
       },
+      toggleExpand: () => setExpanding(!expanding),
+      buyLand: () => buyLand(),
       toggleQuality: () => {
         saveQualityOverride(game.quality.tier === "high" ? "mobile" : "high");
         location.reload();
@@ -120,7 +122,112 @@ function boot(): void {
   interaction.onTurned = () => audio.rotate();
   interaction.onDepart = () => audio.bell();
 
+  // ---- adding land -----------------------------------------------------------------------------------------
+
+  /** Choosing a plot to add, and the one chosen. */
+  let expanding = false;
+  let chosen: PlotCoord | null = null;
+
+  function setExpanding(on: boolean): void {
+    expanding = on;
+    chosen = null;
+    if (!on) {
+      game.landscapeView.showForSale([]);
+      hud.setLandCard(null);
+      game.invalidate();
+      return;
+    }
+    hud.hideCards();
+    interaction.clearSelection();
+    game.landscapeView.showForSale(plotsForSale(game.landscape));
+    hud.setLandCard("Tap a plot marked + to see what it brings.");
+    // Pull back to see the land and the plots round it, the land a little above the middle of the screen (clear of the
+    // card and the tray).
+    const e = game.landscape.grid.extent();
+    const radius = Math.hypot(e.x1 - e.x0 + 2 * PLOT_WIDTH, e.z1 - e.z0 + 2 * PLOT_DEPTH) / 2;
+    const toCamera = game.camera.position.clone().sub(game.controls.target).setY(0);
+    if (toCamera.lengthSq() < 1) toCamera.set(0, 0, 1);
+    toCamera.normalize().multiplyScalar(radius * 0.3);
+    const centre = new Vector3((e.x0 + e.x1) / 2 + toCamera.x, 0, (e.z0 + e.z1) / 2 + toCamera.z);
+    const distance = Math.min(frameDistance(radius, game.camera.fov, game.camera.aspect) * 0.8, game.controls.maxDistance);
+    if (game.camera.position.distanceTo(game.controls.target) < distance) game.director.glideTo(centre, distance, { phi: 0.75, duration: 0.8 });
+    game.invalidate();
+  }
+
+  /** What a plot would bring, in a few words. */
+  function describeLand(land: Landscape): string {
+    const parts: string[] = [];
+    if (land.towns.length > 0) parts.push(land.towns.length > 1 ? `${land.towns.length} towns` : "a town");
+    const forests = land.depots.filter((d) => d.kind === "forest").length;
+    const mills = land.depots.filter((d) => d.kind === "sawmill").length;
+    if (forests) parts.push(forests > 1 ? `${forests} forest yards` : "a forest yard");
+    if (mills) parts.push("a sawmill");
+    const g = land.grid;
+    let river = false;
+    let hills = 0;
+    for (let i = 0; i < g.cellCount; i++) {
+      if (g.surface[i] === SURF_RIVER) river = true;
+      if (g.height[i] > 0) hills++;
+    }
+    if (river) parts.push("a river");
+    if (hills > g.cellCount * 0.25) parts.push("hills");
+    if (parts.length === 0) return "Open countryside.";
+    const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
+    return list.charAt(0).toUpperCase() + list.slice(1) + ".";
+  }
+
+  /** The plot whose + badge is drawn at this screen point (they float above the ground), if any. */
+  function badgeAt(x: number, y: number, plots: readonly PlotCoord[]): PlotCoord | null {
+    const r = game.canvas.getBoundingClientRect();
+    const v = new Vector3();
+    let best: PlotCoord | null = null;
+    let bestD = 36;
+    for (const p of plots) {
+      v.set((p.px + 0.5) * PLOT_WIDTH, 320, (p.pz + 0.5) * PLOT_DEPTH).project(game.camera);
+      if (v.z > 1) continue;
+      const d = Math.hypot(r.left + ((v.x + 1) / 2) * r.width - x, r.top + ((1 - v.y) / 2) * r.height - y);
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  interaction.onFloorTap = (ground, x, y) => {
+    if (!expanding) return false;
+    const forSale = plotsForSale(game.landscape);
+    const p = badgeAt(x, y, forSale) ?? { px: Math.floor(ground.x / PLOT_WIDTH), pz: Math.floor(ground.z / PLOT_DEPTH) };
+    if (!forSale.some((q) => q.px === p.px && q.pz === p.pz)) {
+      chosen = null;
+      game.landscapeView.showForSale(forSale);
+      hud.setLandCard(game.landscape.grid.hasPlot(p.px, p.pz) ? "That's your land already. Tap a plot marked +." : "Only plots beside your land can be added.");
+      game.invalidate();
+      return true;
+    }
+    chosen = p;
+    game.landscapeView.showForSale(forSale, chosen);
+    hud.setLandCard(describeLand(landForSale(game.landscape, p.px, p.pz)), true);
+    game.invalidate();
+    return true;
+  };
+
+  function buyLand(): void {
+    if (!chosen) return;
+    const bought = game.unlockPlot(chosen.px, chosen.pz);
+    if (!bought) return;
+    const names = bought.towns.map((id) => game.landscape.towns[id].name);
+    hud.toast(names.length > 0 ? `Welcome to ${names.join(" and ")}!` : "New land added", names.length > 0);
+    audio.chime();
+    chosen = null;
+    game.landscapeView.showForSale(plotsForSale(game.landscape));
+    hud.setLandCard("Tap a plot marked + to see what it brings.");
+    updateConnections(false);
+    scheduleSave();
+  }
+
   function setWorld(world: GameWorld): void {
+    setExpanding(false);
     game.setWorld(world);
     shownDelivered = new Map();
     announced = new Set();
@@ -211,38 +318,27 @@ function boot(): void {
     }
   });
   /**
-   * The opening shot: glide from the whole mat down to the first train (following it as it sets off) or, on a bare
-   * map, to the first two towns with a hint to join them. Any input skips it.
+   * The opening view: straight onto the first train or, on a bare map, the first two towns, with a hint to join them.
    */
-  function flyIn(delay: number): void {
+  function openingView(): void {
     const id = game.sim.trainIds()[0];
-    if (id !== undefined && game.sim.getTrain(id)) {
-      // The middle of the train, wherever it has got to.
-      const middle = (out: Vector3): boolean => {
-        const t = game.sim.getTrain(id);
-        if (!t) return false;
-        const a = t.world[0];
-        const b = t.world[t.world.length - 1];
-        out.set((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
-        return true;
-      };
-      const t = game.sim.getTrain(id)!;
-      const radius = Math.hypot(t.world[0].x - t.world[t.world.length - 1].x, t.world[0].z - t.world[t.world.length - 1].z) / 2 + 90;
-      const centre = new Vector3();
-      middle(centre);
-      game.director.glideTo(centre, Math.max(700, frameDistance(radius, game.camera.fov, game.camera.aspect)), { phi: 1.0, duration: 2.6, delay, track: middle });
+    const t = id !== undefined ? game.sim.getTrain(id) : undefined;
+    if (t) {
+      const a = t.world[0];
+      const b = t.world[t.world.length - 1];
+      const radius = Math.hypot(a.x - b.x, a.z - b.z) / 2 + 90;
+      game.lookAt(new Vector3((a.x + b.x) / 2, 0, (a.z + b.z) / 2), Math.max(700, frameDistance(radius, game.camera.fov, game.camera.aspect)), 1.0);
       return;
     }
     const [a, b] = game.landscape.towns;
     if (!a || !b) return;
-    const centre = new Vector3((a.centre.x + b.centre.x) / 2, 0, (a.centre.z + b.centre.z) / 2);
     const radius = Math.hypot(a.centre.x - b.centre.x, a.centre.z - b.centre.z) / 2 + 140;
-    game.director.glideTo(centre, frameDistance(radius, game.camera.fov, game.camera.aspect), { phi: 0.95, duration: 2.6, delay });
-    // A bare map: suggest the first job once the camera has arrived.
+    game.lookAt(new Vector3((a.centre.x + b.centre.x) / 2, 0, (a.centre.z + b.centre.z) / 2), frameDistance(radius, game.camera.fov, game.camera.aspect), 0.95);
+    // A bare map: suggest the first job.
     if (game.layout.pieceCount === game.stations.size + game.depots.size) {
       window.setTimeout(() => {
         if (game.layout.pieceCount === game.stations.size + game.depots.size) hud.toast(`Join ${a.name} and ${b.name} with track`, false, 6000);
-      }, (delay + 2.4) * 1000);
+      }, 1200);
     }
   }
   const skipGlide = () => {
@@ -307,8 +403,8 @@ function boot(): void {
   hud.setHistory(false, false);
   updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction });
+  openingView();
   game.start();
-  flyIn(0.6);
   loading?.classList.add("done");
 }
 

@@ -132,6 +132,11 @@ export class Interaction {
   onTurned: (() => void) | null = null;
   /** An engine was set going from a standstill. */
   onDepart: (() => void) | null = null;
+  /**
+   * A tap on empty ground (where it landed, and where on screen): true if it was taken (then it doesn't count toward
+   * a double tap).
+   */
+  onFloorTap: ((ground: Vector3, x: number, y: number) => boolean) | null = null;
   private mode: Mode = { kind: "idle" };
   private selectedPiece = -1;
   private selectedCar = -1;
@@ -336,7 +341,8 @@ export class Interaction {
       this.floorDown = null;
       if (Math.hypot(e.clientX - f.x, e.clientY - f.y) < DRAG_THRESHOLD && e.timeStamp - f.t < 300 && this.touches.size <= 1) {
         const ground = this.groundAt(e.clientX, e.clientY);
-        if (this.noteTap(e) && ground) this.game.director.focus(ground, 260);
+        if (ground && this.onFloorTap?.(ground, e.clientX, e.clientY)) this.lastTap = null;
+        else if (this.noteTap(e) && ground) this.game.director.focus(ground, 260);
       } else this.lastTap = null;
     }
     const m = this.mode;

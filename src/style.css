@@ -70,6 +70,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .card-row, .lever-row { display: flex; gap: 8px; }
 .depot-stock { font-size: 14px; font-weight: 700; color: #7a5532; font-variant-numeric: tabular-nums; text-align: center; }
 .depot-card .card-row { flex-wrap: wrap; justify-content: center; }
+.land-text { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 320px; }
 .lever { width: 60px; height: 50px; font-size: 20px; }
 .close { position: absolute; top: 6px; right: 8px; border: none; background: transparent; font-size: 16px; color: #8a6a4a; cursor: pointer; padding: 6px; }
 

@@ -273,7 +273,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
   }
   const rivers = stubs.inside.filter((s) => s.kind === "river");
   joinRivers(grid, rivers, region, random, local, interior, locked);
-  joinLanes(grid, stubs.inside.filter((s) => s.kind === "lane"), towns, random, interior, seed);
+  joinLanes(grid, stubs.inside.filter((s) => s.kind === "lane"), towns, random, region, interior, seed);
 
   // Hills: the noise's heights, flattened down to the felt by towns, depots, rivers and lanes (here and across the
   // region's edges) so no square is more than one block above a neighbour.
@@ -560,6 +560,17 @@ class MinHeap {
   }
 }
 
+/** Extra cost for running a river or lane this near the region's edge (none from 8 squares in). */
+function edgeCost(region: Region, col: number, row: number): number {
+  const d = Math.min(
+    col - region.px0 * PLOT_COLS,
+    row - region.pz0 * PLOT_ROWS,
+    (region.px0 + region.w) * PLOT_COLS - 1 - col,
+    (region.pz0 + region.h) * PLOT_ROWS - 1 - row,
+  );
+  return d >= 8 ? 0 : (8 - d) * 1.5;
+}
+
 /** The square at the inner end of a stub. */
 const innerEnd = (grid: LandscapeGrid, s: Stub): number => {
   const [col, row] = s.cells[s.cells.length - 1];
@@ -586,15 +597,16 @@ function joinRivers(
   const mz = (region.pz0 + region.h / 2) * PLOT_ROWS;
   const ordered = [...stubs].sort((a, b) => Math.atan2(a.cells[0][1] - mz, a.cells[0][0] - mx) - Math.atan2(b.cells[0][1] - mz, b.cells[0][0] - mx));
   const river = (i: number) => grid.surface[i] === SURF_RIVER;
-  // Each square's cost, worked out once.
+  // Each square's cost, worked out once: broad bends from the noise, a little jitter square by square so no run stays
+  // dead straight, and dearer near the region's edge, so rivers keep to the middle rather than run along it.
   const base = new Float32Array(grid.cellCount);
   grid.forEachCell((i, col, row) => {
-    base[i] = locked(i) || !interior(col, row) ? Infinity : 1 + 4 * meander(col / 4, row / 4);
+    base[i] = locked(i) || !interior(col, row) ? Infinity : 1 + 6 * meander(col / 5, row / 5) + 1.6 * (hashInts(local, col, row) / 4294967296) + edgeCost(region, col, row);
   });
   const cost = (i: number, turned: boolean) => {
     if (base[i] === Infinity) return Infinity;
     if (river(i)) return 0.6;
-    return base[i] + (turned ? 0.4 : 0);
+    return base[i] + (turned ? 0.2 : 0);
   };
   const lay = (path: number[] | null) => {
     if (!path) return false;
@@ -627,7 +639,21 @@ function joinRivers(
   const first = ordered[0];
   const second = ordered[Math.floor(ordered.length / 2)];
   const target = innerEnd(grid, second);
-  const main = cheapestPath(grid, [innerEnd(grid, first)], (i) => i === target, cost);
+  // By way of somewhere near the middle, so the river crosses the region even between crossings on one edge.
+  const col0 = region.px0 * PLOT_COLS;
+  const row0 = region.pz0 * PLOT_ROWS;
+  const cols = region.w * PLOT_COLS;
+  const rows = region.h * PLOT_ROWS;
+  let via = -1;
+  for (let tries = 0; tries < 20 && via === -1; tries++) {
+    const c = col0 + Math.floor(cols * (0.3 + 0.4 * random()));
+    const r = row0 + Math.floor(rows * (0.3 + 0.4 * random()));
+    const i = grid.index(c, r);
+    if (Number.isFinite(base[i])) via = i;
+  }
+  const leg1 = via === -1 ? null : cheapestPath(grid, [innerEnd(grid, first)], (i) => i === via, cost);
+  const leg2 = leg1 ? cheapestPath(grid, [via], (i) => i === target, cost) : null;
+  const main = leg1 && leg2 ? [...leg1, ...leg2] : cheapestPath(grid, [innerEnd(grid, first)], (i) => i === target, cost);
   if (!lay(main)) {
     pond(first);
     pond(second);
@@ -651,6 +677,7 @@ function joinLanes(
   stubs: readonly Stub[],
   towns: readonly Town[],
   random: () => number,
+  region: Region,
   interior: (col: number, row: number) => boolean,
   seed: number,
 ): void {
@@ -683,7 +710,7 @@ function joinLanes(
     base[i] =
       !interior(col, row) || grid.surface[i] !== SURF_GRASS || grid.feature[i] !== FEAT_NONE
         ? Infinity
-        : 1 + 2 * rawHeight(seed, col, row) + (treeHere(seed, col, row) ? treeCost : 0);
+        : 1 + 2 * rawHeight(seed, col, row) + (treeHere(seed, col, row) ? treeCost : 0) + edgeCost(region, col, row);
   });
   const cost = (i: number, turned: boolean) => {
     if (lane.has(i)) return 1;

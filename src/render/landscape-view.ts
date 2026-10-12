@@ -19,6 +19,7 @@ import {
   forEachInPlot,
   generateSurroundings,
   hashInts,
+  plotKey,
   heldCut,
   hillsOf,
   plotOfCol,
@@ -53,8 +54,8 @@ import { buildBlocks, type BlockInstanceRef } from "./dressing/blocks";
 import { HillCutsView } from "./dressing/hill-cuts";
 import { buildShed, buildStation, buildTown } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
-import { buildFeltGround, buildFeltRibbons } from "./dressing/felt";
-import { buildSurroundings } from "./dressing/surroundings";
+import { buildFeltGround, buildFeltRibbons, type FeltCache } from "./dressing/felt";
+import { buildScenery, disposeSceneryPart, sceneryPart, type SceneryPart } from "./dressing/surroundings";
 import { buildTrees, treePlacements, type PlaceTrees, type TreeAt, type TreePlacement } from "./dressing/trees";
 import { easeInOutCubic, easeOutBack } from "../lib/tween";
 import { buildField } from "./dressing/fields";
@@ -101,6 +102,12 @@ export class LandscapeView {
   /** The land around (as it would be), and the scenery beyond. */
   private aroundGroup = new Group();
   private around: AroundPlot[] = [];
+  /** The land around, made ready to draw, by plot (see `prepareAround`). */
+  private readonly aroundParts = new Map<number, SceneryPart>();
+  /** The countryside beyond, made ready to draw, and the rectangle it's around. */
+  private backdrop: { key: string; part: SceneryPart } | null = null;
+  /** Felt already extruded, by outline (see `buildFeltRibbons`). */
+  private readonly feltCaches: Record<"river" | "road" | "lane", FeltCache> = { river: new Map(), road: new Map(), lane: new Map() };
   /** The markers on plots for sale, while choosing one. */
   private saleGroup = new Group();
   private readonly blockIndex = new Map<string, BlockInstanceRef[]>();
@@ -134,6 +141,9 @@ export class LandscapeView {
 
   dispose(): void {
     disposeTree(this.group);
+    for (const p of this.aroundParts.values()) disposeSceneryPart(p);
+    if (this.backdrop) disposeSceneryPart(this.backdrop.part);
+    for (const cache of Object.values(this.feltCaches)) for (const g of cache.values()) g.dispose();
     for (const m of this.signs.values()) {
       m.map?.dispose();
       m.dispose();
@@ -148,7 +158,7 @@ export class LandscapeView {
     this.group.add(this.cuts.group);
     this.buildFelt();
     this.buildTrees();
-    this.buildAround();
+    this.buildAround(true);
   }
 
   /**
@@ -170,7 +180,8 @@ export class LandscapeView {
     this.around = around.filter((a) => !g.hasPlot(a.px, a.pz));
     this.buildFelt();
     this.buildTrees();
-    this.buildAround();
+    // The countryside beyond stays as it is for now: the land around isn't all ready yet (see `setAround`).
+    this.buildAround(false);
     this.syncTrees(this.layout ?? null);
   }
 
@@ -178,7 +189,31 @@ export class LandscapeView {
   setAround(around: readonly AroundPlot[]): void {
     this.around = around.filter((a) => !this.land.grid.hasPlot(a.px, a.pz));
     this.buildFelt();
-    this.buildAround();
+    this.buildAround(true);
+  }
+
+  /**
+   * Make a plot of land around ready to draw (the slow part: its houses), ahead of `setAround`, so that's quick. Call
+   * between frames, a plot at a time.
+   */
+  prepareAround(a: AroundPlot): void {
+    const key = plotKey(a.px, a.pz);
+    if (!this.aroundParts.has(key)) this.aroundParts.set(key, sceneryPart(aroundScenery([a], this.land.seed), this.mats, key, true));
+  }
+
+  /** Is this plot of land around ready to draw (see `prepareAround`)? */
+  aroundReady(px: number, pz: number): boolean {
+    return this.aroundParts.has(plotKey(px, pz));
+  }
+
+  /** Make the countryside beyond this land around ready to draw, ahead of `setAround`. */
+  prepareBackdrop(around: readonly PlotCoord[]): void {
+    const shown = extentOf([...this.land.grid.plots, ...around]);
+    const margin = around.length > 0 ? AROUND_MARGIN : undefined;
+    const key = `${shown.x0},${shown.z0},${shown.x1},${shown.z1},${margin}`;
+    if (this.backdrop?.key === key) return;
+    if (this.backdrop) disposeSceneryPart(this.backdrop.part);
+    this.backdrop = { key, part: sceneryPart(generateSurroundings(this.land.seed, shown, margin), this.mats) };
   }
 
   /** Is this the land shown around the world now? */
@@ -187,24 +222,28 @@ export class LandscapeView {
     return key(around) === key(this.around);
   }
 
-  /** Mark plots for sale (while choosing one to buy), or none. */
-  showForSale(plots: readonly PlotCoord[]): void {
+  /** Mark plots for sale (while choosing one to buy), and the one chosen (brighter, without its badge); or none. */
+  showForSale(plots: readonly PlotCoord[], chosen: PlotCoord | null = null): void {
     disposeTree(this.saleGroup);
     this.saleGroup.clear();
     if (plots.length === 0) return;
     const tint = new MeshBasicMaterial({ color: "#fff6dc", transparent: true, opacity: 0.32, depthWrite: false, fog: false });
+    const bright = new MeshBasicMaterial({ color: "#ffe9a8", transparent: true, opacity: 0.5, depthWrite: false, fog: false });
     const badge = new SpriteMaterial({ map: plusTexture(), transparent: true, fog: false, depthTest: false });
     for (const p of plots) {
-      const plane = new Mesh(new PlaneGeometry(PLOT_WIDTH - 40, PLOT_DEPTH - 40), tint);
+      const picked = chosen !== null && chosen.px === p.px && chosen.pz === p.pz;
+      const plane = new Mesh(new PlaneGeometry(PLOT_WIDTH - 40, PLOT_DEPTH - 40), picked ? bright : tint);
       plane.rotateX(-Math.PI / 2);
       plane.position.set((p.px + 0.5) * PLOT_WIDTH, RISER_HEIGHT * 3 + 4, (p.pz + 0.5) * PLOT_DEPTH);
       plane.renderOrder = 2;
       plane.userData.ownsMaterial = true;
+      this.saleGroup.add(plane);
+      if (picked) continue;
       const plus = new Sprite(badge);
       plus.position.set((p.px + 0.5) * PLOT_WIDTH, 320, (p.pz + 0.5) * PLOT_DEPTH);
       plus.scale.set(300, 300, 1);
       plus.renderOrder = 3;
-      this.saleGroup.add(plane, plus);
+      this.saleGroup.add(plus);
     }
   }
 
@@ -263,9 +302,9 @@ export class LandscapeView {
     const shown = extentOf([...grid.plots, ...this.around]);
     group.add(buildFeltGround(this.mats, shown, grid.plots));
     const grids = [grid, ...this.around.map((a) => a.land.grid)];
-    const river = buildFeltRibbons(grids, SURF_RIVER, this.mats.riverFelt, 1.6);
-    const road = buildFeltRibbons(grids, SURF_ROAD, this.mats.roadFelt, 1.1);
-    const lane = buildFeltRibbons(grids, SURF_LANE, this.mats.roadFelt, 1.1);
+    const river = buildFeltRibbons(grids, SURF_RIVER, this.mats.riverFelt, 1.6, this.feltCaches.river);
+    const road = buildFeltRibbons(grids, SURF_ROAD, this.mats.roadFelt, 1.1, this.feltCaches.road);
+    const lane = buildFeltRibbons(grids, SURF_LANE, this.mats.roadFelt, 1.1, this.feltCaches.lane);
     if (river) group.add(river);
     if (road) group.add(road);
     if (lane) group.add(lane);
@@ -289,17 +328,26 @@ export class LandscapeView {
     this.group.add(group);
   }
 
-  /** The land around (as it would be if bought), and the toy countryside beyond it, fading into the haze. */
-  private buildAround(): void {
+  /**
+   * The land around (as it would be if bought), and the toy countryside beyond it, fading into the haze: each made
+   * ready once (see `prepareAround`, `prepareBackdrop`), then drawn together. Without `newBackdrop` the countryside
+   * stays as it was (if there is one).
+   */
+  private buildAround(newBackdrop: boolean): void {
     this.group.remove(this.aroundGroup);
     disposeTree(this.aroundGroup);
-    const group = new Group();
-    const land = this.landRect;
-    if (this.around.length > 0) group.add(buildSurroundings(aroundScenery(this.around, this.land.seed), this.mats, land));
-    const shown = extentOf([...this.land.grid.plots, ...this.around]);
-    group.add(buildSurroundings(generateSurroundings(this.land.seed, shown, this.around.length > 0 ? AROUND_MARGIN : undefined), this.mats, land));
-    this.aroundGroup = group;
-    this.group.add(group);
+    // Plots no longer around (bought) are done with.
+    const keep = new Set(this.around.map((a) => plotKey(a.px, a.pz)));
+    for (const [key, part] of this.aroundParts) {
+      if (keep.has(key)) continue;
+      disposeSceneryPart(part);
+      this.aroundParts.delete(key);
+    }
+    for (const a of this.around) this.prepareAround(a);
+    if (newBackdrop || !this.backdrop) this.prepareBackdrop(this.around);
+    const parts = [...this.around.map((a) => this.aroundParts.get(plotKey(a.px, a.pz))!), this.backdrop!.part];
+    this.aroundGroup = buildScenery(parts, this.mats, this.landRect);
+    this.group.add(this.aroundGroup);
   }
 
   /** The layout the trees were last kept clear of. */
@@ -511,10 +559,9 @@ function drawSign(canvas: HTMLCanvasElement, name: string, delivered: number): v
 /** Free a group's geometries, instance buffers and own materials (shared ones from Materials are kept). */
 function disposeTree(root: Group): void {
   root.traverse((o) => {
+    // Sprites share their geometry and the badge texture: only their material is theirs.
     if ((o as Sprite).isSprite) {
-      const mat = (o as Sprite).material;
-      mat.map?.dispose();
-      mat.dispose();
+      (o as Sprite).material.dispose();
       return;
     }
     const m = o as Mesh;

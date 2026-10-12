@@ -111,6 +111,7 @@ const UI_PATHS = {
   sound: `<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke-linejoin="round"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/>`,
   mute: `<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke-linejoin="round"/><path d="m16 9.5 5 5"/><path d="m21 9.5-5 5"/>`,
   menu: `<path d="M5 7h14"/><path d="M5 12h14"/><path d="M5 17h14"/>`,
+  land: `<path d="M3.5 8.5h7v7h-7z" fill="currentColor" stroke="none" opacity="0.35"/><path d="M3.5 8.5h7v7h-7zM10.5 8.5h7"/><path d="M17.5 8.5v4"/><path d="M14 18h7M17.5 14.5v7"/>`,
 } as const;
 
 export type UiIcon = keyof typeof UI_PATHS;

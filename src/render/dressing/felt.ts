@@ -100,12 +100,22 @@ function inward(a: { x: number; z: number }, b: { x: number; z: number }): { x: 
   return { x: -(b.z - a.z) / len, z: (b.x - a.x) / len };
 }
 
+/** Extruded felt by outline (a hash of its points), kept between builds so only outlines that change are made again. */
+export type FeltCache = Map<number, BufferGeometry>;
+
 /**
  * Felt cut-outs for every region of cells with surface `surface` (rivers, roads) on some grids (the land, and land
  * shown around it): one extruded mesh whose outlines follow the cells with rounded corners, traced across all of them
- * at once so the felt runs on over the grids' edges. The top sits at `thickness` above the mat.
+ * at once so the felt runs on over the grids' edges. The top sits at `thickness` above the mat. With a `cache`, each
+ * region's felt is extruded only if its outline is new (the cache keeps just the regions drawn now).
  */
-export function buildFeltRibbons(grids: readonly LandscapeGrid[], surface: number, material: Material, thickness: number): Mesh | null {
+export function buildFeltRibbons(
+  grids: readonly LandscapeGrid[],
+  surface: number,
+  material: Material,
+  thickness: number,
+  cache: FeltCache = new Map(),
+): Mesh | null {
   let col0 = Infinity;
   let row0 = Infinity;
   let col1 = -Infinity;
@@ -118,7 +128,16 @@ export function buildFeltRibbons(grids: readonly LandscapeGrid[], surface: numbe
     col1 = Math.max(col1, e.col1);
     row1 = Math.max(row1, e.row1);
   }
-  if (!Number.isFinite(col0)) return null;
+  const used = new Map<number, BufferGeometry>();
+  const finish = () => {
+    for (const [key, g] of cache) if (!used.has(key)) g.dispose();
+    cache.clear();
+    for (const [key, g] of used) cache.set(key, g);
+  };
+  if (!Number.isFinite(col0)) {
+    finish();
+    return null;
+  }
   const mask = (c: number, r: number) => {
     for (const g of grids) {
       const i = g.index(col0 + c, row0 + r);
@@ -126,29 +145,42 @@ export function buildFeltRibbons(grids: readonly LandscapeGrid[], surface: numbe
     }
     return false;
   };
-  const loops = traceRegions(mask, col1 - col0, row1 - row0).map((l) => smoothLoop(l));
-  if (loops.length === 0) return null;
+  const loops = traceRegions(mask, col1 - col0, row1 - row0).map((l) => smoothLoop(l).map((p) => ({ x: col0 + p.x, z: row0 + p.z })));
   const outers = loops.filter((l) => loopArea(l) > 0);
   const holes = loops.filter((l) => loopArea(l) <= 0);
-  // Shape space is (world x, −world z): extruding along +z then rotating −90° about x stands it on the mat.
-  const toPts = (l: Loop) => l.map((p) => ({ x: (col0 + p.x) * CELL, y: -((row0 + p.z) * CELL) }));
-  const shapes = outers.map((outer) => {
-    const shape = new Shape();
-    const pts = toPts(outer);
-    shape.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y);
-    for (const hole of holes) {
-      if (!insideLoops([outer], hole[0].x, hole[0].z)) continue;
-      const hp = toPts(hole);
-      const path = new Path();
-      path.moveTo(hp[0].x, hp[0].y);
-      for (let i = 1; i < hp.length; i++) path.lineTo(hp[i].x, hp[i].y);
-      shape.holes.push(path);
-    }
-    return shape;
-  });
   const bevel = Math.min(0.6, thickness / 3);
-  const g = new ExtrudeGeometry(shapes, {
+  const parts: BufferGeometry[] = [];
+  for (const outer of outers) {
+    const mine = holes.filter((hole) => insideLoops([outer], hole[0].x, hole[0].z));
+    const key = loopsHash([outer, ...mine], thickness);
+    let g = cache.get(key) ?? used.get(key);
+    if (!g) g = extrudeFelt(outer, mine, thickness, bevel);
+    used.set(key, g);
+    parts.push(g);
+  }
+  finish();
+  if (parts.length === 0) return null;
+  const mesh = new Mesh(parts.length === 1 ? parts[0].clone() : mergeGeometries(parts), material);
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+/** One region of felt: its outline and holes (in squares) extruded `thickness` tall, uv in felt tiles. */
+function extrudeFelt(outer: Loop, holes: readonly Loop[], thickness: number, bevel: number): BufferGeometry {
+  // Shape space is (world x, −world z): extruding along +z then rotating −90° about x stands it on the mat.
+  const toPts = (l: Loop) => l.map((p) => ({ x: p.x * CELL, y: -(p.z * CELL) }));
+  const shape = new Shape();
+  const pts = toPts(outer);
+  shape.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].y);
+  for (const hole of holes) {
+    const hp = toPts(hole);
+    const path = new Path();
+    path.moveTo(hp[0].x, hp[0].y);
+    for (let i = 1; i < hp.length; i++) path.lineTo(hp[i].x, hp[i].y);
+    shape.holes.push(path);
+  }
+  const g = new ExtrudeGeometry(shape, {
     depth: thickness - 2 * bevel,
     bevelEnabled: true,
     bevelThickness: bevel,
@@ -159,7 +191,18 @@ export function buildFeltRibbons(grids: readonly LandscapeGrid[], surface: numbe
   g.translate(0, bevel - 0.2, 0);
   const uv = g.getAttribute("uv");
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / FELT_TILE, uv.getY(i) / FELT_TILE);
-  const mesh = new Mesh(g, material);
-  mesh.receiveShadow = true;
-  return mesh;
+  return g;
+}
+
+/** A hash of some loops' points (to a thousandth of a square) and a thickness. */
+function loopsHash(loops: readonly Loop[], thickness: number): number {
+  let h = Math.imul(0x811c9dc5 ^ Math.round(thickness * 100), 0x01000193);
+  for (const loop of loops) {
+    h = Math.imul(h ^ loop.length, 0x01000193);
+    for (const p of loop) {
+      h = Math.imul(h ^ Math.round(p.x * 1000), 0x01000193);
+      h = Math.imul(h ^ Math.round(p.z * 1000), 0x01000193);
+    }
+  }
+  return h >>> 0;
 }

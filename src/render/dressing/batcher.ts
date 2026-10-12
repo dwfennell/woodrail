@@ -28,6 +28,18 @@ export class Batcher {
     list.push(g);
   }
 
+  /** Each material's geometry merged into one (the collected pieces are freed); for merging again later. */
+  merged(): Map<Material, BufferGeometry> {
+    const out = new Map<Material, BufferGeometry>();
+    for (const [material, list] of this.buckets) {
+      const merged = mergeGeometries(list);
+      for (const g of list) g.dispose();
+      if (merged) out.set(material, merged);
+    }
+    this.buckets.clear();
+    return out;
+  }
+
   build(group: Group, castShadow = true): void {
     for (const [material, list] of this.buckets) {
       const merged = mergeGeometries(list);

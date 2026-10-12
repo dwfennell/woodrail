@@ -264,6 +264,8 @@ export class Game {
   }
 
   private aroundToken = 0;
+  /** The countryside beyond has been made ready for the land around being prepared. */
+  private backdropMade = false;
 
   /** The land around that has been generated already, to show around the world. */
   private aroundReady(): AroundPlot[] {
@@ -280,20 +282,34 @@ export class Game {
   private prepareAround(): void {
     const land = this.landscape;
     const token = ++this.aroundToken;
+    // One piece of work per slice: generate a plot, make its scenery, make the countryside beyond; then show them.
     const step = () => {
       if (token !== this.aroundToken || land !== this.landscape) return;
-      const next = plotsAround(land).find((p) => !hasLandForSale(land, p.px, p.pz));
+      const wanted = plotsAround(land);
+      const next = wanted.find((p) => !hasLandForSale(land, p.px, p.pz));
       if (next) {
         landForSale(land, next.px, next.pz);
         setTimeout(step, 16);
         return;
       }
       const around = this.aroundReady();
-      if (!this.landscapeView.showsAround(around)) {
-        this.landscapeView.setAround(around);
-        this.invalidate();
+      if (this.landscapeView.showsAround(around)) return;
+      const unmade = around.find((a) => !this.landscapeView.aroundReady(a.px, a.pz));
+      if (unmade) {
+        this.landscapeView.prepareAround(unmade);
+        setTimeout(step, 16);
+        return;
       }
+      if (!this.backdropMade) {
+        this.landscapeView.prepareBackdrop(around);
+        this.backdropMade = true;
+        setTimeout(step, 16);
+        return;
+      }
+      this.landscapeView.setAround(around);
+      this.invalidate();
     };
+    this.backdropMade = false;
     setTimeout(step, 16);
   }
 
@@ -389,6 +405,22 @@ export class Game {
     this.controls.target.set(cx, 0, cz);
     this.camera.position.set(cx, 0, cz).addScaledVector(dir, Math.min(fit * 0.62, this.controls.maxDistance));
     this.controls.update();
+  }
+
+  /**
+   * Put the camera straight onto a view (no glide): looking at `target` from `distance`, tilted `phi` from straight
+   * down, from the side it's on now.
+   */
+  lookAt(target: Vector3, distance: number, phi: number): void {
+    const dir = this.camera.position.clone().sub(this.controls.target);
+    dir.y = 0;
+    if (dir.lengthSq() < 1e-6) dir.set(0, 0, 1);
+    dir.normalize();
+    this.controls.target.copy(target);
+    this.camera.position.set(target.x + dir.x * Math.sin(phi) * distance, target.y + Math.cos(phi) * distance, target.z + dir.z * Math.sin(phi) * distance);
+    this.controls.update();
+    this.director.constrain();
+    this.invalidate();
   }
 
   /** Follow a car with the camera (or stop following with −1). */

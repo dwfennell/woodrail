@@ -71,6 +71,10 @@ export interface HudHandlers {
   flip(): void;
   deletePiece(): void;
   newLayout(): void;
+  /** Start or stop choosing land to add. */
+  toggleExpand(): void;
+  /** Add the plot chosen on the land card. */
+  buyLand(): void;
   resetStarter(): void;
   toggleQuality(): void;
   closeCards(): void;
@@ -134,6 +138,11 @@ export class Hud {
   private readonly carCard = el("div", "card car-card");
   private readonly pieceCard = el("div", "card piece-card");
   private readonly depotCard = el("div", "card depot-card");
+  /** While choosing land to add: what the chosen plot brings, and a button to add it. */
+  private readonly landCard = el("div", "card land-card");
+  private readonly landText = el("div", "land-text");
+  private landBuyBtn!: HTMLButtonElement;
+  private landBtn!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
   private readonly depotStock = el("div", "depot-stock");
   private depotAutoBtn!: HTMLButtonElement;
@@ -167,7 +176,8 @@ export class Hud {
     this.rerailBtn = button("Re-rail", "Put derailed trains back on the track", h.rerailAll, "chip text attention");
     this.rerailBtn.hidden = true;
     this.soundBtn = button(uiIcon(opts.muted ? "mute" : "sound"), opts.muted ? "Sound on" : "Sound off", h.toggleSound);
-    actions.append(this.rerailBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn);
+    this.landBtn = button(uiIcon("land"), "Add land", h.toggleExpand);
+    actions.append(this.rerailBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn);
     actions.append(button(uiIcon("menu"), "Menu", () => this.toggleMenu()));
     top.appendChild(actions);
     this.root.appendChild(top);
@@ -239,6 +249,14 @@ export class Hud {
     depotRow.append(this.depotAutoBtn, this.depotWaitBtn);
     this.depotCard.append(this.depotTitle, this.depotStock, depotRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.depotCard);
+
+    // Land card: shown while choosing a plot to add.
+    this.landCard.hidden = true;
+    this.landBuyBtn = button("Add this land", "Add the chosen plot to your land", h.buyLand, "chip text attention");
+    const landRow = el("div", "card-row");
+    landRow.append(this.landBuyBtn, button("Done", "Stop adding land", h.toggleExpand, "chip text"));
+    this.landCard.append(el("div", "card-title", "Add land"), this.landText, landRow);
+    this.root.appendChild(this.landCard);
 
     // Tray with tabs
     const tabs = el("div", "tabs");
@@ -541,6 +559,15 @@ export class Hud {
     this.depotWaitBtn.hidden = waitFull === null;
     this.depotWaitBtn.classList.toggle("active", !!waitFull);
     this.depotWaitBtn.disabled = !auto;
+  }
+
+  /** Show the land card (null: none, while choosing), or hide it (`text` null). */
+  setLandCard(text: string | null, canBuy = false): void {
+    this.landBtn.classList.toggle("active", text !== null);
+    this.landCard.hidden = text === null;
+    if (text === null) return;
+    this.landText.textContent = text;
+    this.landBuyBtn.hidden = !canBuy;
   }
 
   get depotCardOpen(): boolean {

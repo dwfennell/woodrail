@@ -69,22 +69,27 @@ export function treeKind(v: number): TreePlacement["kind"] {
 const BASE_H = 4;
 const TRUNK_H = 26;
 
-/** A turned fir: three tiers, each with a rounded lip, like a lathe-made toy tree. Base at y = 0. */
-function firCrown(segments: number): BufferGeometry {
-  const p = [
-    [0, 0], [19, 0], [21, 1.5], [20, 4], [12, 16], [16.5, 16.5], [17.5, 18.5], [16, 20.5],
-    [9, 32], [12.5, 32.5], [13.5, 34.5], [12, 36.5], [2, 52], [0.8, 54], [0, 54.5],
-  ].map(([x, y]) => new Vector2(x, y));
+/** A turned fir: three tiers, each with a rounded lip, like a lathe-made toy tree. Base at y = 0. `plain`: no lips. */
+function firCrown(segments: number, plain = false): BufferGeometry {
+  const p = (
+    plain
+      ? [[0, 0], [20, 0], [12, 16], [17, 18], [9, 32], [13, 34], [0, 54.5]]
+      : [
+          [0, 0], [19, 0], [21, 1.5], [20, 4], [12, 16], [16.5, 16.5], [17.5, 18.5], [16, 20.5],
+          [9, 32], [12.5, 32.5], [13.5, 34.5], [12, 36.5], [2, 52], [0.8, 54], [0, 54.5],
+        ]
+  ).map(([x, y]) => new Vector2(x, y));
   return new LatheGeometry(p, segments);
 }
 
-/** Stacked discs, widest at the bottom, each with rounded edges, like a stacking toy. Base at y = 0. */
-function discCrown(segments: number): BufferGeometry {
+/** Stacked discs, widest at the bottom, each with rounded edges, like a stacking toy. Base at y = 0. `plain`: square edges. */
+function discCrown(segments: number, plain = false): BufferGeometry {
   const p: Vector2[] = [new Vector2(0, 0)];
   let y = 0;
   for (const [r, h] of [[18, 9], [15, 8.5], [11.5, 8], [7.5, 7.5]]) {
     // Each disc: a short drum with rounded top and bottom edges, then a narrow neck to the next.
-    p.push(new Vector2(r - 2, y), new Vector2(r, y + 2), new Vector2(r, y + h - 2), new Vector2(r - 2, y + h), new Vector2(4, y + h));
+    if (plain) p.push(new Vector2(r, y), new Vector2(r, y + h), new Vector2(4, y + h));
+    else p.push(new Vector2(r - 2, y), new Vector2(r, y + 2), new Vector2(r, y + h - 2), new Vector2(r - 2, y + h), new Vector2(4, y + h));
     y += h + 1;
     p.push(new Vector2(4, y));
   }
@@ -116,7 +121,7 @@ export type PlaceTrees = (spots: readonly (TreeAt | null)[]) => void;
  * distant scenery) have fewer facets, cheaper materials and no bases: four draws.
  */
 export function buildTrees(placements: readonly TreePlacement[], mats: Materials, lowDetail = false): Group {
-  const round = lowDetail ? 7 : 14;
+  const round = lowDetail ? 6 : 14;
   const group = new Group();
   const firs = placements.filter((t) => t.kind === "fir");
   const balls = placements.filter((t) => t.kind === "ball");
@@ -126,12 +131,12 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
   base.translate(0, BASE_H / 2, 0);
   const trunk = new CylinderGeometry(4, 5, TRUNK_H, 8, 1, true);
   trunk.translate(0, BASE_H + TRUNK_H / 2, 0);
-  const fir = firCrown(round);
+  const fir = firCrown(round, lowDetail);
   fir.translate(0, BASE_H + TRUNK_H - 6, 0);
-  const ball = new SphereGeometry(19, round, lowDetail ? 6 : 10);
+  const ball = new SphereGeometry(19, round, lowDetail ? 5 : 10);
   ball.scale(1, 1.05, 1);
   ball.translate(0, BASE_H + TRUNK_H + 13, 0);
-  const discs = discCrown(round);
+  const discs = discCrown(round, lowDetail);
   discs.translate(0, BASE_H + TRUNK_H - 4, 0);
 
   const crownMat = lowDetail ? mats.scenery.crown : mats.lacquer("#ffffff");

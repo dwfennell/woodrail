@@ -91,6 +91,21 @@ export const blockKey = (x: number, z: number, y: number): string => `${Math.rou
  * same silhouette from the sun, a fraction of the shadow-pass cost.
  */
 export function shadowProxy(slabs: readonly Slab[], round: readonly RoundBlock[] = []): Mesh | null {
+  const merged = shadowProxyGeometry(slabs, round);
+  return merged ? shadowProxyMesh(merged) : null;
+}
+
+/** A shadow stand-in for some geometry (positions only): cast on the shadow layer alone. */
+export function shadowProxyMesh(geometry: BufferGeometry): Mesh {
+  const mesh = new Mesh(geometry, new MeshBasicMaterial());
+  mesh.userData.ownsMaterial = true;
+  mesh.castShadow = true;
+  mesh.layers.set(SHADOW_PROXY_LAYER);
+  return mesh;
+}
+
+/** The geometry of a shadow stand-in (positions only), or null for nothing. */
+export function shadowProxyGeometry(slabs: readonly Slab[], round: readonly RoundBlock[] = []): BufferGeometry | null {
   const pieces: BufferGeometry[] = slabs.map((s) => {
     const g = new BoxGeometry(s.x1 - s.x0 - GAP, RISER_HEIGHT - GAP, s.z1 - s.z0 - GAP).toNonIndexed();
     g.translate((s.x0 + s.x1) / 2, (s.level - 1) * RISER_HEIGHT + RISER_HEIGHT / 2, (s.z0 + s.z1) / 2);
@@ -106,11 +121,7 @@ export function shadowProxy(slabs: readonly Slab[], round: readonly RoundBlock[]
   for (const g of pieces) for (const name of Object.keys(g.attributes)) if (name !== "position") g.deleteAttribute(name);
   const merged = mergeGeometries(pieces);
   for (const b of pieces) b.dispose();
-  const mesh = new Mesh(merged, new MeshBasicMaterial());
-  mesh.userData.ownsMaterial = true;
-  mesh.castShadow = true;
-  mesh.layers.set(SHADOW_PROXY_LAYER);
-  return mesh;
+  return merged;
 }
 
 /** Where a block sits (bottom centre), whether it is the top of its stack, and its tone (any integer). */
