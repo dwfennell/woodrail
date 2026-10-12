@@ -61,10 +61,10 @@ describe("treesAside", () => {
     const trees = [{ x: 100, z: 8, y: 0 }];
     const c = new TreeClearance(new LandscapeGrid(), trees);
     c.setLayout(layout);
-    const [aside] = c.spots({ type: "straight-216", flipped: false, pose: P(0, 0), y: 0 });
+    const [aside] = c.spots({ type: "straight-216", flipped: false, pose: P(0, 0) });
     expect(aside).not.toBeNull();
     expect(offStraight(aside!)).toBeGreaterThanOrEqual(TREE_CLEARANCE);
-    expect(c.spots({ type: "straight-216", flipped: false, pose: P(0, 600), y: 0 })).toEqual(trees);
+    expect(c.spots({ type: "straight-216", flipped: false, pose: P(0, 600) })).toEqual(trees);
     expect(c.spots()).toEqual(trees);
   });
 });

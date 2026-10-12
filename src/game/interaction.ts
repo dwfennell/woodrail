@@ -864,10 +864,10 @@ export class Interaction {
       m.blocked = reason;
       m.risers = risers;
       // Trees hop out of the way of where the piece would go (and back when it moves on).
-      const treeKey = reason || m.overTray ? "" : `${m.type}|${m.flipped}|${Math.round(pose.x)}|${Math.round(pose.z)}|${pose.heading.toFixed(3)}|${py}`;
+      const treeKey = reason || m.overTray ? "" : `${m.type}|${m.flipped}|${Math.round(pose.x)}|${Math.round(pose.z)}|${pose.heading.toFixed(3)}`;
       if (treeKey !== this.treeKey) {
         this.treeKey = treeKey;
-        this.game.previewTrees(treeKey ? { type: m.type, flipped: m.flipped, pose, y: py } : null);
+        this.game.previewTrees(treeKey ? { type: m.type, flipped: m.flipped, pose } : null);
       }
       if (canStandOnArches(m.type)) {
         // A bridge's arches reach down to the ground under it (one level while it can't stand here); a ramp has
