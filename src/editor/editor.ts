@@ -1,5 +1,5 @@
 import type { Sim } from "../sim";
-import { getPieceDef, relaxJoints, type Layout, type PieceTypeId, type Pose } from "../track";
+import { connectorRef, getPieceDef, relaxJoints, solveParentPose, transformPose, type Layout, type PieceTypeId, type Pose } from "../track";
 
 interface PieceRecord {
   id: number;
@@ -138,14 +138,30 @@ export class Editor {
     return this.move(id, poseForCentre(rec.type, rec.flipped, c.x, c.z, rec.pose.heading + delta), rec.y);
   }
 
+  /**
+   * Where a piece goes when flipped: mirrored about an end that's joined to other track (else its first end), so that
+   * end stays put and the piece bends the other way from it.
+   */
+  flippedPose(id: number): Pose | null {
+    const rec = this.record(id);
+    if (!rec) return null;
+    const def = getPieceDef(rec.type, rec.flipped);
+    let pivot = def.connectors.findIndex((_, i) => this.layout.joinedConnector(connectorRef(id, i)) !== -1);
+    if (pivot === -1) pivot = 0;
+    if (def.connectors.length === 0) return rec.pose;
+    const end = transformPose(rec.pose, def.connectors[pivot].pose, { x: 0, z: 0, heading: 0 });
+    return solveParentPose(getPieceDef(rec.type, !rec.flipped).connectors[pivot].pose, end, { x: 0, z: 0, heading: 0 });
+  }
+
   flip(id: number): boolean {
     const rec = this.record(id);
     if (!rec || !getPieceDef(rec.type, false).flippable) return false;
-    const swap = (flipped: boolean) => {
+    const flippedPose = this.flippedPose(id)!;
+    const swap = (flipped: boolean, pose: Pose) => {
       this.layout.removePiece(id);
-      this.layout.restorePiece(id, rec.type, rec.pose, rec.y, flipped);
+      this.layout.restorePiece(id, rec.type, pose, rec.y, flipped);
     };
-    this.run({ do: () => swap(!rec.flipped), undo: () => swap(rec.flipped), moves: [id], seats: () => [id] });
+    this.run({ do: () => swap(!rec.flipped, flippedPose), undo: () => swap(rec.flipped, rec.pose), moves: [id], seats: () => [id] });
     return true;
   }
 

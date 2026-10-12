@@ -682,7 +682,8 @@ export class Interaction {
     const id = this.selectedPiece;
     const p = id === -1 ? undefined : this.game.layout.getPiece(id);
     if (!p) return;
-    if (!this.allowed(id, p.type, !p.flipped, p.pose, p.y)) {
+    const pose = this.editor().flippedPose(id) ?? p.pose;
+    if (!this.allowed(id, p.type, !p.flipped, pose, p.y)) {
       this.onRefused?.();
       return;
     }

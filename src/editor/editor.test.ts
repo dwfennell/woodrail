@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Sim } from "../sim";
-import { Layout } from "../track";
+import { connectorRef, getPieceDef, Layout, solveParentPose } from "../track";
 import { Editor, pieceCentre } from "./editor";
 
 function setup() {
@@ -167,5 +167,26 @@ describe("Editor edits under trains", () => {
     expect(layout.getPiece(b)!.pose).toEqual({ x: 216, z: 0, heading: 0 });
     expect(sim.getTrain(r.trainId)!.derailed).toBe(false);
     expect(Math.max(...[...layout.joints()].map((j) => j.posError))).toBeLessThan(0.05);
+  });
+
+  it("flips a curve about the end joined to other track, so it stays joined and bends the other way", () => {
+    const { layout, editor } = setup();
+    const s = editor.place("straight-216", { x: 0, z: 0, heading: 0 }, 0, false);
+    // A curve whose peg end (not its socket) is joined: the straight's socket at x = 0 takes the curve's peg.
+    const peg = getPieceDef("curve-small", false).connectors[1].pose;
+    const c = editor.place("curve-small", solveParentPose(peg, { x: 0, z: 0, heading: 0 }, { x: 0, z: 0, heading: 0 }), 0, false);
+    expect(layout.jointCount).toBe(1);
+    const before = pieceCentre(layout, c);
+    expect(editor.flip(c)).toBe(true);
+    expect(layout.getPiece(c)!.flipped).toBe(true);
+    expect(layout.jointCount).toBe(1);
+    expect(layout.joinedConnector(connectorRef(s, 0))).toBe(connectorRef(c, 1));
+    // Mirrored across the straight's line: the curve now bends to the other side.
+    const after = pieceCentre(layout, c);
+    expect(after.x).toBeCloseTo(before.x, 6);
+    expect(after.z).toBeCloseTo(-before.z, 6);
+    editor.undo();
+    expect(layout.getPiece(c)!.flipped).toBe(false);
+    expect(layout.jointCount).toBe(1);
   });
 });
