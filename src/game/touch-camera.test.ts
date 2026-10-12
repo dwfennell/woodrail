@@ -99,5 +99,10 @@ describe("touch camera", () => {
     expect(isTilt({ x: 100, y: 400 }, { x: 200, y: 400 }, { x: 100, y: 385 }, { x: 200, y: 386 })).toBe(true);
     expect(isTilt({ x: 100, y: 400 }, { x: 200, y: 400 }, { x: 90, y: 400 }, { x: 210, y: 400 })).toBe(false);
     expect(isTilt({ x: 100, y: 400 }, { x: 200, y: 400 }, { x: 115, y: 400 }, { x: 215, y: 400 })).toBe(false);
+    // One finger lagging behind the other, on a slant: still a tilt.
+    expect(isTilt({ x: 100, y: 420 }, { x: 200, y: 380 }, { x: 101, y: 404 }, { x: 201, y: 373 })).toBe(true);
+    // Pinching while moving up, or twisting: not a tilt.
+    expect(isTilt({ x: 100, y: 400 }, { x: 200, y: 400 }, { x: 85, y: 392 }, { x: 215, y: 392 })).toBe(false);
+    expect(isTilt({ x: 100, y: 400 }, { x: 200, y: 400 }, { x: 100, y: 390 }, { x: 200, y: 410 })).toBe(false);
   });
 });

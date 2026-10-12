@@ -9,7 +9,7 @@ const FLING_WINDOW = 0.08;
 /** Tilt per pixel of a two-finger vertical drag (radians). */
 const TILT_RATE = 0.006;
 /** Movement (px) before a two-finger gesture commits to tilting or to pan/pinch/twist. */
-const DECIDE_PX = 10;
+const DECIDE_PX = 16;
 const MIN_POLAR = 0.12;
 
 export interface TouchCameraLimits {
@@ -219,19 +219,22 @@ function angleBetween(a: number, b: number): number {
 }
 
 /**
- * A two-finger tilt: both fingers moving the same way, mostly up or down, without pinching or twisting much (and
- * the fingers side by side rather than one above the other).
+ * A two-finger tilt: the fingers moving up or down together, more than they move apart, together or round each other
+ * (one finger may lag the other a little), and side by side or on a slant rather than one above the other.
  */
 export function isTilt(p0: Point, p1: Point, q0: Point, q1: Point): boolean {
-  const d0 = { x: q0.x - p0.x, y: q0.y - p0.y };
-  const d1 = { x: q1.x - p1.x, y: q1.y - p1.y };
-  const sameWay = Math.sign(d0.y) === Math.sign(d1.y) && d0.y !== 0;
-  const vertical = Math.abs(d0.y) > Math.abs(d0.x) * 1.5 && Math.abs(d1.y) > Math.abs(d1.x) * 1.5;
-  const spreadBefore = Math.hypot(p1.x - p0.x, p1.y - p0.y);
-  const spreadAfter = Math.hypot(q1.x - q0.x, q1.y - q0.y);
-  const pinch = Math.abs(spreadAfter - spreadBefore) / Math.max(spreadBefore, 1);
-  const sideBySide = Math.abs(p1.x - p0.x) > Math.abs(p1.y - p0.y);
-  return sameWay && vertical && pinch < 0.08 && sideBySide;
+  const d0x = q0.x - p0.x;
+  const d0y = q0.y - p0.y;
+  const d1x = q1.x - p1.x;
+  const d1y = q1.y - p1.y;
+  // Shared movement, and how the fingers moved relative to each other (pinching or twisting).
+  const cx = (d0x + d1x) / 2;
+  const cy = (d0y + d1y) / 2;
+  const apart = Math.hypot(d1x - d0x, d1y - d0y);
+  const vertical = Math.abs(cy) > Math.abs(cx) * 1.5;
+  const together = apart < Math.abs(cy);
+  const sideBySide = Math.abs(p1.x - p0.x) > Math.abs(p1.y - p0.y) * 0.6;
+  return vertical && together && sideBySide;
 }
 
 /** Rotate point `p` about the vertical axis through `pivot` by `angle` (in place). */

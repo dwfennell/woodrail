@@ -7,7 +7,7 @@ import { setRim } from "../render/materials";
 import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { CAR_SPECS, COUPLER_GAP, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
-import { BLOCK_MESSAGES, bridgeLevels, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
+import { BLOCK_MESSAGES, bridgeLevels, CELL, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { findOverlap, findSnap, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { isDoubleTap, type TapRecord } from "./camera-director";
@@ -17,6 +17,12 @@ import { DEPOT_NAMES } from "./world";
 import { cargoDropTarget } from "./cargo-drop";
 import { CARGO, PILE_CAP, ROLE, type CargoKind, type CargoSlot } from "../economy";
 
+/** Loose pieces snap to this grid (mm): a quarter of a landscape square, the step between straight lengths. */
+const PLACE_GRID = CELL / 4;
+/** Placed track can be picked up only with the camera this close to what it's looking at (mm)… */
+const GRAB_ZOOM = 2500;
+/** …and only pieces this close to the camera. */
+const GRAB_REACH = 2200;
 const DRAG_THRESHOLD = 6;
 /** How high a held piece floats above where it would land (mm). */
 const HOLD_LIFT = 12;
@@ -257,7 +263,9 @@ export class Interaction {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     // Finish any settle/turn first: animating pieces are hidden from picking until their stand-in is done.
     this.game.flourishes.clear();
-    const hit = this.pick(e.clientX, e.clientY);
+    let hit = this.pick(e.clientX, e.clientY);
+    // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
+    if (hit?.kind === "piece" && !this.withinReach(hit.pieceId)) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     if (!hit) {
       // Empty floor: the camera pans; a tap here deselects, and a double tap focuses on that spot.
@@ -628,6 +636,16 @@ export class Interaction {
     return reason === null;
   }
 
+  /** Is a placed piece close enough to pick up: the view zoomed in, and the piece near the camera? */
+  private withinReach(pieceId: number): boolean {
+    const g = this.game;
+    const p = g.layout.getPiece(pieceId);
+    if (!p) return false;
+    if (g.camera.position.distanceTo(g.controls.target) > GRAB_ZOOM) return false;
+    const c = pieceCentre(g.layout, pieceId);
+    return Math.hypot(c.x - g.camera.position.x, p.y - g.camera.position.y, c.z - g.camera.position.z) <= GRAB_REACH;
+  }
+
   /** The name of a fixed piece (a town's station or a depot), or null for ordinary track. */
   private fixedLabel(pieceId: number): string | null {
     for (const [townId, stationId] of this.game.stations) {
@@ -766,6 +784,10 @@ export class Interaction {
       const gx = (lift ?? ground).x + m.offset.x;
       const gz = (lift ?? ground).z + m.offset.z;
       m.pose = poseForCentre(m.type, m.heldFlipped, gx, gz, m.heading);
+      // Loose, a piece's first end lands on a quarter-square grid, so square-laid track lines up with the squares and
+      // with other track.
+      m.pose.x = Math.round(m.pose.x / PLACE_GRID) * PLACE_GRID;
+      m.pose.z = Math.round(m.pose.z / PLACE_GRID) * PLACE_GRID;
       // A riser over another riser stacks squarely on top of it.
       const stack = getPieceDef(m.type, m.heldFlipped).connectors.length === 0 ? riserStackAt(this.game.layout, m.pose.x, m.pose.z, m.pieceId) : null;
       if (stack) m.pose = { ...stack.pose };

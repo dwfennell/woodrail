@@ -122,7 +122,9 @@ export function blockMeshes(
   const uv = (g: BufferGeometry, v: number) => scaleUv(g, w * BEECH_UV_SCALE.x, v * BEECH_UV_SCALE.y);
   const body = uv(rounded ? chamferedBox(w, h, w, 2.5 * k) : new BoxGeometry(w, h, w), h);
   const paintH = PAINT * k;
-  const paint = uv(roundedPaint ? chamferedBox(w + 0.6, paintH, w + 0.6, 1.6 * k) : new BoxGeometry(w + 0.6 * k, paintH, w + 0.6 * k), w);
+  // The green paint is a layer of its own on top of a shorter block (same width, nothing overlapping), so no faces
+  // lie close enough together to flicker.
+  const paint = uv(roundedPaint ? chamferedBox(w, paintH, w, 1.6 * k) : new BoxGeometry(w, paintH, w), w);
   const wood = instanced(body, materials.wood, blocks.length);
   const grass = instanced(paint, materials.top, tops.length);
   wood.castShadow = false;
@@ -130,19 +132,21 @@ export function blockMeshes(
   const m = new Matrix4();
   const c = new Color();
   const scale = new Matrix4();
+  const foot = (GAP * k) / 2;
   blocks.forEach((b, i) => {
     const s = (b.size ?? size) / size;
+    const bodyH = b.top ? h - paintH : h;
     // Turn alternate blocks a quarter so the grain doesn't line up across the whole hill.
     m.makeRotationY(((b.tone + Math.round(b.x / size)) % 2) * (Math.PI / 2));
-    if (s !== 1) m.multiply(scale.makeScale(s, s, s));
-    m.setPosition(b.x, b.y + (height * s) / 2, b.z);
+    m.multiply(scale.makeScale(s, (s * bodyH) / h, s));
+    m.setPosition(b.x, b.y + s * (foot + bodyH / 2), b.z);
     wood.setMatrixAt(i, m);
     wood.setColorAt(i, c.set(BLOCK_TONES[b.tone % BLOCK_TONES.length]));
   });
   tops.forEach((b, i) => {
     const s = (b.size ?? size) / size;
     m.makeScale(s, s, s);
-    m.setPosition(b.x, b.y + s * (height - paintH / 2 + 0.3 * k), b.z);
+    m.setPosition(b.x, b.y + s * (foot + h - paintH / 2), b.z);
     grass.setMatrixAt(i, m);
     grass.setColorAt(i, c.set(GRASS_TONES[b.tone % GRASS_TONES.length]));
   });
@@ -150,10 +154,36 @@ export function blockMeshes(
   return group;
 }
 
-/** Hills as individual rounded beech blocks, the top of each stack painted grass green. Two draw calls. */
+/** How far inside a hill's outer faces its dark core stands (mm): behind the blocks, seen only down the seams. */
+const CORE_INSET = 3;
+
+/**
+ * The inside of a hill: one dark box per slab, just inside the blocks, so looking down a seam between blocks shows
+ * shadowy wood rather than straight through to the felt (or the empty middle of the hill).
+ */
+export function hillCore(slabs: readonly Slab[]): Mesh | null {
+  const boxes = slabs.map((s) => {
+    const g = new BoxGeometry(s.x1 - s.x0 - 2 * CORE_INSET, RISER_HEIGHT, s.z1 - s.z0 - 2 * CORE_INSET);
+    // Its top a little under the top of the blocks of this level.
+    g.translate((s.x0 + s.x1) / 2, (s.level - 0.5) * RISER_HEIGHT - CORE_INSET, (s.z0 + s.z1) / 2);
+    return g;
+  });
+  if (boxes.length === 0) return null;
+  const merged = mergeGeometries(boxes);
+  for (const b of boxes) b.dispose();
+  const mesh = new Mesh(merged, new MeshBasicMaterial({ color: CORE_COLOUR }));
+  mesh.userData.ownsMaterial = true;
+  return mesh;
+}
+const CORE_COLOUR = new Color("#3a2716");
+
+/** Hills as individual rounded beech blocks, the top of each stack painted grass green, around a dark core. */
 export function buildBlocks(grid: LandscapeGrid, seed: number, mats: Materials): Group {
   const group = blockMeshes(blockInstances(grid, seed).filter((b) => b.exposed), CELL, RISER_HEIGHT, { wood: mats.blockWood, top: mats.blockTop }, true);
-  const proxy = shadowProxy(hillSlabs(grid));
+  const slabs = hillSlabs(grid);
+  const core = hillCore(slabs);
+  if (core) group.add(core);
+  const proxy = shadowProxy(slabs);
   if (proxy) group.add(proxy);
   return group;
 }
