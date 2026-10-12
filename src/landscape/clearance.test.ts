@@ -28,6 +28,14 @@ describe("checkPlacement", () => {
     expect(checkPlacement(land, "bridge", false, P(0, 0), 0)).toEqual({ kind: "clear" });
   });
 
+  it("lets track overlap a river's bank a little, but not stand in it", () => {
+    const land = flat();
+    setCells(land, 96, 120, -400, 400, (i) => (land.grid.surface[i] = SURF_RIVER));
+    // The river squares span x 72..144; a straight along z with its edge 10 mm over the bank, then 30 mm in.
+    expect(checkPlacement(land, "straight-216", false, P(62, -108, Math.PI / 2), 0)).toEqual({ kind: "clear" });
+    expect(checkPlacement(land, "straight-216", false, P(82, -108, Math.PI / 2), 0)).toEqual({ kind: "blocked", reason: "river" });
+  });
+
   it("track can sit on a hill top but not cut into it", () => {
     const land = flat();
     setCells(land, -200, 400, -100, 100, (i) => (land.grid.height[i] = 1));

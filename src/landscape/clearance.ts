@@ -102,6 +102,21 @@ function inFixedFootprint(centre: { x: number; z: number }, heading: number, x: 
   return Math.abs(d) < STATION_LENGTH / 2 && l > -TRACK_WIDTH / 2 - 2 && l < 120;
 }
 
+/**
+ * How far into the river track may stray (mm): the felt is drawn with smoothed banks inside its squares, so a piece can
+ * overlap its edge a little (and cut a bend) without being in the water.
+ */
+export const RIVER_GRACE = 16;
+
+/** Is a point in the river and more than RIVER_GRACE from its bank? */
+function deepInRiver(g: Landscape["grid"], x: number, z: number): boolean {
+  for (const [dx, dz] of [[RIVER_GRACE, RIVER_GRACE], [RIVER_GRACE, -RIVER_GRACE], [-RIVER_GRACE, RIVER_GRACE], [-RIVER_GRACE, -RIVER_GRACE]]) {
+    const i = g.cellAtWorld(x + dx, z + dz);
+    if (i === -1 || g.surface[i] !== SURF_RIVER) return false;
+  }
+  return true;
+}
+
 /** Can a piece be placed here? Called on every pointer move while dragging. */
 export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): Clearance {
   const g = land.grid;
@@ -125,7 +140,7 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
         // so pieces seated on a station end can overlap the edge of its end squares.
         if (inStationFootprint(land, g.owner[i], x, z)) result = BLOCKED.station;
       } else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
-      else if (s === SURF_RIVER && !overRiver) result = BLOCKED.river;
+      else if (s === SURF_RIVER && !overRiver && deepInRiver(g, x, z)) result = BLOCKED.river;
       else if (y + trackY < g.groundY(i) - 0.5) result = BLOCKED.hill;
     }
     return result === CLEAR;

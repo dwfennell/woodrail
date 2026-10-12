@@ -17,6 +17,8 @@ import { DEPOT_NAMES } from "./world";
 import { cargoDropTarget } from "./cargo-drop";
 import { CARGO, PILE_CAP, ROLE, type CargoKind, type CargoSlot } from "../economy";
 
+/** On touch, held things float this far (px) above the finger so it doesn't hide them. */
+const TOUCH_LIFT_PX = 60;
 /** Loose pieces snap to this grid (mm): a quarter of a landscape square, the step between straight lengths. */
 const PLACE_GRID = CELL / 4;
 /** Placed track can be picked up only with the camera this close to what it's looking at (mm)… */
@@ -120,6 +122,8 @@ export class Interaction {
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
   private readonly floor = new Plane(new Vector3(0, 1, 0), 0);
+  /** A level plane at some height, for seeing where the pointer points up off the ground. */
+  private readonly level = new Plane(new Vector3(0, 1, 0), 0);
 
   constructor(
     private readonly game: Game,
@@ -780,25 +784,37 @@ export class Interaction {
       m.ghost.visible = !m.overTray && !!ground;
       if (!ground) return;
       // On touch the piece floats a little above the finger so it isn't hidden.
-      const lift = this.lastPointerWasTouch ? this.touchLift(x, y) : null;
-      const gx = (lift ?? ground).x + m.offset.x;
-      const gz = (lift ?? ground).z + m.offset.z;
-      m.pose = poseForCentre(m.type, m.heldFlipped, gx, gz, m.heading);
+      const sy = this.lastPointerWasTouch ? y - TOUCH_LIFT_PX : y;
+      // Where the piece would be held at a given height: under the finger as seen at that height (a raised end shows
+      // well in front of the ground under it).
+      const heldAt = (height: number): Pose | null => {
+        const p = this.planeAt(x, sy, height);
+        return p && poseForCentre(m.type, m.heldFlipped, p.x + m.offset.x, p.z + m.offset.z, m.heading);
+      };
       // Loose, a piece's first end lands on a quarter-square grid, so square-laid track lines up with the squares and
       // with other track.
-      m.pose.x = Math.round(m.pose.x / PLACE_GRID) * PLACE_GRID;
-      m.pose.z = Math.round(m.pose.z / PLACE_GRID) * PLACE_GRID;
+      const loose = (pose: Pose): Pose => {
+        pose.x = Math.round(pose.x / PLACE_GRID) * PLACE_GRID;
+        pose.z = Math.round(pose.z / PLACE_GRID) * PLACE_GRID;
+        return pose;
+      };
+      m.pose = loose(heldAt(0) ?? poseForCentre(m.type, m.heldFlipped, ground.x + m.offset.x, ground.z + m.offset.z, m.heading));
+      m.looseY = looseHeight(this.game.landscape, this.game.layout, m.type, m.heldFlipped, m.pose, m.pieceId);
+      // Resting up off the ground (on a hill, a riser, as a bridge), it's held where the finger points at that height.
+      if (m.looseY > 0) {
+        const up = heldAt(m.looseY);
+        if (up) m.pose = loose(up);
+      }
       // A riser over another riser stacks squarely on top of it.
       const stack = getPieceDef(m.type, m.heldFlipped).connectors.length === 0 ? riserStackAt(this.game.layout, m.pose.x, m.pose.z, m.pieceId) : null;
       if (stack) m.pose = { ...stack.pose };
       const capture = this.captureRadius(x, y);
-      m.looseY = looseHeight(this.game.landscape, this.game.layout, m.type, m.heldFlipped, m.pose, m.pieceId);
       // Look for pegs on the floor, up to a few risers up, and on whatever the piece is over. Ends that don't match
       // (peg to peg, hole to hole) turn the piece round, or for a new piece mirror it, so it fits.
       const autoFit = m.pieceId === -1 ? "turn-or-mirror" : "turn";
       m.snap = { kind: "none" };
       for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
-        const s = findSnap(this.game.layout, m.type, m.heldFlipped, m.pose, level, m.pieceId, capture, autoFit);
+        const s = findSnap(this.game.layout, m.type, m.heldFlipped, heldAt(level) ?? m.pose, level, m.pieceId, capture, autoFit);
         // A bridge only joins track it can stand at (raised track, another bridge): beside track on the ground it
         // keeps to its own height, a level up.
         if (s.kind === "snapped" && isBridge(m.type) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
@@ -1045,7 +1061,14 @@ export class Interaction {
 
   /** For touch drags: the ground point a little above the finger on screen. */
   private touchLift(x: number, y: number): Vector3 | null {
-    return this.groundAt(x, y - 60);
+    return this.groundAt(x, y - TOUCH_LIFT_PX);
+  }
+
+  /** Where the pointer's ray meets the level plane at `height` (mm). */
+  private planeAt(x: number, y: number, height: number): Vector3 | null {
+    this.setNdc(x, y);
+    this.level.constant = -height;
+    return this.raycaster.ray.intersectPlane(this.level, new Vector3());
   }
 
   private setNdc(x: number, y: number): void {
