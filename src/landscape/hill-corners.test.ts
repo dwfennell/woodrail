@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RISER_HEIGHT } from "../track";
 import { generateLandscape } from "./generate";
-import { CELL, COLS, LandscapeGrid, ROWS } from "./grid";
+import { CELL, COLS, LandscapeGrid, ROWS, SURF_RIVER } from "./grid";
 import { blockOutline, CORNERS, CORNER_RADIUS, hillsOf, insideBlock } from "./hill-shape";
 import { hillPieces } from "./slabs";
 
@@ -19,12 +19,13 @@ function inPolygon(poly: { x: number; z: number }[], x: number, z: number): bool
 const NEIGHBOURS = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]] as const;
 
 describe("rounded hill corners", () => {
-  it("rounds exactly the corners whose two side squares and diagonal square are open, for all 256 neighbourhoods", () => {
+  it("beside a river, rounds exactly the corners whose two side squares and diagonal square are open (all 256 neighbourhoods)", () => {
     for (let pattern = 0; pattern < 256; pattern++) {
       const g = new LandscapeGrid();
       g.height[g.index(10, 10)] = 1;
       NEIGHBOURS.forEach(([dc, dr], k) => {
         if (pattern & (1 << k)) g.height[g.index(10 + dc, 10 + dr)] = 1;
+        else g.surface[g.index(10 + dc, 10 + dr)] = SURF_RIVER;
       });
       const filled = (dc: number, dr: number) => g.height[g.index(10 + dc, 10 + dr)] > 0;
       let expected = 0;
@@ -33,16 +34,26 @@ describe("rounded hill corners", () => {
     }
   });
 
-  it("keeps the mat's own edge square, and rounds each level of a stepped hill on its own", () => {
+  it("leaves corners square away from rivers, by the mat's edge, and on upper levels", () => {
     const g = new LandscapeGrid();
-    g.height[g.index(0, 0)] = 1;
-    // In the mat's corner square, the two corners against the mat's edge stay square; the inner ones round.
-    expect(hillsOf(g).blockCorners(0, 0, 0)).toBe(1);
+    g.height[g.index(10, 10)] = 1;
+    // A lone block on grass: square.
+    expect(hillsOf(g).blockCorners(10, 10, 0)).toBe(0);
+    // A river across one corner rounds just that corner.
+    g.surface[g.index(11, 11)] = SURF_RIVER;
+    expect(hillsOf(g).blockCorners(10, 10, 0)).toBe(1);
+    // In the mat's corner square, beside a river, the two corners against the mat's edge stay square.
+    const m = new LandscapeGrid();
+    m.height[m.index(0, 0)] = 1;
+    m.surface[m.index(1, 1)] = SURF_RIVER;
+    expect(hillsOf(m).blockCorners(0, 0, 0)).toBe(1);
+    // A second level on a hill by the river is square: it isn't beside the river.
     const s = new LandscapeGrid();
     for (let c = 10; c <= 12; c++) for (let r = 10; r <= 12; r++) s.height[s.index(c, r)] = 1;
     s.height[s.index(11, 11)] = 2;
-    expect(hillsOf(s).blockCorners(11, 11, 0)).toBe(0);
-    expect(hillsOf(s).blockCorners(11, 11, 1)).toBe(15);
+    for (let c = 9; c <= 13; c++) s.surface[s.index(c, 13)] = SURF_RIVER;
+    expect(hillsOf(s).blockCorners(11, 11, 1)).toBe(0);
+    expect(hillsOf(s).blockCorners(12, 12, 0)).toBe(1);
   });
 
   it("the outline used for shadows and physics agrees with the ground height", () => {
@@ -66,6 +77,7 @@ describe("rounded hill corners", () => {
   it("ground height follows the rounding: felt at a cut-away corner, the block top just inside", () => {
     const g = new LandscapeGrid();
     for (let c = 10; c <= 12; c++) for (let r = 10; r <= 11; r++) g.height[g.index(c, r)] = 1;
+    g.surface[g.index(9, 9)] = SURF_RIVER;
     const x0 = g.centreX(10) - CELL / 2;
     const z0 = g.centreZ(10) - CELL / 2;
     const hills = hillsOf(g);
