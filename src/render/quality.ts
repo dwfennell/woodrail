@@ -3,14 +3,16 @@ export type QualityTier = "high" | "mobile";
 export interface QualitySettings {
   readonly tier: QualityTier;
   readonly shadowMapSize: number;
+  /** Drawing resolution: the screen's own density up to `maxPixelRatio`, stepping down to `minPixelRatio` when frames are slow (see `resolution.ts`). */
   readonly maxPixelRatio: number;
+  readonly minPixelRatio: number;
   readonly ambientOcclusion: boolean;
   readonly depthOfField: boolean;
 }
 
 const TIERS: Record<QualityTier, QualitySettings> = {
-  high: { tier: "high", shadowMapSize: 4096, maxPixelRatio: 1.5, ambientOcclusion: true, depthOfField: true },
-  mobile: { tier: "mobile", shadowMapSize: 2048, maxPixelRatio: 1.5, ambientOcclusion: false, depthOfField: false },
+  high: { tier: "high", shadowMapSize: 4096, maxPixelRatio: 2, minPixelRatio: 1.5, ambientOcclusion: true, depthOfField: true },
+  mobile: { tier: "mobile", shadowMapSize: 2048, maxPixelRatio: 3, minPixelRatio: 1.5, ambientOcclusion: false, depthOfField: false },
 };
 
 const STORAGE_KEY = "woodrail.quality";

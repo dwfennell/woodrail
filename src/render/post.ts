@@ -1,4 +1,4 @@
-import { DepthTexture, HalfFloatType, ShaderMaterial, UniformsUtils, Vector2, WebGLRenderTarget, type PerspectiveCamera, type Scene, type WebGLRenderer } from "three";
+import { DepthTexture, HalfFloatType, ShaderMaterial, UniformsUtils, UnsignedByteType, Vector2, WebGLRenderTarget, type PerspectiveCamera, type Scene, type WebGLRenderer } from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
 import { FullScreenQuad, Pass } from "three/examples/jsm/postprocessing/Pass.js";
@@ -65,7 +65,7 @@ export function apertureFor(distance: number): number {
  * draw the scene again for its own depth), then hands the colour on down the chain.
  */
 class ScenePass extends Pass {
-  readonly target = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4, depthTexture: new DepthTexture(1, 1) });
+  readonly target: WebGLRenderTarget;
   private readonly copy = new ShaderMaterial({
     uniforms: UniformsUtils.clone(CopyShader.uniforms),
     vertexShader: CopyShader.vertexShader,
@@ -76,8 +76,10 @@ class ScenePass extends Pass {
   constructor(
     private readonly scene: Scene,
     private readonly camera: PerspectiveCamera,
+    halfFloat: boolean,
   ) {
     super();
+    this.target = new WebGLRenderTarget(1, 1, { type: halfFloat ? HalfFloatType : UnsignedByteType, samples: 4, depthTexture: new DepthTexture(1, 1) });
   }
 
   setSize(w: number, h: number): void {
@@ -97,7 +99,10 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
   const composer = new EffectComposer(renderer);
   // setSize is given drawing-buffer pixels, already scaled by the renderer's pixel ratio: don't scale them again.
   composer.setPixelRatio(1);
-  const scenePass = new ScenePass(scene, camera);
+  // Multisampled half-float targets need a colour-buffer extension: without one (some phones), antialiasing would
+  // quietly fail, so draw into an 8-bit target instead (a little banding in deep shadow, but smooth edges).
+  const halfFloat = renderer.extensions.has("EXT_color_buffer_float") || renderer.extensions.has("EXT_color_buffer_half_float");
+  const scenePass = new ScenePass(scene, camera, halfFloat);
   const depth = scenePass.target.depthTexture!;
   composer.addPass(scenePass);
 
