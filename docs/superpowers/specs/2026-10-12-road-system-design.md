@@ -64,8 +64,7 @@ scaled to the square, and it leaves a verge on each side. A curve's felt runs fr
 
 ## 3. Generated roads and town streets
 
-- **Town streets stay as felt squares.** They are open, plaza-like areas, not lines, so they don't fit pieces. Every
-  edge where a town street square meets open grass counts as a road end, so a piece placed there joins the town.
+- **Town streets are road pieces, laid streets first (chosen).** See §3a.
 - **No generated roads between towns (chosen).** The generator stops laying country lanes (`joinLanes`, and the
   lane stubs that cross plot edges). Rivers, towns and trees must come out exactly as before, so dropping the lanes
   must not change any other random stream: the generator still draws the numbers the lanes used. Hills change only
@@ -77,10 +76,48 @@ scaled to the square, and it leaves a verge on each side. A curve's felt runs fr
   nearly straight out from the centre as there's room for. If neither side has room, one goes out of a side instead.
   A gate square one block up is brought down to the felt, as long as that leaves no step of two beside it. Gates
   never go on a station's approach or beside its track. A gate is an ordinary piece, so the player can see where to
-  start a road, and can remove or extend it. Any other edge where a town street meets open grass also accepts a road.
+  start a road, and can remove or extend it. With §3a, gates sit at the outer end of each main street.
   Measured on 200 seeds: 98.7% of towns get a gate, 1.7 per town on average.
 - **Old saves.** Lanes already in a save are kept. On load, a lane square without a piece gets the piece that fits
   its lane neighbours.
+
+## 3a. Town streets (chosen: streets first)
+
+Town interiors are made of road pieces and are read-only to the player. The street plan is laid first, then
+buildings go on lots facing the streets. The aim is a network that makes sense (every building on a street, every
+street reaching the station and a gate) and looks like a small toy town.
+
+**The plan.** A town is a disc of squares (radius 210 mm, about three squares) around its station. The track runs
+through it along a map axis, and the platform is on one side. The plan works in the town's own axes: *along* the
+track and *out* to each side. `planTown(grid, town)` in `src/roads/town-plan.ts` is pure and its own random stream,
+and gives:
+
+- **Station Road:** on each side, the row of squares next to the station (the platform side's forecourt, and the
+  street along the track on the far side), for as long as the town runs.
+- **Main street:** on each side, from the middle of Station Road straight out to the town's edge. Its outer end
+  leads on to that side's town gate.
+- **Back street:** on a side deep enough for two rows of houses beyond Station Road, a street parallel to it, joined
+  to the main street (a T or a crossroads).
+- **Lots:** every other town square that touches a street is a building lot, 1 or 2 squares along the street. Each
+  lot records the street it faces (its door side). Corners can face either street.
+- **The rest:** squares that touch no street stay as town squares without a road (a little green). Track still
+  can't cross them, and they're left free for a fountain, trees or a bandstand.
+- **Pieces:** each street square gets the piece for its street neighbours (straight, bend, T, crossroads, or a
+  rounded dead end where a street stops). Street squares stay `SURF_ROAD` with a road byte, so track still can't
+  cross them and the player can't change them.
+- The near and far sides aren't joined inside the town, because the track runs between them. Each side has its own
+  gate, so the player's roads can join them up outside the town, over a level crossing.
+
+**Buildings.** Today's house and shop records go on the lots: one building per lot, with its door facing the street.
+Land editing's L4 (catalogue towns) then chooses what model stands on each lot, from the lot's size and facing. Town
+furniture keeps going along the street edges. Every seed gives a different town from today, which the user has
+accepted.
+
+**Old saves.** Town street squares saved without road bytes are still drawn as felt, as before, so old towns keep
+their look. The felt draws only street squares that have no road piece.
+
+**The player's roads** join a town only at its gates or where a street ends at the town's edge, where a street has
+an open end. A road built up against the side of a street doesn't join it.
 
 ## 4. Roads and track: level crossings
 
@@ -139,8 +176,12 @@ goals are deferred.
    stops laying lanes and adds town gates, with rivers and towns unchanged. Before/after frame time and tile build
    time go in the commit.
 3. **R3 Laying.** The Roads tab, with drag, snap, auto-turn, tap to turn, remove and undo. Pieces are saved.
-4. **R4 Crossings.** The across-only rule for track and roads, plus crossing recompute on road edits.
-5. **R5 Zebra and dead-end polish.** Beacons are animated only while in view.
+4. **R3b Town streets.** `planTown`: streets, lots and pieces; buildings on lots; gates at the main streets' ends;
+   old saves' streets still drawn as felt. Worked out with land editing (L4). Tests run on 200 seeds: every lot faces
+   a street, every street reaches the station's road and a gate, and towns stay reachable. Screenshots go in the
+   commit.
+5. **R4 Crossings.** The across-only rule for track and roads, plus crossing recompute on road edits.
+6. **R5 Zebra and dead-end polish.** Beacons are animated only while in view.
 
 ## 11. Coordination
 
@@ -149,6 +190,8 @@ goals are deferred.
 - **`landscape-data.ts`:** the optional `road` string per plot.
 - **`generate.ts` / `edges.ts`:** stop laying lanes, without disturbing other random streams, and add town gates in
   a small pass at the end.
+- **Towns (`generate.ts` building placement, L4):** streets and lots come from `planTown` (this work), and what
+  stands on a lot comes from land editing's L4. Agreed with that session before the code changes.
 - **`felt.ts` / `landscape-view.ts`:** lanes leave the felt ribbons, and a road-tiles group is added beside them.
 - **`clearance.ts`:** the across-only rule.
 
