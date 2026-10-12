@@ -86,8 +86,8 @@ interface Shot {
 }
 
 const EDGE_PAN_SPEED = 0.9; // view distances per second at full push
-const ZOOM_RATE = 0.0016;
-const ZOOM_LAMBDA = 14;
+const ZOOM_RATE = 0.0026;
+const ZOOM_LAMBDA = 22;
 const FOLLOW_LAMBDA = 5;
 
 /**

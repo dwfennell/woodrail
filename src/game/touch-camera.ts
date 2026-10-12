@@ -268,14 +268,16 @@ export class TouchCamera {
     private readonly onStart: () => void,
   ) {
     this.gestures = new TouchGestures(camera, target, limits);
+    // Fingers, and the mouse's left button (a one-finger pan, gliding on after a flick).
+    const handled = (e: PointerEvent) => e.pointerType === "touch" || (e.pointerType === "mouse" && e.button === 0);
     canvas.addEventListener("pointerdown", (e) => {
-      if (e.pointerType !== "touch") return;
+      if (!handled(e)) return;
       this.fingers.set(e.pointerId, this.local(e));
       this.order.push(e.pointerId);
       this.restart(e.timeStamp);
     });
     window.addEventListener("pointermove", (e) => {
-      if (e.pointerType !== "touch" || !this.fingers.has(e.pointerId)) return;
+      if (!this.fingers.has(e.pointerId)) return;
       this.fingers.set(e.pointerId, this.local(e));
       if (!this.enabled()) {
         this.active = false;
@@ -297,7 +299,7 @@ export class TouchCamera {
     window.addEventListener("pointercancel", lift);
   }
 
-  /** True while any finger is down on the canvas. */
+  /** True while any finger (or the mouse's left button) is down on the canvas. */
   get touching(): boolean {
     return this.fingers.size > 0;
   }

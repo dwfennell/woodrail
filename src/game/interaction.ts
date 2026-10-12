@@ -30,6 +30,7 @@ const DRAG_THRESHOLD = 6;
 const HOLD_LIFT = 12;
 /** An OrbitControls touch mapping that does nothing (it falls through to "no gesture"). */
 const NO_TOUCH = -1 as unknown as TOUCH;
+const NO_MOUSE = -1 as unknown as MOUSE;
 const MAX_TILT = (2 * Math.PI) / 180;
 const TRAIN_DROP_RANGE = 70;
 
@@ -133,8 +134,10 @@ export class Interaction {
   ) {
     const canvas = game.canvas;
     const c = game.controls;
-    c.mouseButtons = { LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE };
-    // Touch moves the camera through TouchCamera (Maps-style gestures); OrbitControls keeps the mouse.
+    // A left drag pans through TouchCamera, like one finger (the ground stays under the pointer); OrbitControls keeps
+    // the right button (turn and tilt) and the middle (zoom).
+    c.mouseButtons = { LEFT: NO_MOUSE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE };
+    // Touch moves the camera through TouchCamera (Maps-style gestures).
     c.touches = { ONE: NO_TOUCH, TWO: NO_TOUCH };
     window.addEventListener("pointerdown", (e) => this.notePointer(e), { capture: true });
     const lift = (e: PointerEvent) => this.touches.delete(e.pointerId);
@@ -156,7 +159,7 @@ export class Interaction {
         e.preventDefault();
         e.stopImmediatePropagation();
         const lines = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
-        game.director.zoomAt(this.groundAt(e.clientX, e.clientY), Math.max(-120, Math.min(120, e.deltaY * lines)));
+        game.director.zoomAt(this.groundAt(e.clientX, e.clientY), Math.max(-240, Math.min(240, e.deltaY * lines)));
       },
       { capture: true, passive: false },
     );

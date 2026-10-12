@@ -121,8 +121,9 @@ export class Game {
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.target.set(0, 0, 0);
     this.controls.enableDamping = true;
-    // Mouse drags glide on a little after release (touch has its own gestures and glide: see TouchCamera).
-    this.controls.dampingFactor = 0.05;
+    // Right-drag turns settle quickly after release (panning, by touch or the left button, has its own glide: see
+    // TouchCamera).
+    this.controls.dampingFactor = 0.2;
     this.controls.minDistance = 120;
     this.controls.maxDistance = 14000;
     this.controls.maxPolarAngle = 1.42;
