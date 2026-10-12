@@ -16,8 +16,17 @@ import "./style.css";
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const loading = document.querySelector<HTMLDivElement>("#loading");
 
+/** A map asked for in the link (`#seed-12345`), to share or replay a particular map. */
+function linkedSeed(): number | null {
+  const m = /^#seed-(\d{1,9})$/.exec(location.hash);
+  return m ? Number(m[1]) : null;
+}
+
 function initialWorld(): GameWorld {
   const saved = loadFromStorage();
+  const seed = linkedSeed();
+  // A linked map starts fresh, unless the autosave is already that map (so reloading keeps your track).
+  if (seed !== null && !(saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter)) return createWorld(seed);
   if (saved?.ok) return saved.value;
   if (saved && !saved.ok) console.warn(`Woodrail: ignoring autosave (${saved.error})`);
   return buildStarterWorld();
