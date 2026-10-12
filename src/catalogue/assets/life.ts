@@ -105,6 +105,7 @@ function buttons(k: Kit, col: string, ys: number[]): Group {
 /** An arm on `side` (+1 right, −1 left), pivoting at the shoulder; `swing` lifts it forward (radians). */
 function arm(k: Kit, coat: string, side: 1 | -1, swing = 0, name = ""): Group {
   const g = pivot(name, 0, 9.6, side * 3.6);
+  g.userData.arm = true;
   g.add(k.capsule(k.paint(coat), 1.1, 3.2, 0, -5.4, 0));
   g.add(k.ball(k.wood, 1.2, 0, HAND, 0));
   g.rotation.z = swing;
@@ -116,6 +117,7 @@ function arm(k: Kit, coat: string, side: 1 | -1, swing = 0, name = ""): Group {
 function hold(armG: Group, item: Object3D, dx = 0, dy = 0, dz = 0): Object3D {
   item.position.set(item.position.x + dx, item.position.y + HAND + dy, item.position.z + dz);
   item.rotation.z = -armG.rotation.z;
+  item.userData.held = true;
   armG.add(item);
   return item;
 }
@@ -558,7 +560,8 @@ export const ASSETS: Asset[] = [
       for (const z of [-1, 0, 1]) fork.add(rod(k, k.metal, [0, 14, z], [0, 17.5, z], 0.25));
       fork.add(k.cylZ(k.metal, 0.3, 2.4, 0, 14, 0, 8));
       const a = arm(k, TOY.red, 1, 0.6);
-      hold(a, fork, 0, 0, 0.3);
+      // Leaning out from the shoulder, so the fork clears the straw hat's wide brim.
+      hold(a, fork, 0, 0, 0.3).rotation.x = 0.42;
       g.add(a, arm(k, TOY.red, -1, 0.1));
       return g;
     },
@@ -623,14 +626,16 @@ export const ASSETS: Asset[] = [
       const coat = "#1b2a4e";
       const g = person(k, coat, { legs: coat });
       g.add(buttons(k, SILVER, [4.5, 6.5, 8.5]), band(k, TOY.black, 5.4, 6, 0.25), policeHelmet(k, coat));
-      const a = arm(k, coat, 1, 2.9, "stop-arm");
+      const a = arm(k, coat, 1, 2.5, "stop-arm");
+      // Held out to the side a little, clear of the helmet.
+      a.rotation.x = -0.45;
       a.add(k.ball(k.paint(TOY.white), 1.35, 0, HAND, 0));
       g.add(a, arm(k, coat, -1, 0.1));
       return g;
     },
     animate: (root, t) => {
       const a = part(root, "stop-arm");
-      if (a) a.rotation.z = (t % 6) < 3 ? 2.9 : 0.15;
+      if (a) a.rotation.z = (t % 6) < 3 ? 2.5 : 0.15;
     },
   },
   {
@@ -749,7 +754,8 @@ export const ASSETS: Asset[] = [
       pend.add(k.box(k.paint(TOY.yellow), 2.6, 5, 2.6, 0.8, 0, -2.5, 0));
       pend.add(k.ball(k.paint(TOY.green), 0.5, 1.35, 1, 0.5), k.ball(k.paint(TOY.red), 0.5, 1.35, 1, -0.5));
       pend.add(pivot("go", 1.35, -1, 0, k.ball(k.paint(TOY.green), 0.55, 0, 0, 0)));
-      pend.add(rod(k, k.paint(TOY.black), [0, 2.5, 0], [-2, 14, 3], 0.25));
+      pend.add(rod(k, k.paint(TOY.black), [0, 2.5, 0], [2.5, 10.5, 4.5], 0.25));
+      pend.userData.held = true;
       g.add(k.at(pend, 4.8, 7, 0));
       return g;
     },
