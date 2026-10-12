@@ -35,6 +35,8 @@ interface Command {
   props?: boolean;
   /** Changes the land (squares' heights): undo and redo tell `onLandChange` the plots to redraw. */
   land?: () => number[];
+  /** Changes only road pieces: done, undone and redone, it tells `onRoadsChange` the plots (and whether trees went). */
+  roads?: { slots: number[]; trees: boolean };
 }
 
 const HISTORY_LIMIT = 100;
@@ -111,6 +113,14 @@ export class Editor {
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
     this.redoStack = [];
     this.onPropsChange?.();
+  }
+
+  /** Called after a road edit is done, undone or redone, with its plots and whether it cleared or brought back trees. */
+  onRoadsChange: ((slots: number[], trees: boolean) => void) | null = null;
+
+  /** Do a road edit (pieces on squares) as one undo step. */
+  editRoads(c: { do(): void; undo(): void; slots: number[]; trees: boolean }): void {
+    this.run({ do: c.do, undo: c.undo, roads: { slots: c.slots, trees: c.trees } });
   }
 
   /** Do a props edit as one undo step. */
@@ -305,6 +315,10 @@ export class Editor {
   }
 
   private changed(c: Command): void {
+    if (c.roads) {
+      this.onRoadsChange?.(c.roads.slots, c.roads.trees);
+      return;
+    }
     if (c.land) {
       this.onLandChange?.(c.land());
       return;

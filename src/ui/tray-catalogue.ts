@@ -2,6 +2,7 @@ import type { GameMode } from "../game/modes";
 import type { CarKind, CarLook } from "../sim";
 import type { PieceTypeId } from "../track";
 import { fileOf, loadFile } from "../catalogue/registry";
+import type { RoadPieceId } from "../roads";
 import { BRIDGE_PROP_SHELVES, PROP_TABS, type PropShelf } from "../catalogue/shelves";
 
 /**
@@ -13,6 +14,8 @@ export type TrayItem =
   | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string }
   /** A catalogue model, placed as a decorative prop. */
   | { kind: "prop"; asset: string; label: string }
+  /** A road piece (the Roads tab): fills one square, snaps to the roads beside it. */
+  | { kind: "road"; piece: RoadPieceId; label: string }
   /** A land-editing tool (the Land tab): chosen with a tap, then used by tapping the land. */
   | { kind: "tool"; tool: LandTool; label: string };
 
@@ -97,6 +100,21 @@ export const TRAIN_GROUPS: TrayGroup[] = [
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
+/** Road pieces, on the Roads tab (both modes). */
+export const ROAD_GROUPS: TrayGroup[] = [
+  {
+    label: "Roads",
+    items: [
+      { kind: "road", piece: "straight", label: "Road" },
+      { kind: "road", piece: "curve", label: "Bend" },
+      { kind: "road", piece: "tee", label: "T-junction" },
+      { kind: "road", piece: "cross", label: "Crossroads" },
+      { kind: "road", piece: "end", label: "Dead end" },
+      { kind: "road", piece: "zebra", label: "Zebra crossing" },
+    ],
+  },
+];
+
 /** The track bridges: a shelf of the Track tab (with the catalogue's decorative bridges after it, in Sandbox). */
 export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("bridge", "bridge-curve") }];
 
@@ -137,6 +155,7 @@ export const TRAY_TABS: TrayTab[] = [
   { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS },
   { id: "industries", label: "Industries", modes: GAME, groups: INDUSTRY_GROUPS, orient: "turn-flip" },
   ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
+  { id: "roads", label: "Roads", modes: BOTH, groups: ROAD_GROUPS, orient: "turn" },
   // Opening the Land tab switches land editing on; the tools act on the land itself.
   {
     id: "land",
@@ -177,5 +196,6 @@ export async function propGroups(shelves: readonly PropShelf[]): Promise<TrayGro
 export function trayKey(item: TrayItem): string {
   if (item.kind === "piece") return `piece:${item.type}${item.auto ? ":auto" : ""}`;
   if (item.kind === "tool") return `tool:${item.tool}`;
+  if (item.kind === "road") return `road:${item.piece}`;
   return item.kind === "prop" ? `prop:${item.asset}` : `train:${item.label}`;
 }

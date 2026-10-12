@@ -22,6 +22,7 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
+import { RoadHand, type RoadDrag } from "./road-hand";
 import { cargoDropTarget } from "./cargo-drop";
 import { CARGO, PILE_CAP, ROLE, type CargoKind, type CargoSlot } from "../economy";
 
@@ -71,7 +72,9 @@ type Press =
   /** A log or plank bundle on a pile or wagon. */
   | { kind: "cargo"; slot: CargoSlot; cargo: CargoKind }
   /** A placed prop (catalogue model). */
-  | { kind: "prop"; propId: number };
+  | { kind: "prop"; propId: number }
+  /** A road piece the player laid (on square `cell`). */
+  | { kind: "road"; cell: number };
 
 /** A car held in the hand: what it is, which way it faces, its lever, and (when picked up) its id and load. */
 type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; look?: CarLook; cargo?: { kind: CargoKind; count: number } };
@@ -162,6 +165,7 @@ type Mode =
       /** The track, sampled once for the drag (it doesn't change meanwhile). */
       track: TrackIndex;
     }
+  | { kind: "drag-road"; pointerId: number; drag: RoadDrag; overTray: boolean }
   | {
       kind: "drag-scenery";
       pointerId: number;
@@ -230,6 +234,8 @@ export class Interaction {
   /** Round the selected scenery, or where it would go. */
   private readonly sceneryOutline = new FootprintOutline();
   private selectedCar = -1;
+  /** Laying road pieces, and the selected one. */
+  private readonly roads: RoadHand;
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
   private readonly floor = new Plane(new Vector3(0, 1, 0), 0);
@@ -245,6 +251,7 @@ export class Interaction {
     const canvas = game.canvas;
     const c = game.controls;
     game.scene.add(this.propOutline.line, this.squareOutline.line, this.sceneryOutline.line);
+    this.roads = new RoadHand(game, hud, editor, () => this.onRefused?.(), () => this.onPlaced?.(false));
     // A left drag pans through TouchCamera, like one finger (the ground stays under the pointer); OrbitControls keeps
     // the right button (turn and tilt) and the middle (zoom).
     c.mouseButtons = { LEFT: NO_MOUSE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE };
@@ -330,7 +337,11 @@ export class Interaction {
     if (this.armed && trayKey(this.armed) !== trayKey(item)) this.arm(null);
     this.clearSelection();
     if (item.kind === "piece") this.mode = this.pieceFromTray(item, e.pointerId);
-    else if (item.kind === "prop") {
+    else if (item.kind === "road") {
+      // Comes out turned as set in the tray (quarter turns from facing away from the camera).
+      const held = Math.round(this.cameraHeading() / (Math.PI / 2)) + Math.floor(this.trayTurns / 2);
+      this.mode = { kind: "drag-road", pointerId: e.pointerId, drag: this.roads.begin(item.piece, held), overTray: true };
+    } else if (item.kind === "prop") {
       this.mode = this.propDrag(item.asset, -1, e.pointerId, this.nextPropHeading(), null, { x: 0, z: 0 });
     } else if (item.kind === "train") {
       // Ids now, so the train in the hand wears the colours it will have on the track.
@@ -523,6 +534,7 @@ export class Interaction {
       return;
     }
     if (this.mode.kind === "drag-piece") this.rotateSelected();
+    if (this.mode.kind === "drag-road") this.roads.turnHeld(this.mode.drag);
     this.trayTurns = (this.trayTurns + 1) % 8;
     this.onTurned?.();
   }
@@ -568,6 +580,7 @@ export class Interaction {
     // (While picking several, any track in view can be tapped.)
     if (hit?.kind === "piece" && !this.picking && !this.withinReach(hit.pieceId)) hit = null;
     if (hit?.kind === "prop" && (!this.propsEditable || !this.propWithinReach(hit.propId))) hit = null;
+    if (hit?.kind === "road" && !this.roadWithinReach(hit.cell)) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     if (!hit) {
       // Empty floor: the camera pans; a tap here deselects (but not the pieces being picked: Done lets them go), and a
@@ -596,7 +609,7 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
-      if (m.press.kind === "prop" && m.press.propId !== this.selectedProp) {
+      if ((m.press.kind === "prop" && m.press.propId !== this.selectedProp) || (m.press.kind === "road" && m.press.cell !== this.roads.selected)) {
         // Select first: a drag that starts on a prop not selected pans the view, like the floor (so panning over a
         // busy town never moves a house by accident). The camera picks the gesture up from here.
         this.mode = { kind: "idle" };
@@ -621,6 +634,16 @@ export class Interaction {
       else if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) !== -1) this.beginPieceMove(this.movableIndustry(m.press.depotId), m.pointerId, m.ground);
       else if (m.press.kind === "cargo") this.beginCargoDrag(m.press.slot, m.press.cargo, m.pointerId);
       else if (m.press.kind === "prop") this.beginPropMove(m.press.propId, m.pointerId, m.ground);
+      else if (m.press.kind === "road") {
+        const drag = this.roads.pickUp(m.press.cell);
+        if (!drag) {
+          this.mode = { kind: "idle" };
+          this.game.controls.enabled = true;
+          return;
+        }
+        this.mode = { kind: "drag-road", pointerId: m.pointerId, drag, overTray: false };
+        this.onPickup?.();
+      }
       else if (m.press.kind === "car") {
         this.beginTrainPickup(m.press.carId, m.pointerId);
         if (this.mode.kind === "idle") return;
@@ -657,6 +680,11 @@ export class Interaction {
     if (m.kind === "drag-piece") this.dropPiece(m);
     else if (m.kind === "drag-group") this.dropGroup(m);
     else if (m.kind === "drag-prop") this.dropProp(m);
+    else if (m.kind === "drag-road") {
+      this.game.director.setEdgePointer(null);
+      this.mode = { kind: "idle" };
+      this.roads.drop(m.drag);
+    }
     else if (m.kind === "drag-scenery") this.dropScenery(m);
     else if (m.kind === "drag-cargo") this.dropCargo(m, e.clientX, e.clientY);
     else this.dropTrain(m);
@@ -721,7 +749,7 @@ export class Interaction {
       this.outlineScenery(m.scenery, 0, 0);
     } else if (m.kind === "drag-group") {
       this.putGroupBack(m);
-    }
+    } else if (m.kind === "drag-road") this.roads.cancel(m.drag);
     this.mode = { kind: "idle" };
   }
 
@@ -749,6 +777,11 @@ export class Interaction {
     }
     if (p.kind === "prop") {
       this.selectProp(p.propId);
+      return;
+    }
+    if (p.kind === "road") {
+      this.clearSelection();
+      this.roads.select(p.cell);
       return;
     }
     if (p.kind === "cargo") {
@@ -788,6 +821,7 @@ export class Interaction {
     this.picking = false;
     this.picked.clear();
     if (this.selectedProp !== -1) this.propOutline.hide();
+    this.roads.clear();
     if (this.selectedScenery) {
       this.sceneryOutline.hide();
       this.game.invalidate();
@@ -948,6 +982,15 @@ export class Interaction {
   }
 
   rotateSelected(): void {
+    if (this.mode.kind === "drag-road") {
+      this.roads.turnHeld(this.mode.drag);
+      return;
+    }
+    if (this.roads.selected !== -1) {
+      this.roads.turnSelected();
+      this.onTurned?.();
+      return;
+    }
     if (this.mode.kind === "drag-piece") {
       this.mode.heading += Math.PI / 4;
       return;
@@ -1100,6 +1143,10 @@ export class Interaction {
   }
 
   deleteSelected(): void {
+    if (this.roads.selected !== -1) {
+      this.roads.removeSelected();
+      return;
+    }
     if (this.selectedScenery) {
       const s = this.selectedScenery;
       this.clearSelection();
@@ -1513,7 +1560,7 @@ export class Interaction {
       this.updateSceneryDrag(m, x, y);
       return;
     }
-    if (m.kind !== "drag-piece" && m.kind !== "drag-train" && m.kind !== "drag-cargo" && m.kind !== "drag-prop") return;
+    if (m.kind !== "drag-piece" && m.kind !== "drag-train" && m.kind !== "drag-cargo" && m.kind !== "drag-prop" && m.kind !== "drag-road") return;
     this.lastX = x;
     this.lastY = y;
     m.overTray = this.hud.isOverTray(x, y);
@@ -1524,6 +1571,11 @@ export class Interaction {
     const ground = this.groundAt(x, y);
     if (m.kind === "drag-prop") {
       this.updatePropDrag(m, x, y);
+      return;
+    }
+    if (m.kind === "drag-road") {
+      // On touch, the square a little above the finger, so the piece can be seen.
+      this.roads.update(m.drag, this.squareAt(x, this.lastPointerWasTouch ? y - TOUCH_LIFT_PX : y), m.overTray);
       return;
     }
     if (m.kind === "drag-cargo") {
@@ -2278,6 +2330,15 @@ export class Interaction {
     });
   }
 
+  /** Is a road piece close enough to pick up? (As for props: big enough on screen to take hold of.) */
+  private roadWithinReach(cell: number): boolean {
+    const g = this.game;
+    const grid = g.landscape.grid;
+    const distance = Math.hypot(grid.centreX(grid.colOf(cell)) - g.camera.position.x, g.camera.position.y, grid.centreZ(grid.rowOf(cell)) - g.camera.position.z);
+    const pxPerMm = g.canvas.clientHeight / (2 * distance * Math.tan((g.camera.fov * Math.PI) / 360));
+    return GRAB_PIECE_MM * pxPerMm >= GRAB_MIN_PX;
+  }
+
   /** Is a prop close enough to pick up? (As for track: big enough on screen to take hold of.) */
   private propWithinReach(propId: number): boolean {
     const g = this.game;
@@ -2339,6 +2400,9 @@ export class Interaction {
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
       if (pieceId !== -1) return { kind: "piece", pieceId };
     }
+    // Nothing standing there: a road piece the player laid, on the square under the pointer.
+    const cell = this.squareAt(x, y);
+    if (this.roads.pickable(cell)) return { kind: "road", cell };
     return null;
   }
 

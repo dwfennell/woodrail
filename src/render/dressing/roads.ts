@@ -1,7 +1,7 @@
 import { BoxGeometry, BufferAttribute, BufferGeometry, ExtrudeGeometry, Group, Mesh, Shape, type Material } from "three";
 import { CELL, type LandscapeGrid } from "../../landscape";
 import { pieceOf, ROAD_PIECES, turnOf, type RoadPieceId } from "../../roads";
-import { FELT_TILE } from "../materials";
+import { FELT_TILE, type Materials } from "../materials";
 import { setCullRects, TILE_DEPTH, TILE_WIDTH, tileAt } from "./tiles";
 
 /**
@@ -26,6 +26,29 @@ export interface RoadMaterials {
   paint: Material;
 }
 const SLOTS = ["board", "felt", "paint"] as const;
+
+/** The game's road materials: beech board, road felt, white paint. */
+export function roadMaterials(mats: Materials): RoadMaterials {
+  return { board: mats.naturalWood, felt: mats.roadFelt, paint: mats.lacquer("#f6f1e6") };
+}
+
+/**
+ * One road piece (a road byte) as meshes centred on (0, 0), for a piece held in the hand. Its geometry belongs to the
+ * group (dispose it with the group).
+ */
+export function roadPieceGroup(road: number, mats: RoadMaterials): Group {
+  const group = new Group();
+  const square: Square = { col: 0, row: 0, road, y: 0 };
+  SLOTS.forEach((slot) => {
+    const g = tileGeometry([square], slot);
+    if (!g) return;
+    g.translate(-CELL / 2, 0, -CELL / 2);
+    const mesh = new Mesh(g, mats[slot]);
+    mesh.castShadow = true;
+    group.add(mesh);
+  });
+  return group;
+}
 type SlotName = (typeof SLOTS)[number];
 
 /** One piece's geometry at turn 0, centred on its square: flat arrays of triangle vertices per slot. */

@@ -53,7 +53,7 @@ import { HillCutsView } from "./dressing/hill-cuts";
 import { buildShed, buildStation, buildTown } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltGround, buildFeltTiles, type FeltTiles } from "./dressing/felt";
-import { buildRoadTiles, type RoadTiles } from "./dressing/roads";
+import { buildRoadTiles, roadMaterials, type RoadTiles } from "./dressing/roads";
 import { buildScenery, disposeSceneryPart, sceneryPart, splitSurroundings, type SceneryPart } from "./dressing/surroundings";
 import { byTile, cullTiles, plotRect, setCullRects, TILE_DEPTH, TILE_WIDTH, tileAt } from "./dressing/tiles";
 import { buildTiledTrees, treePlacements, type PlaceTrees, type TreeAt, type TreePlacement, type TreeTile } from "./dressing/trees";
@@ -462,7 +462,26 @@ export class LandscapeView {
   /** The road pieces on the land and the land around now, a mesh per material per tile (geometry owned by the cache). */
   private roadsGroup(): Group {
     const grids = [this.land.grid, ...this.around.map((a) => a.land.grid)];
-    return buildRoadTiles(grids, { board: this.mats.naturalWood, felt: this.mats.roadFelt, paint: this.mats.lacquer("#f6f1e6") }, this.roadTiles);
+    const group = buildRoadTiles(grids, roadMaterials(this.mats), this.roadTiles);
+    group.name = "roads";
+    return group;
+  }
+
+  /**
+   * Road pieces were placed or taken away (the player's roads): swap in the roads again (only changed tiles rebuild),
+   * and the trees if any were cleared or came back.
+   */
+  roadsEdited(trees: boolean): void {
+    const old = this.feltGroup.getObjectByName("roads") as Group | undefined;
+    if (old) {
+      this.feltGroup.remove(old);
+      disposeTree(old);
+    }
+    this.feltGroup.add(this.roadsGroup());
+    if (trees) {
+      this.buildTrees();
+      this.syncTrees(this.layout ?? null);
+    }
   }
 
   private makeFelt(): Group {

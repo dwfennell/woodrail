@@ -3,6 +3,7 @@ import type { GameMode } from "../game/modes";
 import { note } from "../debug/report";
 import { blockWord } from "./blocks";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
+import { roadIcon } from "./road-icons";
 import { propGroups, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
@@ -321,6 +322,7 @@ export class Hud {
       if (thumb) return `<img src="${thumb}" alt="" draggable="false">`;
       if (item.kind === "piece") return pieceIcon(item.type);
       if (item.kind === "tool") return uiIcon(item.tool);
+      if (item.kind === "road") return roadIcon(item.piece);
       if (item.kind === "train") return trainIcon(item.cars);
       missing.push(item);
       return `<span class="thumb-pending" data-thumb="${key}"></span>`;

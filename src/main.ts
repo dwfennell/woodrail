@@ -122,6 +122,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       game.editLand(slots);
       scheduleSave();
     };
+    ed.onRoadsChange = (slots, trees) => {
+      game.roadsEdited(slots, trees);
+      hud.setHistory(ed.canUndo, ed.canRedo);
+      scheduleSave();
+    };
     ed.onPropsChange = () => {
       game.propsChanged();
       hud.setHistory(ed.canUndo, ed.canRedo);

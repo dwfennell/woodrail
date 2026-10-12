@@ -698,6 +698,17 @@ export class Game {
     this.landscapeView.setSignBadge(townId, badge);
   }
 
+  /**
+   * Road pieces changed in these plots: redraw the roads (only the tiles whose squares changed rebuild), the trees if
+   * any were cleared or brought back, and the level crossings.
+   */
+  roadsEdited(slots: readonly number[], trees: boolean): void {
+    for (const s of slots) this.landscape.grid.touch(s);
+    this.landscapeView.roadsEdited(trees);
+    this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
+    this.invalidate();
+  }
+
   /** Props were added, moved or removed (or one is being held: `hidden`, −1 for none): redraw them. */
   propsChanged(hidden = this.hiddenProp): void {
     this.hiddenProp = hidden;
