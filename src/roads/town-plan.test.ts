@@ -7,6 +7,7 @@ describe("town street plans", () => {
     let towns = 0;
     let buildings = 0;
     let gates = 0;
+    let corners = 0;
     for (let seed = 1; seed <= 60; seed++) {
       const land = generateLandscape(seed);
       const g = land.grid;
@@ -47,6 +48,7 @@ describe("town street plans", () => {
         expect(groups, `${seed}/${town.name}`).toBeLessThanOrEqual(2);
         for (const b of town.buildings) {
           buildings++;
+          if (b.corner) corners++;
           expect(b.front).toBeDefined();
           // Its front faces a street square.
           expect(b.cells.some((c) => g.surface[nb[c * 4 + b.front!]] === SURF_ROAD)).toBe(true);
@@ -56,6 +58,8 @@ describe("town street plans", () => {
       }
     }
     expect(buildings / towns).toBeGreaterThan(5);
+    // Most towns have a corner or two.
+    expect(corners / towns).toBeGreaterThan(1);
     // Two sides per town, most with room for a gate.
     expect(gates / towns).toBeGreaterThan(1.2);
   });

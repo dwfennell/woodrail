@@ -13,6 +13,10 @@ export interface TownSite {
 export interface Lot {
   cells: number[];
   front: Edge;
+  /** On a corner: it touches two streets, or a street on two sides (a good spot for a shop). */
+  corner: boolean;
+  /** On a main street (lots come in that order: main streets first, then Station Road's). */
+  main: boolean;
 }
 
 export interface TownPlan {
@@ -50,6 +54,7 @@ export function planTown(grid: LandscapeGrid, site: TownSite, pair: () => boolea
   const streets = new Map<number, number>();
   /** Street squares by street, in order: Station Road first, so lots face it when they can. */
   const order: number[][] = [];
+  const mainStreet = new Set<number>();
   const exits: TownPlan["exits"] = [];
   const ends: TownPlan["ends"] = [];
   for (const s of [1, -1]) {
@@ -65,6 +70,7 @@ export function planTown(grid: LandscapeGrid, site: TownSite, pair: () => boolea
     let b = high + s;
     for (; open(at(0, b)); b += s) main.push(at(0, b));
     order.push(road, main);
+    for (const i of main) mainStreet.add(i);
     for (const i of [...road, ...main]) streets.set(i, 0);
     const end = main.length > 0 ? main[main.length - 1] : road[0];
     exits.push({ cell: end, edge: edgeOf(s * lc, s * lr) });
@@ -105,7 +111,21 @@ export function planTown(grid: LandscapeGrid, site: TownSite, pair: () => boolea
         taken.add(j);
       }
     }
-    lots.push({ cells, front: f });
+    // Which sides of the lot have street, and whether any of it is main street.
+    let sides = 0;
+    let main = false;
+    for (const c of cells) {
+      for (let e = 0; e < 4; e++) {
+        const j = nb[c * 4 + e];
+        if (!streets.has(j)) continue;
+        sides |= 1 << e;
+        if (mainStreet.has(j)) main = true;
+      }
+    }
+    const corner = (sides & 5) !== 0 && (sides & 10) !== 0;
+    lots.push({ cells, front: f, corner, main });
   }
+  // Main-street lots first (town looks give the first lots the special buildings).
+  lots.sort((a, b) => Number(b.main) - Number(a.main));
   return { streets, lots, exits, ends };
 }

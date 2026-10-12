@@ -38,6 +38,8 @@ export interface Building {
   roof: number;
   /** The grid edge its front door faces (onto its street): +col, +row, −col, −row. Older saves: toward the centre. */
   front?: 0 | 1 | 2 | 3;
+  /** On a street corner (a good spot for a shop). */
+  corner?: boolean;
 }
 
 export interface Town {
@@ -311,6 +313,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
         kind: random() < 0.3 ? "shop" : "house",
         roof: Math.floor(random() * 4),
         front: lot.front,
+        corner: lot.corner,
       };
       for (const c of lot.cells) {
         grid.feature[c] = FEAT_BUILDING;
