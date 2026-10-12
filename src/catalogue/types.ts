@@ -14,7 +14,10 @@ export interface Asset {
   notes: string;
   /** Already in the game (shown for reference)? */
   inGame?: boolean;
-  /** Build it (standing on y = 0, facing +x). */
+  /**
+   * Build it (standing on y = 0, facing +x). Parts marked `userData.underlay` (a strip of river under a bridge) are for
+   * showing it off in the catalogue, and are left out in the game.
+   */
   build(k: Kit): Object3D;
   /**
    * Optional motion for the viewer (a crane turning, a barrier lifting, wheels spinning): called every frame with the

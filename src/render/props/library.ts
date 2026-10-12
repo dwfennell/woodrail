@@ -61,13 +61,19 @@ const PROP_DETAIL = 0.5;
 
 const box = new Box3();
 
+/** Part of a showcase underlay (see `Asset.build`), or inside one. */
+function isUnderlay(o: Object3D): boolean {
+  for (let p: Object3D | null = o; p; p = p.parent) if (p.userData.underlay) return true;
+  return false;
+}
+
 /** Merge a built model's meshes by material (transforms applied), and measure it. */
 export function bake(root: Object3D, mats: Materials): Omit<PropModel, "name"> {
   root.updateMatrixWorld(true);
   const b = new Batcher(mats.paint);
   root.traverse((o) => {
     const mesh = o as Mesh;
-    if (!mesh.isMesh || !mesh.visible) return;
+    if (!mesh.isMesh || !mesh.visible || isUnderlay(mesh)) return;
     const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
     b.add(material, mesh.geometry.clone().applyMatrix4(mesh.matrixWorld));
   });

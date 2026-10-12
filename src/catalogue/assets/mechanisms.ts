@@ -142,9 +142,14 @@ function pier(k: Kit, w: number, h: number, d: number, x = 0, z = 0): Group {
   return k.group(k.box(k.paint(STONE), w, h - 4, d, 2, x, 0, z), k.box(k.paint(DARK_STONE), w + 4, 4, d + 4, 1, x, h - 4, z));
 }
 
-/** A strip of river felt along z under a bridge. */
+/**
+ * A strip of river felt along z under a bridge, for showing it off. It's an `underlay`: left out when the bridge is
+ * placed in the game, where it stands over the map's own river (or none).
+ */
 function river(k: Kit, w: number, len: number, x = 0): Mesh {
-  return k.box(k.water, w, 1.2, len, 0.5, x, 0, 0);
+  const m = k.box(k.water, w, 1.2, len, 0.5, x, 0, 0);
+  m.userData.underlay = true;
+  return m;
 }
 
 /** A signal lamp: dark housing with a lit lens named `name` (shown when lit) and a dull lens behind it. */

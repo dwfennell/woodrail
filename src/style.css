@@ -57,7 +57,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .tray-item .icon { width: 74px; height: 60px; display: grid; place-items: center; }
 .tray-item .icon svg { width: 76%; height: 76%; }
 .tray-item .icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 3px 2px rgba(80, 50, 20, 0.22)); pointer-events: none; }
-.tray-item .label { font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+/* Labels wrap to two lines at most within their item (long catalogue names), cut short with an ellipsis after that. */
+.tray-item .label { font-size: 11.5px; font-weight: 700; line-height: 1.12; max-width: calc(100% - 6px); text-align: center; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: break-word; hyphens: auto; }
+.tray-item .icon { flex: 1 1 auto; min-height: 0; }
 /* A group: a little tab in the corner says how many pieces are inside. */
 .tray-group { position: relative; }
 .tray-group .count { position: absolute; top: 5px; right: 6px; min-width: 18px; height: 18px; border-radius: 9px; background: #e3bf8c; color: #5a3d22; font-size: 11px; font-weight: 800; display: grid; place-items: center; padding: 0 4px; }
@@ -110,6 +112,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
   .chip { min-width: 44px; height: 44px; padding: 0 10px; font-size: 16px; }
   .chip.text { font-size: 13px; }
   .tray-item { width: 70px; height: 80px; }
+  .tray-item .label { font-size: 10.5px; }
   .card { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 124px); min-width: 0; width: calc(100% - 24px); }
 }
 
