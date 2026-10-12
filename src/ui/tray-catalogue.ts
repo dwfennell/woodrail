@@ -12,7 +12,12 @@ export type TrayItem =
   | { kind: "piece"; type: PieceTypeId; label: string; auto?: boolean }
   | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string }
   /** A catalogue model, placed as a decorative prop. */
-  | { kind: "prop"; asset: string; label: string };
+  | { kind: "prop"; asset: string; label: string }
+  /** A land-editing tool (the Land tab): chosen with a tap, then used by tapping the land. */
+  | { kind: "tool"; tool: LandTool; label: string };
+
+/** Land-editing tools: raise or lower a square a block (grass blocks). */
+export type LandTool = "raise" | "lower";
 
 export const TRACK_ITEMS: TrayItem[] = [
   // Starts as a long straight and shrinks (in 18 mm steps) to meet a free end along its line.
@@ -108,6 +113,8 @@ export interface TrayTab {
    * "turn" for props, which don't mirror.
    */
   orient?: "turn" | "turn-flip";
+  /** Land editing is on while this tab is open. */
+  land?: boolean;
 }
 
 const BOTH: readonly GameMode[] = ["sandbox", "game"];
@@ -118,6 +125,22 @@ export const TRAY_TABS: TrayTab[] = [
   { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS },
   { id: "bridges", label: "Bridges", modes: BOTH, groups: BRIDGE_GROUPS, props: BRIDGE_PROP_SHELVES, orient: "turn-flip" },
   ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
+  // Opening the Land tab switches land editing on; the tools act on the land itself.
+  {
+    id: "land",
+    label: "Land",
+    modes: SANDBOX,
+    land: true,
+    groups: [
+      {
+        label: "Shape",
+        items: [
+          { kind: "tool", tool: "raise", label: "Raise" },
+          { kind: "tool", tool: "lower", label: "Lower" },
+        ],
+      },
+    ],
+  },
 ];
 
 /** The tabs a mode shows, in order (outside Sandbox, without catalogue models). */
@@ -140,5 +163,6 @@ export async function propGroups(shelves: readonly PropShelf[]): Promise<TrayGro
 /** Tray thumbnail key for an item. */
 export function trayKey(item: TrayItem): string {
   if (item.kind === "piece") return `piece:${item.type}${item.auto ? ":auto" : ""}`;
+  if (item.kind === "tool") return `tool:${item.tool}`;
   return item.kind === "prop" ? `prop:${item.asset}` : `train:${item.label}`;
 }

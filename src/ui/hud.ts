@@ -1,7 +1,7 @@
 import type { GameMode } from "../game/modes";
 import { blockWord } from "./blocks";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
-import { propGroups, trayKey, trayTabs, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
+import { propGroups, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
 
@@ -41,6 +41,8 @@ export interface HudHandlers {
   toggleSound(): void;
   /** Any HUD button pressed (for a soft click). */
   buttonTap(): void;
+  /** The Land tab's tool chosen (null: land editing off). */
+  landTool(tool: LandTool | null): void;
   /** Tray items shown without a picture yet: draw them (a few at a time) and hand each back with `setThumbnail`. */
   needThumbnails(items: TrayItem[]): void;
 }
@@ -250,6 +252,7 @@ export class Hud {
       const thumb = this.thumbs.get(key);
       if (thumb) return `<img src="${thumb}" alt="" draggable="false">`;
       if (item.kind === "piece") return pieceIcon(item.type);
+      if (item.kind === "tool") return uiIcon(item.tool);
       if (item.kind === "train") return trainIcon(item.cars);
       missing.push(item);
       return `<span class="thumb-pending" data-thumb="${key}"></span>`;
@@ -291,11 +294,24 @@ export class Hud {
       for (const item of group.items) {
         const b = el("button", "tray-item");
         b.innerHTML = `<span class="icon">${picture(item)}</span><span class="label">${item.label}</span>`;
-        b.title = `Drag onto the floor: ${item.label}`;
-        b.addEventListener("pointerdown", (e) => {
-          e.preventDefault();
-          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move) });
-        });
+        if (item.kind === "tool") {
+          // A tool is chosen with a tap, then used on the land.
+          const tool = item.tool;
+          b.classList.add("tray-tool");
+          b.dataset.tool = tool;
+          b.classList.toggle("active", this.landTool === tool);
+          b.title = `${item.label}: tap the land`;
+          b.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            this.trayPress(e, scroller, { tap: () => this.chooseLandTool(tool) });
+          });
+        } else {
+          b.title = `Drag onto the floor: ${item.label}`;
+          b.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move) });
+          });
+        }
         scroller.appendChild(b);
       }
       show();
@@ -306,6 +322,8 @@ export class Hud {
     let openId = "";
     const openTab = (tab: TrayTab) => {
       openId = tab.id;
+      // The Land tab switches land editing on (with its first tool), any other tab off.
+      this.chooseLandTool(tab.land ? (this.landTool ?? "raise") : null);
       tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));
       this.tray.classList.toggle("track-tab", !!tab.orient);
       this.tray.classList.toggle("turn-only", tab.orient === "turn");
@@ -396,6 +414,17 @@ export class Hud {
     this.perf.hidden = true;
     this.root.appendChild(this.perf);
     this.setMode("sandbox");
+  }
+
+  /** The land tool in use (the Land tab open), or null. */
+  private landTool: LandTool | null = null;
+
+  /** Choose a land tool (null when leaving the Land tab): mark it in the tray and tell the game. */
+  chooseLandTool(tool: LandTool | null): void {
+    if (tool === this.landTool) return;
+    this.landTool = tool;
+    for (const b of this.tray.querySelectorAll<HTMLElement>(".tray-tool")) b.classList.toggle("active", b.dataset.tool === tool);
+    this.handlers.landTool(tool);
   }
 
   /** A tray picture drawn: keep it, and put it in place of any placeholder showing. */

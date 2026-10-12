@@ -10,3 +10,4 @@ export * from "./trees-aside";
 export * from "./hill-shape";
 export * from "./cuttings";
 export * from "./edges";
+export * from "./edit";

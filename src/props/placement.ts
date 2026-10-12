@@ -192,3 +192,18 @@ export function pieceHitsProp(props: PropStore, footprint: (asset: string) => Fo
   }
   return false;
 }
+
+/** Does any prop's footprint reach into the world rectangle (x0, z0)–(x1, z1)? (Bounding boxes of the footprints.) */
+export function propsInRect(props: PropStore, footprint: (asset: string) => Footprint | undefined, x0: number, z0: number, x1: number, z1: number): boolean {
+  for (const p of props.all()) {
+    const fp = footprint(p.asset);
+    if (!fp) continue;
+    const c = footprintCorners(fp, p);
+    const minX = Math.min(c[0], c[2], c[4], c[6]);
+    const maxX = Math.max(c[0], c[2], c[4], c[6]);
+    const minZ = Math.min(c[1], c[3], c[5], c[7]);
+    const maxZ = Math.max(c[1], c[3], c[5], c[7]);
+    if (maxX > x0 && minX < x1 && maxZ > z0 && minZ < z1) return true;
+  }
+  return false;
+}

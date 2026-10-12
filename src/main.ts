@@ -16,7 +16,9 @@ import { loadCached, saveCached } from "./render/piece-cache";
 import { TrackView } from "./render/track-view";
 import { PIECE_TYPES } from "./track";
 import { Hud } from "./ui/hud";
-import { TRACK_ITEMS, TRAIN_ITEMS, trayKey, type TrayItem } from "./ui/tray-catalogue";
+import { TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
+import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
+import { propsInRect } from "./props/placement";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TitleScreen } from "./ui/title";
 import "./style.css";
@@ -55,6 +57,10 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   /** An editor for the world's track and props (props-only edits skip the track's work). */
   const makeEditor = () => {
     const ed = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece);
+    ed.onLandChange = (slots) => {
+      game.editLand(slots);
+      scheduleSave();
+    };
     ed.onPropsChange = () => {
       game.propsChanged();
       hud.setHistory(ed.canUndo, ed.canRedo);
@@ -154,6 +160,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       },
       depotWaitFull: () => interaction.toggleDepotWaitFull(),
       needThumbnails: (items) => drawPropThumbnails(items),
+      landTool: (tool) => setLandTool(tool),
     },
     () => (game.quality.tier === "high" ? "High" : "Battery saver"),
     { thumbnails, muted },
@@ -211,6 +218,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   function setExpanding(on: boolean): void {
     expanding = on;
+    if (on) hud.chooseLandTool(null);
     chosen = null;
     if (!on) {
       game.landscapeView.showForSale([]);
@@ -275,7 +283,44 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     return best;
   }
 
+  // Land editing (the Land tab): a tool chosen, and taps on the land use it.
+  let landTool: LandTool | null = null;
+  function setLandTool(tool: LandTool | null): void {
+    landTool = tool;
+    if (tool && expanding) setExpanding(false);
+    interaction.landCursor = tool === "raise" ? "#7ddc58" : tool === "lower" ? "#ffd27a" : null;
+    if (!tool) interaction.showSquare(-1);
+  }
+
+  /** Raise or lower the square at a screen point a block (one undo step), or say why not. */
+  function editSquare(x: number, y: number): void {
+    const i = interaction.squareAt(x, y);
+    if (i === -1 || !landTool) return;
+    const step = landTool === "raise" ? 1 : -1;
+    const g = game.landscape.grid;
+    const before = g.height[i];
+    const occupants = { inRect: (x0: number, z0: number, x1: number, z1: number) => propsInRect(game.props, game.propLibrary.footprint, x0, z0, x1, z1) };
+    const why = new LandEditor(game.landscape, game.layout, occupants).apply(i, step);
+    if (why) {
+      hud.toast(LAND_MESSAGES[why]);
+      audio.refuse();
+      hud.haptic("refuse");
+      return;
+    }
+    const slots = [plotSlotOf(i)];
+    const t0 = performance.now();
+    game.editLand(slots);
+    console.info(`Woodrail: land edit redrawn in ${Math.round(performance.now() - t0)} ms`);
+    editor.recordLand({ do: () => setHeights(game.landscape, new Map([[i, before + step]])), undo: () => setHeights(game.landscape, new Map([[i, before]])), slots: () => slots });
+    audio.putdown(true);
+    interaction.showSquare(i);
+  }
+
   interaction.onFloorTap = (ground, x, y) => {
+    if (landTool) {
+      editSquare(x, y);
+      return true;
+    }
     if (!expanding) return false;
     const forSale = plotsForSale(game.landscape);
     const p = badgeAt(x, y, forSale) ?? { px: Math.floor(ground.x / PLOT_WIDTH), pz: Math.floor(ground.z / PLOT_DEPTH) };

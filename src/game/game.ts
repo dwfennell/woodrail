@@ -622,6 +622,15 @@ export class Game {
   }
 
   /** Something changed that the frame loop can't see (track, scenery, a selection, a resize): draw it (once). */
+  /** Squares' heights changed in these plots (land editing): redraw them, and re-fit cuttings, trees and colliders. */
+  editLand(slots: readonly number[]): void {
+    for (const s of slots) this.landscape.grid.touch(s);
+    this.hillsFor = null;
+    this.landscapeView.landEdited(slots);
+    this.trackChanged();
+    this.invalidate();
+  }
+
   /** Props were added, moved or removed (or one is being held: `hidden`, −1 for none): redraw them. */
   propsChanged(hidden = this.hiddenProp): void {
     this.hiddenProp = hidden;

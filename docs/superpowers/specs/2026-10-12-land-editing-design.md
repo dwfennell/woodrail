@@ -1,7 +1,7 @@
 # Woodrail — Land Editing Design
 
 **Date:** 2026-10-12
-**Status:** L1 (select first) built. The rest proposed: waiting on the user (work split), then a review by the map expansion session
+**Status:** L1 (select first) and L2 (Land tab, grass blocks by tapping) built. This session does all of it (the user's call); the map expansion session is not reviewing.
 **Part of:** the Sandbox assets epic (see `2026-10-12-sandbox-assets-design.md`)
 
 ## 1. Goal
@@ -36,8 +36,9 @@ A **Land** tab in Sandbox's tray. Opening it switches the edit-land mode on, and
 
 - **Move** (the default): the map's scenery can be selected (tap), then dragged or removed (card: Turn, Delete). Trees,
   rocks, fields, the shed and buildings; towns once they're props (§5).
-- **Raise** and **Lower:** tap a square to raise or lower it a block. Drag to paint a stroke: the squares change as the
-  stroke passes, and the land is redrawn when you let go (§4).
+- **Raise** and **Lower:** tap a square to raise or lower it a block. With a mouse, the square under the pointer is
+  outlined. A drag still pans, so getting around in the Land tab is as easy as anywhere else. Painting a stroke by
+  dragging is deferred (§9): it needs a gesture that doesn't clash with panning.
 
 Outside the mode, the map's scenery can't be picked: presses on it pan, as now.
 
@@ -68,7 +69,8 @@ A refused square says why, as track does.
   - calls `landscapeView.landEdited(slots)`, a new public method modelled on `addPlots`: `buildPlot` + `buildTile` for
     the plots touched and their neighbours, then `cuts.plotsRebuilt`, `buildTrees` and `syncTrees`;
   - calls `trackChanged()`, which re-runs cuttings, tree clearance, hill physics and crossings.
-- Measured cost (per the map expansion session): about 150–350 ms per plot, so a stroke redraws once, when you let go.
+- Measured: 38–79 ms per tap (software GL, one plot and its tile). The map expansion session had expected 150–350 ms
+  per plot.
 
 **Undo:** each tap or stroke is one undo step, holding each square's height before and after (land edits go through
 the Editor, like props).
@@ -153,6 +155,10 @@ dressing) belong to the map expansion session. **Proposed split** (the user's ca
 - the map expansion session reviews the landscape parts of L2–L4 before they reach main.
 
 ## 9. Deferred
+
+- Painting heights by dragging (a stroke): it needs a gesture that doesn't clash with panning, such as hold then
+  drag, or two-finger pan only while a tool is on.
+- Regenerating the land-for-sale preview beside an edited edge square (its around-land is cached per plot).
 
 - Trees placed freely (tree props).
 - Town furniture editing.

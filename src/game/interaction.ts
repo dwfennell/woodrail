@@ -168,6 +168,10 @@ export class Interaction {
   private selectedProp = -1;
   /** Round the selected prop, or under the held one (green where it can go, red where it can't). */
   private readonly propOutline = new FootprintOutline();
+  /** Round the square under the pointer while land editing (`landCursor`). */
+  private readonly squareOutline = new FootprintOutline();
+  /** Land editing: show the square under the mouse (its colour), or null for none. */
+  landCursor: string | null = null;
   private selectedCar = -1;
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
@@ -183,7 +187,7 @@ export class Interaction {
   ) {
     const canvas = game.canvas;
     const c = game.controls;
-    game.scene.add(this.propOutline.line);
+    game.scene.add(this.propOutline.line, this.squareOutline.line);
     // A left drag pans through TouchCamera, like one finger (the ground stays under the pointer); OrbitControls keeps
     // the right button (turn and tilt) and the middle (zoom).
     c.mouseButtons = { LEFT: NO_MOUSE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE };
@@ -286,7 +290,7 @@ export class Interaction {
       };
     } else if (item.kind === "prop") {
       this.mode = this.propDrag(item.asset, -1, e.pointerId, this.cameraHeading() + (this.trayTurns * Math.PI) / 4, null, { x: 0, z: 0 });
-    } else {
+    } else if (item.kind === "train") {
       // Ids now, so the train in the hand wears the colours it will have on the track.
       const ids = this.game.sim.newCarIds(item.cars.length);
       const cars = item.cars.map((kind, i) => ({ kind, facing: 1 as const, lever: 0 as const, id: ids[i], look: item.looks?.[i] ?? ("classic" as const) }));
@@ -345,6 +349,7 @@ export class Interaction {
 
   private onMove(e: PointerEvent): void {
     const m = this.mode;
+    if (m.kind === "idle" && this.landCursor && e.pointerType === "mouse" && e.target === this.game.canvas) this.showSquare(this.squareAt(e.clientX, e.clientY));
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
@@ -1242,6 +1247,37 @@ export class Interaction {
       this.clearSelection();
       this.hud.hideCards();
     }
+  }
+
+  // ---- land ------------------------------------------------------------------------------------------------
+
+  /** The square under a screen point, seen on the land's surface (a hill's top, not the floor under it); −1 off the land. */
+  squareAt(x: number, y: number): number {
+    const g = this.game.landscape.grid;
+    const hills = hillsOf(g);
+    let p = this.planeAt(x, y, 0);
+    if (!p) return -1;
+    // Up to the surface at that point, a few times over (a step up or down moves the point a little).
+    for (let k = 0; k < 3; k++) {
+      const q = this.planeAt(x, y, hills.groundAt(p.x, p.z));
+      if (!q) break;
+      p = q;
+    }
+    return g.cellAtWorld(p.x, p.z);
+  }
+
+  /** Outline square `i` (land editing), in the land cursor's colour; −1 hides it. */
+  showSquare(i: number): void {
+    const g = this.game.landscape.grid;
+    if (i === -1 || !this.landCursor) {
+      if (this.squareOutline.line.visible) this.game.invalidate();
+      this.squareOutline.hide();
+      return;
+    }
+    const x = g.centreX(g.colOf(i));
+    const z = g.centreZ(g.rowOf(i));
+    this.squareOutline.show({ cx: 0, cz: 0, hw: CELL / 2 - 4, hd: CELL / 2 - 4 }, x, hillsOf(g).groundAt(x, z), z, 0, this.landCursor);
+    this.game.invalidate();
   }
 
   // ---- props -----------------------------------------------------------------------------------------------

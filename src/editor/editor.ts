@@ -32,6 +32,8 @@ interface Command {
   seats?: () => number[];
   /** Changes only props (not the track): undo and redo skip the track's work and tell `onPropsChange`. */
   props?: boolean;
+  /** Changes the land (squares' heights): undo and redo tell `onLandChange` the plots to redraw. */
+  land?: () => number[];
 }
 
 const HISTORY_LIMIT = 100;
@@ -87,6 +89,17 @@ export class Editor {
 
   /** Called after a props-only edit is done, undone or redone (instead of `onChange`). */
   onPropsChange: (() => void) | null = null;
+
+  /** Called after a land edit is undone or redone, with the plots it changed (the editor redraws its own edits). */
+  onLandChange: ((slots: number[]) => void) | null = null;
+
+  /** Record a land edit, already done (by the caller, who redrew it), as one undo step. `slots` gives its plots. */
+  recordLand(c: { do(): void; undo(): void; slots: () => number[] }): void {
+    this.undoStack.push({ do: c.do, undo: c.undo, land: c.slots });
+    if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+    this.redoStack = [];
+    this.onPropsChange?.();
+  }
 
   /** Do a props edit as one undo step. */
   editProps(c: { do(): void; undo(): void }): void {
@@ -224,6 +237,10 @@ export class Editor {
   }
 
   private changed(c: Command): void {
+    if (c.land) {
+      this.onLandChange?.(c.land());
+      return;
+    }
     if (c.props) {
       this.onPropsChange?.();
       return;

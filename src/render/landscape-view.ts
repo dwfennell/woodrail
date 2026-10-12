@@ -201,6 +201,29 @@ export class LandscapeView {
     this.syncTrees(this.layout ?? null);
   }
 
+  /**
+   * Squares' heights changed in these plots (land editing): rebuild their blocks, and their neighbours' where the edge
+   * changed, with their tiles' far-off blocks and towns, cuttings and trees. Like `addPlots`, without the felt (heights
+   * don't change it) or the land around.
+   */
+  landEdited(slots: readonly number[]): void {
+    const g = this.land.grid;
+    const rebuilt = new Set(slots);
+    for (const slot of slots) {
+      const { px, pz } = g.plots[slot];
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const n = g.slotOf(px + dx, pz + dz);
+        if (n !== -1 && !rebuilt.has(n) && this.edgeCorners.get(n) !== edgeCornerKey(this.land, n)) rebuilt.add(n);
+      }
+    }
+    for (const slot of rebuilt) this.buildPlot(slot);
+    const tiles = new Set([...rebuilt].map((slot) => this.tileOfSlot(slot)));
+    for (const key of tiles) this.buildTile(key);
+    this.cuts.plotsRebuilt(g.plots.map((_, slot) => slot).filter((slot) => tiles.has(this.tileOfSlot(slot))));
+    this.buildTrees();
+    this.syncTrees(this.layout ?? null);
+  }
+
   /** Show this land around the world (plots not in it), with the scenery beyond. */
   setAround(around: readonly AroundPlot[]): void {
     this.around = around.filter((a) => !this.land.grid.hasPlot(a.px, a.pz));
