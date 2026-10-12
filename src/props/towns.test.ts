@@ -57,3 +57,18 @@ describe("towns built from catalogue models", () => {
     expect(old.ok && old.value.props.size).toBe(w.landscape.towns.reduce((n, t) => n + t.buildings.length, 0));
   });
 });
+
+describe("colour variants", () => {
+  it("turn strong colours round the wheel, and leave whites, blacks and glass alone", async () => {
+    const { shiftHue } = await import("../render/props/library");
+    expect(shiftHue("#c8442f", 1)).not.toBe("#c8442f");
+    expect(shiftHue("#c8442f", 1)).not.toBe(shiftHue("#c8442f", 2));
+    for (const c of ["#ffffff", "#f6f3ec", "#2a2b2e", "#2b3644", "#8d8f93"]) expect(shiftHue(c, 2)).toBe(c);
+  });
+
+  it("towns use more than one variant", () => {
+    const w = createWorld(4242);
+    const variants = new Set([...w.props.all()].map((p) => p.variant ?? 0));
+    expect(variants.size).toBeGreaterThan(1);
+  });
+});

@@ -12,10 +12,12 @@ export interface Prop {
   building?: number;
   /** The town it belongs to (town buildings). */
   town?: number;
+  /** Colour variant (0 or none: the model's own colours). */
+  variant?: number;
 }
 
 /** What a prop is part of, beyond its pose. */
-export type PropLinks = Pick<Prop, "building" | "town">;
+export type PropLinks = Pick<Prop, "building" | "town" | "variant">;
 
 export type PropPose = Pick<Prop, "x" | "z" | "heading" | "y">;
 
@@ -50,6 +52,7 @@ export class PropStore {
     if (!p) return;
     p.building = links.building;
     p.town = links.town;
+    if ("variant" in links) p.variant = links.variant;
     this.version++;
   }
 

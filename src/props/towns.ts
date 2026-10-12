@@ -1,6 +1,7 @@
 import { rng } from "../lib/rng";
 import { CELL, FEAT_BUILDING, FEAT_NONE, SURF_ROAD, type Building, type Landscape, type Town } from "../landscape";
 import { footprintOf, townLooks, type Look } from "../render/dressing/buildings";
+import { COLOR_VARIANTS } from "../render/props/library";
 import type { PropStore } from "./store";
 
 /**
@@ -54,6 +55,8 @@ export interface TownProp {
   heading: number;
   building: number;
   town: number;
+  /** Colour variant (see `COLOR_VARIANTS`): a town's repeated houses in different paint. */
+  variant: number;
 }
 
 /** The catalogue model and pose for each building of a town (same order as `town.buildings`). */
@@ -68,7 +71,8 @@ export function townProps(land: Landscape, town: Town): TownProp[] {
     const squares = b.cells.length > 1 ? 2 : 1;
     const options = BY_LOOK[looks[k]][squares] ?? (squares === 2 ? HOUSES_2 : styles);
     const asset = pick(options);
-    return { asset, ...poseFor(land, town, b, looks[k], asset), building: b.id, town: town.id };
+    const variant = Math.floor(r() * (COLOR_VARIANTS + 1));
+    return { asset, ...poseFor(land, town, b, looks[k], asset), building: b.id, town: town.id, variant };
   });
 }
 
@@ -101,7 +105,7 @@ export function addTownProps(land: Landscape, props: PropStore): number {
     if (!wanted) continue;
     for (const t of townProps(land, town)) {
       if (have.has(t.building)) continue;
-      props.add(t.asset, { x: t.x, z: t.z, heading: t.heading, y: 0 }, undefined, { building: t.building, town: t.town });
+      props.add(t.asset, { x: t.x, z: t.z, heading: t.heading, y: 0 }, undefined, { building: t.building, town: t.town, ...(t.variant ? { variant: t.variant } : {}) });
       added++;
     }
   }

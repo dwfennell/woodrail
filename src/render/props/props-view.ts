@@ -1,6 +1,6 @@
 import { BatchedMesh, Group, Matrix4, Quaternion, Vector3, type Material, type Object3D } from "three";
 import type { PropStore } from "../../props/store";
-import type { PropLibrary } from "./library";
+import { modelKey, type PropLibrary } from "./library";
 
 /** Every prop part in one material: each model's geometry stored once, each prop an instance of it. */
 interface Batch {
@@ -59,7 +59,7 @@ export class PropsView {
     const touched = new Set<Batch>();
     for (const [id, d] of this.drawn) {
       const p = store.get(id);
-      if (p && p.asset === d.asset) continue;
+      if (p && modelKey(p.asset, p.variant) === d.asset) continue;
       for (const inst of d.instances) {
         inst.batch.mesh.deleteInstance(inst.id);
         inst.batch.propOf.delete(inst.id);
@@ -70,19 +70,20 @@ export class PropsView {
     for (const p of store.all()) {
       let d = this.drawn.get(p.id);
       if (!d) {
-        const model = this.library.model(p.asset);
+        const key = modelKey(p.asset, p.variant);
+        const model = this.library.model(key);
         if (model === undefined) {
-          if (!this.waiting.has(p.asset)) {
-            this.waiting.add(p.asset);
-            void this.library.load(p.asset).then(() => this.waiting.delete(p.asset));
+          if (!this.waiting.has(key)) {
+            this.waiting.add(key);
+            void this.library.load(key).then(() => this.waiting.delete(key));
           }
           continue;
         }
         if (model === null) continue;
-        d = { asset: p.asset, instances: [], key: "", visible: true };
+        d = { asset: key, instances: [], key: "", visible: true };
         for (const part of model.parts) {
           const batch = this.batchFor(part.material);
-          let gid = batch.geometryOf.get(p.asset);
+          let gid = batch.geometryOf.get(key);
           if (gid === undefined) {
             const need = part.geometry.getAttribute("position").count;
             const mesh = batch.mesh;
@@ -91,7 +92,7 @@ export class PropsView {
               mesh.setGeometrySize(batch.vertices, batch.vertices * 2);
             }
             gid = mesh.addGeometry(part.geometry);
-            batch.geometryOf.set(p.asset, gid);
+            batch.geometryOf.set(key, gid);
           }
           if (batch.mesh.instanceCount >= batch.mesh.maxInstanceCount) batch.mesh.setInstanceCount(batch.mesh.maxInstanceCount * 2);
           const id = batch.mesh.addInstance(gid);

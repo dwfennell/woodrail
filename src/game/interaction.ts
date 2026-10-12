@@ -16,6 +16,7 @@ import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, rest
 import { placeOn } from "../props/kinds";
 import type { PropPose } from "../props/store";
 import { FootprintOutline } from "../render/props/outline";
+import { modelKey } from "../render/props/library";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
 import type { Game } from "./game";
@@ -1421,12 +1422,13 @@ export class Interaction {
   // ---- props -----------------------------------------------------------------------------------------------
 
   /** A prop in the hand: its model (built when it arrives, if it isn't yet) and the drag state. */
-  private propDrag(asset: string, propId: number, pointerId: number, heading: number, from: PropPose | null, offset: { x: number; z: number }): Extract<Mode, { kind: "drag-prop" }> {
+  private propDrag(asset: string, propId: number, pointerId: number, heading: number, from: PropPose | null, offset: { x: number; z: number }, variant?: number): Extract<Mode, { kind: "drag-prop" }> {
     const g = this.game;
+    const key = modelKey(asset, variant);
     const ghost = new Group();
     ghost.visible = false;
     const dress = () => {
-      const model = g.propLibrary.model(asset);
+      const model = g.propLibrary.model(key);
       if (!model) return;
       for (const part of model.parts) {
         const mesh = new Mesh(part.geometry, part.material);
@@ -1434,9 +1436,9 @@ export class Interaction {
         ghost.add(mesh);
       }
     };
-    if (g.propLibrary.model(asset) !== undefined) dress();
+    if (g.propLibrary.model(key) !== undefined) dress();
     else
-      void g.propLibrary.load(asset).then(() => {
+      void g.propLibrary.load(key).then(() => {
         dress();
         if (this.mode.kind === "drag-prop" && this.mode.ghost === ghost) this.updateDrag(this.lastX, this.lastY);
       });
@@ -1451,7 +1453,7 @@ export class Interaction {
     this.clearSelection();
     this.hud.hideCards();
     const from: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
-    this.mode = this.propDrag(p.asset, propId, pointerId, p.heading, from, { x: p.x - ground.x, z: p.z - ground.z });
+    this.mode = this.propDrag(p.asset, propId, pointerId, p.heading, from, { x: p.x - ground.x, z: p.z - ground.z }, p.variant);
     this.mode.overTray = false;
     // Drawn by the hand while it moves, not where it stood.
     g.propsChanged(propId);
@@ -1545,7 +1547,7 @@ export class Interaction {
     this.clearSelection();
     this.selectedProp = id;
     this.propOutline.show(g.propLibrary.footprint(p.asset) ?? null, p.x, p.y, p.z, p.heading);
-    this.hud.showPieceCard(false, g.propLibrary.model(p.asset)?.name ?? "Model", false);
+    this.hud.showPieceCard(false, g.propLibrary.model(modelKey(p.asset, p.variant))?.name ?? "Model", false);
   }
 
   /** Turn a placed prop an eighth, if it still fits. */
@@ -1575,7 +1577,7 @@ export class Interaction {
     const p = g.props.get(id);
     if (!p) return;
     const pose: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
-    const links = { building: p.building, town: p.town };
+    const links = { building: p.building, town: p.town, variant: p.variant };
     if (p.building === undefined) {
       this.editor().editProps({ do: () => g.props.remove(id), undo: () => g.props.add(p.asset, pose, id, links) });
       g.propsChanged();
@@ -1607,12 +1609,12 @@ export class Interaction {
     const g = this.game;
     const land = g.landscape;
     const p = g.props.get(id)!;
-    const links = { building: p.building, town: p.town };
+    const links = { building: p.building, town: p.town, variant: p.variant };
     const changed = townSlots(land, building);
     let putBack = () => {};
     const doIt = () => {
       putBack = releaseBuilding(land, building);
-      g.props.setLinks(id, {});
+      g.props.setLinks(id, { variant: p.variant });
       g.props.move(id, pose);
     };
     doIt();

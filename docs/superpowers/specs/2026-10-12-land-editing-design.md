@@ -156,8 +156,6 @@ dressing) belong to the map expansion session. **Proposed split** (the user's ca
 
 ## 9. Deferred
 
-- **Colour variants for town buildings:** BatchedMesh `setColorAt` per instance, from each town's palette. Today two
-  corner shops side by side look the same.
 - **A school that fits two squares:** the catalogue school is 78 mm deep. Until there's one, a school's spot gets a
   house.
 - **Land for sale:** the preview of land for sale (around-land) still draws the old simple houses for unbought towns.
@@ -188,3 +186,7 @@ Seed 1826342: 5 towns, 20 buildings. Software GL; the same views on main (old ho
 | Whole map | 189 draws, 679k triangles | 190 draws, 676k triangles |
 
 All town buildings are drawn in 2 prop batches.
+
+**Colour variants (built):** each town building gets one of four colourings. A variant is its own bake of the model,
+with the Kit recolouring the paint: strong colours are turned round the colour wheel; whites, blacks, greys, window
+glass and earthy browns (brick, wood) are kept. Variants add geometry to the same batches, so no draw calls.

@@ -31,6 +31,8 @@ export class Kit {
   constructor(
     readonly mats: Materials,
     readonly detail = 1,
+    /** Recolours the paint (a colour variant of a model): every `paint` colour goes through it. */
+    readonly recolor: (color: string) => string = (c) => c,
   ) {}
 
   /** Segments round a curve of radius `r` (mm), at most `n`. */
@@ -52,7 +54,7 @@ export class Kit {
   }
   /** Gloss lacquer in any colour. */
   paint(color: string): Material {
-    return this.mats.lacquer(color);
+    return this.mats.lacquer(this.recolor(color));
   }
   get metal(): Material {
     return this.mats.magnet;
