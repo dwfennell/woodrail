@@ -18,6 +18,7 @@ import { cutColumn } from "../render/dressing/hill-cuts";
 import { createMaterials, type Materials } from "../render/materials";
 import { Flourishes } from "../render/flourishes";
 import { createPost, type Post } from "../render/post";
+import { ResolutionGovernor } from "../render/resolution";
 import { detectQuality, type QualitySettings } from "../render/quality";
 import { createStage, type Stage } from "../render/stage";
 import { shadowRadiusForView, shouldRefit } from "../render/shadow-fit";
@@ -142,7 +143,8 @@ export class Game {
     // No MSAA on the canvas: the scene is drawn into the composer's (non-multisampled) targets, so it would only
     // multisample the final full-screen copy.
     this.renderer = new WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.maxPixelRatio));
+    this.resolution = new ResolutionGovernor(window.devicePixelRatio, this.quality.maxPixelRatio, this.quality.minPixelRatio);
+    this.renderer.setPixelRatio(this.resolution.current);
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.95;
@@ -570,7 +572,10 @@ export class Game {
     if (active) this.lastActive = now;
     const once = this.dirty;
     this.dirty = false;
-    if (!once && now - this.lastActive > IDLE_TAIL) return;
+    if (!once && now - this.lastActive > IDLE_TAIL) {
+      this.drewLastTick = false;
+      return;
+    }
     const radius = shadowRadiusForView(this.camera, t);
     const refit = shouldRefit(this.stage.shadowFit, t.x, t.z, radius);
     if (refit) this.stage.fitShadow(t.x, t.z, radius);
@@ -585,6 +590,13 @@ export class Game {
     this.stage.update(this.camera);
     this.post.setFocus(dist);
     this.post.render(now);
+    // Too slow at this resolution: step down (the next frame draws at the new size).
+    const ratio = this.resolution.frameDrawn(this.lastFrameAt, this.drewLastTick);
+    this.drewLastTick = true;
+    if (ratio !== null) {
+      this.renderer.setPixelRatio(ratio);
+      this.resize();
+    }
   }
 
   /** Pan keys held now (forward, back, left, right), and the pan's current velocity (world mm/s). */
@@ -654,6 +666,10 @@ export class Game {
   private woken = false;
   private lastActive = 0;
   private lastFrameAt = -Infinity;
+  /** Was a frame drawn on the last tick of the loop (so the time since is a frame's)? */
+  private drewLastTick = false;
+  /** Picks the drawing resolution (see `resolution.ts`). */
+  private readonly resolution: ResolutionGovernor;
   private shadowsMoving = false;
   private readonly lastCamera = new Float64Array(12);
 
