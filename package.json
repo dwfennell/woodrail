@@ -10,7 +10,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "bench": "vite build --config bench/vite.config.ts --logLevel warn && node dist-bench/track.js"
+    "bench": "vite build --config bench/vite.config.ts --logLevel warn && node dist-bench/track.js",
+    "catalogue": "vite --config catalogue/vite.config.ts",
+    "catalogue:build": "vite build --config catalogue/vite.config.ts"
   },
   "repository": {
     "type": "git",

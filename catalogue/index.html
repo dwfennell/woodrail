@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f3ead9" />
+    <title>Woodrail Asset Catalogue</title>
+    <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./catalogue.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="title">
+        <h1>Woodrail asset catalogue</h1>
+        <p class="sub">Ideas to brainstorm with: not in the game (yet), except those marked <span class="badge">in game</span></p>
+      </div>
+      <input id="search" type="search" placeholder="Search: crane, red, farm…" autocomplete="off" />
+    </header>
+    <nav id="chips" class="chips"></nav>
+    <p id="count" class="count"></p>
+    <main id="grid" class="grid"></main>
+
+    <div id="detail" class="detail" hidden>
+      <div class="detail-card">
+        <div class="stage">
+          <canvas id="stage"></canvas>
+          <button id="prev" class="nav prev" aria-label="Previous">‹</button>
+          <button id="next" class="nav next" aria-label="Next">›</button>
+        </div>
+        <div class="info">
+          <div class="info-head">
+            <div>
+              <p id="d-cat" class="cat"></p>
+              <h2 id="d-name"></h2>
+            </div>
+            <button id="close" class="close" aria-label="Close">✕</button>
+          </div>
+          <p id="d-notes" class="notes"></p>
+          <p id="d-tags" class="tags"></p>
+          <p id="d-size" class="size"></p>
+          <div class="toggles">
+            <label><input id="t-spin" type="checkbox" checked /> Turntable</label>
+            <label><input id="t-anim" type="checkbox" checked /> Animate</label>
+            <label><input id="t-scale" type="checkbox" /> Scale friends</label>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
