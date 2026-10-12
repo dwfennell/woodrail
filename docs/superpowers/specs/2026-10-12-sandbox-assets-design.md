@@ -133,3 +133,21 @@ Later in the epic: catalogue trains as cars (cars of their own length), roads, m
 
 `src/game/world.ts` and `src/persist/landscape-data.ts` belong to the map expansion work. Props add one field to
 `World` and one optional array to the save, kept apart from the landscape data. Tell that session before merging.
+
+## 7. Deferred
+
+What's been put off, and why. It's kept up to date as the epic goes on: add an entry when something is deferred,
+and strike it out when it's done.
+
+| What | Why deferred | Notes for later |
+| --- | --- | --- |
+| Catalogue trains as runnable cars | The sim takes a car's length from its kind (`CAR_SPECS`); the catalogue's cars are other lengths. | Give the sim each car's length (from its look). Map each model to a kind (engine / hopper / passenger / caboose / timber) or to new kinds. Save it as the car's `look`. |
+| Catalogue track ideas (helix, banked curve, …) | They need real mechanics: paths, connectors, sim. | Each needs a `PieceDef`, and some need the sim to handle new path shapes. |
+| Roads (catalogue road straights, curves, junctions, roundabout, zebra crossing, car park) | Waiting for the improved road system later in the epic. | Left out of the shelf table on purpose. |
+| Map editing (blocks, trees, fields) | Later in the epic. | Props sit beside the map's own scenery for now. A tree prop and a map tree are different things; unify them when map editing comes. |
+| Props stepping aside for track (like trees) | Needs footprint-aware hop logic for props of any size. | For now track is refused through a prop ("Something's in the way"). `TreeClearance` is the model to follow. |
+| Prop animation (windmill sails, cranes) | Animating means drawing every frame. | A "poke": tap a prop to swap its instance for a live copy for a few seconds. |
+| Decorative bridges and tunnels as working track | Their own geometry and mechanics. | They could become bridge styles of the track bridges, or new pieces. |
+| Mechanisms as working machines (turntable, cranes, signals, level crossings) | Each is a mechanic of its own. | Decorative props for now. |
+| Clouds, rainbow, sun and moon | They don't stand on the floor. | Perhaps a sky layer later. |
+| Props in Game mode | Game mode will get resources and a tech tree. | Props would cost something there. |
