@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPieceDef } from "../track";
-import { BLOCK_MESSAGES, checkPlacement } from "./clearance";
+import { BLOCK_MESSAGES, checkPlacement, inRiver } from "./clearance";
 import { FEAT_BUILDING, FEAT_TREE, LandscapeGrid, MAT_WIDTH, SURF_RIVER, SURF_TOWN } from "./grid";
 import { generateLandscape, stationEnds, type Landscape } from "./generate";
 
@@ -34,6 +34,27 @@ describe("checkPlacement", () => {
     // The river squares span x 72..144; a straight along z with its edge 10 mm over the bank, then 30 mm in.
     expect(checkPlacement(land, "straight-216", false, P(62, -108, Math.PI / 2), 0)).toEqual({ kind: "clear" });
     expect(checkPlacement(land, "straight-216", false, P(82, -108, Math.PI / 2), 0)).toEqual({ kind: "blocked", reason: "river" });
+  });
+
+  it("judges the river by its drawn, smoothed banks: a square's corner cut off at a bend is dry", () => {
+    const land = flat();
+    // A river stepping diagonally: a staircase of squares, which the felt draws as a smooth diagonal band.
+    for (let k = -6; k <= 6; k++) setCells(land, k * 72 + 10, k * 72 + 130, k * 72 + 10, k * 72 + 60, (i) => (land.grid.surface[i] = SURF_RIVER));
+    const g = land.grid;
+    // Find a river square whose outer corner the smoothing has cut away, and check that spot is dry.
+    let dry = 0;
+    let wet = 0;
+    for (let k = -4; k <= 4; k++) {
+      // Outer corner of square (k+1, k): far from the diagonal, inside the square.
+      const cx = (k + 1) * 72 + 72 - 6;
+      const cz = k * 72 + 6;
+      expect(g.surface[g.cellAtWorld(cx, cz)]).toBe(SURF_RIVER);
+      if (inRiver(g, cx, cz)) wet++;
+      else dry++;
+      // On the band's middle line it's always wet.
+      expect(inRiver(g, (k + 1) * 72 + 18, k * 72 + 54)).toBe(true);
+    }
+    expect(dry).toBeGreaterThan(wet);
   });
 
   it("track can sit on a hill top but not cut into it", () => {

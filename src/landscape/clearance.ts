@@ -1,5 +1,6 @@
 import { createSample, getPieceDef, isBridge, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
-import { FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, FEAT_TREE, SURF_RIVER, SURF_ROAD, SURF_TOWN } from "./grid";
+import { CELL, COLS, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, FEAT_TREE, MAT_DEPTH, MAT_WIDTH, ROWS, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
+import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
@@ -102,19 +103,51 @@ function inFixedFootprint(centre: { x: number; z: number }, heading: number, x: 
   return Math.abs(d) < STATION_LENGTH / 2 && l > -TRACK_WIDTH / 2 - 2 && l < 120;
 }
 
-/**
- * How far into the river track may stray (mm): the felt is drawn with smoothed banks inside its squares, so a piece can
- * overlap its edge a little (and cut a bend) without being in the water.
- */
-export const RIVER_GRACE = 16;
+/** How far over the river's drawn bank track may stray (mm). */
+export const RIVER_GRACE = 12;
 
-/** Is a point in the river and more than RIVER_GRACE from its bank? */
-function deepInRiver(g: Landscape["grid"], x: number, z: number): boolean {
-  for (const [dx, dz] of [[RIVER_GRACE, RIVER_GRACE], [RIVER_GRACE, -RIVER_GRACE], [-RIVER_GRACE, RIVER_GRACE], [-RIVER_GRACE, -RIVER_GRACE]]) {
-    const i = g.cellAtWorld(x + dx, z + dz);
-    if (i === -1 || g.surface[i] !== SURF_RIVER) return false;
+/** The river's outline as drawn (traced from its squares and smoothed, in square units), per map. */
+const riverOutlines = new WeakMap<LandscapeGrid, Loop[]>();
+
+function riverOutline(g: LandscapeGrid): Loop[] {
+  let loops = riverOutlines.get(g);
+  if (!loops) {
+    loops = traceRegions((c, r) => g.inBounds(c, r) && g.surface[g.index(c, r)] === SURF_RIVER, COLS, ROWS).map((l) => smoothLoop(l));
+    riverOutlines.set(g, loops);
   }
-  return true;
+  return loops;
+}
+
+/**
+ * Is a point over the river as it's drawn (its felt has smoothed banks, inside or past its squares), more than
+ * RIVER_GRACE in from the bank?
+ */
+export function inRiver(g: LandscapeGrid, x: number, z: number): boolean {
+  // Only near river squares can the felt reach.
+  const col = Math.floor((x + MAT_WIDTH / 2) / CELL);
+  const row = Math.floor((z + MAT_DEPTH / 2) / CELL);
+  let near = false;
+  for (let dr = -1; dr <= 1 && !near; dr++) for (let dc = -1; dc <= 1 && !near; dc++) near = g.inBounds(col + dc, row + dr) && g.surface[g.index(col + dc, row + dr)] === SURF_RIVER;
+  if (!near) return false;
+  const u = (x + MAT_WIDTH / 2) / CELL;
+  const v = (z + MAT_DEPTH / 2) / CELL;
+  const loops = riverOutline(g);
+  return insideLoops(loops, u, v) && distanceToLoops(loops, u, v) * CELL > RIVER_GRACE;
+}
+
+function distanceToLoops(loops: readonly Loop[], x: number, z: number): number {
+  let best = Infinity;
+  for (const loop of loops) {
+    for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
+      const a = loop[j];
+      const b = loop[i];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1)));
+      best = Math.min(best, Math.hypot(a.x + dx * t - x, a.z + dz * t - z));
+    }
+  }
+  return best;
 }
 
 /** Can a piece be placed here? Called on every pointer move while dragging. */
@@ -140,7 +173,7 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
         // so pieces seated on a station end can overlap the edge of its end squares.
         if (inStationFootprint(land, g.owner[i], x, z)) result = BLOCKED.station;
       } else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
-      else if (s === SURF_RIVER && !overRiver && deepInRiver(g, x, z)) result = BLOCKED.river;
+      else if (!overRiver && inRiver(g, x, z)) result = BLOCKED.river;
       else if (y + trackY < g.groundY(i) - 0.5) result = BLOCKED.hill;
     }
     return result === CLEAR;
