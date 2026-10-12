@@ -63,6 +63,11 @@ export class LandscapeGrid {
   height = new Uint8Array(0);
   surface = new Uint8Array(0);
   feature = new Uint8Array(0);
+  /**
+   * The road piece on each square (`src/roads`): 0 for none, else its code and quarter turns. A square with a road is
+   * `SURF_LANE` (set both with `setRoad`).
+   */
+  road = new Uint8Array(0);
   /** Building, town, field or depot id for those features, else -1. */
   owner = new Int32Array(0);
   /** The plots, by slot. */
@@ -95,6 +100,7 @@ export class LandscapeGrid {
       this.height = grow(this.height, (k) => new Uint8Array(k));
       this.surface = grow(this.surface, (k) => new Uint8Array(k));
       this.feature = grow(this.feature, (k) => new Uint8Array(k));
+      this.road = grow(this.road, (k) => new Uint8Array(k));
       const owner = grow(this.owner, (k) => new Int32Array(k));
       owner.fill(-1, this.owner.length);
       this.owner = owner;
@@ -174,6 +180,16 @@ export class LandscapeGrid {
 
   groundY(index: number): number {
     return this.height[index] * RISER_HEIGHT;
+  }
+
+  /**
+   * Put a road piece on a square (or take it off, with 0), keeping its surface in step: road squares are lanes, and a
+   * lane square left without a road goes back to grass. Call `touch` after.
+   */
+  setRoad(i: number, road: number): void {
+    this.road[i] = road;
+    if (road !== 0) this.surface[i] = SURF_LANE;
+    else if (this.surface[i] === SURF_LANE) this.surface[i] = SURF_GRASS;
   }
 
   /** Call after changing squares of the plot at this slot (or every plot, without one). */

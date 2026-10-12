@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
+import { fitLaneRoads, pieceOf } from "../roads";
 import {
   FEAT_BUILDING,
   FEAT_DEPOT,
@@ -39,6 +40,8 @@ export const landscapeSchema = z.object({
       feature: z.string(),
       /** Base64 of the owner ids (little-endian int32 per square). */
       owner: z.string(),
+      /** Base64 of the road piece on each square (`grid.road`); missing in saves from before road pieces. */
+      road: z.string().optional(),
     }),
   ).min(1),
   towns: z.array(
@@ -102,6 +105,7 @@ export function serializeLandscape(land: Landscape): LandscapeData {
         surface: toBase64(g.surface.subarray(a, b)),
         feature: toBase64(g.feature.subarray(a, b)),
         owner: toBase64(new Uint8Array(owner.buffer, owner.byteOffset, owner.byteLength)),
+        road: toBase64(g.road.subarray(a, b)),
       };
     }),
     towns: land.towns.map((t) => ({ ...t, centre: { ...t.centre }, station: { ...t.station }, cells: [...t.cells], buildings: t.buildings.map((b) => ({ ...b, cells: [...b.cells] })) })),
@@ -135,7 +139,17 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
     grid.surface.set(surface, base);
     grid.feature.set(feature, base);
     grid.owner.set(owner, base);
+    if (p.road !== undefined) {
+      const road = fromBase64(p.road);
+      if (!road || road.length !== PLOT_CELLS) return err(`plot ${p.px},${p.pz} has bad roads`);
+      for (let k = 0; k < PLOT_CELLS; k++) {
+        if (road[k] !== 0 && (!pieceOf(road[k]) || surface[k] !== SURF_LANE)) return err(`plot ${p.px},${p.pz} has a road where there can't be one`);
+      }
+      grid.road.set(road, base);
+    }
   }
+  // Lanes saved before road pieces get theirs from their neighbours.
+  fitLaneRoads(grid);
   const n = grid.cellCount;
   const cellsOk = (list: readonly number[]) => list.every((i) => i < n);
   // Ids are places in their lists.

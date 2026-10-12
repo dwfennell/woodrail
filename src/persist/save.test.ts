@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { RISER_HEIGHT } from "../track";
 import { buildStarterWorld, unlockPlot, type World } from "../game/world";
 import { appendPiece, connectorRef } from "../track";
-import { connectedPairs } from "../landscape";
+import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape";
+import { encodeRoad, pieceOf } from "../roads";
 import { SIM_DT } from "../sim";
 import { deserializeWorld, SAVE_VERSION, serializeWorld, type SaveData } from "./save";
 
@@ -102,7 +103,7 @@ describe("save format", () => {
     const g = world.landscape.grid;
     const h = w.landscape.grid;
     expect(h.plots).toEqual(g.plots);
-    for (const k of ["height", "surface", "feature", "owner"] as const) expect(Array.from(h[k].subarray(0, h.cellCount))).toEqual(Array.from(g[k].subarray(0, g.cellCount)));
+    for (const k of ["height", "surface", "feature", "owner", "road"] as const) expect(Array.from(h[k].subarray(0, h.cellCount))).toEqual(Array.from(g[k].subarray(0, g.cellCount)));
     expect(w.landscape.towns).toEqual(world.landscape.towns);
     expect(w.landscape.depots).toEqual(world.landscape.depots);
     expect(w.landscape.fields).toEqual(world.landscape.fields);
@@ -130,6 +131,37 @@ describe("save format", () => {
       damage(data);
       const r = deserializeWorld(data);
       expect(r.ok).toBe(false);
+    }
+  });
+
+  it("keeps road pieces, and gives lanes in saves from before road pieces theirs", () => {
+    const world = worldWithTrain();
+    const g = world.landscape.grid;
+    const i = g.index(0, 0);
+    g.setRoad(i, encodeRoad("zebra", 1));
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    expect(r.ok && r.value.landscape.grid.road[i]).toBe(encodeRoad("zebra", 1));
+    // An old save: no road bytes. Its lanes get pieces, and the zebra becomes the plain piece that fits.
+    for (const p of data.landscape.plots) delete p.road;
+    const old = deserializeWorld(data);
+    expect(old.ok).toBe(true);
+    if (!old.ok) return;
+    const h = old.value.landscape.grid;
+    for (let k = 0; k < h.cellCount; k++) expect(h.road[k] !== 0).toBe(h.surface[k] === SURF_LANE);
+    expect(pieceOf(h.road[i])).not.toBeNull();
+  });
+
+  it("refuses a road on a square that isn't a lane, or an unknown piece", () => {
+    const world = worldWithTrain();
+    const g = world.landscape.grid;
+    const grass = Array.from({ length: PLOT_CELLS }, (_, k) => k).find((k) => g.surface[k] === SURF_GRASS)!;
+    for (const bad of [encodeRoad("straight", 0), 63]) {
+      const data = serializeWorld(world);
+      const road = Uint8Array.from(atob(data.landscape.plots[0].road!), (c) => c.charCodeAt(0));
+      road[grass] = bad;
+      data.landscape.plots[0].road = btoa(String.fromCharCode(...road));
+      expect(deserializeWorld(data).ok).toBe(false);
     }
   });
 

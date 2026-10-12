@@ -1,5 +1,6 @@
 import { rng } from "../lib/rng";
 import type { Pose } from "../track";
+import { fitLaneRoads } from "../roads/lanes";
 import { BORDER_BAND, hashInts, regionStubs, STUB_DEPTH, type Region, type Stub } from "./edges";
 import {
   CELL,
@@ -333,6 +334,9 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
     if (locked(i) || grid.surface[i] !== SURF_GRASS || grid.feature[i] !== FEAT_NONE) return;
     if (treeHere(seed, col, row)) grid.feature[i] = FEAT_TREE;
   });
+
+  // Lanes as road pieces.
+  fitLaneRoads(grid);
 
   return { seed, starter, grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null, depots, nextBuildingId: buildingId };
 }
@@ -981,6 +985,7 @@ export function adoptRegion(world: Landscape, part: Landscape): number[] {
     g.height.set(p.height.subarray(a, a + PLOT_CELLS), b);
     g.surface.set(p.surface.subarray(a, a + PLOT_CELLS), b);
     g.feature.set(p.feature.subarray(a, a + PLOT_CELLS), b);
+    g.road.set(p.road.subarray(a, a + PLOT_CELLS), b);
     for (let k = 0; k < PLOT_CELLS; k++) {
       const owner = p.owner[a + k];
       const f = p.feature[a + k];
