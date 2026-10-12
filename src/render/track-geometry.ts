@@ -1,4 +1,5 @@
 import {
+  Path,
   BoxGeometry,
   BufferGeometry,
   CylinderGeometry,
@@ -100,7 +101,8 @@ interface Frame {
 function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number, lineStep = 0): Frame[] {
   const len = pathLength(geom);
   const curved = geom.kind !== "line" || geom.rise !== 0;
-  const steps = curved ? Math.max(8, Math.ceil(len / 3)) : lineStep > 0 ? Math.ceil(len / lineStep) : 1;
+  // Curves every 3 mm (a balloon loop's big gentle curves every 6).
+  const steps = curved ? Math.max(8, Math.ceil(len / (geom.kind === "loop" ? 6 : 3))) : lineStep > 0 ? Math.ceil(len / lineStep) : 1;
   const out: Frame[] = [];
   const p = createSample();
   const push = (s: number) => {
@@ -374,17 +376,30 @@ function riserGeometry(): BufferGeometry {
  * (Unioning overlapping swept solids with CSG is pathologically slow on their coplanar faces.)
  */
 function flatBlockBody(def: PieceDef): BufferGeometry {
+  const runs = def.paths.map((p) => framesAlong(p.geom, 0, 0));
+  // Double track: one board, filled in between its two lines.
+  if (def.type === "double-straight" || def.type === "crossover") {
+    const mid = (def.connectors[0].pose.z + def.connectors[2].pose.z) / 2;
+    const len = def.connectors[1].pose.x;
+    runs.push(framesAlong({ kind: "line", start: { x: 0, z: mid, heading: 0 }, length: len, y0: 0, rise: 0 }, 0, 0));
+  }
+  return flatBody(runs);
+}
+
+/** A flat body under several stretches of track (each a run of frames), merged where they overlap. */
+function flatBody(runs: Frame[][]): BufferGeometry {
   const half = TRACK_WIDTH / 2;
-  const ribbons: Polygon[] = def.paths.map((p) => {
-    const frames = framesAlong(p.geom, 0, 0);
+  const ribbons: Polygon[] = runs.map((frames) => {
     const left = frames.map((f) => [f.x - Math.sin(f.heading) * half, f.z + Math.cos(f.heading) * half] as [number, number]);
     const right = frames.map((f) => [f.x + Math.sin(f.heading) * half, f.z - Math.cos(f.heading) * half] as [number, number]);
     return [[...left, ...right.reverse(), left[0]]];
   });
   const [first, ...rest] = ribbons;
   const union = polygonClipping.union(first, ...rest);
-  const ring = union[0][0];
+  const [ring, ...holes] = union[0];
   const shape = new Shape(ring.slice(0, -1).map(([x, z]) => new Vector2(x, -z)));
+  // A loop's track encloses the felt inside it: keep that open.
+  for (const h of holes) shape.holes.push(new Path(h.slice(0, -1).map(([x, z]) => new Vector2(x, -z))));
   const bevel = 2;
   const g = new ExtrudeGeometry(shape, {
     depth: TRACK_THICKNESS - 2 * bevel,
@@ -415,6 +430,7 @@ function slotGroups(result: Brush): BufferGeometry {
 export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
   if (def.paths.length === 0) return riserGeometry();
   if (def.type === "joiner") return joinerGeometry(def);
+  if (def.paths.length === 1 && def.paths[0].geom.kind === "loop") return loopGeometry(def);
 
   let result =
     def.paths.length === 1
@@ -461,6 +477,33 @@ export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
     }
   }
 
+  const out = slotGroups(result);
+  out.computeBoundingBox();
+  out.computeBoundingSphere();
+  return out;
+}
+
+/**
+ * A balloon loop: its track leaves and comes back through the same end, overlapping itself there, so it's built as
+ * two halves (out and back), merged like a switch's routes.
+ */
+function loopGeometry(def: PieceDef): BufferGeometry {
+  const geom = def.paths[0].geom;
+  const frames = framesAlong(geom, 0, 0);
+  const mid = Math.floor(frames.length / 2);
+  const halves = [frames.slice(0, mid + 1), frames.slice(mid)];
+  let result = brush(flatBody(halves));
+  const grooveFrames = framesAlong(geom, 2, 2);
+  const gm = Math.floor(grooveFrames.length / 2);
+  for (const run of [grooveFrames.slice(0, gm + 2), grooveFrames.slice(gm - 1)]) {
+    for (const c of [-GROOVE_SPACING / 2, GROOVE_SPACING / 2]) result = evaluator.evaluate(result, brush(sweep(grooveProfile(c), run), CUT), SUBTRACTION);
+  }
+  for (const c of def.connectors) {
+    const shape = keyholeShape(1, PEG_NECK_LENGTH + SOCKET_CLEARANCE, PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE, PEG_HEAD_RADIUS + SOCKET_CLEARANCE, -1);
+    const g = extrudeUp(shape, TRACK_THICKNESS + 4, 0);
+    g.applyMatrix4(connectorBasis(c.pose.x, c.y - 2, c.pose.z, c.pose.heading));
+    result = evaluator.evaluate(result, brush(onlyCsgAttributes(g), CUT), SUBTRACTION);
+  }
   const out = slotGroups(result);
   out.computeBoundingBox();
   out.computeBoundingSphere();

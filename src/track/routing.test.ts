@@ -70,6 +70,27 @@ describe("routeFrom", () => {
     expect(ys).toEqual([0, 1, 0]);
   });
 
+  it("a crossover sends trains on, or over to the other line, from either line's facing end", () => {
+    const l = new Layout();
+    const a = l.addPiece("straight-144", P(0, 0));
+    const x = appendPiece(l, "crossover", false, connectorRef(a, 1));
+    const out = createRouteStep();
+    routeFrom(l, a, 1, out);
+    expect(getPieceDef("crossover", false).paths[out.pathIndex].to).toBe(1);
+    l.setSwitchState(x, 1);
+    routeFrom(l, a, 1, out);
+    expect(getPieceDef("crossover", false).paths[out.pathIndex].to).toBe(3);
+    // Coming back along the other line (into its far end), the same lever picks its line or the link across.
+    const b = appendPiece(l, "straight-144", false, connectorRef(x, 3));
+    routeFrom(l, b, 0, out);
+    expect(out.reversed).toBe(true);
+    expect(getPieceDef("crossover", false).paths[out.pathIndex].from).toBe(0);
+    l.setSwitchState(x, 0);
+    routeFrom(l, b, 0, out);
+    expect(getPieceDef("crossover", false).paths[out.pathIndex].from).toBe(2);
+    expect(out.reversed).toBe(true);
+  });
+
   it("always merges when entering from a branch, regardless of switch state", () => {
     const l = new Layout();
     const s = l.addPiece("switch", P(0, 0));

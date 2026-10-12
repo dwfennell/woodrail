@@ -1,5 +1,7 @@
 import {
   ADAPTER_LENGTH,
+  DOUBLE_TRACK_SPACING,
+  LOOP_RADIUS,
   JOINER_LENGTH,
   BRIDGE_LENGTH,
   BUFFER_LENGTH,
@@ -63,6 +65,9 @@ export type PieceTypeId =
   | "adapter-peg"
   | "adapter-socket"
   | "joiner"
+  | "balloon-loop"
+  | "double-straight"
+  | "crossover"
   | "station"
   | "depot-forest"
   | "depot-sawmill";
@@ -297,6 +302,59 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   "adapter-socket": straight("adapter-socket", ADAPTER_LENGTH, "socket", "socket"),
   // A dog-bone: two pegs back to back, joining two track ends whose holes meet (no track of its own).
   joiner: straight("joiner", JOINER_LENGTH, "peg", "peg"),
+  // Two straight lines side by side on one board.
+  "double-straight": {
+    type: "double-straight",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(216, 0, 0), y: 0 },
+      { kind: "socket", pose: pose(0, DOUBLE_TRACK_SPACING, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(216, DOUBLE_TRACK_SPACING, 0), y: 0 },
+    ],
+    paths: [linePath(1, 216), { from: 2, to: 3, geom: { kind: "line", start: pose(0, DOUBLE_TRACK_SPACING, 0), length: 216, y0: 0, rise: 0 } }],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  },
+  // Double track with a link across: from the first line's start, the lever sends trains on or over to the other.
+  crossover: {
+    type: "crossover",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(216, 0, 0), y: 0 },
+      { kind: "socket", pose: pose(0, DOUBLE_TRACK_SPACING, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(216, DOUBLE_TRACK_SPACING, 0), y: 0 },
+    ],
+    // The link comes last, so the lever's "over" (state 1) picks it from either line.
+    paths: [
+      linePath(1, 216),
+      { from: 2, to: 3, geom: { kind: "line", start: pose(0, DOUBLE_TRACK_SPACING, 0), length: 216, y0: 0, rise: 0 } },
+      {
+        from: 0,
+        to: 3,
+        geom: { kind: "s", start: pose(0, 0, 0), sweep: 2 * Math.atan(DOUBLE_TRACK_SPACING / 216), radius: 216 / (2 * Math.sin(2 * Math.atan(DOUBLE_TRACK_SPACING / 216))), y0: 0, rise: 0 },
+      },
+    ],
+    flippable: true,
+    isSwitch: true,
+    supportHeight: 0,
+  },
+  // A turning loop: in at its one end, round, and back out the same end facing the other way.
+  "balloon-loop": {
+    type: "balloon-loop",
+    connectors: [{ kind: "socket", pose: pose(0, 0, Math.PI), y: 0 }],
+    paths: [
+      {
+        from: 0,
+        to: 0,
+        // Peel off along the large curve until the big circle's centre is on the line, so the loop is symmetric.
+        geom: { kind: "loop", start: pose(0, 0, 0), radius: LARGE_CURVE_RADIUS, sweep: -Math.acos(LARGE_CURVE_RADIUS / (LARGE_CURVE_RADIUS + LOOP_RADIUS)), loopRadius: LOOP_RADIUS, y0: 0, rise: 0 },
+      },
+    ],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  },
   // Placed by the landscape generator in each town; the platform and building are render-only dressing.
   station: straight("station", 216),
   // Goods depots, placed by the landscape generator like stations; their buildings are render-only dressing.

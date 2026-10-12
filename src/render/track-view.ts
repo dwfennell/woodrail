@@ -306,7 +306,7 @@ export class TrackView {
       local.position.set(30, TRACK_THICKNESS * 0 + 0, -branchSide * SWITCH_LEVER_OFFSET);
       // Two-way: leans toward the route set. Three-way: upright for straight on, leaning toward a curve.
       const state = this.layout.switchState(id);
-      const lean = def.connectors.length === 4 ? (state === 0 ? 0 : state === 1 ? 1 : -1) * branchSide : (state === 1 ? 1 : -1) * branchSide;
+      const lean = def.paths.filter((p) => p.from === 0).length === 3 ? (state === 0 ? 0 : state === 1 ? 1 : -1) * branchSide : (state === 1 ? 1 : -1) * branchSide;
       local.rotation.x = lean * 0.45;
       local.updateMatrix();
       lever.matrixAutoUpdate = false;

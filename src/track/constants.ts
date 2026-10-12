@@ -18,6 +18,10 @@ export const RAMP_LENGTH = 216;
 export const BRIDGE_LENGTH = 216;
 export const BUFFER_LENGTH = 54;
 export const ADAPTER_LENGTH = 54;
+/** Double track: its two lines this far apart (a square), as the S-curve shifts a line. */
+export const DOUBLE_TRACK_SPACING = 72;
+/** The balloon loop's big circle (mm): long enough round that a whole train is clear of the neck before it comes back. */
+export const LOOP_RADIUS = 144;
 /** A dog-bone joiner's two pegs stand this far apart: the two track ends it joins butt together. */
 export const JOINER_LENGTH = 1;
 

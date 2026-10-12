@@ -23,12 +23,15 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "switch-3way", label: "Three-way" },
   { kind: "piece", type: "crossing", label: "Crossing" },
   { kind: "piece", type: "crossing-45", label: "45° crossing" },
+  { kind: "piece", type: "crossover", label: "Crossover" },
+  { kind: "piece", type: "double-straight", label: "Double track" },
   { kind: "piece", type: "ramp", label: "Ramp" },
   { kind: "piece", type: "bridge", label: "Bridge" },
   { kind: "piece", type: "bridge-curve", label: "Curved bridge" },
   { kind: "piece", type: "riser", label: "Riser" },
   { kind: "piece", type: "buffer", label: "Buffer" },
   { kind: "piece", type: "buffer-turnback", label: "Turnback" },
+  { kind: "piece", type: "balloon-loop", label: "Balloon loop" },
   { kind: "piece", type: "adapter-peg", label: "Peg–peg" },
   { kind: "piece", type: "adapter-socket", label: "Hole–hole" },
   { kind: "piece", type: "joiner", label: "Peg joiner" },
@@ -60,11 +63,11 @@ export interface TrayGroup {
 const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === t && !i.auto)!);
 
 export const TRACK_GROUPS: TrayGroup[] = [
-  { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36")] },
+  { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36", "double-straight")] },
   { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short") },
-  { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "crossing", "crossing-45") },
+  { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "crossover", "crossing", "crossing-45") },
   { label: "Ups & downs", items: pieces("ramp", "riser", "bridge", "bridge-curve") },
-  { label: "Ends", items: pieces("buffer", "buffer-turnback") },
+  { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop") },
   { label: "Adapters", items: pieces("adapter-peg", "adapter-socket", "joiner") },
 ];
 
