@@ -153,7 +153,7 @@ and strike it out when it's done.
 | Props in Game mode | Game mode will get resources and a tech tree. | Props would cost something there. |
 | Props over the map's own trees | Map trees can't move for props yet; a prop may stand on a tree's square and overlap it. | Tie in with map editing: props could push map trees aside as track does (`TreeClearance`). |
 | Prop level of detail far out | Measured fine for now: 300 props add about 127k triangles to a wide view. Prop shadows already switch off far out. | If it's needed, give each model a second, coarser bake for far views. |
-| Props in the map's tile culling (`cullTiles`) | The rendering is being reworked in the map expansion branch. Each prop is already frustum-culled on its own (BatchedMesh). | Add the props' meshes to `LandscapeView.cull` once that settles. |
+| Props in the map's tile culling (`cullTiles`) | The rendering is being reworked in the map expansion branch. Each prop is already frustum-culled on its own (BatchedMesh). | Add the props' meshes to `LandscapeView.cull` once that settles. On the map expansion branch (0a8fa7f), `cullTiles` takes a 4th argument, `detail` (`detailReach(dist)`). Use `setCullRects`, not `setCullBox`, for anything that fills an area. |
 | Prop selection look | It's an outline round the footprint; there's no rim glow as track has. | A rim on the selected instance needs per-instance colour in the batch. |
 | Tray pictures built ahead of time | Pictures are drawn in the browser the first time a shelf opens (about 20 ms each), then cached. | Could be rendered at build time and shipped as an atlas. |
 
