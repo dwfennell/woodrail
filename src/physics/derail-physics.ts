@@ -65,6 +65,12 @@ export class DerailPhysics {
     return this.cars.size > 0;
   }
 
+  /** Is any derailed car still tumbling or sliding (not yet come to rest)? */
+  get moving(): boolean {
+    for (const c of this.cars.values()) if (!c.body.isSleeping()) return true;
+    return false;
+  }
+
   /** Hill blocks of the current map: static colliders so tumbling cars land on them. */
   setSlabs(slabs: readonly Slab[]): void {
     this.slabs = slabs;

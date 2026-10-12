@@ -342,8 +342,15 @@ export class DepotView {
     return o;
   }
 
-  /** Draw piles, wagon loads and cranes for this frame. Allocation-free. */
-  update(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, dt: number): void {
+  /**
+   * Draw piles, wagon loads and cranes for this frame. Allocation-free. Returns "moving" while something here is
+   * animating (a crane working, the saw turning, a unit in a hand), "changed" when a pile or load just grew or shrank
+   * (one new frame shows it), else "still".
+   */
+  update(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, dt: number): "moving" | "changed" | "still" {
+    const lastLog = this.nLog;
+    const lastPlanks = this.nPlanks;
+    let busy = this.dragging !== null;
     this.nLog = 0;
     this.nPlanks = 0;
     const drag = this.dragging;
@@ -351,7 +358,10 @@ export class DepotView {
     this.carried.planks.visible = false;
 
     // Which unit (if any) is on each crane's hook, so it isn't also drawn on its pile or wagon.
-    for (const site of this.sites) site.moving = economy.craneMove(site.depot.id, site.move);
+    for (const site of this.sites) {
+      site.moving = economy.craneMove(site.depot.id, site.move);
+      if (site.moving) busy = true;
+    }
 
     // Piles.
     for (const site of this.sites) {
@@ -385,7 +395,12 @@ export class DepotView {
     for (const site of this.sites) this.updateCrane(site, economy, carObject);
 
     // The saw spins while the sawmill is cutting.
-    for (const site of this.sites) if (site.blade && economy.working(site.depot)) site.blade.rotateZ(dt * 14);
+    for (const site of this.sites) {
+      if (site.blade && economy.working(site.depot)) {
+        site.blade.rotateZ(dt * 14);
+        busy = true;
+      }
+    }
 
     this.logs.count = this.nLog;
     this.boards.count = this.nPlanks;
@@ -396,6 +411,7 @@ export class DepotView {
       m.boundingSphere = null;
       m.boundingBox = null;
     }
+    return busy ? "moving" : this.nLog !== lastLog || this.nPlanks !== lastPlanks ? "changed" : "still";
   }
 
   /** World centre of the k-th unit on a car (or over the depot track if the car's model is missing). */

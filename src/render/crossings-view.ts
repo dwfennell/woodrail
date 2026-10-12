@@ -79,7 +79,9 @@ export class CrossingsView {
   }
 
   /** Lower the arms where a car is near, raise them elsewhere. */
-  update(snap: SimSnapshot, dt: number): void {
+  /** Raise and lower the barriers for this frame. True while any barrier is moving. */
+  update(snap: SimSnapshot, dt: number): boolean {
+    let moving = false;
     for (const { c, barriers } of this.crossings) {
       let near = false;
       for (let i = 0; i < snap.count && !near; i++) {
@@ -94,8 +96,10 @@ export class CrossingsView {
         const step = ARM_SPEED * dt;
         b.angle = b.angle < target ? Math.min(target, b.angle + step) : Math.max(target, b.angle - step);
         b.pivot.rotation.z = b.angle;
+        moving = true;
       }
     }
+    return moving;
   }
 
   private mesh(g: BufferGeometry, m: Material): Mesh {

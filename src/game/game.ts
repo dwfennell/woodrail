@@ -34,6 +34,9 @@ const MAX_STEPS_PER_FRAME = 8;
 export type GameWorld = World;
 
 /** Owns the renderer, scene, camera and frame loop. Input and UI attach to it. */
+/** Seconds to keep drawing after the last change on screen, for anything easing to rest. */
+const IDLE_TAIL = 1;
+
 export class Game {
   readonly renderer: WebGLRenderer;
   readonly scene = new Scene();
@@ -133,12 +136,15 @@ export class Game {
     this.post = createPost(this.renderer, this.scene, this.camera, this.quality);
 
     window.addEventListener("resize", () => this.resize());
+    // Any input may change what's drawn, and set things easing (a held piece after the finger, a selection).
+    for (const type of ["pointerdown", "pointermove", "pointerup", "wheel", "keydown"]) window.addEventListener(type, () => (this.woken = true), { passive: true });
     this.resize();
     this.frameLayout();
   }
 
   /** Swap in a different layout and simulation (new game, load). */
   setWorld(world: GameWorld): void {
+    this.invalidate();
     this.flourishes.clear();
     this.layout = world.layout;
     this.sim = world.sim;
@@ -171,6 +177,7 @@ export class Game {
 
   /** Call after any layout edit. */
   trackChanged(): void {
+    this.invalidate();
     this.trackView.sync();
     const hop = this.landscapeView.syncTrees(this.layout, true);
     if (hop) this.flourishes.add(hop);
@@ -253,6 +260,7 @@ export class Game {
   }
 
   resize(): void {
+    this.invalidate();
     const w = this.canvas.clientWidth || window.innerWidth;
     const h = this.canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
@@ -288,14 +296,18 @@ export class Game {
       }
     }
     this.sim.writeSnapshot(this.snapshot);
-    const derailedCars = new Set<number>();
+    const derailedCars = this.derailedCars;
+    derailedCars.clear();
     for (let i = 0; i < this.snapshot.count; i++) if (this.snapshot.derailed[i]) derailedCars.add(this.snapshot.ids[i]);
     this.physics.retain((id) => derailedCars.has(id));
     if (!this.paused) this.physics.step(dt);
     this.simMs = performance.now() - t0;
     this.trainView.update(this.snapshot, dt, (id, out) => this.physics.poseOf(id, out));
-    this.crossingsView.update(this.snapshot, dt);
-    this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), dt);
+    let active = this.crossingsView.update(this.snapshot, dt);
+    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), dt);
+    if (depots === "moving") active = true;
+    else if (depots === "changed") this.invalidate();
+    if (this.trainsChanged() || this.physics.moving || this.flourishes.count > 0) active = true;
     this.onFrame?.(dt);
     this.flourishes.update(dt);
     // A finger fling glides on between touches (a director glide or zoom takes over from it).
@@ -312,10 +324,70 @@ export class Game {
       this.camera.near = near;
       this.camera.updateProjectionMatrix();
     }
+    if (this.cameraMoved() || this.woken) active = true;
+    this.woken = false;
+    // Draw only while something on screen is changing (and a moment after, for anything easing to rest): a still
+    // scene stays on screen without being drawn again, so an idle game costs next to nothing.
+    const now = this.clock.elapsedTime;
+    // Something easing or moving keeps drawing for a moment after; a one-off change (invalidate) draws one frame.
+    if (active) this.lastActive = now;
+    const once = this.dirty;
+    this.dirty = false;
+    if (!once && now - this.lastActive > IDLE_TAIL) return;
     const radius = shadowRadiusForView(this.camera, t);
     if (shouldRefit(this.stage.shadowFit, t.x, t.z, radius)) this.stage.fitShadow(t.x, t.z, radius);
     this.stage.update(this.camera);
     this.post.setFocus(dist);
-    this.post.render(this.clock.elapsedTime);
+    this.post.render(now);
+  }
+
+  /** Something changed that the frame loop can't see (track, scenery, a selection, a resize): draw it (once). */
+  invalidate(): void {
+    this.dirty = true;
+  }
+
+  private readonly derailedCars = new Set<number>();
+  private dirty = true;
+  /** Input arrived: keep drawing for a moment, for whatever it set easing (a held piece, a selection). */
+  private woken = false;
+  private lastActive = 0;
+  private readonly lastCamera = new Float64Array(12);
+
+  /**
+   * Has the camera moved, turned or zoomed since the last frame? Compares the camera's own settings, not its matrices
+   * (rendering may adjust those for a frame). Damped controls creep ever closer to rest without arriving: changes too
+   * small to see don't count, and the reference only moves on when a change counts, so a slow creep still adds up.
+   */
+  private cameraMoved(): boolean {
+    const c = this.camera;
+    const now = [c.position.x, c.position.y, c.position.z, c.quaternion.x, c.quaternion.y, c.quaternion.z, c.quaternion.w, c.fov, c.aspect, c.near, c.far, c.zoom];
+    const last = this.lastCamera;
+    let moved = false;
+    for (let i = 0; i < now.length; i++) if (Math.abs(last[i] - now[i]) > (i < 3 ? 0.01 : 1e-6 * Math.max(1, Math.abs(now[i])))) moved = true;
+    if (moved) for (let i = 0; i < now.length; i++) last[i] = now[i];
+    return moved;
+  }
+
+  private lastTrains = new Float32Array(0);
+  private lastTrainCount = -1;
+
+  /** Has any car moved, a lever changed or a train come off since the last frame? */
+  private trainsChanged(): boolean {
+    const snap = this.snapshot;
+    const n = snap.count * 6;
+    if (this.lastTrains.length < n + snap.count) this.lastTrains = new Float32Array((n + snap.count) * 2);
+    const last = this.lastTrains;
+    let changed = snap.count !== this.lastTrainCount;
+    this.lastTrainCount = snap.count;
+    for (let i = 0; i < n; i++) {
+      if (last[i] !== snap.transforms[i]) changed = true;
+      last[i] = snap.transforms[i];
+    }
+    for (let i = 0; i < snap.count; i++) {
+      const v = snap.levers[i] * 2 + snap.derailed[i] + snap.ids[i] * 4;
+      if (last[n + i] !== v) changed = true;
+      last[n + i] = v;
+    }
+    return changed;
   }
 }

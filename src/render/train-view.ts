@@ -26,9 +26,12 @@ export class TrainView {
   constructor(private readonly mats: Materials) {}
 
   private readonly pose: CarPose = { position: new Vector3(), quaternion: new Quaternion() };
+  /** Cars seen this frame (kept between frames to avoid garbage). */
+  private readonly seen = new Set<number>();
 
   update(snap: SimSnapshot, dt: number, physicsPose?: (carId: number, out: CarPose) => CarPose | null): void {
-    const seen = new Set<number>();
+    const seen = this.seen;
+    seen.clear();
     for (let i = 0; i < snap.count; i++) {
       const id = snap.ids[i];
       seen.add(id);
