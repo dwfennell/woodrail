@@ -48,6 +48,8 @@ export class DerailPhysics {
   private slabs: readonly Slab[] = [];
   /** Hill blocks with rounded corners: convex hulls of their outlines. */
   private roundBlocks: readonly RoundBlock[] = [];
+  /** Hill blocks cut by cuttings: triangle soups (mm, three points a triangle). */
+  private cutBlocks: readonly Float32Array[] = [];
   private readonly pending: Train[] = [];
   private accumulator = 0;
   failed = false;
@@ -74,9 +76,10 @@ export class DerailPhysics {
   }
 
   /** Hill blocks of the current map: static colliders so tumbling cars land on them. */
-  setSlabs(slabs: readonly Slab[], round: readonly RoundBlock[] = []): void {
+  setSlabs(slabs: readonly Slab[], round: readonly RoundBlock[] = [], cut: readonly Float32Array[] = []): void {
     this.slabs = slabs;
     this.roundBlocks = round;
+    this.cutBlocks = cut;
     this.trackDirty = true;
   }
 
@@ -136,6 +139,11 @@ export class DerailPhysics {
       });
       const hull = R.ColliderDesc.convexHull(points);
       if (hull) add(hull);
+    }
+    for (const soup of this.cutBlocks) {
+      const points = soup.map((v) => v * MM);
+      const mesh = R.ColliderDesc.trimesh(points, Uint32Array.from({ length: points.length / 3 }, (_, i) => i));
+      if (mesh) add(mesh);
     }
     for (const slab of this.slabs) {
       const hx = (slab.x1 - slab.x0) / 2;

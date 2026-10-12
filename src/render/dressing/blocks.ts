@@ -73,6 +73,16 @@ function instanced(geometry: BufferGeometry, material: Material, count: number):
 /** Layer seen only by the sun's shadow camera: cheap stand-ins that cast shadows for detailed scenery. */
 export const SHADOW_PROXY_LAYER = 1;
 
+/** One instance of a block in an instanced mesh (its body or its painted top) and where it's drawn. */
+export interface BlockInstanceRef {
+  mesh: InstancedMesh;
+  i: number;
+  matrix: Matrix4;
+}
+
+/** Key for a block by its bottom centre. */
+export const blockKey = (x: number, z: number, y: number): string => `${Math.round(x)},${Math.round(z)},${Math.round(y)}`;
+
 /**
  * Hill shadows come from merged rectangles (a few dozen plain boxes) instead of hundreds of rounded blocks:
  * same silhouette from the sun, a fraction of the shadow-pass cost.
@@ -125,6 +135,8 @@ export function blockMeshes(
   materials: { wood: Material; top: Material },
   rounded: boolean,
   roundedPaint = rounded,
+  /** Filled with where each block's instances are (by `blockKey`), so cut blocks can be hidden and shown again. */
+  index?: Map<string, BlockInstanceRef[]>,
 ): Group {
   const group = new Group();
   const k = size / CELL;
@@ -165,6 +177,7 @@ export function blockMeshes(
       m.setPosition(b.x, b.y + s * (foot + bodyH / 2), b.z);
       wood.setMatrixAt(i, m);
       wood.setColorAt(i, c.set(BLOCK_TONES[b.tone % BLOCK_TONES.length]));
+      index?.set(blockKey(b.x, b.z, b.y), [{ mesh: wood, i, matrix: m.clone() }]);
     });
     tops.forEach((b, i) => {
       const s = (b.size ?? size) / size;
@@ -172,6 +185,7 @@ export function blockMeshes(
       m.setPosition(b.x, b.y + s * (foot + h - paintH / 2), b.z);
       grass.setMatrixAt(i, m);
       grass.setColorAt(i, c.set(GRASS_TONES[b.tone % GRASS_TONES.length]));
+      index?.get(blockKey(b.x, b.z, b.y))?.push({ mesh: grass, i, matrix: m.clone() });
     });
     group.add(wood, grass);
   }
@@ -179,7 +193,7 @@ export function blockMeshes(
 }
 
 /** How far inside a hill's outer faces its dark core stands (mm): behind the blocks, seen only down the seams. */
-const CORE_INSET = 13; // clear of rounded corners too (they cut in about 11 mm at the diagonal)
+export const CORE_INSET = 13; // clear of rounded corners too (they cut in about 11 mm at the diagonal)
 
 /**
  * The inside of a hill: one dark box per slab, just inside the blocks, so looking down a seam between blocks shows
@@ -199,13 +213,16 @@ export function hillCore(slabs: readonly Slab[]): Mesh | null {
   mesh.userData.ownsMaterial = true;
   return mesh;
 }
-const CORE_COLOUR = new Color("#3a2716");
+export const CORE_COLOUR = new Color("#3a2716");
 
-/** Hills as individual rounded beech blocks, the top of each stack painted grass green, around a dark core. */
-export function buildBlocks(grid: LandscapeGrid, seed: number, mats: Materials): Group {
-  const group = blockMeshes(blockInstances(grid, seed).filter((b) => b.exposed), CELL, RISER_HEIGHT, { wood: mats.blockWood, top: mats.blockTop }, true);
-  const slabs = hillSlabs(grid);
-  const core = hillCore(slabs);
+/**
+ * Hills as individual rounded beech blocks, the top of each stack painted grass green, around a dark core. Without
+ * `solids`, leaves out the core and the shadow (for `HillCutsView`, which shapes them round cuttings).
+ */
+export function buildBlocks(grid: LandscapeGrid, seed: number, mats: Materials, index?: Map<string, BlockInstanceRef[]>, solids = true): Group {
+  const group = blockMeshes(blockInstances(grid, seed).filter((b) => b.exposed), CELL, RISER_HEIGHT, { wood: mats.blockWood, top: mats.blockTop }, true, true, index);
+  if (!solids) return group;
+  const core = hillCore(hillSlabs(grid));
   if (core) group.add(core);
   const pieces = hillPieces(grid);
   const proxy = shadowProxy(pieces.slabs, pieces.round);

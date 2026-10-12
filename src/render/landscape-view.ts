@@ -1,9 +1,10 @@
 import { BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SRGBColorSpace, type InstancedMesh, type MeshBasicMaterial } from "three";
-import { CELL, COLS, generateSurroundings, ROWS, SURF_LANE, SURF_RIVER, SURF_ROAD, TreeClearance, type HeldPiece, type Landscape, type Town, type TreeSpot } from "../landscape";
+import { CELL, COLS, generateSurroundings, ROWS, SURF_LANE, SURF_RIVER, SURF_ROAD, heldCut, TreeClearance, type HeldPiece, type Landscape, type Town, type TreeSpot } from "../landscape";
 import type { Layout } from "../track";
 import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF_TOP } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
-import { buildBlocks } from "./dressing/blocks";
+import { buildBlocks, type BlockInstanceRef } from "./dressing/blocks";
+import { HillCutsView } from "./dressing/hill-cuts";
 import { buildShed, buildStation, buildTown } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltGround, buildFeltRibbons } from "./dressing/felt";
@@ -34,6 +35,8 @@ export class LandscapeView {
   private connected = new Set<number>();
   private placeTrees: PlaceTrees = () => {};
   private clearance!: TreeClearance;
+  /** Hill blocks cut by ramps' cuttings. */
+  private cuts!: HillCutsView;
   /** A piece held over the mat, that trees are keeping clear of. */
   private held: HeldPiece | null = null;
   /** Each tree as drawn, where its hop started and where it's going, and how far along it is (≥ 1: there). */
@@ -96,12 +99,14 @@ export class LandscapeView {
    */
   syncTrees(layout: Layout, animate = false): Flourish | null {
     this.clearance.setLayout(layout);
+    this.cuts.sync(heldCut(this.land, this.held));
     return this.retarget(this.clearance.spots(this.held ?? undefined), animate);
   }
 
   /** Trees hop aside for a piece held over the mat, and back when it moves on (null: nothing held). */
   previewTrees(held: HeldPiece | null): Flourish | null {
     this.held = held;
+    this.cuts.sync(heldCut(this.land, held));
     return this.retarget(this.clearance.spots(held ?? undefined), true);
   }
 
@@ -197,7 +202,10 @@ export class LandscapeView {
     if (lane) this.group.add(lane);
 
     // Hills: stacks of individual wooden blocks, painted green on top.
-    this.group.add(buildBlocks(grid, this.land.seed, this.mats));
+    const blockIndex = new Map<string, BlockInstanceRef[]>();
+    this.group.add(buildBlocks(grid, this.land.seed, this.mats, blockIndex, false));
+    this.cuts = new HillCutsView(grid, { wood: this.mats.blockWood, top: this.mats.blockTop }, blockIndex);
+    this.group.add(this.cuts.group);
 
     // Turned-wood toy trees, standing on whatever block they grew on.
     const trees = treePlacements(this.land);

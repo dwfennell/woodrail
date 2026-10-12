@@ -29,6 +29,8 @@ export interface HeldPiece {
   type: PieceTypeId;
   flipped: boolean;
   pose: Pose;
+  /** Height it would go down at (for a ramp's cutting). */
+  y: number;
 }
 
 /**

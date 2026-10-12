@@ -10,6 +10,7 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LandscapeView } from "../render/landscape-view";
+import { cutColumn } from "../render/dressing/hill-cuts";
 import { createMaterials, type Materials } from "../render/materials";
 import { Flourishes } from "../render/flourishes";
 import { createPost, type Post } from "../render/post";
@@ -23,7 +24,7 @@ import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
 import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { bridgeLevels, findCrossings, syncCuttings, type HeldPiece, hillPieces, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
+import { bridgeLevels, findCrossings, syncCuttings, type HeldPiece, hillPieces, hillsOf, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
 import { PIECE_TYPES, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
@@ -159,10 +160,8 @@ export class Game {
     this.trackView.sync();
     this.physics = new DerailPhysics(this.layout);
     this.physics.bridgeLevels = this.bridgeLevelsOf;
-    {
-      const pieces = hillPieces(this.landscape.grid);
-      this.physics.setSlabs(pieces.slabs, pieces.round);
-    }
+    this.hillsFor = null;
+    this.syncHillPhysics();
     this.trainView = new TrainView(this.mats);
     this.scene.add(this.trainView.group);
     this.depotView = new DepotView(this.mats);
@@ -215,10 +214,8 @@ export class Game {
     this.scene.add(this.trackView.group);
     this.trackView.sync();
     this.physics.setLayout(this.layout);
-    {
-      const pieces = hillPieces(this.landscape.grid);
-      this.physics.setSlabs(pieces.slabs, pieces.round);
-    }
+    this.hillsFor = null;
+    this.syncHillPhysics();
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.depotView.setWorld(this.economy, this.layout);
   }
@@ -230,6 +227,28 @@ export class Game {
     return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy };
   }
 
+  /** What the hills' colliders were last built for (the cut blocks and what cuts them). */
+  private hillsFor: string | null = null;
+
+  /** Hills as derailed cars find them: blocks cut by cuttings as their cut shape. Call after `syncCuttings`. */
+  private syncHillPhysics(): void {
+    const grid = this.landscape.grid;
+    const cut = hillsOf(grid).cutBlocks();
+    const key = cut.map((b) => `${b.col},${b.row},${b.level}:${b.key}`).join(";");
+    if (key === this.hillsFor) return;
+    this.hillsFor = key;
+    const ids = new Set(cut.map((b) => `${b.col},${b.row},${b.level}`));
+    const pieces = hillPieces(grid, (c, r, level) => ids.has(`${c},${r},${level}`));
+    const columns = cut.map((b) => {
+      const { body, paint } = cutColumn(grid, b);
+      const soup = body.getAttribute("position").array as Float32Array;
+      body.dispose();
+      paint.dispose();
+      return soup;
+    });
+    this.physics.setSlabs(pieces.slabs, pieces.round, columns);
+  }
+
   /** Call after any layout edit. */
   trackChanged(): void {
     this.invalidate();
@@ -238,6 +257,7 @@ export class Game {
     syncCuttings(this.landscape, this.layout);
     const hop = this.landscapeView.syncTrees(this.layout, true);
     if (hop) this.flourishes.add(hop);
+    this.syncHillPhysics();
     this.economy.prune();
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.physics.markTrackDirty();

@@ -21,6 +21,12 @@ export function syncCuttings(land: Landscape, layout: Layout): void {
   hills.setCuts(cuts);
 }
 
+/** The cutting a ramp held over the mat would make, were it put down there (none for other pieces). */
+export function heldCut(land: Landscape, held: { type: PieceTypeId; flipped: boolean; pose: Pose; y: number } | null): HillCut | undefined {
+  if (!held || !cutsHills(held.type) || bridgeLevels(land, held.type, held.flipped, held.pose, held.y) > 0) return undefined;
+  return { pose: { ...held.pose }, y: held.y, type: held.type, flipped: held.flipped };
+}
+
 const sample = createSample();
 /** Track is checked this often (mm) along its paths for ground a cutting would take away. */
 const STEP = 8;

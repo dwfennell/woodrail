@@ -13,9 +13,10 @@ export interface RoundBlock {
 
 /**
  * The hills as solid pieces: square-cornered blocks merged into slabs, and the blocks with rounded corners on their
- * own. For shadows and physics, which need the true silhouette.
+ * own. For shadows and physics, which need the true silhouette. `skip` leaves out blocks (level 0 = on the felt),
+ * such as those a cutting is drawn through.
  */
-export function hillPieces(grid: LandscapeGrid): { slabs: Slab[]; round: RoundBlock[] } {
+export function hillPieces(grid: LandscapeGrid, skip?: (col: number, row: number, level: number) => boolean): { slabs: Slab[]; round: RoundBlock[] } {
   const hills = hillsOf(grid);
   const round: RoundBlock[] = [];
   for (let row = 0; row < ROWS; row++) {
@@ -23,12 +24,12 @@ export function hillPieces(grid: LandscapeGrid): { slabs: Slab[]; round: RoundBl
       const h = grid.height[grid.index(col, row)];
       for (let level = 0; level < h; level++) {
         const corners = hills.blockCorners(col, row, level);
-        if (corners) round.push({ x: grid.centreX(col), z: grid.centreZ(row), level: level + 1, corners });
+        if (corners && !skip?.(col, row, level)) round.push({ x: grid.centreX(col), z: grid.centreZ(row), level: level + 1, corners });
       }
     }
   }
   const slabs = mergeSlabsWhere(
-    (c, r, level) => hills.hasBlock(c, r, level - 1) && hills.blockCorners(c, r, level - 1) === 0,
+    (c, r, level) => hills.hasBlock(c, r, level - 1) && hills.blockCorners(c, r, level - 1) === 0 && !skip?.(c, r, level - 1),
     COLS,
     ROWS,
     -MAT_WIDTH / 2,

@@ -115,6 +115,56 @@ export class HillShape {
     return this.groundWith([...this.cuts, prepare(extra)], x, z);
   }
 
+  /** Lowest cutting surface at a plan point (Infinity where no cutting reaches), from these cuts and an extra one. */
+  cutSurfaceAt(x: number, z: number, extra?: HillCut): number {
+    let surface = Infinity;
+    for (const c of this.cuts) surface = Math.min(surface, cutSurface(c, x, z));
+    if (extra) surface = Math.min(surface, cutSurface(prepare(extra), x, z));
+    return surface;
+  }
+
+  /**
+   * The blocks the cuttings (and an extra one) cut into: those whose top a cutting surface dips below anywhere inside
+   * the block's outline. With a key per block of what cuts it, so a renderer can tell which changed.
+   */
+  cutBlocks(extra?: HillCut): { col: number; row: number; level: number; key: string }[] {
+    const all = extra ? [...this.cuts, prepare(extra)] : this.cuts;
+    const found = new Map<string, { col: number; row: number; level: number; key: string }>();
+    const g = this.grid;
+    all.forEach((c) => {
+      const c0 = Math.max(0, Math.floor((c.x0 + MAT_WIDTH / 2) / CELL));
+      const c1 = Math.min(g.height.length, Math.floor((c.x1 + MAT_WIDTH / 2) / CELL));
+      const r0 = Math.max(0, Math.floor((c.z0 + MAT_DEPTH / 2) / CELL));
+      const r1 = Math.floor((c.z1 + MAT_DEPTH / 2) / CELL);
+      for (let row = r0; row <= r1; row++) {
+        for (let col = c0; col <= c1; col++) {
+          if (!g.inBounds(col, row)) continue;
+          const h = g.height[g.index(col, row)];
+          for (let level = 0; level < h; level++) {
+            const corners = this.blockCorners(col, row, level);
+            const top = (level + 1) * RISER_HEIGHT;
+            // Sample the block's top: does this cutting dip below it anywhere inside the outline?
+            let cuts = false;
+            for (let i = 0; i <= 12 && !cuts; i++) {
+              for (let j = 0; j <= 12 && !cuts; j++) {
+                const ox = -CELL / 2 + (CELL * i) / 12;
+                const oz = -CELL / 2 + (CELL * j) / 12;
+                if (!insideBlock(corners, ox, oz)) continue;
+                if (cutSurface(c, g.centreX(col) + ox, g.centreZ(row) + oz) < top - 0.3) cuts = true;
+              }
+            }
+            if (!cuts) continue;
+            const id = `${col},${row},${level}`;
+            const sig = `${c.cut.pose.x.toFixed(2)},${c.cut.pose.z.toFixed(2)},${c.cut.pose.heading.toFixed(4)},${c.cut.y},${c.cut.type},${c.cut.flipped}`;
+            const prev = found.get(id);
+            found.set(id, { col, row, level, key: prev ? `${prev.key};${sig}` : sig });
+          }
+        }
+      }
+    });
+    return [...found.values()];
+  }
+
   /** Height of the hill's blocks alone at a plan point, before any cutting (rounded corners only). */
   blocksAt(x: number, z: number): number {
     const i = this.grid.cellAtWorld(x, z);
