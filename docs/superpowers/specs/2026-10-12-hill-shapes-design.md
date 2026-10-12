@@ -1,7 +1,7 @@
 # Woodrail — Hill Shapes: Rounded Corners and Ramp Cuttings Design
 
 **Date:** 2026-10-12
-**Status:** Draft for review
+**Status:** Implemented (S1–S6)
 **Builds on:** `2026-10-10-block-landscape-design.md`, `2026-10-11-grid-72-design.md`
 
 ## 1. Goal
@@ -172,3 +172,15 @@ Each step is merged on its own, with its tests and screenshots.
 4. **Bank angle:** 60° as proposed (about 37 mm of bank either side of a full-level cutting), steeper for a blockier look, or 45° for gentler, wider banks?
 5. **Flat cuttings:** should straights or curves also be allowed to cut a trench at a hill's top level minus one? (Today: ramps only.)
 6. **Tunnels:** out of scope here. Worth planning for later, since the model in §3 could support them?
+
+## 10. As built
+
+- **Corners** round only beside river squares (playtest request), radius 36 mm.
+- **Cuttings:** 60° banks, bed track width + 4 mm each side. Cut faces are the block's own wood, in each block's own
+  tone; uncut parts of a cut block keep its green paint, ending on the cut's exact edge (the grid is split there).
+- **Cut block mesh:** a `steps`-square grid stretched over the block's outline (18 steps, about 4 mm), a 1.6 mm bevel
+  round the top as whole blocks have, walls down the outline; no bottom when drawn (tests build it closed).
+- **Preview:** blocks a held ramp cuts are drawn on a 12-step grid while it moves, and redrawn at 18 when it's put
+  down. The map-wide core and shadow are rebuilt only when which blocks are cut changes. Median update 3.2 ms
+  (container CPU, software GL).
+- **Physics:** cut blocks are trimesh colliders from the same columns.

@@ -68,6 +68,23 @@ describe("hill block columns", () => {
     expect(heightAt(paint, 0, 0)).toBeNull();
   });
 
+  it("with a bevel round its top, a cut block is still closed and outward-facing", () => {
+    const outline = blockOutline(0, 0.4, 8);
+    const inner = blockOutline(0, 2.4, 8);
+    const tan = Math.tan(Math.PI / 3);
+    for (const top of [
+      (x: number, z: number) => Math.min(63.6, 10 + ((x + 36) / 72) * 40 + Math.max(0, Math.abs(z) - 20) * tan),
+      (_x: number, z: number) => (Math.abs(z) < 15 ? -5 : 63.6),
+    ]) {
+      const { body } = columnGeometry(outline, 0, top, 63.6, { bevel: { inner, drop: 2 } });
+      const { volume, openEdges } = solidity(body);
+      expect(openEdges).toBe(0);
+      expect(volume).toBeGreaterThan(0);
+      // The edge is 2 mm down where the top is whole.
+      expect(heightAt(body, 35.5, 33)).toBeLessThan(62);
+    }
+  });
+
   it("where a cut takes a block right down to its base, nothing is drawn there, and what's left is still closed", () => {
     const outline = blockOutline(0, 0.4, 8);
     const top = (_x: number, z: number) => (Math.abs(z) < 15 ? -5 : 63.6);

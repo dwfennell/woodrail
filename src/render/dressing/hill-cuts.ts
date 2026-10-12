@@ -1,4 +1,4 @@
-import { BoxGeometry, BufferGeometry, Float32BufferAttribute, Group, Matrix4, Mesh, MeshBasicMaterial, type Material } from "three";
+import { BoxGeometry, BufferGeometry, Color, InstancedMesh, Float32BufferAttribute, Group, Matrix4, Mesh, MeshBasicMaterial, type Material } from "three";
 import { blockOutline, CELL, COLS, hillPieces, hillsOf, MAT_DEPTH, MAT_WIDTH, MAX_HEIGHT, mergeSlabsWhere, ROWS, type HillCut, type LandscapeGrid } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
 import { BEECH_UV_SCALE } from "../materials";
@@ -9,6 +9,8 @@ const GAP = 0.8;
 /** A block's top is a grid this many steps across (about 4 mm); coarser (6 mm) for a quick preview. */
 const STEPS = 18;
 const PREVIEW_STEPS = 12;
+/** A cut block's top edges are bevelled this much (mm), like a whole block's. */
+const BEVEL = 1.6;
 /** A cut block's top within this of the block's own top counts as uncut (painted green). */
 const FLAT = 0.25;
 
@@ -19,14 +21,15 @@ type P2 = { x: number; z: number };
  * `y0`), walls down the outline. The top is a `steps`-square grid stretched out from the outline's middle to its
  * edge, and the walls stand on the grid's edge, so they share every point: watertight by construction. Where the top
  * comes all the way down to `y0`, nothing is drawn. Returns the column, and the part of its top still at `flatTop` (to
- * paint). Without `closed`, leaves out the bottom (never seen: it sits on the block or felt below).
+ * paint). Without `closed`, leaves out the bottom (never seen: it sits on the block or felt below). With `bevel`, the
+ * top stops at the `inner` outline and slopes down `drop` from there to the walls, as a block's edges are bevelled.
  */
 export function columnGeometry(
   outline: readonly P2[],
   y0: number,
   top: (x: number, z: number) => number,
   flatTop: number,
-  { steps = STEPS, closed = true }: { steps?: number; closed?: boolean } = {},
+  { steps = STEPS, closed = true, bevel }: { steps?: number; closed?: boolean; bevel?: { inner: readonly P2[]; drop: number } } = {},
 ): { body: BufferGeometry; paint: BufferGeometry } {
   const height = (p: P2) => Math.max(y0, top(p.x, p.z));
   // The middle (of the bounding box: a block's outline always reaches its square's sides).
@@ -34,8 +37,11 @@ export function columnGeometry(
   const zs = outline.map((p) => p.z);
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
   const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
-  const offsets = gridFor(outline.map((p) => ({ x: p.x - cx, z: p.z - cz })), steps);
-  const grid = offsets.map((o) => ({ x: cx + o.x, z: cz + o.z }));
+  const gridOf = (o: readonly P2[]) => gridFor(o.map((p) => ({ x: p.x - cx, z: p.z - cz })), steps).map((q) => ({ x: cx + q.x, z: cz + q.z }));
+  // The top's grid (inside the bevel, if any), and the walls' tops round the outline.
+  const grid = gridOf(bevel?.inner ?? outline);
+  const outer = bevel ? gridOf(outline) : grid;
+  const drop = bevel?.drop ?? 0;
   const at = (i: number, j: number) => grid[j * (steps + 1) + i];
   const pos: number[] = [];
   const uv: number[] = [];
@@ -49,8 +55,9 @@ export function columnGeometry(
   const up = (a: P2, b: P2, c: P2) => (b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x) < 0;
   const heights = grid.map(height);
   const hAt = (i: number, j: number) => heights[j * (steps + 1) + i];
-  type V = { p: P2; h: number; flat: boolean };
-  const vertex = (i: number, j: number): V => ({ p: at(i, j), h: hAt(i, j), flat: hAt(i, j) > flatTop - FLAT });
+  /** A point of the top; `out`, for one on its edge, is the point on the outline the bevel slopes down to. */
+  type V = { p: P2; h: number; flat: boolean; out: P2 };
+  const vertex = (i: number, j: number): V => ({ p: at(i, j), h: hAt(i, j), flat: hAt(i, j) > flatTop - FLAT, out: outer[j * (steps + 1) + i] });
   // Where an edge from a point still at the block's top to one in the cut crosses the cut's edge (found on the true
   // surface, so the paint's edge follows it, not the grid). The same for both triangles sharing the edge.
   const crossings = new Map<string, V>();
@@ -66,7 +73,8 @@ export function columnGeometry(
         else hi = t;
       }
       const p = { x: flat.p.x + (cut.p.x - flat.p.x) * lo, z: flat.p.z + (cut.p.z - flat.p.z) * lo };
-      v = { p, h: flatTop, flat: true };
+      const out = { x: flat.out.x + (cut.out.x - flat.out.x) * lo, z: flat.out.z + (cut.out.z - flat.out.z) * lo };
+      v = { p, h: flatTop, flat: true, out };
       crossings.set(key, v);
     }
     return v;
@@ -143,8 +151,36 @@ export function columnGeometry(
   });
   let along = 0;
   for (let k = 0; k < edge.length; k++) {
-    const { p, h: hp } = edge[k];
-    const { p: q, h: hq } = edge[(k + 1) % edge.length];
+    const v = edge[k];
+    const w = edge[(k + 1) % edge.length];
+    const p = v.out;
+    const q = w.out;
+    const hp = Math.max(y0, v.h - drop);
+    const hq = Math.max(y0, w.h - drop);
+    if (bevel) {
+      // The bevel: from the top's edge down and out to the wall, wound as the wall is (the outline its foot).
+      const quad = (target: number[], uvs: number[], lift: number) => {
+        put(target, uvs, p, hp + lift, p.x, p.z);
+        put(target, uvs, w.p, w.h + lift, w.p.x, w.p.z);
+        put(target, uvs, q, hq + lift, q.x, q.z);
+        put(target, uvs, p, hp + lift, p.x, p.z);
+        put(target, uvs, v.p, v.h + lift, v.p.x, v.p.z);
+        put(target, uvs, w.p, w.h + lift, w.p.x, w.p.z);
+      };
+      if (v.h > y0 + 1e-3 || w.h > y0 + 1e-3) {
+        quad(pos, uv, 0);
+        // And the bottom under it.
+        if (closed) {
+          put(pos, uv, p, y0, p.x, p.z);
+          put(pos, uv, q, y0, q.x, q.z);
+          put(pos, uv, w.p, y0, w.p.x, w.p.z);
+          put(pos, uv, p, y0, p.x, p.z);
+          put(pos, uv, w.p, y0, w.p.x, w.p.z);
+          put(pos, uv, v.p, y0, v.p.x, v.p.z);
+        }
+      }
+      if (v.flat && w.flat) quad(paint, paintUv, 0.1);
+    }
     const s0 = along;
     const s1 = (along += Math.hypot(q.x - p.x, q.z - p.z));
     // Facing out; a side that comes down to the base is a triangle, not a quad.
@@ -223,6 +259,7 @@ export class HillCutsView {
       for (const m of entry.meshes) {
         this.group.remove(m);
         m.geometry.dispose();
+        if ((m as InstancedMesh).isInstancedMesh) (m as InstancedMesh).dispose();
       }
       for (const ref of entry.refs) {
         ref.mesh.setMatrixAt(ref.i, ref.matrix);
@@ -233,21 +270,21 @@ export class HillCutsView {
     for (const [id, b] of wanted) {
       if (this.built.has(id)) continue;
       const { body, paint, isTop, surface, cx, cz } = cutColumn(g, b, extra, { steps: b.coarse ? PREVIEW_STEPS : STEPS, closed: false });
-      const wood = new Mesh(body, this.materials.wood);
+      const refs = this.index.get(blockKey(cx, cz, b.level * RISER_HEIGHT)) ?? [];
+      const wood = toned(body, this.materials.wood, refs[0]);
       wood.receiveShadow = true;
       const shadow = new Mesh(body, shadowMaterial);
       shadow.castShadow = true;
       shadow.layers.set(SHADOW_PROXY_LAYER);
       const meshes: Mesh[] = [wood, shadow];
       if (isTop && paint.getAttribute("position").count > 0) {
-        const grass = new Mesh(paint, this.materials.top);
+        const grass = toned(paint, this.materials.top, refs[1]);
         grass.receiveShadow = true;
         meshes.push(grass);
       } else paint.dispose();
       const core = lowCore(cx, cz, b.level * RISER_HEIGHT, surface);
       if (core) meshes.push(core);
       for (const m of meshes) this.group.add(m);
-      const refs = this.index.get(blockKey(cx, cz, b.level * RISER_HEIGHT)) ?? [];
       for (const ref of refs) {
         ref.mesh.setMatrixAt(ref.i, hiddenMatrix);
         ref.mesh.instanceMatrix.needsUpdate = true;
@@ -342,9 +379,23 @@ export function cutColumn(g: LandscapeGrid, b: { col: number; row: number; level
   const y0 = b.level * RISER_HEIGHT + GAP / 2;
   const blockTop = (b.level + 1) * RISER_HEIGHT - GAP / 2;
   const isTop = g.height[g.index(b.col, b.row)] === b.level + 1;
-  const outline = blockOutline(hills.blockCorners(b.col, b.row, b.level), GAP / 2, 8).map((p) => ({ x: cx + p.x, z: cz + p.z }));
+  const corners = hills.blockCorners(b.col, b.row, b.level);
+  const outline = blockOutline(corners, GAP / 2, 8).map((p) => ({ x: cx + p.x, z: cz + p.z }));
+  const inner = blockOutline(corners, GAP / 2 + BEVEL, 8).map((p) => ({ x: cx + p.x, z: cz + p.z }));
   const surface = (x: number, z: number) => Math.min(blockTop, hills.cutSurfaceAt(x, z, extra));
-  return { ...columnGeometry(outline, y0, surface, blockTop, options), isTop, surface, cx, cz };
+  return { ...columnGeometry(outline, y0, surface, blockTop, { ...options, bevel: { inner, drop: BEVEL } }), isTop, surface, cx, cz };
+}
+
+/** A cut block's column, in the tone of the block (instance) it stands in for: one instance, coloured as that was. */
+function toned(geometry: BufferGeometry, material: Material, like: BlockInstanceRef | undefined): Mesh {
+  const mesh = new InstancedMesh(geometry, material, 1);
+  mesh.setMatrixAt(0, new Matrix4());
+  if (like?.mesh.instanceColor) {
+    const colour = new Color();
+    like.mesh.getColorAt(like.i, colour);
+    mesh.setColorAt(0, colour);
+  }
+  return mesh;
 }
 
 /** A cut block's core: as high as it can be while staying a core's inset under the cut everywhere above it. */
