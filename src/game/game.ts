@@ -37,6 +37,28 @@ export type GameWorld = World;
 /** Seconds to keep drawing after the last change on screen, for anything easing to rest. */
 const IDLE_TAIL = 1;
 
+/** Keys that pan the view, and which way. */
+const PAN_KEYS: Record<string, "f" | "b" | "l" | "r" | "fast"> = {
+  w: "f",
+  s: "b",
+  a: "l",
+  d: "r",
+  arrowup: "f",
+  arrowdown: "b",
+  arrowleft: "l",
+  arrowright: "r",
+  shift: "fast",
+};
+/** Key panning covers this many camera-distances a second (so it feels the same at any zoom), easing in this long (s). */
+const KEY_PAN_SPEED = 0.9;
+const KEY_PAN_EASE = 0.12;
+
+/** Is the user typing into a text field (where keys aren't for the game)? */
+function isTyping(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+}
+
 export class Game {
   readonly renderer: WebGLRenderer;
   readonly scene = new Scene();
@@ -138,6 +160,19 @@ export class Game {
     window.addEventListener("resize", () => this.resize());
     // Any input may change what's drawn, and set things easing (a held piece after the finger, a selection).
     for (const type of ["pointerdown", "pointermove", "pointerup", "wheel", "keydown"]) window.addEventListener(type, () => (this.woken = true), { passive: true });
+    // WASD / arrow keys pan the view (desktop).
+    window.addEventListener("keydown", (e) => {
+      const key = PAN_KEYS[e.key.toLowerCase()];
+      if (!key || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+      e.preventDefault(); // arrows would scroll the page
+      this.panKeys.add(key);
+      if (this.followCarId !== -1) this.follow(-1);
+    });
+    window.addEventListener("keyup", (e) => {
+      const key = PAN_KEYS[e.key.toLowerCase()];
+      if (key) this.panKeys.delete(key);
+    });
+    window.addEventListener("blur", () => this.panKeys.clear());
     this.resize();
     this.frameLayout();
   }
@@ -313,6 +348,7 @@ export class Game {
     // A finger fling glides on between touches (a director glide or zoom takes over from it).
     if (this.director.busy) this.touchCamera.gestures.stop();
     else if (!this.touchCamera.touching) this.touchCamera.gestures.glide(dt);
+    this.keyPan(dt);
     this.director.update(dt, this.canvas.clientWidth, this.canvas.clientHeight);
     this.controls.update(dt);
     // After the controls' own pan, so the view never renders past the mat's edge.
@@ -339,6 +375,42 @@ export class Game {
     this.stage.update(this.camera);
     this.post.setFocus(dist);
     this.post.render(now);
+  }
+
+  /** Pan keys held now (forward, back, left, right), and the pan's current velocity (world mm/s). */
+  private readonly panKeys = new Set<"f" | "b" | "l" | "r" | "fast">();
+  private readonly panVelocity = new Vector3();
+  private readonly panDir = new Vector3();
+  private readonly panSide = new Vector3();
+
+  /** Move the view along the ground with the pan keys: easing up to speed and back to rest, faster zoomed out. */
+  private keyPan(dt: number): void {
+    const k = this.panKeys;
+    const forward = (k.has("f") ? 1 : 0) - (k.has("b") ? 1 : 0);
+    const side = (k.has("r") ? 1 : 0) - (k.has("l") ? 1 : 0);
+    if (forward === 0 && side === 0 && this.panVelocity.lengthSq() < 1) {
+      this.panVelocity.set(0, 0, 0);
+      return;
+    }
+    if (forward !== 0 || side !== 0) this.director.cancel();
+    // Forward is the way the camera looks, flattened onto the ground.
+    this.camera.getWorldDirection(this.panDir);
+    this.panDir.y = 0;
+    if (this.panDir.lengthSq() < 1e-6) this.panDir.set(0, 0, -1);
+    this.panDir.normalize();
+    this.panSide.set(-this.panDir.z, 0, this.panDir.x);
+    const speed = KEY_PAN_SPEED * this.camera.position.distanceTo(this.controls.target) * (k.has("fast") ? 2.5 : 1);
+    const goalX = (this.panDir.x * forward + this.panSide.x * side) * speed;
+    const goalZ = (this.panDir.z * forward + this.panSide.z * side) * speed;
+    const ease = 1 - Math.exp(-dt / KEY_PAN_EASE);
+    this.panVelocity.x += (goalX - this.panVelocity.x) * ease;
+    this.panVelocity.z += (goalZ - this.panVelocity.z) * ease;
+    const dx = this.panVelocity.x * dt;
+    const dz = this.panVelocity.z * dt;
+    this.controls.target.x += dx;
+    this.controls.target.z += dz;
+    this.camera.position.x += dx;
+    this.camera.position.z += dz;
   }
 
   /** Something changed that the frame loop can't see (track, scenery, a selection, a resize): draw it (once). */
