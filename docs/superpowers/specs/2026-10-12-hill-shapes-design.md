@@ -81,26 +81,38 @@ All readers in §2 move to these queries in one step (§8 S1), with **no visual 
 
 - Only plain ramps cut. Ramps up on arches, and all other pieces, never cut.
 - A ramp may run into blocks whose top is no higher than the ramp's top end. A higher hill is still "a hill in the way" (no tunnels).
-- **The channel:** a strip as wide as the track plus 4 mm each side, along the ramp's length. Its floor is the ramp's underside, sloping with it. Everything above the floor inside the strip is removed from the blocks it crosses.
-- **No slivers:** if a cut would leave a wall thinner than 8 mm (a strip of block beside the channel), the strip is removed too. That keeps meshes sturdy and stops paper-thin walls flickering. This is decided in `HillShape`, so ground height agrees with what's drawn.
-- Several ramps may cut the same block. Cuts combine.
-- **Other track:** placement checks ground through `groundAt`. Track can sit on a channel floor only where the ramp itself sits, so the ramp's own footprint blocks other track as it does today.
-- **Trees** standing where a channel goes step aside as for any track.
+- **Shape of a cutting** (like a real railway cutting):
+  - a **bed** as wide as the track plus 4 mm each side, along the ramp's length, its floor at the ramp's underside, sloping with it;
+  - **banks** either side rising from the bed's edges at a fixed angle until they meet the hilltop;
+  - the banks get wider where the cutting is deeper, and shrink to nothing where the ramp comes up level with the hilltop.
 
-### 5.2 Geometry without 3D CSG
+  The bank angle is a tunable constant (proposed: 60° from horizontal). Set to 90°, banks are sheer walls. At 60°, a full-level-deep cutting (64 mm) spreads about 37 mm each side beyond the bed. At 45°, it spreads 64 mm, almost a whole block.
+- **Ends of the cutting:** the bed ends where the ramp ends. Beyond the top end, the hilltop is untouched, so the ramp's top meets the hilltop flush. If the top end stops short of the hilltop's height, the bank wraps round the end too, so there is never a vertical step facing the track.
+- Several ramps may cut the same blocks. Where cuttings overlap, the ground is the lower of the two.
+- **Other track:** placement checks the ground through `groundAt`. Track can't sit on the bed (the ramp is there), but can run along the hilltop beside a cutting. Track can lie on a bank only if it's on risers or a bridge, as on any lower ground.
+- **Trees** in a cutting's footprint step aside as for any track (§ trees). They can't stand on a bank, because it isn't level.
 
-The channel has vertical walls and a sloped floor, and a block is an upright prism (an outline extruded from `y0` to `y1`). So a cut block can be built exactly from 2D operations (`polygon-clipping`, already a dependency):
+### 5.2 Geometry: blocks with a surface on top (no 3D CSG)
 
-1. `rest = outline − strip` (2D difference), extruded from `y0` to `y1`: the untouched part, full height.
-2. `under = outline ∩ strip` (2D intersection), extruded from `y0` up to the channel floor, clamped to `[y0, y1]`: the part below the channel, with a sloped top.
-3. Faces are generated directly: top, bottom, outline walls, and the sloped floor. The channel walls and floor are the "sawn" faces, in natural wood with no paint.
+A cutting lowers the ground but never undercuts it. Every vertical line through a block stays solid from the block's base up to some height, then empty. So a cut block is a **column with a shaped top**:
 
-Every mesh is watertight by construction, so the holes from the first attempt can't happen. The painted top layer is built the same way: its outline is `rest` at the top level only. The core and colliders use the same `rest`/`under` pieces.
+- `top(x, z) = min(block top, cutting surface(x, z))` over the block's outline, where the cutting surface is the bed, then the banks rising from it. If `top` drops to the block's base or below, that part of the block is gone.
+- **Mesh:**
+  - The top is a fine grid over the outline (about 4 mm), heights from `top(x, z)`, clipped to the outline.
+  - The walls run down the outline (sampled at the same step) from the top to the base.
+  - The bottom is the flat outline.
+  - Watertight by construction. The holes from the first attempt can't happen.
+- **Paint:** the green top layer covers the parts of the top still at the block's top. Banks and bed are bare "sawn" wood (natural beech, no paint). Each triangle is coloured by its slope, so the change from green to wood follows the cutting's edge exactly.
+- **Core, shadows, physics:**
+  - The dark core under a cut block is lowered to stay under `top`.
+  - The shadow proxy and colliders use the same columns, at a coarser grid (colliders as a heightfield per cut block, plain boxes elsewhere).
+
+`HillShape.groundAt(x, z)` uses the same `top(x, z)`, so what's drawn and what placement sees can't disagree. Rounded corners only change the outline the grid is clipped to.
 
 ### 5.3 Updates and preview
 
-- Cuttings are worked out from the layout, plus a held ramp while one is held. Only blocks whose set of cuts changes are rebuilt.
-- 2D clipping of a handful of polygons plus extrusion is cheap. The target is under 4 ms for a held ramp crossing 4 blocks on a phone; measured in S5.
+- Cuttings are worked out from the layout, plus a held ramp while one is held. Only blocks whose `top` changes are rebuilt.
+- A cut block's mesh is a few hundred triangles, built directly. The target is under 4 ms for a held ramp crossing 4 blocks on a phone; measured in S5. If it's slower, the grid step can be coarser while the ramp is held, then refined on drop.
 - Rebuilt blocks replace their instances (hidden in the instanced mesh). Restoring a block restores its instance.
 
 ## 6. Placement and supports with the new shape
@@ -128,10 +140,11 @@ Every mesh is watertight by construction, so the holes from the first attempt ca
 - a ramp into a rounded corner
 - a ramp from level 1 to level 2
 - two ramps cutting the same block
-- a cut leaving a sliver wall (the sliver is removed)
+- a cutting with sheer walls (bank angle 90°) and with sloped banks (60°, 45°)
+- a ramp whose top end stops short of the hilltop (the bank wraps round the end)
 - a ramp into a hill that's too high (refused)
 
-**Mesh tests:** for every generated block, the mesh is closed, its volume matches the model within 0.5%, and raycasts from above at sample points hit exactly where `groundAt` says.
+**Mesh tests:** for every generated block, the mesh is closed, its volume matches the model within 0.5%, and raycasts from above at sample points hit exactly where `groundAt` says (to the grid step). Banks never overhang: going outward from the bed, the top never goes down.
 
 **Visual checks:** screenshots from fixed angles of every cut case and of a river bend beside a hill, attached to the PR for each step.
 
@@ -146,15 +159,16 @@ Each step is merged on its own, with its tests and screenshots.
 
 - **S1 — `HillShape`, no visible change.** Build the model. Move every reader in §2 to it. Tests prove identical answers.
 - **S2 — Rounded corners.** Rule, outlines, rendering, core, shadow proxy, physics colliders. All model and mesh tests pass. Screenshots of river bends.
-- **S3 — Cut model and rules.** Cut strips, the sliver rule, `groundAt` with cuts, and placement and supports allowing ramps into hills. No rendering yet: in this step, cut blocks still draw whole.
-- **S4 — Cut geometry.** 2D-clipped watertight blocks, painted tops, core, shadow and physics pieces, with mesh tests for every cut case and screenshots.
+- **S3 — Cut model and rules.** The cutting surface (bed and banks), `groundAt` with cuts, and placement and supports allowing ramps into hills. No rendering yet: in this step, cut blocks still draw whole.
+- **S4 — Cut geometry.** Columns with shaped tops, paint by slope, core, shadow and physics pieces, with mesh tests for every cut case and screenshots.
 - **S5 — Hover preview.** Held ramps show their cut, with incremental rebuilds and timing on a phone.
-- **S6 — Polish.** Sawn-face material and tone, tuning (corner radius, channel margin), and any leftovers from playtesting.
+- **S6 — Polish.** Sawn-face material and tone, tuning (corner radius, bed margin, bank angle), and any leftovers from playtesting.
 
 ## 9. Questions for review
 
 1. **Corner radius:** half a square (36 mm), as tried? Or smaller, so hills keep more of a block look?
 2. **Felt-level hills by rivers:** round these like any other corner? Or only round hills that border a river or road, so inland hills stay blocky?
-3. **Cut faces:** natural sawn wood (lighter, no paint), or the block's tone continued?
-4. **Flat cuttings:** should straights or curves also be allowed to cut a trench at a hill's top level minus one? (Today: ramps only.)
-5. **Tunnels:** out of scope here. Worth planning for later, since the model in §3 could support them?
+3. **Cut faces:** natural sawn wood (lighter, no paint), or the block's tone continued? Or green banks (grassed over, like a real cutting) with only the bed bare?
+4. **Bank angle:** 60° as proposed (about 37 mm of bank either side of a full-level cutting), steeper for a blockier look, or 45° for gentler, wider banks?
+5. **Flat cuttings:** should straights or curves also be allowed to cut a trench at a hill's top level minus one? (Today: ramps only.)
+6. **Tunnels:** out of scope here. Worth planning for later, since the model in §3 could support them?
