@@ -21,10 +21,12 @@ import { CARGO, PILE_CAP, ROLE, type CargoKind, type CargoSlot } from "../econom
 const TOUCH_LIFT_PX = 60;
 /** Loose pieces snap to this grid (mm): a quarter of a landscape square, the step between straight lengths. */
 const PLACE_GRID = CELL / 4;
-/** Placed track can be picked up only with the camera this close to what it's looking at (mm)… */
-const GRAB_ZOOM = 2500;
-/** …and only pieces this close to the camera. */
-const GRAB_REACH = 2200;
+/**
+ * Placed track can be picked up when it looks big enough on screen to take hold of: a medium straight (144 mm) at
+ * least this many pixels long. Zoomed out further, a press on track pans the view like the floor.
+ */
+const GRAB_MIN_PX = 36;
+const GRAB_PIECE_MM = 144;
 const DRAG_THRESHOLD = 6;
 /** How high a held piece floats above where it would land (mm). */
 const HOLD_LIFT = 12;
@@ -645,14 +647,16 @@ export class Interaction {
     return reason === null;
   }
 
-  /** Is a placed piece close enough to pick up: the view zoomed in, and the piece near the camera? */
+  /** Is a placed piece close enough to pick up (big enough on screen to take hold of)? */
   private withinReach(pieceId: number): boolean {
     const g = this.game;
     const p = g.layout.getPiece(pieceId);
     if (!p) return false;
-    if (g.camera.position.distanceTo(g.controls.target) > GRAB_ZOOM) return false;
     const c = pieceCentre(g.layout, pieceId);
-    return Math.hypot(c.x - g.camera.position.x, p.y - g.camera.position.y, c.z - g.camera.position.z) <= GRAB_REACH;
+    const distance = Math.hypot(c.x - g.camera.position.x, p.y - g.camera.position.y, c.z - g.camera.position.z);
+    // Screen pixels per mm at that distance.
+    const pxPerMm = g.canvas.clientHeight / (2 * distance * Math.tan((g.camera.fov * Math.PI) / 360));
+    return GRAB_PIECE_MM * pxPerMm >= GRAB_MIN_PX;
   }
 
   /** The name of a fixed piece (a town's station or a depot), or null for ordinary track. */
