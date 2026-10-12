@@ -2,7 +2,7 @@ import { InstancedMesh, Matrix4, MeshStandardMaterial } from "three";
 import { describe, expect, it } from "vitest";
 import { CELL, COLS, FEAT_TREE, generateLandscape } from "../../landscape";
 import type { Materials } from "../materials";
-import { buildTrees, MAX_LEAN, TREE_KINDS, treeKind, treePlacements, type PlaceTrees, type TreePlacement } from "./trees";
+import { buildTrees, MAX_LEAN, PLANTED_KINDS, TREE_KINDS, treeKind, treePlacements, type PlaceTrees, type TreePlacement } from "./trees";
 
 describe("treePlacements", () => {
   const land = generateLandscape(11);
@@ -43,7 +43,8 @@ describe("treeKind", () => {
       const k = treeKind((i + 0.5) / n);
       tally.set(k, (tally.get(k) ?? 0) + 1);
     }
-    for (const k of TREE_KINDS) expect(tally.get(k) ?? 0).toBeGreaterThan(0);
+    for (const k of PLANTED_KINDS) expect(tally.get(k) ?? 0).toBeGreaterThan(0);
+    expect(tally.get("autumn") ?? 0).toBe(0);
     const classic = (tally.get("fir")! + tally.get("ball")! + tally.get("discs")!) / n;
     expect(classic).toBeGreaterThanOrEqual(0.65);
     for (const k of ["bush", "rock", "willow"]) expect(tally.get(k)! / n).toBeLessThan(0.06);

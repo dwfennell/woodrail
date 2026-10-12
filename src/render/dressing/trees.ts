@@ -70,18 +70,23 @@ export function treeKind(v: number): TreeKind {
   return "rock";
 }
 
-/** Each kind's share, as cumulative upper bounds on a uniform number. */
+/**
+ * Each kind's share, as cumulative upper bounds on a uniform number. Autumn trees aren't in the mix for now: on
+ * their own among green ones they look out of season (kept for a seasons feature).
+ */
 const KIND_ODDS: readonly (readonly [TreeKind, number])[] = [
   ["fir", 0.3],
-  ["ball", 0.54],
-  ["discs", 0.7],
-  ["birch", 0.77],
-  ["apple", 0.83],
-  ["autumn", 0.9],
+  ["ball", 0.61],
+  ["discs", 0.77],
+  ["birch", 0.84],
+  ["apple", 0.9],
   ["willow", 0.94],
   ["bush", 0.975],
   ["rock", 1],
 ];
+
+/** The kinds the map plants (autumn trees are left out for now). */
+export const PLANTED_KINDS: readonly TreeKind[] = KIND_ODDS.map(([k]) => k);
 
 const BASE_H = 4;
 const TRUNK_H = 26;
