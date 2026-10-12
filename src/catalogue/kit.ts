@@ -35,7 +35,8 @@ export class Kit {
 
   /** Segments round a curve of radius `r` (mm), at most `n`. */
   private seg(n: number, r: number): number {
-    if (this.detail >= 1) return n;
+    // Few segments are a shape, not a curve (a four-sided pyramid roof, a hexagonal nut): keep them.
+    if (this.detail >= 1 || n <= 8) return n;
     return Math.max(6, Math.min(Math.ceil(n * this.detail), Math.ceil((2 * Math.PI * r) / 2.5)));
   }
 

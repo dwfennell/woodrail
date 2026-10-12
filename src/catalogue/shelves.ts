@@ -42,7 +42,18 @@ export const PROP_TABS: readonly PropTab[] = [
       },
       {
         label: "Houses & shops",
-        assets: ["bldg-cottage-row", "bldg-apartment-block", "bldg-bakery", "bldg-cafe", "bldg-post-office", "bldg-toy-shop", "bldg-market-stall", "bldg-ice-cream-kiosk", "bldg-petrol-station"],
+        assets: [
+          "bldg-townhouse",
+          "bldg-thatched-cottage",
+          "bldg-timber-house",
+          "bldg-bungalow",
+          "bldg-brick-house",
+          "bldg-narrow-house",
+          "bldg-corner-shop",
+          "bldg-terrace",
+          "bldg-semi-detached",
+          "bldg-villa",
+          "bldg-cottage-row", "bldg-apartment-block", "bldg-bakery", "bldg-cafe", "bldg-post-office", "bldg-toy-shop", "bldg-market-stall", "bldg-ice-cream-kiosk", "bldg-petrol-station"],
       },
       {
         label: "Town",

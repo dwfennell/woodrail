@@ -1429,4 +1429,212 @@ export const ASSETS: Asset[] = [
       for (const p of parts(root, "pinwheel")) p.rotation.x = t * 3;
     },
   },
+  // ——— Town houses: sized to the map's town squares (one square: about 56 × 56; two squares: about 128 × 56) ———
+  {
+    id: "bldg-townhouse",
+    name: "Townhouse",
+    category: CAT,
+    tags: ["house", "townhouse", "town", "tall", "two floors"],
+    notes: "A tall, narrow two-storey townhouse with a blue door and a little fanlight. Fits one town square; a row of them makes a high street.",
+    build: (k) => {
+      const g = house(k, 40, 30, 46, k.paint("#e7d6b8"), SLATE, 12);
+      g.add(doorX(k, TOY.blue, 20, 0, 9, 17));
+      g.add(k.cylX(k.paint("#f6e7a8"), 4, 1.6, 20.4, 18, 0, 16));
+      for (const y of [24, 36]) for (const z of [-8, 8]) g.add(winX(k, 20, y, z, 7, 9));
+      g.add(chimney(k, -12, 50, 10, 10));
+      return g;
+    },
+  },
+  {
+    id: "bldg-thatched-cottage",
+    name: "Thatched cottage",
+    category: CAT,
+    tags: ["house", "cottage", "thatch", "village", "town", "country"],
+    notes: "A low whitewashed cottage under a deep, rounded straw thatch, with roses round the door. Fits one town square, and looks at home on the edge of a village.",
+    build: (k) => {
+      const g = new Group();
+      g.add(k.box(k.paint(TOY.white), 40, 20, 34, 3));
+      // The thatch: a thick, soft-edged ridge that comes down low over the walls.
+      const thatch = k.paint("#d9b45a");
+      g.add(k.roof(thatch, 46, 42, 18, 0, 17, 0, 5));
+      g.add(k.box(thatch, 44, 4, 8, 3.5, 0, 33, 0));
+      g.add(doorX(k, TOY.green, 20, -6, 8, 15));
+      g.add(winX(k, 20, 8, 8, 8, 8));
+      for (const [y, z] of [[3, -12], [9, -12.5], [15, -11], [5, 1], [12, 0.5]] as const) g.add(k.ball(k.paint(TOY.pink), 1.6, 21, y, z));
+      g.add(chimney(k, -10, 26, -10, 12, STONE));
+      return g;
+    },
+  },
+  {
+    id: "bldg-timber-house",
+    name: "Timber-framed house",
+    category: CAT,
+    tags: ["house", "timber", "half-timbered", "tudor", "town"],
+    notes: "Cream walls criss-crossed with dark oak beams, an upper floor jutting out over the street and a steep red roof. Fits one town square.",
+    build: (k) => {
+      const g = new Group();
+      const cream = k.paint("#f0e3c6");
+      const oak = k.paint("#5b3a22");
+      g.add(k.box(cream, 36, 20, 32, 1.5));
+      // Upper floor jetties out over the front.
+      g.add(k.box(cream, 42, 18, 34, 1.5, 3, 20, 0));
+      g.add(gable(k, cream, 41.5, 34, 16, 3, 38, 0));
+      g.add(k.roof(k.paint(TOY.red), 48, 40, 19, 3, 37, 0));
+      // Beams on the front faces.
+      for (const z of [-15, -5, 5, 15]) g.add(k.box(oak, 1.6, 18, 2, 0.3, 24.2, 20, z), k.box(oak, 1.6, 20, 2, 0.3, 18.2, 0, z));
+      g.add(k.box(oak, 1.6, 2, 34, 0.3, 24.2, 19, 0), k.box(oak, 1.6, 2, 34, 0.3, 24.2, 36.5, 0));
+      for (const s of [-1, 1]) g.add(k.at(k.box(oak, 1.4, 12, 1.8, 0.3, 24.2, 23, s * 10), 0, 0, 0, 0).rotateX(s * 0.6));
+      g.add(doorX(k, "#5b3a22", 18, 0, 8, 16));
+      for (const z of [-10, 10]) g.add(winX(k, 24, 26, z, 6, 8));
+      return g;
+    },
+  },
+  {
+    id: "bldg-bungalow",
+    name: "Bungalow",
+    category: CAT,
+    tags: ["house", "bungalow", "town", "low", "garden"],
+    notes: "A wide, low house all on one floor under a hipped roof, with a front step and a window box. Fits one town square.",
+    build: (k) => {
+      const g = new Group();
+      g.add(k.box(k.paint("#c9dcef"), 40, 18, 44, 2));
+      g.add(hip(k, k.paint(BRICK), 56, 16, 0, 18, 0));
+      g.add(doorX(k, TOY.red, 20, 0, 9, 15), k.box(k.paint(STONE), 4, 1.6, 14, 0.5, 22, 0, 0));
+      for (const z of [-13, 13]) {
+        g.add(winX(k, 20, 6, z, 10, 8));
+        g.add(k.box(k.paint(TOY.green), 3, 2.6, 11, 0.6, 21.6, 4, z));
+        for (const dz of [-3, 0, 3]) g.add(k.ball(k.paint(dz === 0 ? TOY.yellow : TOY.red), 1.2, 22, 7.3, z + dz));
+      }
+      return g;
+    },
+  },
+  {
+    id: "bldg-corner-shop",
+    name: "Corner shop",
+    category: CAT,
+    tags: ["shop", "corner shop", "grocer", "town", "awning"],
+    notes: "A little grocer's with a striped awning, crates of fruit by the door and a flat above with a window box. Fits one town square.",
+    build: (k) => {
+      const g = house(k, 38, 36, 40, k.paint("#2f7a6e"), SLATE, 11);
+      g.add(doorX(k, TOY.cream, 19, 10, 8, 17));
+      g.add(k.box(k.paint(WIN), 1.6, 13, 18, 0.4, 19, 3, -6));
+      g.add(awningX(k, 19, 20, -2, 32, TOY.green, TOY.white, 6));
+      g.add(k.box(k.paint(TOY.cream), 1.4, 5, 26, 0.6, 19.6, 25, 0));
+      for (const z of [-10, 10]) g.add(winX(k, 19, 31, z, 8, 7));
+      for (const [z, c] of [[-14, TOY.orange], [-7, TOY.red], [0, TOY.yellow]] as const) {
+        g.add(k.box(k.wood, 6, 3, 6, 0.6, 25, 0, z));
+        for (const dz of [-1.3, 1.3]) g.add(k.ball(k.paint(c), 1.5, 25, 4, z + dz));
+      }
+      return g;
+    },
+  },
+  {
+    id: "bldg-narrow-house",
+    name: "Narrow gabled house",
+    category: CAT,
+    tags: ["house", "narrow", "canal house", "gable", "town", "tall"],
+    notes: "A slim house with a stepped gable to the street, like the canal houses of an old port. Three floors on one town square; a row of them in different colours is a postcard.",
+    build: (k) => {
+      const g = new Group();
+      const wall = k.paint("#c76b4f");
+      g.add(k.box(wall, 40, 52, 26, 1.5));
+      // Stepped gable on the front.
+      for (const [y, w] of [[52, 22], [57, 15], [62, 8]] as const) g.add(k.box(wall, 4, 5, w, 0.8, 18, y, 0));
+      g.add(k.roof(k.paint(SLATE), 38, 28, 12, -2, 52, 0));
+      g.add(doorX(k, TOY.black, 20, 0, 8, 16));
+      for (const y of [24, 38]) for (const z of [-6, 6]) g.add(winX(k, 20, y, z, 6, 9));
+      g.add(k.box(k.paint(TOY.white), 1.6, 5, 6, 0.4, 20.2, 56, 0));
+      return g;
+    },
+  },
+  {
+    id: "bldg-brick-house",
+    name: "Brick house with bay window",
+    category: CAT,
+    tags: ["house", "brick", "bay window", "town", "victorian"],
+    notes: "A red-brick house with a white bay window on the ground floor, a slate roof and a chimney at each end. Fits one town square.",
+    build: (k) => {
+      const g = house(k, 36, 40, 38, k.paint(BRICK), SLATE, 13);
+      // Swap the gable to face the side: a broad front with the bay.
+      g.add(k.box(k.paint(TOY.white), 6, 16, 16, 1.2, 21, 0, 6));
+      g.add(k.box(k.paint(WIN), 1.6, 9, 12, 0.4, 24.1, 4, 6));
+      g.add(k.box(k.paint(SLATE), 8, 2, 18, 0.6, 21, 16, 6));
+      g.add(doorX(k, TOY.blue, 18, -10, 8, 17));
+      for (const z of [-10, 8]) g.add(winX(k, 18, 26, z, 8, 9));
+      for (const x of [-14, 14]) g.add(chimney(k, x, 46, 0, 9));
+      return g;
+    },
+  },
+  {
+    id: "bldg-terrace",
+    name: "Terrace of three",
+    category: CAT,
+    tags: ["houses", "terrace", "row", "town", "street"],
+    notes: "Three joined houses under one long roof, each with its own colour of front door and a chimney on the ridge between them. Fits two town squares, front along the long side.",
+    build: (k) => {
+      const g = new Group();
+      const wall = k.paint("#e4d2b0");
+      g.add(k.box(wall, 34, 34, 120, 2));
+      g.add(k.at(gable(k, wall, 119.5, 34, 13, 0, 34, 0), 0, 0, 0, Math.PI / 2));
+      g.add(k.at(k.roof(k.paint(SLATE), 128, 42, 16, 0, 0, 0), 0, 32, 0, Math.PI / 2));
+      const doors = [TOY.red, TOY.blue, TOY.green];
+      for (let i = 0; i < 3; i++) {
+        const z = -40 + i * 40;
+        g.add(doorX(k, doors[i], 17, z - 8, 8, 16));
+        g.add(winX(k, 17, 6, z + 8, 9, 9), winX(k, 17, 23, z - 8, 8, 8), winX(k, 17, 23, z + 8, 8, 8));
+        if (i < 2) g.add(k.box(k.paint(TOY.cream), 1.4, 34, 1.4, 0.3, 17.4, 0, z + 20));
+      }
+      for (const z of [-20, 20]) g.add(chimney(k, 0, 45, z, 9));
+      return g;
+    },
+  },
+  {
+    id: "bldg-semi-detached",
+    name: "Semi-detached pair",
+    category: CAT,
+    tags: ["houses", "semi-detached", "pair", "town", "suburb"],
+    notes: "Two mirror-image houses sharing a wall, each with a porch and a front garden hedge. Fits two town squares, front along the long side.",
+    build: (k) => {
+      const g = new Group();
+      const halves: [number, string, string][] = [
+        [-1, "#d8e6cf", TOY.red],
+        [1, "#f2dcc2", TOY.blue],
+      ];
+      for (const [s, wall, door] of halves) {
+        const zc = s * 28;
+        g.add(k.box(k.paint(wall), 36, 34, 56, 2, -4, 0, zc));
+        g.add(doorX(k, door, 14, zc - s * 18, 8, 16));
+        g.add(k.box(k.paint(TOY.white), 6, 2, 14, 0.6, 16, 18, zc - s * 18));
+        g.add(winX(k, 14, 6, zc + s * 6, 12, 9), winX(k, 14, 23, zc - s * 14, 8, 8), winX(k, 14, 23, zc + s * 6, 10, 8));
+        g.add(k.box(k.paint(TOY.leaf), 4, 6, 22, 2, 22, 0, zc + s * 10));
+      }
+      // A hipped roof over each half, joined along the ridge.
+      for (const z of [-30, 30]) g.add(hip(k, k.paint(BRICK), 44, 14, -4, 34, z));
+      g.add(k.box(k.paint(BRICK), 30, 6, 60, 2, -4, 34, 0));
+      g.add(chimney(k, -4, 40, 0, 9));
+      return g;
+    },
+  },
+  {
+    id: "bldg-villa",
+    name: "Villa",
+    category: CAT,
+    tags: ["house", "villa", "grand", "town", "porch", "columns"],
+    notes: "A grand pale villa with a columned porch, tall windows, a hipped roof and a chimney at each end. The finest house in town; fits two town squares.",
+    build: (k) => {
+      const g = new Group();
+      const wall = k.paint("#efe7d6");
+      g.add(k.box(wall, 40, 38, 104, 2));
+      g.add(k.box(k.paint(STONE), 42, 2, 106, 0.6, 0, 18, 0));
+      for (const z of [-30, 30]) g.add(hip(k, k.paint(SLATE), 48, 16, 0, 38, z));
+      g.add(k.box(k.paint(SLATE), 36, 6, 60, 2, 0, 38, 0));
+      // The porch: four columns and a pediment.
+      for (const z of [-14, -5, 5, 14]) g.add(k.cyl(k.paint(TOY.white), 2, 22, 26, 0, z, 2, 12));
+      g.add(k.box(k.paint(TOY.white), 12, 3, 34, 1, 25, 22, 0), k.at(k.extrude(k.paint(TOY.white), [[-17, 0], [17, 0], [0, 8]], 10, 0, 0, 0, 0.6), 25, 25, 0, Math.PI / 2));
+      g.add(doorX(k, "#2b5b3a", 20, 0, 10, 20));
+      for (const z of [-40, -26, 26, 40]) g.add(winX(k, 20, 4, z, 8, 13), winX(k, 20, 24, z, 8, 11));
+      for (const z of [-46, 46]) g.add(chimney(k, 0, 46, z, 10, STONE));
+      return g;
+    },
+  },
 ];
