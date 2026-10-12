@@ -1,8 +1,8 @@
-import type { CarKind } from "../sim";
+import type { CarKind, CarLook } from "../sim";
 import type { PieceTypeId } from "../track";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 
-export type TrayItem = { kind: "piece"; type: PieceTypeId; label: string } | { kind: "train"; cars: CarKind[]; label: string };
+export type TrayItem = { kind: "piece"; type: PieceTypeId; label: string } | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string };
 
 export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "straight-216", label: "Long" },
@@ -35,10 +35,17 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["engine", "hopper", "passenger", "caboose"], label: "Full train" },
   { kind: "train", cars: ["engine", "timber", "timber", "timber"], label: "Timber train" },
   { kind: "train", cars: ["engine"], label: "Engine" },
+  { kind: "train", cars: ["engine"], looks: ["tank"], label: "Tank engine" },
+  { kind: "train", cars: ["engine"], looks: ["diesel"], label: "Diesel" },
+  { kind: "train", cars: ["engine"], looks: ["electric"], label: "Electric" },
   { kind: "train", cars: ["hopper"], label: "Coal wagon" },
   { kind: "train", cars: ["timber"], label: "Timber wagon" },
   { kind: "train", cars: ["passenger"], label: "Coach" },
+  { kind: "train", cars: ["passenger"], looks: ["dining"], label: "Dining car" },
+  { kind: "train", cars: ["passenger"], looks: ["sleeper"], label: "Sleeper" },
+  { kind: "train", cars: ["passenger"], looks: ["double-decker"], label: "Double-decker" },
   { kind: "train", cars: ["caboose"], label: "Caboose" },
+  { kind: "train", cars: ["caboose"], looks: ["bay-window"], label: "Bay-window caboose" },
 ];
 
 /** A shelf of the tray: a few related items behind one button. */
@@ -60,7 +67,9 @@ export const TRACK_GROUPS: TrayGroup[] = [
 
 export const TRAIN_GROUPS: TrayGroup[] = [
   { label: "Trains", items: TRAIN_ITEMS.slice(0, 2) },
-  { label: "Engine & wagons", items: TRAIN_ITEMS.slice(2) },
+  { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
+  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber")) },
+  { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
 export interface HudHandlers {

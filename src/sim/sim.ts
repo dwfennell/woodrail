@@ -1,5 +1,5 @@
 import { getPieceDef, type Layout } from "../track";
-import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type Pole } from "./cars";
+import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
   ADV_OK,
@@ -227,6 +227,18 @@ export class Sim {
 
   removeTrain(id: number): boolean {
     return this.trains.delete(id);
+  }
+
+  /** Each car's look, by id (it follows the car when it's picked up and put down again, as ids do). */
+  private readonly looks = new Map<number, CarLook>();
+
+  setLook(carId: number, look: CarLook): void {
+    if (look === "classic") this.looks.delete(carId);
+    else this.looks.set(carId, look);
+  }
+
+  lookOf(carId: number): CarLook {
+    return this.looks.get(carId) ?? "classic";
   }
 
   setLever(carId: number, lever: -1 | 0 | 1): boolean {

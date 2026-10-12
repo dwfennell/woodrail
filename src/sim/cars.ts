@@ -22,6 +22,20 @@ export const CAR_SPECS: Record<CarKind, CarSpec> = {
   timber: { kind: "timber", index: 4, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
 };
 
+/**
+ * How a car looks: the same car underneath (length, speed, what it carries), in a different body. Each kind's first
+ * look is its usual one.
+ */
+export type CarLook = "classic" | "tank" | "diesel" | "electric" | "dining" | "sleeper" | "double-decker" | "bay-window";
+export const CAR_LOOKS: Record<CarKind, readonly CarLook[]> = {
+  engine: ["classic", "tank", "diesel", "electric"],
+  hopper: ["classic"],
+  passenger: ["classic", "dining", "sleeper", "double-decker"],
+  caboose: ["classic", "bay-window"],
+  timber: ["classic"],
+};
+export const ALL_CAR_LOOKS: readonly CarLook[] = ["classic", "tank", "diesel", "electric", "dining", "sleeper", "double-decker", "bay-window"];
+
 /** In snapshot-index order. */
 export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber"];
 

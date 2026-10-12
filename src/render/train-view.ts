@@ -1,6 +1,6 @@
 import { Color, Group, MeshStandardMaterial, Quaternion, Vector3, type Object3D } from "three";
 import type { CarPose } from "../physics/derail-physics";
-import { CAR_KINDS, type SimSnapshot } from "../sim";
+import { CAR_KINDS, type CarLook, type SimSnapshot } from "../sim";
 import type { Materials } from "./materials";
 import { buildCarModel, carVariant, disposeObject, WHEEL_RADIUS, type CarModel } from "./train-models";
 
@@ -20,6 +20,8 @@ const LAMP_COLORS: Record<number, [Color, number]> = {
 
 /** Draws cars from a SimSnapshot. Picking: `carAt(object)` returns the car id of a hit, or -1. */
 export class TrainView {
+  /** Each car's look (see `Sim.lookOf`). */
+  lookOf: (carId: number) => CarLook = () => "classic";
   readonly group = new Group();
   private readonly cars = new Map<number, CarEntry>();
 
@@ -43,7 +45,7 @@ export class TrainView {
       if (!entry) {
         const kind = CAR_KINDS[snap.kinds[i]];
         // The colour scheme follows the car (its id survives being picked up and put down), not the order models were built.
-        const model = buildCarModel(kind, this.mats, carVariant(kind, id));
+        const model = buildCarModel(kind, this.mats, carVariant(kind, id), this.lookOf(id));
         model.root.traverse((obj) => (obj.userData.carId = id));
         if (model.lamp) model.lamp.userData.ownsMaterial = true;
         this.group.add(model.root);

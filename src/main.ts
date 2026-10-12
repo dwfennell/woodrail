@@ -37,7 +37,7 @@ function boot(): void {
     game.renderer,
     game.mats,
     [...TRACK_ITEMS, ...TRAIN_ITEMS].map((item) =>
-      item.kind === "piece" ? { key: trayKey(item), kind: "piece" as const, type: item.type } : { key: trayKey(item), kind: "train" as const, cars: item.cars },
+      item.kind === "piece" ? { key: trayKey(item), kind: "piece" as const, type: item.type } : { key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks },
     ),
   );
 

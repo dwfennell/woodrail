@@ -2,7 +2,7 @@ import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
 import { createEconomy, depotPieceType, type World } from "../game/world";
 import { generateLandscape } from "../landscape";
-import { CAR_KINDS, Sim, type CarKind } from "../sim";
+import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import { CARGO, CARGO_KINDS, PILE_CAP, ROLE, WAGON_CAPACITY, type CargoKind } from "../economy";
 import { getPieceDef, isBridge, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
 
@@ -31,6 +31,7 @@ const trainSchema = z.object({
         kind: z.enum(CAR_KINDS as unknown as [CarKind, ...CarKind[]]),
         facing: z.union([z.literal(1), z.literal(-1)]),
         lever: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
+        look: z.enum(ALL_CAR_LOOKS as unknown as [CarLook, ...CarLook[]]).optional(),
         cargo: z.object({ kind: z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]]), count: z.number().int().min(1).max(WAGON_CAPACITY) }).optional(),
       }),
     )
@@ -81,7 +82,8 @@ export function serializeWorld(world: World): SaveData {
     return {
       cars: t.cars.map((c) => {
         const cargo = world.economy.cargoOf(c.id);
-        return { kind: c.kind, facing: c.facing, lever: c.lever, ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
+        const look = sim.lookOf(c.id);
+        return { kind: c.kind, facing: c.facing, lever: c.lever, ...(look !== "classic" ? { look } : {}), ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
       }),
       lead: { ...t.bogies[0] },
     };
@@ -156,6 +158,8 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     const train = sim.getTrain(placed.trainId)!;
     train.cars.forEach((car, i) => {
       if (t.cars[i].facing === -1) sim.flipCar(car.id);
+      const look = t.cars[i].look;
+      if (look && CAR_LOOKS[car.kind].includes(look)) sim.setLook(car.id, look);
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
       const cargo = t.cars[i].cargo;
       if (cargo && car.kind === "timber") economy.setCargo(car.id, cargo.kind, cargo.count);

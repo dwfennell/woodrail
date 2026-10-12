@@ -6,7 +6,7 @@ import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } f
 import { setRim } from "../render/materials";
 import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
-import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
+import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, bridgeLevels, CELL, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { findOverlap, findSnap, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
@@ -59,7 +59,7 @@ type Press =
   | { kind: "cargo"; slot: CargoSlot; cargo: CargoKind };
 
 /** A car held in the hand: what it is, which way it faces, its lever, and (when picked up) its id and load. */
-type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; cargo?: { kind: CargoKind; count: number } };
+type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; look?: CarLook; cargo?: { kind: CargoKind; count: number } };
 
 type Mode =
   | { kind: "idle" }
@@ -251,7 +251,7 @@ export class Interaction {
     } else {
       // Ids now, so the train in the hand wears the colours it will have on the track.
       const ids = this.game.sim.newCarIds(item.cars.length);
-      const cars = item.cars.map((kind, i) => ({ kind, facing: 1 as const, lever: 0 as const, id: ids[i] }));
+      const cars = item.cars.map((kind, i) => ({ kind, facing: 1 as const, lever: 0 as const, id: ids[i], look: item.looks?.[i] ?? ("classic" as const) }));
       this.mode = { kind: "drag-train", pointerId: e.pointerId, cars, origin: null, ghost: this.trainGhost(cars), target: null, overTray: true };
     }
   }
@@ -1013,7 +1013,7 @@ export class Interaction {
     // The load goes with the train in the hand, so it survives the cars being off the track for a moment.
     const cars: HeldCar[] = t.cars.map((c) => {
       const cargo = this.game.economy.cargoOf(c.id);
-      return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
+      return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, look: sim.lookOf(c.id), ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
     });
     const origin = t.derailed ? null : { ...t.bogies[0] };
     sim.removeTrain(t.id);
@@ -1069,7 +1069,7 @@ export class Interaction {
     const t = sim.getTrain(id)!;
     const theirs: HeldCar[] = t.cars.map((c) => {
       const cargo = this.game.economy.cargoOf(c.id);
-      return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
+      return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, look: sim.lookOf(c.id), ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
     });
     const lead = { ...t.bogies[0] };
     const together = front ? [...cars, ...theirs] : [...theirs, ...cars];
@@ -1094,6 +1094,7 @@ export class Interaction {
     if (r.kind !== "placed") return false;
     const t = sim.getTrain(r.trainId)!;
     t.cars.forEach((car, i) => {
+      sim.setLook(car.id, cars[i].look ?? "classic");
       if (cars[i].facing === -1) sim.flipCar(car.id);
       if (car.kind === "engine") sim.setLever(car.id, cars[i].lever);
       const cargo = cars[i].cargo;
@@ -1102,13 +1103,13 @@ export class Interaction {
     return true;
   }
 
-  private trainGhost(cars: { kind: CarKind; facing: 1 | -1; id?: number }[]): Group {
+  private trainGhost(cars: { kind: CarKind; facing: 1 | -1; id?: number; look?: CarLook }[]): Group {
     const g = new Group();
     let x = 0;
     cars.forEach((c, i) => {
       const spec = CAR_SPECS[c.kind];
       if (i > 0) x -= COUPLER_GAP + spec.length / 2;
-      const model = buildCarModel(c.kind, this.game.mats, carVariant(c.kind, c.id ?? i)).root;
+      const model = buildCarModel(c.kind, this.game.mats, carVariant(c.kind, c.id ?? i), c.look).root;
       model.position.x = x - (i === 0 ? spec.length / 2 - spec.bogieInset : 0);
       if (c.facing === -1) model.rotation.y = Math.PI;
       g.add(model);

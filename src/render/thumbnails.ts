@@ -14,7 +14,7 @@ import {
   type Object3D,
   type WebGLRenderer,
 } from "three";
-import { CAR_SPECS, COUPLER_GAP, type CarKind } from "../sim";
+import { CAR_SPECS, COUPLER_GAP, type CarKind, type CarLook } from "../sim";
 import { isBridge, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
 import { buildCarModel, disposeObject } from "./train-models";
@@ -24,14 +24,14 @@ const W = 176;
 const H = 144;
 const VIEW = new Vector3(0.95, 1.25, 1.35).normalize();
 
-export type ThumbnailSubject = { key: string; kind: "piece"; type: PieceTypeId } | { key: string; kind: "train"; cars: readonly CarKind[] };
+export type ThumbnailSubject = { key: string; kind: "piece"; type: PieceTypeId } | { key: string; kind: "train"; cars: readonly CarKind[]; looks?: readonly CarLook[] };
 
-function trainModel(cars: readonly CarKind[], mats: Materials): Group {
+function trainModel(cars: readonly CarKind[], mats: Materials, looks: readonly CarLook[] = []): Group {
   const g = new Group();
   let x = 0;
   cars.forEach((kind, i) => {
     const spec = CAR_SPECS[kind];
-    const model = buildCarModel(kind, mats, i).root;
+    const model = buildCarModel(kind, mats, i, looks[i]).root;
     x -= (i === 0 ? 0 : COUPLER_GAP) + spec.length / 2;
     model.position.x = x;
     x -= spec.length / 2;
@@ -75,7 +75,7 @@ export function renderThumbnails(renderer: WebGLRenderer, mats: Materials, subje
       mesh.rotation.y = 0.5;
       subject = mesh;
     } else {
-      subject = trainModel(s.cars, mats);
+      subject = trainModel(s.cars, mats, s.looks);
       subject.rotation.y = 0.35;
     }
     scene.add(subject);

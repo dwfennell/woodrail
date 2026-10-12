@@ -163,6 +163,7 @@ export class Game {
     this.hillsFor = null;
     this.syncHillPhysics();
     this.trainView = new TrainView(this.mats);
+    this.trainView.lookOf = (id) => this.sim.lookOf(id);
     this.scene.add(this.trainView.group);
     this.depotView = new DepotView(this.mats);
     this.scene.add(this.depotView.group);

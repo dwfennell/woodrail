@@ -140,6 +140,16 @@ describe("economy in saves", () => {
     expect(w.economy.delivered.get(1)).toBe(9);
   });
 
+  it("round-trips each car's look", () => {
+    const world = timberWorld();
+    const t = world.sim.getTrain(world.sim.trainIds()[0])!;
+    world.sim.setLook(t.cars[0].id, "diesel");
+    const w = roundTrip(world);
+    const looks = (x: World) => x.sim.trainIds().flatMap((id) => x.sim.getTrain(id)!.cars.map((c) => x.sim.lookOf(c.id)));
+    expect(looks(w)).toEqual(looks(world));
+    expect(looks(w)[0]).toBe("diesel");
+  });
+
   it("loads piles a depot doesn't use as empty", () => {
     const world = timberWorld();
     const data = serializeWorld(world);
