@@ -115,6 +115,7 @@ export class Game {
     TrackView.warmBridges(PIECE_TYPES);
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
+    this.landscapeView.syncTrees(this.layout);
     this.trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
@@ -149,6 +150,7 @@ export class Game {
     this.landscapeView.dispose();
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
+    this.landscapeView.syncTrees(this.layout);
     this.scene.remove(this.trackView.group);
     this.trackView.dispose();
     (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
@@ -170,6 +172,7 @@ export class Game {
   /** Call after any layout edit. */
   trackChanged(): void {
     this.trackView.sync();
+    this.landscapeView.syncTrees(this.layout);
     this.economy.prune();
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.physics.markTrackDirty();

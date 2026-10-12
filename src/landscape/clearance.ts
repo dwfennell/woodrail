@@ -1,10 +1,10 @@
 import { createSample, getPieceDef, isBridge, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
-import { CELL, COLS, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, FEAT_TREE, MAT_DEPTH, MAT_WIDTH, ROWS, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
+import { CELL, COLS, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, MAT_DEPTH, MAT_WIDTH, ROWS, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
 import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
-export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "tree" | "field" | "shed" | "depot" | "off-mat" | "piece" | "unsupported";
+export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "field" | "shed" | "depot" | "off-mat" | "piece" | "unsupported";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -13,7 +13,6 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   town: "Keep the track out of town",
   river: "Needs a bridge over the river",
   hill: "Too low — the hill is in the way",
-  tree: "A tree is in the way",
   field: "That's a farm field — go around it",
   shed: "The engine shed is in the way",
   depot: "The depot is in the way",
@@ -29,7 +28,6 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   town: { kind: "blocked", reason: "town" },
   river: { kind: "blocked", reason: "river" },
   hill: { kind: "blocked", reason: "hill" },
-  tree: { kind: "blocked", reason: "tree" },
   field: { kind: "blocked", reason: "field" },
   shed: { kind: "blocked", reason: "shed" },
   depot: { kind: "blocked", reason: "depot" },
@@ -162,7 +160,6 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
       const f = g.feature[i];
       const s = g.surface[i];
       if (f === FEAT_BUILDING) result = BLOCKED.building;
-      else if (f === FEAT_TREE) result = BLOCKED.tree;
       else if (f === FEAT_FIELD) result = BLOCKED.field;
       else if (f === FEAT_DEPOT) {
         if (inDepotFootprint(land, g.owner[i], x, z)) result = BLOCKED.depot;

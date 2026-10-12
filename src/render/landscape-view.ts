@@ -1,5 +1,6 @@
 import { BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SRGBColorSpace, type InstancedMesh, type MeshBasicMaterial } from "three";
-import { CELL, COLS, generateSurroundings, ROWS, SURF_LANE, SURF_RIVER, SURF_ROAD, type Landscape, type Town } from "../landscape";
+import { CELL, COLS, generateSurroundings, ROWS, SURF_LANE, SURF_RIVER, SURF_ROAD, treesAside, type Landscape, type Town } from "../landscape";
+import type { Layout } from "../track";
 import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF_TOP } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
 import { buildBlocks } from "./dressing/blocks";
@@ -7,7 +8,7 @@ import { buildShed, buildStation, buildTown } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltGround, buildFeltRibbons } from "./dressing/felt";
 import { buildSurroundings } from "./dressing/surroundings";
-import { buildTrees, treePlacements } from "./dressing/trees";
+import { buildTrees, treePlacements, type PlaceTrees, type TreePlacement } from "./dressing/trees";
 import { buildField } from "./dressing/fields";
 import type { Flourish } from "./flourishes";
 import type { Materials } from "./materials";
@@ -24,6 +25,8 @@ export class LandscapeView {
   private signs = new Map<number, MeshStandardMaterial>();
   private readonly signNames = new Map<number, string>();
   private connected = new Set<number>();
+  private trees: TreePlacement[] = [];
+  private placeTrees: PlaceTrees = () => {};
 
   constructor(
     private readonly land: Landscape,
@@ -74,6 +77,11 @@ export class LandscapeView {
     };
   }
 
+  /** Trees step aside from track (see `treesAside`); call after the layout changes. */
+  syncTrees(layout: Layout): void {
+    this.placeTrees(treesAside(this.land.grid, layout, this.trees));
+  }
+
   /** Light the signs of connected towns. */
   setConnected(towns: ReadonlySet<number>): void {
     this.connected = new Set(towns);
@@ -103,7 +111,10 @@ export class LandscapeView {
 
     // Turned-wood toy trees, standing on whatever block they grew on.
     const trees = treePlacements(this.land);
-    this.group.add(buildTrees(trees, this.mats));
+    this.trees = trees;
+    const treeGroup = buildTrees(trees, this.mats);
+    this.placeTrees = treeGroup.userData.place as PlaceTrees;
+    this.group.add(treeGroup);
     const prints: Footprint[] = trees.map((t) => ({ x: t.x, z: t.z, y: t.y, rx: 24 * t.scale, rz: 24 * t.scale, heading: 0, strength: 1 }));
 
     for (const town of this.land.towns) {

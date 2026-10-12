@@ -71,13 +71,13 @@ describe("checkPlacement", () => {
     expect(checkPlacement(land, "ramp", false, P(0, 0), 0)).toEqual({ kind: "clear" });
   });
 
-  it("blocks buildings, trees, town squares and the mat edge", () => {
+  it("blocks buildings, town squares and the mat edge, but not trees (they step aside)", () => {
     const land = flat();
     setCells(land, 60, 80, -10, 10, (i) => (land.grid.feature[i] = FEAT_BUILDING));
     expect(checkPlacement(land, "straight-216", false, P(0, 0), 0)).toEqual({ kind: "blocked", reason: "building" });
     const t = flat();
     setCells(t, 60, 80, -10, 10, (i) => (t.grid.feature[i] = FEAT_TREE));
-    expect(checkPlacement(t, "straight-216", false, P(0, 0), 0)).toEqual({ kind: "blocked", reason: "tree" });
+    expect(checkPlacement(t, "straight-216", false, P(0, 0), 0)).toEqual({ kind: "clear" });
     const town = flat();
     setCells(town, 60, 80, -10, 10, (i) => (town.grid.surface[i] = SURF_TOWN));
     expect(checkPlacement(town, "straight-216", false, P(0, 0), 0)).toEqual({ kind: "blocked", reason: "town" });

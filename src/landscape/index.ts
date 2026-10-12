@@ -6,3 +6,4 @@ export * from "./slabs";
 export * from "./surroundings";
 export * from "./support";
 export * from "./crossings";
+export * from "./trees-aside";

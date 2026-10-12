@@ -97,8 +97,12 @@ function instanced(geometry: BufferGeometry, material: Material, count: number):
   return mesh;
 }
 
+/** Move trees (one spot per placement, in order; null takes a tree away) — see `buildTrees`. */
+export type PlaceTrees = (spots: readonly ({ x: number; z: number; y: number } | null)[]) => void;
+
 /**
- * Turned-wood toy trees on round wooden bases: five instanced draw calls for the whole map. `lowDetail` trees (for
+ * Turned-wood toy trees on round wooden bases: five instanced draw calls for the whole map. The group's
+ * `userData.place` (a `PlaceTrees`) moves them. `lowDetail` trees (for
  * distant scenery) have fewer facets, cheaper materials and no bases: four draws.
  */
 export function buildTrees(placements: readonly TreePlacement[], mats: Materials, lowDetail = false): Group {
@@ -137,23 +141,44 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
   const scl = new Vector3();
   const c = new Color();
   const up = new Vector3(0, 1, 0);
+  const hidden = new Matrix4().makeScale(0, 0, 0);
   const counts = { fir: 0, ball: 0, discs: 0 };
-  placements.forEach((t, i) => {
-    pos.set(t.x, t.y, t.z);
-    scl.setScalar(t.scale);
-    q.setFromAxisAngle(up, t.yaw);
-    m.compose(pos, q, scl);
-    if (!lowDetail) bases.setMatrixAt(i, m);
-    axis.set(Math.cos(t.leanDir), 0, Math.sin(t.leanDir));
-    tilt.setFromAxisAngle(axis, t.lean);
-    q.premultiply(tilt);
-    m.compose(pos, q, scl);
-    trunks.setMatrixAt(i, m);
-    const crowns = t.kind === "fir" ? firMesh : t.kind === "ball" ? ballMesh : discMesh;
+  // Each tree's crown instance (in its kind's mesh), and the colours, set once.
+  const crownOf = placements.map((t) => {
     const k = counts[t.kind]++;
-    crowns.setMatrixAt(k, m);
+    const crowns = t.kind === "fir" ? firMesh : t.kind === "ball" ? ballMesh : discMesh;
     crowns.setColorAt(k, c.set(TREE_GREENS[t.tint]));
+    return { crowns, k };
   });
+  const place = (spots: readonly ({ x: number; z: number; y: number } | null)[]) => {
+    placements.forEach((t, i) => {
+      const at = spots[i];
+      const { crowns, k } = crownOf[i];
+      if (!at) {
+        if (!lowDetail) bases.setMatrixAt(i, hidden);
+        trunks.setMatrixAt(i, hidden);
+        crowns.setMatrixAt(k, hidden);
+        return;
+      }
+      pos.set(at.x, at.y, at.z);
+      scl.setScalar(t.scale);
+      q.setFromAxisAngle(up, t.yaw);
+      m.compose(pos, q, scl);
+      if (!lowDetail) bases.setMatrixAt(i, m);
+      axis.set(Math.cos(t.leanDir), 0, Math.sin(t.leanDir));
+      tilt.setFromAxisAngle(axis, t.lean);
+      q.premultiply(tilt);
+      m.compose(pos, q, scl);
+      trunks.setMatrixAt(i, m);
+      crowns.setMatrixAt(k, m);
+    });
+    for (const mesh of [bases, trunks, firMesh, ballMesh, discMesh]) {
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+    }
+  };
+  place(placements);
+  group.userData.place = place;
   group.add(trunks, firMesh, ballMesh, discMesh);
   // Distant trees go without their base discs: too small to see through the haze.
   if (lowDetail) {
