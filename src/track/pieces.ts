@@ -41,6 +41,9 @@ export type PieceTypeId =
   | "ramp"
   | "riser"
   | "bridge"
+  | "bridge-2"
+  | "bridge-3"
+  | "bridge-curve"
   | "buffer"
   | "buffer-turnback"
   | "adapter-peg"
@@ -89,15 +92,15 @@ function straight(
   };
 }
 
-function curve(type: PieceTypeId, radius: number): PieceDef {
+function curve(type: PieceTypeId, radius: number, y = 0): PieceDef {
   return {
     type,
     connectors: [
-      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
-      { kind: "peg", pose: arcEnd(radius, CURVE_SWEEP), y: 0 },
+      { kind: "socket", pose: pose(0, 0, Math.PI), y },
+      { kind: "peg", pose: arcEnd(radius, CURVE_SWEEP), y },
     ],
     paths: [
-      { from: 0, to: 1, geom: { kind: "arc", start: pose(0, 0, 0), radius, sweep: CURVE_SWEEP, y0: 0, rise: 0 } },
+      { from: 0, to: 1, geom: { kind: "arc", start: pose(0, 0, 0), radius, sweep: CURVE_SWEEP, y0: y, rise: 0 } },
     ],
     flippable: true,
     isSwitch: false,
@@ -167,7 +170,11 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     supportHeight: 0,
   },
   riser: { type: "riser", connectors: [], paths: [], flippable: false, isSwitch: false, supportHeight: RISER_HEIGHT },
+  // Bridges stand on their own painted arches, their decks a whole number of riser heights up.
   bridge: straight("bridge", BRIDGE_LENGTH, "socket", "peg", RISER_HEIGHT),
+  "bridge-2": straight("bridge-2", BRIDGE_LENGTH, "socket", "peg", 2 * RISER_HEIGHT),
+  "bridge-3": straight("bridge-3", BRIDGE_LENGTH, "socket", "peg", 3 * RISER_HEIGHT),
+  "bridge-curve": curve("bridge-curve", LARGE_CURVE_RADIUS, RISER_HEIGHT),
   buffer: {
     type: "buffer",
     connectors: [{ kind: "socket", pose: pose(0, 0, Math.PI), y: 0 }],
@@ -195,6 +202,21 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
 };
 
 export const PIECE_TYPES = Object.keys(CATALOG) as readonly PieceTypeId[];
+
+/** How many riser heights up a bridge's deck stands on its own arches (0 for anything that isn't a bridge). */
+export function bridgeLevels(type: PieceTypeId): number {
+  switch (type) {
+    case "bridge":
+    case "bridge-curve":
+      return 1;
+    case "bridge-2":
+      return 2;
+    case "bridge-3":
+      return 3;
+    default:
+      return 0;
+  }
+}
 
 const mirrorPose = (p: Pose): Pose => pose(p.x, -p.z, normalizeAngle(-p.heading));
 

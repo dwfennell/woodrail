@@ -17,6 +17,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import polygonClipping, { type Polygon } from "polygon-clipping";
 import { ADDITION, Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
 import {
+  bridgeLevels,
   createSample,
   GROOVE_SPACING,
   GROOVE_WIDTH,
@@ -292,25 +293,60 @@ const evaluator = new Evaluator();
 evaluator.useGroups = true;
 evaluator.attributes = ["position", "normal", "uv"];
 
-/** Bridge: a painted viaduct under the deck, two round arches on three piers. */
+/** Bridge: a painted viaduct under the deck (straight or curved, one or more levels tall), two round arches on three piers. */
 function bridgeSupport(def: PieceDef): BufferGeometry {
   const path = def.paths[0].geom;
   const len = pathLength(path);
-  const block = onlyCsgAttributes(new RoundedBoxGeometry(len - 6, RISER_HEIGHT + 2, TRACK_WIDTH - 4, 3, 2).toNonIndexed());
-  block.translate(len / 2, RISER_HEIGHT / 2 - 1, 0);
-  let result = brush(block, PAINT);
+  const height = path.y0;
+  // The viaduct body: a softly rounded block swept along the deck, from just below the ground to just under the track.
+  const inset = 3;
+  const frames: Frame[] = [];
+  const steps = path.kind === "arc" ? Math.max(8, Math.ceil(len / 4)) : 1;
+  const p = createSample();
+  for (let i = 0; i <= steps; i++) {
+    const at = inset + ((len - 2 * inset) * i) / steps;
+    samplePath(path, at, p);
+    frames.push({ x: p.x, y: p.y, z: p.z, heading: p.heading, s: at });
+  }
+  let result = brush(sweep(viaductProfile(height), frames), PAINT);
+  // Arch tops a spandrel below the deck; the openings reach the ground.
   const radius = len * 0.19;
+  const archTop = height - RISER_HEIGHT / 4;
   for (const at of [0.28, 0.72]) {
+    samplePath(path, len * at, p);
     const arch = onlyCsgAttributes(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40).toNonIndexed());
     arch.rotateX(Math.PI / 2);
-    // Arch tops at three quarters of the deck height; the openings reach the ground.
-    arch.translate(len * at, RISER_HEIGHT * 0.75 - radius, 0);
-    const opening = onlyCsgAttributes(new BoxGeometry(radius * 2, RISER_HEIGHT * 0.75 - radius + 2, TRACK_WIDTH + 10).toNonIndexed());
-    opening.translate(len * at, (RISER_HEIGHT * 0.75 - radius) / 2 - 1, 0);
-    result = evaluator.evaluate(result, brush(arch), SUBTRACTION);
-    result = evaluator.evaluate(result, brush(opening), SUBTRACTION);
+    arch.translate(0, archTop - radius, 0);
+    const opening = onlyCsgAttributes(new BoxGeometry(radius * 2, archTop - radius + 2, TRACK_WIDTH + 10).toNonIndexed());
+    opening.translate(0, (archTop - radius) / 2 - 1, 0);
+    for (const g of [arch, opening]) {
+      g.rotateY(-p.heading);
+      g.translate(p.x, 0, p.z);
+      result = evaluator.evaluate(result, brush(g), SUBTRACTION);
+    }
   }
   return result.geometry;
+}
+
+/** Cross-section of a bridge's viaduct (u across, v up from the deck), corners rounded. */
+function viaductProfile(height: number): ProfilePoint[] {
+  const w = TRACK_WIDTH / 2 - 2;
+  const r = 2;
+  const top = 1;
+  const bottom = -height - 1;
+  const pts: ProfilePoint[] = [];
+  const arc = (cu: number, cv: number, a0: number, a1: number) => {
+    const n = 3;
+    for (let i = 0; i <= n; i++) {
+      const a = a0 + ((a1 - a0) * i) / n;
+      pts.push({ u: cu + r * Math.cos(a), v: cv + r * Math.sin(a), smooth: i > 0 && i < n });
+    }
+  };
+  arc(-w + r, bottom + r, Math.PI, 1.5 * Math.PI);
+  arc(w - r, bottom + r, 1.5 * Math.PI, 2 * Math.PI);
+  arc(w - r, top - r, 0, 0.5 * Math.PI);
+  arc(-w + r, top - r, 0.5 * Math.PI, Math.PI);
+  return pts;
 }
 
 function riserGeometry(): BufferGeometry {
@@ -371,7 +407,7 @@ export function buildPieceGeometry(def: PieceDef): BufferGeometry {
       ? brush(sweep(bodyProfile(), framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0)))
       : brush(flatBlockBody(def));
 
-  if (def.type === "bridge") {
+  if (bridgeLevels(def.type) > 0) {
     // Keep the viaduct's own (painted) group through the union.
     const support = new Brush(bridgeSupport(def), [PAINT, PAINT, PAINT]);
     support.updateMatrixWorld();

@@ -69,6 +69,20 @@ describe("checkSupport", () => {
     expect(s).toEqual({ kind: "held", risers: [{ pose: P(432, Z), y: 0 }] });
   });
 
+  it("track joined to a tall bridge's end is held at its deck height", () => {
+    const layout = new Layout();
+    layout.addPiece("bridge-3", P(0, Z), 0);
+    // Near end on the bridge, three risers up; the far end over the felt gets a stack of three.
+    const s = checkSupport(flat(), layout, "straight-216", false, P(216, Z), 3 * RISER_HEIGHT, -1);
+    expect(s).toEqual({ kind: "held", risers: [0, 1, 2].map((k) => ({ pose: P(432, Z), y: k * RISER_HEIGHT })) });
+  });
+
+  it("tall and curved bridges stand on the felt too", () => {
+    for (const type of ["bridge-2", "bridge-3", "bridge-curve"] as const) {
+      expect(checkSupport(flat(), new Layout(), type, false, P(0, Z), 0, -1), type).toEqual({ kind: "held", risers: [] });
+    }
+  });
+
   it("a bridge stands on the felt at both ends", () => {
     expect(checkSupport(flat(), new Layout(), "bridge", false, P(0, Z), 0, -1)).toEqual({ kind: "held", risers: [] });
   });

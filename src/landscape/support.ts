@@ -1,4 +1,4 @@
-import { getPieceDef, JOINT_POS_TOLERANCE, RISER_HEIGHT, type Layout, type PieceTypeId, type Pose } from "../track";
+import { bridgeLevels, getPieceDef, JOINT_POS_TOLERANCE, RISER_HEIGHT, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
 
 /** How close to a riser's centre a track end must be to rest on it (a riser is 46 mm across). */
@@ -37,7 +37,7 @@ function feet(type: PieceTypeId, flipped: boolean, pose: Pose): Foot[] {
   return def.connectors.map((c) => ({
     x: pose.x + c.pose.x * ch - c.pose.z * sh,
     z: pose.z + c.pose.x * sh + c.pose.z * ch,
-    dy: type === "bridge" ? 0 : c.y,
+    dy: bridgeLevels(type) > 0 ? 0 : c.y,
   }));
 }
 
@@ -58,7 +58,7 @@ function gatherHolders(layout: Layout, x: number, z: number, ignoreId: number): 
   for (const id of layout.pieceIds()) {
     if (id === ignoreId) continue;
     const p = layout.getPiece(id)!;
-    if (p.type !== "riser" && p.type !== "bridge") continue;
+    if (p.type !== "riser" && bridgeLevels(p.type) === 0) continue;
     if (Math.abs(p.pose.x - x) > r || Math.abs(p.pose.z - z) > r || layout.isLifted(id)) continue;
     holders.push(p);
   }
@@ -100,7 +100,7 @@ function restHeights(land: Landscape, near: readonly Holder[], x: number, z: num
       if (Math.hypot(p.pose.x - x, p.pose.z - z) <= RISER_REACH) out.push(p.y + RISER_HEIGHT);
     } else {
       for (const f of feet(p.type, p.flipped, p.pose)) {
-        if (Math.hypot(f.x - x, f.z - z) <= JOINT_POS_TOLERANCE) out.push(p.y + RISER_HEIGHT);
+        if (Math.hypot(f.x - x, f.z - z) <= JOINT_POS_TOLERANCE) out.push(p.y + bridgeLevels(p.type) * RISER_HEIGHT);
       }
     }
   }

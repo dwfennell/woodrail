@@ -2,7 +2,7 @@ import type RAPIER_NS from "@dimforge/rapier3d-compat";
 import { Euler, Quaternion, Vector3 } from "three";
 import type { Slab } from "../landscape";
 import { CAR_SPECS, type Train } from "../sim";
-import { createSample, getPieceDef, pathLength, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH, type Layout } from "../track";
+import { bridgeLevels, createSample, getPieceDef, pathLength, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH, type Layout } from "../track";
 
 type Rapier = typeof RAPIER_NS;
 
@@ -159,12 +159,14 @@ export class DerailPhysics {
               .setTranslation(wx * MM, (p.y + my + TRACK_THICKNESS / 2) * MM, wz * MM)
               .setRotation(q),
           );
-        }
-        if (p.type === "bridge") {
-          const q = new Quaternion().setFromEuler(new Euler(0, -p.pose.heading, 0));
-          const cx = p.pose.x + (len / 2) * ch;
-          const cz = p.pose.z + (len / 2) * sh;
-          add(R.ColliderDesc.cuboid((len / 2 - 3) * MM, (RISER_HEIGHT / 2) * MM, (half - 2) * MM).setTranslation(cx * MM, (p.y + RISER_HEIGHT / 2) * MM, cz * MM).setRotation(q));
+          // A bridge's viaduct, under the deck down to its base.
+          if (bridgeLevels(p.type) > 0) {
+            add(
+              R.ColliderDesc.cuboid((segLen / 2) * MM, (my / 2) * MM, (half - 2) * MM)
+                .setTranslation(wx * MM, (p.y + my / 2) * MM, wz * MM)
+                .setRotation(new Quaternion().setFromEuler(new Euler(0, -yaw, 0))),
+            );
+          }
         }
       }
     }

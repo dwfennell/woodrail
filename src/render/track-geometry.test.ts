@@ -1,6 +1,6 @@
 import { Box3, Raycaster, Mesh, MeshBasicMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { getPieceDef, TRACK_THICKNESS, TRACK_WIDTH } from "../track";
+import { createSample, getPieceDef, pathLength, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH } from "../track";
 import { buildPieceGeometry, GROOVE_DEPTH, PEG_HEIGHT } from "./track-geometry";
 
 function topHeightAt(geomMesh: Mesh, x: number, z: number): number | null {
@@ -14,12 +14,26 @@ const meshOf = (type: Parameters<typeof getPieceDef>[0], flipped = false) =>
 
 describe("buildPieceGeometry", () => {
   it("every piece's faces are in material groups (meshes use a body + cut material pair, which draws only grouped faces)", () => {
-    for (const type of ["riser", "straight-144", "ramp", "bridge", "switch", "crossing"] as const) {
+    for (const type of ["riser", "straight-144", "ramp", "bridge", "bridge-curve", "bridge-3", "switch", "crossing"] as const) {
       const g = buildPieceGeometry(getPieceDef(type, false));
       const count = g.index ? g.index.count : g.attributes.position.count;
       const covered = g.groups.reduce((n, gr) => n + Math.min(gr.count, count - gr.start), 0);
       expect(covered, type).toBe(count);
     }
+  });
+
+  it("bridges stand on their arches from the ground up to their deck, curved ones along the curve", () => {
+    for (const [type, levels] of [["bridge", 1], ["bridge-2", 2], ["bridge-3", 3], ["bridge-curve", 1]] as const) {
+      const box = new Box3().setFromObject(meshOf(type));
+      expect(box.min.y, type).toBeLessThan(0);
+      expect(box.max.y, type).toBeCloseTo(levels * RISER_HEIGHT + TRACK_THICKNESS, 0);
+    }
+    // Under the middle of the curve (off the straight line between its ends) there is viaduct, below the deck.
+    const curve = meshOf("bridge-curve");
+    const mid = getPieceDef("bridge-curve", false).paths[0].geom;
+    const s = createSample();
+    samplePath(mid, pathLength(mid) * 0.5, s);
+    expect(topHeightAt(curve, s.x, s.z)).toBeGreaterThan(RISER_HEIGHT);
   });
 
   it("straight spans its length plus the peg, full width and thickness", () => {

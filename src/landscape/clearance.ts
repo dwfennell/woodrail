@@ -1,4 +1,4 @@
-import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
+import { bridgeLevels, createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
 import { FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, FEAT_TREE, SURF_RIVER, SURF_ROAD, SURF_TOWN } from "./grid";
 import { STATION_LENGTH, type Landscape } from "./generate";
 
@@ -105,7 +105,7 @@ function inFixedFootprint(centre: { x: number; z: number }, heading: number, x: 
 /** Can a piece be placed here? Called on every pointer move while dragging. */
 export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): Clearance {
   const g = land.grid;
-  const isBridge = type === "bridge";
+  const isBridge = bridgeLevels(type) > 0;
   let result = CLEAR;
   forEachSample(type, flipped, pose, (x, z, trackY) => {
     const i = g.cellAtWorld(x, z);
