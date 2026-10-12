@@ -48,8 +48,9 @@ function woodMaterial(t: SurfaceTextures, bump: number): MeshPhysicalMaterial {
     bumpMap: t.bumpMap,
     bumpScale: bump,
     roughness: 1,
-    clearcoat: 0.35,
-    clearcoatRoughness: 0.45,
+    // A thin satin finish: sheen without mirror-like highlights.
+    clearcoat: 0.15,
+    clearcoatRoughness: 0.6,
     sheen: 0.15,
     sheenRoughness: 0.6,
     sheenColor: new Color("#fff1dc"),
@@ -78,9 +79,10 @@ export function createMaterials(anisotropy: number): Materials {
     if (!m) {
       m = new MeshPhysicalMaterial({
         color: new Color(color),
-        roughness: 0.38,
-        clearcoat: 1,
-        clearcoatRoughness: 0.12,
+        // Satin toy paint: a soft highlight, not a glossy one (strong highlights washed reds out to pink).
+        roughness: 0.55,
+        clearcoat: 0.3,
+        clearcoatRoughness: 0.35,
         bumpMap: beech.bumpMap,
         bumpScale: 0.25,
       });
@@ -147,7 +149,7 @@ export function createMaterials(anisotropy: number): Materials {
     lacquer,
     bridgePaint: lacquer("#c8442f"),
     scenery,
-    paint: new MeshPhysicalMaterial({ vertexColors: true, roughness: 0.38, clearcoat: 1, clearcoatRoughness: 0.12, bumpMap: beech.bumpMap, bumpScale: 0.25 }),
+    paint: new MeshPhysicalMaterial({ vertexColors: true, roughness: 0.55, clearcoat: 0.3, clearcoatRoughness: 0.35, bumpMap: beech.bumpMap, bumpScale: 0.25 }),
   };
 }
 
