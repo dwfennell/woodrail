@@ -2,6 +2,7 @@ import {
   ADAPTER_LENGTH,
   DOUBLE_TRACK_SPACING,
   LOOP_RADIUS,
+  SMALL_LOOP_RADIUS,
   JOINER_LENGTH,
   BRIDGE_LENGTH,
   BUFFER_LENGTH,
@@ -68,6 +69,10 @@ export type PieceTypeId =
   | "balloon-loop"
   | "double-straight"
   | "crossover"
+  | "double-curve"
+  | "ramp-curve"
+  | "balloon-loop-small"
+  | "wye"
   | "station"
   | "depot-forest"
   | "depot-sawmill";
@@ -80,11 +85,14 @@ export interface PieceDef {
   readonly isSwitch: boolean;
   /** Height this piece provides to pieces resting on top of it (risers). 0 for track. */
   readonly supportHeight: number;
+  /** Double track: the centre line of the board between its two lines (drawing only). */
+  readonly web?: PathGeom;
 }
 
 export const MAX_CONNECTORS = 4;
 
 const pose = (x: number, z: number, heading: number): Pose => ({ x, z, heading });
+const offsetPose = (p: Pose, dx: number, dz: number): Pose => ({ x: p.x + dx, z: p.z + dz, heading: p.heading });
 
 function arcEnd(radius: number, sweep: number): Pose {
   const a = Math.abs(sweep);
@@ -315,6 +323,70 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     flippable: true,
     isSwitch: false,
     supportHeight: 0,
+    web: { kind: "line", start: pose(0, DOUBLE_TRACK_SPACING / 2, 0), length: 216, y0: 0, rise: 0 },
+  },
+  // Double track round an eighth of a turn: the two lines on concentric curves, still a square apart.
+  "double-curve": {
+    type: "double-curve",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS + DOUBLE_TRACK_SPACING, CURVE_SWEEP), y: 0 },
+      { kind: "socket", pose: pose(0, DOUBLE_TRACK_SPACING, Math.PI), y: 0 },
+      { kind: "peg", pose: offsetPose(arcEnd(LARGE_CURVE_RADIUS, CURVE_SWEEP), 0, DOUBLE_TRACK_SPACING), y: 0 },
+    ],
+    paths: [
+      { from: 0, to: 1, geom: { kind: "arc", start: pose(0, 0, 0), radius: LARGE_CURVE_RADIUS + DOUBLE_TRACK_SPACING, sweep: CURVE_SWEEP, y0: 0, rise: 0 } },
+      { from: 2, to: 3, geom: { kind: "arc", start: pose(0, DOUBLE_TRACK_SPACING, 0), radius: LARGE_CURVE_RADIUS, sweep: CURVE_SWEEP, y0: 0, rise: 0 } },
+    ],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+    web: { kind: "arc", start: pose(0, DOUBLE_TRACK_SPACING / 2, 0), radius: LARGE_CURVE_RADIUS + DOUBLE_TRACK_SPACING / 2, sweep: CURVE_SWEEP, y0: 0, rise: 0 },
+  },
+  // A ramp round a quarter turn (two large curves' worth), up one level: for spiralling up a hill.
+  "ramp-curve": {
+    type: "ramp-curve",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS, 2 * CURVE_SWEEP), y: RISER_HEIGHT },
+    ],
+    paths: [{ from: 0, to: 1, geom: { kind: "arc", start: pose(0, 0, 0), radius: LARGE_CURVE_RADIUS, sweep: 2 * CURVE_SWEEP, y0: 0, rise: RISER_HEIGHT } }],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  },
+  // A tighter turning loop: peels off on the tight curve round a smaller circle (still longer round than a train).
+  "balloon-loop-small": {
+    type: "balloon-loop-small",
+    connectors: [{ kind: "socket", pose: pose(0, 0, Math.PI), y: 0 }],
+    paths: [
+      {
+        from: 0,
+        to: 0,
+        geom: { kind: "loop", start: pose(0, 0, 0), radius: SMALL_CURVE_RADIUS, sweep: -Math.acos(SMALL_CURVE_RADIUS / (SMALL_CURVE_RADIUS + SMALL_LOOP_RADIUS)), loopRadius: SMALL_LOOP_RADIUS, y0: 0, rise: 0 },
+      },
+    ],
+    flippable: true,
+    isSwitch: false,
+    supportHeight: 0,
+  },
+  // A wye: a trunk splitting into a quarter turn each way, the two ends joined by a straight across, so a train can
+  // run in on one leg, reverse out along another and come back turned round. Every end is a switch (one lever).
+  wye: {
+    type: "wye",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS, 2 * CURVE_SWEEP), y: 0 },
+      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS, -2 * CURVE_SWEEP), y: 0 },
+    ],
+    paths: [
+      { from: 0, to: 1, geom: { kind: "arc", start: pose(0, 0, 0), radius: LARGE_CURVE_RADIUS, sweep: 2 * CURVE_SWEEP, y0: 0, rise: 0 } },
+      { from: 0, to: 2, geom: { kind: "arc", start: pose(0, 0, 0), radius: LARGE_CURVE_RADIUS, sweep: -2 * CURVE_SWEEP, y0: 0, rise: 0 } },
+      { from: 1, to: 2, geom: { kind: "line", start: pose(LARGE_CURVE_RADIUS, LARGE_CURVE_RADIUS, -Math.PI / 2), length: 2 * LARGE_CURVE_RADIUS, y0: 0, rise: 0 } },
+    ],
+    flippable: false,
+    isSwitch: true,
+    supportHeight: 0,
   },
   // Double track with a link across: from the first line's start, the lever sends trains on or over to the other.
   crossover: {
@@ -338,6 +410,7 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     flippable: true,
     isSwitch: true,
     supportHeight: 0,
+    web: { kind: "line", start: pose(0, DOUBLE_TRACK_SPACING / 2, 0), length: 216, y0: 0, rise: 0 },
   },
   // A turning loop: in at its one end, round, and back out the same end facing the other way.
   "balloon-loop": {
@@ -381,6 +454,7 @@ function mirror(def: PieceDef): PieceDef {
     ...def,
     connectors: def.connectors.map((c) => ({ ...c, pose: mirrorPose(c.pose) })),
     paths: def.paths.map((p) => ({ ...p, geom: mirrorGeom(p.geom) })),
+    ...(def.web ? { web: mirrorGeom(def.web) } : {}),
   };
 }
 

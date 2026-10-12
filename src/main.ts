@@ -9,6 +9,8 @@ import { connectedPairs } from "./landscape";
 import { loadFromStorage, saveToStorage } from "./persist/save";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails } from "./render/thumbnails";
+import { TrackView } from "./render/track-view";
+import { PIECE_TYPES } from "./track";
 import { Hud, TRACK_ITEMS, TRAIN_ITEMS, trayKey } from "./ui/hud";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import "./style.css";
@@ -321,5 +323,13 @@ function boot(): void {
   loading?.classList.add("done");
 }
 
-// Let the loading screen paint before the heavy texture and geometry generation.
-requestAnimationFrame(() => setTimeout(boot, 30));
+// Let the loading screen paint, carve the track pieces in background workers (several at once), then build the rest.
+requestAnimationFrame(() =>
+  setTimeout(() => {
+    const t0 = performance.now();
+    void TrackView.prebuildInWorkers(PIECE_TYPES).then(() => {
+      console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms`);
+      boot();
+    });
+  }, 30),
+);

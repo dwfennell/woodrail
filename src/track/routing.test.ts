@@ -91,6 +91,26 @@ describe("routeFrom", () => {
     expect(out.reversed).toBe(true);
   });
 
+  it("a wye: from any of its three ends, the lever picks which of the other two a train runs to", () => {
+    const l = new Layout();
+    const w = l.addPiece("wye", P(0, 0));
+    const def = getPieceDef("wye", false);
+    const out = createRouteStep();
+    const ends = (connector: number) => {
+      const t = appendPiece(l, "straight-144", false, connectorRef(w, connector));
+      const seen = new Set<number>();
+      for (const state of [0, 1]) {
+        l.setSwitchState(w, state);
+        routeFrom(l, t, 0, out);
+        const p = def.paths[out.pathIndex];
+        seen.add(out.reversed ? p.from : p.to!);
+      }
+      return [...seen].sort();
+    };
+    expect(ends(1)).toEqual([0, 2]);
+    expect(ends(2)).toEqual([0, 1]);
+  });
+
   it("always merges when entering from a branch, regardless of switch state", () => {
     const l = new Layout();
     const s = l.addPiece("switch", P(0, 0));

@@ -22,6 +22,8 @@ export const ADAPTER_LENGTH = 54;
 export const DOUBLE_TRACK_SPACING = 72;
 /** The balloon loop's big circle (mm): long enough round that a whole train is clear of the neck before it comes back. */
 export const LOOP_RADIUS = 144;
+/** The small balloon loop's circle: about 0.78 m round, still longer than a four-car train. */
+export const SMALL_LOOP_RADIUS = 108;
 /** A dog-bone joiner's two pegs stand this far apart: the two track ends it joins butt together. */
 export const JOINER_LENGTH = 1;
 

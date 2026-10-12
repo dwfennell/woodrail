@@ -378,11 +378,7 @@ function riserGeometry(): BufferGeometry {
 function flatBlockBody(def: PieceDef): BufferGeometry {
   const runs = def.paths.map((p) => framesAlong(p.geom, 0, 0));
   // Double track: one board, filled in between its two lines.
-  if (def.type === "double-straight" || def.type === "crossover") {
-    const mid = (def.connectors[0].pose.z + def.connectors[2].pose.z) / 2;
-    const len = def.connectors[1].pose.x;
-    runs.push(framesAlong({ kind: "line", start: { x: 0, z: mid, heading: 0 }, length: len, y0: 0, rise: 0 }, 0, 0));
-  }
+  if (def.web) runs.push(framesAlong(def.web, 0, 0));
   return flatBody(runs);
 }
 

@@ -388,8 +388,8 @@ describe("occupied track", () => {
 });
 
 describe("balloon loop", () => {
-  it("turns a train round: in at its end, round the loop, and back out the way it came", () => {
-    const { layout, ids } = chain(["straight-216", "straight-216", "straight-216", "balloon-loop"]);
+  it.each(["balloon-loop", "balloon-loop-small"] as const)("%s turns a train round: in at its end, round the loop, and back out the way it came", (loop) => {
+    const { layout, ids } = chain(["straight-216", "straight-216", "straight-216", loop]);
     const sim = new Sim(layout);
     const r = sim.addTrain(["engine", "passenger", "caboose"], { pieceId: ids[1], pathIndex: 0, s: 200, reversed: false });
     expect(r.kind).toBe("placed");
