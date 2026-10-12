@@ -24,6 +24,15 @@ describe("outsideDistance", () => {
 describe("generateSurroundings", () => {
   const seeds = [1, 2, 3, 7, 42, 99, 123, 500];
 
+  it("never puts scenery on the land, even with no margin (when the land around is shown up to it)", () => {
+    const land = { x0: -2 * PLOT_WIDTH, z0: -2 * PLOT_DEPTH, x1: 2 * PLOT_WIDTH, z1: 2 * PLOT_DEPTH };
+    const s = generateSurroundings(7, land, 0);
+    expect(s.blocks.length).toBeGreaterThan(0);
+    for (const b of s.blocks) expect(outsideDistance(b.x, b.z, land)).toBeGreaterThan(0);
+    for (const t of s.trees) expect(outsideDistance(t.x, t.z, land)).toBeGreaterThan(0);
+    for (const sl of s.slabs) expect(sl.x0 >= land.x1 || sl.x1 <= land.x0 || sl.z0 >= land.z1 || sl.z1 <= land.z0).toBe(true);
+  });
+
   it("is deterministic per seed and varies between seeds", () => {
     expect(generateSurroundings(42, MAT)).toEqual(generateSurroundings(42, MAT));
     expect(generateSurroundings(42, MAT).blocks).not.toEqual(generateSurroundings(43, MAT).blocks);

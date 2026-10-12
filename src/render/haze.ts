@@ -1,5 +1,5 @@
 import { Color, Fog, ShaderChunk } from "three";
-import { outsideDistance, type Rect } from "../landscape";
+import { outsideDistance, PLOT_DEPTH, PLOT_WIDTH, type Rect } from "../landscape";
 
 /**
  * Atmospheric haze for a world with no edge: three's linear fog, but measured as distance outside the land (plus a
@@ -29,8 +29,9 @@ export const CUTAWAY_FADE_START = 0.8;
 export const CUTAWAY_FADE_END = 0.95;
 
 /**
- * How much of a scenery point is cut away (0–1), as the shader decides: points outside the mat that aren't flat
- * ground (facing up, at ground level), nearer the camera (in plan) than the point it looks at.
+ * How much of a scenery point is cut away (0–1), as the shader decides: points beyond the land around (see
+ * `beyondAround`) that aren't flat ground (facing up, at ground level), nearer the camera (in plan) than the point it
+ * looks at.
  */
 export function cutawayAt(
   point: { x: number; y: number; z: number },
@@ -40,9 +41,17 @@ export function cutawayAt(
   facingUp = true,
 ): number {
   const ground = facingUp && point.y < CUTAWAY_MIN_HEIGHT;
-  if (outsideDistance(point.x, point.z, land) <= 1 || ground) return 0;
+  if (!beyondAround(point.x, point.z, land) || ground) return 0;
   const h = Math.hypot(point.x - camera.x, point.z - camera.z);
   return 1 - smoothstep(CUTAWAY_FADE_START, CUTAWAY_FADE_END, h / Math.max(targetPlanDistance, 1));
+}
+
+/**
+ * Is a plan point beyond the land shown around the land (a plot's width or depth out)? Only scenery out there is ever
+ * cut away: the land around is no taller than the land itself.
+ */
+export function beyondAround(x: number, z: number, land: Rect): boolean {
+  return Math.max(land.x0 - x, x - land.x1) > PLOT_WIDTH || Math.max(land.z0 - z, z - land.z1) > PLOT_DEPTH;
 }
 
 const smoothstep = (a: number, b: number, x: number) => {
@@ -96,14 +105,14 @@ export function installHaze(): void {
   // The land: x from fogNear to fogFar, z from fogColor.r to fogColor.g.
   vec2 hazeOut = max(max(vec2(fogNear, fogColor.r) - vHaze.xy, vHaze.xy - vec2(fogFar, fogColor.g)), 0.0);
   float hazeOutside = length(hazeOut);
-  // Cutaway: scenery outside the mat, standing above the ground and between the camera and the point it looks at,
+  // Cutaway: scenery beyond the land around, standing above the ground and between the camera and the point it looks at,
   // dithers away so it never walls off the view. (The camera always looks at its target, on the ground: find it
   // along the view direction.)
   // Only the felt ground stays: flat (facing straight up) and at ground level. Block sides, bevels and tops all go.
   vec3 hazeWorldPos = vec3(vHaze.x, vHaze.w, vHaze.y);
   vec3 hazeNormal = normalize(cross(dFdx(hazeWorldPos), dFdy(hazeWorldPos)));
   bool hazeGround = abs(hazeNormal.y) > 0.95 && vHaze.w < ${CUTAWAY_MIN_HEIGHT.toFixed(1)};
-  if (hazeOutside > 1.0 && !hazeGround) {
+  if ((hazeOut.x > ${f(PLOT_WIDTH)} || hazeOut.y > ${f(PLOT_DEPTH)}) && !hazeGround) {
     vec3 hazeFwd = -vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
     if (hazeFwd.y < -0.01) {
       float hazeT = cameraPosition.y / -hazeFwd.y;

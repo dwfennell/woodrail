@@ -1,7 +1,7 @@
 # Woodrail — Expandable World: Plots and a Saved Landscape Design
 
 **Date:** 2026-10-12
-**Status:** Draft (user approved plot size, free expansion and a saved landscape in chat, 2026-10-12)
+**Status:** Implemented (user approved plot size, free expansion and a saved landscape in chat, 2026-10-12). See §11 for where the build differs from the plan.
 **Builds on:** `2026-10-10-bigger-world-design.md`, `2026-10-11-grid-72-design.md`, `2026-10-12-hill-shapes-design.md`
 
 ## 1. Goal
@@ -204,3 +204,40 @@ else is touched.
    bounds.
 5. **Expanding:** for-sale plots, expand mode, unlocking.
 6. **Performance pass** and the measurements in §8.
+
+## 11. As built
+
+Where the implementation differs from the plan above, or settles what the plan left open:
+
+- **The land around is always shown, not just in expand mode.** Every plot within one plot of the land (diagonals
+  too, and any gap inside the land's bounding box) is drawn as its real terrain. It replaces the old ring of scenery
+  next to the mat, and the haze greys it out with distance. The countryside beyond starts outside it. Expand mode
+  adds a tint and a + badge to each plot for sale; tapping either one shows what the plot brings ("A town, a river
+  and hills.") with an "Add this land" button.
+- **Drawing the land around cheaply:** each plot's houses and shadow are built once (between frames) and merged with
+  the others into a few draws. Its blocks are bevelled only within 150 mm of the land; further out they're plain
+  beech boxes. Scenery trees use simpler crowns.
+- **Felt** is traced across the land and the land around together, so it meets itself across edges. Each region's
+  extruded felt is cached by a hash of its outline, so after an unlock only outlines that changed are extruded again.
+- **Generation:** towns, depots and fields keep `STUB_DEPTH + 1` squares from a region's edge, so a crossing's stub
+  never cuts into a station's corridor. Rivers and lanes cost more near the edge, and the main river runs through a
+  point near the middle, so rivers cross a plot rather than follow its edge. A single plot is 0–2 towns, and a plot
+  without a town always gets a depot. Depots keep 750 mm from other sites (towns still keep 900 mm from each other).
+- **Physics** still rebuilds all hill colliders together (lazily, as before); its floor is now 1 km across.
+- **Opening:** the fly-in is gone. The game opens straight onto the first train, or the first two towns with the
+  "Join …" hint.
+
+Measured (headless Chromium with software GL, so these count draws, triangles and CPU time, not phone frame times):
+
+| | main | this |
+|---|---|---|
+| Opening view | 113 draws, 650k tris | 114 draws, 1.30M tris |
+| Idle, 5 s | 0 frames drawn | 0 frames drawn |
+| `checkPlacement` (node) | 24.3 µs | 27.8 µs |
+| Start region generation (node) | 10 ms | 17 ms |
+| One plot's generation (node) | — | 3.8 ms |
+| Adding a plot | — | 100–140 ms |
+
+The extra triangles come from the land around being real terrain. They could come down with per-plot culling of
+the land around, at the cost of more draws when zoomed out. Adding a plot misses the 100 ms target on this
+software renderer; most of what's left is merging the land around again and building the new plot's blocks.

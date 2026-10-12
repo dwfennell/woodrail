@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Mesh, MeshBasicMaterial, Raycaster, Vector3, type BufferGeometry } from "three";
 import { blockOutline, hillsOf, insideBlock, gridWithPlots, SURF_RIVER, syncCuttings, type Landscape } from "../../landscape";
 import { Layout, RISER_HEIGHT } from "../../track";
-import { columnGeometry, cutColumn } from "./hill-cuts";
+import { columnGeometry, cutColumn, HillCutsView } from "./hill-cuts";
 
 /** Signed volume (positive when faces point out) and how many edges aren't shared by exactly two triangles. */
 function solidity(g: BufferGeometry): { volume: number; openEdges: number } {
@@ -154,4 +154,17 @@ describe("hill blocks cut by ramps' cuttings", () => {
       }
     });
   }
+});
+
+describe("HillCutsView when plots are built again", () => {
+  it("replaces their core and shadow rather than adding more", () => {
+    const grid = gridWithPlots(-1, -1, 2, 2);
+    for (let x = 180; x < 900; x += 72) for (let z = -300; z < 300; z += 72) grid.height[grid.cellAtWorld(x, z)] = 2;
+    const view = new HillCutsView(grid, { wood: new MeshBasicMaterial(), top: new MeshBasicMaterial() }, new Map());
+    const before = view.group.children.length;
+    expect(before).toBeGreaterThan(0);
+    view.plotsRebuilt([0, 1, 2, 3]);
+    view.plotsRebuilt([3]);
+    expect(view.group.children.length).toBe(before);
+  });
 });

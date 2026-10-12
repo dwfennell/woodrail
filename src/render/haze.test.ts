@@ -1,7 +1,7 @@
 import { Fog, ShaderChunk } from "three";
 import { describe, expect, it } from "vitest";
 import { PLOT_DEPTH, PLOT_WIDTH } from "../landscape";
-import { cutawayAt, HAZE_FAR, HAZE_NEAR, hazeAt, hazeFog, installHaze, setHazeLand } from "./haze";
+import { beyondAround, cutawayAt, HAZE_FAR, HAZE_NEAR, hazeAt, hazeFog, installHaze, setHazeLand } from "./haze";
 
 const MAT_WIDTH = 2 * PLOT_WIDTH;
 const MAT_DEPTH = 2 * PLOT_DEPTH;
@@ -44,8 +44,9 @@ describe("haze", () => {
   });
 
   describe("cutaway", () => {
-    // Camera out beyond the +x edge of the mat, looking back at a point 600 mm inside it.
-    const edge = MAT_WIDTH / 2;
+    // Camera out beyond the +x edge of the land around (a plot past the land's), looking back at a point 600 mm
+    // inside it.
+    const edge = MAT_WIDTH / 2 + PLOT_WIDTH;
     const camera = { x: edge + 1200, z: 0 };
     const target = { x: edge - 600, z: 0 };
     const targetPlan = Math.hypot(target.x - camera.x, target.z - camera.z);
@@ -60,6 +61,16 @@ describe("haze", () => {
       // …but the foot of a block's side (not facing up) does go, so no outline of the blocks is left behind.
       expect(cutawayAt({ x: edge + 300, y: 1, z: 0 }, camera, targetPlan, MAT, false)).toBe(1);
       expect(cutawayAt({ x: -edge - 300, y: 400, z: 0 }, camera, targetPlan, MAT)).toBe(0);
+    });
+
+    it("never cuts the land around: it's no taller than the land", () => {
+      const land = MAT_WIDTH / 2;
+      const near = { x: land + 1200, z: 0 };
+      const look = Math.hypot(1800, 0);
+      expect(cutawayAt({ x: land + 300, y: 150, z: 0 }, near, look, MAT)).toBe(0);
+      expect(cutawayAt({ x: 0, y: 150, z: MAT_DEPTH / 2 + PLOT_DEPTH - 10 }, { x: 0, z: MAT_DEPTH / 2 + PLOT_DEPTH + 900 }, 1500, MAT)).toBe(0);
+      expect(beyondAround(land + PLOT_WIDTH + 1, 0, MAT)).toBe(true);
+      expect(beyondAround(land + PLOT_WIDTH - 1, 0, MAT)).toBe(false);
     });
 
     it("keeps tall scenery when looking straight down from above the mat", () => {

@@ -113,6 +113,8 @@ export class LandscapeView {
   private readonly blockIndex = new Map<string, BlockInstanceRef[]>();
   private signs = new Map<number, MeshStandardMaterial>();
   private readonly signNames = new Map<number, string>();
+  /** Plank bundles shown on each town's sign. */
+  private readonly delivered = new Map<number, number>();
   private connected = new Set<number>();
   private placeTrees: PlaceTrees = () => {};
   private clearance!: TreeClearance;
@@ -140,6 +142,7 @@ export class LandscapeView {
   }
 
   dispose(): void {
+    this.dropPending();
     disposeTree(this.group);
     for (const p of this.aroundParts.values()) disposeSceneryPart(p);
     if (this.backdrop) disposeSceneryPart(this.backdrop.part);
@@ -188,8 +191,47 @@ export class LandscapeView {
   /** Show this land around the world (plots not in it), with the scenery beyond. */
   setAround(around: readonly AroundPlot[]): void {
     this.around = around.filter((a) => !this.land.grid.hasPlot(a.px, a.pz));
-    this.buildFelt();
-    this.buildAround(true);
+    const key = this.showKey(this.around);
+    const ready = this.pending?.key === key ? this.pending : null;
+    this.pending = null;
+    this.swapFelt(ready?.felt ?? this.makeFelt());
+    this.swapAround(ready?.scenery ?? this.makeAround(true));
+  }
+
+  /**
+   * Build ahead what `setAround(around)` will show, a step at a time between frames, so showing it is quick: first the
+   * felt (`"river"`, `"roads"`, then `"felt"`), then the scenery (`"scenery"`, after `prepareAround` for each plot and
+   * `prepareBackdrop`).
+   */
+  prepareShow(around: readonly AroundPlot[], step: "river" | "roads" | "felt" | "scenery"): void {
+    const list = around.filter((a) => !this.land.grid.hasPlot(a.px, a.pz));
+    const key = this.showKey(list);
+    if (this.pending?.key !== key) {
+      this.dropPending();
+      this.pending = { key };
+    }
+    const shown = this.around;
+    this.around = list;
+    // The felt's outlines extrude into its caches a surface or two at a time (the river, the roads and lanes), then
+    // the felt comes together from them.
+    if (step === "river") this.warmFelt([SURF_RIVER]);
+    if (step === "roads") this.warmFelt([SURF_ROAD, SURF_LANE]);
+    if (step === "felt" && !this.pending.felt) this.pending.felt = this.makeFelt();
+    if (step === "scenery" && !this.pending.scenery) this.pending.scenery = this.makeAround(false);
+    this.around = shown;
+  }
+
+  /** What the land around, built ahead, is for (the land as it is, and the plots around), and what's built. */
+  private pending: { key: string; felt?: Group; scenery?: Group } | null = null;
+
+  private showKey(around: readonly AroundPlot[]): string {
+    return `${this.land.grid.revision}|${around.map((a) => `${a.px},${a.pz}`).sort().join(";")}`;
+  }
+
+  private dropPending(): void {
+    if (this.pending?.felt) disposeTree(this.pending.felt);
+    if (this.pending?.scenery) disposeTree(this.pending.scenery);
+    this.pending = null;
   }
 
   /**
@@ -295,8 +337,31 @@ export class LandscapeView {
 
   /** The felt ground and its hem round the land, and the felt rivers, roads and lanes (on the land and around it). */
   private buildFelt(): void {
+    this.swapFelt(this.makeFelt());
+  }
+
+  private swapFelt(group: Group): void {
     this.group.remove(this.feltGroup);
     disposeTree(this.feltGroup);
+    this.feltGroup = group;
+    this.group.add(group);
+  }
+
+  /** Extrude the felt of these surfaces into the caches, for the land and the land around now. */
+  private warmFelt(surfaces: readonly number[]): void {
+    const grids = [this.land.grid, ...this.around.map((a) => a.land.grid)];
+    for (const surface of surfaces) {
+      const [cache, material, thickness] =
+        surface === SURF_RIVER
+          ? ([this.feltCaches.river, this.mats.riverFelt, 1.6] as const)
+          : surface === SURF_ROAD
+            ? ([this.feltCaches.road, this.mats.roadFelt, 1.1] as const)
+            : ([this.feltCaches.lane, this.mats.roadFelt, 1.1] as const);
+      buildFeltRibbons(grids, surface, material, thickness, cache)?.geometry.dispose();
+    }
+  }
+
+  private makeFelt(): Group {
     const group = new Group();
     const grid = this.land.grid;
     const shown = extentOf([...grid.plots, ...this.around]);
@@ -308,8 +373,7 @@ export class LandscapeView {
     if (river) group.add(river);
     if (road) group.add(road);
     if (lane) group.add(lane);
-    this.feltGroup = group;
-    this.group.add(group);
+    return group;
   }
 
   /** Turned-wood toy trees, standing on whatever block they grew on (all the land's, as one instanced draw each). */
@@ -334,8 +398,17 @@ export class LandscapeView {
    * stays as it was (if there is one).
    */
   private buildAround(newBackdrop: boolean): void {
+    this.swapAround(this.makeAround(newBackdrop));
+  }
+
+  private swapAround(group: Group): void {
     this.group.remove(this.aroundGroup);
     disposeTree(this.aroundGroup);
+    this.aroundGroup = group;
+    this.group.add(group);
+  }
+
+  private makeAround(newBackdrop: boolean): Group {
     // Plots no longer around (bought) are done with.
     const keep = new Set(this.around.map((a) => plotKey(a.px, a.pz)));
     for (const [key, part] of this.aroundParts) {
@@ -346,8 +419,7 @@ export class LandscapeView {
     for (const a of this.around) this.prepareAround(a);
     if (newBackdrop || !this.backdrop) this.prepareBackdrop(this.around);
     const parts = [...this.around.map((a) => this.aroundParts.get(plotKey(a.px, a.pz))!), this.backdrop!.part];
-    this.aroundGroup = buildScenery(parts, this.mats, this.landRect);
-    this.group.add(this.aroundGroup);
+    return buildScenery(parts, this.mats, this.landRect);
   }
 
   /** The layout the trees were last kept clear of. */
@@ -478,7 +550,8 @@ export class LandscapeView {
     const pose = signPose(town);
     this.signs.get(town.id)?.map?.dispose();
     this.signs.get(town.id)?.dispose();
-    const sign = this.makeSign(town.name);
+    // (Built again when its plot is: it keeps the count it showed.)
+    const sign = this.makeSign(town.name, this.delivered.get(town.id) ?? 0);
     this.signNames.set(town.id, town.name);
     const board = new Mesh(new BoxGeometry(SIGN_WIDTH, SIGN_HEIGHT, SIGN_THICKNESS), [this.mats.blockWood, this.mats.blockWood, this.mats.blockWood, this.mats.blockWood, sign, sign]);
     board.rotation.y = -pose.heading;
@@ -505,6 +578,7 @@ export class LandscapeView {
 
   /** Show how many plank bundles have reached a town, on its sign (from the first one on). */
   setDelivered(townId: number, count: number): void {
+    this.delivered.set(townId, count);
     const m = this.signs.get(townId);
     const name = this.signNames.get(townId);
     if (!m || !name || !(m.map instanceof CanvasTexture)) return;
@@ -512,11 +586,11 @@ export class LandscapeView {
     m.map.needsUpdate = true;
   }
 
-  private makeSign(name: string): MeshStandardMaterial {
+  private makeSign(name: string, delivered: number): MeshStandardMaterial {
     const canvas = document.createElement("canvas");
     canvas.width = 512;
     canvas.height = 128;
-    drawSign(canvas, name, 0);
+    drawSign(canvas, name, delivered);
     const tex = new CanvasTexture(canvas);
     tex.colorSpace = SRGBColorSpace;
     tex.anisotropy = 4;
@@ -588,7 +662,7 @@ function edgeCornerKey(land: Landscape, slot: number): string {
     if (c !== 0 && r !== 0 && c !== PLOT_COLS - 1 && r !== PLOT_ROWS - 1) return;
     for (let level = 0; level < g.height[i]; level++) out.push(hills.blockCorners(col, row, level));
   });
-  return out.join("");
+  return out.join(",");
 }
 
 /**

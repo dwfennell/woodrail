@@ -264,8 +264,8 @@ export class Game {
   }
 
   private aroundToken = 0;
-  /** The countryside beyond has been made ready for the land around being prepared. */
-  private backdropMade = false;
+  /** How far preparing the land around has got, once every plot is ready: backdrop, felt (in steps), scenery. */
+  private aroundStep = 0;
 
   /** The land around that has been generated already, to show around the world. */
   private aroundReady(): AroundPlot[] {
@@ -300,16 +300,19 @@ export class Game {
         setTimeout(step, 16);
         return;
       }
-      if (!this.backdropMade) {
-        this.landscapeView.prepareBackdrop(around);
-        this.backdropMade = true;
+      // Then the countryside beyond, the felt and the merged scenery, a slice each; then swap them in.
+      const steps = ["river", "roads", "felt", "scenery"] as const;
+      if (this.aroundStep <= steps.length) {
+        if (this.aroundStep === 0) this.landscapeView.prepareBackdrop(around);
+        else this.landscapeView.prepareShow(around, steps[this.aroundStep - 1]);
+        this.aroundStep++;
         setTimeout(step, 16);
         return;
       }
       this.landscapeView.setAround(around);
       this.invalidate();
     };
-    this.backdropMade = false;
+    this.aroundStep = 0;
     setTimeout(step, 16);
   }
 

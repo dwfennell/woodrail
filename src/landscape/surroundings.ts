@@ -206,7 +206,8 @@ export function generateSurroundings(seed: number, land: Rect, margin = SCENERY_
     for (let c = 0; c < near.cols; c++) {
       const x = cx(near, c);
       const z = cz(near, r);
-      if (squareDistance(x, z, CELL, land) < margin) continue;
+      // Never on the land itself (whatever the margin), nor within the margin of it.
+      if (outsideDistance(x, z, land) < CELL / 2 || squareDistance(x, z, CELL, land) < margin) continue;
       const i = r * near.cols + c;
       near.open[i] = 1;
       if (cleared(x, z, CELL / 2)) continue;

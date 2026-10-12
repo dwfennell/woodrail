@@ -311,7 +311,11 @@ export class HillCutsView {
       this.drop(entry, false);
       this.built.delete(id);
     }
-    for (const slot of slots) this.solids.delete(slot);
+    // Their cores and shadows are built again too (the old ones taken away first).
+    for (const slot of slots) {
+      const old = this.solids.get(slot);
+      if (old) old.key = "";
+    }
     this.settled = new Map();
     this.sync(this.extra);
   }
