@@ -48,7 +48,7 @@ The UI takes on a toy wooden-block theme:
 - Saves:
   - Sandbox keeps the existing key (`woodrail.autosave.v2`), so today's railways carry over as Sandbox saves.
   - Game saves under `woodrail.game.v1`.
-  - The game save also stores which goals are done.
+  - The goals done are kept beside it, under `woodrail.game.goals.v1`.
   - `woodrail.lastMode` remembers the mode for the title backdrop.
 - The Menu's map items follow the mode:
   - Sandbox: Starter map, New map.
@@ -61,8 +61,9 @@ A pure module (`src/game/goals.ts`), tested in Node:
 
 - **Definitions:** each goal has an id, a short title, a hint, and a check `(world) → done | progress`. Checks read
   only the world state (layout, sim, economy, stations), so they work after loading too.
-- **Completion:** a goal, once done, stays done (saved by id). It's checked about once a second and after every
-  track change.
+- **Completion:** a goal, once done, stays done (saved by id). It's checked about once a second (wall-clock, so slow
+  frames don't stretch it) and after every track change. Goals can be done out of order; the panel shows the first
+  not yet done.
 - **Order:** goals are worked through in order. The panel shows the current goal and the next one, plus how many are
   done (e.g. "3 / 13").
 - **Completing a goal:** a tick animation, a chime, and a toast with the goal's title. The next goal then slides up.
@@ -77,7 +78,7 @@ First goals, all using mechanics that already exist:
 6. Load logs at the forest
 7. Deliver planks to a town
 8. Lay a switch
-9. Bridge the river
+9. Build a bridge
 10. Connect three towns
 11. Deliver 10 bundles of planks
 12. Run two trains at once
@@ -85,8 +86,8 @@ First goals, all using mechanics that already exist:
 
 When all are done, the panel says so and offers "New game" for a fresh map.
 
-**Panel:** a small card under the logo (top left), collapsible to a single line on a phone. It shows only in Game
-mode.
+**Panel:** a small card under the logo (top left). It folds to a single line (count and current goal) when its header
+is tapped, and starts folded on a phone. It shows only in Game mode.
 
 ## 5. Steps
 

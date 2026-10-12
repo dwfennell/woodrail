@@ -206,3 +206,23 @@ export function loadFromStorage(mode: GameMode = "sandbox"): Result<World, strin
   }
   return deserializeWorld(data);
 }
+
+/** Game mode: the ids of the goals done, kept beside the game's autosave. */
+const GOALS_KEY = "woodrail.game.goals.v1";
+
+export function saveGoals(ids: readonly string[]): void {
+  try {
+    localStorage.setItem(GOALS_KEY, JSON.stringify(ids));
+  } catch {
+    // storage unavailable: goals are checked again from the railway next time
+  }
+}
+
+export function loadGoals(): string[] {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(GOALS_KEY) ?? "[]");
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}

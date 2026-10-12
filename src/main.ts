@@ -7,7 +7,9 @@ import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld } from "./game/world";
 import { connectedPairs, MAT_DEPTH, MAT_WIDTH } from "./landscape";
 import { loadLastMode, saveLastMode, type GameMode } from "./game/modes";
-import { hasSave, loadFromStorage, saveToStorage } from "./persist/save";
+import { hasSave, loadFromStorage, loadGoals, saveGoals, saveToStorage } from "./persist/save";
+import { GoalTracker } from "./game/goals";
+import { GoalsPanel } from "./ui/goals-panel";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -105,11 +107,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
         game.frameLayout();
         flyIn(0.2);
       },
-      newGame: () => {
-        setWorld(buildStarterWorld());
-        save();
-        flyIn(0.2);
-      },
+      newGame: () => newGame(),
       titleScreen: () => showTitle(),
       toggleQuality: () => {
         saveQualityOverride(game.quality.tier === "high" ? "mobile" : "high");
@@ -192,6 +190,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   function onChange(): void {
     game.trackChanged();
     updateConnections(true);
+    checkGoals(true);
     hud.setHistory(editor.canUndo, editor.canRedo);
     scheduleSave();
   }
@@ -235,8 +234,43 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") });
   }
 
+  // Game mode's goals: checked about once a second and after every change to the track.
+  let goals = new GoalTracker(loadGoals());
+  const goalsPanel = new GoalsPanel(hud.root, { newGame: () => newGame() });
+  /** When goals were last checked (wall-clock ms: frame times are capped, so slow frames would stretch a dt sum). */
+  let goalsCheckedAt = 0;
+  function checkGoals(announce: boolean): void {
+    if (mode !== "game" || !playing) return;
+    const fresh = goals.update(game.world);
+    if (fresh.length > 0) {
+      saveGoals(goals.ids());
+      if (announce) {
+        hud.toast(`✓ ${fresh.map((g) => g.title).join(" · ")}`, true, 3200);
+        audio.chime();
+        goalsPanel.celebrate();
+      }
+    }
+    const current = goals.current();
+    goalsPanel.show(goals.doneCount, current, current ? current.check(game.world) : null, goals.next());
+  }
+
+  function resetGoals(): void {
+    goals = new GoalTracker();
+    saveGoals([]);
+    goalsPanel.reset();
+  }
+
+  /** Game mode, in play: start again on the starter map with no goals done. */
+  function newGame(): void {
+    resetGoals();
+    setWorld(buildStarterWorld());
+    save();
+    flyIn(0.2);
+  }
+
   /** Leave the title for a mode: carry on with its railway, or start it afresh. */
   function play(next: GameMode, fresh: boolean): void {
+    if (fresh && next === "game") resetGoals();
     if (fresh) setWorld(next === "game" ? buildStarterWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
     else if (next !== mode) {
       const saved = loadFromStorage(next);
@@ -259,6 +293,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     hud.setVisible(true);
     playing = true;
     save();
+    goalsPanel.setVisible(mode === "game");
+    checkGoals(false);
     hud.firstVisitHelp();
   }
 
@@ -343,6 +379,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   game.onFrame = (dt) => {
     interaction.refreshDepotCard();
     interaction.tick(dt);
+    const now = performance.now();
+    if (now - goalsCheckedAt > 1000) {
+      goalsCheckedAt = now;
+      checkGoals(true);
+    }
     let hum = 0;
     for (const e of game.events) {
       const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);

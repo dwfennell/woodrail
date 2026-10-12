@@ -1,6 +1,7 @@
 import type { GameMode } from "../game/modes";
 import type { CarKind, CarLook } from "../sim";
 import type { PieceTypeId } from "../track";
+import { blockWord } from "./blocks";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 
 export type TrayItem = { kind: "piece"; type: PieceTypeId; label: string; auto?: boolean } | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string };
@@ -193,7 +194,8 @@ export class Hud {
     });
 
     const top = el("header", "topbar");
-    const brand = el("div", "brand", `<span class="brand-mark"></span><span class="brand-name">Woodrail</span>`);
+    const brand = el("div", "brand");
+    brand.append(blockWord("W", "brand-block"), el("span", "brand-name", "Woodrail"));
     brand.appendChild(this.modeTag);
     top.appendChild(brand);
     const actions = el("div", "actions");
