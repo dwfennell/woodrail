@@ -348,6 +348,13 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
+      if (m.press.kind === "prop" && m.press.propId !== this.selectedProp) {
+        // Select first: a drag that starts on a prop not selected pans the view, like the floor (so panning over a
+        // busy town never moves a house by accident). The camera picks the gesture up from here.
+        this.mode = { kind: "idle" };
+        this.game.controls.enabled = true;
+        return;
+      }
       if (m.press.kind === "piece" && this.fixedLabel(m.press.pieceId)) {
         // Stations and depots are part of the map and stay put.
         this.mode = { kind: "idle" };
@@ -1325,10 +1332,13 @@ export class Interaction {
     if (m.blocked || !fp) {
       this.onRefused?.();
       g.propsChanged(-1);
+      // A moved prop stays where it was, still selected.
+      if (m.propId !== -1) this.selectProp(m.propId);
       return;
     }
     const store = g.props;
     const pose = { ...m.pose };
+    let placed = m.propId;
     if (m.propId === -1) {
       let id = -1;
       this.editor().editProps({
@@ -1339,6 +1349,7 @@ export class Interaction {
           store.remove(id);
         },
       });
+      placed = id;
     } else {
       const id = m.propId;
       const from = m.from!;
@@ -1346,6 +1357,8 @@ export class Interaction {
     }
     g.propsChanged(-1);
     this.onPlaced?.(false);
+    // It stays selected, to nudge or turn again straight away.
+    this.selectProp(placed);
   }
 
   private selectProp(id: number): void {

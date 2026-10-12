@@ -1,7 +1,7 @@
 # Woodrail — Land Editing Design
 
 **Date:** 2026-10-12
-**Status:** Proposed. Waiting on the user (select-first, work split); then on a review by the map expansion session
+**Status:** L1 (select first) built. The rest proposed: waiting on the user (work split), then a review by the map expansion session
 **Part of:** the Sandbox assets epic (see `2026-10-12-sandbox-assets-design.md`)
 
 ## 1. Goal
@@ -16,7 +16,7 @@ In Sandbox, the map itself becomes something you can change:
 
 Getting around must stay as easy as it is now.
 
-## 2. Handling: select first, for props and scenery (proposed)
+## 2. Handling: select first, for props and scenery (built: L1)
 
 A press and drag on a prop or scenery that isn't selected pans the view, like the floor. A tap selects it: an outline
 and a card appear. Dragging a selected thing moves it at once.
@@ -136,6 +136,8 @@ batched towns, before switching over.
 4. **L4, catalogue towns:**
    - measure first (§5);
    - the fit table and a few new town models;
+   - **more house styles** for the catalogue (the user asked): terraces, a townhouse, a thatched cottage, a timber
+     house, a corner shop, a bungalow, a villa, a narrow 1×1 house and so on, in the toy style, sized to town squares;
    - colour variants;
    - generation places town props;
    - old saves converted;
