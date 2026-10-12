@@ -1,7 +1,7 @@
 # Woodrail — Sandbox Assets Design
 
 **Date:** 2026-10-12
-**Status:** Building (epic: more to build with in Sandbox)
+**Status:** P1–P5 built (epic continues: see Deferred)
 
 ## 1. Goal
 
@@ -151,3 +151,24 @@ and strike it out when it's done.
 | Mechanisms as working machines (turntable, cranes, signals, level crossings) | Each is a mechanic of its own. | Decorative props for now. |
 | Clouds, rainbow, sun and moon | They don't stand on the floor. | Perhaps a sky layer later. |
 | Props in Game mode | Game mode will get resources and a tech tree. | Props would cost something there. |
+| Props over the map's own trees | Map trees can't move for props yet; a prop may stand on a tree's square and overlap it. | Tie in with map editing: props could push map trees aside as track does (`TreeClearance`). |
+| Prop level of detail far out | Measured fine for now: 300 props add about 127k triangles to a wide view. Prop shadows already switch off far out. | If it's needed, give each model a second, coarser bake for far views. |
+| Props in the map's tile culling (`cullTiles`) | The rendering is being reworked in the map expansion branch. Each prop is already frustum-culled on its own (BatchedMesh). | Add the props' meshes to `LandscapeView.cull` once that settles. |
+| Prop selection look | It's an outline round the footprint; there's no rim glow as track has. | A rim on the selected instance needs per-instance colour in the batch. |
+| Tray pictures built ahead of time | Pictures are drawn in the browser the first time a shelf opens (about 20 ms each), then cached. | Could be rendered at build time and shipped as an atlas. |
+
+## 8. Measured (P5)
+
+Dev build, software GL, 300 props from all 231 models:
+
+| | Before | After |
+| --- | --- | --- |
+| Prop draw calls (instancing per model) | 390 | 9 (BatchedMesh per material) |
+| Triangles per model, average (full-detail Kit) | 7176 | 1869 (props built at detail 0.5) |
+| Wide view: added by 300 props | +18 draws, +578k triangles | +9 draws, +127k triangles (shadows off far out) |
+| Building all 231 models (once each, on first use) | 4.9 s | 2.9 s |
+
+- Moving a prop: 0.8 ms.
+- A placement check: 0.13 ms.
+- No per-frame work for props, and the title screen and idle game still draw nothing.
+- Each catalogue chunk is about 15 kB gzipped.
