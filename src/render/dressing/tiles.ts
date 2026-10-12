@@ -64,6 +64,24 @@ export function setCullBox(object: Object3D, points: Iterable<{ x: number; z: nu
   object.userData.cullBoxes = [...boxes.values()];
 }
 
+/**
+ * Give an object cull boxes covering these rectangles (world mm) whole, padded like `setCullBox`'s. For things that
+ * fill an area (a plot's blocks, a tile of felt): boxes made from a few corner points would cover only the corners.
+ */
+export function setCullRects(object: Object3D, rects: Iterable<{ x0: number; z0: number; x1: number; z1: number }>, top: number): void {
+  const boxes: Box3[] = [];
+  for (const r of rects) {
+    const box = new Box3();
+    box.min.set(r.x0 - CULL_PAD, -1, r.z0 - CULL_PAD);
+    box.max.set(r.x1 + CULL_PAD, top, r.z1 + CULL_PAD);
+    boxes.push(box);
+  }
+  if (boxes.length > 0) object.userData.cullBoxes = boxes;
+}
+
+/** A plot's rectangle (world mm). */
+export const plotRect = (p: { px: number; pz: number }) => ({ x0: p.px * PLOT_WIDTH, z0: p.pz * PLOT_DEPTH, x1: (p.px + 1) * PLOT_WIDTH, z1: (p.pz + 1) * PLOT_DEPTH });
+
 const frustum = new Frustum();
 const viewProjection = new Matrix4();
 
@@ -76,25 +94,30 @@ export const REACH_FACTOR = 1.6;
 export const MIN_REACH = 5000;
 export const viewReach = (cameraDistance: number): number => Math.max(MIN_REACH, REACH_FACTOR * cameraDistance);
 
-/** Tiles nearer the camera than this (mm) are drawn in full detail; further ones in their plainer form. */
-export const DETAIL_REACH = 2600;
-/** Trees, the busiest scenery, are drawn in full only nearer than this. */
-export const TREE_DETAIL_REACH = 1600;
+/**
+ * Things only seen close up (`userData.nearOnly`, such as the dark inside of hills, seen down the seams between
+ * blocks) are drawn nearer the camera than this (mm). It grows with the zoom, so whatever is around the point the
+ * camera looks at always has them.
+ */
+export const MIN_DETAIL_REACH = 6000;
+export const DETAIL_FACTOR = 1.2;
+export const detailReach = (cameraDistance: number): number => Math.max(MIN_DETAIL_REACH, DETAIL_FACTOR * cameraDistance);
 
 /**
  * Show the tiles (children of `roots` with cull boxes) the camera sees within `reach`, and hide the rest. A tile with
- * `userData.lod = { near, far }` shows `near` within `DETAIL_REACH` of the camera, else `far`, and the tiles inside
- * whichever it shows are culled in turn (`userData.detailReach` sets a tile's own switching distance). One marked `userData.nearOnly` is shown only within `DETAIL_REACH`, one with
- * `userData.maxDistance` only within that. Returns
- * true if any changed (their shadows need drawing again). A box test or two per tile, only on frames that are drawn.
+ * `userData.lod = { near, far }` (two ways of drawing the same thing: one split up finer, culled better close up, one
+ * in fewer draws) shows `near` within `userData.lodReach` of the camera, else `far`, and the tiles inside whichever it
+ * shows are culled in turn. One marked `userData.nearOnly` is shown only within `detail` (see `detailReach`), one
+ * with `userData.maxDistance` only within that. Returns true if any changed (their shadows need drawing again). A box
+ * test or two per tile, only on frames that are drawn.
  */
-export function cullTiles(roots: readonly Object3D[], camera: Camera, reach: number): boolean {
+export function cullTiles(roots: readonly Object3D[], camera: Camera, reach: number, detail: number): boolean {
   viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   frustum.setFromProjectionMatrix(viewProjection);
-  return cullChildren(roots, camera.position, reach);
+  return cullChildren(roots, camera.position, reach, detail);
 }
 
-function cullChildren(roots: readonly Object3D[], eye: Vector3, reach: number): boolean {
+function cullChildren(roots: readonly Object3D[], eye: Vector3, reach: number, detail: number): boolean {
   let changed = false;
   const show = (o: Object3D, on: boolean) => {
     if (o.visible === on) return;
@@ -110,7 +133,7 @@ function cullChildren(roots: readonly Object3D[], eye: Vector3, reach: number): 
         const d = box.distanceToPoint(eye);
         if (d <= reach && d < near && frustum.intersectsBox(box)) near = d;
       }
-      const limit = tile.userData.nearOnly ? DETAIL_REACH : ((tile.userData.maxDistance as number | undefined) ?? Infinity);
+      const limit = tile.userData.nearOnly ? detail : ((tile.userData.maxDistance as number | undefined) ?? Infinity);
       const seen = near < limit;
       show(tile, seen);
       const lod = tile.userData.lod as { near: Object3D; far: Object3D } | undefined;
@@ -118,10 +141,10 @@ function cullChildren(roots: readonly Object3D[], eye: Vector3, reach: number): 
       // Which version: by the nearest of the whole tile (so all of it switches together).
       let closest = Infinity;
       for (const box of boxes) closest = Math.min(closest, box.distanceToPoint(eye));
-      const fine = closest < ((tile.userData.detailReach as number | undefined) ?? DETAIL_REACH);
+      const fine = closest < ((tile.userData.lodReach as number | undefined) ?? detail);
       show(lod.near, fine);
       show(lod.far, !fine);
-      if (cullChildren([fine ? lod.near : lod.far], eye, reach)) changed = true;
+      if (cullChildren([fine ? lod.near : lod.far], eye, reach, detail)) changed = true;
     }
   }
   return changed;

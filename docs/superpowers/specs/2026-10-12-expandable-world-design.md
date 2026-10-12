@@ -247,26 +247,33 @@ software renderer; most of what's left is merging the land around again and buil
 Goal (user, 2026-10-12): rendering costs the same on any size of map. Only the simulation may grow with it.
 
 - **Tiles:** scenery is drawn in tiles of 2 × 2 plots (`render/dressing/tiles.ts`). Each tile has flat cull boxes,
-  one per plot-sized patch of what it holds, because three's bounding spheres for flat, wide tiles are nearly always
-  in view. `cullTiles` runs only on frames that are drawn.
+  because three's bounding spheres for flat, wide tiles are nearly always in view. Things that fill an area (a plot's
+  blocks, a tile of felt) get boxes covering their whole rectangle (`setCullRects`); scattered things (trees, scenery)
+  a box per plot-sized patch of their points. `cullTiles` runs only on frames that are drawn.
 - **Reach:** nothing is drawn beyond 1.6× the camera's distance (at least 5 m), and everything, the land too, fades
   into the haze before then (the reach is carried in `fogColor.b`). The camera's farthest zoom is fixed at 14 m, so
   only so much of the world can ever be in view.
-- **Near and far versions:** each tile has a near version (rounded blocks, detailed trees per plot, full towns and
-  signs, extruded felt) and a far version (plain blocks, one-draw cone trees, box towns, flat felt). Trees switch at
-  1.6 m, everything else at 2.6 m. Hill cores show only close up, and cranes' moving parts within 8 m.
+- **Full detail at every distance** (user, playtest 2026-10-12: "reduce texture not detail"). An earlier version
+  swapped tiles for plain far versions (plain blocks, cone trees, box towns, flat felt) by distance from the camera,
+  which looked poor zoomed out and switched visibly while panning. Now shapes are always in full; zoomed out, the
+  materials drop their fine texture instead (`Materials.setFar`). Blocks and towns are one set of draws per tile;
+  trees are per plot within 3 m of the camera (better culled close up), per tile beyond (fewer draws), the same
+  trees either way. Hill cores show only within `detailReach` (1.2× the camera's distance, at least 6 m), and
+  cranes' moving parts within 8 m.
+- **Bug fixed (same playtest):** cull boxes made from a plot's two opposite corners covered only those corners, so
+  hills, felt and towns vanished whenever their corners were out of view, at any zoom.
 - **Felt:** each tile is traced over a margin of 8 squares, smoothed, then clipped to the tile, so tiles meet exactly
   and a river that runs across the whole world costs no more than a pond.
 
-Measured (software GL, one pass of the scene, after merging main's extra scenery):
+Measured (software GL, one pass of the scene, 61 plots):
 
-| | 4 plots | 61 plots |
+| | far versions (before) | full detail (now) |
 |---|---|---|
-| 1.2 m | 117 draws, 575k tris | 93 draws, 547k tris |
-| 2.6 m | 171 draws, 591k tris | 137 draws, 645k tris |
-| 6 m | 188 draws, 923k tris | 106 draws, 390k tris |
-| 14 m (max) | 165 draws, 928k tris | 336 draws, 1.50M tris |
+| 1.2 m | 92 draws, 545k tris | 133 draws, 978k tris |
+| 2.6 m | 136 draws, 643k tris | 204 draws, 1.25M tris |
+| 6 m | 105 draws, 387k tris | 352 draws, 3.41M tris |
+| 14 m (max) | 335 draws, 1.50M tris | 818 draws, 6.50M tris |
 
-Before this, 64 plots at 14 m drew 1088 draws and 2.27M triangles, and that kept growing with the world. Not yet
+Full detail costs more zoomed out, but it is still bounded by the reach, not by the size of the world. Before this, 64 plots at 14 m drew 1088 draws and 2.27M triangles, and that kept growing with the world. Not yet
 bounded: the track and trains (they grow with what the player builds), adding a plot (150–350 ms; it rebuilds the
 tile's towns and the trees' tile index), and memory, since every owned plot stays in GPU memory.

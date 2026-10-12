@@ -1,6 +1,6 @@
 import { BoxGeometry, BufferGeometry, Color, InstancedMesh, Float32BufferAttribute, Group, Matrix4, Mesh, MeshBasicMaterial, Vector3, type Material } from "three";
-import { blockOutline, CELL, hillPieces, hillsOf, PLOT_DEPTH, PLOT_WIDTH, plotOfCol, plotOfRow, plotSlabs, type HillCut, type LandscapeGrid } from "../../landscape";
-import { setCullBox } from "./tiles";
+import { blockOutline, CELL, hillPieces, hillsOf, plotOfCol, plotOfRow, plotSlabs, type HillCut, type LandscapeGrid } from "../../landscape";
+import { plotRect, setCullRects } from "./tiles";
 import { RISER_HEIGHT } from "../../track";
 import { BEECH_UV_SCALE } from "../materials";
 import { blockKey, CORE_COLOUR, CORE_INSET, hillCore, shadowProxy, SHADOW_PROXY_LAYER, type BlockInstanceRef } from "./blocks";
@@ -354,8 +354,7 @@ export class HillCutsView {
     const core = hillCore(plotSlabs(g.plots[slot], (c, r, level) => height(c, r) >= level && !cut(c, r, level - 1)));
     if (core) {
       // Only seen down the seams between blocks, close up (see `cullTiles`).
-      const { px, pz } = g.plots[slot];
-      setCullBox(core, [{ x: px * PLOT_WIDTH, z: pz * PLOT_DEPTH }, { x: (px + 1) * PLOT_WIDTH, z: (pz + 1) * PLOT_DEPTH }], 4 * RISER_HEIGHT);
+      setCullRects(core, [plotRect(g.plots[slot])], 4 * RISER_HEIGHT);
       core.userData.nearOnly = true;
     }
     const pieces = hillPieces(g, cut, [slot]);

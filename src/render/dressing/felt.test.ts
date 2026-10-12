@@ -28,7 +28,7 @@ describe("felt in tiles", () => {
     const cache: FeltTiles = new Map();
     const group = buildFeltTiles([riverGrid()], [SURF_RIVER], new MeshBasicMaterial(), () => 1.6, cache);
     expect(group.children).toHaveLength(2);
-    const [a, b] = group.children.map((tile) => tile.userData.lod.near as Mesh);
+    const [a, b] = group.children as Mesh[];
     const left = edgeZs(a, 0);
     const right = edgeZs(b, 0);
     expect(left.length).toBeGreaterThanOrEqual(2);

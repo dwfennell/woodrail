@@ -1,8 +1,8 @@
-import { ExtrudeGeometry, Group, Mesh, Path, PlaneGeometry, Shape, ShapeGeometry, Vector2, type BufferGeometry, type Material } from "three";
+import { ExtrudeGeometry, Group, Mesh, Path, PlaneGeometry, Shape, type BufferGeometry, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, PLOT_DEPTH, PLOT_WIDTH, type LandscapeGrid, type PlotCoord, type Rect } from "../../landscape";
 import { insideLoops, loopArea, smoothLoop, traceRegions, type Loop, type LoopPoint } from "../../landscape/outline";
-import { setCullBox, TILE_DEPTH, TILE_WIDTH, tileAt } from "./tiles";
+import { setCullRects, TILE_DEPTH, TILE_WIDTH, tileAt } from "./tiles";
 import { FELT_TILE, type Materials } from "../materials";
 
 /** The felt ground runs this far (mm) past the mat on every side: well into the total haze. */
@@ -101,19 +101,6 @@ function inward(a: { x: number; z: number }, b: { x: number; z: number }): { x: 
   return { x: -(b.z - a.z) / len, z: (b.x - a.x) / len };
 }
 
-/** One region of felt's top alone, flat at `thickness` above the mat (for far off: see `buildFeltTiles`). */
-function flatFelt(outer: Loop, holes: readonly Loop[], thickness: number): BufferGeometry {
-  const toPts = (l: Loop) => l.map((p) => new Vector2(p.x * CELL, -(p.z * CELL)));
-  const shape = new Shape(toPts(outer));
-  for (const hole of holes) shape.holes.push(new Path(toPts(hole)));
-  const g = new ShapeGeometry(shape);
-  g.rotateX(-Math.PI / 2);
-  g.translate(0, thickness - 0.2, 0);
-  const uv = g.getAttribute("uv");
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / FELT_TILE, uv.getY(i) / FELT_TILE);
-  return g;
-}
-
 /** One region of felt: its outline and holes (in squares) extruded `thickness` tall, uv in felt tiles. */
 function extrudeFelt(outer: Loop, holes: readonly Loop[], thickness: number, bevel: number): BufferGeometry {
   // Shape space is (world x, −world z): extruding along +z then rotating −90° about x stands it on the mat.
@@ -150,8 +137,6 @@ const TILE_MARGIN = 8;
 interface FeltTile {
   key: number;
   geometry: BufferGeometry | null;
-  /** Far off: just the felt's top, flat (a fraction of the triangles). */
-  flat: BufferGeometry | null;
 }
 /** Felt by tile (see `buildFeltTiles`), kept between builds. */
 export type FeltTiles = Map<number, FeltTile>;
@@ -211,9 +196,7 @@ export function buildFeltTiles(
     let tile = cache.get(id);
     if (!tile || tile.key !== key) {
       tile?.geometry?.dispose();
-      tile?.flat?.dispose();
       const parts: BufferGeometry[] = [];
-      const flats: BufferGeometry[] = [];
       surfaces.forEach((surface, k) => {
         const loops = traceRegions((c, r) => window[r * w + c] === k, w, d).map((l) => {
           // A loop cut off by the window's edge continues beyond it: smooth it fully, as the whole world's would be.
@@ -229,7 +212,6 @@ export function buildFeltTiles(
         for (const outer of outers) {
           const inside = holes.filter((h) => insideLoops([outer], h[0].x, h[0].z));
           parts.push(extrudeFelt(outer, inside, t, Math.min(0.6, t / 3)));
-          flats.push(flatFelt(outer, inside, t));
         }
       });
       const merge = (list: BufferGeometry[]) => {
@@ -237,28 +219,19 @@ export function buildFeltTiles(
         if (list.length > 1) for (const p of list) p.dispose();
         return g;
       };
-      cache.set(id, (tile = { key, geometry: merge(parts), flat: merge(flats) }));
+      cache.set(id, (tile = { key, geometry: merge(parts) }));
     }
-    if (!tile.geometry || !tile.flat) continue;
-    // Close up, the felt as cut and stitched; far off, just its top (see `cullTiles`). The cache owns the geometry: the
-    // meshes mustn't free it.
-    const near = new Mesh(tile.geometry, material);
-    const far = new Mesh(tile.flat, material);
-    far.visible = false;
-    const both = new Group();
-    for (const m of [near, far]) {
-      m.receiveShadow = true;
-      m.userData.sharedGeometry = true;
-      both.add(m);
-    }
-    both.userData.lod = { near, far };
-    setCullBox(both, [{ x: tc * TILE_WIDTH, z: tr * TILE_DEPTH }, { x: (tc + 1) * TILE_WIDTH, z: (tr + 1) * TILE_DEPTH }], 4);
-    group.add(both);
+    if (!tile.geometry) continue;
+    // The cache owns the geometry: the mesh mustn't free it.
+    const mesh = new Mesh(tile.geometry, material);
+    mesh.receiveShadow = true;
+    mesh.userData.sharedGeometry = true;
+    setCullRects(mesh, [{ x0: tc * TILE_WIDTH, z0: tr * TILE_DEPTH, x1: (tc + 1) * TILE_WIDTH, z1: (tr + 1) * TILE_DEPTH }], 4);
+    group.add(mesh);
   }
   for (const [id, tile] of cache) {
     if (used.has(id)) continue;
     tile.geometry?.dispose();
-    tile.flat?.dispose();
     cache.delete(id);
   }
   return group;

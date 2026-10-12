@@ -48,13 +48,13 @@ import { RISER_HEIGHT } from "../track";
 import type { Layout } from "../track";
 import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF_TOP } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
-import { blockInstances, blockMeshes, buildBlocks, type BlockInstanceRef } from "./dressing/blocks";
+import { buildBlocks, type BlockInstanceRef } from "./dressing/blocks";
 import { HillCutsView } from "./dressing/hill-cuts";
-import { buildFarTown, buildShed, buildStation, buildTown } from "./dressing/buildings";
+import { buildShed, buildStation, buildTown } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltGround, buildFeltTiles, type FeltTiles } from "./dressing/felt";
 import { buildScenery, disposeSceneryPart, sceneryPart, splitSurroundings, type SceneryPart } from "./dressing/surroundings";
-import { byTile, cullTiles, setCullBox, TILE_DEPTH, TILE_WIDTH, tileAt } from "./dressing/tiles";
+import { byTile, cullTiles, plotRect, setCullRects, TILE_DEPTH, TILE_WIDTH, tileAt } from "./dressing/tiles";
 import { buildTiledTrees, treePlacements, type PlaceTrees, type TreeAt, type TreePlacement, type TreeTile } from "./dressing/trees";
 import { easeInOutCubic, easeOutBack } from "../lib/tween";
 import { buildField } from "./dressing/fields";
@@ -92,13 +92,11 @@ const RAIL_H = 3;
 export class LandscapeView {
   readonly group = new Group();
   /**
-   * The land in tiles of 2 × 2 plots (see `tiles.ts`): each with its plots' close-up blocks (a group per plot, by slot
-   * in `plotGroups`), plain blocks for further off, and its towns, fields and signs.
+   * The land in tiles of 2 × 2 plots (see `tiles.ts`): each with its blocks, towns, signs, fields and shed. Each plot
+   * has a group of its own too (by slot in `plotGroups`) for what's built per plot.
    */
   private readonly landTiles = new Map<number, LandTile>();
   private readonly plotGroups = new Map<number, Group>();
-  /** Where the far-off plain blocks' instances are (by `blockKey`), alongside `blockIndex` for the close-up ones. */
-  private readonly farIndex = new Map<string, BlockInstanceRef[]>();
   /** Per plot: the corners of the blocks round its edge, which change when a plot beside it is added. */
   private readonly edgeCorners = new Map<number, string>();
   /** The felt ground, its hem and the felt rivers, roads and lanes (laid across plots). */
@@ -156,7 +154,6 @@ export class LandscapeView {
     for (const cache of Object.values(this.feltTiles)) {
       for (const t of cache.values()) {
         t.geometry?.dispose();
-        t.flat?.dispose();
       }
     }
     for (const m of this.signs.values()) {
@@ -170,7 +167,7 @@ export class LandscapeView {
     this.group.add(this.feltGroup, this.treeGroup, this.aroundGroup, this.saleGroup);
     g.plots.forEach((_, slot) => this.buildPlot(slot));
     for (const key of new Set(g.plots.map((_, slot) => this.tileOfSlot(slot)))) this.buildTile(key);
-    this.cuts = new HillCutsView(g, { wood: this.mats.blockWood, top: this.mats.blockTop }, (key) => [...(this.blockIndex.get(key) ?? []), ...(this.farIndex.get(key) ?? [])]);
+    this.cuts = new HillCutsView(g, { wood: this.mats.blockWood, top: this.mats.blockTop }, (key) => this.blockIndex.get(key) ?? []);
     this.group.add(this.cuts.group);
     this.buildFelt();
     this.buildTrees();
@@ -281,8 +278,8 @@ export class LandscapeView {
    * distance calls for (see `cullTiles`). Call before drawing a frame; true if any changed (their shadows need drawing
    * again).
    */
-  cull(camera: Camera, reach: number): boolean {
-    return cullTiles([this.group, this.treeGroup, this.aroundGroup, this.cuts.group, ...this.feltGroup.children], camera, reach);
+  cull(camera: Camera, reach: number, detail: number): boolean {
+    return cullTiles([this.group, this.treeGroup, this.aroundGroup, this.cuts.group, ...this.feltGroup.children], camera, reach, detail);
   }
 
   /** Is this the land shown around the world now? */
@@ -327,16 +324,17 @@ export class LandscapeView {
     let tile = this.landTiles.get(key);
     if (!tile) {
       const group = new Group();
-      const near = new Group();
-      group.add(near);
-      tile = { group, near, far: null, always: null, farKeys: [] };
+      tile = { group, blocks: null, things: null };
       this.landTiles.set(key, tile);
       this.group.add(group);
     }
     return tile;
   }
 
-  /** One plot's close-up blocks (built again if it was already), in its tile. */
+  /**
+   * One plot's own part of its tile (built again if it was already): the soft shadows round its hills' feet, if any.
+   * (Its blocks are built with its tile's, see `buildTile`: one set of draws for the tile rather than per plot.)
+   */
   private buildPlot(slot: number): void {
     const old = this.plotGroups.get(slot);
     if (old) {
@@ -347,8 +345,6 @@ export class LandscapeView {
     const grid = land.grid;
     const { px, pz } = grid.plots[slot];
     const group = new Group();
-    // Hills: stacks of individual wooden blocks, painted green on top (rounded; far off, the tile's plain ones).
-    group.add(buildBlocks(grid, land.seed, this.mats, this.blockIndex, false, [slot]));
     this.edgeCorners.set(slot, edgeCornerKey(land, slot));
     if (this.contactShadows) {
       // Hill edges: a blob under each ground-level block that has open felt beside it.
@@ -363,66 +359,51 @@ export class LandscapeView {
       });
       if (prints.length > 0) group.add(buildContactShadows(prints));
     }
-    setCullBox(group, [{ x: px * PLOT_WIDTH, z: pz * PLOT_DEPTH }, { x: (px + 1) * PLOT_WIDTH, z: (pz + 1) * PLOT_DEPTH }], 4 * RISER_HEIGHT);
+    setCullRects(group, [plotRect({ px, pz })], 4 * RISER_HEIGHT);
     this.plotGroups.set(slot, group);
-    this.landTile(this.tileOfSlot(slot)).near.add(group);
+    this.landTile(this.tileOfSlot(slot)).group.add(group);
   }
 
   /**
-   * A tile's far-off blocks (plain boxes, one set for its plots: see `cullTiles`) and its towns, fields, shed and signs
-   * (built again if they were already). Cuttings hide a cut block in both versions.
+   * A tile's blocks (one set for its plots), towns, fields, shed and signs (built again if they were already), all in
+   * full at any distance: far out, the materials drop their fine texture instead (see `Materials.setFar`).
    */
   private buildTile(key: number): void {
     const land = this.land;
     const grid = land.grid;
     const tile = this.landTile(key);
-    for (const o of [tile.far, tile.always]) {
+    for (const o of [tile.blocks, tile.things]) {
       if (!o) continue;
       o.removeFromParent();
       disposeTree(o);
     }
-    for (const k of tile.farKeys) this.farIndex.delete(k);
     const slots = grid.plots.map((_, slot) => slot).filter((slot) => this.tileOfSlot(slot) === key);
-    const farIndex = new Map<string, BlockInstanceRef[]>();
-    const exposed = blockInstances(grid, land.seed, slots).filter((b) => b.exposed);
-    const far = blockMeshes(exposed, CELL, RISER_HEIGHT, { wood: this.mats.blockWood, top: this.mats.blockTop }, false, false, farIndex);
-    for (const [k, refs] of farIndex) this.farIndex.set(k, refs);
-    tile.farKeys = [...farIndex.keys()];
-    far.visible = false;
-    tile.far = far;
-    tile.group.add(far);
-    tile.group.userData.lod = { near: tile.near, far };
+    // Hills: stacks of individual wooden blocks, painted green on top.
+    tile.blocks = buildBlocks(grid, land.seed, this.mats, this.blockIndex, false, slots);
+    tile.group.add(tile.blocks);
 
-    // Towns: in full, with their signs, close up; as painted boxes far off.
-    const always = new Group();
+    // Towns with their stations and signs, fenced paddocks of toy animals, and the shed.
+    const things = new Group();
     const b = new Batcher(this.mats.paint);
-    const farTowns = new Batcher(this.mats.paint);
     const here = (x: number, z: number) => tileAt(x, z) === key;
     const prints: Footprint[] = [];
     for (const town of land.towns) {
       if (!here(town.centre.x, town.centre.z)) continue;
       for (const h of buildTown(land, town, this.mats, b)) prints.push({ x: h.cx, z: h.cz, y: 0, rx: h.w / 2 + 12, rz: h.d / 2 + 12, heading: 0, strength: 1 });
       buildStation(town, this.mats, b);
-      this.buildSign(town, b, always);
-      buildFarTown(land, town, this.mats, farTowns);
+      this.buildSign(town, b, things);
     }
-    farTowns.build(far);
-    // Fenced paddocks of toy animals.
     for (const field of land.fields) {
       const first = field.cells[0];
       if (here(grid.centreX(grid.colOf(first)), grid.centreZ(grid.rowOf(first)))) buildField(land, field, this.mats, b);
     }
     if (land.shed && here(land.shed.x, land.shed.z)) buildShed(land, land.shed, this.mats, b);
-    b.build(always);
-    if (this.contactShadows && prints.length > 0) always.add(buildContactShadows(prints));
-    tile.always = always;
-    tile.near.add(always);
-    const corners = slots.flatMap((slot) => {
-      const { px, pz } = grid.plots[slot];
-      return [{ x: px * PLOT_WIDTH, z: pz * PLOT_DEPTH }, { x: (px + 1) * PLOT_WIDTH, z: (pz + 1) * PLOT_DEPTH }];
-    });
+    b.build(things);
+    if (this.contactShadows && prints.length > 0) things.add(buildContactShadows(prints));
+    tile.things = things;
+    tile.group.add(things);
     // Its blocks, towns and signs stand within its plots (station roofs and signs are the tallest things).
-    setCullBox(tile.group, corners, 500);
+    setCullRects(tile.group, slots.map((slot) => plotRect(grid.plots[slot])), 500);
   }
 
   /** The felt ground and its hem round the land, and the felt rivers, roads and lanes (on the land and around it). */
@@ -833,12 +814,8 @@ function plusTexture(): CanvasTexture {
 /** A tile of the land (see `LandscapeView.landTiles`). */
 interface LandTile {
   group: Group;
-  /** Its plots' close-up blocks (a group per plot). */
-  near: Group;
-  /** Its plain far-off blocks. */
-  far: Group | null;
-  /** Its towns, fields, shed and signs, near or far. */
-  always: Group | null;
-  /** The far-off blocks' keys in `farIndex`. */
-  farKeys: string[];
+  /** Its plots' blocks. */
+  blocks: Group | null;
+  /** Its towns, signs, fields and shed. */
+  things: Group | null;
 }

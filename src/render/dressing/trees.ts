@@ -1,7 +1,6 @@
 import {
   BufferAttribute,
   Color,
-  ConeGeometry,
   CylinderGeometry,
   Group,
   InstancedMesh,
@@ -18,7 +17,7 @@ import {
 import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { rng } from "../../lib/rng";
 import { FEAT_TREE, forEachInPlot, hashInts, PLOT_DEPTH, PLOT_WIDTH, type Landscape } from "../../landscape";
-import { byTile, setCullBox, TREE_DETAIL_REACH } from "./tiles";
+import { byTile, setCullBox } from "./tiles";
 import type { Materials } from "../materials";
 
 export const MAX_LEAN = 0.05;
@@ -439,6 +438,9 @@ export interface TreeTile {
   last: (TreeAt | null)[];
 }
 
+/** Tiles of trees nearer the camera than this (mm) are drawn plot by plot (see `buildTiledTrees`). */
+const TREE_SPLIT_REACH = 3000;
+
 /**
  * Trees as `buildTrees`, but a set of draws per tile (see `tiles.ts`), so trees out of view are skipped. The group's
  * `userData.place` takes one spot per placement, in order, as for `buildTrees`, and moves only the tiles whose trees
@@ -460,29 +462,26 @@ export function buildTiledTrees(
     for (const t of trees) sig = Math.imul(sig ^ Math.round(t.x * 10) ^ Math.imul(Math.round(t.z * 10), 31) ^ Math.round(t.y), 0x01000193);
     let tile = reuse.get(key);
     if (!tile || tile.sig !== sig) {
-      // Close up, a detailed set per plot (each culled on its own: trees are the busiest scenery); further off, one
-      // plainer set for the whole tile (see `cullTiles`).
+      // Close up, a set per plot, each culled on its own (a close view takes in only a plot or two); further off, the
+      // same trees as one set for the whole tile, in fewer draws (see `cullTiles`). Both in full: they look the same.
       const places: PlaceTrees[] = [];
       const near = new Group();
-      const plots = [...byTile(trees.map((t, k) => ({ t, k })), ({ t }) => t, PLOT_WIDTH, PLOT_DEPTH).values()];
-      for (const plot of plots) {
-        const g = buildTrees(plot.map(({ t }) => t), mats, lowDetail);
-        setCullBox(g, plot.map(({ t }) => t), plot.reduce((top, { t }) => Math.max(top, t.y + 150 * t.scale), 0));
-        near.add(g);
-        const placeIt = g.userData.place as PlaceTrees;
+      for (const plot of byTile(trees.map((t, k) => ({ t, k })), ({ t }) => t, PLOT_WIDTH, PLOT_DEPTH).values()) {
+        const pg = buildTrees(plot.map(({ t }) => t), mats, lowDetail);
+        setCullBox(pg, plot.map(({ t }) => t), plot.reduce((top, { t }) => Math.max(top, t.y + 150 * t.scale), 0));
+        near.add(pg);
+        const placeIt = pg.userData.place as PlaceTrees;
         const ks = plot.map(({ k }) => k);
         places.push((spots) => placeIt(ks.map((k) => spots[k])));
       }
       const g = new Group();
       g.add(near);
-      if (!lowDetail) {
-        const far = buildFarTrees(trees, mats);
-        far.visible = false;
-        g.add(far);
-        g.userData.lod = { near, far };
-        g.userData.detailReach = TREE_DETAIL_REACH;
-        places.push(far.userData.place as PlaceTrees);
-      }
+      const far = buildTrees(trees, mats, lowDetail);
+      far.visible = false;
+      g.add(far);
+      g.userData.lod = { near, far };
+      g.userData.lodReach = TREE_SPLIT_REACH;
+      places.push(far.userData.place as PlaceTrees);
       const more = extra?.(trees);
       if (more) g.add(more);
       // Trees are under 120 mm tall (a little more for big scenery ones), and step up to 144 mm aside.
@@ -507,46 +506,6 @@ export function buildTiledTrees(
       tile.last = mine.map((s) => (s ? { ...s } : null));
     }
   };
-  group.userData.place = place;
-  return group;
-}
-
-/**
- * Trees far off: each a plain cone on a short stalk in its crown's colour, all in one draw (a few dozen triangles a
- * tree). `userData.place` as for `buildTrees`.
- */
-export function buildFarTrees(placements: readonly TreePlacement[], mats: Materials): Group {
-  const group = new Group();
-  const parts = [new CylinderGeometry(4.5, 4.5, BASE_H + TRUNK_H, 4, 1, true).translate(0, (BASE_H + TRUNK_H) / 2, 0), new ConeGeometry(19, 46, 6).translate(0, BASE_H + TRUNK_H + 17, 0)];
-  const shape = mergeGeometries(parts.map((g) => g.toNonIndexed()));
-  for (const g of parts) g.dispose();
-  const mesh = instanced(shape, mats.scenery.crown, placements.length);
-  mesh.castShadow = false;
-  const c = new Color();
-  placements.forEach((t, i) => {
-    const palette = LOOKS[t.kind].palette;
-    mesh.setColorAt(i, c.set(palette[t.tint % palette.length]));
-  });
-  // Bushes and boulders are low: a squat cone.
-  const squat = placements.map((t) => (LOOKS[t.kind].trunk === null ? 0.45 : 1));
-  const m = new Matrix4();
-  const q = new Quaternion();
-  const pos = new Vector3();
-  const scl = new Vector3();
-  const place: PlaceTrees = (spots) => {
-    placements.forEach((t, i) => {
-      const at = spots[i];
-      const s = at ? (at.s ?? 1) : 0;
-      pos.set(at?.x ?? t.x, at?.y ?? t.y, at?.z ?? t.z);
-      scl.set(t.scale * s, t.scale * s * squat[i], t.scale * s);
-      m.compose(pos, q, scl);
-      mesh.setMatrixAt(i, m);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingSphere();
-  };
-  place(placements);
-  group.add(mesh);
   group.userData.place = place;
   return group;
 }
