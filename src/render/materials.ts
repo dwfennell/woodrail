@@ -30,6 +30,12 @@ export interface Materials {
   paint: MeshPhysicalMaterial;
   /** Cheaper stand-ins for the scenery around the mat, where distance and haze hide the finer shading. */
   scenery: SceneryMaterials;
+  /**
+   * Far out, the wood's grain bumps, roughness detail and clear coat (and the lacquer's) are too small to see: drop
+   * them for a plain matte finish, and bring them back up close. Cheap to call every frame (does nothing unless
+   * `far` changes).
+   */
+  setFar(far: boolean): void;
 }
 
 export interface SceneryMaterials {
@@ -128,7 +134,35 @@ export function createMaterials(anisotropy: number): Materials {
     crown: new MeshStandardMaterial({ roughness: 0.45 }),
   };
 
+  // The detailed materials, and what each wears up close (set back when not far).
+  const detailed: MeshStandardMaterial[] = [];
+  const close = new Map<MeshStandardMaterial, { bumpMap: Texture | null; roughnessMap: Texture | null; clearcoat: number; sheen: number }>();
+  let isFar = false;
+  const setFar = (far: boolean) => {
+    if (far === isFar) return;
+    isFar = far;
+    for (const m of [...detailed, ...lacquerCache.values()]) {
+      if (!close.has(m)) {
+        const p = m as MeshPhysicalMaterial;
+        close.set(m, { bumpMap: m.bumpMap, roughnessMap: m.roughnessMap, clearcoat: p.clearcoat ?? 0, sheen: p.sheen ?? 0 });
+      }
+      const c = close.get(m)!;
+      m.bumpMap = far ? null : c.bumpMap;
+      m.roughnessMap = far ? null : c.roughnessMap;
+      if ((m as MeshPhysicalMaterial).isMeshPhysicalMaterial) {
+        (m as MeshPhysicalMaterial).clearcoat = far ? 0 : c.clearcoat;
+        (m as MeshPhysicalMaterial).sheen = far ? 0 : c.sheen;
+      }
+      m.needsUpdate = true;
+    }
+  };
+  const naturalWood = woodMaterial(beech, 0.5);
+  const paint = new MeshPhysicalMaterial({ vertexColors: true, roughness: 0.55, clearcoat: 0.3, clearcoatRoughness: 0.35, bumpMap: beech.bumpMap, bumpScale: 0.25 });
+  // (Not the felt: its fibre bumps set how light it looks even far out, so dropping them would show as a jump.)
+  detailed.push(track, trackCut, held, blockWood, blockTop, naturalWood, paint);
+
   return {
+    setFar,
     held,
     track,
     trackCut,
@@ -142,14 +176,14 @@ export function createMaterials(anisotropy: number): Materials {
     blockTop,
     trackGhost: ghost("#ffffff"),
     trackGhostSnap: ghost("#9be37b"),
-    naturalWood: woodMaterial(beech, 0.5),
+    naturalWood,
     magnet: new MeshStandardMaterial({ color: new Color("#2a2b2e"), metalness: 0.85, roughness: 0.3 }),
     coal: new MeshStandardMaterial({ color: new Color("#1c1a19"), roughness: 0.7, metalness: 0.1 }),
     glass: new MeshPhysicalMaterial({ color: new Color("#1d2633"), roughness: 0.1, clearcoat: 1, metalness: 0.2 }),
     lacquer,
     bridgePaint: lacquer("#c8442f"),
     scenery,
-    paint: new MeshPhysicalMaterial({ vertexColors: true, roughness: 0.55, clearcoat: 0.3, clearcoatRoughness: 0.35, bumpMap: beech.bumpMap, bumpScale: 0.25 }),
+    paint,
   };
 }
 
