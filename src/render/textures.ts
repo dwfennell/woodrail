@@ -124,12 +124,13 @@ export function beechTextures(anisotropy: number): SurfaceTextures {
   return toTextures(c, 1 / 512, 1 / 128, anisotropy);
 }
 
-/**
- * Felt: a tile of short, randomly oriented fibres (about 0.2 mm per pixel at the default repeat) for the bump and a
- * matching speckle in the colour map. Broad colour mottling is added separately in world space (see `mottleTexture`).
- */
-export function feltTextures(anisotropy: number, base: string, repeat: number): { map: Texture; bumpMap: Texture } {
-  const N = 512;
+const FELT_N = 512;
+let fibres: { bump: HTMLCanvasElement; pixels: ImageData } | null = null;
+
+/** The felt's fibres (a bump tile), drawn once and shared by every felt colour: only the colour maps differ. */
+function feltFibres(): { bump: HTMLCanvasElement; pixels: ImageData } {
+  if (fibres) return fibres;
+  const N = FELT_N;
   const bump = document.createElement("canvas");
   bump.width = bump.height = N;
   const bc = bump.getContext("2d")!;
@@ -160,7 +161,17 @@ export function feltTextures(anisotropy: number, base: string, repeat: number): 
       }
     }
   }
-  const bi = bc.getImageData(0, 0, N, N);
+  fibres = { bump, pixels: bc.getImageData(0, 0, N, N) };
+  return fibres;
+}
+
+/**
+ * Felt: a tile of short, randomly oriented fibres (about 0.2 mm per pixel at the default repeat) for the bump and a
+ * matching speckle in the colour map. Broad colour mottling is added separately in world space (see `mottleTexture`).
+ */
+export function feltTextures(anisotropy: number, base: string, repeat: number): { map: Texture; bumpMap: Texture } {
+  const N = FELT_N;
+  const { bump, pixels: bi } = feltFibres();
   const color = document.createElement("canvas");
   color.width = color.height = N;
   const cc = color.getContext("2d")!;
