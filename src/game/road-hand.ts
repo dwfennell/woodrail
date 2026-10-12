@@ -104,10 +104,10 @@ export class RoadHand {
     }
     const moved = cell !== d.cell;
     d.cell = cell;
-    const blocked = d.placer.check(cell);
+    d.road = d.placer.fit(d.piece, cell, d.held);
+    const blocked = d.placer.check(cell, d.road);
     if (blocked && blocked !== d.blocked && moved) this.hud.toast(ROAD_MESSAGES[blocked]);
     d.blocked = blocked;
-    d.road = d.placer.fit(d.piece, cell, d.held);
     this.showGhost(d);
     this.showSquare(cell, blocked ? NO : OK);
     this.game.invalidate();
@@ -121,6 +121,8 @@ export class RoadHand {
     // Held as turned, not re-fitted: the player chose it.
     if (d.cell !== -1) {
       d.road = encodeRoad(d.piece, d.held);
+      d.blocked = d.placer.check(d.cell, d.road);
+      this.showSquare(d.cell, d.blocked ? NO : OK);
       this.showGhost(d);
       this.game.invalidate();
     }
@@ -181,8 +183,15 @@ export class RoadHand {
     const road = this.grid.road[i];
     const def = pieceOf(road)!;
     const turns = distinctTurns(def.id);
-    const next = turns[(turns.indexOf(turnOf(road)) + 1) % turns.length];
-    this.edit([[i, encodeRoad(def.id, next)]]);
+    const next = encodeRoad(def.id, turns[(turns.indexOf(turnOf(road)) + 1) % turns.length]);
+    // Turned, it must still let any track over it cross straight over.
+    const why = this.placer().check(i, next);
+    if (why) {
+      this.hud.toast(ROAD_MESSAGES[why]);
+      this.onRefused();
+      return;
+    }
+    this.edit([[i, next]]);
     this.select(i);
   }
 

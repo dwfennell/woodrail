@@ -1,6 +1,7 @@
 import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type Layout } from "../track";
 import type { Landscape } from "../landscape/generate";
 import { CELL, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "../landscape/grid";
+import { crossesRoad } from "../landscape/clearance";
 import { bestTurn, encodeRoad, type RoadPieceId } from "./pieces";
 
 /** Why a road piece can't go on a square. */
@@ -13,7 +14,7 @@ export const ROAD_MESSAGES: Record<RoadBlock, string> = {
   "in-use": "Something stands there",
   hill: "Roads go on level ground",
   "station-way": "Keep the way into the station clear for track",
-  track: "There's track in the way",
+  track: "Track can only cross a plain straight road, straight over",
   prop: "Move what's standing there first",
 };
 
@@ -59,8 +60,8 @@ export function roadsInRect(grid: LandscapeGrid, x0: number, z0: number, x1: num
  * changed. Build one per drag: it samples the track once.
  */
 export class RoadPlacer {
-  /** Grid square → whether ground-level track runs over it. */
-  private readonly trackSquares = new Set<number>();
+  /** Grid square → which ways ground-level track runs over it (bit 1: along x, bit 2: along z, by its nearer axis). */
+  private readonly trackSquares = new Map<number, number>();
   private readonly corridors: Set<number>;
   private readonly nbs = [0, 0, 0, 0];
 
@@ -73,8 +74,25 @@ export class RoadPlacer {
     if (layout) this.sampleTrack(layout);
   }
 
-  /** Can a road piece go on square `i` (−1: off the land)? Null if so. A road already there may be replaced. */
-  check(i: number): RoadBlock | null {
+  /**
+   * Can a road piece go on square `i` (−1: off the land)? Null if so. A road already there may be replaced. With
+   * `road` (the piece as it would be laid), track on the square is fine if it crosses the piece straight over (a level
+   * crossing: see `crossesRoad`).
+   */
+  check(i: number, road = 0): RoadBlock | null {
+    this.road = road;
+    return this.checkSquare(i);
+  }
+
+  private road = 0;
+
+  /** Does all the ground-level track on square `i` cross the piece being laid straight over (one way, across it)? */
+  private crossable(i: number): boolean {
+    const ways = this.trackSquares.get(i) ?? 0;
+    return (ways === 1 || ways === 2) && crossesRoad(this.road, ways === 1 ? 0 : Math.PI / 2);
+  }
+
+  private checkSquare(i: number): RoadBlock | null {
     const g = this.land.grid;
     if (i === -1) return "off-land";
     const s = g.surface[i];
@@ -84,7 +102,7 @@ export class RoadPlacer {
     if (g.feature[i] !== FEAT_NONE && g.feature[i] !== FEAT_TREE) return "in-use";
     if (g.height[i] !== 0) return "hill";
     if (this.corridors.has(i)) return "station-way";
-    if (this.trackSquares.has(i)) return "track";
+    if (this.trackSquares.has(i) && !this.crossable(i)) return "track";
     const x0 = g.colOf(i) * CELL;
     const z0 = g.rowOf(i) * CELL;
     if (this.occupants.inRect(x0, z0, x0 + CELL, z0 + CELL)) return "prop";
@@ -112,11 +130,13 @@ export class RoadPlacer {
         for (let k = 0; k <= n; k++) {
           samplePath(path.geom, (len * k) / n, sample);
           if (p.y + sample.y > OVER) continue;
+          const h = p.pose.heading + sample.heading;
+          const way = Math.abs(Math.cos(h)) >= Math.abs(Math.sin(h)) ? 1 : 2;
           const x = p.pose.x + sample.x * ch - sample.z * sh;
           const z = p.pose.z + sample.x * sh + sample.z * ch;
           for (const [dx, dz] of [[-m, -m], [m, -m], [-m, m], [m, m]]) {
             const j = g.cellAtWorld(x + dx, z + dz);
-            if (j !== -1) this.trackSquares.add(j);
+            if (j !== -1) this.trackSquares.set(j, (this.trackSquares.get(j) ?? 0) | way);
           }
         }
       }

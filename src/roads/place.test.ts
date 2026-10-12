@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FEAT_BUILDING, FEAT_TREE, gridWithPlots, SURF_RIVER, SURF_ROAD, CELL, type Landscape } from "../landscape";
+import { checkPlacement, crossesRoad, FEAT_BUILDING, FEAT_TREE, gridWithPlots, SURF_RIVER, SURF_ROAD, CELL, type Landscape } from "../landscape";
 import { Layout } from "../track";
 import { edgesOf, encodeRoad, EDGE_E, EDGE_W } from "./pieces";
 import { RoadPlacer, roadNeighbours, roadsInRect, setRoadSquare } from "./place";
@@ -64,5 +64,33 @@ describe("road placement", () => {
     undo();
     expect(g.road[i]).toBe(0);
     expect(g.feature[i]).toBe(FEAT_TREE);
+  });
+});
+
+describe("level crossings", () => {
+  it("lets a plain straight go under ground-level track crossing it, but nothing along it or at a junction", () => {
+    const l = land();
+    const layout = new Layout();
+    layout.addPiece("straight-216", { x: 2 * CELL, z: 3.5 * CELL, heading: 0 }, 0, false);
+    const placer = new RoadPlacer(l, layout);
+    const i = l.grid.index(3, 3);
+    expect(placer.check(i, encodeRoad("straight", 1))).toBeNull();
+    expect(placer.check(i, encodeRoad("straight", 0))).toBe("track");
+    expect(placer.check(i, encodeRoad("tee", 0))).toBe("track");
+    expect(placer.check(i, encodeRoad("zebra", 1))).toBe("track");
+  });
+
+  it("lets track cross a straight road square only across it", () => {
+    const l = land();
+    const g = l.grid;
+    // A road running along z down column 4.
+    for (let r = 0; r < 10; r++) g.setRoad(g.index(4, r), encodeRoad("straight", 1));
+    const across = checkPlacement(l, "straight-216", false, { x: 2.5 * CELL, z: 5.5 * CELL, heading: 0 }, 0);
+    expect(across.kind).toBe("clear");
+    const along = checkPlacement(l, "straight-216", false, { x: 4.5 * CELL, z: 1 * CELL, heading: Math.PI / 2 }, 0);
+    expect(along).toEqual({ kind: "blocked", reason: "road" });
+    // Up on risers it passes over.
+    expect(checkPlacement(l, "straight-216", false, { x: 4.5 * CELL, z: 1 * CELL, heading: Math.PI / 2 }, 24).kind).not.toBe("blocked");
+    expect(crossesRoad(encodeRoad("curve", 0), 0)).toBe(false);
   });
 });

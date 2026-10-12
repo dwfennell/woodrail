@@ -3,9 +3,10 @@ import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, S
 import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
 import { cutsHills, hillsOf } from "./hill-shape";
+import { pieceOf, turnOf } from "../roads/pieces";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
-export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "field" | "shed" | "depot" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom";
+export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -13,6 +14,7 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   station: "The station is in the way",
   town: "Keep the track out of town",
   river: "Needs a bridge over the river",
+  road: "Cross a road straight over, on a plain stretch",
   hill: "Too low — the hill is in the way",
   undercut: "That would dig away the ground under other track",
   field: "That's a farm field — go around it",
@@ -31,6 +33,7 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   station: { kind: "blocked", reason: "station" },
   town: { kind: "blocked", reason: "town" },
   river: { kind: "blocked", reason: "river" },
+  road: { kind: "blocked", reason: "road" },
   hill: { kind: "blocked", reason: "hill" },
   field: { kind: "blocked", reason: "field" },
   shed: { kind: "blocked", reason: "shed" },
@@ -42,6 +45,17 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   headroom: { kind: "blocked", reason: "headroom" },
   prop: { kind: "blocked", reason: "prop" },
 };
+
+/** Track at most this high over a road meets it at a level crossing (higher, on a bridge or riser, it passes over). */
+const LEVEL = 4;
+
+/** Can ground-level track heading this way cross this road piece? Only a plain straight, and only across its run. */
+export function crossesRoad(road: number, heading: number): boolean {
+  if (!pieceOf(road)?.trackMayCross) return false;
+  // A straight at an even turn runs along x; at an odd one along z. Within 45° of across is across.
+  const along = turnOf(road) & 1 ? Math.abs(Math.sin(heading)) : Math.abs(Math.cos(heading));
+  return along < Math.SQRT1_2 + 1e-6;
+}
 
 const STEP = 16;
 const END_INSET = 6;
@@ -57,14 +71,14 @@ function forEachSample(
   type: PieceTypeId,
   flipped: boolean,
   pose: Pose,
-  visit: (x: number, z: number, trackY: number) => boolean,
+  visit: (x: number, z: number, trackY: number, heading: number) => boolean,
 ): void {
   const def = getPieceDef(type, flipped);
   const ch = Math.cos(pose.heading);
   const sh = Math.sin(pose.heading);
   if (def.paths.length === 0) {
     for (const [lx, lz] of [[0, 0], [20, 20], [20, -20], [-20, 20], [-20, -20]]) {
-      if (!visit(pose.x + lx * ch - lz * sh, pose.z + lx * sh + lz * ch, 0)) return;
+      if (!visit(pose.x + lx * ch - lz * sh, pose.z + lx * sh + lz * ch, 0, pose.heading)) return;
     }
     return;
   }
@@ -79,7 +93,7 @@ function forEachSample(
       for (const lat of LATERALS) {
         const px = sample.x + lx * lat;
         const pz = sample.z + lz * lat;
-        if (!visit(pose.x + px * ch - pz * sh, pose.z + px * sh + pz * ch, sample.y)) return;
+        if (!visit(pose.x + px * ch - pz * sh, pose.z + px * sh + pz * ch, sample.y, pose.heading + sample.heading)) return;
       }
     }
   }
@@ -197,7 +211,7 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
   // A ramp may cut into hills up to the height of its top end (see `HillShape` cuttings).
   const cutTop = cutsHills(type) ? y + Math.max(...getPieceDef(type, flipped).connectors.map((c) => c.y)) : -Infinity;
   let result = CLEAR;
-  forEachSample(type, flipped, pose, (x, z, trackY) => {
+  forEachSample(type, flipped, pose, (x, z, trackY, heading) => {
     const i = g.cellAtWorld(x, z);
     if (i === -1) result = BLOCKED["off-mat"];
     else {
@@ -215,6 +229,7 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
         if (inStationFootprint(land, g.owner[i], x, z)) result = BLOCKED.station;
       } else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
       else if (!overRiver && inRiver(g, x, z)) result = BLOCKED.river;
+      else if (g.road[i] !== 0 && y + trackY <= LEVEL && !crossesRoad(g.road[i], heading)) result = BLOCKED.road;
       else {
         // Below the ground here: a hill in the way, unless a ramp can cut its way in (no higher than its top end).
         const ground = hillsOf(g).groundAt(x, z);
