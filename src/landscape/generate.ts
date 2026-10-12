@@ -34,11 +34,8 @@ export interface Building {
   kind: "house" | "shop";
   /** Roof colour palette index. */
   roof: number;
-  /**
-   * The way its front (door) faces, along a grid axis: toward the street its lot fronts. Without it the front faces the
-   * town's centre.
-   */
-  front?: { x: -1 | 0 | 1; z: -1 | 0 | 1 };
+  /** The grid edge its front door faces (onto its street): +col, +row, −col, −row. Older saves: toward the centre. */
+  front?: 0 | 1 | 2 | 3;
 }
 
 export interface Town {

@@ -55,7 +55,7 @@ export const landscapeSchema = z.object({
           floors: z.union([z.literal(1), z.literal(2)]),
           kind: z.enum(["house", "shop"]),
           roof: z.number().int().min(0).max(15),
-          front: z.object({ x: z.union([z.literal(-1), z.literal(0), z.literal(1)]), z: z.union([z.literal(-1), z.literal(0), z.literal(1)]) }).optional(),
+          front: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).optional(),
         }),
       ),
     }),

@@ -78,8 +78,8 @@ describe("buildings facing their street", () => {
     const w = createWorld(4242);
     const town = w.landscape.towns.find((t) => t.buildings.some((b) => b.cells.length === 1))!;
     const k = town.buildings.findIndex((b) => b.cells.length === 1);
-    for (const front of [{ x: 1, z: 0 }, { x: 0, z: -1 }] as const) {
-      town.buildings[k].front = front;
+    for (const [edge, front] of [[0, { x: 1, z: 0 }], [3, { x: 0, z: -1 }]] as const) {
+      town.buildings[k].front = edge;
       const t = townProps(w.landscape, town)[k];
       expect(Math.cos(t.heading)).toBeCloseTo(front.x);
       expect(Math.sin(t.heading)).toBeCloseTo(front.z);
