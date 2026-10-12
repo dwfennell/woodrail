@@ -16,7 +16,7 @@ import {
 } from "three";
 import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { rng } from "../../lib/rng";
-import { FEAT_TREE, forEachInPlot, hashInts, PLOT_DEPTH, PLOT_WIDTH, type Landscape } from "../../landscape";
+import { FEAT_TREE, forEachInPlot, PLOT_DEPTH, PLOT_WIDTH, treeSeed, type Landscape } from "../../landscape";
 import { byTile, setCullBox } from "./tiles";
 import type { Materials } from "../materials";
 
@@ -43,16 +43,16 @@ export interface TreePlacement {
 
 /**
  * Where each toy tree stands, with a little random size, lean and colour, plot by plot in slot order (so the trees of
- * plots added later come after those already there). Deterministic per plot.
+ * plots added later come after those already there). Each tree's look comes from its own seed (`treeSeed`), so
+ * removing or moving one leaves the others as they were.
  */
 export function treePlacements(land: Landscape, plots: readonly number[] = land.grid.plots.map((_, slot) => slot)): TreePlacement[] {
   const g = land.grid;
   const out: TreePlacement[] = [];
   for (const slot of plots) {
-    const { px, pz } = g.plots[slot];
-    const r = rng(hashInts(land.seed, px, pz, 131));
     forEachInPlot(slot, g.plots[slot], (i, col, row) => {
       if (g.feature[i] !== FEAT_TREE) return;
+      const r = rng(treeSeed(land, i, col, row));
       out.push({
         x: g.centreX(col) + (r() * 2 - 1) * JITTER,
         z: g.centreZ(row) + (r() * 2 - 1) * JITTER,

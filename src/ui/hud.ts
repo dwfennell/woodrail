@@ -90,6 +90,7 @@ export class Hud {
   private readonly carCard = el("div", "card car-card");
   private readonly pieceCard = el("div", "card piece-card");
   private readonly pieceTitle = el("div", "card-title", "Track piece");
+  private rotateBtn!: HTMLButtonElement;
   private readonly depotCard = el("div", "card depot-card");
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
   private readonly landCard = el("div", "card land-card");
@@ -214,7 +215,8 @@ export class Hud {
     this.pieceCard.hidden = true;
     this.flipBtn = button("Flip", "Mirror this piece (F)", h.flip, "chip text");
     const pieceRow = el("div", "card-row");
-    pieceRow.append(button("Rotate", "Rotate 45° (R)", h.rotate, "chip text"), this.flipBtn, button("Delete", "Remove this piece (Del)", h.deletePiece, "chip text danger"));
+    this.rotateBtn = button("Rotate", "Rotate 45° (R)", h.rotate, "chip text");
+    pieceRow.append(this.rotateBtn, this.flipBtn, button("Delete", "Remove this piece (Del)", h.deletePiece, "chip text danger"));
     this.pieceCard.append(this.pieceTitle, pieceRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.pieceCard);
 
@@ -323,7 +325,7 @@ export class Hud {
     const openTab = (tab: TrayTab) => {
       openId = tab.id;
       // The Land tab switches land editing on (with its first tool), any other tab off.
-      this.chooseLandTool(tab.land ? (this.landTool ?? "raise") : null);
+      this.chooseLandTool(tab.land ? (this.landTool ?? "move") : null);
       tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));
       this.tray.classList.toggle("track-tab", !!tab.orient);
       this.tray.classList.toggle("turn-only", tab.orient === "turn");
@@ -536,13 +538,14 @@ export class Hud {
     this.root.classList.add("card-open");
   }
 
-  /** The card for a selected track piece, or (with a title, and no Flip) a prop. */
-  showPieceCard(flippable: boolean, title = "Track piece", canFlip = true): void {
+  /** The card for a selected track piece, or (with a title, and no Flip) a prop, or (no Rotate either) scenery. */
+  showPieceCard(flippable: boolean, title = "Track piece", canFlip = true, canRotate = true): void {
     this.hideCards();
     this.pieceCard.hidden = false;
     this.root.classList.add("card-open");
     this.pieceTitle.textContent = title;
     this.flipBtn.hidden = !canFlip;
+    this.rotateBtn.hidden = !canRotate;
     this.flipBtn.disabled = !flippable;
   }
 

@@ -111,6 +111,8 @@ const UI_PATHS = {
   sound: `<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke-linejoin="round"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/>`,
   mute: `<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke-linejoin="round"/><path d="m16 9.5 5 5"/><path d="m21 9.5-5 5"/>`,
   menu: `<path d="M5 7h14"/><path d="M5 12h14"/><path d="M5 17h14"/>`,
+  // A tree with arrows out to the sides (the Land tab's Move tool).
+  move: `<path d="M12 4.5 7.5 12h9z" fill="#5aa35a" stroke="none"/><path d="M12 4.5 7.5 12h9zM12 12v4.5"/><path d="M3 18.5h18M5.5 16 3 18.5 5.5 21M18.5 16l2.5 2.5-2.5 2.5"/>`,
   // A grass block with an arrow up or down (the Land tab's tools).
   raise: `<path d="M4 14h16v6H4z" fill="#e2bd85" stroke="none"/><path d="M4 12.5h16v2H4z" fill="#5aa35a" stroke="none"/><path d="M4 12.5h16v7.5H4z"/><path d="M12 9.5V2.5M8.5 6 12 2.5 15.5 6"/>`,
   lower: `<path d="M4 14h16v6H4z" fill="#e2bd85" stroke="none"/><path d="M4 12.5h16v2H4z" fill="#5aa35a" stroke="none"/><path d="M4 12.5h16v7.5H4z"/><path d="M12 2.5v7M8.5 6 12 9.5 15.5 6"/>`,

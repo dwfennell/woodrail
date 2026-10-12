@@ -16,8 +16,8 @@ export type TrayItem =
   /** A land-editing tool (the Land tab): chosen with a tap, then used by tapping the land. */
   | { kind: "tool"; tool: LandTool; label: string };
 
-/** Land-editing tools: raise or lower a square a block (grass blocks). */
-export type LandTool = "raise" | "lower";
+/** Land-editing tools: move the map's scenery (trees, fields, the shed), or raise or lower a square a block. */
+export type LandTool = "move" | "raise" | "lower";
 
 export const TRACK_ITEMS: TrayItem[] = [
   // Starts as a long straight and shrinks (in 18 mm steps) to meet a free end along its line.
@@ -135,6 +135,7 @@ export const TRAY_TABS: TrayTab[] = [
       {
         label: "Shape",
         items: [
+          { kind: "tool", tool: "move", label: "Move" },
           { kind: "tool", tool: "raise", label: "Raise" },
           { kind: "tool", tool: "lower", label: "Lower" },
         ],

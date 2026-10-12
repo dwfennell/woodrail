@@ -17,8 +17,7 @@ import { TrackView } from "./render/track-view";
 import { PIECE_TYPES } from "./track";
 import { Hud } from "./ui/hud";
 import { TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
-import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
-import { propsInRect } from "./props/placement";
+import { LAND_MESSAGES, plotSlotOf, setHeights } from "./landscape/edit";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TitleScreen } from "./ui/title";
 import "./style.css";
@@ -289,18 +288,22 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     landTool = tool;
     if (tool && expanding) setExpanding(false);
     interaction.landCursor = tool === "raise" ? "#7ddc58" : tool === "lower" ? "#ffd27a" : null;
-    if (!tool) interaction.showSquare(-1);
+    interaction.landMove = tool === "move";
+    if (tool !== "raise" && tool !== "lower") interaction.showSquare(-1);
+    if (tool !== "move") {
+      interaction.clearSelection();
+      hud.hideCards();
+    }
   }
 
   /** Raise or lower the square at a screen point a block (one undo step), or say why not. */
   function editSquare(x: number, y: number): void {
     const i = interaction.squareAt(x, y);
-    if (i === -1 || !landTool) return;
+    if (i === -1 || (landTool !== "raise" && landTool !== "lower")) return;
     const step = landTool === "raise" ? 1 : -1;
     const g = game.landscape.grid;
     const before = g.height[i];
-    const occupants = { inRect: (x0: number, z0: number, x1: number, z1: number) => propsInRect(game.props, game.propLibrary.footprint, x0, z0, x1, z1) };
-    const why = new LandEditor(game.landscape, game.layout, occupants).apply(i, step);
+    const why = interaction.landEditor().apply(i, step);
     if (why) {
       hud.toast(LAND_MESSAGES[why]);
       audio.refuse();
@@ -317,6 +320,10 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   }
 
   interaction.onFloorTap = (ground, x, y) => {
+    if (landTool === "move") {
+      interaction.selectSceneryAt(x, y);
+      return true;
+    }
     if (landTool) {
       editSquare(x, y);
       return true;

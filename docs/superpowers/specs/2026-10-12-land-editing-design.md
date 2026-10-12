@@ -1,7 +1,7 @@
 # Woodrail — Land Editing Design
 
 **Date:** 2026-10-12
-**Status:** L1 (select first) and L2 (Land tab, grass blocks by tapping) built. This session does all of it (the user's call); the map expansion session is not reviewing.
+**Status:** L1 (select first), L2 (Land tab, grass blocks by tapping) and L3 (Move tool: trees, fields, the shed) built. This session does all of it (the user's call); the map expansion session is not reviewing.
 **Part of:** the Sandbox assets epic (see `2026-10-12-sandbox-assets-design.md`)
 
 ## 1. Goal
@@ -155,6 +155,9 @@ dressing) belong to the map expansion session. **Proposed split** (the user's ca
 - the map expansion session reviews the landscape parts of L2–L4 before they reach main.
 
 ## 9. Deferred
+
+- Scenery drawn in the hand while it's being moved: today only an outline shows where it will go, and the thing jumps
+  there when let go.
 
 - Painting heights by dragging (a stroke): it needs a gesture that doesn't clash with panning, such as hold then
   drag, or two-finger pan only while a tool is on.

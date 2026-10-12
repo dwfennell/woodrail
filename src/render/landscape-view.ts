@@ -418,6 +418,7 @@ export class LandscapeView {
     }
     for (const field of land.fields) {
       const first = field.cells[0];
+      if (first === undefined) continue; // removed
       if (here(grid.centreX(grid.colOf(first)), grid.centreZ(grid.rowOf(first)))) buildField(land, field, this.mats, b);
     }
     if (land.shed && here(land.shed.x, land.shed.z)) buildShed(land, land.shed, this.mats, b);

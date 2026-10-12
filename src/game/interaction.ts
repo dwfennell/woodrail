@@ -10,7 +10,8 @@ import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWor
 import { BLOCK_MESSAGES, bridgeLevels, CELL, hillsOf, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { findOverlap, findSnap, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
-import { checkProp, pieceHitsProp, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
+import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
+import { LAND_MESSAGES, LandEditor, moveScenery, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
 import type { PropPose } from "../props/store";
 import { FootprintOutline } from "../render/props/outline";
@@ -128,6 +129,18 @@ type Mode =
       track: TrackIndex;
     }
   | {
+      kind: "drag-scenery";
+      pointerId: number;
+      scenery: Scenery;
+      /** The square it was taken hold of by. */
+      grab: { col: number; row: number };
+      /** How far it would move, in squares. */
+      dc: number;
+      dr: number;
+      blocked: LandBlock | null;
+      editor: LandEditor;
+    }
+  | {
       kind: "drag-train";
       pointerId: number;
       cars: HeldCar[];
@@ -172,6 +185,11 @@ export class Interaction {
   private readonly squareOutline = new FootprintOutline();
   /** Land editing: show the square under the mouse (its colour), or null for none. */
   landCursor: string | null = null;
+  /** Land editing's Move tool: the map's scenery (trees, fields, the shed) can be selected and moved. */
+  landMove = false;
+  private selectedScenery: Scenery | null = null;
+  /** Round the selected scenery, or where it would go. */
+  private readonly sceneryOutline = new FootprintOutline();
   private selectedCar = -1;
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
@@ -187,7 +205,7 @@ export class Interaction {
   ) {
     const canvas = game.canvas;
     const c = game.controls;
-    game.scene.add(this.propOutline.line, this.squareOutline.line);
+    game.scene.add(this.propOutline.line, this.squareOutline.line, this.sceneryOutline.line);
     // A left drag pans through TouchCamera, like one finger (the ground stays under the pointer); OrbitControls keeps
     // the right button (turn and tilt) and the middle (zoom).
     c.mouseButtons = { LEFT: NO_MOUSE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE };
@@ -331,6 +349,17 @@ export class Interaction {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     // Finish any settle/turn first: animating pieces are hidden from picking until their stand-in is done.
     this.game.flourishes.clear();
+    // Selected scenery (land editing's Move tool) is taken hold of on any of its squares.
+    if (this.landMove && this.selectedScenery) {
+      const i = this.squareAt(e.clientX, e.clientY);
+      const s = this.selectedScenery;
+      if (i !== -1 && sceneryCells(this.game.landscape, s).includes(i)) {
+        const g = this.game.landscape.grid;
+        this.game.controls.enabled = false;
+        this.mode = { kind: "drag-scenery", pointerId: e.pointerId, scenery: s, grab: { col: g.colOf(i), row: g.rowOf(i) }, dc: 0, dr: 0, blocked: null, editor: this.landEditor() };
+        return;
+      }
+    }
     let hit = this.pick(e.clientX, e.clientY);
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
     if (hit?.kind === "piece" && !this.withinReach(hit.pieceId)) hit = null;
@@ -403,6 +432,7 @@ export class Interaction {
     }
     if (m.kind === "drag-piece") this.dropPiece(m);
     else if (m.kind === "drag-prop") this.dropProp(m);
+    else if (m.kind === "drag-scenery") this.dropScenery(m);
     else if (m.kind === "drag-cargo") this.dropCargo(m, e.clientX, e.clientY);
     else this.dropTrain(m);
   }
@@ -455,6 +485,8 @@ export class Interaction {
       this.game.scene.remove(m.ghost);
       this.propOutline.hide();
       this.game.propsChanged(-1);
+    } else if (m.kind === "drag-scenery") {
+      this.outlineScenery(m.scenery, 0, 0);
     }
     this.mode = { kind: "idle" };
   }
@@ -516,6 +548,11 @@ export class Interaction {
   clearSelection(): void {
     if (this.selectedPiece !== -1) this.game.trackView.setHighlight(-1);
     if (this.selectedProp !== -1) this.propOutline.hide();
+    if (this.selectedScenery) {
+      this.sceneryOutline.hide();
+      this.game.invalidate();
+    }
+    this.selectedScenery = null;
     this.selectedProp = -1;
     this.selectedPiece = -1;
     this.selectedCar = -1;
@@ -800,6 +837,13 @@ export class Interaction {
   }
 
   deleteSelected(): void {
+    if (this.selectedScenery) {
+      const s = this.selectedScenery;
+      this.clearSelection();
+      this.hud.hideCards();
+      this.removeSelectedScenery(s);
+      return;
+    }
     if (this.selectedProp !== -1) {
       const id = this.selectedProp;
       this.clearSelection();
@@ -879,6 +923,10 @@ export class Interaction {
 
   private updateDrag(x: number, y: number): void {
     const m = this.mode;
+    if (m.kind === "drag-scenery") {
+      this.updateSceneryDrag(m, x, y);
+      return;
+    }
     if (m.kind !== "drag-piece" && m.kind !== "drag-train" && m.kind !== "drag-cargo" && m.kind !== "drag-prop") return;
     this.lastX = x;
     this.lastY = y;
@@ -1278,6 +1326,93 @@ export class Interaction {
     const z = g.centreZ(g.rowOf(i));
     this.squareOutline.show({ cx: 0, cz: 0, hw: CELL / 2 - 4, hd: CELL / 2 - 4 }, x, hillsOf(g).groundAt(x, z), z, 0, this.landCursor);
     this.game.invalidate();
+  }
+
+  /** A checker for land edits, knowing the track and the props. */
+  landEditor(): LandEditor {
+    const g = this.game;
+    return new LandEditor(g.landscape, g.layout, { inRect: (x0, z0, x1, z1) => propsInRect(g.props, g.propLibrary.footprint, x0, z0, x1, z1) });
+  }
+
+  /** Move tool: select the scenery on the square at a screen point (or clear the selection if there's none). */
+  selectSceneryAt(x: number, y: number): void {
+    const i = this.squareAt(x, y);
+    const s = i === -1 ? null : sceneryAt(this.game.landscape, i);
+    this.clearSelection();
+    this.hud.hideCards();
+    if (!s) return;
+    this.selectedScenery = s;
+    this.outlineScenery(s, 0, 0);
+    this.hud.showPieceCard(false, s.kind === "tree" ? "Tree" : s.kind === "field" ? "Field" : "Engine shed", false, false);
+  }
+
+  /** Outline scenery's squares, moved by (dc, dr), in a colour (white: selected). */
+  private outlineScenery(s: Scenery, dc: number, dr: number, color = "#fff2d8"): void {
+    const g = this.game.landscape.grid;
+    const cells = sceneryCells(this.game.landscape, s);
+    if (cells.length === 0) {
+      this.sceneryOutline.hide();
+      return;
+    }
+    const cols = cells.map((i) => g.colOf(i) + dc);
+    const rows = cells.map((i) => g.rowOf(i) + dr);
+    const c0 = Math.min(...cols);
+    const c1 = Math.max(...cols);
+    const r0 = Math.min(...rows);
+    const r1 = Math.max(...rows);
+    const x = (g.centreX(c0) + g.centreX(c1)) / 2;
+    const z = (g.centreZ(r0) + g.centreZ(r1)) / 2;
+    const fp = { cx: 0, cz: 0, hw: ((c1 - c0 + 1) * CELL) / 2 - 4, hd: ((r1 - r0 + 1) * CELL) / 2 - 4 };
+    this.sceneryOutline.show(fp, x, hillsOf(g).groundAt(x, z), z, 0, color);
+    this.game.invalidate();
+  }
+
+  private updateSceneryDrag(m: Extract<Mode, { kind: "drag-scenery" }>, x: number, y: number): void {
+    const g = this.game.landscape.grid;
+    const sy = this.lastPointerWasTouch ? y - TOUCH_LIFT_PX : y;
+    const i = this.squareAt(x, sy);
+    if (i === -1) return;
+    const dc = g.colOf(i) - m.grab.col;
+    const dr = g.rowOf(i) - m.grab.row;
+    if (dc === m.dc && dr === m.dr) return;
+    m.dc = dc;
+    m.dr = dr;
+    m.blocked = dc === 0 && dr === 0 ? null : m.editor.checkMove(m.scenery, dc, dr);
+    if (m.blocked) this.hud.toast(LAND_MESSAGES[m.blocked]);
+    this.outlineScenery(m.scenery, dc, dr, m.blocked ? "#ff4a3a" : dc === 0 && dr === 0 ? "#fff2d8" : "#7ddc58");
+  }
+
+  private dropScenery(m: Extract<Mode, { kind: "drag-scenery" }>): void {
+    this.mode = { kind: "idle" };
+    const land = this.game.landscape;
+    if ((m.dc === 0 && m.dr === 0) || m.blocked) {
+      if (m.blocked) this.onRefused?.();
+      this.outlineScenery(m.scenery, 0, 0);
+      return;
+    }
+    const g = land.grid;
+    const from = sceneryCells(land, m.scenery);
+    const to = from.map((i) => g.index(g.colOf(i) + m.dc, g.rowOf(i) + m.dr));
+    const before = snapshot(land, [...from, ...to], m.scenery);
+    const slots = moveScenery(land, m.scenery, m.dc, m.dr);
+    const after = snapshot(land, [...from, ...to], m.scenery);
+    this.game.editLand(slots);
+    this.editor().recordLand({ do: () => restore(land, after), undo: () => restore(land, before), slots: () => slots });
+    this.onPlaced?.(true);
+    // Still selected where it now stands.
+    const moved: Scenery = m.scenery.kind === "tree" ? { kind: "tree", cell: to[0] } : m.scenery;
+    this.selectedScenery = moved;
+    this.outlineScenery(moved, 0, 0);
+  }
+
+  private removeSelectedScenery(s: Scenery): void {
+    const land = this.game.landscape;
+    const cells = sceneryCells(land, s);
+    const before = snapshot(land, cells, s);
+    const slots = removeScenery(land, s);
+    const after = snapshot(land, cells, s);
+    this.game.editLand(slots);
+    this.editor().recordLand({ do: () => restore(land, after), undo: () => restore(land, before), slots: () => slots });
   }
 
   // ---- props -----------------------------------------------------------------------------------------------

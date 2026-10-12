@@ -132,7 +132,8 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
   // Ids are places in their lists.
   if (data.towns.some((t, i) => t.id !== i) || data.depots.some((d, i) => d.id !== i) || data.fields.some((f, i) => f.id !== i)) return err("landscape ids out of order");
   for (const t of data.towns) if (!cellsOk(t.cells) || t.buildings.some((b) => !cellsOk(b.cells) || b.id >= data.nextBuildingId)) return err(`town ${t.id} has a bad square`);
-  for (const f of data.fields) if (f.cells.length !== 4 || !cellsOk(f.cells)) return err(`field ${f.id} has a bad square`);
+  // A removed field keeps its place in the list (ids are places), with no squares.
+  for (const f of data.fields) if ((f.cells.length !== 4 && f.cells.length !== 0) || !cellsOk(f.cells)) return err(`field ${f.id} has a bad square`);
   if (data.shed && (data.shed.cells.length !== 4 || !cellsOk(data.shed.cells))) return err("the shed has a bad square");
   if (!cellsOk(data.corridors)) return err("a corridor has a bad square");
   // Every owner points at something that exists.
