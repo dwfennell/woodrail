@@ -87,17 +87,19 @@ Town interiors are made of road pieces and are read-only to the player. The stre
 buildings go on lots facing the streets. The aim is a network that makes sense (every building on a street, every
 street reaching the station and a gate) and looks like a small toy town.
 
-**The plan.** A town is a disc of squares (radius 210 mm, about three squares) around its station. The track runs
+**Town size (chosen).** Towns grow from a radius of 210 mm (about 13 squares besides the station) to 288 mm (four
+squares, about 27), so each side has room for a street and houses.
+
+**The plan.** A town is a disc of squares (radius 288 mm, four squares) around its station. The track runs
 through it along a map axis, and the platform is on one side. The plan works in the town's own axes: *along* the
 track and *out* to each side. `planTown(grid, town)` in `src/roads/town-plan.ts` is pure and its own random stream,
 and gives:
 
-- **Station Road:** on each side, the row of squares next to the station (the platform side's forecourt, and the
-  street along the track on the far side), for as long as the town runs.
+- **Station Road:** on each side, the row two squares out from the track: along the platform's front on the platform
+  side, and one row of houses back from the track on the far side. It runs as far as the town does, and its ends stay
+  open for roads laid on.
 - **Main street:** on each side, from the middle of Station Road straight out to the town's edge. Its outer end
   leads on to that side's town gate.
-- **Back street:** on a side deep enough for two rows of houses beyond Station Road, a street parallel to it, joined
-  to the main street (a T or a crossroads).
 - **Lots:** every other town square that touches a street is a building lot, 1 or 2 squares along the street. Each
   lot records the street it faces (its door side). Corners can face either street.
 - **The rest:** squares that touch no street stay as town squares without a road (a little green). Track still
@@ -107,6 +109,9 @@ and gives:
   cross them and the player can't change them.
 - The near and far sides aren't joined inside the town, because the track runs between them. Each side has its own
   gate, so the player's roads can join them up outside the town, over a level crossing.
+
+Measured on 60 seeds: per town, 8.4 buildings (4.6 before), 14.8 street squares, 0.6 greens and 1.5 gates.
+Generation takes the same time (12.7 ms a map), with 6 towns a map as before.
 
 **Buildings.** Today's house and shop records go on the lots: one building per lot, with its door facing the street.
 Land editing's L4 (catalogue towns) then chooses what model stands on each lot, from the lot's size and facing. Town
@@ -200,6 +205,7 @@ goals are deferred.
 - Road-over-rail bridges and raised roads; roads on slopes.
 - Multi-square pieces: roundabout, wide curves, car park.
 - Bus stops, traffic lights and street furniture beside roads.
+- A back street in deeper towns, and town greens with something on them (a fountain, a bandstand).
 - Vehicles on roads.
 - Road costs and goals in Game mode.
 - One-way roads half a square wide: the port model has room for them, but no pieces yet.

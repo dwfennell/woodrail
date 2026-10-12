@@ -154,6 +154,8 @@ export function buildFeltTiles(
   material: Material,
   thickness: (surface: number) => number,
   cache: FeltTiles,
+  /** Squares drawn some other way (as road pieces), left out of the felt. */
+  skip: (grid: LandscapeGrid, i: number) => boolean = () => false,
 ): Group {
   const group = new Group();
   const tileCols = TILE_WIDTH / CELL;
@@ -161,7 +163,7 @@ export function buildFeltTiles(
   const at = (col: number, row: number): number => {
     for (const g of grids) {
       const i = g.index(col, row);
-      if (i !== -1) return g.surface[i];
+      if (i !== -1) return skip(g, i) ? -1 : g.surface[i];
     }
     return -1;
   };
@@ -169,7 +171,7 @@ export function buildFeltTiles(
   const tiles = new Map<number, { tc: number; tr: number }>();
   for (const g of grids) {
     g.forEachCell((i, col, row) => {
-      if (!surfaces.includes(g.surface[i])) return;
+      if (!surfaces.includes(g.surface[i]) || skip(g, i)) return;
       const tc = Math.floor(col / tileCols);
       const tr = Math.floor(row / tileRows);
       tiles.set(tileAt(tc * TILE_WIDTH, tr * TILE_DEPTH), { tc, tr });

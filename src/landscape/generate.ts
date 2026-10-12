@@ -1,6 +1,7 @@
 import { rng } from "../lib/rng";
 import type { Pose } from "../track";
 import { encodeRoad } from "../roads/pieces";
+import { planTown } from "../roads/town-plan";
 import { BORDER_BAND, hashInts, regionStubs, STUB_DEPTH, type Region, type Stub } from "./edges";
 import {
   CELL,
@@ -106,14 +107,13 @@ const HALF_STATION = STATION_LENGTH / 2;
 const MIN_TOWN_SPACING = 900;
 /** Depots keep this far from towns and other depots (they have no town area of their own). */
 const DEPOT_SPACING = 750;
-const TOWN_RADIUS = 210;
+/** A town reaches four squares out from its centre (room for a street plan: see `planTown`). */
+const TOWN_RADIUS = 288;
 const CORRIDOR_LENGTH = 6 * CELL;
 const CORRIDOR_HALF_WIDTH = 2 * CELL;
 /** On the starter map, from a first town's centre to its depot's (the sawmill beyond one, the forest beyond the other). */
 const STARTER_DEPOT_GAP = 1080;
 
-/** Chance that a town had a country lane (see `skipLaneDraws`). */
-const LANE_CHANCE = 0.8;
 const NAMES = [
   "Applebury", "Millbrook", "Oakhollow", "Pinecrest", "Thimble Cross", "Larkfield", "Brambleton", "Copperdale",
   "Willowmere", "Fernhill", "Hazelwick", "Puddleby", "Kettle Green", "Foxley", "Tumbledown", "Ashcombe",
@@ -289,44 +289,37 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
   const rivers = stubs.inside.filter((s) => s.kind === "river");
   for (const stub of rivers) for (const [col, row] of stub.cells) grid.surface[grid.index(col, row)] = SURF_RIVER;
   joinRivers(grid, rivers, region, random, local, interior, locked);
-  skipLaneDraws(grid, stubs.inside.filter((s) => s.kind === "lane"), towns, random, interior);
 
   // Hills: the noise's heights, flattened down to the felt by towns, depots and rivers (here and across the region's
   // edges) so no square is more than one block above a neighbour.
   settleHeights(grid, seed, region, stubs.outside.filter((s) => s.kind === "river"), locked);
 
-  // Buildings in each town; leftover town squares become road felt.
+  // Each town's streets, laid first (read-only road pieces on town squares, see `planTown`), then a building on each
+  // lot facing its street, and a gate leading on from each main street. Squares left over stay as town greens.
   let buildingId = 0;
   for (const town of towns) {
-    const free = town.cells.filter((i) => grid.feature[i] === FEAT_NONE);
-    const count = 4 + Math.floor(random() * 5);
-    for (let k = 0; k < count && free.length > 0; k++) {
-      const pickIndex = Math.floor(random() * free.length);
-      const first = free[pickIndex];
-      if (grid.feature[first] !== FEAT_NONE) continue;
-      const cells = [first];
-      if (random() < 0.4) {
-        const neighbour = grid.index(grid.colOf(first) + 1, grid.rowOf(first));
-        if (neighbour !== -1 && grid.surface[neighbour] === SURF_TOWN && grid.feature[neighbour] === FEAT_NONE) cells.push(neighbour);
-      }
+    const plan = planTown(grid, { centre: town.centre, heading: town.station.heading, cells: town.cells }, () => random() < 0.4);
+    for (const [i, road] of plan.streets) {
+      grid.surface[i] = SURF_ROAD;
+      grid.road[i] = road;
+    }
+    for (const lot of plan.lots) {
       const b: Building = {
         id: buildingId++,
-        cells,
+        cells: lot.cells,
         floors: random() < 0.35 ? 2 : 1,
         kind: random() < 0.3 ? "shop" : "house",
         roof: Math.floor(random() * 4),
+        front: lot.front,
       };
-      for (const c of cells) {
+      for (const c of lot.cells) {
         grid.feature[c] = FEAT_BUILDING;
         grid.owner[c] = b.id;
       }
       town.buildings.push(b);
     }
-    for (const i of town.cells) if (grid.feature[i] === FEAT_NONE) grid.surface[i] = SURF_ROAD;
+    addTownGates(grid, plan.exits, protectedCells, interior);
   }
-
-  // A road piece or two leading out of each town, for the player's roads to start from.
-  for (const town of towns) addTownGates(grid, town, protectedCells, interior);
 
   // Trees in clumps on open grass (where the noise says, the same either side of a plot's edge).
   grid.forEachCell((i, col, row) => {
@@ -697,88 +690,28 @@ function joinRivers(
   }
 }
 
-/** Squares straight out from a town's centre, toward its platform side (`sign` 1) or away from it (−1). */
-function townAxis(town: Town, sign: 1 | -1): { dc: number; dr: number } {
-  const dx = Math.cos(town.station.heading);
-  const dz = Math.sin(town.station.heading);
-  return { dc: sign * Math.round(-dz), dr: sign * Math.round(dx) };
-}
-
 /**
- * Country lanes used to be laid here, drawing from the region's random stream: a number per town, and one more when
- * any lane was laid. Draw the same numbers so the buildings that follow come out as they did. `laneStubs` are where
- * lanes crossed the region's edges (their squares counted as lane, not grass).
+ * Town gates: a straight road piece just outside a town where a main street leaves it (`exits`), for the player's
+ * roads to start from. Only on open grass, brought down to the felt from one block up if that leaves no step of two
+ * beside it, and never on a station's approach or beside its track; with no room, the street just ends open.
  */
-function skipLaneDraws(grid: LandscapeGrid, laneStubs: readonly Stub[], towns: readonly Town[], random: () => number, interior: (col: number, row: number) => boolean): void {
-  const stubCells = new Set(laneStubs.flatMap((s) => s.cells.map(([c, r]) => grid.index(c, r))));
-  let ends = laneStubs.length;
-  for (const town of towns) {
-    if (random() >= LANE_CHANCE) continue;
-    const { dc, dr } = townAxis(town, 1);
-    let col = Math.floor(town.centre.x / CELL);
-    let row = Math.floor(town.centre.z / CELL);
-    for (let k = 0; k < 12 && grid.inBounds(col, row) && grid.surface[grid.index(col, row)] === SURF_TOWN; k++) {
-      col += dc;
-      row += dr;
-    }
-    const i = grid.index(col, row);
-    if (i !== -1 && interior(col, row) && grid.feature[i] === FEAT_NONE && grid.surface[i] === SURF_GRASS && !stubCells.has(i)) ends++;
-  }
-  if (ends > 0) random();
-}
-
-/**
- * Town gates: a straight road piece on open grass just outside a town (brought down to the felt from one block up), leading out of one of its streets, for
- * the player's roads to start from. One on the platform side and one on the far side, each as nearly straight out
- * from the town's centre as there's room for; with no room at either, one out of a side. Never on a station's
- * approach or beside its track.
- */
-function addTownGates(grid: LandscapeGrid, town: Town, protectedCells: ReadonlySet<number>, interior: (col: number, row: number) => boolean): void {
+function addTownGates(grid: LandscapeGrid, exits: readonly { cell: number; edge: number }[], protectedCells: ReadonlySet<number>, interior: (col: number, row: number) => boolean): void {
   const nb = grid.neighbours();
-  const cx = town.centre.x / CELL - 0.5;
-  const cz = town.centre.z / CELL - 0.5;
   const open = (j: number) => {
     if (j === -1 || grid.surface[j] !== SURF_GRASS || grid.feature[j] !== FEAT_NONE || grid.height[j] > 1 || protectedCells.has(j)) return false;
     if (!interior(grid.colOf(j), grid.rowOf(j))) return false;
     for (let e = 0; e < 4; e++) {
       const k = nb[j * 4 + e];
       if (k !== -1 && grid.feature[k] === FEAT_STATION) return false;
-      // A hill square one block up can come down to the felt for a gate, if that leaves no step of two beside it.
       if (k !== -1 && grid.height[k] > 1) return false;
     }
     return true;
   };
-  // Neighbour order is +col, +row, −col, −row; road edges are the same.
-  const steps = [[1, 0], [0, 1], [-1, 0], [0, -1]];
-  /** The best gate square leading out of the town along (dc, dr), and its edge, or null. */
-  const bestOut = (dc: number, dr: number): { j: number; edge: number; score: number } | null => {
-    let best: { j: number; edge: number; score: number } | null = null;
-    for (const i of town.cells) {
-      if (grid.surface[i] !== SURF_ROAD || grid.feature[i] !== FEAT_NONE) continue;
-      for (let e = 0; e < 4; e++) {
-        if (steps[e][0] !== dc || steps[e][1] !== dr) continue;
-        const j = nb[i * 4 + e];
-        if (!open(j)) continue;
-        // Furthest out along the way out, then nearest to the line through the centre.
-        const along = (grid.colOf(j) - cx) * dc + (grid.rowOf(j) - cz) * dr;
-        const aside = Math.abs((grid.colOf(j) - cx) * dr - (grid.rowOf(j) - cz) * dc);
-        const score = along - 2 * aside;
-        if (!best || score > best.score) best = { j, edge: e, score };
-      }
-    }
-    return best;
-  };
-  const front = townAxis(town, 1);
-  const ways = [front, { dc: -front.dc, dr: -front.dr }];
-  let gates = ways.map((w) => bestOut(w.dc, w.dr)).filter((g) => g !== null);
-  // No room front or back: one gate out of a side instead.
-  if (gates.length === 0) {
-    const sides = [bestOut(front.dr, -front.dc), bestOut(-front.dr, front.dc)].filter((g) => g !== null);
-    gates = sides.sort((a, b) => b.score - a.score).slice(0, 1);
-  }
-  for (const gate of gates) {
-    grid.height[gate.j] = 0;
-    grid.setRoad(gate.j, encodeRoad("straight", gate.edge & 1));
+  for (const x of exits) {
+    const j = nb[x.cell * 4 + x.edge];
+    if (!open(j)) continue;
+    grid.height[j] = 0;
+    grid.setRoad(j, encodeRoad("straight", x.edge & 1));
   }
 }
 

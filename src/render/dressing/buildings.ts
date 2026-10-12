@@ -163,8 +163,11 @@ export interface Footprint {
   front: { x: number; z: number };
 }
 
-/** Where a town's building stands and which way it faces: toward the town centre (a terrace faces off its long side). */
-export function footprintOf(land: Landscape, town: Town, cells: readonly number[], look: Look): Footprint {
+/**
+ * Where a town's building stands and which way it faces: onto its street (`faces`, a grid edge), or in towns from
+ * before streets, toward the town centre (a terrace faces off its long side).
+ */
+export function footprintOf(land: Landscape, town: Town, cells: readonly number[], look: Look, faces?: 0 | 1 | 2 | 3): Footprint {
   const { grid } = land;
   let minX = Infinity;
   let maxX = -Infinity;
@@ -184,6 +187,8 @@ export function footprintOf(land: Landscape, town: Town, cells: readonly number[
   const tz = town.centre.z - cz;
   const w = maxX - minX - 12;
   const d = maxZ - minZ - 12;
+  // Onto its street, when the town was laid out streets first; else toward the town centre.
+  if (faces !== undefined) return { cx, cz, w, d, front: [{ x: 1, z: 0 }, { x: 0, z: 1 }, { x: -1, z: 0 }, { x: 0, z: -1 }][faces] };
   let front = Math.abs(tx) > Math.abs(tz) ? { x: Math.sign(tx) || 1, z: 0 } : { x: 0, z: Math.sign(tz) || 1 };
   if (look === "terrace" && w !== d) front = w > d ? { x: 0, z: Math.sign(tz) || 1 } : { x: Math.sign(tx) || 1, z: 0 };
   return { cx, cz, w, d, front };
@@ -228,7 +233,7 @@ export function townLooks(seed: number, town: Town): Look[] {
 export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batcher): { cx: number; cz: number; w: number; d: number }[] {
   const looks = townLooks(land.seed, town);
   const doors: Point[] = town.buildings.map((bld, k) => {
-    const fp = footprintOf(land, town, bld.cells, looks[k]);
+    const fp = footprintOf(land, town, bld.cells, looks[k], bld.front);
     const half = fp.front.x !== 0 ? fp.w / 2 : fp.d / 2;
     return { x: fp.cx + fp.front.x * half, z: fp.cz + fp.front.z * half };
   });

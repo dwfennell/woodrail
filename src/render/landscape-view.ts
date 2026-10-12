@@ -456,7 +456,8 @@ export class LandscapeView {
     const grids = [this.land.grid, ...this.around.map((a) => a.land.grid)];
     return which === "river"
       ? buildFeltTiles(grids, [SURF_RIVER], this.mats.riverFelt, () => 1.6, this.feltTiles.river)
-      : buildFeltTiles(grids, [SURF_ROAD], this.mats.roadFelt, () => 1.1, this.feltTiles.roads);
+      : // Town streets laid as road pieces are drawn with the roads; older towns' streets stay felt.
+        buildFeltTiles(grids, [SURF_ROAD], this.mats.roadFelt, () => 1.1, this.feltTiles.roads, (g, i) => g.road[i] !== 0);
   }
 
   /** The road pieces on the land and the land around now, a mesh per material per tile (geometry owned by the cache). */
