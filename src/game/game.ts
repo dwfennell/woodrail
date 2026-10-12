@@ -36,6 +36,15 @@ export type GameWorld = World;
 /** Owns the renderer, scene, camera and frame loop. Input and UI attach to it. */
 /** Seconds to keep drawing after the last change on screen, for anything easing to rest. */
 const IDLE_TAIL = 1;
+/**
+ * Frame-rate caps (ms between frames). A high-refresh display would otherwise draw every vsync (120 Hz on ProMotion),
+ * which keeps the GPU flat out and the fans spinning. The camera and input get a smooth 60; a still view with only
+ * trains, cranes and the like moving gets 30.
+ */
+const BUSY_FRAME_MS = 1000 / 60;
+const CALM_FRAME_MS = 1000 / 30;
+/** Vsync timestamps jitter: a frame due within this much of its slot still runs. */
+const FRAME_SLACK_MS = 2;
 
 /** Keys that pan the view, and which way. */
 const PAN_KEYS: Record<string, "f" | "b" | "l" | "r" | "fast"> = {
@@ -108,7 +117,9 @@ export class Game {
     this.economy = world.economy;
     this.quality = detectQuality();
 
-    this.renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+    // No MSAA on the canvas: the scene is drawn into the composer's (non-multisampled) targets, so it would only
+    // multisample the final full-screen copy.
+    this.renderer = new WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.maxPixelRatio));
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.toneMapping = ACESFilmicToneMapping;
@@ -303,11 +314,17 @@ export class Game {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     const pr = this.renderer.getPixelRatio();
-    this.post.setSize(w * pr, h * pr);
+    this.post.setSize(Math.floor(w * pr), Math.floor(h * pr));
   }
 
   start(): void {
-    this.renderer.setAnimationLoop(() => this.frame());
+    this.renderer.setAnimationLoop((time) => {
+      // Input or a one-off change lifts the calm cap at once, so the first response isn't held back a slot.
+      const interval = this.calm && !this.woken && !this.dirty ? CALM_FRAME_MS : BUSY_FRAME_MS;
+      if (time - this.lastFrameAt < interval - FRAME_SLACK_MS) return;
+      this.lastFrameAt = time;
+      this.frame();
+    });
   }
 
   private frame(): void {
@@ -361,7 +378,9 @@ export class Game {
       this.camera.near = near;
       this.camera.updateProjectionMatrix();
     }
-    if (this.cameraMoved() || this.woken) active = true;
+    const viewActive = this.cameraMoved() || this.woken;
+    if (viewActive) active = true;
+    this.calm = !viewActive;
     this.woken = false;
     // Draw only while something on screen is changing (and a moment after, for anything easing to rest): a still
     // scene stays on screen without being drawn again, so an idle game costs next to nothing.
@@ -424,6 +443,9 @@ export class Game {
   /** Input arrived: keep drawing for a moment, for whatever it set easing (a held piece, a selection). */
   private woken = false;
   private lastActive = 0;
+  /** The last frame saw no camera movement or input: the next can wait for the calm frame-rate cap. */
+  private calm = false;
+  private lastFrameAt = -Infinity;
   private readonly lastCamera = new Float64Array(12);
 
   /**

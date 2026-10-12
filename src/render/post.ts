@@ -1,4 +1,4 @@
-import { Vector2, type PerspectiveCamera, type Scene, type WebGLRenderer } from "three";
+import { HalfFloatType, Vector2, WebGLRenderTarget, type PerspectiveCamera, type Scene, type WebGLRenderer } from "three";
 import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
@@ -57,12 +57,19 @@ export function apertureFor(distance: number): number {
 }
 
 export function createPost(renderer: WebGLRenderer, scene: Scene, camera: PerspectiveCamera, quality: QualitySettings): Post {
-  const composer = new EffectComposer(renderer);
+  // Multisampled, for anti-aliased edges (the canvas itself isn't: it only ever shows the final full-screen pass).
+  const composer = new EffectComposer(renderer, new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 }));
+  // setSize is given drawing-buffer pixels, already scaled by the renderer's pixel ratio: don't scale them again.
+  composer.setPixelRatio(1);
   composer.addPass(new RenderPass(scene, camera));
 
   let gtao: GTAOPass | null = null;
   if (quality.ambientOcclusion) {
     gtao = new GTAOPass(scene, camera, 1, 1);
+    // Ambient occlusion is soft and denoised: half resolution looks the same at a quarter of the cost. The composer
+    // sizes every pass, so halve it there.
+    const fullSize = gtao.setSize.bind(gtao);
+    gtao.setSize = (w, h) => fullSize(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2)));
     gtao.updateGtaoMaterial({ radius: 12, distanceExponent: 1.4, thickness: 5, scale: 1.2, samples: 16 });
     gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
     gtao.blendIntensity = 1;
@@ -83,7 +90,6 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
     composer,
     setSize(w, h) {
       composer.setSize(w, h);
-      gtao?.setSize(w, h);
       lens.uniforms.resolution.value.set(w, h);
     },
     setFocus(distance) {
