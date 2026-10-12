@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { connectorRef, Layout } from "./layout";
 import { solveParentPose, transformPose, type Pose } from "./math";
 import { getPieceDef } from "./pieces";
-import { appendPiece, findSnap } from "./snap";
+import { appendPiece, findSnap, findSnapAtPoint } from "./snap";
 import { SNAP_CAPTURE_RADIUS } from "./constants";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
@@ -201,5 +201,51 @@ describe("auto-fit (ends that don't match turn or mirror the piece to fit)", () 
     const s = findSnap(layout, "ramp", false, { x: 220, z: 0, heading: 0 }, 0, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
     expect(s.kind).toBe("snapped");
     if (s.kind === "snapped") expect(s.y).toBe(0);
+  });
+});
+
+describe("findSnapAtPoint", () => {
+  it("seats the piece on the free end under the pointer, even with the held piece's ends far from it", () => {
+    const l = new Layout();
+    l.addPiece("straight-144", P(0, 0)); // free peg at x=144, free socket at x=0
+    // Held centred on the pointer, at the peg: its own ends are 108 mm either side.
+    const r = findSnapAtPoint(l, "straight-216", false, P(144 - 108, 0), 0, { x: 150, z: 6 }, -1, SNAP_CAPTURE_RADIUS, "turn");
+    expect(r.kind).toBe("snapped");
+    if (r.kind !== "snapped") return;
+    expect(r.connector).toBe(0);
+    expect(r.pose.x).toBeCloseTo(144);
+    expect(r.pose.heading).toBeCloseTo(0);
+    // The plain end-based snap finds nothing from here.
+    expect(findSnap(l, "straight-216", false, P(144 - 108, 0), 0, -1, SNAP_CAPTURE_RADIUS, "turn").kind).toBe("none");
+  });
+
+  it("picks the end nearest the pointer when two are in reach", () => {
+    const l = new Layout();
+    l.addPiece("straight-144", P(0, 0));
+    const r = findSnapAtPoint(l, "straight-144", false, P(-72, 0), 0, { x: 4, z: 0 }, -1, 60, "turn");
+    expect(r.kind).toBe("snapped");
+    if (r.kind === "snapped") expect(r.pose.x).toBeCloseTo(-144);
+  });
+
+  it("chooses the curve's seating most like the piece as held", () => {
+    const l = new Layout();
+    l.addPiece("straight-144", P(0, 0));
+    for (const held of [deg(30), deg(-30)]) {
+      // A new curve held just past the peg, swinging one way or the other.
+      const pose = P(150, 0, held);
+      const r = findSnapAtPoint(l, "curve-large", false, pose, 0, { x: 146, z: 0 }, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
+      expect(r.kind).toBe("snapped");
+      if (r.kind !== "snapped") continue;
+      const def = getPieceDef("curve-large", r.flipped);
+      const far = transformPose(r.pose, def.connectors[1 - r.connector].pose, P(0, 0));
+      expect(Math.sign(far.z)).toBe(Math.sign(held));
+    }
+  });
+
+  it("returns none away from any free end, and ignores the piece's own", () => {
+    const l = new Layout();
+    const a = l.addPiece("straight-144", P(0, 0));
+    expect(findSnapAtPoint(l, "straight-144", false, P(300, 0), 0, { x: 300, z: 0 }).kind).toBe("none");
+    expect(findSnapAtPoint(l, "straight-144", false, P(0, 0), 0, { x: 144, z: 0 }, a).kind).toBe("none");
   });
 });

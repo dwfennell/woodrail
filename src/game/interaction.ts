@@ -8,7 +8,7 @@ import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, bridgeLevels, CELL, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { findOverlap, findSnap, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { findOverlap, findSnap, findSnapAtPoint, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
@@ -311,7 +311,7 @@ export class Interaction {
         fresh: true,
       };
     } else if (item.kind === "prop") {
-      this.mode = this.propDrag(item.asset, -1, e.pointerId, this.cameraHeading() + (this.trayTurns * Math.PI) / 4, null, { x: 0, z: 0 });
+      this.mode = this.propDrag(item.asset, -1, e.pointerId, this.nextPropHeading(), null, { x: 0, z: 0 });
     } else if (item.kind === "train") {
       // Ids now, so the train in the hand wears the colours it will have on the track.
       const ids = this.game.sim.newCarIds(item.cars.length);
@@ -324,8 +324,35 @@ export class Interaction {
   trayTurns = 0;
   trayFlipped = false;
 
-  /** Tray "Turn": turns the piece in hand (if any) and every piece taken out after it. */
-  turnTrayPiece(): void {
+  /**
+   * Which way the next model from the tray faces (its front, world heading): the way the last one placed or turned
+   * faced, so a row of houses comes out alike; at first, toward the camera.
+   */
+  propHeading: number | null = null;
+
+  nextPropHeading(): number {
+    return this.propHeading ?? this.cameraHeading() + Math.PI;
+  }
+
+  /**
+   * The tray's Turn arrow, as seen on screen (degrees clockwise from straight up = away from the camera): which way
+   * the next model faces (`props`), or the next piece runs.
+   */
+  trayArrow(props: boolean): number {
+    const d = new Vector3();
+    this.game.camera.getWorldDirection(d);
+    const heading = props ? this.nextPropHeading() : this.cameraHeading() + (this.trayTurns * Math.PI) / 4;
+    const a = ((heading - Math.atan2(d.z, d.x)) * 180) / Math.PI;
+    return ((a % 360) + 540) % 360 - 180;
+  }
+
+  /** Tray "Turn": turns the piece in hand (if any) and every piece taken out after it (`props`: every model). */
+  turnTrayPiece(props = false): void {
+    if (props || this.mode.kind === "drag-prop") {
+      if (this.mode.kind === "drag-prop") this.rotateSelected();
+      else this.propHeading = this.nextPropHeading() + Math.PI / 4;
+      return;
+    }
     if (this.mode.kind === "drag-piece") this.rotateSelected();
     this.trayTurns = (this.trayTurns + 1) % 8;
     this.onTurned?.();
@@ -709,6 +736,7 @@ export class Interaction {
     }
     if (this.mode.kind === "drag-prop") {
       this.mode.heading += Math.PI / 4;
+      this.propHeading = this.mode.heading;
       this.updateDrag(this.lastX, this.lastY);
       return;
     }
@@ -987,12 +1015,23 @@ export class Interaction {
       // (peg to peg, hole to hole) turn the piece round, or for a new piece mirror it, so it fits.
       const autoFit = m.pieceId === -1 ? "turn-or-mirror" : "turn";
       m.snap = { kind: "none" };
+      // A free end under the finger wins: the piece goes where it's pointed. Else the nearest end to the held piece's.
+      let atFinger = false;
       for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
-        const s = findSnap(this.game.layout, holdType, m.heldFlipped, heldAt(level) ?? m.pose, level, m.pieceId, capture, autoFit);
+        const held = heldAt(level) ?? m.pose;
+        const finger = this.planeAt(x, sy, level);
+        const f = finger ? findSnapAtPoint(this.game.layout, holdType, m.heldFlipped, held, level, finger, m.pieceId, capture, autoFit) : null;
+        const s = f?.kind === "snapped" ? f : findSnap(this.game.layout, holdType, m.heldFlipped, held, level, m.pieceId, capture, autoFit);
         // A bridge only joins track it can stand at (raised track, another bridge): beside track on the ground it
         // keeps to its own height, a level up.
         if (s.kind === "snapped" && isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
-        if (s.kind === "snapped" && (m.snap.kind !== "snapped" || s.distance < m.snap.distance)) m.snap = s;
+        if (s.kind !== "snapped") continue;
+        const fingered = s === f;
+        if (atFinger && !fingered) continue;
+        if (m.snap.kind !== "snapped" || (fingered && !atFinger) || s.distance < m.snap.distance) {
+          m.snap = s;
+          atFinger = fingered;
+        }
       }
       if (m.auto) {
         // Shrink to meet a free end along its line, if one is in reach (else stay long).
@@ -1515,6 +1554,7 @@ export class Interaction {
     }
     const store = g.props;
     const pose = { ...m.pose };
+    this.propHeading = pose.heading;
     let placed = m.propId;
     if (m.propId === -1) {
       let id = -1;
@@ -1565,6 +1605,7 @@ export class Interaction {
       return;
     }
     const after = { ...to, y: c.y };
+    this.propHeading = after.heading;
     this.editor().editProps({ do: () => g.props.move(id, after), undo: () => g.props.move(id, from) });
     g.propsChanged();
     this.propOutline.show(fp, after.x, after.y, after.z, after.heading);

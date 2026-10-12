@@ -329,6 +329,7 @@ export class Hud {
       tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));
       this.tray.classList.toggle("track-tab", !!tab.orient);
       this.tray.classList.toggle("turn-only", tab.orient === "turn");
+      this.propsTab = tab.orient === "turn";
       let groups = tab.groups;
       if (tab.props) {
         const loaded = loadedGroups.get(tab.id);
@@ -620,9 +621,24 @@ export class Hud {
   }
 
   /** Show how tray pieces will come out: the Turn arrow points their way, and Flip lights up when mirroring. */
-  setTrayOrientation(turns: number, flipped: boolean): void {
-    this.tray.style.setProperty("--tray-turn", `${turns * 45}deg`);
+  /** The open tab holds models (its Turn turns the next model, not the next piece). */
+  propsTab = false;
+  private trayArrowDeg = NaN;
+  private trayArrowWanted = NaN;
+
+  setTrayOrientation(flipped: boolean): void {
     this.flipTrayBtn.classList.toggle("active", flipped);
+  }
+
+  /** Point the Turn arrow (degrees clockwise on screen from straight up). Cheap to call every frame. */
+  setTrayArrow(deg: number): void {
+    const d = Math.round(deg);
+    if (d === this.trayArrowWanted) return;
+    this.trayArrowWanted = d;
+    // The short way round from where it points now, so the arrow's turn never spins the long way.
+    const from = Number.isNaN(this.trayArrowDeg) ? d : this.trayArrowDeg;
+    this.trayArrowDeg = from + ((((d - from) % 360) + 540) % 360) - 180;
+    this.tray.style.setProperty("--tray-turn", `${this.trayArrowDeg}deg`);
   }
 
   showDepotCard(title: string): void {

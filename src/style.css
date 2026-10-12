@@ -113,7 +113,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
   .chip.text { font-size: 13px; }
   .tray-item { width: 70px; height: 80px; }
   .tray-item .label { font-size: 10.5px; }
-  .card { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 124px); min-width: 0; width: calc(100% - 24px); }
+  .card { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 136px); min-width: 0; width: calc(100% - 24px); }
 }
 
 /* ---- motion ---------------------------------------------------------------------------------------------- */

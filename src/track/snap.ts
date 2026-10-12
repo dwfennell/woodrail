@@ -125,3 +125,74 @@ export function appendPiece(
   const y = t.y - c.y;
   return layout.addPiece(type, pose, y, flipped);
 }
+
+/**
+ * Seat the piece on the free connector nearest `point` (where the finger or mouse is), if one is within
+ * `captureRadius`: a piece is put where it's pointed, not only where its held ends happen to be. Of the ways it can
+ * seat there (each of its ends of the other kind; mirrored too, with "turn-or-mirror"), the one most like the piece as
+ * held at `pose` wins.
+ */
+export function findSnapAtPoint(
+  layout: Layout,
+  type: PieceTypeId,
+  flipped: boolean,
+  pose: Pose,
+  y: number,
+  point: { x: number; z: number },
+  excludePieceId = -1,
+  captureRadius = SNAP_CAPTURE_RADIUS,
+  autoFit: AutoFit = "off",
+): SnapResult {
+  const held = getPieceDef(type, flipped);
+  const n = layout.queryFreeConnectors(point.x, point.z, captureRadius, candidates);
+  let ref = -1;
+  let distance = Infinity;
+  for (let j = 0; j < n; j++) {
+    if (pieceOfRef(candidates[j]) === excludePieceId) continue;
+    const t = layout.worldConnector(candidates[j], target);
+    const d = Math.hypot(t.x - point.x, t.z - point.z);
+    // Within reach of the held piece's height: the floor, or one of the levels the caller tries.
+    if (d > captureRadius || d >= distance || held.connectors.every((c) => Math.abs(t.y - (y + c.y)) > SNAP_HEIGHT_TOLERANCE)) continue;
+    ref = candidates[j];
+    distance = d;
+  }
+  if (ref === -1) return NONE;
+  const t = layout.worldConnector(ref, target);
+  const seat = { x: t.x, z: t.z, heading: t.heading + Math.PI };
+  // The held piece's ends, to compare each seating against.
+  const ends = held.connectors.map((c) => {
+    transformPose(pose, c.pose, local);
+    return { x: local.x, z: local.z };
+  });
+  let best: SnapResult = NONE;
+  let bestScore = Infinity;
+  const flips = autoFit === "turn-or-mirror" && held.flippable ? [flipped, !flipped] : [flipped];
+  for (const f of flips) {
+    const d = getPieceDef(type, f);
+    for (let k = 0; k < d.connectors.length; k++) {
+      const c = d.connectors[k];
+      if (c.kind === t.kind || Math.abs(t.y - (y + c.y)) > SNAP_HEIGHT_TOLERANCE) continue;
+      // Only the end nearest the finger may seat unless the piece may turn to fit.
+      if (autoFit === "off" && k !== nearestEnd(ends, point)) continue;
+      const p = solveParentPose(c.pose, seat, { x: 0, z: 0, heading: 0 });
+      let score = f === flipped ? 0 : AUTO_FIT_PENALTY;
+      d.connectors.forEach((c2, m) => {
+        transformPose(p, c2.pose, local2);
+        const e = ends[m] ?? ends[0];
+        score += Math.hypot(local2.x - e.x, local2.z - e.z);
+      });
+      if (score >= bestScore) continue;
+      bestScore = score;
+      best = { kind: "snapped", pose: p, y: t.y - c.y, connector: k, target: ref, distance, flipped: f };
+    }
+  }
+  return best;
+}
+
+function nearestEnd(ends: { x: number; z: number }[], point: { x: number; z: number }): number {
+  let best = 0;
+  ends.forEach((e, k) => {
+    if (Math.hypot(e.x - point.x, e.z - point.z) < Math.hypot(ends[best].x - point.x, ends[best].z - point.z)) best = k;
+  });
+  return best;
+}

@@ -150,12 +150,12 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       buttonTap: () => audio.tap(),
       depotAuto: () => interaction.toggleDepotAuto(),
       trayTurn: () => {
-        interaction.turnTrayPiece();
-        hud.setTrayOrientation(interaction.trayTurns, interaction.trayFlipped);
+        interaction.turnTrayPiece(hud.propsTab);
+        hud.setTrayOrientation(interaction.trayFlipped);
       },
       trayFlip: () => {
         interaction.flipTrayPiece();
-        hud.setTrayOrientation(interaction.trayTurns, interaction.trayFlipped);
+        hud.setTrayOrientation(interaction.trayFlipped);
       },
       depotWaitFull: () => interaction.toggleDepotWaitFull(),
       needThumbnails: (items) => drawPropThumbnails(items),
@@ -580,6 +580,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   game.onFrame = (dt) => {
     interaction.refreshDepotCard();
+    // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.
+    hud.setTrayArrow(interaction.trayArrow(hud.propsTab));
     interaction.tick(dt);
     const now = performance.now();
     if (now - goalsCheckedAt > 1000) {
