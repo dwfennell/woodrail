@@ -2,3 +2,5 @@ node_modules
 dist
 *.local
 dist-bench
+dist-catalogue
+*.log

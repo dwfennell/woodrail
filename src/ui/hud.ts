@@ -1,38 +1,61 @@
-import type { CarKind } from "../sim";
+import type { CarKind, CarLook } from "../sim";
 import type { PieceTypeId } from "../track";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 
-export type TrayItem = { kind: "piece"; type: PieceTypeId; label: string } | { kind: "train"; cars: CarKind[]; label: string };
+export type TrayItem = { kind: "piece"; type: PieceTypeId; label: string; auto?: boolean } | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string };
 
 export const TRACK_ITEMS: TrayItem[] = [
+  // Starts as a long straight and shrinks (in 18 mm steps) to meet a free end along its line.
+  { kind: "piece", type: "straight-216", label: "Auto", auto: true },
   { kind: "piece", type: "straight-216", label: "Long" },
   { kind: "piece", type: "straight-144", label: "Medium" },
   { kind: "piece", type: "straight-108", label: "Short" },
   { kind: "piece", type: "straight-54", label: "Mini" },
+  { kind: "piece", type: "straight-36", label: "Tiny" },
+  { kind: "piece", type: "straight-288", label: "Extra long" },
   { kind: "piece", type: "curve-large", label: "Curve" },
   { kind: "piece", type: "curve-small", label: "Tight curve" },
+  { kind: "piece", type: "curve-wide", label: "Wide curve" },
   { kind: "piece", type: "s-curve", label: "S-curve" },
   { kind: "piece", type: "s-curve-short", label: "Short S" },
   { kind: "piece", type: "switch", label: "Switch" },
+  { kind: "piece", type: "switch-y", label: "Y switch" },
+  { kind: "piece", type: "switch-3way", label: "Three-way" },
   { kind: "piece", type: "crossing", label: "Crossing" },
+  { kind: "piece", type: "crossing-45", label: "45° crossing" },
+  { kind: "piece", type: "crossover", label: "Crossover" },
+  { kind: "piece", type: "double-straight", label: "Double track" },
+  { kind: "piece", type: "double-curve", label: "Double curve" },
+  { kind: "piece", type: "ramp-curve", label: "Curved ramp" },
+  { kind: "piece", type: "balloon-loop-small", label: "Small loop" },
+  { kind: "piece", type: "wye", label: "Wye" },
   { kind: "piece", type: "ramp", label: "Ramp" },
   { kind: "piece", type: "bridge", label: "Bridge" },
   { kind: "piece", type: "bridge-curve", label: "Curved bridge" },
   { kind: "piece", type: "riser", label: "Riser" },
   { kind: "piece", type: "buffer", label: "Buffer" },
   { kind: "piece", type: "buffer-turnback", label: "Turnback" },
+  { kind: "piece", type: "balloon-loop", label: "Balloon loop" },
   { kind: "piece", type: "adapter-peg", label: "Peg–peg" },
   { kind: "piece", type: "adapter-socket", label: "Hole–hole" },
+  { kind: "piece", type: "joiner", label: "Peg joiner" },
 ];
 
 export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["engine", "hopper", "passenger", "caboose"], label: "Full train" },
   { kind: "train", cars: ["engine", "timber", "timber", "timber"], label: "Timber train" },
   { kind: "train", cars: ["engine"], label: "Engine" },
+  { kind: "train", cars: ["engine"], looks: ["tank"], label: "Tank engine" },
+  { kind: "train", cars: ["engine"], looks: ["diesel"], label: "Diesel" },
+  { kind: "train", cars: ["engine"], looks: ["electric"], label: "Electric" },
   { kind: "train", cars: ["hopper"], label: "Coal wagon" },
   { kind: "train", cars: ["timber"], label: "Timber wagon" },
   { kind: "train", cars: ["passenger"], label: "Coach" },
+  { kind: "train", cars: ["passenger"], looks: ["dining"], label: "Dining car" },
+  { kind: "train", cars: ["passenger"], looks: ["sleeper"], label: "Sleeper" },
+  { kind: "train", cars: ["passenger"], looks: ["double-decker"], label: "Double-decker" },
   { kind: "train", cars: ["caboose"], label: "Caboose" },
+  { kind: "train", cars: ["caboose"], looks: ["bay-window"], label: "Bay-window caboose" },
 ];
 
 /** A shelf of the tray: a few related items behind one button. */
@@ -41,20 +64,22 @@ export interface TrayGroup {
   items: TrayItem[];
 }
 
-const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === t)!);
+const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === t && !i.auto)!);
 
 export const TRACK_GROUPS: TrayGroup[] = [
-  { label: "Straight", items: pieces("straight-216", "straight-144", "straight-108", "straight-54") },
-  { label: "Curve", items: pieces("curve-large", "curve-small", "s-curve", "s-curve-short") },
-  { label: "Switch", items: pieces("switch", "crossing") },
-  { label: "Ups & downs", items: pieces("ramp", "riser", "bridge", "bridge-curve") },
-  { label: "Ends", items: pieces("buffer", "buffer-turnback") },
-  { label: "Adapters", items: pieces("adapter-peg", "adapter-socket") },
+  { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36", "double-straight")] },
+  { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short", "double-curve") },
+  { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45") },
+  { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "riser", "bridge", "bridge-curve") },
+  { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
+  { label: "Adapters", items: pieces("adapter-peg", "adapter-socket", "joiner") },
 ];
 
 export const TRAIN_GROUPS: TrayGroup[] = [
   { label: "Trains", items: TRAIN_ITEMS.slice(0, 2) },
-  { label: "Engine & wagons", items: TRAIN_ITEMS.slice(2) },
+  { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
+  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber")) },
+  { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
 export interface HudHandlers {
@@ -104,7 +129,7 @@ export interface HudOptions {
 
 /** Tray thumbnail key for an item. */
 export function trayKey(item: TrayItem): string {
-  return item.kind === "piece" ? `piece:${item.type}` : `train:${item.label}`;
+  return item.kind === "piece" ? `piece:${item.type}${item.auto ? ":auto" : ""}` : `train:${item.label}`;
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", html = ""): HTMLElementTagNameMap[K] => {

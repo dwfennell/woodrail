@@ -5,6 +5,7 @@ import { createSample, pathLength, samplePath } from "./path";
 import { getPieceDef } from "./pieces";
 import { createRouteStep, pathExitConnector, routeFrom } from "./routing";
 import { appendPiece } from "./snap";
+import { Sim } from "../sim";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
 
@@ -43,6 +44,71 @@ describe("routeFrom", () => {
     l.setSwitchState(s, 1);
     routeFrom(l, a, 1, out);
     expect(out).toEqual({ pieceId: s, pathIndex: 1, reversed: false });
+  });
+
+  it("a three-way switch steps through straight, left and right; a Y through its two curves", () => {
+    const sim = new Sim(new Layout());
+    const l = sim.layout;
+    const a = l.addPiece("straight-144", P(0, 0));
+    const s = appendPiece(l, "switch-3way", false, connectorRef(a, 1));
+    const out = createRouteStep();
+    const seen: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      routeFrom(l, a, 1, out);
+      seen.push(out.pathIndex);
+      sim.toggleSwitch(s);
+    }
+    expect(seen).toEqual([0, 1, 2, 0]);
+    const b = l.addPiece("straight-144", P(0, 400));
+    const y = appendPiece(l, "switch-y", false, connectorRef(b, 1));
+    const ys: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      routeFrom(l, b, 1, out);
+      ys.push(out.pathIndex);
+      sim.toggleSwitch(y);
+    }
+    expect(ys).toEqual([0, 1, 0]);
+  });
+
+  it("a crossover sends trains on, or over to the other line, from either line's facing end", () => {
+    const l = new Layout();
+    const a = l.addPiece("straight-144", P(0, 0));
+    const x = appendPiece(l, "crossover", false, connectorRef(a, 1));
+    const out = createRouteStep();
+    routeFrom(l, a, 1, out);
+    expect(getPieceDef("crossover", false).paths[out.pathIndex].to).toBe(1);
+    l.setSwitchState(x, 1);
+    routeFrom(l, a, 1, out);
+    expect(getPieceDef("crossover", false).paths[out.pathIndex].to).toBe(3);
+    // Coming back along the other line (into its far end), the same lever picks its line or the link across.
+    const b = appendPiece(l, "straight-144", false, connectorRef(x, 3));
+    routeFrom(l, b, 0, out);
+    expect(out.reversed).toBe(true);
+    expect(getPieceDef("crossover", false).paths[out.pathIndex].from).toBe(0);
+    l.setSwitchState(x, 0);
+    routeFrom(l, b, 0, out);
+    expect(getPieceDef("crossover", false).paths[out.pathIndex].from).toBe(2);
+    expect(out.reversed).toBe(true);
+  });
+
+  it("a wye: from any of its three ends, the lever picks which of the other two a train runs to", () => {
+    const l = new Layout();
+    const w = l.addPiece("wye", P(0, 0));
+    const def = getPieceDef("wye", false);
+    const out = createRouteStep();
+    const ends = (connector: number) => {
+      const t = appendPiece(l, "straight-144", false, connectorRef(w, connector));
+      const seen = new Set<number>();
+      for (const state of [0, 1]) {
+        l.setSwitchState(w, state);
+        routeFrom(l, t, 0, out);
+        const p = def.paths[out.pathIndex];
+        seen.add(out.reversed ? p.from : p.to!);
+      }
+      return [...seen].sort();
+    };
+    expect(ends(1)).toEqual([0, 2]);
+    expect(ends(2)).toEqual([0, 1]);
   });
 
   it("always merges when entering from a branch, regardless of switch state", () => {

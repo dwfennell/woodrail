@@ -1,4 +1,5 @@
 import {
+  Path,
   BoxGeometry,
   BufferGeometry,
   CylinderGeometry,
@@ -97,10 +98,11 @@ interface Frame {
 }
 
 /** Samples along a path, optionally extended straight past either end. */
-function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number): Frame[] {
+function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number, lineStep = 0): Frame[] {
   const len = pathLength(geom);
   const curved = geom.kind !== "line" || geom.rise !== 0;
-  const steps = curved ? Math.max(8, Math.ceil(len / 3)) : 1;
+  // Curves every 3 mm (a balloon loop's big gentle curves every 6).
+  const steps = curved ? Math.max(8, Math.ceil(len / (geom.kind === "loop" ? 6 : 3))) : lineStep > 0 ? Math.ceil(len / lineStep) : 1;
   const out: Frame[] = [];
   const p = createSample();
   const push = (s: number) => {
@@ -374,17 +376,26 @@ function riserGeometry(): BufferGeometry {
  * (Unioning overlapping swept solids with CSG is pathologically slow on their coplanar faces.)
  */
 function flatBlockBody(def: PieceDef): BufferGeometry {
+  const runs = def.paths.map((p) => framesAlong(p.geom, 0, 0));
+  // Double track: one board, filled in between its two lines.
+  if (def.web) runs.push(framesAlong(def.web, 0, 0));
+  return flatBody(runs);
+}
+
+/** A flat body under several stretches of track (each a run of frames), merged where they overlap. */
+function flatBody(runs: Frame[][]): BufferGeometry {
   const half = TRACK_WIDTH / 2;
-  const ribbons: Polygon[] = def.paths.map((p) => {
-    const frames = framesAlong(p.geom, 0, 0);
+  const ribbons: Polygon[] = runs.map((frames) => {
     const left = frames.map((f) => [f.x - Math.sin(f.heading) * half, f.z + Math.cos(f.heading) * half] as [number, number]);
     const right = frames.map((f) => [f.x + Math.sin(f.heading) * half, f.z - Math.cos(f.heading) * half] as [number, number]);
     return [[...left, ...right.reverse(), left[0]]];
   });
   const [first, ...rest] = ribbons;
   const union = polygonClipping.union(first, ...rest);
-  const ring = union[0][0];
+  const [ring, ...holes] = union[0];
   const shape = new Shape(ring.slice(0, -1).map(([x, z]) => new Vector2(x, -z)));
+  // A loop's track encloses the felt inside it: keep that open.
+  for (const h of holes) shape.holes.push(new Path(h.slice(0, -1).map(([x, z]) => new Vector2(x, -z))));
   const bevel = 2;
   const g = new ExtrudeGeometry(shape, {
     depth: TRACK_THICKNESS - 2 * bevel,
@@ -414,6 +425,8 @@ function slotGroups(result: Brush): BufferGeometry {
 /** `levels`: for a bridge, how many riser heights its arches reach down below the deck. */
 export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
   if (def.paths.length === 0) return riserGeometry();
+  if (def.type === "joiner") return joinerGeometry(def);
+  if (def.paths.length === 1 && def.paths[0].geom.kind === "loop") return loopGeometry(def);
 
   let result =
     def.paths.length === 1
@@ -427,10 +440,13 @@ export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
     result = evaluator.evaluate(result, support, ADDITION);
   }
 
+  // On a piece with several paths, straight grooves are cut in short steps like curved ones: one long sliver cut
+  // across a curve's fine faces shatters the mesh (slow, and tens of thousands of triangles on a switch).
+  const step = def.paths.length > 1 ? 6 : 0;
   for (const p of def.paths) {
     for (const c of [-GROOVE_SPACING / 2, GROOVE_SPACING / 2]) {
       const extra = p.to === null ? BUFFER_EXTRA - 20 : 2;
-      result = evaluator.evaluate(result, brush(sweep(grooveProfile(c), framesAlong(p.geom, 2, extra)), CUT), SUBTRACTION);
+      result = evaluator.evaluate(result, brush(sweep(grooveProfile(c), framesAlong(p.geom, 2, extra, step)), CUT), SUBTRACTION);
     }
   }
 
@@ -458,6 +474,46 @@ export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
   }
 
   const out = slotGroups(result);
+  out.computeBoundingBox();
+  out.computeBoundingSphere();
+  return out;
+}
+
+/**
+ * A balloon loop: its track leaves and comes back through the same end, overlapping itself there, so it's built as
+ * two halves (out and back), merged like a switch's routes.
+ */
+function loopGeometry(def: PieceDef): BufferGeometry {
+  const geom = def.paths[0].geom;
+  const frames = framesAlong(geom, 0, 0);
+  const mid = Math.floor(frames.length / 2);
+  const halves = [frames.slice(0, mid + 1), frames.slice(mid)];
+  let result = brush(flatBody(halves));
+  const grooveFrames = framesAlong(geom, 2, 2);
+  const gm = Math.floor(grooveFrames.length / 2);
+  for (const run of [grooveFrames.slice(0, gm + 2), grooveFrames.slice(gm - 1)]) {
+    for (const c of [-GROOVE_SPACING / 2, GROOVE_SPACING / 2]) result = evaluator.evaluate(result, brush(sweep(grooveProfile(c), run), CUT), SUBTRACTION);
+  }
+  for (const c of def.connectors) {
+    const shape = keyholeShape(1, PEG_NECK_LENGTH + SOCKET_CLEARANCE, PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE, PEG_HEAD_RADIUS + SOCKET_CLEARANCE, -1);
+    const g = extrudeUp(shape, TRACK_THICKNESS + 4, 0);
+    g.applyMatrix4(connectorBasis(c.pose.x, c.y - 2, c.pose.z, c.pose.heading));
+    result = evaluator.evaluate(result, brush(onlyCsgAttributes(g), CUT), SUBTRACTION);
+  }
+  const out = slotGroups(result);
+  out.computeBoundingBox();
+  out.computeBoundingSphere();
+  return out;
+}
+
+/** A dog-bone joiner: just its two pegs, back to back (each reaching into a track end's hole). */
+function joinerGeometry(def: PieceDef): BufferGeometry {
+  const pegs = def.connectors.map((c) => {
+    const g = extrudeUp(keyholeShape(-2, PEG_NECK_LENGTH + 2, PEG_NECK_WIDTH / 2, PEG_HEAD_RADIUS, 1), PEG_HEIGHT, 0.6);
+    g.applyMatrix4(connectorBasis(c.pose.x, c.y, c.pose.z, c.pose.heading));
+    return onlyCsgAttributes(g);
+  });
+  const out = slotGroups(evaluator.evaluate(brush(pegs[0]), brush(pegs[1]), ADDITION));
   out.computeBoundingBox();
   out.computeBoundingSphere();
   return out;

@@ -17,7 +17,7 @@ function closestS(g: PathGeom, lx: number, lz: number): number {
     const s = (lx - g.start.x) * Math.cos(h0) + (lz - g.start.z) * Math.sin(h0);
     return s < 0 ? 0 : s > len ? len : s;
   }
-  if (g.kind === "s") return closestByScan(g, len, lx, lz);
+  if (g.kind === "s" || g.kind === "loop") return closestByScan(g, len, lx, lz);
   const sign = g.sweep >= 0 ? 1 : -1;
   const cx = g.start.x - sign * g.radius * Math.sin(h0);
   const cz = g.start.z + sign * g.radius * Math.cos(h0);
@@ -36,7 +36,7 @@ function closestS(g: PathGeom, lx: number, lz: number): number {
 function closestByScan(g: PathGeom, len: number, lx: number, lz: number): number {
   let best = 0;
   let bestD = Infinity;
-  const coarse = 32;
+  const coarse = Math.max(32, Math.ceil(len / 12));
   for (let k = 0; k <= coarse; k++) {
     const at = (len * k) / coarse;
     samplePath(g, at, sample);

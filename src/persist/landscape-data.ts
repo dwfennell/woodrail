@@ -6,6 +6,7 @@ import {
   FEAT_FIELD,
   FEAT_SHED,
   FEAT_STATION,
+  FIELD_STOCK,
   LandscapeGrid,
   MAX_HEIGHT,
   PLOT_CELLS,
@@ -51,7 +52,7 @@ export const landscapeSchema = z.object({
     }),
   ),
   depots: z.array(z.object({ id, kind: z.enum(["forest", "sawmill"]), centre: point, piece: pose })),
-  fields: z.array(z.object({ id, cells, animal: z.enum(["cow", "sheep"]) })),
+  fields: z.array(z.object({ id, cells, animal: z.enum(FIELD_STOCK) })),
   shed: z.object({ cells, x: z.number().finite(), z: z.number().finite(), heading: z.number().finite() }).nullable(),
   corridors: cells,
 });

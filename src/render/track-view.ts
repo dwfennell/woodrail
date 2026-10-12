@@ -1,4 +1,5 @@
 import {
+  BufferAttribute,
   BackSide,
   BoxGeometry,
   Box3,
@@ -22,6 +23,8 @@ import { MAX_BRIDGE_LEVELS } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
 import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry } from "./track-geometry";
+import type { PieceJob, PieceResult } from "./piece-worker";
+import { loadCached, saveCached } from "./piece-cache";
 
 const geometryCache = new Map<string, BufferGeometry>();
 const bufferBlockCache = new Map<string, BufferGeometry | null>();
@@ -32,9 +35,38 @@ export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0): 
   const key = `${type}:${def === getPieceDef(type, false) ? "n" : "f"}:${levels}`;
   let g = geometryCache.get(key);
   if (!g) {
-    g = buildPieceGeometry(def, levels);
+    // A mirrored piece is its plain shape reflected across its centre line: no need to carve it again.
+    g = def === getPieceDef(type, false) ? buildPieceGeometry(def, levels) : mirrored(pieceGeometry(type, false, levels));
     geometryCache.set(key, g);
   }
+  return g;
+}
+
+/** A copy of a piece's geometry reflected in z (across its centre line), its faces turned to keep facing out. */
+function mirrored(source: BufferGeometry): BufferGeometry {
+  const g = source.clone();
+  g.applyMatrix4(new Matrix4().makeScale(1, 1, -1));
+  // Reflection reverses each triangle's winding: swap two corners back.
+  if (g.index) {
+    const idx = g.index.array;
+    for (let i = 0; i < idx.length; i += 3) [idx[i + 1], idx[i + 2]] = [idx[i + 2], idx[i + 1]];
+    g.index.needsUpdate = true;
+  } else {
+    for (const attr of Object.values(g.attributes)) {
+      const a = attr.array;
+      const n = attr.itemSize;
+      for (let i = 0; i < attr.count; i += 3) {
+        for (let k = 0; k < n; k++) {
+          const t = a[(i + 1) * n + k];
+          a[(i + 1) * n + k] = a[(i + 2) * n + k];
+          a[(i + 2) * n + k] = t;
+        }
+      }
+      attr.needsUpdate = true;
+    }
+  }
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
   return g;
 }
 
@@ -275,7 +307,10 @@ export class TrackView {
       const branchSide = Math.sign(def.connectors[2].pose.z) || 1;
       const local = new Object3D();
       local.position.set(30, TRACK_THICKNESS * 0 + 0, -branchSide * SWITCH_LEVER_OFFSET);
-      local.rotation.x = (this.layout.switchState(id) === 1 ? 1 : -1) * branchSide * 0.45;
+      // Two-way: leans toward the route set. Three-way: upright for straight on, leaning toward a curve.
+      const state = this.layout.switchState(id);
+      const lean = def.paths.filter((p) => p.from === 0).length === 3 ? (state === 0 ? 0 : state === 1 ? 1 : -1) * branchSide : (state === 1 ? 1 : -1) * branchSide;
+      local.rotation.x = lean * 0.45;
       local.updateMatrix();
       lever.matrixAutoUpdate = false;
       lever.matrix.copy(pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading)).multiply(local.matrix);
@@ -301,7 +336,7 @@ export class TrackView {
       post.position.set(6, 0, -branchSide * (SWITCH_LEVER_OFFSET + 4));
       // Arm geometry points along +z; turn it to reach away from the track, then raise it for the branch.
       post.rotation.y = branchSide > 0 ? Math.PI : 0;
-      signal.arm.rotation.x = this.layout.switchState(id) === 1 ? -SIGNAL_RAISED : 0;
+      signal.arm.rotation.x = this.layout.switchState(id) !== 0 ? -SIGNAL_RAISED : 0;
       signal.root.matrix.copy(pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading));
       signal.root.updateMatrixWorld(true);
     }
@@ -366,6 +401,63 @@ export class TrackView {
     this.bufferMesh = null;
     this.leverGeometry.dispose();
     this.outlineMaterial.dispose();
+  }
+
+  /**
+   * Build every piece type's geometry in background workers, several at once (call during loading, before
+   * `prebuild`, which then finds them ready). Resolves when all are in, or straight away where workers can't run.
+   */
+  static async prebuildInWorkers(types: readonly PieceTypeId[]): Promise<void> {
+    if (typeof Worker === "undefined") return;
+    const results: PieceResult[] = [];
+    const take = (r: PieceResult) => {
+      const g = new BufferGeometry();
+      for (const a of r.attributes) g.setAttribute(a.name, new BufferAttribute(a.array, a.itemSize));
+      if (r.index) g.setIndex(new BufferAttribute(r.index, 1));
+      for (const gr of r.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
+      g.computeBoundingBox();
+      g.computeBoundingSphere();
+      geometryCache.set(`${r.type}:n:${r.levels}`, g);
+      results.push(r);
+    };
+    // Saved from an earlier visit to this same build: nothing to carve.
+    for (const r of (await loadCached<PieceResult[]>("pieces", __BUILD_ID__)) ?? []) take(r);
+    const jobs: PieceJob[] = types.filter((t) => !geometryCache.has(`${t}:n:${isBridge(t) ? 1 : 0}`)).map((t) => ({ type: t, levels: isBridge(t) ? 1 : 0 }));
+    if (jobs.length === 0) return;
+    // Largest first, so the slow ones don't finish last on their own.
+    const cost = (t: PieceTypeId) => getPieceDef(t, false).paths.reduce((n, p) => n + pathLength(p.geom), 0) * getPieceDef(t, false).paths.length;
+    jobs.sort((a, b) => cost(b.type) - cost(a.type));
+    const count = Math.max(1, Math.min(jobs.length, (navigator.hardwareConcurrency || 4) - 1, 6));
+    const run = (worker: Worker) =>
+      new Promise<void>((resolve) => {
+        const next = () => {
+          const job = jobs.shift();
+          if (!job) {
+            worker.terminate();
+            resolve();
+            return;
+          }
+          worker.postMessage(job);
+        };
+        worker.onmessage = (e: MessageEvent<PieceResult>) => {
+          take(e.data);
+          next();
+        };
+        // A worker that fails leaves its pieces to be built on the main thread as before.
+        worker.onerror = () => {
+          worker.terminate();
+          resolve();
+        };
+        next();
+      });
+    try {
+      await Promise.all(Array.from({ length: count }, () => run(new Worker(new URL("./piece-worker.ts", import.meta.url), { type: "module" }))));
+    } catch {
+      // No module workers here: `prebuild` does it all.
+      return;
+    }
+    // Keep them for next time (in the background: the game needn't wait for the save).
+    if (results.length === types.length) void saveCached("pieces", __BUILD_ID__, results);
   }
 
   /** Warm the CSG geometry cache for every piece type (call during loading). */

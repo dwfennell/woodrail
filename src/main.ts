@@ -9,6 +9,9 @@ import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, type Landscape, typ
 import { loadFromStorage, saveToStorage } from "./persist/save";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails } from "./render/thumbnails";
+import { loadCached, saveCached } from "./render/piece-cache";
+import { TrackView } from "./render/track-view";
+import { PIECE_TYPES } from "./track";
 import { Hud, TRACK_ITEMS, TRAIN_ITEMS, trayKey } from "./ui/hud";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import "./style.css";
@@ -16,14 +19,23 @@ import "./style.css";
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const loading = document.querySelector<HTMLDivElement>("#loading");
 
+/** A map asked for in the link (`#seed-12345`), to share or replay a particular map. */
+function linkedSeed(): number | null {
+  const m = /^#seed-(\d{1,9})$/.exec(location.hash);
+  return m ? Number(m[1]) : null;
+}
+
 function initialWorld(): GameWorld {
   const saved = loadFromStorage();
+  const seed = linkedSeed();
+  // A linked map starts fresh, unless the autosave is already that map (so reloading keeps your track).
+  if (seed !== null && !(saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter)) return createWorld(seed);
   if (saved?.ok) return saved.value;
   if (saved && !saved.ok) console.warn(`Woodrail: ignoring autosave (${saved.error})`);
   return buildStarterWorld();
 }
 
-function boot(): void {
+function boot(savedThumbnails: Map<string, string> | null): void {
   const game = new Game(canvas, initialWorld());
   // Stations and depots never shift to take up joint play.
   const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
@@ -33,13 +45,19 @@ function boot(): void {
   const audio = new ToyAudio();
   let muted = loadMuted();
   audio.setMuted(muted);
-  const thumbnails = renderThumbnails(
-    game.renderer,
-    game.mats,
-    [...TRACK_ITEMS, ...TRAIN_ITEMS].map((item) =>
-      item.kind === "piece" ? { key: trayKey(item), kind: "piece" as const, type: item.type } : { key: trayKey(item), kind: "train" as const, cars: item.cars },
-    ),
-  );
+  // Tray pictures: saved from an earlier visit to this build, or drawn now (and saved for next time).
+  const trayItems = [...TRACK_ITEMS, ...TRAIN_ITEMS];
+  let thumbnails = savedThumbnails;
+  if (!thumbnails || trayItems.some((item) => !thumbnails!.has(trayKey(item)))) {
+    thumbnails = renderThumbnails(
+      game.renderer,
+      game.mats,
+      trayItems.map((item) =>
+        item.kind === "piece" ? { key: trayKey(item), kind: "piece" as const, type: item.type } : { key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks },
+      ),
+    );
+    void saveCached("thumbnails", __BUILD_ID__, thumbnails);
+  }
 
   const hud = new Hud(
     document.body,
@@ -408,5 +426,13 @@ function boot(): void {
   loading?.classList.add("done");
 }
 
-// Let the loading screen paint before the heavy texture and geometry generation.
-requestAnimationFrame(() => setTimeout(boot, 30));
+// Let the loading screen paint, carve the track pieces in background workers (several at once), then build the rest.
+requestAnimationFrame(() =>
+  setTimeout(() => {
+    const t0 = performance.now();
+    void Promise.all([TrackView.prebuildInWorkers(PIECE_TYPES), loadCached<Map<string, string>>("thumbnails", __BUILD_ID__)]).then(([, thumbs]) => {
+      console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms`);
+      boot(thumbs);
+    });
+  }, 30),
+);

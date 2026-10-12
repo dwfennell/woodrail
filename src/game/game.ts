@@ -65,6 +65,9 @@ const PAN_KEYS: Record<string, "f" | "b" | "l" | "r" | "fast"> = {
   arrowright: "r",
   shift: "fast",
 };
+/** Camera distance (mm) beyond which wood and paint drop the grain, bumps and clear coat too small to see. */
+const FAR_DETAIL = 1800;
+
 /** Key panning covers this many camera-distances a second (so it feels the same at any zoom), easing in this long (s). */
 const KEY_PAN_SPEED = 0.9;
 const KEY_PAN_EASE = 0.12;
@@ -109,6 +112,8 @@ export class Game {
   /** Milliseconds spent simulating in the last frame (for the perf overlay). */
   simMs = 0;
   private readonly clock = new Clock();
+  /** Drawing materials without their fine detail (zoomed far out). */
+  private farDetail = false;
   private accumulator = 0;
   private followCarId = -1;
 
@@ -170,6 +175,7 @@ export class Game {
     this.hillsFor = null;
     this.syncHillPhysics();
     this.trainView = new TrainView(this.mats);
+    this.trainView.lookOf = (id) => this.sim.lookOf(id);
     this.scene.add(this.trainView.group);
     this.depotView = new DepotView(this.mats);
     this.scene.add(this.depotView.group);
@@ -518,6 +524,13 @@ export class Game {
     this.director.constrain();
     const t = this.controls.target;
     const dist = this.camera.position.distanceTo(t);
+    // Far out, materials drop detail too small to see (with a margin, so hovering at the edge doesn't flip-flop).
+    const far = dist > (this.farDetail ? FAR_DETAIL - 200 : FAR_DETAIL);
+    if (far !== this.farDetail) {
+      this.farDetail = far;
+      this.mats.setFar(far);
+      this.dirty = true;
+    }
     const near = nearPlaneFor(dist);
     if (Math.abs(near - this.camera.near) > 0.5) {
       this.camera.near = near;

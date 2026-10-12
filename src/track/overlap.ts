@@ -52,7 +52,8 @@ function footprint(type: PieceTypeId, flipped: boolean): { discs: Disc[]; arches
     for (const [x, z] of [[0, 0], [14, 14], [14, -14], [-14, 14], [-14, -14]]) discs.push({ x, z, y0: 0, y1: def.supportHeight || RISER_HEIGHT });
   }
   const s = createSample();
-  for (const path of def.paths) {
+  // A joiner is only two pegs, sitting in the holes of the track ends it joins: nothing to collide.
+  for (const path of type === "joiner" ? [] : def.paths) {
     const len = pathLength(path.geom);
     const span = Math.max(0, len - 2 * END_INSET);
     const n = Math.max(1, Math.ceil(span / STEP));

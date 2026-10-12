@@ -386,3 +386,29 @@ describe("occupied track", () => {
     expect(sim.addTrain(["engine"], { pieceId: ids[5], pathIndex: 0, reversed: false, s: 150 }).kind).toBe("placed");
   });
 });
+
+describe("balloon loop", () => {
+  it.each(["balloon-loop", "balloon-loop-small"] as const)("%s turns a train round: in at its end, round the loop, and back out the way it came", (loop) => {
+    const { layout, ids } = chain(["straight-216", "straight-216", "straight-216", loop]);
+    const sim = new Sim(layout);
+    const r = sim.addTrain(["engine", "passenger", "caboose"], { pieceId: ids[1], pathIndex: 0, s: 200, reversed: false });
+    expect(r.kind).toBe("placed");
+    if (r.kind !== "placed") return;
+    const t = sim.getTrain(r.trainId)!;
+    sim.setLever(t.cars[0].id, 1);
+    let visited = false;
+    let maxX = -Infinity;
+    // Run until it's back on the first straight (the far end of the line is open: stop before it runs off).
+    for (let i = 0; i < 60 / SIM_DT && !(visited && t.bogies[0].pieceId === ids[0]); i++) {
+      sim.tick();
+      visited ||= t.bogies.some((b) => b.pieceId === ids[3]);
+      maxX = Math.max(maxX, cursorWorld(layout, t.bogies[0], createWorldSample()).x);
+    }
+    expect(t.derailed).toBe(false);
+    expect(visited).toBe(true);
+    expect(t.bogies[0].pieceId).toBe(ids[0]);
+    // Out past the start of the loop, then all the way back down the line.
+    expect(maxX).toBeGreaterThan(700);
+  });
+});
+

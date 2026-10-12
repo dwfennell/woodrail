@@ -26,6 +26,19 @@ export type PathGeom =
       readonly sweep: number;
       readonly y0: number;
       readonly rise: number;
+    }
+  /**
+   * A balloon loop: an arc of `sweep` (signed as for arcs) peeling off the line, a big circle of `loopRadius` the
+   * other way round, then the first arc again, arriving back where it started, facing back the way it came.
+   */
+  | {
+      readonly kind: "loop";
+      readonly start: Pose;
+      readonly radius: number;
+      readonly sweep: number;
+      readonly loopRadius: number;
+      readonly y0: number;
+      readonly rise: number;
     };
 
 export interface PathSample {
@@ -43,7 +56,9 @@ export function createSample(): PathSample {
 }
 
 export function pathLength(g: PathGeom): number {
-  return g.kind === "line" ? g.length : g.radius * Math.abs(g.sweep) * (g.kind === "s" ? 2 : 1);
+  if (g.kind === "line") return g.length;
+  if (g.kind === "loop") return 2 * g.radius * Math.abs(g.sweep) + g.loopRadius * (Math.PI + 2 * Math.abs(g.sweep));
+  return g.radius * Math.abs(g.sweep) * (g.kind === "s" ? 2 : 1);
 }
 
 /** Closed-form sample at distance s (clamped to [0, length]). Writes into and returns `out`. No allocation. */
@@ -63,6 +78,17 @@ export function samplePath(g: PathGeom, s: number, out: PathSample): PathSample 
   }
 
   if (g.kind === "arc") return arcAt(g.start.x, g.start.z, h0, g.radius, g.sweep >= 0 ? 1 : -1, d, out);
+  if (g.kind === "loop") {
+    // Peel off, round the big circle the other way, then the first arc again back onto the line.
+    const sign = g.sweep >= 0 ? 1 : -1;
+    const peel = g.radius * Math.abs(g.sweep);
+    const round = g.loopRadius * (Math.PI + 2 * Math.abs(g.sweep));
+    if (d <= peel) return arcAt(g.start.x, g.start.z, h0, g.radius, sign, d, out);
+    arcAt(g.start.x, g.start.z, h0, g.radius, sign, peel, out);
+    if (d <= peel + round) return arcAt(out.x, out.z, out.heading, g.loopRadius, -sign, d - peel, out);
+    arcAt(out.x, out.z, out.heading, g.loopRadius, -sign, round, out);
+    return arcAt(out.x, out.z, out.heading, g.radius, sign, d - peel - round, out);
+  }
   // An S: the first arc, then from its end the second, bending back.
   const half = len / 2;
   const sign = g.sweep >= 0 ? 1 : -1;

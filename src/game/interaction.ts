@@ -6,9 +6,9 @@ import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } f
 import { setRim } from "../render/materials";
 import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
-import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
+import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, bridgeLevels, CELL, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { findOverlap, findSnap, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { findOverlap, findSnap, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
@@ -59,7 +59,7 @@ type Press =
   | { kind: "cargo"; slot: CargoSlot; cargo: CargoKind };
 
 /** A car held in the hand: what it is, which way it faces, its lever, and (when picked up) its id and load. */
-type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; cargo?: { kind: CargoKind; count: number } };
+type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; look?: CarLook; cargo?: { kind: CargoKind; count: number } };
 
 type Mode =
   | { kind: "idle" }
@@ -75,6 +75,8 @@ type Mode =
       heading: number;
       /** Existing piece being moved, or -1 for a new piece from the tray. */
       pieceId: number;
+      /** The auto straight: held as a long straight, it takes the length that meets a free end along its line. */
+      auto?: boolean;
       from: { pose: Pose; y: number } | null;
       offset: { x: number; z: number };
       ghost: Mesh;
@@ -240,6 +242,7 @@ export class Interaction {
         heldFlipped: flipped,
         heading: this.cameraHeading() + (this.trayTurns * Math.PI) / 4,
         pieceId: -1,
+        auto: item.auto,
         from: null,
         offset: { x: 0, z: 0 },
         ghost,
@@ -256,7 +259,7 @@ export class Interaction {
     } else {
       // Ids now, so the train in the hand wears the colours it will have on the track.
       const ids = this.game.sim.newCarIds(item.cars.length);
-      const cars = item.cars.map((kind, i) => ({ kind, facing: 1 as const, lever: 0 as const, id: ids[i] }));
+      const cars = item.cars.map((kind, i) => ({ kind, facing: 1 as const, lever: 0 as const, id: ids[i], look: item.looks?.[i] ?? ("classic" as const) }));
       this.mode = { kind: "drag-train", pointerId: e.pointerId, cars, origin: null, ghost: this.trainGhost(cars), target: null, overTray: true };
     }
   }
@@ -825,9 +828,11 @@ export class Interaction {
       const sy = this.lastPointerWasTouch ? y - TOUCH_LIFT_PX : y;
       // Where the piece would be held at a given height: under the finger as seen at that height (a raised end shows
       // well in front of the ground under it).
+      // The auto straight is held, and seeks a seat, as the long straight it starts as.
+      const holdType: PieceTypeId = m.auto ? "straight-216" : m.type;
       const heldAt = (height: number): Pose | null => {
         const p = this.planeAt(x, sy, height);
-        return p && poseForCentre(m.type, m.heldFlipped, p.x + m.offset.x, p.z + m.offset.z, m.heading);
+        return p && poseForCentre(holdType, m.heldFlipped, p.x + m.offset.x, p.z + m.offset.z, m.heading);
       };
       // Loose, a piece's first end lands on a quarter-square grid, so square-laid track lines up with the squares and
       // with other track.
@@ -836,8 +841,8 @@ export class Interaction {
         pose.z = Math.round(pose.z / PLACE_GRID) * PLACE_GRID;
         return pose;
       };
-      m.pose = loose(heldAt(0) ?? poseForCentre(m.type, m.heldFlipped, ground.x + m.offset.x, ground.z + m.offset.z, m.heading));
-      m.looseY = looseHeight(this.game.landscape, this.game.layout, m.type, m.heldFlipped, m.pose, m.pieceId);
+      m.pose = loose(heldAt(0) ?? poseForCentre(holdType, m.heldFlipped, ground.x + m.offset.x, ground.z + m.offset.z, m.heading));
+      m.looseY = looseHeight(this.game.landscape, this.game.layout, holdType, m.heldFlipped, m.pose, m.pieceId);
       // Resting up off the ground (on a hill, a riser, as a bridge), it's held where the finger points at that height.
       if (m.looseY > 0) {
         const up = heldAt(m.looseY);
@@ -852,11 +857,21 @@ export class Interaction {
       const autoFit = m.pieceId === -1 ? "turn-or-mirror" : "turn";
       m.snap = { kind: "none" };
       for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
-        const s = findSnap(this.game.layout, m.type, m.heldFlipped, heldAt(level) ?? m.pose, level, m.pieceId, capture, autoFit);
+        const s = findSnap(this.game.layout, holdType, m.heldFlipped, heldAt(level) ?? m.pose, level, m.pieceId, capture, autoFit);
         // A bridge only joins track it can stand at (raised track, another bridge): beside track on the ground it
         // keeps to its own height, a level up.
-        if (s.kind === "snapped" && isBridge(m.type) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
+        if (s.kind === "snapped" && isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
         if (s.kind === "snapped" && (m.snap.kind !== "snapped" || s.distance < m.snap.distance)) m.snap = s;
+      }
+      if (m.auto) {
+        // Shrink to meet a free end along its line, if one is in reach (else stay long).
+        const fit = m.snap.kind === "snapped" && m.snap.connector <= 1 ? fitAutoStraight(this.game.layout, m.snap.pose, m.snap.y, m.snap.connector as 0 | 1, [m.pieceId]) : null;
+        if (fit && m.snap.kind === "snapped") m.snap = { ...m.snap, pose: fit.pose };
+        const type = fit?.type ?? "straight-216";
+        if (type !== m.type) {
+          m.type = type;
+          m.ghost.geometry = pieceGeometry(type, false);
+        }
       }
       const fitFlipped = m.snap.kind === "snapped" ? m.snap.flipped : m.heldFlipped;
       if (fitFlipped !== m.flipped) {
@@ -1019,7 +1034,7 @@ export class Interaction {
     // The load goes with the train in the hand, so it survives the cars being off the track for a moment.
     const cars: HeldCar[] = t.cars.map((c) => {
       const cargo = this.game.economy.cargoOf(c.id);
-      return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
+      return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, look: sim.lookOf(c.id), ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
     });
     const origin = t.derailed ? null : { ...t.bogies[0] };
     sim.removeTrain(t.id);
@@ -1075,7 +1090,7 @@ export class Interaction {
     const t = sim.getTrain(id)!;
     const theirs: HeldCar[] = t.cars.map((c) => {
       const cargo = this.game.economy.cargoOf(c.id);
-      return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
+      return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, look: sim.lookOf(c.id), ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
     });
     const lead = { ...t.bogies[0] };
     const together = front ? [...cars, ...theirs] : [...theirs, ...cars];
@@ -1100,6 +1115,7 @@ export class Interaction {
     if (r.kind !== "placed") return false;
     const t = sim.getTrain(r.trainId)!;
     t.cars.forEach((car, i) => {
+      sim.setLook(car.id, cars[i].look ?? "classic");
       if (cars[i].facing === -1) sim.flipCar(car.id);
       if (car.kind === "engine") sim.setLever(car.id, cars[i].lever);
       const cargo = cars[i].cargo;
@@ -1108,13 +1124,13 @@ export class Interaction {
     return true;
   }
 
-  private trainGhost(cars: { kind: CarKind; facing: 1 | -1; id?: number }[]): Group {
+  private trainGhost(cars: { kind: CarKind; facing: 1 | -1; id?: number; look?: CarLook }[]): Group {
     const g = new Group();
     let x = 0;
     cars.forEach((c, i) => {
       const spec = CAR_SPECS[c.kind];
       if (i > 0) x -= COUPLER_GAP + spec.length / 2;
-      const model = buildCarModel(c.kind, this.game.mats, carVariant(c.kind, c.id ?? i)).root;
+      const model = buildCarModel(c.kind, this.game.mats, carVariant(c.kind, c.id ?? i), c.look).root;
       model.position.x = x - (i === 0 ? spec.length / 2 - spec.bogieInset : 0);
       if (c.facing === -1) model.rotation.y = Math.PI;
       g.add(model);

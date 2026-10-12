@@ -59,12 +59,16 @@ export interface Depot {
   piece: Pose;
 }
 
-/** A fenced 2 × 2-square paddock of toy animals. */
+/** What a paddock holds: a kind of toy animal, or rows of crops with a scarecrow. */
+export const FIELD_STOCK = ["cow", "sheep", "pig", "horse", "chicken", "crops"] as const;
+export type FieldStock = (typeof FIELD_STOCK)[number];
+
+/** A fenced 2 × 2-square paddock of toy animals (or crops). */
 export interface Field {
   id: number;
   /** Its four squares, row-major from the top-left one. */
   cells: number[];
-  animal: "cow" | "sheep";
+  animal: FieldStock;
 }
 
 /** The decorative engine shed: 2 × 2 squares near a town, its doors facing along `heading`. */
@@ -846,7 +850,7 @@ function addFields(land: Landscape, region: Region): void {
   for (let tries = 0; tries < 300 && land.fields.length < count; tries++) {
     const col = region.px0 * PLOT_COLS + STUB_DEPTH + Math.floor(random() * (cols - 2 * STUB_DEPTH - 1));
     const row = region.pz0 * PLOT_ROWS + STUB_DEPTH + Math.floor(random() * (rows - 2 * STUB_DEPTH - 1));
-    const animal = random() < 0.5 ? "cow" : "sheep";
+    const animal = FIELD_STOCK[Math.floor(random() * FIELD_STOCK.length)];
     const h = g.height[g.index(col, row)];
     let ok = true;
     for (let r = -1; r <= 2 && ok; r++) {
