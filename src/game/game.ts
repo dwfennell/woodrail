@@ -273,6 +273,8 @@ export class Game {
     this.trackChanged();
     this.depotView.setWorld(this.economy, this.layout);
     this.landChanged();
+    // The new towns' buildings are catalogue models (props).
+    this.propsChanged();
     this.lastUnlockMs = performance.now() - t0;
     return bought;
   }

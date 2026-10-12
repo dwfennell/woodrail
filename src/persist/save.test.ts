@@ -219,7 +219,7 @@ describe("economy in saves", () => {
 });
 
 describe("props in saves", () => {
-  it("round-trip with their ids, and saves without props load with none", () => {
+  it("round-trip with their ids, and saves without props load with no placed models", () => {
     const world = buildStarterWorld();
     world.props.add("bldg-red-barn", { x: 100, z: 50, heading: 0.5, y: 0 });
     world.props.add("life-cow", { x: -40, z: 10, heading: 2, y: 64 });
@@ -227,9 +227,11 @@ describe("props in saves", () => {
     const r = deserializeWorld(data);
     expect(r.ok && [...r.value.props.all()]).toEqual([...world.props.all()]);
     // New props after loading don't reuse ids.
-    if (r.ok) expect(r.value.props.add("life-dog", { x: 0, z: 0, heading: 0, y: 0 }).id).toBe(3);
+    const top = Math.max(...[...world.props.all()].map((p) => p.id));
+    if (r.ok) expect(r.value.props.add("life-dog", { x: 0, z: 0, heading: 0, y: 0 }).id).toBe(top + 1);
+    // A save from before props: no placed models (its towns get their buildings' models).
     delete data.props;
     const old = deserializeWorld(data);
-    expect(old.ok && old.value.props.size).toBe(0);
+    expect(old.ok && [...old.value.props.all()].filter((p) => p.building === undefined).length).toBe(0);
   });
 });

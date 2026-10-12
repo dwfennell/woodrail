@@ -8,7 +8,14 @@ export interface Prop {
   heading: number;
   /** Height of the ground it stands on (a hill block's top, or 0 on the felt). */
   y: number;
+  /** A town building's model (generated with the map): the building's id, while it still stands on its squares. */
+  building?: number;
+  /** The town it belongs to (town buildings). */
+  town?: number;
 }
+
+/** What a prop is part of, beyond its pose. */
+export type PropLinks = Pick<Prop, "building" | "town">;
 
 export type PropPose = Pick<Prop, "x" | "z" | "heading" | "y">;
 
@@ -18,8 +25,8 @@ export class PropStore {
   private nextId = 1;
   version = 0;
 
-  add(asset: string, pose: PropPose, id?: number): Prop {
-    const prop: Prop = { id: id ?? this.nextId, asset, ...pose };
+  add(asset: string, pose: PropPose, id?: number, links: PropLinks = {}): Prop {
+    const prop: Prop = { id: id ?? this.nextId, asset, ...pose, ...links };
     this.nextId = Math.max(this.nextId, prop.id + 1);
     this.props.set(prop.id, prop);
     this.version++;
@@ -34,6 +41,15 @@ export class PropStore {
     const p = this.props.get(id);
     if (!p) return;
     Object.assign(p, pose);
+    this.version++;
+  }
+
+  /** Drop a prop's link to its town building (it's become an ordinary prop), or put it back. */
+  setLinks(id: number, links: PropLinks): void {
+    const p = this.props.get(id);
+    if (!p) return;
+    p.building = links.building;
+    p.town = links.town;
     this.version++;
   }
 

@@ -1,7 +1,7 @@
 # Woodrail — Land Editing Design
 
 **Date:** 2026-10-12
-**Status:** L1 (select first), L2 (Land tab, grass blocks by tapping) and L3 (Move tool: trees, fields, the shed) built. This session does all of it (the user's call); the map expansion session is not reviewing.
+**Status:** L1 (select first), L2 (Land tab, grass blocks by tapping) L3 (Move tool: trees, fields, the shed) and L4's core (catalogue towns, ten new house styles) built. This session does all of it (the user's call); the map expansion session is not reviewing.
 **Part of:** the Sandbox assets epic (see `2026-10-12-sandbox-assets-design.md`)
 
 ## 1. Goal
@@ -156,6 +156,16 @@ dressing) belong to the map expansion session. **Proposed split** (the user's ca
 
 ## 9. Deferred
 
+- **Colour variants for town buildings:** BatchedMesh `setColorAt` per instance, from each town's palette. Today two
+  corner shops side by side look the same.
+- **A school that fits two squares:** the catalogue school is 78 mm deep. Until there's one, a school's spot gets a
+  house.
+- **Land for sale:** the preview of land for sale (around-land) still draws the old simple houses for unbought towns.
+- **Contact shadows under town buildings:** there are none now (props have none). The shadow map still shades under
+  them.
+- **Models' centres:** town models are placed by the middle of their squares, not by the middle of their footprints. A
+  few sit a little off-centre on their squares.
+
 - Scenery drawn in the hand while it's being moved: today only an outline shows where it will go, and the thing jumps
   there when let go.
 
@@ -167,3 +177,14 @@ dressing) belong to the map expansion session. **Proposed split** (the user's ca
 - Town furniture editing.
 - Painting surfaces (grass to road or river): waits for the road system.
 - Raising town or station squares.
+
+## 10. Measured (L4: towns as catalogue models)
+
+Seed 1826342: 5 towns, 20 buildings. Software GL; the same views on main (old houses) and on this branch.
+
+| View | main | catalogue towns |
+| --- | --- | --- |
+| Close on a town | 110 draws, 467k triangles | 120 draws, 487k triangles |
+| Whole map | 189 draws, 679k triangles | 190 draws, 676k triangles |
+
+All town buildings are drawn in 2 prop batches.

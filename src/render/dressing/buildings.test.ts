@@ -112,11 +112,11 @@ describe("townFurniture", () => {
     for (const k of ["lamp", "bench", "planter", "postbox", "phone", "busstop", "fountain", "statue"] as PropKind[]) expect(kinds).toContain(k);
   });
 
-  it("builds whole towns and stations", () => {
+  it("builds towns' street furniture and stations (the buildings are props now)", () => {
     const land = generateLandscape(7);
     for (const town of land.towns) {
       const m = measuring();
-      expect(buildTown(land, town, mats, m.b)).toHaveLength(town.buildings.length);
+      expect(buildTown(land, town, mats, m.b)).toEqual([]);
       buildStation(town, mats, m.b);
       expect(m.count()).toBeGreaterThan(50);
     }

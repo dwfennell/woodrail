@@ -3,6 +3,7 @@ import { err, ok, type Result } from "../lib/result";
 import { depotPieceType, STATION_CRANE_AT, type World } from "../game/world";
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
+import { addTownProps } from "../props/towns";
 import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import { CARGO, CARGO_KINDS, Economy, PILE_CAP, ROLE, WAGON_CAPACITY, type CargoKind } from "../economy";
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
@@ -69,7 +70,18 @@ const saveSchema = z.object({
   delivered: z.array(z.tuple([z.number().int().min(0), z.number().int().min(0)])),
   /** Placed catalogue models (optional: saves from before props load with none). */
   props: z
-    .array(z.object({ id: z.number().int().positive(), asset: z.string().max(64), x: z.number().finite(), z: z.number().finite(), heading: z.number().finite(), y: z.number().finite() }))
+    .array(
+      z.object({
+        id: z.number().int().positive(),
+        asset: z.string().max(64),
+        x: z.number().finite(),
+        z: z.number().finite(),
+        heading: z.number().finite(),
+        y: z.number().finite(),
+        building: z.number().int().min(0).optional(),
+        town: z.number().int().min(0).optional(),
+      }),
+    )
     .optional(),
 });
 
@@ -105,7 +117,7 @@ export function serializeWorld(world: World): SaveData {
     trains,
     depots: world.economy.allDepots().map((d) => ({ id: d.id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [d.piles[0], d.piles[1]] as [number, number], timer: d.timer })),
     delivered: [...world.economy.delivered],
-    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y })),
+    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}) })),
   };
 }
 
@@ -183,7 +195,9 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     });
   }
   const props = new PropStore();
-  for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id);
+  for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town });
+  // Saves from before towns were built from catalogue models: their buildings get their models now.
+  addTownProps(landscape, props);
   return ok({ layout, sim, landscape, stations, depots, economy, props });
 }
 

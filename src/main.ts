@@ -501,6 +501,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     game.paused = pausedBeforeTitle;
     hud.setPaused(game.paused);
     hud.setMode(mode);
+    // Town houses and placed models can be moved in Sandbox only.
+    interaction.propsEditable = mode === "sandbox";
     hud.setVisible(true);
     playing = true;
     save();

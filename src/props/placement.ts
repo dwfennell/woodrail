@@ -28,6 +28,8 @@ export const PROP_MESSAGES: Record<PropBlock, string> = {
 
 export type PropClearance = { readonly kind: "clear"; readonly y: number } | { readonly kind: "blocked"; readonly reason: PropBlock };
 
+const NO_SQUARES: ReadonlySet<number> = new Set();
+
 /** Sample spacing over a footprint (mm): under half a track's width, so no rail slips between samples. */
 const STEP = 16;
 /** Ground heights closer than this (mm) count as level. */
@@ -142,7 +144,7 @@ export interface PropCheck {
  * and other props. Boats (`on` water) float with their middle on the river; bridges (`any`) may span it; nothing else
  * may touch it. Gives the height it stands at.
  */
-export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | "z" | "heading">, on: PlaceOn, ignoreId = -1): PropClearance {
+export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | "z" | "heading">, on: PlaceOn, ignoreId = -1, ownSquares: ReadonlySet<number> = NO_SQUARES): PropClearance {
   const water = on === "water";
   const grid = ctx.land.grid;
   const hills = hillsOf(grid);
@@ -154,7 +156,8 @@ export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | 
     const cell = grid.cellAtWorld(x, z);
     if (cell === -1) return { kind: "blocked", reason: "off-land" };
     const f = grid.feature[cell];
-    if (f === FEAT_BUILDING || f === FEAT_SHED) return { kind: "blocked", reason: "building" };
+    // A town building's own squares are free to it (it can shift about on them).
+    if ((f === FEAT_BUILDING && !ownSquares.has(cell)) || f === FEAT_SHED) return { kind: "blocked", reason: "building" };
     if (f === FEAT_STATION) return { kind: "blocked", reason: "station" };
     if (f === FEAT_DEPOT) return { kind: "blocked", reason: "depot" };
     const river = grid.surface[cell] === SURF_RIVER;

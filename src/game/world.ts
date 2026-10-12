@@ -3,6 +3,7 @@ import { Economy } from "../economy";
 import { Sim } from "../sim";
 import { Layout, type PieceTypeId } from "../track";
 import { PropStore } from "../props/store";
+import { addTownProps } from "../props/towns";
 
 export const depotPieceType = (kind: DepotKind): PieceTypeId => (kind === "forest" ? "depot-forest" : "depot-sawmill");
 
@@ -45,6 +46,7 @@ export function createWorld(seed: number, starter = false): World {
   const sim = new Sim(layout);
   const world: World = { layout, sim, landscape, stations: new Map(), depots: new Map(), economy: new Economy(layout, sim), props: new PropStore() };
   addSites(world, landscape.towns, landscape.depots);
+  addTownProps(landscape, world.props);
   return world;
 }
 
@@ -118,5 +120,6 @@ export function unlockPlot(world: World, px: number, pz: number): { slots: numbe
   const towns = land.towns.slice(townBase);
   const depots = land.depots.slice(depotBase);
   addSites(world, towns, depots);
+  addTownProps(land, world.props);
   return { slots, towns: towns.map((t) => t.id), depots: depots.map((d) => d.id) };
 }

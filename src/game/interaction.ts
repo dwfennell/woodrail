@@ -7,11 +7,12 @@ import { setRim } from "../render/materials";
 import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
-import { BLOCK_MESSAGES, bridgeLevels, CELL, hillsOf, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
+import { BLOCK_MESSAGES, bridgeLevels, CELL, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { findOverlap, findSnap, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
-import { LAND_MESSAGES, LandEditor, moveScenery, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
+import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
+import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
 import type { PropPose } from "../props/store";
 import { FootprintOutline } from "../render/props/outline";
@@ -187,6 +188,8 @@ export class Interaction {
   landCursor: string | null = null;
   /** Land editing's Move tool: the map's scenery (trees, fields, the shed) can be selected and moved. */
   landMove = false;
+  /** Props can be selected and moved (Sandbox); in Game mode the town's houses stay put. */
+  propsEditable = true;
   private selectedScenery: Scenery | null = null;
   /** Round the selected scenery, or where it would go. */
   private readonly sceneryOutline = new FootprintOutline();
@@ -363,7 +366,7 @@ export class Interaction {
     let hit = this.pick(e.clientX, e.clientY);
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
     if (hit?.kind === "piece" && !this.withinReach(hit.pieceId)) hit = null;
-    if (hit?.kind === "prop" && !this.propWithinReach(hit.propId)) hit = null;
+    if (hit?.kind === "prop" && (!this.propsEditable || !this.propWithinReach(hit.propId))) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     if (!hit) {
       // Empty floor: the camera pans; a tap here deselects, and a double tap focuses on that spot.
@@ -1473,7 +1476,8 @@ export class Interaction {
     let ground = hills.groundAt(pose.x, pose.z);
     let blocked: PropBlock | null = null;
     if (fp) {
-      const c = checkProp({ land: g.landscape, track: m.track, props: g.props, footprint: g.propLibrary.footprint }, fp, pose, placeOn(m.asset), m.propId);
+      const own = new Set(buildingCells(g.landscape, m.propId === -1 ? undefined : g.props.get(m.propId)?.building));
+      const c = checkProp({ land: g.landscape, track: m.track, props: g.props, footprint: g.propLibrary.footprint }, fp, pose, placeOn(m.asset), m.propId, own);
       if (c.kind === "clear") ground = c.y;
       else blocked = c.reason;
     }
@@ -1524,7 +1528,9 @@ export class Interaction {
     } else {
       const id = m.propId;
       const from = m.from!;
-      this.editor().editProps({ do: () => store.move(id, pose), undo: () => store.move(id, from) });
+      const building = store.get(id)?.building;
+      if (building === undefined) this.editor().editProps({ do: () => store.move(id, pose), undo: () => store.move(id, from) });
+      else this.moveTownProp(id, building, pose, from);
     }
     g.propsChanged(-1);
     this.onPlaced?.(false);
@@ -1563,14 +1569,63 @@ export class Interaction {
     this.onTurned?.();
   }
 
-  /** Take a prop away (undoably). */
+  /** Take a prop away (undoably). A town building's squares become street. */
   private removeProp(id: number): void {
     const g = this.game;
     const p = g.props.get(id);
     if (!p) return;
     const pose: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
-    this.editor().editProps({ do: () => g.props.remove(id), undo: () => g.props.add(p.asset, pose, id) });
+    const links = { building: p.building, town: p.town };
+    if (p.building === undefined) {
+      this.editor().editProps({ do: () => g.props.remove(id), undo: () => g.props.add(p.asset, pose, id, links) });
+      g.propsChanged();
+      return;
+    }
+    const building = p.building;
+    const land = g.landscape;
+    const slots = townSlots(land, building);
+    let putBack = () => {};
+    const doIt = () => {
+      putBack = releaseBuilding(land, building);
+      g.props.remove(id);
+    };
+    doIt();
+    g.editLand(slots);
     g.propsChanged();
+    this.editor().recordLand({
+      do: doIt,
+      undo: () => {
+        putBack();
+        g.props.add(p.asset, pose, id, links);
+      },
+      slots: () => slots,
+    });
+  }
+
+  /** Move a town building's prop: it leaves its squares (they become street) and is an ordinary prop from now on. */
+  private moveTownProp(id: number, building: number, pose: PropPose, from: PropPose): void {
+    const g = this.game;
+    const land = g.landscape;
+    const p = g.props.get(id)!;
+    const links = { building: p.building, town: p.town };
+    const changed = townSlots(land, building);
+    let putBack = () => {};
+    const doIt = () => {
+      putBack = releaseBuilding(land, building);
+      g.props.setLinks(id, {});
+      g.props.move(id, pose);
+    };
+    doIt();
+    g.editLand(changed);
+    this.editor().recordLand({
+      do: doIt,
+      undo: () => {
+        putBack();
+        g.props.setLinks(id, links);
+        g.props.move(id, from);
+      },
+      slots: () => changed,
+    });
   }
 
   /** Is a prop close enough to pick up? (As for track: big enough on screen to take hold of.) */
@@ -1677,4 +1732,9 @@ export class Interaction {
   get busy(): boolean {
     return this.mode.kind !== "idle";
   }
+}
+
+/** The plots a town building's squares are in (to redraw when it leaves them). */
+function townSlots(land: Landscape, building: number): number[] {
+  return [...new Set((findBuilding(land, building)?.building.cells ?? []).map(plotSlotOf))];
 }

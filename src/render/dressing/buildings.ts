@@ -224,20 +224,19 @@ export function townLooks(seed: number, town: Town): Look[] {
 }
 
 /**
- * All of a town's buildings, each facing toward the town centre, and the street furniture on the pavements of its
- * road squares. Returns the buildings' footprints (centre and size).
+ * A town's street furniture, on the pavements of its road squares, clear of the buildings' doors. The buildings
+ * themselves are catalogue models placed as props (see `src/props/towns.ts`); their doors are at the middle of their
+ * fronts, facing the town centre. Returns nothing to cast contact shadows (props stand on their own).
  */
 export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batcher): { cx: number; cz: number; w: number; d: number }[] {
   const looks = townLooks(land.seed, town);
-  const doors: Point[] = [];
-  const boxes = town.buildings.map((bld, k) => {
+  const doors: Point[] = town.buildings.map((bld, k) => {
     const fp = footprintOf(land, town, bld.cells, looks[k]);
-    const box = { cx: fp.cx, cz: fp.cz, w: fp.w, d: fp.d };
-    doors.push(...building(b, mats, box, { floors: bld.floors, kind: looks[k], roof: bld.roof, seed: bld.id * 7 + town.id * 13, front: fp.front }));
-    return box;
+    const half = fp.front.x !== 0 ? fp.w / 2 : fp.d / 2;
+    return { x: fp.cx + fp.front.x * half, z: fp.cz + fp.front.z * half };
   });
   for (const p of townFurniture(land, town, doors)) furniture(b, mats, p);
-  return boxes;
+  return [];
 }
 
 /**
