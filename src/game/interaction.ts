@@ -7,7 +7,7 @@ import { setRim } from "../render/materials";
 import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
-import { BLOCK_MESSAGES, bridgeLevels, CELL, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
+import { BLOCK_MESSAGES, bridgeLevels, CELL, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { findOverlap, findSnap, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { isDoubleTap, type TapRecord } from "./camera-director";
@@ -640,7 +640,9 @@ export class Interaction {
     // Bridges' and raised ramps' arches are solid down to the ground (but for their openings).
     const g = this.game;
     const arches = { mine: bridgeLevels(g.landscape, type, flipped, pose, y) * RISER_HEIGHT, of: (p: PlacedPiece) => g.bridgeLevelsOf(p) * RISER_HEIGHT };
-    return findOverlap(g.layout, type, flipped, pose, y, ignoreId, arches) === -1 ? null : "piece";
+    if (findOverlap(g.layout, type, flipped, pose, y, ignoreId, arches) !== -1) return "piece";
+    // A ramp cutting into a hill mustn't take the ground from under other track.
+    return cutUndermines(g.landscape, g.layout, type, flipped, pose, y, ignoreId) === -1 ? null : "undercut";
   }
 
   /**

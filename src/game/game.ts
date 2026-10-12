@@ -23,7 +23,7 @@ import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
 import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { bridgeLevels, findCrossings, type HeldPiece, hillPieces, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
+import { bridgeLevels, findCrossings, syncCuttings, type HeldPiece, hillPieces, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
 import { PIECE_TYPES, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
@@ -152,6 +152,7 @@ export class Game {
     TrackView.warmBridges(PIECE_TYPES);
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
+    syncCuttings(this.landscape, this.layout);
     this.landscapeView.syncTrees(this.layout);
     this.trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
     this.scene.add(this.trackView.group);
@@ -206,6 +207,7 @@ export class Game {
     this.landscapeView.dispose();
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
+    syncCuttings(this.landscape, this.layout);
     this.landscapeView.syncTrees(this.layout);
     this.scene.remove(this.trackView.group);
     this.trackView.dispose();
@@ -232,6 +234,8 @@ export class Game {
   trackChanged(): void {
     this.invalidate();
     this.trackView.sync();
+    // Ramps cut into the hills (before anything asks the ground, trees included).
+    syncCuttings(this.landscape, this.layout);
     const hop = this.landscapeView.syncTrees(this.layout, true);
     if (hop) this.flourishes.add(hop);
     this.economy.prune();

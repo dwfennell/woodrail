@@ -2,10 +2,10 @@ import { createSample, getPieceDef, isBridge, pathLength, samplePath, TRACK_WIDT
 import { CELL, COLS, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, MAT_DEPTH, MAT_WIDTH, ROWS, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
 import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
-import { hillsOf } from "./hill-shape";
+import { cutsHills, hillsOf } from "./hill-shape";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
-export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "field" | "shed" | "depot" | "off-mat" | "piece" | "unsupported";
+export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "field" | "shed" | "depot" | "off-mat" | "piece" | "unsupported" | "undercut";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -14,6 +14,7 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   town: "Keep the track out of town",
   river: "Needs a bridge over the river",
   hill: "Too low — the hill is in the way",
+  undercut: "That would dig away the ground under other track",
   field: "That's a farm field — go around it",
   shed: "The engine shed is in the way",
   depot: "The depot is in the way",
@@ -35,6 +36,7 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   "off-mat": { kind: "blocked", reason: "off-mat" },
   piece: { kind: "blocked", reason: "piece" },
   unsupported: { kind: "blocked", reason: "unsupported" },
+  undercut: { kind: "blocked", reason: "undercut" },
 };
 
 const STEP = 16;
@@ -153,6 +155,8 @@ function distanceToLoops(loops: readonly Loop[], x: number, z: number): number {
 export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): Clearance {
   const g = land.grid;
   const overRiver = isBridge(type);
+  // A ramp may cut into hills up to the height of its top end (see `HillShape` cuttings).
+  const cutTop = cutsHills(type) ? y + Math.max(...getPieceDef(type, flipped).connectors.map((c) => c.y)) : -Infinity;
   let result = CLEAR;
   forEachSample(type, flipped, pose, (x, z, trackY) => {
     const i = g.cellAtWorld(x, z);
@@ -172,7 +176,11 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
         if (inStationFootprint(land, g.owner[i], x, z)) result = BLOCKED.station;
       } else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
       else if (!overRiver && inRiver(g, x, z)) result = BLOCKED.river;
-      else if (y + trackY < hillsOf(g).groundAt(x, z) - 0.5) result = BLOCKED.hill;
+      else {
+        // Below the ground here: a hill in the way, unless a ramp can cut its way in (no higher than its top end).
+        const ground = hillsOf(g).groundAt(x, z);
+        if (y + trackY < ground - 0.5 && ground > cutTop + 0.5) result = BLOCKED.hill;
+      }
     }
     return result === CLEAR;
   });
