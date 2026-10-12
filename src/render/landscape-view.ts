@@ -1,5 +1,5 @@
 import { BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SRGBColorSpace, type InstancedMesh, type MeshBasicMaterial } from "three";
-import { CELL, COLS, generateSurroundings, ROWS, SURF_LANE, SURF_RIVER, SURF_ROAD, treesAside, type Landscape, type Town } from "../landscape";
+import { CELL, COLS, generateSurroundings, ROWS, SURF_LANE, SURF_RIVER, SURF_ROAD, treesAside, type Landscape, type Town, type TreeSpot } from "../landscape";
 import type { Layout } from "../track";
 import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF_TOP } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
@@ -8,10 +8,17 @@ import { buildShed, buildStation, buildTown } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltGround, buildFeltRibbons } from "./dressing/felt";
 import { buildSurroundings } from "./dressing/surroundings";
-import { buildTrees, treePlacements, type PlaceTrees, type TreePlacement } from "./dressing/trees";
+import { buildTrees, treePlacements, type PlaceTrees, type TreeAt, type TreePlacement } from "./dressing/trees";
+import { easeInOutCubic, easeOutBack } from "../lib/tween";
 import { buildField } from "./dressing/fields";
 import type { Flourish } from "./flourishes";
 import type { Materials } from "./materials";
+
+/** A tree stepping aside takes this long (s) to hop, this high (mm); each sets off a little after the last. */
+const TREE_HOP_TIME = 0.42;
+const TREE_HOP_HEIGHT = 26;
+const TREE_HOP_STAGGER = 0.05;
+const TREE_HOP_SPREAD = 0.3;
 
 /** How brightly an unconnected name board lights itself (connected ones glow warm). */
 const SIGN_SELF_LIGHT = 0.3;
@@ -27,6 +34,9 @@ export class LandscapeView {
   private connected = new Set<number>();
   private trees: TreePlacement[] = [];
   private placeTrees: PlaceTrees = () => {};
+  /** Where the trees stand now (null before the first sync), and the hop animation moving them, if any. */
+  private treeSpots: (TreeSpot | null)[] | null = null;
+  private hop: Flourish | null = null;
 
   constructor(
     private readonly land: Landscape,
@@ -77,9 +87,60 @@ export class LandscapeView {
     };
   }
 
-  /** Trees step aside from track (see `treesAside`); call after the layout changes. */
-  syncTrees(layout: Layout): void {
-    this.placeTrees(treesAside(this.land.grid, layout, this.trees));
+  /**
+   * Trees step aside from track (see `treesAside`); call after the layout changes. With `animate`, trees that move
+   * hop to their new spots, ones with no room shrink away and ones coming back grow: returns that animation (or null
+   * when nothing moved).
+   */
+  syncTrees(layout: Layout, animate = false): Flourish | null {
+    const to = treesAside(this.land.grid, layout, this.trees);
+    this.hop?.dispose();
+    const from = this.treeSpots;
+    this.treeSpots = to;
+    const moving: number[] = [];
+    if (animate && from) to.forEach((t, i) => {
+      const f = from[i];
+      if (f !== t && (f === null || t === null || f.x !== t.x || f.z !== t.z)) moving.push(i);
+    });
+    if (moving.length === 0) {
+      this.placeTrees(to);
+      return null;
+    }
+    // Each tree sets off a moment after the last, so they scatter rather than move as one.
+    const delay = moving.map((_, k) => Math.min(TREE_HOP_STAGGER * k, TREE_HOP_SPREAD));
+    const frame: (TreeAt | null)[] = to.map((t) => (t ? { ...t } : null));
+    const spots = from!;
+    let time = 0;
+    let done = false;
+    const hop: Flourish = {
+      update: (dt) => {
+        time += dt;
+        let running = false;
+        moving.forEach((i, k) => {
+          const p = Math.min(1, Math.max(0, (time - delay[k]) / TREE_HOP_TIME));
+          if (p < 1) running = true;
+          const a = spots[i];
+          const b = to[i];
+          if (a && b) {
+            // A hop: across in an arc, with a little squash on landing.
+            const e = easeInOutCubic(p);
+            frame[i] = { x: a.x + (b.x - a.x) * e, z: a.z + (b.z - a.z) * e, y: a.y + (b.y - a.y) * e + 4 * TREE_HOP_HEIGHT * p * (1 - p), s: 1 - 0.12 * Math.sin(Math.PI * p) };
+          } else if (a) frame[i] = { ...a, s: 1 - easeInOutCubic(p) }; // no room: shrinks away
+          else if (b) frame[i] = { ...b, s: easeOutBack(p) }; // back again: grows
+        });
+        this.placeTrees(running ? frame : to);
+        return running;
+      },
+      dispose: () => {
+        if (done) return;
+        done = true;
+        if (this.hop === hop) this.hop = null;
+        this.placeTrees(to);
+      },
+    };
+    this.hop = hop;
+    hop.update(0);
+    return hop;
   }
 
   /** Light the signs of connected towns. */

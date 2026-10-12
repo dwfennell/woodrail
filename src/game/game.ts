@@ -172,7 +172,8 @@ export class Game {
   /** Call after any layout edit. */
   trackChanged(): void {
     this.trackView.sync();
-    this.landscapeView.syncTrees(this.layout);
+    const hop = this.landscapeView.syncTrees(this.layout, true);
+    if (hop) this.flourishes.add(hop);
     this.economy.prune();
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.physics.markTrackDirty();

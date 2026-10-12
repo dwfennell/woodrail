@@ -97,8 +97,15 @@ function instanced(geometry: BufferGeometry, material: Material, count: number):
   return mesh;
 }
 
+/** Where a tree is drawn; `s` scales it (1 by default, 0 hides it), for growing and shrinking. */
+export interface TreeAt {
+  x: number;
+  z: number;
+  y: number;
+  s?: number;
+}
 /** Move trees (one spot per placement, in order; null takes a tree away) — see `buildTrees`. */
-export type PlaceTrees = (spots: readonly ({ x: number; z: number; y: number } | null)[]) => void;
+export type PlaceTrees = (spots: readonly (TreeAt | null)[]) => void;
 
 /**
  * Turned-wood toy trees on round wooden bases: five instanced draw calls for the whole map. The group's
@@ -150,18 +157,18 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
     crowns.setColorAt(k, c.set(TREE_GREENS[t.tint]));
     return { crowns, k };
   });
-  const place = (spots: readonly ({ x: number; z: number; y: number } | null)[]) => {
+  const place: PlaceTrees = (spots) => {
     placements.forEach((t, i) => {
       const at = spots[i];
       const { crowns, k } = crownOf[i];
-      if (!at) {
+      if (!at || (at.s ?? 1) <= 1e-3) {
         if (!lowDetail) bases.setMatrixAt(i, hidden);
         trunks.setMatrixAt(i, hidden);
         crowns.setMatrixAt(k, hidden);
         return;
       }
       pos.set(at.x, at.y, at.z);
-      scl.setScalar(t.scale);
+      scl.setScalar(t.scale * (at.s ?? 1));
       q.setFromAxisAngle(up, t.yaw);
       m.compose(pos, q, scl);
       if (!lowDetail) bases.setMatrixAt(i, m);
