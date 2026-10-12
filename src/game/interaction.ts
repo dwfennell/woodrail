@@ -25,7 +25,7 @@ const PLACE_GRID = CELL / 4;
  * Placed track can be picked up when it looks big enough on screen to take hold of: a medium straight (144 mm) at
  * least this many pixels long. Zoomed out further, a press on track pans the view like the floor.
  */
-const GRAB_MIN_PX = 36;
+const GRAB_MIN_PX = 54;
 const GRAB_PIECE_MM = 144;
 const DRAG_THRESHOLD = 6;
 /** How high a held piece floats above where it would land (mm). */
