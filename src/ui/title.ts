@@ -42,7 +42,7 @@ export class TitleScreen {
     this.root.innerHTML = `
       <div class="title-head">
         <h1 class="title-logo"></h1>
-        <p class="title-tag">A wooden railway on the living-room floor</p>
+        <p class="title-tag">A wooden railway that keeps on growing</p>
       </div>
       <div class="title-cards"></div>`;
     this.root.querySelector(".title-logo")!.appendChild(blockWord("Woodrail"));
