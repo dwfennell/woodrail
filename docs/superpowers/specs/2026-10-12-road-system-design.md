@@ -1,8 +1,9 @@
 # Road system — design
 
-Status: **direction chosen** (2026-10-12). Roads are pieces that snap, and every piece fills exactly one square
-(a curve is a quarter turn within one square). Roads meet track at level crossings. Road pieces can join town
-streets. Vehicles come later. Details still open are marked **Open**. Nothing is built yet.
+Status: **agreed** (2026-10-12). Roads are a first-class system: pieces that snap, each filling one square (a curve
+is a quarter turn within one square). Generated maps have no roads between towns, only town gates to build from. Roads meet track at level crossings, road
+pieces can join town streets, and roads are in both modes. Each square's piece is saved as a byte. Vehicles and
+one-way roads come later, and the foundation leaves room for both. Nothing is built yet.
 
 ## 1. Roads today
 
@@ -37,9 +38,17 @@ Every road piece fills one 72 mm square. Its road ends sit at the middle of the 
 
 Each piece can be turned in 90° steps, which gives 1–4 distinct orientations depending on the piece.
 
+**Foundation: ports, not shapes.** A piece is data: a list of *ports* on its square's edges, and the links between
+them. A port is an edge (N/E/S/W) and a slot: the middle of the edge for a two-way road, or the left or right half for
+a one-way road half a square wide, with a direction (in or out). Two squares join where they have matching ports on
+their shared edge (two-way to two-way, or a one-way out to a one-way in at the same half). The pieces above use only
+middle ports. One-way half-square pieces (a one-way straight on either half, a pair of opposite one-ways) are new
+entries in the piece table later, with no change to the data, the save or snapping. Vehicles later follow the links.
+Drawing, snapping, crossings and clearance all read the piece table, never a hard-coded shape.
+
 **Snapping.** From the Roads tab, the player picks a piece and drags it. It snaps to the square under the finger and
 auto-turns so that as many of its ends as possible meet road ends on the neighbouring squares. Neighbouring ends can
-come from other pieces, lanes or town streets. A tap on a placed piece turns it, and dragging it off removes it.
+come from other pieces or town streets. A tap on a placed piece turns it, and dragging it off removes it.
 Snapping needs no connector search: each piece checks the four neighbouring squares, which costs a few lookups per
 pointer move.
 
@@ -57,10 +66,16 @@ scaled to the square, and it leaves a verge on each side. A curve's felt runs fr
 
 - **Town streets stay as felt squares.** They are open, plaza-like areas, not lines, so they don't fit pieces. Every
   edge where a town street square meets open grass counts as a road end, so a piece placed there joins the town.
-- **Lanes. Open (Q1).** Recommended: generated lanes become road pieces. Lanes are one square wide, so the generator
-  gives each lane square the piece that fits its lane neighbours. The map then has one kind of country road, with
-  markings, and the player can remove or extend it. The alternative is to leave lanes as felt and only let pieces
-  join them.
+- **No generated roads between towns (chosen).** The generator stops laying country lanes (`joinLanes`, and the
+  lane stubs that cross plot edges). Rivers, towns and trees must come out exactly as before, so dropping the lanes
+  must not change any other random stream. Hills change only where a lane used to flatten them. A test on 200 seeds
+  compares rivers, towns and trees before and after.
+- **Places to snap into towns.** Each town gets one or two *town gates*: a single road piece on the grass just
+  outside the town, leading out of its streets. The first gate is where the old lane left, on the platform side. A
+  gate is an ordinary piece, so the player can see where to start a road, and can remove or extend it. Any other edge
+  where a town street meets open grass also accepts a road.
+- **Old saves.** Lanes already in a save are kept. On load, a lane square without a piece gets the piece that fits
+  its lane neighbours.
 
 ## 4. Roads and track: level crossings
 
@@ -80,12 +95,14 @@ matched ends. A later step can drive cars along it and stop them at lowered barr
 
 ## 6. Saves
 
-A road square is `SURF_LANE` in the surface bytes, as now, plus its piece and turn. **Open (Q2):**
+**Chosen: a byte per square.** The grid gains a `road` byte array beside `height`, `surface` and `feature`. 0 means
+no road. Otherwise the low 6 bits hold the piece id (up to 63 pieces, leaving room for one-way and later pieces) and
+the high 2 bits hold the turn. A road square's surface is also `SURF_LANE`, so existing code that reads surfaces
+(generation's flat ground, clearance, the crossing finder) keeps working. One setter in `grid.ts` keeps the two in
+step.
 
-- **Recommended:** a new optional `roads` array in the landscape save, with entries `{cell, piece, turn}`.
-  It is optional, so older v8 saves still load (their lanes get pieces derived from their neighbours) and the save
-  stays at v8. This is a small change to `landscape-data.ts`.
-- **Alternative:** a fifth byte array per plot. It is simpler to read, but it changes the plot format.
+Each plot in the landscape save gains an optional `road` base64 string. When it's missing (older v8 saves), lane
+squares get pieces derived from their neighbours, as the generator does, so the save stays at v8.
 
 ## 7. Drawing
 
@@ -106,14 +123,16 @@ A road square is `SURF_LANE` in the surface bytes, as now, plus its piece and tu
 
 ## 9. Modes
 
-**Open (Q3).** Recommended: roads in Sandbox only at first. Game mode, with cost and goals, comes later.
+**Chosen: both modes.** The Roads tab is in Sandbox and Game mode. Roads are free in Game mode for now. Costs and
+goals are deferred.
 
 ## 10. Steps
 
-1. **R1 Pieces.** Piece defs (ends per turn), the road data per square, and models for each piece. Unit tests cover
-   ends and turns.
-2. **R2 Drawing.** Road tiles drawn from the pieces. If Q1 is yes, generated lanes get pieces and leave the felt.
-   Before/after frame time and tile build time go in the commit.
+1. **R1 Pieces and data.** The piece table (ports, links, turns), the `road` byte per square with its setter, the
+   piece that fits a set of neighbours, and the save field. Unit tests cover ports under turns, joins and round trips.
+2. **R2 Drawing and generation.** Road tiles are drawn from the pieces, and road squares leave the felt. Generation
+   stops laying lanes and adds town gates, with rivers and towns unchanged. Before/after frame time and tile build
+   time go in the commit.
 3. **R3 Laying.** The Roads tab, with drag, snap, auto-turn, tap to turn, remove and undo. Pieces are saved.
 4. **R4 Crossings.** The across-only rule for track and roads, plus crossing recompute on road edits.
 5. **R5 Zebra and dead-end polish.** Beacons are animated only while in view.
@@ -121,8 +140,10 @@ A road square is `SURF_LANE` in the surface bytes, as now, plus its piece and tu
 ## 11. Coordination
 
 - **Tray:** a Roads tab in `tray-catalogue.ts`, on the land-editing branch, once that branch is on main.
-- **`landscape-data.ts`:** the optional `roads` array (Q2).
-- **`generate.ts`:** if Q1 is yes, lanes get pieces. This is a small pass at the end, separate from `joinLanes`.
+- **`grid.ts`:** the `road` byte array (grown with the others) and one setter.
+- **`landscape-data.ts`:** the optional `road` string per plot.
+- **`generate.ts` / `edges.ts`:** stop laying lanes, without disturbing other random streams, and add town gates in
+  a small pass at the end.
 - **`felt.ts` / `landscape-view.ts`:** lanes leave the felt ribbons, and a road-tiles group is added beside them.
 - **`clearance.ts`:** the across-only rule.
 
@@ -132,5 +153,6 @@ A road square is `SURF_LANE` in the surface bytes, as now, plus its piece and tu
 - Multi-square pieces: roundabout, wide curves, car park.
 - Bus stops, traffic lights and street furniture beside roads.
 - Vehicles on roads.
-- Roads in Game mode.
+- Road costs and goals in Game mode.
+- One-way roads half a square wide: the port model has room for them, but no pieces yet.
 - Laying road pieces inside towns, or editing town streets.
