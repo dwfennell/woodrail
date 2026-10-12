@@ -1,7 +1,8 @@
-import { ExtrudeGeometry, Group, Mesh, Path, PlaneGeometry, Shape, type BufferGeometry, type Material } from "three";
+import { ExtrudeGeometry, Group, Mesh, Path, PlaneGeometry, Shape, ShapeGeometry, Vector2, type BufferGeometry, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, PLOT_DEPTH, PLOT_WIDTH, type LandscapeGrid, type PlotCoord, type Rect } from "../../landscape";
-import { insideLoops, loopArea, smoothLoop, traceRegions, type Loop } from "../../landscape/outline";
+import { insideLoops, loopArea, smoothLoop, traceRegions, type Loop, type LoopPoint } from "../../landscape/outline";
+import { setCullBox, TILE_DEPTH, TILE_WIDTH, tileAt } from "./tiles";
 import { FELT_TILE, type Materials } from "../materials";
 
 /** The felt ground runs this far (mm) past the mat on every side: well into the total haze. */
@@ -100,69 +101,17 @@ function inward(a: { x: number; z: number }, b: { x: number; z: number }): { x: 
   return { x: -(b.z - a.z) / len, z: (b.x - a.x) / len };
 }
 
-/** Extruded felt by outline (a hash of its points), kept between builds so only outlines that change are made again. */
-export type FeltCache = Map<number, BufferGeometry>;
-
-/**
- * Felt cut-outs for every region of cells with surface `surface` (rivers, roads) on some grids (the land, and land
- * shown around it): one extruded mesh whose outlines follow the cells with rounded corners, traced across all of them
- * at once so the felt runs on over the grids' edges. The top sits at `thickness` above the mat. With a `cache`, each
- * region's felt is extruded only if its outline is new (the cache keeps just the regions drawn now).
- */
-export function buildFeltRibbons(
-  grids: readonly LandscapeGrid[],
-  surface: number,
-  material: Material,
-  thickness: number,
-  cache: FeltCache = new Map(),
-): Mesh | null {
-  let col0 = Infinity;
-  let row0 = Infinity;
-  let col1 = -Infinity;
-  let row1 = -Infinity;
-  for (const g of grids) {
-    if (g.plots.length === 0) continue;
-    const e = g.extent();
-    col0 = Math.min(col0, e.col0);
-    row0 = Math.min(row0, e.row0);
-    col1 = Math.max(col1, e.col1);
-    row1 = Math.max(row1, e.row1);
-  }
-  const used = new Map<number, BufferGeometry>();
-  const finish = () => {
-    for (const [key, g] of cache) if (!used.has(key)) g.dispose();
-    cache.clear();
-    for (const [key, g] of used) cache.set(key, g);
-  };
-  if (!Number.isFinite(col0)) {
-    finish();
-    return null;
-  }
-  const mask = (c: number, r: number) => {
-    for (const g of grids) {
-      const i = g.index(col0 + c, row0 + r);
-      if (i !== -1) return g.surface[i] === surface;
-    }
-    return false;
-  };
-  const loops = traceRegions(mask, col1 - col0, row1 - row0).map((l) => smoothLoop(l).map((p) => ({ x: col0 + p.x, z: row0 + p.z })));
-  const outers = loops.filter((l) => loopArea(l) > 0);
-  const holes = loops.filter((l) => loopArea(l) <= 0);
-  const bevel = Math.min(0.6, thickness / 3);
-  const parts: BufferGeometry[] = [];
-  for (const outer of outers) {
-    const mine = holes.filter((hole) => insideLoops([outer], hole[0].x, hole[0].z));
-    const key = loopsHash([outer, ...mine], thickness);
-    let g = cache.get(key) ?? used.get(key);
-    if (!g) g = extrudeFelt(outer, mine, thickness, bevel);
-    used.set(key, g);
-    parts.push(g);
-  }
-  finish();
-  if (parts.length === 0) return null;
-  const mesh = new Mesh(parts.length === 1 ? parts[0].clone() : mergeGeometries(parts), material);
-  mesh.receiveShadow = true;
-  return mesh;
+/** One region of felt's top alone, flat at `thickness` above the mat (for far off: see `buildFeltTiles`). */
+function flatFelt(outer: Loop, holes: readonly Loop[], thickness: number): BufferGeometry {
+  const toPts = (l: Loop) => l.map((p) => new Vector2(p.x * CELL, -(p.z * CELL)));
+  const shape = new Shape(toPts(outer));
+  for (const hole of holes) shape.holes.push(new Path(toPts(hole)));
+  const g = new ShapeGeometry(shape);
+  g.rotateX(-Math.PI / 2);
+  g.translate(0, thickness - 0.2, 0);
+  const uv = g.getAttribute("uv");
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / FELT_TILE, uv.getY(i) / FELT_TILE);
+  return g;
 }
 
 /** One region of felt: its outline and holes (in squares) extruded `thickness` tall, uv in felt tiles. */
@@ -194,15 +143,148 @@ function extrudeFelt(outer: Loop, holes: readonly Loop[], thickness: number, bev
   return g;
 }
 
-/** A hash of some loops' points (to a thousandth of a square) and a thickness. */
-function loopsHash(loops: readonly Loop[], thickness: number): number {
-  let h = Math.imul(0x811c9dc5 ^ Math.round(thickness * 100), 0x01000193);
-  for (const loop of loops) {
-    h = Math.imul(h ^ loop.length, 0x01000193);
-    for (const p of loop) {
-      h = Math.imul(h ^ Math.round(p.x * 1000), 0x01000193);
-      h = Math.imul(h ^ Math.round(p.z * 1000), 0x01000193);
+/** How far (squares) past its tile a tile's felt is traced, so smoothing near its edge comes out as if traced whole. */
+const TILE_MARGIN = 8;
+
+/** One tile's felt as built: what it was built from (a hash of the squares it was traced over), and its mesh. */
+interface FeltTile {
+  key: number;
+  geometry: BufferGeometry | null;
+  /** Far off: just the felt's top, flat (a fraction of the triangles). */
+  flat: BufferGeometry | null;
+}
+/** Felt by tile (see `buildFeltTiles`), kept between builds. */
+export type FeltTiles = Map<number, FeltTile>;
+
+/**
+ * Felt cut-outs for every region of cells with one of `surfaces` on some grids (the land, and land shown around it),
+ * a mesh per tile (see `tiles.ts`) so the camera skips tiles out of view, and a river running across the whole world
+ * costs no more to draw close up than a pond. Each tile is traced over its own squares and a margin round them, smoothed,
+ * and cut back to the tile, so its felt meets its neighbours' as if traced whole. A tile is extruded again only when
+ * the squares it was traced over change (kept in `cache`). `thickness(surface)` is each surface's height.
+ */
+export function buildFeltTiles(
+  grids: readonly LandscapeGrid[],
+  surfaces: readonly number[],
+  material: Material,
+  thickness: (surface: number) => number,
+  cache: FeltTiles,
+): Group {
+  const group = new Group();
+  const tileCols = TILE_WIDTH / CELL;
+  const tileRows = TILE_DEPTH / CELL;
+  const at = (col: number, row: number): number => {
+    for (const g of grids) {
+      const i = g.index(col, row);
+      if (i !== -1) return g.surface[i];
     }
+    return -1;
+  };
+  // The tiles any of these surfaces is in.
+  const tiles = new Map<number, { tc: number; tr: number }>();
+  for (const g of grids) {
+    g.forEachCell((i, col, row) => {
+      if (!surfaces.includes(g.surface[i])) return;
+      const tc = Math.floor(col / tileCols);
+      const tr = Math.floor(row / tileRows);
+      tiles.set(tileAt(tc * TILE_WIDTH, tr * TILE_DEPTH), { tc, tr });
+    });
   }
-  return h >>> 0;
+  const used = new Set<number>();
+  for (const [id, { tc, tr }] of tiles) {
+    used.add(id);
+    const col0 = tc * tileCols - TILE_MARGIN;
+    const row0 = tr * tileRows - TILE_MARGIN;
+    const w = tileCols + 2 * TILE_MARGIN;
+    const d = tileRows + 2 * TILE_MARGIN;
+    // What this tile's felt is made from: which surface each square of the window has.
+    const window = new Int8Array(w * d);
+    let key = 0x811c9dc5;
+    for (let r = 0; r < d; r++) {
+      for (let c = 0; c < w; c++) {
+        const s = at(col0 + c, row0 + r);
+        const k = surfaces.indexOf(s);
+        window[r * w + c] = k;
+        key = Math.imul(key ^ (k + 2), 0x01000193);
+      }
+    }
+    let tile = cache.get(id);
+    if (!tile || tile.key !== key) {
+      tile?.geometry?.dispose();
+      tile?.flat?.dispose();
+      const parts: BufferGeometry[] = [];
+      const flats: BufferGeometry[] = [];
+      surfaces.forEach((surface, k) => {
+        const loops = traceRegions((c, r) => window[r * w + c] === k, w, d).map((l) => {
+          // A loop cut off by the window's edge continues beyond it: smooth it fully, as the whole world's would be.
+          const cut = l.some((p) => p.x <= 0 || p.z <= 0 || p.x >= w || p.z >= d);
+          return smoothLoop(l, 8, 2, cut).map((p) => ({ x: col0 + p.x, z: row0 + p.z }));
+        });
+        const x0 = tc * tileCols;
+        const z0 = tr * tileRows;
+        const clipped = loops.map((l) => clipLoop(l, x0, z0, x0 + tileCols, z0 + tileRows)).filter((l) => l.length >= 3);
+        const outers = clipped.filter((l) => loopArea(l) > 0);
+        const holes = clipped.filter((l) => loopArea(l) < 0);
+        const t = thickness(surface);
+        for (const outer of outers) {
+          const inside = holes.filter((h) => insideLoops([outer], h[0].x, h[0].z));
+          parts.push(extrudeFelt(outer, inside, t, Math.min(0.6, t / 3)));
+          flats.push(flatFelt(outer, inside, t));
+        }
+      });
+      const merge = (list: BufferGeometry[]) => {
+        const g = list.length === 0 ? null : list.length === 1 ? list[0] : mergeGeometries(list);
+        if (list.length > 1) for (const p of list) p.dispose();
+        return g;
+      };
+      cache.set(id, (tile = { key, geometry: merge(parts), flat: merge(flats) }));
+    }
+    if (!tile.geometry || !tile.flat) continue;
+    // Close up, the felt as cut and stitched; far off, just its top (see `cullTiles`). The cache owns the geometry: the
+    // meshes mustn't free it.
+    const near = new Mesh(tile.geometry, material);
+    const far = new Mesh(tile.flat, material);
+    far.visible = false;
+    const both = new Group();
+    for (const m of [near, far]) {
+      m.receiveShadow = true;
+      m.userData.sharedGeometry = true;
+      both.add(m);
+    }
+    both.userData.lod = { near, far };
+    setCullBox(both, [{ x: tc * TILE_WIDTH, z: tr * TILE_DEPTH }, { x: (tc + 1) * TILE_WIDTH, z: (tr + 1) * TILE_DEPTH }], 4);
+    group.add(both);
+  }
+  for (const [id, tile] of cache) {
+    if (used.has(id)) continue;
+    tile.geometry?.dispose();
+    tile.flat?.dispose();
+    cache.delete(id);
+  }
+  return group;
+}
+
+/** Cut a loop back to a rectangle (Sutherland–Hodgman: where it leaves and comes back, it runs along the edge). */
+export function clipLoop(loop: Loop, x0: number, z0: number, x1: number, z1: number): Loop {
+  let pts = loop;
+  const edges: [(p: LoopPoint) => boolean, (a: LoopPoint, b: LoopPoint) => LoopPoint][] = [
+    [(p) => p.x >= x0, (a, b) => ({ x: x0, z: a.z + ((b.z - a.z) * (x0 - a.x)) / (b.x - a.x) })],
+    [(p) => p.x <= x1, (a, b) => ({ x: x1, z: a.z + ((b.z - a.z) * (x1 - a.x)) / (b.x - a.x) })],
+    [(p) => p.z >= z0, (a, b) => ({ x: a.x + ((b.x - a.x) * (z0 - a.z)) / (b.z - a.z), z: z0 })],
+    [(p) => p.z <= z1, (a, b) => ({ x: a.x + ((b.x - a.x) * (z1 - a.z)) / (b.z - a.z), z: z1 })],
+  ];
+  for (const [inside, cross] of edges) {
+    const out: Loop = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[(i + pts.length - 1) % pts.length];
+      const b = pts[i];
+      if (inside(b)) {
+        if (!inside(a)) out.push(cross(a, b));
+        out.push(b);
+      } else if (inside(a)) out.push(cross(a, b));
+    }
+    pts = out;
+    if (pts.length === 0) break;
+  }
+  return pts;
 }

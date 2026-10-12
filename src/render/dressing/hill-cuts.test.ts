@@ -160,7 +160,7 @@ describe("HillCutsView when plots are built again", () => {
   it("replaces their core and shadow rather than adding more", () => {
     const grid = gridWithPlots(-1, -1, 2, 2);
     for (let x = 180; x < 900; x += 72) for (let z = -300; z < 300; z += 72) grid.height[grid.cellAtWorld(x, z)] = 2;
-    const view = new HillCutsView(grid, { wood: new MeshBasicMaterial(), top: new MeshBasicMaterial() }, new Map());
+    const view = new HillCutsView(grid, { wood: new MeshBasicMaterial(), top: new MeshBasicMaterial() }, () => []);
     const before = view.group.children.length;
     expect(before).toBeGreaterThan(0);
     view.plotsRebuilt([0, 1, 2, 3]);

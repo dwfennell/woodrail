@@ -7,6 +7,7 @@ import { TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
 import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, LOG_LENGTH, LOG_RADIUS, pileSlot, wagonSlot } from "./cargo-layout";
 import { Batcher } from "./dressing/batcher";
+import { setCullBox, tileAt } from "./dressing/tiles";
 import type { Materials } from "./materials";
 import { TIMBER_DECK } from "./train-models";
 
@@ -76,6 +77,9 @@ const JIB_ARM = 46;
 const HOOK_DROP = 6;
 
 /** Depot coordinates → world (y is passed through). */
+/** Cranes' moving parts are drawn only this near the camera (mm): further off they're too small to see work. */
+const CRANE_REACH = 8000;
+
 function toWorld(pose: Pose, t: number, l: number, y: number, out: Vector3): Vector3 {
   const c = Math.cos(pose.heading);
   const s = Math.sin(pose.heading);
@@ -187,7 +191,8 @@ export class DepotView {
     }
     this.sites = [];
     this.carOwners.clear();
-    const b = new Batcher(this.mats.paint);
+    // Static parts batched per tile (see `tiles.ts`), so those out of view are skipped.
+    const tiles = new Map<number, { b: Batcher; at: { x: number; z: number }[] }>();
     for (const depot of economy.allDepots()) {
       const piece = layout.getPiece(depot.pieceId);
       if (!piece) continue;
@@ -202,16 +207,31 @@ export class DepotView {
         moving: false,
         pileOwners: { log: { kind: "pile", depotId: depot.id, cargo: "log" }, planks: { kind: "pile", depotId: depot.id, cargo: "planks" } },
       };
-      this.buildStatic(site, b);
+      const at = toWorld(piece.pose, spec.trackT, 0, 0, new Vector3());
+      const key = tileAt(at.x, at.z);
+      let tile = tiles.get(key);
+      if (!tile) tiles.set(key, (tile = { b: new Batcher(this.mats.paint), at: [] }));
+      tile.at.push({ x: at.x, z: at.z });
+      this.buildStatic(site, tile.b);
       if (depot.role === "sawmill") site.blade = this.buildBlade(piece.pose);
+      // The crane's moving parts are small: drawn only within `CRANE_REACH` of the camera.
+      for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
+        if (!o) continue;
+        setCullBox(o, [{ x: at.x, z: at.z }], 160);
+        o.userData.maxDistance = CRANE_REACH;
+      }
       // Park the hook over the track.
       toWorld(piece.pose, spec.trackT, 0, spec.crane.height - 14, site.crane.hook);
       this.sites.push(site);
     }
-    const statics = new Group();
-    statics.userData.depotStatic = true;
-    b.build(statics);
-    this.group.add(statics);
+    for (const { b, at } of tiles.values()) {
+      const statics = new Group();
+      statics.userData.depotStatic = true;
+      b.build(statics);
+      // Yards reach about 250 mm from their track's middle.
+      setCullBox(statics, at.flatMap((p) => [{ x: p.x - 260, z: p.z - 260 }, { x: p.x + 260, z: p.z + 260 }]), 160);
+      this.group.add(statics);
+    }
   }
 
   /** Static parts: yard pad, crane mast or gantry frame, and the sawmill's shed and saw table. */

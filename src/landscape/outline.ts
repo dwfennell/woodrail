@@ -71,10 +71,11 @@ export function traceRegions(mask: (col: number, row: number) => boolean, cols: 
  * turns diagonal staircases into straight runs, then Chaikin corner cutting rounds what is left. Cell centres stay on
  * the correct side (see the coverage test).
  */
-export function smoothLoop(loop: Loop, relax = 8, iterations = 2): Loop {
+export function smoothLoop(loop: Loop, relax = 8, iterations = 2, full = false): Loop {
   let pts = loop;
-  // Small patches have no staircases to straighten, and relaxing would shrink them away: scale with outline length.
-  const passes = Math.min(relax, Math.floor(loop.length / 8));
+  // Small patches have no staircases to straighten, and relaxing would shrink them away: scale with outline length
+  // (unless `full`: part of a longer outline, cut off).
+  const passes = full ? relax : Math.min(relax, Math.floor(loop.length / 8));
   for (let k = 0; k < passes * 2; k++) {
     const f = k % 2 === 0 ? 0.5 : -0.53;
     const n = pts.length;

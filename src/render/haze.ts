@@ -67,6 +67,8 @@ export function hazeAt(x: number, z: number, cameraDistance: number, land: Rect)
 /** The scene's fog, carrying the land's rectangle to the haze shader (see above). */
 export function hazeFog(land: Rect): Fog {
   const fog = new Fog(HAZE_COLOR, 0, 1);
+  // No reach yet (the game sets it each frame drawn).
+  fog.color.setRGB(0, 0, 1e9);
   setHazeLand(fog, land);
   return fog;
 }
@@ -75,7 +77,23 @@ export function hazeFog(land: Rect): Fog {
 export function setHazeLand(fog: Fog, land: Rect): void {
   fog.near = land.x0;
   fog.far = land.x1;
-  fog.color.setRGB(land.z0, land.z1, 0);
+  fog.color.setRGB(land.z0, land.z1, fog.color.b);
+}
+
+/**
+ * How far from the camera anything is drawn (see `viewReach`): everything, the land too, fades into the haze from
+ * `REACH_FADE` of the way there, so the edge of what's drawn is never seen. Carried in the fog colour's blue.
+ */
+export function setHazeReach(fog: Fog, reach: number): void {
+  fog.color.b = reach;
+}
+
+/** Everything fades into the haze from this fraction of the view's reach to the reach itself. */
+export const REACH_FADE = 0.7;
+
+/** How hazed a point this far from the camera is, by the view's reach alone (as the shader has it). */
+export function reachHaze(distance: number, reach: number): number {
+  return smoothstep(REACH_FADE * reach, reach, distance);
 }
 
 const f = (v: number) => v.toFixed(4);
@@ -123,6 +141,8 @@ export function installHaze(): void {
     }
   }
   float fogFactor = smoothstep(${f(HAZE_NEAR)}, ${f(HAZE_FAR)}, hazeOutside + ${HAZE_VIEW.toFixed(3)} * vHaze.z);
+  // And everything, the land too, fades out toward the edge of what's drawn (the view's reach, in fogColor.b).
+  fogFactor = max(fogFactor, smoothstep(${f(REACH_FADE)} * fogColor.b, fogColor.b, length(hazeWorldPos - cameraPosition)));
   gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(${f(colour.r)}, ${f(colour.g)}, ${f(colour.b)}), fogFactor);
 #endif`;
 }

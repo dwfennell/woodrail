@@ -11,6 +11,7 @@ import {
   Sprite,
   SpriteMaterial,
   SRGBColorSpace,
+  type Camera,
   type InstancedMesh,
 } from "three";
 import {
@@ -22,9 +23,6 @@ import {
   plotKey,
   heldCut,
   hillsOf,
-  plotOfCol,
-  plotOfRow,
-  PLOT_CELLS,
   PLOT_COLS,
   PLOT_DEPTH,
   PLOT_ROWS,
@@ -50,13 +48,14 @@ import { RISER_HEIGHT } from "../track";
 import type { Layout } from "../track";
 import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF_TOP } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
-import { buildBlocks, type BlockInstanceRef } from "./dressing/blocks";
+import { blockInstances, blockMeshes, buildBlocks, type BlockInstanceRef } from "./dressing/blocks";
 import { HillCutsView } from "./dressing/hill-cuts";
-import { buildShed, buildStation, buildTown } from "./dressing/buildings";
+import { buildFarTown, buildShed, buildStation, buildTown } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
-import { buildFeltGround, buildFeltRibbons, type FeltCache } from "./dressing/felt";
-import { buildScenery, disposeSceneryPart, sceneryPart, type SceneryPart } from "./dressing/surroundings";
-import { buildTrees, treePlacements, type PlaceTrees, type TreeAt, type TreePlacement } from "./dressing/trees";
+import { buildFeltGround, buildFeltTiles, type FeltTiles } from "./dressing/felt";
+import { buildScenery, disposeSceneryPart, sceneryPart, splitSurroundings, type SceneryPart } from "./dressing/surroundings";
+import { byTile, cullTiles, setCullBox, TILE_DEPTH, TILE_WIDTH, tileAt } from "./dressing/tiles";
+import { buildTiledTrees, treePlacements, type PlaceTrees, type TreeAt, type TreePlacement, type TreeTile } from "./dressing/trees";
 import { easeInOutCubic, easeOutBack } from "../lib/tween";
 import { buildField } from "./dressing/fields";
 import type { Flourish } from "./flourishes";
@@ -92,22 +91,30 @@ const RAIL_H = 3;
 
 export class LandscapeView {
   readonly group = new Group();
-  /** Per plot (by slot): its blocks, buildings and the like. */
+  /**
+   * The land in tiles of 2 × 2 plots (see `tiles.ts`): each with its plots' close-up blocks (a group per plot, by slot
+   * in `plotGroups`), plain blocks for further off, and its towns, fields and signs.
+   */
+  private readonly landTiles = new Map<number, LandTile>();
   private readonly plotGroups = new Map<number, Group>();
+  /** Where the far-off plain blocks' instances are (by `blockKey`), alongside `blockIndex` for the close-up ones. */
+  private readonly farIndex = new Map<string, BlockInstanceRef[]>();
   /** Per plot: the corners of the blocks round its edge, which change when a plot beside it is added. */
   private readonly edgeCorners = new Map<number, string>();
   /** The felt ground, its hem and the felt rivers, roads and lanes (laid across plots). */
   private feltGroup = new Group();
   private treeGroup = new Group();
+  /** The trees' tiles as built, kept to reuse (see `buildTiledTrees`). */
+  private readonly treeTiles = new Map<number, TreeTile>();
   /** The land around (as it would be), and the scenery beyond. */
   private aroundGroup = new Group();
   private around: AroundPlot[] = [];
   /** The land around, made ready to draw, by plot (see `prepareAround`). */
   private readonly aroundParts = new Map<number, SceneryPart>();
   /** The countryside beyond, made ready to draw, and the rectangle it's around. */
-  private backdrop: { key: string; part: SceneryPart } | null = null;
-  /** Felt already extruded, by outline (see `buildFeltRibbons`). */
-  private readonly feltCaches: Record<"river" | "road" | "lane", FeltCache> = { river: new Map(), road: new Map(), lane: new Map() };
+  private backdrop: { key: string; parts: SceneryPart[] } | null = null;
+  /** Felt already extruded, by tile (see `buildFeltTiles`). */
+  private readonly feltTiles: Record<"river" | "roads", FeltTiles> = { river: new Map(), roads: new Map() };
   /** The markers on plots for sale, while choosing one. */
   private saleGroup = new Group();
   private readonly blockIndex = new Map<string, BlockInstanceRef[]>();
@@ -145,8 +152,13 @@ export class LandscapeView {
     this.dropPending();
     disposeTree(this.group);
     for (const p of this.aroundParts.values()) disposeSceneryPart(p);
-    if (this.backdrop) disposeSceneryPart(this.backdrop.part);
-    for (const cache of Object.values(this.feltCaches)) for (const g of cache.values()) g.dispose();
+    if (this.backdrop) for (const p of this.backdrop.parts) disposeSceneryPart(p);
+    for (const cache of Object.values(this.feltTiles)) {
+      for (const t of cache.values()) {
+        t.geometry?.dispose();
+        t.flat?.dispose();
+      }
+    }
     for (const m of this.signs.values()) {
       m.map?.dispose();
       m.dispose();
@@ -157,7 +169,8 @@ export class LandscapeView {
     const g = this.land.grid;
     this.group.add(this.feltGroup, this.treeGroup, this.aroundGroup, this.saleGroup);
     g.plots.forEach((_, slot) => this.buildPlot(slot));
-    this.cuts = new HillCutsView(g, { wood: this.mats.blockWood, top: this.mats.blockTop }, this.blockIndex);
+    for (const key of new Set(g.plots.map((_, slot) => this.tileOfSlot(slot)))) this.buildTile(key);
+    this.cuts = new HillCutsView(g, { wood: this.mats.blockWood, top: this.mats.blockTop }, (key) => [...(this.blockIndex.get(key) ?? []), ...(this.farIndex.get(key) ?? [])]);
     this.group.add(this.cuts.group);
     this.buildFelt();
     this.buildTrees();
@@ -179,7 +192,10 @@ export class LandscapeView {
       }
     }
     for (const slot of rebuilt) this.buildPlot(slot);
-    this.cuts.plotsRebuilt([...rebuilt]);
+    // Their tiles' far-off blocks and towns too; every plot of those tiles has new far-off blocks for cuttings to hide.
+    const tiles = new Set([...rebuilt].map((slot) => this.tileOfSlot(slot)));
+    for (const key of tiles) this.buildTile(key);
+    this.cuts.plotsRebuilt(g.plots.map((_, slot) => slot).filter((slot) => tiles.has(this.tileOfSlot(slot))));
     this.around = around.filter((a) => !g.hasPlot(a.px, a.pz));
     this.buildFelt();
     this.buildTrees();
@@ -214,8 +230,8 @@ export class LandscapeView {
     this.around = list;
     // The felt's outlines extrude into its caches a surface or two at a time (the river, the roads and lanes), then
     // the felt comes together from them.
-    if (step === "river") this.warmFelt([SURF_RIVER]);
-    if (step === "roads") this.warmFelt([SURF_ROAD, SURF_LANE]);
+    if (step === "river") this.warmFelt("river");
+    if (step === "roads") this.warmFelt("roads");
     if (step === "felt" && !this.pending.felt) this.pending.felt = this.makeFelt();
     if (step === "scenery" && !this.pending.scenery) this.pending.scenery = this.makeAround(false);
     this.around = shown;
@@ -254,8 +270,19 @@ export class LandscapeView {
     const margin = around.length > 0 ? AROUND_MARGIN : undefined;
     const key = `${shown.x0},${shown.z0},${shown.x1},${shown.z1},${margin}`;
     if (this.backdrop?.key === key) return;
-    if (this.backdrop) disposeSceneryPart(this.backdrop.part);
-    this.backdrop = { key, part: sceneryPart(generateSurroundings(this.land.seed, shown, margin), this.mats) };
+    if (this.backdrop) for (const p of this.backdrop.parts) disposeSceneryPart(p);
+    // In big chunks (two tiles each way): enough that a close view skips most of it, few enough to stay cheap to draw.
+    const chunks = splitSurroundings(generateSurroundings(this.land.seed, shown, margin), 2 * TILE_WIDTH, 2 * TILE_DEPTH);
+    this.backdrop = { key, parts: chunks.map((c, k) => sceneryPart(c, this.mats, k * 101)) };
+  }
+
+  /**
+   * Show only the plots and tiles of trees, felt and scenery the camera sees within `reach`, in the detail their
+   * distance calls for (see `cullTiles`). Call before drawing a frame; true if any changed (their shadows need drawing
+   * again).
+   */
+  cull(camera: Camera, reach: number): boolean {
+    return cullTiles([this.group, this.treeGroup, this.aroundGroup, this.cuts.group, ...this.feltGroup.children], camera, reach);
   }
 
   /** Is this the land shown around the world now? */
@@ -289,38 +316,43 @@ export class LandscapeView {
     }
   }
 
-  /** One plot's blocks, towns, fields and shed (built again if it was already). */
+  /** The tile a plot is in (by its middle). */
+  private tileOfSlot(slot: number): number {
+    const { px, pz } = this.land.grid.plots[slot];
+    return tileAt((px + 0.5) * PLOT_WIDTH, (pz + 0.5) * PLOT_DEPTH);
+  }
+
+  /** A tile of the land, made (empty) on first use. */
+  private landTile(key: number): LandTile {
+    let tile = this.landTiles.get(key);
+    if (!tile) {
+      const group = new Group();
+      const near = new Group();
+      group.add(near);
+      tile = { group, near, far: null, always: null, farKeys: [] };
+      this.landTiles.set(key, tile);
+      this.group.add(group);
+    }
+    return tile;
+  }
+
+  /** One plot's close-up blocks (built again if it was already), in its tile. */
   private buildPlot(slot: number): void {
     const old = this.plotGroups.get(slot);
     if (old) {
-      this.group.remove(old);
+      old.removeFromParent();
       disposeTree(old);
     }
     const land = this.land;
     const grid = land.grid;
     const { px, pz } = grid.plots[slot];
     const group = new Group();
-    const b = new Batcher(this.mats.paint);
-    // Hills: stacks of individual wooden blocks, painted green on top.
+    // Hills: stacks of individual wooden blocks, painted green on top (rounded; far off, the tile's plain ones).
     group.add(buildBlocks(grid, land.seed, this.mats, this.blockIndex, false, [slot]));
     this.edgeCorners.set(slot, edgeCornerKey(land, slot));
-    const here = (x: number, z: number) => plotOfCol(Math.floor(x / CELL)) === px && plotOfRow(Math.floor(z / CELL)) === pz;
-    const prints: Footprint[] = [];
-    for (const town of land.towns) {
-      if (!here(town.centre.x, town.centre.z)) continue;
-      for (const h of buildTown(land, town, this.mats, b)) prints.push({ x: h.cx, z: h.cz, y: 0, rx: h.w / 2 + 12, rz: h.d / 2 + 12, heading: 0, strength: 1 });
-      buildStation(town, this.mats, b);
-      this.buildSign(town, b, group);
-    }
-    // Fenced paddocks of toy animals.
-    for (const field of land.fields) {
-      if (((field.cells[0] / PLOT_CELLS) | 0) !== slot) continue;
-      buildField(land, field, this.mats, b);
-    }
-    if (land.shed && here(land.shed.x, land.shed.z)) buildShed(land, land.shed, this.mats, b);
-    b.build(group);
     if (this.contactShadows) {
       // Hill edges: a blob under each ground-level block that has open felt beside it.
+      const prints: Footprint[] = [];
       forEachInPlot(slot, grid.plots[slot], (i, col, row) => {
         if (grid.height[i] === 0) return;
         const open = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dc, dr]) => {
@@ -331,8 +363,66 @@ export class LandscapeView {
       });
       if (prints.length > 0) group.add(buildContactShadows(prints));
     }
+    setCullBox(group, [{ x: px * PLOT_WIDTH, z: pz * PLOT_DEPTH }, { x: (px + 1) * PLOT_WIDTH, z: (pz + 1) * PLOT_DEPTH }], 4 * RISER_HEIGHT);
     this.plotGroups.set(slot, group);
-    this.group.add(group);
+    this.landTile(this.tileOfSlot(slot)).near.add(group);
+  }
+
+  /**
+   * A tile's far-off blocks (plain boxes, one set for its plots: see `cullTiles`) and its towns, fields, shed and signs
+   * (built again if they were already). Cuttings hide a cut block in both versions.
+   */
+  private buildTile(key: number): void {
+    const land = this.land;
+    const grid = land.grid;
+    const tile = this.landTile(key);
+    for (const o of [tile.far, tile.always]) {
+      if (!o) continue;
+      o.removeFromParent();
+      disposeTree(o);
+    }
+    for (const k of tile.farKeys) this.farIndex.delete(k);
+    const slots = grid.plots.map((_, slot) => slot).filter((slot) => this.tileOfSlot(slot) === key);
+    const farIndex = new Map<string, BlockInstanceRef[]>();
+    const exposed = blockInstances(grid, land.seed, slots).filter((b) => b.exposed);
+    const far = blockMeshes(exposed, CELL, RISER_HEIGHT, { wood: this.mats.blockWood, top: this.mats.blockTop }, false, false, farIndex);
+    for (const [k, refs] of farIndex) this.farIndex.set(k, refs);
+    tile.farKeys = [...farIndex.keys()];
+    far.visible = false;
+    tile.far = far;
+    tile.group.add(far);
+    tile.group.userData.lod = { near: tile.near, far };
+
+    // Towns: in full, with their signs, close up; as painted boxes far off.
+    const always = new Group();
+    const b = new Batcher(this.mats.paint);
+    const farTowns = new Batcher(this.mats.paint);
+    const here = (x: number, z: number) => tileAt(x, z) === key;
+    const prints: Footprint[] = [];
+    for (const town of land.towns) {
+      if (!here(town.centre.x, town.centre.z)) continue;
+      for (const h of buildTown(land, town, this.mats, b)) prints.push({ x: h.cx, z: h.cz, y: 0, rx: h.w / 2 + 12, rz: h.d / 2 + 12, heading: 0, strength: 1 });
+      buildStation(town, this.mats, b);
+      this.buildSign(town, b, always);
+      buildFarTown(land, town, this.mats, farTowns);
+    }
+    farTowns.build(far);
+    // Fenced paddocks of toy animals.
+    for (const field of land.fields) {
+      const first = field.cells[0];
+      if (here(grid.centreX(grid.colOf(first)), grid.centreZ(grid.rowOf(first)))) buildField(land, field, this.mats, b);
+    }
+    if (land.shed && here(land.shed.x, land.shed.z)) buildShed(land, land.shed, this.mats, b);
+    b.build(always);
+    if (this.contactShadows && prints.length > 0) always.add(buildContactShadows(prints));
+    tile.always = always;
+    tile.near.add(always);
+    const corners = slots.flatMap((slot) => {
+      const { px, pz } = grid.plots[slot];
+      return [{ x: px * PLOT_WIDTH, z: pz * PLOT_DEPTH }, { x: (px + 1) * PLOT_WIDTH, z: (pz + 1) * PLOT_DEPTH }];
+    });
+    // Its blocks, towns and signs stand within its plots (station roofs and signs are the tallest things).
+    setCullBox(tile.group, corners, 500);
   }
 
   /** The felt ground and its hem round the land, and the felt rivers, roads and lanes (on the land and around it). */
@@ -348,17 +438,16 @@ export class LandscapeView {
   }
 
   /** Extrude the felt of these surfaces into the caches, for the land and the land around now. */
-  private warmFelt(surfaces: readonly number[]): void {
+  private warmFelt(which: "river" | "roads"): void {
+    this.feltOf(which);
+  }
+
+  /** The river felt, or the road and lane felt, a mesh per tile (their geometry belongs to the cache). */
+  private feltOf(which: "river" | "roads"): Group {
     const grids = [this.land.grid, ...this.around.map((a) => a.land.grid)];
-    for (const surface of surfaces) {
-      const [cache, material, thickness] =
-        surface === SURF_RIVER
-          ? ([this.feltCaches.river, this.mats.riverFelt, 1.6] as const)
-          : surface === SURF_ROAD
-            ? ([this.feltCaches.road, this.mats.roadFelt, 1.1] as const)
-            : ([this.feltCaches.lane, this.mats.roadFelt, 1.1] as const);
-      buildFeltRibbons(grids, surface, material, thickness, cache)?.geometry.dispose();
-    }
+    return which === "river"
+      ? buildFeltTiles(grids, [SURF_RIVER], this.mats.riverFelt, () => 1.6, this.feltTiles.river)
+      : buildFeltTiles(grids, [SURF_ROAD, SURF_LANE], this.mats.roadFelt, () => 1.1, this.feltTiles.roads);
   }
 
   private makeFelt(): Group {
@@ -366,28 +455,26 @@ export class LandscapeView {
     const grid = this.land.grid;
     const shown = extentOf([...grid.plots, ...this.around]);
     group.add(buildFeltGround(this.mats, shown, grid.plots));
-    const grids = [grid, ...this.around.map((a) => a.land.grid)];
-    const river = buildFeltRibbons(grids, SURF_RIVER, this.mats.riverFelt, 1.6, this.feltCaches.river);
-    const road = buildFeltRibbons(grids, SURF_ROAD, this.mats.roadFelt, 1.1, this.feltCaches.road);
-    const lane = buildFeltRibbons(grids, SURF_LANE, this.mats.roadFelt, 1.1, this.feltCaches.lane);
-    if (river) group.add(river);
-    if (road) group.add(road);
-    if (lane) group.add(lane);
+    // Felt rivers, roads and lanes in tiles, so the camera skips those out of view.
+    group.add(this.feltOf("river"), this.feltOf("roads"));
     return group;
   }
 
   /** Turned-wood toy trees, standing on whatever block they grew on (all the land's, as one instanced draw each). */
   private buildTrees(): void {
     this.treeHop?.dispose();
-    this.group.remove(this.treeGroup);
-    disposeTree(this.treeGroup);
     const trees = treePlacements(this.land);
     this.clearance = new TreeClearance(this.land.grid, trees);
     const spot = (t: TreePlacement): Required<TreeAt> => ({ x: t.x, z: t.z, y: t.y, s: 1 });
     this.treeAnim = { shown: trees.map(spot), from: trees.map(spot), to: trees.map(spot), progress: new Float32Array(trees.length).fill(1) };
-    const group = buildTrees(trees, this.mats);
+    // Tiles whose trees haven't changed (all but those of new plots) are kept, moved over from the old group.
+    const shadows = this.contactShadows
+      ? (list: readonly TreePlacement[]) => buildContactShadows(list.map((t) => ({ x: t.x, z: t.z, y: t.y, rx: 24 * t.scale, rz: 24 * t.scale, heading: 0, strength: 1 })))
+      : undefined;
+    const group = buildTiledTrees(trees, this.mats, false, this.treeTiles, shadows);
     this.placeTrees = group.userData.place as PlaceTrees;
-    if (this.contactShadows) group.add(buildContactShadows(trees.map((t) => ({ x: t.x, z: t.z, y: t.y, rx: 24 * t.scale, rz: 24 * t.scale, heading: 0, strength: 1 }))));
+    this.group.remove(this.treeGroup);
+    disposeTree(this.treeGroup);
     this.treeGroup = group;
     this.group.add(group);
   }
@@ -418,8 +505,12 @@ export class LandscapeView {
     }
     for (const a of this.around) this.prepareAround(a);
     if (newBackdrop || !this.backdrop) this.prepareBackdrop(this.around);
-    const parts = [...this.around.map((a) => this.aroundParts.get(plotKey(a.px, a.pz))!), this.backdrop!.part];
-    return buildScenery(parts, this.mats, this.landRect);
+    // A group of draws per tile of the land around, and per chunk of the countryside: those out of view are skipped.
+    const group = new Group();
+    const tiles = byTile(this.around, (a) => ({ x: (a.px + 0.5) * PLOT_WIDTH, z: (a.pz + 0.5) * PLOT_DEPTH }));
+    for (const list of tiles.values()) group.add(buildScenery(list.map((a) => this.aroundParts.get(plotKey(a.px, a.pz))!), this.mats, this.landRect));
+    for (const part of this.backdrop!.parts) group.add(buildScenery([part], this.mats, this.landRect));
+    return group;
   }
 
   /** The layout the trees were last kept clear of. */
@@ -553,7 +644,12 @@ export class LandscapeView {
     // (Built again when its plot is: it keeps the count it showed.)
     const sign = this.makeSign(town.name, this.delivered.get(town.id) ?? 0);
     this.signNames.set(town.id, town.name);
-    const board = new Mesh(new BoxGeometry(SIGN_WIDTH, SIGN_HEIGHT, SIGN_THICKNESS), [this.mats.blockWood, this.mats.blockWood, this.mats.blockWood, this.mats.blockWood, sign, sign]);
+    // Wood round the edges, the name on both faces: two draws (a box's own six groups would be six).
+    const boardGeometry = new BoxGeometry(SIGN_WIDTH, SIGN_HEIGHT, SIGN_THICKNESS);
+    boardGeometry.clearGroups();
+    boardGeometry.addGroup(0, 24, 0);
+    boardGeometry.addGroup(24, 12, 1);
+    const board = new Mesh(boardGeometry, [this.mats.blockWood, sign]);
     board.rotation.y = -pose.heading;
     board.position.set(pose.x, SIGN_Y, pose.z);
     board.castShadow = true;
@@ -640,7 +736,8 @@ function disposeTree(root: Group): void {
     }
     const m = o as Mesh;
     if (!m.isMesh) return;
-    m.geometry.dispose();
+    // (Unless it belongs to a cache, such as tiles of felt.)
+    if (!m.userData.sharedGeometry) m.geometry.dispose();
     // Instanced meshes hold per-instance buffers that only their own dispose() frees.
     if ((m as InstancedMesh).isInstancedMesh) (m as InstancedMesh).dispose();
     if (m.userData.ownsMaterial) {
@@ -731,4 +828,17 @@ function plusTexture(): CanvasTexture {
   plusTex = new CanvasTexture(canvas);
   plusTex.colorSpace = SRGBColorSpace;
   return plusTex;
+}
+
+/** A tile of the land (see `LandscapeView.landTiles`). */
+interface LandTile {
+  group: Group;
+  /** Its plots' close-up blocks (a group per plot). */
+  near: Group;
+  /** Its plain far-off blocks. */
+  far: Group | null;
+  /** Its towns, fields, shed and signs, near or far. */
+  always: Group | null;
+  /** The far-off blocks' keys in `farIndex`. */
+  farKeys: string[];
 }

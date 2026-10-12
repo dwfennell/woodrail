@@ -1,5 +1,6 @@
-import { BoxGeometry, BufferGeometry, Color, InstancedMesh, Float32BufferAttribute, Group, Matrix4, Mesh, MeshBasicMaterial, type Material } from "three";
-import { blockOutline, CELL, hillPieces, hillsOf, plotOfCol, plotOfRow, plotSlabs, type HillCut, type LandscapeGrid } from "../../landscape";
+import { BoxGeometry, BufferGeometry, Color, InstancedMesh, Float32BufferAttribute, Group, Matrix4, Mesh, MeshBasicMaterial, Vector3, type Material } from "three";
+import { blockOutline, CELL, hillPieces, hillsOf, PLOT_DEPTH, PLOT_WIDTH, plotOfCol, plotOfRow, plotSlabs, type HillCut, type LandscapeGrid } from "../../landscape";
+import { setCullBox } from "./tiles";
 import { RISER_HEIGHT } from "../../track";
 import { BEECH_UV_SCALE } from "../materials";
 import { blockKey, CORE_COLOUR, CORE_INSET, hillCore, shadowProxy, SHADOW_PROXY_LAYER, type BlockInstanceRef } from "./blocks";
@@ -206,7 +207,10 @@ export function columnGeometry(
   return { body, paint: paintGeometry };
 }
 
-const hiddenMatrix = new Matrix4().makeScale(0, 0, 0);
+/** A block's instance hidden: shrunk to nothing where it stands (at the origin it would stretch the mesh's bounds). */
+const hiddenMatrix = new Matrix4();
+const NOTHING = new Vector3(0, 0, 0);
+const hide = (ref: BlockInstanceRef) => hiddenMatrix.copy(ref.matrix).scale(NOTHING);
 /** Cut blocks' shadows (drawn on the shadow layer only), and their cores. */
 const shadowMaterial = new MeshBasicMaterial();
 const coreMaterial = new MeshBasicMaterial({ color: CORE_COLOUR });
@@ -238,7 +242,8 @@ export class HillCutsView {
   constructor(
     private readonly grid: LandscapeGrid,
     private readonly materials: { wood: Material; top: Material },
-    private readonly index: Map<string, BlockInstanceRef[]>,
+    /** Where a block's instances are drawn (by `blockKey`): every version of it (close up and far off). */
+    private readonly refsOf: (key: string) => readonly BlockInstanceRef[],
   ) {
     this.sync();
   }
@@ -266,7 +271,7 @@ export class HillCutsView {
     for (const [id, b] of wanted) {
       if (this.built.has(id)) continue;
       const { body, paint, isTop, surface, cx, cz } = cutColumn(g, b, extra, { steps: b.coarse ? PREVIEW_STEPS : STEPS, closed: false });
-      const refs = this.index.get(blockKey(cx, cz, b.level * RISER_HEIGHT)) ?? [];
+      const refs = [...this.refsOf(blockKey(cx, cz, b.level * RISER_HEIGHT))];
       const wood = toned(body, this.materials.wood, refs[0]);
       wood.receiveShadow = true;
       const shadow = new Mesh(body, shadowMaterial);
@@ -282,7 +287,7 @@ export class HillCutsView {
       if (core) meshes.push(core);
       for (const m of meshes) this.group.add(m);
       for (const ref of refs) {
-        ref.mesh.setMatrixAt(ref.i, hiddenMatrix);
+        ref.mesh.setMatrixAt(ref.i, hide(ref));
         ref.mesh.instanceMatrix.needsUpdate = true;
       }
       this.built.set(id, { key: b.key, slot: g.slotOf(plotOfCol(b.col), plotOfRow(b.row)), meshes, refs });
@@ -347,6 +352,12 @@ export class HillCutsView {
       return i === -1 ? 0 : g.height[i];
     };
     const core = hillCore(plotSlabs(g.plots[slot], (c, r, level) => height(c, r) >= level && !cut(c, r, level - 1)));
+    if (core) {
+      // Only seen down the seams between blocks, close up (see `cullTiles`).
+      const { px, pz } = g.plots[slot];
+      setCullBox(core, [{ x: px * PLOT_WIDTH, z: pz * PLOT_DEPTH }, { x: (px + 1) * PLOT_WIDTH, z: (pz + 1) * PLOT_DEPTH }], 4 * RISER_HEIGHT);
+      core.userData.nearOnly = true;
+    }
     const pieces = hillPieces(g, cut, [slot]);
     const proxy = shadowProxy(pieces.slabs, pieces.round);
     const meshes: Mesh[] = [];

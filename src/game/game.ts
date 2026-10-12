@@ -25,15 +25,19 @@ import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
 import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { bridgeLevels, findCrossings, syncCuttings, type HeldPiece, hillPieces, hillsOf, PLOT_DEPTH, PLOT_WIDTH, type Landscape } from "../landscape";
-import { setHazeLand } from "../render/haze";
+import { bridgeLevels, findCrossings, syncCuttings, type HeldPiece, hillPieces, hillsOf, PLOT_DEPTH, type Landscape } from "../landscape";
+import { setHazeLand, setHazeReach } from "../render/haze";
+import { cullTiles, viewReach } from "../render/dressing/tiles";
 import { PIECE_TYPES, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
 import { hasLandForSale, landForSale, plotsAround, unlockPlot, type World } from "./world";
 
 const MAX_STEPS_PER_FRAME = 8;
-/** How far the camera may pull back over the starting land (further, up to twice, as the land grows). */
+/**
+ * How far the camera may pull back: the same however big the land grows, so (with the view's reach: see `viewReach`)
+ * only so much of the world is ever drawn.
+ */
 const MAX_DISTANCE = 14000;
 
 export type GameWorld = World;
@@ -250,16 +254,13 @@ export class Game {
 
   /**
    * The land grew (or a new world): the camera may look a little past its edge (half a plot, so the land around can
-   * be seen and bought), the haze sits round it, the camera may pull back further over a big world, and the land
-   * around it is made ready.
+   * be seen and bought), the haze sits round it, and the land around it is made ready.
    */
   private landChanged(): void {
     const e = this.landscape.grid.extent();
     const m = PLOT_DEPTH / 2;
     this.director.bounds = { x0: e.x0 - m, z0: e.z0 - m, x1: e.x1 + m, z1: e.z1 + m };
     setHazeLand(this.scene.fog as Fog, e);
-    const size = Math.hypot(e.x1 - e.x0, e.z1 - e.z0) / Math.hypot(2 * PLOT_WIDTH, 2 * PLOT_DEPTH);
-    this.controls.maxDistance = MAX_DISTANCE * Math.min(2, Math.max(1, size));
     this.prepareAround();
   }
 
@@ -535,7 +536,13 @@ export class Game {
     const radius = shadowRadiusForView(this.camera, t);
     const refit = shouldRefit(this.stage.shadowFit, t.x, t.z, radius);
     if (refit) this.stage.fitShadow(t.x, t.z, radius);
-    if (shadowsMoved || once || refit) this.renderer.shadowMap.needsUpdate = true;
+    // Only the parts of the world in view are drawn; parts coming into view bring their shadows.
+    this.camera.updateMatrixWorld();
+    const reach = viewReach(dist);
+    setHazeReach(this.scene.fog as Fog, reach);
+    const landCulled = this.landscapeView.cull(this.camera, reach);
+    const culled = cullTiles([this.depotView.group], this.camera, reach) || landCulled;
+    if (shadowsMoved || once || refit || culled) this.renderer.shadowMap.needsUpdate = true;
     this.stage.update(this.camera);
     this.post.setFocus(dist);
     this.post.render(now);

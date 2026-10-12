@@ -5,6 +5,7 @@ import { RISER_HEIGHT } from "../../track";
 import type { Materials } from "../materials";
 import { Batcher } from "./batcher";
 import { blockMeshes, shadowProxyGeometry, shadowProxyMesh } from "./blocks";
+import { setCullBox } from "./tiles";
 import { building } from "./buildings";
 import { buildTrees, MAX_LEAN, TREE_GREENS, treeKind, type TreePlacement } from "./trees";
 
@@ -17,6 +18,8 @@ const AROUND_ROUNDED_REACH = 150;
  */
 export interface SceneryPart {
   blocks: readonly OuterBlock[];
+  /** Where its houses stand (their footprints' corners), for its bounds. */
+  houseAt: readonly { x: number; z: number }[];
   /**
    * Blocks this near the land are bevelled like its own; further out, plain boxes (in the land's beech within
    * `beechReach`, the scenery's paler wood beyond).
@@ -39,6 +42,7 @@ export function sceneryPart(s: Surroundings, mats: Materials, seed = 0, around =
   );
   return {
     blocks: s.blocks,
+    houseAt: s.houses.flatMap((h) => [{ x: h.cx - h.w / 2, z: h.cz - h.d / 2 }, { x: h.cx + h.w / 2, z: h.cz + h.d / 2 }]),
     roundedReach: around ? AROUND_ROUNDED_REACH : ROUNDED_REACH,
     beechReach: around ? Infinity : ROUNDED_REACH,
     trees: s.trees,
@@ -67,6 +71,17 @@ export function buildSurroundings(s: Surroundings, mats: Materials, land: Rect):
 /** Draw some scenery parts together, in a few draws for all of them (merging their houses and shadows). */
 export function buildScenery(parts: readonly SceneryPart[], mats: Materials, land: Rect): Group {
   const group = new Group();
+  // A flat box round all of it, for culling (see `tiles.ts`): blocks' footprints and tops, trees and houses.
+  const half = (k: OuterBlock) => k.size / 2;
+  setCullBox(
+    group,
+    parts.flatMap((p) => [
+      ...p.blocks.flatMap((k) => [{ x: k.x - half(k), z: k.z - half(k) }, { x: k.x + half(k), z: k.z + half(k) }]),
+      ...p.trees,
+      ...p.houseAt,
+    ]),
+    sceneryTop(parts),
+  );
   // Next to the land the blocks are bevelled like the land's own; further out the haze hides the difference.
   const close: OuterBlock[] = [];
   const beech: OuterBlock[] = [];
@@ -119,4 +134,33 @@ export function buildScenery(parts: readonly SceneryPart[], mats: Materials, lan
     group.add(mesh);
   }
   return group;
+}
+
+/**
+ * Split scenery into chunks `width` × `depth` (world mm) by where each thing stands (a shadow slab by its middle), so
+ * each chunk can be drawn on its own and skipped when out of view.
+ */
+export function splitSurroundings(s: Surroundings, width: number, depth: number): Surroundings[] {
+  const chunks = new Map<string, Surroundings>();
+  const at = (x: number, z: number) => {
+    const key = `${Math.floor(x / width)},${Math.floor(z / depth)}`;
+    let c = chunks.get(key);
+    if (!c) chunks.set(key, (c = { blocks: [], trees: [], houses: [], hamlets: 0, slabs: [] }));
+    return c;
+  };
+  for (const b of s.blocks) at(b.x, b.z).blocks.push(b);
+  for (const t of s.trees) at(t.x, t.z).trees.push(t);
+  for (const h of s.houses) at(h.cx, h.cz).houses.push(h);
+  for (const sl of s.slabs) at((sl.x0 + sl.x1) / 2, (sl.z0 + sl.z1) / 2).slabs.push(sl);
+  return [...chunks.values()];
+}
+
+/** The top of some scenery (its blocks and trees; at least a house's height). */
+function sceneryTop(parts: readonly SceneryPart[]): number {
+  let top = 400;
+  for (const p of parts) {
+    for (const k of p.blocks) top = Math.max(top, k.y + k.height);
+    for (const t of p.trees) top = Math.max(top, t.y + 150 * t.scale);
+  }
+  return top;
 }
