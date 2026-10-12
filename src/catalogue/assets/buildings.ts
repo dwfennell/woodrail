@@ -1018,9 +1018,11 @@ export const ASSETS: Asset[] = [
       const bell = named(new Group(), "bell");
       bell.add(k.lathe(k.paint(TOY.yellow), [[0, -8], [4, -8], [3.4, -6], [2.4, -2], [0, -1]], 0, 0, 0, 16), k.ball(k.paint(TOY.black), 1, 0, -8.4, 0));
       g.add(k.at(bell, 0, 60, 0));
-      // Fence with a little playground.
-      for (let i = 0; i < 7; i++) g.add(k.box(white, 1.6, 9, 1.6, 0.3, 42 + i * 0, 0, -30 + i * 10));
-      g.add(k.box(white, 1.4, 1.6, 62, 0.3, 42, 6, 0));
+      // Playground fence along the front, open at the gate in front of the door.
+      for (const z of [-30, -20, -10, 10, 20, 30]) g.add(k.box(white, 1.6, 9, 1.6, 0.3, 42, 0, z));
+      for (const z of [-20, 20]) g.add(k.box(white, 1.4, 1.6, 21.6, 0.3, 42, 6, z));
+      // Gateposts, a little taller, either side of the opening.
+      for (const z of [-8, 8]) g.add(k.box(k.paint(TOY.blue), 2.2, 12, 2.2, 0.4, 42, 0, z));
       g.add(k.peg(TOY.red, null, 40, 0, -38), k.peg(TOY.blue, null, 48, 0, 32));
       return g;
     },
