@@ -29,7 +29,6 @@ import {
   PLOT_ROWS,
   PLOT_WIDTH,
   plotSlabs,
-  SURF_LANE,
   SURF_RIVER,
   SURF_ROAD,
   TreeClearance,
@@ -54,6 +53,7 @@ import { HillCutsView } from "./dressing/hill-cuts";
 import { buildShed, buildStation, buildTown } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltGround, buildFeltTiles, type FeltTiles } from "./dressing/felt";
+import { buildRoadTiles, type RoadTiles } from "./dressing/roads";
 import { buildScenery, disposeSceneryPart, sceneryPart, splitSurroundings, type SceneryPart } from "./dressing/surroundings";
 import { byTile, cullTiles, plotRect, setCullRects, TILE_DEPTH, TILE_WIDTH, tileAt } from "./dressing/tiles";
 import { buildTiledTrees, treePlacements, type PlaceTrees, type TreeAt, type TreePlacement, type TreeTile } from "./dressing/trees";
@@ -114,6 +114,8 @@ export class LandscapeView {
   private backdrop: { key: string; parts: SceneryPart[] } | null = null;
   /** Felt already extruded, by tile (see `buildFeltTiles`). */
   private readonly feltTiles: Record<"river" | "roads", FeltTiles> = { river: new Map(), roads: new Map() };
+  /** Road pieces already built, by tile (see `buildRoadTiles`). */
+  private readonly roadTiles: RoadTiles = new Map();
   /** The markers on plots for sale, while choosing one. */
   private saleGroup = new Group();
   private readonly blockIndex = new Map<string, BlockInstanceRef[]>();
@@ -157,6 +159,7 @@ export class LandscapeView {
         t.geometry?.dispose();
       }
     }
+    for (const t of this.roadTiles.values()) for (const g of t.geometries) g?.dispose();
     for (const m of this.signs.values()) {
       m.map?.dispose();
       m.dispose();
@@ -453,7 +456,13 @@ export class LandscapeView {
     const grids = [this.land.grid, ...this.around.map((a) => a.land.grid)];
     return which === "river"
       ? buildFeltTiles(grids, [SURF_RIVER], this.mats.riverFelt, () => 1.6, this.feltTiles.river)
-      : buildFeltTiles(grids, [SURF_ROAD, SURF_LANE], this.mats.roadFelt, () => 1.1, this.feltTiles.roads);
+      : buildFeltTiles(grids, [SURF_ROAD], this.mats.roadFelt, () => 1.1, this.feltTiles.roads);
+  }
+
+  /** The road pieces on the land and the land around now, a mesh per material per tile (geometry owned by the cache). */
+  private roadsGroup(): Group {
+    const grids = [this.land.grid, ...this.around.map((a) => a.land.grid)];
+    return buildRoadTiles(grids, { board: this.mats.naturalWood, felt: this.mats.roadFelt, paint: this.mats.lacquer("#f6f1e6") }, this.roadTiles);
   }
 
   private makeFelt(): Group {
@@ -462,7 +471,7 @@ export class LandscapeView {
     const shown = extentOf([...grid.plots, ...this.around]);
     group.add(buildFeltGround(this.mats, shown, grid.plots));
     // Felt rivers, roads and lanes in tiles, so the camera skips those out of view.
-    group.add(this.feltOf("river"), this.feltOf("roads"));
+    group.add(this.feltOf("river"), this.feltOf("roads"), this.roadsGroup());
     return group;
   }
 
