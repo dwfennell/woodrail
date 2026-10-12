@@ -17,6 +17,7 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LandscapeView, type AroundPlot } from "../render/landscape-view";
+import { pulseBeacons } from "../render/dressing/roads";
 import { createMaterials, type Materials } from "../render/materials";
 import { Flourishes } from "../render/flourishes";
 import { createPost, type Post } from "../render/post";
@@ -559,6 +560,7 @@ export class Game {
     const culled = cullTiles([this.depotView.group], this.camera, reach, detail) || landCulled;
     if (shadowsMoved || once || refit || culled) this.renderer.shadowMap.needsUpdate = true;
     this.stage.update(this.camera);
+    pulseBeacons(this.mats, now);
     this.post.setFocus(dist);
     this.post.render(now);
     // A picture of this frame wanted (a debug report): taken now, while the drawing buffer still holds it.

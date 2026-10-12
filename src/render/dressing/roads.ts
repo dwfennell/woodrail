@@ -1,4 +1,4 @@
-import { BoxGeometry, BufferAttribute, BufferGeometry, ExtrudeGeometry, Group, Mesh, Shape, type Material } from "three";
+import { BoxGeometry, BufferAttribute, BufferGeometry, Color, CylinderGeometry, ExtrudeGeometry, Group, Mesh, MeshStandardMaterial, Shape, SphereGeometry, type Material } from "three";
 import { CELL, type LandscapeGrid } from "../../landscape";
 import { pieceOf, ROAD_PIECES, turnOf, type RoadPieceId } from "../../roads";
 import { FELT_TILE, type Materials } from "../materials";
@@ -18,18 +18,45 @@ const FELT_HALF = 24;
 const BOARD_TOP = 3;
 const FELT_TOP = 4;
 const PAINT_TOP = 4.3;
+/** Zebra beacon pole height above the board. */
+const POLE = 26;
 
 /** The materials a road is drawn in, by slot. */
 export interface RoadMaterials {
   board: Material;
   felt: Material;
   paint: Material;
+  /** Black bands on the zebra beacons' poles. */
+  dark: Material;
+  /** The beacons' amber globes (they glow, and blink on frames drawn anyway: see `pulseBeacons`). */
+  beacon: Material;
 }
-const SLOTS = ["board", "felt", "paint"] as const;
+const SLOTS = ["board", "felt", "paint", "dark", "beacon"] as const;
+
+const beacons = new WeakMap<Materials, MeshStandardMaterial>();
+/** Beacon glow, off and on (a lit globe is never dark: the last frame drawn may hold either). */
+const BEACON_OFF = 0.35;
+const BEACON_ON = 1.4;
+/** Blinks per second. */
+const BEACON_RATE = 1.2;
 
 /** The game's road materials: beech board, road felt, white paint. */
 export function roadMaterials(mats: Materials): RoadMaterials {
-  return { board: mats.naturalWood, felt: mats.roadFelt, paint: mats.lacquer("#f6f1e6") };
+  let beacon = beacons.get(mats);
+  if (!beacon) {
+    beacon = new MeshStandardMaterial({ color: new Color("#f2a530"), emissive: new Color("#ffad2e"), emissiveIntensity: BEACON_ON, roughness: 0.35 });
+    beacons.set(mats, beacon);
+  }
+  return { board: mats.naturalWood, felt: mats.roadFelt, paint: mats.lacquer("#f6f1e6"), dark: mats.lacquer("#2b2b2b"), beacon };
+}
+
+/**
+ * Blink the zebra beacons, for a frame about to be drawn at time `t` (seconds). Called only on frames drawn anyway (a
+ * train running, the camera moving): it never asks for a frame, so a still scene costs nothing. One uniform.
+ */
+export function pulseBeacons(mats: Materials, t: number): void {
+  const m = beacons.get(mats);
+  if (m) m.emissiveIntensity = (t * BEACON_RATE) % 1 < 0.5 ? BEACON_ON : BEACON_OFF;
 }
 
 /**
@@ -151,7 +178,17 @@ function pieceParts(id: RoadPieceId): Record<SlotName, BufferGeometry[]> {
     case "cross":
       break;
   }
-  return { board: board(BOARD_HALF, 0, BOARD_TOP), felt: board(FELT_HALF, BOARD_TOP, FELT_TOP), paint };
+  const dark: BufferGeometry[] = [];
+  const beacon: BufferGeometry[] = [];
+  if (id === "zebra") {
+    // A beacon on each kerb at the crossing: a white pole with black bands and an amber globe on top.
+    for (const z of [-27, 27]) {
+      paint.push(new CylinderGeometry(1.3, 1.5, POLE, 10).translate(0, BOARD_TOP + POLE / 2, z));
+      for (const y of [6, 13, 20]) dark.push(new CylinderGeometry(1.6, 1.6, 3, 10).translate(0, BOARD_TOP + y, z));
+      beacon.push(new SphereGeometry(3.6, 14, 10).translate(0, BOARD_TOP + POLE + 2.5, z));
+    }
+  }
+  return { board: board(BOARD_HALF, 0, BOARD_TOP), felt: board(FELT_HALF, BOARD_TOP, FELT_TOP), paint, dark, beacon };
 }
 
 function flatten(parts: BufferGeometry[]): PieceMesh {
@@ -178,7 +215,7 @@ function pieceMeshes(): Record<SlotName, PieceMesh>[] {
   meshes = [];
   for (const def of ROAD_PIECES) {
     const parts = pieceParts(def.id);
-    meshes[def.code] = { board: flatten(parts.board), felt: flatten(parts.felt), paint: flatten(parts.paint) };
+    meshes[def.code] = { board: flatten(parts.board), felt: flatten(parts.felt), paint: flatten(parts.paint), dark: flatten(parts.dark), beacon: flatten(parts.beacon) };
   }
   return meshes;
 }

@@ -5,7 +5,7 @@ import { encodeRoad, ROAD_PIECES } from "../../roads";
 import { buildRoadTiles, type RoadTiles } from "./roads";
 
 const m = new MeshBasicMaterial();
-const mats = { board: m, felt: m, paint: m };
+const mats = { board: m, felt: m, paint: m, dark: m, beacon: m };
 
 describe("road tiles", () => {
   it("draws every piece and turn within its own square", () => {

@@ -41,7 +41,11 @@ function paint(piece: RoadPieceId): string {
     case "end":
       return dash(12);
     case "zebra":
-      return [-20, -12, -4, 4, 12, 20].map((z) => `<rect x="24" y="${36 + z - 2}" width="24" height="4"/>`).join("");
+      return (
+        [-20, -12, -4, 4, 12, 20].map((z) => `<rect x="24" y="${36 + z - 2}" width="24" height="4"/>`).join("") +
+        // The beacons, seen from above.
+        [9, 63].map((y) => `<circle cx="36" cy="${y}" r="5" fill="#f2a530" stroke="#2b2b2b" stroke-width="1.5"/>`).join("")
+      );
     case "cross":
       return "";
   }
