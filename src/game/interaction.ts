@@ -185,6 +185,8 @@ export class Interaction {
     this.time += dt;
     this.game.trackView.pulse(this.time);
     const m = this.mode;
+    // Held things cast shadows.
+    if (m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-cargo") this.game.moveShadows();
     if ((m.kind === "drag-piece" || m.kind === "drag-train") && this.game.director.edgePanning) this.updateDrag(this.lastX, this.lastY);
     if (m.kind === "drag-piece" && dt > 0) {
       const s = m.shown;

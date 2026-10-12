@@ -124,6 +124,8 @@ export class Game {
     this.renderer.toneMappingExposure = 0.95;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = PCFShadowMap;
+    // Redrawn only when something casting a shadow moves (see frame): not for a camera move alone.
+    this.renderer.shadowMap.autoUpdate = false;
 
     this.camera = new PerspectiveCamera(30, 1, 5, 40000);
     this.camera.position.set(700, 620, 1050);
@@ -357,6 +359,9 @@ export class Game {
     if (depots === "moving") active = true;
     else if (depots === "changed") this.invalidate();
     if (this.trainsChanged() || this.physics.moving || this.flourishes.count > 0) active = true;
+    // Things casting shadows have moved (the camera alone doesn't change the shadow map).
+    const shadowsMoved = active || this.shadowsMoving;
+    this.shadowsMoving = false;
     this.onFrame?.(dt);
     this.flourishes.update(dt);
     // A finger fling glides on between touches (a director glide or zoom takes over from it).
@@ -385,7 +390,9 @@ export class Game {
     this.dirty = false;
     if (!once && now - this.lastActive > IDLE_TAIL) return;
     const radius = shadowRadiusForView(this.camera, t);
-    if (shouldRefit(this.stage.shadowFit, t.x, t.z, radius)) this.stage.fitShadow(t.x, t.z, radius);
+    const refit = shouldRefit(this.stage.shadowFit, t.x, t.z, radius);
+    if (refit) this.stage.fitShadow(t.x, t.z, radius);
+    if (shadowsMoved || once || refit) this.renderer.shadowMap.needsUpdate = true;
     this.stage.update(this.camera);
     this.post.setFocus(dist);
     this.post.render(now);
@@ -432,12 +439,18 @@ export class Game {
     this.dirty = true;
   }
 
+  /** Something casting a shadow moved this frame that the frame loop can't see (a held piece): redraw shadows. */
+  moveShadows(): void {
+    this.shadowsMoving = true;
+  }
+
   private readonly derailedCars = new Set<number>();
   private dirty = true;
   /** Input arrived: keep drawing for a moment, for whatever it set easing (a held piece, a selection). */
   private woken = false;
   private lastActive = 0;
   private lastFrameAt = -Infinity;
+  private shadowsMoving = false;
   private readonly lastCamera = new Float64Array(12);
 
   /**
