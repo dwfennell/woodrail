@@ -116,6 +116,41 @@ export class Layout {
     return true;
   }
 
+  /**
+   * Shift seated pieces by small amounts (joint play taken up) without changing which joints are seated: poses are
+   * replaced, free connectors re-indexed and the seating errors of their joints recomputed.
+   */
+  nudgePieces(poses: ReadonlyMap<number, Pose>): void {
+    for (const [id, pose] of poses) {
+      const piece = this.pieces.get(id);
+      if (!piece || this.lifted.has(id)) continue;
+      this.pieces.set(id, { ...piece, pose: { ...pose } });
+    }
+    for (const id of poses.keys()) {
+      const piece = this.pieces.get(id);
+      if (!piece || this.lifted.has(id)) continue;
+      const count = getPieceDef(piece.type, piece.flipped).connectors.length;
+      for (let i = 0; i < count; i++) {
+        const ref = connectorRef(id, i);
+        const partner = this.joinedTo.get(ref);
+        const w = this.worldConnector(ref, scratchA);
+        if (partner === undefined) {
+          this.freeConnectors.remove(ref);
+          this.freeConnectors.insert(ref, w.x, w.z);
+          continue;
+        }
+        const o = this.worldConnector(partner, scratchB);
+        const a = Math.min(ref, partner);
+        this.jointMap.set(a, {
+          a,
+          b: Math.max(ref, partner),
+          posError: Math.hypot(o.x - w.x, o.z - w.z),
+          angleError: angleDiff(w.heading, o.heading + Math.PI),
+        });
+      }
+    }
+  }
+
   isLifted(id: number): boolean {
     return this.lifted.has(id);
   }

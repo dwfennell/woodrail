@@ -25,7 +25,9 @@ function initialWorld(): GameWorld {
 
 function boot(): void {
   const game = new Game(canvas, initialWorld());
-  let editor = new Editor(game.layout, game.sim, () => onChange());
+  // Stations and depots never shift to take up joint play.
+  const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
+  let editor = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece);
   let saveTimer = 0;
   let interaction: Interaction;
   const audio = new ToyAudio();
@@ -124,7 +126,7 @@ function boot(): void {
     announced = new Set();
     updateConnections(false);
     game.follow(-1);
-    editor = new Editor(game.layout, game.sim, () => onChange());
+    editor = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece);
     interaction.clearSelection();
     hud.hideCards();
     onChange();

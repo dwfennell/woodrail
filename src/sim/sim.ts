@@ -265,6 +265,15 @@ export class Sim {
     }
   }
 
+  /** Is any (railed) train standing on this piece? */
+  pieceOccupied(pieceId: number): boolean {
+    for (const train of this.trains.values()) {
+      if (train.derailed) continue;
+      for (const b of train.bogies) if (b.pieceId === pieceId) return true;
+    }
+    return false;
+  }
+
   /** Put a (derailed) train back on the nearest track, motor off. Returns the new train id, or -1 if there is no room. */
   rerail(trainId: number, maxDistance = 150, near?: { x: number; z: number }): number {
     const train = this.trains.get(trainId);

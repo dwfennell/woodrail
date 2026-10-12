@@ -189,4 +189,17 @@ describe("auto-fit (ends that don't match turn or mirror the piece to fit)", () 
     expect(s.kind).toBe("snapped");
     if (s.kind === "snapped") expect(s.flipped).toBe(false);
   });
+
+  it("never turns a ramp round to fit: that would make an up ramp a down one", () => {
+    const layout = base();
+    // A ramp held with its (high) peg end against the straight's peg, sloping back the other way.
+    const held = { x: 432, z: 0, heading: Math.PI };
+    for (const y of [0, -64]) {
+      expect(findSnap(layout, "ramp", false, held, y, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror").kind).toBe("none");
+    }
+    // Held the right way round, it fits as it is: rising away from the straight.
+    const s = findSnap(layout, "ramp", false, { x: 220, z: 0, heading: 0 }, 0, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
+    expect(s.kind).toBe("snapped");
+    if (s.kind === "snapped") expect(s.y).toBe(0);
+  });
 });

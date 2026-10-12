@@ -134,4 +134,38 @@ describe("Editor edits under trains", () => {
     editor.rotate(b, Math.PI / 4);
     expect(sim.getTrain(r.trainId)!.derailed).toBe(false);
   });
+
+  it("takes up joint play near a placed piece, as part of the same undo step", () => {
+    const { layout, editor } = setup();
+    const a = editor.place("straight-144", { x: 0, z: 0, heading: 0 }, 0, false);
+    const b = editor.place("straight-144", { x: 144, z: 0, heading: 0 }, 0, false);
+    // Dropped 6 mm long of b's peg: b (loose) slides back so the joint closes, and a with it.
+    const c = editor.place("straight-144", { x: 294, z: 0, heading: 0 }, 0, false);
+    const gaps = () => [...layout.joints()].map((j) => j.posError);
+    expect(gaps().length).toBe(2);
+    expect(Math.max(...gaps())).toBeLessThan(0.05);
+    expect(layout.getPiece(c)!.pose.x).not.toBe(294);
+    editor.undo();
+    expect(layout.getPiece(c)).toBeUndefined();
+    expect(layout.getPiece(a)!.pose).toEqual({ x: 0, z: 0, heading: 0 });
+    expect(layout.getPiece(b)!.pose).toEqual({ x: 144, z: 0, heading: 0 });
+    editor.redo();
+    expect(Math.max(...gaps())).toBeLessThan(0.05);
+  });
+
+  it("never shifts fixed pieces or track under a train", () => {
+    const layout = new Layout();
+    const sim = new Sim(layout);
+    let station = -1;
+    const editor = new Editor(layout, sim, () => {}, (id) => id === station);
+    station = editor.place("station", { x: 0, z: 0, heading: 0 }, 0, false);
+    const b = editor.place("straight-144", { x: 216, z: 0, heading: 0 }, 0, false);
+    const r = sim.addTrain(["engine"], { pieceId: b, pathIndex: 0, reversed: false, s: 100 });
+    if (r.kind !== "placed") throw new Error("not placed");
+    editor.place("straight-144", { x: 366, z: 0, heading: 0 }, 0, false);
+    expect(layout.getPiece(station)!.pose).toEqual({ x: 0, z: 0, heading: 0 });
+    expect(layout.getPiece(b)!.pose).toEqual({ x: 216, z: 0, heading: 0 });
+    expect(sim.getTrain(r.trainId)!.derailed).toBe(false);
+    expect(Math.max(...[...layout.joints()].map((j) => j.posError))).toBeLessThan(0.05);
+  });
 });

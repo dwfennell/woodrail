@@ -1,5 +1,5 @@
 import type { Sim } from "../sim";
-import { getPieceDef, type Layout, type PieceTypeId, type Pose } from "../track";
+import { getPieceDef, relaxJoints, type Layout, type PieceTypeId, type Pose } from "../track";
 
 interface PieceRecord {
   id: number;
@@ -14,6 +14,8 @@ interface Command {
   undo(): void;
   /** Existing pieces this command moves or reshapes (trains standing on them derail). */
   moves?: number[];
+  /** Pieces this command put down: joint play near them is taken up afterwards (part of the same undo step). */
+  seats?: () => number[];
 }
 
 const HISTORY_LIMIT = 100;
@@ -63,6 +65,8 @@ export class Editor {
     private readonly layout: Layout,
     private readonly sim: Sim,
     private readonly onChange: () => void,
+    /** Pieces that never shift to take up joint play (stations, depots). Track under a train never shifts either. */
+    private readonly fixed: (pieceId: number) => boolean = () => false,
   ) {}
 
   get canUndo(): boolean {
@@ -87,6 +91,7 @@ export class Editor {
         this.layout.removePiece(id);
         supports.remove();
       },
+      seats: () => [id],
     });
     return id;
   }
@@ -121,6 +126,7 @@ export class Editor {
         supports.remove();
       },
       moves: [id],
+      seats: () => [id],
     });
     return true;
   }
@@ -139,7 +145,7 @@ export class Editor {
       this.layout.removePiece(id);
       this.layout.restorePiece(id, rec.type, rec.pose, rec.y, flipped);
     };
-    this.run({ do: () => swap(!rec.flipped), undo: () => swap(rec.flipped), moves: [id] });
+    this.run({ do: () => swap(!rec.flipped), undo: () => swap(rec.flipped), moves: [id], seats: () => [id] });
     return true;
   }
 
@@ -166,6 +172,7 @@ export class Editor {
 
   private run(c: Command): void {
     c.do();
+    if (c.seats) c = this.takeUpPlay(c, c.seats());
     this.undoStack.push(c);
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
     this.redoStack = [];
@@ -175,6 +182,30 @@ export class Editor {
   private changed(moves: number[] = []): void {
     this.sim.trackChanged(moves);
     this.onChange();
+  }
+
+  /**
+   * Spread any joint play the command left near `seeds` along the loose track around it, so no joint gapes. The
+   * shift joins the command: redo puts the pieces back where they were shifted to, undo where they were before.
+   */
+  private takeUpPlay(c: Command, seeds: number[]): Command {
+    const pinned = (id: number) => this.fixed(id) || this.sim.pieceOccupied(id);
+    const after = relaxJoints(this.layout, seeds, pinned);
+    if (after.size === 0) return c;
+    const before = new Map<number, Pose>();
+    for (const id of after.keys()) before.set(id, { ...this.layout.getPiece(id)!.pose });
+    this.layout.nudgePieces(after);
+    return {
+      do: () => {
+        c.do();
+        this.layout.nudgePieces(after);
+      },
+      undo: () => {
+        this.layout.nudgePieces(before);
+        c.undo();
+      },
+      moves: c.moves,
+    };
   }
 
   /** Risers to put down with a piece: added the first time, restored with the same ids on redo. */
