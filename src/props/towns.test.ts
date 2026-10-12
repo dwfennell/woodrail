@@ -72,3 +72,17 @@ describe("colour variants", () => {
     expect(variants.size).toBeGreaterThan(1);
   });
 });
+
+describe("buildings facing their street", () => {
+  it("a building's front (from the town plan) decides which way its model faces", () => {
+    const w = createWorld(4242);
+    const town = w.landscape.towns.find((t) => t.buildings.some((b) => b.cells.length === 1))!;
+    const k = town.buildings.findIndex((b) => b.cells.length === 1);
+    for (const front of [{ x: 1, z: 0 }, { x: 0, z: -1 }] as const) {
+      town.buildings[k].front = front;
+      const t = townProps(w.landscape, town)[k];
+      expect(Math.cos(t.heading)).toBeCloseTo(front.x);
+      expect(Math.sin(t.heading)).toBeCloseTo(front.z);
+    }
+  });
+});

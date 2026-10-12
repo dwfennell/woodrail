@@ -76,10 +76,16 @@ export function townProps(land: Landscape, town: Town): TownProp[] {
   });
 }
 
-/** Where a building's model stands and which way it faces: on its squares, its front toward the town's centre. */
+/**
+ * Where a building's model stands and which way it faces: on its squares, its front toward its street (`front`) or
+ * else the town's centre. A two-square model lies along its squares; one whose front is on its long side faces across
+ * them, one whose front is at an end faces along them (toward the street or centre, whichever side that is).
+ */
 function poseFor(land: Landscape, town: Town, b: Building, look: Look, asset: string): { x: number; z: number; heading: number } {
   const fp = footprintOf(land, town, b.cells, look);
-  const toCentre = { x: town.centre.x - fp.cx, z: town.centre.z - fp.cz };
+  // The way it should face: its street (the town plan's lot front), else the town's centre.
+  const toCentre = b.front ?? { x: town.centre.x - fp.cx, z: town.centre.z - fp.cz };
+  if (b.front && b.cells.length === 1) return { x: fp.cx, z: fp.cz, heading: Math.atan2(b.front.z, b.front.x) };
   let front = fp.front;
   if (b.cells.length > 1) {
     // The squares' long axis, and the model's: long along z (front on its long side) or along x (front at an end).

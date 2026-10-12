@@ -48,7 +48,16 @@ export const landscapeSchema = z.object({
       centre: point,
       station: pose,
       cells,
-      buildings: z.array(z.object({ id, cells, floors: z.union([z.literal(1), z.literal(2)]), kind: z.enum(["house", "shop"]), roof: z.number().int().min(0).max(15) })),
+      buildings: z.array(
+        z.object({
+          id,
+          cells,
+          floors: z.union([z.literal(1), z.literal(2)]),
+          kind: z.enum(["house", "shop"]),
+          roof: z.number().int().min(0).max(15),
+          front: z.object({ x: z.union([z.literal(-1), z.literal(0), z.literal(1)]), z: z.union([z.literal(-1), z.literal(0), z.literal(1)]) }).optional(),
+        }),
+      ),
     }),
   ),
   depots: z.array(z.object({ id, kind: z.enum(["forest", "sawmill"]), centre: point, piece: pose })),
