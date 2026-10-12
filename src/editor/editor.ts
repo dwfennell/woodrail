@@ -1,5 +1,19 @@
 import type { Sim } from "../sim";
-import { connectorRef, getPieceDef, relaxJoints, solveParentPose, transformPose, type Layout, type PieceTypeId, type Pose } from "../track";
+import {
+  connectorRef,
+  getPieceDef,
+  JOINT_ANGLE_TOLERANCE,
+  JOINT_POS_TOLERANCE,
+  normalizeAngle,
+  pieceOfRef,
+  relaxJoints,
+  solveParentPose,
+  transformPose,
+  type Layout,
+  type PieceTypeId,
+  type Pose,
+  type WorldConnector,
+} from "../track";
 
 interface PieceRecord {
   id: number;
@@ -188,7 +202,11 @@ export class Editor {
 
   private run(c: Command): void {
     c.do();
-    if (c.seats) c = this.takeUpPlay(c, c.seats());
+    if (c.seats) {
+      const seeds = c.seats();
+      c = this.takeUpPlay(c, seeds);
+      c = this.joinFacingHoles(c, seeds);
+    }
     this.undoStack.push(c);
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
     this.redoStack = [];
@@ -218,6 +236,53 @@ export class Editor {
       },
       undo: () => {
         this.layout.nudgePieces(before);
+        c.undo();
+      },
+      moves: c.moves,
+    };
+  }
+
+  /**
+   * Two track ends whose holes meet can't join (each wants a peg): put a dog-bone joiner between any such pair at
+   * the pieces just put down. The joiners join the command (undo takes them up with it).
+   */
+  private joinFacingHoles(c: Command, seeds: number[]): Command {
+    const placed: { id: number; pose: Pose; y: number }[] = [];
+    const a: WorldConnector = { x: 0, z: 0, heading: 0, y: 0, kind: "socket" };
+    const b: WorldConnector = { x: 0, z: 0, heading: 0, y: 0, kind: "socket" };
+    const near: number[] = [];
+    for (const id of seeds) {
+      const p = this.layout.getPiece(id);
+      if (!p) continue;
+      const count = getPieceDef(p.type, p.flipped).connectors.length;
+      for (let i = 0; i < count; i++) {
+        const ref = connectorRef(id, i);
+        if (this.layout.joinedConnector(ref) !== -1) continue;
+        this.layout.worldConnector(ref, a);
+        if (a.kind !== "socket") continue;
+        const n = this.layout.queryFreeConnectors(a.x, a.z, JOINT_POS_TOLERANCE, near);
+        for (let k = 0; k < n; k++) {
+          const other = near[k];
+          if (pieceOfRef(other) === id || this.layout.joinedConnector(other) !== -1) continue;
+          this.layout.worldConnector(other, b);
+          const facing = Math.abs(normalizeAngle(b.heading - a.heading - Math.PI)) < JOINT_ANGLE_TOLERANCE;
+          if (b.kind !== "socket" || !facing || Math.abs(b.y - a.y) > 2 || Math.hypot(b.x - a.x, b.z - a.z) > JOINT_POS_TOLERANCE) continue;
+          // Its first peg goes in this hole, pointing back into this piece; the second into the other's.
+          const pose = { x: (a.x + b.x) / 2 - Math.cos(a.heading) * 0.5, z: (a.z + b.z) / 2 - Math.sin(a.heading) * 0.5, heading: a.heading };
+          const joiner = this.layout.addPiece("joiner", pose, a.y);
+          placed.push({ id: joiner, pose, y: a.y });
+          break;
+        }
+      }
+    }
+    if (placed.length === 0) return c;
+    return {
+      do: () => {
+        c.do();
+        for (const j of placed) this.layout.restorePiece(j.id, "joiner", j.pose, j.y, false);
+      },
+      undo: () => {
+        for (const j of placed) this.layout.removePiece(j.id);
         c.undo();
       },
       moves: c.moves,

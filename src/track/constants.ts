@@ -18,6 +18,8 @@ export const RAMP_LENGTH = 216;
 export const BRIDGE_LENGTH = 216;
 export const BUFFER_LENGTH = 54;
 export const ADAPTER_LENGTH = 54;
+/** A dog-bone joiner's two pegs stand this far apart: the two track ends it joins butt together. */
+export const JOINER_LENGTH = 1;
 
 // Arches under bridges (and raised ramps): two round openings, centred at these fractions of the length, with radius
 // this fraction of the length, their crowns this far below the deck.

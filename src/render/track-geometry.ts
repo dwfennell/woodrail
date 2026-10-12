@@ -414,6 +414,7 @@ function slotGroups(result: Brush): BufferGeometry {
 /** `levels`: for a bridge, how many riser heights its arches reach down below the deck. */
 export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
   if (def.paths.length === 0) return riserGeometry();
+  if (def.type === "joiner") return joinerGeometry(def);
 
   let result =
     def.paths.length === 1
@@ -461,6 +462,19 @@ export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
   }
 
   const out = slotGroups(result);
+  out.computeBoundingBox();
+  out.computeBoundingSphere();
+  return out;
+}
+
+/** A dog-bone joiner: just its two pegs, back to back (each reaching into a track end's hole). */
+function joinerGeometry(def: PieceDef): BufferGeometry {
+  const pegs = def.connectors.map((c) => {
+    const g = extrudeUp(keyholeShape(-2, PEG_NECK_LENGTH + 2, PEG_NECK_WIDTH / 2, PEG_HEAD_RADIUS, 1), PEG_HEIGHT, 0.6);
+    g.applyMatrix4(connectorBasis(c.pose.x, c.y, c.pose.z, c.pose.heading));
+    return onlyCsgAttributes(g);
+  });
+  const out = slotGroups(evaluator.evaluate(brush(pegs[0]), brush(pegs[1]), ADDITION));
   out.computeBoundingBox();
   out.computeBoundingSphere();
   return out;

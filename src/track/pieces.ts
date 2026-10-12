@@ -1,5 +1,6 @@
 import {
   ADAPTER_LENGTH,
+  JOINER_LENGTH,
   BRIDGE_LENGTH,
   BUFFER_LENGTH,
   CROSSING_SIZE,
@@ -55,6 +56,7 @@ export type PieceTypeId =
   | "buffer-turnback"
   | "adapter-peg"
   | "adapter-socket"
+  | "joiner"
   | "station"
   | "depot-forest"
   | "depot-sawmill";
@@ -280,6 +282,8 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   },
   "adapter-peg": straight("adapter-peg", ADAPTER_LENGTH, "peg", "peg"),
   "adapter-socket": straight("adapter-socket", ADAPTER_LENGTH, "socket", "socket"),
+  // A dog-bone: two pegs back to back, joining two track ends whose holes meet (no track of its own).
+  joiner: straight("joiner", JOINER_LENGTH, "peg", "peg"),
   // Placed by the landscape generator in each town; the platform and building are render-only dressing.
   station: straight("station", 216),
   // Goods depots, placed by the landscape generator like stations; their buildings are render-only dressing.
