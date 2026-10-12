@@ -241,3 +241,32 @@ Measured (headless Chromium with software GL, so these count draws, triangles an
 The extra triangles come from the land around being real terrain. They could come down with per-plot culling of
 the land around, at the cost of more draws when zoomed out. Adding a plot misses the 100 ms target on this
 software renderer; most of what's left is merging the land around again and building the new plot's blocks.
+
+## 12. Rendering cost that doesn't grow with the world
+
+Goal (user, 2026-10-12): rendering costs the same on any size of map. Only the simulation may grow with it.
+
+- **Tiles:** scenery is drawn in tiles of 2 × 2 plots (`render/dressing/tiles.ts`). Each tile has flat cull boxes,
+  one per plot-sized patch of what it holds, because three's bounding spheres for flat, wide tiles are nearly always
+  in view. `cullTiles` runs only on frames that are drawn.
+- **Reach:** nothing is drawn beyond 1.6× the camera's distance (at least 5 m), and everything, the land too, fades
+  into the haze before then (the reach is carried in `fogColor.b`). The camera's farthest zoom is fixed at 14 m, so
+  only so much of the world can ever be in view.
+- **Near and far versions:** each tile has a near version (rounded blocks, detailed trees per plot, full towns and
+  signs, extruded felt) and a far version (plain blocks, one-draw cone trees, box towns, flat felt). Trees switch at
+  1.6 m, everything else at 2.6 m. Hill cores show only close up, and cranes' moving parts within 8 m.
+- **Felt:** each tile is traced over a margin of 8 squares, smoothed, then clipped to the tile, so tiles meet exactly
+  and a river that runs across the whole world costs no more than a pond.
+
+Measured (software GL, one pass of the scene, after merging main's extra scenery):
+
+| | 4 plots | 61 plots |
+|---|---|---|
+| 1.2 m | 117 draws, 575k tris | 93 draws, 547k tris |
+| 2.6 m | 171 draws, 591k tris | 137 draws, 645k tris |
+| 6 m | 188 draws, 923k tris | 106 draws, 390k tris |
+| 14 m (max) | 165 draws, 928k tris | 336 draws, 1.50M tris |
+
+Before this, 64 plots at 14 m drew 1088 draws and 2.27M triangles, and that kept growing with the world. Not yet
+bounded: the track and trains (they grow with what the player builds), adding a plot (150–350 ms; it rebuilds the
+tile's towns and the trees' tile index), and memory, since every owned plot stays in GPU memory.
