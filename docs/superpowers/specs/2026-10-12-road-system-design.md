@@ -68,12 +68,17 @@ scaled to the square, and it leaves a verge on each side. A curve's felt runs fr
   edge where a town street square meets open grass counts as a road end, so a piece placed there joins the town.
 - **No generated roads between towns (chosen).** The generator stops laying country lanes (`joinLanes`, and the
   lane stubs that cross plot edges). Rivers, towns and trees must come out exactly as before, so dropping the lanes
-  must not change any other random stream. Hills change only where a lane used to flatten them. A test on 200 seeds
-  compares rivers, towns and trees before and after.
-- **Places to snap into towns.** Each town gets one or two *town gates*: a single road piece on the grass just
-  outside the town, leading out of its streets. The first gate is where the old lane left, on the platform side. A
-  gate is an ordinary piece, so the player can see where to start a road, and can remove or extend it. Any other edge
-  where a town street meets open grass also accepts a road.
+  must not change any other random stream: the generator still draws the numbers the lanes used. Hills change only
+  where a lane used to flatten them. On 200 seeds, rivers, towns, buildings and depots come out the same on 199. On
+  the last one (seed 156), the first attempt no longer passes the check that every town can reach every other, so
+  the generator retries and makes a different map.
+- **Places to snap into towns.** Each town gets one or two *town gates*: a straight road piece on the grass just
+  outside the town, leading out of one of its streets. One goes on the platform side and one on the far side, each as
+  nearly straight out from the centre as there's room for. If neither side has room, one goes out of a side instead.
+  A gate square one block up is brought down to the felt, as long as that leaves no step of two beside it. Gates
+  never go on a station's approach or beside its track. A gate is an ordinary piece, so the player can see where to
+  start a road, and can remove or extend it. Any other edge where a town street meets open grass also accepts a road.
+  Measured on 200 seeds: 98.7% of towns get a gate, 1.7 per town on average.
 - **Old saves.** Lanes already in a save are kept. On load, a lane square without a piece gets the piece that fits
   its lane neighbours.
 

@@ -1,6 +1,6 @@
 import { rng } from "../lib/rng";
 import type { Pose } from "../track";
-import { fitLaneRoads } from "../roads/lanes";
+import { encodeRoad } from "../roads/pieces";
 import { BORDER_BAND, hashInts, regionStubs, STUB_DEPTH, type Region, type Stub } from "./edges";
 import {
   CELL,
@@ -112,7 +112,7 @@ const CORRIDOR_HALF_WIDTH = 2 * CELL;
 /** On the starter map, from a first town's centre to its depot's (the sawmill beyond one, the forest beyond the other). */
 const STARTER_DEPOT_GAP = 1080;
 
-/** Chance that a town has a country lane. */
+/** Chance that a town had a country lane (see `skipLaneDraws`). */
 const LANE_CHANCE = 0.8;
 const NAMES = [
   "Applebury", "Millbrook", "Oakhollow", "Pinecrest", "Thimble Cross", "Larkfield", "Brambleton", "Copperdale",
@@ -283,21 +283,17 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
   const locked = (i: number) =>
     protectedCells.has(i) || grid.surface[i] === SURF_TOWN || grid.feature[i] === FEAT_STATION || grid.feature[i] === FEAT_DEPOT;
 
-  // Rivers and lanes: crossing the region's edges where the edge contracts say, joined up inside.
+  // Rivers: crossing the region's edges where the edge contracts say, joined up inside. (The contracts still name
+  // where country lanes used to cross; there are no generated roads between towns now, only town gates.)
   const stubs = regionStubs(seed, region);
-  for (const stub of stubs.inside) {
-    for (const [col, row] of stub.cells) {
-      const i = grid.index(col, row);
-      grid.surface[i] = stub.kind === "river" ? SURF_RIVER : SURF_LANE;
-    }
-  }
   const rivers = stubs.inside.filter((s) => s.kind === "river");
+  for (const stub of rivers) for (const [col, row] of stub.cells) grid.surface[grid.index(col, row)] = SURF_RIVER;
   joinRivers(grid, rivers, region, random, local, interior, locked);
-  joinLanes(grid, stubs.inside.filter((s) => s.kind === "lane"), towns, random, region, interior, seed);
+  skipLaneDraws(grid, stubs.inside.filter((s) => s.kind === "lane"), towns, random, interior);
 
-  // Hills: the noise's heights, flattened down to the felt by towns, depots, rivers and lanes (here and across the
-  // region's edges) so no square is more than one block above a neighbour.
-  settleHeights(grid, seed, region, stubs.outside, locked);
+  // Hills: the noise's heights, flattened down to the felt by towns, depots and rivers (here and across the region's
+  // edges) so no square is more than one block above a neighbour.
+  settleHeights(grid, seed, region, stubs.outside.filter((s) => s.kind === "river"), locked);
 
   // Buildings in each town; leftover town squares become road felt.
   let buildingId = 0;
@@ -329,14 +325,14 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
     for (const i of town.cells) if (grid.feature[i] === FEAT_NONE) grid.surface[i] = SURF_ROAD;
   }
 
+  // A road piece or two leading out of each town, for the player's roads to start from.
+  for (const town of towns) addTownGates(grid, town, protectedCells, interior);
+
   // Trees in clumps on open grass (where the noise says, the same either side of a plot's edge).
   grid.forEachCell((i, col, row) => {
     if (locked(i) || grid.surface[i] !== SURF_GRASS || grid.feature[i] !== FEAT_NONE) return;
     if (treeHere(seed, col, row)) grid.feature[i] = FEAT_TREE;
   });
-
-  // Lanes as road pieces.
-  fitLaneRoads(grid);
 
   return { seed, starter, grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null, depots, nextBuildingId: buildingId };
 }
@@ -701,68 +697,88 @@ function joinRivers(
   }
 }
 
+/** Squares straight out from a town's centre, toward its platform side (`sign` 1) or away from it (−1). */
+function townAxis(town: Town, sign: 1 | -1): { dc: number; dr: number } {
+  const dx = Math.cos(town.station.heading);
+  const dz = Math.sin(town.station.heading);
+  return { dc: sign * Math.round(-dz), dr: sign * Math.round(dx) };
+}
+
 /**
- * Country lanes: from towns (most of them) and the lanes crossing the region's edges, joined up into a network over
- * open grass (never across a river or through a town). Each joins the nearest lane already laid; the first stands
- * alone. Cheapest routes: every square costs 1, a turn 4, and climbing (the lane flattens hills it crosses) 2 a block.
+ * Country lanes used to be laid here, drawing from the region's random stream: a number per town, and one more when
+ * any lane was laid. Draw the same numbers so the buildings that follow come out as they did. `laneStubs` are where
+ * lanes crossed the region's edges (their squares counted as lane, not grass).
  */
-function joinLanes(
-  grid: LandscapeGrid,
-  stubs: readonly Stub[],
-  towns: readonly Town[],
-  random: () => number,
-  region: Region,
-  interior: (col: number, row: number) => boolean,
-  seed: number,
-): void {
-  const ends: { start: number; own: number[] }[] = [];
+function skipLaneDraws(grid: LandscapeGrid, laneStubs: readonly Stub[], towns: readonly Town[], random: () => number, interior: (col: number, row: number) => boolean): void {
+  const stubCells = new Set(laneStubs.flatMap((s) => s.cells.map(([c, r]) => grid.index(c, r))));
+  let ends = laneStubs.length;
   for (const town of towns) {
     if (random() >= LANE_CHANCE) continue;
-    // Leave the town straight out from its centre, on its platform side.
-    const dx = Math.cos(town.station.heading);
-    const dz = Math.sin(town.station.heading);
-    const dc = Math.round(-dz);
-    const dr = Math.round(dx);
+    const { dc, dr } = townAxis(town, 1);
     let col = Math.floor(town.centre.x / CELL);
     let row = Math.floor(town.centre.z / CELL);
-    // (Through the town only: never on over a river beside it.)
     for (let k = 0; k < 12 && grid.inBounds(col, row) && grid.surface[grid.index(col, row)] === SURF_TOWN; k++) {
       col += dc;
       row += dr;
     }
     const i = grid.index(col, row);
-    if (i === -1 || !interior(col, row) || grid.feature[i] !== FEAT_NONE || grid.surface[i] !== SURF_GRASS) continue;
-    ends.push({ start: i, own: [i] });
+    if (i !== -1 && interior(col, row) && grid.feature[i] === FEAT_NONE && grid.surface[i] === SURF_GRASS && !stubCells.has(i)) ends++;
   }
-  for (const s of stubs) ends.push({ start: innerEnd(grid, s), own: s.cells.map(([c, r]) => grid.index(c, r)) });
-  if (ends.length === 0) return;
-  const lane = new Set<number>();
-  const treeCost = 2.5 + random();
-  // Each square's cost, worked out once (the lane network grows, but the ground doesn't change).
-  const base = new Float32Array(grid.cellCount);
-  grid.forEachCell((i, col, row) => {
-    base[i] =
-      !interior(col, row) || grid.surface[i] !== SURF_GRASS || grid.feature[i] !== FEAT_NONE
-        ? Infinity
-        : 1 + 2 * rawHeight(seed, col, row) + (treeHere(seed, col, row) ? treeCost : 0) + edgeCost(region, col, row);
-  });
-  const cost = (i: number, turned: boolean) => {
-    if (lane.has(i)) return 1;
-    return base[i] + (turned ? 4 : 0);
-  };
-  // A lone town has nowhere to go: lanes only from towns when something else has one.
-  if (ends.length === 1 && stubs.length === 0) return;
-  for (const end of ends) {
-    if (lane.size > 0) {
-      const own = new Set(end.own);
-      const path = cheapestPath(grid, [end.start], (i) => lane.has(i) && !own.has(i), cost);
-      if (path) for (const i of path) lane.add(i);
+  if (ends > 0) random();
+}
+
+/**
+ * Town gates: a straight road piece on open grass just outside a town (brought down to the felt from one block up), leading out of one of its streets, for
+ * the player's roads to start from. One on the platform side and one on the far side, each as nearly straight out
+ * from the town's centre as there's room for; with no room at either, one out of a side. Never on a station's
+ * approach or beside its track.
+ */
+function addTownGates(grid: LandscapeGrid, town: Town, protectedCells: ReadonlySet<number>, interior: (col: number, row: number) => boolean): void {
+  const nb = grid.neighbours();
+  const cx = town.centre.x / CELL - 0.5;
+  const cz = town.centre.z / CELL - 0.5;
+  const open = (j: number) => {
+    if (j === -1 || grid.surface[j] !== SURF_GRASS || grid.feature[j] !== FEAT_NONE || grid.height[j] > 1 || protectedCells.has(j)) return false;
+    if (!interior(grid.colOf(j), grid.rowOf(j))) return false;
+    for (let e = 0; e < 4; e++) {
+      const k = nb[j * 4 + e];
+      if (k !== -1 && grid.feature[k] === FEAT_STATION) return false;
+      // A hill square one block up can come down to the felt for a gate, if that leaves no step of two beside it.
+      if (k !== -1 && grid.height[k] > 1) return false;
     }
-    for (const i of end.own) lane.add(i);
+    return true;
+  };
+  // Neighbour order is +col, +row, −col, −row; road edges are the same.
+  const steps = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  /** The best gate square leading out of the town along (dc, dr), and its edge, or null. */
+  const bestOut = (dc: number, dr: number): { j: number; edge: number; score: number } | null => {
+    let best: { j: number; edge: number; score: number } | null = null;
+    for (const i of town.cells) {
+      if (grid.surface[i] !== SURF_ROAD || grid.feature[i] !== FEAT_NONE) continue;
+      for (let e = 0; e < 4; e++) {
+        if (steps[e][0] !== dc || steps[e][1] !== dr) continue;
+        const j = nb[i * 4 + e];
+        if (!open(j)) continue;
+        // Furthest out along the way out, then nearest to the line through the centre.
+        const along = (grid.colOf(j) - cx) * dc + (grid.rowOf(j) - cz) * dr;
+        const aside = Math.abs((grid.colOf(j) - cx) * dr - (grid.rowOf(j) - cz) * dc);
+        const score = along - 2 * aside;
+        if (!best || score > best.score) best = { j, edge: e, score };
+      }
+    }
+    return best;
+  };
+  const front = townAxis(town, 1);
+  const ways = [front, { dc: -front.dc, dr: -front.dr }];
+  let gates = ways.map((w) => bestOut(w.dc, w.dr)).filter((g) => g !== null);
+  // No room front or back: one gate out of a side instead.
+  if (gates.length === 0) {
+    const sides = [bestOut(front.dr, -front.dc), bestOut(-front.dr, front.dc)].filter((g) => g !== null);
+    gates = sides.sort((a, b) => b.score - a.score).slice(0, 1);
   }
-  for (const i of lane) {
-    grid.surface[i] = SURF_LANE;
-    grid.feature[i] = FEAT_NONE;
+  for (const gate of gates) {
+    grid.height[gate.j] = 0;
+    grid.setRoad(gate.j, encodeRoad("straight", gate.edge & 1));
   }
 }
 
