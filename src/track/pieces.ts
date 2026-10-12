@@ -9,6 +9,7 @@ import {
   RISER_HEIGHT,
   SMALL_CURVE_RADIUS,
   SWITCH_LENGTH,
+  WIDE_CURVE_RADIUS,
 } from "./constants";
 import { normalizeAngle, type Pose } from "./math";
 import type { PathGeom } from "./path";
@@ -34,12 +35,18 @@ export type PieceTypeId =
   | "straight-108"
   | "straight-144"
   | "straight-216"
+  | "straight-36"
+  | "straight-288"
   | "curve-large"
   | "curve-small"
+  | "curve-wide"
   | "s-curve"
   | "s-curve-short"
   | "switch"
+  | "switch-y"
+  | "switch-3way"
   | "crossing"
+  | "crossing-45"
   | "ramp"
   | "riser"
   | "bridge"
@@ -130,6 +137,14 @@ function sCurve(type: PieceTypeId, length: number, offset: number): PieceDef {
 }
 
 const half = CROSSING_SIZE / 2;
+const diag = half * Math.SQRT1_2;
+
+const arcPath = (to: number, sweep: number): PathDef => ({
+  from: 0,
+  to,
+  geom: { kind: "arc", start: pose(0, 0, 0), radius: LARGE_CURVE_RADIUS, sweep, y0: 0, rise: 0 },
+});
+const linePath = (to: number, length: number): PathDef => ({ from: 0, to, geom: { kind: "line", start: pose(0, 0, 0), length, y0: 0, rise: 0 } });
 
 const CATALOG: Record<PieceTypeId, PieceDef> = {
   "straight-54": straight("straight-54", 54),
@@ -138,6 +153,10 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   "straight-216": straight("straight-216", 216),
   "curve-large": curve("curve-large", LARGE_CURVE_RADIUS),
   "curve-small": curve("curve-small", SMALL_CURVE_RADIUS),
+  "curve-wide": curve("curve-wide", WIDE_CURVE_RADIUS),
+  // A tiny straight for closing small gaps, and an extra-long one for big runs.
+  "straight-36": straight("straight-36", 36),
+  "straight-288": straight("straight-288", 288),
   // S-curves shift the line sideways by a square, or half a square, ending the way they started.
   "s-curve": sCurve("s-curve", 216, 72),
   "s-curve-short": sCurve("s-curve-short", 144, 36),
@@ -158,6 +177,50 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     ],
     flippable: true,
     isSwitch: true,
+    supportHeight: 0,
+  },
+  // A Y: the trunk splits into a curve each way (the lever picks which).
+  "switch-y": {
+    type: "switch-y",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS, -CURVE_SWEEP), y: 0 },
+      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS, CURVE_SWEEP), y: 0 },
+    ],
+    paths: [arcPath(1, -CURVE_SWEEP), arcPath(2, CURVE_SWEEP)],
+    flippable: false,
+    isSwitch: true,
+    supportHeight: 0,
+  },
+  // Three ways: straight on, or a curve either side (the lever steps through them).
+  "switch-3way": {
+    type: "switch-3way",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(SWITCH_LENGTH, 0, 0), y: 0 },
+      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS, CURVE_SWEEP), y: 0 },
+      { kind: "peg", pose: arcEnd(LARGE_CURVE_RADIUS, -CURVE_SWEEP), y: 0 },
+    ],
+    paths: [linePath(1, SWITCH_LENGTH), arcPath(2, CURVE_SWEEP), arcPath(3, -CURVE_SWEEP)],
+    flippable: false,
+    isSwitch: true,
+    supportHeight: 0,
+  },
+  // Two straights crossing at 45°, for lines meeting on the diagonal.
+  "crossing-45": {
+    type: "crossing-45",
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(CROSSING_SIZE, 0, 0), y: 0 },
+      { kind: "socket", pose: pose(half - diag, -diag, Math.PI + Math.PI / 4), y: 0 },
+      { kind: "peg", pose: pose(half + diag, diag, Math.PI / 4), y: 0 },
+    ],
+    paths: [
+      { from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length: CROSSING_SIZE, y0: 0, rise: 0 } },
+      { from: 2, to: 3, geom: { kind: "line", start: pose(half - diag, -diag, Math.PI / 4), length: CROSSING_SIZE, y0: 0, rise: 0 } },
+    ],
+    flippable: true,
+    isSwitch: false,
     supportHeight: 0,
   },
   crossing: {

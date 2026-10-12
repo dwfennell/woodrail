@@ -299,8 +299,11 @@ export class Sim {
     return -1;
   }
 
+  /** Step a switch to its next route (two-way switches flip; a three-way steps round its three). */
   toggleSwitch(pieceId: number): void {
-    this.layout.setSwitchState(pieceId, this.layout.switchState(pieceId) === 0 ? 1 : 0);
+    const piece = this.layout.getPiece(pieceId);
+    const routes = piece ? getPieceDef(piece.type, piece.flipped).paths.filter((p) => p.from === 0).length : 2;
+    this.layout.setSwitchState(pieceId, (this.layout.switchState(pieceId) + 1) % Math.max(2, routes));
   }
 
   tick(): void {

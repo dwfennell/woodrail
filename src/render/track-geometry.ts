@@ -97,10 +97,10 @@ interface Frame {
 }
 
 /** Samples along a path, optionally extended straight past either end. */
-function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number): Frame[] {
+function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number, lineStep = 0): Frame[] {
   const len = pathLength(geom);
   const curved = geom.kind !== "line" || geom.rise !== 0;
-  const steps = curved ? Math.max(8, Math.ceil(len / 3)) : 1;
+  const steps = curved ? Math.max(8, Math.ceil(len / 3)) : lineStep > 0 ? Math.ceil(len / lineStep) : 1;
   const out: Frame[] = [];
   const p = createSample();
   const push = (s: number) => {
@@ -427,10 +427,13 @@ export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
     result = evaluator.evaluate(result, support, ADDITION);
   }
 
+  // On a piece with several paths, straight grooves are cut in short steps like curved ones: one long sliver cut
+  // across a curve's fine faces shatters the mesh (slow, and tens of thousands of triangles on a switch).
+  const step = def.paths.length > 1 ? 6 : 0;
   for (const p of def.paths) {
     for (const c of [-GROOVE_SPACING / 2, GROOVE_SPACING / 2]) {
       const extra = p.to === null ? BUFFER_EXTRA - 20 : 2;
-      result = evaluator.evaluate(result, brush(sweep(grooveProfile(c), framesAlong(p.geom, 2, extra)), CUT), SUBTRACTION);
+      result = evaluator.evaluate(result, brush(sweep(grooveProfile(c), framesAlong(p.geom, 2, extra, step)), CUT), SUBTRACTION);
     }
   }
 

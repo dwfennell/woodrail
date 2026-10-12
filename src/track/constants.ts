@@ -8,6 +8,7 @@ export const PEG_HEAD_DIAMETER = 12;
 export const STRAIGHT_LENGTHS = [54, 108, 144, 216] as const;
 export const LARGE_CURVE_RADIUS = 180; // 10 × 18 mm: a quarter turn lands on the track lattice (and the 72 mm grid)
 export const SMALL_CURVE_RADIUS = 90;
+export const WIDE_CURVE_RADIUS = 270; // 15 × 18 mm: a gentle sweep for wide loops
 export const CURVE_SWEEP = Math.PI / 4; // eight curves make a circle
 
 export const SWITCH_LENGTH = 144;

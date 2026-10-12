@@ -32,9 +32,38 @@ export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0): 
   const key = `${type}:${def === getPieceDef(type, false) ? "n" : "f"}:${levels}`;
   let g = geometryCache.get(key);
   if (!g) {
-    g = buildPieceGeometry(def, levels);
+    // A mirrored piece is its plain shape reflected across its centre line: no need to carve it again.
+    g = def === getPieceDef(type, false) ? buildPieceGeometry(def, levels) : mirrored(pieceGeometry(type, false, levels));
     geometryCache.set(key, g);
   }
+  return g;
+}
+
+/** A copy of a piece's geometry reflected in z (across its centre line), its faces turned to keep facing out. */
+function mirrored(source: BufferGeometry): BufferGeometry {
+  const g = source.clone();
+  g.applyMatrix4(new Matrix4().makeScale(1, 1, -1));
+  // Reflection reverses each triangle's winding: swap two corners back.
+  if (g.index) {
+    const idx = g.index.array;
+    for (let i = 0; i < idx.length; i += 3) [idx[i + 1], idx[i + 2]] = [idx[i + 2], idx[i + 1]];
+    g.index.needsUpdate = true;
+  } else {
+    for (const attr of Object.values(g.attributes)) {
+      const a = attr.array;
+      const n = attr.itemSize;
+      for (let i = 0; i < attr.count; i += 3) {
+        for (let k = 0; k < n; k++) {
+          const t = a[(i + 1) * n + k];
+          a[(i + 1) * n + k] = a[(i + 2) * n + k];
+          a[(i + 2) * n + k] = t;
+        }
+      }
+      attr.needsUpdate = true;
+    }
+  }
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
   return g;
 }
 
@@ -275,7 +304,10 @@ export class TrackView {
       const branchSide = Math.sign(def.connectors[2].pose.z) || 1;
       const local = new Object3D();
       local.position.set(30, TRACK_THICKNESS * 0 + 0, -branchSide * SWITCH_LEVER_OFFSET);
-      local.rotation.x = (this.layout.switchState(id) === 1 ? 1 : -1) * branchSide * 0.45;
+      // Two-way: leans toward the route set. Three-way: upright for straight on, leaning toward a curve.
+      const state = this.layout.switchState(id);
+      const lean = def.connectors.length === 4 ? (state === 0 ? 0 : state === 1 ? 1 : -1) * branchSide : (state === 1 ? 1 : -1) * branchSide;
+      local.rotation.x = lean * 0.45;
       local.updateMatrix();
       lever.matrixAutoUpdate = false;
       lever.matrix.copy(pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading)).multiply(local.matrix);
@@ -301,7 +333,7 @@ export class TrackView {
       post.position.set(6, 0, -branchSide * (SWITCH_LEVER_OFFSET + 4));
       // Arm geometry points along +z; turn it to reach away from the track, then raise it for the branch.
       post.rotation.y = branchSide > 0 ? Math.PI : 0;
-      signal.arm.rotation.x = this.layout.switchState(id) === 1 ? -SIGNAL_RAISED : 0;
+      signal.arm.rotation.x = this.layout.switchState(id) !== 0 ? -SIGNAL_RAISED : 0;
       signal.root.matrix.copy(pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading));
       signal.root.updateMatrixWorld(true);
     }

@@ -5,6 +5,7 @@ import { createSample, pathLength, samplePath } from "./path";
 import { getPieceDef } from "./pieces";
 import { createRouteStep, pathExitConnector, routeFrom } from "./routing";
 import { appendPiece } from "./snap";
+import { Sim } from "../sim";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
 
@@ -43,6 +44,30 @@ describe("routeFrom", () => {
     l.setSwitchState(s, 1);
     routeFrom(l, a, 1, out);
     expect(out).toEqual({ pieceId: s, pathIndex: 1, reversed: false });
+  });
+
+  it("a three-way switch steps through straight, left and right; a Y through its two curves", () => {
+    const sim = new Sim(new Layout());
+    const l = sim.layout;
+    const a = l.addPiece("straight-144", P(0, 0));
+    const s = appendPiece(l, "switch-3way", false, connectorRef(a, 1));
+    const out = createRouteStep();
+    const seen: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      routeFrom(l, a, 1, out);
+      seen.push(out.pathIndex);
+      sim.toggleSwitch(s);
+    }
+    expect(seen).toEqual([0, 1, 2, 0]);
+    const b = l.addPiece("straight-144", P(0, 400));
+    const y = appendPiece(l, "switch-y", false, connectorRef(b, 1));
+    const ys: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      routeFrom(l, b, 1, out);
+      ys.push(out.pathIndex);
+      sim.toggleSwitch(y);
+    }
+    expect(ys).toEqual([0, 1, 0]);
   });
 
   it("always merges when entering from a branch, regardless of switch state", () => {
