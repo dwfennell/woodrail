@@ -1,5 +1,6 @@
 import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type Layout, type PieceTypeId, type Pose } from "../track";
 import { FEAT_NONE, FEAT_TREE, SURF_GRASS, type LandscapeGrid } from "./grid";
+import { hillsOf } from "./hill-shape";
 
 /** Where a tree stands in plan, and the ground height there. */
 export interface TreeSpot {
@@ -100,7 +101,7 @@ export class TreeClearance {
 function standable(grid: LandscapeGrid, x: number, z: number, y: number): boolean {
   const i = grid.cellAtWorld(x, z);
   if (i === -1) return false;
-  return grid.surface[i] === SURF_GRASS && (grid.feature[i] === FEAT_NONE || grid.feature[i] === FEAT_TREE) && Math.abs(grid.groundY(i) - y) < 1;
+  return grid.surface[i] === SURF_GRASS && (grid.feature[i] === FEAT_NONE || grid.feature[i] === FEAT_TREE) && Math.abs(hillsOf(grid).groundAt(x, z) - y) < 1;
 }
 
 /** Track sample points bucketed by square-ish cells of this size (mm). */

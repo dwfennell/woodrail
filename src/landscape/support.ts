@@ -1,5 +1,6 @@
 import { canStandOnArches, createSample, getPieceDef, isBridge, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
+import { hillsOf } from "./hill-shape";
 
 /** How close to a riser's centre a track end must be to rest on it (a riser is 46 mm across). */
 export const RISER_REACH = 24;
@@ -44,8 +45,7 @@ function groundAlong(land: Landscape, type: PieceTypeId, flipped: boolean, pose:
     const n = Math.max(2, Math.ceil(len / 18));
     for (let k = 0; k <= n; k++) {
       samplePath(path.geom, (len * k) / n, bridgeSample);
-      const i = land.grid.cellAtWorld(pose.x + bridgeSample.x * ch - bridgeSample.z * sh, pose.z + bridgeSample.x * sh + bridgeSample.z * ch);
-      out = pick(out, i === -1 ? 0 : land.grid.groundY(i));
+      out = pick(out, hillsOf(land.grid).groundAt(pose.x + bridgeSample.x * ch - bridgeSample.z * sh, pose.z + bridgeSample.x * sh + bridgeSample.z * ch));
     }
   }
   return Number.isFinite(out) ? out : 0;
@@ -134,8 +134,7 @@ function restHeights(land: Landscape, near: readonly Holder[], x: number, z: num
   const g = land.grid;
   const out: number[] = [];
   for (const [dx, dz] of [[0, 0], [EDGE_REACH, 0], [-EDGE_REACH, 0], [0, EDGE_REACH], [0, -EDGE_REACH]]) {
-    const i = g.cellAtWorld(x + dx, z + dz);
-    if (i !== -1) out.push(g.groundY(i));
+    if (g.cellAtWorld(x + dx, z + dz) !== -1) out.push(hillsOf(g).groundAt(x + dx, z + dz));
   }
   for (const p of near) {
     if (p.type === "riser") {
@@ -155,8 +154,7 @@ export function looseHeight(land: Landscape, layout: Layout, type: PieceTypeId, 
   const near = gatherHolders(layout, pose.x, pose.z, ignoreId);
   if (getPieceDef(type, flipped).connectors.length === 0) {
     const stack = stackIn(near, pose.x, pose.z);
-    const i = land.grid.cellAtWorld(pose.x, pose.z);
-    return Math.max(stack?.top ?? 0, i === -1 ? 0 : land.grid.groundY(i));
+    return Math.max(stack?.top ?? 0, hillsOf(land.grid).groundAt(pose.x, pose.z));
   }
   // A bridge dropped loose stands one level above the highest ground under it.
   if (isBridge(type)) return groundOver(land, type, flipped, pose) + RISER_HEIGHT;
@@ -193,8 +191,7 @@ export function checkSupport(
     if (restHeights(land, near, f.x, f.z).some((h) => Math.abs(h - fy) <= TOL)) continue;
     // In the air: stack risers from the ground right under the foot, or on top of a riser stack there.
     const stack = stackIn(near, f.x, f.z);
-    const i = land.grid.cellAtWorld(f.x, f.z);
-    const ground = i === -1 ? 0 : land.grid.groundY(i);
+    const ground = hillsOf(land.grid).groundAt(f.x, f.z);
     const onStack = !!stack && stack.top > ground && stack.top < fy;
     const base = onStack ? stack.top : ground;
     const n = (fy - base) / RISER_HEIGHT;
