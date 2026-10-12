@@ -1,5 +1,5 @@
 import { rng } from "../lib/rng";
-import { CELL, FEAT_BUILDING, FEAT_NONE, SURF_ROAD, type Building, type Landscape, type Town } from "../landscape";
+import { CELL, FEAT_BUILDING, FEAT_NONE, SURF_TOWN, type Building, type Landscape, type Town } from "../landscape";
 import { footprintOf, townLooks, type Look } from "../render/dressing/buildings";
 import { COLOR_VARIANTS } from "../render/props/library";
 import type { PropStore } from "./store";
@@ -138,7 +138,7 @@ export function findBuilding(land: Landscape, id: number): { town: Town; buildin
 
 /**
  * A town building's prop is moved or removed by the player: the building leaves the map's records, and its squares
- * become town street (so the prop is an ordinary prop from now on). Returns a function that puts it all back (undo).
+ * become a town green (so the prop is an ordinary prop from now on). Returns a function that puts it all back (undo).
  */
 export function releaseBuilding(land: Landscape, id: number): () => void {
   const found = findBuilding(land, id);
@@ -151,7 +151,8 @@ export function releaseBuilding(land: Landscape, id: number): () => void {
   for (const i of building.cells) {
     g.feature[i] = FEAT_NONE;
     g.owner[i] = -1;
-    g.surface[i] = SURF_ROAD;
+    // A little town green (not street: the town's streets are the road plan's).
+    g.surface[i] = SURF_TOWN;
   }
   return () => {
     town.buildings.splice(index, 0, building);

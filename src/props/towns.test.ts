@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildStarterWorld, createWorld } from "../game/world";
-import { FEAT_BUILDING, FEAT_NONE, SURF_ROAD } from "../landscape";
+import { FEAT_BUILDING, FEAT_NONE, SURF_TOWN } from "../landscape";
 import { deserializeWorld, serializeWorld, type SaveData } from "../persist/save";
 import { addTownProps, buildingCells, findBuilding, releaseBuilding, townProps } from "./towns";
 
@@ -39,7 +39,7 @@ describe("towns built from catalogue models", () => {
     const back = releaseBuilding(w.landscape, b.id);
     for (const i of cells) {
       expect(w.landscape.grid.feature[i]).toBe(FEAT_NONE);
-      expect(w.landscape.grid.surface[i]).toBe(SURF_ROAD);
+      expect(w.landscape.grid.surface[i]).toBe(SURF_TOWN);
     }
     expect(findBuilding(w.landscape, b.id)).toBeNull();
     back();
