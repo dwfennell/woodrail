@@ -1,10 +1,14 @@
-import { ShaderChunk } from "three";
-import { MAT_DEPTH, MAT_WIDTH, outsideDistance } from "../landscape";
+import { Color, Fog, ShaderChunk } from "three";
+import { outsideDistance, type Rect } from "../landscape";
 
 /**
- * Atmospheric haze for a world with no edge: three's linear fog, but measured as distance outside the mat (plus a
- * touch of distance from the camera) instead of distance from the camera alone. The mat stays crisp at any zoom and
+ * Atmospheric haze for a world with no edge: three's linear fog, but measured as distance outside the land (plus a
+ * touch of distance from the camera) instead of distance from the camera alone. The land stays crisp at any zoom and
  * the scenery around it fades into the sky's horizon colour by the ring's outer edge.
+ *
+ * The land's rectangle reaches every material's shader through the fog's own uniforms (refreshed by three for every
+ * material that has fog): `fogNear` and `fogFar` carry its x extent, the red and green of `fogColor` its z extent.
+ * The haze's colour and distances are constants in the shader. See `hazeFog`.
  */
 
 export const HAZE_COLOR = "#e6d9c3";
@@ -32,10 +36,11 @@ export function cutawayAt(
   point: { x: number; y: number; z: number },
   camera: { x: number; z: number },
   targetPlanDistance: number,
+  land: Rect,
   facingUp = true,
 ): number {
   const ground = facingUp && point.y < CUTAWAY_MIN_HEIGHT;
-  if (outsideDistance(point.x, point.z) <= 1 || ground) return 0;
+  if (outsideDistance(point.x, point.z, land) <= 1 || ground) return 0;
   const h = Math.hypot(point.x - camera.x, point.z - camera.z);
   return 1 - smoothstep(CUTAWAY_FADE_START, CUTAWAY_FADE_END, h / Math.max(targetPlanDistance, 1));
 }
@@ -46,9 +51,25 @@ const smoothstep = (a: number, b: number, x: number) => {
 };
 
 /** The haze amount at plan (x, z) seen from `cameraDistance` mm away (the shader uses view depth, a close stand-in). */
-export function hazeAt(x: number, z: number, cameraDistance: number): number {
-  return smoothstep(HAZE_NEAR, HAZE_FAR, outsideDistance(x, z) + HAZE_VIEW * cameraDistance);
+export function hazeAt(x: number, z: number, cameraDistance: number, land: Rect): number {
+  return smoothstep(HAZE_NEAR, HAZE_FAR, outsideDistance(x, z, land) + HAZE_VIEW * cameraDistance);
 }
+
+/** The scene's fog, carrying the land's rectangle to the haze shader (see above). */
+export function hazeFog(land: Rect): Fog {
+  const fog = new Fog(HAZE_COLOR, 0, 1);
+  setHazeLand(fog, land);
+  return fog;
+}
+
+/** Move the haze to a new rectangle of land (after the land grows). */
+export function setHazeLand(fog: Fog, land: Rect): void {
+  fog.near = land.x0;
+  fog.far = land.x1;
+  fog.color.setRGB(land.z0, land.z1, 0);
+}
+
+const f = (v: number) => v.toFixed(4);
 
 /**
  * Replace three's fog chunks (once, before any material compiles). The vertex shader passes on plan position and view
@@ -70,8 +91,10 @@ export function installHaze(): void {
   uniform float fogFar;
   varying vec4 vHaze;
 #endif`;
+  const colour = new Color(HAZE_COLOR);
   ShaderChunk.fog_fragment = `#ifdef USE_FOG
-  vec2 hazeOut = max(abs(vHaze.xy) - vec2(${MAT_WIDTH / 2}.0, ${MAT_DEPTH / 2}.0), 0.0);
+  // The land: x from fogNear to fogFar, z from fogColor.r to fogColor.g.
+  vec2 hazeOut = max(max(vec2(fogNear, fogColor.r) - vHaze.xy, vHaze.xy - vec2(fogFar, fogColor.g)), 0.0);
   float hazeOutside = length(hazeOut);
   // Cutaway: scenery outside the mat, standing above the ground and between the camera and the point it looks at,
   // dithers away so it never walls off the view. (The camera always looks at its target, on the ground: find it
@@ -90,7 +113,7 @@ export function installHaze(): void {
       if (hazeCut > 0.0 && fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) < hazeCut) discard;
     }
   }
-  float fogFactor = smoothstep(fogNear, fogFar, hazeOutside + ${HAZE_VIEW.toFixed(3)} * vHaze.z);
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+  float fogFactor = smoothstep(${f(HAZE_NEAR)}, ${f(HAZE_FAR)}, hazeOutside + ${HAZE_VIEW.toFixed(3)} * vHaze.z);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(${f(colour.r)}, ${f(colour.g)}, ${f(colour.b)}), fogFactor);
 #endif`;
 }

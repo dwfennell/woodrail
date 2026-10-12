@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { Layout, RISER_HEIGHT } from "../track";
-import { LandscapeGrid } from "./grid";
+import { gridWithPlots } from "./grid";
 import type { Landscape } from "./generate";
 import { bridgeLevels, checkSupport, looseHeight, riserStackAt } from "./support";
 
 function flat(): Landscape {
-  return { seed: 0, starter: false, grid: new LandscapeGrid(), towns: [], corridors: [], fields: [], shed: null, depots: [] };
+  return { seed: 0, starter: false, grid: gridWithPlots(-1, -1, 2, 2), towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
 }
 /** Raise every square whose centre lies in x0..x1 × z0..z1 to `h` blocks. */
 function hill(land: Landscape, x0: number, x1: number, z0: number, z1: number, h = 1): void {

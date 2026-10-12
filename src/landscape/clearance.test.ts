@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { getPieceDef } from "../track";
 import { BLOCK_MESSAGES, checkPlacement, inRiver } from "./clearance";
-import { FEAT_BUILDING, FEAT_TREE, LandscapeGrid, MAT_WIDTH, SURF_RIVER, SURF_TOWN } from "./grid";
+import { FEAT_BUILDING, FEAT_TREE, gridWithPlots, PLOT_WIDTH, SURF_RIVER, SURF_TOWN } from "./grid";
 import { generateLandscape, stationEnds, type Landscape } from "./generate";
 
 function flat(): Landscape {
-  return { seed: 0, starter: false, grid: new LandscapeGrid(), towns: [], corridors: [], fields: [], shed: null, depots: [] };
+  return { seed: 0, starter: false, grid: gridWithPlots(-1, -1, 2, 2), towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
 }
 function setCells(land: Landscape, x0: number, x1: number, z0: number, z1: number, fn: (i: number) => void): void {
   const g = land.grid;
@@ -81,7 +81,7 @@ describe("checkPlacement", () => {
     const town = flat();
     setCells(town, 60, 80, -10, 10, (i) => (town.grid.surface[i] = SURF_TOWN));
     expect(checkPlacement(town, "straight-216", false, P(0, 0), 0)).toEqual({ kind: "blocked", reason: "town" });
-    expect(checkPlacement(flat(), "straight-216", false, P(MAT_WIDTH / 2 - 100, 0), 0)).toEqual({ kind: "blocked", reason: "off-mat" });
+    expect(checkPlacement(flat(), "straight-216", false, P(PLOT_WIDTH - 100, 0), 0)).toEqual({ kind: "blocked", reason: "off-mat" });
     expect(BLOCK_MESSAGES["off-mat"]).toBe("That's past the edge of the map");
   });
 

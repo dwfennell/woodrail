@@ -1,6 +1,6 @@
 import { BoxGeometry, Color, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, type BufferGeometry, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { CELL, COLS, CORNER_RADIUS, hillPieces, hillSlabs, hillsOf, ROWS, type LandscapeGrid, type RoundBlock, type Slab } from "../../landscape";
+import { CELL, CORNER_RADIUS, forEachInPlot, hillPieces, hillSlabs, hillsOf, type LandscapeGrid, type RoundBlock, type Slab } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
 import { BEECH_UV_SCALE, type Materials } from "../materials";
 import { roundedChamferedBox } from "./chamfer";
@@ -31,13 +31,16 @@ function hash(a: number, b: number, c: number, d: number): number {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-/** One block per cell per level, bottom-up. */
-export function blockInstances(grid: LandscapeGrid, seed: number): BlockInstance[] {
+/** One block per cell per level, bottom-up, in some plots (by slot; all of them by default). */
+export function blockInstances(grid: LandscapeGrid, seed: number, plots: readonly number[] = grid.plots.map((_, slot) => slot)): BlockInstance[] {
   const out: BlockInstance[] = [];
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col < COLS; col++) {
-      const h = grid.height[grid.index(col, row)];
-      const side = (dc: number, dr: number) => (grid.inBounds(col + dc, row + dr) ? grid.height[grid.index(col + dc, row + dr)] : 0);
+  for (const slot of plots) {
+    forEachInPlot(slot, grid.plots[slot], (i, col, row) => {
+      const h = grid.height[i];
+      const side = (dc: number, dr: number) => {
+        const j = grid.index(col + dc, row + dr);
+        return j === -1 ? 0 : grid.height[j];
+      };
       // A side face is covered at this level when the neighbour's stack is taller than the level.
       const covered = Math.min(side(1, 0), side(-1, 0), side(0, 1), side(0, -1));
       for (let level = 0; level < h; level++) {
@@ -51,7 +54,7 @@ export function blockInstances(grid: LandscapeGrid, seed: number): BlockInstance
           corners: hillsOf(grid).blockCorners(col, row, level),
         });
       }
-    }
+    });
   }
   return out;
 }
@@ -217,14 +220,22 @@ export const CORE_COLOUR = new Color("#3a2716");
 
 /**
  * Hills as individual rounded beech blocks, the top of each stack painted grass green, around a dark core. Without
- * `solids`, leaves out the core and the shadow (for `HillCutsView`, which shapes them round cuttings).
+ * `solids`, leaves out the core and the shadow (for `HillCutsView`, which shapes them round cuttings). `plots` limits
+ * them to some plots (by slot).
  */
-export function buildBlocks(grid: LandscapeGrid, seed: number, mats: Materials, index?: Map<string, BlockInstanceRef[]>, solids = true): Group {
-  const group = blockMeshes(blockInstances(grid, seed).filter((b) => b.exposed), CELL, RISER_HEIGHT, { wood: mats.blockWood, top: mats.blockTop }, true, true, index);
+export function buildBlocks(
+  grid: LandscapeGrid,
+  seed: number,
+  mats: Materials,
+  index?: Map<string, BlockInstanceRef[]>,
+  solids = true,
+  plots: readonly number[] = grid.plots.map((_, slot) => slot),
+): Group {
+  const group = blockMeshes(blockInstances(grid, seed, plots).filter((b) => b.exposed), CELL, RISER_HEIGHT, { wood: mats.blockWood, top: mats.blockTop }, true, true, index);
   if (!solids) return group;
-  const core = hillCore(hillSlabs(grid));
+  const core = hillCore(hillSlabs(grid, plots));
   if (core) group.add(core);
-  const pieces = hillPieces(grid);
+  const pieces = hillPieces(grid, undefined, plots);
   const proxy = shadowProxy(pieces.slabs, pieces.round);
   if (proxy) group.add(proxy);
   return group;

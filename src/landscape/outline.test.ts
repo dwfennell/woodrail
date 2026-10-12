@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateLandscape } from "./generate";
-import { COLS, ROWS, SURF_RIVER, SURF_ROAD } from "./grid";
+import { SURF_RIVER, SURF_ROAD } from "./grid";
 import { insideLoops, loopArea, smoothLoop, traceRegions, type Loop } from "./outline";
 
 const fromRows = (rows: string[]) => (c: number, r: number) => rows[r]?.[c] === "#";
@@ -51,10 +51,13 @@ describe("smoothLoop on generated maps", () => {
     for (let seed = 1; seed <= 50; seed++) {
       const { grid } = generateLandscape(seed);
       for (const surf of [SURF_RIVER, SURF_ROAD]) {
-        const mask = (c: number, r: number) => grid.inBounds(c, r) && grid.surface[grid.index(c, r)] === surf;
-        const loops: Loop[] = traceRegions(mask, COLS, ROWS).map((l) => smoothLoop(l));
-        for (let r = 0; r < ROWS; r++) {
-          for (let c = 0; c < COLS; c++) {
+        const e = grid.extent();
+        const cols = e.col1 - e.col0;
+        const rows = e.row1 - e.row0;
+        const mask = (c: number, r: number) => grid.inBounds(e.col0 + c, e.row0 + r) && grid.surface[grid.index(e.col0 + c, e.row0 + r)] === surf;
+        const loops: Loop[] = traceRegions(mask, cols, rows).map((l) => smoothLoop(l));
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
             const inside = insideLoops(loops, c + 0.5, r + 0.5);
             if (mask(c, r)) expect(inside, `seed ${seed} cell ${c},${r}`).toBe(true);
             else if (!near(mask, c, r)) expect(inside, `seed ${seed} cell ${c},${r}`).toBe(false);

@@ -3,7 +3,7 @@ import { Layout } from "../track";
 import { checkPlacement } from "./clearance";
 import { findCrossings } from "./crossings";
 import { generateLandscape } from "./generate";
-import { COLS, FEAT_NONE, ROWS, SURF_LANE } from "./grid";
+import { FEAT_NONE, SURF_LANE, SURF_ROAD, SURF_TOWN } from "./grid";
 
 const SEEDS = Array.from({ length: 200 }, (_, i) => i + 1);
 // Generating a map is the slow part: make each one once for the whole file.
@@ -17,12 +17,12 @@ const mapFor = (seed: number) => {
 function laneCells(seed: number): number[] {
   const g = mapFor(seed).grid;
   const out: number[] = [];
-  for (let i = 0; i < g.surface.length; i++) if (g.surface[i] === SURF_LANE) out.push(i);
+  for (let i = 0; i < g.cellCount; i++) if (g.surface[i] === SURF_LANE) out.push(i);
   return out;
 }
 
 describe("country lanes", () => {
-  it.each(SEEDS)("seed %i: lanes lie on flat open felt and reach the mat edge", (seed) => {
+  it.each(SEEDS)("seed %i: lanes lie on flat open felt and reach the land's edge or a town", (seed) => {
     const land = mapFor(seed);
     const g = land.grid;
     const lanes = new Set(laneCells(seed));
@@ -30,21 +30,20 @@ describe("country lanes", () => {
       expect(g.height[i]).toBe(0);
       expect(g.feature[i]).toBe(FEAT_NONE);
     }
-    // Every lane square connects (4-way, through lane squares) to a square on the mat's edge.
-    const edge = (i: number) => {
-      const c = i % COLS;
-      const r = (i - c) / COLS;
-      return c === 0 || r === 0 || c === COLS - 1 || r === ROWS - 1;
+    // Every lane square connects (4-way, through lane squares) to a square on the land's edge, or beside a town.
+    const around = (i: number) => {
+      const c = g.colOf(i);
+      const r = g.rowOf(i);
+      return [g.index(c - 1, r), g.index(c + 1, r), g.index(c, r - 1), g.index(c, r + 1)];
     };
+    const edge = (i: number) => around(i).some((j) => j === -1 || g.surface[j] === SURF_TOWN || g.surface[j] === SURF_ROAD);
     const seen = new Set<number>();
     for (const start of lanes) {
       if (seen.has(start)) continue;
       const group: number[] = [start];
       seen.add(start);
       for (let k = 0; k < group.length; k++) {
-        const i = group[k];
-        const c = i % COLS;
-        for (const j of [c > 0 ? i - 1 : -1, c + 1 < COLS ? i + 1 : -1, i - COLS, i + COLS]) {
+        for (const j of around(group[k])) {
           if (lanes.has(j) && !seen.has(j)) {
             seen.add(j);
             group.push(j);
@@ -66,14 +65,16 @@ describe("findCrossings", () => {
   const seed = SEEDS.find((s) => laneCells(s).length > 0)!;
   const land = mapFor(seed);
   const g = land.grid;
+  const e = g.extent();
   const cell = laneCells(seed).find((i) => {
-    const c = i % COLS;
-    const r = (i - c) / COLS;
-    return c > 3 && c < COLS - 4 && r > 3 && r < ROWS - 4;
+    const c = g.colOf(i);
+    const r = g.rowOf(i);
+    return c > e.col0 + 3 && c < e.col1 - 4 && r > e.row0 + 3 && r < e.row1 - 4;
   })!;
-  const col = cell % COLS;
-  const row = (cell - col) / COLS;
-  const alongX = g.surface[cell - 1] === SURF_LANE || g.surface[cell + 1] === SURF_LANE;
+  const col = g.colOf(cell);
+  const row = g.rowOf(cell);
+  const lane = (c: number, r: number) => g.surface[g.index(c, r)] === SURF_LANE;
+  const alongX = lane(col - 1, row) || lane(col + 1, row);
   // A long straight centred on the lane square, across the lane.
   const heading = alongX ? Math.PI / 2 : 0;
   const pose = { x: g.centreX(col) - Math.cos(heading) * 108, z: g.centreZ(row) - Math.sin(heading) * 108, heading };

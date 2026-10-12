@@ -1,7 +1,7 @@
 import { BoxGeometry, CylinderGeometry, ExtrudeGeometry, Shape, SphereGeometry, type BufferGeometry } from "three";
 import { rng } from "../../lib/rng";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { CELL, COLS, type Landscape, type Shed, type Town } from "../../landscape";
+import { CELL, type Landscape, type Shed, type Town } from "../../landscape";
 import { STATION_ROOF_TOP } from "../../landscape/sign";
 import { TRACK_WIDTH } from "../../track";
 import type { Materials } from "../materials";
@@ -163,8 +163,8 @@ export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batch
     let minZ = Infinity;
     let maxZ = -Infinity;
     for (const c of bld.cells) {
-      const col = c % COLS;
-      const row = (c - col) / COLS;
+      const col = grid.colOf(c);
+      const row = grid.rowOf(c);
       minX = Math.min(minX, grid.centreX(col) - CELL / 2);
       maxX = Math.max(maxX, grid.centreX(col) + CELL / 2);
       minZ = Math.min(minZ, grid.centreZ(row) - CELL / 2);

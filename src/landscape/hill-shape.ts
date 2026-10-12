@@ -1,5 +1,5 @@
 import { getPieceDef, pathLength, RISER_HEIGHT, TRACK_WIDTH, type PathGeom, type PieceTypeId, type Pose } from "../track";
-import { CELL, MAT_DEPTH, MAT_WIDTH, MAX_HEIGHT, SURF_RIVER, type LandscapeGrid } from "./grid";
+import { CELL, MAX_HEIGHT, SURF_RIVER, type LandscapeGrid } from "./grid";
 
 /** Half the width of a cutting's bed (mm): the track, and a little room each side. */
 export const CUT_BED_HALF = TRACK_WIDTH / 2 + 4;
@@ -132,14 +132,15 @@ export class HillShape {
     const found = new Map<string, { col: number; row: number; level: number; key: string }>();
     const g = this.grid;
     all.forEach((c) => {
-      const c0 = Math.max(0, Math.floor((c.x0 + MAT_WIDTH / 2) / CELL));
-      const c1 = Math.min(g.height.length, Math.floor((c.x1 + MAT_WIDTH / 2) / CELL));
-      const r0 = Math.max(0, Math.floor((c.z0 + MAT_DEPTH / 2) / CELL));
-      const r1 = Math.floor((c.z1 + MAT_DEPTH / 2) / CELL);
+      const c0 = Math.floor(c.x0 / CELL);
+      const c1 = Math.floor(c.x1 / CELL);
+      const r0 = Math.floor(c.z0 / CELL);
+      const r1 = Math.floor(c.z1 / CELL);
       for (let row = r0; row <= r1; row++) {
         for (let col = c0; col <= c1; col++) {
-          if (!g.inBounds(col, row)) continue;
-          const h = g.height[g.index(col, row)];
+          const i = g.index(col, row);
+          if (i === -1) continue;
+          const h = g.height[i];
           for (let level = 0; level < h; level++) {
             const corners = this.blockCorners(col, row, level);
             const top = (level + 1) * RISER_HEIGHT;
@@ -169,8 +170,8 @@ export class HillShape {
   blocksAt(x: number, z: number): number {
     const i = this.grid.cellAtWorld(x, z);
     if (i === -1) return 0;
-    const col = Math.floor((x + MAT_WIDTH / 2) / CELL);
-    const row = Math.floor((z + MAT_DEPTH / 2) / CELL);
+    const col = Math.floor(x / CELL);
+    const row = Math.floor(z / CELL);
     const ox = x - this.grid.centreX(col);
     const oz = z - this.grid.centreZ(row);
     for (let level = this.grid.height[i] - 1; level >= 0; level--) {
@@ -188,19 +189,27 @@ export class HillShape {
 
   /** Is there a block at this level (0 = on the felt) in this square? */
   hasBlock(col: number, row: number, level: number): boolean {
-    return this.grid.inBounds(col, row) && this.grid.height[this.grid.index(col, row)] > level;
+    const i = this.grid.index(col, row);
+    return i !== -1 && this.grid.height[i] > level;
   }
 
   /**
    * Which corners of the block at `level` in this square are rounded off (a mask of `CORNERS` bits): those where the
    * hill's edge turns outward — the squares beside the corner and the one across it have no block at this level —
-   * beside a river, so the hill follows the river's curve. Off the mat counts as solid, so the mat's own edge stays
-   * square. 0 if there's no block.
+   * beside a river, so the hill follows the river's curve. Off the land counts as solid, so the land's own edge stays
+   * square (and a block's corners can change only when its own plot or one beside it does). 0 if there's no block.
    */
   blockCorners(col: number, row: number, level: number): number {
     if (!this.hasBlock(col, row, level)) return 0;
-    const solid = (c: number, r: number) => !this.grid.inBounds(c, r) || this.hasBlock(c, r, level);
-    const river = (c: number, r: number) => this.grid.inBounds(c, r) && this.grid.surface[this.grid.index(c, r)] === SURF_RIVER;
+    const g = this.grid;
+    const solid = (c: number, r: number) => {
+      const i = g.index(c, r);
+      return i === -1 || g.height[i] > level;
+    };
+    const river = (c: number, r: number) => {
+      const i = g.index(c, r);
+      return i !== -1 && g.surface[i] === SURF_RIVER;
+    };
     let mask = 0;
     for (const { sx, sz, bit } of CORNERS) {
       const open = !solid(col + sx, row) && !solid(col, row + sz) && !solid(col + sx, row + sz);

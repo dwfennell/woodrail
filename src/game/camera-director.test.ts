@@ -31,7 +31,7 @@ describe("clampTarget", () => {
   it("keeps the look-at point over the mat, moving the camera with it", () => {
     const t = new Vector3(3000, 0, -2500);
     const p = new Vector3(3500, 800, -1500);
-    clampTarget(t, p, 2240, 1664);
+    clampTarget(t, p, { x0: -2240, z0: -1664, x1: 2240, z1: 1664 });
     expect(t.x).toBe(2240);
     expect(t.z).toBe(-1664);
     expect(p.x).toBe(2740);
@@ -42,7 +42,7 @@ describe("clampTarget", () => {
   it("leaves a target on the mat alone", () => {
     const t = new Vector3(100, 20, -50);
     const p = new Vector3(600, 900, 700);
-    clampTarget(t, p, 2240, 1664);
+    clampTarget(t, p, { x0: -2240, z0: -1664, x1: 2240, z1: 1664 });
     expect(t.toArray()).toEqual([100, 20, -50]);
     expect(p.toArray()).toEqual([600, 900, 700]);
   });
@@ -156,7 +156,7 @@ describe("CameraDirector over the scenery around the mat", () => {
     const controls = { target: new Vector3(), minDistance: 100, maxDistance: 14000, maxPolarAngle: 1.42, addEventListener: () => {} } as unknown as OrbitControls;
     camera.lookAt(controls.target);
     const d = new CameraDirector(camera, controls);
-    d.bounds = { halfW: 2240, halfD: 1664 };
+    d.bounds = { x0: -2240, z0: -1664, x1: 2240, z1: 1664 };
     return { camera, controls, d };
   };
 

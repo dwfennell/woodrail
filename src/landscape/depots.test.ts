@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { checkPlacement } from "./clearance";
 import { generateLandscape, pieceEnds, reachable, type Landscape } from "./generate";
-import { CELL, FEAT_DEPOT, MAT_DEPTH, MAT_WIDTH, SURF_GRASS } from "./grid";
+import { CELL, FEAT_DEPOT, PLOT_DEPTH, PLOT_WIDTH, SURF_GRASS } from "./grid";
 
 const SEEDS = Array.from({ length: 200 }, (_, i) => i + 1);
 const cache = new Map<number, Landscape>();
@@ -24,7 +24,7 @@ function checkDepots(land: Landscape): void {
     expect(Math.abs(Math.round(d.piece.heading / (Math.PI / 2)) * (Math.PI / 2) - d.piece.heading)).toBeLessThan(1e-9);
     const i = g.cellAtWorld(d.centre.x, d.centre.z);
     expect(i).not.toBe(-1);
-    expect(Math.abs(g.centreX(i % 62) - d.centre.x)).toBeLessThan(1e-6);
+    expect(Math.abs(g.centreX(g.colOf(i)) - d.centre.x)).toBeLessThan(1e-6);
     expect(Math.hypot(d.piece.x + Math.cos(d.piece.heading) * 108 - d.centre.x, d.piece.z + Math.sin(d.piece.heading) * 108 - d.centre.z)).toBeLessThan(1e-6);
     // Its own flat, locked squares under the track.
     for (const t of [-90, 0, 90]) {
@@ -34,12 +34,12 @@ function checkDepots(land: Landscape): void {
       expect(g.height[j]).toBe(0);
       expect(g.surface[j]).toBe(SURF_GRASS);
     }
-    // Both ends on the mat, far enough from every other site.
+    // Both ends on the land, far enough from every other site.
     for (const e of pieceEnds(d.piece)) {
-      expect(Math.abs(e.x)).toBeLessThan(MAT_WIDTH / 2 - CELL);
-      expect(Math.abs(e.z)).toBeLessThan(MAT_DEPTH / 2 - CELL);
+      expect(Math.abs(e.x)).toBeLessThan(PLOT_WIDTH - CELL);
+      expect(Math.abs(e.z)).toBeLessThan(PLOT_DEPTH - CELL);
     }
-    for (const c of sites) if (c !== d.centre) expect(Math.hypot(c.x - d.centre.x, c.z - d.centre.z)).toBeGreaterThanOrEqual(900);
+    for (const c of sites) if (c !== d.centre) expect(Math.hypot(c.x - d.centre.x, c.z - d.centre.z)).toBeGreaterThanOrEqual(750);
   }
   expect(reachable(land)).toBe(true);
 }

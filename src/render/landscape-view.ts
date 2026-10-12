@@ -1,5 +1,51 @@
-import { BoxGeometry, CanvasTexture, Color, CylinderGeometry, Group, Mesh, MeshStandardMaterial, SRGBColorSpace, type InstancedMesh, type MeshBasicMaterial } from "three";
-import { CELL, COLS, generateSurroundings, ROWS, SURF_LANE, SURF_RIVER, SURF_ROAD, heldCut, TreeClearance, type HeldPiece, type Landscape, type Town, type TreeSpot } from "../landscape";
+import {
+  BoxGeometry,
+  CanvasTexture,
+  Color,
+  CylinderGeometry,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  PlaneGeometry,
+  Sprite,
+  SpriteMaterial,
+  SRGBColorSpace,
+  type InstancedMesh,
+} from "three";
+import {
+  CELL,
+  FEAT_TREE,
+  forEachInPlot,
+  generateSurroundings,
+  hashInts,
+  heldCut,
+  hillsOf,
+  plotOfCol,
+  plotOfRow,
+  PLOT_CELLS,
+  PLOT_COLS,
+  PLOT_DEPTH,
+  PLOT_ROWS,
+  PLOT_WIDTH,
+  plotSlabs,
+  SURF_LANE,
+  SURF_RIVER,
+  SURF_ROAD,
+  TreeClearance,
+  extentOf,
+  type HeldPiece,
+  type Landscape,
+  type OuterBlock,
+  type OuterHouse,
+  type OuterTree,
+  type PlotCoord,
+  type Rect,
+  type Surroundings,
+  type Town,
+  type TreeSpot,
+} from "../landscape";
+import { RISER_HEIGHT } from "../track";
 import type { Layout } from "../track";
 import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF_TOP } from "../landscape/sign";
 import { Batcher } from "./dressing/batcher";
@@ -24,12 +70,40 @@ const TREE_HOP_SPREAD = 0.3;
 /** How brightly an unconnected name board lights itself (connected ones glow warm). */
 const SIGN_SELF_LIGHT = 0.3;
 
-/** Draws the felt mat and everything on it (block hills, rivers, roads, trees, towns, stations, name signs) and the scenery around it. */
+/** How far (mm) the land shown around the world reaches past its last plot, before the far scenery takes over. */
+const AROUND_MARGIN = 0;
+
+/** Land shown around the world: a plot not (yet) in it, and what it would bring. */
+export interface AroundPlot {
+  px: number;
+  pz: number;
+  land: Landscape;
+}
+
+/**
+ * Draws the land and everything on it (block hills, rivers, roads, trees, towns, stations, name signs), plot by plot,
+ * and the scenery around it: the land of the plots around (as it would be if bought), then toy countryside into the
+ * haze. When plots are added (`addPlots`), only they, and the plots beside them whose blocks change, are built; the
+ * felt, the trees and the scenery around (cheap, and laid across plots) are built again.
+ */
 const POST_RADIUS = 2.4;
 const RAIL_H = 3;
 
 export class LandscapeView {
   readonly group = new Group();
+  /** Per plot (by slot): its blocks, buildings and the like. */
+  private readonly plotGroups = new Map<number, Group>();
+  /** Per plot: the corners of the blocks round its edge, which change when a plot beside it is added. */
+  private readonly edgeCorners = new Map<number, string>();
+  /** The felt ground, its hem and the felt rivers, roads and lanes (laid across plots). */
+  private feltGroup = new Group();
+  private treeGroup = new Group();
+  /** The land around (as it would be), and the scenery beyond. */
+  private aroundGroup = new Group();
+  private around: AroundPlot[] = [];
+  /** The markers on plots for sale, while choosing one. */
+  private saleGroup = new Group();
+  private readonly blockIndex = new Map<string, BlockInstanceRef[]>();
   private signs = new Map<number, MeshStandardMaterial>();
   private readonly signNames = new Map<number, string>();
   private connected = new Set<number>();
@@ -53,25 +127,183 @@ export class LandscapeView {
     this.build();
   }
 
+  /** The rectangle of the land (its plots' bounding box, world mm). */
+  get landRect(): Rect {
+    return this.land.grid.extent();
+  }
+
   dispose(): void {
-    this.group.traverse((o) => {
-      const m = o as Mesh;
-      if (!m.isMesh) return;
-      m.geometry.dispose();
-      // Instanced meshes hold per-instance buffers that only their own dispose() frees.
-      if ((m as InstancedMesh).isInstancedMesh) (m as InstancedMesh).dispose();
-      // Materials made just for this view (shared ones from Materials are kept).
-      if (m.userData.ownsMaterial) {
-        const mat = m.material as MeshBasicMaterial;
-        mat.alphaMap?.dispose();
-        mat.dispose();
-      }
-    });
+    disposeTree(this.group);
     for (const m of this.signs.values()) {
       m.map?.dispose();
       m.dispose();
     }
   }
+
+  private build(): void {
+    const g = this.land.grid;
+    this.group.add(this.feltGroup, this.treeGroup, this.aroundGroup, this.saleGroup);
+    g.plots.forEach((_, slot) => this.buildPlot(slot));
+    this.cuts = new HillCutsView(g, { wood: this.mats.blockWood, top: this.mats.blockTop }, this.blockIndex);
+    this.group.add(this.cuts.group);
+    this.buildFelt();
+    this.buildTrees();
+    this.buildAround();
+  }
+
+  /**
+   * Plots have been added to the land (by slot): build them, and again the plots beside them whose edge blocks
+   * changed (their corners, which round off against open land, now meet the new plot).
+   */
+  addPlots(slots: readonly number[], around: readonly AroundPlot[]): void {
+    const g = this.land.grid;
+    const rebuilt = new Set(slots);
+    for (const slot of slots) {
+      const { px, pz } = g.plots[slot];
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const n = g.slotOf(px + dx, pz + dz);
+        if (n !== -1 && !rebuilt.has(n) && this.edgeCorners.get(n) !== edgeCornerKey(this.land, n)) rebuilt.add(n);
+      }
+    }
+    for (const slot of rebuilt) this.buildPlot(slot);
+    this.cuts.plotsRebuilt([...rebuilt]);
+    this.around = around.filter((a) => !g.hasPlot(a.px, a.pz));
+    this.buildFelt();
+    this.buildTrees();
+    this.buildAround();
+    this.syncTrees(this.layout ?? null);
+  }
+
+  /** Show this land around the world (plots not in it), with the scenery beyond. */
+  setAround(around: readonly AroundPlot[]): void {
+    this.around = around.filter((a) => !this.land.grid.hasPlot(a.px, a.pz));
+    this.buildFelt();
+    this.buildAround();
+  }
+
+  /** Is this the land shown around the world now? */
+  showsAround(around: readonly AroundPlot[]): boolean {
+    const key = (list: readonly AroundPlot[]) => list.map((a) => `${a.px},${a.pz}`).sort().join(";");
+    return key(around) === key(this.around);
+  }
+
+  /** Mark plots for sale (while choosing one to buy), or none. */
+  showForSale(plots: readonly PlotCoord[]): void {
+    disposeTree(this.saleGroup);
+    this.saleGroup.clear();
+    if (plots.length === 0) return;
+    const tint = new MeshBasicMaterial({ color: "#fff6dc", transparent: true, opacity: 0.32, depthWrite: false, fog: false });
+    const badge = new SpriteMaterial({ map: plusTexture(), transparent: true, fog: false, depthTest: false });
+    for (const p of plots) {
+      const plane = new Mesh(new PlaneGeometry(PLOT_WIDTH - 40, PLOT_DEPTH - 40), tint);
+      plane.rotateX(-Math.PI / 2);
+      plane.position.set((p.px + 0.5) * PLOT_WIDTH, RISER_HEIGHT * 3 + 4, (p.pz + 0.5) * PLOT_DEPTH);
+      plane.renderOrder = 2;
+      plane.userData.ownsMaterial = true;
+      const plus = new Sprite(badge);
+      plus.position.set((p.px + 0.5) * PLOT_WIDTH, 320, (p.pz + 0.5) * PLOT_DEPTH);
+      plus.scale.set(300, 300, 1);
+      plus.renderOrder = 3;
+      this.saleGroup.add(plane, plus);
+    }
+  }
+
+  /** One plot's blocks, towns, fields and shed (built again if it was already). */
+  private buildPlot(slot: number): void {
+    const old = this.plotGroups.get(slot);
+    if (old) {
+      this.group.remove(old);
+      disposeTree(old);
+    }
+    const land = this.land;
+    const grid = land.grid;
+    const { px, pz } = grid.plots[slot];
+    const group = new Group();
+    const b = new Batcher(this.mats.paint);
+    // Hills: stacks of individual wooden blocks, painted green on top.
+    group.add(buildBlocks(grid, land.seed, this.mats, this.blockIndex, false, [slot]));
+    this.edgeCorners.set(slot, edgeCornerKey(land, slot));
+    const here = (x: number, z: number) => plotOfCol(Math.floor(x / CELL)) === px && plotOfRow(Math.floor(z / CELL)) === pz;
+    const prints: Footprint[] = [];
+    for (const town of land.towns) {
+      if (!here(town.centre.x, town.centre.z)) continue;
+      for (const h of buildTown(land, town, this.mats, b)) prints.push({ x: h.cx, z: h.cz, y: 0, rx: h.w / 2 + 12, rz: h.d / 2 + 12, heading: 0, strength: 1 });
+      buildStation(town, this.mats, b);
+      this.buildSign(town, b, group);
+    }
+    // Fenced paddocks of toy animals.
+    for (const field of land.fields) {
+      if (((field.cells[0] / PLOT_CELLS) | 0) !== slot) continue;
+      buildField(land, field, this.mats, b);
+    }
+    if (land.shed && here(land.shed.x, land.shed.z)) buildShed(land, land.shed, this.mats, b);
+    b.build(group);
+    if (this.contactShadows) {
+      // Hill edges: a blob under each ground-level block that has open felt beside it.
+      forEachInPlot(slot, grid.plots[slot], (i, col, row) => {
+        if (grid.height[i] === 0) return;
+        const open = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dc, dr]) => {
+          const j = grid.index(col + dc, row + dr);
+          return j !== -1 && grid.height[j] === 0;
+        });
+        if (open) prints.push({ x: grid.centreX(col), z: grid.centreZ(row), y: 0, rx: CELL * 0.66, rz: CELL * 0.66, heading: 0, strength: 0.9 });
+      });
+      if (prints.length > 0) group.add(buildContactShadows(prints));
+    }
+    this.plotGroups.set(slot, group);
+    this.group.add(group);
+  }
+
+  /** The felt ground and its hem round the land, and the felt rivers, roads and lanes (on the land and around it). */
+  private buildFelt(): void {
+    this.group.remove(this.feltGroup);
+    disposeTree(this.feltGroup);
+    const group = new Group();
+    const grid = this.land.grid;
+    const shown = extentOf([...grid.plots, ...this.around]);
+    group.add(buildFeltGround(this.mats, shown, grid.plots));
+    const grids = [grid, ...this.around.map((a) => a.land.grid)];
+    const river = buildFeltRibbons(grids, SURF_RIVER, this.mats.riverFelt, 1.6);
+    const road = buildFeltRibbons(grids, SURF_ROAD, this.mats.roadFelt, 1.1);
+    const lane = buildFeltRibbons(grids, SURF_LANE, this.mats.roadFelt, 1.1);
+    if (river) group.add(river);
+    if (road) group.add(road);
+    if (lane) group.add(lane);
+    this.feltGroup = group;
+    this.group.add(group);
+  }
+
+  /** Turned-wood toy trees, standing on whatever block they grew on (all the land's, as one instanced draw each). */
+  private buildTrees(): void {
+    this.treeHop?.dispose();
+    this.group.remove(this.treeGroup);
+    disposeTree(this.treeGroup);
+    const trees = treePlacements(this.land);
+    this.clearance = new TreeClearance(this.land.grid, trees);
+    const spot = (t: TreePlacement): Required<TreeAt> => ({ x: t.x, z: t.z, y: t.y, s: 1 });
+    this.treeAnim = { shown: trees.map(spot), from: trees.map(spot), to: trees.map(spot), progress: new Float32Array(trees.length).fill(1) };
+    const group = buildTrees(trees, this.mats);
+    this.placeTrees = group.userData.place as PlaceTrees;
+    if (this.contactShadows) group.add(buildContactShadows(trees.map((t) => ({ x: t.x, z: t.z, y: t.y, rx: 24 * t.scale, rz: 24 * t.scale, heading: 0, strength: 1 }))));
+    this.treeGroup = group;
+    this.group.add(group);
+  }
+
+  /** The land around (as it would be if bought), and the toy countryside beyond it, fading into the haze. */
+  private buildAround(): void {
+    this.group.remove(this.aroundGroup);
+    disposeTree(this.aroundGroup);
+    const group = new Group();
+    const land = this.landRect;
+    if (this.around.length > 0) group.add(buildSurroundings(aroundScenery(this.around, this.land.seed), this.mats, land));
+    const shown = extentOf([...this.land.grid.plots, ...this.around]);
+    group.add(buildSurroundings(generateSurroundings(this.land.seed, shown, this.around.length > 0 ? AROUND_MARGIN : undefined), this.mats, land));
+    this.aroundGroup = group;
+    this.group.add(group);
+  }
+
+  /** The layout the trees were last kept clear of. */
+  private layout: Layout | null = null;
 
   /** A bright pulse on these towns' signs (a celebration when they're connected). */
   flash(towns: readonly number[]): Flourish {
@@ -97,7 +329,9 @@ export class LandscapeView {
    * Trees step aside from track (see `treesAside`); call after the layout changes. With `animate`, the trees that
    * move hop there: returns the animation to run, if one has to start.
    */
-  syncTrees(layout: Layout, animate = false): Flourish | null {
+  syncTrees(layout: Layout | null, animate = false): Flourish | null {
+    if (!layout) return null;
+    this.layout = layout;
     this.clearance.setLayout(layout);
     this.cuts.sync(heldCut(this.land, this.held));
     return this.retarget(this.clearance.spots(this.held ?? undefined), animate);
@@ -142,6 +376,8 @@ export class LandscapeView {
     if (this.treeHop) return null;
     const hop: Flourish = {
       update: (dt) => {
+        // The trees were built again (the land grew): this hop is over.
+        if (this.treeAnim !== a) return false;
         let running = false;
         for (let i = 0; i < a.shown.length; i++) {
           if (a.progress[i] >= 1) continue;
@@ -164,13 +400,14 @@ export class LandscapeView {
         return running;
       },
       dispose: () => {
+        if (this.treeHop === hop) this.treeHop = null;
+        if (this.treeAnim !== a) return;
         // Finished, or cut short: every tree where it's going.
         for (let i = 0; i < a.shown.length; i++) {
           Object.assign(a.shown[i], a.to[i]);
           a.progress[i] = 1;
         }
         this.placeTrees(a.shown);
-        if (this.treeHop === hop) this.treeHop = null;
       },
     };
     this.treeHop = hop;
@@ -188,73 +425,18 @@ export class LandscapeView {
     }
   }
 
-  private build(): void {
-    const { grid } = this.land;
-    const b = new Batcher(this.mats.paint);
-
-    // The felt ground, and felt rivers and roads laid on it.
-    this.group.add(buildFeltGround(this.mats));
-    const river = buildFeltRibbons(grid, SURF_RIVER, this.mats.riverFelt, 1.6);
-    const road = buildFeltRibbons(grid, SURF_ROAD, this.mats.roadFelt, 1.1);
-    const lane = buildFeltRibbons(grid, SURF_LANE, this.mats.roadFelt, 1.1);
-    if (river) this.group.add(river);
-    if (road) this.group.add(road);
-    if (lane) this.group.add(lane);
-
-    // Hills: stacks of individual wooden blocks, painted green on top.
-    const blockIndex = new Map<string, BlockInstanceRef[]>();
-    this.group.add(buildBlocks(grid, this.land.seed, this.mats, blockIndex, false));
-    this.cuts = new HillCutsView(grid, { wood: this.mats.blockWood, top: this.mats.blockTop }, blockIndex);
-    this.group.add(this.cuts.group);
-
-    // Turned-wood toy trees, standing on whatever block they grew on.
-    const trees = treePlacements(this.land);
-    this.clearance = new TreeClearance(this.land.grid, trees);
-    const spot = (t: TreePlacement): Required<TreeAt> => ({ x: t.x, z: t.z, y: t.y, s: 1 });
-    this.treeAnim = { shown: trees.map(spot), from: trees.map(spot), to: trees.map(spot), progress: new Float32Array(trees.length).fill(1) };
-    const treeGroup = buildTrees(trees, this.mats);
-    this.placeTrees = treeGroup.userData.place as PlaceTrees;
-    this.group.add(treeGroup);
-    const prints: Footprint[] = trees.map((t) => ({ x: t.x, z: t.z, y: t.y, rx: 24 * t.scale, rz: 24 * t.scale, heading: 0, strength: 1 }));
-
-    for (const town of this.land.towns) {
-      for (const h of buildTown(this.land, town, this.mats, b)) prints.push({ x: h.cx, z: h.cz, y: 0, rx: h.w / 2 + 12, rz: h.d / 2 + 12, heading: 0, strength: 1 });
-      buildStation(town, this.mats, b);
-      this.buildSign(town, b);
-    }
-
-    // Fenced paddocks of toy animals.
-    for (const field of this.land.fields) buildField(this.land, field, this.mats, b);
-    if (this.land.shed) buildShed(this.land, this.land.shed, this.mats, b);
-
-    // The toy countryside around the mat, fading into the haze.
-    this.group.add(buildSurroundings(generateSurroundings(this.land.seed), this.mats));
-
-    b.build(this.group);
-
-    if (this.contactShadows) {
-      // Hill edges: a blob under each ground-level block that has open felt beside it.
-      for (let row = 0; row < ROWS; row++) {
-        for (let col = 0; col < COLS; col++) {
-          if (grid.height[grid.index(col, row)] === 0) continue;
-          const open = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dc, dr]) => grid.inBounds(col + dc, row + dr) && grid.height[grid.index(col + dc, row + dr)] === 0);
-          if (open) prints.push({ x: grid.centreX(col), z: grid.centreZ(row), y: 0, rx: CELL * 0.66, rz: CELL * 0.66, heading: 0, strength: 0.9 });
-        }
-      }
-      this.group.add(buildContactShadows(prints));
-    }
-  }
-
   /** Name board on two posts on the station house roof; glows when the town is connected. */
-  private buildSign(town: Town, b: Batcher): void {
+  private buildSign(town: Town, b: Batcher, group: Group): void {
     const pose = signPose(town);
+    this.signs.get(town.id)?.map?.dispose();
+    this.signs.get(town.id)?.dispose();
     const sign = this.makeSign(town.name);
     this.signNames.set(town.id, town.name);
     const board = new Mesh(new BoxGeometry(SIGN_WIDTH, SIGN_HEIGHT, SIGN_THICKNESS), [this.mats.blockWood, this.mats.blockWood, this.mats.blockWood, this.mats.blockWood, sign, sign]);
     board.rotation.y = -pose.heading;
     board.position.set(pose.x, SIGN_Y, pose.z);
     board.castShadow = true;
-    this.group.add(board);
+    group.add(board);
     const dx = Math.cos(pose.heading);
     const dz = Math.sin(pose.heading);
     // The board sits on a rail carried by two short posts, so nothing crosses the lettering on either face.
@@ -270,6 +452,7 @@ export class LandscapeView {
     rail.translate(pose.x, bottom - RAIL_H / 2, pose.z);
     b.add(this.mats.naturalWood, rail);
     this.signs.set(town.id, sign);
+    if (this.connected.has(town.id)) this.setConnected(this.connected);
   }
 
   /** Show how many plank bundles have reached a town, on its sign (from the first one on). */
@@ -323,4 +506,108 @@ function drawSign(canvas: HTMLCanvasElement, name: string, delivered: number): v
   ctx.font = "800 44px Nunito, system-ui, sans-serif";
   ctx.textAlign = "left";
   ctx.fillText(String(delivered), x + 54, 68, 70);
+}
+
+/** Free a group's geometries, instance buffers and own materials (shared ones from Materials are kept). */
+function disposeTree(root: Group): void {
+  root.traverse((o) => {
+    if ((o as Sprite).isSprite) {
+      const mat = (o as Sprite).material;
+      mat.map?.dispose();
+      mat.dispose();
+      return;
+    }
+    const m = o as Mesh;
+    if (!m.isMesh) return;
+    m.geometry.dispose();
+    // Instanced meshes hold per-instance buffers that only their own dispose() frees.
+    if ((m as InstancedMesh).isInstancedMesh) (m as InstancedMesh).dispose();
+    if (m.userData.ownsMaterial) {
+      const mat = m.material as MeshBasicMaterial;
+      mat.alphaMap?.dispose();
+      mat.dispose();
+    }
+  });
+}
+
+/** The corners of the blocks round a plot's edge (which depend on the plots beside it). */
+function edgeCornerKey(land: Landscape, slot: number): string {
+  const g = land.grid;
+  const hills = hillsOf(g);
+  const out: number[] = [];
+  forEachInPlot(slot, g.plots[slot], (i, col, row) => {
+    const c = col - g.plots[slot].px * PLOT_COLS;
+    const r = row - g.plots[slot].pz * PLOT_ROWS;
+    if (c !== 0 && r !== 0 && c !== PLOT_COLS - 1 && r !== PLOT_ROWS - 1) return;
+    for (let level = 0; level < g.height[i]; level++) out.push(hills.blockCorners(col, row, level));
+  });
+  return out.join("");
+}
+
+/**
+ * The land around the world as scenery: its blocks (only those that show), trees and town houses, drawn like the
+ * countryside beyond (cheaply, a few draws for all of it).
+ */
+function aroundScenery(around: readonly AroundPlot[], seed: number): Surroundings {
+  const blocks: OuterBlock[] = [];
+  const trees: OuterTree[] = [];
+  const houses: OuterHouse[] = [];
+  const slabs: Surroundings["slabs"] = [];
+  for (const a of around) {
+    const g = a.land.grid;
+    const height = (c: number, r: number) => {
+      const i = g.index(c, r);
+      return i === -1 ? 0 : g.height[i];
+    };
+    g.forEachCell((i, col, row) => {
+      const h = g.height[i];
+      const x = g.centreX(col);
+      const z = g.centreZ(row);
+      const lowest = Math.min(height(col + 1, row), height(col - 1, row), height(col, row + 1), height(col, row - 1));
+      for (let level = 0; level < h; level++) {
+        if (level < h - 1 && lowest > level) continue;
+        blocks.push({ x, z, y: level * RISER_HEIGHT, size: CELL, height: RISER_HEIGHT, top: level === h - 1, tone: hashInts(seed, col, row, level) & 1023 });
+      }
+      if (g.feature[i] === FEAT_TREE) {
+        const v = hashInts(seed, col, row, 77) / 4294967296;
+        trees.push({ x: x + (v - 0.5) * 20, z: z + (((v * 7) % 1) - 0.5) * 20, y: h * RISER_HEIGHT, scale: 0.8 + ((v * 13) % 1) * 0.4, variant: v });
+      }
+    });
+    for (const town of a.land.towns) {
+      for (const bld of town.buildings) {
+        const xs = bld.cells.map((c) => g.centreX(g.colOf(c)));
+        const zs = bld.cells.map((c) => g.centreZ(g.rowOf(c)));
+        const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+        const tx = town.centre.x - cx;
+        const tz = town.centre.z - cz;
+        const front = Math.abs(tx) > Math.abs(tz) ? { x: Math.sign(tx) || 1, z: 0 } : { x: 0, z: Math.sign(tz) || 1 };
+        houses.push({ cx, cz, w: Math.max(...xs) - Math.min(...xs) + CELL - 12, d: Math.max(...zs) - Math.min(...zs) + CELL - 12, floors: bld.floors, roof: bld.roof, front });
+      }
+    }
+    slabs.push(...plotSlabs({ px: a.px, pz: a.pz }, (c, r, level) => height(c, r) >= level));
+  }
+  return { blocks, trees, houses, hamlets: 0, slabs };
+}
+
+let plusTex: CanvasTexture | null = null;
+/** A round badge with a plus: "buy this plot". */
+function plusTexture(): CanvasTexture {
+  if (plusTex) return plusTex;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#2f5d3a";
+  ctx.beginPath();
+  ctx.arc(64, 64, 58, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#f3e3c3";
+  ctx.lineWidth = 8;
+  ctx.stroke();
+  ctx.fillStyle = "#f8efdc";
+  ctx.fillRect(56, 30, 16, 68);
+  ctx.fillRect(30, 56, 68, 16);
+  plusTex = new CanvasTexture(canvas);
+  plusTex.colorSpace = SRGBColorSpace;
+  return plusTex;
 }

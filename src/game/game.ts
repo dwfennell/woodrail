@@ -1,6 +1,7 @@
 import {
   ACESFilmicToneMapping,
   Clock,
+  type Fog,
   PCFShadowMap,
   PerspectiveCamera,
   Scene,
@@ -9,7 +10,7 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { LandscapeView } from "../render/landscape-view";
+import { LandscapeView, type AroundPlot } from "../render/landscape-view";
 import { cutColumn } from "../render/dressing/hill-cuts";
 import { createMaterials, type Materials } from "../render/materials";
 import { Flourishes } from "../render/flourishes";
@@ -24,13 +25,16 @@ import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
 import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { bridgeLevels, findCrossings, syncCuttings, type HeldPiece, hillPieces, hillsOf, MAT_DEPTH, MAT_WIDTH, type Landscape } from "../landscape";
+import { bridgeLevels, findCrossings, syncCuttings, type HeldPiece, hillPieces, hillsOf, PLOT_DEPTH, PLOT_WIDTH, type Landscape } from "../landscape";
+import { setHazeLand } from "../render/haze";
 import { PIECE_TYPES, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
-import type { World } from "./world";
+import { hasLandForSale, landForSale, plotsAround, unlockPlot, type World } from "./world";
 
 const MAX_STEPS_PER_FRAME = 8;
+/** How far the camera may pull back over the starting land (further, up to twice, as the land grows). */
+const MAX_DISTANCE = 14000;
 
 export type GameWorld = World;
 
@@ -137,11 +141,10 @@ export class Game {
     // TouchCamera).
     this.controls.dampingFactor = 0.2;
     this.controls.minDistance = 120;
-    this.controls.maxDistance = 14000;
+    this.controls.maxDistance = MAX_DISTANCE;
     this.controls.maxPolarAngle = 1.42;
     this.controls.screenSpacePanning = false;
     this.director = new CameraDirector(this.camera, this.controls);
-    this.director.bounds = { halfW: MAT_WIDTH / 2, halfD: MAT_DEPTH / 2 };
     this.touchCamera = new TouchCamera(canvas, this.camera, this.controls.target, this.controls, () => this.controls.enabled, () => {
       // Same as the controls starting a drag: any glide or eased zoom gives way to the fingers.
       this.controls.dispatchEvent({ type: "start" });
@@ -171,6 +174,8 @@ export class Game {
     this.scene.add(this.crossingsView.group);
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.post = createPost(this.renderer, this.scene, this.camera, this.quality);
+
+    this.landChanged();
 
     window.addEventListener("resize", () => this.resize());
     // Any input may change what's drawn, and set things easing (a held piece after the finger, a selection).
@@ -218,6 +223,78 @@ export class Game {
     this.syncHillPhysics();
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.depotView.setWorld(this.economy, this.layout);
+    this.landChanged();
+  }
+
+  /**
+   * Buy a plot beside the land (see `unlockPlot`): it joins the world and is drawn, with its towns' stations and its
+   * depots. Returns what it brought, or null if it can't be bought.
+   */
+  unlockPlot(px: number, pz: number): ReturnType<typeof unlockPlot> {
+    const bought = unlockPlot(this.world, px, pz);
+    if (!bought) return null;
+    this.invalidate();
+    const t0 = performance.now();
+    this.landscapeView.addPlots(bought.slots, this.aroundReady());
+    // New stations and depots are new pieces; the hills' colliders take in the new plot.
+    this.hillsFor = null;
+    this.trackChanged();
+    this.depotView.setWorld(this.economy, this.layout);
+    this.landChanged();
+    this.lastUnlockMs = performance.now() - t0;
+    return bought;
+  }
+
+  /** How long the last plot took to add (ms), for the perf readout. */
+  lastUnlockMs = 0;
+
+  /**
+   * The land grew (or a new world): the camera may look a little past its edge (half a plot, so the land around can
+   * be seen and bought), the haze sits round it, the camera may pull back further over a big world, and the land
+   * around it is made ready.
+   */
+  private landChanged(): void {
+    const e = this.landscape.grid.extent();
+    const m = PLOT_DEPTH / 2;
+    this.director.bounds = { x0: e.x0 - m, z0: e.z0 - m, x1: e.x1 + m, z1: e.z1 + m };
+    setHazeLand(this.scene.fog as Fog, e);
+    const size = Math.hypot(e.x1 - e.x0, e.z1 - e.z0) / Math.hypot(2 * PLOT_WIDTH, 2 * PLOT_DEPTH);
+    this.controls.maxDistance = MAX_DISTANCE * Math.min(2, Math.max(1, size));
+    this.prepareAround();
+  }
+
+  private aroundToken = 0;
+
+  /** The land around that has been generated already, to show around the world. */
+  private aroundReady(): AroundPlot[] {
+    const land = this.landscape;
+    return plotsAround(land)
+      .filter((p) => hasLandForSale(land, p.px, p.pz))
+      .map((p) => ({ ...p, land: landForSale(land, p.px, p.pz) }));
+  }
+
+  /**
+   * Generate the land around the world that isn't yet, a plot at a time between frames (so nothing stalls), then show
+   * it. Does nothing more once it's all there.
+   */
+  private prepareAround(): void {
+    const land = this.landscape;
+    const token = ++this.aroundToken;
+    const step = () => {
+      if (token !== this.aroundToken || land !== this.landscape) return;
+      const next = plotsAround(land).find((p) => !hasLandForSale(land, p.px, p.pz));
+      if (next) {
+        landForSale(land, next.px, next.pz);
+        setTimeout(step, 16);
+        return;
+      }
+      const around = this.aroundReady();
+      if (!this.landscapeView.showsAround(around)) {
+        this.landscapeView.setAround(around);
+        this.invalidate();
+      }
+    };
+    setTimeout(step, 16);
   }
 
   /** How many riser heights a placed bridge's arches reach down to the ground (0 for other pieces). */
@@ -297,11 +374,12 @@ export class Game {
       minZ = Math.min(minZ, p.pose.z);
       maxZ = Math.max(maxZ, p.pose.z);
     }
-    // Always include the felt mat.
-    minX = Math.min(minX, -MAT_WIDTH / 2);
-    maxX = Math.max(maxX, MAT_WIDTH / 2);
-    minZ = Math.min(minZ, -MAT_DEPTH / 2);
-    maxZ = Math.max(maxZ, MAT_DEPTH / 2);
+    // Always include the land.
+    const e = this.landscape.grid.extent();
+    minX = Math.min(minX, e.x0);
+    maxX = Math.max(maxX, e.x1);
+    minZ = Math.min(minZ, e.z0);
+    maxZ = Math.max(maxZ, e.z1);
     const cx = (minX + maxX) / 2;
     const cz = (minZ + maxZ) / 2;
     const radius = Math.hypot(maxX - minX, maxZ - minZ) / 2;

@@ -1,5 +1,5 @@
 import { createSample, getPieceDef, isBridge, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
-import { CELL, COLS, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, MAT_DEPTH, MAT_WIDTH, ROWS, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
+import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
 import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
 import { cutsHills, hillsOf } from "./hill-shape";
@@ -107,16 +107,41 @@ function inFixedFootprint(centre: { x: number; z: number }, heading: number, x: 
 /** How far over the river's drawn bank track may stray (mm). */
 export const RIVER_GRACE = 12;
 
-/** The river's outline as drawn (traced from its squares and smoothed, in square units), per map. */
-const riverOutlines = new WeakMap<LandscapeGrid, Loop[]>();
+/** The river's outline as drawn (traced from its squares and smoothed, in square units), per map, as of a revision. */
+interface Outline {
+  loop: Loop;
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+}
+const riverOutlines = new WeakMap<LandscapeGrid, { revision: number; outlines: Outline[] }>();
 
-function riverOutline(g: LandscapeGrid): Loop[] {
-  let loops = riverOutlines.get(g);
-  if (!loops) {
-    loops = traceRegions((c, r) => g.inBounds(c, r) && g.surface[g.index(c, r)] === SURF_RIVER, COLS, ROWS).map((l) => smoothLoop(l));
-    riverOutlines.set(g, loops);
+function riverOutline(g: LandscapeGrid): Outline[] {
+  let cached = riverOutlines.get(g);
+  if (!cached || cached.revision !== g.revision) {
+    const outlines = surfaceOutlines(g, SURF_RIVER).map((loop) => {
+      const xs = loop.map((p) => p.x);
+      const zs = loop.map((p) => p.z);
+      return { loop, x0: Math.min(...xs), z0: Math.min(...zs), x1: Math.max(...xs), z1: Math.max(...zs) };
+    });
+    cached = { revision: g.revision, outlines };
+    riverOutlines.set(g, cached);
   }
-  return loops;
+  return cached.outlines;
+}
+
+/**
+ * Outlines of every region of squares with this surface, over the whole grid, smoothed (in square units: x = column,
+ * z = row). The felt is drawn from the same outlines, so it meets itself across plots' edges.
+ */
+export function surfaceOutlines(g: LandscapeGrid, surface: number): Loop[] {
+  const e = g.extent();
+  const mask = (c: number, r: number) => {
+    const i = g.index(e.col0 + c, e.row0 + r);
+    return i !== -1 && g.surface[i] === surface;
+  };
+  return traceRegions(mask, e.col1 - e.col0, e.row1 - e.row0).map((l) => smoothLoop(l).map((p) => ({ x: p.x + e.col0, z: p.z + e.row0 })));
 }
 
 /**
@@ -125,14 +150,24 @@ function riverOutline(g: LandscapeGrid): Loop[] {
  */
 export function inRiver(g: LandscapeGrid, x: number, z: number): boolean {
   // Only near river squares can the felt reach.
-  const col = Math.floor((x + MAT_WIDTH / 2) / CELL);
-  const row = Math.floor((z + MAT_DEPTH / 2) / CELL);
+  const col = Math.floor(x / CELL);
+  const row = Math.floor(z / CELL);
   let near = false;
-  for (let dr = -1; dr <= 1 && !near; dr++) for (let dc = -1; dc <= 1 && !near; dc++) near = g.inBounds(col + dc, row + dr) && g.surface[g.index(col + dc, row + dr)] === SURF_RIVER;
+  for (let dr = -1; dr <= 1 && !near; dr++) {
+    for (let dc = -1; dc <= 1 && !near; dc++) {
+      const i = g.index(col + dc, row + dr);
+      near = i !== -1 && g.surface[i] === SURF_RIVER;
+    }
+  }
   if (!near) return false;
-  const u = (x + MAT_WIDTH / 2) / CELL;
-  const v = (z + MAT_DEPTH / 2) / CELL;
-  const loops = riverOutline(g);
+  const u = x / CELL;
+  const v = z / CELL;
+  // Only loops around the point can count (a loop the point is outside adds an even number of crossings), and only
+  // those, padded by the grace, can be nearest.
+  const pad = RIVER_GRACE / CELL;
+  const loops = riverOutline(g)
+    .filter((o) => u >= o.x0 - pad && u <= o.x1 + pad && v >= o.z0 - pad && v <= o.z1 + pad)
+    .map((o) => o.loop);
   return insideLoops(loops, u, v) && distanceToLoops(loops, u, v) * CELL > RIVER_GRACE;
 }
 

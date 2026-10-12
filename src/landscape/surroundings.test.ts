@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { RISER_HEIGHT } from "../track";
-import { CELL, MAT_DEPTH, MAT_WIDTH } from "./grid";
+import { CELL, PLOT_DEPTH, PLOT_WIDTH } from "./grid";
+
+const MAT_WIDTH = 2 * PLOT_WIDTH;
+const MAT_DEPTH = 2 * PLOT_DEPTH;
+/** The start region, as the land the scenery is around. */
+const MAT = { x0: -PLOT_WIDTH, z0: -PLOT_DEPTH, x1: PLOT_WIDTH, z1: PLOT_DEPTH };
 import { generateSurroundings, outsideDistance, RING_WIDTH, SCENERY_MARGIN } from "./surroundings";
 
 const overlaps = (a: { x0: number; z0: number; x1: number; z1: number }, b: { x0: number; z0: number; x1: number; z1: number }) =>
@@ -8,11 +13,11 @@ const overlaps = (a: { x0: number; z0: number; x1: number; z1: number }, b: { x0
 
 describe("outsideDistance", () => {
   it("is zero on the mat and grows away from its edges and corners", () => {
-    expect(outsideDistance(0, 0)).toBe(0);
-    expect(outsideDistance(MAT_WIDTH / 2 - 1, MAT_DEPTH / 2 - 1)).toBe(0);
-    expect(outsideDistance(MAT_WIDTH / 2 + 100, 0)).toBe(100);
-    expect(outsideDistance(0, -MAT_DEPTH / 2 - 250)).toBe(250);
-    expect(outsideDistance(MAT_WIDTH / 2 + 30, MAT_DEPTH / 2 + 40)).toBeCloseTo(50);
+    expect(outsideDistance(0, 0, MAT)).toBe(0);
+    expect(outsideDistance(MAT_WIDTH / 2 - 1, MAT_DEPTH / 2 - 1, MAT)).toBe(0);
+    expect(outsideDistance(MAT_WIDTH / 2 + 100, 0, MAT)).toBe(100);
+    expect(outsideDistance(0, -MAT_DEPTH / 2 - 250, MAT)).toBe(250);
+    expect(outsideDistance(MAT_WIDTH / 2 + 30, MAT_DEPTH / 2 + 40, MAT)).toBeCloseTo(50);
   });
 });
 
@@ -20,39 +25,39 @@ describe("generateSurroundings", () => {
   const seeds = [1, 2, 3, 7, 42, 99, 123, 500];
 
   it("is deterministic per seed and varies between seeds", () => {
-    expect(generateSurroundings(42)).toEqual(generateSurroundings(42));
-    expect(generateSurroundings(42).blocks).not.toEqual(generateSurroundings(43).blocks);
+    expect(generateSurroundings(42, MAT)).toEqual(generateSurroundings(42, MAT));
+    expect(generateSurroundings(42, MAT).blocks).not.toEqual(generateSurroundings(43, MAT).blocks);
   });
 
   it.each(seeds)("seed %i: scenery stays off the mat and its margin, within the ring", (seed) => {
-    const s = generateSurroundings(seed);
+    const s = generateSurroundings(seed, MAT);
     expect(s.blocks.length).toBeGreaterThan(500);
     for (const b of s.blocks) {
       // Nearest point of the block's square to the mat.
       const nx = Math.max(Math.abs(b.x) - b.size / 2, 0);
       const nz = Math.max(Math.abs(b.z) - b.size / 2, 0);
-      expect(outsideDistance(Math.sign(b.x) * nx, Math.sign(b.z) * nz)).toBeGreaterThanOrEqual(SCENERY_MARGIN - 1e-6);
-      expect(outsideDistance(b.x, b.z)).toBeLessThanOrEqual(RING_WIDTH + b.size);
+      expect(outsideDistance(Math.sign(b.x) * nx, Math.sign(b.z) * nz, MAT)).toBeGreaterThanOrEqual(SCENERY_MARGIN - 1e-6);
+      expect(outsideDistance(b.x, b.z, MAT)).toBeLessThanOrEqual(RING_WIDTH + b.size);
     }
     for (const t of s.trees) {
-      expect(outsideDistance(t.x, t.z)).toBeGreaterThanOrEqual(SCENERY_MARGIN);
-      expect(outsideDistance(t.x, t.z)).toBeLessThanOrEqual(RING_WIDTH + 2 * CELL);
+      expect(outsideDistance(t.x, t.z, MAT)).toBeGreaterThanOrEqual(SCENERY_MARGIN);
+      expect(outsideDistance(t.x, t.z, MAT)).toBeLessThanOrEqual(RING_WIDTH + 2 * CELL);
     }
-    for (const h of s.houses) expect(outsideDistance(h.cx, h.cz) - Math.hypot(h.w, h.d) / 2).toBeGreaterThanOrEqual(SCENERY_MARGIN);
+    for (const h of s.houses) expect(outsideDistance(h.cx, h.cz, MAT) - Math.hypot(h.w, h.d) / 2).toBeGreaterThanOrEqual(SCENERY_MARGIN);
   });
 
   it.each(seeds)("seed %i: hills rise toward the horizon", (seed) => {
-    const s = generateSurroundings(seed);
+    const s = generateSurroundings(seed, MAT);
     const tops = s.blocks.filter((b) => b.top);
     const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
-    const near = tops.filter((b) => outsideDistance(b.x, b.z) < 900).map((b) => b.y + b.height);
-    const far = tops.filter((b) => outsideDistance(b.x, b.z) > 2000).map((b) => b.y + b.height);
+    const near = tops.filter((b) => outsideDistance(b.x, b.z, MAT) < 900).map((b) => b.y + b.height);
+    const far = tops.filter((b) => outsideDistance(b.x, b.z, MAT) > 2000).map((b) => b.y + b.height);
     expect(mean(far)).toBeGreaterThan(mean(near) * 1.5);
   });
 
   it("hills don't dip where the near and far bands meet", () => {
     const tops: { d: number; h: number }[] = [];
-    for (const seed of seeds) for (const b of generateSurroundings(seed).blocks) if (b.top) tops.push({ d: outsideDistance(b.x, b.z), h: b.y + b.height });
+    for (const seed of seeds) for (const b of generateSurroundings(seed, MAT).blocks) if (b.top) tops.push({ d: outsideDistance(b.x, b.z, MAT), h: b.y + b.height });
     const mean = (lo: number, hi: number) => {
       const xs = tops.filter((t) => t.d >= lo && t.d < hi).map((t) => t.h);
       return xs.reduce((a, b) => a + b, 0) / xs.length;
@@ -63,7 +68,7 @@ describe("generateSurroundings", () => {
   });
 
   it.each(seeds)("seed %i: only blocks that can be seen are listed", (seed) => {
-    const s = generateSurroundings(seed);
+    const s = generateSurroundings(seed, MAT);
     const key = (b: { x: number; z: number; y: number }) => `${b.x},${b.z},${b.y}`;
     const columns = new Map<string, number>();
     for (const b of s.blocks) if (b.top) columns.set(`${b.x},${b.z}`, b.y + b.height);
@@ -77,7 +82,7 @@ describe("generateSurroundings", () => {
   });
 
   it.each(seeds)("seed %i: three or four hamlets of houses on clear ground", (seed) => {
-    const s = generateSurroundings(seed);
+    const s = generateSurroundings(seed, MAT);
     expect(s.hamlets).toBeGreaterThanOrEqual(3);
     expect(s.hamlets).toBeLessThanOrEqual(4);
     expect(s.houses.length).toBeGreaterThanOrEqual(2 * s.hamlets);
@@ -93,7 +98,7 @@ describe("generateSurroundings", () => {
   });
 
   it("scenery blocks have the mat's proportions: a square wide and a riser tall (double in the far band)", () => {
-    const s = generateSurroundings(3);
+    const s = generateSurroundings(3, MAT);
     for (const b of s.blocks) {
       expect(b.height / b.size).toBeCloseTo(RISER_HEIGHT / CELL, 9);
       expect((b.y / b.height) % 1).toBeCloseTo(0, 9);
@@ -104,14 +109,14 @@ describe("generateSurroundings", () => {
 
   it("scenery blocks line up with the mat's grid lines, so the hills keep its rhythm", () => {
     const whole = (v: number) => Math.abs(v - Math.round(v)) < 1e-9;
-    for (const b of generateSurroundings(4).blocks) {
+    for (const b of generateSurroundings(4, MAT).blocks) {
       expect(whole((b.x - b.size / 2 + MAT_WIDTH / 2) / CELL)).toBe(true);
       expect(whole((b.z - b.size / 2 + MAT_DEPTH / 2) / CELL)).toBe(true);
     }
   });
 
   it("trees stand on the ground or on a block top", () => {
-    const s = generateSurroundings(9);
+    const s = generateSurroundings(9, MAT);
     expect(s.trees.length).toBeGreaterThan(40);
     const tops = new Map<string, number>();
     for (const b of s.blocks) if (b.top) tops.set(`${b.x},${b.z}`, b.y + b.height);
@@ -125,7 +130,7 @@ describe("generateSurroundings", () => {
   });
 
   it("shadow slabs cover the near hills", () => {
-    const s = generateSurroundings(5);
+    const s = generateSurroundings(5, MAT);
     expect(s.slabs.length).toBeGreaterThan(0);
     for (const sl of s.slabs) expect(sl.x1 - sl.x0).toBeGreaterThan(0);
   });

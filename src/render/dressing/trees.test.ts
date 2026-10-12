@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CELL, COLS, FEAT_TREE, generateLandscape } from "../../landscape";
+import { CELL, FEAT_TREE, generateLandscape } from "../../landscape";
 import { MAX_LEAN, treePlacements } from "./trees";
 
 describe("treePlacements", () => {
@@ -9,12 +9,12 @@ describe("treePlacements", () => {
 
   it("puts one tree on every tree square, near its centre and on its ground", () => {
     let count = 0;
-    for (let i = 0; i < g.feature.length; i++) if (g.feature[i] === FEAT_TREE) count++;
+    for (let i = 0; i < g.cellCount; i++) if (g.feature[i] === FEAT_TREE) count++;
     expect(trees).toHaveLength(count);
     for (const t of trees) {
       const i = g.cellAtWorld(t.x, t.z);
       expect(g.feature[i]).toBe(FEAT_TREE);
-      expect(Math.abs(t.x - g.centreX(i % COLS))).toBeLessThanOrEqual(CELL / 2 - 14);
+      expect(Math.abs(t.x - g.centreX(g.colOf(i)))).toBeLessThanOrEqual(CELL / 2 - 14);
       expect(t.y).toBe(g.groundY(i));
     }
   });

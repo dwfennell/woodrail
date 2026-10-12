@@ -31,10 +31,18 @@ export function clampView(target: Vector3, position: Vector3, minDist: number, m
   position.copy(target).add(off.setFromSpherical(sph));
 }
 
-/** Keep the look-at point within ±halfW × ±halfD (the mat), moving the camera by the same amount (in place). */
-export function clampTarget(target: Vector3, position: Vector3, halfW: number, halfD: number): void {
-  const x = Math.min(halfW, Math.max(-halfW, target.x));
-  const z = Math.min(halfD, Math.max(-halfD, target.z));
+/** A rectangle the camera may look at (world mm). */
+export interface ViewBounds {
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+}
+
+/** Keep the look-at point within the bounds (over the land), moving the camera by the same amount (in place). */
+export function clampTarget(target: Vector3, position: Vector3, b: ViewBounds): void {
+  const x = Math.min(b.x1, Math.max(b.x0, target.x));
+  const z = Math.min(b.z1, Math.max(b.z0, target.z));
   position.x += x - target.x;
   position.z += z - target.z;
   target.x = x;
@@ -108,7 +116,7 @@ export class CameraDirector {
   private readonly right = new Vector3();
   private readonly forward = new Vector3();
   /** Half extents of the area the camera may look at (the mat). */
-  bounds = { halfW: Infinity, halfD: Infinity };
+  bounds: ViewBounds = { x0: -Infinity, z0: -Infinity, x1: Infinity, z1: Infinity };
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -175,8 +183,8 @@ export class CameraDirector {
 
   /** Move a point onto the area the camera may look at (in place). */
   private onMat(p: Vector3): Vector3 {
-    p.x = Math.min(this.bounds.halfW, Math.max(-this.bounds.halfW, p.x));
-    p.z = Math.min(this.bounds.halfD, Math.max(-this.bounds.halfD, p.z));
+    p.x = Math.min(this.bounds.x1, Math.max(this.bounds.x0, p.x));
+    p.z = Math.min(this.bounds.z1, Math.max(this.bounds.z0, p.z));
     return p;
   }
 
@@ -261,7 +269,7 @@ export class CameraDirector {
   /** Pull the view back within bounds: target over the mat, distance and tilt within limits. */
   constrain(): void {
     const c = this.controls;
-    clampTarget(c.target, this.camera.position, this.bounds.halfW, this.bounds.halfD);
+    clampTarget(c.target, this.camera.position, this.bounds);
     clampView(c.target, this.camera.position, c.minDistance, c.maxDistance, c.maxPolarAngle);
   }
 }

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildStarterWorld, type World } from "../game/world";
+import { buildStarterWorld, unlockPlot, type World } from "../game/world";
 import { appendPiece, connectorRef } from "../track";
 import { connectedPairs } from "../landscape";
 import { SIM_DT } from "../sim";
-import { deserializeWorld, SAVE_VERSION, serializeWorld } from "./save";
+import { deserializeWorld, SAVE_VERSION, serializeWorld, type SaveData } from "./save";
 
 /** The starter map with its first two towns joined by a line and a train running on it. */
 function worldWithTrain(): World {
@@ -17,7 +17,7 @@ function worldWithTrain(): World {
   return world;
 }
 
-describe("save format v2", () => {
+describe("save format", () => {
   it("round-trips the landscape, stations, track and trains", () => {
     const world = worldWithTrain();
     for (let i = 0; i < 2 / SIM_DT; i++) world.sim.tick();
@@ -35,25 +35,69 @@ describe("save format v2", () => {
     expect(w.sim.getTrain(w.sim.trainIds()[0])!.cars[0].lever).toBe(1);
   });
 
-  it("is at version 7 (bridges stored at their deck height)", () => {
-    expect(SAVE_VERSION).toBe(7);
+  it("is at version 8 (the landscape saved square by square)", () => {
+    expect(SAVE_VERSION).toBe(8);
   });
 
-  it("loads version 6 saves, lifting their bridges from their feet to their decks", () => {
-    const world = worldWithTrain();
-    const bridge = world.layout.addPiece("bridge", { x: 0, z: 0, heading: 0 }, 64);
-    const data = serializeWorld(world) as unknown as { version: number; pieces: { id: number; y: number }[] };
-    data.version = 6;
-    data.pieces.find((p) => p.id === bridge)!.y = 0;
-    const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value.layout.getPiece(bridge)!.y).toBe(64);
-  });
-
-  it("refuses version 5 saves", () => {
-    const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
-    data.version = 5;
+  it("refuses version 7 saves (their landscape was only a seed)", () => {
+    const data = serializeWorld(worldWithTrain()) as unknown as { version: number; landscape: unknown };
+    data.version = 7;
+    data.landscape = { seed: 7, starter: true };
     expect(deserializeWorld(JSON.parse(JSON.stringify(data))).ok).toBe(false);
+  });
+
+  it("loads the land as saved, not as the seed would make it", () => {
+    const world = worldWithTrain();
+    const g = world.landscape.grid;
+    // An edit no generator would make: a hill on a corner square, a tree beside it.
+    const i = g.index(-31, -23);
+    g.height[i] = 3;
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.landscape.grid.height[r.value.landscape.grid.index(-31, -23)]).toBe(3);
+  });
+
+  it("round-trips a world grown by a few plots: its land, towns, depots, economy and trains", () => {
+    const world = worldWithTrain();
+    for (const [px, pz] of [[1, 0], [1, -1], [-2, 0]] as const) expect(unlockPlot(world, px, pz)).not.toBeNull();
+    const before = world.economy.allDepots().map((d) => [d.pieceId, d.role, d.townId]);
+    world.economy.allDepots()[before.length - 1].piles[0] = 3;
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const w = r.value;
+    const g = world.landscape.grid;
+    const h = w.landscape.grid;
+    expect(h.plots).toEqual(g.plots);
+    for (const k of ["height", "surface", "feature", "owner"] as const) expect(Array.from(h[k].subarray(0, h.cellCount))).toEqual(Array.from(g[k].subarray(0, g.cellCount)));
+    expect(w.landscape.towns).toEqual(world.landscape.towns);
+    expect(w.landscape.depots).toEqual(world.landscape.depots);
+    expect(w.landscape.fields).toEqual(world.landscape.fields);
+    expect(w.landscape.nextBuildingId).toBe(world.landscape.nextBuildingId);
+    expect([...w.stations]).toEqual([...world.stations]);
+    expect([...w.depots]).toEqual([...world.depots]);
+    expect(w.economy.allDepots().map((d) => [d.pieceId, d.role, d.townId])).toEqual(before);
+    expect(w.economy.allDepots()[before.length - 1].piles[0]).toBe(world.economy.allDepots()[before.length - 1].piles[0]);
+    expect(w.sim.trainCount).toBe(1);
+  });
+
+  it("rejects damaged land with a reason instead of throwing", () => {
+    const good = serializeWorld(worldWithTrain());
+    const cases: ((d: SaveData) => void)[] = [
+      (d) => (d.landscape.plots[0].height = "!!"),
+      (d) => (d.landscape.plots[0].height = d.landscape.plots[0].height.slice(0, 20)),
+      (d) => (d.landscape.plots[1] = { ...d.landscape.plots[0] }),
+      (d) => (d.landscape.towns[0].cells = [99999999]),
+      (d) => (d.landscape.towns[1].id = 7),
+      (d) => (d.landscape.nextBuildingId = 0),
+      (d) => (d.depots = d.depots.slice(1)),
+    ];
+    for (const damage of cases) {
+      const data = JSON.parse(JSON.stringify(good)) as SaveData;
+      damage(data);
+      const r = deserializeWorld(data);
+      expect(r.ok).toBe(false);
+    }
   });
 
   it("rejects version 1 saves", () => {

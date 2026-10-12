@@ -1,4 +1,4 @@
-import { CELL, COLS, LandscapeGrid, MAT_DEPTH, MAT_WIDTH, MAX_HEIGHT, ROWS } from "./grid";
+import { CELL, extentOf, forEachInPlot, LandscapeGrid, MAX_HEIGHT, type PlotCoord } from "./grid";
 import { hillsOf } from "./hill-shape";
 
 /** A block with rounded corners (see `HillShape.blockCorners`): it can't merge into a slab. */
@@ -14,30 +14,34 @@ export interface RoundBlock {
 /**
  * The hills as solid pieces: square-cornered blocks merged into slabs, and the blocks with rounded corners on their
  * own. For shadows and physics, which need the true silhouette. `skip` leaves out blocks (level 0 = on the felt),
- * such as those a cutting is drawn through.
+ * such as those a cutting is drawn through. `plots` limits them to some plots (slabs never span a plot's edge, so
+ * each plot's pieces can be built on their own).
  */
-export function hillPieces(grid: LandscapeGrid, skip?: (col: number, row: number, level: number) => boolean): { slabs: Slab[]; round: RoundBlock[] } {
+export function hillPieces(
+  grid: LandscapeGrid,
+  skip?: (col: number, row: number, level: number) => boolean,
+  plots: readonly number[] = grid.plots.map((_, slot) => slot),
+): { slabs: Slab[]; round: RoundBlock[] } {
   const hills = hillsOf(grid);
   const round: RoundBlock[] = [];
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col < COLS; col++) {
-      const h = grid.height[grid.index(col, row)];
+  const slabs: Slab[] = [];
+  for (const slot of plots) {
+    forEachInPlot(slot, grid.plots[slot], (i, col, row) => {
+      const h = grid.height[i];
       for (let level = 0; level < h; level++) {
         const corners = hills.blockCorners(col, row, level);
         if (corners && !skip?.(col, row, level)) round.push({ x: grid.centreX(col), z: grid.centreZ(row), level: level + 1, corners });
       }
-    }
+    });
+    slabs.push(...plotSlabs(grid.plots[slot], (c, r, level) => hills.hasBlock(c, r, level - 1) && hills.blockCorners(c, r, level - 1) === 0 && !skip?.(c, r, level - 1)));
   }
-  const slabs = mergeSlabsWhere(
-    (c, r, level) => hills.hasBlock(c, r, level - 1) && hills.blockCorners(c, r, level - 1) === 0 && !skip?.(c, r, level - 1),
-    COLS,
-    ROWS,
-    -MAT_WIDTH / 2,
-    -MAT_DEPTH / 2,
-    CELL,
-    MAX_HEIGHT,
-  );
   return { slabs, round };
+}
+
+/** Greedy rectangle merge over one plot's squares (global columns and rows), where `solid(col, row, level)` holds. */
+export function plotSlabs(plot: PlotCoord, solid: (col: number, row: number, level: number) => boolean): Slab[] {
+  const e = extentOf([plot]);
+  return mergeSlabsWhere((c, r, level) => solid(e.col0 + c, e.row0 + r, level), e.col1 - e.col0, e.row1 - e.row0, e.x0, e.z0, CELL, MAX_HEIGHT);
 }
 
 /** One layer of stacked blocks covering a rectangle of the mat (world mm). Level 1 is the bottom layer. */
@@ -50,8 +54,12 @@ export interface Slab {
 }
 
 /** Greedy rectangle merge per block level, so hills render (and collide) as a few big blocks, not many cubes. */
-export function hillSlabs(grid: LandscapeGrid): Slab[] {
-  return mergeSlabs((c, r) => grid.height[grid.index(c, r)], COLS, ROWS, -MAT_WIDTH / 2, -MAT_DEPTH / 2, CELL, MAX_HEIGHT);
+export function hillSlabs(grid: LandscapeGrid, plots: readonly number[] = grid.plots.map((_, slot) => slot)): Slab[] {
+  const at = (c: number, r: number) => {
+    const i = grid.index(c, r);
+    return i === -1 ? 0 : grid.height[i];
+  };
+  return plots.flatMap((slot) => plotSlabs(grid.plots[slot], (c, r, level) => at(c, r) >= level));
 }
 
 /** Greedy rectangle merge of any grid of block heights (`height(col, row)`), cells `cell` mm square from (x0, z0). */

@@ -3,18 +3,18 @@ import { Layout, RISER_HEIGHT } from "../track";
 import { checkPlacement } from "./clearance";
 import { cutUndermines, syncCuttings } from "./cuttings";
 import type { Landscape } from "./generate";
-import { LandscapeGrid } from "./grid";
+import { gridWithPlots } from "./grid";
 import { CUT_BANK_ANGLE, CUT_BED_HALF, hillsOf } from "./hill-shape";
 
 const P = (x: number, z: number, heading = 0) => ({ x, z, heading });
 /** Felt, with a one-block hill from x = 144 eastward over a band of rows (x = 0 is a square edge; squares are 72 mm). */
 function land(height = 1): Landscape {
-  const grid = new LandscapeGrid();
+  const grid = gridWithPlots(-1, -1, 2, 2);
   for (let x = 144 + 36; x < 1200; x += 72) for (let z = -300; z < 300; z += 72) {
     const i = grid.cellAtWorld(x, z);
     if (i !== -1) grid.height[i] = height;
   }
-  return { seed: 0, starter: false, grid, towns: [], corridors: [], fields: [], shed: null, depots: [] };
+  return { seed: 0, starter: false, grid, towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
 }
 const Z = 36; // a square's centre, inside the hill's long straight edge
 /** A ramp from the felt at x = 0 rising onto the hill: its last third (from x = 144) runs into the hill. */

@@ -108,7 +108,8 @@ export class DerailPhysics {
           this.rapier = R;
           this.world = new R.World({ x: 0, y: -9.81, z: 0 });
           this.world.timestep = STEP;
-          const floor = R.ColliderDesc.cuboid(50, 0.05, 50).setTranslation(0, -0.05, 0).setFriction(0.9).setRestitution(0.1);
+          // Far bigger than any world will grow (metres).
+          const floor = R.ColliderDesc.cuboid(1000, 0.05, 1000).setTranslation(0, -0.05, 0).setFriction(0.9).setRestitution(0.1);
           this.world.createCollider(floor);
           for (const t of this.pending.splice(0)) this.spawn(t);
         })

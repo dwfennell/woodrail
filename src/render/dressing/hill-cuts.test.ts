@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Mesh, MeshBasicMaterial, Raycaster, Vector3, type BufferGeometry } from "three";
-import { blockOutline, hillsOf, insideBlock, LandscapeGrid, SURF_RIVER, syncCuttings, type Landscape } from "../../landscape";
+import { blockOutline, hillsOf, insideBlock, gridWithPlots, SURF_RIVER, syncCuttings, type Landscape } from "../../landscape";
 import { Layout, RISER_HEIGHT } from "../../track";
 import { columnGeometry, cutColumn } from "./hill-cuts";
 
@@ -99,12 +99,12 @@ describe("hill blocks cut by ramps' cuttings", () => {
   const P = (x: number, z: number, heading = 0) => ({ x, z, heading });
   /** Felt, with a hill `height` blocks high from x = 144 eastward over a band of rows, and any squares raised higher. */
   function land(height = 1, extra: (x: number, z: number) => number = () => 0): Landscape {
-    const grid = new LandscapeGrid();
+    const grid = gridWithPlots(-1, -1, 2, 2);
     for (let x = 144 + 36; x < 1200; x += 72) for (let z = -300; z < 300; z += 72) {
       const i = grid.cellAtWorld(x, z);
       if (i !== -1) grid.height[i] = height + extra(x, z);
     }
-    return { seed: 0, starter: false, grid, towns: [], corridors: [], fields: [], shed: null, depots: [] };
+    return { seed: 0, starter: false, grid, towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
   }
   const cases: { name: string; land: Landscape; ramps: { pose: { x: number; z: number; heading: number }; y: number }[]; blocks: number }[] = [
     { name: "straight into an edge, ending mid-block", land: land(), ramps: [{ pose: P(0, 36), y: 0 }], blocks: 1 },

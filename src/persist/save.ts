@@ -1,18 +1,17 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
-import { createEconomy, depotPieceType, type World } from "../game/world";
-import { generateLandscape } from "../landscape";
+import { depotPieceType, STATION_CRANE_AT, type World } from "../game/world";
 import { CAR_KINDS, Sim, type CarKind } from "../sim";
-import { CARGO, CARGO_KINDS, PILE_CAP, ROLE, WAGON_CAPACITY, type CargoKind } from "../economy";
-import { getPieceDef, isBridge, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
+import { CARGO, CARGO_KINDS, Economy, PILE_CAP, ROLE, WAGON_CAPACITY, type CargoKind } from "../economy";
+import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
+import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
 /**
- * Save format, version 7. Plain JSON validated with Zod; only this module knows its shape.
- * The landscape is regenerated from its seed. No backward compatibility until the game reaches v1, except that
- * version 6 saves still load (their bridges stored the height of their arches' feet, not their decks).
+ * Save format, version 8. Plain JSON validated with Zod; only this module (and `landscape-data`) knows its shape.
+ * The landscape is saved square by square (see `landscape-data.ts`): loading never regenerates it. No backward
+ * compatibility until the game reaches v1.
  */
-export const SAVE_VERSION = 7;
-const BRIDGE_FEET_VERSION = 6;
+export const SAVE_VERSION = 8;
 
 const pieceSchema = z.object({
   id: z.number().int().positive(),
@@ -44,16 +43,19 @@ const trainSchema = z.object({
 });
 
 const saveSchema = z.object({
-  version: z.union([z.literal(SAVE_VERSION), z.literal(BRIDGE_FEET_VERSION)]),
-  landscape: z.object({ seed: z.number().int(), starter: z.boolean() }),
+  version: z.literal(SAVE_VERSION),
+  landscape: landscapeSchema,
   towns: z.array(z.object({ id: z.number().int().min(0), stationPieceId: z.number().int().positive() })),
   pieces: z.array(pieceSchema),
   switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(1)])),
   trains: z.array(trainSchema),
-  /** Economy depots by id (landscape depots first, then one per town station). */
+  /** Economy depots, in id order: the piece each works on and what it does. */
   depots: z.array(
     z.object({
       id: z.number().int().min(0),
+      pieceId: z.number().int().positive(),
+      role: z.enum(["forest", "sawmill", "town"]),
+      townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
       piles: z.tuple([z.number().int().min(0).max(PILE_CAP), z.number().int().min(0).max(PILE_CAP)]),
@@ -88,12 +90,12 @@ export function serializeWorld(world: World): SaveData {
   });
   return {
     version: SAVE_VERSION,
-    landscape: { seed: world.landscape.seed, starter: world.landscape.starter },
+    landscape: serializeLandscape(world.landscape),
     towns: [...world.stations].map(([id, stationPieceId]) => ({ id, stationPieceId })),
     pieces,
     switches,
     trains,
-    depots: world.economy.allDepots().map((d) => ({ id: d.id, auto: d.auto, waitFull: d.waitFull, piles: [d.piles[0], d.piles[1]] as [number, number], timer: d.timer })),
+    depots: world.economy.allDepots().map((d) => ({ id: d.id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [d.piles[0], d.piles[1]] as [number, number], timer: d.timer })),
     delivered: [...world.economy.delivered],
   };
 }
@@ -108,13 +110,14 @@ export function deserializeWorld(data: unknown): Result<World, string> {
   const save = parsed.data;
   const layout = new Layout();
   for (const p of [...save.pieces].sort((a, b) => a.id - b.id)) {
-    const y = save.version === BRIDGE_FEET_VERSION && isBridge(p.type) ? p.y + RISER_HEIGHT : p.y;
-    if (!layout.restorePiece(p.id, p.type, { x: p.x, z: p.z, heading: p.heading }, y, p.flipped)) {
+    if (!layout.restorePiece(p.id, p.type, { x: p.x, z: p.z, heading: p.heading }, p.y, p.flipped)) {
       return err(`invalid save: duplicate piece id ${p.id}`);
     }
   }
   for (const [id, state] of save.switches) if (layout.getPiece(id)) layout.setSwitchState(id, state);
-  const landscape = generateLandscape(save.landscape.seed, { starter: save.landscape.starter });
+  const land = deserializeLandscape(save.landscape);
+  if (!land.ok) return err(`invalid save: ${land.error}`);
+  const landscape = land.value;
   const stations = new Map<number, number>();
   for (const town of landscape.towns) {
     const saved = save.towns.find((t) => t.id === town.id);
@@ -131,10 +134,17 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     depots.set(depot.id, piece.id);
   }
   const sim = new Sim(layout);
-  const economy = createEconomy(layout, sim, landscape, stations, depots);
-  for (const d of save.depots) {
-    const state = economy.depot(d.id);
-    if (!state) continue;
+  // The economy's depots as they were, in order: one on each depot piece and station.
+  const economy = new Economy(layout, sim);
+  const expected = new Map<number, { role: string; townId: number }>();
+  for (const [townId, pieceId] of stations) expected.set(pieceId, { role: "town", townId });
+  for (const [depotId, pieceId] of depots) expected.set(pieceId, { role: landscape.depots[depotId].kind, townId: -1 });
+  if (save.depots.length !== expected.size) return err("invalid save: wrong number of economy depots");
+  for (const [i, d] of save.depots.entries()) {
+    const want = expected.get(d.pieceId);
+    if (d.id !== i || !want || want.role !== d.role || want.townId !== d.townId) return err(`invalid save: economy depot ${d.id} doesn't match the landscape`);
+    expected.delete(d.pieceId);
+    const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId);
     state.auto = d.auto;
     state.waitFull = d.waitFull;
     // Only the piles this kind of depot uses (its input and output) can hold anything.

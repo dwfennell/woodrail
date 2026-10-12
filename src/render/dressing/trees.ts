@@ -13,7 +13,7 @@ import {
   type Material,
 } from "three";
 import { rng } from "../../lib/rng";
-import { COLS, FEAT_TREE, ROWS, type Landscape } from "../../landscape";
+import { FEAT_TREE, forEachInPlot, hashInts, type Landscape } from "../../landscape";
 import type { Materials } from "../materials";
 
 export const MAX_LEAN = 0.05;
@@ -33,15 +33,18 @@ export interface TreePlacement {
   tint: number;
 }
 
-/** Where each toy tree stands, with a little random size, lean and colour. Deterministic per map. */
-export function treePlacements(land: Landscape): TreePlacement[] {
+/**
+ * Where each toy tree stands, with a little random size, lean and colour, plot by plot in slot order (so the trees of
+ * plots added later come after those already there). Deterministic per plot.
+ */
+export function treePlacements(land: Landscape, plots: readonly number[] = land.grid.plots.map((_, slot) => slot)): TreePlacement[] {
   const g = land.grid;
-  const r = rng(land.seed * 131 + 17);
   const out: TreePlacement[] = [];
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col < COLS; col++) {
-      const i = g.index(col, row);
-      if (g.feature[i] !== FEAT_TREE) continue;
+  for (const slot of plots) {
+    const { px, pz } = g.plots[slot];
+    const r = rng(hashInts(land.seed, px, pz, 131));
+    forEachInPlot(slot, g.plots[slot], (i, col, row) => {
+      if (g.feature[i] !== FEAT_TREE) return;
       out.push({
         x: g.centreX(col) + (r() * 2 - 1) * JITTER,
         z: g.centreZ(row) + (r() * 2 - 1) * JITTER,
@@ -53,7 +56,7 @@ export function treePlacements(land: Landscape): TreePlacement[] {
         yaw: r() * Math.PI * 2,
         tint: Math.floor(r() * TREE_GREENS.length),
       });
-    }
+    });
   }
   return out;
 }

@@ -1,7 +1,7 @@
 import { CylinderGeometry, SphereGeometry, type BufferGeometry } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { rng } from "../../lib/rng";
-import { CELL, COLS, type Field, type Landscape } from "../../landscape";
+import { CELL, type Field, type Landscape } from "../../landscape";
 import type { Materials } from "../materials";
 import type { Batcher } from "./batcher";
 
@@ -13,8 +13,8 @@ const INSET = 5;
 export function buildField(land: Landscape, field: Field, mats: Materials, b: Batcher): void {
   const g = land.grid;
   const first = field.cells[0];
-  const col = first % COLS;
-  const row = (first - col) / COLS;
+  const col = g.colOf(first);
+  const row = g.rowOf(first);
   const x0 = g.centreX(col) - CELL / 2 + INSET;
   const z0 = g.centreZ(row) - CELL / 2 + INSET;
   const size = CELL * 2 - INSET * 2;

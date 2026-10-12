@@ -1,12 +1,12 @@
 import { rng } from "../lib/rng";
 import { RISER_HEIGHT } from "../track";
-import { CELL, MAT_DEPTH, MAT_WIDTH } from "./grid";
+import { CELL } from "./grid";
 import { valueNoise } from "./noise";
 import { mergeSlabs, type Slab } from "./slabs";
 
 /**
- * The scenery around the mat: toy hills, trees and hamlets that run off toward the horizon, where the haze swallows
- * them. Decoration only — nothing outside the mat can be built on. Deterministic per seed.
+ * The scenery around the land: toy hills, trees and hamlets that run off toward the horizon, where the haze swallows
+ * them. Decoration only — nothing outside the land can be built on. Deterministic per seed and rectangle.
  */
 
 /** How far the scenery reaches beyond the mat's edge (mm): whole far-band squares, so they keep the mat's grid. */
@@ -66,28 +66,27 @@ export interface Surroundings {
   slabs: Slab[];
 }
 
-/** Distance (mm) from a plan point to the mat rectangle; 0 on the mat. */
-export function outsideDistance(x: number, z: number): number {
-  return Math.hypot(Math.max(Math.abs(x) - MAT_WIDTH / 2, 0), Math.max(Math.abs(z) - MAT_DEPTH / 2, 0));
-}
-
-interface Rect {
+/** A rectangle in plan (world mm). */
+export interface Rect {
   x0: number;
   z0: number;
   x1: number;
   z1: number;
 }
 
-const overlaps = (a: Rect, b: Rect) => a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
-
-/** Distance from the mat to the nearest point of a square centred at (x, z). */
-function squareDistance(x: number, z: number, size: number): number {
-  const nx = Math.max(Math.abs(x) - size / 2, 0);
-  const nz = Math.max(Math.abs(z) - size / 2, 0);
-  return outsideDistance(Math.sign(x) * nx, Math.sign(z) * nz);
+/** Distance (mm) from a plan point to a rectangle (the land's); 0 inside it. */
+export function outsideDistance(x: number, z: number, land: Rect): number {
+  return Math.hypot(Math.max(land.x0 - x, x - land.x1, 0), Math.max(land.z0 - z, z - land.z1, 0));
 }
 
-/** A square lattice of block columns centred on the mat. */
+const overlaps = (a: Rect, b: Rect) => a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
+
+/** Distance from the land to the nearest point of a square centred at (x, z). */
+function squareDistance(x: number, z: number, size: number, land: Rect): number {
+  return outsideDistance(x, z, { x0: land.x0 - size / 2, z0: land.z0 - size / 2, x1: land.x1 + size / 2, z1: land.z1 + size / 2 });
+}
+
+/** A square lattice of block columns around the land. */
 interface Lattice {
   size: number;
   cols: number;
@@ -99,10 +98,12 @@ interface Lattice {
   open: Uint8Array;
 }
 
-function lattice(size: number, halfW: number, halfD: number): Lattice {
-  const cols = Math.round((2 * halfW) / size);
-  const rows = Math.round((2 * halfD) / size);
-  return { size, cols, rows, x0: -halfW, z0: -halfD, height: new Uint8Array(cols * rows), open: new Uint8Array(cols * rows) };
+function lattice(size: number, land: Rect, reach: number): Lattice {
+  const x0 = Math.floor((land.x0 - reach) / size) * size;
+  const z0 = Math.floor((land.z0 - reach) / size) * size;
+  const cols = Math.ceil((land.x1 + reach - x0) / size);
+  const rows = Math.ceil((land.z1 + reach - z0) / size);
+  return { size, cols, rows, x0, z0, height: new Uint8Array(cols * rows), open: new Uint8Array(cols * rows) };
 }
 
 const cx = (l: Lattice, c: number) => l.x0 + (c + 0.5) * l.size;
@@ -136,7 +137,11 @@ function relax(l: Lattice, closedIsGround: boolean): void {
   }
 }
 
-function placeHamlets(random: () => number): { houses: OuterHouse[]; count: number } {
+function placeHamlets(random: () => number, land: Rect): { houses: OuterHouse[]; count: number } {
+  const mx = (land.x0 + land.x1) / 2;
+  const mz = (land.z0 + land.z1) / 2;
+  const hw = (land.x1 - land.x0) / 2;
+  const hd = (land.z1 - land.z0) / 2;
   const count = random() < 0.5 ? 3 : 4;
   const centres: { x: number; z: number; out: { x: number; z: number } }[] = [];
   let guard = 0;
@@ -145,8 +150,8 @@ function placeHamlets(random: () => number): { houses: OuterHouse[]; count: numb
     const d = 450 + random() * 600;
     const along = (random() * 2 - 1) * 0.8;
     const out = [{ x: 1, z: 0 }, { x: -1, z: 0 }, { x: 0, z: 1 }, { x: 0, z: -1 }][side];
-    const x = out.x !== 0 ? out.x * (MAT_WIDTH / 2 + d) : (along * MAT_WIDTH) / 2;
-    const z = out.z !== 0 ? out.z * (MAT_DEPTH / 2 + d) : (along * MAT_DEPTH) / 2;
+    const x = mx + (out.x !== 0 ? out.x * (hw + d) : along * hw);
+    const z = mz + (out.z !== 0 ? out.z * (hd + d) : along * hd);
     if (centres.some((c) => Math.hypot(c.x - x, c.z - z) < 1100)) continue;
     centres.push({ x, z, out });
   }
@@ -185,28 +190,29 @@ function houseRect(h: OuterHouse, pad: number): Rect {
   return { x0: h.cx - h.w / 2 - pad, x1: h.cx + h.w / 2 + pad, z0: h.cz - h.d / 2 - pad, z1: h.cz + h.d / 2 + pad };
 }
 
-export function generateSurroundings(seed: number): Surroundings {
+/** The scenery around a rectangle of land (`margin`: a flat strip of felt left just outside it). */
+export function generateSurroundings(seed: number, land: Rect, margin = SCENERY_MARGIN): Surroundings {
   const random = rng(seed * 977 + 31);
-  const { houses, count: hamlets } = placeHamlets(random);
+  const { houses, count: hamlets } = placeHamlets(random, land);
   const clear = houses.map((h) => houseRect(h, HOUSE_CLEARANCE));
   const cleared = (x: number, z: number, half: number) => clear.some((r) => overlaps(r, { x0: x - half, x1: x + half, z0: z - half, z1: z + half }));
 
   const hill = valueNoise(seed * 29 + 3);
-  const near = lattice(CELL, MAT_WIDTH / 2 + NEAR_WIDTH, MAT_DEPTH / 2 + NEAR_WIDTH);
-  const far = lattice(BIG, MAT_WIDTH / 2 + RING_WIDTH, MAT_DEPTH / 2 + RING_WIDTH);
-  const nearRect: Rect = { x0: near.x0, z0: near.z0, x1: -near.x0, z1: -near.z0 };
+  const near = lattice(CELL, land, NEAR_WIDTH);
+  const far = lattice(BIG, land, RING_WIDTH);
+  const nearRect: Rect = { x0: near.x0, z0: near.z0, x1: near.x0 + near.cols * CELL, z1: near.z0 + near.rows * CELL };
 
   for (let r = 0; r < near.rows; r++) {
     for (let c = 0; c < near.cols; c++) {
       const x = cx(near, c);
       const z = cz(near, r);
-      if (squareDistance(x, z, CELL) < SCENERY_MARGIN) continue;
+      if (squareDistance(x, z, CELL, land) < margin) continue;
       const i = r * near.cols + c;
       near.open[i] = 1;
       if (cleared(x, z, CELL / 2)) continue;
-      const d = outsideDistance(x, z);
+      const d = outsideDistance(x, z, land);
       const n = hill(x / 512, z / 512) * 0.7 + hill(x / 220 + 17, z / 220 + 5) * 0.3;
-      const ramp = Math.min(1, (d - SCENERY_MARGIN) / 1400);
+      const ramp = Math.min(1, Math.max(0, d - margin) / 1400);
       near.height[i] = Math.max(0, Math.min(NEAR_MAX, Math.floor((n - 0.5 + 0.35 * ramp) * 7)));
     }
   }
@@ -219,7 +225,7 @@ export function generateSurroundings(seed: number): Surroundings {
       const half = BIG / 2;
       // The near band has this square; the round corners of the ring stop at its outer edge.
       if (overlaps({ x0: x - half, x1: x + half, z0: z - half, z1: z + half }, nearRect)) continue;
-      const d = outsideDistance(x, z);
+      const d = outsideDistance(x, z, land);
       if (d > RING_WIDTH) continue;
       const i = r * far.cols + c;
       far.open[i] = 1;

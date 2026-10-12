@@ -1,5 +1,5 @@
 import { createSample, getPieceDef, pathLength, samplePath, type Layout } from "../track";
-import { COLS, SURF_LANE } from "./grid";
+import { SURF_LANE } from "./grid";
 import type { Landscape } from "./generate";
 
 /** Where track crosses a country lane: the middle of the crossing and which way the lane runs there. */
@@ -58,18 +58,23 @@ export function findCrossings(land: Landscape, layout: Layout): LevelCrossing[] 
       x += h.x;
       z += h.z;
       n += h.n;
-      const col = i % COLS;
-      for (const j of [col > 0 ? i - 1 : -1, col + 1 < COLS ? i + 1 : -1, i - COLS, i + COLS]) {
-        if (j >= 0 && hits.has(j) && !done.has(j)) {
+      const col = g.colOf(i);
+      const row = g.rowOf(i);
+      for (const j of [g.index(col - 1, row), g.index(col + 1, row), g.index(col, row - 1), g.index(col, row + 1)]) {
+        if (j !== -1 && hits.has(j) && !done.has(j)) {
           done.add(j);
           queue.push(j);
         }
       }
     }
-    const col = start % COLS;
-    const lane = (j: number) => j >= 0 && j < g.surface.length && g.surface[j] === SURF_LANE;
-    const alongX = (col > 0 && lane(start - 1)) || (col + 1 < COLS && lane(start + 1));
-    const alongZ = lane(start - COLS) || lane(start + COLS);
+    const col = g.colOf(start);
+    const row = g.rowOf(start);
+    const lane = (c: number, r: number) => {
+      const j = g.index(c, r);
+      return j !== -1 && g.surface[j] === SURF_LANE;
+    };
+    const alongX = lane(col - 1, row) || lane(col + 1, row);
+    const alongZ = lane(col, row - 1) || lane(col, row + 1);
     out.push({ x: x / n, z: z / n, laneAlongX: alongX && !alongZ ? true : alongZ && !alongX ? false : alongX });
   }
   return out;

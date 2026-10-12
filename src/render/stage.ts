@@ -3,7 +3,6 @@ import {
   BufferAttribute,
   Color,
   DirectionalLight,
-  Fog,
   Group,
   HemisphereLight,
   Mesh,
@@ -16,7 +15,7 @@ import {
 } from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
-import { HAZE_COLOR, HAZE_FAR, HAZE_NEAR, installHaze } from "./haze";
+import { HAZE_COLOR, hazeFog, installHaze } from "./haze";
 import type { QualitySettings } from "./quality";
 
 /** Pale blue high overhead; the horizon is the haze colour so hazed ground meets the sky without a seam. */
@@ -65,7 +64,8 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environmentIntensity = 0.22;
   scene.background = new Color(HAZE_COLOR);
-  scene.fog = new Fog(HAZE_COLOR, HAZE_NEAR, HAZE_FAR);
+  // The land it hazes around is set by the game (see `setHazeLand`).
+  scene.fog = hazeFog({ x0: 0, z0: 0, x1: 0, z1: 0 });
 
   const sky = buildSky();
   group.add(sky);

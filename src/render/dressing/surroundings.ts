@@ -1,5 +1,5 @@
 import { Group } from "three";
-import { CELL, outsideDistance, type Surroundings } from "../../landscape";
+import { CELL, outsideDistance, type Rect, type Surroundings } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
 import type { Materials } from "../materials";
 import { Batcher } from "./batcher";
@@ -10,14 +10,14 @@ import { buildTrees, MAX_LEAN, TREE_GREENS, treeKind, type TreePlacement } from 
 const ROUNDED_REACH = 700;
 
 /**
- * The scenery around the mat: bevelled blocks beside it, plain ones beyond (big ones for the distant "mountains"),
+ * The scenery around the land: bevelled blocks beside it, plain ones beyond (big ones for the distant "mountains"),
  * trees and hamlets. Only the near hills cast shadows, through merged stand-ins.
  */
-export function buildSurroundings(s: Surroundings, mats: Materials): Group {
+export function buildSurroundings(s: Surroundings, mats: Materials, land: Rect): Group {
   const group = new Group();
   // Next to the mat the blocks are bevelled like the mat's own; further out the haze hides the difference.
-  const close = s.blocks.filter((k) => k.size === CELL && outsideDistance(k.x, k.z) < ROUNDED_REACH);
-  const plain = s.blocks.filter((k) => k.size !== CELL || outsideDistance(k.x, k.z) >= ROUNDED_REACH);
+  const close = s.blocks.filter((k) => k.size === CELL && outsideDistance(k.x, k.z, land) < ROUNDED_REACH);
+  const plain = s.blocks.filter((k) => k.size !== CELL || outsideDistance(k.x, k.z, land) >= ROUNDED_REACH);
   group.add(blockMeshes(close, CELL, RISER_HEIGHT, { wood: mats.blockWood, top: mats.blockTop }, true, false));
   group.add(blockMeshes(plain, CELL, RISER_HEIGHT, mats.scenery, false));
   const proxy = shadowProxy(s.slabs);

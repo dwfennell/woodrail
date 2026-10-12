@@ -1,5 +1,5 @@
 import { BoxGeometry, BufferGeometry, Color, InstancedMesh, Float32BufferAttribute, Group, Matrix4, Mesh, MeshBasicMaterial, type Material } from "three";
-import { blockOutline, CELL, COLS, hillPieces, hillsOf, MAT_DEPTH, MAT_WIDTH, MAX_HEIGHT, mergeSlabsWhere, ROWS, type HillCut, type LandscapeGrid } from "../../landscape";
+import { blockOutline, CELL, hillPieces, hillsOf, plotOfCol, plotOfRow, plotSlabs, type HillCut, type LandscapeGrid } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
 import { BEECH_UV_SCALE } from "../materials";
 import { blockKey, CORE_COLOUR, CORE_INSET, hillCore, shadowProxy, SHADOW_PROXY_LAYER, type BlockInstanceRef } from "./blocks";
@@ -214,23 +214,26 @@ const coreMaterial = new MeshBasicMaterial({ color: CORE_COLOUR });
 /** A block cut by a cutting: its column, and the instances it stands in for. */
 interface CutBlock {
   key: string;
+  /** The slot of its plot. */
+  slot: number;
   meshes: Mesh[];
   refs: BlockInstanceRef[];
 }
 
 /**
  * The hills' blocks with ramps' cuttings in them: each cut block drawn as its own column (its instance hidden), with
- * its top following `HillShape`'s ground. Also the hills' dark core and shadow, which leave the cut blocks out (a
- * cut block's core is lowered under the cut; its column casts its own shadow). Only blocks whose cuts change are
- * rebuilt.
+ * its top following `HillShape`'s ground. Also the hills' dark core and shadow, plot by plot, which leave the cut
+ * blocks out (a cut block's core is lowered under the cut; its column casts its own shadow). Only blocks whose cuts
+ * change are rebuilt, and only the cores and shadows of plots whose cut blocks change.
  */
 export class HillCutsView {
   readonly group = new Group();
   private built = new Map<string, CutBlock>();
-  private solids: Mesh[] = [];
-  private solidsFor: string | null = null;
+  /** Each plot's core and shadow, and what they were built for (its cut blocks and the plot's version). */
+  private solids = new Map<number, { meshes: Mesh[]; key: string }>();
   /** The blocks the layout's cuttings cut, and how (at the last sync without a held ramp). */
   private settled = new Map<string, string>();
+  private extra: HillCut | undefined;
 
   constructor(
     private readonly grid: LandscapeGrid,
@@ -242,6 +245,7 @@ export class HillCutsView {
 
   /** Show the cuttings in force on the map's `HillShape`, and an extra one (a ramp being held), if given. */
   sync(extra?: HillCut): void {
+    this.extra = extra;
     const hills = hillsOf(this.grid);
     const g = this.grid;
     // While a ramp is held, blocks it cuts are drawn coarser (quick to rebuild as it moves), and redrawn fine when it's
@@ -256,15 +260,7 @@ export class HillCutsView {
     // Blocks no longer cut, or cut differently: put back.
     for (const [id, entry] of this.built) {
       if (wanted.get(id)?.key === entry.key) continue;
-      for (const m of entry.meshes) {
-        this.group.remove(m);
-        m.geometry.dispose();
-        if ((m as InstancedMesh).isInstancedMesh) (m as InstancedMesh).dispose();
-      }
-      for (const ref of entry.refs) {
-        ref.mesh.setMatrixAt(ref.i, ref.matrix);
-        ref.mesh.instanceMatrix.needsUpdate = true;
-      }
+      this.drop(entry, true);
       this.built.delete(id);
     }
     for (const [id, b] of wanted) {
@@ -289,38 +285,82 @@ export class HillCutsView {
         ref.mesh.setMatrixAt(ref.i, hiddenMatrix);
         ref.mesh.instanceMatrix.needsUpdate = true;
       }
-      this.built.set(id, { key: b.key, meshes, refs });
+      this.built.set(id, { key: b.key, slot: g.slotOf(plotOfCol(b.col), plotOfRow(b.row)), meshes, refs });
     }
-    // The map's core and shadow change only when which blocks are cut does.
-    const ids = [...this.built.keys()].sort().join(";");
-    if (ids !== this.solidsFor) this.buildSolids();
+    // A plot's core and shadow change only when which of its blocks are cut does (or the plot itself).
+    const cutIn = new Map<number, string[]>();
+    for (const [id, b] of this.built) {
+      let list = cutIn.get(b.slot);
+      if (!list) cutIn.set(b.slot, (list = []));
+      list.push(id);
+    }
+    g.plots.forEach((_, slot) => {
+      const key = `${g.version(slot)}:${(cutIn.get(slot) ?? []).sort().join(";")}`;
+      if (this.solids.get(slot)?.key !== key) this.buildSolids(slot, key);
+    });
   }
 
-  /** The hills' dark core and shadow, around the blocks cut now. */
-  private buildSolids(): void {
-    for (const m of this.solids) {
+  /**
+   * These plots' block meshes were built again (new plots, or plots beside them): forget the cut blocks drawn in them
+   * (their instances are gone with the old meshes) and draw them again.
+   */
+  plotsRebuilt(slots: readonly number[]): void {
+    const set = new Set(slots);
+    for (const [id, entry] of this.built) {
+      if (!set.has(entry.slot)) continue;
+      this.drop(entry, false);
+      this.built.delete(id);
+    }
+    for (const slot of slots) this.solids.delete(slot);
+    this.settled = new Map();
+    this.sync(this.extra);
+  }
+
+  private drop(entry: CutBlock, restore: boolean): void {
+    for (const m of entry.meshes) {
+      this.group.remove(m);
+      m.geometry.dispose();
+      if ((m as InstancedMesh).isInstancedMesh) (m as InstancedMesh).dispose();
+    }
+    if (!restore) return;
+    for (const ref of entry.refs) {
+      ref.mesh.setMatrixAt(ref.i, ref.matrix);
+      ref.mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  /** One plot's dark core and shadow, around the blocks cut now. */
+  private buildSolids(slot: number, key: string): void {
+    for (const m of this.solids.get(slot)?.meshes ?? []) {
       this.group.remove(m);
       m.geometry.dispose();
       (m.material as Material).dispose();
     }
-    this.solids = [];
+    const g = this.grid;
     const cut = (c: number, r: number, level: number) => this.built.has(`${c},${r},${level}`);
-    const core = hillCore(mergeSlabsWhere((c, r, level) => this.grid.height[this.grid.index(c, r)] >= level && !cut(c, r, level - 1), COLS, ROWS, -MAT_WIDTH / 2, -MAT_DEPTH / 2, CELL, MAX_HEIGHT));
-    const pieces = hillPieces(this.grid, cut);
+    const height = (c: number, r: number) => {
+      const i = g.index(c, r);
+      return i === -1 ? 0 : g.height[i];
+    };
+    const core = hillCore(plotSlabs(g.plots[slot], (c, r, level) => height(c, r) >= level && !cut(c, r, level - 1)));
+    const pieces = hillPieces(g, cut, [slot]);
     const proxy = shadowProxy(pieces.slabs, pieces.round);
+    const meshes: Mesh[] = [];
     for (const m of [core, proxy]) {
       if (!m) continue;
-      this.solids.push(m);
+      meshes.push(m);
       this.group.add(m);
     }
-    this.solidsFor = [...this.built.keys()].sort().join(";");
+    this.solids.set(slot, { meshes, key });
   }
 
   dispose(): void {
     for (const b of this.built.values()) for (const m of b.meshes) m.geometry.dispose();
-    for (const m of this.solids) {
-      m.geometry.dispose();
-      (m.material as Material).dispose();
+    for (const s of this.solids.values()) {
+      for (const m of s.meshes) {
+        m.geometry.dispose();
+        (m.material as Material).dispose();
+      }
     }
   }
 }
