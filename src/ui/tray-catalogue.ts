@@ -92,7 +92,7 @@ export const TRAIN_GROUPS: TrayGroup[] = [
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
-/** The track bridges, on the Bridges tab (with decorative bridges and tunnels in Sandbox). */
+/** The track bridges, on the Bridges tab (with decorative bridges in Sandbox). */
 export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Track bridges", items: pieces("bridge", "bridge-curve") }];
 
 /** A tab of the tray: its shelves, and the modes that show it. */

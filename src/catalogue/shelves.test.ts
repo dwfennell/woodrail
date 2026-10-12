@@ -15,10 +15,24 @@ describe("prop shelves", () => {
     expect(new Set(listed).size).toBe(listed.length);
   });
 
-  it("leave out what's deferred: roads, the sky, the catalogue's track and trains", () => {
+  it("leave out what's deferred: roads, tunnels, the sky, the catalogue's track and trains", () => {
     for (const id of ["scene-road-straight", "scene-roundabout", "scene-car-park", "scene-rainbow", "scene-clouds", "scene-sun-moon"]) expect(listed).not.toContain(id);
     const offered = new Set(listed);
     const rest = CATALOGUE.filter((a) => !offered.has(a.id) && !a.inGame && a.category !== "Track" && a.category !== "Trains" && a.category !== "Wagons");
-    expect(rest.map((a) => a.id).sort()).toEqual(["scene-car-park", "scene-clouds", "scene-rainbow", "scene-road-curve", "scene-road-junction", "scene-road-straight", "scene-roundabout", "scene-sun-moon", "scene-zebra-crossing"]);
+    expect(rest.map((a) => a.id).sort()).toEqual([
+      "mech-double-tunnel",
+      "mech-mountain-tunnel",
+      "mech-rock-cutting",
+      "mech-tunnel-portal",
+      "scene-car-park",
+      "scene-clouds",
+      "scene-rainbow",
+      "scene-road-curve",
+      "scene-road-junction",
+      "scene-road-straight",
+      "scene-roundabout",
+      "scene-sun-moon",
+      "scene-zebra-crossing",
+    ]);
   });
 });

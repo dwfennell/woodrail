@@ -1,7 +1,8 @@
 /**
  * Which catalogue models the tray offers as props, and where: tab → shelves → asset ids. An asset not listed here
- * isn't in the game yet — see the sandbox assets design's "Deferred" list: roads (waiting for the road system), the
- * catalogue's own track and trains (they need mechanics), and the sky (clouds, rainbow, sun and moon).
+ * isn't in the game yet — see the sandbox assets design's "Deferred" list: roads (waiting for the road system), tunnels
+ * (waiting for track that tunnels through hills), the catalogue's own track and trains (they need mechanics), and the
+ * sky (clouds, rainbow, sun and moon).
  */
 export interface PropShelf {
   label: string;
@@ -241,7 +242,10 @@ export const PROP_TABS: readonly PropTab[] = [
   },
 ];
 
-/** Decorative bridges and tunnels: shelves on the Bridges tab, after the track bridges. */
+/**
+ * Decorative bridges: a shelf on the Bridges tab, after the track bridges. (Tunnels wait until track can tunnel through
+ * the map's hills: see the design's Deferred list.)
+ */
 export const BRIDGE_PROP_SHELVES: readonly PropShelf[] = [
   {
     label: "Bridges",
@@ -260,5 +264,4 @@ export const BRIDGE_PROP_SHELVES: readonly PropShelf[] = [
       "mech-river-ford",
     ],
   },
-  { label: "Tunnels", assets: ["mech-tunnel-portal", "mech-mountain-tunnel", "mech-double-tunnel", "mech-rock-cutting"] },
 ];

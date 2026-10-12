@@ -28,7 +28,7 @@ The design leaves room for all three.
 | --- | --- | --- |
 | Track | Straight, Curve, Switch, Ups & downs (ramps, riser), Ends, Adapters | both |
 | Trains | Trains, Engines, Wagons, Coaches | both |
-| Bridges | Track bridges (bridge, curved bridge), Bridges, Tunnels | both (props: Sandbox) |
+| Bridges | Track bridges (bridge, curved bridge), Bridges (decorative) | both (props: Sandbox) |
 | Buildings | Railway, Houses & shops, Town, Farm & industry | Sandbox |
 | Nature | Trees, Plants & flowers, Rocks & water, Farm | Sandbox |
 | Town | Street, Park, Fences & walls | Sandbox |
@@ -147,7 +147,8 @@ and strike it out when it's done.
 | Map editing (blocks, trees, fields) | Later in the epic. | Props sit beside the map's own scenery for now. A tree prop and a map tree are different things; unify them when map editing comes. |
 | Props stepping aside for track (like trees) | Needs footprint-aware hop logic for props of any size. | For now track is refused through a prop ("Something's in the way"). `TreeClearance` is the model to follow. |
 | Prop animation (windmill sails, cranes) | Animating means drawing every frame. | A "poke": tap a prop to swap its instance for a live copy for a few seconds. |
-| Decorative bridges and tunnels as working track | Their own geometry and mechanics. | They could become bridge styles of the track bridges, or new pieces. |
+| Tunnels (tunnel portal, mountain tunnel, double-track tunnel, rock cutting) | Taken out of the tray after playtesting: as props they sit on the land, but they don't let track tunnel through the map's existing hills. | They need track that can pass through a hill block. Then a portal is fitted where the track enters the hill, and a rock cutting becomes a deep cutting (see `HillShape` cuts). |
+| Decorative bridges as working track | Their own geometry and mechanics. | They could become bridge styles of the track bridges, or new pieces. |
 | Mechanisms as working machines (turntable, cranes, signals, level crossings) | Each is a mechanic of its own. | Decorative props for now. |
 | Clouds, rainbow, sun and moon | They don't stand on the floor. | Perhaps a sky layer later. |
 | Props in Game mode | Game mode will get resources and a tech tree. | Props would cost something there. |
