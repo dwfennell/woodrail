@@ -64,7 +64,7 @@ export class TreeClearance {
   spots(held?: HeldPiece): (TreeSpot | null)[] {
     const { grid, trees, track } = this;
     const extra = new Map<number, number[]>();
-    if (held) addPiece(extra, held.type, held.flipped, held.pose);
+    if (held) addTrackPoints(extra, held.type, held.flipped, held.pose);
     if (track.size === 0 && extra.size === 0) return trees.map((t) => t);
     const blocked = (x: number, z: number) => nearTrack(track, x, z, TREE_CLEARANCE) || nearTrack(extra, x, z, TREE_CLEARANCE);
     const out: (TreeSpot | null)[] = trees.map((t) => (blocked(t.x, t.z) ? null : t));
@@ -107,20 +107,21 @@ function standable(grid: LandscapeGrid, x: number, z: number, y: number): boolea
 }
 
 /** Track sample points bucketed by square-ish cells of this size (mm). */
-const BUCKET = 64;
+export const BUCKET = 64;
 
-function trackPoints(layout: Layout): Map<number, number[]> {
+/** Points along all the track (every few mm), bucketed by `BUCKET` squares (see `bucketKey`): x, z pairs. */
+export function trackPoints(layout: Layout): Map<number, number[]> {
   const buckets = new Map<number, number[]>();
   for (const id of layout.pieceIds()) {
     if (layout.isLifted(id)) continue;
     const p = layout.getPiece(id)!;
-    addPiece(buckets, p.type, p.flipped, p.pose);
+    addTrackPoints(buckets, p.type, p.flipped, p.pose);
   }
   return buckets;
 }
 
 /** Add a piece's sample points (along its paths; a riser's centre) to buckets. */
-function addPiece(buckets: Map<number, number[]>, type: PieceTypeId, flipped: boolean, pose: Pose): void {
+export function addTrackPoints(buckets: Map<number, number[]>, type: PieceTypeId, flipped: boolean, pose: Pose): void {
   const add = (x: number, z: number) => {
     const key = bucketKey(Math.floor(x / BUCKET), Math.floor(z / BUCKET));
     let list = buckets.get(key);
@@ -144,7 +145,7 @@ function addPiece(buckets: Map<number, number[]>, type: PieceTypeId, flipped: bo
   }
 }
 
-const bucketKey = (bx: number, bz: number): number => (bx + 4096) * 8192 + (bz + 4096);
+export const bucketKey = (bx: number, bz: number): number => (bx + 4096) * 8192 + (bz + 4096);
 
 function nearestTrack(buckets: Map<number, number[]>, x: number, z: number): { x: number; z: number } | null {
   const bx = Math.floor(x / BUCKET);

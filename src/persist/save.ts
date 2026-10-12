@@ -2,6 +2,7 @@ import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
 import { depotPieceType, STATION_CRANE_AT, type World } from "../game/world";
 import type { GameMode } from "../game/modes";
+import { PropStore } from "../props/store";
 import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import { CARGO, CARGO_KINDS, Economy, PILE_CAP, ROLE, WAGON_CAPACITY, type CargoKind } from "../economy";
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
@@ -66,6 +67,10 @@ const saveSchema = z.object({
   ),
   /** Plank bundles delivered, by town id. */
   delivered: z.array(z.tuple([z.number().int().min(0), z.number().int().min(0)])),
+  /** Placed catalogue models (optional: saves from before props load with none). */
+  props: z
+    .array(z.object({ id: z.number().int().positive(), asset: z.string().max(64), x: z.number().finite(), z: z.number().finite(), heading: z.number().finite(), y: z.number().finite() }))
+    .optional(),
 });
 
 export type SaveData = z.infer<typeof saveSchema>;
@@ -100,6 +105,7 @@ export function serializeWorld(world: World): SaveData {
     trains,
     depots: world.economy.allDepots().map((d) => ({ id: d.id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [d.piles[0], d.piles[1]] as [number, number], timer: d.timer })),
     delivered: [...world.economy.delivered],
+    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y })),
   };
 }
 
@@ -176,7 +182,9 @@ export function deserializeWorld(data: unknown): Result<World, string> {
       if (cargo && car.kind === "timber") economy.setCargo(car.id, cargo.kind, cargo.count);
     });
   }
-  return ok({ layout, sim, landscape, stations, depots, economy });
+  const props = new PropStore();
+  for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id);
+  return ok({ layout, sim, landscape, stations, depots, economy, props });
 }
 
 /**

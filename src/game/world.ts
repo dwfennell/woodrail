@@ -2,6 +2,7 @@ import { adoptRegion, generateLandscape, generatePlot, plotKey, type DepotKind, 
 import { Economy } from "../economy";
 import { Sim } from "../sim";
 import { Layout, type PieceTypeId } from "../track";
+import { PropStore } from "../props/store";
 
 export const depotPieceType = (kind: DepotKind): PieceTypeId => (kind === "forest" ? "depot-forest" : "depot-sawmill");
 
@@ -17,6 +18,8 @@ export interface World {
   depots: Map<number, number>;
   /** Piles, production and cargo; one economy depot per landscape depot and per town station (see `addSites`). */
   economy: Economy;
+  /** Placed catalogue models (decorative). */
+  props: PropStore;
 }
 
 /** Where a town station's goods crane stops wagons: near its socket end, by the plank pile. */
@@ -40,7 +43,7 @@ export function createWorld(seed: number, starter = false): World {
   const landscape = generateLandscape(seed, { starter });
   const layout = new Layout();
   const sim = new Sim(layout);
-  const world: World = { layout, sim, landscape, stations: new Map(), depots: new Map(), economy: new Economy(layout, sim) };
+  const world: World = { layout, sim, landscape, stations: new Map(), depots: new Map(), economy: new Economy(layout, sim), props: new PropStore() };
   addSites(world, landscape.towns, landscape.depots);
   return world;
 }

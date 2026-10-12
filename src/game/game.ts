@@ -1,3 +1,6 @@
+import type { PropStore } from "../props/store";
+import { PropLibrary } from "../render/props/library";
+import { PropsView } from "../render/props/props-view";
 import {
   ACESFilmicToneMapping,
   Clock,
@@ -106,6 +109,12 @@ export class Game {
   stations: Map<number, number>;
   depots: Map<number, number>;
   economy: Economy;
+  props: PropStore;
+  /** Builds catalogue models on first use (see `PropLibrary`). */
+  readonly propLibrary: PropLibrary;
+  readonly propsView: PropsView;
+  /** A prop being moved by hand: not drawn where it stood. */
+  private hiddenProp = -1;
   paused = false;
   /** Called once per frame after the simulation steps, before rendering. */
   onFrame: ((dt: number) => void) | null = null;
@@ -127,6 +136,7 @@ export class Game {
     this.stations = world.stations;
     this.depots = world.depots;
     this.economy = world.economy;
+    this.props = world.props;
     this.quality = detectQuality();
 
     // No MSAA on the canvas: the scene is drawn into the composer's (non-multisampled) targets, so it would only
@@ -183,6 +193,15 @@ export class Game {
     this.crossingsView = new CrossingsView(this.mats);
     this.scene.add(this.crossingsView.group);
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
+    this.propLibrary = new PropLibrary(this.mats);
+    this.propsView = new PropsView(this.propLibrary);
+    this.scene.add(this.propsView.group);
+    // A model arriving (its code fetched and built) draws the props that were waiting for it.
+    this.propLibrary.onLoaded = () => {
+      this.propsView.sync(this.props, this.hiddenProp, true);
+      this.invalidate();
+    };
+    this.propsView.sync(this.props);
     this.post = createPost(this.renderer, this.scene, this.camera, this.quality);
 
     this.landChanged();
@@ -217,6 +236,9 @@ export class Game {
     this.stations = world.stations;
     this.depots = world.depots;
     this.economy = world.economy;
+    this.props = world.props;
+    this.hiddenProp = -1;
+    this.propsView.sync(this.props, -1, true);
     this.scene.remove(this.landscapeView.group);
     this.landscapeView.dispose();
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
@@ -327,7 +349,7 @@ export class Game {
   readonly bridgeLevelsOf = (p: PlacedPiece): number => bridgeLevels(this.landscape, p.type, p.flipped, p.pose, p.y);
 
   get world(): World {
-    return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy };
+    return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy, props: this.props };
   }
 
   /** What the hills' colliders were last built for (the cut blocks and what cuts them). */
@@ -599,6 +621,12 @@ export class Game {
   }
 
   /** Something changed that the frame loop can't see (track, scenery, a selection, a resize): draw it (once). */
+  /** Props were added, moved or removed (or one is being held: `hidden`, −1 for none): redraw them. */
+  propsChanged(hidden = this.hiddenProp): void {
+    this.hiddenProp = hidden;
+    if (this.propsView.sync(this.props, hidden)) this.invalidate();
+  }
+
   invalidate(): void {
     this.dirty = true;
   }

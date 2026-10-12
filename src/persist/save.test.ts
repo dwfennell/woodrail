@@ -217,3 +217,19 @@ describe("economy in saves", () => {
     expect(w.economy.cargoOf(wagons(w)[0].id).count).toBeGreaterThan(before);
   });
 });
+
+describe("props in saves", () => {
+  it("round-trip with their ids, and saves without props load with none", () => {
+    const world = buildStarterWorld();
+    world.props.add("bldg-red-barn", { x: 100, z: 50, heading: 0.5, y: 0 });
+    world.props.add("life-cow", { x: -40, z: 10, heading: 2, y: 64 });
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    expect(r.ok && [...r.value.props.all()]).toEqual([...world.props.all()]);
+    // New props after loading don't reuse ids.
+    if (r.ok) expect(r.value.props.add("life-dog", { x: 0, z: 0, heading: 0, y: 0 }).id).toBe(3);
+    delete data.props;
+    const old = deserializeWorld(data);
+    expect(old.ok && old.value.props.size).toBe(0);
+  });
+});

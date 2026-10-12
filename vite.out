@@ -1,0 +1,125 @@
+
+  VITE v8.3.4  ready in 395 ms
+
+  ➜  Local:   http://localhost:5199/
+  ➜  Network: use --host to expose
+8:27:04 PM [vite] (client) [console.warn] THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.
+8:27:07 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:07 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:07 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:10 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:10 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:11 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:30 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:33 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:33 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:33 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:33 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:33 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:33 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:33 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:33 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:33 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:33 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:33 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:33 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:34 PM [vite] (client) [console.warn] BVH: "maxLeafSize" option has been deprecated. Use "targetLeafSize", instead.
+8:27:51 PM [vite] (client) page reload src/props/placement.ts

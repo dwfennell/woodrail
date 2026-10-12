@@ -1,0 +1,61 @@
+/** A placed catalogue model: decorative, standing on the ground at (x, z), turned to `heading`. */
+export interface Prop {
+  readonly id: number;
+  /** Catalogue asset id (`bldg-red-barn`). */
+  readonly asset: string;
+  x: number;
+  z: number;
+  heading: number;
+  /** Height of the ground it stands on (a hill block's top, or 0 on the felt). */
+  y: number;
+}
+
+export type PropPose = Pick<Prop, "x" | "z" | "heading" | "y">;
+
+/** The props on the map. `version` goes up with every change, for keyed caches. */
+export class PropStore {
+  private readonly props = new Map<number, Prop>();
+  private nextId = 1;
+  version = 0;
+
+  add(asset: string, pose: PropPose, id?: number): Prop {
+    const prop: Prop = { id: id ?? this.nextId, asset, ...pose };
+    this.nextId = Math.max(this.nextId, prop.id + 1);
+    this.props.set(prop.id, prop);
+    this.version++;
+    return prop;
+  }
+
+  get(id: number): Prop | undefined {
+    return this.props.get(id);
+  }
+
+  move(id: number, pose: PropPose): void {
+    const p = this.props.get(id);
+    if (!p) return;
+    Object.assign(p, pose);
+    this.version++;
+  }
+
+  remove(id: number): Prop | undefined {
+    const p = this.props.get(id);
+    if (p) {
+      this.props.delete(id);
+      this.version++;
+    }
+    return p;
+  }
+
+  all(): IterableIterator<Prop> {
+    return this.props.values();
+  }
+
+  get size(): number {
+    return this.props.size;
+  }
+
+  /** The asset ids in use (to load their models). */
+  assets(): Set<string> {
+    return new Set([...this.props.values()].map((p) => p.asset));
+  }
+}
