@@ -1,121 +1,136 @@
 # Road system — design
 
-Status: **proposed** — options below are waiting on the user's choices. Nothing is built yet.
+Status: **direction chosen** (2026-10-12). Roads are pieces that snap, and every piece fills exactly one square
+(a curve is a quarter turn within one square). Roads meet track at level crossings. Road pieces can join town
+streets. Vehicles come later. Details still open are marked **Open**. Nothing is built yet.
 
-## 1. Where roads are today
+## 1. Roads today
 
-- **Squares, not pieces.** A road is a surface on the map grid: `SURF_ROAD` (town streets, the town squares left over
-  after buildings) and `SURF_LANE` (country lanes) in `src/landscape/grid.ts`. Both sit at height 0.
-- **Generated.** `generate.ts` lays lanes from a town's platform side and from the plot-edge stubs (`regionStubs`,
-  `edgeContract` in `edges.ts`), joined by `joinLanes` / `cheapestPath`. Leftover town squares become `SURF_ROAD`.
-  There's no way for the player to add or remove a road.
-- **Drawn as felt.** `buildFeltTiles` (`render/dressing/felt.ts`) traces road + lane squares into smoothed felt
-  ribbons, per 2×2-plot tile, cached by a hash of each tile's squares (8-square margin). No markings: plain grey.
-- **Track and roads.** Town streets block track (`clearance.ts`, `BLOCKED.town`). Lanes don't: ground-level track over
-  a lane makes a level crossing (`findCrossings` in `crossings.ts`, barriers in `CrossingsView`), recomputed from the
-  whole layout whenever track changes. Track on a bridge or riser (y > 4) crosses over without one.
-- **Saves.** Surfaces are saved byte per square (`landscape-data.ts`); any change to road squares already saves and
-  loads, with no format change.
-- **Catalogue.** Road straight/curve/T-junction/roundabout/zebra/car park, traffic lights, bus stop and a
-  road-over-rail bridge exist as models only — no connectors. Their sizes (96 straight, 48 felt on a 56 board, 120
-  roundabout) don't fit the 72 mm square or the 18 mm track lattice. Vehicles (cars 58×26, vans 64, buses 88) exist
-  as models; nothing drives.
-- **Next door.** The land-editing work (branch `claude/bold-bohr-fvqt5w`, `2026-10-12-land-editing-design.md`) adds an
-  edit-land mode with Raise/Lower on squares in `src/landscape/edit.ts`, keeps road/lane squares at height 0, and
-  defers "painting surfaces (grass → road or river): waits for the road system". The tray is data
-  (`src/ui/tray-catalogue.ts`) with a Roads tab planned for this work.
+- **Squares.** A road is a surface on the map grid. `SURF_ROAD` covers town streets, which are the town squares left
+  over after buildings. `SURF_LANE` covers country lanes. Both are in `src/landscape/grid.ts` and sit at height 0.
+- **Generated.** `generate.ts` lays lanes out from a town's platform side and from the plot-edge stubs (`regionStubs`
+  and `edgeContract` in `edges.ts`), then joins them with `joinLanes` / `cheapestPath`. The player can't add or remove
+  a road.
+- **Drawn as felt.** `buildFeltTiles` (in `render/dressing/felt.ts`) traces road and lane squares into smoothed felt
+  ribbons, one set per 2×2-plot tile, cached by a hash of each tile's squares. Roads have no markings.
+- **Track.** Town streets block track (`clearance.ts`). Lanes don't: ground-level track over a lane square makes a
+  level crossing (`findCrossings` in `crossings.ts`, drawn by `CrossingsView`).
+- **Saves.** Surfaces are saved one byte per square (`landscape-data.ts`). Track is a piece list (`save.ts` v8).
+- **Catalogue.** Road straight, curve, T-junction, roundabout, zebra and car park exist only as models. Their sizes
+  don't match the 72 mm square (a 96 straight, 48 felt on a 56 board).
+- **Next door.** Land editing (branch `claude/bold-bohr-fvqt5w`) keeps road and lane squares at height 0, rebuilds
+  towns from catalogue models, and turns the tray into data (`src/ui/tray-catalogue.ts`). A Roads tab is planned
+  there for this work.
 
-## 2. How the player lays roads
+## 2. Chosen: square road pieces
 
-**A. Paint squares (recommended).** A Roads tab with a road brush: tap or drag across grass squares to make them road,
-an eraser to turn them back. The square stays the unit, so everything that already reads the grid (felt, crossings,
-clearance, saves, generation, land editing's rules) keeps working. Fits the land-editing tools (same stroke, redraw on
-release, one undo step per stroke) and its deferred "painting surfaces". The look comes from §3.
-Cost: roads only turn at square corners (as lanes already do).
+Every road piece fills one 72 mm square. Its road ends sit at the middle of the square's edges, so the pieces are:
 
-**B. Snap pieces like track.** Road pieces with connectors, placed and snapped like track. Free angles and the
-catalogue's look, but it's a second track system: new `PieceDef`s on a road lattice, a road layout, its own save
-array, its own overlap and clearance against track, trees, hills and towns, and crossings worked out from two
-free-form layouts. Generated lanes and town streets would have to become pieces too, or the map has two kinds of
-road. Several times the work of A.
+| piece | ends (before turning) |
+| --- | --- |
+| straight | W, E |
+| curve | W, S: a quarter turn of radius 36 about the SW corner, all within the square |
+| T-junction | W, E, S |
+| crossroads | W, E, N, S |
+| dead end | W, with a rounded turning end |
+| zebra crossing | a straight with stripes and beacons |
 
-**C. Paint squares, place special pieces.** A, plus a few square-sized "pieces" dropped onto road squares from the
-same tab: roundabout (3×3), car park (2×1 or 2×2), zebra crossing and traffic lights (on a road square), bus stop
-(beside one). These are props bound to squares (land editing's prop store), not snapping track. A first, C later.
+Each piece can be turned in 90° steps, which gives 1–4 distinct orientations depending on the piece.
 
-## 3. How roads look
+**Snapping.** From the Roads tab, the player picks a piece and drags it. It snaps to the square under the finger and
+auto-turns so that as many of its ends as possible meet road ends on the neighbouring squares. Neighbouring ends can
+come from other pieces, lanes or town streets. A tap on a placed piece turns it, and dragging it off removes it.
+Snapping needs no connector search: each piece checks the four neighbouring squares, which costs a few lookups per
+pointer move.
 
-Each road square reads its four neighbours (road or lane) and gets markings on top of the felt: dashed centre line
-on straights, a quarter arc on corners, give-way lines at a T, a box at a crossroads, a rounded end at a dead end.
-Built per felt tile, keyed by the same hash of the tile's squares, so painting one square rebuilds only the tiles it
-touches. One merged mesh per tile, one material (white), no per-frame work.
+**Joins are explicit.** Two road squares join only where both have an end on their shared edge. This allows parallel
+roads and dead ends next to each other, which a "join every road neighbour" rule would not.
 
-## 4. Roads and track
+**Where a piece can go.** On grass at height 0 with nothing standing on it. Trees step aside the way they do for
+track. A piece can't go on a river, building, station, depot, field, the shed or a hill. It can't go on a town square
+either, but it can join one (§3).
 
-**A. Level crossings, and track bridges over roads (recommended).** Player roads are lanes (`SURF_LANE`): track may
-cross them and gets barriers, as today. Track on a bridge or riser already passes over without a crossing. Town
-streets keep blocking track. Crossings recompute when a road stroke ends, not only when track changes.
+**Size on the square.** The road felt is 48 wide on a 60 board, centred on the square. That is the catalogue's look
+scaled to the square, and it leaves a verge on each side. A curve's felt runs from radius 12 to 60.
 
-**B. Also road-over-rail bridges.** The catalogue's road bridge as a road piece that lifts the road over track.
-Roads leave height 0, which the land-editing rules and the felt both assume. Better deferred.
+## 3. Generated roads and town streets
 
-Rule for painting under track: allowed on any square ground-level track crosses, as for generated lanes today; the
-crossing finder copes with a road running along the track by grouping touching squares (one crossing per group).
+- **Town streets stay as felt squares.** They are open, plaza-like areas, not lines, so they don't fit pieces. Every
+  edge where a town street square meets open grass counts as a road end, so a piece placed there joins the town.
+- **Lanes. Open (Q1).** Recommended: generated lanes become road pieces. Lanes are one square wide, so the generator
+  gives each lane square the piece that fits its lane neighbours. The map then has one kind of country road, with
+  markings, and the player can remove or extend it. The alternative is to leave lanes as felt and only let pieces
+  join them.
 
-## 5. Roads and towns
+## 4. Roads and track: level crossings
 
-**A. Join, don't edit (recommended).** Player roads connect to town streets (markings treat `SURF_ROAD` and
-`SURF_LANE` as one network), but town squares can't be painted or erased. Towns stay as the generator (or land
-editing's catalogue towns) make them.
+- Ground-level track over a road square makes a level crossing, as lanes do today. Player road squares stay
+  `SURF_LANE`, so `findCrossings` and `CrossingsView` work unchanged.
+- **Rule:** a straight or zebra road square can be crossed only across its run, not along it. Curves, junctions and
+  dead ends can't be crossed, so track can't run down a road. The placement check applies this rule to track and to
+  roads alike.
+- Track on a bridge or riser passes over a road, as it does now.
+- Crossings are recomputed when a road piece is placed or removed, as well as when track changes.
+- Road-over-rail bridges are deferred, because they would lift roads off height 0.
 
-**B. Repaint town streets too.** The brush works inside towns. It collides with land editing's §5 (towns rebuilt from
-catalogue models, buildings as props owning their squares) and with town furniture placement. Defer.
+## 5. Vehicles
 
-## 6. Vehicles
+Vehicles come later. A road graph comes straight from the squares: a node per square and an edge for each pair of
+matched ends. A later step can drive cars along it and stop them at lowered barriers.
 
-**A. Later, but ready (recommended).** Nothing drives in this work. The road squares define a graph (one node per
-square, edges to road neighbours, a lane each side of the centre line) that a later step can drive toy cars and buses
-along, stopping at lowered barriers. Kept out of this work's code; noted so §3 doesn't paint in a way that stops it.
+## 6. Saves
 
-**B. Ambient traffic now.** A few cars wandering the network, with stopping at crossings. Every-frame work and its own
-render-on-change rules (a driving car is an animation that keeps frames coming). Bigger than the rest put together.
+A road square is `SURF_LANE` in the surface bytes, as now, plus its piece and turn. **Open (Q2):**
 
-## 7. Saves
+- **Recommended:** a new optional `roads` array in the landscape save, with entries `{cell, piece, turn}`.
+  It is optional, so older v8 saves still load (their lanes get pieces derived from their neighbours) and the save
+  stays at v8. This is a small change to `landscape-data.ts`.
+- **Alternative:** a fifth byte array per plot. It is simpler to read, but it changes the plot format.
 
-With 2A no format change: road squares are surface bytes, already saved. `SURF_LANE` is the player's road. If 2C's
-placed pieces come, they ride on land editing's optional `props` array (with the square they sit on). Save stays v8.
+## 7. Drawing
+
+- **Recommended:** one model per piece type, built at the square size, with each tile's road squares drawn as one
+  instanced mesh per type (or merged per tile, keyed like the felt tiles by a hash of that tile's road squares).
+  Placing a piece rebuilds one tile.
+- Road and lane squares come out of the felt ribbons. Town streets stay in them.
+- The boards receive shadows but don't cast them, so road changes don't trigger shadow redraws.
 
 ## 8. Performance
 
-- **Stroke:** pointer moves only mark squares and draw a cheap preview (one instanced quad per painted square); the
-  grid, felt, markings and crossings update once, on release. Target: a pointer move under 1 ms on a phone.
-- **Release:** `grid.touch` the changed squares; felt and marking tiles rebuild only where their key changed (one
-  square can touch up to 4 tiles through the margin). Target: under ~30 ms on a phone for a short stroke. Measure
-  the felt rebuild per tile before starting; if it's too slow, shrink the margin for road tiles.
-- **Crossings:** recompute once per stroke and per track change, as now (it walks the layout once).
-- **Idle:** nothing new runs per frame. Markings are static geometry in the felt tiles.
-- Measurements go in each commit message: stroke-release time, tile rebuilds, idle CPU, frame time.
+- **Drag:** snapping checks four neighbouring squares, and clearance checks one square plus the track near it.
+  Target: under 1 ms per pointer move on a phone.
+- **Place or remove:** set the square, `grid.touch`, rebuild one road tile and recheck crossings near that square.
+  Target: under 10 ms.
+- **Idle:** nothing new runs per frame.
+- Commits record the move time, place time, idle CPU and frame time.
 
-## 9. Steps (for options 2A / 4A / 5A / 6A)
+## 9. Modes
 
-1. **R1 Markings.** Neighbour-aware markings on existing roads and lanes, per felt tile, cached. No gameplay change.
-2. **R2 Road brush.** Roads tab (Sandbox), Paint and Erase on grass squares at height 0, stroke preview, undo; pure
-   rules in `src/landscape/roads.ts` (next to land editing's `edit.ts`, not inside it). Generated maps unchanged.
-3. **R3 Crossings on edit.** Recompute crossings and redraw on stroke release; clearance unchanged (lanes are open).
-4. **R4 Road pieces (2C).** Zebra, traffic lights, bus stop, car park, roundabout as square-bound props, if chosen.
+**Open (Q3).** Recommended: roads in Sandbox only at first. Game mode, with cost and goals, comes later.
 
-## 10. Coordination
+## 10. Steps
 
-- `grid.ts`, `generate.ts`, `felt.ts`, `landscape-view.ts`, `landscape-data.ts`: owned by land editing (bold-bohr)
-  now. Changes here kept small: a hook for marking tiles beside `buildFeltTiles`, and a `roadsEdited(cells)` beside
-  their `landEdited`.
-- Tray: a Roads tab in `tray-catalogue.ts` once bold-bohr's tray is on main.
+1. **R1 Pieces.** Piece defs (ends per turn), the road data per square, and models for each piece. Unit tests cover
+   ends and turns.
+2. **R2 Drawing.** Road tiles drawn from the pieces. If Q1 is yes, generated lanes get pieces and leave the felt.
+   Before/after frame time and tile build time go in the commit.
+3. **R3 Laying.** The Roads tab, with drag, snap, auto-turn, tap to turn, remove and undo. Pieces are saved.
+4. **R4 Crossings.** The across-only rule for track and roads, plus crossing recompute on road edits.
+5. **R5 Zebra and dead-end polish.** Beacons are animated only while in view.
+
+## 11. Coordination
+
+- **Tray:** a Roads tab in `tray-catalogue.ts`, on the land-editing branch, once that branch is on main.
+- **`landscape-data.ts`:** the optional `roads` array (Q2).
+- **`generate.ts`:** if Q1 is yes, lanes get pieces. This is a small pass at the end, separate from `joinLanes`.
+- **`felt.ts` / `landscape-view.ts`:** lanes leave the felt ribbons, and a road-tiles group is added beside them.
+- **`clearance.ts`:** the across-only rule.
 
 ## Deferred
 
-- Road-over-rail bridges and raised roads (roads stay at height 0).
-- Painting inside towns; town streets stay generated.
-- Vehicles driving on roads; a road graph for them.
-- Snapping road pieces (2B), unless chosen.
-- Roads on slopes.
-- Painting rivers (the same brush could, later).
+- Road-over-rail bridges and raised roads; roads on slopes.
+- Multi-square pieces: roundabout, wide curves, car park.
+- Bus stops, traffic lights and street furniture beside roads.
+- Vehicles on roads.
+- Roads in Game mode.
+- Laying road pieces inside towns, or editing town streets.
