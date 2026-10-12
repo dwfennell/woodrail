@@ -37,12 +37,10 @@ export type GameWorld = World;
 /** Seconds to keep drawing after the last change on screen, for anything easing to rest. */
 const IDLE_TAIL = 1;
 /**
- * Frame-rate caps (ms between frames). A high-refresh display would otherwise draw every vsync (120 Hz on ProMotion),
- * which keeps the GPU flat out and the fans spinning. The camera and input get a smooth 60; a still view with only
- * trains, cranes and the like moving gets 30.
+ * Frame-rate cap (ms between frames). A high-refresh display would otherwise draw every vsync (120 Hz on ProMotion),
+ * which keeps the GPU flat out and the fans spinning.
  */
-const BUSY_FRAME_MS = 1000 / 60;
-const CALM_FRAME_MS = 1000 / 30;
+const FRAME_MS = 1000 / 30;
 /** Vsync timestamps jitter: a frame due within this much of its slot still runs. */
 const FRAME_SLACK_MS = 2;
 
@@ -319,9 +317,7 @@ export class Game {
 
   start(): void {
     this.renderer.setAnimationLoop((time) => {
-      // Input or a one-off change lifts the calm cap at once, so the first response isn't held back a slot.
-      const interval = this.calm && !this.woken && !this.dirty ? CALM_FRAME_MS : BUSY_FRAME_MS;
-      if (time - this.lastFrameAt < interval - FRAME_SLACK_MS) return;
+      if (time - this.lastFrameAt < FRAME_MS - FRAME_SLACK_MS) return;
       this.lastFrameAt = time;
       this.frame();
     });
@@ -378,9 +374,7 @@ export class Game {
       this.camera.near = near;
       this.camera.updateProjectionMatrix();
     }
-    const viewActive = this.cameraMoved() || this.woken;
-    if (viewActive) active = true;
-    this.calm = !viewActive;
+    if (this.cameraMoved() || this.woken) active = true;
     this.woken = false;
     // Draw only while something on screen is changing (and a moment after, for anything easing to rest): a still
     // scene stays on screen without being drawn again, so an idle game costs next to nothing.
@@ -443,8 +437,6 @@ export class Game {
   /** Input arrived: keep drawing for a moment, for whatever it set easing (a held piece, a selection). */
   private woken = false;
   private lastActive = 0;
-  /** The last frame saw no camera movement or input: the next can wait for the calm frame-rate cap. */
-  private calm = false;
   private lastFrameAt = -Infinity;
   private readonly lastCamera = new Float64Array(12);
 
