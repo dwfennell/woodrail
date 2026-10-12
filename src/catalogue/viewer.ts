@@ -115,7 +115,7 @@ function renderThumb(asset: Asset): string {
   const object = buildSafely(asset, kit);
   asset.animate?.(object, 0.6);
   thumbStage.holder.add(object);
-  frame(object, thumbCamera, thumbStage.sun);
+  frame(object, thumbCamera, thumbStage.sun, 1.12);
   thumbRenderer.render(thumbStage.scene, thumbCamera);
   const url = thumbRenderer.domElement.toDataURL("image/png");
   thumbStage.holder.remove(object);
