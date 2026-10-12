@@ -60,7 +60,6 @@ export interface Train {
 export type SimEvent =
   | { readonly kind: "derailed"; readonly trainId: number }
   | { readonly kind: "coupled"; readonly trainId: number; readonly absorbedTrainId: number }
-  | { readonly kind: "repelled"; readonly trainId: number }
   | { readonly kind: "buffer"; readonly trainId: number }
   /** A train was lifted and turned round at a turnback buffer (it has a new id; its cars keep theirs). */
   | { readonly kind: "turned"; readonly trainId: number; readonly newTrainId: number }
@@ -274,6 +273,13 @@ export class Sim {
     return false;
   }
 
+  /** Fresh car ids, for cars about to be put on the track (so anything shown for them beforehand can match). */
+  newCarIds(count: number): number[] {
+    const ids: number[] = [];
+    for (let i = 0; i < count; i++) ids.push(this.nextCarId++);
+    return ids;
+  }
+
   /** Put a (derailed) train back on the nearest track, motor off. Returns the new train id, or -1 if there is no room. */
   rerail(trainId: number, maxDistance = 150, near?: { x: number; z: number }): number {
     const train = this.trains.get(trainId);
@@ -461,17 +467,6 @@ export class Sim {
     }
   }
 
-  /** Move a train backward by `d` without changing its orientation. */
-  private retreat(train: Train, d: number): void {
-    if (d <= 0) return;
-    for (const b of train.bogies) {
-      flipCursor(this.layout, b);
-      advanceCursor(this.layout, b, d, null, adv);
-      flipCursor(this.layout, b);
-    }
-    this.refreshWorld(train);
-  }
-
   private derail(train: Train): void {
     if (train.derailed) return;
     train.derailed = true;
@@ -503,30 +498,22 @@ export class Sim {
   private resolveContacts(): void {
     for (const a of this.trains.values()) {
       if (a.derailed || a.speed <= 0) continue;
-      const aPole = this.endFace(a, true, face);
+      this.endFace(a, true, face);
       for (const b of this.trains.values()) {
         if (b === a || b.derailed || !this.trains.has(a.id)) continue;
         const reach = Math.max(4, a.speed * SIM_DT + 2);
         for (let side = 0; side < 2; side++) {
           const front = side === 1;
-          const bPole = this.endFace(b, front, otherFace);
+          this.endFace(b, front, otherFace);
           if (Math.hypot(face.x - otherFace.x, face.z - otherFace.z) > reach || Math.abs(face.y - otherFace.y) > 20) continue;
           const closing = a.speed + (front ? b.speed : -b.speed);
           if (closing <= 0) continue;
           if (closing > COUPLE_MAX_SPEED) {
             this.derail(a);
             this.derail(b);
-          } else if (aPole !== bPole) {
-            this.couple(a, b, front);
           } else {
-            // Repelling magnets hold the trains apart: undo this tick's approach.
-            this.retreat(a, a.speed * SIM_DT);
-            a.speed = 0;
-            if (front) {
-              this.retreat(b, b.speed * SIM_DT);
-              b.speed = 0;
-            }
-            this.events.push({ kind: "repelled", trainId: a.id });
+            // A gentle touch always couples, whichever way the cars' magnets face (a toy that never refuses).
+            this.couple(a, b, front);
           }
           return this.resolveContacts();
         }

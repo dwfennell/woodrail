@@ -266,7 +266,7 @@ describe("coupling", () => {
     return { sim, a: a.trainId, b: b.trainId };
   }
 
-  it("a gentle approach with opposite poles couples into one train", () => {
+  it("a gentle approach couples into one train", () => {
     const { sim, a, b } = twoTrains(["hopper"]);
     sim.setLever(sim.getTrain(a)!.cars[0].id, 1);
     run(sim, 8);
@@ -277,14 +277,13 @@ describe("coupling", () => {
     void b;
   });
 
-  it("matching poles repel: the trains stay separate and the pusher stops", () => {
+  it("couples whichever way the car's magnet faces", () => {
     const { sim, a, b } = twoTrains(["hopper"]);
     sim.flipCar(sim.getTrain(b)!.cars[0].id);
     sim.setLever(sim.getTrain(a)!.cars[0].id, 1);
     run(sim, 8);
-    expect(sim.trainCount).toBe(2);
-    expect(sim.getTrain(a)!.speed).toBeLessThan(5);
-    expect(sim.drainEvents().some((e) => e.kind === "repelled")).toBe(true);
+    expect(sim.trainCount).toBe(1);
+    expect(sim.getTrain(sim.trainIds()[0])!.cars).toHaveLength(2);
   });
 
   it("a fast impact derails both trains", () => {

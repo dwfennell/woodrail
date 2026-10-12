@@ -265,7 +265,6 @@ function boot(): void {
       const [v, pan] = listen(p.x, p.z);
       if (e.kind === "joint") audio.clack(v, pan);
       else if (e.kind === "coupled") audio.magnet(v, pan);
-      else if (e.kind === "repelled") audio.bump(v, pan);
       else if (e.kind === "derailed") audio.crash(v, pan);
       else if (e.kind === "buffer") audio.magnet(v * 0.6, pan);
     }

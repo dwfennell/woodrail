@@ -184,3 +184,6 @@ export function disposeObject(root: import("three").Object3D): void {
     if (mesh.userData.ownsMaterial) (mesh.material as Material).dispose();
   });
 }
+
+/** Which colour scheme a car wears: it follows the car (its id survives being picked up and put down). */
+export const carVariant = (kind: CarKind, id: number): number => (kind === "engine" ? id % 2 : id);

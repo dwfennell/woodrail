@@ -1,12 +1,12 @@
 import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, type Mesh, type Object3D, type TOUCH } from "three";
 import { Editor, pieceCentre, poseForCentre, type RiserAt } from "../editor/editor";
-import { buildCarModel, disposeObject } from "../render/train-models";
+import { buildCarModel, carVariant, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
 import { setRim } from "../render/materials";
 import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
-import { CAR_SPECS, COUPLER_GAP, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
+import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, bridgeLevels, CELL, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { findOverlap, findSnap, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
@@ -21,6 +21,19 @@ import { CARGO, PILE_CAP, ROLE, type CargoKind, type CargoSlot } from "../econom
 const TOUCH_LIFT_PX = 60;
 /** Loose pieces snap to this grid (mm): a quarter of a landscape square, the step between straight lengths. */
 const PLACE_GRID = CELL / 4;
+/** A train dropped this far (mm) beyond half its own length from another's end couples on to it. */
+const JOIN_REACH = 80;
+
+/** Along-track distance from the first car's leading axle to car `index`'s leading axle (see `Sim.addTrain`). */
+function trainSpan(cars: readonly { kind: CarKind }[], index: number): number {
+  let d = 0;
+  for (let i = 0; i < index; i++) {
+    const spec = CAR_SPECS[cars[i].kind];
+    const next = CAR_SPECS[cars[i + 1].kind];
+    d += spec.length - spec.bogieInset + COUPLER_GAP + next.bogieInset;
+  }
+  return d;
+}
 /**
  * Placed track can be picked up when it looks big enough on screen to take hold of: a medium straight (144 mm) at
  * least this many pixels long. Zoomed out further, a press on track pans the view like the floor.
@@ -234,7 +247,9 @@ export class Interaction {
         fresh: true,
       };
     } else {
-      const cars = item.cars.map((kind) => ({ kind, facing: 1 as const, lever: 0 as const }));
+      // Ids now, so the train in the hand wears the colours it will have on the track.
+      const ids = this.game.sim.newCarIds(item.cars.length);
+      const cars = item.cars.map((kind, i) => ({ kind, facing: 1 as const, lever: 0 as const, id: ids[i] }));
       this.mode = { kind: "drag-train", pointerId: e.pointerId, cars, origin: null, ghost: this.trainGhost(cars), target: null, overTray: true };
     }
   }
@@ -1012,6 +1027,11 @@ export class Interaction {
       this.changed();
       return;
     }
+    // Dropped onto or by another train: couple on to its nearer end.
+    if (m.target && this.joinTrain(m.cars, m.target)) {
+      this.changed();
+      return;
+    }
     if (m.target && this.placeTrain(m.cars, m.target, true)) {
       this.changed();
       return;
@@ -1019,6 +1039,46 @@ export class Interaction {
     if (m.origin) this.placeTrain(m.cars, m.origin);
     this.hud.toast(m.target ? "Not enough track there" : "Drop trains onto the track");
     this.changed();
+  }
+
+  /**
+   * Couple held cars on to the train nearest where they're dropped (`at`, on the track), at its nearer end, as one
+   * train that keeps its place. False (nothing changed) if no train is near enough or there's no room.
+   */
+  private joinTrain(cars: HeldCar[], at: Cursor): boolean {
+    const sim = this.game.sim;
+    const drop = cursorWorld(this.game.layout, at, createWorldSample());
+    // How near (mm) the drop point must be to a train's end: half the held cars' length and a hand's width more.
+    const heldLength = cars.reduce((n, c) => n + CAR_SPECS[c.kind].length + COUPLER_GAP, 0);
+    let best: { id: number; front: boolean; d: number } | null = null;
+    for (const id of sim.trainIds()) {
+      const t = sim.getTrain(id)!;
+      if (t.derailed) continue;
+      const ends = [t.world[0], t.world[t.world.length - 1]];
+      ends.forEach((w, k) => {
+        const d = Math.hypot(w.x - drop.x, w.z - drop.z);
+        if (Math.abs(w.y - drop.y) < 20 && d < heldLength / 2 + JOIN_REACH && (!best || d < best.d)) best = { id, front: k === 0, d };
+      });
+    }
+    if (!best) return false;
+    const { id, front } = best;
+    const t = sim.getTrain(id)!;
+    const theirs: HeldCar[] = t.cars.map((c) => {
+      const cargo = this.game.economy.cargoOf(c.id);
+      return { kind: c.kind, facing: c.facing, lever: c.lever, id: c.id, ...(cargo.kind ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
+    });
+    const lead = { ...t.bogies[0] };
+    const together = front ? [...cars, ...theirs] : [...theirs, ...cars];
+    // In front, the new lead axle is ahead of theirs by the held cars' length along the track.
+    const newLead = { ...lead };
+    if (front) {
+      const ahead = trainSpan(together, cars.length);
+      if (advanceCursor(this.game.layout, newLead, ahead, null, createAdvance()).status !== ADV_OK) return false;
+    }
+    sim.removeTrain(id);
+    if (this.placeTrain(together, newLead)) return true;
+    this.placeTrain(theirs, lead);
+    return false;
   }
 
   /** Put a train down: exactly at `at` (back where it was picked up), or `around` it (a drop, centred on the point). */
@@ -1038,13 +1098,13 @@ export class Interaction {
     return true;
   }
 
-  private trainGhost(cars: { kind: CarKind; facing: 1 | -1 }[]): Group {
+  private trainGhost(cars: { kind: CarKind; facing: 1 | -1; id?: number }[]): Group {
     const g = new Group();
     let x = 0;
     cars.forEach((c, i) => {
       const spec = CAR_SPECS[c.kind];
       if (i > 0) x -= COUPLER_GAP + spec.length / 2;
-      const model = buildCarModel(c.kind, this.game.mats, i).root;
+      const model = buildCarModel(c.kind, this.game.mats, carVariant(c.kind, c.id ?? i)).root;
       model.position.x = x - (i === 0 ? spec.length / 2 - spec.bogieInset : 0);
       if (c.facing === -1) model.rotation.y = Math.PI;
       g.add(model);
