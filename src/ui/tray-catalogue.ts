@@ -97,8 +97,8 @@ export const TRAIN_GROUPS: TrayGroup[] = [
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
-/** The track bridges, on the Bridges tab (with decorative bridges in Sandbox). */
-export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Track bridges", items: pieces("bridge", "bridge-curve") }];
+/** The track bridges: a shelf of the Track tab (with the catalogue's decorative bridges after it, in Sandbox). */
+export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("bridge", "bridge-curve") }];
 
 /** A tab of the tray: its shelves, and the modes that show it. */
 export interface TrayTab {
@@ -121,9 +121,8 @@ const BOTH: readonly GameMode[] = ["sandbox", "game"];
 const SANDBOX: readonly GameMode[] = ["sandbox"];
 
 export const TRAY_TABS: TrayTab[] = [
-  { id: "track", label: "Track", modes: BOTH, groups: TRACK_GROUPS, orient: "turn-flip" },
+  { id: "track", label: "Track", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip" },
   { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS },
-  { id: "bridges", label: "Bridges", modes: BOTH, groups: BRIDGE_GROUPS, props: BRIDGE_PROP_SHELVES, orient: "turn-flip" },
   ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
   // Opening the Land tab switches land editing on; the tools act on the land itself.
   {

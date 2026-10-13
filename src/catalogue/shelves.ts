@@ -259,7 +259,7 @@ export const PROP_TABS: readonly PropTab[] = [
  */
 export const BRIDGE_PROP_SHELVES: readonly PropShelf[] = [
   {
-    label: "Bridges",
+    label: "Model bridges",
     assets: [
       "mech-stone-arch-bridge",
       "mech-viaduct",
