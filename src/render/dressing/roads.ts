@@ -13,8 +13,8 @@ import { setCullRects, TILE_DEPTH, TILE_WIDTH, tileAt } from "./tiles";
 
 const H = CELL / 2;
 /** Board and felt half-widths across the road, and their heights (mm). */
-const BOARD_HALF = 30;
-const FELT_HALF = 24;
+const BOARD_HALF = 32;
+const FELT_HALF = 28;
 const BOARD_TOP = 3;
 const FELT_TOP = 4;
 const PAINT_TOP = 4.3;
@@ -173,7 +173,7 @@ function pieceParts(id: RoadPieceId): Record<SlotName, BufferGeometry[]> {
       centreDashes([-24]);
       break;
     case "zebra":
-      for (let z = -20; z <= 20; z += 8) paint.push(dash(0, z, 24, 0, 4));
+      for (let z = -24; z <= 24; z += 8) paint.push(dash(0, z, 24, 0, 4));
       break;
     case "cross":
       break;
@@ -182,7 +182,7 @@ function pieceParts(id: RoadPieceId): Record<SlotName, BufferGeometry[]> {
   const beacon: BufferGeometry[] = [];
   if (id === "zebra") {
     // A beacon on each kerb at the crossing: a white pole with black bands and an amber globe on top.
-    for (const z of [-27, 27]) {
+    for (const z of [-30, 30]) {
       paint.push(new CylinderGeometry(1.3, 1.5, POLE, 10).translate(0, BOARD_TOP + POLE / 2, z));
       for (const y of [6, 13, 20]) dark.push(new CylinderGeometry(1.6, 1.6, 3, 10).translate(0, BOARD_TOP + y, z));
       beacon.push(new SphereGeometry(3.6, 14, 10).translate(0, BOARD_TOP + POLE + 2.5, z));

@@ -6,7 +6,7 @@ import type { Materials } from "./materials";
 
 /** Barriers stand on the lane this far either side of the crossing's centre, at its edge. */
 const ALONG = 52;
-const ASIDE = 28;
+const ASIDE = 30;
 const POST_H = 30;
 const ARM_LEN = 48;
 const STRIPES = 6;

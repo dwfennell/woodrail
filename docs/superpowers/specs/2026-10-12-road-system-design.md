@@ -59,8 +59,8 @@ roads and dead ends next to each other, which a "join every road neighbour" rule
 track. A piece can't go on a river, building, station, depot, field, the shed or a hill. It can't go on a town square
 either, but it can join one (§3).
 
-**Size on the square.** The road felt is 48 wide on a 60 board, centred on the square. That is the catalogue's look
-scaled to the square, and it leaves a verge on each side. A curve's felt runs from radius 12 to 60.
+**Size on the square.** The road felt is 56 wide on a 64 board, centred on the square (two 28 mm lanes, so a 26 mm toy car fits its lane). That is the catalogue's look
+scaled to the square, and it leaves a 4 mm verge on each side. A curve.s felt runs from radius 8 to 64.
 
 ## 3. Generated roads and town streets
 

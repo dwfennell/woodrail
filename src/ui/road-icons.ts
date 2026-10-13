@@ -4,8 +4,8 @@ const BOARD = "#e3bf8c";
 const FELT = "#8d8a82";
 const PAINT = "#f6f1e6";
 /** Board and felt half-widths in a 72-unit square (as the pieces are built, in mm). */
-const B = 30;
-const F = 24;
+const B = 32;
+const F = 28;
 
 /** The road from the square's west edge (x = 0) along to `x1`, `half` either side of the middle. */
 const run = (half: number, x1 = 72) => `<rect x="0" y="${36 - half}" width="${x1}" height="${2 * half}"/>`;
@@ -42,9 +42,9 @@ function paint(piece: RoadPieceId): string {
       return dash(12);
     case "zebra":
       return (
-        [-20, -12, -4, 4, 12, 20].map((z) => `<rect x="24" y="${36 + z - 2}" width="24" height="4"/>`).join("") +
+        [-24, -16, -8, 0, 8, 16, 24].map((z) => `<rect x="24" y="${36 + z - 2}" width="24" height="4"/>`).join("") +
         // The beacons, seen from above.
-        [9, 63].map((y) => `<circle cx="36" cy="${y}" r="5" fill="#f2a530" stroke="#2b2b2b" stroke-width="1.5"/>`).join("")
+        [6, 66].map((y) => `<circle cx="36" cy="${y}" r="5" fill="#f2a530" stroke="#2b2b2b" stroke-width="1.5"/>`).join("")
       );
     case "cross":
       return "";
