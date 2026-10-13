@@ -9,7 +9,14 @@ const LOG_SIZE = 80;
 const log: { t: number; kind: string; text: string }[] = [];
 const started = performance.now();
 
+/** Warnings already logged: a library repeating one (three.js, the BVH) would crowd everything else out. */
+const warned = new Set<string>();
+
 export function note(kind: string, text: string): void {
+  if (kind === "warn") {
+    if (warned.has(text)) return;
+    warned.add(text);
+  }
   log.push({ t: Math.round(performance.now() - started), kind, text: text.slice(0, 400) });
   if (log.length > LOG_SIZE) log.shift();
 }

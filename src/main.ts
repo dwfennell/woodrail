@@ -569,8 +569,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   // Performance overlay (backtick).
   let fps = 60;
   window.addEventListener("keydown", (e) => {
+    // Typing (a debug report's note): the keys are the text's.
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === "TEXTAREA" || tag === "INPUT") return;
     if (e.key === "`") hud.perf.hidden = !hud.perf.hidden;
-    if (e.key === " " && !title.shown && (e.target as HTMLElement).tagName !== "BUTTON") {
+    if (e.key === " " && !title.shown && tag !== "BUTTON") {
       e.preventDefault();
       game.paused = !game.paused;
       hud.setPaused(game.paused);
