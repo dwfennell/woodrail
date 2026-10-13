@@ -280,7 +280,8 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     paths: [
       { from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length: RAMP_LENGTH, y0: 0, rise: RISER_HEIGHT } },
     ],
-    flippable: false,
+    // Flipped, its ends swap: a peg at the foot and a hole at the top, to come down from a peg (see `SWAPS_ENDS`).
+    flippable: true,
     isSwitch: false,
     supportHeight: 0,
   },
@@ -458,6 +459,14 @@ function mirror(def: PieceDef): PieceDef {
   };
 }
 
+/** A straight piece "flips" by swapping its ends' peg and hole (mirroring it would change nothing). */
+function swapEnds(def: PieceDef): PieceDef {
+  return { ...def, connectors: def.connectors.map((c) => ({ ...c, kind: c.kind === "peg" ? "socket" : "peg" })) };
+}
+
+/** Pieces whose flip swaps their ends' peg and hole, rather than mirroring them. */
+const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["ramp"]);
+
 const flippedCache = new Map<PieceTypeId, PieceDef>();
 
 export function getPieceDef(type: PieceTypeId, flipped: boolean): PieceDef {
@@ -465,7 +474,7 @@ export function getPieceDef(type: PieceTypeId, flipped: boolean): PieceDef {
   if (!flipped || !base.flippable) return base;
   let m = flippedCache.get(type);
   if (!m) {
-    m = mirror(base);
+    m = SWAPS_ENDS.has(type) ? swapEnds(base) : mirror(base);
     flippedCache.set(type, m);
   }
   return m;

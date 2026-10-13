@@ -190,12 +190,19 @@ describe("auto-fit (ends that don't match turn or mirror the piece to fit)", () 
     if (s.kind === "snapped") expect(s.flipped).toBe(false);
   });
 
-  it("never turns a ramp round to fit: that would make an up ramp a down one", () => {
+  it("never turns a ramp round to fit (an up ramp stays up); flipped, its ends swap to come down from a peg", () => {
     const layout = base();
-    // A ramp held with its (high) peg end against the straight's peg, sloping back the other way.
+    // A ramp held with its (high) end against the straight's peg on the ground, sloping back the other way: no fit.
     const held = { x: 432, z: 0, heading: Math.PI };
-    for (const y of [0, -64]) {
-      expect(findSnap(layout, "ramp", false, held, y, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror").kind).toBe("none");
+    expect(findSnap(layout, "ramp", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn").kind).toBe("none");
+    // Flipped, the ramp has a hole at its top: held a level lower (so its top is at the peg's height, as when coming
+    // down from a raised peg), it seats there.
+    const down = findSnap(layout, "ramp", false, held, -64, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
+    expect(down.kind).toBe("snapped");
+    if (down.kind === "snapped") {
+      expect(down.flipped).toBe(true);
+      expect(getPieceDef("ramp", true).connectors[down.connector].kind).toBe("socket");
+      expect(getPieceDef("ramp", true).connectors[down.connector].y).toBe(64);
     }
     // Held the right way round, it fits as it is: rising away from the straight.
     const s = findSnap(layout, "ramp", false, { x: 220, z: 0, heading: 0 }, 0, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
