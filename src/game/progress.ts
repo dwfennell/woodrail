@@ -18,6 +18,8 @@ export class Progress {
   readonly orders: ThingId[] = [];
   /** The first order's goods are taken and it's being made. */
   making = false;
+  /** Coins: towns pay them for deliveries; they buy land. */
+  coins = 0;
 
   /** A new game: the starting box. */
   static fresh(): Progress {
@@ -58,7 +60,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: this.offers.map((o) => ({ from: o.from, ids: [...o.ids] })), orders: [...this.orders], making: this.making };
+    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: this.offers.map((o) => ({ from: o.from, ids: [...o.ids] })), coins: this.coins, orders: [...this.orders], making: this.making };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -82,6 +84,7 @@ export class Progress {
     }
     if (d && Array.isArray(d.orders)) for (const o of d.orders) if (typeof o === "string" && o in THING_RULES) p.orders.push(o as ThingId);
     p.making = !!d?.making && p.orders.length > 0;
+    p.coins = Number.isInteger(d?.coins) && d!.coins! > 0 ? d!.coins! : 0;
     return p;
   }
 }
@@ -91,6 +94,7 @@ export interface ProgressData {
   learned: string[];
   board?: string[];
   offers?: { from: string; ids: string[] }[];
+  coins?: number;
   orders?: string[];
   making?: boolean;
 }

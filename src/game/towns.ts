@@ -1,3 +1,4 @@
+import type { CargoKind } from "../economy/cargo";
 import { covers, minus, plus, times, total, type Bag } from "../economy/goods";
 
 /**
@@ -63,4 +64,18 @@ export function housesBy(level: number): number {
   let n = 0;
   for (let k = 0; k < level; k++) n += townLevel(k).houses;
   return n;
+}
+
+/** Coins a town pays for one unit of each good it takes (the full price for what it wants now, half otherwise). */
+export const PRICES: Bag = { planks: 4, log: 1 };
+
+/** What a town pays for one unit of `kind`, as it is now. */
+export function payFor(kind: CargoKind, status: TownStatus): number {
+  const price = PRICES[kind] ?? 0;
+  return (status.wants[kind] ?? 0) > 0 ? price : Math.ceil(price / 2);
+}
+
+/** Coins for the next plot of land: dearer the more land you have (a new game's land is four plots). */
+export function plotPrice(plots: number): number {
+  return 60 + 30 * Math.max(0, plots - 4);
 }

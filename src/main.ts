@@ -15,6 +15,7 @@ import { loadBlenderModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
+import { payFor, plotPrice } from "./game/towns";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
@@ -434,13 +435,25 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     }
     chosen = p;
     game.landscapeView.showForSale(forSale, chosen);
-    hud.setLandCard(describeLand(landForSale(game.landscape, p.px, p.pz)), true);
+    const price = plotPrice(game.landscape.grid.plots.length);
+    const priced = mode === "game" ? ` · ${price} coins (you have ${progress.coins})` : "";
+    hud.setLandCard(describeLand(landForSale(game.landscape, p.px, p.pz)) + priced, mode !== "game" || progress.coins >= price);
     game.invalidate();
     return true;
   };
 
   function buyLand(): void {
     if (!chosen) return;
+    // Game mode: land costs coins.
+    const price = plotPrice(game.landscape.grid.plots.length);
+    if (mode === "game") {
+      if (progress.coins < price) {
+        hud.toast(`That land costs ${price} coins: you have ${progress.coins}. Towns pay for deliveries`, false, 3600);
+        return;
+      }
+      progress.coins -= price;
+      hud.setCoins(progress.coins);
+    }
     const bought = game.unlockPlot(chosen.px, chosen.pz);
     if (!bought) return;
     const names = bought.towns.map((id) => game.landscape.towns[id].name);
@@ -551,6 +564,10 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   // Game mode's towns: they want things, and grow when they get them.
   const townLife = new TownLife(game, {
+    received: (_town, kind, n, before) => {
+      progress.coins += payFor(kind, before) * n;
+      hud.setCoins(progress.coins);
+    },
     grew: (town, status, built) => {
       const article = /^[aeiou]/i.test(status.name) ? "an" : "a";
       hud.toast(built.length > 0 ? `${town.name} grew into ${article} ${status.name.toLowerCase()}!` : `${town.name} is now ${article} ${status.name.toLowerCase()}, but has no room to build`, true, 3600);
@@ -847,6 +864,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   function resetGoals(): void {
     progress = Progress.fresh();
+    hud.setCoins(progress.coins);
     crafting.setProgress(progress);
     saveProgress(progress.toJSON());
     refreshBoard();
@@ -898,11 +916,13 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       townLife.reset();
       progress.coverMap(game.world);
       hud.trayBadge = trayBadge;
+      hud.setCoins(progress.coins);
       refreshBoard();
     } else {
       townLife.clear();
       shownDelivered = new Map();
       hud.trayBadge = null;
+      hud.setCoins(null);
     }
     industriesChanged();
     checkGoals(false);

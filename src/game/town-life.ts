@@ -1,5 +1,6 @@
 import type { Bag } from "../economy/goods";
-import { kindsOf } from "../economy/goods";
+import { kindsOf, minus } from "../economy/goods";
+import type { CargoKind } from "../economy/cargo";
 import { LandEditor } from "../landscape/edit";
 import type { Town } from "../landscape";
 import { propsInRect } from "../props/placement";
@@ -25,6 +26,8 @@ export function needBadge(status: TownStatus): SignBadge | null {
 export interface TownLifeEvents {
   /** A town grew a level: where its new buildings went (none if it had no room). */
   grew(town: Town, status: TownStatus, built: { x: number; z: number }[]): void;
+  /** Goods reached a town in play (not on loading): `n` units of `kind`, with the town as it was before them. */
+  received(town: Town, kind: CargoKind, n: number, before: TownStatus): void;
 }
 
 /**
@@ -35,6 +38,8 @@ export interface TownLifeEvents {
 export class TownLife {
   /** Each town's level when last looked at. */
   private levels = new Map<number, number>();
+  /** What each town had received when last looked at. */
+  private had = new Map<number, Bag>();
   /** What each sign shows now (a key), so an unchanged frame repaints nothing. */
   private shown = new Map<number, string>();
 
@@ -47,7 +52,11 @@ export class TownLife {
   reset(): void {
     this.levels.clear();
     this.shown.clear();
-    for (const t of this.game.landscape.towns) this.levels.set(t.id, townStatus(receivedBy(this.game, t.id)).level);
+    for (const t of this.game.landscape.towns) {
+      const received = receivedBy(this.game, t.id);
+      this.levels.set(t.id, townStatus(received).level);
+      this.had.set(t.id, received);
+    }
     this.update();
   }
 
@@ -65,6 +74,12 @@ export class TownLife {
       if (this.shown.get(town.id) === key) continue;
       this.shown.set(town.id, key);
       const status = townStatus(received);
+      const had = this.had.get(town.id);
+      if (had) {
+        const before = townStatus(had);
+        for (const k of kindsOf(minus(received, had))) this.events.received(town, k, received[k]! - (had[k] ?? 0), before);
+      }
+      this.had.set(town.id, received);
       const was = this.levels.get(town.id) ?? status.level;
       this.levels.set(town.id, status.level);
       if (status.level > was) this.grow(town, was, status);

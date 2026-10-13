@@ -137,6 +137,8 @@ export class Hud {
   private readonly menu = el("div", "menu");
   private readonly help = el("div", "help");
   private readonly modeTag = el("span", "mode-tag");
+  /** Game mode's coins, by the logo. */
+  private readonly coinTag = el("span", "coins");
   /** Menu items for each mode's maps. */
   private readonly reportItem = button("Send to Claude…", "Send what you see, your railway and a note to Claude, for debugging", () => {
     this.menu.hidden = true;
@@ -173,6 +175,9 @@ export class Hud {
     const brand = el("div", "brand");
     brand.append(blockWord("W", "brand-block"), el("span", "brand-name", "Woodrail"));
     brand.appendChild(this.modeTag);
+    this.coinTag.hidden = true;
+    this.coinTag.title = "Coins: towns pay them for deliveries; they buy land";
+    brand.appendChild(this.coinTag);
     top.appendChild(brand);
     const actions = el("div", "actions");
     this.undoBtn = button(uiIcon("undo"), "Undo (Ctrl+Z)", h.undo);
@@ -578,6 +583,22 @@ export class Hud {
     for (const b of this.gameItems) b.hidden = mode !== "game";
     this.mapBtn.hidden = mode !== "game";
     this.boardBtn.hidden = mode !== "game";
+  }
+
+  /** Show the coins (null: hide them, outside Game mode). A rise pops the count. */
+  setCoins(n: number | null): void {
+    this.coinTag.hidden = n === null;
+    if (n === null) return;
+    const text = String(n);
+    const was = Number(this.coinTag.dataset.n ?? n);
+    if (this.coinTag.dataset.n === text) return;
+    this.coinTag.dataset.n = text;
+    this.coinTag.innerHTML = `<i></i>${text}`;
+    if (n > was) {
+      this.coinTag.classList.remove("pop");
+      void this.coinTag.offsetWidth;
+      this.coinTag.classList.add("pop");
+    }
   }
 
   /** The blueprint board's button: lit while open, a pulsing dot while a town's choice waits. */
