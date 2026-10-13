@@ -3,6 +3,8 @@ import { GOALS, type Goal, type GoalProgress } from "../game/goals";
 export interface GoalsPanelHandlers {
   /** All goals done: start a new game. */
   newGame(): void;
+  /** Show where the current goal is done, and reach for what it needs. */
+  showMe(): void;
 }
 
 /** Game mode's goal card, under the logo: the goal to do now, how far along it is, and what comes next. */
@@ -12,6 +14,7 @@ export class GoalsPanel {
   private readonly body = document.createElement("div");
   /** The current goal's title in the header, shown when the card is folded up. */
   private readonly now = document.createElement("span");
+  private readonly showBtn = document.createElement("button");
   /** What's shown now, so an unchanged poll touches nothing. */
   private shownKey = "";
 
@@ -31,8 +34,19 @@ export class GoalsPanel {
       e.stopPropagation();
       this.root.classList.toggle("collapsed");
     });
+    // Beside the header, so it's there when the card is folded up too.
+    this.showBtn.className = "chip text goals-show";
+    this.showBtn.textContent = "Show me";
+    this.showBtn.title = "Show where to do this goal";
+    this.showBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      handlers.showMe();
+    });
+    const top = document.createElement("div");
+    top.className = "goals-top";
+    top.append(head, this.showBtn);
     this.body.className = "goals-body";
-    this.root.append(head, this.body);
+    this.root.append(top, this.body);
     this.body.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).closest(".goals-new")) handlers.newGame();
     });
@@ -63,6 +77,7 @@ export class GoalsPanel {
     this.shownKey = key;
     this.count.textContent = `${done} / ${GOALS.length}`;
     this.now.textContent = current?.title ?? "All done!";
+    this.showBtn.hidden = !current;
     if (!current) {
       this.body.innerHTML = `
         <div class="goal current all-done"><span class="goal-tick">✓</span><div><b>All goals done!</b><p>Every town is on the railway and the planks are flowing.</p></div></div>

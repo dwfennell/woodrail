@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { checkPlacement, connectedPairs, PLOT_ROWS, PLOT_WIDTH } from "../landscape";
 import { SIM_DT } from "../sim";
 import { appendPiece, connectorRef } from "../track";
-import { buildStarterWorld, createWorld, landForSale, plotsAround, plotsForSale, unlockPlot, type World } from "./world";
+import { buildStarterWorld, createWorld, freshGameWorld, landForSale, STARTER_SEED, plotsAround, plotsForSale, unlockPlot, type World } from "./world";
 
 describe("createWorld", () => {
   it("places one station piece per town at the town's station pose", () => {
@@ -125,5 +125,17 @@ describe("adding land", () => {
     // It ran on over the edge into the new plot, still on the track.
     expect(Math.max(...w.sim.getTrain(placed.trainId)!.world.map((p) => p.x))).toBeGreaterThan(PLOT_WIDTH + 100);
     expect(w.sim.getTrain(placed.trainId)!.derailed).toBe(false);
+  });
+});
+
+describe("freshGameWorld", () => {
+  it("starts the first game on the starter map, and later ones on new starter-style maps", () => {
+    const m = new Map<string, string>();
+    vi.stubGlobal("localStorage", { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) });
+    expect(freshGameWorld(() => 0.5).landscape.seed).toBe(STARTER_SEED);
+    const next = freshGameWorld(() => 0.25);
+    expect(next.landscape.seed).toBe(250_000);
+    expect(next.landscape.starter).toBe(true);
+    vi.unstubAllGlobals();
   });
 });

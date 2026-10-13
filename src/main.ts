@@ -4,7 +4,7 @@ import { Editor, pieceCentre } from "./editor/editor";
 import { frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
-import { buildStarterWorld, createWorld, landForSale, plotsForSale } from "./game/world";
+import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { CELL, connectedPairs, fixedHome, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, type Landscape, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasSave, loadFromStorage, loadGoals, saveGoals, saveToStorage, serializeWorld } from "./persist/save";
@@ -13,6 +13,7 @@ import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
 import { loadBlenderModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
+import { goalMarks } from "./render/goal-marks";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -460,8 +461,9 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     if (!announce || fresh.length === 0) return;
     hud.toast(fresh.map(([a, b]) => `${name(a)} ↔ ${name(b)}`).join(", ") + " connected!", true);
     audio.chime();
-    // After the first connection, point at the next thing to try (once, and only if there's no timber train yet).
-    if (!timberHinted && game.landscape.depots.length > 0) {
+    // After the first connection, point at the next thing to try (once, and only if there's no timber train yet). Game
+    // mode's goals do this there.
+    if (!timberHinted && mode === "sandbox" && game.landscape.depots.length > 0) {
       timberHinted = true;
       window.setTimeout(() => {
         const hasTimber = game.sim.trainIds().some((id) => game.sim.getTrain(id)?.cars.some((c) => c.kind === "timber"));
@@ -523,7 +525,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   // Game mode's goals: checked about once a second and after every change to the track.
   let goals = new GoalTracker(loadGoals());
-  const goalsPanel = new GoalsPanel(hud.root, { newGame: () => newGame() });
+  const goalsPanel = new GoalsPanel(hud.root, { newGame: () => newGame(), showMe: () => showGoal() });
   /** When goals were last checked (wall-clock ms: frame times are capped, so slow frames would stretch a dt sum). */
   let goalsCheckedAt = 0;
   function checkGoals(announce: boolean): void {
@@ -541,6 +543,34 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     goalsPanel.show(goals.doneCount, current, current ? current.check(game.world) : null, goals.next());
   }
 
+  /** "Show me": glide to where the current goal is done, flash the towns and mark the places, open the tray tab. */
+  function showGoal(): void {
+    const goal = goals.current();
+    if (!goal) return;
+    const guide = goal.guide(game.world);
+    if (guide.tab) hud.openTray(guide.tab, guide.shelf);
+    if (guide.points.length > 0) {
+      const xs = guide.points.map((p) => p.x);
+      const zs = guide.points.map((p) => p.z);
+      const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
+      // A margin round the places, so a lone town or depot is seen with its surroundings, and room for the goals card
+      // and the tray, which cover the top left and the bottom of the screen.
+      const radius = (Math.hypot(x1 - x0, z1 - z0) / 2) * 1.3 + 360;
+      const distance = Math.min(frameDistance(radius, game.camera.fov, game.camera.aspect), game.controls.maxDistance);
+      game.follow(-1);
+      game.director.glideTo(new Vector3((x0 + x1) / 2, 0, (z0 + z1) / 2), distance, { duration: 1 });
+    }
+    if (guide.towns.length > 0) game.flourishes.add(game.landscapeView.flash(guide.towns));
+    const grid = game.landscape.grid;
+    const ground = (x: number, z: number) => {
+      const i = grid.cellAtWorld(x, z);
+      return i < 0 ? 0 : grid.groundY(i);
+    };
+    const marks = goalMarks(game.scene, guide.marks.map((p) => ({ x: p.x, y: ground(p.x, p.z), z: p.z })));
+    if (marks) game.flourishes.add(marks);
+    game.invalidate();
+  }
+
   function resetGoals(): void {
     goals = new GoalTracker();
     saveGoals([]);
@@ -551,7 +581,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   function newGame(): void {
     resetGoals();
     saveLastBuilt("game", null);
-    setWorld(buildStarterWorld());
+    setWorld(freshGameWorld());
     save();
     openingView();
   }
@@ -560,7 +590,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   function play(next: GameMode, fresh: boolean): void {
     if (fresh && next === "game") resetGoals();
     if (fresh) saveLastBuilt(next, null);
-    if (fresh) setWorld(next === "game" ? buildStarterWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
+    if (fresh) setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
     else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);

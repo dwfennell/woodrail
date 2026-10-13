@@ -174,7 +174,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 
 /* ---- goals (Game mode) ----------------------------------------------------------------------------------- */
 .goals { position: absolute; left: 12px; top: calc(max(10px, env(safe-area-inset-top)) + 62px); width: min(290px, calc(100% - 24px)); border-radius: 16px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 8px 26px rgba(60, 40, 20, 0.22); color: #3a2a1c; overflow: hidden; }
-.goals-head { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; font: inherit; color: inherit; padding: 10px 14px 6px; cursor: pointer; text-align: left; }
+.goals-top { display: flex; align-items: center; padding-right: 10px; }
+.goals-show { flex: none; height: 34px; padding: 0 12px; font-size: 13px; border-radius: 11px; }
+.goals-head { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; font: inherit; color: inherit; padding: 10px 14px 6px; cursor: pointer; text-align: left; }
 .goals-label { font-weight: 800; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #8a6440; }
 .goals-count { font-weight: 800; font-size: 12px; background: #d9ead2; color: #2d5a2a; border-radius: 999px; padding: 1px 8px; }
 .goals-now { display: none; font-weight: 800; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

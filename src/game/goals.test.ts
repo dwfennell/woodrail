@@ -31,6 +31,10 @@ describe("goals", () => {
     for (const g of GOALS) expect(g.check(w).done, g.id).toBe(false);
   });
 
+  it("count no towns joined before any track is laid", () => {
+    expect(goal("join-two").check(buildStarterWorld())).toMatchObject({ done: false, count: 0, target: 2 });
+  });
+
   it("joining two towns counts toward the town goals", () => {
     const { w } = joined();
     expect(goal("join-two").check(w)).toMatchObject({ done: true, count: 2, target: 2 });
@@ -47,10 +51,12 @@ describe("goals", () => {
     t.speed = 80;
     expect(goal("get-moving").check(w).done).toBe(true);
     expect(goal("station-stop").check(w).done).toBe(false);
+    // Standing on a station isn't running into it.
     const second = trainOn(w, w.stations.get(w.landscape.towns[0].id)!);
-    expect(goal("station-stop").check(w).done).toBe(true);
+    expect(goal("station-stop").check(w).done).toBe(false);
     expect(goal("two-trains").check(w)).toMatchObject({ done: false, count: 1 });
     second.speed = 40;
+    expect(goal("station-stop").check(w).done).toBe(true);
     expect(goal("two-trains").check(w).done).toBe(true);
     // A derailed train isn't running.
     t.derailed = true;
@@ -78,6 +84,42 @@ describe("goals", () => {
     expect(goal("build-bridge").check(w).done).toBe(false);
     w.layout.addPiece("bridge", { x: 0, z: 0, heading: 0 });
     expect(goal("build-bridge").check(w).done).toBe(true);
+  });
+});
+
+describe("goal guides", () => {
+  it("every goal says where to look on a fresh map and on a busy one", () => {
+    const fresh = buildStarterWorld();
+    const { w, straights } = joined();
+    trainOn(w, straights[1], ["engine", "timber"]);
+    for (const g of GOALS) {
+      for (const world of [fresh, w]) {
+        const guide = g.guide(world);
+        expect(guide.points.length, g.id).toBeGreaterThan(0);
+        for (const p of guide.points) expect(Number.isFinite(p.x) && Number.isFinite(p.z), g.id).toBe(true);
+      }
+    }
+  });
+
+  it("points at the starter's first two towns, then the nearest town not yet joined", () => {
+    const fresh = buildStarterWorld();
+    const [a, b] = fresh.landscape.towns;
+    expect(goal("join-two").guide(fresh).towns.sort()).toEqual([a.id, b.id].sort());
+    const { w } = joined();
+    const towns = goal("join-three").guide(w).towns;
+    expect(towns).toHaveLength(2);
+    expect([a.id, b.id]).toContain(towns[0]);
+    expect([a.id, b.id]).not.toContain(towns[1]);
+  });
+
+  it("marks the forest yard for loading logs and opens the tabs that have what's needed", () => {
+    const { w } = joined();
+    const forest = w.landscape.depots.find((d) => d.kind === "forest")!;
+    const pose = w.layout.getPiece(w.depots.get(forest.id)!)!.pose;
+    expect(goal("load-logs").guide(w).marks).toEqual([pose]);
+    expect(goal("place-train").guide(w).tab).toBe("trains");
+    expect(goal("lay-switch").guide(w)).toMatchObject({ tab: "track", shelf: "Switch" });
+    expect(goal("build-bridge").guide(w).tab).toBe("bridges");
   });
 });
 

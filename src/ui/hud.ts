@@ -90,6 +90,9 @@ function button(label: string, title: string, onClick: () => void, cls = "chip")
   return b;
 }
 
+/** A celebration message shows at least this long (ms) before the next one replaces it. */
+const TOAST_READ_MS = 1800;
+
 /** The HTML overlay: top bar, piece tray, context cards, menu, help, toasts and perf readout. */
 export class Hud {
   readonly root = el("div", "hud");
@@ -139,6 +142,10 @@ export class Hud {
   private readonly gameItems: HTMLButtonElement[];
   readonly perf = el("div", "perf");
   private toastTimer = 0;
+  private readonly toastQueue: { message: string; celebrate: boolean; ms: number }[] = [];
+  /** Until when (performance.now) the message showing may not be replaced. */
+  private toastHeldUntil = 0;
+  private toastFlushTimer = 0;
 
   private readonly handlers: HudHandlers;
   /** Tray pictures by key: those drawn at start-up, and catalogue models' as they're drawn. */
@@ -368,7 +375,7 @@ export class Hud {
     // A tab's catalogue shelves, once loaded (their code is fetched the first time the tab opens).
     const loadedGroups = new Map<string, TrayGroup[]>();
     let openId = "";
-    const openTab = (tab: TrayTab) => {
+    const openTab = (tab: TrayTab, shelf?: string) => {
       if (openId !== "" && openId !== tab.id) this.handlers.trayTabChanged();
       openId = tab.id;
       // The Land tab switches land editing on (with its first tool), any other tab off.
@@ -393,12 +400,19 @@ export class Hud {
           }
         }
       }
+      const open = shelf ? groups.find((g) => g.label === shelf) : undefined;
       if (groups.length === 1) showItems(groups, groups[0], false);
+      else if (open) showItems(groups, open);
       else showGroups(groups);
+    };
+    let list: TrayTab[] = [];
+    this.openTrayTab = (id, shelf) => {
+      const tab = list.find((t) => t.id === id);
+      if (tab) openTab(tab, shelf);
     };
     this.showTabs = (mode) => {
       tabs.innerHTML = "";
-      const list = trayTabs(mode);
+      list = trayTabs(mode);
       for (const tab of list) {
         // Tapping a tab (even the open one) goes back to its groups.
         const t = button(tab.label, `${tab.label}`, () => openTab(tab), "tab");
@@ -503,6 +517,12 @@ export class Hud {
   /** Label the mode by the logo and offer its own map items in the menu. */
   /** Rebuild the tray's tabs for a mode (set in the constructor, where the tray is built). */
   private showTabs: (mode: GameMode) => void = () => {};
+  private openTrayTab: (id: string, shelf?: string) => void = () => {};
+
+  /** Open a tray tab (and one of its shelves), as if tapped: "Show me" reaches for what a goal needs. */
+  openTray(id: string, shelf?: string): void {
+    this.openTrayTab(id, shelf);
+  }
   private trayMode: GameMode | null = null;
 
   setMode(mode: GameMode): void {
@@ -816,8 +836,31 @@ export class Hud {
     this.tray.querySelectorAll<HTMLElement>(".tray-item[data-key]").forEach((b) => b.classList.toggle("armed", b.dataset.key === key));
   }
 
+  /**
+   * Show a message. A celebration stays up long enough to read: messages that come while it's fresh wait their turn
+   * (several things often happen at once: a connection, a goal done, a hint). A plain message gives way at once.
+   */
   toast(message: string, celebrate = false, ms = 2200): void {
     note("toast", message);
+    this.toastQueue.push({ message, celebrate, ms });
+    this.flushToasts();
+  }
+
+  private flushToasts(): void {
+    clearTimeout(this.toastFlushTimer);
+    const wait = this.toastHeldUntil - performance.now();
+    if (wait > 0) {
+      this.toastFlushTimer = window.setTimeout(() => this.flushToasts(), wait);
+      return;
+    }
+    const next = this.toastQueue.shift();
+    if (!next) return;
+    this.showToast(next.message, next.celebrate, next.ms);
+    this.toastHeldUntil = next.celebrate ? performance.now() + Math.min(next.ms, TOAST_READ_MS) : 0;
+    if (this.toastQueue.length > 0) this.flushToasts();
+  }
+
+  private showToast(message: string, celebrate: boolean, ms: number): void {
     this.toastEl.textContent = message;
     this.toastEl.classList.toggle("celebrate", celebrate);
     this.toastEl.classList.remove("show");

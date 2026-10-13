@@ -58,6 +58,23 @@ export function buildStarterWorld(): World {
   return createWorld(STARTER_SEED, true);
 }
 
+const GAMES_KEY = "woodrail.game.started";
+
+/**
+ * A new Game-mode map. The first game is on the starter map; after that each is a fresh starter-style map (two towns
+ * with a clear run between them, a forest yard and a sawmill near them) from a new seed, so no two games are alike.
+ */
+export function freshGameWorld(random: () => number = Math.random): World {
+  let first = true;
+  try {
+    first = localStorage.getItem(GAMES_KEY) === null;
+    localStorage.setItem(GAMES_KEY, "1");
+  } catch {
+    // storage unavailable: every game is someone's first
+  }
+  return first ? buildStarterWorld() : createWorld(Math.floor(random() * 1_000_000), true);
+}
+
 /** Plots that can be added to the world: those sharing an edge with land it has. */
 export function plotsForSale(land: Landscape): PlotCoord[] {
   const g = land.grid;

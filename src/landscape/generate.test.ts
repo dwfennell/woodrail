@@ -103,8 +103,12 @@ describe("generateLandscape", () => {
     expect(generateLandscape(7, { starter: true }).towns).toHaveLength(5);
   });
 
-  it("starter maps line up towns 0 and 1 with a clear strip between them", () => {
-    const land = generateLandscape(7, { starter: true });
+  // Game mode's first game is seed 7; later games are starter maps from any seed.
+  it.each([7, 1000, 8919, 72271, 230651])("starter maps (seed %i) line up towns 0 and 1 with a clear strip between them", (seed) => {
+    const land = generateLandscape(seed, { starter: true });
+    expect(land.towns).toHaveLength(5);
+    expect(land.depots.map((d) => d.kind).sort()).toEqual(["forest", "sawmill"]);
+    expect(reachable(land)).toBe(true);
     const [a, b] = land.towns;
     expect(a.station.heading).toBe(0);
     expect(b.station.heading).toBe(0);
