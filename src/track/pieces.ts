@@ -76,13 +76,20 @@ export type PieceTypeId =
   | "station"
   | "depot-forest"
   | "depot-sawmill"
-  | JoinTypeId;
+  | JoinTypeId
+  | FitTypeId;
 
 /**
  * Join pieces: S-bends `length` long shifting the line `offset` to the left (flipped: right), on the 18 mm track
  * lattice. Never in the tray: the Auto piece becomes one to meet a free end a little to one side (`fitAutoStraight`).
  */
 export type JoinTypeId = `join-${number}-${number}`;
+
+/**
+ * The Auto piece's shapes with a peg at both ends ("pp") or a hole at both ends ("hh"): a straight (`offset` 0) or a
+ * join `length` long, for meeting two ends of the same kind (two holes facing each other). Never in the tray.
+ */
+export type FitTypeId = `fit-${number}-${number}-${"pp" | "hh"}`;
 
 export interface PieceDef {
   readonly type: PieceTypeId;
@@ -456,9 +463,22 @@ export const JOIN_SIZES: readonly (readonly [number, number])[] = (() => {
 })();
 
 export const joinType = (length: number, offset: number): JoinTypeId => `join-${length}-${offset}`;
-export const isJoin = (type: PieceTypeId): type is JoinTypeId => type.startsWith("join-");
+/** Join pieces, and the Auto piece's both-ends-alike shapes: built when first used, kept out of the catalogue. */
+export const isJoin = (type: PieceTypeId): type is JoinTypeId | FitTypeId => type.startsWith("join-") || type.startsWith("fit-");
 
 for (const [length, offset] of JOIN_SIZES) CATALOG[joinType(length, offset)] = sCurve(joinType(length, offset), length, offset);
+
+/** The lengths the Auto piece comes in, every 18 mm from the tiny straight to the long one. */
+export const FIT_LENGTHS = [36, 54, 72, 90, 108, 126, 144, 162, 180, 198, 216] as const;
+export const fitType = (length: number, offset: number, ends: "pp" | "hh"): FitTypeId => `fit-${length}-${offset}-${ends}`;
+export const isFit = (type: PieceTypeId): type is FitTypeId => type.startsWith("fit-");
+/** A piece with both ends of one kind. */
+const bothEnds = (def: PieceDef, kind: "peg" | "socket"): PieceDef => ({ ...def, connectors: def.connectors.map((c) => ({ ...c, kind })) });
+for (const ends of ["pp", "hh"] as const) {
+  const kind = ends === "pp" ? "peg" : "socket";
+  for (const length of FIT_LENGTHS) CATALOG[fitType(length, 0, ends)] = bothEnds(straight(fitType(length, 0, ends), length), kind);
+  for (const [length, offset] of JOIN_SIZES) CATALOG[fitType(length, offset, ends)] = bothEnds(sCurve(fitType(length, offset, ends), length, offset), kind);
+}
 
 export const PIECE_TYPES = Object.keys(CATALOG) as readonly PieceTypeId[];
 

@@ -30,9 +30,9 @@ describe("auto straight", () => {
     const off = new Layout();
     off.addPiece("straight-144", P(126, 120));
     expect(fitAutoStraight(off, P(0, 0), 0, 0, [])).toBeNull();
-    const wrong = new Layout();
-    wrong.addPiece("straight-144", P(270, 0, Math.PI)); // its peg end faces us: can't join a peg
-    expect(fitAutoStraight(wrong, P(0, 0), 0, 0, [])).toBeNull();
+    const away = new Layout();
+    away.addPiece("straight-144", P(270, 0, 0)); // its hole end faces away from us
+    expect(fitAutoStraight(away, P(0, 0), 0, 0, [])).toBeNull();
     const high = new Layout();
     high.addPiece("straight-144", P(126, 0), 64);
     expect(fitAutoStraight(high, P(0, 0), 0, 0, [])).toBeNull();
@@ -79,5 +79,17 @@ describe("auto straight", () => {
     expect(end.x).toBeCloseTo(162);
     expect(end.z).toBeCloseTo(-54);
     expect(end.heading).toBeCloseTo(0);
+  });
+
+  it("meets two ends of the same kind with a piece alike at both ends (two holes: pegs both ends; two pegs: holes)", () => {
+    // Seated by its peg on a hole at x = 216; the end it meets, 126 back, is a hole too: a straight with pegs both ends.
+    const holes = new Layout();
+    holes.addPiece("straight-144", P(90, 0, Math.PI)); // hole end at (90, 0), facing +x
+    const r = fitAutoStraight(holes, P(0, 0), 0, 1, []);
+    expect(r).toMatchObject({ length: 126, type: "fit-126-0-pp" });
+    // Seated by its hole on a peg; the end ahead is a peg facing back (and 36 to the side): a join with holes both ends.
+    const pegs = new Layout();
+    pegs.addPiece("straight-144", P(288, 36, Math.PI)); // peg end at (144, 36), facing −x
+    expect(fitAutoStraight(pegs, P(0, 0), 0, 0, [])).toMatchObject({ length: 144, type: "fit-144-36-hh", flipped: false });
   });
 });
