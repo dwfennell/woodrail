@@ -75,7 +75,14 @@ export type PieceTypeId =
   | "wye"
   | "station"
   | "depot-forest"
-  | "depot-sawmill";
+  | "depot-sawmill"
+  | JoinTypeId;
+
+/**
+ * Join pieces: S-bends `length` long shifting the line `offset` to the left (flipped: right), on the 18 mm track
+ * lattice. Never in the tray: the Auto piece becomes one to meet a free end a little to one side (`fitAutoStraight`).
+ */
+export type JoinTypeId = `join-${number}-${number}`;
 
 export interface PieceDef {
   readonly type: PieceTypeId;
@@ -435,6 +442,23 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   "depot-forest": straight("depot-forest", 216),
   "depot-sawmill": straight("depot-sawmill", 216),
 };
+
+/** The join sizes: lengths and sideways shifts on the lattice, gentle enough to run (no tighter than a small curve). */
+export const JOIN_SIZES: readonly (readonly [number, number])[] = (() => {
+  const out: [number, number][] = [];
+  for (let length = 72; length <= 216; length += 18) {
+    for (let offset = 18; offset <= 90; offset += 18) {
+      const sweep = 2 * Math.atan(offset / length);
+      if (sweep <= (50 * Math.PI) / 180 && length / (2 * Math.sin(sweep)) >= SMALL_CURVE_RADIUS) out.push([length, offset]);
+    }
+  }
+  return out;
+})();
+
+export const joinType = (length: number, offset: number): JoinTypeId => `join-${length}-${offset}`;
+export const isJoin = (type: PieceTypeId): type is JoinTypeId => type.startsWith("join-");
+
+for (const [length, offset] of JOIN_SIZES) CATALOG[joinType(length, offset)] = sCurve(joinType(length, offset), length, offset);
 
 export const PIECE_TYPES = Object.keys(CATALOG) as readonly PieceTypeId[];
 

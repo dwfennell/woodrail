@@ -33,7 +33,7 @@ import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } fro
 import { bridgeLevels, findCrossings, syncCuttings, type HeldPiece, hillPieces, hillsOf, PLOT_DEPTH, type Landscape } from "../landscape";
 import { setHazeLand, setHazeReach } from "../render/haze";
 import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
-import { PIECE_TYPES, type Layout, type PlacedPiece } from "../track";
+import { isJoin, PIECE_TYPES, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
 import { hasLandForSale, landForSale, plotsAround, unlockPlot, type World } from "./world";
@@ -187,7 +187,8 @@ export class Game {
 
     this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy());
     this.stage = createStage(this.scene, this.renderer, this.quality);
-    TrackView.prebuild(PIECE_TYPES);
+    // Join pieces (dozens of S-bend sizes) are built when first used.
+    TrackView.prebuild(PIECE_TYPES.filter((t) => !isJoin(t)));
     TrackView.warmBridges(PIECE_TYPES);
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);

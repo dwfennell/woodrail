@@ -1042,13 +1042,13 @@ export class Interaction {
         }
       }
       if (m.auto) {
-        // Shrink to meet a free end along its line, if one is in reach (else stay long).
         const fit = m.snap.kind === "snapped" && m.snap.connector <= 1 ? fitAutoStraight(this.game.layout, m.snap.pose, m.snap.y, m.snap.connector as 0 | 1, [m.pieceId]) : null;
-        if (fit && m.snap.kind === "snapped") m.snap = { ...m.snap, pose: fit.pose };
+        // Shrink to meet a free end along its line, or bend (a join) to meet one a little to one side.
+        if (fit && m.snap.kind === "snapped") m.snap = { ...m.snap, pose: fit.pose, flipped: fit.flipped };
         const type = fit?.type ?? "straight-216";
         if (type !== m.type) {
           m.type = type;
-          m.ghost.geometry = pieceGeometry(type, false);
+          m.ghost.geometry = pieceGeometry(type, m.flipped);
         }
       }
       const fitFlipped = m.snap.kind === "snapped" ? m.snap.flipped : m.heldFlipped;
