@@ -226,6 +226,14 @@ export class Interaction {
       if (this.mode.kind !== "idle" && this.mode.pointerId === e.pointerId) this.cancel();
     });
     window.addEventListener("keydown", (e) => this.onKey(e));
+    // Cmd (Mac) or Ctrl tapped on its own flips the piece in hand: on release, unless another key went with it
+    // (Ctrl+Z is undo, not a flip).
+    window.addEventListener("keyup", (e) => {
+      if ((e.key === "Meta" || e.key === "Control") && this.modTapped) this.flipSelected();
+      this.modTapped = false;
+    });
+    window.addEventListener("blur", () => (this.modTapped = false));
+    window.addEventListener("pointerdown", () => (this.modTapped = false), { capture: true });
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     // Wheel zoom is ours (eased, toward the pointer): stop it before OrbitControls sees it. Pinch stays with them.
     window.addEventListener(
@@ -1341,8 +1349,12 @@ export class Interaction {
     return k === "drag-piece" || k === "drag-prop" || this.selectedPiece !== -1 || this.selectedProp !== -1;
   }
 
+  /** Cmd or Ctrl went down on its own (and nothing else since): a tap that flips. */
+  private modTapped = false;
+
   private onKey(e: KeyboardEvent): void {
-    if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+    if ((e.target as HTMLElement)?.tagName === "INPUT" || (e.target as HTMLElement)?.tagName === "TEXTAREA") return;
+    this.modTapped = (e.key === "Meta" || e.key === "Control") && !e.repeat && !e.shiftKey && !e.altKey;
     const mod = e.ctrlKey || e.metaKey;
     if (mod && this.busy && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
       e.preventDefault();

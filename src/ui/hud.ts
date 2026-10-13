@@ -401,7 +401,7 @@ export class Hud {
             <li><b>Towns:</b> join two stations with track to connect their towns.</li>
             <li><b>Camera:</b> right-drag or two-finger twist to orbit.</li>
           </ul>
-          <p class="help-keys">Keys: WASD or arrows pan · Q E turn · R F tilt (Shift: faster) · R rotate, F flip what’s selected · Del delete · Ctrl+Z undo · Space pause · \` performance</p>
+          <p class="help-keys">Keys: WASD or arrows pan · Q E turn · R F tilt (Shift: faster) · R rotate, F (or tap Cmd/Ctrl) flip what’s selected · Del delete · Ctrl+Z undo · Space pause · \` performance</p>
         </details>
       </div>`;
     // Illustrate the tips with the same rendered pictures as the tray.
