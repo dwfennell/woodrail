@@ -214,3 +214,17 @@ describe("Editor edits under trains", () => {
     expect(layout.jointCount).toBe(1);
   });
 });
+
+describe("moving a ramp", () => {
+  it("may land flipped (its ends swapped, to come down from a peg), and undo puts it back as it was", () => {
+    const layout = new Layout();
+    const sim = new Sim(layout);
+    const editor = new Editor(layout, sim, () => {});
+    const ramp = editor.place("ramp", { x: 0, z: 0, heading: 0 }, 0, false);
+    layout.liftPiece(ramp);
+    editor.move(ramp, { x: 300, z: 0, heading: 0 }, 0, undefined, [], true);
+    expect(layout.getPiece(ramp)).toMatchObject({ flipped: true, pose: { x: 300 } });
+    editor.undo();
+    expect(layout.getPiece(ramp)).toMatchObject({ flipped: false, pose: { x: 0 } });
+  });
+});

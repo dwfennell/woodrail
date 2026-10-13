@@ -105,13 +105,13 @@ export class Layout {
     return true;
   }
 
-  /** Put a lifted piece down at a new pose and seat it. */
-  dropPiece(id: number, pose: Pose, y: number): boolean {
+  /** Put a lifted piece down at a new pose (mirrored or not, if given) and seat it. */
+  dropPiece(id: number, pose: Pose, y: number, flipped?: boolean): boolean {
     const piece = this.pieces.get(id);
     if (!piece) return false;
     if (!this.lifted.has(id)) this.detachAll(id);
     this.lifted.delete(id);
-    this.pieces.set(id, { ...piece, pose: { ...pose }, y });
+    this.pieces.set(id, { ...piece, pose: { ...pose }, y, flipped: flipped ?? piece.flipped });
     this.seatAll(id);
     return true;
   }

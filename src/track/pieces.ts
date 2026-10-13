@@ -491,6 +491,9 @@ function swapEnds(def: PieceDef): PieceDef {
 /** Pieces whose flip swaps their ends' peg and hole, rather than mirroring them. */
 const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["ramp"]);
 
+/** Does flipping this piece swap its ends' peg and hole (so a moved one may flip to fit, as a new one does)? */
+export const flipSwapsEnds = (type: PieceTypeId): boolean => SWAPS_ENDS.has(type);
+
 const flippedCache = new Map<PieceTypeId, PieceDef>();
 
 export function getPieceDef(type: PieceTypeId, flipped: boolean): PieceDef {

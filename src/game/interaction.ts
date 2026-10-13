@@ -8,7 +8,7 @@ import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, bridgeLevels, CELL, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { findLowCrossing, findOverlap, findSnap, findSnapAtPoint, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { findLowCrossing, findOverlap, findSnap, flipSwapsEnds, findSnapAtPoint, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
@@ -1028,7 +1028,8 @@ export class Interaction {
       const capture = this.captureRadius(x, y);
       // Look for pegs on the floor, up to a few risers up, and on whatever the piece is over. Ends that don't match
       // (peg to peg, hole to hole) turn the piece round, or for a new piece mirror it, so it fits.
-      const autoFit = m.pieceId === -1 ? "turn-or-mirror" : "turn";
+      // A moved piece keeps its hand (a curve stays a left or a right); a ramp may still swap its ends to fit.
+      const autoFit = m.pieceId === -1 || flipSwapsEnds(holdType) ? "turn-or-mirror" : "turn";
       m.snap = { kind: "none" };
       // A free end under the finger wins: the piece goes where it's pointed. Else the nearest end to the held piece's.
       let atFinger = false;
@@ -1147,7 +1148,7 @@ export class Interaction {
     switch (dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew })) {
       case "place": {
         const snapped = m.snap.kind === "snapped";
-        const id = isNew ? ed.place(m.type, pose, y, m.flipped, risers) : (ed.move(m.pieceId, pose, y, m.from!, risers), m.pieceId);
+        const id = isNew ? ed.place(m.type, pose, y, m.flipped, risers) : (ed.move(m.pieceId, pose, y, m.from!, risers, m.flipped), m.pieceId);
         g.trackView.setHidden(id, true);
         setRim(g.mats.held, "#ffffff", 0);
         g.flourishes.add(

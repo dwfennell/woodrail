@@ -148,18 +148,20 @@ export class Editor {
   }
 
   /** Move a piece (it may currently be lifted for dragging; `from` is where it was picked up). */
-  move(id: number, pose: Pose, y: number, from?: { pose: Pose; y: number }, risers: readonly RiserAt[] = []): boolean {
+  /** Move a piece; `flipped`, when given, is how it lands (a ramp may swap its ends to fit where it's put). */
+  move(id: number, pose: Pose, y: number, from?: { pose: Pose; y: number }, risers: readonly RiserAt[] = [], flipped?: boolean): boolean {
     const rec = this.record(id);
     if (!rec) return false;
     const start = from ?? { pose: rec.pose, y: rec.y };
+    const wasFlipped = rec.flipped;
     const supports = this.supports(risers);
     this.run({
       do: () => {
         supports.add();
-        this.layout.dropPiece(id, pose, y);
+        this.layout.dropPiece(id, pose, y, flipped);
       },
       undo: () => {
-        this.layout.dropPiece(id, start.pose, start.y);
+        this.layout.dropPiece(id, start.pose, start.y, wasFlipped);
         supports.remove();
       },
       moves: [id],
