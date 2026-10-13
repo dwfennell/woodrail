@@ -1,7 +1,8 @@
-# Woodrail — Game Mode: Towns, Crafting and a Tech Tree Design
+# Woodrail — Game Mode: Towns, Crafting and a Tech Tree (Brainstorm)
 
 **Date:** 2026-10-13
-**Status:** Draft for review (direction agreed in chat; numbers and the open questions in §13 to settle)
+**Status:** Brainstorm. Nothing here is decided: it collects ideas from the chat so far, to react to and change.
+Numbers are placeholders, and §13 lists what's still open.
 **Builds on:** `2026-10-12-title-and-modes-design.md` (modes, goals), `2026-10-11-depots-and-cargo-design.md` (cargo,
 depots, automatic loading), `2026-10-12-expandable-world-design.md` (plots, buying land)
 
@@ -272,9 +273,9 @@ The AGENTS.md rules hold:
   pointer move; moving the piece only shows or hides it.
 - Measure idle CPU and frame time before and after each stage, with the numbers in the commits.
 
-## 15. Order of work
+## 15. A possible order of work
 
-Each stage ships something playable on its own.
+If this direction holds, one way to build it, each stage playable on its own:
 
 1. **Map view + town needs and growth.** Towns show needs and grow visibly; Show me and the map view point at them.
    No costs yet.
