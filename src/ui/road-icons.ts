@@ -17,6 +17,7 @@ function shape(piece: RoadPieceId, half: number): string {
   switch (piece) {
     case "straight":
     case "zebra":
+    case "bridge":
       return run(half);
     case "curve":
       return ring(half);
@@ -33,6 +34,7 @@ function paint(piece: RoadPieceId): string {
   const dash = (x: number) => `<rect x="${x - 5}" y="35" width="10" height="2.4"/>`;
   switch (piece) {
     case "straight":
+    case "bridge":
       return [12, 36, 60].map(dash).join("");
     case "curve":
       return `<path d="M0 36 A36 36 0 0 1 36 72" fill="none" stroke="${PAINT}" stroke-width="2.4" stroke-dasharray="10 8.8" stroke-dashoffset="-4"/>`;
@@ -53,11 +55,16 @@ function paint(piece: RoadPieceId): string {
 
 /** Top-down SVG of a road piece on its square, as it comes out of the tray. */
 export function roadIcon(piece: RoadPieceId): string {
+  // A bridge stands over water, with parapets along its edges.
+  const water = piece === "bridge" ? `<rect x="22" y="-4" width="28" height="80" fill="#2a63a0"/>` : "";
+  const parapets = piece === "bridge" ? `<g fill="#a07447">${[36 - B, 36 + B - 3].map((y) => `<rect x="0" y="${y}" width="72" height="3"/>`).join("")}</g>` : "";
   return (
     `<svg viewBox="-4 -4 80 80" xmlns="http://www.w3.org/2000/svg">` +
+    water +
     `<g fill="${BOARD}" stroke="#a07447" stroke-width="1.5">${shape(piece, B)}</g>` +
     `<g fill="${FELT}">${shape(piece, F)}</g>` +
     `<g fill="${PAINT}">${paint(piece)}</g>` +
+    parapets +
     `</svg>`
   );
 }

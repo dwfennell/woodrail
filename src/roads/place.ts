@@ -2,15 +2,16 @@ import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type La
 import type { Landscape } from "../landscape/generate";
 import { CELL, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "../landscape/grid";
 import { crossesRoad } from "../landscape/clearance";
-import { bestTurn, encodeRoad, type RoadPieceId } from "./pieces";
+import { bestTurn, encodeRoad, pieceOf, type RoadPieceId } from "./pieces";
 
 /** Why a road piece can't go on a square. */
-export type RoadBlock = "off-land" | "town" | "river" | "in-use" | "hill" | "station-way" | "track" | "prop";
+export type RoadBlock = "off-land" | "town" | "river" | "dry" | "in-use" | "hill" | "station-way" | "track" | "prop";
 
 export const ROAD_MESSAGES: Record<RoadBlock, string> = {
   "off-land": "Roads go on your own land",
   town: "Town streets are already laid",
-  river: "Roads can't cross the river yet",
+  river: "Use a road bridge over the river",
+  dry: "Bridges go over the river",
   "in-use": "Something stands there",
   hill: "Roads go on level ground",
   "station-way": "Keep the way into the station clear for track",
@@ -97,8 +98,10 @@ export class RoadPlacer {
     if (i === -1) return "off-land";
     const s = g.surface[i];
     if (s === SURF_TOWN || s === SURF_ROAD) return "town";
-    if (s === SURF_RIVER) return "river";
-    if (s !== SURF_GRASS && s !== SURF_LANE) return "in-use";
+    const bridge = this.road !== 0 && pieceOf(this.road)?.overRiver === true;
+    if (s === SURF_RIVER && !bridge) return "river";
+    if (s !== SURF_RIVER && bridge) return "dry";
+    if (s !== SURF_GRASS && s !== SURF_LANE && s !== SURF_RIVER) return "in-use";
     if (g.feature[i] !== FEAT_NONE && g.feature[i] !== FEAT_TREE) return "in-use";
     if (g.height[i] !== 0) return "hill";
     if (this.corridors.has(i)) return "station-way";

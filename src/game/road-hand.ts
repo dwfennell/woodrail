@@ -1,6 +1,6 @@
 import type { Group } from "three";
 import type { Editor } from "../editor/editor";
-import { CELL, FEAT_TREE, SURF_LANE, type LandscapeGrid } from "../landscape";
+import { CELL, FEAT_TREE, SURF_LANE, SURF_RIVER, type LandscapeGrid } from "../landscape";
 import { plotSlotOf } from "../landscape/edit";
 import { propsInRect } from "../props/placement";
 import { roadPieceGroup, roadMaterials } from "../render/dressing/roads";
@@ -56,7 +56,8 @@ export class RoadHand {
 
   /** Is there a road piece the player may pick up on square `i`? (Not a town street.) */
   pickable(i: number): boolean {
-    return i !== -1 && this.grid.road[i] !== 0 && this.grid.surface[i] === SURF_LANE;
+    // The player's roads are lanes; a road bridge stands over a river square.
+    return i !== -1 && this.grid.road[i] !== 0 && (this.grid.surface[i] === SURF_LANE || this.grid.surface[i] === SURF_RIVER);
   }
 
   private placer(): RoadPlacer {

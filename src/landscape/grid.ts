@@ -183,12 +183,14 @@ export class LandscapeGrid {
   }
 
   /**
-   * Put a road piece on a square (or take it off, with 0), keeping its surface in step: road squares are lanes, and a
-   * lane square left without a road goes back to grass. Call `touch` after.
+   * Put a road piece on a square (or take it off, with 0), keeping its surface in step: road squares are lanes (a road
+   * bridge leaves a river square a river), and a lane square left without a road goes back to grass. Call `touch` after.
    */
   setRoad(i: number, road: number): void {
     this.road[i] = road;
-    if (road !== 0) this.surface[i] = SURF_LANE;
+    if (road !== 0) {
+      if (this.surface[i] !== SURF_RIVER) this.surface[i] = SURF_LANE;
+    }
     else if (this.surface[i] === SURF_LANE) this.surface[i] = SURF_GRASS;
   }
 

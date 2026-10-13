@@ -111,6 +111,7 @@ export const ROAD_GROUPS: TrayGroup[] = [
       { kind: "road", piece: "cross", label: "Crossroads" },
       { kind: "road", piece: "end", label: "Dead end" },
       { kind: "road", piece: "zebra", label: "Zebra crossing" },
+      { kind: "road", piece: "bridge", label: "Road bridge" },
     ],
   },
 ];

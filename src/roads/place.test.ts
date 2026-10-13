@@ -94,3 +94,23 @@ describe("level crossings", () => {
     expect(crossesRoad(encodeRoad("curve", 0), 0)).toBe(false);
   });
 });
+
+describe("road bridges", () => {
+  it("go over river squares only, and leave them river", () => {
+    const l = land();
+    const g = l.grid;
+    const river = g.index(5, 5);
+    g.surface[river] = SURF_RIVER;
+    const placer = new RoadPlacer(l, null);
+    expect(placer.check(river, encodeRoad("bridge", 0))).toBeNull();
+    expect(placer.check(river, encodeRoad("straight", 0))).toBe("river");
+    expect(placer.check(g.index(6, 5), encodeRoad("bridge", 0))).toBe("dry");
+    const undo = setRoadSquare(g, river, encodeRoad("bridge", 0));
+    expect(g.surface[river]).toBe(SURF_RIVER);
+    // A road laid up to it turns to meet it.
+    expect(edgesOf(placer.fit("end", g.index(6, 5), 0))).toBe(1 << EDGE_W);
+    undo();
+    expect(g.road[river]).toBe(0);
+    expect(g.surface[river]).toBe(SURF_RIVER);
+  });
+});

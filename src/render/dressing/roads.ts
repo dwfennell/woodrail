@@ -149,12 +149,16 @@ function pieceParts(id: RoadPieceId): Record<SlotName, BufferGeometry[]> {
         return [run(half, -H, H, y0, y1), box(-half, half, -H, -half, y0, y1), box(-half, half, half, H, y0, y1)];
       case "end":
         return [roundEnd(half, y0, y1)];
+      case "bridge":
+        // In segments along its run, so the hump bends it smoothly.
+        return [new BoxGeometry(CELL, y1 - y0, 2 * half, 12).translate(0, (y0 + y1) / 2, 0)];
     }
   };
   const paint: BufferGeometry[] = [];
   const centreDashes = (xs: number[]) => xs.forEach((x) => paint.push(dash(x, 0, 10)));
   switch (id) {
     case "straight":
+    case "bridge":
       centreDashes([-24, 0, 24]);
       break;
     case "curve":
@@ -188,7 +192,26 @@ function pieceParts(id: RoadPieceId): Record<SlotName, BufferGeometry[]> {
       beacon.push(new SphereGeometry(3.6, 14, 10).translate(0, BOARD_TOP + POLE + 2.5, z));
     }
   }
-  return { board: board(BOARD_HALF, 0, BOARD_TOP), felt: board(FELT_HALF, BOARD_TOP, FELT_TOP), paint, dark, beacon };
+  const parts = { board: board(BOARD_HALF, 0, BOARD_TOP), felt: board(FELT_HALF, BOARD_TOP, FELT_TOP), paint, dark, beacon };
+  if (id === "bridge") {
+    // Low wooden parapets along both edges, then the whole deck humped over the river (level with the road at its ends).
+    for (const z of [-(BOARD_HALF - 1.5), BOARD_HALF - 1.5]) parts.board.push(new BoxGeometry(CELL, 5, 3, 12).translate(0, BOARD_TOP + 2.5, z));
+    for (const list of Object.values(parts)) for (const g of list) hump(g);
+  }
+  return parts;
+}
+
+/** How high a road bridge's deck rises at its middle (mm). */
+const HUMP = 9;
+
+/** Raise a bridge part along a gentle hump: none at the square's edges, `HUMP` at its middle. */
+function hump(g: BufferGeometry): void {
+  const p = g.getAttribute("position");
+  for (let k = 0; k < p.count; k++) {
+    const c = Math.cos((Math.PI * p.getX(k)) / CELL);
+    p.setY(k, p.getY(k) + HUMP * c * c);
+  }
+  g.computeVertexNormals();
 }
 
 function flatten(parts: BufferGeometry[]): PieceMesh {

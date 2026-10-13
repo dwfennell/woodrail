@@ -24,7 +24,7 @@ export interface Port {
   readonly flow: Flow;
 }
 
-export type RoadPieceId = "straight" | "curve" | "tee" | "cross" | "end" | "zebra";
+export type RoadPieceId = "straight" | "curve" | "tee" | "cross" | "end" | "zebra" | "bridge";
 
 export interface RoadPieceDef {
   /** Stored in the low six bits of a square's road byte (never 0: that's no road). Never renumber. */
@@ -37,6 +37,8 @@ export interface RoadPieceDef {
   readonly links: readonly (readonly [number, number])[];
   /** Ground-level track may cross this square, across the road's run only (a level crossing). */
   readonly trackMayCross: boolean;
+  /** Goes over a river square (and only there): a road bridge. */
+  readonly overRiver?: boolean;
 }
 
 const two = (edge: Edge): Port => ({ edge, slot: "mid", flow: "both" });
@@ -55,6 +57,7 @@ export const ROAD_PIECES: readonly RoadPieceDef[] = [
   },
   { code: 5, id: "end", name: "Dead end", ports: [two(EDGE_W)], links: [], trackMayCross: false },
   { code: 6, id: "zebra", name: "Zebra crossing", ports: [two(EDGE_W), two(EDGE_E)], links: [[0, 1]], trackMayCross: false },
+  { code: 7, id: "bridge", name: "Road bridge", ports: [two(EDGE_W), two(EDGE_E)], links: [[0, 1]], trackMayCross: false, overRiver: true },
 ];
 
 const byCode: (RoadPieceDef | undefined)[] = [];
@@ -163,7 +166,7 @@ export function bestTurn(id: RoadPieceId, neighbours: readonly number[], held = 
 export function pieceForEdges(mask: number): number {
   mask &= 15;
   for (const def of ROAD_PIECES) {
-    if (def.id === "zebra") continue;
+    if (def.id === "zebra" || def.overRiver) continue;
     for (let t = 0; t < 4; t++) {
       const road = encodeRoad(def.id, t);
       if (edgesOf(road) === mask) return road;

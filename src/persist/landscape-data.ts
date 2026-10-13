@@ -12,6 +12,7 @@ import {
   MAX_HEIGHT,
   PLOT_CELLS,
   SURF_LANE,
+  SURF_RIVER,
   SURF_ROAD,
   type Landscape,
 } from "../landscape";
@@ -146,7 +147,9 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
       if (!road || road.length !== PLOT_CELLS) return err(`plot ${p.px},${p.pz} has bad roads`);
       for (let k = 0; k < PLOT_CELLS; k++) {
         // Roads are laid on lanes (the player's) and town streets.
-        if (road[k] !== 0 && (!pieceOf(road[k]) || (surface[k] !== SURF_LANE && surface[k] !== SURF_ROAD))) return err(`plot ${p.px},${p.pz} has a road where there can't be one`);
+        const def = road[k] === 0 ? null : pieceOf(road[k]);
+        const fits = !def || (def.overRiver ? surface[k] === SURF_RIVER : surface[k] === SURF_LANE || surface[k] === SURF_ROAD);
+        if (road[k] !== 0 && (!def || !fits)) return err(`plot ${p.px},${p.pz} has a road where there can't be one`);
       }
       grid.road.set(road, base);
     }
