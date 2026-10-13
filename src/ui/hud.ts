@@ -1,4 +1,5 @@
 import type { GameMode } from "../game/modes";
+import { note } from "../debug/report";
 import { blockWord } from "./blocks";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 import { propGroups, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
@@ -43,6 +44,8 @@ export interface HudHandlers {
   buttonTap(): void;
   /** The Land tab's tool chosen (null: land editing off). */
   landTool(tool: LandTool | null): void;
+  /** Send a debug report (the player's note, the view, the save) to Claude. */
+  sendReport(note: string): Promise<void>;
   /** Tray items shown without a picture yet: draw them (a few at a time) and hand each back with `setThumbnail`. */
   needThumbnails(items: TrayItem[]): void;
 }
@@ -109,6 +112,12 @@ export class Hud {
   private readonly help = el("div", "help");
   private readonly modeTag = el("span", "mode-tag");
   /** Menu items for each mode's maps. */
+  private readonly reportItem = button("Send to Claude…", "Send what you see, your railway and a note to Claude, for debugging", () => {
+    this.menu.hidden = true;
+    this.openReport();
+  }, "menu-item");
+  private readonly reportCard = el("div", "card report-card");
+  private readonly reportNote = document.createElement("textarea");
   private readonly sandboxItems: HTMLButtonElement[];
   private readonly gameItems: HTMLButtonElement[];
   readonly perf = el("div", "perf");
@@ -177,7 +186,10 @@ export class Hud {
         this.menu.hidden = true;
         this.showHelp();
       }, "menu-item"),
+      this.reportItem,
     );
+    this.reportItem.hidden = true;
+    this.buildReportCard();
     this.root.appendChild(this.menu);
 
     // Engine card
@@ -621,6 +633,45 @@ export class Hud {
   }
 
   /** Show how tray pieces will come out: the Turn arrow points their way, and Flip lights up when mirroring. */
+  /** Show "Send to Claude…" in the menu (the page can store reports). */
+  enableReports(): void {
+    this.reportItem.hidden = false;
+  }
+
+  private buildReportCard(): void {
+    const c = this.reportCard;
+    c.hidden = true;
+    this.reportNote.rows = 3;
+    this.reportNote.placeholder = "What were you trying to do, and what went wrong?";
+    this.reportNote.className = "report-note";
+    const status = el("div", "report-status");
+    const send = button("Send", "Send the report", async () => {
+      send.disabled = true;
+      status.textContent = "Sending…";
+      try {
+        await this.handlers.sendReport(this.reportNote.value.trim());
+        c.hidden = true;
+        this.reportNote.value = "";
+        this.toast("Sent to Claude, with a picture of this view");
+      } catch (e) {
+        status.textContent = `Couldn't send: ${(e as { code?: string; message?: string }).code ?? (e as Error).message ?? e}`;
+      } finally {
+        send.disabled = false;
+      }
+    }, "chip text");
+    const cancel = button("Cancel", "Close", () => (c.hidden = true), "chip text");
+    const row = el("div", "card-row");
+    row.append(cancel, send);
+    c.append(el("div", "card-title", "Send to Claude"), this.reportNote, status, row);
+    this.root.appendChild(c);
+  }
+
+  private openReport(): void {
+    this.reportCard.querySelector(".report-status")!.textContent = "The picture is taken as you send, so the view stays as it is now.";
+    this.reportCard.hidden = false;
+    this.reportNote.focus();
+  }
+
   /** The open tab holds models (its Turn turns the next model, not the next piece). */
   propsTab = false;
   private trayArrowDeg = NaN;
@@ -683,6 +734,7 @@ export class Hud {
   }
 
   toast(message: string, celebrate = false, ms = 2200): void {
+    note("toast", message);
     this.toastEl.textContent = message;
     this.toastEl.classList.toggle("celebrate", celebrate);
     this.toastEl.classList.remove("show");

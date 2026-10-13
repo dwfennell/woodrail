@@ -4,3 +4,4 @@ dist
 dist-bench
 dist-catalogue
 *.log
+.reports

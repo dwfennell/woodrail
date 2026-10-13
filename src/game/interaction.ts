@@ -1316,6 +1316,25 @@ export class Interaction {
 
   // ---- keyboard ---------------------------------------------------------------------------------------------
 
+  /** What the hand is doing and what's selected, for a debug report. */
+  debugState(): Record<string, unknown> {
+    const m = this.mode as { kind: string; type?: string; asset?: string; pieceId?: number; propId?: number; blocked?: unknown; snap?: { kind: string } };
+    return {
+      mode: m.kind,
+      held: m.type ?? m.asset,
+      heldId: m.pieceId ?? m.propId,
+      blocked: m.blocked ?? null,
+      snap: m.snap?.kind,
+      selectedPiece: this.selectedPiece,
+      selectedProp: this.selectedProp,
+      selectedCar: this.selectedCar,
+      selectedScenery: this.selectedScenery,
+      trayTurns: this.trayTurns,
+      trayFlipped: this.trayFlipped,
+      propHeading: this.propHeading,
+    };
+  }
+
   /** Is something selected or held that R and F act on (turn, flip)? Else they tilt the view. */
   get piecesTakeKeys(): boolean {
     const k = this.mode.kind;

@@ -606,6 +606,12 @@ export class Game {
     this.stage.update(this.camera);
     this.post.setFocus(dist);
     this.post.render(now);
+    // A picture of this frame wanted (a debug report): taken now, while the drawing buffer still holds it.
+    if (this.grabFrame) {
+      const take = this.grabFrame;
+      this.grabFrame = null;
+      take(this.canvas);
+    }
     // Too slow at this resolution: step down (the next frame draws at the new size).
     const ratio = this.resolution.frameDrawn(this.lastFrameAt, this.drewLastTick);
     this.drewLastTick = true;
@@ -613,6 +619,23 @@ export class Game {
       this.renderer.setPixelRatio(ratio);
       this.resize();
     }
+  }
+
+  private grabFrame: ((canvas: HTMLCanvasElement) => void) | null = null;
+
+  /** A picture of the next frame drawn (it's drawn at once), as a WebP or PNG. */
+  capture(): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      this.grabFrame = (canvas) => {
+        // Copied out synchronously: the drawing buffer is cleared once this task ends.
+        const copy = document.createElement("canvas");
+        copy.width = canvas.width;
+        copy.height = canvas.height;
+        copy.getContext("2d")?.drawImage(canvas, 0, 0);
+        copy.toBlob((b) => resolve(b), "image/webp", 0.85);
+      };
+      this.invalidate();
+    });
   }
 
   /** Pan keys held now (forward, back, left, right), and the pan's current velocity (world mm/s). */

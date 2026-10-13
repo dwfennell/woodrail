@@ -7,7 +7,8 @@ import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, landForSale, plotsForSale } from "./game/world";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, type Landscape, type PlotCoord } from "./landscape";
 import { loadLastMode, saveLastMode, type GameMode } from "./game/modes";
-import { hasSave, loadFromStorage, loadGoals, saveGoals, saveToStorage } from "./persist/save";
+import { hasSave, loadFromStorage, loadGoals, saveGoals, saveToStorage, serializeWorld } from "./persist/save";
+import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
 import { qualityFor, saveQualityOverride } from "./render/quality";
@@ -46,6 +47,10 @@ function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean } {
   }
   return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: false };
 }
+
+startLog();
+/** Where "Send to Claude" reports go (the dev server, or the claude.ai page), or null: no menu item. */
+let reports: Reporter | null = null;
 
 function boot(savedThumbnails: Map<string, string> | null): void {
   const opening = initialWorld();
@@ -160,10 +165,32 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       depotWaitFull: () => interaction.toggleDepotWaitFull(),
       needThumbnails: (items) => drawPropThumbnails(items),
       landTool: (tool) => setLandTool(tool),
+      sendReport: async (text) => {
+        if (!reports) throw new Error("reports aren't available here");
+        const picture = await game.capture();
+        const c = game.camera.position;
+        const t = game.controls.target;
+        const state = {
+          mode,
+          seed: game.landscape.seed,
+          view: { camera: [c.x, c.y, c.z].map(Math.round), target: [t.x, t.y, t.z].map(Math.round) },
+          screen: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio, pixelRatio: game.renderer.getPixelRatio(), touch: matchMedia("(pointer: coarse)").matches },
+          quality: game.quality.tier,
+          counts: { pieces: game.layout.pieceCount, trains: game.sim.trainIds().length, props: game.props.size },
+          hand: interaction.debugState(),
+          userAgent: navigator.userAgent,
+        };
+        await reports.send(text, state, serializeWorld(game.world), picture);
+      },
     },
     () => (game.quality.tier === "high" ? "High" : "Battery saver"),
     { thumbnails, muted },
   );
+  // "Send to Claude", where reports can go (resolved after start-up: on claude.ai the page's capabilities answer later).
+  void reporter().then((r) => {
+    reports = r;
+    if (r) hud.enableReports();
+  });
 
   // Catalogue models' tray pictures: drawn when their shelf is first shown, one a frame (each builds the model, if it
   // isn't yet), then kept with the start-up pictures for the next visit.
