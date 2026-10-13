@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RAMP_LENGTH, RISER_HEIGHT } from "./constants";
 import { connectorRef, createWorldConnector, Layout } from "./layout";
 import type { Pose } from "./math";
 
@@ -69,7 +70,7 @@ describe("Layout seating", () => {
     const l = new Layout();
     l.addPiece("straight-144", P(0, 0));
     l.addPiece("ramp", P(144, 0));
-    l.addPiece("bridge", P(360, 0), 64); // a bridge is track at its deck height, on its own arches
+    l.addPiece("bridge", P(144 + RAMP_LENGTH, 0), RISER_HEIGHT); // a bridge is track at its deck height, on its own arches
     expect(l.jointCount).toBe(2);
   });
 

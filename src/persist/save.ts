@@ -6,15 +6,17 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, Sim, type CarKind, type CarLook } from "../sim";
 import { CARGO, CARGO_KINDS, Economy, PILE_CAP, ROLE, WAGON_CAPACITY, type CargoKind } from "../economy";
-import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
+import { getPieceDef, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
 /**
- * Save format, version 8. Plain JSON validated with Zod; only this module (and `landscape-data`) knows its shape.
+ * Save format, version 9. Plain JSON validated with Zod; only this module (and `landscape-data`) knows its shape.
  * The landscape is saved square by square (see `landscape-data.ts`): loading never regenerates it. No backward
  * compatibility until the game reaches v1.
  */
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
+/** Version 8 saves (a level was 64 mm then) still load: their heights are scaled to today's level (see `fromV8`). */
+const OLD_LEVEL = 64;
 
 const pieceSchema = z.object({
   id: z.number().int().positive(),
@@ -47,7 +49,7 @@ const trainSchema = z.object({
 });
 
 const saveSchema = z.object({
-  version: z.literal(SAVE_VERSION),
+  version: z.union([z.literal(8), z.literal(SAVE_VERSION)]),
   landscape: landscapeSchema,
   towns: z.array(z.object({ id: z.number().int().min(0), stationPieceId: z.number().int().positive() })),
   pieces: z.array(pieceSchema),
@@ -122,6 +124,19 @@ export function serializeWorld(world: World): SaveData {
   };
 }
 
+/**
+ * A version 8 save, brought up to date: a level was 64 mm, now `RISER_HEIGHT`, so heights (track, props) scale down
+ * with it. (Ramps are shorter now too: track that ran on from a ramp's top end is left a gap short.)
+ */
+function fromV8(save: z.infer<typeof saveSchema>): z.infer<typeof saveSchema> {
+  const k = RISER_HEIGHT / OLD_LEVEL;
+  return {
+    ...save,
+    pieces: save.pieces.map((p) => ({ ...p, y: Math.round(p.y * k * 1000) / 1000 })),
+    ...(save.props ? { props: save.props.map((p) => ({ ...p, y: Math.round(p.y * k * 1000) / 1000 })) } : {}),
+  };
+}
+
 /** Rebuild a world from saved data. Never throws on bad input. */
 export function deserializeWorld(data: unknown): Result<World, string> {
   const parsed = saveSchema.safeParse(data);
@@ -129,7 +144,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     const issue = parsed.error.issues[0];
     return err(`invalid save: ${issue.path.join(".")} — ${issue.message}`);
   }
-  const save = parsed.data;
+  const save = parsed.data.version === 8 ? fromV8(parsed.data) : parsed.data;
   const layout = new Layout();
   for (const p of [...save.pieces].sort((a, b) => a.id - b.id)) {
     if (!layout.restorePiece(p.id, p.type, { x: p.x, z: p.z, heading: p.heading }, p.y, p.flipped)) {

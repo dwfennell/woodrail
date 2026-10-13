@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RISER_HEIGHT } from "../track";
 import { STRAIGHT_LENGTHS } from "../track";
 import { CELL, gridWithPlots, LandscapeGrid, PLOT_CELLS, PLOT_COLS, PLOT_DEPTH, PLOT_ROWS, PLOT_WIDTH } from "./grid";
 
@@ -78,10 +79,10 @@ describe("LandscapeGrid", () => {
     expect(g.neighbours()[g.index(0, 0) * 4 + 2]).toBe(g.index(-1, 0));
   });
 
-  it("ground height is blocks × 64 mm", () => {
+  it("ground height is blocks × a level (RISER_HEIGHT)", () => {
     const g = gridWithPlots(-1, -1, 2, 2);
     const i = g.index(10, 10);
     g.height[i] = 2;
-    expect(g.groundY(i)).toBe(128);
+    expect(g.groundY(i)).toBe(2 * RISER_HEIGHT);
   });
 });

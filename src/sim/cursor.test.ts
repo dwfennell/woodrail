@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RAMP_LENGTH, RISER_HEIGHT } from "../track";
 import { appendPiece, connectorRef, Layout } from "../track";
 import { ADV_BUFFER, ADV_OK, ADV_OPEN_END, advanceCursor, createAdvance, createWorldSample, cursorWorld, flipCursor, type Cursor } from "./cursor";
 
@@ -78,10 +79,10 @@ describe("flipCursor and cursorWorld", () => {
 
   it("reports slope positive uphill in the direction of travel, plus piece height", () => {
     const { layout, ids } = line("ramp");
-    const up: Cursor = { pieceId: ids[0], pathIndex: 0, reversed: false, s: 108 };
+    const up: Cursor = { pieceId: ids[0], pathIndex: 0, reversed: false, s: RAMP_LENGTH / 2 };
     const w = cursorWorld(layout, up, createWorldSample());
     expect(w.slope).toBeGreaterThan(0);
-    expect(w.y).toBeCloseTo(32);
+    expect(w.y).toBeCloseTo(RISER_HEIGHT / 2);
     flipCursor(layout, up);
     expect(cursorWorld(layout, up, createWorldSample()).slope).toBeLessThan(0);
   });

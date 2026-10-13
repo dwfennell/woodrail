@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { RISER_HEIGHT } from "../track";
 import { buildStarterWorld, unlockPlot, type World } from "../game/world";
 import { appendPiece, connectorRef } from "../track";
 import { connectedPairs } from "../landscape";
@@ -35,8 +36,20 @@ describe("save format", () => {
     expect(w.sim.getTrain(w.sim.trainIds()[0])!.cars[0].lever).toBe(1);
   });
 
-  it("is at version 8 (the landscape saved square by square)", () => {
-    expect(SAVE_VERSION).toBe(8);
+  it("is at version 9 (a level is RISER_HEIGHT, not 64 mm)", () => {
+    expect(SAVE_VERSION).toBe(9);
+  });
+
+  it("loads version 8 saves, their heights scaled from 64 mm levels to today's", () => {
+    const world = worldWithTrain();
+    const data = serializeWorld(world) as unknown as { version: number; pieces: { y: number }[] };
+    data.version = 8;
+    data.pieces.forEach((p, k) => (p.y = k === 0 ? 128 : 0));
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const ys = [...r.value.layout.pieceIds()].map((id) => r.value.layout.getPiece(id)!.y);
+    expect(ys).toContain(2 * RISER_HEIGHT);
   });
 
   it("refuses version 7 saves (their landscape was only a seed)", () => {

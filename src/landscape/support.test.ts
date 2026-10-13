@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Layout, RISER_HEIGHT } from "../track";
+import { Layout, RAMP_LENGTH, RISER_HEIGHT } from "../track";
 import { gridWithPlots } from "./grid";
 import type { Landscape } from "./generate";
 import { bridgeLevels, checkSupport, looseHeight, riserStackAt } from "./support";
@@ -26,7 +26,7 @@ describe("checkSupport", () => {
 
   it("a ramp from the felt up onto a hill edge is held at both ends", () => {
     const land = flat();
-    hill(land, 216, 504, -144, 216);
+    hill(land, RAMP_LENGTH, 504, -144, 216);
     expect(checkSupport(land, new Layout(), "ramp", false, P(0, Z), 0, -1)).toEqual({ kind: "held", risers: [] });
   });
 
@@ -58,7 +58,7 @@ describe("checkSupport", () => {
 
   it("a ramp's high end over the felt gets a riser", () => {
     const s = checkSupport(flat(), new Layout(), "ramp", false, P(0, Z), 0, -1);
-    expect(s).toEqual({ kind: "held", risers: [{ pose: P(216, Z), y: 0 }] });
+    expect(s).toEqual({ kind: "held", risers: [{ pose: P(RAMP_LENGTH, Z), y: 0 }] });
   });
 
   it("track joined to a bridge's end is held there (the bridge stands on its arches)", () => {
@@ -97,15 +97,15 @@ describe("checkSupport", () => {
     // Its high end would top the tallest a bridge goes.
     expect(bridgeLevels(flat(), "ramp", false, P(0, Z), 4 * RISER_HEIGHT)).toBe(0);
     expect(bridgeLevels(flat(), "ramp", false, P(0, Z), 0)).toBe(0);
-    expect(checkSupport(flat(), new Layout(), "ramp", false, P(0, Z), 0, -1)).toEqual({ kind: "held", risers: [{ pose: P(216, Z), y: 0 }] });
+    expect(checkSupport(flat(), new Layout(), "ramp", false, P(0, Z), 0, -1)).toEqual({ kind: "held", risers: [{ pose: P(RAMP_LENGTH, Z), y: 0 }] });
   });
 
   it("track joined to the top of a ramp on arches rests there", () => {
     const layout = new Layout();
     layout.addPiece("ramp", P(0, Z), RISER_HEIGHT);
     // Near end on the ramp's high end, two levels up; the far end over the felt gets two risers.
-    const s = checkSupport(flat(), layout, "straight-216", false, P(216, Z), 2 * RISER_HEIGHT, -1);
-    expect(s).toEqual({ kind: "held", risers: [0, 1].map((k) => ({ pose: P(432, Z), y: k * RISER_HEIGHT })) });
+    const s = checkSupport(flat(), layout, "straight-216", false, P(RAMP_LENGTH, Z), 2 * RISER_HEIGHT, -1);
+    expect(s).toEqual({ kind: "held", risers: [0, 1].map((k) => ({ pose: P(RAMP_LENGTH + 216, Z), y: k * RISER_HEIGHT })) });
   });
 
   it("a bridge's arches reach the lowest ground under it", () => {

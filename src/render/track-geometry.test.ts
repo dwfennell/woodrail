@@ -1,6 +1,6 @@
 import { Box3, Raycaster, Mesh, MeshBasicMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { createSample, getPieceDef, pathLength, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH } from "../track";
+import { createSample, getPieceDef, pathLength, RAMP_LENGTH, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH } from "../track";
 import { buildPieceGeometry, GROOVE_DEPTH, PEG_HEIGHT } from "./track-geometry";
 
 function topHeightAt(geomMesh: Mesh, x: number, z: number): number | null {
@@ -45,7 +45,7 @@ describe("buildPieceGeometry", () => {
     expect(box.min.y).toBeCloseTo(-RISER_HEIGHT - 1, 0);
     expect(box.max.y).toBeGreaterThan(RISER_HEIGHT);
     // Viaduct reaches the ground at both ends (just in from each end, below the deck).
-    for (const x of [8, 208]) {
+    for (const x of [8, RAMP_LENGTH - 8]) {
       const ray = new Raycaster(new Vector3(x, -RISER_HEIGHT + 2, -100), new Vector3(0, 0, 1));
       expect(ray.intersectObject(m).length, `x ${x}`).toBeGreaterThan(0);
     }
@@ -91,7 +91,7 @@ describe("buildPieceGeometry", () => {
 
   it("ramp rises to riser height", () => {
     const box = new Box3().setFromObject(meshOf("ramp"));
-    expect(box.max.y).toBeGreaterThan(64 + TRACK_THICKNESS - 1);
+    expect(box.max.y).toBeGreaterThan(RISER_HEIGHT + TRACK_THICKNESS - 1);
   });
 
   it("produces normals and uvs for every vertex", () => {

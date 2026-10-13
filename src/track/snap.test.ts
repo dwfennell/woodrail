@@ -3,7 +3,7 @@ import { connectorRef, Layout } from "./layout";
 import { solveParentPose, transformPose, type Pose } from "./math";
 import { getPieceDef } from "./pieces";
 import { appendPiece, findSnap, findSnapAtPoint } from "./snap";
-import { SNAP_CAPTURE_RADIUS } from "./constants";
+import { RAMP_LENGTH, RISER_HEIGHT, SNAP_CAPTURE_RADIUS } from "./constants";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -51,10 +51,10 @@ describe("findSnap", () => {
 
   it("snaps onto a raised connector and reports the resulting base height", () => {
     const l = new Layout();
-    l.addPiece("ramp", P(0, 0)); // peg at x=216, y=64
-    const r = findSnap(l, "straight-144", false, P(220, 0), 50);
+    l.addPiece("ramp", P(0, 0)); // peg at x=RAMP_LENGTH, a level up
+    const r = findSnap(l, "straight-144", false, P(RAMP_LENGTH + 4, 0), RISER_HEIGHT - 14);
     expect(r.kind).toBe("snapped");
-    if (r.kind === "snapped") expect(r.y).toBeCloseTo(64);
+    if (r.kind === "snapped") expect(r.y).toBeCloseTo(RISER_HEIGHT);
   });
 
   it("does not snap to joined connectors", () => {
@@ -193,16 +193,16 @@ describe("auto-fit (ends that don't match turn or mirror the piece to fit)", () 
   it("never turns a ramp round to fit (an up ramp stays up); flipped, its ends swap to come down from a peg", () => {
     const layout = base();
     // A ramp held with its (high) end against the straight's peg on the ground, sloping back the other way: no fit.
-    const held = { x: 432, z: 0, heading: Math.PI };
+    const held = { x: 216 + RAMP_LENGTH, z: 0, heading: Math.PI };
     expect(findSnap(layout, "ramp", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn").kind).toBe("none");
     // Flipped, the ramp has a hole at its top: held a level lower (so its top is at the peg's height, as when coming
     // down from a raised peg), it seats there.
-    const down = findSnap(layout, "ramp", false, held, -64, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
+    const down = findSnap(layout, "ramp", false, held, -RISER_HEIGHT, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
     expect(down.kind).toBe("snapped");
     if (down.kind === "snapped") {
       expect(down.flipped).toBe(true);
       expect(getPieceDef("ramp", true).connectors[down.connector].kind).toBe("socket");
-      expect(getPieceDef("ramp", true).connectors[down.connector].y).toBe(64);
+      expect(getPieceDef("ramp", true).connectors[down.connector].y).toBe(RISER_HEIGHT);
     }
     // Held the right way round, it fits as it is: rising away from the straight.
     const s = findSnap(layout, "ramp", false, { x: 220, z: 0, heading: 0 }, 0, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");

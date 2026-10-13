@@ -13,8 +13,8 @@ export const CURVE_SWEEP = Math.PI / 4; // eight curves make a circle
 
 export const SWITCH_LENGTH = 144;
 export const CROSSING_SIZE = 144;
-export const RISER_HEIGHT = 64;
-export const RAMP_LENGTH = 216;
+export const RISER_HEIGHT = 48;
+export const RAMP_LENGTH = 144;
 export const BRIDGE_LENGTH = 216;
 export const BUFFER_LENGTH = 54;
 export const ADAPTER_LENGTH = 54;

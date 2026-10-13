@@ -323,11 +323,12 @@ function bridgeSupport(def: PieceDef, height: number): BufferGeometry {
     below.translate(len / 2, ground - 1 - rise, 0);
     result = evaluator.evaluate(result, brush(below), SUBTRACTION);
   }
-  // Arch tops a spandrel below the deck; the openings reach the ground.
-  const radius = len * ARCH_RADIUS;
+  // Arch tops a spandrel below the deck; the openings reach the ground. A low viaduct's arches are smaller, so each
+  // still springs a little above the ground (a full-size one would be cut off by it).
   for (const at of ARCH_CENTRES) {
     samplePath(path, len * at, p);
     const archTop = p.y - ARCH_CROWN_DROP;
+    const radius = Math.min(len * ARCH_RADIUS, archTop - ground - 4);
     const arch = onlyCsgAttributes(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40).toNonIndexed());
     arch.rotateX(Math.PI / 2);
     arch.translate(0, archTop - radius, 0);

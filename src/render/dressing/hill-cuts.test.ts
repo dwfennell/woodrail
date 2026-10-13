@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Mesh, MeshBasicMaterial, Raycaster, Vector3, type BufferGeometry } from "three";
 import { blockOutline, hillsOf, insideBlock, gridWithPlots, SURF_RIVER, syncCuttings, type Landscape } from "../../landscape";
-import { Layout, RISER_HEIGHT } from "../../track";
+import { Layout, RAMP_LENGTH, RISER_HEIGHT } from "../../track";
 import { columnGeometry, cutColumn, HillCutsView } from "./hill-cuts";
 
 /** Signed volume (positive when faces point out) and how many edges aren't shared by exactly two triangles. */
@@ -18,8 +18,10 @@ function solidity(g: BufferGeometry): { volume: number; openEdges: number } {
       edges.set(e, (edges.get(e) ?? 0) + 1);
     }
   }
+  // An edge on an odd number of faces is a hole's rim. (Four faces: the surface touches itself there, where a cutting
+  // reaches right down to the block's foot: top and bottom meet, still closed.)
   let openEdges = 0;
-  for (const count of edges.values()) if (count !== 2) openEdges++;
+  for (const count of edges.values()) if (count % 2 === 1) openEdges++;
   return { volume, openEdges };
 }
 
@@ -97,30 +99,33 @@ describe("hill block columns", () => {
 
 describe("hill blocks cut by ramps' cuttings", () => {
   const P = (x: number, z: number, heading = 0) => ({ x, z, heading });
-  /** Felt, with a hill `height` blocks high from x = 144 eastward over a band of rows, and any squares raised higher. */
+  /** Where the hill starts: a square short of a ramp's top end (from x = 0), so its last square runs into the hill. */
+  const HILL = RAMP_LENGTH - 72;
+  /** Felt, with a hill `height` blocks high from x = HILL eastward over a band of rows, and any squares raised higher. */
   function land(height = 1, extra: (x: number, z: number) => number = () => 0): Landscape {
     const grid = gridWithPlots(-1, -1, 2, 2);
-    for (let x = 144 + 36; x < 1200; x += 72) for (let z = -300; z < 300; z += 72) {
+    for (let x = HILL + 36; x < 1200; x += 72) for (let z = -300; z < 300; z += 72) {
       const i = grid.cellAtWorld(x, z);
       if (i !== -1) grid.height[i] = height + extra(x, z);
     }
     return { seed: 0, starter: false, grid, towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
   }
   const cases: { name: string; land: Landscape; ramps: { pose: { x: number; z: number; heading: number }; y: number }[]; blocks: number }[] = [
-    { name: "straight into an edge, ending mid-block", land: land(), ramps: [{ pose: P(0, 36), y: 0 }], blocks: 1 },
+    { name: "straight into an edge (its banks reach the rows beside)", land: land(), ramps: [{ pose: P(0, 36), y: 0 }], blocks: 3 },
     { name: "straddling two rows", land: land(), ramps: [{ pose: P(0, 0), y: 0 }], blocks: 2 },
-    { name: "across several blocks (into the hill at a slant)", land: land(), ramps: [{ pose: P(40, 0, 0.35), y: 0 }], blocks: 5 },
-    { name: "diagonal (45°)", land: land(), ramps: [{ pose: P(60, -40, Math.PI / 4), y: 0 }], blocks: 4 },
-    { name: "level 1 to level 2", land: land(1, (x) => (x > 360 ? 1 : 0)), ramps: [{ pose: P(216, 36), y: RISER_HEIGHT }], blocks: 1 },
+    { name: "across several blocks (into the hill at a slant)", land: land(), ramps: [{ pose: P(40, 0, 0.35), y: 0 }], blocks: 3 },
+    { name: "diagonal (45°)", land: land(), ramps: [{ pose: P(60, -40, Math.PI / 4), y: 0 }], blocks: 6 },
+    { name: "level 1 to level 2", land: land(1, (x) => (x > 216 + HILL ? 1 : 0)), ramps: [{ pose: P(216, 36), y: RISER_HEIGHT }], blocks: 3 },
     { name: "two ramps cutting the same block", land: land(), ramps: [{ pose: P(0, 0), y: 0 }, { pose: P(0, 56), y: 0 }], blocks: 3 },
   ];
   // A ramp into a rounded corner: a lone block with a river round it.
   {
     const l = land(0);
     const at = (x: number, z: number) => l.grid.cellAtWorld(x, z);
-    for (let x = 180 - 72; x <= 180 + 72; x += 72) for (let z = -36 - 72; z <= -36 + 72; z += 72) l.grid.surface[at(x, z)] = SURF_RIVER;
-    l.grid.surface[at(180, -36)] = 0;
-    l.grid.height[at(180, -36)] = 1;
+    const bx = HILL + 36;
+    for (let x = bx - 72; x <= bx + 72; x += 72) for (let z = -36 - 72; z <= -36 + 72; z += 72) l.grid.surface[at(x, z)] = SURF_RIVER;
+    l.grid.surface[at(bx, -36)] = 0;
+    l.grid.height[at(bx, -36)] = 1;
     cases.push({ name: "into a rounded corner", land: l, ramps: [{ pose: P(20, 0, -0.25), y: 0 }], blocks: 1 });
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
+import { appendPiece, connectorRef, Layout, RAMP_LENGTH, type PieceTypeId } from "../track";
 import { CAR_SPECS, COUPLER_GAP } from "./cars";
 import { createWorldSample, cursorWorld } from "./cursor";
 import { createSnapshot, Sim, SIM_DT } from "./sim";
@@ -165,7 +165,7 @@ describe("running", () => {
       sim.tick();
       const b = t.bogies[0];
       if (b.pieceId === ids[2] && b.s > 200) flatSpeed = t.speed;
-      if (b.pieceId === ids[3] && b.s > 150) break;
+      if (b.pieceId === ids[3] && b.s > RAMP_LENGTH * 0.7) break;
     }
     expect(t.bogies[0].pieceId).toBe(ids[3]);
     expect(flatSpeed).toBeGreaterThan(95);
