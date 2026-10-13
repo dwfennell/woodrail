@@ -1316,6 +1316,12 @@ export class Interaction {
 
   // ---- keyboard ---------------------------------------------------------------------------------------------
 
+  /** Is something selected or held that R and F act on (turn, flip)? Else they tilt the view. */
+  get piecesTakeKeys(): boolean {
+    const k = this.mode.kind;
+    return k === "drag-piece" || k === "drag-prop" || this.selectedPiece !== -1 || this.selectedProp !== -1;
+  }
+
   private onKey(e: KeyboardEvent): void {
     if ((e.target as HTMLElement)?.tagName === "INPUT") return;
     const mod = e.ctrlKey || e.metaKey;

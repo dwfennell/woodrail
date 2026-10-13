@@ -9,6 +9,7 @@ import {
   PerspectiveCamera,
   Scene,
   SRGBColorSpace,
+  Spherical,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -58,7 +59,9 @@ const FRAME_MS = 1000 / 30;
 const FRAME_SLACK_MS = 2;
 
 /** Keys that pan the view, and which way. */
-const PAN_KEYS: Record<string, "f" | "b" | "l" | "r" | "fast"> = {
+type PanKey = "f" | "b" | "l" | "r" | "ccw" | "cw" | "up" | "down" | "fast";
+
+const PAN_KEYS: Record<string, PanKey> = {
   w: "f",
   s: "b",
   a: "l",
@@ -67,6 +70,12 @@ const PAN_KEYS: Record<string, "f" | "b" | "l" | "r" | "fast"> = {
   arrowdown: "b",
   arrowleft: "l",
   arrowright: "r",
+  // Q and E turn the view round the point it looks at.
+  q: "ccw",
+  e: "cw",
+  // R and F tilt it (when they aren't turning or flipping a selected piece: see `keysTaken`).
+  r: "up",
+  f: "down",
   shift: "fast",
 };
 /** Camera distance (mm) beyond which wood and paint drop the grain, bumps and clear coat too small to see. */
@@ -75,6 +84,11 @@ const FAR_DETAIL = 1800;
 /** Key panning covers this many camera-distances a second (so it feels the same at any zoom), easing in this long (s). */
 const KEY_PAN_SPEED = 0.9;
 const KEY_PAN_EASE = 0.12;
+/** Q / E turning speed (radians per second; Shift for faster). */
+const KEY_TURN_SPEED = 1.6;
+/** R / F tilting speed (radians per second), and the most top-down it goes (as a finger tilt). */
+const KEY_TILT_SPEED = 0.8;
+const KEY_TILT_MIN = 0.12;
 
 /** Is the user typing into a text field (where keys aren't for the game)? */
 function isTyping(target: EventTarget | null): boolean {
@@ -215,9 +229,11 @@ export class Game {
     window.addEventListener("keydown", (e) => {
       const key = PAN_KEYS[e.key.toLowerCase()];
       if (!key || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+      if ((key === "up" || key === "down") && this.keysTaken()) return;
       e.preventDefault(); // arrows would scroll the page
       this.panKeys.add(key);
-      if (this.followCarId !== -1) this.follow(-1);
+      // Panning leaves a followed train; turning keeps following it.
+      if (this.followCarId !== -1 && (key === "f" || key === "b" || key === "l" || key === "r")) this.follow(-1);
     });
     window.addEventListener("keyup", (e) => {
       const key = PAN_KEYS[e.key.toLowerCase()];
@@ -600,13 +616,19 @@ export class Game {
   }
 
   /** Pan keys held now (forward, back, left, right), and the pan's current velocity (world mm/s). */
-  private readonly panKeys = new Set<"f" | "b" | "l" | "r" | "fast">();
+  private readonly panKeys = new Set<PanKey>();
+  private turnVelocity = 0;
+  private tiltVelocity = 0;
+  /** Are R and F wanted for something else just now (a selected or held piece)? Set by the app. */
+  keysTaken: () => boolean = () => false;
   private readonly panVelocity = new Vector3();
   private readonly panDir = new Vector3();
   private readonly panSide = new Vector3();
 
   /** Move the view along the ground with the pan keys: easing up to speed and back to rest, faster zoomed out. */
   private keyPan(dt: number): void {
+    this.keyTurn(dt);
+    this.keyTilt(dt);
     const k = this.panKeys;
     const forward = (k.has("f") ? 1 : 0) - (k.has("b") ? 1 : 0);
     const side = (k.has("r") ? 1 : 0) - (k.has("l") ? 1 : 0);
@@ -634,6 +656,50 @@ export class Game {
     this.camera.position.x += dx;
     this.camera.position.z += dz;
   }
+
+  /** Turn the view round the point it looks at with Q and E, easing up to speed and back to rest. */
+  private keyTurn(dt: number): void {
+    const k = this.panKeys;
+    const turn = (k.has("cw") ? 1 : 0) - (k.has("ccw") ? 1 : 0);
+    if (turn === 0 && Math.abs(this.turnVelocity) < 1e-3) {
+      this.turnVelocity = 0;
+      return;
+    }
+    if (turn !== 0) this.director.cancel();
+    const goal = turn * KEY_TURN_SPEED * (k.has("fast") ? 2 : 1);
+    this.turnVelocity += (goal - this.turnVelocity) * (1 - Math.exp(-dt / KEY_PAN_EASE));
+    const a = this.turnVelocity * dt;
+    const t = this.controls.target;
+    const dx = this.camera.position.x - t.x;
+    const dz = this.camera.position.z - t.z;
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    this.camera.position.x = t.x + dx * c + dz * s;
+    this.camera.position.z = t.z - dx * s + dz * c;
+    this.camera.lookAt(t);
+  }
+
+  /** Tilt the view with R (toward looking straight down) and F (toward the horizon), within the camera's limits. */
+  private keyTilt(dt: number): void {
+    const k = this.panKeys;
+    const tilt = (k.has("down") ? 1 : 0) - (k.has("up") ? 1 : 0);
+    if (tilt === 0 && Math.abs(this.tiltVelocity) < 1e-3) {
+      this.tiltVelocity = 0;
+      return;
+    }
+    if (tilt !== 0) this.director.cancel();
+    const goal = tilt * KEY_TILT_SPEED * (k.has("fast") ? 2 : 1);
+    this.tiltVelocity += (goal - this.tiltVelocity) * (1 - Math.exp(-dt / KEY_PAN_EASE));
+    const t = this.controls.target;
+    this.tiltOffset.subVectors(this.camera.position, t);
+    this.tiltSph.setFromVector3(this.tiltOffset);
+    this.tiltSph.phi = Math.min(this.controls.maxPolarAngle, Math.max(KEY_TILT_MIN, this.tiltSph.phi + this.tiltVelocity * dt));
+    this.tiltOffset.setFromSpherical(this.tiltSph);
+    this.camera.position.copy(t).add(this.tiltOffset);
+    this.camera.lookAt(t);
+  }
+  private readonly tiltOffset = new Vector3();
+  private readonly tiltSph = new Spherical();
 
   /** Something changed that the frame loop can't see (track, scenery, a selection, a resize): draw it (once). */
   /** Squares' heights changed in these plots (land editing): redraw them, and re-fit cuttings, trees and colliders. */

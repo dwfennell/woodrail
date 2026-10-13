@@ -197,6 +197,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   }
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
+  game.keysTaken = () => interaction.piecesTakeKeys;
   interaction.onPlaced = (snapped) => {
     audio.putdown(snapped);
     if (snapped) hud.haptic("snap");
