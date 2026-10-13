@@ -189,6 +189,8 @@ export function checkSupport(
   for (const f of feet(type, flipped, pose)) {
     const fy = y + f.dy;
     if (restHeights(land, near, f.x, f.z).some((h) => Math.abs(h - fy) <= TOL)) continue;
+    // A ramp's high end stands on the ramp's own support, down to where its low end rests (no riser).
+    if (type === "ramp" && f.dy > 0 && restHeights(land, near, f.x, f.z).some((h) => Math.abs(h - y) <= TOL)) continue;
     // In the air: stack risers from the ground right under the foot, or on top of a riser stack there.
     const stack = stackIn(near, f.x, f.z);
     const ground = hillsOf(land.grid).groundAt(f.x, f.z);

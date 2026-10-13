@@ -329,6 +329,8 @@ function bridgeSupport(def: PieceDef, height: number): BufferGeometry {
     samplePath(path, len * at, p);
     const archTop = p.y - ARCH_CROWN_DROP;
     const radius = Math.min(len * ARCH_RADIUS, archTop - ground - 4);
+    // No room for an arch here (a ramp's low end, close to the ground): solid.
+    if (radius < 6) continue;
     const arch = onlyCsgAttributes(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40).toNonIndexed());
     arch.rotateX(Math.PI / 2);
     arch.translate(0, archTop - radius, 0);
@@ -434,7 +436,10 @@ export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
       ? brush(sweep(bodyProfile(), framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0)))
       : brush(flatBlockBody(def));
 
-  if (levels > 0 && def.paths.length === 1) {
+  // A ramp brings its own support: a sloping viaduct from the ground up under its high end (so it stands, and turns,
+  // without a riser). Up off the ground, it stands on arches as a bridge does.
+  const ownSupport = def.type === "ramp" && def.paths.length === 1;
+  if ((levels > 0 || ownSupport) && def.paths.length === 1) {
     // Keep the viaduct's own (painted) group through the union.
     const support = new Brush(bridgeSupport(def, levels * RISER_HEIGHT), [PAINT, PAINT, PAINT]);
     support.updateMatrixWorld();

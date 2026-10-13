@@ -56,9 +56,10 @@ describe("checkSupport", () => {
     ]);
   });
 
-  it("a ramp's high end over the felt gets a riser", () => {
-    const s = checkSupport(flat(), new Layout(), "ramp", false, P(0, Z), 0, -1);
-    expect(s).toEqual({ kind: "held", risers: [{ pose: P(RAMP_LENGTH, Z), y: 0 }] });
+  it("a ramp's high end over the felt stands on the ramp's own support (no riser), flipped or not", () => {
+    for (const flipped of [false, true]) expect(checkSupport(flat(), new Layout(), "ramp", flipped, P(0, Z), 0, -1)).toEqual({ kind: "held", risers: [] });
+    // Its support reaches down only as far as its low end: a ramp a level up with its low end in the air isn't held.
+    expect(checkSupport(flat(), new Layout(), "ramp", false, P(0, Z), RISER_HEIGHT / 2, -1)).toEqual({ kind: "unsupported" });
   });
 
   it("track joined to a bridge's end is held there (the bridge stands on its arches)", () => {
@@ -97,7 +98,7 @@ describe("checkSupport", () => {
     // Its high end would top the tallest a bridge goes.
     expect(bridgeLevels(flat(), "ramp", false, P(0, Z), 4 * RISER_HEIGHT)).toBe(0);
     expect(bridgeLevels(flat(), "ramp", false, P(0, Z), 0)).toBe(0);
-    expect(checkSupport(flat(), new Layout(), "ramp", false, P(0, Z), 0, -1)).toEqual({ kind: "held", risers: [{ pose: P(RAMP_LENGTH, Z), y: 0 }] });
+    expect(checkSupport(flat(), new Layout(), "ramp", false, P(0, Z), 0, -1)).toEqual({ kind: "held", risers: [] });
   });
 
   it("track joined to the top of a ramp on arches rests there", () => {
