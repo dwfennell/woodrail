@@ -236,3 +236,21 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .map-bar span { font-size: 13px; font-weight: 700; color: #6a5340; }
 .hud.map-open .goals, .hud.map-open .tray { visibility: hidden; }
 .hud.map-open .map-bar { bottom: calc(max(12px, env(safe-area-inset-bottom)) + 16px); }
+
+/* Game mode's toy box: how many of a piece are left, on its tray item; faded when there are none. */
+.tray-item { position: relative; }
+.tray-item .have { position: absolute; top: 5px; right: 6px; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: #3f8f4a; color: #fff; font-size: 12px; font-weight: 800; line-height: 1.4; text-align: center; }
+.tray-item.empty .have { background: #b9a487; }
+.tray-item.empty .icon { opacity: 0.45; filter: grayscale(0.6); }
+
+/* Game mode: the workshop's card lists what it can make. */
+.depot-extra { display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto; min-width: min(320px, 80vw); }
+.make-now { font-size: 13px; font-weight: 700; color: #6a5340; text-align: center; }
+.make-now .bar { display: block; height: 6px; margin-top: 4px; border-radius: 3px; background: #e7d6b8; overflow: hidden; }
+.make-now .bar i { display: block; height: 100%; background: #5aa35a; }
+.make-row { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 8px; font-size: 14px; }
+.make-row b { font-weight: 800; }
+.make-row .cost { font-size: 12px; font-weight: 700; color: #7a5532; }
+.make-row .box { font-size: 12px; font-weight: 800; color: #3f8f4a; font-variant-numeric: tabular-nums; }
+.make-row .chip { height: 34px; min-width: 34px; padding: 0 10px; font-size: 14px; }
+.make-head { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #8a6440; margin-top: 4px; }

@@ -76,6 +76,7 @@ export type PieceTypeId =
   | "station"
   | "depot-forest"
   | "depot-sawmill"
+  | "depot-workshop"
   | JoinTypeId
   | FitTypeId;
 
@@ -450,6 +451,7 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   // Goods depots, placed by the landscape generator like stations; their buildings are render-only dressing.
   "depot-forest": straight("depot-forest", 216),
   "depot-sawmill": straight("depot-sawmill", 216),
+  "depot-workshop": straight("depot-workshop", 216),
 };
 
 /** The join sizes: lengths and sideways shifts on the lattice, gentle enough to run (no tighter than a small curve). */

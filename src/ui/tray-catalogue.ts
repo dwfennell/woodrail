@@ -100,6 +100,17 @@ export const TRAIN_GROUPS: TrayGroup[] = [
 /** The track bridges: a shelf of the Track tab (with the catalogue's decorative bridges after it, in Sandbox). */
 export const BRIDGE_GROUPS: TrayGroup[] = [{ label: "Bridges", items: pieces("bridge", "bridge-curve") }];
 
+/** Industries the player builds (Game mode): depot pieces placed like track. */
+export const INDUSTRY_GROUPS: TrayGroup[] = [
+  {
+    label: "Industries",
+    items: [
+      { kind: "piece", type: "depot-workshop", label: "Workshop" },
+      { kind: "piece", type: "depot-sawmill", label: "Sawmill" },
+    ],
+  },
+];
+
 /** A tab of the tray: its shelves, and the modes that show it. */
 export interface TrayTab {
   id: string;
@@ -119,10 +130,12 @@ export interface TrayTab {
 
 const BOTH: readonly GameMode[] = ["sandbox", "game"];
 const SANDBOX: readonly GameMode[] = ["sandbox"];
+const GAME: readonly GameMode[] = ["game"];
 
 export const TRAY_TABS: TrayTab[] = [
   { id: "track", label: "Track", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip" },
   { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS },
+  { id: "industries", label: "Industries", modes: GAME, groups: INDUSTRY_GROUPS, orient: "turn-flip" },
   ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
   // Opening the Land tab switches land editing on; the tools act on the land itself.
   {

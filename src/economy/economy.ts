@@ -26,13 +26,15 @@ interface Service {
   readonly done: Set<number>;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town";
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop";
 
 /** What a depot takes from trains and what it gives them. */
 export const ROLE: Record<DepotRole, { takes: CargoKind | null; gives: CargoKind | null }> = {
   forest: { takes: null, gives: "log" },
   sawmill: { takes: "log", gives: "planks" },
   town: { takes: "planks", gives: null },
+  // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
+  workshop: { takes: "planks", gives: null },
 };
 
 export interface DepotState {
@@ -211,6 +213,7 @@ export class Economy {
   working(d: DepotState): boolean {
     if (d.role === "sawmill") return d.piles[CARGO.log.index] > 0 && d.piles[CARGO.planks.index] < PILE_CAP;
     if (d.role === "forest") return d.piles[CARGO.log.index] < PILE_CAP;
+    if (d.role === "workshop") return false;
     return d.piles[CARGO.planks.index] > 0;
   }
 

@@ -801,6 +801,10 @@ export class Interaction {
 
   /** Economy depot whose card is open, or −1. */
   private selectedDepot = -1;
+  /** The depot whose card is open, or −1. */
+  get openDepotId(): number {
+    return this.hud.depotCardOpen ? this.selectedDepot : -1;
+  }
   /** What the open depot card last showed. */
   private readonly shownDepot = { id: -1, a: -1, b: -1, auto: false, wait: false, delivered: -1 };
 

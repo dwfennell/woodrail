@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
-import { depotPieceType, STATION_CRANE_AT, type World } from "../game/world";
+import { depotPieceType, INDUSTRY_ROLE, STATION_CRANE_AT, type World } from "../game/world";
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
@@ -60,7 +60,7 @@ const saveSchema = z.object({
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town"]),
+      role: z.enum(["forest", "sawmill", "town", "workshop"]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
@@ -118,7 +118,11 @@ export function serializeWorld(world: World): SaveData {
     pieces,
     switches,
     trains,
-    depots: world.economy.allDepots().map((d) => ({ id: d.id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [d.piles[0], d.piles[1]] as [number, number], timer: d.timer })),
+    // Depots on the map now (one whose industry piece was taken up is left out), numbered afresh.
+    depots: world.economy
+      .allDepots()
+      .filter((d) => world.layout.getPiece(d.pieceId))
+      .map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [d.piles[0], d.piles[1]] as [number, number], timer: d.timer })),
     delivered: [...world.economy.delivered],
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}) })),
   };
@@ -176,6 +180,11 @@ export function deserializeWorld(data: unknown): Result<World, string> {
   const expected = new Map<number, { role: string; townId: number }>();
   for (const [townId, pieceId] of stations) expected.set(pieceId, { role: "town", townId });
   for (const [depotId, pieceId] of depots) expected.set(pieceId, { role: landscape.depots[depotId].kind, townId: -1 });
+  // Besides the map's own: industries the player placed (Game mode), each on a piece of its kind.
+  for (const d of save.depots) {
+    const piece = layout.getPiece(d.pieceId);
+    if (!expected.has(d.pieceId) && piece && INDUSTRY_ROLE[piece.type] === d.role && ![...depots.values()].includes(d.pieceId)) expected.set(d.pieceId, { role: d.role, townId: -1 });
+  }
   if (save.depots.length !== expected.size) return err("invalid save: wrong number of economy depots");
   for (const [i, d] of save.depots.entries()) {
     const want = expected.get(d.pieceId);
@@ -303,5 +312,26 @@ export function loadGoals(): string[] {
     return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
   } catch {
     return [];
+  }
+}
+
+/** Game mode: the toy box, blueprints learned and the workshop's orders (see `Progress`), beside the game's autosave. */
+const PROGRESS_KEY = "woodrail.game.progress.v1";
+
+export function saveProgress(data: unknown): void {
+  try {
+    localStorage.setItem(PROGRESS_KEY, JSON.stringify(data));
+  } catch {
+    // storage unavailable: the toy box covers what's on the map next time
+  }
+}
+
+/** The saved progress (undefined if there's none or it can't be read: start a fresh one). */
+export function loadProgress(): unknown {
+  try {
+    const raw = localStorage.getItem(PROGRESS_KEY);
+    return raw === null ? undefined : JSON.parse(raw);
+  } catch {
+    return undefined;
   }
 }

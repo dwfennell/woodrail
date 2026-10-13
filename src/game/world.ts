@@ -1,5 +1,5 @@
 import { adoptRegion, generateLandscape, generatePlot, plotKey, type DepotKind, type Landscape, type PlotCoord } from "../landscape";
-import { Economy } from "../economy";
+import { Economy, type DepotRole } from "../economy";
 import { Sim } from "../sim";
 import { Layout, type PieceTypeId } from "../track";
 import { PropStore } from "../props/store";
@@ -7,7 +7,30 @@ import { addTownProps } from "../props/towns";
 
 export const depotPieceType = (kind: DepotKind): PieceTypeId => (kind === "forest" ? "depot-forest" : "depot-sawmill");
 
-export const DEPOT_NAMES: Record<DepotKind, string> = { forest: "Forest yard", sawmill: "Sawmill" };
+export const DEPOT_NAMES: Record<Exclude<DepotRole, "town">, string> = { forest: "Forest yard", sawmill: "Sawmill", workshop: "Workshop" };
+
+/** Depot pieces and the work their economy depot does (the map's own, and industries the player places). */
+export const INDUSTRY_ROLE: Partial<Record<PieceTypeId, DepotRole>> = {
+  "depot-forest": "forest",
+  "depot-sawmill": "sawmill",
+  "depot-workshop": "workshop",
+};
+
+/**
+ * Give every industry piece on the map an economy depot (one the player has just placed). A depot whose piece is
+ * taken up stays, with its piles, until the piece comes back (undo); saving leaves it out. Returns true if any was
+ * added.
+ */
+export function syncIndustries(world: World): boolean {
+  let added = false;
+  for (const id of world.layout.pieceIds()) {
+    const role = INDUSTRY_ROLE[world.layout.getPiece(id)!.type];
+    if (!role || world.economy.depotAtPiece(id)) continue;
+    world.economy.addDepot(role, id);
+    added = true;
+  }
+  return added;
+}
 
 export interface World {
   layout: Layout;

@@ -45,8 +45,9 @@ export function total(bag: Bag): number {
   return kindsOf(bag).reduce((n, k) => n + bag[k]!, 0);
 }
 
-/** "12 planks + 5 logs" (empty: "nothing"). */
+/** "12 planks + 1 log" (empty: "nothing"). */
 export function describe(bag: Bag): string {
-  const parts = kindsOf(bag).map((k) => `${bag[k]} ${CARGO[k].label.toLowerCase()}`);
+  // "1 plank", "3 planks" (the labels are plural).
+  const parts = kindsOf(bag).map((k) => `${bag[k]} ${bag[k] === 1 ? CARGO[k].label.toLowerCase().replace(/s$/, "") : CARGO[k].label.toLowerCase()}`);
   return parts.length > 0 ? parts.join(" + ") : "nothing";
 }

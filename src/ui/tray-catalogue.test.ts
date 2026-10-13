@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { TRAY_TABS, trayKey, trayTabs } from "./tray-catalogue";
 
 describe("tray tabs", () => {
-  it("Game mode shows the railway: track (bridges included) and trains", () => {
-    expect(trayTabs("game").map((t) => t.id)).toEqual(["track", "trains"]);
+  it("Game mode shows the railway: track (bridges included), trains and industries", () => {
+    expect(trayTabs("game").map((t) => t.id)).toEqual(["track", "trains", "industries"]);
     expect(trayTabs("game")[0].props).toBeUndefined();
     for (const tab of trayTabs("game")) for (const g of tab.groups) for (const item of g.items) expect(item.kind).not.toBe("prop");
   });

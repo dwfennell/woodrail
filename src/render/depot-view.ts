@@ -60,6 +60,12 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     },
     trackT: 108,
   },
+  workshop: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: { planks: { t: 60, l: 84, y: PAD_H, across: 2, axis: "t" } },
+    trackT: 60,
+  },
   town: {
     pad: null,
     // Above the chimney, below the station canopy (76 mm).
@@ -280,6 +286,19 @@ export class DepotView {
       }
       // Saw table at the socket end of the yard.
       b.add(mats.naturalWood, place(new RoundedBoxGeometry(44, 14, 26, 2, 2), 44, 74, PAD_H + 7));
+    }
+    if (site.depot.role === "workshop") {
+      // The workshop: a long beech shed with a blue roof and big red doors, at the far end of the yard.
+      b.add(mats.blockWood, place(new RoundedBoxGeometry(84, 40, 54, 2, 3), 156, 84, PAD_H + 20));
+      for (const side of [-1, 1]) {
+        const slope = new RoundedBoxGeometry(92, 4, 34, 1, 1.5);
+        slope.translate(0, 0, (side * 30) / 2);
+        slope.rotateX(side * 0.42);
+        b.add(mats.lacquer("#2f6db5"), place(slope, 156, 84, PAD_H + 46));
+      }
+      // Doors on the track side, and a printed sky-blue window either side of them.
+      b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(30, 28, 3, 1, 1), 156, 56, PAD_H + 14));
+      for (const t of [126, 186]) b.add(mats.lacquer("#bfe0f2"), place(new RoundedBoxGeometry(14, 10, 2, 1, 0.8), t, 56.5, PAD_H + 26));
     }
     if (site.depot.role === "forest") {
       // A small beech hut with a green roof at the far end of the yard.

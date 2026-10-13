@@ -117,6 +117,8 @@ export class Hud {
   private readonly joinedBtn: HTMLButtonElement;
   private rotateBtn!: HTMLButtonElement;
   private readonly depotCard = el("div", "card depot-card");
+  /** Below a depot card's switches: filled by the game for some depots (Game mode's workshop), else hidden. */
+  readonly depotExtra = el("div", "depot-extra");
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
   private readonly landCard = el("div", "card land-card");
   private readonly landText = el("div", "land-text");
@@ -273,7 +275,8 @@ export class Hud {
     this.depotWaitBtn = button("Wait for a full load", "Trains wait under the crane until each wagon is full", h.depotWaitFull, "chip text");
     const depotRow = el("div", "card-row");
     depotRow.append(this.depotAutoBtn, this.depotWaitBtn);
-    this.depotCard.append(this.depotTitle, this.depotStock, depotRow, button("✕", "Close", h.closeCards, "close"));
+    this.depotExtra.hidden = true;
+    this.depotCard.append(this.depotTitle, this.depotStock, depotRow, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.depotCard);
 
     // Land card: shown while choosing a plot to add.
@@ -340,9 +343,14 @@ export class Hud {
         b.addEventListener("click", () => showGroups(groups));
         scroller.appendChild(b);
       }
+      this.trayButtons = [];
       for (const item of group.items) {
         const b = el("button", "tray-item");
         b.innerHTML = `<span class="icon">${picture(item)}</span><span class="label">${item.label}</span>`;
+        if (item.kind !== "tool") {
+          this.trayButtons.push([b, item]);
+          this.decorate(b, item);
+        }
         if (item.kind === "tool") {
           // A tool is chosen with a tap, then used on the land.
           const tool = item.tool;
@@ -523,6 +531,30 @@ export class Hud {
   /** Rebuild the tray's tabs for a mode (set in the constructor, where the tray is built). */
   private showTabs: (mode: GameMode) => void = () => {};
   private openTrayTab: (id: string, shelf?: string) => void = () => {};
+
+  /**
+   * What a tray item's corner says (Game mode's toy box: how many are left, or that it's locked), or null for nothing.
+   * Set by the game; `refreshTrayBadges` applies it to the items showing.
+   */
+  trayBadge: ((item: TrayItem) => { text: string; empty: boolean } | null) | null = null;
+  private trayButtons: [HTMLElement, TrayItem][] = [];
+
+  refreshTrayBadges(): void {
+    for (const [b, item] of this.trayButtons) this.decorate(b, item);
+  }
+
+  private decorate(b: HTMLElement, item: TrayItem): void {
+    const badge = this.trayBadge?.(item) ?? null;
+    let tag = b.querySelector<HTMLElement>(".have");
+    if (!badge) {
+      tag?.remove();
+      b.classList.remove("empty");
+      return;
+    }
+    if (!tag) b.appendChild((tag = el("span", "have")));
+    if (tag.textContent !== badge.text) tag.textContent = badge.text;
+    b.classList.toggle("empty", badge.empty);
+  }
 
   /** Open a tray tab (and one of its shelves), as if tapped: "Show me" reaches for what a goal needs. */
   openTray(id: string, shelf?: string): void {
@@ -799,6 +831,8 @@ export class Hud {
   showDepotCard(title: string): void {
     this.hideCards();
     this.depotTitle.textContent = title;
+    this.depotExtra.hidden = true;
+    this.depotExtra.innerHTML = "";
     this.depotCard.hidden = false;
     this.root.classList.add("card-open");
   }
