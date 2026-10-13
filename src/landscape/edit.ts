@@ -1,11 +1,11 @@
 import { TRACK_WIDTH, type Layout } from "../track";
 import { hashInts } from "./edges";
 import { reachable, type Landscape, type Shed } from "./generate";
-import { CELL, FEAT_FIELD, FEAT_NONE, FEAT_SHED, FEAT_TREE, MAX_HEIGHT, PLOT_CELLS, SURF_GRASS } from "./grid";
+import { CELL, FEAT_FIELD, FEAT_NONE, FEAT_SHED, FEAT_TREE, MAX_HEIGHT, PLOT_CELLS, SURF_GRASS, SURF_LANE, SURF_ROAD } from "./grid";
 import { BUCKET, bucketKey, trackPoints } from "./trees-aside";
 
 /** Why a square's height can't change. */
-export type LandBlock = "not-grass" | "in-use" | "station-way" | "top" | "bottom" | "steep" | "track" | "prop" | "cut-off" | "off-land" | "taken" | "uneven";
+export type LandBlock = "not-grass" | "in-use" | "station-way" | "top" | "bottom" | "steep" | "track" | "prop" | "road" | "cut-off" | "off-land" | "taken" | "uneven";
 
 export const LAND_MESSAGES: Record<LandBlock, string> = {
   "not-grass": "Only grass can be raised or lowered",
@@ -16,6 +16,7 @@ export const LAND_MESSAGES: Record<LandBlock, string> = {
   steep: "Too steep: raise or lower the squares around it first",
   track: "There's track on or beside it",
   prop: "Move what's standing there first",
+  road: "There's a road beside it",
   "cut-off": "That would cut a town or depot off",
   "off-land": "That's past the edge of your land",
   taken: "Something's already there",
@@ -123,6 +124,13 @@ export class LandEditor {
     for (const [dc, dr] of DIRS) {
       const n = g.index(col + dc, row + dr);
       if (n !== -1 && Math.abs(g.height[n] - h) > 1) return "steep";
+    }
+    // A road beside it (a ramp's high end, a hilltop road) would be left with an end in the air or buried.
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const n = g.index(col + dc, row + dr);
+        if (n !== -1 && (g.surface[n] === SURF_ROAD || g.surface[n] === SURF_LANE)) return "road";
+      }
     }
     // Corners round off and ramp cuttings reach into the neighbours, so keep track a square clear all round.
     const x0 = g.centreX(col) - 1.5 * CELL;

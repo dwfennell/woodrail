@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildStarterWorld } from "../game/world";
 import { LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, setHeights, snapshot, treeSeed } from "./edit";
 import { deserializeLandscape, serializeLandscape } from "../persist/landscape-data";
-import { FEAT_BUILDING, FEAT_FIELD, FEAT_NONE, FEAT_SHED, FEAT_TREE, MAX_HEIGHT, SURF_GRASS, SURF_RIVER, type LandscapeGrid } from "./grid";
+import { FEAT_BUILDING, FEAT_FIELD, FEAT_NONE, FEAT_SHED, FEAT_TREE, MAX_HEIGHT, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_ROAD, type LandscapeGrid } from "./grid";
 
 /** First open grass square at height 0 whose 5×5 surroundings are open grass at height 0 (room to build a hill). */
 function flatSpot(g: LandscapeGrid, corridors: Set<number>): number {
@@ -50,6 +50,15 @@ describe("LandEditor", () => {
     // Not past the top.
     g.height[at] = MAX_HEIGHT;
     expect(new LandEditor(w.landscape, w.layout).check(at, 1)).toBe("top");
+  });
+
+  it("won't raise or lower a square beside a road (its end would be left in the air or buried)", () => {
+    for (const surf of [SURF_ROAD, SURF_LANE]) {
+      const { w, g, at, n } = setup();
+      g.surface[n(1, 1)] = surf;
+      expect(new LandEditor(w.landscape, w.layout).check(at, 1)).toBe("road");
+      expect(new LandEditor(w.landscape, w.layout).check(n(-1, 0), 1)).toBeNull();
+    }
   });
 
   it("leaves rivers, towns and buildings alone", () => {
