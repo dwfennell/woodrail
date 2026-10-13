@@ -229,7 +229,7 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
         if (inStationFootprint(land, g.owner[i], x, z)) result = BLOCKED.station;
       } else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
       else if (!overRiver && inRiver(g, x, z)) result = BLOCKED.river;
-      else if (g.road[i] !== 0 && y + trackY <= LEVEL && !crossesRoad(g.road[i], heading)) result = BLOCKED.road;
+      else if (g.road[i] !== 0 && y + trackY <= g.groundY(i) + LEVEL && !crossesRoad(g.road[i], heading)) result = BLOCKED.road;
       else {
         // Below the ground here: a hill in the way, unless a ramp can cut its way in (no higher than its top end).
         const ground = hillsOf(g).groundAt(x, z);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { checkPlacement, crossesRoad, FEAT_BUILDING, FEAT_TREE, gridWithPlots, SURF_RIVER, SURF_ROAD, CELL, type Landscape } from "../landscape";
 import { Layout } from "../track";
-import { edgesOf, encodeRoad, EDGE_E, EDGE_W } from "./pieces";
+import { edgesOf, encodeRoad, EDGE_E, EDGE_W, pieceOf, roadsJoin, turnOf } from "./pieces";
 import { RoadPlacer, roadNeighbours, roadsInRect, setRoadSquare } from "./place";
 
 function land(): Landscape {
@@ -25,7 +25,8 @@ describe("road placement", () => {
     expect(placer.check(at(1, 1))).toBe("river");
     expect(placer.check(at(2, 1))).toBe("town");
     expect(placer.check(at(3, 1))).toBe("in-use");
-    expect(placer.check(at(4, 1))).toBe("hill");
+    // Hilltops take roads too (ramps climb between them).
+    expect(placer.check(at(4, 1))).toBeNull();
     expect(placer.check(at(5, 1))).toBeNull();
     expect(placer.check(at(6, 1))).toBe("station-way");
     expect(placer.check(at(7, 1))).toBe("prop");
@@ -112,5 +113,30 @@ describe("road bridges", () => {
     undo();
     expect(g.road[river]).toBe(0);
     expect(g.surface[river]).toBe(SURF_RIVER);
+  });
+});
+
+describe("ramps", () => {
+  it("climb a block over two squares, each half fitted and turned to the step", () => {
+    const l = land();
+    const g = l.grid;
+    // Ground a block up from column 8 eastward.
+    for (let r = 0; r < 23; r++) for (let c = 8; c < 31; c++) g.height[g.index(c, r)] = 1;
+    const placer = new RoadPlacer(l, null);
+    const top = placer.fit("ramp-low", g.index(7, 4), 0);
+    expect(pieceOf(top)?.id).toBe("ramp-high");
+    expect(turnOf(top)).toBe(EDGE_E);
+    expect(placer.check(g.index(7, 4), top)).toBeNull();
+    setRoadSquare(g, g.index(7, 4), top);
+    // The bottom half beside it joins it at half a block.
+    const bottom = placer.fit("ramp-low", g.index(6, 4), 0);
+    expect(pieceOf(bottom)?.id).toBe("ramp-low");
+    expect(roadsJoin(bottom, EDGE_E, top)).toBe(true);
+    // A road on the hilltop beyond joins the top half's high end; a level road at the bottom doesn't.
+    const hill = encodeRoad("straight", 0);
+    expect(roadsJoin(top, EDGE_E, hill, 1)).toBe(true);
+    expect(roadsJoin(top, EDGE_E, hill, 0)).toBe(false);
+    // A top half facing level ground is refused.
+    expect(placer.check(g.index(3, 4), encodeRoad("ramp-high", 0))).toBe("slope");
   });
 });

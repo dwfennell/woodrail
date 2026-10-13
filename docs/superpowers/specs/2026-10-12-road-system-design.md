@@ -124,6 +124,20 @@ their look. The felt draws only street squares that have no road piece.
 **The player's roads** join a town only at its gates or where a street ends at the town's edge, where a street has
 an open end. A road built up against the side of a street doesn't join it.
 
+## 3b. Rivers and hills (bridges and ramps)
+
+Measured on 40 maps, with roads only on level grass, just 29.7% of town pairs could ever be joined by road. Rivers
+were the main barrier, and hills the rest.
+
+- **Road bridge:** a one-square piece that goes only on a river square, which stays river underneath. It's a wooden
+  deck humped 9 mm over the water, with low parapets. A wider river takes two bridges in a row.
+- **Roads on hills:** any piece goes on a hilltop square, at that square's height. Road ends carry a height (`Port.rise`,
+  in half blocks), so two roads join only where their ends meet at the same level.
+- **Ramp:** climbs one block (64 mm) over two squares on the lower ground, a bottom half and a top half (24° each). The
+  tray has one Ramp item, and the half and its direction are chosen from the ground and the roads beside it.
+- **Result:** with bridges and ramps, 100% of town pairs can be joined, and no town is left without a way out.
+- Level crossings and the track rules measure height from the square's ground, so they work on hilltops too.
+
 ## 4. Roads and track: level crossings
 
 - Ground-level track over a road square makes a level crossing, as lanes do today. Player road squares stay
@@ -202,7 +216,7 @@ goals are deferred.
 
 ## Deferred
 
-- Road-over-rail bridges and raised roads; roads on slopes.
+- Road-over-rail bridges.
 - Multi-square pieces: roundabout, wide curves, car park.
 - Bus stops, traffic lights and street furniture beside roads.
 - A back street in deeper towns, and town greens with something on them (a fountain, a bandstand).

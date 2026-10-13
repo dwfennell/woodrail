@@ -112,6 +112,8 @@ export const ROAD_GROUPS: TrayGroup[] = [
       { kind: "road", piece: "end", label: "Dead end" },
       { kind: "road", piece: "zebra", label: "Zebra crossing" },
       { kind: "road", piece: "bridge", label: "Road bridge" },
+      // Either half: the one that fits where it's dropped (see RoadPlacer.fit).
+      { kind: "road", piece: "ramp-low", label: "Ramp" },
     ],
   },
 ];

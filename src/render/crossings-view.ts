@@ -54,7 +54,7 @@ export class CrossingsView {
         const px = c.x + r.x * ALONG * s + p.x * ASIDE * s;
         const pz = c.z + r.z * ALONG * s + p.z * ASIDE * s;
         const post = new Group();
-        post.position.set(px, 0, pz);
+        post.position.set(px, c.y, pz);
         post.add(this.mesh(this.base, this.wood), this.mesh(this.post, this.white));
         const lamp = this.mesh(this.lamp, this.red);
         // Face the lamp toward the track.

@@ -7,7 +7,7 @@ import { setRim } from "../render/materials";
 import { ghostMesh, pieceGeometry, type OutlineTone } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
-import { BLOCK_MESSAGES, bridgeLevels, CELL, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
+import { BLOCK_MESSAGES, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { connectorRef, findLowCrossing, findOverlap, findSnap, flipSwapsEnds, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
@@ -2001,15 +2001,16 @@ export class Interaction {
   /** The square under a screen point, seen on the land's surface (a hill's top, not the floor under it); −1 off the land. */
   squareAt(x: number, y: number): number {
     const g = this.game.landscape.grid;
-    const hills = hillsOf(g);
-    let p = this.planeAt(x, y, 0);
-    if (!p) return -1;
-    // Up to the surface at that point, a few times over (a step up or down moves the point a little).
-    for (let k = 0; k < 3; k++) {
-      const q = this.planeAt(x, y, hills.groundAt(p.x, p.z));
-      if (!q) break;
-      p = q;
+    // The first block top the ray meets, looking down from the highest the land goes: a ray through a hill's top
+    // meets the ground plane beyond the hill, so going up from there would find the square behind it.
+    for (let h = MAX_HEIGHT; h > 0; h--) {
+      const q = this.planeAt(x, y, h * RISER_HEIGHT);
+      if (!q) continue;
+      const i = g.cellAtWorld(q.x, q.z);
+      if (i !== -1 && g.height[i] >= h) return i;
     }
+    const p = this.planeAt(x, y, 0);
+    if (!p) return -1;
     return g.cellAtWorld(p.x, p.z);
   }
 

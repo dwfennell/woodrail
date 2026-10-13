@@ -18,6 +18,8 @@ function shape(piece: RoadPieceId, half: number): string {
     case "straight":
     case "zebra":
     case "bridge":
+    case "ramp-low":
+    case "ramp-high":
       return run(half);
     case "curve":
       return ring(half);
@@ -36,6 +38,10 @@ function paint(piece: RoadPieceId): string {
     case "straight":
     case "bridge":
       return [12, 36, 60].map(dash).join("");
+    case "ramp-low":
+    case "ramp-high":
+      // Chevrons pointing up the slope.
+      return [18, 36, 54].map((x) => `<path d="M${x - 5} ${36 - F + 6} L${x + 5} 36 L${x - 5} ${36 + F - 6}" fill="none" stroke="${PAINT}" stroke-width="3.5"/>`).join("");
     case "curve":
       return `<path d="M0 36 A36 36 0 0 1 36 72" fill="none" stroke="${PAINT}" stroke-width="2.4" stroke-dasharray="10 8.8" stroke-dashoffset="-4"/>`;
     case "tee":

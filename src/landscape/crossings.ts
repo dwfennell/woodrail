@@ -8,6 +8,8 @@ export interface LevelCrossing {
   z: number;
   /** True when the lane runs along x at the crossing (false: along z). */
   laneAlongX: boolean;
+  /** The ground's height there (a road on a hilltop). */
+  y: number;
 }
 
 const STEP = 8;
@@ -29,11 +31,11 @@ export function findCrossings(land: Landscape, layout: Layout): LevelCrossing[] 
       const n = Math.max(1, Math.ceil(len / STEP));
       for (let k = 0; k <= n; k++) {
         samplePath(path.geom, (len * k) / n, sample);
-        if (p.y + sample.y > 4) continue; // on a bridge or riser: no crossing
         const x = p.pose.x + sample.x * ch - sample.z * sh;
         const z = p.pose.z + sample.x * sh + sample.z * ch;
         const i = g.cellAtWorld(x, z);
         if (i === -1 || g.surface[i] !== SURF_LANE) continue;
+        if (p.y + sample.y > g.groundY(i) + 4) continue; // on a bridge or riser: no crossing
         const h = hits.get(i) ?? { x: 0, z: 0, n: 0 };
         h.x += x;
         h.z += z;
@@ -75,7 +77,7 @@ export function findCrossings(land: Landscape, layout: Layout): LevelCrossing[] 
     };
     const alongX = lane(col - 1, row) || lane(col + 1, row);
     const alongZ = lane(col, row - 1) || lane(col, row + 1);
-    out.push({ x: x / n, z: z / n, laneAlongX: alongX && !alongZ ? true : alongZ && !alongX ? false : alongX });
+    out.push({ x: x / n, z: z / n, laneAlongX: alongX && !alongZ ? true : alongZ && !alongX ? false : alongX, y: g.groundY(start) });
   }
   return out;
 }

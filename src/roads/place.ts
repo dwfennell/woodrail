@@ -2,18 +2,18 @@ import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type La
 import type { Landscape } from "../landscape/generate";
 import { CELL, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "../landscape/grid";
 import { crossesRoad } from "../landscape/clearance";
-import { bestTurn, encodeRoad, pieceOf, type RoadPieceId } from "./pieces";
+import { bestTurn, edgesOf, encodeRoad, pieceOf, roadsJoin, turnOf, type Edge, type RoadPieceId } from "./pieces";
 
 /** Why a road piece can't go on a square. */
-export type RoadBlock = "off-land" | "town" | "river" | "dry" | "in-use" | "hill" | "station-way" | "track" | "prop";
+export type RoadBlock = "off-land" | "town" | "river" | "dry" | "slope" | "in-use" | "station-way" | "track" | "prop";
 
 export const ROAD_MESSAGES: Record<RoadBlock, string> = {
   "off-land": "Roads go on your own land",
   town: "Town streets are already laid",
   river: "Use a road bridge over the river",
   dry: "Bridges go over the river",
+  slope: "A ramp climbs a block over two squares: lay it up to a step",
   "in-use": "Something stands there",
-  hill: "Roads go on level ground",
   "station-way": "Keep the way into the station clear for track",
   track: "Track can only cross a plain straight road, straight over",
   prop: "Move what's standing there first",
@@ -35,10 +35,11 @@ const OVER = 4;
  * The road bytes beside square `i`, by edge (0 off the grid or no road). An old save's town street (a street square
  * with no piece, drawn as felt) joins on every side, as a crossroads would.
  */
-export function roadNeighbours(grid: LandscapeGrid, i: number, out: number[] = [0, 0, 0, 0]): number[] {
+export function roadNeighbours(grid: LandscapeGrid, i: number, out: number[] = [0, 0, 0, 0], up?: number[]): number[] {
   const nb = grid.neighbours();
   for (let e = 0; e < 4; e++) {
     const j = nb[i * 4 + e];
+    if (up) up[e] = j === -1 ? 0 : grid.height[j] - grid.height[i];
     out[e] = j === -1 ? 0 : grid.road[j] !== 0 ? grid.road[j] : grid.surface[j] === SURF_ROAD && grid.feature[j] === FEAT_NONE ? encodeRoad("cross", 0) : 0;
   }
   return out;
@@ -56,7 +57,7 @@ export function roadsInRect(grid: LandscapeGrid, x0: number, z0: number, x1: num
 }
 
 /**
- * Checks where a road piece may go: open, level grass (a tree there is cleared away with the edit), on the player's
+ * Checks where a road piece may go: open grass at any height (a tree there is cleared away with the edit), on the player's
  * land, off the station approaches, clear of ground-level track and props. Town streets and river squares are never
  * changed. Build one per drag: it samples the track once.
  */
@@ -103,8 +104,13 @@ export class RoadPlacer {
     if (s !== SURF_RIVER && bridge) return "dry";
     if (s !== SURF_GRASS && s !== SURF_LANE && s !== SURF_RIVER) return "in-use";
     if (g.feature[i] !== FEAT_NONE && g.feature[i] !== FEAT_TREE) return "in-use";
-    if (g.height[i] !== 0) return "hill";
     if (this.corridors.has(i)) return "station-way";
+    const def = this.road === 0 ? null : pieceOf(this.road);
+    if (def?.ramp) {
+      // Its high end meets the ground a block up (the top half), or the top half on level ground (the bottom half).
+      const j = g.neighbours()[i * 4 + turnOf(this.road)];
+      if (j === -1 || g.height[j] - g.height[i] !== (def.id === "ramp-high" ? 1 : 0)) return "slope";
+    }
     if (this.trackSquares.has(i) && !this.crossable(i)) return "track";
     const x0 = g.colOf(i) * CELL;
     const z0 = g.rowOf(i) * CELL;
@@ -112,10 +118,41 @@ export class RoadPlacer {
     return null;
   }
 
-  /** The road byte for a piece dropped on square `i`: turned to join the roads beside it (else as `held`). */
+  /**
+   * The road byte for a piece dropped on square `i`: turned to join the roads beside it (else as `held`). A ramp takes
+   * whichever half fits: the top half when the ground a block up, or a bottom half's road at half a block, is beside
+   * it, turned to climb toward it; else the bottom half.
+   */
   fit(id: RoadPieceId, i: number, held: number): number {
-    return encodeRoad(id, bestTurn(id, roadNeighbours(this.land.grid, i, this.nbs), held));
+    const g = this.land.grid;
+    roadNeighbours(g, i, this.nbs, this.steps);
+    if (!pieceOf(encodeRoad(id, 0))?.ramp) return encodeRoad(id, bestTurn(id, this.nbs, held, this.steps));
+    const nb = g.neighbours();
+    let best = encodeRoad("ramp-low", bestTurn("ramp-low", this.nbs, held, this.steps));
+    let bestScore = -Infinity;
+    for (const half of ["ramp-low", "ramp-high"] as const) {
+      for (let t = 0; t < 4; t++) {
+        const road = encodeRoad(half, t);
+        let score = -Math.min((t - held) & 3, (held - t) & 3);
+        for (let e = 0; e < 4; e++) {
+          if (!(edgesOf(road) & (1 << e))) continue;
+          const n = this.nbs[e];
+          if (n && roadsJoin(road, e as Edge, n, this.steps[e])) score += 16;
+          else if (n) score -= 4;
+        }
+        // The top half climbs to the ground a block up: worth most facing it.
+        const high = t;
+        if (half === "ramp-high" && nb[i * 4 + high] !== -1 && this.steps[high] === 1) score += 24;
+        if (score > bestScore) {
+          bestScore = score;
+          best = road;
+        }
+      }
+    }
+    return best;
   }
+
+  private readonly steps = [0, 0, 0, 0];
 
   private sampleTrack(layout: Layout): void {
     const g = this.land.grid;
@@ -132,14 +169,14 @@ export class RoadPlacer {
         const n = Math.max(1, Math.ceil(len / STEP));
         for (let k = 0; k <= n; k++) {
           samplePath(path.geom, (len * k) / n, sample);
-          if (p.y + sample.y > OVER) continue;
           const h = p.pose.heading + sample.heading;
           const way = Math.abs(Math.cos(h)) >= Math.abs(Math.sin(h)) ? 1 : 2;
           const x = p.pose.x + sample.x * ch - sample.z * sh;
           const z = p.pose.z + sample.x * sh + sample.z * ch;
           for (const [dx, dz] of [[-m, -m], [m, -m], [-m, m], [m, m]]) {
             const j = g.cellAtWorld(x + dx, z + dz);
-            if (j !== -1) this.trackSquares.set(j, (this.trackSquares.get(j) ?? 0) | way);
+            // Track up on a bridge or riser above this square's ground passes over a road.
+            if (j !== -1 && p.y + sample.y <= g.groundY(j) + OVER) this.trackSquares.set(j, (this.trackSquares.get(j) ?? 0) | way);
           }
         }
       }

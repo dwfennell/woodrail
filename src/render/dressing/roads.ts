@@ -1,6 +1,7 @@
 import { BoxGeometry, BufferAttribute, BufferGeometry, Color, CylinderGeometry, ExtrudeGeometry, Group, Mesh, MeshStandardMaterial, Shape, SphereGeometry, type Material } from "three";
 import { CELL, type LandscapeGrid } from "../../landscape";
 import { pieceOf, ROAD_PIECES, turnOf, type RoadPieceId } from "../../roads";
+import { RISER_HEIGHT } from "../../track";
 import { FELT_TILE, type Materials } from "../materials";
 import { setCullRects, TILE_DEPTH, TILE_WIDTH, tileAt } from "./tiles";
 
@@ -150,7 +151,9 @@ function pieceParts(id: RoadPieceId): Record<SlotName, BufferGeometry[]> {
       case "end":
         return [roundEnd(half, y0, y1)];
       case "bridge":
-        // In segments along its run, so the hump bends it smoothly.
+      case "ramp-low":
+      case "ramp-high":
+        // In segments along its run, so the hump or slope bends it smoothly.
         return [new BoxGeometry(CELL, y1 - y0, 2 * half, 12).translate(0, (y0 + y1) / 2, 0)];
     }
   };
@@ -159,6 +162,8 @@ function pieceParts(id: RoadPieceId): Record<SlotName, BufferGeometry[]> {
   switch (id) {
     case "straight":
     case "bridge":
+    case "ramp-low":
+    case "ramp-high":
       centreDashes([-24, 0, 24]);
       break;
     case "curve":
@@ -198,7 +203,26 @@ function pieceParts(id: RoadPieceId): Record<SlotName, BufferGeometry[]> {
     for (const z of [-(BOARD_HALF - 1.5), BOARD_HALF - 1.5]) parts.board.push(new BoxGeometry(CELL, 5, 3, 12).translate(0, BOARD_TOP + 2.5, z));
     for (const list of Object.values(parts)) for (const g of list) hump(g);
   }
+  if (id === "ramp-low" || id === "ramp-high") {
+    // Sloped up toward +x by half a block (the top half starting half a block up); the board stays on the ground
+    // underneath, a solid wedge.
+    const from = id === "ramp-low" ? 0 : HALF_BLOCK;
+    for (const list of Object.values(parts)) for (const g of list) slope(g, from);
+  }
   return parts;
+}
+
+/** Half a block: each ramp half climbs this much over its square. */
+const HALF_BLOCK = RISER_HEIGHT / 2;
+
+/** Raise a ramp part: by `from` plus a rise of half a block from the square's −x edge to its +x edge (not its base). */
+function slope(g: BufferGeometry, from: number): void {
+  const p = g.getAttribute("position");
+  for (let k = 0; k < p.count; k++) {
+    if (p.getY(k) < 0.01) continue;
+    p.setY(k, p.getY(k) + from + (HALF_BLOCK * (p.getX(k) + H)) / CELL);
+  }
+  g.computeVertexNormals();
 }
 
 /** How high a road bridge's deck rises at its middle (mm). */
