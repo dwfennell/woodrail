@@ -186,6 +186,14 @@ export class Layout {
     this.switchStates.set(pieceId, state);
   }
 
+  /** Seat a free connector on a free one within the joint tolerance, if there is one (a near miss just closed). */
+  seatFree(ref: number): boolean {
+    if (this.joinedTo.has(ref) || !this.pieces.has(pieceOfRef(ref)) || this.lifted.has(pieceOfRef(ref))) return false;
+    this.freeConnectors.remove(ref);
+    this.seatConnector(ref);
+    return this.joinedTo.has(ref);
+  }
+
   private seatAll(id: number): void {
     const piece = this.pieces.get(id)!;
     const count = getPieceDef(piece.type, piece.flipped).connectors.length;

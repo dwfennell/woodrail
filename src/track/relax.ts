@@ -14,6 +14,9 @@ const MAX_SWEEPS = 400;
 const SETTLED = 0.005;
 
 const wa = createWorldConnector();
+const extra = new Map<number, number>();
+/** A connector's partner for this relaxing: the one it's joined to, or a near miss it's being closed with. */
+let partnerOf: (ref: number) => number = () => -1;
 const wb = createWorldConnector();
 
 /**
@@ -24,8 +27,23 @@ const wb = createWorldConnector();
  * Returns the new poses of the pieces that moved (empty when every nearby joint is already snug, or when spreading
  * would not help). Pure: the layout is not changed — apply with `layout.nudgePieces`.
  */
-export function relaxJoints(layout: Layout, seeds: readonly number[], pinned: (pieceId: number) => boolean): Map<number, Pose> {
+export function relaxJoints(
+  layout: Layout,
+  seeds: readonly number[],
+  pinned: (pieceId: number) => boolean,
+  near: readonly (readonly [number, number])[] = [],
+): Map<number, Pose> {
   const result = new Map<number, Pose>();
+  // Near misses to close (pairs of free ends): fitted as if joined, so the loose track gives a little at every joint.
+  extra.clear();
+  for (const [a, b] of near) {
+    extra.set(a, b);
+    extra.set(b, a);
+  }
+  partnerOf = (ref) => {
+    const p = layout.joinedConnector(ref);
+    return p !== -1 ? p : (extra.get(ref) ?? -1);
+  };
   // The loose pieces within reach of the change, nearest first.
   const depth = new Map<number, number>();
   const order: number[] = [];
@@ -64,14 +82,21 @@ export function relaxJoints(layout: Layout, seeds: readonly number[], pinned: (p
       const count = getPieceDef(piece.type, piece.flipped).connectors.length;
       for (let i = 0; i < count; i++) {
         const ref = connectorRef(id, i);
-        const partner = layout.joinedConnector(ref);
+        const partner = partnerOf(ref);
         if (partner === -1) continue;
         connectorAt(layout, ref, poses.get(id)!, wa);
         const otherId = pieceOfRef(partner);
         connectorAt(layout, partner, poses.get(otherId) ?? layout.getPiece(otherId)!.pose, wb);
-        // The connector's mouth, and a point a little way back along the track: both should meet their partner's.
-        ps.push(wa.x, wa.z, wa.x - REACH * Math.cos(wa.heading), wa.z - REACH * Math.sin(wa.heading));
-        qs.push(wb.x, wb.z, wb.x + REACH * Math.cos(wb.heading), wb.z + REACH * Math.sin(wb.heading));
+        // The connector's mouth, and a point a little way along the track either side of it: each should meet the
+        // same point carried along the partner's line. Both pieces of a joint weigh the same three pairs (were each to
+        // weigh only a point inside itself, the two would pull toward different fits, and a joint that must bend
+        // sideways would swing wider every sweep).
+        const ca = Math.cos(wa.heading);
+        const sa = Math.sin(wa.heading);
+        const cb = Math.cos(wb.heading);
+        const sb = Math.sin(wb.heading);
+        ps.push(wa.x, wa.z, wa.x - REACH * ca, wa.z - REACH * sa, wa.x + REACH * ca, wa.z + REACH * sa);
+        qs.push(wb.x, wb.z, wb.x + REACH * cb, wb.z + REACH * sb, wb.x - REACH * cb, wb.z - REACH * sb);
       }
       if (ps.length === 0) continue;
       moved = Math.max(moved, fitRigid(poses.get(id)!, ps, qs));
@@ -94,7 +119,7 @@ function forPartners(layout: Layout, id: number, visit: (other: number) => void)
   const piece = layout.getPiece(id)!;
   const count = getPieceDef(piece.type, piece.flipped).connectors.length;
   for (let i = 0; i < count; i++) {
-    const partner = layout.joinedConnector(connectorRef(id, i));
+    const partner = partnerOf(connectorRef(id, i));
     if (partner !== -1) visit(pieceOfRef(partner));
   }
 }
@@ -118,7 +143,7 @@ function worstSlack(layout: Layout, ids: readonly number[], poses: Map<number, P
     const count = getPieceDef(piece.type, piece.flipped).connectors.length;
     for (let i = 0; i < count; i++) {
       const ref = connectorRef(id, i);
-      const partner = layout.joinedConnector(ref);
+      const partner = partnerOf(ref);
       if (partner === -1) continue;
       const otherId = pieceOfRef(partner);
       connectorAt(layout, ref, poses.get(id)!, wa);

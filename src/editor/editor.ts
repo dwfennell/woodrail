@@ -37,6 +37,9 @@ interface Command {
 }
 
 const HISTORY_LIMIT = 100;
+/** How far apart (mm) and how far from facing (radians) two free ends may be for the track to be pulled together. */
+const NEAR_MISS_REACH = 30;
+const NEAR_MISS_ANGLE = (12 * Math.PI) / 180;
 
 /** A riser to put down under a piece. */
 export interface RiserAt {
@@ -257,22 +260,73 @@ export class Editor {
    */
   private takeUpPlay(c: Command, seeds: number[]): Command {
     const pinned = (id: number) => this.fixed(id) || this.sim.pieceOccupied(id);
-    const after = relaxJoints(this.layout, seeds, pinned);
-    if (after.size === 0) return c;
-    const before = new Map<number, Pose>();
-    for (const id of after.keys()) before.set(id, { ...this.layout.getPiece(id)!.pose });
-    this.layout.nudgePieces(after);
-    return {
+    const posesOf = (ids: Iterable<number>) => new Map([...ids].map((id) => [id, { ...this.layout.getPiece(id)!.pose }]));
+    const wrap = (after: Map<number, Pose>, before: Map<number, Pose>, close: readonly number[]): Command => ({
       do: () => {
         c.do();
         this.layout.nudgePieces(after);
+        for (const ref of close) this.layout.seatFree(ref);
       },
       undo: () => {
         this.layout.nudgePieces(before);
         c.undo();
       },
       moves: c.moves,
-    };
+    });
+    // Ends left a near miss apart (a loop closing a little off) are pulled together: the loose track around them
+    // gives a little at each joint, as wooden track does when pushed. If that can't seat them, they stay apart.
+    const near = this.nearMisses(seeds);
+    if (near.length > 0) {
+      const pulled = relaxJoints(this.layout, seeds, pinned, near);
+      if (pulled.size > 0) {
+        const before = posesOf(pulled.keys());
+        this.layout.nudgePieces(pulled);
+        const closed = near.map(([a]) => a).filter((ref) => this.layout.seatFree(ref));
+        if (closed.length > 0) return wrap(pulled, before, closed);
+        this.layout.nudgePieces(before);
+      }
+    }
+    const after = relaxJoints(this.layout, seeds, pinned);
+    if (after.size === 0) return c;
+    const before = posesOf(after.keys());
+    this.layout.nudgePieces(after);
+    return wrap(after, before, []);
+  }
+
+  /**
+   * Free ends of the pieces just put down that nearly meet another free end: of the other kind, at the same height,
+   * facing it, but further off than the joint's play (`JOINT_POS_TOLERANCE`, `JOINT_ANGLE_TOLERANCE`).
+   */
+  private nearMisses(seeds: readonly number[]): [number, number][] {
+    const out: [number, number][] = [];
+    const a: WorldConnector = { x: 0, z: 0, heading: 0, y: 0, kind: "socket" };
+    const b: WorldConnector = { x: 0, z: 0, heading: 0, y: 0, kind: "socket" };
+    const near: number[] = [];
+    for (const id of seeds) {
+      const p = this.layout.getPiece(id);
+      if (!p) continue;
+      const count = getPieceDef(p.type, p.flipped).connectors.length;
+      for (let i = 0; i < count; i++) {
+        const ref = connectorRef(id, i);
+        if (this.layout.joinedConnector(ref) !== -1) continue;
+        this.layout.worldConnector(ref, a);
+        const n = this.layout.queryFreeConnectors(a.x, a.z, NEAR_MISS_REACH, near);
+        let best = -1;
+        let bestDistance = Infinity;
+        for (let k = 0; k < n; k++) {
+          const other = near[k];
+          if (pieceOfRef(other) === id || this.layout.joinedConnector(other) !== -1) continue;
+          this.layout.worldConnector(other, b);
+          const d = Math.hypot(b.x - a.x, b.z - a.z);
+          const facing = Math.abs(normalizeAngle(b.heading - a.heading - Math.PI)) <= NEAR_MISS_ANGLE;
+          if (b.kind === a.kind || !facing || Math.abs(b.y - a.y) > 2 || d > NEAR_MISS_REACH || d >= bestDistance) continue;
+          best = other;
+          bestDistance = d;
+        }
+        if (best !== -1) out.push([ref, best]);
+      }
+    }
+    return out;
   }
 
   /**

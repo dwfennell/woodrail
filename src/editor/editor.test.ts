@@ -228,3 +228,40 @@ describe("moving a ramp", () => {
     expect(layout.getPiece(ramp)).toMatchObject({ flipped: false, pose: { x: 0 } });
   });
 });
+
+describe("closing a near miss", () => {
+  it("pulls loose track together at a few millimetres a joint, so a loop that closes a little off still joins", () => {
+    const layout = new Layout();
+    const sim = new Sim(layout);
+    const start = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    // The end to meet: a fixed piece's hole 16 mm further on and 12 mm to the side of where four straights end.
+    const target = layout.addPiece("straight-216", { x: 216 * 5 + 16, z: 12, heading: 0 });
+    const fixed = (id: number) => id === start || id === target;
+    const editor = new Editor(layout, sim, () => {}, fixed);
+    let last = start;
+    for (let k = 0; k < 4; k++) {
+      const c = getPieceDef("straight-216", false).connectors[0].pose;
+      const w = layout.worldConnector(connectorRef(last, 1), { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+      const pose = solveParentPose(c, { x: w.x, z: w.z, heading: w.heading + Math.PI }, { x: 0, z: 0, heading: 0 });
+      last = editor.place("straight-216", pose, 0, false);
+    }
+    // Every joint seated, the closing one included, none badly.
+    const ends = [connectorRef(last, 1), connectorRef(target, 0)];
+    expect(layout.joinedConnector(ends[0])).toBe(ends[1]);
+    for (const j of layout.joints()) expect(j.posError).toBeLessThan(5);
+    // Undo opens the loop again (and takes the last piece away).
+    editor.undo();
+    expect(layout.joinedConnector(connectorRef(target, 0))).toBe(-1);
+  });
+
+  it("leaves ends that are too far apart alone", () => {
+    const layout = new Layout();
+    const sim = new Sim(layout);
+    const start = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    const target = layout.addPiece("straight-216", { x: 216 * 2 + 60, z: 0, heading: 0 });
+    const editor = new Editor(layout, sim, () => {}, (id) => id === start || id === target);
+    const a = editor.place("straight-216", { x: 216, z: 0, heading: 0 }, 0, false);
+    expect(layout.joinedConnector(connectorRef(a, 1))).toBe(-1);
+    expect(layout.getPiece(a)!.pose.x).toBeCloseTo(216);
+  });
+});
