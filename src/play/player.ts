@@ -8,13 +8,18 @@ import { appendPiece, connectorRef, createWorldConnector, fitAutoStraight, getPi
  * (Auto's fitting, near misses pulled closed) is what gets measured. Used by the buildability harness.
  */
 
+/** Why a piece can't go at this pose (the game's placement rules), or null. */
+export type Blocked = (type: PieceTypeId, flipped: boolean, pose: { x: number; z: number; heading: number }, y: number, ignoreId: number) => string | null;
+
 export interface PlayResult {
   /** Joined to the target end. */
   ok: boolean;
   /** Pieces put down (whether or not it got there). */
   pieces: number;
   /** How it ended: joined, gave up (no piece improved things or out of pieces), or a piece wouldn't go. */
-  how: "joined" | "lost" | "too-many" | "plan-drifted" | "auto-unjoined" | "slack-refused";
+  how: "joined" | "lost" | "too-many" | "plan-drifted" | "auto-unjoined" | "slack-refused" | "boxed-in";
+  /** What stopped pieces most often on the way (the placement rule), if anything did. */
+  blockedBy?: string;
   /** Where it ended up, from the target: distance (mm), how far from facing it (degrees), and the ends' kinds alike. */
   miss?: { d: number; angle: number; alike: boolean };
 }
@@ -42,13 +47,29 @@ function endOf(layout: Layout, ref: number): { x: number; z: number; heading: nu
   return { x: a.x, z: a.z, heading: a.heading, y: a.y, kind: a.kind };
 }
 
-/** Put `type` on the free end `ref` (seated by an end of the other kind), returning its other free end, or null. */
+/** The placement rules in force for this play (none on bare felt), and how often each refused a piece. */
+let rules: Blocked | null = null;
+const refusals = new Map<string, number>();
+
+/**
+ * Put `type` on the free end `ref` (seated by an end of the other kind), returning its other free end, or null (no
+ * end of the other kind, or the placement rules refuse it there).
+ */
 function addOn(layout: Layout, ref: number, type: PieceTypeId, flipped: boolean): { id: number; next: number } | null {
   const end = endOf(layout, ref);
   const def = getPieceDef(type, flipped);
   const via = def.connectors.findIndex((c) => c.kind !== end.kind);
   if (via === -1) return null;
   const id = appendPiece(layout, type, flipped, ref, via);
+  if (rules) {
+    const p = layout.getPiece(id)!;
+    const why = rules(type, flipped, p.pose, p.y, id);
+    if (why) {
+      layout.removePiece(id);
+      refusals.set(why, (refusals.get(why) ?? 0) + 1);
+      return null;
+    }
+  }
   const other = def.connectors.findIndex((_, k) => k !== via);
   return { id, next: connectorRef(id, other) };
 }
@@ -114,7 +135,24 @@ function lay(layout: Layout, editor: Editor, ref: number, type: PieceTypeId, fli
  * Lay track from free end `from` to the piece of free end `to`. `fiddle`: how many pieces a player tries in hand near
  * the end before Auto (2 is a casual player, about fifty tries; 3 a patient one, a few hundred).
  */
-export function play(layout: Layout, editor: Editor, from: number, to: number, { maxPieces = 40, fiddle = 2 } = {}): PlayResult {
+export function play(layout: Layout, editor: Editor, from: number, to: number, { maxPieces = 40, fiddle = 2, blocked = null as Blocked | null } = {}): PlayResult {
+  rules = blocked;
+  refusals.clear();
+  try {
+    return playOn(layout, editor, from, to, maxPieces, fiddle);
+  } finally {
+    rules = null;
+  }
+}
+
+function mostRefused(): string | undefined {
+  let best: string | undefined;
+  let n = 0;
+  for (const [why, k] of refusals) if (k > n) [best, n] = [why, k];
+  return best;
+}
+
+function playOn(layout: Layout, editor: Editor, from: number, to: number, maxPieces: number, fiddle: number): PlayResult {
   const target = endOf(layout, to);
   // Reaching the target's piece (a station, a depot) at either end joins it.
   const goal = pieceOfRef(to);
@@ -170,12 +208,12 @@ export function play(layout: Layout, editor: Editor, from: number, to: number, {
         best = s1;
       }
     }
-    if (!best) return { ok: false, pieces, how: "lost" };
+    if (!best) return { ok: false, pieces, how: "boxed-in", miss: missOf(layout, cur, to), blockedBy: mostRefused() };
     cur = lay(layout, editor, cur, best.type, best.flipped);
     pieces++;
   }
   const ok = reached();
-  return { ok, pieces, how: ok ? "joined" : "too-many", miss: ok ? undefined : missOf(layout, cur, to) };
+  return { ok, pieces, how: ok ? "joined" : "too-many", miss: ok ? undefined : missOf(layout, cur, to), blockedBy: ok ? undefined : mostRefused() };
 }
 
 function missOf(layout: Layout, ref: number, to: number): { d: number; angle: number; alike: boolean } {
