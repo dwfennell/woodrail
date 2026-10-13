@@ -32,6 +32,8 @@ export interface HudHandlers {
   newLayout(): void;
   /** Start or stop choosing land to add. */
   toggleExpand(): void;
+  /** Game mode: open or close the map view. */
+  toggleMap(): void;
   /** Add the plot chosen on the land card. */
   buyLand(): void;
   resetStarter(): void;
@@ -148,6 +150,7 @@ export class Hud {
   private toastFlushTimer = 0;
 
   private readonly handlers: HudHandlers;
+  private readonly mapBtn: HTMLButtonElement;
   /** Tray pictures by key: those drawn at start-up, and catalogue models' as they're drawn. */
   private readonly thumbs: Map<string, string>;
   private flipTrayBtn!: HTMLButtonElement;
@@ -174,7 +177,9 @@ export class Hud {
     this.rerailBtn.hidden = true;
     this.soundBtn = button(uiIcon(opts.muted ? "mute" : "sound"), opts.muted ? "Sound on" : "Sound off", h.toggleSound);
     this.landBtn = button(uiIcon("land"), "Add land", h.toggleExpand);
-    actions.append(this.rerailBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn);
+    this.mapBtn = button(uiIcon("map"), "Map: what's where", h.toggleMap);
+    this.mapBtn.hidden = true;
+    actions.append(this.rerailBtn, this.mapBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn);
     actions.append(button(uiIcon("menu"), "Menu", () => this.toggleMenu()));
     top.appendChild(actions);
     this.root.appendChild(top);
@@ -534,6 +539,13 @@ export class Hud {
     this.modeTag.className = `mode-tag mode-${mode}`;
     for (const b of this.sandboxItems) b.hidden = mode !== "sandbox";
     for (const b of this.gameItems) b.hidden = mode !== "game";
+    this.mapBtn.hidden = mode !== "game";
+  }
+
+  /** The map view is open: its button lit, the goals and tray put away. */
+  setMapOpen(open: boolean): void {
+    this.mapBtn.classList.toggle("active", open);
+    this.root.classList.toggle("map-open", open);
   }
 
   /** Hide or show the whole play overlay (the title screen covers the game). */

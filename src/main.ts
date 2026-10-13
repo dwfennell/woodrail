@@ -1,4 +1,4 @@
-import { Group, Mesh, Vector3, type Object3D } from "three";
+import { Group, Mesh, Spherical, Vector3 } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre } from "./editor/editor";
 import { frameDistance } from "./game/camera-director";
@@ -15,6 +15,8 @@ import { loadBlenderModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
+import { mapMarkers, type MapMarker } from "./game/map-markers";
+import { MapView } from "./ui/map-view";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -184,6 +186,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
         openingView();
       },
       toggleExpand: () => setExpanding(!expanding),
+      toggleMap: () => (mapView.open ? closeMap(true) : openMap()),
       buyLand: () => buyLand(),
       newGame: () => newGame(),
       titleScreen: () => showTitle(),
@@ -507,6 +510,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   /** Save, then show the title over a still, wide view of the map. */
   function showTitle(): void {
+    closeMap(false);
     save();
     playing = false;
     clearTimeout(saveTimer);
@@ -563,6 +567,70 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     }
     const current = goals.current();
     goalsPanel.show(goals.doneCount, current, current ? current.check(game.world) : null, goals.next());
+  }
+
+  // The map view (Game mode): the whole land from above, with what each town wants and each depot holds.
+  const mapView = new MapView(hud.root, { go: (m) => goToMarker(m), close: () => closeMap(true) });
+  /** Where the camera was before the map opened, to go back to. */
+  let mapReturn: { target: Vector3; distance: number; phi: number; theta: number } | null = null;
+  let mapRefreshedAt = 0;
+
+  function openMap(): void {
+    if (expanding) setExpanding(false);
+    interaction.clearSelection();
+    hud.hideCards();
+    game.follow(-1);
+    const c = game.controls;
+    const sph = new Spherical().setFromVector3(game.camera.position.clone().sub(c.target));
+    mapReturn = { target: c.target.clone(), distance: sph.radius, phi: sph.phi, theta: sph.theta };
+    const e = game.landscape.grid.extent();
+    const radius = Math.hypot(e.x1 - e.x0, e.z1 - e.z0) / 2;
+    const distance = Math.min(frameDistance(radius * 0.72, game.camera.fov, game.camera.aspect), c.maxDistance);
+    game.director.glideTo(new Vector3((e.x0 + e.x1) / 2, 0, (e.z0 + e.z1) / 2), distance, { phi: 0.22, duration: 0.9 });
+    mapView.setOpen(true);
+    hud.setMapOpen(true);
+    refreshMap();
+    game.invalidate();
+  }
+
+  /** Close the map; `back` glides to where the camera was. */
+  function closeMap(back: boolean): void {
+    if (!mapView.open) return;
+    mapView.setOpen(false);
+    hud.setMapOpen(false);
+    if (back && mapReturn) {
+      const r = mapReturn;
+      game.director.glideTo(r.target, r.distance, { phi: r.phi, theta: r.theta, duration: 0.9 });
+    }
+    mapReturn = null;
+    game.invalidate();
+  }
+
+  function goToMarker(m: MapMarker): void {
+    closeMap(false);
+    game.director.glideTo(new Vector3(m.x, 0, m.z), 1000, { phi: 0.95, duration: 1 });
+    if (m.kind === "town") game.flourishes.add(game.landscapeView.flash([Number(m.key.split(":")[1])]));
+    else {
+      const i = game.landscape.grid.cellAtWorld(m.x, m.z);
+      const marks = goalMarks(game.scene, [{ x: m.x, y: i < 0 ? 0 : game.landscape.grid.groundY(i), z: m.z }]);
+      if (marks) game.flourishes.add(marks);
+    }
+  }
+
+  function refreshMap(): void {
+    mapRefreshedAt = performance.now();
+    mapView.show(mapMarkers(game.world, (id) => townLife.status(id)));
+    placeMap();
+  }
+
+  const mapPoint = new Vector3();
+  function placeMap(): void {
+    const rect = game.canvas.getBoundingClientRect();
+    mapView.place((x, z) => {
+      mapPoint.set(x, 0, z).project(game.camera);
+      if (mapPoint.z > 1 || Math.abs(mapPoint.x) > 1.1 || Math.abs(mapPoint.y) > 1.1) return null;
+      return { x: rect.left + ((mapPoint.x + 1) / 2) * rect.width, y: rect.top + ((1 - mapPoint.y) / 2) * rect.height };
+    });
   }
 
   /** "Show me": glide to where the current goal is done, flash the towns and mark the places, open the tray tab. */
@@ -681,6 +749,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "TEXTAREA" || tag === "INPUT") return;
     if (e.key === "`") hud.perf.hidden = !hud.perf.hidden;
+    if (e.key === "Escape" && mapView.open) closeMap(true);
     if (e.key === " " && !title.shown && tag !== "BUTTON") {
       e.preventDefault();
       game.paused = !game.paused;
@@ -734,6 +803,10 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     hud.setTrayArrow(interaction.trayArrow(hud.propsTab));
     interaction.tick(dt);
     const now = performance.now();
+    if (mapView.open) {
+      if (now - mapRefreshedAt > 1000) refreshMap();
+      else placeMap();
+    }
     if (now - goalsCheckedAt > 1000) {
       goalsCheckedAt = now;
       checkGoals(true);

@@ -116,6 +116,8 @@ const UI_PATHS = {
   // A grass block with an arrow up or down (the Land tab's tools).
   raise: `<path d="M4 14h16v6H4z" fill="#e2bd85" stroke="none"/><path d="M4 12.5h16v2H4z" fill="#5aa35a" stroke="none"/><path d="M4 12.5h16v7.5H4z"/><path d="M12 9.5V2.5M8.5 6 12 2.5 15.5 6"/>`,
   lower: `<path d="M4 14h16v6H4z" fill="#e2bd85" stroke="none"/><path d="M4 12.5h16v2H4z" fill="#5aa35a" stroke="none"/><path d="M4 12.5h16v7.5H4z"/><path d="M12 2.5v7M8.5 6 12 9.5 15.5 6"/>`,
+  // A folded paper map with a pin.
+  map: `<path d="M3.5 6.5 9 4.5l6 2 5.5-2v13l-5.5 2-6-2-5.5 2z"/><path d="M9 4.5v13M15 6.5v13"/>`,
   land: `<path d="M3.5 8.5h7v7h-7z" fill="currentColor" stroke="none" opacity="0.35"/><path d="M3.5 8.5h7v7h-7zM10.5 8.5h7"/><path d="M17.5 8.5v4"/><path d="M14 18h7M17.5 14.5v7"/>`,
 } as const;
 
