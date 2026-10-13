@@ -22,7 +22,9 @@ import { Crafting, workshops, workshopStock } from "./game/crafting";
 import { isFree, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
-import { describe as describeGoods, minus } from "./economy/goods";
+import { BlueprintBoard, type BoardCard } from "./ui/blueprint-board";
+import { choose as chooseTech, learnWithGoods, offerFor, ready, TECHS, techOf, unlocksOf } from "./game/tech";
+import { covers, describe as describeGoods, minus } from "./economy/goods";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -197,6 +199,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       },
       toggleExpand: () => setExpanding(!expanding),
       toggleMap: () => (mapView.open ? closeMap(true) : openMap()),
+      toggleBoard: () => setBoardOpen(!board.open),
       buyLand: () => buyLand(),
       newGame: () => newGame(),
       titleScreen: () => showTitle(),
@@ -524,6 +527,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   /** Save, then show the title over a still, wide view of the map. */
   function showTitle(): void {
     closeMap(false);
+    setBoardOpen(false);
     save();
     playing = false;
     clearTimeout(saveTimer);
@@ -551,6 +555,14 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       const article = /^[aeiou]/i.test(status.name) ? "an" : "a";
       hud.toast(built.length > 0 ? `${town.name} grew into ${article} ${status.name.toLowerCase()}!` : `${town.name} is now ${article} ${status.name.toLowerCase()}, but has no room to build`, true, 3600);
       audio.chime();
+      // A town that grows offers two blueprints to choose from (one learned free).
+      const offer = offerFor(progress, Math.random);
+      if (offer.length > 0) {
+        progress.offers.push({ from: town.name, ids: offer });
+        hud.toast(`${town.name} offers you a blueprint: open Blueprints to choose`, false, 4200);
+        refreshBoard();
+        scheduleSave();
+      }
       game.flourishes.add(game.landscapeView.flash([town.id]));
       const grid = game.landscape.grid;
       const marks = goalMarks(
@@ -637,9 +649,66 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       scheduleSave();
     },
   });
+  // The blueprint board: choices from towns that grew, blueprints to learn with planks, and the rest of the tree.
+  const board = new BlueprintBoard(hud.root, {
+    choose: (k, id) => {
+      const o = progress.offers[k];
+      if (!o || !chooseTech(progress, id, o.ids)) return;
+      progress.offers.splice(k, 1);
+      learned(id);
+    },
+    learn: (id) => {
+      if (learnWithGoods(game.world, progress, id)) learned(id);
+      else hud.toast(`Bring ${describeGoods(techOf(id)!.cost)} to the workshop to learn ${techOf(id)!.label.toLowerCase()}`, false, 3600);
+    },
+    close: () => setBoardOpen(false),
+  });
+
+  function learned(id: string): void {
+    const makes = unlocksOf(id).map((t) => ruleOf(t)!.label.toLowerCase());
+    hud.toast(`Learned ${techOf(id)!.label.toLowerCase()}! Make ${makes.slice(0, 2).join(" and ")}${makes.length > 2 ? " and more" : ""} at the workshop`, true, 3800);
+    audio.chime();
+    hud.refreshTrayBadges();
+    game.invalidate();
+    refreshBoard();
+    save();
+  }
+
+  function setBoardOpen(open: boolean): void {
+    if (open && mapView.open) closeMap(false);
+    board.setOpen(open);
+    hud.root.classList.toggle("board-open", open);
+    if (open) {
+      interaction.clearSelection();
+      hud.hideCards();
+    }
+    refreshBoard();
+  }
+
+  function refreshBoard(): void {
+    hud.setBoardButton(board.open, progress.offers.length > 0);
+    if (!board.open) return;
+    const stock = workshopStock(game.world);
+    const cardOf = (id: string): BoardCard => {
+      const t = techOf(id)!;
+      return { id, label: t.label, blurb: t.blurb, makes: unlocksOf(id).map((x) => ruleOf(x)!.label).join(", ") };
+    };
+    board.show({
+      offers: progress.offers.map((o) => ({ from: o.from, cards: o.ids.map(cardOf) })),
+      board: TECHS.filter((t) => progress.board.has(t.id) && ready(progress, t.id)).map((t) => ({ ...cardOf(t.id), cost: describeGoods(t.cost), affordable: covers(stock, t.cost) })),
+      learned: TECHS.filter((t) => progress.learned.has(t.id)).map((t) => cardOf(t.id)),
+      later: TECHS.filter((t) => !progress.learned.has(t.id) && !(progress.board.has(t.id) && ready(progress, t.id)) && !progress.offers.some((o) => o.ids.includes(t.id))).map((t) => ({
+        ...cardOf(t.id),
+        waits: t.needs.some((n) => !progress.learned.has(n)) ? `Needs ${t.needs.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")}` : "Offered as towns grow",
+      })),
+      stock: workshops(game.world).length === 0 ? "Place your workshop first (Industries tab)" : `The workshop's yard has ${describeGoods(stock)}`,
+    });
+  }
+
   // The workshop's clock: a few times a second, not every frame (it runs while nothing on screen moves).
   const CRAFT_STEP = 0.25;
   setInterval(() => {
+    if (mode === "game" && board.open) refreshBoard();
     if (mode !== "game" || !playing || game.paused || progress.orders.length === 0) return;
     const wasMaking = progress.making;
     const made = crafting.tick(game.world, CRAFT_STEP);
@@ -691,6 +760,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   function openMap(): void {
     if (expanding) setExpanding(false);
+    if (board.open) setBoardOpen(false);
     interaction.clearSelection();
     hud.hideCards();
     game.follow(-1);
@@ -779,6 +849,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     progress = Progress.fresh();
     crafting.setProgress(progress);
     saveProgress(progress.toJSON());
+    refreshBoard();
     goals = new GoalTracker();
     saveGoals([]);
     goalsPanel.reset();
@@ -827,6 +898,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       townLife.reset();
       progress.coverMap(game.world);
       hud.trayBadge = trayBadge;
+      refreshBoard();
     } else {
       townLife.clear();
       shownDelivered = new Map();
@@ -872,6 +944,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     if (tag === "TEXTAREA" || tag === "INPUT") return;
     if (e.key === "`") hud.perf.hidden = !hud.perf.hidden;
     if (e.key === "Escape" && mapView.open) closeMap(true);
+    if (e.key === "Escape" && board.open) setBoardOpen(false);
     if (e.key === " " && !title.shown && tag !== "BUTTON") {
       e.preventDefault();
       game.paused = !game.paused;

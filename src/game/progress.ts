@@ -1,3 +1,4 @@
+import { STARTING_BOARD, techOf } from "./tech";
 import { isFree, ruleOf, STARTING_BOX, THING_RULES, type ThingId } from "./things";
 import type { World } from "./world";
 
@@ -9,6 +10,10 @@ import type { World } from "./world";
 export class Progress {
   readonly owned = new Map<ThingId, number>();
   readonly learned = new Set<string>();
+  /** Blueprints on the board, to be learned with goods (see `tech.ts`). */
+  readonly board = new Set<string>();
+  /** Choices waiting: two blueprints a town offered when it grew (one is learned free). */
+  readonly offers: { from: string; ids: string[] }[] = [];
   /** The workshop's orders, in order (see `Crafting`). */
   readonly orders: ThingId[] = [];
   /** The first order's goods are taken and it's being made. */
@@ -18,6 +23,7 @@ export class Progress {
   static fresh(): Progress {
     const p = new Progress();
     for (const [id, n] of Object.entries(STARTING_BOX) as [ThingId, number][]) p.owned.set(id, n);
+    for (const t of STARTING_BOARD) p.board.add(t);
     return p;
   }
 
@@ -52,7 +58,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], orders: [...this.orders], making: this.making };
+    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: this.offers.map((o) => ({ from: o.from, ids: [...o.ids] })), orders: [...this.orders], making: this.making };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -66,7 +72,14 @@ export class Progress {
         if (Number.isInteger(n) && n > 0) p.owned.set(e[0] as ThingId, n);
       }
     }
-    if (d && Array.isArray(d.learned)) for (const t of d.learned) if (typeof t === "string") p.learned.add(t);
+    if (d && Array.isArray(d.learned)) for (const t of d.learned) if (typeof t === "string" && techOf(t)) p.learned.add(t);
+    if (d && Array.isArray(d.board)) for (const t of d.board) if (typeof t === "string" && techOf(t)) p.board.add(t);
+    if (d && Array.isArray(d.offers)) {
+      for (const o of d.offers) {
+        const ids = Array.isArray(o?.ids) ? o.ids.filter((t): t is string => typeof t === "string" && !!techOf(t)) : [];
+        if (ids.length > 0) p.offers.push({ from: typeof o.from === "string" ? o.from : "", ids });
+      }
+    }
     if (d && Array.isArray(d.orders)) for (const o of d.orders) if (typeof o === "string" && o in THING_RULES) p.orders.push(o as ThingId);
     p.making = !!d?.making && p.orders.length > 0;
     return p;
@@ -76,6 +89,8 @@ export class Progress {
 export interface ProgressData {
   owned: [string, number][];
   learned: string[];
+  board?: string[];
+  offers?: { from: string; ids: string[] }[];
   orders?: string[];
   making?: boolean;
 }

@@ -34,6 +34,8 @@ export interface HudHandlers {
   toggleExpand(): void;
   /** Game mode: open or close the map view. */
   toggleMap(): void;
+  /** Game mode: open or close the blueprint board. */
+  toggleBoard(): void;
   /** Add the plot chosen on the land card. */
   buyLand(): void;
   resetStarter(): void;
@@ -153,6 +155,7 @@ export class Hud {
 
   private readonly handlers: HudHandlers;
   private readonly mapBtn: HTMLButtonElement;
+  private readonly boardBtn: HTMLButtonElement;
   /** Tray pictures by key: those drawn at start-up, and catalogue models' as they're drawn. */
   private readonly thumbs: Map<string, string>;
   private flipTrayBtn!: HTMLButtonElement;
@@ -181,7 +184,9 @@ export class Hud {
     this.landBtn = button(uiIcon("land"), "Add land", h.toggleExpand);
     this.mapBtn = button(uiIcon("map"), "Map: what's where", h.toggleMap);
     this.mapBtn.hidden = true;
-    actions.append(this.rerailBtn, this.mapBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn);
+    this.boardBtn = button(uiIcon("blueprint"), "Blueprints: learn new things", h.toggleBoard);
+    this.boardBtn.hidden = true;
+    actions.append(this.rerailBtn, this.boardBtn, this.mapBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn);
     actions.append(button(uiIcon("menu"), "Menu", () => this.toggleMenu()));
     top.appendChild(actions);
     this.root.appendChild(top);
@@ -572,6 +577,13 @@ export class Hud {
     for (const b of this.sandboxItems) b.hidden = mode !== "sandbox";
     for (const b of this.gameItems) b.hidden = mode !== "game";
     this.mapBtn.hidden = mode !== "game";
+    this.boardBtn.hidden = mode !== "game";
+  }
+
+  /** The blueprint board's button: lit while open, a pulsing dot while a town's choice waits. */
+  setBoardButton(open: boolean, alert: boolean): void {
+    this.boardBtn.classList.toggle("active", open);
+    this.boardBtn.classList.toggle("icon-btn-alert", alert);
   }
 
   /** The map view is open: its button lit, the goals and tray put away. */

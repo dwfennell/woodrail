@@ -224,14 +224,14 @@ export const GOALS: readonly Goal[] = [
   {
     id: "lay-switch",
     title: "Lay a switch",
-    hint: "Switches are in the tray's Switch shelf. Tap the lever to change the points.",
+    hint: "Learn switches on the blueprint board, make one at your workshop, then lay it from the Switch shelf.",
     check: (w) => ({ done: hasPiece(w, (type, flipped) => getPieceDef(type, flipped).isSwitch) }),
     guide: (w) => guideTrains(w, "track", "Switch"),
   },
   {
     id: "build-bridge",
     title: "Build a bridge",
-    hint: "Take your track over a river or another line. Bridges are on the Bridges tab.",
+    hint: "Learn bridges on the blueprint board and make one at your workshop. Then take your track over a river.",
     check: (w) => ({ done: hasPiece(w, (type) => isBridge(type)) }),
     guide: (w) => guideTrains(w, "bridges"),
   },
