@@ -5,7 +5,7 @@ import { STATION_LENGTH, type Landscape } from "./generate";
 import { cutsHills, hillsOf } from "./hill-shape";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
-export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "field" | "shed" | "depot" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop";
+export type BlockReason = "building" | "station" | "town" | "river" | "hill" | "field" | "shed" | "depot" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -22,6 +22,7 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   piece: "Another piece is in the way",
   unsupported: "Needs something under that end",
   prop: "Something's in the way — move it first",
+  headroom: "Trains won't fit under — go two levels up",
 };
 
 const CLEAR: Clearance = { kind: "clear" };
@@ -38,6 +39,7 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   piece: { kind: "blocked", reason: "piece" },
   unsupported: { kind: "blocked", reason: "unsupported" },
   undercut: { kind: "blocked", reason: "undercut" },
+  headroom: { kind: "blocked", reason: "headroom" },
   prop: { kind: "blocked", reason: "prop" },
 };
 

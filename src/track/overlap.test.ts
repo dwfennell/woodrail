@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { RISER_HEIGHT } from "./constants";
+import { RISER_HEIGHT, TRAIN_CLEARANCE } from "./constants";
 import { connectorRef, Layout } from "./layout";
-import { findOverlap } from "./overlap";
+import { findLowCrossing, findOverlap } from "./overlap";
 import { appendPiece } from "./snap";
 
 const at = (x: number, z: number, heading = 0) => ({ x, z, heading });
@@ -132,5 +132,34 @@ describe("findOverlap with bridges' arches", () => {
     expect(findOverlap(l, "straight-216", false, at(216, 0), RISER_HEIGHT, -1, arches())).toBe(-1);
     appendPiece(l, "straight-216", false, connectorRef(id, 1));
     expect(findOverlap(l, "straight-216", false, at(-216, 0), RISER_HEIGHT, -1, arches())).toBe(-1);
+  });
+});
+
+describe("findLowCrossing (headroom for trains)", () => {
+  it("refuses track crossing over track less than two levels above it, and allows it at two", () => {
+    const l = new Layout();
+    const below = l.addPiece("straight-216", at(0, 0));
+    const across = at(108, -108, Math.PI / 2);
+    expect(TRAIN_CLEARANCE).toBe(2 * RISER_HEIGHT);
+    expect(findLowCrossing(l, "straight-216", false, across, RISER_HEIGHT, -1)).toBe(below);
+    expect(findLowCrossing(l, "bridge", false, across, RISER_HEIGHT, -1)).toBe(below);
+    expect(findLowCrossing(l, "bridge", false, across, 2 * RISER_HEIGHT, -1)).toBe(-1);
+    // Below it is the same: track a level under a bridge has no room either.
+    const high = new Layout();
+    const deck = high.addPiece("bridge", at(0, 0), RISER_HEIGHT);
+    expect(findLowCrossing(high, "straight-216", false, across, 0, -1)).toBe(deck);
+  });
+
+  it("leaves track that only joins (a ramp up to raised track), side by side, or at one height to the others", () => {
+    const l = new Layout();
+    const a = l.addPiece("straight-216", at(0, 0));
+    const ramp = appendPiece(l, "ramp", false, connectorRef(a, 1));
+    const top = appendPiece(l, "straight-216", false, connectorRef(ramp, 1));
+    for (const id of [a, ramp, top]) {
+      const p = l.getPiece(id)!;
+      expect(findLowCrossing(l, p.type, p.flipped, p.pose, p.y, id)).toBe(-1);
+    }
+    expect(findLowCrossing(l, "straight-216", false, at(0, 60), RISER_HEIGHT, -1)).toBe(-1);
+    expect(findLowCrossing(l, "riser", false, at(400, 0), 0, -1)).toBe(-1);
   });
 });

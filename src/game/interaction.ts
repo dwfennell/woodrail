@@ -8,7 +8,7 @@ import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, bridgeLevels, CELL, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { findOverlap, findSnap, findSnapAtPoint, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { findLowCrossing, findOverlap, findSnap, findSnapAtPoint, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
@@ -794,6 +794,7 @@ export class Interaction {
     const g = this.game;
     const arches = { mine: bridgeLevels(g.landscape, type, flipped, pose, y) * RISER_HEIGHT, of: (p: PlacedPiece) => g.bridgeLevelsOf(p) * RISER_HEIGHT };
     if (findOverlap(g.layout, type, flipped, pose, y, ignoreId, arches) !== -1) return "piece";
+    if (findLowCrossing(g.layout, type, flipped, pose, y, ignoreId) !== -1) return "headroom";
     if (pieceHitsProp(g.props, g.propLibrary.footprint, type, flipped, pose)) return "prop";
     // A ramp cutting into a hill mustn't take the ground from under other track.
     return cutUndermines(g.landscape, g.layout, type, flipped, pose, y, ignoreId) === -1 ? null : "undercut";
@@ -1012,6 +1013,12 @@ export class Interaction {
       m.looseY = looseHeight(this.game.landscape, this.game.layout, holdType, m.heldFlipped, m.pose, m.pieceId);
       // Resting up off the ground (on a hill, a riser, as a bridge), it's held where the finger points at that height.
       if (m.looseY > 0) {
+        const up = heldAt(m.looseY);
+        if (up) m.pose = loose(up);
+      }
+      // A bridge held over track stands high enough for trains to pass under it (two levels over that track).
+      for (let k = 0; k < 4 && isBridge(holdType) && findLowCrossing(this.game.layout, holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId) !== -1; k++) {
+        m.looseY += RISER_HEIGHT;
         const up = heldAt(m.looseY);
         if (up) m.pose = loose(up);
       }

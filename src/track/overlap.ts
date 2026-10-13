@@ -1,4 +1,4 @@
-import { ARCH_CENTRES, ARCH_CROWN_DROP, ARCH_RADIUS, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH } from "./constants";
+import { ARCH_CENTRES, ARCH_CROWN_DROP, ARCH_RADIUS, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, TRAIN_CLEARANCE } from "./constants";
 import type { Layout, PlacedPiece } from "./layout";
 import type { Pose } from "./math";
 import { createSample, pathLength, samplePath } from "./path";
@@ -164,6 +164,35 @@ export function findOverlap(layout: Layout, type: PieceTypeId, flipped: boolean,
     if (!isRiser && arches) {
       wallToWorld(theirs.arches, other.pose, other.y, arches.of(other), theirWall);
       if (theirWall.length > 0 && anyTouch(placed, theirWall, limit)) return id;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Would track at this pose cross over (or under) other track too closely for a train to fit between them? Returns the
+ * first such piece, or −1. Track over track needs `TRAIN_CLEARANCE` between their bases (two levels); track at the
+ * same height is `findOverlap`'s. Risers and joiners carry no trains. Called on every pointer move while dragging.
+ */
+export function findLowCrossing(layout: Layout, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): number {
+  if (getPieceDef(type, flipped).paths.length === 0 || type === "joiner") return -1;
+  const mine = footprint(type, flipped);
+  toWorld(mine.discs, pose, y, placed);
+  const limit = (2 * RADIUS) ** 2;
+  for (const id of layout.pieceIds()) {
+    if (id === ignoreId || layout.isLifted(id)) continue;
+    const other = layout.getPiece(id)!;
+    if (getPieceDef(other.type, other.flipped).paths.length === 0 || other.type === "joiner") continue;
+    const theirs = footprint(other.type, other.flipped);
+    if (Math.hypot(other.pose.x - pose.x, other.pose.z - pose.z) > mine.reach + theirs.reach) continue;
+    toWorld(theirs.discs, other.pose, other.y, theirDeck);
+    for (const p of placed) {
+      for (const q of theirDeck) {
+        const dx = p.x - q.x;
+        const dz = p.z - q.z;
+        const gap = Math.abs(p.y0 - q.y0);
+        if (dx * dx + dz * dz < limit && gap > SLACK && gap < TRAIN_CLEARANCE - SLACK) return id;
+      }
     }
   }
   return -1;

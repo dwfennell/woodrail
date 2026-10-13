@@ -15,6 +15,8 @@ export const SWITCH_LENGTH = 144;
 export const CROSSING_SIZE = 144;
 export const RISER_HEIGHT = 48;
 export const RAMP_LENGTH = 144;
+/** Track over other track must be at least this much higher, so trains fit under (the tallest engine is ~72 mm). */
+export const TRAIN_CLEARANCE = 2 * RISER_HEIGHT;
 export const BRIDGE_LENGTH = 216;
 export const BUFFER_LENGTH = 54;
 export const ADAPTER_LENGTH = 54;
