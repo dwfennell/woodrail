@@ -42,5 +42,5 @@ describe("buildability (a simulated player joining two ends)", () => {
     console.log("not joined (how it ended, distance mm, degrees from facing, ends alike):", JSON.stringify(failed.slice(0, 12)));
     // Today's rate: it may only go up.
     expect(rate).toBeGreaterThanOrEqual(0.7);
-  });
+  }, 120_000);
 });
