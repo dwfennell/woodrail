@@ -1,7 +1,7 @@
 import { TRACK_WIDTH, type Layout } from "../track";
 import { hashInts } from "./edges";
 import { reachable, type Landscape, type Shed } from "./generate";
-import { CELL, FEAT_FIELD, FEAT_NONE, FEAT_SHED, FEAT_TREE, MAX_HEIGHT, PLOT_CELLS, SURF_GRASS, SURF_LANE, SURF_ROAD } from "./grid";
+import { CELL, FEAT_BUILDING, FEAT_FIELD, FEAT_NONE, FEAT_SHED, FEAT_TREE, MAX_HEIGHT, PLOT_CELLS, SURF_GRASS, SURF_LANE, SURF_ROAD, SURF_TOWN } from "./grid";
 import { BUCKET, bucketKey, trackPoints } from "./trees-aside";
 
 /** Why a square's height can't change. */
@@ -184,6 +184,33 @@ export class LandEditor {
       moveScenery(this.land, s, dc, dr);
       const ok = reachable(this.land);
       restore(this.land, snap);
+      if (!ok) return "cut-off";
+    }
+    return null;
+  }
+
+  /**
+   * Can a building go on these squares (a town growing)? Each must be open grass or a town green (a tree there is
+   * felled), all at one height, not a station's way in, clear of track and props; and every town and depot must stay
+   * reachable.
+   */
+  checkLot(cells: readonly number[]): LandBlock | null {
+    const g = this.land.grid;
+    for (const t of cells) {
+      if (g.surface[t] !== SURF_GRASS && g.surface[t] !== SURF_TOWN) return "not-grass";
+      if (g.feature[t] !== FEAT_NONE && g.feature[t] !== FEAT_TREE) return "taken";
+      if (this.corridors.has(t)) return "station-way";
+      if (g.height[t] !== g.height[cells[0]]) return "uneven";
+      const x0 = g.centreX(g.colOf(t)) - CELL / 2;
+      const z0 = g.centreZ(g.rowOf(t)) - CELL / 2;
+      if (this.trackIn(x0, z0, x0 + CELL, z0 + CELL)) return "track";
+      if (this.occupants.inRect(x0, z0, x0 + CELL, z0 + CELL)) return "prop";
+    }
+    if (this.wasReachable && cells.some((t) => g.surface[t] === SURF_GRASS)) {
+      const before = cells.map((t) => g.feature[t]);
+      for (const t of cells) g.feature[t] = FEAT_BUILDING;
+      const ok = reachable(this.land);
+      cells.forEach((t, k) => (g.feature[t] = before[k]));
       if (!ok) return "cut-off";
     }
     return null;

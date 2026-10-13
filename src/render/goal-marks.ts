@@ -5,14 +5,16 @@ import type { Flourish } from "./flourishes";
 const LIFE = 3.2;
 /** Ring radius (mm): about a station's half length, so it reads round a depot or a train. */
 const RADIUS = 190;
+/** A square's ring: round one new building. */
+export const SQUARE_RING = 60;
 
 /**
  * "Show me": rings on the ground that ripple out from each place a goal points at, three times, then fade. Built on
  * demand and thrown away afterwards, so they cost nothing when not showing.
  */
-export function goalMarks(scene: Scene, points: readonly { x: number; y: number; z: number }[]): Flourish | null {
+export function goalMarks(scene: Scene, points: readonly { x: number; y: number; z: number }[], radius = RADIUS): Flourish | null {
   if (points.length === 0) return null;
-  const geometry = new RingGeometry(RADIUS * 0.7, RADIUS, 48);
+  const geometry = new RingGeometry(radius * 0.7, radius, 48);
   geometry.rotateX(-Math.PI / 2);
   const material = new MeshBasicMaterial({ color: new Color("#ffcf6b"), transparent: true, depthWrite: false, side: DoubleSide });
   const group = new Group();

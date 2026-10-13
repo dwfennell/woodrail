@@ -13,7 +13,8 @@ import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
 import { loadBlenderModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
-import { goalMarks } from "./render/goal-marks";
+import { goalMarks, SQUARE_RING } from "./render/goal-marks";
+import { TownLife } from "./game/town-life";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -526,6 +527,27 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   // Game mode's goals: checked about once a second and after every change to the track.
   let goals = new GoalTracker(loadGoals());
   const goalsPanel = new GoalsPanel(hud.root, { newGame: () => newGame(), showMe: () => showGoal() });
+
+  // Game mode's towns: they want things, and grow when they get them.
+  const townLife = new TownLife(game, {
+    grew: (town, status, built) => {
+      const article = /^[aeiou]/i.test(status.name) ? "an" : "a";
+      hud.toast(built.length > 0 ? `${town.name} grew into ${article} ${status.name.toLowerCase()}!` : `${town.name} is now ${article} ${status.name.toLowerCase()}, but has no room to build`, true, 3600);
+      audio.chime();
+      game.flourishes.add(game.landscapeView.flash([town.id]));
+      const grid = game.landscape.grid;
+      const marks = goalMarks(
+        game.scene,
+        built.map((p) => {
+          const i = grid.cellAtWorld(p.x, p.z);
+          return { ...p, y: i < 0 ? 0 : grid.groundY(i) };
+        }),
+        SQUARE_RING,
+      );
+      if (marks) game.flourishes.add(marks);
+      game.invalidate();
+    },
+  });
   /** When goals were last checked (wall-clock ms: frame times are capped, so slow frames would stretch a dt sum). */
   let goalsCheckedAt = 0;
   function checkGoals(announce: boolean): void {
@@ -582,6 +604,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     resetGoals();
     saveLastBuilt("game", null);
     setWorld(freshGameWorld());
+    townLife.reset();
     save();
     openingView();
   }
@@ -615,6 +638,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     playing = true;
     save();
     goalsPanel.setVisible(mode === "game");
+    if (mode === "game") townLife.reset();
+    else {
+      townLife.clear();
+      shownDelivered = new Map();
+    }
     checkGoals(false);
     hud.firstVisitHelp();
   }
@@ -748,8 +776,10 @@ function boot(savedThumbnails: Map<string, string> | null): void {
         if (at) audio.saw(...listen(at.x, at.z));
       }
     }
-    // Delivery counts on the town signs.
-    game.economy.delivered.forEach(showDelivered);
+    // Town signs: in Game mode what each town wants (and it grows when it gets it); in Sandbox, delivery counts.
+    if (mode === "game") {
+      if (playing) townLife.update();
+    } else game.economy.delivered.forEach(showDelivered);
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);

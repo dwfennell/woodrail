@@ -1,3 +1,4 @@
+import type { CargoKind } from "../economy/cargo";
 import {
   BoxGeometry,
   CanvasTexture,
@@ -118,8 +119,8 @@ export class LandscapeView {
   private readonly blockIndex = new Map<string, BlockInstanceRef[]>();
   private signs = new Map<number, MeshStandardMaterial>();
   private readonly signNames = new Map<number, string>();
-  /** Plank bundles shown on each town's sign. */
-  private readonly delivered = new Map<number, number>();
+  /** What each town's sign shows beside its name (see `SignBadge`). */
+  private readonly badges = new Map<number, SignBadge>();
   private connected = new Set<number>();
   private placeTrees: PlaceTrees = () => {};
   private clearance!: TreeClearance;
@@ -647,7 +648,7 @@ export class LandscapeView {
     this.signs.get(town.id)?.map?.dispose();
     this.signs.get(town.id)?.dispose();
     // (Built again when its plot is: it keeps the count it showed.)
-    const sign = this.makeSign(town.name, this.delivered.get(town.id) ?? 0);
+    const sign = this.makeSign(town.name, this.badges.get(town.id) ?? null);
     this.signNames.set(town.id, town.name);
     // Wood round the edges, the name on both faces: two draws (a box's own six groups would be six).
     const boardGeometry = new BoxGeometry(SIGN_WIDTH, SIGN_HEIGHT, SIGN_THICKNESS);
@@ -679,19 +680,25 @@ export class LandscapeView {
 
   /** Show how many plank bundles have reached a town, on its sign (from the first one on). */
   setDelivered(townId: number, count: number): void {
-    this.delivered.set(townId, count);
+    this.setSignBadge(townId, count > 0 ? { count } : null);
+  }
+
+  /** What a town's sign shows beside its name (null: just the name). Repaints only the sign's own picture. */
+  setSignBadge(townId: number, badge: SignBadge | null): void {
+    if (badge) this.badges.set(townId, badge);
+    else this.badges.delete(townId);
     const m = this.signs.get(townId);
     const name = this.signNames.get(townId);
     if (!m || !name || !(m.map instanceof CanvasTexture)) return;
-    drawSign(m.map.image as HTMLCanvasElement, name, count);
+    drawSign(m.map.image as HTMLCanvasElement, name, badge);
     m.map.needsUpdate = true;
   }
 
-  private makeSign(name: string, delivered: number): MeshStandardMaterial {
+  private makeSign(name: string, badge: SignBadge | null): MeshStandardMaterial {
     const canvas = document.createElement("canvas");
     canvas.width = 512;
     canvas.height = 128;
-    drawSign(canvas, name, delivered);
+    drawSign(canvas, name, badge);
     const tex = new CanvasTexture(canvas);
     tex.colorSpace = SRGBColorSpace;
     tex.anisotropy = 4;
@@ -702,8 +709,30 @@ export class LandscapeView {
 }
 
 
-/** Paint a town's name board: its name, and once planks have arrived, a little plank-bundle badge with the count. */
-function drawSign(canvas: HTMLCanvasElement, name: string, delivered: number): void {
+/**
+ * Beside a town's name: a count of plank bundles delivered (Sandbox), or what the town wants now with a bar filling
+ * toward its next level (Game mode).
+ */
+export type SignBadge = { count: number } | { wants: CargoKind; got: number; of: number };
+
+/** A good's little picture on a sign, about 44 × 52 px from (x, y). */
+function drawGood(ctx: CanvasRenderingContext2D, kind: CargoKind, x: number, y: number): void {
+  if (kind === "log") {
+    ctx.fillStyle = "#9a6a3c";
+    for (let k = 0; k < 3; k++) ctx.fillRect(x, y + 4 + k * 16, 44, 12);
+    ctx.fillStyle = "#e3bf8c";
+    for (let k = 0; k < 3; k++) ctx.fillRect(x + 38, y + 4 + k * 16, 6, 12);
+    return;
+  }
+  // Planks: three stacked boards with a red strap.
+  ctx.fillStyle = "#e3bf8c";
+  for (let k = 0; k < 3; k++) ctx.fillRect(x, y + 4 + k * 16, 44, 12);
+  ctx.fillStyle = "#c8442f";
+  ctx.fillRect(x + 18, y, 8, 52);
+}
+
+/** Paint a town's name board: its name, and its badge (see `SignBadge`). */
+function drawSign(canvas: HTMLCanvasElement, name: string, badge: SignBadge | null): void {
   const ctx = canvas.getContext("2d")!;
   ctx.fillStyle = "#2f5d3a";
   ctx.fillRect(0, 0, 512, 128);
@@ -714,21 +743,30 @@ function drawSign(canvas: HTMLCanvasElement, name: string, delivered: number): v
   ctx.font = "800 64px Nunito, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  if (delivered <= 0) {
+  if (!badge) {
     ctx.fillText(name, 256, 68, 470);
     return;
   }
   ctx.fillText(name, 196, 68, 340);
-  // Badge: three stacked planks with a red strap, and the count.
   const x = 384;
-  ctx.fillStyle = "#e3bf8c";
-  for (let k = 0; k < 3; k++) ctx.fillRect(x, 40 + k * 16, 44, 12);
-  ctx.fillStyle = "#c8442f";
-  ctx.fillRect(x + 18, 36, 8, 52);
+  if ("count" in badge) {
+    drawGood(ctx, "planks", x, 36);
+    ctx.fillStyle = "#f8efdc";
+    ctx.font = "800 44px Nunito, system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(String(badge.count), x + 54, 68, 70);
+    return;
+  }
+  // What it wants, how many of how many, and a bar filling toward its next level.
+  drawGood(ctx, badge.wants, x - 6, 22);
   ctx.fillStyle = "#f8efdc";
-  ctx.font = "800 44px Nunito, system-ui, sans-serif";
+  ctx.font = "800 36px Nunito, system-ui, sans-serif";
   ctx.textAlign = "left";
-  ctx.fillText(String(delivered), x + 54, 68, 70);
+  ctx.fillText(`${badge.got}/${badge.of}`, x + 46, 50, 76);
+  ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+  ctx.fillRect(x - 6, 86, 122, 16);
+  ctx.fillStyle = "#f0b847";
+  ctx.fillRect(x - 6, 86, Math.round((122 * badge.got) / Math.max(1, badge.of)), 16);
 }
 
 /** Free a group's geometries, instance buffers and own materials (shared ones from Materials are kept). */

@@ -1,5 +1,7 @@
 import { connectedPairs } from "../landscape";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
+import { receivedBy } from "./town-life";
+import { townStatus } from "./towns";
 import type { World } from "./world";
 
 /** How far along a goal is: done or not, with an optional count toward a target ("2 / 3 towns"). */
@@ -203,6 +205,21 @@ export const GOALS: readonly Goal[] = [
     hint: "Take logs to the sawmill, then carry its planks to a town's station.",
     check: (w) => ({ done: deliveredTotal(w) > 0 }),
     guide: (w) => guideDepot(w, "sawmill"),
+  },
+  {
+    id: "grow-town",
+    title: "Grow a town into a village",
+    hint: "A town's sign shows what it wants. Fill its bar and it grows.",
+    check: (w) => {
+      const best = Math.max(0, ...w.landscape.towns.map((t) => townStatus(receivedBy(w, t.id)).level));
+      return { done: best >= 1 };
+    },
+    guide: (w) => {
+      // The town nearest to growing.
+      const fills = w.landscape.towns.map((t) => ({ id: t.id, fill: townStatus(receivedBy(w, t.id)).fill }));
+      const best = fills.sort((a, b) => b.fill - a.fill)[0];
+      return best ? { ...guideTowns(w, [best.id]), marks: [] } : guideDepot(w, "sawmill");
+    },
   },
   {
     id: "lay-switch",

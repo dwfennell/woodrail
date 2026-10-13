@@ -120,7 +120,10 @@ export function addTownProps(land: Landscape, props: PropStore): number {
     if (!wanted) continue;
     for (const t of townProps(land, town)) {
       if (have.has(t.building)) continue;
-      props.add(t.asset, { x: t.x, z: t.z, heading: t.heading, y: 0 }, undefined, { building: t.building, town: t.town, ...(t.variant ? { variant: t.variant } : {}) });
+      // On its square's ground: a town that has grown onto a hill stands its houses on the blocks.
+      const cell = land.grid.cellAtWorld(t.x, t.z);
+      const y = cell >= 0 ? land.grid.groundY(cell) : 0;
+      props.add(t.asset, { x: t.x, z: t.z, heading: t.heading, y }, undefined, { building: t.building, town: t.town, ...(t.variant ? { variant: t.variant } : {}) });
       added++;
     }
   }
