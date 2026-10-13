@@ -3,7 +3,7 @@ import { appendPiece, connectorRef, createWorldConnector, fitAutoStraight, getPi
 
 /**
  * A simulated player laying track from one free end to another, the way a person does: steering with the tray's
- * ordinary pieces (long and medium straights, large curves either way), looking a piece or two ahead, and finishing
+ * ordinary pieces (long and medium straights, large curves either way), looking three pieces ahead, and finishing
  * with the Auto piece when the end is in its reach. Everything goes through the Editor, so the game's own help
  * (Auto's fitting, near misses pulled closed) is what gets measured. Used by the buildability harness.
  */
@@ -24,6 +24,14 @@ const STEPS: readonly { type: PieceTypeId; flipped: boolean }[] = [
   { type: "straight-144", flipped: false },
   { type: "curve-large", flipped: false },
   { type: "curve-large", flipped: true },
+];
+
+/** Fiddling near the end, a player reaches for the small curves and short straights too. */
+const FINISH: readonly { type: PieceTypeId; flipped: boolean }[] = [
+  ...STEPS,
+  { type: "straight-72", flipped: false },
+  { type: "curve-small", flipped: false },
+  { type: "curve-small", flipped: true },
 ];
 
 const a = createWorldConnector();
@@ -48,7 +56,8 @@ function addOn(layout: Layout, ref: number, type: PieceTypeId, flipped: boolean)
 /** How far a free end is from meeting the target: distance to a point a little in front of it, plus how far off it points. */
 function cost(end: { x: number; z: number; heading: number }, target: { x: number; z: number; heading: number }): number {
   // Arrive along the target's line: aim at a point in front of it, then at it.
-  const lead = Math.min(216, Math.hypot(target.x - end.x, target.z - end.z) / 2);
+  // Far off, aim two curves' width in front of it (room to turn in); close, straight at it.
+  const lead = Math.min(360, Math.hypot(target.x - end.x, target.z - end.z) / 2);
   const ax = target.x + Math.cos(target.heading) * lead;
   const az = target.z + Math.sin(target.heading) * lead;
   const d = Math.hypot(ax - end.x, az - end.z);
@@ -72,7 +81,7 @@ function autoFrom(layout: Layout, ref: number, to: number): { type: PieceTypeId;
   return fit && { type: fit.type, pose: fit.pose, y: p.y, flipped: fit.flipped };
 }
 
-/** Near the end, a player tries a few pieces in hand: up to `depth` of them after which Auto (or the slack) closes it. */
+/** Near the end, a player tries pieces in hand: up to `depth` of them, after which Auto (or the slack) closes it. */
 function finish(layout: Layout, ref: number, to: number, depth: number): { type: PieceTypeId; flipped: boolean }[] | null {
   const target = endOf(layout, to);
   const end = endOf(layout, ref);
@@ -81,7 +90,7 @@ function finish(layout: Layout, ref: number, to: number, depth: number): { type:
   const facing = Math.abs(normalizeAngle(end.heading - target.heading - Math.PI));
   if (end.kind !== target.kind && Math.hypot(end.x - target.x, end.z - target.z) < 25 && facing < 0.15) return [];
   if (depth === 0) return null;
-  for (const s of STEPS) {
+  for (const s of FINISH) {
     const next = addOn(layout, ref, s.type, s.flipped);
     if (!next) continue;
     const rest = finish(layout, next.next, to, depth - 1);
@@ -101,7 +110,11 @@ function lay(layout: Layout, editor: Editor, ref: number, type: PieceTypeId, fli
   return connectorRef(id, via);
 }
 
-export function play(layout: Layout, editor: Editor, from: number, to: number, maxPieces = 40): PlayResult {
+/**
+ * Lay track from free end `from` to the piece of free end `to`. `fiddle`: how many pieces a player tries in hand near
+ * the end before Auto (2 is a casual player, about fifty tries; 3 a patient one, a few hundred).
+ */
+export function play(layout: Layout, editor: Editor, from: number, to: number, { maxPieces = 40, fiddle = 2 } = {}): PlayResult {
   const target = endOf(layout, to);
   // Reaching the target's piece (a station, a depot) at either end joins it.
   const goal = pieceOfRef(to);
@@ -113,8 +126,8 @@ export function play(layout: Layout, editor: Editor, from: number, to: number, m
     if (reached()) return { ok: true, pieces, how: "joined" };
     const end = endOf(layout, cur);
     // Close enough to fiddle: try a few pieces in hand, then Auto.
-    if (Math.hypot(end.x - target.x, end.z - target.z) < 700) {
-      const plan = finish(layout, cur, to, 3);
+    if (Math.hypot(end.x - target.x, end.z - target.z) < 900) {
+      const plan = finish(layout, cur, to, fiddle);
       if (plan) {
         for (const s of plan) {
           cur = lay(layout, editor, cur, s.type, s.flipped);
@@ -132,7 +145,7 @@ export function play(layout: Layout, editor: Editor, from: number, to: number, m
         return { ok, pieces, how, miss: ok ? undefined : miss };
       }
     }
-    // Otherwise lay the piece whose best two-piece continuation ends nearest to meeting the target.
+    // Otherwise lay the piece whose best continuation (up to three pieces) ends nearest to meeting the target.
     let best: { type: PieceTypeId; flipped: boolean } | null = null;
     let bestCost = Infinity;
     for (const s1 of STEPS) {
@@ -143,6 +156,12 @@ export function play(layout: Layout, editor: Editor, from: number, to: number, m
         const two = addOn(layout, one.next, s2.type, s2.flipped);
         if (!two) continue;
         c = Math.min(c, cost(endOf(layout, two.next), target) + 1);
+        for (const s3 of STEPS) {
+          const three = addOn(layout, two.next, s3.type, s3.flipped);
+          if (!three) continue;
+          c = Math.min(c, cost(endOf(layout, three.next), target) + 2);
+          layout.removePiece(three.id);
+        }
         layout.removePiece(two.id);
       }
       layout.removePiece(one.id);

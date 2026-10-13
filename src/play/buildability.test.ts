@@ -8,8 +8,8 @@ import { play } from "./player";
 /**
  * Buildability: can a player, laying track the ordinary way (straights and curves, then Auto to finish), join two
  * track ends placed as the map generator places stations' and depots' ends? On the 18 mm lattice, at quarter turns,
- * either kind (peg or hole), 0.4 to 1.6 m apart, on flat felt. The rate is the number to raise; the floor below is
- * today's, so it can only go up.
+ * either kind (peg or hole), 0.4 to 1.6 m apart, on flat felt. The player is a casual one: near the end it tries two
+ * pieces in hand (about fifty tries), then Auto. The rate is the number to raise; the floor below is today's.
  */
 function trial(seed: number): ReturnType<typeof play> {
   const r = rng(seed);
@@ -40,7 +40,7 @@ describe("buildability (a simulated player joining two ends)", () => {
     console.log(`buildability: ${(rate * 100).toFixed(1)}% joined (${ok.length}/${N}), ${pieces.toFixed(1)} pieces on average; ${JSON.stringify(Object.fromEntries(how))}`);
     const failed = results.filter((r) => !r.ok).map((r) => ({ how: r.how, ...r.miss }));
     console.log("not joined (how it ended, distance mm, degrees from facing, ends alike):", JSON.stringify(failed.slice(0, 12)));
-    // Today's rate: it may only go up.
-    expect(rate).toBeGreaterThanOrEqual(0.7);
+    // Today's rate (85.7% for a casual player trying two pieces in hand; 92.3% trying three): it may only go up.
+    expect(rate).toBeGreaterThanOrEqual(0.8);
   }, 120_000);
 });
