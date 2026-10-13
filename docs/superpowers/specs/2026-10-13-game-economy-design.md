@@ -1,7 +1,8 @@
 # Woodrail — Game Mode: Towns, Crafting and a Tech Tree (Brainstorm)
 
 **Date:** 2026-10-13
-**Status:** Brainstorm. Nothing here is decided: it collects ideas from the chat so far, to react to and change.
+**Status:** Brainstorm. Nothing here is locked in: it collects ideas from the chat so far, to react to and change.
+§13 lists the starting points chosen on 2026-10-13, each to tune in play.
 Numbers are placeholders, and §13 lists what's still open.
 **Builds on:** `2026-10-12-title-and-modes-design.md` (modes, goals), `2026-10-11-depots-and-cargo-design.md` (cargo,
 depots, automatic loading), `2026-10-12-expandable-world-design.md` (plots, buying land)
@@ -98,10 +99,15 @@ coaches (exist, they carry people).
 - **Growth:** when the bar fills, the town grows a level.
   - Visibly: new houses from the catalogue appear on its streets, and the station gets longer or its canopy grows.
   - Its needs step up: more of the same, or a new good.
-- **Levels:** hamlet → village → town → city (four or five levels). The look of each level comes from the catalogue
-  towns (`src/props/towns.ts`) and the roads branch's street plan (§12).
+- **Levels:** hamlet → village → town → city, and on: demand keeps rising, and the number of levels follows the tech
+  tree. The look of each level comes from the catalogue towns (`src/props/towns.ts`) and the roads branch's street
+  plan (§12).
+- **Later, growing up:** when a town runs out of room to spread, it could grow taller (bigger buildings on the same
+  streets), which needs new goods. An avenue to explore once the first levels work.
 - **Pay:** a town pays coins for each delivery. It pays more for something it needs now than for something it
   doesn't.
+- **Visitors:** passengers who travel from one town to another pay a fare in coins when they arrive, alongside
+  exports. They are a second way to earn, not what grows towns.
 - **A choice:** each growth offers **two things to learn**, side by side on cards. Pick one and the other stays
   available later (§6). A child gets a fun choice; an adult gets a real one.
   - Example: "Iron mine + switches" or "Passengers + coaches".
@@ -164,7 +170,8 @@ The map isn't the whole world. Goods go out to it and come in from it, and you c
   - It's a fixed track piece with one end free.
   - A train that drives in is off the map for a while (a whistle fades away), then comes back.
   - When you buy land beyond a portal, the portal moves out to the new edge.
-- **Ports:** a harbour on a wide river or the sea edge of some maps, generated like a depot.
+- **Ports:** a harbour on a wide river, generated like a depot. Maps should also get a **sea edge** (a new kind of
+  plot along one side), with a bigger harbour and bigger ships.
   - Ships sail in on the water, tie up and are loaded or unloaded by the harbour crane, then sail away. They're
     toy boats with a stack of cargo on deck.
   - A ship comes on its own schedule. It's a visitor you plan around, not something you drive.
@@ -201,11 +208,10 @@ If you have no planks, no pieces and no coins, the nearest portal always offers 
 - **The workshop** is a depot (generated near the starter towns, like the first sawmill). It takes planks (and later
   iron) and makes pieces, one every few seconds, into the toy box. A small queue card says what it makes next:
   "Keep 10 straights in the box", "Make 2 switches".
-- **Starting box:** enough for a first timber loop if laid well (about 30 straights and curves, 2 buffers, one
-  timber train). The opening is the first puzzle.
+- **Free pieces (to start with):** straights, curves and buffers are free and unlimited, as in Sandbox. Only special
+  pieces are made at the workshop and counted. If the opening feels too easy, plain track could cost a plank later.
+- **Starting box:** two turnback buffers and one timber train.
 - **Prices (a sketch):**
-  - straight or curve: 1 plank;
-  - buffer: 1 plank;
   - switch: 3 planks + 1 iron;
   - bridge: 4 planks + 2 iron;
   - timber wagon: 4 planks + 1 iron;
@@ -233,9 +239,8 @@ If you have no planks, no pieces and no coins, the nearest portal always offers 
   5. make a piece at the workshop;
   6. choose what to learn.
 - **"Show me"** stays on the tutorial steps and on town needs.
-- **Challenges** (later, a separate list from the title screen): small hand-made maps with a fixed box of pieces and a
-  task ("deliver 10 planks using only these pieces"), scored one to three stars on pieces left over. They're puzzles
-  that use the same rules.
+- **Challenges:** set aside for now (Sandbox and Game are enough to work on). The idea, for later: small hand-made
+  maps with a fixed box of pieces and a task, scored one to three stars.
 
 ## 12. Coordination with other branches
 
@@ -248,16 +253,19 @@ If you have no planks, no pieces and no coins, the nearest portal always offers 
 - **Saves:** Game mode's save gains the stock, coins, learned items, town levels and needs, and the workshop queue. It
   stays under `woodrail.game.v1` with a version bump; Sandbox's save is unchanged.
 
-## 13. Open questions
+## 13. Starting points (2026-10-13), to tune in play
 
-1. Do straights and curves cost a plank (as above, so the opening is a puzzle), or are they free with only special
-   pieces costing?
-2. Place industries anywhere on flat ground (as above), or only on marked lots?
-3. Do towns grow from deliveries only, or also from being connected to other towns (passengers)?
-4. How many levels should a town have, and should a town ever stop growing?
-5. Do Challenges come early (they can be built alongside), or after the main game?
-6. Ports: only on maps with a sea edge, or also on wide rivers? (River ports fit today's maps; a sea edge needs a
-   new kind of plot.)
+1. **Plain track is free.** Straights, curves and buffers are free and unlimited; only special pieces cost goods.
+   Plain track could cost a plank later if the opening is too easy.
+2. **Industries go anywhere** on flat ground. Marked lots stay an option if placing feels aimless.
+3. **Towns grow from deliveries.** Passengers pay a fare in coins as visitors, a second way to earn beside exports.
+4. **Demand keeps rising.** How many levels follows the tech tree; growing taller once a town runs out of room is a
+   later avenue.
+5. **No Challenges for now.** Puzzles aren't a priority.
+6. **Ports on wide rivers first,** and add a sea edge to maps.
+
+Still open: the first tree's exact contents and prices, how fast towns' demand rises, and whether coins buy land or
+land opens up with growth.
 
 ## 14. Performance
 
@@ -284,7 +292,8 @@ If this direction holds, one way to build it, each stage playable on its own:
    turnback).
 4. **Iron and coal.** Ore and coal seams on the map, the smelter as the first buildable industry, the Industries tab.
 5. **Coins, import and export.** Pay per delivery, land costs coins, rail portals with orders and imports.
-6. **Ports and ships** on maps with wide water (depots-and-cargo §11 and life-on-the-line's "Later" both list ships).
-7. **Tutorial rewrite** from the goals; then **Challenges**.
+6. **Ports and ships** on wide rivers, then a **sea edge** for maps (depots-and-cargo §11 and life-on-the-line's
+   "Later" both list ships).
+7. **Tutorial rewrite** from the goals.
 
 Every stage keeps Sandbox as it is.
