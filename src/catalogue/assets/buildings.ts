@@ -1,5 +1,6 @@
 import { CylinderGeometry, Group, Mesh, Shape, type Material, type Object3D } from "three";
 import { TOY, type Kit } from "../kit";
+import { catalogueModel, loadModelSet } from "../../render/blender-models";
 import type { Asset } from "../types";
 
 /**
@@ -1640,3 +1641,10 @@ export const ASSETS: Asset[] = [
     },
   },
 ];
+
+// The models made in Blender (tools/blender/bldg.py) stand in for the ones built above, where there is one.
+const MODELS = await loadModelSet("buildings", true);
+for (const asset of ASSETS) {
+  const model = MODELS.get(asset.id);
+  if (model) asset.build = (k) => catalogueModel(model, k);
+}

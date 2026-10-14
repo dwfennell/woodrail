@@ -332,18 +332,6 @@ def _set_normals(me, angle=SMOOTH_ANGLE):
     me.normals_split_custom_set(normals)
 
 
-def _uv_project(me, scale=60.0):
-    """Planar UVs from each face's main axis, one texture repeat per `scale` mm: the beech grain at a steady size."""
-    uv = me.uv_layers.new(name="UVMap") if not me.uv_layers else me.uv_layers[0]
-    for poly in me.polygons:
-        n = poly.normal
-        ax = max(range(3), key=lambda k: abs(n[k]))
-        for li in poly.loop_indices:
-            co = me.vertices[me.loops[li].vertex_index].co
-            u, v = [(co.y, co.z), (co.x, co.z), (co.x, co.y)][ax]
-            uv.data[li].uv = (u / scale, v / scale)
-
-
 def finish(name, layout_at=(0, 0, 0), pivots=()):
     """
     Bake the parts built since `begin` into model `name`: modifiers applied, still parts joined per material, moving
@@ -379,7 +367,6 @@ def finish(name, layout_at=(0, 0, 0), pivots=()):
             me.transform(space @ obj.matrix_world)
             part = bpy.data.objects.new(f"{name}:{mat}", me)
             groups.setdefault((owner.name if owner else "", mat), []).append(part)
-        _uv_project(me)
         if obj.get("flat"):
             me.shade_flat()
         else:

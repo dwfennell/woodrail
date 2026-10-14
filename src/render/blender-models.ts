@@ -1,8 +1,9 @@
-import { BufferAttribute, type Group, type Material, type Mesh, type Object3D } from "three";
+import { BufferAttribute, Matrix3, Matrix4, Vector3, type BufferGeometry, type Group, type Material, type Mesh, type Object3D } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import type { Kit } from "../catalogue/kit";
 import type { CarKind, CarLook } from "../sim";
+import type { Batcher } from "./dressing/batcher";
 import type { Materials } from "./materials";
 
 /**
@@ -13,7 +14,7 @@ import type { Materials } from "./materials";
  */
 export const blenderModelsWanted = (): boolean => typeof location === "undefined" || !new URLSearchParams(location.search).has("builtin");
 
-export type ModelSet = "trains" | "life";
+export type ModelSet = "trains" | "life" | "buildings" | "dressing";
 
 const sets = new Map<ModelSet, Promise<Map<string, Object3D>>>();
 
@@ -35,13 +36,15 @@ export function loadModelSet(set: ModelSet, floats = false): Promise<Map<string,
           // Each model sits somewhere in the .blend's layout: bring it home.
           node.position.set(0, 0, 0);
           node.updateMatrix();
+          node.updateMatrixWorld(true);
+          const toModel = new Matrix4().copy(node.matrixWorld).invert();
           node.traverse((o) => {
-            // Pivots are named `<model>|<part>`: keep the part's name, as the catalogue animates it by.
-            const bar = o.name.indexOf("|");
-            if (bar >= 0) o.name = o.name.slice(bar + 1);
+            // Pivots are named `<model>|<part>|<n>`: keep the part's name, as the catalogue animates it by.
+            if (o.name.includes("|")) o.name = o.name.split("|")[1];
             const m = o as Mesh;
             if (!m.isMesh) return;
             if (floats) toFloats(m);
+            addUvs(m, new Matrix4().multiplyMatrices(toModel, m.matrixWorld));
             tris += (m.geometry.index?.count ?? m.geometry.attributes.position.count) / 3;
           });
           models.set(node.name, node);
@@ -58,12 +61,88 @@ export function loadModelSet(set: ModelSet, floats = false): Promise<Map<string,
   return p;
 }
 
-/** Fetch and parse the train models (call before building any car). */
+/** Fetch and parse the models the game needs from the start: the trains, and the parts the map's buildings wear. */
 export async function loadBlenderModels(): Promise<void> {
-  trains = await loadModelSet("trains");
+  const [t, d] = await Promise.all([loadModelSet("trains"), loadModelSet("dressing", true)]);
+  trains = t;
+  parts.clear();
+  const inv = new Matrix4();
+  for (const [name, model] of d) {
+    // Each part flattened into its pieces, one geometry per material, in the part's own space.
+    model.updateMatrixWorld(true);
+    inv.copy(model.matrixWorld).invert();
+    const pieces: Piece[] = [];
+    model.traverse((o) => {
+      const m = o as Mesh;
+      if (!m.isMesh) return;
+      const toPart = new Matrix4().multiplyMatrices(inv, m.matrixWorld);
+      pieces.push({ material: (m.material as Material).name, geometry: m.geometry.clone().applyMatrix4(toPart) });
+    });
+    parts.set(name, pieces);
+  }
+}
+
+interface Piece {
+  material: string;
+  geometry: BufferGeometry;
+}
+
+/** The map's building parts (tools/blender/dressing.py) by name: a door, a station clock, a street lamp. */
+const parts = new Map<string, Piece[]>();
+
+/**
+ * Draw a building part into a batch: each piece copied, placed by `place` (as the code places its own geometry) and
+ * painted, a slot's colour taken from `slots` ("lacquer slot door" from `slots.door`). False if the part isn't loaded (then the
+ * caller draws its own).
+ */
+export function addPart(b: Batcher, mats: Materials, name: string, place: (g: BufferGeometry) => BufferGeometry, slots: Readonly<Record<string, string>> = {}): boolean {
+  const pieces = parts.get(name);
+  if (!pieces) return false;
+  for (const p of pieces) b.add(partMaterial(mats, p.material, slots), place(p.geometry.clone()));
+  return true;
+}
+
+function partMaterial(mats: Materials, name: string, slots: Readonly<Record<string, string>>): Material {
+  if (name.startsWith("lacquer #")) return mats.lacquer(name.slice(8));
+  if (name.startsWith("lacquer fixed #")) return mats.lacquer(name.slice(14));
+  // A slot's colour comes with each copy ("lacquer slot door": the door's colour).
+  if (name.startsWith("lacquer slot ")) return mats.lacquer(slots[name.slice(13)] ?? "#ff00ff");
+  if (name === "wood") return mats.naturalWood;
+  return mats.magnet;
 }
 
 let trains = new Map<string, Object3D>();
+
+const UV_SCALE = 60;
+const v = new Vector3();
+const n = new Vector3();
+const nm = new Matrix3();
+
+/**
+ * Texture coordinates for the beech grain and the lacquer's bump: a planar projection from each vertex's main
+ * direction, one repeat per 60 mm of the model's own space (as tools/blender/toy.py once baked in). Made here rather
+ * than shipped, which keeps the files small; and every mesh then has them, as batching needs.
+ */
+function addUvs(mesh: Mesh, toModel: Matrix4): void {
+  const g = mesh.geometry;
+  if (g.getAttribute("uv")) return;
+  const pos = g.getAttribute("position");
+  const nor = g.getAttribute("normal");
+  nm.getNormalMatrix(toModel);
+  const uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(toModel);
+    n.fromBufferAttribute(nor, i).applyMatrix3(nm);
+    const ax = Math.abs(n.x);
+    const ay = Math.abs(n.y);
+    const az = Math.abs(n.z);
+    // The game's x/z ground plane and y up: a face looking along x shows (z, y), along y (x, z), along z (x, y).
+    const [a, b] = ax >= ay && ax >= az ? [v.z, v.y] : ay >= az ? [v.x, v.z] : [v.x, v.y];
+    uv[i * 2] = a / UV_SCALE;
+    uv[i * 2 + 1] = b / UV_SCALE;
+  }
+  g.setAttribute("uv", new BufferAttribute(uv, 2));
+}
 
 /** Plain float vertex data in place of quantized (merging needs one array type throughout). */
 function toFloats(mesh: Mesh): void {

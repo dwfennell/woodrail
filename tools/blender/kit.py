@@ -7,8 +7,8 @@ Coordinates are the game's: y up, models stand on y = 0 and face +x, z across. E
 moves like a three.js object (`position`, `rotation` (Euler XYZ), `scale`, `add`), and `realize` turns the tree into
 Blender objects (Blender is Z up: the game's (x, y, z) is Blender's (x, -z, y)).
 
-A node with a `name` is a pivot: it stays a node of its own in the exported model, its parts under it, so the
-catalogue can turn it by name (an arm waving, a head nodding).
+A node with a `name` is a pivot: it stays a node of its own in the exported model (named `<model>|<name>|<n>`), its
+parts under it, so the catalogue can turn it by name (an arm waving, a head nodding).
 """
 
 import math
@@ -167,8 +167,11 @@ def _rim(r_bottom, r_top, h, k):
 class Kit:
     """The catalogue's Kit, in Blender. Materials are names (see toy.py)."""
 
-    def __init__(self, recolor=lambda c: c):
+    def __init__(self, recolor=lambda c: c, lean=False):
         self.recolor = recolor
+        # Lean: for parts repeated many times over a map (a door on every house): one-step roundings, the code's own
+        # segment counts and small balls.
+        self.lean = lean
 
     # ——— Materials ———
 
@@ -188,15 +191,19 @@ class Kit:
         """Lacquer that keeps its colour in every colour variant of a model (a face's eyes and cheeks)."""
         return f"lacquer fixed {color.lower()}"
 
+    def _n(self, n, r):
+        """Segments round a curve: see `_segs`; lean, the count asked for (at most 16)."""
+        return min(n, 16) if self.lean else _segs(n, r)
+
     # ——— Shapes ———
 
-    def box(self, mat, w, h, d, r=1.5, x=0, y=0, z=0):
-        """A box with rounded edges (radius r), its base on y, centred on x/z."""
+    def box(self, mat, w, h, d, r=1.5, x=0, y=0, z=0, seg=None):
+        """A box with rounded edges (radius r, in `seg` steps; by default 3, or 4 for big ones), its base on y."""
         bm = bmesh.new()
         bmesh.ops.create_cube(bm, size=1.0)
         bmesh.ops.scale(bm, vec=Vector((w, h, d)), verts=bm.verts)
         rr = min(r, w / 2 - 0.01, h / 2 - 0.01, d / 2 - 0.01)
-        n = _shape(bm, mat, "box", round_=rr, seg=4 if rr >= 3 else 3)
+        n = _shape(bm, mat, "box", round_=rr, seg=seg or (1 if self.lean else 4 if rr >= 3 else 3))
         n.position.set(x, y + h / 2, z)
         return n
 
@@ -204,7 +211,9 @@ class Kit:
         """An upright cylinder (a cone frustum if rTop differs), its base on y; rims gently rounded."""
         rTop = rBottom if rTop is None else rTop
         k = min(0.5, 0.18 * min(h, 2 * max(rBottom, rTop)))
-        seg = _segs(segments, max(rBottom, rTop))
+        seg = self._n(segments, max(rBottom, rTop))
+        if self.lean:
+            k = min(k, 0.3)
         n = _turned(_lathe_bm(_rim(rBottom, rTop, h, k), seg), mat, "cyl", seg)
         n.position.set(x, y + h / 2, z)
         return n
@@ -227,8 +236,8 @@ class Kit:
 
     def ball(self, mat, r, x=0, y=0, z=0, sy=1):
         # Small balls (eyes, buttons, corn) need far fewer segments than heads to look round.
-        n_seg = _segs(12 if r < 1.2 else 16 if r < 2.5 else 24, r)
-        rings = max(8, round(n_seg * 0.6))
+        n_seg = 8 if self.lean and r < 2.5 else self._n(12 if r < 1.2 else 16 if r < 2.5 else 24, r)
+        rings = 5 if self.lean and r < 2.5 else max(8, round(n_seg * 0.6))
         prof = [(r * math.sin(math.pi * i / rings), -r * math.cos(math.pi * i / rings)) for i in range(rings + 1)]
         prof[0] = (0.0, -r)
         prof[-1] = (0.0, r)
@@ -239,7 +248,7 @@ class Kit:
 
     def cone(self, mat, r, h, x=0, y=0, z=0, segments=24):
         prof = [(0.0, -h / 2), (r * 0.94, -h / 2), (r, -h / 2 + min(0.3, h * 0.1)), (0.0, h / 2)]
-        seg = _segs(segments, r)
+        seg = self._n(segments, r)
         n = _turned(_lathe_bm(prof, seg), mat, "cone", seg)
         n.position.set(x, y + h / 2, z)
         return n
@@ -293,7 +302,7 @@ class Kit:
     def lathe(self, mat, profile, x=0, y=0, z=0, segments=32):
         """A turned shape: (radius, height) points from the bottom up, spun round y; its base on y."""
         prof = [(max(0.0, r) if r > 0.011 else 0.0, h) for r, h in profile]
-        seg = _segs(segments, max(r for r, _ in prof))
+        seg = self._n(segments, max(r for r, _ in prof))
         n = _turned(_lathe_bm(prof, seg), mat, "lathe", seg)
         n.position.set(x, y, z)
         return n
@@ -389,7 +398,9 @@ def realize(root, model):
     def walk(node, world, owner):
         world = world @ node.matrix()
         if node.name:
-            e = bpy.data.objects.new(f"{model}|{node.name}", None)
+            # Unique in the file (several parts may share a name, such as every chimney's "smoke"); the game keeps
+            # only the part's name.
+            e = bpy.data.objects.new(f"{model}|{node.name}|{len(pivots)}", None)
             bpy.context.scene.collection.objects.link(e)
             if owner is not None:
                 e.parent = owner
