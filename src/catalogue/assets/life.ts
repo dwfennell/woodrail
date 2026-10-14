@@ -1,5 +1,6 @@
 import { Group, type Material, type Mesh, type Object3D, Vector3 } from "three";
 import { type Kit, TOY } from "../kit";
+import { catalogueModel, loadModelSet } from "../../render/blender-models";
 import type { Asset } from "../types";
 
 /**
@@ -1624,3 +1625,10 @@ export const ASSETS: Asset[] = [
   },
 ];
 
+
+// The models made in Blender (tools/blender/life.py) stand in for the ones built above, where there is one.
+const MODELS = await loadModelSet("life", true);
+for (const asset of ASSETS) {
+  const model = MODELS.get(asset.id);
+  if (model) asset.build = (k) => catalogueModel(model, k);
+}

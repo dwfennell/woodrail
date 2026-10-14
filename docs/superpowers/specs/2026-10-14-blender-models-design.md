@@ -1,7 +1,7 @@
 # Woodrail — Blender Models Design
 
 **Date:** 2026-10-14
-**Status:** Phase 1 (trains) built. Phases 2 and 3 not started.
+**Status:** Phases 1 (trains) and 2 (people and animals) built. Phase 3 not started.
 
 ## 1. Goal
 
@@ -53,6 +53,24 @@ time is still to be measured on a phone.
 ## 5. Phases
 
 1. **Trains** (done): five car kinds and their seven extra looks.
-2. **People and animals:** the catalogue's `life` assets, used as props in Sandbox.
+2. **People and animals** (done): all 48 of the catalogue's `life` assets, used as props in Sandbox. See §6.
 3. **Buildings:** the catalogue's buildings (props). The map's town buildings and stations are sized to their
    squares and track, so they will need parts (walls, roofs, windows, doors) placed by code, not whole models.
+
+## 6. People and animals
+
+- **Kit:** `tools/blender/kit.py` mirrors the catalogue's `Kit` (same calls, sizes and y-up coordinates), so each model
+  ports from `life.ts` nearly line for line; `life_parts.py` ports its helpers (peg person, arms, hats, carried
+  things, four-legged and bird bodies). The models are in `life_people.py`, `life_town.py`, `life_farm.py` and
+  `life_wild.py`; `life.py` builds them into `public/models/life.glb` (1.7 MB, 387k triangles for all 48, against
+  439k for the code-built ones at full detail).
+- **Upgrades over the code:** a turned peg body (foot rim, taper, rounded shoulders), a painted face (eyes and
+  cheeks), turned and tapered animal legs, rounded rims everywhere, and a few small details per model.
+- **Pivots:** a named node in the kit (an arm, a head, a flag) stays a node of its own, named `<id>|<part>`; the
+  loader keeps the part's name, so the catalogue's `animate` functions work unchanged.
+- **Colour variants:** lacquer goes through the kit's `paint`, so towns' hue-shifted variants work. Faces use
+  `lacquer fixed #rrggbb`, which keeps its colour.
+- **Props:** `life.ts` waits for the model file when its chunk loads, then each asset's `build` returns a dressed copy
+  of its model. Props are merged and batched, so the loader decodes this set's vertex data to plain floats.
+- **Facets:** turned shapes with fewer than 12 sides are kept as given with crisp facets (the ice floe), as the code
+  kit keeps them.

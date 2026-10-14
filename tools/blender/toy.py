@@ -8,6 +8,7 @@ Materials are named for what the game swaps in by name (see src/render/blender-m
   "wood"            natural beech            "metal"   the dark magnet/metal
   "coal"            coal                     "lamp"    an engine's lamp (glows to show the lever)
   "lacquer #rrggbb" lacquer paint in that colour
+  "lacquer fixed #rrggbb"  the same, kept in every colour variant of a catalogue model (faces)
 
 Moving parts (wheels, the lamp) are kept as their own nodes, centred where they turn; everything else in a model is
 merged into one mesh per material, so a model costs a handful of draw calls.
@@ -36,13 +37,23 @@ def material(name):
     if m:
         return m
     m = bpy.data.materials.new(name)
-    if name.startswith("lacquer #"):
-        h = name[9:]
+    if name.startswith("lacquer #") or name.startswith("lacquer fixed #"):
+        h = name.split("#")[1]
         srgb = [int(h[i : i + 2], 16) / 255 for i in (0, 2, 4)]
         lin = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in srgb]
         m.diffuse_color = (*lin, 1)
     else:
-        m.diffuse_color = {"wood": (0.75, 0.55, 0.33, 1), "metal": (0.02, 0.02, 0.02, 1), "coal": (0.01, 0.01, 0.01, 1), "lamp": (1, 0.6, 0.15, 1)}.get(name, (0.5, 0.5, 0.5, 1))
+        m.diffuse_color = {
+            "wood": (0.75, 0.55, 0.33, 1),
+            "cut": (0.5, 0.36, 0.22, 1),
+            "metal": (0.02, 0.02, 0.02, 1),
+            "coal": (0.01, 0.01, 0.01, 1),
+            "lamp": (1, 0.6, 0.15, 1),
+            "glass": (0.6, 0.8, 0.9, 1),
+            "felt": (0.07, 0.19, 0.03, 1),
+            "water": (0.02, 0.12, 0.35, 1),
+            "road": (0.27, 0.25, 0.23, 1),
+        }.get(name, (0.5, 0.5, 0.5, 1))
     return m
 
 
@@ -333,10 +344,14 @@ def _uv_project(me, scale=60.0):
             uv.data[li].uv = (u / scale, v / scale)
 
 
-def finish(name, layout_at=(0, 0, 0)):
+def finish(name, layout_at=(0, 0, 0), pivots=()):
     """
     Bake the parts built since `begin` into model `name`: modifiers applied, still parts joined per material, moving
     parts kept whole. Returns the model's root (an empty at `layout_at`, where it sits in the .blend).
+
+    `pivots` are empties (named parts that move: an arm, a head, a flag), each parented to the pivot it hangs from or
+    to none. A part whose "owner" is a pivot's name is joined, per material, into a mesh under that pivot, in its
+    space, so turning the pivot turns it.
 
     Meshes are copied and joined with Blender's own operations, never through bmesh, which would drop the custom
     normals the bevels and weighted-normal passes leave (and with them the crisp shading of flat faces).
@@ -344,6 +359,7 @@ def finish(name, layout_at=(0, 0, 0)):
     dg = bpy.context.evaluated_depsgraph_get()
     root = bpy.data.objects.new(name, None)
     bpy.context.scene.collection.objects.link(root)
+    by_name = {p.name: p for p in pivots}
     groups = {}
     baked = []
     for obj in _parts:
@@ -353,19 +369,21 @@ def finish(name, layout_at=(0, 0, 0)):
         mat = obj.data.materials[0].name
         me.materials.clear()
         me.materials.append(material(mat))
+        owner = by_name.get(obj.get("owner", ""))
         if obj.get("moving"):
             # Keep it whole, its origin where it turns.
             part = bpy.data.objects.new(obj.name, me)
             part.matrix_world = obj.matrix_world
         else:
-            me.transform(obj.matrix_world)
+            space = owner.matrix_world.inverted() if owner else Matrix.Identity(4)
+            me.transform(space @ obj.matrix_world)
             part = bpy.data.objects.new(f"{name}:{mat}", me)
-            groups.setdefault(mat, []).append(part)
+            groups.setdefault((owner.name if owner else "", mat), []).append(part)
         _uv_project(me)
         if obj.get("flat"):
             me.shade_flat()
         else:
-            _set_normals(me)
+            _set_normals(me, obj.get("smooth_angle", SMOOTH_ANGLE))
         bpy.context.scene.collection.objects.link(part)
         baked.append(part)
     old = list(_parts)
@@ -375,19 +393,31 @@ def finish(name, layout_at=(0, 0, 0)):
         bpy.data.objects.remove(obj)
         if data and data.users == 0:
             bpy.data.meshes.remove(data)
-    keep = [p for p in baked if not any(p in g for g in groups.values())]
-    for mat, objs in sorted(groups.items()):
-        with bpy.context.temp_override(active_object=objs[0], selected_editable_objects=objs, selected_objects=objs):
-            bpy.ops.object.join()
+    merged = {id(p) for g in groups.values() for p in g}
+    keep = [(p, None) for p in baked if id(p) not in merged]
+    for (owner, mat), objs in sorted(groups.items()):
+        if len(objs) > 1:
+            with bpy.context.temp_override(active_object=objs[0], selected_editable_objects=objs, selected_objects=objs):
+                bpy.ops.object.join()
         objs[0].name = f"{name}:{mat}"
-        keep.append(objs[0])
+        keep.append((objs[0], by_name.get(owner)))
+    for p in pivots:
+        if p.parent is None:
+            world = p.matrix_world.copy()
+            p.parent = root
+            p.matrix_world = world
     tris = 0
-    for obj in keep:
-        obj.parent = root
+    for obj, owner in keep:
+        if owner:
+            obj.parent = owner
+            obj.matrix_parent_inverse = Matrix.Identity(4)
+            obj.matrix_basis = Matrix.Identity(4)
+        else:
+            obj.parent = root
         obj.data.calc_loop_triangles()
         tris += len(obj.data.loop_triangles)
     root.location = layout_at
-    print(f"  {name}: {len(keep)} meshes, {tris} triangles")
+    print(f"  {name}: {len(keep)} meshes, {len(pivots)} pivots, {tris} triangles")
     return root
 
 
