@@ -72,6 +72,10 @@ export function layoutLines(stations: readonly Station[]): Placed[] {
   return out;
 }
 
+/** Each line of the map is this tall (px), its stations' dots this far down it: the track is drawn through the dots. */
+const ROW_H = 86;
+const DOT_Y = 24;
+
 const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /**
@@ -151,9 +155,9 @@ export class BlueprintBoard {
     const rows = Math.max(1, ...placed.map((p) => p.row + 1));
     const cols = Math.max(2, ...placed.map((p) => p.col + 1));
     const at = new Map(placed.map((p) => [p.station.id, p]));
-    // Cell centres in the track layer's 0–100 box.
+    // Across, the track layer's 0–100 box stretches to the map's width; down, it's in pixels (the rows' fixed height).
     const cx = (col: number) => ((col + 0.5) / cols) * 100;
-    const cy = (row: number) => ((row + 0.5) / rows) * 100;
+    const cy = (row: number) => row * ROW_H + DOT_Y;
     const learned = (id: string) => at.get(id)?.station.state === "learned";
 
     // The track: the workshop's trunk down the first column, a line out to each first blueprint, and on from each
@@ -194,7 +198,7 @@ export class BlueprintBoard {
         .join(`<span class="or">or</span>`);
       html += `<div class="bp-offer"><span>${esc(o.from)} grew! Learn one free:</span><span class="bp-offer-row">${buttons}</span></div>`;
     });
-    html += `<div class="bp-map" style="grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},minmax(64px,auto))"><svg class="bp-track" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${rails}</svg>${workshop}${placed.map(stationHtml).join("")}</div>`;
+    html += `<div class="bp-map" style="grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},${ROW_H}px)"><svg class="bp-track" viewBox="0 0 100 ${rows * ROW_H}" preserveAspectRatio="none" style="height:${rows * ROW_H}px" aria-hidden="true">${rails}</svg>${workshop}${placed.map(stationHtml).join("")}</div>`;
     html += `<div class="bp-legend"><span class="bp-key learned"></span>Learned<span class="bp-key ready"></span>Learn with planks<span class="bp-key offered"></span>Free choice<span class="bp-key locked"></span>Later</div>`;
     const s = at.get(this.selected)?.station;
     if (s) html += this.ticket(s, v);

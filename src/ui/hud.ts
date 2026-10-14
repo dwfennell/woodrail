@@ -130,6 +130,9 @@ export class Hud {
   private readonly landText = el("div", "land-text");
   private landBuyBtn!: HTMLButtonElement;
   private landBtn!: HTMLButtonElement;
+  private soundItem!: HTMLButtonElement;
+  private redoItem!: HTMLButtonElement;
+  private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
   private readonly depotStock = el("div", "depot-stock");
   private depotAutoBtn!: HTMLButtonElement;
@@ -195,6 +198,8 @@ export class Hud {
     this.mapBtn.hidden = true;
     this.boardBtn = button(uiIcon("blueprint"), "Blueprints: learn new things", h.toggleBoard);
     this.boardBtn.hidden = true;
+    // On a phone the bar can't hold them all: these move into the menu (see `.narrow-menu`).
+    for (const b of [this.landBtn, this.redoBtn, this.soundBtn]) b.classList.add("wide-only");
     actions.append(this.rerailBtn, this.boardBtn, this.mapBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn);
     actions.append(button(uiIcon("menu"), "Menu", () => this.toggleMenu()));
     top.appendChild(actions);
@@ -220,6 +225,16 @@ export class Hud {
         h.newGame();
       }, "menu-item"),
     ];
+    // The bar's buttons that don't fit on a phone.
+    const narrow = (label: string, title: string, act: () => void) =>
+      button(label, title, () => {
+        this.menu.hidden = true;
+        act();
+      }, "menu-item narrow-only");
+    this.soundItem = narrow(opts.muted ? "Sound: off" : "Sound: on", "Sound on or off", h.toggleSound);
+    this.redoItem = narrow("Redo", "Redo what was undone", h.redo);
+    this.landItem = narrow("Add land", "Choose land to add to the map", h.toggleExpand);
+    this.menu.append(this.redoItem, this.landItem, this.soundItem);
     this.menu.append(
       button("Title screen", "Save and go back to the title screen", () => {
         this.menu.hidden = true;
@@ -638,6 +653,7 @@ export class Hud {
   setHistory(canUndo: boolean, canRedo: boolean): void {
     this.undoBtn.disabled = !canUndo;
     this.redoBtn.disabled = !canRedo;
+    this.redoItem.disabled = !canRedo;
   }
 
   setPaused(paused: boolean): void {
@@ -651,6 +667,7 @@ export class Hud {
     this.soundBtn.innerHTML = uiIcon(muted ? "mute" : "sound");
     this.soundBtn.title = muted ? "Sound on" : "Sound off";
     this.soundBtn.setAttribute("aria-label", this.soundBtn.title);
+    this.soundItem.textContent = muted ? "Sound: off" : "Sound: on";
   }
 
   /** Show the Re-rail button only while something is off the rails. */

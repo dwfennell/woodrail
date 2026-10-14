@@ -34,9 +34,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .chip .ui-icon { display: block; margin: 0 auto; }
 @keyframes nudge { 0%, 70%, 100% { transform: none; } 78% { transform: rotate(-4deg); } 86% { transform: rotate(4deg); } }
 
-.menu { position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 54px); right: 12px; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 16px; background: rgba(250, 243, 230, 0.94); backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(60, 40, 20, 0.25); min-width: 210px; }
+.menu { z-index: 30; position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 54px); right: 12px; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 16px; background: rgba(250, 243, 230, 0.94); backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(60, 40, 20, 0.25); min-width: 210px; }
 .menu-item { text-align: left; border: none; background: transparent; font: inherit; font-weight: 700; padding: 12px 14px; border-radius: 10px; color: #3a2a1c; cursor: pointer; }
 .menu-item:hover { background: #ead7b8; }
+.menu-item:disabled { opacity: 0.45; cursor: default; }
+.narrow-only { display: none; }
+@media (max-width: 640px) { .menu .narrow-only { display: block; } }
 
 /* The tray: a shallow beech box the pieces sit in. */
 .tray { position: absolute; left: 50%; transform: translateX(-50%); bottom: max(10px, env(safe-area-inset-bottom)); width: min(980px, calc(100% - 20px)); border-radius: 20px; padding: 0 8px 9px;
@@ -119,6 +122,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
   .brand { padding: 8px; gap: 0; }
   .brand-name, .mode-tag { display: none; }
   .actions { flex-wrap: nowrap; gap: 5px; }
+  /* The bar keeps what's used most; the rest are in the menu. Re-rail, when it shows, sits under the bar. */
+  .actions .wide-only { display: none; }
+  .actions > .chip { min-width: 40px; height: 40px; padding: 0 8px; }
+  .actions > .chip.attention { position: absolute; top: 50px; right: 0; }
   .chip { min-width: 44px; height: 44px; padding: 0 10px; font-size: 16px; }
   .chip.text { font-size: 13px; }
   .tray-item { width: 70px; height: 80px; }
@@ -265,20 +272,20 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .make-head { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #8a6440; margin-top: 4px; }
 
 /* ---- Blueprint board (Game mode) ---------------------------------------------------------------------------- */
-.board-panel { position: absolute; left: 50%; top: calc(max(10px, env(safe-area-inset-top)) + 62px); bottom: calc(max(12px, env(safe-area-inset-bottom)) + 12px); transform: translateX(-50%); width: min(720px, calc(100% - 24px)); height: fit-content; max-height: calc(100% - 100px); display: flex; flex-direction: column; border-radius: 20px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); color: #3a2a1c; z-index: 5; }
+.board-panel { overflow: hidden; position: absolute; left: 50%; top: calc(max(10px, env(safe-area-inset-top)) + 62px); bottom: calc(max(12px, env(safe-area-inset-bottom)) + 12px); transform: translateX(-50%); width: min(720px, calc(100% - 24px)); height: fit-content; max-height: calc(100% - 100px); display: flex; flex-direction: column; border-radius: 20px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); color: #3a2a1c; z-index: 5; }
 .board-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 6px; }
 .board-head h2 { margin: 0; font-size: 22px; font-weight: 900; }
 .board-head .close { position: static; }
-.board-body { overflow-y: auto; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
+.board-body { overflow-y: auto; min-height: 0; flex: 1 1 auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
 .board-sub { flex: 1; margin-left: 12px; font-size: 13px; font-weight: 700; color: #8a6440; }
 /* The line map: the workshop's trunk, a line out to each first blueprint, branches to those that need it. */
-.bp-map { position: relative; display: grid; column-gap: 4px; padding: 6px 0; border-radius: 16px; background: repeating-linear-gradient(0deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), repeating-linear-gradient(90deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), #f7eedd; box-shadow: inset 0 0 0 1.5px rgba(167, 138, 102, 0.35); }
-.bp-track { position: absolute; inset: 6px 0; width: 100%; height: calc(100% - 12px); pointer-events: none; overflow: visible; }
+.bp-map { position: relative; flex: none; display: grid; column-gap: 4px; padding: 0; border-radius: 16px; background: repeating-linear-gradient(0deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), repeating-linear-gradient(90deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), #f7eedd; box-shadow: inset 0 0 0 1.5px rgba(167, 138, 102, 0.35); }
+.bp-track { position: absolute; left: 0; top: 0; width: 100%; pointer-events: none; overflow: visible; }
 .bp-rail { fill: none; stroke: #b8a68c; stroke-width: 3; stroke-dasharray: 6 5; stroke-linecap: round; stroke-linejoin: round; }
 .bp-rail.laid { stroke: #a06a36; stroke-width: 7; stroke-dasharray: none; filter: drop-shadow(0 1px 0 rgba(80, 50, 20, 0.35)); }
-.bp-station { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 6px 2px; border: none; background: none; font: inherit; color: #3a2a1c; cursor: pointer; min-width: 0; }
+.bp-station { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 3px; padding: 9px 2px 0; border: none; background: none; font: inherit; color: #3a2a1c; cursor: pointer; min-width: 0; }
 .bp-station.terminus { cursor: default; }
-.bp-dot { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 17px; color: #fff; background: #fffaf0; box-shadow: 0 0 0 3px #b8a68c; transition: transform 0.15s; }
+.bp-dot { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 17px; color: #fff; background: #fffaf0; box-shadow: 0 0 0 3px #b8a68c; transition: transform 0.15s; }
 .bp-station:hover .bp-dot { transform: scale(1.08); }
 .bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; text-align: center; max-width: 100%; overflow-wrap: anywhere; background: rgba(247, 238, 221, 0.92); padding: 1px 5px; border-radius: 6px; }
 .bp-tag { font-size: 10.5px; font-weight: 800; color: #7a5532; background: #f1e1c2; padding: 1px 6px; border-radius: 8px; }
@@ -325,7 +332,15 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .bp-offer-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .bp-offer .chip { height: 36px; font-size: 14px; }
 .bp-offer .or { font-weight: 900; color: #8a6440; }
-@media (max-width: 520px) { .board-sub { display: none; } .bp-name { font-size: 11px; } .bp-dot { width: 28px; height: 28px; font-size: 14px; } }
+@media (max-width: 520px) {
+  .board-sub { display: none; }
+  .board-panel { top: calc(max(10px, env(safe-area-inset-top)) + 56px); width: calc(100% - 16px); }
+  .board-head { padding: 12px 14px 4px; }
+  .board-body { padding: 4px 12px 14px; }
+  .bp-name { font-size: 11px; padding: 1px 3px; }
+  .bp-tag { font-size: 10px; }
+  .bp-ticket { padding: 10px 12px; }
+}
 @media (prefers-reduced-motion: reduce) { .ready.can .bp-dot, .offered .bp-dot { animation: none; } }
 .icon-btn-alert { position: relative; }
 .icon-btn-alert::after { content: ""; position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #c8442f; box-shadow: 0 0 0 2px #fbf3e4; animation: alert-pulse 1.2s ease-in-out infinite; }
