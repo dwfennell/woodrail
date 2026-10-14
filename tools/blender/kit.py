@@ -324,16 +324,11 @@ class Kit:
         return n
 
     def roof(self, mat, w, d, h, x=0, y=0, z=0, t=3):
-        """A gable roof along x: w long, d across, h high to the ridge, its eaves on y, t thick."""
-        g = Node()
-        slope = math.hypot(d / 2, h)
-        angle = math.atan2(h, d / 2)
-        for side in (-1, 1):
-            panel = self.box(mat, w, t, slope + 2, 1)
-            panel.position.set(0, h / 2, side * d / 4)
-            panel.rotation.x = side * angle
-            g.add(panel)
-        return self.at(g, x, y, z)
+        """A gable roof along x as one solid block, like a toy's: w long, d across, h high to the ridge, its underside on
+        y, the eaves t deep; every edge well rounded."""
+        lip = min(t, h * 0.4)
+        outline = [(-d / 2, 0), (d / 2, 0), (d / 2, lip), (0, h), (-d / 2, lip)]
+        return self.at(self.extrude(mat, outline, w, 0, 0, 0, bevel=min(1.6, lip * 0.45, w / 4)), x, y, z, math.pi / 2)
 
     def wheel(self, r=6, x=0, y=6, z=0, color="#c8442f", width=4.5):
         """A train wheel (painted rim), its axle along z, centred at (x, y, z)."""

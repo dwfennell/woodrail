@@ -3,9 +3,10 @@ Parts for buildings (the helpers at the top of src/catalogue/assets/buildings.ts
 beech or lacquered walls, gloss roofs and doors, windows as dark printed-look insets in a white frame. Fronts face +x;
 anything a train runs through runs along x. The game's coordinates.
 
-Upgraded from the code: windows get a frame and glazing bars, doors a frame, chimneys a pot, lamps a turned post,
-clocks their hour marks. Window and door parts round their edges in one step: there are many of them, and they're
-small. Window and door parts are symmetric through the wall, so they suit a wall facing either way.
+Kept to the look of wooden toy blocks: bodies are well-rounded blocks, roofs solid blocks, windows and doors printed-look
+panels just proud of the wall, chimneys small blocks. Lamps get a turned post, clocks their hour marks. Window and door
+parts round their edges in one step: there are many of them, and they're small. They're symmetric through the wall, so
+they suit a wall facing either way.
 """
 
 import math
@@ -17,7 +18,6 @@ BRICK = "#a8553a"
 STONE = "#b9b2a5"
 SLATE = "#4a5560"
 FRAME = "#fbf6ec"
-POT = "#b8643f"
 
 
 def named(o, name):
@@ -30,14 +30,13 @@ def gable(k, mat, length, d, rh, x=0, y=0, z=0):
     return k.at(k.extrude(mat, [(-d / 2, 0), (d / 2, 0), (0, rh)], length, 0, 0, 0, 0), x, y, z, math.pi / 2)
 
 
-def house(k, w, d, h, wall, roof, rh=None, x=0, z=0, o=4):
-    """A house body: walls w (x) by d (z) by h, a gable rh high and an overhanging pitched roof, ridge along x."""
+def house(k, w, d, h, wall, roof, rh=None, x=0, z=0, o=2.5):
+    """A house body like a toy's: a well-rounded block of walls w (x) by d (z) by h, and a solid roof block on top
+    (ridge along x, rh high, overhanging by o)."""
     rh = d * 0.45 if rh is None else rh
     g = Node()
-    g.add(k.box(wall, w, h, d, 2))
-    g.add(gable(k, wall, w - 0.5, d, rh, 0, h, 0))
-    drop = (2 * o * rh) / d
-    g.add(k.roof(k.paint(roof), w + 2 * o, d + 2 * o, rh + drop, 0, h - drop + 1.4, 0))
+    g.add(k.box(wall, w, h, d, 3))
+    g.add(k.roof(k.paint(roof), w + 2 * o, d + 2 * o, rh + 3, 0, h - 0.5, 0, 3.5))
     return k.at(g, x, 0, z)
 
 
@@ -47,18 +46,11 @@ def hip(k, mat, side, h, x=0, y=0, z=0):
 
 
 def _window(k, w, h, cross):
-    """A window round the origin in the y/z plane (a wall facing x): dark pane, white frame, glazing bars, sill."""
-    white = k.paint(FRAME)
+    """A printed-look window round the origin in the y/z plane (a wall facing x): a dark pane in a white surround,
+    standing just proud of the wall. (`cross` is kept for callers; toy windows are plain.)"""
     g = Node()
-    g.add(k.box(k.paint(WIN), 1.6, h, w, 0.4, 0, 0, 0, seg=1))
-    f = min(1.1, w * 0.12, h * 0.12)
-    g.add(k.box(white, 2.2, f, w + 2 * f, 0.35, 0, h - f / 2, 0, seg=1))
-    for s in (-1, 1):
-        g.add(k.box(white, 2.2, h, f, 0.35, 0, 0, s * (w / 2 + f / 2), seg=1))
-    if cross and w >= 5 and h >= 6:
-        g.add(k.box(white, 2.0, h - 0.2, 0.6, 0.2, 0, 0.1, 0, seg=1))
-        g.add(k.box(white, 2.0, 0.6, w - 0.2, 0.2, 0, h * 0.55, 0, seg=1))
-    g.add(k.box(white, 2.6, 1.4, w + 2, 0.4, 0, -1.4, 0, seg=1))
+    g.add(k.box(k.paint(FRAME), 1.0, h + 2, w + 2, 0.8, 0, -1, 0, seg=1))
+    g.add(k.box(k.paint(WIN), 1.3, h, w, 0.6, 0, 0, 0, seg=1))
     return g
 
 
@@ -73,15 +65,9 @@ def winZ(k, x, y, z, w=9, h=11, cross=True):
 
 
 def _door(k, color, w, h):
-    """A door round the origin in the y/z plane: the door, a white frame, a brass knob on both faces."""
-    white = k.paint(FRAME)
+    """A printed-look door round the origin in the y/z plane: a painted panel standing just proud of the wall."""
     g = Node()
-    g.add(k.box(k.paint(color), 1.8, h, w, 0.6, 0, 0, 0, seg=1))
-    g.add(k.box(white, 2.4, 1.2, w + 2.4, 0.4, 0, h - 0.6, 0, seg=1))
-    for s in (-1, 1):
-        g.add(k.box(white, 2.4, h - 0.6, 1.2, 0.4, 0, 0, s * (w / 2 + 0.6), seg=1))
-    for s in (-1, 1):
-        g.add(k.ball(k.paint(TOY.yellow), 0.9, s * 1.2, h * 0.5, w * 0.3))
+    g.add(k.box(k.paint(color), 1.3, h, w, 0.8, 0, 0, 0, seg=1))
     return g
 
 
@@ -121,12 +107,8 @@ def bench(k, x, z, ry=0, y=0, back=TOY.green):
 
 
 def chimney(k, x, y, z, h=14, color=BRICK):
-    """A brick chimney stack with a dark cap and a pot, its base on y."""
-    return k.group(
-        k.box(k.paint(color), 6, h, 6, 1, x, y, z),
-        k.box(k.paint(TOY.black), 7.5, 2, 7.5, 0.6, x, y + h, z),
-        k.lathe(k.paint(POT), [(0.0, 0), (1.9, 0), (1.6, 2.6), (2.0, 3.2), (1.3, 3.4), (0.0, 3.0)], x, y + h + 2, z, 16),
-    )
+    """A chimney: a small well-rounded block, its base on y."""
+    return k.box(k.paint(color), 6.5, h + 2, 6.5, 1.8, x, y, z)
 
 
 def smoke(k, x, y, z):
