@@ -5,3 +5,7 @@ dist-bench
 dist-catalogue
 *.log
 .reports
+tools/blender/out/
+*.blend1
+tools/blender/*.blend
+__pycache__/

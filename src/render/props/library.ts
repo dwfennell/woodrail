@@ -40,7 +40,7 @@ export class PropLibrary {
 
   footprint = (assetId: string): Footprint | undefined => this.footprints.get(assetId);
 
-  /** Fetch and build a model, or a colour variant of it (once each). `key`: see `modelKey`. */
+  /** Fetch and build a model, or a colour variant of it (once each; rejects if it can't be fetched). `key`: see `modelKey`. */
   load(key: string): Promise<PropModel | null> {
     const done = this.models.get(key);
     if (done !== undefined) return Promise.resolve(done);
@@ -56,6 +56,8 @@ export class PropLibrary {
         this.onLoaded?.(key);
         return model;
       });
+      // A failed load (its models couldn't be fetched) is forgotten, so asking again retries.
+      p.catch(() => this.pending.delete(key));
       this.pending.set(key, p);
     }
     return p;

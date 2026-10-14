@@ -297,8 +297,9 @@ export class Economy {
   }
 
   /**
-   * The sim's speed limit for a powered train: crawl on an automatic depot, and slow so the next wagon needing the
-   * crane stops exactly under it, then hold it there (0) while the crane works.
+   * The sim's speed limit for a powered train: on an automatic depot where one of its wagons has work, crawl, and slow
+   * so the next wagon needing the crane stops exactly under it, then hold it there (0) while the crane works. A train
+   * with nothing to do there runs through at full speed.
    */
   private capFor(train: Train): number {
     const d = this.depotUnder(train);
@@ -319,6 +320,8 @@ export class Economy {
       return Infinity;
     }
     if (s.phase === HALTED) return 0;
+    // Nothing for the crane in this train (this visit): it won't stop, so it needn't slow.
+    if (!train.cars.some((car) => !s.done.has(car.id) && this.needsService(d, car.id))) return Infinity;
     s.phase = CRAWLING;
     let cap = CRAWL_SPEED;
     const len = this.depotLength(d);

@@ -474,7 +474,7 @@ export class TrackView {
    * Build every piece type's geometry in background workers, several at once (call during loading, before
    * `prebuild`, which then finds them ready). Resolves when all are in, or straight away where workers can't run.
    */
-  static async prebuildInWorkers(types: readonly PieceTypeId[]): Promise<void> {
+  static async prebuildInWorkers(types: readonly PieceTypeId[], onProgress?: (done: number, total: number) => void): Promise<void> {
     if (typeof Worker === "undefined") return;
     const results: PieceResult[] = [];
     const take = (r: PieceResult) => {
@@ -491,6 +491,9 @@ export class TrackView {
     for (const r of (await loadCached<PieceResult[]>("pieces", __BUILD_ID__)) ?? []) take(r);
     const jobs: PieceJob[] = types.filter((t) => !geometryCache.has(`${t}:n:${isBridge(t) ? 1 : 0}`)).map((t) => ({ type: t, levels: isBridge(t) ? 1 : 0 }));
     if (jobs.length === 0) return;
+    const total = jobs.length;
+    let done = 0;
+    onProgress?.(0, total);
     // Largest first, so the slow ones don't finish last on their own.
     const cost = (t: PieceTypeId) => getPieceDef(t, false).paths.reduce((n, p) => n + pathLength(p.geom), 0) * getPieceDef(t, false).paths.length;
     jobs.sort((a, b) => cost(b.type) - cost(a.type));
@@ -508,6 +511,7 @@ export class TrackView {
         };
         worker.onmessage = (e: MessageEvent<PieceResult>) => {
           take(e.data);
+          onProgress?.(++done, total);
           next();
         };
         // A worker that fails leaves its pieces to be built on the main thread as before.

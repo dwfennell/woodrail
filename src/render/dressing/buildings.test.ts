@@ -1,9 +1,13 @@
 import { Box3, MeshStandardMaterial, type BufferGeometry, type Material } from "three";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { CELL, FEAT_STATION, generateLandscape, SURF_ROAD } from "../../landscape";
 import type { Materials } from "../materials";
 import type { Batcher } from "./batcher";
 import { building, buildStation, buildTown, footprintOf, FURNITURE_CLEARANCE, SPECIAL_LOOKS, townFurniture, townLooks, type Look, type PropKind } from "./buildings";
+import { loadBlenderModels } from "../blender-models";
+
+// The cars and the map's building parts are models (public/models): read from disk here.
+beforeAll(() => loadBlenderModels());
 
 /** A batch that only measures what is added to it. */
 function measuring(): { b: Batcher; bounds: Box3; count: () => number } {

@@ -4,6 +4,7 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 import { CELL, FEAT_BUILDING, FEAT_NONE, FEAT_STATION, SURF_ROAD, type Landscape, type Shed, type Town } from "../../landscape";
 import { STATION_ROOF_TOP } from "../../landscape/sign";
 import { TRACK_WIDTH } from "../../track";
+import { addPart } from "../blender-models";
 import type { Materials } from "../materials";
 import type { Batcher } from "./batcher";
 
@@ -88,6 +89,7 @@ export function building(
       const t = length * 0.28 * (opts.seed % 2 ? 1 : -1);
       ch.translate(along ? cx + t : cx + off, h + rise * 0.45 + 5, along ? cz + off : cz + t);
       b.add(mats.lacquer("#a5503a"), ch);
+      addPart(b, mats, "chimney-top", (g) => g.translate(along ? cx + t : cx + off, h + rise * 0.9 + 10, along ? cz + off : cz + t));
     }
   } else {
     const roof = new RoundedBoxGeometry(w + OVERHANG * 2, 5, d + OVERHANG * 2, 1, 1.5);
@@ -130,19 +132,14 @@ export function building(
         b.add(frameMat, place(sill, u, 9 + f * FLOOR_H, s, 1.2));
         if (opts.kind === "house" && ground && s === 1) {
           // A window box of flowers under the front windows.
-          b.add(mats.lacquer("#3c8f4e"), place(new RoundedBoxGeometry(ww + 4, 4, 4, 1, 1), u, 6, s, 3));
-          b.add(mats.lacquer(pick(FLOWER_COLORS, opts.seed + k)), place(new RoundedBoxGeometry(ww, 2.5, 3, 1, 1), u, 9, s, 3));
+          addPart(b, mats, "flower-box", (g) => place(g.scale((ww + 4) / 18, 1, 1), u, 4, s, 3), { flower: pick(FLOWER_COLORS, opts.seed + k) });
         }
       }
     }
   }
   // Door with a little brass knob, and a shop awning over the front.
   const doorU = cols === 1 ? 0 : -faceWidth * 0.24;
-  const door = new RoundedBoxGeometry(13, 24, 2, 1, 0.8);
-  b.add(mats.lacquer(pick(DOOR_COLORS, opts.seed >> 2)), place(door, doorU, 12, 1, 0.6));
-  const knob = new CylinderGeometry(1.1, 1.1, 1.5, 8);
-  knob.rotateX(Math.PI / 2);
-  b.add(mats.lacquer("#d9a93a"), place(knob, doorU + 4, 12, 1, 1.8));
+  addPart(b, mats, "door", (g) => place(g, doorU, 12, 1, 0), { door: pick(DOOR_COLORS, opts.seed >> 2) });
   if (opts.kind === "shop") {
     // Striped awning over the front, sloping down and out.
     const stripes = 5;
@@ -257,9 +254,8 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
   b.add(mats.blockWood, place(new RoundedBoxGeometry(196, 14, 38, 2, 2.5), 108, side + 21, 7));
   b.add(mats.lacquer("#e6b52c"), place(new RoundedBoxGeometry(196, 2, 4, 1, 0.8), 108, side + 4, 14.5));
   // Canopy posts: on the platform, and opposite them beside the track.
-  const postH = CANOPY_Y - 14;
-  for (const t of [36, 108, 180]) b.add(mats.lacquer("#f0ebe0"), place(new CylinderGeometry(2.2, 2.2, postH, 10), t, side + 30, 14 + postH / 2));
-  for (const t of [36, 180]) b.add(mats.lacquer("#f0ebe0"), place(new CylinderGeometry(2.2, 2.2, CANOPY_Y, 10), t, -CANOPY_FAR, CANOPY_Y / 2));
+  for (const t of [36, 108, 180]) addPart(b, mats, "canopy-post-62", (g) => place(g, t, side + 30, 14));
+  for (const t of [36, 180]) addPart(b, mats, "canopy-post-76", (g) => place(g, t, -CANOPY_FAR, 0));
   const canopyW = side + 34 + CANOPY_FAR;
   const canopyMid = (side + 34 - CANOPY_FAR) / 2;
   b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(176, 4, canopyW, 1, 1.5), 108, canopyMid, CANOPY_Y + 2));
@@ -267,7 +263,7 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
   b.add(mats.blockWood, place(new RoundedBoxGeometry(70, 46, 30, 2, 2.5), 108, side + 58, 14 + 23));
   b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(80, 5, 38, 1, 1.5), 108, side + 58, STATION_ROOF_TOP - 2.5));
   // Station house door and windows facing the platform.
-  b.add(mats.lacquer("#7a3b26"), place(new RoundedBoxGeometry(12, 24, 2, 1, 0.8), 108, side + 42.5, 14 + 12));
+  addPart(b, mats, "door", (g) => place(g.scale(12 / 13, 1, 1).rotateY(Math.PI), 108, side + 43, 14 + 12), { door: "#7a3b26" });
   for (const t of [86, 130]) {
     // Authored facing +z; the platform face looks toward −lateral.
     const face = (g: BufferGeometry, out: number) => {
@@ -277,22 +273,11 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
     b.add(mats.lacquer("#fbf6ec"), face(new BoxGeometry(16, 14, 1.6), -0.4));
     printedPane(b, mats, 12, 10, face);
   }
-  // Clock over the door: a cream face in a red rim, with two dark hands.
-  const clockFace = (g: BufferGeometry, out: number) => {
-    g.rotateX(Math.PI / 2);
-    return place(g, 108, side + 43 - out, 14 + 36);
-  };
-  b.add(mats.lacquer("#c8442f"), clockFace(new CylinderGeometry(6.5, 6.5, 1.6, 24), 0.8));
-  b.add(mats.lacquer("#fbf6ec"), clockFace(new CylinderGeometry(5.2, 5.2, 1.6, 24), 1.4));
-  b.add(mats.lacquer("#2a2b2e"), place(new BoxGeometry(0.9, 4.2, 0.6).translate(0, 1.8, 0), 108, side + 43 - 2.4, 14 + 36));
-  b.add(mats.lacquer("#2a2b2e"), place(new BoxGeometry(3.2, 0.9, 0.6).translate(1.4, 0, 0), 108, side + 43 - 2.4, 14 + 36));
+  // Clock over the door, facing the platform.
+  addPart(b, mats, "station-clock", (g) => place(g.rotateY(Math.PI), 108, side + 43, 14 + 36));
 
   // Benches facing the track, between the canopy posts.
-  for (const t of [72, 144]) {
-    b.add(mats.naturalWood, place(new RoundedBoxGeometry(24, 2, 7, 1, 0.8), t, side + 27, 14 + 6));
-    b.add(mats.naturalWood, place(new RoundedBoxGeometry(24, 7, 1.6, 1, 0.6), t, side + 30.5, 14 + 10));
-    for (const e of [-10, 10]) b.add(mats.lacquer("#2f6db5"), place(new BoxGeometry(2, 5, 6), t + e, side + 27, 14 + 2.5));
-  }
+  for (const t of [72, 144]) addPart(b, mats, "station-bench", (g) => place(g, t, side + 27, 14));
 
   // Station staff and a traveller (their own stream, so the waiting passengers below keep their places): a conductor
   // with a flag near the far end, a porter with a luggage barrow by the station house, a traveller with a suitcase.
@@ -323,14 +308,12 @@ const PEG_HATS = ["#2a2b2e", "#7a3b26", "#c8442f", "#2f6db5"];
 /** A turned peg doll (about 18 mm tall): painted coat, bare beech head, and sometimes a hat. */
 export function pegDoll(b: Batcher, mats: Materials, place: (g: BufferGeometry) => BufferGeometry, r: () => number): void {
   const coat = PEG_COATS[Math.floor(r() * PEG_COATS.length)];
-  b.add(mats.lacquer(coat), place(new CylinderGeometry(3.2, 4.2, 11, 14).translate(0, 5.5, 0)));
-  b.add(mats.naturalWood, place(new SphereGeometry(3.4, 14, 10).translate(0, 14, 0)));
-  if (r() < 0.6) {
-    const hat = PEG_HATS[Math.floor(r() * PEG_HATS.length)];
-    b.add(mats.lacquer(hat), place(new CylinderGeometry(4, 4, 0.9, 14).translate(0, 16.4, 0)));
-    b.add(mats.lacquer(hat), place(new CylinderGeometry(2.6, 2.8, 3, 14).translate(0, 18.2, 0)));
-  }
+  const hatted = r() < 0.6;
+  // (The same draws from r in either case, so the waiting passengers keep their places.)
+  const hat = hatted ? PEG_HATS[Math.floor(r() * PEG_HATS.length)] : "";
+  addPart(b, mats, hatted ? "peg-doll-hat" : "peg-doll", place, { coat, hat });
 }
+
 
 /** Arched door outline (w × h, round top), authored facing +z with its back on z = 0. */
 function archedDoor(w: number, h: number, depth: number): BufferGeometry {
@@ -382,11 +365,7 @@ export function buildShed(land: Landscape, shed: Shed, mats: Materials, b: Batch
     g.rotateY(Math.PI / 2);
     return place(g, LEN / 2 + out, l, h);
   };
-  for (const l of [-WIDE / 4, WIDE / 4]) {
-    b.add(mats.lacquer("#fbf6ec"), front(archedDoor(38, 46, 1.6), l, 0, -0.2));
-    b.add(mats.lacquer("#2f5d3a"), front(archedDoor(32, 42, 1.6), l, 0, 0.4));
-    b.add(mats.lacquer("#fbf6ec"), front(new BoxGeometry(1.4, 26, 1), l, 13, 2.2));
-  }
+  for (const l of [-WIDE / 4, WIDE / 4]) addPart(b, mats, "shed-door", (g) => front(g, l, 0, 0));
   // Printed windows down both sides.
   for (const side of [1, -1]) {
     for (const a of [-36, 0, 36]) {
@@ -394,8 +373,7 @@ export function buildShed(land: Landscape, shed: Shed, mats: Materials, b: Batch
         if (side < 0) g.rotateY(Math.PI);
         return place(g, a, side * (WIDE / 2 + out), 34);
       };
-      b.add(mats.lacquer("#fbf6ec"), face(new BoxGeometry(20, 16, 1.6), 0.2));
-      printedPane(b, mats, 16, 12, face);
+      addPart(b, mats, "shed-window", (g) => face(g, 0));
     }
   }
 }
@@ -459,9 +437,7 @@ function specialBuilding(
     if (sill) b.add(paint(CREAM), onFace(new BoxGeometry(ww + 6, 2, 3), side, body, along, y - wh / 2 - 3, 1.2));
   };
   const door = (side: Side, body: Body, along: number, color: string, dw = 13, dh = 24): Point => {
-    b.add(paint(color), onFace(new RoundedBoxGeometry(dw, dh, 2, 1, 0.8), side, body, along, dh / 2, 0.6));
-    const knob = new CylinderGeometry(1.1, 1.1, 1.5, 8).rotateX(Math.PI / 2);
-    b.add(paint("#d9a93a"), onFace(knob, side, body, along + dw * 0.3, dh / 2, 1.8));
+    addPart(b, mats, "door", (g) => onFace(g.scale(dw / 13, dh / 24, 1), side, body, along, dh / 2, 0), { door: color });
     const a = (side * Math.PI) / 2;
     const half = side % 2 === 0 ? body.hz : body.hx;
     return pt(body.cu + Math.sin(a) * half + Math.cos(a) * along, body.cv + Math.cos(a) * half - Math.sin(a) * along);
@@ -498,7 +474,7 @@ function specialBuilding(
   };
   const chimney = (x: number, z: number, y0: number, top: number) => {
     put(paint("#a5503a"), rbox(9, top - y0, 9, x, (top + y0) / 2, z, 1.2));
-    put(paint("#7a3b26"), rbox(11, 2.5, 11, x, top, z, 0.8));
+    addPart(b, mats, "chimney-top", (g) => world(g.translate(x, top - 1.25, z)));
   };
   const h = FLOOR_H * floors + 6;
   const whole: Body = { cu: 0, cv: 0, hx: W / 2, hz: D / 2 };
@@ -834,137 +810,28 @@ export function townFurniture(land: Landscape, town: Town, doors: readonly Point
   return props;
 }
 
-const IRON = "#2f5d3a";
-
 /** One piece of street furniture, drawn into the batch. */
 export function furniture(b: Batcher, mats: Materials, p: Prop): void {
-  const put = (m: Material, g: BufferGeometry) => b.add(m, g.rotateY(p.yaw).translate(p.x, 0, p.z));
-  const paint = (c: string) => mats.lacquer(c);
-  switch (p.kind) {
-    case "lamp": {
-      put(paint(IRON), new CylinderGeometry(2.8, 3.4, 2.5, 12).translate(0, 1.25, 0));
-      put(paint(IRON), new CylinderGeometry(1, 1.3, 32, 8).translate(0, 18.5, 0));
-      put(paint(IRON), new CylinderGeometry(2, 2, 1.5, 10).translate(0, 34.5, 0));
-      put(paint("#f6e3a1"), new CylinderGeometry(3.4, 2.6, 6, 4).rotateY(Math.PI / 4).translate(0, 38.2, 0));
-      put(paint(IRON), new ConeGeometry(4.6, 3.4, 4).rotateY(Math.PI / 4).translate(0, 42.9, 0));
-      put(paint(IRON), new SphereGeometry(1, 8, 6).translate(0, 45, 0));
-      break;
-    }
-    case "bench": {
-      put(mats.naturalWood, new RoundedBoxGeometry(22, 2, 6, 1, 0.8).translate(0, 6, 0.5));
-      put(mats.naturalWood, new RoundedBoxGeometry(22, 6, 1.6, 1, 0.6).translate(0, 10.5, -2.8));
-      for (const e of [-9, 9]) put(paint(IRON), new BoxGeometry(1.8, 5, 6).translate(e, 2.5, 0.2));
-      break;
-    }
-    case "planter": {
-      put(paint("#a5503a"), new RoundedBoxGeometry(14, 6, 7, 1, 1.2).translate(0, 3, 0));
-      put(paint("#3c8f4e"), new RoundedBoxGeometry(12, 4, 5, 1, 1.6).translate(0, 7, 0));
-      const seed = Math.round(Math.abs(p.x) + Math.abs(p.z));
-      for (let k = 0; k < 4; k++) put(paint(pick(FLOWER_COLORS, seed + k)), new SphereGeometry(1.5, 6, 4).translate(-4.5 + k * 3, 9.4, k % 2 ? 0.8 : -0.8));
-      break;
-    }
-    case "postbox": {
-      put(paint("#c8442f"), new CylinderGeometry(3.3, 3.5, 13, 14).translate(0, 6.5, 0));
-      put(paint("#c8442f"), new CylinderGeometry(3.9, 3.9, 1.4, 14).translate(0, 13.4, 0));
-      put(paint("#c8442f"), new SphereGeometry(3.4, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 14, 0));
-      put(paint("#2a2b2e"), new BoxGeometry(3.6, 0.8, 1).translate(0, 10.5, 3.1));
-      break;
-    }
-    case "phone": {
-      const red = paint("#c8442f");
-      put(red, new BoxGeometry(14, 1.5, 14).translate(0, 0.75, 0));
-      put(paint(PANE_COLOR), new BoxGeometry(11, 26, 11).translate(0, 15, 0));
-      for (const [x, z] of [[-5.6, -5.6], [5.6, -5.6], [-5.6, 5.6], [5.6, 5.6]]) put(red, new RoundedBoxGeometry(2.6, 28, 2.6, 1, 0.5).translate(x, 15, z));
-      for (const y of [8, 15, 22]) put(red, new BoxGeometry(11.6, 1, 11.6).translate(0, y, 0));
-      put(red, new RoundedBoxGeometry(14, 3, 14, 1, 0.8).translate(0, 30.5, 0));
-      put(red, new CylinderGeometry(5, 9, 2.6, 4).rotateY(Math.PI / 4).translate(0, 33.3, 0));
-      for (const s of [1, -1]) put(paint(CREAM), new BoxGeometry(9, 2.2, 0.6).translate(0, 27.4, s * 6.2));
-      break;
-    }
-    case "busstop": {
-      const red = paint("#c8442f");
-      put(paint(PANE_COLOR), new BoxGeometry(26, 17, 1).translate(0, 11.5, -4.5));
-      for (const x of [-14, 14]) put(red, new RoundedBoxGeometry(2.2, 24, 2.2, 1, 0.5).translate(x, 12, -4.5));
-      put(red, new RoundedBoxGeometry(32, 2, 11, 1, 0.8).translate(0, 25, -1.5));
-      put(mats.naturalWood, new RoundedBoxGeometry(20, 1.6, 4.5, 1, 0.6).translate(0, 7.5, -1.5));
-      for (const x of [-8, 8]) put(red, new BoxGeometry(1.6, 7, 1.6).translate(x, 3.5, -1.5));
-      put(paint("#8a8f96"), new CylinderGeometry(0.7, 0.7, 28, 6).translate(18.5, 14, 3));
-      put(red, new CylinderGeometry(4, 4, 1, 16).rotateX(Math.PI / 2).translate(18.5, 28, 3));
-      put(paint(CREAM), new CylinderGeometry(2.6, 2.6, 1.2, 16).rotateX(Math.PI / 2).translate(18.5, 28, 3));
-      put(paint("#2f6db5"), new BoxGeometry(9, 1.8, 1.4).translate(18.5, 28, 3));
-      break;
-    }
-    case "fountain": {
-      put(paint(STONE), new CylinderGeometry(13, 13.6, 5, 24).translate(0, 2.5, 0));
-      put(paint("#7cc0e0"), new CylinderGeometry(11.6, 11.6, 0.6, 24).translate(0, 4.9, 0));
-      put(paint(STONE), new CylinderGeometry(1.8, 2.6, 10, 12).translate(0, 9.5, 0));
-      put(paint(STONE), new CylinderGeometry(5.6, 2.4, 2.6, 16).translate(0, 15.3, 0));
-      put(paint("#7cc0e0"), new CylinderGeometry(4.8, 4.8, 0.5, 16).translate(0, 16.5, 0));
-      put(paint("#a9d8ee"), new SphereGeometry(1.8, 10, 8).translate(0, 18.4, 0));
-      break;
-    }
-    case "statue": {
-      const bronze = paint("#4f7d62");
-      put(paint(STONE), new RoundedBoxGeometry(15, 3, 15, 1, 0.8).translate(0, 1.5, 0));
-      put(paint("#bdb6a8"), new RoundedBoxGeometry(10, 12, 10, 1, 1).translate(0, 9, 0));
-      put(paint(STONE), new RoundedBoxGeometry(12, 2, 12, 1, 0.6).translate(0, 16, 0));
-      put(bronze, new CylinderGeometry(2.6, 3.4, 10, 12).translate(0, 22, 0));
-      put(bronze, new SphereGeometry(2.8, 12, 8).translate(0, 29.6, 0));
-      put(bronze, new CylinderGeometry(0.9, 0.9, 8, 8).rotateZ(-0.45).translate(4.4, 28.5, 0));
-      put(paint(CREAM), new BoxGeometry(6, 2.4, 0.4).translate(0, 10, 5.1));
-      break;
-    }
-  }
+  // Each kind is a part (tools/blender/dressing.py), authored facing +z; a planter's flowers vary with where it stands.
+  const seed = Math.round(Math.abs(p.x) + Math.abs(p.z));
+  const flowers = Object.fromEntries([0, 1, 2, 3].map((k) => [`flower${k}`, pick(FLOWER_COLORS, seed + k)]));
+  addPart(b, mats, p.kind, (g) => g.rotateY(p.yaw).translate(p.x, 0, p.z), flowers);
 }
 
 // ————————————————————————————————————————— Station staff and travellers —————————————————————————————————————————
 
-/** A plain peg body and beech head (authored facing +z), in one coat colour. */
-function pegBody(b: Batcher, mats: Materials, put: (g: BufferGeometry) => BufferGeometry, coat: string): void {
-  b.add(mats.lacquer(coat), put(new CylinderGeometry(3.2, 4.2, 11, 14).translate(0, 5.5, 0)));
-  b.add(mats.naturalWood, put(new SphereGeometry(3.4, 14, 10).translate(0, 14, 0)));
-}
 
 /** A conductor in a maroon coat and peaked cap, holding a green flag out to the side (+x). */
 export function conductor(b: Batcher, mats: Materials, put: (g: BufferGeometry) => BufferGeometry): void {
-  const coat = "#7b2333";
-  pegBody(b, mats, put, coat);
-  for (const y of [4.5, 7, 9.5]) b.add(mats.lacquer("#d9a93a"), put(new SphereGeometry(0.6, 6, 4).translate(0, y, 3.7 - y * 0.08)));
-  b.add(mats.lacquer("#1f2f57"), put(new CylinderGeometry(3.5, 3.5, 2.6, 14).translate(0, 17.2, 0)));
-  b.add(mats.lacquer("#d9a93a"), put(new CylinderGeometry(3.56, 3.56, 0.6, 14).translate(0, 16.3, 0)));
-  b.add(mats.lacquer("#2a2b2e"), put(new BoxGeometry(4, 0.6, 2.4).translate(0, 16.1, 3.4)));
-  b.add(mats.lacquer(coat), put(new SphereGeometry(1.2, 8, 6).translate(4.6, 10.5, 0.6)));
-  b.add(mats.naturalWood, put(new CylinderGeometry(0.35, 0.35, 13, 6).translate(4.8, 14, 0.6)));
-  b.add(mats.lacquer("#3c8f4e"), put(new BoxGeometry(6, 4.4, 0.5).translate(4.8 + 3, 18.2, 0.6)));
+  addPart(b, mats, "conductor", put);
 }
 
 /** A porter in a brown coat and cap pushing a luggage barrow piled with cases; the barrow runs toward +x. */
 export function porter(b: Batcher, mats: Materials, put: (g: BufferGeometry) => BufferGeometry): void {
-  const coat = "#6b3f22";
-  const at = (g: BufferGeometry) => put(g.translate(-16, 0, 0));
-  pegBody(b, mats, at, coat);
-  b.add(mats.lacquer(coat), at(new CylinderGeometry(3.5, 3.5, 2.4, 14).translate(0, 17.1, 0)));
-  b.add(mats.lacquer("#2a2b2e"), at(new BoxGeometry(2.4, 0.6, 4).translate(3.4, 16.1, 0)));
-  // The barrow: beech deck on four black wheels, a green handle toward the porter.
-  b.add(mats.naturalWood, put(new RoundedBoxGeometry(22, 2, 9, 1, 0.6).translate(0, 4.5, 0)));
-  for (const x of [-7, 7]) for (const z of [-4.4, 4.4]) b.add(mats.lacquer("#2a2b2e"), put(new CylinderGeometry(2.2, 2.2, 1.4, 12).rotateX(Math.PI / 2).translate(x, 2.2, z)));
-  for (const z of [-3.6, 3.6]) b.add(mats.lacquer(IRON), put(new BoxGeometry(1, 6, 1).translate(-11, 8, z)));
-  b.add(mats.lacquer(IRON), put(new CylinderGeometry(0.6, 0.6, 9, 8).rotateX(Math.PI / 2).translate(-11, 11, 0)));
-  // The luggage.
-  b.add(mats.lacquer("#7a3b26"), put(new RoundedBoxGeometry(10, 6, 8, 1, 1).translate(-3, 8.5, 0)));
-  b.add(mats.lacquer("#d9a93a"), put(new BoxGeometry(10.2, 0.8, 8.2).translate(-3, 9, 0)));
-  b.add(mats.lacquer("#2f6db5"), put(new RoundedBoxGeometry(8, 3, 6, 1, 0.8).translate(-3, 13, -0.5)));
-  b.add(mats.lacquer("#c8442f"), put(new RoundedBoxGeometry(6, 2.6, 5, 1, 0.8).translate(-3, 15.8, -0.5)));
-  b.add(mats.lacquer("#e98aa8"), put(new CylinderGeometry(3, 3, 3.5, 14).translate(5, 7.3, 1)));
-  b.add(mats.lacquer(CREAM), put(new CylinderGeometry(3.05, 3.05, 0.7, 14).translate(5, 8.6, 1)));
+  addPart(b, mats, "porter", put);
 }
 
 /** A traveller in a green coat and bowler hat with a brown suitcase at their side (+x). */
 export function traveller(b: Batcher, mats: Materials, put: (g: BufferGeometry) => BufferGeometry): void {
-  pegBody(b, mats, put, "#3c8f4e");
-  b.add(mats.lacquer("#2a2b2e"), put(new SphereGeometry(3, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 16.3, 0)));
-  b.add(mats.lacquer("#2a2b2e"), put(new CylinderGeometry(4.3, 4.3, 0.6, 14).translate(0, 16.4, 0)));
-  b.add(mats.lacquer("#7a3b26"), put(new RoundedBoxGeometry(7, 5.5, 2.4, 1, 0.6).translate(7.4, 3.4, 0)));
-  b.add(mats.lacquer("#d9a93a"), put(new BoxGeometry(7.1, 0.7, 2.5).translate(7.4, 3.4, 0)));
-  b.add(mats.lacquer("#2a2b2e"), put(new BoxGeometry(2.6, 1.6, 0.8).translate(7.4, 6.6, 0)));
+  addPart(b, mats, "traveller", put);
 }

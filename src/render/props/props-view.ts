@@ -75,7 +75,14 @@ export class PropsView {
         if (model === undefined) {
           if (!this.waiting.has(key)) {
             this.waiting.add(key);
-            void this.library.load(key).then(() => this.waiting.delete(key));
+            // If it can't be fetched, stop waiting: the next sync asks again.
+            this.library.load(key).then(
+              () => this.waiting.delete(key),
+              (e: unknown) => {
+                console.warn(`Woodrail: couldn't load the model ${key}`, e);
+                this.waiting.delete(key);
+              },
+            );
           }
           continue;
         }

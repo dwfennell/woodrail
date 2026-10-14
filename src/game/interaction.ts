@@ -2043,10 +2043,13 @@ export class Interaction {
     };
     if (g.propLibrary.model(key) !== undefined) dress();
     else
-      void g.propLibrary.load(key).then(() => {
-        dress();
-        if (this.mode.kind === "drag-prop" && this.mode.ghost === ghost) this.updateDrag(this.lastX, this.lastY);
-      });
+      g.propLibrary.load(key).then(
+        () => {
+          dress();
+          if (this.mode.kind === "drag-prop" && this.mode.ghost === ghost) this.updateDrag(this.lastX, this.lastY);
+        },
+        (e: unknown) => console.warn(`Woodrail: couldn't load the model ${key}`, e),
+      );
     g.scene.add(ghost);
     return { kind: "drag-prop", pointerId, asset, propId, from, heading, offset, ghost, pose: { x: 0, z: 0, heading, y: 0 }, blocked: null, overTray: true, track: new TrackIndex(g.layout) };
   }

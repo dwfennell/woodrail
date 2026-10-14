@@ -1,4 +1,4 @@
-import { Group, Mesh, Vector3 } from "three";
+import { Group, Mesh, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre } from "./editor/editor";
 import { frameDistance } from "./game/camera-director";
@@ -11,6 +11,8 @@ import { hasSave, loadFromStorage, loadGoals, saveGoals, saveToStorage, serializ
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
+import { loadBlenderModels, loadModelSet } from "./render/blender-models";
+import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -736,14 +738,124 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     enter(mode);
     openingView();
   } else showTitle();
+  progress.finish();
   loading?.classList.add("done");
+  // The loading screen fades out (0.6 s); its toys go with it.
+  setTimeout(() => toys?.stop(), 700);
+}
+
+/** Say on the loading screen that the toys couldn't be fetched, with a button to try again. */
+function offerRetry(again: () => void): void {
+  const box = loading?.querySelector("div");
+  if (!box) return;
+  const note = document.createElement("p");
+  note.textContent = "Couldn't fetch the toys. Check the connection, then try again.";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "load-retry";
+  button.textContent = "Try again";
+  button.addEventListener("click", () => {
+    note.remove();
+    button.remove();
+    again();
+  });
+  box.append(note, button);
+}
+
+/**
+ * The loading bar: each part of the loading has a share of it (the track pieces by how many are carved). It stops just
+ * short of the end until the game is built.
+ */
+const progress = (() => {
+  const bar = loading?.querySelector<HTMLElement>(".load-bar");
+  const shares = { trains: 0.15, dressing: 0.15, thumbnails: 0.05, pieces: 0.55 };
+  const done: Record<keyof typeof shares, number> = { trains: 0, dressing: 0, thumbnails: 0, pieces: 0 };
+  const show = (p: number) => {
+    bar?.style.setProperty("--p", p.toFixed(3));
+    bar?.setAttribute("aria-valuenow", String(Math.round(p * 100)));
+  };
+  return {
+    /** How far along a part is (0 to 1). */
+    set(part: keyof typeof shares, fraction: number): void {
+      done[part] = Math.max(done[part], fraction);
+      show((Object.keys(shares) as (keyof typeof shares)[]).reduce((p, k) => p + shares[k] * done[k], 0));
+    },
+    finish: () => show(1),
+  };
+})();
+
+/** Toys hopping onto the loading screen as their models arrive (none if WebGL won't start for it). */
+const toys = ((): LoadingToys | null => {
+  const canvas = loading?.querySelector<HTMLCanvasElement>(".loading-toys");
+  if (!canvas) return null;
+  try {
+    return new LoadingToys(canvas);
+  } catch {
+    canvas.remove();
+    return null;
+  }
+})();
+if (toys) {
+  // One after another: the train, then the platform's folk, the street's furniture, and (if they're in before the
+  // game is) a few buildings. The buildings come after what the game needs, so they never hold it up.
+  const pop = async (models: Map<string, Object3D>, shelf: Shelf, list: [string, Record<string, string>?][]) => {
+    for (const [id, slots] of list) {
+      const model = models.get(id);
+      if (model) toys.add(model, shelf, slots);
+      await new Promise((r) => setTimeout(r, 180));
+    }
+  };
+  void (async () => {
+    try {
+      const trains = loadModelSet("trains");
+      const dressing = loadModelSet("dressing", true);
+      await pop(await trains, "train", [["engine-classic"], ["passenger-classic"], ["passenger-dining"], ["hopper-classic"], ["timber-classic"], ["caboose-classic"]]);
+      await dressing;
+      const buildings = loadModelSet("buildings", true);
+      await pop(await dressing, "folk", [
+        ["porter"],
+        ["peg-doll-hat", { coat: "#2f6db5", hat: "#2a2b2e" }],
+        ["traveller"],
+        ["peg-doll", { coat: "#3f8f4e" }],
+        ["conductor"],
+        ["peg-doll-hat", { coat: "#e6b52c", hat: "#c8442f" }],
+        ["peg-doll", { coat: "#c8442f" }],
+      ]);
+      await pop(await dressing, "street", [
+        ["lamp"],
+        ["bench"],
+        ["postbox"],
+        ["planter", { flower0: "#d9443a", flower1: "#e6b52c", flower2: "#e98aa8", flower3: "#f3ead8" }],
+        ["fountain"],
+        ["phone"],
+        ["busstop"],
+        ["lamp"],
+      ]);
+      await pop(await buildings, "town", [["bldg-thatched-cottage"], ["bldg-signal-box"], ["bldg-church"], ["bldg-windmill"], ["bldg-toy-shop"], ["bldg-water-tower"]]);
+    } catch {
+      // The loading screen says so itself (see offerRetry).
+    }
+  })();
 }
 
 // Let the loading screen paint, carve the track pieces in background workers (several at once), then build the rest.
 requestAnimationFrame(() =>
   setTimeout(() => {
     const t0 = performance.now();
-    void Promise.all([TrackView.prebuildInWorkers(PIECE_TYPES), loadCached<Map<string, string>>("thumbnails", __BUILD_ID__)]).then(([, thumbs]) => {
+    // The trains and the map's building parts are needed before anything is built: the loading screen stays until
+    // they're in (each fetch retries), and offers to try again if they can't be had.
+    const models = (): Promise<void> =>
+      loadBlenderModels().catch((e: unknown) => {
+        console.error("Woodrail: couldn't load the models", e);
+        return new Promise<void>((resolve) => offerRetry(() => resolve(models())));
+      });
+    void loadModelSet("trains").then(() => progress.set("trains", 1), () => {});
+    void loadModelSet("dressing", true).then(() => progress.set("dressing", 1), () => {});
+    void Promise.all([
+      TrackView.prebuildInWorkers(PIECE_TYPES, (n, total) => progress.set("pieces", n / total)).then(() => progress.set("pieces", 1)),
+      loadCached<Map<string, string>>("thumbnails", __BUILD_ID__).then((t) => (progress.set("thumbnails", 1), t)),
+      models(),
+    ]).then(([, thumbs]) => {
       console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms`);
       boot(thumbs);
     });
