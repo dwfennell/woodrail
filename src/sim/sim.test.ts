@@ -299,12 +299,28 @@ describe("coupling", () => {
     expect(sim.getTrain(sim.trainIds()[0])!.cars).toHaveLength(2);
   });
 
-  it("a fast impact derails both trains", () => {
+  it("a fast run into a train ahead doesn't derail: it slows to that train's pace and couples", () => {
     const { sim, a, b } = twoTrains(["hopper"]);
     sim.getTrain(a)!.speed = 400; // shoved hard by hand, motor off
     run(sim, 2);
-    expect(sim.getTrain(a)!.derailed).toBe(true);
-    expect(sim.getTrain(b)!.derailed).toBe(true);
+    expect(sim.drainEvents().some((e) => e.kind === "derailed")).toBe(false);
+    expect(sim.trainCount).toBe(1);
+    void b;
+  });
+
+  it("two trains meeting head on stop, wait, and each turn back: no crash, no coupling", () => {
+    const { layout, ids } = longLine(14);
+    const sim = new Sim(layout);
+    const a = sim.addTrain(["engine", "hopper"], { pieceId: ids[4], pathIndex: 0, reversed: false, s: 100 });
+    const b = sim.addTrain(["engine", "hopper"], { pieceId: ids[9], pathIndex: 0, reversed: true, s: 100 });
+    if (a.kind !== "placed" || b.kind !== "placed") throw new Error("not placed");
+    sim.setLever(sim.getTrain(a.trainId)!.cars[0].id, 1);
+    sim.setLever(sim.getTrain(b.trainId)!.cars[0].id, 1);
+    run(sim, 12);
+    const events = sim.drainEvents();
+    expect(events.some((e) => e.kind === "derailed" || e.kind === "coupled")).toBe(false);
+    expect(events.filter((e) => e.kind === "turned").map((e) => e.trainId)).toEqual(expect.arrayContaining([a.trainId, b.trainId]));
+    expect(sim.trainCount).toBe(2);
   });
 });
 
@@ -374,6 +390,25 @@ describe("track edits under trains", () => {
     expect(t.derailed).toBe(false);
     expect(t.cars.map((c) => c.kind)).toEqual(["engine", "hopper"]);
     expect(t.cars[0].lever).toBe(0);
+  });
+
+  it("rerail slides a train along the track to free room when another train lies where it came off", () => {
+    const { layout, ids } = longLine(10);
+    const sim = new Sim(layout);
+    const a = sim.addTrain(["engine", "hopper"], { pieceId: ids[2], pathIndex: 0, reversed: false, s: 100 });
+    const b = sim.addTrain(["engine", "hopper"], { pieceId: ids[6], pathIndex: 0, reversed: false, s: 100 });
+    if (a.kind !== "placed" || b.kind !== "placed") throw new Error("not placed");
+    // a comes off the track (the piece under it lifted and put back)...
+    layout.liftPiece(ids[2]);
+    sim.trackChanged();
+    layout.dropPiece(ids[2], layout.getPiece(ids[2])!.pose, 0);
+    expect(sim.getTrain(a.trainId)!.derailed).toBe(true);
+    // ...and is put back where b stands: it goes on beside b instead.
+    const at = sim.getTrain(b.trainId)!.world[1];
+    const back = sim.rerail(a.trainId, 150, { x: at.x, z: at.z });
+    expect(back).not.toBe(-1);
+    expect(sim.getTrain(back)!.derailed).toBe(false);
+    expect(sim.trainCount).toBe(2);
   });
 });
 

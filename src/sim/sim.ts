@@ -19,6 +19,9 @@ export const SIM_HZ = 120;
 export const SIM_DT = 1 / SIM_HZ;
 /** A train stopped at the end of the line waits this long (2 s) before driving back. */
 export const TURNBACK_TICKS = 2 * SIM_HZ;
+/** How far along the track (mm) a re-railed train may be slid to find room, and in what steps. */
+const RERAIL_SLIDE = 1200;
+const RERAIL_STEP = 24;
 /** How far (mm) a turned train is set down away from the buffer it turned at. */
 const TURN_CLEARANCE = 0.05;
 
@@ -28,7 +31,6 @@ const DRIVE_RESPONSE = 3; // 1/s: how quickly a motor pulls toward its target sp
 const GRAVITY = 600; // mm/s² per unit slope — toy-scaled so ramps matter without stalling trains
 const ROLLING_FRICTION = 40; // mm/s² when coasting
 const LOAD_PER_CAR = 0.05; // fractional speed loss per trailing car per engine
-const COUPLE_MAX_SPEED = 220; // closing speed above which contact is a crash
 const SIDE_HIT_DISTANCE = 12;
 
 export interface Car {
@@ -304,8 +306,20 @@ export class Sim {
       const near = nearestCursor(this.layout, at.x, at.z, maxDistance, heading);
       if (!near) return -1;
       this.trains.delete(trainId);
-      const placed = this.addTrain(kinds, near.cursor, ids);
-      if (placed.kind === "placed") return placed.trainId;
+      // Where it lies, or slid along the track either way to the nearest stretch that's free (another train may be
+      // lying where it came off).
+      for (let d = 0; d <= RERAIL_SLIDE; d += RERAIL_STEP) {
+        for (const way of d === 0 ? [1] : [1, -1]) {
+          const c = { ...near.cursor };
+          if (d > 0) {
+            if (way === -1) flipCursor(this.layout, c);
+            if (advanceCursor(this.layout, c, d, null, adv).status !== ADV_OK) continue;
+            if (way === -1) flipCursor(this.layout, c);
+          }
+          const placed = this.addTrainAround(kinds, c, ids);
+          if (placed.kind === "placed") return placed.trainId;
+        }
+      }
       this.trains.set(trainId, train);
     }
     return -1;
@@ -332,6 +346,8 @@ export class Sim {
         // No room to set it down turned round: just send it back.
         for (const car of train.cars) if (car.kind === "engine") car.lever = (-car.lever) as -1 | 0 | 1;
       }
+      // Waiting to turn back, it stands still (not pressing on into a buffer or a train it met).
+      if (train.turnback >= 0) continue;
       this.move(train);
     }
     this.resolveContacts();
@@ -516,26 +532,41 @@ export class Sim {
       for (const b of this.trains.values()) {
         if (b === a || b.derailed || !this.trains.has(a.id)) continue;
         const reach = Math.max(4, a.speed * SIM_DT + 2);
+        // End to end (met head on): not a blow to b's side.
+        let ends = false;
         for (let side = 0; side < 2; side++) {
           const front = side === 1;
           this.endFace(b, front, otherFace);
           if (Math.hypot(face.x - otherFace.x, face.z - otherFace.z) > reach || Math.abs(face.y - otherFace.y) > 20) continue;
           const closing = a.speed + (front ? b.speed : -b.speed);
           if (closing <= 0) continue;
-          if (closing > COUPLE_MAX_SPEED) {
-            this.derail(a);
-            this.derail(b);
-          } else {
-            // A gentle touch always couples, whichever way the cars' magnets face (a toy that never refuses).
-            this.couple(a, b, front);
+          if (front) {
+            // Head on: like the end of the line, each stops, waits, and turns back (coupled, their engines would
+            // only push against each other).
+            this.meet(a);
+            if (b.speed > 0) this.meet(b);
+            ends = true;
+            continue;
           }
+          // Catching up with a train ahead couples on, whichever way the cars' magnets face (a toy that never
+          // refuses), however fast: they go on together at their shared pace.
+          this.couple(a, b, front);
           return this.resolveContacts();
         }
-        if (this.hitsSide(b)) {
+        if (!ends && this.hitsSide(b)) {
           this.derail(a);
           this.derail(b);
         }
       }
+    }
+  }
+
+  /** A train stopped by another meeting it head on: it waits, then turns back (as at the end of the line). */
+  private meet(t: Train): void {
+    t.speed = 0;
+    if (t.turnback < 0) {
+      t.turnback = TURNBACK_TICKS;
+      this.events.push({ kind: "buffer", trainId: t.id });
     }
   }
 
