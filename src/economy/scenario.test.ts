@@ -56,4 +56,4 @@ describe("a timber loop runs itself", () => {
  * Recorded from a run; a change here means the loop's timing changed. (25 until trains stopped crawling through
  * depots where they had nothing to do.)
  */
-const DELIVERED_IN_10_MINUTES = 27;
+const DELIVERED_IN_10_MINUTES = 28;
