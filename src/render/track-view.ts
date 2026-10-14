@@ -18,7 +18,7 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { canStandOnArches, getPieceDef, isBridge, pathLength, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceTypeId, type PlacedPiece } from "../track";
+import { canStandOnArches, flipSwapsEnds, getPieceDef, isBridge, pathLength, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceTypeId, type PlacedPiece } from "../track";
 import { MAX_BRIDGE_LEVELS } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
@@ -36,7 +36,8 @@ export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0): 
   let g = geometryCache.get(key);
   if (!g) {
     // A mirrored piece is its plain shape reflected across its centre line: no need to carve it again.
-    g = def === getPieceDef(type, false) ? buildPieceGeometry(def, levels) : mirrored(pieceGeometry(type, false, levels));
+    // A piece whose flip swaps its ends' peg and hole is carved as it is.
+    g = def === getPieceDef(type, false) || flipSwapsEnds(type) ? buildPieceGeometry(def, levels) : mirrored(pieceGeometry(type, false, levels));
     geometryCache.set(key, g);
   }
   return g;
