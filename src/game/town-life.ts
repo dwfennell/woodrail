@@ -1,5 +1,5 @@
 import type { Bag } from "../economy/goods";
-import { kindsOf, minus } from "../economy/goods";
+import { kindsOf, minus, total } from "../economy/goods";
 import type { CargoKind } from "../economy/cargo";
 import { LandEditor } from "../landscape/edit";
 import type { Town } from "../landscape";
@@ -9,6 +9,7 @@ import type { SignBadge } from "../render/landscape-view";
 import type { Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
 import { buildOnLots, lotPoint, nextLots } from "./town-growth";
+import { landmarkAt, townLandmarks } from "./landmarks";
 import { housesBy, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
 
@@ -87,7 +88,8 @@ export class TownLife {
   update(): void {
     for (const town of this.game.landscape.towns) {
       const received = receivedBy(this.game, town.id);
-      const key = `${received.planks}`;
+      // Deliveries only add up: their total changes whenever anything arrives (any good, not just planks).
+      const key = `${total(received)}`;
       if (this.shown.get(town.id) === key) continue;
       this.shown.set(town.id, key);
       const status = townStatus(received);
@@ -114,6 +116,12 @@ export class TownLife {
     const houses = housesBy(status.level) - housesBy(from);
     const editor = new LandEditor(g.landscape, g.layout, { inRect: (x0, z0, x1, z1) => propsInRect(g.props, (a) => g.footprintOf(a), x0, z0, x1, z1) });
     const lots = nextLots(g.landscape, town, editor, houses);
+    // A landmark goes up as it reaches its level: on a two-square lot if there is one (they're big buildings).
+    const landmark = landmarkAt(status.level);
+    if (landmark && !townLandmarks(town).has(landmark.id) && lots.length > 0) {
+      const lot = lots.find((l) => l.cells.length > 1) ?? lots[0];
+      lot.landmark = landmark.id;
+    }
     if (lots.length > 0) {
       const slots = buildOnLots(g.landscape, town, lots);
       addTownProps(g.landscape, g.props);

@@ -3,6 +3,7 @@ import { CELL, FEAT_BUILDING, FEAT_NONE, SURF_TOWN, type Building, type Landscap
 import { footprintOf, townLooks, type Look } from "../render/dressing/buildings";
 import { COLOR_VARIANTS } from "../render/props/library";
 import type { PropStore } from "./store";
+import { landmarkOf } from "../game/landmarks";
 
 /**
  * Towns built from catalogue models: each town building (`towns[].buildings`, generated with the map) becomes a prop
@@ -70,7 +71,10 @@ export function townProps(land: Landscape, town: Town): TownProp[] {
   return town.buildings.map((b, k) => {
     const squares = b.cells.length > 1 ? 2 : 1;
     const options = BY_LOOK[looks[k]][squares] ?? (squares === 2 ? HOUSES_2 : styles);
-    const asset = pick(options);
+    // A landmark: its own model, the first of its list that's in the catalogue (others stand in until it is).
+    const mark = b.landmark ? landmarkOf(b.landmark) : undefined;
+    const marked = mark && (squares === 2 ? mark.models.two : mark.models.one).find((a) => a in SIZE);
+    const asset = marked ?? pick(options);
     const variant = Math.floor(r() * (COLOR_VARIANTS + 1));
     return { asset, ...poseFor(land, town, b, looks[k], asset), building: b.id, town: town.id, variant };
   });

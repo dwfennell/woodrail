@@ -16,7 +16,8 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
-import { offerOnGrowth, payDelivery } from "./game/rewards";
+import { offerOnGrowth, payDelivery, schoolIdeas } from "./game/rewards";
+import { landmarkOf, landmarksOf } from "./game/landmarks";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
@@ -575,13 +576,21 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   // Game mode's towns: they want things, and grow when they get them.
   const townLife = new TownLife(game, {
-    received: (_town, kind, n, before) => {
-      payDelivery(progress, kind, n, before);
+    received: (town, kind, n, before) => {
+      payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
     },
     grew: (town, status, built) => {
       // Its new houses may have felled trees a harvester counted.
       industriesChanged();
+      // A landmark may have gone up (a school, a market, a library): what it opens comes with it.
+      const before = new Set(progress.landmarks);
+      syncLandmarks();
+      for (const id of progress.landmarks) {
+        if (before.has(id)) continue;
+        const mark = landmarkOf(id)!;
+        hud.toast(`${town.name} has ${aOrAn(mark.name.toLowerCase())}! ${mark.blurb}`, true, 5200);
+      }
       const level = aOrAn(status.name.toLowerCase());
       hud.toast(built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`, true, 3600);
       audio.chime();
@@ -733,7 +742,9 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       if (offer !== -1) return { ...base, state: "offered" as const, offer };
       if (progress.board.has(t.id) && ready(progress, t.id)) return { ...base, state: "ready" as const, cost: describeGoods(t.cost), planks: t.cost.planks ?? 0, affordable: covers(stock, t.cost) };
       const missing = t.needs.filter((n) => !progress.learned.has(n));
-      return { ...base, state: "locked" as const, waits: missing.length > 0 ? `Learn ${missing.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")} first` : "A town will offer it as it grows" };
+      const mark = t.landmark && !progress.landmarks.has(t.landmark) ? landmarkOf(t.landmark) : undefined;
+      const waits = missing.length > 0 ? `Learn ${missing.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")} first` : mark ? `Needs a ${mark.name.toLowerCase()}: grow a town to a ${["", "village", "town", "city"][mark.level] ?? "city"}` : "A town will offer it as it grows";
+      return { ...base, state: "locked" as const, waits };
     });
     const hasWorkshop = workshops(game.world).length > 0;
     board.show({
@@ -746,8 +757,23 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   // The workshop's clock: a few times a second, not every frame (it runs while nothing on screen moves).
   const CRAFT_STEP = 0.25;
+  const schoolClock = { seconds: 0 };
+  /** The landmarks your towns have, from the map (a blueprint may need a library). */
+  function syncLandmarks(): void {
+    progress.landmarks.clear();
+    for (const id of landmarksOf(game.landscape)) progress.landmarks.add(id);
+  }
   setInterval(() => {
     if (mode === "game" && board.open) refreshBoard();
+    // Schools have ideas while the game runs.
+    if (mode === "game" && playing && !game.paused) {
+      const from = schoolIdeas(progress, game.landscape, schoolClock, CRAFT_STEP, Math.random);
+      if (from) {
+        hud.toast(`${from} has an idea: open Blueprints to choose`, true, 4200);
+        refreshBoard();
+        scheduleSave();
+      }
+    }
     if (mode !== "game" || !playing || game.paused || progress.orders.length === 0) return;
     const wasMaking = progress.making;
     const made = crafting.tick(game.world, CRAFT_STEP);
@@ -972,6 +998,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     if (mode === "game") {
       townLife.reset();
       progress.coverMap(game.world);
+      syncLandmarks();
       hud.trayBadge = trayBadge;
       hud.setCoins(progress.coins);
       refreshBoard();

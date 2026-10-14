@@ -40,6 +40,8 @@ export interface Building {
   front?: 0 | 1 | 2 | 3;
   /** On a street corner (a good spot for a shop). */
   corner?: boolean;
+  /** A town landmark (Game mode: a school, a market, a library; see game/landmarks.ts). */
+  landmark?: string;
 }
 
 export interface Town {

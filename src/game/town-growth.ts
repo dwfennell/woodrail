@@ -12,6 +12,8 @@ export interface Lot {
   front?: 0 | 1 | 2 | 3;
   corner?: boolean;
   streets?: [number, number][];
+  /** A landmark goes up here (see game/landmarks.ts). */
+  landmark?: string;
 }
 
 /** How far from its centre (mm) a town may spread: about six squares. */
@@ -215,6 +217,7 @@ export function buildOnLots(land: Landscape, town: Town, lots: readonly Lot[]): 
       roof: Math.floor(r() * 4),
       ...(lot.front !== undefined ? { front: lot.front } : {}),
       ...(lot.corner ? { corner: true } : {}),
+      ...(lot.landmark ? { landmark: lot.landmark } : {}),
     };
     for (const c of lot.cells) {
       if (g.surface[c] === SURF_GRASS) g.surface[c] = SURF_TOWN;
