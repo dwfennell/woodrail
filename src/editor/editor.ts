@@ -157,6 +157,20 @@ export class Editor {
   }
 
   /** Move a piece (it may currently be lifted for dragging; `from` is where it was picked up). */
+  /**
+   * Pieces pushed a little, together (a run of track pulled along): from `before` to `after`, keeping their joints.
+   * Their ends may then close near misses (a run's tail pulled up to a station). One undo step.
+   */
+  nudge(before: ReadonlyMap<number, Pose>, after: ReadonlyMap<number, Pose>): void {
+    const ids = [...after.keys()];
+    this.run({
+      do: () => this.layout.nudgePieces(after),
+      undo: () => this.layout.nudgePieces(before),
+      moves: ids,
+      seats: () => ids,
+    });
+  }
+
   /** Move a piece; `flipped`, when given, is how it lands (a ramp may swap its ends to fit where it's put). */
   move(id: number, pose: Pose, y: number, from?: { pose: Pose; y: number }, risers: readonly RiserAt[] = [], flipped?: boolean): boolean {
     const rec = this.record(id);
@@ -280,6 +294,8 @@ export class Editor {
         nudged(after);
       },
       undo: () => {
+        // Near misses it closed part again (a pushed run isn't taken up, which would part them).
+        for (const ref of close) this.layout.unseat(ref);
         this.layout.nudgePieces(before);
         c.undo();
         nudged(before);

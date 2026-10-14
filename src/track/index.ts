@@ -7,6 +7,7 @@ export * from "./path";
 export * from "./relax";
 export * from "./pieces";
 export * from "./routing";
+export * from "./run";
 export * from "./snap";
 export * from "./spatial-hash";
 export * from "./stress-layout";

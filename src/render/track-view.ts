@@ -373,6 +373,26 @@ export class TrackView {
     if ((n > 0) !== (n - (hidden ? 1 : -1) > 0)) this.sync();
   }
 
+  /**
+   * Redraw pieces where they now are, their instances only (a run of track being pulled along: called on pointer
+   * moves, so no rebuild). Pieces not drawn (lifted, hidden) are skipped.
+   */
+  moveInstances(ids: Iterable<number>): void {
+    const m = new Matrix4();
+    for (const id of ids) {
+      const p = this.layout.getPiece(id);
+      if (!p) continue;
+      for (const entry of [...this.meshes.values(), ...(this.bufferMesh ? [this.bufferMesh] : [])]) {
+        const i = entry.ids.indexOf(id);
+        if (i === -1) continue;
+        entry.mesh.setMatrixAt(i, pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading, m));
+        entry.mesh.instanceMatrix.needsUpdate = true;
+        entry.mesh.computeBoundingSphere();
+      }
+    }
+    this.syncOutline();
+  }
+
   /** Refresh only switch levers (after a switch flips). */
   syncSwitches(): void {
     this.syncLevers();

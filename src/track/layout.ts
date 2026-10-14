@@ -194,6 +194,19 @@ export class Layout {
     return this.joinedTo.has(ref);
   }
 
+  /** Part a joint (undoing a near miss closed): both ends become free where they are. */
+  unseat(ref: number): void {
+    const partner = this.joinedTo.get(ref);
+    if (partner === undefined) return;
+    this.joinedTo.delete(ref);
+    this.joinedTo.delete(partner);
+    this.jointMap.delete(Math.min(ref, partner));
+    for (const r of [ref, partner]) {
+      const w = this.worldConnector(r, scratchA);
+      this.freeConnectors.insert(r, w.x, w.z);
+    }
+  }
+
   private seatAll(id: number): void {
     const piece = this.pieces.get(id)!;
     const count = getPieceDef(piece.type, piece.flipped).connectors.length;

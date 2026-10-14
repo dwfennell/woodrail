@@ -8,7 +8,7 @@ import { ghostMesh, pieceGeometry } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, bridgeLevels, CELL, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { findLowCrossing, findOverlap, findSnap, flipSwapsEnds, findSnapAtPoint, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, findLowCrossing, findOverlap, findSnap, flipSwapsEnds, relaxJoints, runOf, findSnapAtPoint, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
@@ -48,6 +48,8 @@ function trainSpan(cars: readonly { kind: CarKind }[], index: number): number {
 const GRAB_MIN_PX = 54;
 const GRAB_PIECE_MM = 144;
 const DRAG_THRESHOLD = 6;
+/** How far (mm) a placed piece can be pulled with its run of track before it pops off on its own: half a square. */
+const PULL_BREAK = 36;
 /** How high a held piece floats above where it would land (mm). */
 const HOLD_LIFT = 12;
 /** An OrbitControls touch mapping that does nothing (it falls through to "no gesture"). */
@@ -73,6 +75,19 @@ type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; 
 type Mode =
   | { kind: "idle" }
   | { kind: "press"; press: Press; pointerId: number; x: number; y: number; ground: Vector3 }
+  | {
+      /** A placed piece pulled a little: its run of track comes along (see `runOf`), until pulled far enough to pop off. */
+      kind: "pull-run";
+      pointerId: number;
+      pieceId: number;
+      /** Where on the ground it was taken hold of. */
+      grab: Vector3;
+      /** The piece and the free tails that follow it rigidly. */
+      movers: Set<number>;
+      /** Where the movers and the track that bends were before the pull, and where they are now. */
+      before: Map<number, Pose>;
+      after: Map<number, Pose>;
+    }
   | {
       kind: "drag-piece";
       pointerId: number;
@@ -434,7 +449,7 @@ export class Interaction {
         this.game.controls.enabled = true;
         return;
       }
-      if (m.press.kind === "piece") this.beginPieceMove(m.press.pieceId, m.pointerId, m.ground);
+      if (m.press.kind === "piece") this.beginPull(m.press.pieceId, m.pointerId, m.ground);
       else if (m.press.kind === "cargo") this.beginCargoDrag(m.press.slot, m.press.cargo, m.pointerId);
       else if (m.press.kind === "prop") this.beginPropMove(m.press.propId, m.pointerId, m.ground);
       else if (m.press.kind === "car") {
@@ -470,6 +485,7 @@ export class Interaction {
       return;
     }
     if (m.kind === "drag-piece") this.dropPiece(m);
+    else if (m.kind === "pull-run") this.dropPull(m);
     else if (m.kind === "drag-prop") this.dropProp(m);
     else if (m.kind === "drag-scenery") this.dropScenery(m);
     else if (m.kind === "drag-cargo") this.dropCargo(m, e.clientX, e.clientY);
@@ -526,6 +542,11 @@ export class Interaction {
       this.game.propsChanged(-1);
     } else if (m.kind === "drag-scenery") {
       this.outlineScenery(m.scenery, 0, 0);
+    } else if (m.kind === "pull-run") {
+      this.game.layout.nudgePieces(m.before);
+      this.game.trackView.moveInstances(m.before.keys());
+      this.game.moveShadows();
+      this.changed();
     }
     this.mode = { kind: "idle" };
   }
@@ -910,6 +931,72 @@ export class Interaction {
 
   // ---- dragging pieces --------------------------------------------------------------------------------------
 
+  /**
+   * A placed piece taken hold of: pulled a little, its run of track comes along (free tails follow, track held at an
+   * end bends); pulled further than `PULL_BREAK`, it pops off and is moved on its own. A piece joined to nothing is
+   * simply picked up.
+   */
+  private beginPull(pieceId: number, pointerId: number, ground: Vector3): void {
+    const g = this.game;
+    const stays = (id: number) => this.fixedLabel(id) !== null || g.sim.pieceOccupied(id);
+    const { followers, benders } = runOf(g.layout, pieceId, stays);
+    const p = g.layout.getPiece(pieceId);
+    const joined = p && getPieceDef(p.type, p.flipped).connectors.some((_, k) => g.layout.joinedConnector(connectorRef(pieceId, k)) !== -1);
+    if (!p || !joined || g.sim.pieceOccupied(pieceId)) {
+      this.beginPieceMove(pieceId, pointerId, ground);
+      return;
+    }
+    this.clearSelection();
+    this.hud.hideCards();
+    const movers = new Set([pieceId, ...followers]);
+    const before = new Map<number, Pose>();
+    for (const id of [...movers, ...benders]) before.set(id, { ...g.layout.getPiece(id)!.pose });
+    this.mode = { kind: "pull-run", pointerId, pieceId, grab: ground.clone(), movers, before, after: new Map(before) };
+  }
+
+  private updatePull(m: Extract<Mode, { kind: "pull-run" }>, x: number, y: number): void {
+    const g = this.game;
+    const at = this.groundAt(x, y);
+    if (!at) return;
+    const dx = at.x - m.grab.x;
+    const dz = at.z - m.grab.z;
+    if (Math.hypot(dx, dz) > PULL_BREAK) {
+      // Pulled hard: everything goes back, and the piece comes away on its own.
+      g.layout.nudgePieces(m.before);
+      g.trackView.moveInstances(m.before.keys());
+      this.mode = { kind: "idle" };
+      this.beginPieceMove(m.pieceId, m.pointerId, m.grab);
+      this.updateDrag(x, y);
+      return;
+    }
+    // The movers shift with the hand; the track held at an end bends to meet them (stations stay put till the drop).
+    g.layout.nudgePieces(m.before);
+    const moved = new Map<number, Pose>();
+    for (const id of m.movers) {
+      const p = m.before.get(id)!;
+      moved.set(id, { x: p.x + dx, z: p.z + dz, heading: p.heading });
+    }
+    g.layout.nudgePieces(moved);
+    const pinned = (id: number) => m.movers.has(id) || this.fixedLabel(id) !== null || g.sim.pieceOccupied(id);
+    const bent = relaxJoints(g.layout, [m.pieceId], pinned);
+    g.layout.nudgePieces(bent);
+    m.after = new Map([...m.before.keys()].map((id) => [id, { ...g.layout.getPiece(id)!.pose }]));
+    g.trackView.moveInstances(m.before.keys());
+    g.moveShadows();
+    g.invalidate();
+  }
+
+  private dropPull(m: Extract<Mode, { kind: "pull-run" }>): void {
+    const g = this.game;
+    this.mode = { kind: "idle" };
+    g.director.setEdgePointer(null);
+    // As one undo step; the run's ends may then close near misses (a tail pulled up to a station).
+    g.layout.nudgePieces(m.before);
+    this.editor().nudge(m.before, m.after);
+    g.trackView.sync();
+    this.onPlaced?.(false);
+  }
+
   private beginPieceMove(pieceId: number, pointerId: number, ground: Vector3): void {
     const layout = this.game.layout;
     const p = layout.getPiece(pieceId);
@@ -964,6 +1051,10 @@ export class Interaction {
 
   private updateDrag(x: number, y: number): void {
     const m = this.mode;
+    if (m.kind === "pull-run") {
+      this.updatePull(m, x, y);
+      return;
+    }
     if (m.kind === "drag-scenery") {
       this.updateSceneryDrag(m, x, y);
       return;
