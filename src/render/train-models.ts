@@ -16,7 +16,7 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 import { Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
 import { CAR_SPECS, type CarKind, type CarLook } from "../sim";
 import { GROOVE_SPACING, TRACK_THICKNESS } from "../track";
-import { blenderEngine } from "./blender-models";
+import { blenderCar } from "./blender-models";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
 import { GROOVE_DEPTH } from "./track-geometry";
@@ -134,13 +134,13 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
 
   const lampMaterial = () => new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
 
-  // The Blender pilot (`?blender`): the classic engine from public/models/engine.glb, when it's loaded.
-  if (kind === "engine" && look === "classic") {
-    const made = blenderEngine(mats, { body: body.userData.paintColor, trim: trim.userData.paintColor, wheel: "#b8432f", pane: "#a9cfe6", lamp: lampMaterial() });
-    if (made) {
-      made.root.traverse((o) => (o.userData.carKind = kind));
-      return made;
-    }
+  // The model made in Blender (tools/blender/trains.py), when it's loaded; the one built below otherwise.
+  // The classic engine's second colour scheme (the other looks have one each).
+  const recolor: Record<string, string> = variant === 1 && kind === "engine" && look === "classic" ? { [pal.body]: "#b8432f", [pal.trim]: "#1f3f73" } : {};
+  const made = blenderCar(kind, look, mats, lampMaterial(), recolor);
+  if (made) {
+    made.root.traverse((o) => (o.userData.carKind = kind));
+    return made;
   }
 
   if (kind === "engine" && look !== "classic") {

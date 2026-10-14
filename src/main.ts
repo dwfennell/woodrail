@@ -30,6 +30,9 @@ const OPENING_DISTANCE = 1000;
 /** How far a station or depot may turn when it gives (radians). */
 const GIVE_TURN = (4 * Math.PI) / 180;
 
+/** Tray thumbnails are cached per build, and apart for the built-in models (`?builtin`), which draw differently. */
+const THUMBS_KEY = blenderModelsWanted() ? __BUILD_ID__ : `${__BUILD_ID__}-builtin`;
+
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const loading = document.querySelector<HTMLDivElement>("#loading");
 
@@ -134,7 +137,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       ),
     );
     for (const [k, v] of drawn) thumbnails.set(k, v);
-    if (!blenderModelsWanted()) void saveCached("thumbnails", __BUILD_ID__, thumbnails);
+    void saveCached("thumbnails", THUMBS_KEY, thumbnails);
   }
 
   const hud = new Hud(
@@ -263,7 +266,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
         hud.setThumbnail(key, url);
         thumbnails.set(key, url);
         clearTimeout(thumbSaveTimer);
-        if (!blenderModelsWanted()) thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", __BUILD_ID__, thumbnails), 2000);
+        thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", THUMBS_KEY, thumbnails), 2000);
       }
       if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
     });
@@ -744,12 +747,10 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 requestAnimationFrame(() =>
   setTimeout(() => {
     const t0 = performance.now();
-    const blender = blenderModelsWanted();
     void Promise.all([
       TrackView.prebuildInWorkers(PIECE_TYPES),
-      // Tray thumbnails are cached per build: with the Blender pilot on, draw them afresh so they show its engine.
-      blender ? Promise.resolve(null) : loadCached<Map<string, string>>("thumbnails", __BUILD_ID__),
-      blender ? loadBlenderModels() : Promise.resolve(),
+      loadCached<Map<string, string>>("thumbnails", THUMBS_KEY),
+      blenderModelsWanted() ? loadBlenderModels() : Promise.resolve(),
     ]).then(([, thumbs]) => {
       console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms`);
       boot(thumbs);

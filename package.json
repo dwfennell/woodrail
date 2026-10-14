@@ -13,7 +13,7 @@
     "bench": "vite build --config bench/vite.config.ts --logLevel warn && node dist-bench/track.js",
     "catalogue": "vite --config catalogue/vite.config.ts",
     "catalogue:build": "vite build --config catalogue/vite.config.ts",
-    "models": "${BLENDER_PYTHON:-python3} tools/blender/engine.py && gltfpack -i tools/blender/out/engine.glb -o public/models/engine.glb -cc -kn -km"
+    "models": "${BLENDER_PYTHON:-python3} tools/blender/trains.py && mkdir -p public/models && gltfpack -i tools/blender/out/trains.glb -o public/models/trains.glb -cc -kn -km"
   },
   "repository": {
     "type": "git",

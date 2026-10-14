@@ -7,3 +7,5 @@ dist-catalogue
 .reports
 tools/blender/out/
 *.blend1
+tools/blender/*.blend
+__pycache__/

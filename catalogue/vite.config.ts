@@ -4,5 +4,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   root: "catalogue",
   base: "./",
+  // The game's public files (the Blender models).
+  publicDir: "../public",
   build: { outDir: "../dist-catalogue", emptyOutDir: true, chunkSizeWarningLimit: 4000 },
 });
