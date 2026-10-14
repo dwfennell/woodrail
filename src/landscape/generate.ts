@@ -108,6 +108,8 @@ const DEPOT_SPACING = 750;
 const TOWN_RADIUS = 210;
 const CORRIDOR_LENGTH = 6 * CELL;
 const CORRIDOR_HALF_WIDTH = 2 * CELL;
+/** On the starter map, from a first town's centre to its depot's (the sawmill beyond one, the forest beyond the other). */
+const STARTER_DEPOT_GAP = 1080;
 
 /** Chance that a town has a country lane. */
 const LANE_CHANCE = 0.8;
@@ -262,11 +264,13 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
   for (const town of towns) town.cells = town.cells.filter((i) => !protectedCells.has(i) || grid.feature[i] === FEAT_STATION);
 
   if (starter) {
-    const [a, b] = towns;
+    // The starter line: a clear strip along the first two towns' stations, from the sawmill to the forest yard.
+    const [a] = towns;
+    const [saw, forest] = depots;
     grid.forEachCell((i, col, row) => {
       const x = grid.centreX(col);
       const z = grid.centreZ(row);
-      if (x > a.centre.x + HALF_STATION - 32 && x < b.centre.x - HALF_STATION + 32 && Math.abs(z - a.centre.z) < CORRIDOR_HALF_WIDTH) {
+      if (x > saw.centre.x + HALF_STATION - 32 && x < forest.centre.x - HALF_STATION + 32 && Math.abs(z - a.centre.z) < CORRIDOR_HALF_WIDTH) {
         if (grid.feature[i] === FEAT_NONE) {
           protectedCells.add(i);
           grid.surface[i] = SURF_GRASS;
@@ -396,10 +400,15 @@ function placeTowns(random: () => number, region: Region, starter: boolean, inte
     cells: [],
     buildings: [],
   });
+  /** Keep other towns off the starter line (sawmill, the first two towns, forest yard) and clear of its depots. */
+  let offLine = (_x: number, _z: number) => true;
   if (starter) {
     const z = snap(-200 + random() * 300);
     towns.push(make(-540, z, 0));
     towns.push(make(540, z, 0));
+    const ends = [-540 - STARTER_DEPOT_GAP, 540 + STARTER_DEPOT_GAP];
+    offLine = (x, tz) =>
+      ends.every((ex) => Math.hypot(ex - x, z - tz) >= MIN_TOWN_SPACING) && !(Math.abs(tz - z) < 6 * CELL && x > ends[0] - 6 * CELL && x < ends[1] + 6 * CELL);
   }
   const x0 = region.px0 * PLOT_COLS * CELL;
   const z0 = region.pz0 * PLOT_ROWS * CELL;
@@ -411,6 +420,7 @@ function placeTowns(random: () => number, region: Region, starter: boolean, inte
     const z = snap(z0 + random() * d);
     const heading = normaliseHeading(Math.floor(random() * 4) * (Math.PI / 2));
     if (towns.some((t) => Math.hypot(t.centre.x - x, t.centre.z - z) < MIN_TOWN_SPACING)) continue;
+    if (!offLine(x, z)) continue;
     if (!fits({ x, z }, heading, interior, true)) continue;
     towns.push(make(x, z, heading));
   }
@@ -461,8 +471,13 @@ function placeDepots(local: number, seed: number, towns: readonly Town[], region
   const near = (p: { x: number; z: number }) => (c: { x: number; z: number }) => Math.hypot(c.x - p.x, c.z - p.z);
   const inTrees = (c: { x: number; z: number }) => -treeNoise(c.x / CELL / 5, c.z / CELL / 5);
   if (starter) {
-    add("sawmill", near(towns[0].centre));
-    add("forest", near(towns[1].centre));
+    // On one line with the first two towns' stations: the sawmill beyond the first town, the forest yard beyond the
+    // second, so the first timber line is one straight run (a clear strip joins them all: see `attemptRegion`).
+    const [a, b] = towns;
+    const put = (kind: DepotKind, x: number) =>
+      depots.push({ id: depots.length, kind, centre: { x, z: a.centre.z }, piece: { x: x - HALF_STATION, z: a.centre.z, heading: 0 } });
+    put("sawmill", a.centre.x - STARTER_DEPOT_GAP);
+    put("forest", b.centre.x + STARTER_DEPOT_GAP);
     return depots;
   }
   const mid =

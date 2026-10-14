@@ -104,7 +104,7 @@ describe("generateLandscape", () => {
   });
 
   // Game mode's first game is seed 7; later games are starter maps from any seed.
-  it.each([7, 1000, 8919, 72271, 230651])("starter maps (seed %i) line up towns 0 and 1 with a clear strip between them", (seed) => {
+  it.each([7, 1000, 8919, 72271, 230651])("starter maps (seed %i) line up the sawmill, towns 0 and 1 and the forest yard with a clear strip along them", (seed) => {
     const land = generateLandscape(seed, { starter: true });
     expect(land.towns).toHaveLength(5);
     expect(land.depots.map((d) => d.kind).sort()).toEqual(["forest", "sawmill"]);
@@ -115,11 +115,23 @@ describe("generateLandscape", () => {
     expect(b.station.z).toBeCloseTo(a.station.z);
     expect(b.centre.x - a.centre.x).toBeCloseTo(1080);
     const g = land.grid;
-    for (let x = a.centre.x + 108; x < b.centre.x - 108; x += CELL / 2) {
-      const cell = g.cellAtWorld(x, a.centre.z);
-      expect(g.height[cell]).toBe(0);
-      expect(g.feature[cell]).toBe(FEAT_NONE);
-      expect(g.surface[cell]).not.toBe(SURF_RIVER);
+    // The starter line: sawmill, first town, second town, forest yard, all on the stations' line.
+    const saw = land.depots.find((d) => d.kind === "sawmill")!;
+    const forest = land.depots.find((d) => d.kind === "forest")!;
+    for (const d of [saw, forest]) {
+      expect(d.piece.heading).toBe(0);
+      expect(d.piece.z).toBeCloseTo(a.station.z);
+    }
+    expect(saw.centre.x).toBeLessThan(a.centre.x);
+    expect(forest.centre.x).toBeGreaterThan(b.centre.x);
+    // Clear, flat and dry between each pair of neighbours on it.
+    for (const [x0, x1] of [[saw.centre.x, a.centre.x], [a.centre.x, b.centre.x], [b.centre.x, forest.centre.x]]) {
+      for (let x = x0 + 108; x < x1 - 108; x += CELL / 2) {
+        const cell = g.cellAtWorld(x, a.centre.z);
+        expect(g.height[cell], `x ${x}`).toBe(0);
+        expect(g.feature[cell], `x ${x}`).toBe(FEAT_NONE);
+        expect(g.surface[cell], `x ${x}`).not.toBe(SURF_RIVER);
+      }
     }
   });
 });
