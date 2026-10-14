@@ -313,7 +313,7 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     isSwitch: false,
     supportHeight: 0,
   },
-  // A buffer that sends trains back: they wait a moment, then their engines reverse.
+  // A yellow buffer with a flag. Every end of the line turns trains back now (see `Sim.move`): it differs only in looks.
   "buffer-turnback": {
     type: "buffer-turnback",
     connectors: [{ kind: "socket", pose: pose(0, 0, Math.PI), y: 0 }],

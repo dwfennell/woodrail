@@ -43,8 +43,12 @@ describe("automatic servicing", () => {
       w.depot.piles[CARGO.planks.index] = PILE_CAP;
       const halts: { carId: number; x: number }[] = [];
       let last = -1;
+      // How far the whole train got past the depot (it turns back at the end of the line after).
+      let past = -Infinity;
       for (let i = 0; i < 120 * SIM_HZ; i++) {
         w.step();
+        const xs = w.train().world.map((p) => p.x);
+        past = Math.max(past, dir === 1 ? Math.min(...xs) : -Math.max(...xs));
         const now = w.economy.servicedCar(w.depot.id);
         if (now !== -1 && now !== last) halts.push({ carId: now, x: carCentreX(w.train(), now) });
         last = now;
@@ -58,8 +62,7 @@ describe("automatic servicing", () => {
       for (const h of halts) expect(Math.abs(h.x - w.craneX)).toBeLessThan(3);
       for (const car of w.wagons()) expect(w.economy.cargoOf(car.id)).toEqual({ kind: "planks", count: 3 });
       // The whole train went on past the depot.
-      const xs = w.train().world.map((s) => s.x);
-      expect(dir === 1 ? Math.min(...xs) : -Math.max(...xs)).toBeGreaterThan(dir === 1 ? w.craneX + 108 : -(w.craneX - 108));
+      expect(past).toBeGreaterThan(dir === 1 ? w.craneX + 108 : -(w.craneX - 108));
     });
   }
 
@@ -124,7 +127,7 @@ describe("automatic servicing", () => {
       sim.tick();
       economy.tick();
     }
-    for (const car of sim.getTrain(placed.trainId)!.cars.filter((c) => c.kind === "timber")) expect(economy.cargoOf(car.id)).toEqual({ kind: "log", count: 3 });
+    for (const car of sim.getTrain([...sim.trainIds()][0])!.cars.filter((c) => c.kind === "timber")) expect(economy.cargoOf(car.id)).toEqual({ kind: "log", count: 3 });
   });
 
   it("with wait-for-full, the first wagon waits under the crane until the forest has filled it", () => {
@@ -211,10 +214,14 @@ describe("automatic servicing", () => {
     w.economy.setWaitFull(w.depot.id, true);
     const [empty, loaded] = w.wagons();
     w.economy.setCargo(loaded.id, "log", 3);
-    for (let i = 0; i < 120 * SIM_HZ; i++) w.step();
+    // The whole train gets past the depot (before turning back at the end of the line).
+    let left = false;
+    for (let i = 0; i < 120 * SIM_HZ; i++) {
+      w.step();
+      if (w.train().world.every((p) => p.x > w.craneX + 108)) left = true;
+    }
     expect(w.economy.cargoOf(loaded.id).kind === "log").toBe(false);
-    // The whole train is past the depot.
-    expect(w.train().bogies.some((b) => b.pieceId === w.depot.pieceId)).toBe(false);
+    expect(left).toBe(true);
     void empty;
   });
 });

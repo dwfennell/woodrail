@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, Layout, RAMP_LENGTH, type PieceTypeId } from "../track";
 import { CAR_SPECS, COUPLER_GAP } from "./cars";
 import { createWorldSample, cursorWorld } from "./cursor";
-import { createSnapshot, Sim, SIM_DT } from "./sim";
+import { createSnapshot, Sim, SIM_DT, SIM_HZ } from "./sim";
 
 function chain(types: PieceTypeId[], flips: boolean[] = []): { layout: Layout; ids: number[] } {
   const layout = new Layout();
@@ -115,28 +115,41 @@ describe("running", () => {
     expect(bogieGap(sim, r.trainId, 1, 2)).toBeCloseTo(before, 3);
   });
 
-  it("stops gently at a buffer", () => {
+  it("stops gently at a buffer, waits, then turns back", () => {
     const { layout, ids } = chain(["straight-216", "straight-216", "buffer"]);
     const sim = new Sim(layout);
     const r = sim.addTrain(["engine"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
     if (r.kind !== "placed") throw new Error("not placed");
     sim.setLever(sim.getTrain(r.trainId)!.cars[0].id, 1);
-    run(sim, 5);
-    const t = sim.getTrain(r.trainId)!;
-    expect(t.derailed).toBe(false);
-    expect(t.speed).toBe(0);
-    expect(t.bogies[0].pieceId).toBe(ids[2]);
+    // Stopped at the buffer, waiting.
+    let stoppedAt = -1;
+    for (let i = 0; i < 5 * SIM_HZ && stoppedAt === -1; i++) {
+      sim.tick();
+      const t = sim.getTrain(r.trainId)!;
+      if (t.speed === 0 && t.turnback > 0) stoppedAt = t.bogies[0].pieceId;
+    }
+    expect(stoppedAt).toBe(ids[2]);
+    expect(sim.getTrain(r.trainId)!.derailed).toBe(false);
+    // Then it's turned round and heads back out.
+    run(sim, 4);
+    const events = sim.drainEvents();
+    expect(events.some((e) => e.kind === "turned" && e.trainId === r.trainId)).toBe(true);
+    const [back] = [...sim.trainIds()].map((id) => sim.getTrain(id)!);
+    expect(back.derailed).toBe(false);
+    expect(back.bogies[0].pieceId).not.toBe(ids[2]);
   });
 
-  it("derails when running off an open end", () => {
+  it("stops at an open end and turns back, never running off it", () => {
     const { layout, ids } = chain(["straight-216", "straight-216"]);
     const sim = new Sim(layout);
     const r = sim.addTrain(["engine"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
     if (r.kind !== "placed") throw new Error("not placed");
     sim.setLever(sim.getTrain(r.trainId)!.cars[0].id, 1);
-    run(sim, 3);
-    expect(sim.getTrain(r.trainId)!.derailed).toBe(true);
-    expect(sim.drainEvents().some((e) => e.kind === "derailed" && e.trainId === r.trainId)).toBe(true);
+    run(sim, 6);
+    const events = sim.drainEvents();
+    expect(events.some((e) => e.kind === "derailed")).toBe(false);
+    expect(events.some((e) => e.kind === "turned" && e.trainId === r.trainId)).toBe(true);
+    for (const id of sim.trainIds()) expect(sim.getTrain(id)!.derailed).toBe(false);
   });
 
   it("reverse lever drives the train the other way", () => {
@@ -351,8 +364,9 @@ describe("track edits under trains", () => {
     const sim = new Sim(layout);
     const r = sim.addTrain(["engine", "hopper"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
     if (r.kind !== "placed") throw new Error("not placed");
-    sim.setLever(sim.getTrain(r.trainId)!.cars[0].id, 1);
-    run(sim, 3);
+    // The track under it taken up: it's off the rails.
+    layout.removePiece(ids[1]);
+    sim.trackChanged();
     expect(sim.getTrain(r.trainId)!.derailed).toBe(true);
     const back = sim.rerail(r.trainId);
     expect(back).not.toBe(-1);

@@ -17,7 +17,7 @@ import { nearestCursor } from "./nearest";
 
 export const SIM_HZ = 120;
 export const SIM_DT = 1 / SIM_HZ;
-/** A train resting on a turnback buffer waits this long (2 s) before driving back. */
+/** A train stopped at the end of the line waits this long (2 s) before driving back. */
 export const TURNBACK_TICKS = 2 * SIM_HZ;
 /** How far (mm) a turned train is set down away from the buffer it turned at. */
 const TURN_CLEARANCE = 0.05;
@@ -322,7 +322,7 @@ export class Sim {
     for (const train of this.trains.values()) {
       if (train.derailed) continue;
       if (train.turnback >= 0 && --train.turnback < 0) {
-        // Waited long enough at a turnback buffer: lift the train and turn it round, so it heads back out the way
+        // Waited long enough at the end of the line: lift the train and turn it round, so it heads back out the way
         // it came, its engine leading as before.
         const turned = this.turnAround(train);
         if (turned) {
@@ -409,12 +409,11 @@ export class Sim {
       advanceCursor(this.layout, train.bogies[i], moved, train.memory, adv, train.bogies.length);
       if (train.bogies[i].pieceId !== piece) this.events.push({ kind: "joint", trainId: train.id, bogie: i });
     }
-    if (status === ADV_BUFFER) {
+    if (status === ADV_BUFFER || status === ADV_OPEN_END) {
+      // The end of the line (a buffer, or track that just stops): the train stops there, waits, and turns back.
       train.speed = 0;
-      if (train.turnback < 0 && this.layout.getPiece(lead.pieceId)?.type === "buffer-turnback") train.turnback = TURNBACK_TICKS;
+      if (train.turnback < 0) train.turnback = TURNBACK_TICKS;
       this.events.push({ kind: "buffer", trainId: train.id });
-    } else if (status === ADV_OPEN_END) {
-      this.derail(train);
     }
     this.refreshWorld(train);
   }
