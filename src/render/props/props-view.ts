@@ -140,7 +140,7 @@ export class PropsView {
     let batch = this.batches.get(material);
     if (!batch) {
       const mesh = new BatchedMesh(START_INSTANCES, START_VERTICES, START_VERTICES * 2, material);
-      mesh.castShadow = !this.far;
+      mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.sortObjects = material.transparent;
       mesh.name = "props";
@@ -149,14 +149,6 @@ export class PropsView {
       this.batches.set(material, batch);
     }
     return batch;
-  }
-
-  private far = false;
-
-  /** Zoomed far out, props stop casting shadows: too small to see, and the shadow pass would draw them all again. */
-  setFar(far: boolean): void {
-    this.far = far;
-    for (const b of this.batches.values()) b.mesh.castShadow = !far;
   }
 
   /** Draw calls (one per material in use), for the performance readout. */
