@@ -1,3 +1,4 @@
+import { loadModelSet, type ModelSet } from "../render/blender-models";
 import type { Asset } from "./types";
 
 /**
@@ -14,6 +15,12 @@ const FILES = {
 
 export type CatalogueFile = keyof typeof FILES;
 
+/**
+ * The model sets a file's assets are (the file waits for them as it loads). Fetched first, here: a fetch that fails
+ * then fails before the file is imported, so asking again retries, where a failed module would stay failed.
+ */
+const MODEL_SETS: Partial<Record<CatalogueFile, ModelSet>> = { life: "life", bldg: "buildings" };
+
 const loaded = new Map<CatalogueFile, Promise<Map<string, Asset>>>();
 
 export function fileOf(assetId: string): CatalogueFile | null {
@@ -21,12 +28,16 @@ export function fileOf(assetId: string): CatalogueFile | null {
   return prefix in FILES ? (prefix as CatalogueFile) : null;
 }
 
-/** A catalogue file's assets by id (loaded once). */
+/** A catalogue file's assets by id (loaded once; a failed load is forgotten, so asking again retries). */
 export function loadFile(file: CatalogueFile): Promise<Map<string, Asset>> {
   let p = loaded.get(file);
   if (!p) {
-    p = FILES[file]().then((m) => new Map(m.ASSETS.map((a) => [a.id, a])));
+    const set = MODEL_SETS[file];
+    p = (set ? loadModelSet(set, true) : Promise.resolve())
+      .then(() => FILES[file]())
+      .then((m) => new Map(m.ASSETS.map((a) => [a.id, a])));
     loaded.set(file, p);
+    p.catch(() => loaded.delete(file));
   }
   return p;
 }

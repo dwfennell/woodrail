@@ -11,7 +11,7 @@ import { hasSave, loadFromStorage, loadGoals, saveGoals, saveToStorage, serializ
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
-import { blenderModelsWanted, loadBlenderModels } from "./render/blender-models";
+import { loadBlenderModels } from "./render/blender-models";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -29,9 +29,6 @@ const OPENING_DISTANCE = 1000;
 
 /** How far a station or depot may turn when it gives (radians). */
 const GIVE_TURN = (4 * Math.PI) / 180;
-
-/** Tray thumbnails are cached per build, and apart for the built-in models (`?builtin`), which draw differently. */
-const THUMBS_KEY = blenderModelsWanted() ? __BUILD_ID__ : `${__BUILD_ID__}-builtin`;
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const loading = document.querySelector<HTMLDivElement>("#loading");
@@ -137,7 +134,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       ),
     );
     for (const [k, v] of drawn) thumbnails.set(k, v);
-    void saveCached("thumbnails", THUMBS_KEY, thumbnails);
+    void saveCached("thumbnails", __BUILD_ID__, thumbnails);
   }
 
   const hud = new Hud(
@@ -266,7 +263,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
         hud.setThumbnail(key, url);
         thumbnails.set(key, url);
         clearTimeout(thumbSaveTimer);
-        thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", THUMBS_KEY, thumbnails), 2000);
+        thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", __BUILD_ID__, thumbnails), 2000);
       }
       if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
     });
@@ -743,15 +740,36 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   loading?.classList.add("done");
 }
 
+/** Say on the loading screen that the toys couldn't be fetched, with a button to try again. */
+function offerRetry(again: () => void): void {
+  const box = loading?.querySelector("div");
+  if (!box) return;
+  const note = document.createElement("p");
+  note.textContent = "Couldn't fetch the toys. Check the connection, then try again.";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "load-retry";
+  button.textContent = "Try again";
+  button.addEventListener("click", () => {
+    note.remove();
+    button.remove();
+    again();
+  });
+  box.append(note, button);
+}
+
 // Let the loading screen paint, carve the track pieces in background workers (several at once), then build the rest.
 requestAnimationFrame(() =>
   setTimeout(() => {
     const t0 = performance.now();
-    void Promise.all([
-      TrackView.prebuildInWorkers(PIECE_TYPES),
-      loadCached<Map<string, string>>("thumbnails", THUMBS_KEY),
-      blenderModelsWanted() ? loadBlenderModels() : Promise.resolve(),
-    ]).then(([, thumbs]) => {
+    // The trains and the map's building parts are needed before anything is built: the loading screen stays until
+    // they're in (each fetch retries), and offers to try again if they can't be had.
+    const models = (): Promise<void> =>
+      loadBlenderModels().catch((e: unknown) => {
+        console.error("Woodrail: couldn't load the models", e);
+        return new Promise<void>((resolve) => offerRetry(() => resolve(models())));
+      });
+    void Promise.all([TrackView.prebuildInWorkers(PIECE_TYPES), loadCached<Map<string, string>>("thumbnails", __BUILD_ID__), models()]).then(([, thumbs]) => {
       console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms`);
       boot(thumbs);
     });

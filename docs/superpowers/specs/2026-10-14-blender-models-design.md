@@ -1,7 +1,7 @@
 # Woodrail — Blender Models Design
 
 **Date:** 2026-10-14
-**Status:** All three phases built: trains, people and animals, buildings. The code-built fallback is still to go (§3).
+**Status:** Done: all three phases built, and the code-built models removed (§3).
 
 ## 1. Goal
 
@@ -32,12 +32,15 @@ domes, recessed windows, arched roofs) and fewer draw calls per model.
 
 ## 3. In the game
 
-- `loadBlenderModels()` runs at boot, alongside the track pieces. `buildCarModel` uses the Blender model when it is
-  loaded and the code-built one otherwise.
-- **Decided (to do once all phases are in):** remove the code-built models and the fallback. The game ships only
-  the Blender assets and loads them reliably: retry a failed load, and hold the loading screen until the models are
-  in. `?builtin`, the cache split it needs, and the code-built tests go with it.
-- `?builtin` in the URL shows the code-built models, for comparison. Tray thumbnails are cached apart for the two.
+- The game ships only the Blender models; the code-built ones are gone (the catalogue's `life.ts` and
+  `buildings.ts` keep each asset's name, notes and animation, and its `build` dresses the model).
+- **Loading:** each fetch retries (4 tries, backing off from 0.5 s). At boot the loading screen stays until the trains
+  and the map's parts are in; if they can't be had it says so and offers to try again. People, animals and buildings
+  load when the catalogue first needs them: the registry fetches the model set before importing the file (a module
+  that failed would stay failed), and a failed load is forgotten so the next request retries (registry, prop
+  library, props view).
+- **Tests** read the model files from disk (no server), so they build the real models; tests that build cars or towns
+  call `loadBlenderModels()` first.
 - The catalogue loads the models before it starts and serves `public/` too.
 - Copies share geometry (`userData.sharedGeometry`): disposing a car leaves the shared geometry alone.
 
@@ -91,7 +94,7 @@ time is still to be measured on a phone.
   station's canopy posts, clock, benches and people, the waiting peg dolls, the engine shed's doors and windows, and
   the eight kinds of street furniture. `public/models/dressing.glb` (232 KB) loads at boot with the trains.
   `addPart(b, mats, name, place, slots)` draws one into a town's batch the way the code placed its own geometry (and
-  returns false without the file, when the code draws its own). Colours that vary per copy are slots
+  throws if the parts aren't loaded). Colours that vary per copy are slots
   (`lacquer slot door`), filled in per copy.
 - **Lean parts:** the parts on every house (door, flower box, chimney top) are built lean (`Kit(lean=True)`: one-step
   roundings, the code's segment counts); a map has hundreds. Windows stay in code: they're already a printed pane

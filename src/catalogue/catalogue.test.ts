@@ -1,8 +1,12 @@
 import { Box3, Color, Mesh, MeshStandardMaterial, type Object3D } from "three";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import type { Materials } from "../render/materials";
 import { CATALOGUE } from "./assets";
 import { Kit } from "./kit";
+import { loadBlenderModels } from "../render/blender-models";
+
+// The cars and the map's building parts are models (public/models): read from disk here.
+beforeAll(() => loadBlenderModels());
 
 /** Plain stand-ins for the game's materials (theirs need a canvas for textures). */
 function stubMaterials(): Materials {

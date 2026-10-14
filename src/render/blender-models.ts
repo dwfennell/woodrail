@@ -7,61 +7,94 @@ import type { Batcher } from "./dressing/batcher";
 import type { Materials } from "./materials";
 
 /**
- * Models made in Blender (tools/blender/), loaded from public/models/<set>.glb: one node per model, named by its id.
- * They wear the game's own materials, swapped in by material name ("wood", "metal", "lacquer #rrggbb", ...), so
- * they're lit and painted like everything else. Open the page with `?builtin` to see the models built in code instead
- * (they're also the fallback if a file can't be loaded).
+ * The game's models, made in Blender (tools/blender/) and loaded from public/models/<set>.glb: one node per model,
+ * named by its id. They wear the game's own materials, swapped in by material name ("wood", "metal",
+ * "lacquer #rrggbb", ...), so they're lit and painted like everything else.
  */
-export const blenderModelsWanted = (): boolean => typeof location === "undefined" || !new URLSearchParams(location.search).has("builtin");
-
 export type ModelSet = "trains" | "life" | "buildings" | "dressing";
 
 const sets = new Map<ModelSet, Promise<Map<string, Object3D>>>();
 
+/** Fetch attempts before giving up on a file, and the wait before the first retry (doubling after). */
+const ATTEMPTS = 4;
+const FIRST_RETRY_MS = 500;
+
+/** A model file's bytes: fetched (retrying a failed fetch with backoff), or read from disk where there's no server (tests). */
+async function fileBytes(set: ModelSet): Promise<ArrayBuffer> {
+  if (typeof window === "undefined") {
+    // A specifier in a variable: the browser build never bundles node's fs.
+    const fs = "node:fs/promises";
+    const { readFile } = (await import(/* @vite-ignore */ fs)) as { readFile(path: string): Promise<Uint8Array> };
+    const b = await readFile(`public/models/${set}.glb`);
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+  }
+  const url = `${import.meta.env.BASE_URL}models/${set}.glb`;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+      return await res.arrayBuffer();
+    } catch (e) {
+      if (attempt >= ATTEMPTS) throw e;
+      console.warn(`Woodrail: fetching ${url} failed (attempt ${attempt} of ${ATTEMPTS}), retrying`, e);
+      await new Promise((r) => setTimeout(r, FIRST_RETRY_MS * 2 ** (attempt - 1)));
+    }
+  }
+}
+
 /**
- * A set's models by id (fetched and parsed once). An empty map if the file can't be loaded, or with `?builtin`.
- * `floats`: decode compressed vertex data to plain floats, for models that get merged and batched (props).
+ * A set's models by id (fetched and parsed once; a failed load is forgotten, so asking again retries). Rejects if
+ * the file can't be had. `floats`: decode compressed vertex data to plain floats, for models that get merged and
+ * batched (props, the map's parts).
  */
 export function loadModelSet(set: ModelSet, floats = false): Promise<Map<string, Object3D>> {
   let p = sets.get(set);
   if (!p) {
     p = (async () => {
-      const models = new Map<string, Object3D>();
-      if (!blenderModelsWanted()) return models;
       const t0 = performance.now();
-      try {
-        const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${import.meta.env.BASE_URL}models/${set}.glb`);
-        let tris = 0;
-        for (const node of [...gltf.scene.children]) {
-          // Each model sits somewhere in the .blend's layout: bring it home.
-          node.position.set(0, 0, 0);
-          node.updateMatrix();
-          node.updateMatrixWorld(true);
-          const toModel = new Matrix4().copy(node.matrixWorld).invert();
-          node.traverse((o) => {
-            // Pivots are named `<model>|<part>|<n>`: keep the part's name, as the catalogue animates it by.
-            if (o.name.includes("|")) o.name = o.name.split("|")[1];
-            const m = o as Mesh;
-            if (!m.isMesh) return;
-            if (floats) toFloats(m);
-            addUvs(m, new Matrix4().multiplyMatrices(toModel, m.matrixWorld));
-            tris += (m.geometry.index?.count ?? m.geometry.attributes.position.count) / 3;
-          });
-          models.set(node.name, node);
-        }
-        console.info(`Woodrail: ${models.size} Blender models (${set}) loaded in ${Math.round(performance.now() - t0)} ms (${Math.round(tris / 1000)}k triangles)`);
-      } catch (e) {
-        // In tests (no server) too: the built-in models stand in.
-        if (typeof window !== "undefined") console.warn(`Woodrail: couldn't load the Blender models (${set}), using the built-in ones`, e);
+      const bytes = await fileBytes(set);
+      const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).parseAsync(bytes, "");
+      const models = new Map<string, Object3D>();
+      let tris = 0;
+      for (const node of [...gltf.scene.children]) {
+        // Each model sits somewhere in the .blend's layout: bring it home.
+        node.position.set(0, 0, 0);
+        node.updateMatrix();
+        node.updateMatrixWorld(true);
+        const toModel = new Matrix4().copy(node.matrixWorld).invert();
+        node.traverse((o) => {
+          // Pivots are named `<model>|<part>|<n>`: keep the part's name, as the catalogue animates it by.
+          if (o.name.includes("|")) o.name = o.name.split("|")[1];
+          const m = o as Mesh;
+          if (!m.isMesh) return;
+          if (floats) toFloats(m);
+          addUvs(m, new Matrix4().multiplyMatrices(toModel, m.matrixWorld));
+          tris += (m.geometry.index?.count ?? m.geometry.attributes.position.count) / 3;
+        });
+        models.set(node.name, node);
+      }
+      if (typeof window !== "undefined") {
+        console.info(`Woodrail: ${models.size} models (${set}) loaded in ${Math.round(performance.now() - t0)} ms (${Math.round(tris / 1000)}k triangles)`);
       }
       return models;
     })();
     sets.set(set, p);
+    p.catch(() => sets.delete(set));
   }
   return p;
 }
 
-/** Fetch and parse the models the game needs from the start: the trains, and the parts the map's buildings wear. */
+/** One model of a set (which must be loaded: see `loadModelSet`). */
+export function modelOf(models: ReadonlyMap<string, Object3D>, id: string): Object3D {
+  const m = models.get(id);
+  if (!m) throw new Error(`No model "${id}" (rebuild the models: npm run models)`);
+  return m;
+}
+
+/**
+ * Fetch and parse the models the game needs from the start: the trains, and the parts the map's buildings wear. Call
+ * (and wait) before building any car or map; rejects if they can't be had.
+ */
 export async function loadBlenderModels(): Promise<void> {
   const [t, d] = await Promise.all([loadModelSet("trains"), loadModelSet("dressing", true)]);
   trains = t;
@@ -92,14 +125,12 @@ const parts = new Map<string, Piece[]>();
 
 /**
  * Draw a building part into a batch: each piece copied, placed by `place` (as the code places its own geometry) and
- * painted, a slot's colour taken from `slots` ("lacquer slot door" from `slots.door`). False if the part isn't loaded (then the
- * caller draws its own).
+ * painted, a slot's colour taken from `slots` ("lacquer slot door" from `slots.door`).
  */
-export function addPart(b: Batcher, mats: Materials, name: string, place: (g: BufferGeometry) => BufferGeometry, slots: Readonly<Record<string, string>> = {}): boolean {
+export function addPart(b: Batcher, mats: Materials, name: string, place: (g: BufferGeometry) => BufferGeometry, slots: Readonly<Record<string, string>> = {}): void {
   const pieces = parts.get(name);
-  if (!pieces) return false;
+  if (!pieces) throw new Error(`No building part "${name}" (load the models first: loadBlenderModels)`);
   for (const p of pieces) b.add(partMaterial(mats, p.material, slots), place(p.geometry.clone()));
-  return true;
 }
 
 function partMaterial(mats: Materials, name: string, slots: Readonly<Record<string, string>>): Material {
@@ -198,16 +229,15 @@ export function catalogueModel(model: Object3D, k: Kit): Object3D {
   });
 }
 
-/** The car as modelled in Blender, or null if it isn't loaded. `recolor` swaps lacquer colours (#rrggbb, lower case). */
+/** A car as modelled in Blender (the models must be loaded). `recolor` swaps lacquer colours (#rrggbb, lower case). */
 export function blenderCar(
   kind: CarKind,
   look: CarLook,
   mats: Materials,
   lamp: Material,
   recolor: Readonly<Record<string, string>> = {},
-): { root: Group; wheels: Object3D[]; lamp?: Mesh } | null {
-  const model = trains.get(`${kind}-${look}`);
-  if (!model) return null;
+): { root: Group; wheels: Object3D[]; lamp?: Mesh } {
+  const model = modelOf(trains, `${kind}-${look}`);
   const root = dressed(model, (name) => {
     if (name.startsWith("lacquer #")) {
       const color = name.slice(8);

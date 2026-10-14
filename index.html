@@ -13,6 +13,7 @@
       #loading.done { opacity: 0; pointer-events: none; }
       #loading h1 { margin: 0; font-size: clamp(34px, 9.5vw, 76px); }
       #loading p { margin: 18px 0 0; opacity: 0.7; text-align: center; font-weight: 700; }
+      #loading .load-retry { display: block; margin: 14px auto 0; padding: 10px 22px; border: 0; border-radius: 999px; background: #c8442f; color: #fff; font: 800 16px "Nunito", system-ui, sans-serif; cursor: pointer; }
       #loading .wb { animation: wb-hop 1.4s ease-in-out calc(var(--i) * 0.11s) infinite; }
       @keyframes wb-hop { 0%, 60%, 100% { translate: 0 0; } 25% { translate: 0 -0.22em; } 40% { translate: 0 0.02em; } }
       @media (prefers-reduced-motion: reduce) { #loading .wb { animation: none; } }
