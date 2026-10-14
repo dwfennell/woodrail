@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Sim } from "../sim";
-import { connectorRef, getPieceDef, Layout, solveParentPose } from "../track";
+import { connectorRef, fitAutoStraight, getPieceDef, Layout, solveParentPose } from "../track";
 import { Editor, pieceCentre } from "./editor";
 
 function setup() {
@@ -378,5 +378,20 @@ describe("picked pieces moved together (moveGroup, removeGroup)", () => {
     editor.undo();
     expect(layout.joinedConnector(connectorRef(a, 1))).toBe(connectorRef(b, 0));
     expect(layout.joinedConnector(connectorRef(b, 1))).toBe(connectorRef(c, 0));
+  });
+});
+
+describe("the auto piece meeting an end a few degrees off", () => {
+  it("is put down, and the loose track it meets turns to close the joint", () => {
+    const { layout, editor } = setup();
+    // A hole at (216, 0) facing −x to seat on; ahead of it, 126 back and 18 to the side, a hole turned 8°.
+    const start = editor.place("straight-144", { x: 216, z: 0, heading: 0 }, 0, false);
+    const a = (8 * Math.PI) / 180;
+    const far = editor.place("straight-144", { x: 90, z: 18, heading: Math.PI + a }, 0, false);
+    const fit = fitAutoStraight(layout, { x: 0, z: 0, heading: 0 }, 0, 1, [])!;
+    expect(fit).not.toBeNull();
+    const id = editor.place(fit.type, fit.pose, 0, fit.flipped);
+    const ends = getPieceDef(fit.type, fit.flipped).connectors.map((_, i) => layout.joinedConnector(connectorRef(id, i)));
+    expect(ends).toEqual(expect.arrayContaining([connectorRef(start, 0), connectorRef(far, 0)]));
   });
 });

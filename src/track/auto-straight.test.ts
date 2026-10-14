@@ -92,4 +92,17 @@ describe("auto straight", () => {
     pegs.addPiece("straight-144", P(288, 36, Math.PI)); // peg end at (144, 36), facing −x
     expect(fitAutoStraight(pegs, P(0, 0), 0, 0, [])).toMatchObject({ length: 144, type: "fit-144-36-hh", flipped: false });
   });
+
+  it("meets an end a few degrees off facing it (the track gives to close the joint once it's down), not one far off", () => {
+    // Two holes facing across a gap, 18 mm out of line, the far one turned 8°.
+    const turned = (deg: number) => {
+      const l = new Layout();
+      const a = (deg * Math.PI) / 180;
+      // Its hole end at (90, 18), facing the seated end's way (+x), turned by `a`.
+      l.addPiece("straight-144", { x: 90, z: 18, heading: Math.PI + a });
+      return fitAutoStraight(l, P(0, 0), 0, 1, []);
+    };
+    expect(turned(8)).toMatchObject({ type: "fit-126-18-pp" });
+    expect(turned(25)).toBeNull();
+  });
 });

@@ -1,4 +1,4 @@
-import { JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE } from "./constants";
+import { JOINT_POS_TOLERANCE } from "./constants";
 import { createWorldConnector, pieceOfRef, type Layout } from "./layout";
 import { normalizeAngle, type Pose } from "./math";
 import { FIT_LENGTHS, fitType, JOIN_SIZES, joinType, type PieceTypeId } from "./pieces";
@@ -9,6 +9,9 @@ export const AUTO_FULL = 216;
 
 const t = createWorldConnector();
 const near: number[] = [];
+
+/** How far off facing it (radians) an end the auto piece meets may be: the near-miss angle the editor closes. */
+export const AUTO_ANGLE = (12 * Math.PI) / 180;
 
 /** How far to the side (mm) the auto piece looks for an end to meet with a join (an S-bend). */
 export const AUTO_REACH_ACROSS = 90;
@@ -35,7 +38,9 @@ export function fitAutoStraight(layout: Layout, pose: Pose, y: number, seated: 0
     if (ignore.includes(pieceOfRef(near[i]))) continue;
     layout.worldConnector(near[i], t);
     // Either kind of end: the piece's far end becomes whatever meets it (a peg for a hole, a hole for a peg).
-    if (Math.abs(t.y - y) > 2 || Math.abs(normalizeAngle(t.heading - facing)) > JOINT_ANGLE_TOLERANCE) continue;
+    // A few degrees off facing it still counts: once put down, the loose track gives to close the joint (as a near
+    // miss is closed when a piece goes down).
+    if (Math.abs(t.y - y) > 2 || Math.abs(normalizeAngle(t.heading - facing)) > AUTO_ANGLE) continue;
     const rx = t.x - ax;
     const rz = t.z - az;
     // Along the piece from its seated end, and to its left (as the piece runs, socket to peg).
