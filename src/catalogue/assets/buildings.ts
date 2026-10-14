@@ -335,7 +335,7 @@ export const ASSETS: Asset[] = [
     name: "School with bell",
     category: CAT,
     tags: ["school", "bell", "cupola", "playground", "town", "animated"],
-    notes: "A yellow schoolhouse with a bell swinging in its cupola. The bell could ring at the school run, when children want the morning train.",
+    notes: "A yellow schoolhouse with its long front to the street, a bell swinging in its cupola and a playground fence. The bell could ring at the school run, when children want the morning train.",
     build: model("bldg-school"),
     animate: (root, t) => {
       for (const b of parts(root, "bell")) b.rotation.x = Math.sin(t * 3) * 0.6;
@@ -360,6 +360,24 @@ export const ASSETS: Asset[] = [
       animateClock(root, t);
       for (const f of parts(root, "flag")) f.rotation.y = Math.sin(t * 2.2) * 0.35;
     },
+  },
+  {
+    id: "bldg-market-hall",
+    name: "Market hall",
+    category: CAT,
+    tags: ["market", "hall", "stalls", "awning", "produce", "clock", "town"],
+    notes: "An open-sided market hall on posts, with three striped stalls of produce under its roof and a clock lantern on the ridge. Market day could bring farm goods in by train.",
+    build: model("bldg-market-hall"),
+    animate: (root, t) => animateClock(root, t),
+  },
+  {
+    id: "bldg-library",
+    name: "Library",
+    category: CAT,
+    tags: ["library", "civic", "columns", "dome", "clock", "steps", "research", "landmark"],
+    notes: "A grand library with broad steps, six columns under a pediment and a domed clock tower. The town's place of learning, where new ideas come from.",
+    build: model("bldg-library"),
+    animate: (root, t) => animateClock(root, t),
   },
   {
     id: "bldg-castle-gate",

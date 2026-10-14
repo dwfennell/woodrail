@@ -598,6 +598,112 @@ def load_grain_heap(k):
     return g
 
 
+def industry_quarry(k):
+    """
+    The quarry yard: cut stone blocks stepping up to a rock face about 50 high along the far side (x 120-200, z 95-114),
+    and a little tool shed at x 30, z 100 (slot "roof") with a pick and a barrow of stone by it.
+    """
+    g = Node()
+    greys = ("#b9b7b0", "#a7a59d", "#c6c3ba", "#9d9a92")
+    i = 0
+    # Three tiers, each set back from the one below, of blocks a hair apart.
+    for z0, h, xs in ((95, 18, (120, 146, 172)), (101, 34, (124, 150, 176)), (107, 50, (128, 152, 176))):
+        y0 = 0 if z0 == 95 else (18 if z0 == 101 else 34)
+        for x in xs:
+            w = 25 if x < 176 else 200 - x
+            g.add(k.box(k.paint(greys[i % 4]), w - 1, (h - y0) - 0.6, 114 - z0 - 0.6, 1.8, x + w / 2, PAD + y0, (z0 + 114) / 2))
+            i += 1
+    # A few loose blocks at the foot of the face.
+    for x, z, a in ((134, 90, 0.2), (184, 89, -0.3)):
+        b = Node()
+        b.add(k.box(k.paint(greys[(int(x) // 7) % 4]), 10, 7, 8, 1.6, 0, 0, 0))
+        b.rotation.y = a
+        b.position.set(x, PAD, z)
+        g.add(b)
+    # The tool shed.
+    sx, sz, w, d, h = 30, 100, 24, 18, 18
+    g.add(k.box(k.wood, w, h, d, 2.2, sx, PAD, sz))
+    g.add(k.roof(k.paint(slot("roof")), w + 5, d + 5, 9, sx, PAD + h - 0.5, sz, 2.8))
+    g.add(k.box(k.paint("#9a4a2c"), 8, 13, 1.6, 0.8, sx - 4, PAD, sz - d / 2 - 0.4))
+    # A pick leaning on the shed, and a barrow of stone.
+    pick = Node()
+    pick.add(k.cyl(k.paint("#c99a5b"), 0.9, 15, 0, 0, 0, None, 10))
+    head = Node()
+    head.add(k.box(k.metal, 9, 1.8, 1.8, 0.6, 0, -0.9, 0))
+    head.position.set(0, 15, 0)
+    pick.add(head)
+    pick.rotation.x = 0.3
+    pick.position.set(sx + 9, PAD, sz - d / 2 - 4)
+    g.add(pick)
+    g.add(k.box(k.paint(RED), 12, 5, 8, 1.4, 52, PAD + 3, 96))
+    g.add(k.cylZ(k.paint(DARK), 2.6, 2, 58, PAD + 2.6, 96, 14))
+    for x, z in ((49, 94), (54, 98), (51, 98.5)):
+        g.add(k.box(k.paint(greys[0]), 4, 3, 3.6, 1, x, PAD + 8, z))
+    return g
+
+
+def industry_warehouse(k):
+    """
+    The warehouse: a long beech goods shed (120 x 28, walls 32 high) at x 130, z 100 under a solid roof (slot "roof"),
+    three big doors facing the track (slot "doors") with cream lintels, printed windows between them, a name board.
+    """
+    from bldg_parts import winZ
+
+    g = Node()
+    x, z, w, d, h = 130, 100, 120, 28, 32
+    front = z - d / 2
+    g.add(k.box(k.wood, w, h, d, 3, x, PAD, z))
+    g.add(k.roof(k.paint(slot("roof")), w + 5, d + 6, 13, x, PAD + h - 0.5, z, 3.5))
+    for dx in (-38, 0, 38):
+        g.add(k.box(k.paint(slot("doors")), 20, 24, 1.6, 1, x + dx, PAD, front - 0.4))
+        g.add(k.box(k.paint(CREAM), 23, 2.4, 2.2, 0.8, x + dx, PAD + 24.2, front - 0.4))
+        g.add(k.box(k.paint(CREAM), 1.4, 22, 0.8, 0.3, x + dx, PAD + 1, front - 1.3))
+    for dx in (-19, 19):
+        g.add(winZ(k, x + dx, PAD + 14, front, 9, 9))
+    for dx in (-55, 55):
+        g.add(winZ(k, x + dx, PAD + 14, front, 6, 9))
+    g.add(k.box(k.paint(CREAM), 40, 7, 2, 1, x, PAD + h - 6, front - 0.6))
+    return g
+
+
+def load_stone_block(k):
+    """A cut stone block, 14 (x) by 8 high by 9 (z), light grey with soft corners; centred on its footprint, base y 0."""
+    g = Node()
+    g.add(k.box(k.paint("#bdbab2"), 14, 8, 9, 1.8, 0, 0, 0))
+    return g
+
+
+def load_stone_heap(k):
+    """
+    A heap of grey rubble for a hopper's bin (the grain heap's mound, 59 x 25, 8 high, with chunky stones on it);
+    centred on its footprint, its base on y = 0: scale it in y by how full the hopper is.
+    """
+    g = Node()
+    mound = Node()
+    prof = [(0.0, 0), (1.0, 0), (0.98, 0.18), (0.9, 0.42), (0.74, 0.68), (0.52, 0.86), (0.26, 0.97), (0.0, 1.0)]
+    mound.add(k.lathe(k.paint("#a3a098"), prof, 0, 0, 0, 24))
+    mound.scale.set(29.5, 6.5, 12.5)
+    g.add(mound)
+    greys = ("#bdbab2", "#9d9a92", "#b0ada5", "#c8c5bd")
+    import random
+
+    rnd = random.Random(11)
+    for i in range(16):
+        u, v = rnd.uniform(-0.85, 0.85), rnd.uniform(-0.8, 0.8)
+        if u * u + v * v > 0.8:
+            continue
+        rr = math.sqrt(u * u + v * v)
+        top = 6.5 * (1 - rr * rr * 0.9)
+        st = Node()
+        sz = rnd.uniform(3.4, 5.2)
+        st.add(k.box(k.paint(greys[i % 4]), sz, sz * 0.7, sz * 0.85, 0.7, 0, -sz * 0.35, 0, seg=1))
+        st.rotation.y = rnd.uniform(0, math.pi)
+        st.rotation.x = rnd.uniform(-0.3, 0.3)
+        st.position.set(u * 29.5, top, v * 12.5)
+        g.add(st)
+    return g
+
+
 PARTS = [
     ("door", door),
     ("flower-box", flower_box),
@@ -630,6 +736,10 @@ PARTS = [
     ("industry-mill-sails", industry_mill_sails),
     ("load-flour-sack", load_flour_sack),
     ("load-grain-heap", load_grain_heap),
+    ("industry-quarry", industry_quarry),
+    ("industry-warehouse", industry_warehouse),
+    ("load-stone-block", load_stone_block),
+    ("load-stone-heap", load_stone_heap),
 ]
 
 
