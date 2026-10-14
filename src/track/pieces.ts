@@ -308,7 +308,8 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     type: "buffer",
     connectors: [{ kind: "socket", pose: pose(0, 0, Math.PI), y: 0 }],
     paths: [{ from: 0, to: null, geom: { kind: "line", start: pose(0, 0, 0), length: BUFFER_LENGTH, y0: 0, rise: 0 } }],
-    flippable: false,
+    // Flipped, its end is a peg (to stop a line that ends in a hole; see `SWAPS_ENDS`).
+    flippable: true,
     isSwitch: false,
     supportHeight: 0,
   },
@@ -317,7 +318,8 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
     type: "buffer-turnback",
     connectors: [{ kind: "socket", pose: pose(0, 0, Math.PI), y: 0 }],
     paths: [{ from: 0, to: null, geom: { kind: "line", start: pose(0, 0, 0), length: BUFFER_LENGTH, y0: 0, rise: 0 } }],
-    flippable: false,
+    // Flipped, its end is a peg (to stop a line that ends in a hole; see `SWAPS_ENDS`).
+    flippable: true,
     isSwitch: false,
     supportHeight: 0,
   },
@@ -503,13 +505,13 @@ function mirror(def: PieceDef): PieceDef {
   };
 }
 
-/** A straight piece "flips" by swapping its ends' peg and hole (mirroring it would change nothing). */
+/** A straight piece (a ramp, a buffer) "flips" by swapping its ends' peg and hole (mirroring it would change nothing). */
 function swapEnds(def: PieceDef): PieceDef {
   return { ...def, connectors: def.connectors.map((c) => ({ ...c, kind: c.kind === "peg" ? "socket" : "peg" })) };
 }
 
 /** Pieces whose flip swaps their ends' peg and hole, rather than mirroring them. */
-const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["ramp"]);
+const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["ramp", "buffer", "buffer-turnback"]);
 
 /** Does flipping this piece swap its ends' peg and hole (so a moved one may flip to fit, as a new one does)? */
 export const flipSwapsEnds = (type: PieceTypeId): boolean => SWAPS_ENDS.has(type);

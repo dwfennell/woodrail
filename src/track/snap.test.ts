@@ -209,6 +209,19 @@ describe("auto-fit (ends that don't match turn or mirror the piece to fit)", () 
     expect(s.kind).toBe("snapped");
     if (s.kind === "snapped") expect(s.y).toBe(0);
   });
+
+  it("a buffer held at a hole end flips to stop it with a peg", () => {
+    const layout = base();
+    // Past the straight's hole end (x = 0), running away from it.
+    const held = { x: -2, z: 0, heading: Math.PI };
+    expect(findSnap(layout, "buffer-turnback", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn").kind).toBe("none");
+    const s = findSnap(layout, "buffer-turnback", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
+    expect(s.kind).toBe("snapped");
+    if (s.kind === "snapped") {
+      expect(s.flipped).toBe(true);
+      expect(getPieceDef("buffer-turnback", true).connectors[s.connector].kind).toBe("peg");
+    }
+  });
 });
 
 describe("findSnapAtPoint", () => {
