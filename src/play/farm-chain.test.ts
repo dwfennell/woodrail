@@ -8,7 +8,7 @@ import { FEAT_FIELD } from "../landscape";
 import { SIM_HZ } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, type Pose } from "../track";
 import { play } from "./player";
-import { endOn, layOn, rulesFor } from "./rules";
+import { endOn, rulesFor } from "./rules";
 
 /** Places for a farm yard by a field with a mill joined on after it, where the placement rules and site rule allow. */
 function* farmSites(w: World): Generator<{ farm: Pose; y: number }> {
@@ -95,15 +95,9 @@ describe("the farm chain", () => {
     updateRates(w);
     log.push(`farm yard rate ${w.economy.depotAtPiece(farm)?.rate.toFixed(2)}`);
     expect(joined, log.join("\n")).toBe(true);
-    // Room past the farm yard (a train turns back at the end of the line: its wagons must reach the crane first), and
-    // a turnback there if it fits.
-    let tail = connectorRef(farm, 0);
-    for (let k = 0; k < 2; k++) {
-      const more = layOn(w, editor, tail, "straight-216");
-      if ("why" in more) break;
-      tail = more.next;
-    }
-    const back = endOn(w, editor, tail);
+    // A turnback at the farm yard's far end, if it fits (a train turns back at any end of the line anyway, once the
+    // crane is done with its wagons).
+    const back = endOn(w, editor, connectorRef(farm, 0));
     log.push(`turnback at the farm yard: ${"why" in back ? `none (${back.why})` : "laid"}`);
     // The town has had its planks up to a town (planks are the starter line's job); it wants flour to be a city.
     w.economy.delivered.set(town.id, 4 + 8 + 14);
