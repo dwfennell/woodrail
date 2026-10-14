@@ -114,7 +114,8 @@ describe("townFurniture", () => {
       }
     }
     for (const k of ["lamp", "bench", "planter", "postbox", "phone", "busstop", "fountain", "statue"] as PropKind[]) expect(kinds).toContain(k);
-  });
+    // 30 maps, every town's houses measured: about 4 s alone, more while the rest of the suite runs alongside.
+  }, 30_000);
 
   it("builds towns' street furniture and stations (the buildings are props now)", () => {
     const land = generateLandscape(7);

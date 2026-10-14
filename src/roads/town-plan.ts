@@ -29,13 +29,18 @@ export interface TownPlan {
   ends: { cell: number; edge: Edge }[];
 }
 
+/** Side streets leave the main street this many squares apart (out from Station Road): two rows of houses between. */
+const SIDE_STREET_EVERY = 3;
+
 /**
  * A town's street plan, laid before its buildings (see the road-system design, §3a). On each side of the station:
  * Station Road, the row two squares out from the track (along the platform's front on the platform side, a row of
  * houses back from the track on the far side), and a main street from its middle straight out to the town's edge,
- * where the town's gate continues it. Every other town square beside a street is a lot facing that street (Station
- * Road first); the rest are left as greens. Station Road's ends stay open for roads laid on. `pair()` decides whether two neighbouring lots on the same
- * street become one long building (the caller's random stream).
+ * where the town's gate continues it. Where the town reaches far enough out (a growing town), side streets leave the
+ * main street every `SIDE_STREET_EVERY` squares, along the track. Every other town square beside a street is a lot
+ * facing that street (Station Road first, then the main street, then side streets); the rest are left as greens.
+ * Station Road's and the side streets' ends stay open for roads laid on. `pair()` decides whether two neighbouring
+ * lots on the same street become one long building (the caller's random stream).
  */
 export function planTown(grid: LandscapeGrid, site: TownSite, pair: () => boolean): TownPlan {
   const own = new Set(site.cells);
@@ -69,9 +74,23 @@ export function planTown(grid: LandscapeGrid, site: TownSite, pair: () => boolea
     const main: number[] = [];
     let b = high + s;
     for (; open(at(0, b)); b += s) main.push(at(0, b));
-    order.push(road, main);
+    // Side streets: off the main street every few squares out, along the track, two rows of houses apart.
+    const sides: number[][] = [];
+    for (let k = 1; k * SIDE_STREET_EVERY < Math.abs(b - high); k++) {
+      const row = high + s * k * SIDE_STREET_EVERY;
+      for (const dir of [1, -1]) {
+        const side: number[] = [];
+        let a = dir;
+        for (; open(at(a, row)); a += dir) side.push(at(a, row));
+        if (side.length === 0) continue;
+        sides.push(side);
+        // Its far end stays open, for a road laid on.
+        ends.push({ cell: side[side.length - 1], edge: edgeOf(dir * ac, dir * ar) });
+      }
+    }
+    order.push(road, main, ...sides);
     for (const i of main) mainStreet.add(i);
-    for (const i of [...road, ...main]) streets.set(i, 0);
+    for (const i of [...road, ...main, ...sides.flat()]) streets.set(i, 0);
     const end = main.length > 0 ? main[main.length - 1] : road[0];
     exits.push({ cell: end, edge: edgeOf(s * lc, s * lr) });
   }
