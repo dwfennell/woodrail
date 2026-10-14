@@ -15,7 +15,8 @@ import { loadBlenderModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
-import { payFor, plotPrice } from "./game/towns";
+import { plotPrice } from "./game/towns";
+import { offerOnGrowth, payDelivery } from "./game/rewards";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
@@ -24,8 +25,8 @@ import { isFree, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/thi
 import { syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { BlueprintBoard, type BoardCard } from "./ui/blueprint-board";
-import { choose as chooseTech, learnWithGoods, offerFor, ready, TECHS, techOf, unlocksOf } from "./game/tech";
-import { covers, describe as describeGoods, minus } from "./economy/goods";
+import { choose as chooseTech, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
+import { aOrAn, covers, describe as describeGoods, minus } from "./economy/goods";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -565,17 +566,15 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   // Game mode's towns: they want things, and grow when they get them.
   const townLife = new TownLife(game, {
     received: (_town, kind, n, before) => {
-      progress.coins += payFor(kind, before) * n;
+      payDelivery(progress, kind, n, before);
       hud.setCoins(progress.coins);
     },
     grew: (town, status, built) => {
-      const article = /^[aeiou]/i.test(status.name) ? "an" : "a";
-      hud.toast(built.length > 0 ? `${town.name} grew into ${article} ${status.name.toLowerCase()}!` : `${town.name} is now ${article} ${status.name.toLowerCase()}, but has no room to build`, true, 3600);
+      const level = aOrAn(status.name.toLowerCase());
+      hud.toast(built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`, true, 3600);
       audio.chime();
       // A town that grows offers two blueprints to choose from (one learned free).
-      const offer = offerFor(progress, Math.random);
-      if (offer.length > 0) {
-        progress.offers.push({ from: town.name, ids: offer });
+      if (offerOnGrowth(progress, town.name, Math.random).length > 0) {
         hud.toast(`${town.name} offers you a blueprint: open Blueprints to choose`, false, 4200);
         refreshBoard();
         scheduleSave();

@@ -1,3 +1,5 @@
+import type { Footprint } from "../props/placement";
+import type { SignBadge } from "../render/landscape-view";
 import type { PropStore } from "../props/store";
 import { PropLibrary } from "../render/props/library";
 import { PropsView } from "../render/props/props-view";
@@ -733,6 +735,16 @@ export class Game {
     this.landscapeView.landEdited(slots);
     this.trackChanged();
     this.invalidate();
+  }
+
+  /** A catalogue model's footprint, once its model has loaded (for keeping things clear of placed models). */
+  footprintOf(asset: string): Footprint | undefined {
+    return this.propLibrary.footprint(asset);
+  }
+
+  /** What a town's sign shows beside its name (Game mode: what it wants; see `SignBadge`). */
+  setSignBadge(townId: number, badge: SignBadge | null): void {
+    this.landscapeView.setSignBadge(townId, badge);
   }
 
   /** Props were added, moved or removed (or one is being held: `hidden`, −1 for none): redraw them. */

@@ -6,7 +6,8 @@ import type { Town } from "../landscape";
 import { propsInRect } from "../props/placement";
 import { addTownProps } from "../props/towns";
 import type { SignBadge } from "../render/landscape-view";
-import type { Game } from "./game";
+import type { Footprint } from "../props/placement";
+import type { PropStore } from "../props/store";
 import { buildOnLots, lotPoint, nextLots } from "./town-growth";
 import { housesBy, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
@@ -21,6 +22,20 @@ export function needBadge(status: TownStatus): SignBadge | null {
   const [kind] = kindsOf(status.wants);
   if (!kind) return null;
   return { wants: kind, got: status.got[kind] ?? 0, of: status.wants[kind]! };
+}
+
+/**
+ * What TownLife needs of the game: the world it changes, and how to redraw what it changed. The Game is one; a
+ * headless playthrough (tests) is another.
+ */
+export interface TownLifeHost extends World {
+  props: PropStore;
+  /** Catalogue models' footprints, so growth keeps clear of placed models (none known: nothing in the way). */
+  footprintOf(asset: string): Footprint | undefined;
+  /** Squares changed in these plots: redraw them. */
+  editLand(slots: readonly number[]): void;
+  propsChanged(): void;
+  setSignBadge(townId: number, badge: SignBadge | null): void;
 }
 
 export interface TownLifeEvents {
@@ -44,7 +59,7 @@ export class TownLife {
   private shown = new Map<number, string>();
 
   constructor(
-    private readonly game: Game,
+    private readonly game: TownLifeHost,
     private readonly events: TownLifeEvents,
   ) {}
 
@@ -62,7 +77,7 @@ export class TownLife {
 
   /** Signs off: back to Sandbox's plain names and counts. */
   clear(): void {
-    for (const t of this.game.landscape.towns) this.game.landscapeView.setSignBadge(t.id, null);
+    for (const t of this.game.landscape.towns) this.game.setSignBadge(t.id, null);
     this.shown.clear();
   }
 
@@ -83,7 +98,7 @@ export class TownLife {
       const was = this.levels.get(town.id) ?? status.level;
       this.levels.set(town.id, status.level);
       if (status.level > was) this.grow(town, was, status);
-      this.game.landscapeView.setSignBadge(town.id, needBadge(status));
+      this.game.setSignBadge(town.id, needBadge(status));
     }
   }
 
@@ -95,7 +110,7 @@ export class TownLife {
   private grow(town: Town, from: number, status: TownStatus): void {
     const g = this.game;
     const houses = housesBy(status.level) - housesBy(from);
-    const editor = new LandEditor(g.landscape, g.layout, { inRect: (x0, z0, x1, z1) => propsInRect(g.props, g.propLibrary.footprint, x0, z0, x1, z1) });
+    const editor = new LandEditor(g.landscape, g.layout, { inRect: (x0, z0, x1, z1) => propsInRect(g.props, (a) => g.footprintOf(a), x0, z0, x1, z1) });
     const lots = nextLots(g.landscape, town, editor, houses);
     if (lots.length > 0) {
       const slots = buildOnLots(g.landscape, town, lots);

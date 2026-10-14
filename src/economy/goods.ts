@@ -51,3 +51,8 @@ export function describe(bag: Bag): string {
   const parts = kindsOf(bag).map((k) => `${bag[k]} ${bag[k] === 1 ? CARGO[k].label.toLowerCase().replace(/s$/, "") : CARGO[k].label.toLowerCase()}`);
   return parts.length > 0 ? parts.join(" + ") : "nothing";
 }
+
+/** "a plank", "an engine": a thing's name with its article. */
+export function aOrAn(noun: string): string {
+  return `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
+}
