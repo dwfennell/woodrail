@@ -22,7 +22,7 @@ domes, recessed windows, arched roofs) and fewer draw calls per model.
   50° from its own face. Roundings shade smooth, sharper edges stay crisp, and flat faces stay flat even where cuts
   split them into slivers. Merging uses Blender's join, never bmesh, which would drop custom normals.
 - **Export:** `npm run models` builds `tools/blender/out/<set>.glb`, and gltfpack (meshopt) compresses it into
-  `public/models/<set>.glb`. That's 233 KB for the train set, against 3.2 MB uncompressed.
+  `public/models/<set>.glb`. That's 306 KB for the train set.
 - **Materials by name:** `wood`, `metal`, `coal`, `lamp` and `lacquer #rrggbb`. The game swaps each for its own
   material (`src/render/blender-models.ts`), so a model is lit and painted like everything else. A recolour table
   can swap lacquer colours, as the classic engine's second scheme does.
@@ -43,9 +43,11 @@ domes, recessed windows, arched roofs) and fewer draw calls per model.
 | | Code-built | Blender |
 | --- | --- | --- |
 | Draw calls | 22–56 | 7–11 |
-| Triangles | 2.8k–5.3k | 3.8k–7.5k |
+| Triangles | 2.8k–5.3k | 5.7k–12.1k |
 
-The shadow pass draws each mesh again, so the saving in draw calls doubles, and so do the extra triangles. Frame
+Detail is kept at the level of the first engine (three-step roundings, 32–40 segments round the larger turned parts,
+handrails and handles where a real toy would have them): the user prefers that to a lower triangle count. The shadow
+pass draws each mesh again, so the saving in draw calls doubles, and so do the extra triangles. Frame
 time is still to be measured on a phone.
 
 ## 5. Phases

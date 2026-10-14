@@ -101,7 +101,7 @@ def moving(obj):
 
 def box(mat, size, at, r=1.5, seg=None, name="box"):
     """A box `size` (x, y, z) centred at `at`, edges rounded by `r` (in more steps for big roundings)."""
-    seg = seg or (3 if r >= 3 else 2)
+    seg = seg or (4 if r >= 3 else 3)
     bm = bmesh.new()
     bmesh.ops.create_cube(bm, size=1.0)
     bmesh.ops.scale(bm, vec=Vector(size), verts=bm.verts)
@@ -109,7 +109,7 @@ def box(mat, size, at, r=1.5, seg=None, name="box"):
     return round_edges(obj, min(r, min(size) / 2 - 0.05), seg)
 
 
-def lathe(mat, profile, at, axis="Z", seg=24, name="lathe"):
+def lathe(mat, profile, at, axis="Z", seg=32, name="lathe"):
     """Spin a profile of (radius, height) points round an axis: chimneys, domes, wheels, posts."""
     bm = bmesh.new()
     rings = []
@@ -145,21 +145,21 @@ def cylinder(mat, r, length, at, axis="Z", seg=24, round_=1.0, name="cylinder"):
     return lathe(mat, prof, at, axis, seg, name)
 
 
-def ball(mat, r, at, seg=16, name="ball", squash=1.0):
+def ball(mat, r, at, seg=20, name="ball", squash=1.0):
     prof = [(r * math.sin(math.pi * i / 8), -r * squash * math.cos(math.pi * i / 8)) for i in range(9)]
     prof[0] = (0.0, prof[0][1])
     prof[-1] = (0.0, prof[-1][1])
     return lathe(mat, prof, at, "Z", seg, name)
 
 
-def dome(mat, r, h, at, seg=24, name="dome"):
+def dome(mat, r, h, at, seg=32, name="dome"):
     """Half a (squashed) ball on its flat side."""
     prof = [(0.0, 0.0)] + [(r * math.cos(math.pi / 2 * i / 6), h * math.sin(math.pi / 2 * i / 6)) for i in range(7)]
     prof[-1] = (0.0, h)
     return lathe(mat, prof, at, "Z", seg, name)
 
 
-def arch_roof(mat, length, span, rise, thick, at, r=0.9, seg=14, name="roof"):
+def arch_roof(mat, length, span, rise, thick, at, r=0.9, seg=16, name="roof"):
     """An arched roof sheet along X: `span` wide, rising `rise` in the middle, `thick` thick; `at` is its eaves' base."""
     bm = bmesh.new()
     prof = []
@@ -177,7 +177,7 @@ def arch_roof(mat, length, span, rise, thick, at, r=0.9, seg=14, name="roof"):
     bm.faces.new(back[::-1])
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     obj = _smooth(_link(name, bm, mat, at), 30)
-    return round_edges(obj, r, 2, 30)
+    return round_edges(obj, r, 3, 30)
 
 
 def bar(mat, a, b, r, seg=8, name="bar"):
@@ -191,7 +191,7 @@ def bar(mat, a, b, r, seg=8, name="bar"):
     return obj
 
 
-def lumps(mat, at, size, count=34, lump=4.2, seed=1, name="lumps"):
+def lumps(mat, at, size, count=34, lump=4.2, seed=1, name="lumps", subdivisions=1):
     """A heap of coal lumps over a footprint `size` (x, y), heaped `size[2]` high in the middle: faceted, flat-shaded."""
     import random
 
@@ -201,7 +201,10 @@ def lumps(mat, at, size, count=34, lump=4.2, seed=1, name="lumps"):
         x = (rnd.random() - 0.5) * size[0]
         y = (rnd.random() - 0.5) * size[1]
         z = (1 - math.hypot(2 * x / size[0], 2 * y / size[1])) * size[2] + rnd.random() * 1.5
-        piece = bmesh.ops.create_icosphere(bm, subdivisions=1, radius=lump * (0.35 + rnd.random() * 0.3))["verts"]
+        piece = bmesh.ops.create_icosphere(bm, subdivisions=subdivisions, radius=lump * (0.35 + rnd.random() * 0.3))["verts"]
+        stretch = Vector((1 + rnd.random() * 0.5, 1 + rnd.random() * 0.3, 1))
+        for v in piece:
+            v.co = Vector((v.co.x * stretch.x, v.co.y * stretch.y, v.co.z))
         rot = Matrix.Rotation(rnd.random() * 3, 3, "X") @ Matrix.Rotation(rnd.random() * 3, 3, "Z")
         bmesh.ops.rotate(bm, verts=piece, matrix=rot)
         for v in piece:

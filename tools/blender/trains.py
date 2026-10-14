@@ -54,22 +54,22 @@ def running_gear(L, inset):
     depth = W / 2 - inner + 2
     for x in (-ax, ax):
         for s in (-1, 1):
-            cut(chassis, cutter_cylinder(WHEEL_R + 1.5, depth, (x, s * (inner + depth / 2), AXLE_Z), "Y", 16))
+            cut(chassis, cutter_cylinder(WHEEL_R + 1.5, depth, (x, s * (inner + depth / 2), AXLE_Z), "Y", 24))
     r, hw = WHEEL_R, WHEEL_W / 2
     profile = [(0.0, -hw + 0.6), (r - 2.4, -hw + 0.6), (r - 1.2, -hw), (r - 0.4, -hw + 0.3), (r, -hw + 1.0), (r, hw - 1.0), (r - 0.4, hw - 0.3), (r - 1.2, hw), (r - 2.4, hw - 0.6), (0.0, hw - 0.6)]
     i = 0
     for x in (ax, -ax):
         for y in (GROOVE_SPACING / 2, -GROOVE_SPACING / 2):
-            moving(lathe(paint(WHEEL), profile, (x, y, AXLE_Z), "Y", 20, f"wheel_{i}"))
+            moving(lathe(paint(WHEEL), profile, (x, y, AXLE_Z), "Y", 28, f"wheel_{i}"))
             s = 1 if y > 0 else -1
             hub = [(1.9, 0), (1.9, 1.0), (1.3, 1.9), (0.0, 2.2)]
             if s < 0:
                 hub = [(rr, -h) for rr, h in reversed(hub)]
-            lathe("metal", hub, (x, y + s * (hw - 0.6), AXLE_Z), "Y", 12)
+            lathe("metal", hub, (x, y + s * (hw - 0.6), AXLE_Z), "Y", 14)
             i += 1
     for s in (-1, 1):
         box("wood", (8, 6, 4), (s * (L / 2 - 6), 0, DECK), r=0.8)
-        lathe("metal", [(0.0, -2), (4.4, -2), (5, -1.4), (5, 1.4), (4.4, 2), (0.0, 2)], (s * (L / 2 - 2), 0, DECK), "X", 20)
+        lathe("metal", [(0.0, -2), (4.4, -2), (5, -1.4), (5, 1.4), (4.4, 2), (0.0, 2)], (s * (L / 2 - 2), 0, DECK), "X", 24)
 
 
 def side_windows(body, panes, half_width, depth=1.2, color=PANE):
@@ -93,9 +93,9 @@ def end_windows(body, panes, x_face, depth=1.2, color=PANE):
 
 def lamp(at):
     """The lamp on a cab roof: a dark base and the bulb that glows to show the lever."""
-    lathe("metal", [(0.0, 0), (2.6, 0), (2.6, 1.6), (0.0, 1.6)], at, "Z", 14)
+    lathe("metal", [(0.0, 0), (2.6, 0), (2.6, 1.6), (0.0, 1.6)], at, "Z", 16)
     prof = [(0.0, 0)] + [(3.2 * math.sin(math.pi * k / 8), 3.2 - 3.2 * math.cos(math.pi * k / 8)) for k in range(1, 8)] + [(0.0, 6.4)]
-    moving(lathe("lamp", prof, (at[0], at[1], at[2] + 0.8), "Z", 16, "lamp"))
+    moving(lathe("lamp", prof, (at[0], at[1], at[2] + 0.8), "Z", 20, "lamp"))
 
 
 def cab(color, x0, x1, height, roof_color, wall=2.4, spectacles=True, roof_overhang=4):
@@ -112,8 +112,8 @@ def cab(color, x0, x1, height, roof_color, wall=2.4, spectacles=True, roof_overh
         box(paint(PANE), (length * 0.52, 0.6, 11), ((x0 + x1) / 2 - 1, s * (W / 2 - wall + 0.4), top - 10), r=0)
     if spectacles:
         for s in (-1, 1):
-            cut(c, cutter_cylinder(3.4, 8, (x1, s * 9.5, top - 8), "X", 20))
-            lathe(paint(PANE), [(0.0, 0), (3.5, 0), (3.5, 0.6), (0.0, 0.6)], (x1 - wall + 0.3, s * 9.5, top - 8), "X", 20)
+            cut(c, cutter_cylinder(3.4, 8, (x1, s * 9.5, top - 8), "X", 24))
+            lathe(paint(PANE), [(0.0, 0), (3.5, 0), (3.5, 0.6), (0.0, 0.6)], (x1 - wall + 0.3, s * 9.5, top - 8), "X", 24)
     box("metal", (length - wall - 1, W - 2 * wall - 0.4, 1.2), ((x0 + x1) / 2 - wall / 2, 0, TOP + 2.6), r=0.3, seg=1)
     arch_roof(paint(roof_color), length + 2 * roof_overhang, W + 7, 3.5, 2.6, ((x0 + x1) / 2 - 2, 0, top - 1.4))
     return top + 3.5 + 1
@@ -121,30 +121,40 @@ def cab(color, x0, x1, height, roof_color, wall=2.4, spectacles=True, roof_overh
 
 def boiler(color, band, x0, x1, r, z, front="metal", bands=2):
     """A boiler along X from x0 to x1, a domed smokebox door at the front and lacquered bands round it."""
-    lathe(paint(color), [(r, 0), (r, x1 - x0)], (x0, 0, z), "X", 28)
+    lathe(paint(color), [(r, 0), (r, x1 - x0)], (x0, 0, z), "X", 40)
     for k in range(bands):
         bx = x0 + (x1 - x0) * (0.3 + 0.42 * k / max(1, bands - 1))
         prof = [(r - 0.2, -1.8), (r + 0.7, -1.6), (r + 1.3, -0.8), (r + 1.4, 0), (r + 1.3, 0.8), (r + 0.7, 1.6), (r - 0.2, 1.8)]
-        lathe(paint(band), prof, (bx, 0, z), "X", 28)
+        lathe(paint(band), prof, (bx, 0, z), "X", 40)
     door = [(r + 0.4, 0), (r + 0.4, 1.4), (r - 0.6, 2.3), (r - 1.8, 2.5), (r * 0.62, 3.6), (r * 0.3, 4.3), (0, 4.5)]
-    lathe(front, door, (x1, 0, z), "X", 28)
+    lathe(front, door, (x1, 0, z), "X", 40)
+    # The smokebox door's handle.
+    box(paint(band), (1.4, 1.4, 6), (x1 + 4.6, 0, z), r=0.5)
+
+
+def handrails(x0, x1, r, z, height=4):
+    """A rail along each side of the boiler on two stanchions, `height` above its centre line."""
+    for s in (-1, 1):
+        lathe("metal", [(0.7, 0), (0.7, x1 - x0)], (x0, s * (r + 1.6), z + height), "X", 10)
+        for hx in (x0 + 4, x1 - 4):
+            box("metal", (1.0, 2.4, 1.0), (hx, s * (r + 0.6), z + height), r=0.3)
 
 
 def chimney(x, base_z, height=17.8, color="metal"):
     h = height
     prof = [(0.0, 0), (7.0, 0), (5.2, 2.0), (4.3, 4.0), (4.0, h * 0.5), (4.2, h * 0.73), (5.7, h * 0.85), (6.5, h * 0.94), (6.3, h), (4.6, h + 0.2), (3.4, h * 0.91), (0.0, h * 0.91)]
-    lathe(color, prof, (x, 0, base_z), "Z", 24)
+    lathe(color, prof, (x, 0, base_z), "Z", 32)
 
 
 def steam_dome(x, base_z, color, r=6.0, h=10.5):
     prof = [(0.0, 0), (r + 2, 0), (r + 0.4, 1.6), (r - 0.6, 3.4), (r - 0.8, h * 0.57), (r - 1.4, h * 0.8), (r - 2.8, h * 0.93), (1.4, h * 0.99), (0.0, h)]
-    lathe(paint(color), prof, (x, 0, base_z), "Z", 24)
+    lathe(paint(color), prof, (x, 0, base_z), "Z", 32)
 
 
 def buffer_beam(L, color):
     box(paint(color), (4, W, 8), (L / 2 - 9, 0, DECK - 1), r=1.2)
     for s in (-1, 1):
-        lathe("metal", [(0.0, 0), (1.6, 0), (1.6, 3.0), (2.8, 3.4), (2.8, 4.4), (0.0, 4.6)], (L / 2 - 7, s * 10, DECK + 1), "X", 14)
+        lathe("metal", [(0.0, 0), (1.6, 0), (1.6, 3.0), (2.8, 3.4), (2.8, 4.4), (0.0, 4.6)], (L / 2 - 7, s * 10, DECK + 1), "X", 16)
 
 
 # ——— Engines ———
@@ -155,10 +165,11 @@ def engine_classic():
     running_gear(L, 20)
     bz = TOP + 12.5
     boiler(GREEN, RED, -10, 42, 12.5, bz)
+    handrails(-6, 32, 12.5, bz)
     box(paint(GREEN), (44, 18, 12.5), (18, 0, TOP + 6.25), r=1.5)
     chimney(30, bz + 10)
     steam_dome(16, bz + 10, RED)
-    lathe(paint(RED), [(0.0, 0), (2.2, 0), (1.2, 1.2), (1.1, 4.5), (1.8, 5.2), (1.8, 6.6), (0.0, 7.0)], (-6, 0, bz + 11.5), "Z", 12)
+    lathe(paint(RED), [(0.0, 0), (2.2, 0), (1.2, 1.2), (1.1, 4.5), (1.8, 5.2), (1.8, 6.6), (0.0, 7.0)], (-6, 0, bz + 11.5), "Z", 16)
     roof = cab(GREEN, -44, -12, 32, RED)
     lamp((-30, 0, roof))
     buffer_beam(L, RED)
@@ -169,6 +180,7 @@ def engine_tank():
     running_gear(L, 20)
     bz = TOP + 13
     boiler(BLUE, RED, -10.6, 38, 11, bz, bands=1)
+    lathe(paint(RED), [(0.0, 0), (2.2, 0), (1.2, 1.2), (1.1, 4.5), (1.8, 5.2), (1.8, 6.6), (0.0, 7.0)], (-6, 0, bz + 10), "Z", 16)
     for s in (-1, 1):
         t = box(paint(BLUE), (40, 9, 18), (11, s * (W / 2 - 4.5), TOP + 9), r=2.8)
         box(paint(RED), (41, 10, 2.6), (11, s * (W / 2 - 4.5), TOP + 18.6), r=1.2)
@@ -185,10 +197,14 @@ def engine_diesel():
     hood = box(paint(YELLOW), (56, W - 6, 20), (12.5, 0, TOP + 10), r=4)
     # A grille cut into the front of the hood, and black-and-yellow bands round it.
     for k in range(4):
-        cut(hood, cutter_box((1.6, W, 9), (30 + k * 3.6, 0, TOP + 12)))
+        cut(hood, cutter_box((1.6, W, 9), (24 + k * 3.6, 0, TOP + 12)))
     for s in (-1, 1):
         box(paint(DARK), (50, 0.8, 2.6), (12.5, s * (W / 2 - 3), TOP + 5), r=0.3, seg=1)
-    cylinder("metal", 2.6, 6, (18, 0, TOP + 21), "Z", 14, 0.8)
+    cylinder("metal", 2.6, 6, (18, 0, TOP + 21), "Z", 16, 0.8)
+    for s in (-1, 1):
+        toy.bar("metal", (-13, s * (W / 2 - 1.2), TOP + 15), (39, s * (W / 2 - 1.2), TOP + 15), 0.6)
+        for hx in (-10, 12, 36):
+            box("metal", (1.0, 3.0, 1.0), (hx, s * (W / 2 - 2.4), TOP + 15), r=0.3)
     c = box(paint(YELLOW), (31, W, 32), (-29, 0, TOP + 16), r=3)
     side_windows(c, [(-29, TOP + 22, 19, 11)], W / 2)
     end_windows(c, [(-7, TOP + 22, 10, 10), (7, TOP + 22, 10, 10)], -13.5)
@@ -232,7 +248,9 @@ def hopper():
     for x in (-inner / 4, inner / 4):
         for s in (-1, 1):
             box(paint(BLUE), (3.2, 1.6, h - 4), (x, s * (W / 2 + 0.3), TOP + h / 2), r=0.7)
-    lumps("coal", (0, 0, TOP + h - 7), (inner - 12, W - 12, 6), seed=7)
+    # Loaded to the brim: a bed of coal level with the rim, heaped with lumps well above it.
+    box("coal", (inner - 7.2, W - 7.2, 2), (0, 0, TOP + h - 2), r=0.4)
+    lumps("coal", (0, 0, TOP + h - 1.5), (inner - 10, W - 10, 8), count=110, lump=4.6, seed=7, subdivisions=0)
 
 
 def coach(color, h, windows, roof_color, L=88):
@@ -321,7 +339,7 @@ def timber():
     for x in (-inner / 2 + 6, inner / 2 - 6):
         for s in (-1, 1):
             cylinder("wood", 1.8, 18, (x, s * (W / 2 - 2.5), TOP + 13), "Z", 10, 0.6)
-            ball(paint(RED), 2.4, (x, s * (W / 2 - 2.5), TOP + 22), 12)
+            ball(paint(RED), 2.4, (x, s * (W / 2 - 2.5), TOP + 22), 16)
 
 
 MODELS = [
