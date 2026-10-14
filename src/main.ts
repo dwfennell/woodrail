@@ -773,18 +773,38 @@ const toys = ((): LoadingToys | null => {
   }
 })();
 if (toys) {
-  // One after another: the train first, then a waiting passenger and a lamp at its end.
-  const pop = async (models: Map<string, Object3D>, list: [string, Record<string, string>?][]) => {
+  // One after another: a train on the top shelf, then the platform's folk, then the street's furniture.
+  const pop = async (models: Map<string, Object3D>, row: number, list: [string, Record<string, string>?][]) => {
     for (const [id, slots] of list) {
       const model = models.get(id);
-      if (model) toys.add(model, slots);
-      await new Promise((r) => setTimeout(r, 260));
+      if (model) toys.add(model, slots, row);
+      await new Promise((r) => setTimeout(r, 180));
     }
   };
   void (async () => {
     try {
-      await pop(await loadModelSet("trains"), [["engine-classic"], ["passenger-classic"], ["caboose-classic"]]);
-      await pop(await loadModelSet("dressing", true), [["peg-doll-hat", { coat: "#2f6db5", hat: "#2a2b2e" }], ["lamp"]]);
+      const trains = loadModelSet("trains");
+      const dressing = loadModelSet("dressing", true);
+      await pop(await trains, 0, [["engine-classic"], ["passenger-classic"], ["passenger-dining"], ["hopper-classic"], ["timber-classic"], ["caboose-classic"]]);
+      await pop(await dressing, 1, [
+        ["porter"],
+        ["peg-doll-hat", { coat: "#2f6db5", hat: "#2a2b2e" }],
+        ["traveller"],
+        ["peg-doll", { coat: "#3f8f4e" }],
+        ["conductor"],
+        ["peg-doll-hat", { coat: "#e6b52c", hat: "#c8442f" }],
+        ["peg-doll", { coat: "#c8442f" }],
+      ]);
+      await pop(await dressing, 2, [
+        ["lamp"],
+        ["bench"],
+        ["postbox"],
+        ["planter", { flower0: "#d9443a", flower1: "#e6b52c", flower2: "#e98aa8", flower3: "#f3ead8" }],
+        ["fountain"],
+        ["phone"],
+        ["busstop"],
+        ["lamp"],
+      ]);
     } catch {
       // The loading screen says so itself (see offerRetry).
     }

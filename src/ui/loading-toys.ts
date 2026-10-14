@@ -19,18 +19,27 @@ import {
 import { shownModel } from "../render/blender-models";
 import { createMaterials, type Materials } from "../render/materials";
 
-/** Room between toys on the shelf (mm, the models' own scale). */
-const GAP = 14;
+/**
+ * The shelves, stepped like a toy shop's display: the train on the top shelf, coupled up; the folk and the furniture on
+ * the shelves below, each grown (up to `grow`) to be as wide as the train. `gap`: room between toys (mm, the models'
+ * own scale); `sway`: how far they turn back and forth (radians).
+ */
+const SHELVES = [
+  { gap: 3, sway: 0.08, grow: 1 },
+  { gap: 14, sway: 0.35, grow: 2.4 },
+  { gap: 16, sway: 0.3, grow: 2.4 },
+];
+/** Room between shelves, and how far each steps forward of the one above (mm). */
+const SHELF_GAP = 14;
+const SHELF_STEP = 50;
 /** How long a toy takes to hop in (ms). */
 const HOP_MS = 650;
-/** How far the shelf turns its toys, back and forth (radians). */
-const SWAY = 0.35;
 
 interface Toy {
   root: Object3D;
-  /** Its place along the row (centre, mm) and half its length. */
+  /** Its shelf, and its place along it (centre, mm). */
+  row: number;
   x: number;
-  half: number;
   born: number;
 }
 
@@ -43,11 +52,13 @@ export class LoadingToys {
   private readonly mats: Materials;
   private readonly lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.3, roughness: 0.3 });
   private readonly scene = new Scene();
-  private readonly row = new Group();
+  private readonly rows = SHELVES.map(() => new Group());
   private readonly camera = new PerspectiveCamera(26, 1, 5, 4000);
   private readonly toys: Toy[] = [];
   private readonly calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  private width = 0;
+  /** How long each shelf's row is so far, and its tallest toy. */
+  private readonly widths = SHELVES.map(() => 0);
+  private readonly heights = SHELVES.map(() => 0);
   private frame = 0;
   private stopped = false;
 
@@ -60,11 +71,11 @@ export class LoadingToys {
     this.scene.add(new HemisphereLight(new Color("#fff6e6"), new Color("#8a7a5c"), 1.4));
     const sun = new DirectionalLight(new Color("#fff1dc"), 2.2);
     sun.position.set(-60, 160, 120);
-    this.scene.add(sun, this.row);
+    this.scene.add(sun, ...this.rows);
   }
 
-  /** Put a model on the shelf (it hops in). `slots`: colours for its slots (a coat, a hat). */
-  add(model: Object3D, slots: Readonly<Record<string, string>> = {}): void {
+  /** Put a model at the end of a shelf (it hops in). `slots`: colours for its slots (a coat, a hat). */
+  add(model: Object3D, slots: Readonly<Record<string, string>> = {}, row = 0): void {
     if (this.stopped) return;
     const root = new Group();
     const toy = shownModel(model, this.mats, this.lamp, slots);
@@ -78,11 +89,12 @@ export class LoadingToys {
     shadow.scale.set(1, size.z / Math.max(size.x, size.z), 1);
     root.add(shadow);
     const half = size.x / 2;
-    const x = this.width + (this.toys.length ? GAP : 0) + half;
-    this.width = x + half;
+    const x = this.widths[row] + (this.widths[row] ? SHELVES[row].gap : 0) + half;
+    this.widths[row] = x + half;
+    this.heights[row] = Math.max(this.heights[row], size.y);
     root.position.x = x;
-    this.row.add(root);
-    this.toys.push({ root, x, half, born: performance.now() });
+    this.rows[row].add(root);
+    this.toys.push({ root, row, x, born: performance.now() });
     this.start();
   }
 
@@ -104,23 +116,36 @@ export class LoadingToys {
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
     if (this.canvas.width !== Math.round(w * this.renderer.getPixelRatio())) this.renderer.setSize(w, h, false);
-    // The row stays centred as it grows, and the camera backs off to keep it all in view.
-    const target = -this.width / 2;
-    this.row.position.x += (target - this.row.position.x) * (this.calm ? 1 : 0.12);
-    const reach = Math.max(60, this.width * 0.62);
+    // Each shelf keeps its row centred and as wide as the train's; the camera backs off to keep them all in view.
+    const wide = Math.max(240, this.widths[0]);
+    let busy = false;
+    let y = 0;
+    let bottom = 0;
+    const ease = this.calm ? 1 : 0.12;
+    this.rows.forEach((g, i) => {
+      const scale = this.widths[i] ? Math.min(SHELVES[i].grow, wide / this.widths[i]) : 1;
+      const target = (-this.widths[i] / 2) * scale;
+      if (i) y -= this.heights[i] * scale + SHELF_GAP;
+      if (this.widths[i]) bottom = y;
+      g.position.set(g.position.x + (target - g.position.x) * ease, g.position.y + (y - g.position.y) * ease, i * SHELF_STEP);
+      g.scale.setScalar(g.scale.x + (scale - g.scale.x) * ease);
+      if (Math.abs(target - g.position.x) > 0.1 || Math.abs(y - g.position.y) > 0.1 || Math.abs(scale - g.scale.x) > 0.001) busy = true;
+    });
+    const top = this.heights[0];
+    const middle = { y: (top + bottom) / 2, z: ((this.rows.length - 1) * SHELF_STEP) / 2 };
     this.camera.aspect = w / Math.max(1, h);
-    const dist = reach / Math.tan((this.camera.fov * Math.PI) / 360) / Math.max(1, this.camera.aspect) + 40;
-    this.camera.position.set(0, dist * 0.42, dist);
-    this.camera.lookAt(0, 16, 0);
+    const tan = Math.tan((this.camera.fov * Math.PI) / 360);
+    const dist = Math.max((wide * 0.56) / tan / this.camera.aspect, ((top - bottom) * 0.62) / tan) + 40;
+    this.camera.position.set(0, middle.y + dist * 0.32, middle.z + dist);
+    this.camera.lookAt(0, middle.y, middle.z);
     this.camera.updateProjectionMatrix();
-    let busy = Math.abs(target - this.row.position.x) > 0.1;
     for (const t of this.toys) {
       const age = Math.min(1, (now - t.born) / HOP_MS);
       // A hop: up out of nothing, a little overshoot, settle (easeOutBack).
       const k = this.calm ? 1 : 1 + 2.7 * (age - 1) ** 3 + 1.7 * (age - 1) ** 2;
       t.root.scale.setScalar(Math.max(0.001, k));
       t.root.position.y = this.calm ? 0 : Math.sin(Math.PI * age) * 10;
-      if (!this.calm) t.root.rotation.y = Math.sin(now / 1400 + t.x / 40) * SWAY;
+      if (!this.calm) t.root.rotation.y = Math.sin(now / 1400 + t.x / 40) * SHELVES[t.row].sway;
       if (age < 1) busy = true;
     }
     this.renderer.render(this.scene, this.camera);
