@@ -355,6 +355,8 @@ describe("a Game-mode playthrough", () => {
         const now = [...w().economy.delivered.values()].reduce((a2, b2) => a2 + b2, 0);
         const shapes = w().sim.trainIds().map((id) => w().sim.getTrain(id)!.cars.filter((c) => c.kind === "engine").length);
         P.note(`10 min after the second train: ${now - deliveredAtSecond} more planks delivered; trains now ${JSON.stringify(shapes)} engines each`);
+        // Two trains on one line meet head on and turn back (ddea49b): deliveries carry on.
+        expect(now, "deliveries carry on with two trains on one line").toBeGreaterThan(deliveredAtSecond);
         if (now === deliveredAtSecond) P.findings.push(`With a second train on the line, deliveries stopped: the trains met and coupled (${JSON.stringify(shapes)} engines in each train), engines pushing against each other.`);
       }
       if (saves.has(minute)) P.saveAndLoad();
@@ -424,11 +426,6 @@ describe("a Game-mode playthrough", () => {
     }
     console.log(`workshop after the towns:\n${result.join("\n")}`);
   }, 600_000);
-
-  // Found by the playthrough: a second train put on the same single line meets the first head-on and both derail, and
-  // Re-rail can't put either back (before 35de6fa they coupled and jammed instead). Passed to the Sandbox session.
-  // Wanted: a line with two trains keeps running (or the game says why it stopped).
-  it.todo("two trains meeting head-on on one line don't stop the line for ever");
 
   it("lays the starter line and grows a city on many starter maps", () => {
     const results: string[] = [];
