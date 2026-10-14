@@ -1,4 +1,4 @@
-import { Group, Mesh, Spherical, Vector3 } from "three";
+import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre } from "./editor/editor";
 import { frameDistance } from "./game/camera-director";
@@ -1122,7 +1122,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     enter(mode);
     openingView();
   } else showTitle();
-  progress.finish();
+  loadBar.finish();
   loading?.classList.add("done");
   // The loading screen fades out (0.6 s); its toys go with it.
   setTimeout(() => toys?.stop(), 700);
@@ -1150,7 +1150,7 @@ function offerRetry(again: () => void): void {
  * The loading bar: each part of the loading has a share of it (the track pieces by how many are carved). It stops just
  * short of the end until the game is built.
  */
-const progress = (() => {
+const loadBar = (() => {
   const bar = loading?.querySelector<HTMLElement>(".load-bar");
   const shares = { trains: 0.15, dressing: 0.15, thumbnails: 0.05, pieces: 0.55 };
   const done: Record<keyof typeof shares, number> = { trains: 0, dressing: 0, thumbnails: 0, pieces: 0 };
@@ -1233,11 +1233,11 @@ requestAnimationFrame(() =>
         console.error("Woodrail: couldn't load the models", e);
         return new Promise<void>((resolve) => offerRetry(() => resolve(models())));
       });
-    void loadModelSet("trains").then(() => progress.set("trains", 1), () => {});
-    void loadModelSet("dressing", true).then(() => progress.set("dressing", 1), () => {});
+    void loadModelSet("trains").then(() => loadBar.set("trains", 1), () => {});
+    void loadModelSet("dressing", true).then(() => loadBar.set("dressing", 1), () => {});
     void Promise.all([
-      TrackView.prebuildInWorkers(PIECE_TYPES, (n, total) => progress.set("pieces", n / total)).then(() => progress.set("pieces", 1)),
-      loadCached<Map<string, string>>("thumbnails", __BUILD_ID__).then((t) => (progress.set("thumbnails", 1), t)),
+      TrackView.prebuildInWorkers(PIECE_TYPES, (n, total) => loadBar.set("pieces", n / total)).then(() => loadBar.set("pieces", 1)),
+      loadCached<Map<string, string>>("thumbnails", __BUILD_ID__).then((t) => (loadBar.set("thumbnails", 1), t)),
       models(),
     ]).then(([, thumbs]) => {
       console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms`);

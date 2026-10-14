@@ -238,9 +238,12 @@ describe("a Game-mode playthrough", () => {
       // A derailed train: a player presses Re-rail.
       for (const id of w().sim.trainIds()) {
         if (!w().sim.getTrain(id)?.derailed) continue;
-        const ok = w().sim.rerail(id) !== -1;
+        const back = w().sim.rerail(id);
+        const ok = back !== -1;
+        // Back on the rails with its lever at stop: the player sets it going again.
+        if (ok) for (const car of w().sim.getTrain(back)?.cars ?? []) if (car.kind === "engine") w().sim.setLever(car.id, 1);
         if (!ok && P.findings.some((f) => f.startsWith("A derailed train couldn't"))) continue;
-        P.note(`a train derailed: Re-rail ${ok ? "put it back" : "COULDN'T put it back"}`);
+        P.note(`a train derailed: Re-rail ${ok ? "put it back, and set it going" : "COULDN'T put it back"}`);
         const finding = `A derailed train couldn't be re-railed (first at minute ${minute}): ${w().sim.trainIds().length} trains on the line, ${w().sim.trainIds().filter((t) => w().sim.getTrain(t)!.derailed).length} derailed.`;
         if (!ok && !P.findings.some((f) => f.startsWith("A derailed train couldn't"))) P.findings.push(finding);
       }
@@ -315,11 +318,15 @@ describe("a Game-mode playthrough", () => {
         P.note("ordered 8 ramps and another bridge, to try the third town again");
       }
       const rampsReady = P.progress.available(w(), "piece:ramp") >= 8;
-      if ((!extended && grownTwice) || (retry && rampsReady)) {
+      const forestEnd = depotPiece(w(), "forest");
+      const turnback = [...w().layout.pieceIds()].find((id) => w().layout.getPiece(id)!.type === "buffer-turnback" && w().layout.joinedConnector(connectorRef(id, 0)) === connectorRef(forestEnd, 1));
+      // The game won't take up track a train stands on: a player waits for the train to leave the turnback.
+      const turnbackFree = turnback === undefined || !w().sim.pieceOccupied(turnback);
+      if (((!extended && grownTwice) || (retry && rampsReady)) && turnbackFree) {
         if (extended) done.add("retried");
         extended = true;
-        const forest = depotPiece(w(), "forest");
-        const buf = [...w().layout.pieceIds()].find((id) => w().layout.getPiece(id)!.type === "buffer-turnback" && w().layout.joinedConnector(connectorRef(id, 0)) === connectorRef(forest, 1));
+        const forest = forestEnd;
+        const buf = turnback;
         // The other towns, nearest the forest yard first: try each in turn (picking up after a failed try).
         const others = w().landscape.towns.slice(2).sort((t1, t2) => Math.hypot(t1.centre.x - 1700, t1.centre.z) - Math.hypot(t2.centre.x - 1700, t2.centre.z));
         if (buf !== undefined) P.editor.remove(buf);
