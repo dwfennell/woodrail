@@ -532,12 +532,13 @@ export class Sim {
       for (const b of this.trains.values()) {
         if (b === a || b.derailed || !this.trains.has(a.id)) continue;
         const reach = Math.max(4, a.speed * SIM_DT + 2);
-        // End to end (met head on): not a blow to b's side.
+        // End to end (meeting, or touching as they part): not a blow to b's side.
         let ends = false;
         for (let side = 0; side < 2; side++) {
           const front = side === 1;
           this.endFace(b, front, otherFace);
           if (Math.hypot(face.x - otherFace.x, face.z - otherFace.z) > reach || Math.abs(face.y - otherFace.y) > 20) continue;
+          ends = true;
           const closing = a.speed + (front ? b.speed : -b.speed);
           if (closing <= 0) continue;
           if (front) {
@@ -545,7 +546,6 @@ export class Sim {
             // only push against each other).
             this.meet(a);
             if (b.speed > 0) this.meet(b);
-            ends = true;
             continue;
           }
           // Catching up with a train ahead couples on, whichever way the cars' magnets face (a toy that never
@@ -553,10 +553,8 @@ export class Sim {
           this.couple(a, b, front);
           return this.resolveContacts();
         }
-        if (!ends && this.hitsSide(b)) {
-          this.derail(a);
-          this.derail(b);
-        }
+        // Running into a train's side (where lines meet at a switch or crossing): it stops there, and turns back.
+        if (!ends && this.hitsSide(b)) this.meet(a);
       }
     }
   }
