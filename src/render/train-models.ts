@@ -10,11 +10,13 @@ import {
   TorusGeometry,
   type BufferGeometry,
   type Material,
+  type Object3D,
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
 import { CAR_SPECS, type CarKind, type CarLook } from "../sim";
 import { GROOVE_SPACING, TRACK_THICKNESS } from "../track";
+import { blenderEngine } from "./blender-models";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
 import { GROOVE_DEPTH } from "./track-geometry";
@@ -29,8 +31,8 @@ export const TIMBER_DECK = DECK + 4 + 4;
 
 export interface CarModel {
   root: Group;
-  /** Spun by distance travelled. */
-  wheels: Mesh[];
+  /** Spun (round z) by distance travelled. */
+  wheels: Object3D[];
   /** Engine only: glows to show the lever. */
   lamp?: Mesh;
 }
@@ -131,6 +133,15 @@ export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look:
   let lamp: Mesh | undefined;
 
   const lampMaterial = () => new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
+
+  // The Blender pilot (`?blender`): the classic engine from public/models/engine.glb, when it's loaded.
+  if (kind === "engine" && look === "classic") {
+    const made = blenderEngine(mats, { body: body.userData.paintColor, trim: trim.userData.paintColor, wheel: "#b8432f", pane: "#a9cfe6", lamp: lampMaterial() });
+    if (made) {
+      made.root.traverse((o) => (o.userData.carKind = kind));
+      return made;
+    }
+  }
 
   if (kind === "engine" && look !== "classic") {
     lamp = engineLook(root, mats, look, L, W, top, pane, lampMaterial());
@@ -351,7 +362,7 @@ export function disposeObject(root: import("three").Object3D): void {
   root.traverse((o) => {
     const mesh = o as Mesh;
     if (!mesh.isMesh) return;
-    mesh.geometry.dispose();
+    if (!mesh.userData.sharedGeometry) mesh.geometry.dispose();
     if (mesh.userData.ownsMaterial) (mesh.material as Material).dispose();
   });
 }

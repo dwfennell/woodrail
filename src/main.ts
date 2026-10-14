@@ -11,6 +11,7 @@ import { hasSave, loadFromStorage, loadGoals, saveGoals, saveToStorage, serializ
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
+import { blenderModelsWanted, loadBlenderModels } from "./render/blender-models";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -133,7 +134,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       ),
     );
     for (const [k, v] of drawn) thumbnails.set(k, v);
-    void saveCached("thumbnails", __BUILD_ID__, thumbnails);
+    if (!blenderModelsWanted()) void saveCached("thumbnails", __BUILD_ID__, thumbnails);
   }
 
   const hud = new Hud(
@@ -262,7 +263,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
         hud.setThumbnail(key, url);
         thumbnails.set(key, url);
         clearTimeout(thumbSaveTimer);
-        thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", __BUILD_ID__, thumbnails), 2000);
+        if (!blenderModelsWanted()) thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", __BUILD_ID__, thumbnails), 2000);
       }
       if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
     });
@@ -743,7 +744,13 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 requestAnimationFrame(() =>
   setTimeout(() => {
     const t0 = performance.now();
-    void Promise.all([TrackView.prebuildInWorkers(PIECE_TYPES), loadCached<Map<string, string>>("thumbnails", __BUILD_ID__)]).then(([, thumbs]) => {
+    const blender = blenderModelsWanted();
+    void Promise.all([
+      TrackView.prebuildInWorkers(PIECE_TYPES),
+      // Tray thumbnails are cached per build: with the Blender pilot on, draw them afresh so they show its engine.
+      blender ? Promise.resolve(null) : loadCached<Map<string, string>>("thumbnails", __BUILD_ID__),
+      blender ? loadBlenderModels() : Promise.resolve(),
+    ]).then(([, thumbs]) => {
       console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms`);
       boot(thumbs);
     });

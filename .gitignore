@@ -5,3 +5,5 @@ dist-bench
 dist-catalogue
 *.log
 .reports
+tools/blender/out/
+*.blend1
