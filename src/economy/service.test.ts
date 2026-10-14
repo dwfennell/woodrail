@@ -298,3 +298,35 @@ describe("depots end to end", () => {
     expect(mill.piles[CARGO.grain.index] + mill.piles[CARGO.flour.index]).toBe(3);
   });
 });
+
+describe("cargo tapped, not dragged", () => {
+  it("a unit from a pile goes onto a wagon beside the depot (topping up a started one first); one on a wagon goes onto the pile", () => {
+    const w = setup("forest");
+    w.economy.setAuto(w.depot.id, false);
+    w.depot.piles[CARGO.log.index] = 6;
+    // Run the train in until it stands beside the depot, then stop it.
+    for (let i = 0; i < 30 * SIM_HZ && !w.train().bogies.every((b, k) => k > 3 || b.pieceId === w.depot.pieceId); i++) w.step();
+    w.sim.setLever(w.engine().id, 0);
+    for (let i = 0; i < SIM_HZ; i++) w.step();
+    const beside = w.wagons().filter((c) => {
+      const t = w.train();
+      const k = t.cars.findIndex((x) => x.id === c.id);
+      return t.bogies[2 * k].pieceId === w.depot.pieceId || t.bogies[2 * k + 1].pieceId === w.depot.pieceId;
+    });
+    expect(beside.length).toBeGreaterThan(0);
+    const pile = { kind: "pile", depotId: w.depot.id, cargo: "log" } as const;
+    const first = w.economy.tapTarget(pile);
+    expect(first?.kind).toBe("car");
+    expect(w.economy.moveCargo(pile, first!)).toBe(true);
+    // The next tap tops up the same wagon.
+    expect(w.economy.tapTarget(pile)).toEqual(first);
+    // From the wagon, a unit goes back onto the depot's pile.
+    expect(w.economy.tapTarget(first!)).toEqual(pile);
+  });
+
+  it("with no wagon beside it, a tap has nowhere to put a unit (it opens the card instead)", () => {
+    const w = setup("forest");
+    w.depot.piles[CARGO.log.index] = 6;
+    expect(w.economy.tapTarget({ kind: "pile", depotId: w.depot.id, cargo: "log" })).toBeNull();
+  });
+});
