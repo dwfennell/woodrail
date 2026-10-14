@@ -30,7 +30,10 @@ domes, recessed windows, arched roofs) and fewer draw calls per model.
 ## 3. In the game
 
 - `loadBlenderModels()` runs at boot, alongside the track pieces. `buildCarModel` uses the Blender model when it is
-  loaded and the code-built one otherwise. The code-built models stay as the fallback and for tests.
+  loaded and the code-built one otherwise.
+- **Decided (to do once all phases are in):** remove the code-built models and the fallback. The game ships only
+  the Blender assets and loads them reliably: retry a failed load, and hold the loading screen until the models are
+  in. `?builtin`, the cache split it needs, and the code-built tests go with it.
 - `?builtin` in the URL shows the code-built models, for comparison. Tray thumbnails are cached apart for the two.
 - The catalogue loads the models before it starts and serves `public/` too.
 - Copies share geometry (`userData.sharedGeometry`): disposing a car leaves the shared geometry alone.
