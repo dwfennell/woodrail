@@ -336,6 +336,8 @@ export class Interaction {
     // Something else taken from the tray: the ready piece is put away (a piece dragged out is ready once placed).
     if (this.armed && trayKey(this.armed) !== trayKey(item)) this.arm(null);
     this.clearSelection();
+    // The last piece's card would cover the bottom of the view, where this one may be going.
+    this.hud.hideCards();
     if (item.kind === "piece") this.mode = this.pieceFromTray(item, e.pointerId);
     else if (item.kind === "road") {
       // Comes out turned as set in the tray (quarter turns from facing away from the camera).
@@ -684,8 +686,7 @@ export class Interaction {
       this.game.director.setEdgePointer(null);
       this.mode = { kind: "idle" };
       this.roads.drop(m.drag);
-    }
-    else if (m.kind === "drag-scenery") this.dropScenery(m);
+    } else if (m.kind === "drag-scenery") this.dropScenery(m);
     else if (m.kind === "drag-cargo") this.dropCargo(m, e.clientX, e.clientY);
     else this.dropTrain(m);
   }

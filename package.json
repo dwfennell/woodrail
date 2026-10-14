@@ -13,7 +13,8 @@
     "bench": "vite build --config bench/vite.config.ts --logLevel warn && node dist-bench/track.js",
     "catalogue": "vite --config catalogue/vite.config.ts",
     "catalogue:build": "vite build --config catalogue/vite.config.ts",
-    "models": "${BLENDER_PYTHON:-python3} tools/blender/trains.py && ${BLENDER_PYTHON:-python3} tools/blender/life.py && ${BLENDER_PYTHON:-python3} tools/blender/bldg.py && ${BLENDER_PYTHON:-python3} tools/blender/dressing.py && mkdir -p public/models && gltfpack -i tools/blender/out/trains.glb -o public/models/trains.glb -cc -kn -km && gltfpack -i tools/blender/out/life.glb -o public/models/life.glb -cc -kn -km && gltfpack -i tools/blender/out/buildings.glb -o public/models/buildings.glb -cc -kn -km && gltfpack -i tools/blender/out/dressing.glb -o public/models/dressing.glb -cc -kn -km"
+    "models": "${BLENDER_PYTHON:-python3} tools/blender/trains.py && ${BLENDER_PYTHON:-python3} tools/blender/life.py && ${BLENDER_PYTHON:-python3} tools/blender/bldg.py && ${BLENDER_PYTHON:-python3} tools/blender/dressing.py && mkdir -p public/models && gltfpack -i tools/blender/out/trains.glb -o public/models/trains.glb -cc -kn -km && gltfpack -i tools/blender/out/life.glb -o public/models/life.glb -cc -kn -km && gltfpack -i tools/blender/out/buildings.glb -o public/models/buildings.glb -cc -kn -km && gltfpack -i tools/blender/out/dressing.glb -o public/models/dressing.glb -cc -kn -km",
+    "e2e:roads": "node scripts/e2e/roads.mjs"
   },
   "repository": {
     "type": "git",
@@ -31,6 +32,7 @@
   "devDependencies": {
     "@types/three": "^0.186.0",
     "gltfpack": "^1.3.0",
+    "playwright-core": "^1.47.2",
     "tinybench": "^6.2.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",

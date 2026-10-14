@@ -9,3 +9,4 @@ tools/blender/out/
 *.blend1
 tools/blender/*.blend
 __pycache__/
+e2e-out/
