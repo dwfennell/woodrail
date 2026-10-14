@@ -247,3 +247,31 @@ describe("automatic servicing", () => {
     void empty;
   });
 });
+
+describe("depots end to end", () => {
+  it("a train beside two depots is served where its wagons have work (a hopper fills at the farm yard, not the mill)", () => {
+    // straight, straight, farm yard, mill, straight, straight: the train runs in from −x, its engine leading, so its
+    // engine is on the mill (nothing to do there) while its hopper is at the farm yard.
+    const layout = new Layout();
+    const types = ["straight-216", "straight-216", "depot-farm", "depot-mill", "straight-216", "straight-216"] as const;
+    const ids = types.map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const placed = sim.addTrain(["engine", "hopper"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 200 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const economy = new Economy(layout, sim);
+    const farm = economy.addDepot("farm", ids[2]);
+    const mill = economy.addDepot("mill", ids[3]);
+    farm.piles[CARGO.grain.index] = 6;
+    // Making nothing more while the test runs (so the pile's count is just what the hopper took).
+    farm.rate = 0;
+    const train = () => sim.getTrain(sim.trainIds()[0])!;
+    sim.setLever(train().cars[0].id, 1);
+    for (let i = 0; i < 12 * SIM_HZ; i++) {
+      sim.tick();
+      economy.tick();
+    }
+    // Filled at the farm yard, emptied at the mill (which grinds grain).
+    expect(farm.piles[CARGO.grain.index]).toBe(3);
+    expect(mill.piles[CARGO.grain.index] + mill.piles[CARGO.flour.index]).toBe(3);
+  });
+});

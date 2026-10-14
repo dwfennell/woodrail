@@ -15,8 +15,9 @@ export interface TownLevel {
 export const TOWN_LEVELS: readonly TownLevel[] = [
   { name: "Hamlet", wants: { planks: 4 }, houses: 2 },
   { name: "Village", wants: { planks: 8 }, houses: 3 },
-  { name: "Town", wants: { planks: 14 }, houses: 3 },
-  { name: "City", wants: { planks: 22 }, houses: 4 },
+  // A town wants flour to become a city: the farm chain (Harvesters → Farming → Mills) is the mid-game.
+  { name: "Town", wants: { planks: 14, flour: 6 }, houses: 3 },
+  { name: "City", wants: { planks: 22, flour: 12 }, houses: 4 },
 ];
 
 /** Past the table, each level wants this much more than the one before: demand keeps rising. */
@@ -67,7 +68,7 @@ export function housesBy(level: number): number {
 }
 
 /** Coins a town pays for one unit of each good it takes (the full price for what it wants now, half otherwise). */
-export const PRICES: Bag = { planks: 4, log: 1 };
+export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6 };
 
 /** What a town pays for one unit of `kind`, as it is now. */
 export function payFor(kind: CargoKind, status: TownStatus): number {

@@ -15,11 +15,11 @@ import { endOn, rulesFor } from "./rules";
 /**
  * The Game mode's first job, played end to end: a simulated player lays the starter line (sawmill, Larkfield,
  * Elderwick, forest yard: one straight run) with the placement rules on, turnbacks go on its ends, and one timber
- * train shuttles along it through the real sim and economy until a town has grown to a city (level 3), the way
- * Game mode grows towns.
+ * train shuttles along it through the real sim and economy until a town has grown to a town (level 2): as far as
+ * planks alone take it (a city wants flour too: see the farm chain test).
  */
 describe("the starter line", () => {
-it("is laid by a player and grows a town into a city", () => {
+it("is laid by a player and grows a hamlet into a town", () => {
   const log: string[] = [];
   const w = buildStarterWorld();
   const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
@@ -73,9 +73,9 @@ it("is laid by a player and grows a town into a city", () => {
         best = Math.max(best, s.level);
       }
     }
-    if (best >= 3) break;
+    if (best >= 2) break;
   }
   log.push(`best level: ${best}; delivered ${JSON.stringify(Object.fromEntries(w.economy.delivered))}`);
-  expect(best, log.join("\n")).toBeGreaterThanOrEqual(3);
+  expect(best, log.join("\n")).toBeGreaterThanOrEqual(2);
 }, 300_000);
 });

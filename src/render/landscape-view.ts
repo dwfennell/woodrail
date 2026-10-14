@@ -753,6 +753,20 @@ function drawGood(ctx: CanvasRenderingContext2D, kind: CargoKind, x: number, y: 
     for (let k = 0; k < 3; k++) ctx.fillRect(x + 38, y + 4 + k * 16, 6, 12);
     return;
   }
+  if (kind === "grain" || kind === "flour") {
+    // A sack (golden grain, white flour) with a tie, and a blue band on flour.
+    ctx.fillStyle = kind === "grain" ? "#d9a441" : "#f1ebdd";
+    ctx.beginPath();
+    ctx.roundRect(x + 4, y + 12, 36, 38, 10);
+    ctx.fill();
+    ctx.fillStyle = "#c8442f";
+    ctx.fillRect(x + 16, y + 4, 12, 10);
+    if (kind === "flour") {
+      ctx.fillStyle = "#2f6db5";
+      ctx.fillRect(x + 4, y + 28, 36, 7);
+    }
+    return;
+  }
   // Planks: three stacked boards with a red strap.
   ctx.fillStyle = "#e3bf8c";
   for (let k = 0; k < 3; k++) ctx.fillRect(x, y + 4 + k * 16, 44, 12);

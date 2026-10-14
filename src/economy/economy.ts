@@ -46,7 +46,7 @@ export interface Recipe {
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
-  town: { takes: ["planks"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
+  town: { takes: ["planks", "flour"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   workshop: { takes: ["planks"], gives: [] },
   // The farm chain (Game mode): a farm yard by the fields fills hoppers with grain; a mill grinds it into flour.
@@ -118,6 +118,8 @@ export class Economy {
   private readonly deliverTo = new Map<number, number>();
   /** Town id → plank bundles delivered there (by train or by hand). */
   readonly delivered = new Map<number, number>();
+  /** Town id → everything delivered there, by kind (planks are counted in `delivered` too). */
+  readonly deliveredGoods = new Map<number, Bag>();
   private readonly services = new Map<number, Service>();
   private events: EconomyEvent[] = [];
   /** The other half of the event double buffer (no new array each drain). */
@@ -219,6 +221,11 @@ export class Economy {
       const d = this.depots[slot.depotId];
       d.piles[CARGO[kind].index]++;
       if (d.role === "town" && kind === "planks") this.delivered.set(d.townId, (this.delivered.get(d.townId) ?? 0) + 1);
+      if (d.role === "town") {
+        const got = this.deliveredGoods.get(d.townId) ?? {};
+        got[kind] = (got[kind] ?? 0) + 1;
+        this.deliveredGoods.set(d.townId, got);
+      }
     } else this.setCargo(slot.carId, kind, this.cargoOf(slot.carId).count + 1);
   }
 
@@ -360,13 +367,22 @@ export class Economy {
     return s;
   }
 
-  /** The automatic depot under any of this train's axles, if any. */
+  /**
+   * The automatic depot under this train's axles, if any. A train beside two (industries end to end) is served where
+   * a wagon has work: the one whose crane is working on it, else the first with work, else the first.
+   */
   private depotUnder(train: Train): DepotState | undefined {
+    const s = this.services.get(train.id);
+    let first: DepotState | undefined;
+    let work: DepotState | undefined;
     for (const b of train.bogies) {
       const d = this.byPiece.get(b.pieceId);
-      if (d && d.auto) return d;
+      if (!d || !d.auto || d === first || d === work) continue;
+      if (s && s.phase === HALTED && s.depotId === d.id) return d;
+      first ??= d;
+      if (!work && train.cars.some((c) => !(s && s.depotId === d.id && s.done.has(c.id)) && this.needsService(d, c.id))) work = d;
     }
-    return undefined;
+    return work ?? first;
   }
 
   /**

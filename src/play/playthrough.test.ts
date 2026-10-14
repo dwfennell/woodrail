@@ -279,8 +279,8 @@ describe("a Game-mode playthrough", () => {
       }
       // A second train from the box: on a single line it would meet the first head-on and jam (see the test
       // below), so a player who has learned what that does waits for somewhere for it to go. Here: the extension.
-      const larkfieldCity = P.town.status(w().landscape.towns[0].id).level >= 3;
-      if (!secondTrain && thirdJoined && larkfieldCity && !P.allowed({ kind: "train", cars: ["engine", "timber"] })) {
+      const larkfieldTown = P.town.status(w().landscape.towns[0].id).level >= 2;
+      if (!secondTrain && thirdJoined && larkfieldTown && !P.allowed({ kind: "train", cars: ["engine", "timber"] })) {
         for (const id of [...w().layout.pieceIds()]) {
           const p = w().layout.getPiece(id)!;
           if (P.fixed.has(id) || !p.type.startsWith("straight") || p.pose.x < 700) continue;
@@ -387,8 +387,9 @@ describe("a Game-mode playthrough", () => {
         `findings:\n- ${P.findings.join("\n- ") || "none"}`,
       ].join("\n"),
     );
-    // What must hold: the starter's first towns grew, the goals through the first plank delivery are done.
-    expect(P.town.status(w().landscape.towns[0].id).level).toBeGreaterThanOrEqual(3);
+    // What must hold: the starter's first towns grew (to a town: a city wants flour, see the farm chain test), the goals
+    // through the first plank delivery are done.
+    expect(P.town.status(w().landscape.towns[0].id).level).toBeGreaterThanOrEqual(2);
     for (const id of ["join-two", "place-train", "get-moving", "station-stop", "timber-train", "load-logs", "deliver-planks", "grow-town"]) expect(P.goals.isDone(id), id).toBe(true);
   }, 600_000);
 
@@ -434,7 +435,7 @@ describe("a Game-mode playthrough", () => {
     console.log(`workshop after the towns:\n${result.join("\n")}`);
   }, 600_000);
 
-  it("lays the starter line and grows a city on many starter maps", () => {
+  it("lays the starter line and grows a town on many starter maps (as far as planks go)", () => {
     const results: string[] = [];
     let ok = 0;
     for (let k = 0; k < 20; k++) {
@@ -463,12 +464,12 @@ describe("a Game-mode playthrough", () => {
       let city = -1;
       for (let m = 1; m <= 25 && city < 0; m++) {
         P.run(60);
-        if (P.town.status(w.landscape.towns[0].id).level >= 3) city = m;
+        if (P.town.status(w.landscape.towns[0].id).level >= 2) city = m;
       }
       if (city > 0) ok++;
-      results.push(`seed ${seed}: ${city > 0 ? `city by minute ${city}` : `no city in 25 min (delivered ${JSON.stringify([...w.economy.delivered])})`}`);
+      results.push(`seed ${seed}: ${city > 0 ? `town by minute ${city}` : `no town in 25 min (delivered ${JSON.stringify([...w.economy.delivered])})`}`);
     }
-    console.log(`starter line on 20 seeds: ${ok}/20 grew a city\n${results.join("\n")}`);
+    console.log(`starter line on 20 seeds: ${ok}/20 grew a town\n${results.join("\n")}`);
     expect(ok).toBe(20);
   }, 900_000);
 });

@@ -5,6 +5,7 @@ import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ADV_OK, advanceCursor, ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, createAdvance, flipCursor, Sim, type AddTrainResult, type CarKind, type CarLook, type Cursor } from "../sim";
+import type { Bag } from "../economy/goods";
 import { CARGO, CARGO_KINDS, Economy, PILE_CAP, pilesOf, WAGON_CAPACITY, type CargoKind } from "../economy";
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
@@ -73,6 +74,8 @@ const saveSchema = z.object({
   ),
   /** Plank bundles delivered, by town id. */
   delivered: z.array(z.tuple([z.number().int().min(0), z.number().int().min(0)])),
+  /** Everything delivered to each town, by kind (Game mode's town baskets). Older saves: planks only, in `delivered`. */
+  deliveredGoods: z.array(z.tuple([z.number().int().min(0), z.record(z.string(), z.number().int().min(0))])).optional(),
   /** Placed catalogue models (optional: saves from before props load with none). */
   props: z
     .array(
@@ -134,6 +137,7 @@ export function serializeWorld(world: World): SaveData {
     trains,
     depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer })),
     delivered: [...world.economy.delivered],
+    deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}) })),
   };
 }
@@ -209,6 +213,12 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     state.timer = d.timer;
   }
   for (const [townId, n] of save.delivered) if (landscape.towns.some((t) => t.id === townId)) economy.delivered.set(townId, n);
+  for (const [townId, bag] of save.deliveredGoods ?? []) {
+    if (!landscape.towns.some((t) => t.id === townId)) continue;
+    const goods: Bag = {};
+    for (const k of CARGO_KINDS) if (bag[k]) goods[k] = bag[k];
+    economy.deliveredGoods.set(townId, goods);
+  }
   for (const t of save.trains) {
     const lead = layout.getPiece(t.lead.pieceId);
     if (!lead) continue;

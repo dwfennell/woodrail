@@ -14,12 +14,14 @@ import type { World } from "./world";
 
 /** Everything a town has received, by kind. */
 export function receivedBy(world: World, townId: number): Bag {
-  return { planks: world.economy.delivered.get(townId) ?? 0 };
+  // Planks from `delivered` (saves from before goods were counted by kind have only that).
+  return { ...world.economy.deliveredGoods.get(townId), planks: world.economy.delivered.get(townId) ?? 0 };
 }
 
-/** The badge a town's sign shows in Game mode: the first thing it wants, and how far along it is. */
+/** The badge a town's sign shows in Game mode: the first thing it still wants, and how far along it is. */
 export function needBadge(status: TownStatus): SignBadge | null {
-  const [kind] = kindsOf(status.wants);
+  const kinds = kindsOf(status.wants);
+  const kind = kinds.find((k) => (status.got[k] ?? 0) < status.wants[k]!) ?? kinds[0];
   if (!kind) return null;
   return { wants: kind, got: status.got[kind] ?? 0, of: status.wants[kind]! };
 }

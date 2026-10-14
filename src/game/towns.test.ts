@@ -10,7 +10,15 @@ describe("town levels", () => {
     expect(townStatus({ planks: 3 })).toMatchObject({ level: 0, fill: 0.75 });
     expect(townStatus({ planks: 4 })).toMatchObject({ level: 1, name: "Village", got: { planks: 0 } });
     expect(townStatus({ planks: 9 })).toMatchObject({ level: 1, got: { planks: 5 }, wants: { planks: 8 } });
-    expect(townStatus({ planks: 4 + 8 + 14 + 22 }).level).toBe(4);
+    // A town wants flour to become a city: planks alone stop it at Town.
+    expect(townStatus({ planks: 500 })).toMatchObject({ level: 2, name: "Town", wants: { planks: 14, flour: 6 } });
+    expect(townStatus({ planks: 4 + 8 + 14 + 22, flour: 6 + 12 }).level).toBe(4);
+  });
+
+  it("show a town's basket: what it has had of each good toward the next level", () => {
+    const s = townStatus({ planks: 4 + 8 + 10, flour: 3 });
+    expect(s).toMatchObject({ level: 2, got: { planks: 10, flour: 3 }, wants: { planks: 14, flour: 6 } });
+    expect(s.fill).toBeCloseTo(13 / 20);
   });
 
   it("keep wanting more past the table", () => {

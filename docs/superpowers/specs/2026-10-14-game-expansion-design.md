@@ -60,9 +60,12 @@ Shown on the town sign as icons with bars. Phase A table (B–D add stone, iron,
 | Level | Wants | Houses |
 |---|---|---|
 | Hamlet → Village | 4 planks | 2 |
-| Village → Town | 8 planks, 4 flour | 3 |
-| Town → City | 14 planks, 8 flour | 3 |
+| Village → Town | 8 planks | 3 |
+| Town → City | 14 planks, 6 flour | 3 |
 | City → City★ | 22 planks, 12 flour | 4 |
+
+Flour starts at Town → City (built that way): the early game stays the planks-only starter line, which reaches a town
+in about 15 minutes; the farm chain is the mid-game goal rather than a wall at Village.
 | ★ levels | ×1.5 each | 4 |
 
 Rewards stay: a blueprint choice, coins per unit delivered (each kind of goods has a price), and later a landmark

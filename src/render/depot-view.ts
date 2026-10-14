@@ -89,7 +89,11 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     // Above the chimney, below the station canopy (76 mm).
     crane: { kind: "jib", t: 46, l: SIDE + 12, height: 66 },
     // On the platform's goods corner, bundles lying across it.
-    piles: { planks: { t: 20.5, l: SIDE + 23, y: 14, across: 2, axis: "l" } },
+    piles: {
+      planks: { t: 20.5, l: SIDE + 23, y: 14, across: 2, axis: "l" },
+      // Flour sacks beside the planks, short of the crane's mast.
+      flour: { t: 34, l: SIDE + 23, y: 14, across: 2, axis: "l" },
+    },
     trackT: STATION_CRANE_AT,
   },
 };
