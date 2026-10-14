@@ -63,23 +63,42 @@ describe("automatic servicing", () => {
     });
   }
 
-  it("crawls through without stopping when there is nothing to do", () => {
+  it("runs through at full speed when there is nothing to do: it won't stop, so it doesn't slow", () => {
     const w = setup("sawmill");
     let maxOnDepot = 0;
     let stopped = false;
     for (let i = 0; i < 40 * SIM_HZ; i++) {
-      // Measured on ticks that start with the train already on the depot (the cap applies from then on).
-      const on = w.train().bogies.some((b) => b.pieceId === w.depot.pieceId);
       w.step();
       const t = w.train();
-      if (on && t.bogies.some((b) => b.pieceId === w.depot.pieceId)) {
+      if (t.bogies.some((b) => b.pieceId === w.depot.pieceId)) {
         maxOnDepot = Math.max(maxOnDepot, t.speed);
         if (t.speed === 0) stopped = true;
       }
     }
-    expect(maxOnDepot).toBeLessThanOrEqual(CRAWL_SPEED + 1e-9);
-    expect(maxOnDepot).toBeGreaterThan(0);
+    expect(maxOnDepot).toBeGreaterThan(CRAWL_SPEED * 2);
     expect(stopped).toBe(false);
+    for (const car of w.wagons()) expect(w.economy.cargoOf(car.id).count).toBe(0);
+  });
+
+  it("crawls once one of its wagons has work, and runs on at speed once the last is done", () => {
+    const w = setup("sawmill");
+    // Only the first wagon has logs to drop; the sawmill has no planks to give.
+    w.economy.setCargo(w.wagons()[0].id, "log", 3);
+    let crawled = false;
+    let fastAfter = false;
+    for (let i = 0; i < 60 * SIM_HZ; i++) {
+      const on = w.train().bogies.some((b) => b.pieceId === w.depot.pieceId);
+      w.step();
+      const t = w.train();
+      if (!on || !t.bogies.some((b) => b.pieceId === w.depot.pieceId)) continue;
+      if (w.economy.cargoOf(w.wagons()[0].id).count > 0) {
+        expect(t.speed).toBeLessThanOrEqual(CRAWL_SPEED + 1e-9);
+        crawled = true;
+      } else if (t.speed > CRAWL_SPEED * 2) fastAfter = true;
+    }
+    expect(crawled).toBe(true);
+    expect(w.economy.cargoOf(w.wagons()[0].id).count).toBe(0);
+    expect(fastAfter).toBe(true);
   });
 
   it("with Automatic off, trains run through at full speed and nothing is loaded", () => {
