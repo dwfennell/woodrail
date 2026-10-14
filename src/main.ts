@@ -1,4 +1,4 @@
-import { Group, Mesh, Vector3 } from "three";
+import { Group, Mesh, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre } from "./editor/editor";
 import { frameDistance } from "./game/camera-director";
@@ -11,7 +11,8 @@ import { hasSave, loadFromStorage, loadGoals, saveGoals, saveToStorage, serializ
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
-import { loadBlenderModels } from "./render/blender-models";
+import { loadBlenderModels, loadModelSet } from "./render/blender-models";
+import { LoadingToys } from "./ui/loading-toys";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -738,6 +739,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     openingView();
   } else showTitle();
   loading?.classList.add("done");
+  // The loading screen fades out (0.6 s); its toys go with it.
+  setTimeout(() => toys?.stop(), 700);
 }
 
 /** Say on the loading screen that the toys couldn't be fetched, with a button to try again. */
@@ -756,6 +759,36 @@ function offerRetry(again: () => void): void {
     again();
   });
   box.append(note, button);
+}
+
+/** Toys hopping onto the loading screen as their models arrive (none if WebGL won't start for it). */
+const toys = ((): LoadingToys | null => {
+  const canvas = loading?.querySelector<HTMLCanvasElement>(".loading-toys");
+  if (!canvas) return null;
+  try {
+    return new LoadingToys(canvas);
+  } catch {
+    canvas.remove();
+    return null;
+  }
+})();
+if (toys) {
+  // One after another: the train first, then a waiting passenger and a lamp at its end.
+  const pop = async (models: Map<string, Object3D>, list: [string, Record<string, string>?][]) => {
+    for (const [id, slots] of list) {
+      const model = models.get(id);
+      if (model) toys.add(model, slots);
+      await new Promise((r) => setTimeout(r, 260));
+    }
+  };
+  void (async () => {
+    try {
+      await pop(await loadModelSet("trains"), [["engine-classic"], ["passenger-classic"], ["caboose-classic"]]);
+      await pop(await loadModelSet("dressing", true), [["peg-doll-hat", { coat: "#2f6db5", hat: "#2a2b2e" }], ["lamp"]]);
+    } catch {
+      // The loading screen says so itself (see offerRetry).
+    }
+  })();
 }
 
 // Let the loading screen paint, carve the track pieces in background workers (several at once), then build the rest.

@@ -202,6 +202,22 @@ function dressed(model: Object3D, swap: (name: string) => Material): Object3D {
   return root;
 }
 
+/**
+ * Any model dressed in the game's materials, for showing on its own (the loading screen): slots take the given
+ * colours (or a red), the lamp a warm glow.
+ */
+export function shownModel(model: Object3D, mats: Materials, lamp: Material, slots: Readonly<Record<string, string>> = {}): Object3D {
+  return dressed(model, (name) => {
+    if (name.startsWith("lacquer #")) return mats.lacquer(name.slice(8));
+    if (name.startsWith("lacquer fixed #")) return mats.lacquer(name.slice(14));
+    if (name.startsWith("lacquer slot ")) return mats.lacquer(slots[name.slice(13)] ?? "#c8442f");
+    if (name === "wood") return mats.naturalWood;
+    if (name === "coal") return mats.coal;
+    if (name === "lamp") return lamp;
+    return mats.magnet;
+  });
+}
+
 /** A catalogue asset's Blender model, painted through the kit (so its colour variants work). */
 export function catalogueModel(model: Object3D, k: Kit): Object3D {
   return dressed(model, (name) => {
