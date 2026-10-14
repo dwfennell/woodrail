@@ -374,6 +374,129 @@ def statue(k):
     return g
 
 
+# ——— Industries (Game mode's depots) ———
+#
+# Authored in the depot's own frame, as src/render/depot-view.ts lays a depot out: the origin is the depot track
+# piece's socket end, on the track's centreline at its base (y = 0); +x runs along the track (0 to 216), +z is the yard
+# side. The track covers z -20 to +20, the yard pad is 4 high at x 10-206, z 30-114, and anything over the track clears
+# 70 mm. Cranes and piles stay in code; these keep clear of them.
+
+PAD = 4
+SHED_POST = "#f0ebe0"
+
+
+def industry_workshop(k):
+    """
+    The workshop, where planks become toys: a long beech shed (84 x 54, walls 36 high) at x 156, z 84, under a solid
+    pitched roof (slot "roof", ridge along x), with big double doors (slot "doors") facing the track, a printed window
+    either side, a stubby chimney, and a sign board on the ridge (slot "sign").
+    """
+    from bldg_parts import winZ
+
+    g = Node()
+    x, z, w, d, h = 156, 84, 84, 54, 36
+    front = z - d / 2
+    g.add(k.box(k.wood, w, h, d, 3, x, PAD, z))
+    g.add(k.roof(k.paint(slot("roof")), w + 5, d + 5, 13, x, PAD + h - 0.5, z, 3.5))
+    # Double doors, a hair apart, with a cross brace each: the track side's centre.
+    for s in (-1, 1):
+        cx = x + s * 7.6
+        g.add(k.box(k.paint(slot("doors")), 14.4, 27, 1.6, 0.8, cx, PAD, front - 0.4))
+        g.add(k.box(k.paint(slot("doors")), 11, 2.2, 1.2, 0.5, cx, PAD + 12.5, front - 1.2))
+    g.add(k.box(k.paint(CREAM), 33, 2.4, 2.2, 0.8, x, PAD + 27.2, front - 0.4))
+    for wx in (x - 30, x + 30):
+        g.add(winZ(k, wx, PAD + 15, front, 12, 10))
+    g.add(k.box(k.paint("#a8553a"), 7, 12, 7, 1.8, x + 26, PAD + h + 2, z + 10))
+    # Sign board standing on the ridge.
+    ridge = PAD + h - 0.5 + 13
+    g.add(k.box(k.paint(slot("sign")), 30, 10, 2.4, 1, x, ridge - 2.5, z))
+    return g
+
+
+def _slab(k, mat, length, width, t, angle, x, y, z):
+    """A roof slab `length` along x, `width` down its slope, `t` thick, tipped `angle` about x, centred at (x, y, z)."""
+    n = Node()
+    n.add(k.box(mat, length, t, width, 2, 0, -t / 2, 0))
+    n.rotation.x = angle
+    n.position.set(x, y, z)
+    return n
+
+
+def industry_sawmill_shed(k):
+    """
+    The sawmill's saw shed: an open-sided shed over the track at the near end (posts at x 16 and 74, at z -28 and
+    104), its gable roof's ridge along x at z 38 (slot "roof", about 87 at the top; 70 clear at the track's near edge,
+    74 over its middle), and the saw table at x 44, z 74. The blade is a part of its own ("industry-saw-blade"), as
+    the code spins it.
+    """
+    g = Node()
+    ridge_z, under, pitch = 38, 82, math.atan(0.2)
+    span, t, x0, x1 = 78, 5, 9, 81
+    for s in (-1, 1):
+        # Centre of each slab: half its width out from the ridge, down the pitch, and half its thickness up.
+        cz = ridge_z + s * (span / 2) * math.cos(pitch) - s * (t / 2) * math.sin(pitch)
+        cy = under - (span / 2) * math.sin(pitch) + (t / 2) * math.cos(pitch)
+        g.add(_slab(k, k.paint(slot("roof")), x1 - x0, span, t, s * pitch, (x0 + x1) / 2, cy, cz))
+    g.add(k.cylX(k.paint(slot("roof")), 3.6, x1 - x0 + 2, (x0 + x1) / 2, under + t - 0.6, ridge_z, 24))
+    post = k.paint(SHED_POST)
+    for px in (16, 74):
+        for pz in (-28, 104):
+            top = under - abs(pz - ridge_z) * math.tan(pitch) + 1.5
+            g.add(k.box(post, 5, top, 5, 1.4, px, 0, pz))
+            g.add(k.box(post, 7.5, 3, 7.5, 1.2, px, 0 if pz < 0 else PAD, pz))
+    # The saw table: a beech block with a cream top and a slot for the blade (centred at y 22).
+    g.add(k.box(k.wood, 44, 13, 26, 2.5, 44, PAD, 74))
+    g.add(k.box(k.paint(CREAM), 44, 1.6, 26, 0.7, 44, PAD + 12.4, 74))
+    g.add(k.box(k.paint(DARK), 26, 0.6, 3, 0.25, 44, PAD + 13.8, 74))
+    for lx in (26, 62):
+        g.add(k.box(k.paint(RED), 4, 4, 4, 1, lx, PAD + 14, 64))
+    return g
+
+
+def industry_saw_blade(k):
+    """The sawmill's blade: a toothed disc 22 across and 1.4 thick, upright in the x/y plane, its hub at the origin."""
+    teeth, ro, ri = 18, 11, 9.4
+    outline = []
+    for i in range(teeth):
+        a0 = 2 * math.pi * i / teeth
+        a1 = 2 * math.pi * (i + 0.6) / teeth
+        outline += [(ri * math.cos(a0), ri * math.sin(a0)), (ro * math.cos(a1), ro * math.sin(a1))]
+    g = Node()
+    g.add(k.extrude(k.metal, outline, 1.4, 0, 0, 0, bevel=0.25))
+    g.add(k.cylZ(k.paint(RED), 3.2, 3, 0, 0, 0, 20))
+    return g
+
+
+def industry_forest_hut(k):
+    """
+    The forest yard's hut: a small beech hut (30 x 24, walls 24 high) at x 186, z 96 under a solid green roof (slot
+    "roof"), a door and a printed window facing the track, a stovepipe, and a chopping block with an axe in it by the
+    door.
+    """
+    from bldg_parts import winZ
+
+    g = Node()
+    x, z, w, d, h = 186, 96, 30, 24, 24
+    front = z - d / 2
+    g.add(k.box(k.wood, w, h, d, 2.5, x, PAD, z))
+    g.add(k.roof(k.paint(slot("roof")), w + 5, d + 5, 11, x, PAD + h - 0.5, z, 3))
+    g.add(k.box(k.paint("#9a4a2c"), 9, 16, 1.6, 0.8, x - 6, PAD, front - 0.4))
+    g.add(winZ(k, x + 7, PAD + 9, front, 7, 7))
+    g.add(k.cyl(k.paint(DARK), 1.8, 10, x + 8, PAD + h + 2, z + 4, None, 14))
+    # Chopping block and axe, left of the hut.
+    bx, bz = 164, 88
+    g.add(k.cyl(k.wood, 5.2, 7, bx, PAD, bz, 5.6, 20))
+    axe = Node()
+    axe.add(k.cyl(k.paint("#c99a5b"), 0.9, 13, 0, 0, 0, None, 10))
+    axe.add(k.box(k.metal, 5, 3.2, 1.6, 0.5, 1.8, 10.5, 0))
+    axe.rotation.z = -0.5
+    axe.position.set(bx - 1, PAD + 6.2, bz)
+    g.add(axe)
+    for i, (rx, rz) in enumerate(((bx + 1, bz + 11), (bx + 7, bz + 12))):
+        g.add(k.cyl(k.wood, 3.6, 3.2, rx, PAD, rz, None, 18))
+    return g
+
+
 PARTS = [
     ("door", door),
     ("flower-box", flower_box),
@@ -397,6 +520,10 @@ PARTS = [
     ("busstop", bus_stop),
     ("fountain", fountain),
     ("statue", statue),
+    ("industry-workshop", industry_workshop),
+    ("industry-sawmill-shed", industry_sawmill_shed),
+    ("industry-saw-blade", industry_saw_blade),
+    ("industry-forest-hut", industry_forest_hut),
 ]
 
 

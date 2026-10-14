@@ -100,6 +100,9 @@ time is still to be measured on a phone.
   `addPart(b, mats, name, place, slots)` draws one into a town's batch the way the code placed its own geometry (and
   throws if the parts aren't loaded). Colours that vary per copy are slots
   (`lacquer slot door`), filled in per copy.
+- **Industries** (Game mode's depots): `industry-workshop`, `industry-sawmill-shed`, `industry-saw-blade` (its own
+  part, as the code spins it) and `industry-forest-hut`, authored in the depot's frame (origin at the depot track's
+  socket end, +x along the track, +z the yard side), so the depot view places them as it placed its boxes.
 - **Lean parts:** the parts on every house (door, flower box, chimney top) are built lean (`Kit(lean=True)`: one-step
   roundings, the code's segment counts); a map has hundreds. Windows stay in code: they're already a printed pane
   with glazing bars in a frame.
