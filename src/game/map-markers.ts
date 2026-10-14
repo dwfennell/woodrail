@@ -1,5 +1,5 @@
 import { CARGO, CARGO_KINDS, type CargoKind } from "../economy/cargo";
-import { ROLE } from "../economy/economy";
+import { pilesOf } from "../economy/economy";
 import type { TownStatus } from "./towns";
 import { DEPOT_NAMES, type World } from "./world";
 
@@ -35,8 +35,7 @@ export function mapMarkers(world: World, statusOf: (townId: number) => TownStatu
   for (const d of world.landscape.depots) {
     const pieceId = world.depots.get(d.id);
     const state = pieceId === undefined ? undefined : world.economy.depotAtPiece(pieceId);
-    const role = ROLE[d.kind];
-    const kinds = [role.takes, role.gives].filter((k): k is CargoKind => k !== null);
+    const kinds = pilesOf(d.kind);
     const stock = state ? kinds.map((k) => `${CARGO[k].label} ${state.piles[CARGO[k].index]}`).join(" · ") : "";
     out.push({ key: `depot:${d.id}`, kind: d.kind, x: d.centre.x, z: d.centre.z, title: DEPOT_NAMES[d.kind], detail: stock });
   }

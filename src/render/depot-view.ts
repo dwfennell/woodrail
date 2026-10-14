@@ -1,11 +1,11 @@
 import { BoxGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, Object3D, Quaternion, Vector3, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { CARGO, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
+import { CARGO, CARGO_KINDS, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
 import type { Layout, Pose } from "../track";
 import { TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
-import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, LOG_LENGTH, LOG_RADIUS, pileSlot, wagonSlot } from "./cargo-layout";
+import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, unitSize, wagonSlot } from "./cargo-layout";
 import { Batcher } from "./dressing/batcher";
 import { setCullBox, tileAt } from "./dressing/tiles";
 import type { Materials } from "./materials";
@@ -76,6 +76,9 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   },
 };
 
+/** Where a hopper's load sits (car-local y): in the top of its bin. A guess until the grain heap model comes. */
+const HOPPER_LOAD = TIMBER_DECK + 8;
+
 /** Gantry legs stand this far out on each side of the beam's middle. */
 const GANTRY_HALF = 70;
 const JIB_ARM = 46;
@@ -122,7 +125,15 @@ interface Site {
   readonly pileOwners: Record<CargoKind, CargoSlot>;
 }
 
-const KINDS: readonly CargoKind[] = ["log", "planks"];
+/** One kind of goods as drawn: its parts (instanced, a unit per instance), who each drawn unit belongs to, and the copy a crane or a hand carries. */
+interface UnitMeshes {
+  readonly parts: InstancedMesh[];
+  readonly owners: CargoSlot[];
+  readonly carried: Group;
+  /** Units drawn so far this frame, and last frame. */
+  n: number;
+  last: number;
+}
 const ease = (x: number) => x * x * (3 - 2 * x);
 
 const _m = new Matrix4();
@@ -140,20 +151,13 @@ const _up = new Vector3(0, 1, 0);
 export class DepotView {
   readonly group = new Group();
   private sites: Site[] = [];
-  private readonly logs: InstancedMesh;
-  private readonly boards: InstancedMesh;
-  private readonly straps: InstancedMesh;
-  private readonly carried: Record<CargoKind, Group>;
+  /** Each kind of goods' meshes (logs, plank bundles, sacks). */
+  private readonly units: Record<CargoKind, UnitMeshes>;
   private static readonly MAX_UNITS = 2048;
-  /** Which pile or wagon each drawn unit belongs to this frame (by instance index), for picking. */
-  private readonly owners: Record<CargoKind, CargoSlot[]> = { log: [], planks: [] };
   /** A unit being carried by hand: one fewer is drawn at its source. */
   dragging: CargoSlot | null = null;
   /** Picking owners for wagon loads by car id, made once per car. */
   private readonly carOwners = new Map<number, CargoSlot>();
-  /** Units drawn so far this frame, by kind. */
-  private nLog = 0;
-  private nPlanks = 0;
   private readonly cargoMeshes: InstancedMesh[];
 
   constructor(private readonly mats: Materials) {
@@ -164,20 +168,37 @@ export class DepotView {
     const strap = new BoxGeometry(2.4, BUNDLE_HEIGHT + 0.4, BUNDLE_WIDTH + 0.4);
     const logMat = mats.lacquer("#a8743f");
     const strapMat = mats.lacquer("#c8442f");
-    this.logs = this.instanced(log, logMat);
-    this.boards = this.instanced(boards, mats.naturalWood);
-    this.straps = this.instanced(strap, strapMat);
-    this.group.add(this.logs, this.boards, this.straps);
-    this.cargoMeshes = [this.logs, this.boards, this.straps];
-    // The unit on the crane hook (one of each kind, shown as needed).
-    const carriedLog = new Group().add(new Mesh(log, logMat));
-    const carriedBundle = new Group().add(new Mesh(boards, mats.naturalWood), new Mesh(strap, strapMat));
-    this.carried = { log: carriedLog, planks: carriedBundle };
-    for (const g of [carriedLog, carriedBundle]) {
-      g.traverse((o) => (o.castShadow = true));
-      g.visible = false;
-      this.group.add(g);
+    // A sack (grain golden, flour white) with a tie at its neck; stand-ins until the models come.
+    const sack = new RoundedBoxGeometry(SACK_LENGTH, SACK_HEIGHT, SACK_WIDTH, 2, 2.4);
+    const tie = new CylinderGeometry(1.6, 2.2, 2.4, 10).rotateZ(Math.PI / 2).translate(SACK_LENGTH / 2 + 0.6, 0, 0);
+    const looks: Record<CargoKind, [BufferGeometry, Material][]> = {
+      log: [[log, logMat]],
+      planks: [
+        [boards, mats.naturalWood],
+        [strap, strapMat],
+      ],
+      grain: [
+        [sack, mats.lacquer("#d9a441")],
+        [tie, strapMat],
+      ],
+      flour: [
+        [sack, mats.lacquer("#f1ebdd")],
+        [tie, mats.lacquer("#2f6db5")],
+      ],
+    };
+    const units = {} as Record<CargoKind, UnitMeshes>;
+    for (const kind of CARGO_KINDS) {
+      const parts = looks[kind].map(([g, m]) => this.instanced(g, m));
+      this.group.add(...parts);
+      // The unit on the crane hook (one of each kind, shown as needed).
+      const carried = new Group().add(...looks[kind].map(([g, m]) => new Mesh(g, m)));
+      carried.traverse((o) => (o.castShadow = true));
+      carried.visible = false;
+      this.group.add(carried);
+      units[kind] = { parts, owners: [], carried, n: 0, last: 0 };
     }
+    this.units = units;
+    this.cargoMeshes = CARGO_KINDS.flatMap((k) => units[k].parts);
   }
 
   private instanced(g: BufferGeometry, m: Material): InstancedMesh {
@@ -216,7 +237,7 @@ export class DepotView {
         blade: null,
         move: { kind: "log", toPile: false, carId: -1, phase: 0 },
         moving: false,
-        pileOwners: { log: { kind: "pile", depotId: depot.id, cargo: "log" }, planks: { kind: "pile", depotId: depot.id, cargo: "planks" } },
+        pileOwners: Object.fromEntries(CARGO_KINDS.map((k) => [k, { kind: "pile", depotId: depot.id, cargo: k }])) as Record<CargoKind, CargoSlot>,
       };
       const at = toWorld(pose, spec.trackT, 0, 0, new Vector3());
       const key = tileAt(at.x, at.z);
@@ -371,20 +392,17 @@ export class DepotView {
   private wagonUnit(car: Object3D, kind: CargoKind, k: number, out: Matrix4): Matrix4 {
     car.updateWorldMatrix(true, false);
     const slot = wagonSlot(kind, k);
-    return out.makeTranslation(slot.x, TIMBER_DECK + slot.y, slot.z).premultiply(car.matrixWorld);
+    const deck = car.userData.carKind === "hopper" ? HOPPER_LOAD : TIMBER_DECK;
+    return out.makeTranslation(slot.x, deck + slot.y, slot.z).premultiply(car.matrixWorld);
   }
 
   /** Draw one unit of cargo this frame. */
   private put(kind: CargoKind, m: Matrix4, owner: CargoSlot): void {
-    if (kind === "log") {
-      if (this.nLog >= DepotView.MAX_UNITS) return;
-      this.owners.log[this.nLog] = owner;
-      this.logs.setMatrixAt(this.nLog++, m);
-    } else if (this.nPlanks < DepotView.MAX_UNITS) {
-      this.owners.planks[this.nPlanks] = owner;
-      this.boards.setMatrixAt(this.nPlanks, m);
-      this.straps.setMatrixAt(this.nPlanks++, m);
-    }
+    const u = this.units[kind];
+    if (u.n >= DepotView.MAX_UNITS) return;
+    u.owners[u.n] = owner;
+    for (const part of u.parts) part.setMatrixAt(u.n, m);
+    u.n++;
   }
 
   /** Is a crane lifting a unit off this car right now? */
@@ -405,14 +423,14 @@ export class DepotView {
    * (one new frame shows it), else "still".
    */
   update(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, dt: number): "moving" | "changed" | "still" {
-    const lastLog = this.nLog;
-    const lastPlanks = this.nPlanks;
     let busy = this.dragging !== null;
-    this.nLog = 0;
-    this.nPlanks = 0;
+    for (const kind of CARGO_KINDS) {
+      const u = this.units[kind];
+      u.last = u.n;
+      u.n = 0;
+      u.carried.visible = false;
+    }
     const drag = this.dragging;
-    this.carried.log.visible = false;
-    this.carried.planks.visible = false;
 
     // Which unit (if any) is on each crane's hook, so it isn't also drawn on its pile or wagon.
     for (const site of this.sites) {
@@ -422,7 +440,7 @@ export class DepotView {
 
     // Piles.
     for (const site of this.sites) {
-      for (const kind of KINDS) {
+      for (const kind of CARGO_KINDS) {
         if (!site.layout.piles[kind]) continue;
         let count = site.depot.piles[CARGO[kind].index];
         if (site.moving && !site.move.toPile && site.move.kind === kind) count--; // being lifted off this pile
@@ -459,16 +477,19 @@ export class DepotView {
       }
     }
 
-    this.logs.count = this.nLog;
-    this.boards.count = this.nPlanks;
-    this.straps.count = this.nPlanks;
+    let changed = false;
+    for (const kind of CARGO_KINDS) {
+      const u = this.units[kind];
+      for (const part of u.parts) part.count = u.n;
+      if (u.n !== u.last) changed = true;
+    }
     for (const m of this.cargoMeshes) {
       m.instanceMatrix.needsUpdate = true;
       // Units move every frame: let the next raycast recompute the bounds it tests first.
       m.boundingSphere = null;
       m.boundingBox = null;
     }
-    return busy ? "moving" : this.nLog !== lastLog || this.nPlanks !== lastPlanks ? "changed" : "still";
+    return busy ? "moving" : changed ? "changed" : "still";
   }
 
   /** World centre of the k-th unit on a car (or over the depot track if the car's model is missing). */
@@ -525,14 +546,14 @@ export class DepotView {
       const from = move.toPile ? carYaw : pileYaw;
       const to = move.toPile ? pileYaw : carYaw;
       unitYaw = from + (to - from) * ease(travel);
-      const unit = this.carried[move.kind];
+      const unit = this.units[move.kind].carried;
       unit.visible = true;
       unit.position.copy(crane.hook);
       unit.rotation.set(0, unitYaw, 0);
     }
     // Arm toward the hook (jib), trolley over the hook, rope from trolley down to the unit's top.
     const hook = crane.hook;
-    const topY = move ? hook.y + (move.kind === "log" ? LOG_RADIUS : BUNDLE_HEIGHT / 2) : hook.y;
+    const topY = move ? hook.y + unitSize(move.kind).y / 2 : hook.y;
     if (crane.arm) {
       const dx = hook.x - crane.arm.position.x;
       const dz = hook.z - crane.arm.position.z;
@@ -551,8 +572,10 @@ export class DepotView {
   /** The pile or wagon a picked cargo unit belongs to, or null. */
   cargoAt(object: Object3D, instanceId: number | undefined): CargoSlot | null {
     if (instanceId === undefined) return null;
-    if (object === this.logs) return this.owners.log[instanceId] ?? null;
-    if (object === this.boards || object === this.straps) return this.owners.planks[instanceId] ?? null;
+    for (const kind of CARGO_KINDS) {
+      const u = this.units[kind];
+      if (u.parts.includes(object as InstancedMesh)) return u.owners[instanceId] ?? null;
+    }
     return null;
   }
 
@@ -568,7 +591,7 @@ export class DepotView {
     let bestD = range;
     for (const site of this.sites) {
       const c = site.layout.crane;
-      const pile = site.layout.piles.log ?? site.layout.piles.planks!;
+      const pile = Object.values(site.layout.piles)[0]!;
       for (const [t, l] of [[c.t, c.l], [pile.t, pile.l], [site.layout.trackT, 0]]) {
         toWorld(site.pose, t, l, 0, _v);
         const d = Math.hypot(_v.x - x, _v.z - z);
@@ -585,7 +608,7 @@ export class DepotView {
   piles(): { depotId: number; cargo: CargoKind; x: number; z: number }[] {
     const out: { depotId: number; cargo: CargoKind; x: number; z: number }[] = [];
     for (const site of this.sites) {
-      for (const kind of ["log", "planks"] as const) {
+      for (const kind of CARGO_KINDS) {
         const spot = site.layout.piles[kind];
         if (!spot) continue;
         toWorld(site.pose, spot.t, spot.l, 0, _v);
@@ -597,13 +620,13 @@ export class DepotView {
 
   /** A loose copy of a unit for the hand to carry. */
   makeHeld(kind: CargoKind): Group {
-    const g = this.carried[kind].clone();
+    const g = this.units[kind].carried.clone();
     g.visible = true;
     g.traverse((o) => (o.castShadow = true));
     return g;
   }
 
   dispose(): void {
-    for (const m of [this.logs, this.boards, this.straps]) m.dispose();
+    for (const m of this.cargoMeshes) m.dispose();
   }
 }

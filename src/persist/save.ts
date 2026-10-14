@@ -5,7 +5,7 @@ import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ADV_OK, advanceCursor, ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, createAdvance, flipCursor, Sim, type AddTrainResult, type CarKind, type CarLook, type Cursor } from "../sim";
-import { CARGO, CARGO_KINDS, Economy, PILE_CAP, ROLE, WAGON_CAPACITY, type CargoKind } from "../economy";
+import { CARGO, CARGO_KINDS, Economy, PILE_CAP, pilesOf, WAGON_CAPACITY, type CargoKind } from "../economy";
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
@@ -66,7 +66,8 @@ const saveSchema = z.object({
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
-      piles: z.tuple([z.number().int().min(0).max(PILE_CAP), z.number().int().min(0).max(PILE_CAP)]),
+      /** Units on each pile, in cargo order (saves from before grain and flour have just logs and planks). */
+      piles: z.array(z.number().int().min(0).max(PILE_CAP)).min(2).max(CARGO_KINDS.length),
       timer: z.number().int().min(0),
     }),
   ),
@@ -131,7 +132,7 @@ export function serializeWorld(world: World): SaveData {
     pieces,
     switches,
     trains,
-    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [d.piles[0], d.piles[1]] as [number, number], timer: d.timer })),
+    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer })),
     delivered: [...world.economy.delivered],
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}) })),
   };
@@ -203,8 +204,8 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     state.auto = d.auto;
     state.waitFull = d.waitFull;
     // Only the piles this kind of depot uses (its input and output) can hold anything.
-    const role = ROLE[state.role];
-    for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = role.takes === kind || role.gives === kind ? d.piles[CARGO[kind].index] : 0;
+    const kept = pilesOf(state.role);
+    for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? (d.piles[CARGO[kind].index] ?? 0) : 0;
     state.timer = d.timer;
   }
   for (const [townId, n] of save.delivered) if (landscape.towns.some((t) => t.id === townId)) economy.delivered.set(townId, n);

@@ -1,4 +1,4 @@
-import { ROLE } from "../economy";
+import { RECIPES } from "../economy";
 import { DEPOT_NAMES, type World } from "./world";
 
 /** A place a train can be told to deliver to: a depot that takes goods (a town's station, a workshop, a sawmill). */
@@ -9,7 +9,7 @@ export interface DeliveryStop {
 
 /** The depots on the map that take goods, towns first, named for the engine card ("Workshop 2" when there are more). */
 export function deliveryStops(w: World): DeliveryStop[] {
-  const takers = w.economy.allDepots().filter((d) => ROLE[d.role].takes !== null && w.layout.getPiece(d.pieceId));
+  const takers = w.economy.allDepots().filter((d) => RECIPES[d.role].takes.length > 0 && w.layout.getPiece(d.pieceId));
   const towns = takers.filter((d) => d.role === "town");
   const others = takers.filter((d) => d.role !== "town");
   const out: DeliveryStop[] = towns.map((d) => ({ depotId: d.id, name: w.landscape.towns.find((t) => t.id === d.townId)?.name ?? "Town" }));

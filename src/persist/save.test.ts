@@ -263,10 +263,11 @@ describe("economy in saves", () => {
     const world = timberWorld();
     const data = serializeWorld(world);
     const forest = world.economy.allDepots().find((d) => d.role === "forest")!;
+    // An older save's two piles (logs, planks), the planks pile one a forest doesn't use.
     data.depots[forest.id].piles = [3, 12];
     const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
     expect(r.ok).toBe(true);
-    if (r.ok) expect(Array.from(r.value.economy.depot(forest.id)!.piles)).toEqual([3, 0]);
+    if (r.ok) expect(Array.from(r.value.economy.depot(forest.id)!.piles)).toEqual([3, 0, 0, 0]);
   });
 
   it("a train saved half way through loading carries on loading after a load", () => {

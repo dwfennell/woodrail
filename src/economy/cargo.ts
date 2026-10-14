@@ -1,16 +1,25 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks";
+export type CargoKind = "log" | "planks" | "grain" | "flour";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
   planks: { index: 1, label: "Planks" },
+  grain: { index: 2, label: "Grain" },
+  flour: { index: 3, label: "Flour" },
 };
 
-/** Can this kind of car carry cargo? */
-export function canCarry(kind: CarKind): boolean {
-  return kind === "timber";
+/** What each kind of wagon carries: a kind of wagon per kind of goods (timber wagons take logs and planks). */
+export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
+  timber: ["log", "planks"],
+  hopper: ["grain"],
+};
+
+/** Can this kind of car carry cargo (any, or this kind)? */
+export function canCarry(kind: CarKind, cargo?: CargoKind): boolean {
+  const list = CARRIES[kind];
+  return !!list && (cargo === undefined || list.includes(cargo));
 }

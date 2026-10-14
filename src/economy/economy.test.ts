@@ -3,7 +3,7 @@ import { Sim, SIM_HZ } from "../sim";
 import { Layout } from "../track";
 import { CARGO } from "./cargo";
 import { PILE_CAP } from "./constants";
-import { Economy } from "./economy";
+import { Economy, pilesOf, RECIPES, type DepotRole, type Recipe } from "./economy";
 
 /** Three long straights in a row along +x, and a train of the given cars led from the far end. */
 function world(cars: Parameters<Sim["addTrain"]>[0] = ["engine", "timber", "timber"]) {
@@ -136,5 +136,25 @@ describe("delivering to one depot", () => {
     expect(economy.needsService(town, wagon.id)).toBe(true);
     economy.setDeliverTo(engine.id, -1);
     expect(economy.deliverToOf(engine.id)).toBe(-1);
+  });
+});
+
+describe("recipes", () => {
+  it("each kind of depot uses and makes only goods it keeps piles of", () => {
+    for (const [role, r] of Object.entries(RECIPES) as [DepotRole, Recipe][]) {
+      const piles = pilesOf(role);
+      for (const k of Object.keys(r.cycle?.uses ?? {})) expect(piles, `${role} uses ${k}`).toContain(k);
+      for (const k of Object.keys(r.cycle?.makes ?? {})) expect(piles, `${role} makes ${k}`).toContain(k);
+    }
+  });
+
+  it("an industry's rate sets how fast it makes things: half the trees, half the logs", () => {
+    const { economy } = world();
+    const full = economy.addDepot("forest", 998);
+    const half = economy.addDepot("forest", 997);
+    half.rate = 0.5;
+    run(economy, 61);
+    expect(full.piles[CARGO.log.index]).toBe(4);
+    expect(half.piles[CARGO.log.index]).toBe(2);
   });
 });

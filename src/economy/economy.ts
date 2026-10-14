@@ -1,7 +1,8 @@
 import { getPieceDef, pathLength, type Layout } from "../track";
 import { SIM_DT, type Cursor, type Sim, type Train } from "../sim";
-import { CARGO, canCarry, type CargoKind } from "./cargo";
-import { ticks, CRANE_TICKS, CRAWL_SPEED, FOREST_TICKS, PILE_CAP, SAWMILL_TICKS, TOWN_USE_TICKS, WAGON_CAPACITY } from "./constants";
+import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
+import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
+import type { Bag } from "./goods";
 
 const NONE = 0;
 const CRAWLING = 1;
@@ -28,14 +29,33 @@ interface Service {
 
 export type DepotRole = "forest" | "sawmill" | "town" | "workshop";
 
-/** What a depot takes from trains and what it gives them. */
-export const ROLE: Record<DepotRole, { takes: CargoKind | null; gives: CargoKind | null }> = {
-  forest: { takes: null, gives: "log" },
-  sawmill: { takes: "log", gives: "planks" },
-  town: { takes: "planks", gives: null },
+/**
+ * What a kind of depot does: the goods trains bring it (unloaded onto its piles), the goods it gives them, and what it
+ * makes by itself, a cycle at a time. One row per kind of industry: a new one is a row here (and a model).
+ */
+export interface Recipe {
+  readonly takes: readonly CargoKind[];
+  readonly gives: readonly CargoKind[];
+  /**
+   * One cycle every `seconds` (at rate 1): uses `uses` from its piles, adds `makes` to them. Runs while it has what it
+   * uses and room for what it makes. `eats`: uses one of whatever it has of `takes` (a town using up its goods).
+   */
+  readonly cycle?: { readonly uses: Bag; readonly makes: Bag; readonly seconds: number; readonly eats?: boolean };
+}
+
+export const RECIPES: Record<DepotRole, Recipe> = {
+  forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
+  sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
+  town: { takes: ["planks"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
-  workshop: { takes: "planks", gives: null },
+  workshop: { takes: ["planks"], gives: [] },
 };
+
+/** The piles a kind of depot keeps: what it takes and what it gives. */
+export function pilesOf(role: DepotRole): CargoKind[] {
+  const r = RECIPES[role];
+  return CARGO_KINDS.filter((k) => r.takes.includes(k) || r.gives.includes(k));
+}
 
 export interface DepotState {
   readonly id: number;
@@ -51,6 +71,8 @@ export interface DepotState {
   readonly piles: Int32Array;
   /** Ticks into the current production (forest, sawmill) or use (town) cycle. */
   timer: number;
+  /** How fast it makes things, against its recipe (an industry near fewer of its resource is slower; 0 stops it). */
+  rate: number;
   /** Where wagons stop for the crane: distance (mm) from the depot path's `from` end. */
   readonly craneAt: number;
 }
@@ -109,7 +131,7 @@ export class Economy {
   addDepot(role: DepotRole, pieceId: number, townId = -1, craneAt?: number): DepotState {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
-    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, piles: new Int32Array(2), timer: 0, craneAt: craneAt ?? len / 2 };
+    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2 };
     this.depots.push(d);
     this.byPiece.set(pieceId, d);
     return d;
@@ -149,14 +171,14 @@ export class Economy {
 
   /** Can a pile hold this cargo (it is the depot's input or output) and is there room? */
   pileAccepts(d: DepotState, kind: CargoKind): boolean {
-    const r = ROLE[d.role];
-    return (r.takes === kind || r.gives === kind) && d.piles[CARGO[kind].index] < PILE_CAP;
+    const r = RECIPES[d.role];
+    return (r.takes.includes(kind) || r.gives.includes(kind)) && d.piles[CARGO[kind].index] < PILE_CAP;
   }
 
   /** Can this car take one more unit of `kind`? */
   carAccepts(carId: number, kind: CargoKind): boolean {
     const found = this.sim.findCar(carId);
-    if (!found || !canCarry(found.train.cars[found.index].kind)) return false;
+    if (!found || !canCarry(found.train.cars[found.index].kind, kind)) return false;
     const c = this.cargoOf(carId);
     return c.count < WAGON_CAPACITY && (c.kind === null || c.kind === kind);
   }
@@ -206,33 +228,37 @@ export class Economy {
 
   /** Load one unit from a depot's output pile onto a car (crane work). */
   protected loadOne(d: DepotState, carId: number): void {
-    const kind = ROLE[d.role].gives!;
+    const kind = this.loadKind(d, carId)!;
     this.take({ kind: "pile", depotId: d.id, cargo: kind }, kind);
     this.put({ kind: "car", carId }, kind);
   }
 
-  /** Does this depot's sawmill have a log to cut and room for the planks? (Its saw spins while true.) */
+  /**
+   * Is this depot making (or using) something now: it has what its cycle uses and room for what it makes? (A
+   * sawmill's saw spins while true.)
+   */
   working(d: DepotState): boolean {
-    if (d.role === "sawmill") return d.piles[CARGO.log.index] > 0 && d.piles[CARGO.planks.index] < PILE_CAP;
-    if (d.role === "forest") return d.piles[CARGO.log.index] < PILE_CAP;
-    if (d.role === "workshop") return false;
-    return d.piles[CARGO.planks.index] > 0;
+    const cycle = RECIPES[d.role].cycle;
+    if (!cycle || d.rate <= 0) return false;
+    if (cycle.eats) return RECIPES[d.role].takes.some((k) => d.piles[CARGO[k].index] > 0);
+    for (const k in cycle.uses) if (d.piles[CARGO[k as CargoKind].index] < cycle.uses[k as CargoKind]!) return false;
+    for (const k in cycle.makes) if (d.piles[CARGO[k as CargoKind].index] + cycle.makes[k as CargoKind]! > PILE_CAP) return false;
+    return true;
   }
 
   /** Would the crane do anything for this car at this depot? */
   needsService(d: DepotState, carId: number): boolean {
     const found = this.sim.findCar(carId);
     if (!found || !canCarry(found.train.cars[found.index].kind)) return false;
-    return this.canUnload(d, carId) || this.canLoad(d, carId) || this.waitsForLoad(d, carId);
+    return this.canUnload(d, carId) || this.loadKind(d, carId) !== null || this.waitsForLoad(d, carId);
   }
 
   private canUnload(d: DepotState, carId: number): boolean {
-    const takes = ROLE[d.role].takes;
     const c = this.cargoOf(carId);
-    if (takes === null || c.kind !== takes || c.count <= 0 || d.piles[CARGO[takes].index] >= PILE_CAP) return false;
+    if (c.kind === null || c.count <= 0 || !RECIPES[d.role].takes.includes(c.kind) || d.piles[CARGO[c.kind].index] >= PILE_CAP) return false;
     // A destination is for the goods it takes: other goods (logs, when it's planks it wants) go where they can.
     const to = this.destinationOf(carId);
-    return to === -1 || to === d.id || ROLE[this.depots[to].role].takes !== takes;
+    return to === -1 || to === d.id || !RECIPES[this.depots[to].role].takes.includes(c.kind);
   }
 
   /**
@@ -261,10 +287,15 @@ export class Economy {
     return -1;
   }
 
-  private canLoad(d: DepotState, carId: number): boolean {
-    const gives = ROLE[d.role].gives;
+  /** What the crane would load onto this car here: goods the depot gives, the car carries and has room for, or null. */
+  private loadKind(d: DepotState, carId: number): CargoKind | null {
     const c = this.cargoOf(carId);
-    return gives !== null && (c.kind === null || c.kind === gives) && c.count < WAGON_CAPACITY && d.piles[CARGO[gives].index] > 0;
+    if (c.count >= WAGON_CAPACITY) return null;
+    const found = this.sim.findCar(carId);
+    if (!found) return null;
+    const car = found.train.cars[found.index].kind;
+    for (const k of RECIPES[d.role].gives) if ((c.kind === null || c.kind === k) && canCarry(car, k) && d.piles[CARGO[k].index] > 0) return k;
+    return null;
   }
 
   /**
@@ -273,10 +304,14 @@ export class Economy {
    * there for planks that would need the logs on its own later wagons.)
    */
   private waitsForLoad(d: DepotState, carId: number): boolean {
-    const gives = ROLE[d.role].gives;
     const c = this.cargoOf(carId);
-    if (!d.waitFull || gives === null || (c.kind !== null && c.kind !== gives) || c.count >= WAGON_CAPACITY || this.canUnload(d, carId)) return false;
-    return d.piles[CARGO[gives].index] > 0 || this.working(d);
+    if (!d.waitFull || c.count >= WAGON_CAPACITY || this.canUnload(d, carId)) return false;
+    const found = this.sim.findCar(carId);
+    if (!found) return false;
+    const car = found.train.cars[found.index].kind;
+    const kind = RECIPES[d.role].gives.find((k) => (c.kind === null || c.kind === k) && canCarry(car, k));
+    if (kind === undefined) return false;
+    return d.piles[CARGO[kind].index] > 0 || this.working(d);
   }
 
   /** The car under the crane at a depot right now, or −1. */
@@ -306,8 +341,9 @@ export class Economy {
         out.toPile = true;
         return true;
       }
-      if (this.canLoad(d, s.carId)) {
-        out.kind = ROLE[d.role].gives!;
+      const load = this.loadKind(d, s.carId);
+      if (load !== null) {
+        out.kind = load;
         out.toPile = false;
         return true;
       }
@@ -452,7 +488,7 @@ export class Economy {
         s.ticks = 0;
         continue;
       }
-      if (!this.canUnload(d, s.carId) && !this.canLoad(d, s.carId)) {
+      if (!this.canUnload(d, s.carId) && this.loadKind(d, s.carId) === null) {
         if (this.waitsForLoad(d, s.carId)) continue;
         s.done.add(s.carId);
         s.phase = CRAWLING;
@@ -465,7 +501,7 @@ export class Economy {
         this.events.push({ kind: "unloaded", depotId: d.id, cargo: this.cargoOf(s.carId).kind! });
         this.unloadOne(d, s.carId);
       } else {
-        this.events.push({ kind: "loaded", depotId: d.id, cargo: ROLE[d.role].gives! });
+        this.events.push({ kind: "loaded", depotId: d.id, cargo: this.loadKind(d, s.carId)! });
         this.loadOne(d, s.carId);
       }
     }
@@ -480,17 +516,15 @@ export class Economy {
         continue;
       }
       d.timer++;
-      if (d.role === "forest" && d.timer >= FOREST_TICKS) {
-        d.piles[CARGO.log.index]++;
-        d.timer = 0;
-      } else if (d.role === "sawmill" && d.timer >= SAWMILL_TICKS) {
-        d.piles[CARGO.log.index]--;
-        d.piles[CARGO.planks.index]++;
-        d.timer = 0;
-      } else if (d.role === "town" && d.timer >= TOWN_USE_TICKS) {
-        d.piles[CARGO.planks.index]--;
-        d.timer = 0;
+      const cycle = RECIPES[d.role].cycle!;
+      if (d.timer < cycleTicks(cycle.seconds, d.rate)) continue;
+      d.timer = 0;
+      if (cycle.eats) {
+        for (const k of RECIPES[d.role].takes) if (d.piles[CARGO[k].index] > 0) d.piles[CARGO[k].index]--;
+        continue;
       }
+      for (const k in cycle.uses) d.piles[CARGO[k as CargoKind].index] -= cycle.uses[k as CargoKind]!;
+      for (const k in cycle.makes) d.piles[CARGO[k as CargoKind].index] += cycle.makes[k as CargoKind]!;
     }
   }
 
@@ -511,6 +545,11 @@ export class Economy {
   }
 }
 
+
+/** Ticks in one cycle of `seconds` at `rate` (whole ticks, so production stays in step with the sim). */
+function cycleTicks(seconds: number, rate: number): number {
+  return Math.max(1, Math.round(ticks(seconds) / rate));
+}
 
 /** A cursor's distance from its path's `from` end. */
 function along(c: Cursor, len: number): number {

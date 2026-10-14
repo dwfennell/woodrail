@@ -24,7 +24,7 @@ import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { cargoDropTarget } from "./cargo-drop";
-import { CARGO, PILE_CAP, ROLE, type CargoKind, type CargoSlot } from "../economy";
+import { CARGO, PILE_CAP, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 
 /** On touch, held things float this far (px) above the finger so it doesn't hide them. */
 const TOUCH_LIFT_PX = 60;
@@ -848,7 +848,7 @@ export class Interaction {
     return this.hud.depotCardOpen ? this.selectedDepot : -1;
   }
   /** What the open depot card last showed. */
-  private readonly shownDepot = { id: -1, a: -1, b: -1, auto: false, wait: false, delivered: -1 };
+  private readonly shownDepot = { id: -1, piles: -1, auto: false, wait: false, delivered: -1 };
 
   private depotTitle(depotId: number): string {
     const d = this.game.economy.depot(depotId);
@@ -873,18 +873,18 @@ export class Interaction {
     // Only redraw the card when something on it changed (this runs every frame).
     const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
     const shown = this.shownDepot;
-    if (shown.id === d.id && shown.a === d.piles[0] && shown.b === d.piles[1] && shown.auto === d.auto && shown.wait === d.waitFull && shown.delivered === delivered0) return;
+    // Every pile's count in one number (piles hold at most 12): no allocation on this per-frame check.
+    let pileKey = 0;
+    for (let k = 0; k < d.piles.length; k++) pileKey = pileKey * 16 + d.piles[k];
+    if (shown.id === d.id && shown.piles === pileKey && shown.auto === d.auto && shown.wait === d.waitFull && shown.delivered === delivered0) return;
     shown.id = d.id;
-    shown.a = d.piles[0];
-    shown.b = d.piles[1];
+    shown.piles = pileKey;
     shown.auto = d.auto;
     shown.wait = d.waitFull;
     shown.delivered = delivered0;
-    const role = ROLE[d.role];
-    const piles: { label: string; count: number; cap: number }[] = [];
-    for (const kind of [role.takes, role.gives]) if (kind) piles.push({ label: CARGO[kind].label, count: d.piles[CARGO[kind].index], cap: PILE_CAP });
+    const piles = pilesOf(d.role).map((kind) => ({ label: CARGO[kind].label, count: d.piles[CARGO[kind].index], cap: PILE_CAP }));
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
-    this.hud.updateDepotCard(piles, d.auto, role.gives ? d.waitFull : null, d.role === "town" ? `Delivered ${delivered}` : "");
+    this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, d.role === "town" ? `Delivered ${delivered}` : "");
   }
 
   toggleDepotAuto(): void {
