@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_NONE, FEAT_STATION, FEAT_TREE, PLOT_COLS, PLOT_DEPTH, PLOT_ROWS, PLOT_WIDTH, SURF_GRASS, SURF_LANE, SURF_RIVER, type LandscapeGrid } from "./grid";
-import { adoptRegion, corridorCells, generateLandscape, generatePlot, generateRegion, reachable, stationEnds, type Landscape } from "./generate";
+import { adoptRegion, corridorCells, fixedHome, generateLandscape, generatePlot, generateRegion, reachable, stationEnds, type Landscape } from "./generate";
 import { BORDER_BAND, edgeContract, STUB_DEPTH } from "./edges";
 
 const SEEDS = Array.from({ length: 200 }, (_, i) => i + 1);
@@ -257,5 +257,24 @@ describe("generated plots", () => {
     const land = generateRegion(11, { px0: 4, pz0: 4, w: 2, h: 1 }, { starter: false, shed: false });
     expect(land.grid.plots).toEqual([{ px: 4, pz: 4 }, { px: 5, pz: 4 }]);
     expect(gentle(land.grid)).toBe(true);
+  });
+});
+
+describe("fixedHome", () => {
+  it("is where the generator put each station and depot", () => {
+    for (const seed of [1, 7, 42, 1234, 99]) {
+      const land = generateLandscape(seed);
+      for (const t of land.towns) {
+        const h = fixedHome(t.centre, t.station.heading);
+        expect(h.x).toBeCloseTo(t.station.x, 6);
+        expect(h.z).toBeCloseTo(t.station.z, 6);
+        expect(Math.cos(h.heading - t.station.heading)).toBeCloseTo(1, 9);
+      }
+      for (const d of land.depots) {
+        const h = fixedHome(d.centre, d.piece.heading);
+        expect(h.x).toBeCloseTo(d.piece.x, 6);
+        expect(h.z).toBeCloseTo(d.piece.z, 6);
+      }
+    }
   });
 });

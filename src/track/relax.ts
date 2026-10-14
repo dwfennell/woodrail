@@ -20,6 +20,16 @@ let partnerOf: (ref: number) => number = () => -1;
 const wb = createWorldConnector();
 
 /**
+ * A piece that gives only a little (a station, a depot): it shifts like loose track to take up play, but never more
+ * than `reach` (mm) or `turn` (radians) from `home`.
+ */
+export interface Anchor {
+  home: Pose;
+  reach: number;
+  turn: number;
+}
+
+/**
  * Spread joint play along the line, like real wooden track: after a change near `seeds`, loose pieces up to a few
  * joints away each shift and turn a little so that no one joint is left gaping. Pieces for which `pinned` is true
  * (stations, depots, track under a train) and pieces beyond the reach stay put and the others fit to them.
@@ -32,6 +42,7 @@ export function relaxJoints(
   seeds: readonly number[],
   pinned: (pieceId: number) => boolean,
   near: readonly (readonly [number, number])[] = [],
+  anchorOf: (pieceId: number) => Anchor | null = () => null,
 ): Map<number, Pose> {
   const result = new Map<number, Pose>();
   // Near misses to close (pairs of free ends): fitted as if joined, so the loose track gives a little at every joint.
@@ -99,7 +110,9 @@ export function relaxJoints(
         qs.push(wb.x, wb.z, wb.x + REACH * cb, wb.z + REACH * sb, wb.x - REACH * cb, wb.z - REACH * sb);
       }
       if (ps.length === 0) continue;
+      const anchor = anchorOf(id);
       moved = Math.max(moved, fitRigid(poses.get(id)!, ps, qs));
+      if (anchor) holdNear(poses.get(id)!, anchor);
     }
     if (moved < SETTLED) break;
   }
@@ -198,4 +211,17 @@ function fitRigid(pose: Pose, ps: readonly number[], qs: readonly number[]): num
   pose.z = nz;
   pose.heading += turn;
   return moved;
+}
+
+/** Keep an anchored piece within its reach and turn of home. */
+function holdNear(pose: Pose, a: Anchor): void {
+  const dh = Math.atan2(Math.sin(pose.heading - a.home.heading), Math.cos(pose.heading - a.home.heading));
+  if (Math.abs(dh) > a.turn) pose.heading = a.home.heading + Math.sign(dh) * a.turn;
+  const dx = pose.x - a.home.x;
+  const dz = pose.z - a.home.z;
+  const d = Math.hypot(dx, dz);
+  if (d > a.reach) {
+    pose.x = a.home.x + (dx / d) * a.reach;
+    pose.z = a.home.z + (dz / d) * a.reach;
+  }
 }

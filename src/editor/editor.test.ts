@@ -265,3 +265,41 @@ describe("closing a near miss", () => {
     expect(layout.getPiece(a)!.pose.x).toBeCloseTo(216);
   });
 });
+
+describe("stations giving a little", () => {
+  it("a station shifts up to its reach to meet track that closes on it a little short, and says so", () => {
+    const layout = new Layout();
+    const sim = new Sim(layout);
+    const start = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    // The station's hole is 30 mm beyond where two straights end: more than loose track alone may take up here.
+    const home = { x: 216 * 3 + 30, z: 0, heading: 0 };
+    const station = layout.addPiece("station", home);
+    const fixed = (id: number) => id === start || id === station;
+    const give = (id: number) => (id === station ? { home, reach: 36, turn: (4 * Math.PI) / 180 } : null);
+    const editor = new Editor(layout, sim, () => {}, fixed, give);
+    const nudged: number[][] = [];
+    editor.onNudge = (ids) => nudged.push(ids);
+    const a = editor.place("straight-216", { x: 216, z: 0, heading: 0 }, 0, false);
+    const b = editor.place("straight-216", { x: 432, z: 0, heading: 0 }, 0, false);
+    expect(layout.joinedConnector(connectorRef(b, 1))).toBe(connectorRef(station, 0));
+    const moved = layout.getPiece(station)!.pose;
+    expect(Math.hypot(moved.x - home.x, moved.z - home.z)).toBeGreaterThan(0);
+    expect(Math.hypot(moved.x - home.x, moved.z - home.z)).toBeLessThanOrEqual(36 + 1e-6);
+    expect(nudged.flat()).toContain(station);
+    // Undo puts the station back home.
+    editor.undo();
+    expect(layout.getPiece(station)!.pose.x).toBeCloseTo(home.x);
+    void a;
+  });
+
+  it("without give, the same gap stays open", () => {
+    const layout = new Layout();
+    const sim = new Sim(layout);
+    const start = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    const station = layout.addPiece("station", { x: 216 * 3 + 30, z: 0, heading: 0 });
+    const editor = new Editor(layout, sim, () => {}, (id) => id === start || id === station);
+    editor.place("straight-216", { x: 216, z: 0, heading: 0 }, 0, false);
+    const b = editor.place("straight-216", { x: 432, z: 0, heading: 0 }, 0, false);
+    expect(layout.joinedConnector(connectorRef(b, 1))).toBe(-1);
+  });
+});

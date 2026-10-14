@@ -127,6 +127,15 @@ export function stationEnds(town: Town): [Pose, Pose] {
   return pieceEnds(town.station);
 }
 
+/**
+ * Where a fixed piece (a station or a depot) was put by the generator: its track centred on `centre`, at the quarter
+ * turn nearest `heading`. Stations and depots may give a little from here to take up joint play (see `Anchor`).
+ */
+export function fixedHome(centre: { x: number; z: number }, heading: number): Pose {
+  const h = normaliseHeading(Math.round(heading / (Math.PI / 2)) * (Math.PI / 2));
+  return { x: centre.x - Math.cos(h) * HALF_STATION, z: centre.z - Math.sin(h) * HALF_STATION, heading: h };
+}
+
 /** The two outward ends of a fixed 216 mm piece (station or depot) at pose `s`. */
 export function pieceEnds(s: Pose): [Pose, Pose] {
   return [

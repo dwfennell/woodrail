@@ -1,5 +1,6 @@
 import type { Sim } from "../sim";
 import {
+  type Anchor,
   connectorRef,
   getPieceDef,
   JOINT_ANGLE_TOLERANCE,
@@ -38,7 +39,7 @@ interface Command {
 
 const HISTORY_LIMIT = 100;
 /** How far apart (mm) and how far from facing (radians) two free ends may be for the track to be pulled together. */
-const NEAR_MISS_REACH = 30;
+const NEAR_MISS_REACH = 45;
 const NEAR_MISS_ANGLE = (12 * Math.PI) / 180;
 
 /** A riser to put down under a piece. */
@@ -88,7 +89,12 @@ export class Editor {
     private readonly onChange: () => void,
     /** Pieces that never shift to take up joint play (stations, depots). Track under a train never shifts either. */
     private readonly fixed: (pieceId: number) => boolean = () => false,
+    /** Of those, the ones that may give a little (see `Anchor`): their home, and how far they may go from it. */
+    private readonly give: (pieceId: number) => Anchor | null = () => null,
   ) {}
+
+  /** Called when pieces that give (stations, depots) were nudged by a change, its undo or its redo. */
+  onNudge: ((ids: number[]) => void) | null = null;
 
   /** Called after a props-only edit is done, undone or redone (instead of `onChange`). */
   onPropsChange: (() => void) | null = null;
@@ -259,17 +265,24 @@ export class Editor {
    * shift joins the command: redo puts the pieces back where they were shifted to, undo where they were before.
    */
   private takeUpPlay(c: Command, seeds: number[]): Command {
-    const pinned = (id: number) => this.fixed(id) || this.sim.pieceOccupied(id);
+    const pinned = (id: number) => (this.fixed(id) && !this.give(id)) || this.sim.pieceOccupied(id);
+    const anchor = (id: number) => (this.fixed(id) && !this.sim.pieceOccupied(id) ? this.give(id) : null);
+    const nudged = (moved: Map<number, Pose>) => {
+      const ids = [...moved.keys()].filter((id) => this.fixed(id));
+      if (ids.length > 0) this.onNudge?.(ids);
+    };
     const posesOf = (ids: Iterable<number>) => new Map([...ids].map((id) => [id, { ...this.layout.getPiece(id)!.pose }]));
     const wrap = (after: Map<number, Pose>, before: Map<number, Pose>, close: readonly number[]): Command => ({
       do: () => {
         c.do();
         this.layout.nudgePieces(after);
         for (const ref of close) this.layout.seatFree(ref);
+        nudged(after);
       },
       undo: () => {
         this.layout.nudgePieces(before);
         c.undo();
+        nudged(before);
       },
       moves: c.moves,
     });
@@ -277,19 +290,23 @@ export class Editor {
     // gives a little at each joint, as wooden track does when pushed. If that can't seat them, they stay apart.
     const near = this.nearMisses(seeds);
     if (near.length > 0) {
-      const pulled = relaxJoints(this.layout, seeds, pinned, near);
+      const pulled = relaxJoints(this.layout, seeds, pinned, near, anchor);
       if (pulled.size > 0) {
         const before = posesOf(pulled.keys());
         this.layout.nudgePieces(pulled);
         const closed = near.map(([a]) => a).filter((ref) => this.layout.seatFree(ref));
-        if (closed.length > 0) return wrap(pulled, before, closed);
+        if (closed.length > 0) {
+          nudged(pulled);
+          return wrap(pulled, before, closed);
+        }
         this.layout.nudgePieces(before);
       }
     }
-    const after = relaxJoints(this.layout, seeds, pinned);
+    const after = relaxJoints(this.layout, seeds, pinned, [], anchor);
     if (after.size === 0) return c;
     const before = posesOf(after.keys());
     this.layout.nudgePieces(after);
+    nudged(after);
     return wrap(after, before, []);
   }
 

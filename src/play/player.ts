@@ -39,6 +39,10 @@ const FINISH: readonly { type: PieceTypeId; flipped: boolean }[] = [
   { type: "curve-small", flipped: true },
 ];
 
+/** A near miss the game pulls closed (the Editor's near-miss reach): a player leaves such a gap for it. */
+const NEAR = 45;
+const NEAR_TURN = (12 * Math.PI) / 180;
+
 const a = createWorldConnector();
 
 /** Where a free end is and which way it points (outward). */
@@ -109,7 +113,7 @@ function finish(layout: Layout, ref: number, to: number, depth: number): { type:
   if (autoFrom(layout, ref, to)) return [];
   // A near miss the slack can pull closed counts too.
   const facing = Math.abs(normalizeAngle(end.heading - target.heading - Math.PI));
-  if (end.kind !== target.kind && Math.hypot(end.x - target.x, end.z - target.z) < 25 && facing < 0.15) return [];
+  if (end.kind !== target.kind && Math.hypot(end.x - target.x, end.z - target.z) < NEAR && facing < NEAR_TURN) return [];
   if (depth === 0) return null;
   for (const s of FINISH) {
     const next = addOn(layout, ref, s.type, s.flipped);
@@ -179,7 +183,7 @@ function playOn(layout: Layout, editor: Editor, from: number, to: number, maxPie
           pieces++;
         }
         const ok = reached();
-        const how = ok ? "joined" : fit ? "auto-unjoined" : miss.d < 30 ? "slack-refused" : "plan-drifted";
+        const how = ok ? "joined" : fit ? "auto-unjoined" : miss.d < NEAR ? "slack-refused" : "plan-drifted";
         return { ok, pieces, how, miss: ok ? undefined : miss };
       }
     }

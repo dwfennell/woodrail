@@ -5,7 +5,7 @@ import { frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, landForSale, plotsForSale } from "./game/world";
-import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, type Landscape, type PlotCoord } from "./landscape";
+import { CELL, connectedPairs, fixedHome, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, type Landscape, type PlotCoord } from "./landscape";
 import { loadLastMode, saveLastMode, type GameMode } from "./game/modes";
 import { hasSave, loadFromStorage, loadGoals, saveGoals, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
@@ -15,13 +15,16 @@ import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { TrackView } from "./render/track-view";
-import { PIECE_TYPES } from "./track";
+import { PIECE_TYPES, type Anchor } from "./track";
 import { Hud } from "./ui/hud";
 import { TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, plotSlotOf, setHeights } from "./landscape/edit";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TitleScreen } from "./ui/title";
 import "./style.css";
+
+/** How far a station or depot may turn when it gives (radians). */
+const GIVE_TURN = (4 * Math.PI) / 180;
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const loading = document.querySelector<HTMLDivElement>("#loading");
@@ -59,8 +62,36 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   // Stations and depots never shift to take up joint play.
   const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
   /** An editor for the world's track and props (props-only edits skip the track's work). */
+  /**
+   * Stations and depots give a little (half a square, a few degrees) from where the map put them, as wooden track
+   * does when pushed, so track closing on one needn't meet it exactly.
+   */
+  const stationGive = (id: number): Anchor | null => {
+    const land = game.landscape;
+    for (const t of land.towns) if (game.stations.get(t.id) === id) return { home: fixedHome(t.centre, t.station.heading), reach: CELL / 2, turn: GIVE_TURN };
+    for (const d of land.depots) if (game.depots.get(d.id) === id) return { home: fixedHome(d.centre, d.piece.heading), reach: CELL / 2, turn: GIVE_TURN };
+    return null;
+  };
+  /** A station or depot was nudged: the map's record of it follows, and its buildings and yard are redrawn. */
+  const stationsNudged = (ids: number[]) => {
+    const land = game.landscape;
+    const slots = new Set<number>();
+    for (const id of ids) {
+      const pose = game.layout.getPiece(id)?.pose;
+      if (!pose) continue;
+      const town = land.towns.find((t) => game.stations.get(t.id) === id);
+      const depot = land.depots.find((d) => game.depots.get(d.id) === id);
+      if (town) town.station = { ...pose };
+      if (depot) depot.piece = { ...pose };
+      const i = land.grid.cellAtWorld(pose.x, pose.z);
+      if (i !== -1) slots.add(plotSlotOf(i));
+    }
+    game.editLand([...slots]);
+    game.depotView.setWorld(game.economy, game.layout);
+  };
   const makeEditor = () => {
-    const ed = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece);
+    const ed = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece, stationGive);
+    ed.onNudge = stationsNudged;
     ed.onLandChange = (slots) => {
       game.editLand(slots);
       scheduleSave();
