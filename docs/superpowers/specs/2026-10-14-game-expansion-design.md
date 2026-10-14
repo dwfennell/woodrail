@@ -1,6 +1,6 @@
 # Game mode expansion: goods chains, town baskets, a wider tech tree
 
-Status: agreed direction (2026-10-14). Phase A is being built; later phases are a plan, open to change.
+Status: agreed direction (2026-10-14). Phases A and B are built (see "Built" at the end); later phases are a plan.
 
 Builds on `2026-10-13-game-economy-design.md` (toy box, workshop, blueprints, coins, towns that want things).
 
@@ -115,3 +115,29 @@ van (a closed wagon), grain load in a hopper (a heap, by fill), flour sacks (a u
 
 Production stays in whole sim ticks; resource counts are cached per depot and only recounted when their squares
 change; town signs redraw when a count changes. No per-frame work is added.
+
+## Built
+
+**Phase A:** recipes as data; grain and flour; harvesters, farm yards and mills near their resource; hoppers and the
+goods van; town baskets (flour from Town → City).
+
+**Phase B:**
+- Stone and quarries (by hillside); a city wants 10 stone to grow to City ★.
+- Town landmarks (data: `game/landmarks.ts`), going up as a town grows: a **school** at Village (a blueprint idea
+  every 4 minutes of play), a **market** at Town (half again for deliveries), a **library** at City (opens the
+  advanced blueprints: Quarries). They're the research buildings: what you can learn grows with your towns.
+- Train routes on the engine card: stops in order, each Drop / Pick up / Both. A routed train works only at its stops
+  and sets the switches ahead toward its next one. Replaces "Deliver to".
+- Warehouses: every good, 24 of each, for routed trains (Drop or Pick up stops).
+- Towns take only what they still want for their next level (Game mode), so one train serves every town on a line.
+
+**The grand tour** (`src/play/grand-tour.test.ts`) plays it all on the starter map: Larkfield a town at 5 min (school,
+market), a city at 13 (flour from a farm yard and mill on the line; its library), 10 stone from a quarry on a switched
+branch by a routed train in 6 min, flour kept in a warehouse and brought by a routed van, and City ★ at 52 min.
+
+**Found on the way (to do):**
+- Two trains on one line meet head on and turn each other back, again and again: the line needs passing places, or
+  trains that wait for each other (Phase C's "trains wait").
+- A train put down touching another couples to it, and the joined train follows the first engine's route.
+- Coins pile up (markets pay most of them) with little to spend them on but land: something to buy (Phase D's trade).
+- Fields are few on most maps, so farm yards often work at half speed.

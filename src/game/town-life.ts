@@ -9,7 +9,7 @@ import type { SignBadge } from "../render/landscape-view";
 import type { Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
 import { buildOnLots, lotPoint, nextLots } from "./town-growth";
-import { landmarkAt, townLandmarks } from "./landmarks";
+import { LANDMARKS, townLandmarks } from "./landmarks";
 import { housesBy, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
 
@@ -70,6 +70,9 @@ export class TownLife {
   reset(): void {
     this.levels.clear();
     this.shown.clear();
+    this.statuses.clear();
+    // A town takes from trains only what it still wants for its next level: the rest rides on to the next town.
+    this.game.economy.accepts = (d, kind) => d.role !== "town" || this.wants(d.townId, kind);
     for (const t of this.game.landscape.towns) {
       const received = receivedBy(this.game, t.id);
       this.levels.set(t.id, townStatus(received).level);
@@ -82,7 +85,18 @@ export class TownLife {
   clear(): void {
     for (const t of this.game.landscape.towns) this.game.setSignBadge(t.id, null);
     this.shown.clear();
+    this.game.economy.accepts = null;
   }
+
+  /** Does a town still want some of `kind` for its next level? (Cached per town until something more arrives.) */
+  wants(townId: number, kind: CargoKind): boolean {
+    const goods = this.game.economy.deliveredGoods.get(townId);
+    const key = (this.game.economy.delivered.get(townId) ?? 0) + (goods ? total(goods) : 0);
+    let s = this.statuses.get(townId);
+    if (!s || s.key !== key) this.statuses.set(townId, (s = { key, status: townStatus(receivedBy(this.game, townId)) }));
+    return (s.status.got[kind] ?? 0) < (s.status.wants[kind] ?? 0);
+  }
+  private readonly statuses = new Map<number, { key: number; status: TownStatus }>();
 
   /** Call each frame: cheap unless something was delivered. */
   update(): void {
@@ -116,11 +130,14 @@ export class TownLife {
     const houses = housesBy(status.level) - housesBy(from);
     const editor = new LandEditor(g.landscape, g.layout, { inRect: (x0, z0, x1, z1) => propsInRect(g.props, (a) => g.footprintOf(a), x0, z0, x1, z1) });
     const lots = nextLots(g.landscape, town, editor, houses);
-    // A landmark goes up as it reaches its level: on a two-square lot if there is one (they're big buildings).
-    const landmark = landmarkAt(status.level);
-    if (landmark && !townLandmarks(town).has(landmark.id) && lots.length > 0) {
-      const lot = lots.find((l) => l.cells.length > 1) ?? lots[0];
-      lot.landmark = landmark.id;
+    // Its landmarks go up as it reaches their levels (every one it hasn't got, if it grew by more than one): each on a
+    // lot of its own, a two-square one if there is one (they're big buildings).
+    const have = townLandmarks(town);
+    for (const mark of LANDMARKS) {
+      if (mark.level > status.level || have.has(mark.id)) continue;
+      const free = lots.filter((l) => !l.landmark);
+      const lot = free.find((l) => l.cells.length > 1) ?? free[0];
+      if (lot) lot.landmark = mark.id;
     }
     if (lots.length > 0) {
       const slots = buildOnLots(g.landscape, town, lots);

@@ -393,7 +393,7 @@ describe("a Game-mode playthrough", () => {
     for (const id of ["join-two", "place-train", "get-moving", "station-stop", "timber-train", "load-logs", "deliver-planks", "grow-town"]) expect(P.goals.isDone(id), id).toBe(true);
   }, 600_000);
 
-  it("a workshop after the towns on the line gets planks once the towns' cranes are off, or the train delivers to it", () => {
+  it("a workshop after the towns on the line gets planks: past towns that have what they want, or by a route", () => {
     const result: string[] = [];
     for (const [townCranes, toShop] of [[true, false], [false, false], [true, true]] as const) {
       // Sawmill - Larkfield - Elderwick - workshop - forest yard: planks pass both towns before the workshop.
@@ -437,8 +437,9 @@ describe("a Game-mode playthrough", () => {
         if (firstPlanks < 0 && (w.economy.depotAtPiece(shop.id)?.piles[CARGO.planks.index] ?? 0) > 0) firstPlanks = m;
       }
       result.push(`town cranes ${townCranes ? "on" : "off"}${toShop ? ", train delivers to the workshop" : ""}: workshop's first planks ${firstPlanks > 0 ? `at minute ${firstPlanks}` : "never"}; towns got ${JSON.stringify(Object.fromEntries(w.economy.delivered))}`);
-      if (townCranes && !toShop) expect(firstPlanks, "with the towns taking every plank, the workshop starves").toBe(-1);
-      else expect(firstPlanks).toBeGreaterThan(0);
+      // Towns take only what they want for their next level, so planks get past them to the workshop in any case
+      // (sooner with the towns' cranes off, or a route).
+      expect(firstPlanks).toBeGreaterThan(0);
       if (toShop) expect(w.economy.delivered.size, "a train delivering to the workshop leaves the towns alone").toBe(0);
     }
     console.log(`workshop after the towns:\n${result.join("\n")}`);

@@ -44,6 +44,16 @@ describe("town landmarks", () => {
     }
   });
 
+  it("a town that grows by more than one level at once gets every landmark it passed", () => {
+    const w = buildStarterWorld();
+    const { town } = life(w);
+    const t = w.landscape.towns[1];
+    w.economy.delivered.set(t.id, 26);
+    w.economy.deliveredGoods.set(t.id, { planks: 26, flour: 6 });
+    town.update();
+    expect([...townLandmarks(t)].sort()).toEqual(["library", "market", "school"]);
+  });
+
   it("a school has ideas: a blueprint offer every few minutes of play, one waiting at a time", () => {
     const w = buildStarterWorld();
     const p = Progress.fresh();

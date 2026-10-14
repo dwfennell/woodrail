@@ -251,7 +251,7 @@ export class Economy {
   private put(slot: CargoSlot, kind: CargoKind): void {
     if (slot.kind === "pile") {
       const d = this.depots[slot.depotId];
-      d.piles[CARGO[kind].index]++;
+      d.piles[CARGO[kind].index] = Math.min(capOf(d.role), d.piles[CARGO[kind].index] + 1);
       if (d.role === "town" && kind === "planks") this.delivered.set(d.townId, (this.delivered.get(d.townId) ?? 0) + 1);
       if (d.role === "town") {
         const got = this.deliveredGoods.get(d.townId) ?? {};
@@ -297,7 +297,12 @@ export class Economy {
 
   private canUnload(d: DepotState, carId: number): boolean {
     const c = this.cargoOf(carId);
-    if (c.kind === null || c.count <= 0 || !RECIPES[d.role].takes.includes(c.kind) || d.piles[CARGO[c.kind].index] >= capOf(d.role)) return false;
+    if (c.kind === null || c.count <= 0 || !RECIPES[d.role].takes.includes(c.kind)) return false;
+    if (this.accepts) {
+      if (!this.accepts(d, c.kind)) return false;
+      // What a town still wants it takes in even with its platform's pile full (it's counted, not stacked).
+      if (d.role !== "town" && d.piles[CARGO[c.kind].index] >= capOf(d.role)) return false;
+    } else if (d.piles[CARGO[c.kind].index] >= capOf(d.role)) return false;
     // A routed train drops goods only at its stops that say so.
     const route = this.routeOfCar(carId);
     return route ? stopAt(route, d.id, "drop") : !RECIPES[d.role].routedOnly;
@@ -587,6 +592,12 @@ export class Economy {
       for (const k in cycle.makes) d.piles[CARGO[k as CargoKind].index] += cycle.makes[k as CargoKind]!;
     }
   }
+
+  /**
+   * A mode's say in what a depot takes from trains, beyond its recipe (Game mode: a town takes only what it still
+   * wants for its next level, so the rest rides on to the next town). Null: everything its recipe takes.
+   */
+  accepts: ((d: DepotState, kind: CargoKind) => boolean) | null = null;
 
   /** Called when a route has set a switch (the game redraws its lever). */
   onSwitch: ((pieceId: number) => void) | null = null;
