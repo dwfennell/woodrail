@@ -21,7 +21,7 @@ import { modelKey } from "../render/props/library";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
 import type { Game } from "./game";
-import { DEPOT_NAMES } from "./world";
+import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { cargoDropTarget } from "./cargo-drop";
 import { CARGO, PILE_CAP, ROLE, type CargoKind, type CargoSlot } from "../economy";
 
@@ -618,6 +618,7 @@ export class Interaction {
           return;
         }
       } else if (m.press.kind === "piece") this.beginPieceMove(m.press.pieceId, m.pointerId, m.ground);
+      else if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) !== -1) this.beginPieceMove(this.movableIndustry(m.press.depotId), m.pointerId, m.ground);
       else if (m.press.kind === "cargo") this.beginCargoDrag(m.press.slot, m.press.cargo, m.pointerId);
       else if (m.press.kind === "prop") this.beginPropMove(m.press.propId, m.pointerId, m.ground);
       else if (m.press.kind === "car") {
@@ -699,8 +700,9 @@ export class Interaction {
     const m = this.mode;
     this.game.controls.enabled = true;
     if (m.kind === "drag-piece") {
-      this.game.scene.remove(m.ghost);
+      this.dropHeld(m.ghost);
       if (m.pieceId !== -1 && m.from) this.game.layout.dropPiece(m.pieceId, m.from.pose, m.from.y);
+      if (INDUSTRY_ROLE[m.type]) this.game.depotView.setWorld(this.game.economy, this.game.layout);
       this.treeKey = "";
       this.game.previewTrees(null);
       this.changed();
@@ -1048,6 +1050,14 @@ export class Interaction {
     return GRAB_PIECE_MM * pxPerMm >= GRAB_MIN_PX;
   }
 
+  /** The piece of an industry you placed (a drag on its yard or buildings moves it), or −1 (a map's own depot). */
+  private movableIndustry(depotId: number): number {
+    const d = this.game.economy.depot(depotId);
+    const p = d && this.game.layout.getPiece(d.pieceId);
+    if (!d || !p || !INDUSTRY_ROLE[p.type] || this.fixedLabel(d.pieceId) || this.game.sim.pieceOccupied(d.pieceId)) return -1;
+    return d.pieceId;
+  }
+
   /** The name of a fixed piece (a town's station or a depot), or null for ordinary track. */
   private fixedLabel(pieceId: number): string | null {
     for (const [townId, stationId] of this.game.stations) {
@@ -1072,7 +1082,7 @@ export class Interaction {
       m.heldFlipped = !m.heldFlipped;
       m.flipped = m.heldFlipped;
       const visible = m.ghost.visible;
-      this.game.scene.remove(m.ghost);
+      this.dropHeld(m.ghost);
       m.ghost = this.heldMesh(m.type, m.flipped);
       m.ghost.visible = visible;
       return;
@@ -1430,6 +1440,8 @@ export class Interaction {
     this.hud.hideCards();
     const from = { pose: { ...p.pose }, y: p.y };
     layout.liftPiece(pieceId);
+    // An industry's yard goes up with it (drawn in the hand, not where it stood).
+    if (INDUSTRY_ROLE[p.type]) this.game.depotView.setWorld(this.game.economy, layout);
     this.game.sim.trackChanged();
     this.changed();
     const ghost = this.heldMesh(p.type, p.flipped);
@@ -1470,8 +1482,20 @@ export class Interaction {
     mesh.castShadow = true;
     mesh.renderOrder = 0;
     mesh.matrixAutoUpdate = false;
+    // An industry comes with its yard and buildings.
+    const role = INDUSTRY_ROLE[type];
+    if (role) mesh.add(this.game.depotView.model(role));
     this.game.scene.add(mesh);
     return mesh;
+  }
+
+  /** Put a held piece's stand-in away (and its buildings, which are its own). */
+  private dropHeld(mesh: Mesh): void {
+    this.game.scene.remove(mesh);
+    for (const child of [...mesh.children]) {
+      mesh.remove(child);
+      disposeObject(child);
+    }
   }
 
   private updateDrag(x: number, y: number): void {
@@ -1585,7 +1609,7 @@ export class Interaction {
         // Show it mirrored (or back as held) while it fits that way.
         m.flipped = fitFlipped;
         const visible = m.ghost.visible;
-        this.game.scene.remove(m.ghost);
+        this.dropHeld(m.ghost);
         m.ghost = this.heldMesh(m.type, m.flipped);
         m.ghost.visible = visible;
       }
@@ -1661,7 +1685,12 @@ export class Interaction {
     const { reason: final, risers } = this.placement(m.type, m.flipped, pose, y, m.pieceId);
     const mesh = m.ghost;
     const shown: PiecePose = { x: m.shown.x, y: m.shown.y, z: m.shown.z, heading: m.shown.heading };
-    const discard = () => g.scene.remove(mesh);
+    const industry = !!INDUSTRY_ROLE[m.type];
+    const discard = () => {
+      this.dropHeld(mesh);
+      // The yard shows where it stands again once the one in the hand has gone.
+      if (industry) g.depotView.setWorld(g.economy, g.layout);
+    };
     const isNew = m.pieceId === -1;
     // The stand-in stops sharing the held-piece material (the next piece picked up re-tints that): plain wood when
     // it's going down, see-through red when it's refused.

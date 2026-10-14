@@ -34,7 +34,7 @@ import { loadCached, saveCached } from "./render/piece-cache";
 import { TrackView } from "./render/track-view";
 import { PIECE_TYPES, type Anchor } from "./track";
 import { Hud } from "./ui/hud";
-import { TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
+import { INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, plotSlotOf, setHeights } from "./landscape/edit";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TitleScreen } from "./ui/title";
@@ -134,7 +134,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   let muted = loadMuted();
   audio.setMuted(muted);
   // Tray pictures: saved from an earlier visit to this build, or drawn now (and saved for next time).
-  const trayItems = [...TRACK_ITEMS, ...TRAIN_ITEMS];
+  const trayItems = [...TRACK_ITEMS, ...TRAIN_ITEMS, ...INDUSTRY_GROUPS.flatMap((g) => g.items)];
   const thumbnails = new Map(savedThumbnails ?? []);
   const unseen = trayItems.filter((item) => !thumbnails.has(trayKey(item)));
   if (unseen.length > 0) {
@@ -148,6 +148,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
             ? [{ key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks }]
             : [],
       ),
+      (type) => (INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : null),
     );
     for (const [k, v] of drawn) thumbnails.set(k, v);
     void saveCached("thumbnails", __BUILD_ID__, thumbnails);

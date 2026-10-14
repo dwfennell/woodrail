@@ -86,10 +86,13 @@ const HOOK_DROP = 6;
 /** Cranes' moving parts are drawn only this near the camera (mm): further off they're too small to see work. */
 const CRANE_REACH = 8000;
 
-function toWorld(pose: Pose, t: number, l: number, y: number, out: Vector3): Vector3 {
+/** A depot's frame: its piece's pose, and the height its track stands at (a level up on a raised square). */
+type SitePose = Pose & { readonly y?: number };
+
+function toWorld(pose: SitePose, t: number, l: number, y: number, out: Vector3): Vector3 {
   const c = Math.cos(pose.heading);
   const s = Math.sin(pose.heading);
-  return out.set(pose.x + c * t - s * l, y, pose.z + s * t + c * l);
+  return out.set(pose.x + c * t - s * l, y + (pose.y ?? 0), pose.z + s * t + c * l);
 }
 
 /** Rotation that turns a unit's length (x) along depot axis `axis`. */
@@ -108,7 +111,7 @@ interface CraneParts {
 
 interface Site {
   depot: DepotState;
-  pose: Pose;
+  pose: SitePose;
   layout: DepotLayout;
   crane: CraneParts;
   blade: Mesh | null;
@@ -201,25 +204,27 @@ export class DepotView {
     const tiles = new Map<number, { b: Batcher; at: { x: number; z: number }[] }>();
     for (const depot of economy.allDepots()) {
       const piece = layout.getPiece(depot.pieceId);
-      if (!piece) continue;
+      // A depot piece being carried shows its buildings in the hand instead (see `model`).
+      if (!piece || layout.isLifted(depot.pieceId)) continue;
       const spec = DEPOT_LAYOUT[depot.role];
+      const pose: SitePose = { ...piece.pose, y: piece.y };
       const site: Site = {
         depot,
-        pose: piece.pose,
+        pose: pose,
         layout: spec,
-        crane: this.buildCrane(piece.pose, spec.crane),
+        crane: this.buildCrane(pose, spec.crane),
         blade: null,
         move: { kind: "log", toPile: false, carId: -1, phase: 0 },
         moving: false,
         pileOwners: { log: { kind: "pile", depotId: depot.id, cargo: "log" }, planks: { kind: "pile", depotId: depot.id, cargo: "planks" } },
       };
-      const at = toWorld(piece.pose, spec.trackT, 0, 0, new Vector3());
+      const at = toWorld(pose, spec.trackT, 0, 0, new Vector3());
       const key = tileAt(at.x, at.z);
       let tile = tiles.get(key);
       if (!tile) tiles.set(key, (tile = { b: new Batcher(this.mats.paint), at: [] }));
       tile.at.push({ x: at.x, z: at.z });
       this.buildStatic(site, tile.b);
-      if (depot.role === "sawmill") site.blade = this.buildBlade(piece.pose);
+      if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
       // The crane's moving parts are small: drawn only within `CRANE_REACH` of the camera.
       for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
         if (!o) continue;
@@ -227,7 +232,7 @@ export class DepotView {
         o.userData.maxDistance = CRANE_REACH;
       }
       // Park the hook over the track.
-      toWorld(piece.pose, spec.trackT, 0, spec.crane.height - 14, site.crane.hook);
+      toWorld(pose, spec.trackT, 0, spec.crane.height - 14, site.crane.hook);
       this.sites.push(site);
     }
     for (const { b, at } of tiles.values()) {
@@ -238,6 +243,19 @@ export class DepotView {
       setCullBox(statics, at.flatMap((p) => [{ x: p.x - 260, z: p.z - 260 }, { x: p.x + 260, z: p.z + 260 }]), 160);
       this.group.add(statics);
     }
+  }
+
+  /**
+   * A depot's yard and buildings in its piece's own frame (the piece at the origin, heading 0), as one group: shown
+   * with the piece while it's held, and in the tray's picture. The caller disposes its geometry.
+   */
+  model(role: DepotRole): Group {
+    const site = { depot: { role }, pose: { x: 0, z: 0, heading: 0 }, layout: DEPOT_LAYOUT[role] } as unknown as Site;
+    const b = new Batcher(this.mats.paint);
+    this.buildStatic(site, b);
+    const out = new Group();
+    b.build(out);
+    return out;
   }
 
   /** Static parts: yard pad, crane mast or gantry frame, and the sawmill's shed and saw table. */
@@ -307,7 +325,7 @@ export class DepotView {
     }
   }
 
-  private buildCrane(pose: Pose, c: CraneSpec): CraneParts {
+  private buildCrane(pose: SitePose, c: CraneSpec): CraneParts {
     const mats = this.mats;
     const trolley = new Group();
     trolley.add(new Mesh(new RoundedBoxGeometry(7, 4, 7, 1, 1.2), mats.lacquer("#2a2b2e")));
@@ -328,7 +346,7 @@ export class DepotView {
     return { arm, trolley, rope, hook: new Vector3() };
   }
 
-  private buildBlade(pose: Pose): Mesh {
+  private buildBlade(pose: SitePose): Mesh {
     const blade = new Mesh(new CylinderGeometry(11, 11, 1.4, 28).rotateX(Math.PI / 2), this.mats.magnet);
     toWorld(pose, 44, 74, PAD_H + 14 + 4, blade.position);
     blade.rotation.y = -pose.heading;
@@ -463,7 +481,7 @@ export class DepotView {
     const { crane, pose, layout } = site;
     const move = site.moving ? site.move : null;
     // The unit hangs well clear below the arm or beam while it travels.
-    const travelY = layout.crane.height - 14;
+    const travelY = layout.crane.height - 14 + (pose.y ?? 0);
     let unitYaw = -pose.heading;
     if (move) {
       // Source and destination centres of the unit being moved.

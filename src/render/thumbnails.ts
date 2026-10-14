@@ -100,13 +100,21 @@ export class ThumbnailStudio {
 }
 
 /** Pictures of the track pieces and trains in the tray, drawn once at start-up, as image URLs by key. */
-export function renderThumbnails(renderer: WebGLRenderer, mats: Materials, subjects: readonly ThumbnailSubject[]): Map<string, string> {
+export function renderThumbnails(
+  renderer: WebGLRenderer,
+  mats: Materials,
+  subjects: readonly ThumbnailSubject[],
+  /** What stands with a piece (an industry's yard and buildings, in the piece's frame), if anything. */
+  withPiece: (type: PieceTypeId) => Object3D | null = () => null,
+): Map<string, string> {
   const out = new Map<string, string>();
   const studio = new ThumbnailStudio(renderer);
   for (const s of subjects) {
     let subject: Object3D;
     if (s.kind === "piece") {
       const mesh = new Mesh(pieceGeometry(s.type, false, isBridge(s.type) ? 1 : 0), [mats.track, mats.trackCut, mats.bridgePaint]);
+      const extra = withPiece(s.type);
+      if (extra) mesh.add(extra);
       // Long pieces lie diagonally so they fill the square tile.
       mesh.rotation.y = 0.5;
       subject = mesh;
@@ -116,6 +124,7 @@ export function renderThumbnails(renderer: WebGLRenderer, mats: Materials, subje
     }
     out.set(s.key, studio.shoot(subject));
     if (s.kind === "train") disposeObject(subject);
+    else for (const child of subject.children) disposeObject(child);
   }
   studio.dispose();
   return out;
