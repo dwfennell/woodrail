@@ -1,3 +1,4 @@
+import { installTooltips } from "./tooltip";
 import type { GameMode } from "../game/modes";
 import { note } from "../debug/report";
 import { blockWord } from "./blocks";
@@ -195,6 +196,7 @@ export class Hud {
     actions.append(button(uiIcon("menu"), "Menu", () => this.toggleMenu()));
     top.appendChild(actions);
     this.root.appendChild(top);
+    installTooltips(this.root);
 
     // Menu
     this.menu.hidden = true;

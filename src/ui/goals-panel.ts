@@ -34,10 +34,11 @@ export class GoalsPanel {
       e.stopPropagation();
       this.root.classList.toggle("collapsed");
     });
-    // Beside the header, so it's there when the card is folded up too.
-    this.showBtn.className = "chip text goals-show";
-    this.showBtn.textContent = "Show me";
-    this.showBtn.title = "Show where to do this goal";
+    // Folded up, a small round button beside the goal's title; unfolded, "Show me" sits under the goal's hint.
+    this.showBtn.className = "goals-show-icon";
+    this.showBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/></svg>`;
+    this.showBtn.title = "Show me where to do this goal";
+    this.showBtn.setAttribute("aria-label", "Show me where to do this goal");
     this.showBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       handlers.showMe();
@@ -48,7 +49,12 @@ export class GoalsPanel {
     this.body.className = "goals-body";
     this.root.append(top, this.body);
     this.body.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).closest(".goals-new")) handlers.newGame();
+      const t = e.target as HTMLElement;
+      if (t.closest(".goals-new")) handlers.newGame();
+      if (t.closest(".goals-show")) {
+        e.stopPropagation();
+        handlers.showMe();
+      }
     });
     parent.appendChild(this.root);
   }
@@ -86,7 +92,7 @@ export class GoalsPanel {
     }
     const counted = progress?.target ? `<span class="goal-progress">${progress.count} / ${progress.target} ${progress.unit ?? ""}</span>` : "";
     this.body.innerHTML = `
-      <div class="goal current${fresh ? " arrive" : ""}"><span class="goal-box"></span><div><b>${current.title}</b>${counted}<p>${current.hint}</p></div></div>
+      <div class="goal current${fresh ? " arrive" : ""}"><span class="goal-box"></span><div><b>${current.title}</b>${counted}<p>${current.hint}</p><button class="chip text goals-show" title="Show me where to do this goal">Show me</button></div></div>
       ${next ? `<div class="goal upcoming"><span class="goal-box"></span><span>${next.title}</span></div>` : ""}`;
   }
 }
