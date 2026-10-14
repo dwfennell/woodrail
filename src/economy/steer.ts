@@ -1,0 +1,89 @@
+import { connectorRef, getPieceDef, indexOfRef, pieceOfRef, type Layout } from "../track";
+import { flipCursor, type Cursor, type Train } from "../sim";
+
+/** How far ahead of a train (pieces) a switch is set for it: the next one it will choose at, within this many. */
+const LOOK_AHEAD = 6;
+/** The most track pieces a search for the way to a stop goes through. */
+const SEARCH = 600;
+
+/** The way out of a piece entered through `entry`: each path from that end, and where it leaves (−1: a buffer). */
+function waysFrom(layout: Layout, pieceId: number, entry: number): { option: number; exit: number }[] {
+  const piece = layout.getPiece(pieceId);
+  if (!piece) return [];
+  const paths = getPieceDef(piece.type, piece.flipped).paths;
+  const out: { option: number; exit: number }[] = [];
+  for (const p of paths) {
+    if (p.from !== entry && p.to !== entry) continue;
+    out.push({ option: out.length, exit: p.from === entry ? (p.to ?? -1) : p.from });
+  }
+  return out;
+}
+
+/** Where track leaving `pieceId` through connector `exit` goes on: the next piece and the end it's entered by. */
+function next(layout: Layout, pieceId: number, exit: number): { pieceId: number; entry: number } | null {
+  if (exit < 0) return null;
+  const joined = layout.joinedConnector(connectorRef(pieceId, exit));
+  return joined === -1 ? null : { pieceId: pieceOfRef(joined), entry: indexOfRef(joined) };
+}
+
+/** How many pieces from (piece, entry) to `target` along the track, going on (no turning back); −1 if it can't be reached. */
+function distanceTo(layout: Layout, start: { pieceId: number; entry: number }, target: number): number {
+  const seen = new Set<number>([start.pieceId * 8 + start.entry]);
+  let frontier = [start];
+  for (let depth = 0; frontier.length > 0 && seen.size < SEARCH; depth++) {
+    const after: { pieceId: number; entry: number }[] = [];
+    for (const at of frontier) {
+      if (at.pieceId === target) return depth;
+      for (const w of waysFrom(layout, at.pieceId, at.entry)) {
+        const n = next(layout, at.pieceId, w.exit);
+        if (!n || seen.has(n.pieceId * 8 + n.entry)) continue;
+        seen.add(n.pieceId * 8 + n.entry);
+        after.push(n);
+      }
+    }
+    frontier = after;
+  }
+  return -1;
+}
+
+/**
+ * Set the next switch ahead of a train (the next piece it enters where it has a choice) toward the piece `target`,
+ * the shortest way on. Leaves it as it is if no way leads there. Returns true if a switch was changed.
+ */
+export function steer(layout: Layout, train: Train, forward: boolean, target: number): boolean {
+  // The cursor at the train's front, pointing the way it goes.
+  const b = forward ? train.bogies[0] : train.bogies[train.bogies.length - 1];
+  const c: Cursor = { ...b };
+  if (!forward) flipCursor(layout, c);
+  const piece = layout.getPiece(c.pieceId);
+  if (!piece || c.pieceId === target) return false;
+  const def = getPieceDef(piece.type, piece.flipped);
+  const path = def.paths[c.pathIndex];
+  let exit = c.reversed ? path.from : (path.to ?? -1);
+  let at = c.pieceId;
+  for (let k = 0; k < LOOK_AHEAD; k++) {
+    const n = next(layout, at, exit);
+    if (!n || n.pieceId === target) return false;
+    const ways = waysFrom(layout, n.pieceId, n.entry);
+    if (ways.length > 1) {
+      // A choice: the way that reaches the stop soonest.
+      let best = -1;
+      let bestD = Infinity;
+      for (const w of ways) {
+        const after = next(layout, n.pieceId, w.exit);
+        const d = after ? (after.pieceId === target ? 0 : distanceTo(layout, after, target)) : -1;
+        if (d >= 0 && d < bestD) {
+          bestD = d;
+          best = w.option;
+        }
+      }
+      if (best === -1 || layout.switchState(n.pieceId) % ways.length === best) return false;
+      layout.setSwitchState(n.pieceId, best);
+      return true;
+    }
+    if (ways.length === 0) return false;
+    at = n.pieceId;
+    exit = ways[0].exit;
+  }
+  return false;
+}

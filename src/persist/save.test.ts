@@ -46,15 +46,20 @@ describe("save format", () => {
     expect(r.ok && r.value.sim.trainCount).toBe(2);
   });
 
-  it("keeps where a train delivers to", () => {
+  it("keeps a train's route: its stops, what it does at each, and the one it heads for", () => {
     const world = worldWithTrain();
     const engine = world.sim.getTrain(world.sim.trainIds()[0])!.cars[0];
-    const town = world.economy.allDepots().find((d) => d.role === "town")!;
-    world.economy.setDeliverTo(engine.id, town.id);
+    const [town, other] = world.economy.allDepots().filter((d) => d.role === "town");
+    world.economy.setRoute(engine.id, { stops: [{ depotId: town.id, action: "pick" }, { depotId: other.id, action: "drop" }], next: 1 });
     const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
     if (!r.ok) throw new Error(r.error);
     const loaded = r.value.sim.getTrain(r.value.sim.trainIds()[0])!.cars[0];
-    expect(r.value.economy.depot(r.value.economy.deliverToOf(loaded.id))?.pieceId).toBe(town.pieceId);
+    const route = r.value.economy.routeOf(loaded.id)!;
+    expect(route.next).toBe(1);
+    expect(route.stops.map((s) => [r.value.economy.depot(s.depotId)!.pieceId, s.action])).toEqual([
+      [town.pieceId, "pick"],
+      [other.pieceId, "drop"],
+    ]);
   });
 
   it("is at version 9 (a level is RISER_HEIGHT, not 64 mm)", () => {

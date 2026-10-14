@@ -6,7 +6,7 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ADV_OK, advanceCursor, ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, createAdvance, flipCursor, Sim, type AddTrainResult, type CarKind, type CarLook, type Cursor } from "../sim";
 import type { Bag } from "../economy/goods";
-import { CARGO, CARGO_KINDS, Economy, PILE_CAP, pilesOf, WAGON_CAPACITY, type CargoKind } from "../economy";
+import { CARGO, CARGO_KINDS, Economy, type StopAction, PILE_CAP, pilesOf, WAGON_CAPACITY, type CargoKind } from "../economy";
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
@@ -40,6 +40,13 @@ const trainSchema = z.object({
         cargo: z.object({ kind: z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]]), count: z.number().int().min(1).max(WAGON_CAPACITY) }).optional(),
         /** An engine's train delivers only to this depot (its index in `depots`). */
         deliverTo: z.number().int().min(0).optional(),
+        /** An engine's route: its stops (depot indices in `depots`, and what it does there), and the one it heads for. */
+        route: z
+          .object({
+            stops: z.array(z.tuple([z.number().int().min(0), z.enum(["both", "drop", "pick"])])).min(1),
+            next: z.number().int().min(0),
+          })
+          .optional(),
       }),
     )
     .min(1),
@@ -115,14 +122,16 @@ export function serializeWorld(world: World): SaveData {
       cars: t.cars.map((c) => {
         const cargo = world.economy.cargoOf(c.id);
         const look = sim.lookOf(c.id);
-        const deliverTo = renumbered.get(world.economy.deliverToOf(c.id));
+        const r = world.economy.routeOf(c.id);
+        const stops = r ? r.stops.flatMap((s) => (renumbered.has(s.depotId) ? [[renumbered.get(s.depotId)!, s.action] as [number, StopAction]] : [])) : [];
+        const route = stops.length > 0 ? { stops, next: Math.min(r!.next, stops.length - 1) } : undefined;
         return {
           kind: c.kind,
           facing: c.facing,
           lever: c.lever,
           ...(look !== "classic" ? { look } : {}),
           ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
-          ...(deliverTo !== undefined ? { deliverTo } : {}),
+          ...(route ? { route } : {}),
         };
       }),
       lead: { ...t.bogies[0] },
@@ -232,8 +241,10 @@ export function deserializeWorld(data: unknown): Result<World, string> {
       const look = t.cars[i].look;
       if (look && CAR_LOOKS[car.kind].includes(look)) sim.setLook(car.id, look);
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
-      const deliverTo = t.cars[i].deliverTo;
-      if (car.kind === "engine" && deliverTo !== undefined && economy.depot(deliverTo)) economy.setDeliverTo(car.id, deliverTo);
+      // (A day's saves kept a single "deliver to" depot: routes took its place, so it's dropped.)
+      const route = t.cars[i].route;
+      const stops = route ? route.stops.filter(([d]) => economy.depot(d)).map(([depotId, action]) => ({ depotId, action })) : [];
+      if (car.kind === "engine" && stops.length > 0) economy.setRoute(car.id, { stops, next: Math.min(route!.next, stops.length - 1) });
       const cargo = t.cars[i].cargo;
       if (cargo && car.kind === "timber") economy.setCargo(car.id, cargo.kind, cargo.count);
     });

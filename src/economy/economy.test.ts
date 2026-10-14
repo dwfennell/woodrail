@@ -112,30 +112,34 @@ describe("cargo stays with its wagon", () => {
   });
 });
 
-describe("delivering to one depot", () => {
-  it("a train set to deliver somewhere unloads only there; with none, at any depot that takes its goods", () => {
+describe("routes", () => {
+  it("a routed train is served only at its stops, dropping or picking up as each says; with none, anywhere", () => {
     const { layout, train, economy } = world();
-    const [a, b] = [...layout.pieceIds()];
+    const [a, b, c] = [...layout.pieceIds()];
     const town = economy.addDepot("town", a, 0);
     const shop = economy.addDepot("workshop", b);
-    const [engine, wagon] = train.cars;
+    const saw = economy.addDepot("sawmill", c);
+    saw.piles[CARGO.planks.index] = 5;
+    const [engine, wagon, empty] = train.cars;
     economy.setCargo(wagon.id, "planks", 3);
     expect(economy.needsService(town, wagon.id)).toBe(true);
     expect(economy.needsService(shop, wagon.id)).toBe(true);
-    economy.setDeliverTo(engine.id, shop.id);
-    expect(economy.destinationOf(wagon.id)).toBe(shop.id);
+    expect(economy.needsService(saw, empty.id)).toBe(true);
+    // Route: pick up at the sawmill, drop at the workshop. The town isn't a stop.
+    economy.setRoute(engine.id, { stops: [{ depotId: saw.id, action: "pick" }, { depotId: shop.id, action: "drop" }], next: 0 });
+    expect(economy.routeOfCar(wagon.id)?.stops).toHaveLength(2);
     expect(economy.needsService(town, wagon.id)).toBe(false);
     expect(economy.needsService(shop, wagon.id)).toBe(true);
-    // Goods the destination doesn't take still go where they can: logs to a sawmill on the way to a workshop.
-    const saw = economy.addDepot("sawmill", [...layout.pieceIds()][2]);
-    economy.setCargo(wagon.id, "log", 3);
-    expect(economy.needsService(saw, wagon.id)).toBe(true);
-    economy.setCargo(wagon.id, "planks", 3);
-    // The destination's piece taken up: anywhere again.
-    layout.removePiece(b);
+    expect(economy.needsService(saw, empty.id)).toBe(true);
+    // "Drop" only: nothing picked up there.
+    economy.setRoute(engine.id, { stops: [{ depotId: saw.id, action: "drop" }], next: 0 });
+    expect(economy.needsService(saw, empty.id)).toBe(false);
+    // A stop taken up: the route goes, and it's served anywhere again.
+    layout.removePiece(c);
+    expect(economy.routeOfCar(wagon.id)).toBeNull();
     expect(economy.needsService(town, wagon.id)).toBe(true);
-    economy.setDeliverTo(engine.id, -1);
-    expect(economy.deliverToOf(engine.id)).toBe(-1);
+    economy.setRoute(engine.id, null);
+    expect(economy.routeOf(engine.id)).toBeUndefined();
   });
 });
 

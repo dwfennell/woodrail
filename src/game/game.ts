@@ -151,6 +151,7 @@ export class Game {
     this.stations = world.stations;
     this.depots = world.depots;
     this.economy = world.economy;
+    this.watchSwitches();
     this.props = world.props;
     this.quality = detectQuality();
 
@@ -251,6 +252,7 @@ export class Game {
     this.stations = world.stations;
     this.depots = world.depots;
     this.economy = world.economy;
+    this.watchSwitches();
     this.props = world.props;
     this.hiddenProp = -1;
     this.propsView.sync(this.props, -1, true);
@@ -716,7 +718,15 @@ export class Game {
     if (this.propsView.sync(this.props, hidden)) this.invalidate();
   }
 
-  invalidate(): void {
+  /** A train's route sets switches as it goes: show their levers where they now point. */
+  private watchSwitches(): void {
+    this.economy.onSwitch = () => {
+      this.trackView.syncSwitches();
+      this.invalidate();
+    };
+  }
+
+    invalidate(): void {
     this.dirty = true;
   }
 

@@ -3,6 +3,10 @@ import { SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
 import type { Bag } from "./goods";
+import { steer } from "./steer";
+
+/** How often (sim ticks) the switches ahead of routed trains are set. */
+const STEER_TICKS = 8;
 
 const NONE = 0;
 const CRAWLING = 1;
@@ -62,6 +66,21 @@ export function pilesOf(role: DepotRole): CargoKind[] {
   return CARGO_KINDS.filter((k) => r.takes.includes(k) || r.gives.includes(k));
 }
 
+/** What a train does at a stop on its route: drop goods off, pick goods up, or both. */
+export type StopAction = "both" | "drop" | "pick";
+
+/**
+ * A train's route: the depots it stops at, in order, and what it does at each. A routed train is served only at its
+ * stops, and the switches ahead of it are set toward `next` (see `steer`); passing that stop moves `next` on.
+ */
+export interface Route {
+  stops: { depotId: number; action: StopAction }[];
+  /** The stop it's heading for (an index into `stops`). */
+  next: number;
+  /** It's at its next stop now (it moves on to the one after when it leaves). */
+  at?: boolean;
+}
+
 export interface DepotState {
   readonly id: number;
   readonly pieceId: number;
@@ -116,8 +135,8 @@ export class Economy {
   private readonly depots: DepotState[] = [];
   private readonly byPiece = new Map<number, DepotState>();
   private readonly cargo = new Map<number, CarCargo>();
-  /** Engine car id → the depot its train delivers to (unloads only there). Trains with none unload at any depot. */
-  private readonly deliverTo = new Map<number, number>();
+  /** Engine car id → its train's route (see `Route`). Trains with none are served at any depot they pass. */
+  private readonly routes = new Map<number, Route>();
   /** Town id → plank bundles delivered there (by train or by hand). */
   readonly delivered = new Map<number, number>();
   /** Town id → everything delivered there, by kind (planks are counted in `delivered` too). */
@@ -268,41 +287,45 @@ export class Economy {
   private canUnload(d: DepotState, carId: number): boolean {
     const c = this.cargoOf(carId);
     if (c.kind === null || c.count <= 0 || !RECIPES[d.role].takes.includes(c.kind) || d.piles[CARGO[c.kind].index] >= PILE_CAP) return false;
-    // A destination is for the goods it takes: other goods (logs, when it's planks it wants) go where they can.
-    const to = this.destinationOf(carId);
-    return to === -1 || to === d.id || !RECIPES[this.depots[to].role].takes.includes(c.kind);
+    // A routed train drops goods only at its stops that say so.
+    const route = this.routeOfCar(carId);
+    return !route || stopAt(route, d.id, "drop");
   }
 
-  /**
-   * Have this engine's train deliver the goods depot `depotId` takes only there (−1: to whichever depot it reaches
-   * first). Other goods it carries still unload at the first depot that takes them.
-   */
-  setDeliverTo(engineCarId: number, depotId: number): void {
-    if (depotId === -1) this.deliverTo.delete(engineCarId);
-    else this.deliverTo.set(engineCarId, depotId);
+  /** Give this engine's train a route (null or no stops: none; it's served wherever it goes). */
+  setRoute(engineCarId: number, route: Route | null): void {
+    if (!route || route.stops.length === 0) this.routes.delete(engineCarId);
+    else this.routes.set(engineCarId, route);
   }
 
-  /** The depot this engine was set to deliver to, or −1. */
-  deliverToOf(engineCarId: number): number {
-    return this.deliverTo.get(engineCarId) ?? -1;
+  /** This engine's route, if it has one. */
+  routeOf(engineCarId: number): Route | undefined {
+    return this.routes.get(engineCarId);
   }
 
-  /** Where the train with this car delivers: its first engine's depot that still exists, or −1 (anywhere). */
-  destinationOf(carId: number): number {
-    if (this.deliverTo.size === 0) return -1;
+  /** The route of the train this car is in: its first engine's (with stops still on the map), or null. */
+  routeOfCar(carId: number): Route | null {
+    if (this.routes.size === 0) return null;
     const found = this.sim.findCar(carId);
-    if (!found) return -1;
-    for (const car of found.train.cars) {
-      const to = this.deliverTo.get(car.id);
-      if (to !== undefined && this.depots[to] && this.layout.getPiece(this.depots[to].pieceId)) return to;
+    return found ? this.routeOfTrain(found.train) : null;
+  }
+
+  routeOfTrain(train: Train): Route | null {
+    if (this.routes.size === 0) return null;
+    for (const car of train.cars) {
+      const r = this.routes.get(car.id);
+      if (r && r.stops.some((s) => this.depots[s.depotId] && this.layout.getPiece(this.depots[s.depotId].pieceId))) return r;
     }
-    return -1;
+    return null;
   }
 
   /** What the crane would load onto this car here: goods the depot gives, the car carries and has room for, or null. */
   private loadKind(d: DepotState, carId: number): CargoKind | null {
     const c = this.cargoOf(carId);
     if (c.count >= WAGON_CAPACITY) return null;
+    // A routed train picks up goods only at its stops that say so.
+    const route = this.routeOfCar(carId);
+    if (route && !stopAt(route, d.id, "pick")) return null;
     const found = this.sim.findCar(carId);
     if (!found) return null;
     const car = found.train.cars[found.index].kind;
@@ -531,6 +554,11 @@ export class Economy {
   /** One sim tick of production, use and crane work. */
   tick(): void {
     this.work();
+    if (this.routes.size > 0) {
+      this.advanceRoutes();
+      // Switches ahead of routed trains, a few times a second (a train covers a few mm a tick).
+      if (++this.steerTicks % STEER_TICKS === 0) this.steerTrains();
+    }
     for (const d of this.depots) {
       if (!this.working(d)) {
         d.timer = 0;
@@ -549,6 +577,44 @@ export class Economy {
     }
   }
 
+  /** Called when a route has set a switch (the game redraws its lever). */
+  onSwitch: ((pieceId: number) => void) | null = null;
+  private steerTicks = 0;
+
+  /** A routed train that has been at its next stop and left it heads for the one after. */
+  private advanceRoutes(): void {
+    for (const [engine, r] of this.routes) {
+      const found = this.sim.findCar(engine);
+      if (!found) continue;
+      const stop = r.stops[r.next % r.stops.length];
+      const d = this.depots[stop.depotId];
+      if (!d || !this.layout.getPiece(d.pieceId)) {
+        // Its stop was taken up: on to the next.
+        r.next = (r.next + 1) % r.stops.length;
+        r.at = false;
+        continue;
+      }
+      const on = found.train.bogies.some((b) => b.pieceId === d.pieceId);
+      if (on) r.at = true;
+      else if (r.at) {
+        r.at = false;
+        r.next = (r.next + 1) % r.stops.length;
+      }
+    }
+  }
+
+  /** Set the switches ahead of each routed train toward its next stop. */
+  private steerTrains(): void {
+    for (const [engine, r] of this.routes) {
+      const found = this.sim.findCar(engine);
+      if (!found || found.train.derailed) continue;
+      const net = this.drive(found.train);
+      const d = this.depots[r.stops[r.next % r.stops.length].depotId];
+      if (net === 0 || !d) continue;
+      if (steer(this.layout, found.train, net > 0, d.pieceId)) this.onSwitch?.(d.pieceId);
+    }
+  }
+
   /** Events since the last drain. The returned array is reused: read it before the next drain. */
   drainEvents(): readonly EconomyEvent[] {
     const e = this.events;
@@ -561,11 +627,16 @@ export class Economy {
   /** Forget cargo and destinations on cars, and visits of trains, that no longer exist. */
   prune(): void {
     for (const id of this.cargo.keys()) if (!this.sim.findCar(id)) this.cargo.delete(id);
-    for (const id of this.deliverTo.keys()) if (!this.sim.findCar(id)) this.deliverTo.delete(id);
+    for (const id of this.routes.keys()) if (!this.sim.findCar(id)) this.routes.delete(id);
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);
   }
 }
 
+
+/** Is depot `depotId` a stop on `route` where the train may `act` (drop or pick up)? */
+function stopAt(route: Route, depotId: number, act: "drop" | "pick"): boolean {
+  return route.stops.some((s) => s.depotId === depotId && (s.action === "both" || s.action === act));
+}
 
 /** Ticks in one cycle of `seconds` at `rate` (whole ticks, so production stays in step with the sim). */
 function cycleTicks(seconds: number, rate: number): number {

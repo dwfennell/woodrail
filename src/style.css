@@ -358,3 +358,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .tooltip { position: fixed; left: 0; top: 0; z-index: 100; max-width: 240px; padding: 5px 10px; border-radius: 9px; background: #3a2a1c; color: #fbf3e4; font: 700 13px/1.3 Nunito, system-ui, sans-serif; box-shadow: 0 4px 14px rgba(30, 20, 10, 0.3); pointer-events: none; }
 .engine-extra { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .engine-extra-label { font-weight: 700; opacity: 0.75; font-size: 0.9em; }
+.engine-extra.route { flex-direction: column; align-items: stretch; gap: 4px; }
+.route-head { display: flex; align-items: baseline; gap: 8px; }
+.route-none { font-size: 0.85em; opacity: 0.7; }
+.route-stop { display: flex; align-items: center; gap: 4px; }
+.route-stop .route-mark { width: 1.2em; text-align: center; font-weight: 800; opacity: 0.6; }
+.route-stop.next .route-mark { color: #c8442f; opacity: 1; }
+.route-stop .route-name { flex: 1; text-align: left; }
+.route-stop .route-remove { padding-inline: 8px; }
+.route-add { align-self: flex-start; }

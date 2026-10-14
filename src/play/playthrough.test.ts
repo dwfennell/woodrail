@@ -420,8 +420,17 @@ describe("a Game-mode playthrough", () => {
       if (r.kind !== "placed") return;
       const engine = w.sim.getTrain(r.trainId)!.cars[0].id;
       w.sim.setLever(engine, -1);
-      // "Deliver to: Workshop" on the engine's card.
-      if (toShop) w.economy.setDeliverTo(engine, w.economy.depotAtPiece(shop.id)!.id);
+      // A route on the engine's card: logs from the forest yard to the sawmill, its planks to the workshop.
+      const at = (pieceId: number) => w.economy.depotAtPiece(pieceId)!.id;
+      if (toShop)
+        w.economy.setRoute(engine, {
+          stops: [
+            { depotId: at(depotPiece(w, "forest")), action: "pick" },
+            { depotId: at(depotPiece(w, "sawmill")), action: "both" },
+            { depotId: at(shop.id), action: "drop" },
+          ],
+          next: 0,
+        });
       let firstPlanks = -1;
       for (let m = 1; m <= 30; m++) {
         P.run(60);

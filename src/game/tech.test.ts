@@ -11,7 +11,7 @@ describe("blueprints", () => {
     const ids = new Set(TECHS.map((t) => t.id));
     for (const rule of Object.values(THING_RULES)) if (rule!.tech) expect(ids.has(rule!.tech), rule!.label).toBe(true);
     for (const t of TECHS) {
-      expect(unlocksOf(t.id).length, t.id).toBeGreaterThan(0);
+      expect(unlocksOf(t.id).length + (t.feature ? 1 : 0), t.id).toBeGreaterThan(0);
       for (const n of t.needs) expect(ids.has(n)).toBe(true);
     }
   });

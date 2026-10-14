@@ -15,6 +15,8 @@ export interface Tech {
   readonly needs: readonly string[];
   /** A town landmark one of your towns must have first (a city's library, for the advanced blueprints). */
   readonly landmark?: string;
+  /** What it lets you do that isn't a thing to make (train routes), with an icon for the board. */
+  readonly feature?: { readonly label: string; readonly icon: string };
 }
 
 /**
@@ -34,6 +36,15 @@ export const TECHS: readonly Tech[] = [
   { id: "harvesters", label: "Harvesters", blurb: "A forest yard of your own, beside the trees.", cost: { planks: 10 }, needs: [] },
   { id: "farming", label: "Farming", blurb: "A farm yard by the fields, and hoppers for its grain.", cost: { planks: 12 }, needs: ["harvesters"] },
   { id: "mills", label: "Mills", blurb: "Grind grain into flour, for the towns.", cost: { planks: 16 }, needs: ["farming"] },
+  // The logistics line: trains that know where to go.
+  {
+    id: "routes",
+    label: "Train routes",
+    blurb: "Give a train its stops: it sets the switches on its way.",
+    cost: { planks: 10 },
+    needs: ["switches"],
+    feature: { label: "Routes on the engine card", icon: "🗺️" },
+  },
   // Needs a city's library: the stone a city wants to keep growing.
   { id: "quarries", label: "Quarries", blurb: "Cut stone from the hills, for growing cities.", cost: { planks: 24 }, needs: ["mills"], landmark: "library" },
 ];

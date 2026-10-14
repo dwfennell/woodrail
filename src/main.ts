@@ -26,7 +26,8 @@ import { isFree, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/thi
 import { syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { siteWhy, updateRates } from "./game/industries";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
-import { deliveryStops, nextStop } from "./game/delivery";
+import { nextStop, routeStops } from "./game/route-stops";
+import type { StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { choose as chooseTech, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
@@ -736,6 +737,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     const offerOf = (id: string) => progress.offers.findIndex((o) => o.ids.includes(id));
     const stations: Station[] = TECHS.map((t) => {
       const makes = unlocksOf(t.id).map((x) => ({ label: ruleOf(x)!.label, icon: x.startsWith("piece:") ? pieceIcon(x.slice(6) as PieceTypeId) : trainIcon([x.slice(4) as CarKind]) }));
+      if (t.feature) makes.push({ label: t.feature.label, icon: `<span class="bp-feature">${t.feature.icon}</span>` });
       const base = { id: t.id, label: t.label, blurb: t.blurb, makes, needs: [...t.needs] };
       if (progress.learned.has(t.id)) return { ...base, state: "learned" as const };
       const offer = offerOf(t.id);
@@ -817,37 +819,85 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows);
   }
 
-  // Where the open engine's train delivers (both modes): a chip that steps through the stops, then back to anywhere.
-  let deliverShown = "";
-  function showDeliverTo(): void {
+  // The open engine's route (both modes; Game mode once Train routes is learned): its stops in order, what it does
+  // at each (drop goods, pick them up, both), and the one it's heading for. It sets the switches itself.
+  let routeShown = "";
+  const ACTIONS: Record<StopAction, { label: string; next: StopAction; tip: string }> = {
+    both: { label: "Both", next: "drop", tip: "Drops goods this stop takes, and picks up what it gives" },
+    drop: { label: "Drop", next: "pick", tip: "Only drops goods off here" },
+    pick: { label: "Pick up", next: "both", tip: "Only picks goods up here" },
+  };
+  function showRoute(): void {
     const carId = interaction.openEngineCarId;
-    if (carId === -1) {
-      deliverShown = "";
+    const allowed = mode === "sandbox" || progress.learned.has("routes");
+    if (carId === -1 || !allowed) {
+      if (routeShown !== "") hud.engineExtra.hidden = true;
+      routeShown = "";
       return;
     }
-    const to = game.economy.deliverToOf(carId);
-    const stops = deliveryStops(game.world);
-    const name = stops.find((st) => st.depotId === to)?.name ?? "Anywhere";
-    const key = `${carId}:${name}:${stops.length}`;
-    if (key === deliverShown) return;
-    deliverShown = key;
+    const stops = routeStops(game.world);
+    const r = game.economy.routeOf(carId);
+    const key = `${carId}:${stops.length}:${r ? `${r.next}|${r.stops.map((st) => `${st.depotId}${st.action}`).join(",")}` : "-"}`;
+    if (key === routeShown) return;
+    routeShown = key;
     const box = hud.engineExtra;
     box.innerHTML = "";
     box.hidden = stops.length === 0;
+    box.classList.add("route");
+    const nameOf = (id: number) => stops.find((st) => st.depotId === id)?.name ?? "?";
+    const set = (edit: (stops: { depotId: number; action: StopAction }[]) => void) => {
+      const cur = game.economy.routeOf(carId);
+      const list = cur ? cur.stops.map((st) => ({ ...st })) : [];
+      edit(list);
+      game.economy.setRoute(carId, list.length > 0 ? { stops: list, next: Math.min(cur?.next ?? 0, list.length - 1) } : null);
+      showRoute();
+      scheduleSave();
+    };
+    const button = (text: string, cls: string, tip: string, onClick: () => void) => {
+      const el = document.createElement("button");
+      el.className = `chip text ${cls}`;
+      el.textContent = text;
+      el.title = tip;
+      el.addEventListener("click", onClick);
+      return el;
+    };
+    const head = document.createElement("div");
+    head.className = "route-head";
     const label = document.createElement("span");
     label.className = "engine-extra-label";
-    label.textContent = "Deliver to";
-    const chip = document.createElement("button");
-    chip.className = "chip text deliver-to";
-    chip.classList.toggle("active", name !== "Anywhere");
-    chip.textContent = name;
-    chip.title = "Where this train takes its goods (other goods still unload where they can). Anywhere: the first stop that takes them.";
-    chip.addEventListener("click", () => {
-      game.economy.setDeliverTo(carId, nextStop(deliveryStops(game.world), game.economy.deliverToOf(carId)));
-      showDeliverTo();
-      scheduleSave();
+    label.textContent = "Route";
+    head.append(label);
+    if (!r) {
+      const any = document.createElement("span");
+      any.className = "route-none";
+      any.textContent = "Goes anywhere, works at every stop";
+      head.append(any);
+    }
+    box.append(head);
+    (r?.stops ?? []).forEach((st, k) => {
+      const row = document.createElement("div");
+      row.className = "route-stop";
+      row.classList.toggle("next", r!.next === k);
+      const mark = document.createElement("span");
+      mark.className = "route-mark";
+      mark.textContent = r!.next === k ? "▶" : `${k + 1}`;
+      row.append(
+        mark,
+        button(nameOf(st.depotId), "route-name", "Tap to choose another stop", () => set((l) => (l[k].depotId = nextStop(routeStops(game.world), l[k].depotId)))),
+        button(ACTIONS[st.action].label, "route-action", ACTIONS[st.action].tip, () => set((l) => (l[k].action = ACTIONS[l[k].action].next))),
+        button("✕", "route-remove", "Take this stop off the route", () => set((l) => l.splice(k, 1))),
+      );
+      box.append(row);
     });
-    box.append(label, chip);
+    box.append(
+      button("+ Stop", "route-add", "Add a stop: the train stops only at its stops, and sets the switches on its way", () =>
+        set((l) => {
+          const used = new Set(l.map((st) => st.depotId));
+          const pick = stops.find((st) => !used.has(st.depotId)) ?? stops[0];
+          l.push({ depotId: pick.depotId, action: "both" });
+        }),
+      ),
+    );
   }
 
   // The map view (Game mode): the whole land from above, with what each town wants and each depot holds.
@@ -1153,7 +1203,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       if (playing) townLife.update();
       showWorkshop();
     } else game.economy.delivered.forEach(showDelivered);
-    showDeliverTo();
+    showRoute();
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);
