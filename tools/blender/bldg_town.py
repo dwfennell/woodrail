@@ -127,14 +127,19 @@ def cafe(k):
 
 
 def school(k):
-    g = house(k, 70, 34, 32, k.paint(TOY.yellow), TOY.red, 15)
-    g.add(doorX(k, TOY.blue, 35, 0, 11, 20))
-    g.add(_step(k, 35, 0, 11))
-    for z in (-11, 11):
-        g.add(winX(k, 35, 18, z, 7, 12))
-    for x in (-24, -8, 8, 24):
-        g.add(winZ(k, x, 14, 17.2, 9, 14))
-    # Cupola on the ridge.
+    """
+    A schoolhouse for a two-square town lot (about 50 x 78): the long yellow front faces +x, with the door in the middle
+    under a bell cupola on the ridge (the bell, "bell", swings), printed windows either side, and a playground fence
+    along the front, open at the gate.
+    """
+    g = Node()
+    body = house(k, 70, 34, 32, k.paint(TOY.yellow), TOY.red, 15)
+    g.add(k.at(body, 0, 0, 0, math.pi / 2))
+    g.add(doorX(k, TOY.blue, 17, 0, 11, 20))
+    g.add(_step(k, 17, 0, 11))
+    for z in (-26, -12, 12, 26):
+        g.add(winX(k, 17, 14, z, 8, 13))
+    # Cupola on the ridge, over the door.
     white = k.paint(TOY.white)
     g.add(k.box(white, 14, 6, 14, 1, 0, 43, 0))
     for x, z in ((-5.5, -5.5), (5.5, -5.5), (-5.5, 5.5), (5.5, 5.5)):
@@ -147,14 +152,13 @@ def school(k):
     )
     g.add(k.at(bell, 0, 60, 0))
     # Playground fence along the front, open at the gate in front of the door.
-    for z in (-30, -20, -10, 10, 20, 30):
-        g.add(k.box(white, 1.6, 9, 1.6, 0.3, 42, 0, z))
-    for z in (-20, 20):
-        g.add(k.box(white, 1.4, 1.6, 21.6, 0.3, 42, 6, z))
-    # Gateposts, a little taller, either side of the opening.
+    for z in (-36, -24, -12, 12, 24, 36):
+        g.add(k.box(white, 1.6, 9, 1.6, 0.3, 27, 0, z))
+    for z in (-24, 24):
+        g.add(k.box(white, 1.4, 1.6, 25.6, 0.3, 27, 6, z))
     for z in (-8, 8):
-        g.add(k.box(k.paint(TOY.blue), 2.2, 12, 2.2, 0.4, 42, 0, z))
-    g.add(peg(k, TOY.red, None, 40, 0, -38), peg(k, TOY.blue, None, 48, 0, 32))
+        g.add(k.box(k.paint(TOY.blue), 2.2, 12, 2.2, 0.4, 27, 0, z))
+    g.add(peg(k, TOY.red, None, 23, 0, -30), peg(k, TOY.blue, None, 23, 0, 31))
     return g
 
 
@@ -342,6 +346,89 @@ def market_stall(k):
     return g
 
 
+def market_hall(k):
+    """
+    An open-sided market hall for a two-square town lot (about 56 x 112): a beech floor on a stone step, cream posts
+    holding up a solid roof (ridge along z) with a little clock lantern on it, and three stalls under it with striped
+    awnings, produce and crates, and a shopper.
+    """
+    g = Node()
+    w, d = 52, 108
+    g.add(k.box(k.paint(STONE), w + 4, 2, d + 4, 0.8, 0, 0, 0))
+    g.add(k.box(k.wood, w, 2, d, 1, 0, 2, 0))
+    post = k.paint(TOY.cream)
+    for x in (-w / 2 + 3, w / 2 - 3):
+        for z in (-d / 2 + 3, -d / 6, d / 6, d / 2 - 3):
+            g.add(k.box(post, 4, 36, 4, 1.2, x, 4, z, seg=2))
+            g.add(k.box(post, 6, 2.4, 6, 1, x, 4, z, seg=1))
+    roof = k.roof(k.paint(TOY.red), d + 8, w + 8, 18, 0, 0, 0, 3.5)
+    holder = Node()
+    holder.add(roof)
+    holder.rotation.y = math.pi / 2
+    holder.position.set(0, 39.5, 0)
+    g.add(holder)
+    # The clock lantern on the ridge.
+    g.add(k.box(k.paint(TOY.white), 12, 10, 12, 1.4, 0, 54, 0))
+    g.add(clock(k, 3.6, 6.2, 59, 0))
+    g.add(hip(k, k.paint(TOY.teal), 15, 8, 0, 64, 0))
+    g.add(k.ball(k.paint(TOY.yellow), 1.4, 0, 72.5, 0))
+    # Three stalls, each a counter under a striped awning, with produce.
+    fruit = [TOY.red, TOY.orange, TOY.leaf, TOY.yellow, TOY.purple]
+    stripes = ((TOY.blue, TOY.white), (TOY.red, TOY.white), (TOY.leaf, TOY.white))
+    for i, z in enumerate((-34, 0, 34)):
+        a, b = stripes[i]
+        g.add(k.box(k.wood, 14, 10, 24, 1.2, -8, 4, z, seg=2))
+        for j in range(5):
+            n = Node()
+            n.add(k.box(k.paint(a if j % 2 == 0 else b), 16, 1.2, 4.8, 0.3, 0, 0, 0, seg=1))
+            n.rotation.z = -0.35
+            n.position.set(-2, 26, z - 9.6 + j * 4.8)
+            g.add(n)
+        for dz in (-11, 11):
+            g.add(k.cyl(k.wood, 0.8, 19, 4.5, 4, z + dz, 0.8, 8))
+        for j in range(3):
+            g.add(k.box(k.paint("#c99a5b"), 5, 2, 6, 0.5, -8, 14, z - 7 + j * 7, seg=1))
+            g.add(k.ball(k.paint(fruit[(i + j) % 5]), 2, -8, 17.6, z - 7 + j * 7, 0.8))
+        g.add(crate(k, -20, 4, z + 8, 6))
+    g.add(peg(k, TOY.blue, TOY.red, 12, 4, -17))
+    return g
+
+
+def library(k):
+    """
+    A grand library (the town's place of learning) for a two-square lot (about 60 x 104): a stone plinth with broad
+    steps, a cream hall with tall windows, a portico of six columns under a pediment, and a dome on a drum over the
+    middle with clocks ("hour", "minute") and a gold finial.
+    """
+    g = Node()
+    cream = k.paint(TOY.cream)
+    stone = k.paint(STONE)
+    g.add(k.box(stone, 50, 5, 104, 1.2, -4, 0, 0))
+    for i, x in enumerate((22, 25, 28)):
+        g.add(k.box(stone, 4, 5 - i * 1.6, 44, 0.5, x - 0.5, 0, 0))
+    g.add(k.box(cream, 36, 34, 96, 2.4, -6, 5, 0))
+    g.add(k.box(cream, 40, 3, 100, 1.2, -6, 39, 0))
+    g.add(k.box(k.paint(TOY.blue), 38, 4, 98, 1.6, -6, 42, 0))
+    for z in (-40, -29, 29, 40):
+        g.add(winX(k, 12, 12, z, 6, 18, False))
+    # Portico: six columns on the top step, an entablature and a pediment.
+    for z in (-19, -11.4, -3.8, 3.8, 11.4, 19):
+        g.add(k.lathe(k.paint(TOY.white), [(0, 0), (3, 0), (3, 1.4), (2.3, 2.4), (2.1, 30), (2.8, 31), (3.2, 32.6), (0, 32.6)], 19, 5, z, 18))
+    g.add(k.box(cream, 12, 4, 46, 1, 18, 37.6, 0))
+    g.add(k.at(gable(k, k.paint(TOY.blue), 13, 48, 11, 0, 0, 0), 18, 41.4, 0, 0))
+    g.add(doorX(k, TOY.blue, 12, 0, 12, 22, 5))
+    # Drum, dome and lantern over the middle, with a clock facing the front.
+    g.add(k.cyl(cream, 15, 14, -6, 46, 0, 15, 40))
+    g.add(k.cyl(k.paint(TOY.white), 16, 2, -6, 59, 0, 16, 40))
+    g.add(k.lathe(k.paint(TOY.teal), [(0.0, 0), (15.4, 0)] + [(15.4 * math.cos(a), 16 * math.sin(a)) for a in (0.25, 0.5, 0.75, 1.0, 1.25, 1.45)] + [(0.0, 16)], -6, 61, 0, 40))
+    g.add(k.cyl(k.paint(TOY.white), 3, 6, -6, 76, 0, 2.6, 16))
+    g.add(k.ball(k.paint(TOY.yellow), 2.6, -6, 83.5, 0))
+    g.add(clock(k, 6, 9.2, 53, 0))
+    # Lamp posts at the foot of the steps.
+    g.add(lamp(k, 26, -26, 26, 0), lamp(k, 26, 26, 26, 0))
+    return g
+
+
 ASSETS = [
     ("bldg-fire-station", fire_station),
     ("bldg-police-station", police_station),
@@ -357,4 +444,6 @@ ASSETS = [
     ("bldg-dairy", dairy),
     ("bldg-petrol-station", petrol_station),
     ("bldg-market-stall", market_stall),
+    ("bldg-market-hall", market_hall),
+    ("bldg-library", library),
 ]

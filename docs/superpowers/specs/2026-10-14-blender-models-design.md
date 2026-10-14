@@ -106,6 +106,9 @@ time is still to be measured on a phone.
   the game expansion adds `industry-farm`, `industry-mill` and `industry-mill-sails`, and the loads `load-flour-sack`
   and `load-grain-heap`; trains.glb adds `van-classic` (slot `body`, sliding `door_0`/`door_1`), and the hopper's coal
   is its own nodes (`coal_bed`, `coal_lumps`) so it can carry something else. Cars take slots through `blenderCar`.
+  Phase B adds `industry-quarry`, `industry-warehouse`, `load-stone-block` and `load-stone-heap`, and the town
+  landmarks `bldg-library` and `bldg-market-hall` (new) and `bldg-school` (turned to face the street on a two-square
+  lot, about 60 x 130 at most).
 - **Lean parts:** the parts on every house (door, flower box, chimney top) are built lean (`Kit(lean=True)`: one-step
   roundings, the code's segment counts); a map has hundreds. Windows stay in code: they're already a printed pane
   with glazing bars in a frame.
