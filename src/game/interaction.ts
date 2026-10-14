@@ -10,6 +10,7 @@ import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWor
 import { BLOCK_MESSAGES, bridgeLevels, CELL, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { connectorRef, findLowCrossing, findOverlap, findSnap, flipSwapsEnds, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
+import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
@@ -109,6 +110,8 @@ type Mode =
       heading: number;
       /** Existing piece being moved, or -1 for a new piece from the tray. */
       pieceId: number;
+      /** The tray item a new piece came from (it stays ready for the next, once placed). */
+      tray?: TrayItem;
       /** The auto straight: held as a long straight, it takes the length that meets a free end along its line. */
       auto?: boolean;
       from: { pose: Pose; y: number } | null;
@@ -318,6 +321,8 @@ export class Interaction {
 
   startTrayDrag(item: TrayItem, e: PointerEvent): void {
     this.cancel();
+    // Something else taken from the tray: the ready piece is put away (a piece dragged out is ready once placed).
+    if (this.armed && trayKey(this.armed) !== trayKey(item)) this.arm(null);
     this.clearSelection();
     if (item.kind === "piece") {
       // Comes out turned and flipped as set in the tray.
@@ -332,6 +337,7 @@ export class Interaction {
         heldFlipped: flipped,
         heading: this.cameraHeading() + (this.trayTurns * Math.PI) / 4,
         pieceId: -1,
+        tray: item,
         auto: item.auto,
         from: null,
         offset: { x: 0, z: 0 },
@@ -354,6 +360,69 @@ export class Interaction {
       const cars = item.cars.map((kind, i) => ({ kind, facing: 1 as const, lever: 0 as const, id: ids[i], look: item.looks?.[i] ?? ("classic" as const) }));
       this.mode = { kind: "drag-train", pointerId: e.pointerId, cars, origin: null, ghost: this.trainGhost(cars), target: null, overTray: true };
     }
+  }
+
+  /**
+   * The tray piece ready to place with a tap on the floor (or on a free track end): the last one put down from the
+   * tray, or one tapped there. Null when none is.
+   */
+  private armed: TrayItem | null = null;
+  /** Called when the ready tray piece changes. */
+  onArmed: ((item: TrayItem | null) => void) | null = null;
+
+  arm(item: TrayItem | null): void {
+    if (item && item.kind !== "piece") item = null;
+    if (item === this.armed || (item && this.armed && trayKey(item) === trayKey(this.armed))) return;
+    const first = item !== null && this.armed === null && !this.armHinted;
+    this.armed = item;
+    this.onArmed?.(item);
+    if (first) {
+      this.armHinted = true;
+      this.hud.toast("Tap where the next one goes · tap it in the tray to stop", false, 3200);
+    }
+  }
+
+  private armHinted = false;
+
+  /** Tray tap on a piece: ready it, or put it away if it's the one ready. */
+  tapTrayPiece(item: TrayItem): void {
+    this.cancel();
+    this.arm(this.armed && trayKey(this.armed) === trayKey(item) ? null : item);
+  }
+
+  /**
+   * Put the ready piece down where the screen was tapped, as if dragged there from the tray and let go: onto the
+   * free end under the finger, or loose. True if one was tried (placed, or refused with the reason shown).
+   */
+  private placeArmedAt(x: number, y: number): boolean {
+    const item = this.armed;
+    if (!item) return false;
+    this.startTrayDrag(item, { pointerId: -1 } as PointerEvent);
+    const m = this.mode;
+    if (m.kind !== "drag-piece") return false;
+    // A tap puts it where the finger is, not above it (as a held piece floats).
+    const touch = this.lastPointerWasTouch;
+    this.lastPointerWasTouch = false;
+    this.updateDrag(x, y);
+    this.lastPointerWasTouch = touch;
+    m.overTray = false;
+    if (!m.ghost.visible) {
+      this.cancel();
+      return false;
+    }
+    this.dropPiece(m);
+    return true;
+  }
+
+  /** Is there a free track end under this screen point (within snapping reach)? */
+  private freeEndNear(x: number, y: number): boolean {
+    const g = this.game;
+    const out: number[] = [];
+    for (const level of [0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT]) {
+      const p = this.planeAt(x, y, level);
+      if (p && g.layout.queryFreeConnectors(p.x, p.z, this.captureRadius(x, y), out) > 0) return true;
+    }
+    return false;
   }
 
   /** How pieces come out of the tray: eighth turns from facing away from the camera, and mirrored or not. */
@@ -496,7 +565,8 @@ export class Interaction {
       this.floorDown = null;
       if (Math.hypot(e.clientX - f.x, e.clientY - f.y) < DRAG_THRESHOLD && e.timeStamp - f.t < 300 && this.touches.size <= 1) {
         const ground = this.groundAt(e.clientX, e.clientY);
-        if (ground && this.onFloorTap?.(ground, e.clientX, e.clientY)) this.lastTap = null;
+        if (this.armed && this.placeArmedAt(e.clientX, e.clientY)) this.lastTap = null;
+        else if (ground && this.onFloorTap?.(ground, e.clientX, e.clientY)) this.lastTap = null;
         else if (this.noteTap(e) && ground) this.game.director.focus(ground, 260);
       } else this.lastTap = null;
     }
@@ -505,6 +575,11 @@ export class Interaction {
     this.game.controls.enabled = true;
     if (m.kind === "press") {
       this.mode = { kind: "idle" };
+      // With a piece ready, a tap at a free track end puts the next one on it.
+      if (this.armed && m.press.kind === "piece" && !this.picking && this.freeEndNear(e.clientX, e.clientY) && this.placeArmedAt(e.clientX, e.clientY)) {
+        this.lastTap = null;
+        return;
+      }
       if (m.press.kind !== "lever" && this.noteTap(e)) this.focusOn(m.press);
       else this.tap(m.press, m.add);
       return;
@@ -971,6 +1046,7 @@ export class Interaction {
 
   /** Piece card "Select more": the selected piece is the first picked, and taps on track pick more. */
   selectMore(): void {
+    this.arm(null);
     const first = this.selectedPiece;
     this.clearSelection();
     this.picking = true;
@@ -1525,6 +1601,8 @@ export class Interaction {
           g.flourishes.add(dustPuff(g.scene, pose.x + c.x * ch - c.z * sh, y, pose.z + c.x * sh + c.z * ch));
         }
         this.onPlaced?.(snapped);
+        // The next is likely the same kind: it stays ready, to place with a tap.
+        if (m.tray) this.arm(m.tray);
         return;
       }
       case "return": {
@@ -1545,6 +1623,8 @@ export class Interaction {
       }
       case "to-tray": {
         if (m.overTray || !mesh.visible) {
+          // Put back in the box: nothing ready any more.
+          if (m.overTray) this.arm(null);
           discard();
           return;
         }
@@ -1740,6 +1820,7 @@ export class Interaction {
     else if (e.key === "f" || e.key === "F") this.flipSelected();
     else if (e.key === "Delete" || e.key === "Backspace") this.deleteSelected();
     else if (e.key === "Escape") {
+      this.arm(null);
       this.cancel();
       this.clearSelection();
       this.hud.hideCards();

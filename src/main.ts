@@ -140,6 +140,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     document.body,
     {
       trayPointerDown: (item, e) => interaction.startTrayDrag(item, e),
+      trayTap: (item) => interaction.tapTrayPiece(item),
+      trayTabChanged: () => interaction.arm(null),
       undo: () => {
         interaction.undo();
       },
@@ -268,6 +270,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
   game.keysTaken = () => interaction.piecesTakeKeys;
+  interaction.onArmed = (item) => hud.setArmed(item ? trayKey(item) : null);
   interaction.onPlaced = (snapped) => {
     audio.putdown(snapped);
     if (snapped) hud.haptic("snap");

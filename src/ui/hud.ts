@@ -8,6 +8,10 @@ export { trayKey, type TrayItem } from "./tray-catalogue";
 
 export interface HudHandlers {
   trayPointerDown(item: TrayItem, e: PointerEvent): void;
+  /** A tray piece tapped: ready it (or put it away), to place with taps on the floor. */
+  trayTap(item: TrayItem): void;
+  /** Another tray tab opened (the ready piece is put away). */
+  trayTabChanged(): void;
   undo(): void;
   redo(): void;
   rerailAll(): void;
@@ -338,6 +342,17 @@ export class Hud {
             e.preventDefault();
             this.trayPress(e, scroller, { tap: () => this.chooseLandTool(tool) });
           });
+        } else if (item.kind === "piece") {
+          // A piece is dragged out, or tapped to ready it: then each tap on the floor puts one down (it stays ready
+          // after a drag too, for the next of the same kind).
+          const key = trayKey(item);
+          b.dataset.key = key;
+          b.classList.toggle("armed", this.armedKey === key);
+          b.title = `${item.label}: drag onto the floor, or tap it, then tap where it goes`;
+          b.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: () => this.handlers.trayTap(item) });
+          });
         } else {
           b.title = `Drag onto the floor: ${item.label}`;
           b.addEventListener("pointerdown", (e) => {
@@ -354,6 +369,7 @@ export class Hud {
     const loadedGroups = new Map<string, TrayGroup[]>();
     let openId = "";
     const openTab = (tab: TrayTab) => {
+      if (openId !== "" && openId !== tab.id) this.handlers.trayTabChanged();
       openId = tab.id;
       // The Land tab switches land editing on (with its first tool), any other tab off.
       this.chooseLandTool(tab.land ? (this.landTool ?? "move") : null);
@@ -789,6 +805,15 @@ export class Hud {
     this.pieceCard.hidden = true;
     this.pieceCard.classList.remove("group");
     this.root.classList.remove("picking");
+  }
+
+  /** The tray piece readied for placing with taps (`trayKey`), or null. */
+  private armedKey: string | null = null;
+
+  setArmed(key: string | null): void {
+    if (key === this.armedKey) return;
+    this.armedKey = key;
+    this.tray.querySelectorAll<HTMLElement>(".tray-item[data-key]").forEach((b) => b.classList.toggle("armed", b.dataset.key === key));
   }
 
   toast(message: string, celebrate = false, ms = 2200): void {
