@@ -248,9 +248,10 @@ def hopper():
     for x in (-inner / 4, inner / 4):
         for s in (-1, 1):
             box(paint(BLUE), (3.2, 1.6, h - 4), (x, s * (W / 2 + 0.3), TOP + h / 2), r=0.7)
-    # Loaded to the brim: a bed of coal level with the rim, heaped with lumps well above it.
-    box("coal", (inner - 7.2, W - 7.2, 2), (0, 0, TOP + h - 2), r=0.4)
-    lumps("coal", (0, 0, TOP + h - 1.5), (inner - 10, W - 10, 8), count=110, lump=4.6, seed=7, subdivisions=0)
+    # Loaded to the brim: a bed of coal level with the rim, heaped with lumps well above it. Nodes of their own
+    # ("coal_bed", "coal_lumps"), so the game can hide the coal to carry something else.
+    moving(box("coal", (inner - 7.2, W - 7.2, 2), (0, 0, TOP + h - 2), r=0.4, name="coal_bed"))
+    moving(lumps("coal", (0, 0, TOP + h - 1.5), (inner - 10, W - 10, 8), count=110, lump=4.6, seed=7, name="coal_lumps", subdivisions=0))
 
 
 def coach(color, h, windows, roof_color, L=88):
@@ -342,6 +343,25 @@ def timber():
             ball(paint(RED), 2.4, (x, s * (W / 2 - 2.5), TOP + 22), 16)
 
 
+def van():
+    """
+    A closed goods van (flour, later toys): the timber wagon's length and running gear, a box body in the slot "body"
+    under a cream arched roof, and a cream sliding door on each side (moving parts "door_0" at -y and "door_1" at +y,
+    which slide along x) under a dark rail.
+    """
+    L = 84
+    running_gear(L, 18)
+    bl, h = L - 12, 28
+    body = paint("slot body")
+    box(body, (bl, W, h), (0, 0, TOP + h / 2), r=3)
+    arch_roof(paint(CREAM), bl + 8, W + 5, 3, 3, (0, 0, TOP + h - 0.5))
+    for i, s in enumerate((-1, 1)):
+        y = s * (W / 2 + 0.9)
+        # The rail the door hangs from, and the door: one cream panel, its own node so it can slide along x.
+        box("metal", (bl - 10, 1.2, 1.6), (0, s * (W / 2 + 0.5), TOP + h - 3), r=0.5, seg=1)
+        moving(box(paint(CREAM), (24, 1.8, h - 7), (0, y, TOP + (h - 7) / 2 + 1.5), r=0.8, seg=2, name=f"door_{i}"))
+
+
 MODELS = [
     ("engine-classic", engine_classic),
     ("engine-tank", engine_tank),
@@ -355,6 +375,7 @@ MODELS = [
     ("caboose-classic", caboose_classic),
     ("caboose-bay-window", caboose_bay_window),
     ("timber-classic", timber),
+    ("van-classic", van),
 ]
 
 

@@ -245,13 +245,20 @@ export function catalogueModel(model: Object3D, k: Kit): Object3D {
   });
 }
 
-/** A car as modelled in Blender (the models must be loaded). `recolor` swaps lacquer colours (#rrggbb, lower case). */
+/** A van's body, when no colour is given for its slot. */
+const SLOT_DEFAULT = "#7a4a2a";
+
+/**
+ * A car as modelled in Blender (the models must be loaded). `recolor` swaps lacquer colours (#rrggbb, lower case);
+ * `slots` colours a car's slots ("lacquer slot body": the van's body).
+ */
 export function blenderCar(
   kind: CarKind,
   look: CarLook,
   mats: Materials,
   lamp: Material,
   recolor: Readonly<Record<string, string>> = {},
+  slots: Readonly<Record<string, string>> = {},
 ): { root: Group; wheels: Object3D[]; lamp?: Mesh } {
   const model = modelOf(trains, `${kind}-${look}`);
   const root = dressed(model, (name) => {
@@ -259,6 +266,7 @@ export function blenderCar(
       const color = name.slice(8);
       return mats.lacquer(recolor[color] ?? color);
     }
+    if (name.startsWith("lacquer slot ")) return mats.lacquer(slots[name.slice(13)] ?? SLOT_DEFAULT);
     if (name === "wood") return mats.naturalWood;
     if (name === "coal") return mats.coal;
     if (name === "lamp") return lamp;

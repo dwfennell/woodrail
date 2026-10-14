@@ -497,6 +497,107 @@ def industry_forest_hut(k):
     return g
 
 
+def industry_farm(k):
+    """
+    The farm yard, where grain is loaded: a round grain silo (slot "silo", 26 across, 60 tall) at the clear end of the
+    yard (x 186, z 50), with a chute angled down toward the track, and a little barn (40 x 30, walls 22 high, slot
+    "roof") at x 170, z 90 with big printed doors facing the track.
+    """
+    g = Node()
+    sx, sz, r = 186, 50, 13
+    silo = k.paint(slot("silo"))
+    g.add(k.cyl(silo, r, 48, sx, PAD, sz, None, 32))
+    g.add(k.lathe(silo, [(0.0, 0), (r, 0)] + [(r * math.cos(a), 8 * math.sin(a)) for a in (0.35, 0.7, 1.05, 1.35)] + [(0.0, 8)], sx, PAD + 48, sz, 32))
+    for y in (PAD + 14, PAD + 32):
+        g.add(k.cyl(k.paint(CREAM), r + 0.8, 2.4, sx, y, sz, None, 32))
+    g.add(k.ball(k.paint(RED), 2.4, sx, PAD + 56.5, sz))
+    # The chute: a square trough leaving the silo low down, sloping toward the track (-z), on a post.
+    chute = Node()
+    chute.add(k.box(k.paint(RED), 6, 4, 24, 1.2, 0, -2, 0))
+    chute.rotation.x = -0.45
+    chute.position.set(sx - 4, PAD + 22, sz - r - 9)
+    g.add(chute)
+    g.add(k.box(k.wood, 3, 14, 3, 0.8, sx - 4, PAD, sz - r - 16))
+    # The barn.
+    bx, bz, w, d, h = 170, 90, 40, 30, 22
+    g.add(k.box(k.paint(RED), w, h, d, 3, bx, PAD, bz))
+    g.add(k.roof(k.paint(slot("roof")), w + 5, d + 5, 11, bx, PAD + h - 0.5, bz, 3))
+    front = bz - d / 2
+    g.add(k.box(k.paint(CREAM), 18, 17, 1.4, 0.8, bx, PAD, front - 0.3))
+    g.add(k.box(k.paint(RED), 14.4, 13.4, 1.4, 0.6, bx, PAD + 1.8, front - 0.7))
+    for a in (0.83, -0.83):
+        brace = Node()
+        brace.add(k.box(k.paint(CREAM), 1.6, 18, 0.8, 0.3, 0, -9, 0))
+        brace.rotation.z = a
+        brace.position.set(bx, PAD + 8.5, front - 1.4)
+        g.add(brace)
+    return g
+
+
+def industry_mill(k):
+    """
+    The mill, where grain becomes flour: a beech windmill tower (34 across at its foot, 62 high) at x 160, z 86 under a
+    cap (slot "cap", to about 74), its door and a window facing the track. The sails are a part of their own
+    ("industry-mill-sails"), as the code spins them; their hub goes at x 160, y 60, z 64.
+    """
+    g = Node()
+    x, z, h = 160, 86, 62
+    g.add(k.cyl(k.wood, 17, h, x, PAD, z, 13, 32))
+    g.add(k.cyl(k.paint(CREAM), 17.8, 2.4, x, PAD, z, 17.4, 32))
+    cap = k.paint(slot("cap"))
+    g.add(k.cyl(cap, 14.6, 3, x, PAD + h - 1, z, 14.6, 32))
+    g.add(k.lathe(cap, [(0.0, 0), (14.6, 0)] + [(14.6 * math.cos(a), 11 * math.sin(a)) for a in (0.3, 0.6, 0.9, 1.2, 1.45)] + [(0.0, 11)], x, PAD + h + 2, z, 32))
+    g.add(k.ball(k.paint(GOLD), 2.2, x, PAD + h + 13.6, z))
+    # The axle the sails turn on, out of the cap toward the track.
+    g.add(k.cylZ(k.wood, 2.6, 12, x, 60, z - 16.5, 16))
+    # A door and a window on the track side, set to the tower's taper.
+    for y, w, hh, color in ((PAD, 11, 16, "#9a4a2c"), (PAD + 30, 8, 9, "#2b3644")):
+        rr = 17 - 4 * (y - PAD + hh / 2) / h
+        panel = Node()
+        panel.add(k.box(k.paint(color), w, hh, 2.4, 1, 0, 0, 0))
+        panel.rotation.x = math.atan(4 / h)
+        panel.position.set(x, y, z - rr + 0.2)
+        g.add(panel)
+    return g
+
+
+def industry_mill_sails(k):
+    """The mill's sails: four sails 70 across on a hub, in the x/y plane facing -z, the hub at the origin (spin on z)."""
+    g = Node()
+    for i in range(4):
+        arm = Node()
+        arm.add(k.box(k.wood, 2.6, 34, 2.2, 0.8, 0, 2, 0))
+        arm.add(k.box(k.paint(slot("sails")), 10, 24, 1.4, 1.2, 4.6, 11, 0.6))
+        for y in (17, 25):
+            arm.add(k.box(k.wood, 10.4, 1.2, 1.6, 0.4, 4.6, y, -0.4))
+        arm.rotation.z = i * math.pi / 2
+        g.add(arm)
+    g.add(k.cylZ(k.paint(RED), 4.6, 4, 0, 0, -1, 20))
+    g.add(k.ball(k.paint(RED), 2.4, 0, 0, -3.2))
+    return g
+
+
+def load_flour_sack(k):
+    """One flour sack lying down, 14 (x) by 9 (z) by 6 high, a soft-cornered block with a printed blue band; centred on
+    its footprint, its base on y = 0."""
+    g = Node()
+    g.add(k.box(k.paint("#f3ead8"), 14, 6, 9, 2.6, 0, 0, 0))
+    g.add(k.box(k.paint("#2f6db5"), 3.2, 6.2, 9.2, 1.4, 0, -0.1, 0, seg=2))
+    return g
+
+
+def load_grain_heap(k):
+    """A low mound of grain that fills a hopper's bin top (59 x 25, 8 high), centred on its footprint, its base on y = 0;
+    scale it in y by how full the hopper is."""
+    g = Node()
+    mound = Node()
+    prof = [(0.0, 0), (1.0, 0), (0.98, 0.18), (0.9, 0.42), (0.74, 0.68), (0.52, 0.86), (0.26, 0.97), (0.0, 1.0)]
+    mound.add(k.lathe(k.paint("#e2b84a"), prof, 0, 0, 0, 24))
+    mound.scale.set(29.5, 8, 12.5)
+    g.add(mound)
+    return g
+
+
 PARTS = [
     ("door", door),
     ("flower-box", flower_box),
@@ -524,6 +625,11 @@ PARTS = [
     ("industry-sawmill-shed", industry_sawmill_shed),
     ("industry-saw-blade", industry_saw_blade),
     ("industry-forest-hut", industry_forest_hut),
+    ("industry-farm", industry_farm),
+    ("industry-mill", industry_mill),
+    ("industry-mill-sails", industry_mill_sails),
+    ("load-flour-sack", load_flour_sack),
+    ("load-grain-heap", load_grain_heap),
 ]
 
 

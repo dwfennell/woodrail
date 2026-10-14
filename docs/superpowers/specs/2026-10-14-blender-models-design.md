@@ -102,7 +102,10 @@ time is still to be measured on a phone.
   (`lacquer slot door`), filled in per copy.
 - **Industries** (Game mode's depots): `industry-workshop`, `industry-sawmill-shed`, `industry-saw-blade` (its own
   part, as the code spins it) and `industry-forest-hut`, authored in the depot's frame (origin at the depot track's
-  socket end, +x along the track, +z the yard side), so the depot view places them as it placed its boxes.
+  socket end, +x along the track, +z the yard side), so the depot view places them as it placed its boxes. Phase A of
+  the game expansion adds `industry-farm`, `industry-mill` and `industry-mill-sails`, and the loads `load-flour-sack`
+  and `load-grain-heap`; trains.glb adds `van-classic` (slot `body`, sliding `door_0`/`door_1`), and the hopper's coal
+  is its own nodes (`coal_bed`, `coal_lumps`) so it can carry something else. Cars take slots through `blenderCar`.
 - **Lean parts:** the parts on every house (door, flower box, chimney top) are built lean (`Kit(lean=True)`: one-step
   roundings, the code's segment counts); a map has hundreds. Windows stay in code: they're already a printed pane
   with glazing bars in a frame.
