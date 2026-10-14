@@ -36,6 +36,15 @@ describe("save format", () => {
     expect(w.sim.getTrain(w.sim.trainIds()[0])!.cars[0].lever).toBe(1);
   });
 
+  it("keeps a train saved lying across another (after a crash), putting it back beside it", () => {
+    const world = worldWithTrain();
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const t = data.trains[0];
+    data.trains.push({ ...t, lead: { ...t.lead, s: t.lead.s - 40 } });
+    const r = deserializeWorld(data);
+    expect(r.ok && r.value.sim.trainCount).toBe(2);
+  });
+
   it("is at version 9 (a level is RISER_HEIGHT, not 64 mm)", () => {
     expect(SAVE_VERSION).toBe(9);
   });
