@@ -31,12 +31,20 @@ const STEPS: readonly { type: PieceTypeId; flipped: boolean }[] = [
   { type: "curve-large", flipped: true },
 ];
 
+/** Looking ahead, a player also thinks of going up or down a level: to climb a hill, or to bridge a river. */
+const AHEAD: readonly { type: PieceTypeId; flipped: boolean }[] = [...STEPS, { type: "ramp", flipped: false }, { type: "ramp", flipped: true }];
+
+/** A continuation that runs into something with no piece to go on with: a player sees it coming and avoids it. */
+const DEAD_END = 600;
+
 /** Fiddling near the end, a player reaches for the small curves and short straights too. */
 const FINISH: readonly { type: PieceTypeId; flipped: boolean }[] = [
   ...STEPS,
   { type: "straight-72", flipped: false },
   { type: "curve-small", flipped: false },
   { type: "curve-small", flipped: true },
+  { type: "ramp", flipped: false },
+  { type: "ramp", flipped: true },
 ];
 
 /** A near miss the game pulls closed (the Editor's near-miss reach): a player leaves such a gap for it. */
@@ -44,6 +52,30 @@ const NEAR = 45;
 const NEAR_TURN = (12 * Math.PI) / 180;
 
 const a = createWorldConnector();
+
+type Step = { type: PieceTypeId; flipped: boolean };
+
+/**
+ * What a player reaches for when a piece won't go: the bridge of the same shape over a river (it must be up a level:
+ * a bridge at ground level has no arches), or a ramp (up, or down) where a hill is in the way or the track would be
+ * left in the air.
+ */
+function alternatives(s: Step, why: string | null): Step[] {
+  if (why === "river") return [s.type.startsWith("curve") ? { type: "bridge-curve", flipped: s.flipped } : { type: "bridge", flipped: false }];
+  if (why === "hill" || why === "unsupported") return [{ type: "ramp", flipped: false }, { type: "ramp", flipped: true }];
+  return [];
+}
+
+/** Put step `s` on free end `ref`, or what a player would use instead where it won't go; the piece actually used. */
+function addStep(layout: Layout, ref: number, s: Step): { id: number; next: number; step: Step } | null {
+  const r = addOn(layout, ref, s.type, s.flipped);
+  if (r) return { ...r, step: s };
+  for (const alt of alternatives(s, lastRefusal)) {
+    const a = addOn(layout, ref, alt.type, alt.flipped);
+    if (a) return { ...a, step: alt };
+  }
+  return null;
+}
 
 /** Where a free end is and which way it points (outward). */
 function endOf(layout: Layout, ref: number): { x: number; z: number; heading: number; y: number; kind: "peg" | "socket" } {
@@ -54,6 +86,8 @@ function endOf(layout: Layout, ref: number): { x: number; z: number; heading: nu
 /** The placement rules in force for this play (none on bare felt), and how often each refused a piece. */
 let rules: Blocked | null = null;
 const refusals = new Map<string, number>();
+/** What refused the last piece `addOn` tried (null: it went). */
+let lastRefusal: string | null = null;
 
 /**
  * Put `type` on the free end `ref` (seated by an end of the other kind), returning its other free end, or null (no
@@ -71,15 +105,17 @@ function addOn(layout: Layout, ref: number, type: PieceTypeId, flipped: boolean)
     if (why) {
       layout.removePiece(id);
       refusals.set(why, (refusals.get(why) ?? 0) + 1);
+      lastRefusal = why;
       return null;
     }
   }
+  lastRefusal = null;
   const other = def.connectors.findIndex((_, k) => k !== via);
   return { id, next: connectorRef(id, other) };
 }
 
 /** How far a free end is from meeting the target: distance to a point a little in front of it, plus how far off it points. */
-function cost(end: { x: number; z: number; heading: number }, target: { x: number; z: number; heading: number }): number {
+function cost(end: { x: number; z: number; heading: number; y: number }, target: { x: number; z: number; heading: number; y: number }): number {
   // Arrive along the target's line: aim at a point in front of it, then at it.
   // Far off, aim two curves' width in front of it (room to turn in); close, straight at it.
   const lead = Math.min(360, Math.hypot(target.x - end.x, target.z - end.z) / 2);
@@ -89,7 +125,9 @@ function cost(end: { x: number; z: number; heading: number }, target: { x: numbe
   const bearing = Math.atan2(az - end.z, ax - end.x);
   const off = Math.abs(normalizeAngle(end.heading - bearing));
   const facing = Math.abs(normalizeAngle(end.heading - (target.heading + Math.PI)));
-  return d + 140 * off + (d < 300 ? 120 * facing : 0);
+  // Off the target's level: a ramp's worth of track (and more) to put right.
+  const level = Math.abs(end.y - target.y) * 4;
+  return d + 140 * off + (d < 300 ? 120 * facing : 0) + level;
 }
 
 /** Can Auto close the gap from free end `ref` now? Its fit (piece, pose, height), or null. */
@@ -113,14 +151,14 @@ function finish(layout: Layout, ref: number, to: number, depth: number): { type:
   if (autoFrom(layout, ref, to)) return [];
   // A near miss the slack can pull closed counts too.
   const facing = Math.abs(normalizeAngle(end.heading - target.heading - Math.PI));
-  if (end.kind !== target.kind && Math.hypot(end.x - target.x, end.z - target.z) < NEAR && facing < NEAR_TURN) return [];
+  if (end.kind !== target.kind && Math.abs(end.y - target.y) < 1 && Math.hypot(end.x - target.x, end.z - target.z) < NEAR && facing < NEAR_TURN) return [];
   if (depth === 0) return null;
   for (const s of FINISH) {
-    const next = addOn(layout, ref, s.type, s.flipped);
+    const next = addStep(layout, ref, s);
     if (!next) continue;
     const rest = finish(layout, next.next, to, depth - 1);
     layout.removePiece(next.id);
-    if (rest) return [s, ...rest];
+    if (rest) return [next.step, ...rest];
   }
   return null;
 }
@@ -190,26 +228,30 @@ function playOn(layout: Layout, editor: Editor, from: number, to: number, maxPie
     // Otherwise lay the piece whose best continuation (up to three pieces) ends nearest to meeting the target.
     let best: { type: PieceTypeId; flipped: boolean } | null = null;
     let bestCost = Infinity;
-    for (const s1 of STEPS) {
-      const one = addOn(layout, cur, s1.type, s1.flipped);
+    for (const s1 of AHEAD) {
+      const one = addStep(layout, cur, s1);
       if (!one) continue;
-      let c = cost(endOf(layout, one.next), target);
-      for (const s2 of STEPS) {
-        const two = addOn(layout, one.next, s2.type, s2.flipped);
+      // A dead end (nothing goes on after it) costs extra, so the way round or over is taken before it's too late.
+      let c = cost(endOf(layout, one.next), target) + DEAD_END * 2;
+      for (const s2 of AHEAD) {
+        const two = addStep(layout, one.next, s2);
         if (!two) continue;
-        c = Math.min(c, cost(endOf(layout, two.next), target) + 1);
-        for (const s3 of STEPS) {
-          const three = addOn(layout, two.next, s3.type, s3.flipped);
+        let c2 = cost(endOf(layout, two.next), target) + 1 + DEAD_END;
+        for (const s3 of AHEAD) {
+          const three = addStep(layout, two.next, s3);
           if (!three) continue;
-          c = Math.min(c, cost(endOf(layout, three.next), target) + 2);
+          c2 = Math.min(c2, cost(endOf(layout, two.next), target) + 1, cost(endOf(layout, three.next), target) + 2);
           layout.removePiece(three.id);
         }
+        c = Math.min(c, c2);
         layout.removePiece(two.id);
       }
+      // Going up or down costs a little: a player keeps to the level unless it helps.
+      if (one.step.type === "ramp") c += 40;
       layout.removePiece(one.id);
       if (c < bestCost) {
         bestCost = c;
-        best = s1;
+        best = one.step;
       }
     }
     if (!best) return { ok: false, pieces, how: "boxed-in", miss: missOf(layout, cur, to), blockedBy: mostRefused() };
