@@ -30,6 +30,10 @@ const SIZE: Record<string, readonly [number, number]> = {
   "bldg-post-office": [70, 45],
   "bldg-cafe": [72, 44],
   "bldg-apartment-block": [72, 52],
+  // Town landmarks (Game mode): a school, a market hall, a library.
+  "bldg-school": [48, 75],
+  "bldg-market-hall": [60, 116],
+  "bldg-library": [59, 104],
 };
 
 /** Houses on one square: each town picks a few of these, so its houses go together. */
