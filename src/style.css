@@ -70,6 +70,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 130px); background: rgba(250, 243, 230, 0.95); backdrop-filter: blur(10px); border-radius: 18px; box-shadow: 0 10px 34px rgba(60, 40, 20, 0.3); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
 .card-title { font-weight: 800; font-size: 15px; color: #6a4a2c; }
 .card-row, .lever-row { display: flex; gap: 8px; }
+.card-hint { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; margin-top: -6px; max-width: 300px; }
+.piece-card .select-more { background: transparent; box-shadow: none; height: 32px; font-size: 14px; color: #8a6036; text-decoration: underline dotted; text-underline-offset: 4px; margin-top: -4px; }
+.hud.picking .toast { top: calc(max(10px, env(safe-area-inset-top)) + 196px); }
+/* Picking several pieces: the card moves up out of the way of the track being picked. */
+.card.piece-card.group { bottom: auto; top: calc(max(10px, env(safe-area-inset-top)) + 64px); gap: 8px; padding: 10px 14px 12px; }
+.piece-card.group .card-row { flex-wrap: wrap; justify-content: center; }
+.piece-card.group .card-title::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: #ffe07a; box-shadow: 0 0 0 2px #e0a93a; margin-right: 8px; vertical-align: 1px; }
 .depot-stock { font-size: 14px; font-weight: 700; color: #7a5532; font-variant-numeric: tabular-nums; text-align: center; }
 .depot-card .card-row { flex-wrap: wrap; justify-content: center; }
 .land-text { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 320px; }

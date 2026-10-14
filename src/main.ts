@@ -1,12 +1,12 @@
 import { Group, Mesh, Vector3 } from "three";
 import { ToyAudio } from "./audio/audio";
-import { Editor } from "./editor/editor";
+import { Editor, pieceCentre } from "./editor/editor";
 import { frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, landForSale, plotsForSale } from "./game/world";
 import { CELL, connectedPairs, fixedHome, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, type Landscape, type PlotCoord } from "./landscape";
-import { loadLastMode, saveLastMode, type GameMode } from "./game/modes";
+import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasSave, loadFromStorage, loadGoals, saveGoals, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
@@ -22,6 +22,9 @@ import { LAND_MESSAGES, plotSlotOf, setHeights } from "./landscape/edit";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TitleScreen } from "./ui/title";
 import "./style.css";
+
+/** How far (mm) the opening view stands from where track was last built: the middle of the zoom range. */
+const OPENING_DISTANCE = 1000;
 
 /** How far a station or depot may turn when it gives (radians). */
 const GIVE_TURN = (4 * Math.PI) / 180;
@@ -92,6 +95,10 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   const makeEditor = () => {
     const ed = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece, stationGive);
     ed.onNudge = stationsNudged;
+    ed.onTrackEdit = (ids) => {
+      const id = ids.find((i) => game.layout.getPiece(i));
+      if (id !== undefined) saveLastBuilt(mode, pieceCentre(game.layout, id));
+    };
     ed.onLandChange = (slots) => {
       game.editLand(slots);
       scheduleSave();
@@ -156,11 +163,16 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       rotate: () => interaction.rotateSelected(),
       flip: () => interaction.flipSelected(),
       deletePiece: () => interaction.deleteSelected(),
+      selectMore: () => interaction.selectMore(),
+      selectJoined: () => interaction.selectJoined(),
+      doneSelecting: () => interaction.doneSelecting(),
       newLayout: () => {
+        saveLastBuilt(mode, null);
         setWorld(createWorld(Math.floor(Math.random() * 1_000_000)));
         game.frameLayout();
       },
       resetStarter: () => {
+        saveLastBuilt(mode, null);
         setWorld(buildStarterWorld());
         game.frameLayout();
         openingView();
@@ -533,6 +545,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   /** Game mode, in play: start again on the starter map with no goals done. */
   function newGame(): void {
     resetGoals();
+    saveLastBuilt("game", null);
     setWorld(buildStarterWorld());
     save();
     openingView();
@@ -541,6 +554,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   /** Leave the title for a mode: carry on with its railway, or start it afresh. */
   function play(next: GameMode, fresh: boolean): void {
     if (fresh && next === "game") resetGoals();
+    if (fresh) saveLastBuilt(next, null);
     if (fresh) setWorld(next === "game" ? buildStarterWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
     else if (next !== mode) {
       const saved = loadFromStorage(next);
@@ -611,16 +625,27 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     }
   });
   /**
-   * The opening view: straight onto the first train or, on a bare map, the first two towns, with a hint to join them.
+   * The opening view: a medium view of where track was last put down (else of the track built so far) or, on a bare
+   * map, the first two towns, with a hint to join them.
    */
   function openingView(): void {
-    const id = game.sim.trainIds()[0];
-    const t = id !== undefined ? game.sim.getTrain(id) : undefined;
-    if (t) {
-      const a = t.world[0];
-      const b = t.world[t.world.length - 1];
-      const radius = Math.hypot(a.x - b.x, a.z - b.z) / 2 + 90;
-      game.lookAt(new Vector3((a.x + b.x) / 2, 0, (a.z + b.z) / 2), Math.max(700, frameDistance(radius, game.camera.fov, game.camera.aspect)), 1.0);
+    let at = loadLastBuilt(mode);
+    if (!at) {
+      // No note of it (an older save): the middle of the track built so far.
+      let n = 0;
+      let x = 0;
+      let z = 0;
+      for (const id of game.layout.pieceIds()) {
+        if (isFixedPiece(id) || game.layout.getPiece(id)!.type === "riser") continue;
+        const c = pieceCentre(game.layout, id);
+        x += c.x;
+        z += c.z;
+        n++;
+      }
+      if (n > 0) at = { x: x / n, z: z / n };
+    }
+    if (at) {
+      game.lookAt(new Vector3(at.x, 0, at.z), OPENING_DISTANCE, 1.0);
       return;
     }
     const [a, b] = game.landscape.towns;

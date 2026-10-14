@@ -19,6 +19,12 @@ export interface HudHandlers {
   rotate(): void;
   flip(): void;
   deletePiece(): void;
+  /** Piece card: start picking several pieces, to move or turn them together. */
+  selectMore(): void;
+  /** Group card: add all track joined to the picked pieces. */
+  selectJoined(): void;
+  /** Group card: finished picking (the selection is let go). */
+  doneSelecting(): void;
   newLayout(): void;
   /** Start or stop choosing land to add. */
   toggleExpand(): void;
@@ -93,6 +99,13 @@ export class Hud {
   private readonly carCard = el("div", "card car-card");
   private readonly pieceCard = el("div", "card piece-card");
   private readonly pieceTitle = el("div", "card-title", "Track piece");
+  private readonly groupHint = el("div", "card-hint");
+  private readonly groupRow = el("div", "card-row");
+  private readonly pieceRow = el("div", "card-row");
+  private readonly doneBtn: HTMLButtonElement;
+  private readonly deleteBtn: HTMLButtonElement;
+  private readonly selectMoreBtn: HTMLButtonElement;
+  private readonly joinedBtn: HTMLButtonElement;
   private rotateBtn!: HTMLButtonElement;
   private readonly depotCard = el("div", "card depot-card");
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
@@ -226,10 +239,16 @@ export class Hud {
     // Piece card
     this.pieceCard.hidden = true;
     this.flipBtn = button("Flip", "Mirror this piece (F)", h.flip, "chip text");
-    const pieceRow = el("div", "card-row");
+    const pieceRow = this.pieceRow;
     this.rotateBtn = button("Rotate", "Rotate 45° (R)", h.rotate, "chip text");
-    pieceRow.append(this.rotateBtn, this.flipBtn, button("Delete", "Remove this piece (Del)", h.deletePiece, "chip text danger"));
-    this.pieceCard.append(this.pieceTitle, pieceRow, button("✕", "Close", h.closeCards, "close"));
+    this.deleteBtn = button("Delete", "Remove this piece (Del)", h.deletePiece, "chip text danger");
+    pieceRow.append(this.rotateBtn, this.flipBtn, this.deleteBtn);
+    // Picking several pieces: from a single piece's card, or Shift+click.
+    this.selectMoreBtn = button("Select more", "Pick more track to move together (or Shift+click)", h.selectMore, "chip text select-more");
+    this.joinedBtn = button("Joined track", "Add all the track joined to these pieces", h.selectJoined, "chip text");
+    this.doneBtn = button("Done", "Finish picking", h.doneSelecting, "chip text primary");
+    this.groupRow.append(this.joinedBtn, this.doneBtn);
+    this.pieceCard.append(this.pieceTitle, this.groupHint, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.pieceCard);
 
     // Depot card: what's on its piles, and how it treats trains.
@@ -552,7 +571,7 @@ export class Hud {
   }
 
   /** The card for a selected track piece, or (with a title, and no Flip) a prop, or (no Rotate either) scenery. */
-  showPieceCard(flippable: boolean, title = "Track piece", canFlip = true, canRotate = true): void {
+  showPieceCard(flippable: boolean, title = "Track piece", canFlip = true, canRotate = true, canGroup = false): void {
     this.hideCards();
     this.pieceCard.hidden = false;
     this.root.classList.add("card-open");
@@ -560,6 +579,43 @@ export class Hud {
     this.flipBtn.hidden = !canFlip;
     this.rotateBtn.hidden = !canRotate;
     this.flipBtn.disabled = !flippable;
+    if (this.rotateBtn.parentElement !== this.pieceRow) this.pieceRow.append(this.rotateBtn, this.flipBtn, this.deleteBtn);
+    this.pieceRow.hidden = false;
+    this.rotateBtn.textContent = "Rotate";
+    this.rotateBtn.disabled = false;
+    this.deleteBtn.disabled = false;
+    this.deleteBtn.title = "Remove this piece (Del)";
+    this.selectMoreBtn.hidden = !canGroup;
+    this.groupHint.hidden = true;
+    this.groupRow.hidden = true;
+    this.pieceCard.classList.remove("group");
+  }
+
+  /** The card while picking several pieces: how many, what a tap and a drag do, and what can be done to them all. */
+  showGroupCard(count: number, canAddJoined: boolean): void {
+    if (this.pieceCard.hidden || !this.pieceCard.classList.contains("group")) {
+      this.hideCards();
+      this.pieceCard.hidden = false;
+      this.root.classList.add("card-open");
+      this.pieceCard.classList.add("group");
+      this.root.classList.add("picking");
+    }
+    this.pieceTitle.textContent = count === 1 ? "1 piece picked" : `${count} pieces picked`;
+    this.groupHint.textContent = count === 0 ? "Tap track to pick it" : "Tap track to pick more · drag to move together";
+    // One row: what to do to them all, then Done.
+    if (this.rotateBtn.parentElement !== this.groupRow) this.groupRow.insertBefore(this.rotateBtn, this.doneBtn);
+    this.groupRow.insertBefore(this.deleteBtn, this.doneBtn);
+    this.pieceRow.hidden = true;
+    this.groupHint.hidden = false;
+    this.groupRow.hidden = false;
+    this.flipBtn.hidden = true;
+    this.rotateBtn.hidden = false;
+    this.rotateBtn.textContent = "Turn";
+    this.rotateBtn.disabled = count === 0;
+    this.deleteBtn.disabled = count === 0;
+    this.deleteBtn.title = "Remove these pieces (Del)";
+    this.joinedBtn.disabled = !canAddJoined;
+    this.selectMoreBtn.hidden = true;
   }
 
   /**
@@ -731,6 +787,8 @@ export class Hud {
     this.engineCard.hidden = true;
     this.carCard.hidden = true;
     this.pieceCard.hidden = true;
+    this.pieceCard.classList.remove("group");
+    this.root.classList.remove("picking");
   }
 
   toast(message: string, celebrate = false, ms = 2200): void {

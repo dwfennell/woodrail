@@ -27,6 +27,12 @@ import type { PieceJob, PieceResult } from "./piece-worker";
 import { loadCached, saveCached } from "./piece-cache";
 
 const geometryCache = new Map<string, BufferGeometry>();
+/** Selection outline colours: selected, about to join track, can't go there. */
+const OUTLINE_TONES = { select: "#ffe489", snap: "#86ec7a", blocked: "#ff7461" } as const;
+export type OutlineTone = keyof typeof OUTLINE_TONES;
+/** Picked pieces' tint (multiplies the wood): golden, green when they'll join track, red when they can't go there. */
+const PICK_TINTS: Record<OutlineTone, string> = { select: "#ffd36b", snap: "#9be38a", blocked: "#ff8f7d" };
+
 const bufferBlockCache = new Map<string, BufferGeometry | null>();
 
 /** A piece's geometry; `levels` is how many riser heights a bridge's arches reach below its deck. */
@@ -137,7 +143,7 @@ export class TrackView {
     stripe: new BoxGeometry(4.8, 3.3, 3).translate(0, 0, 19),
   };
   private readonly tints = new Map<number, Color>();
-  private highlighted = -1;
+  private highlighted: readonly number[] = [];
   /** Pieces drawn elsewhere for now (stand-in meshes animating in their place), with how many stand-ins each. */
   private readonly hidden = new Map<number, number>();
   private readonly leverGeometry = switchLeverGeometry();
@@ -148,6 +154,27 @@ export class TrackView {
     /** How many riser heights a placed bridge's arches reach down (from the ground under it). */
     private readonly bridgeLevels: (piece: PlacedPiece) => number = () => 0,
   ) {}
+
+  /** A piece's colour: its own slight tint, or the selection's while it's picked. */
+  private colourOf(id: number): Color {
+    return this.tinted && this.highlighted.includes(id) ? this.toneColour : this.tintFor(id);
+  }
+
+  private readonly toneColour = new Color(PICK_TINTS.select);
+  private tone: OutlineTone = "select";
+  private tinted = false;
+
+  /** Recolour these pieces' instances (picked or not any more). */
+  private recolour(ids: Iterable<number>): void {
+    for (const id of ids) {
+      for (const entry of this.meshes.values()) {
+        const i = entry.ids.indexOf(id);
+        if (i === -1) continue;
+        entry.mesh.setColorAt(i, this.colourOf(id));
+        if (entry.mesh.instanceColor) entry.mesh.instanceColor.needsUpdate = true;
+      }
+    }
+  }
 
   private tintFor(id: number): Color {
     let c = this.tints.get(id);
@@ -199,7 +226,7 @@ export class TrackView {
       ids.forEach((id, i) => {
         const p = this.layout.getPiece(id)!;
         mesh.setMatrixAt(i, pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading, m));
-        mesh.setColorAt(i, this.tintFor(id));
+        mesh.setColorAt(i, this.colourOf(id));
       });
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -250,43 +277,48 @@ export class TrackView {
     this.syncOutline();
   }
 
-  private outline: Mesh | null = null;
-  private readonly outlineMaterial = new MeshBasicMaterial({ color: new Color("#fff1c2"), side: BackSide, transparent: true, opacity: 0.85, depthWrite: false });
+  private readonly outlines: Mesh[] = [];
+  private readonly outlineMaterial = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.select), side: BackSide, transparent: true, opacity: 0.85, depthWrite: false });
 
   /**
-   * The selected piece gets a soft light outline: its own shape drawn back-faces-only, a little larger, so only a
+   * Selected pieces get a soft light outline: each one's own shape drawn back-faces-only, a little larger, so only a
    * rim shows around the edges.
    */
   private syncOutline(): void {
-    const p = this.highlighted === -1 || this.hidden.has(this.highlighted) ? undefined : this.layout.getPiece(this.highlighted);
-    if (!p || this.layout.isLifted(this.highlighted)) {
-      if (this.outline) this.outline.visible = false;
-      return;
+    let n = 0;
+    for (const id of this.highlighted) {
+      const p = this.hidden.has(id) ? undefined : this.layout.getPiece(id);
+      if (!p || this.layout.isLifted(id)) continue;
+      const geometry = pieceGeometry(p.type, p.flipped, this.bridgeLevels(p));
+      let outline = this.outlines[n];
+      if (!outline) {
+        outline = new Mesh(geometry, this.outlineMaterial);
+        outline.matrixAutoUpdate = false;
+        outline.renderOrder = 2;
+        this.group.add(outline);
+        this.outlines.push(outline);
+      }
+      n++;
+      outline.geometry = geometry;
+      outline.visible = true;
+      geometry.computeBoundingBox();
+      const box = geometry.boundingBox ?? new Box3();
+      const size = box.getSize(new Vector3());
+      const centre = box.getCenter(new Vector3());
+      const grow = 2.4;
+      // Scale about the piece's own centre so the shell stands evenly proud of every side.
+      const scale = new Matrix4().makeTranslation(centre.x, centre.y, centre.z)
+        .multiply(new Matrix4().makeScale((size.x + grow * 2) / size.x, (size.y + grow) / size.y, (size.z + grow * 2) / size.z))
+        .multiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z));
+      outline.matrix.copy(pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading)).multiply(scale);
     }
-    const geometry = pieceGeometry(p.type, p.flipped, this.bridgeLevels(p));
-    if (!this.outline) {
-      this.outline = new Mesh(geometry, this.outlineMaterial);
-      this.outline.matrixAutoUpdate = false;
-      this.outline.renderOrder = 2;
-      this.group.add(this.outline);
-    }
-    this.outline.geometry = geometry;
-    this.outline.visible = true;
-    geometry.computeBoundingBox();
-    const box = geometry.boundingBox ?? new Box3();
-    const size = box.getSize(new Vector3());
-    const centre = box.getCenter(new Vector3());
-    const grow = 2.4;
-    // Scale about the piece's own centre so the shell stands evenly proud of every side.
-    const scale = new Matrix4().makeTranslation(centre.x, centre.y, centre.z)
-      .multiply(new Matrix4().makeScale((size.x + grow * 2) / size.x, (size.y + grow) / size.y, (size.z + grow * 2) / size.z))
-      .multiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z));
-    this.outline.matrix.copy(pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading)).multiply(scale);
+    // Spare outlines are kept for the next selection, hidden.
+    for (let i = n; i < this.outlines.length; i++) this.outlines[i].visible = false;
   }
 
   /** Gentle breathing of the selection outline (call per frame with elapsed seconds). */
   pulse(time: number): void {
-    if (this.outline?.visible) this.outlineMaterial.opacity = 0.62 + 0.28 * Math.sin(time * 3.2);
+    if (this.outlines[0]?.visible) this.outlineMaterial.opacity = 0.62 + 0.28 * Math.sin(time * 3.2);
   }
 
   private syncLevers(): void {
@@ -400,9 +432,23 @@ export class TrackView {
   }
 
   setHighlight(pieceId: number): void {
-    if (this.highlighted === pieceId) return;
-    this.highlighted = pieceId;
-    this.syncOutline();
+    this.setHighlights(pieceId === -1 ? [] : [pieceId], "select", false);
+  }
+
+  /** Outline these pieces (`tint`: and tint them: picked several), in a tone: selected, about to join track (`snap`), or can't go (`blocked`). */
+  setHighlights(ids: Iterable<number>, tone: OutlineTone = "select", tint = true): void {
+    const list = [...ids];
+    const same = list.length === this.highlighted.length && list.every((id, i) => id === this.highlighted[i]);
+    if (same && tone === this.tone && tint === this.tinted) return;
+    this.tinted = tint;
+    this.tone = tone;
+    this.outlineMaterial.color.set(OUTLINE_TONES[tone]);
+    this.toneColour.set(PICK_TINTS[tone]);
+    // Several picked pieces are tinted too (an outline alone is hard to see from above).
+    const was = this.highlighted;
+    this.highlighted = list;
+    this.recolour(new Set([...was, ...list]));
+    if (!same) this.syncOutline();
   }
 
   /** Map a raycast hit to a piece id, or -1. */

@@ -4,11 +4,11 @@ import { buildCarModel, carVariant, disposeObject } from "../render/train-models
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
 import { setRim } from "../render/materials";
-import { ghostMesh, pieceGeometry } from "../render/track-view";
+import { ghostMesh, pieceGeometry, type OutlineTone } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, bridgeLevels, CELL, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, findLowCrossing, findOverlap, findSnap, flipSwapsEnds, relaxJoints, runOf, findSnapAtPoint, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, findLowCrossing, findOverlap, findSnap, flipSwapsEnds, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
@@ -48,8 +48,9 @@ function trainSpan(cars: readonly { kind: CarKind }[], index: number): number {
 const GRAB_MIN_PX = 54;
 const GRAB_PIECE_MM = 144;
 const DRAG_THRESHOLD = 6;
-/** How far (mm) a placed piece can be pulled with its run of track before it pops off on its own: half a square. */
-const PULL_BREAK = 36;
+/** How far (mm) a picked group's free end reaches for a free end of other track to click onto, and how far off facing. */
+const GROUP_SNAP_REACH = 30;
+const GROUP_SNAP_ANGLE = (8 * Math.PI) / 180;
 /** How high a held piece floats above where it would land (mm). */
 const HOLD_LIFT = 12;
 /** An OrbitControls touch mapping that does nothing (it falls through to "no gesture"). */
@@ -74,19 +75,28 @@ type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; 
 
 type Mode =
   | { kind: "idle" }
-  | { kind: "press"; press: Press; pointerId: number; x: number; y: number; ground: Vector3 }
+  /** `add`: Shift was held (a tap picks the piece, along with any already picked). */
+  | { kind: "press"; press: Press; pointerId: number; x: number; y: number; ground: Vector3; add: boolean }
   | {
-      /** A placed piece pulled a little: its run of track comes along (see `runOf`), until pulled far enough to pop off. */
-      kind: "pull-run";
+      /** The picked pieces dragged together, rigidly (with the risers under them). */
+      kind: "drag-group";
       pointerId: number;
-      pieceId: number;
-      /** Where on the ground it was taken hold of. */
+      /** Where it was taken hold of, at the height of the piece pressed. */
       grab: Vector3;
-      /** The piece and the free tails that follow it rigidly. */
-      movers: Set<number>;
-      /** Where the movers and the track that bends were before the pull, and where they are now. */
+      ids: number[];
+      members: Set<number>;
+      /** Where they were, and the joints to other track parted for the drag (seated again if it's put back). */
       before: Map<number, Pose>;
-      after: Map<number, Pose>;
+      parted: number[];
+      /** The group's free ends, where they were. */
+      ends: WorldConnector[];
+      /** How far it has moved (snapped). */
+      dx: number;
+      dz: number;
+      snapped: boolean;
+      blocked: BlockReason | null;
+      /** The last move drawn (skip a pointer move that lands on the same spot). */
+      key: string;
     }
   | {
       kind: "drag-piece";
@@ -195,6 +205,9 @@ export class Interaction {
   onFloorTap: ((ground: Vector3, x: number, y: number) => boolean) | null = null;
   private mode: Mode = { kind: "idle" };
   private selectedPiece = -1;
+  /** Picking several pieces (see `selectMore`): which are picked. */
+  private picking = false;
+  private readonly picked = new Set<number>();
   private selectedProp = -1;
   /** Round the selected prop, or under the held one (green where it can go, red where it can't). */
   private readonly propOutline = new FootprintOutline();
@@ -271,7 +284,7 @@ export class Interaction {
     const m = this.mode;
     // Held things cast shadows.
     if (m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-cargo" || m.kind === "drag-prop") this.game.moveShadows();
-    if ((m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-prop") && this.game.director.edgePanning) this.updateDrag(this.lastX, this.lastY);
+    if ((m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-prop" || m.kind === "drag-group") && this.game.director.edgePanning) this.updateDrag(this.lastX, this.lastY);
     if (m.kind === "drag-piece" && dt > 0) {
       const s = m.shown;
       const px = s.x;
@@ -416,18 +429,22 @@ export class Interaction {
     }
     let hit = this.pick(e.clientX, e.clientY);
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
-    if (hit?.kind === "piece" && !this.withinReach(hit.pieceId)) hit = null;
+    // (While picking several, any track in view can be tapped.)
+    if (hit?.kind === "piece" && !this.picking && !this.withinReach(hit.pieceId)) hit = null;
     if (hit?.kind === "prop" && (!this.propsEditable || !this.propWithinReach(hit.propId))) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     if (!hit) {
-      // Empty floor: the camera pans; a tap here deselects, and a double tap focuses on that spot.
-      this.hud.hideCards();
-      this.clearSelection();
+      // Empty floor: the camera pans; a tap here deselects (but not the pieces being picked: Done lets them go), and a
+      // double tap focuses on that spot.
+      if (!this.picking) {
+        this.hud.hideCards();
+        this.clearSelection();
+      }
       this.floorDown = this.touches.size <= 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
       return;
     }
     this.game.controls.enabled = false;
-    this.mode = { kind: "press", press: hit, pointerId: e.pointerId, x: e.clientX, y: e.clientY, ground };
+    this.mode = { kind: "press", press: hit, pointerId: e.pointerId, x: e.clientX, y: e.clientY, ground, add: e.shiftKey };
   }
 
   private onMove(e: PointerEvent): void {
@@ -449,7 +466,15 @@ export class Interaction {
         this.game.controls.enabled = true;
         return;
       }
-      if (m.press.kind === "piece") this.beginPull(m.press.pieceId, m.pointerId, m.ground);
+      if (m.press.kind === "piece" && this.picking) {
+        // Picking: a drag on a picked piece moves them all; anywhere else it pans (so a pan never breaks the group).
+        if (this.picked.has(m.press.pieceId)) this.beginGroupMove(m.press.pieceId, m.pointerId, m.x, m.y);
+        else {
+          this.mode = { kind: "idle" };
+          this.game.controls.enabled = true;
+          return;
+        }
+      } else if (m.press.kind === "piece") this.beginPieceMove(m.press.pieceId, m.pointerId, m.ground);
       else if (m.press.kind === "cargo") this.beginCargoDrag(m.press.slot, m.press.cargo, m.pointerId);
       else if (m.press.kind === "prop") this.beginPropMove(m.press.propId, m.pointerId, m.ground);
       else if (m.press.kind === "car") {
@@ -481,11 +506,11 @@ export class Interaction {
     if (m.kind === "press") {
       this.mode = { kind: "idle" };
       if (m.press.kind !== "lever" && this.noteTap(e)) this.focusOn(m.press);
-      else this.tap(m.press);
+      else this.tap(m.press, m.add);
       return;
     }
     if (m.kind === "drag-piece") this.dropPiece(m);
-    else if (m.kind === "pull-run") this.dropPull(m);
+    else if (m.kind === "drag-group") this.dropGroup(m);
     else if (m.kind === "drag-prop") this.dropProp(m);
     else if (m.kind === "drag-scenery") this.dropScenery(m);
     else if (m.kind === "drag-cargo") this.dropCargo(m, e.clientX, e.clientY);
@@ -542,18 +567,15 @@ export class Interaction {
       this.game.propsChanged(-1);
     } else if (m.kind === "drag-scenery") {
       this.outlineScenery(m.scenery, 0, 0);
-    } else if (m.kind === "pull-run") {
-      this.game.layout.nudgePieces(m.before);
-      this.game.trackView.moveInstances(m.before.keys());
-      this.game.moveShadows();
-      this.changed();
+    } else if (m.kind === "drag-group") {
+      this.putGroupBack(m);
     }
     this.mode = { kind: "idle" };
   }
 
   // ---- taps -------------------------------------------------------------------------------------------------
 
-  private tap(p: Press): void {
+  private tap(p: Press, add = false): void {
     const g = this.game;
     if (p.kind === "lever") {
       g.sim.toggleSwitch(p.pieceId);
@@ -565,6 +587,7 @@ export class Interaction {
       const depot = g.economy.depotAtPiece(p.pieceId);
       if (depot) this.openDepot(depot.id);
       else if (this.fixedLabel(p.pieceId)) this.hud.toast(this.fixedLabel(p.pieceId)!);
+      else if (this.picking || add) this.togglePick(p.pieceId);
       else this.selectPiece(p.pieceId);
       return;
     }
@@ -602,11 +625,16 @@ export class Interaction {
     this.selectedPiece = id;
     this.game.trackView.setHighlight(id);
     const p = this.game.layout.getPiece(id)!;
-    this.hud.showPieceCard(getPieceDef(p.type, false).flippable);
+    this.hud.showPieceCard(getPieceDef(p.type, false).flippable, "Track piece", true, true, true);
   }
 
   clearSelection(): void {
-    if (this.selectedPiece !== -1) this.game.trackView.setHighlight(-1);
+    if (this.selectedPiece !== -1 || this.picking) {
+      this.game.trackView.setHighlight(-1);
+      this.game.invalidate();
+    }
+    this.picking = false;
+    this.picked.clear();
     if (this.selectedProp !== -1) this.propOutline.hide();
     if (this.selectedScenery) {
       this.sceneryOutline.hide();
@@ -773,6 +801,10 @@ export class Interaction {
       this.turnProp(this.selectedProp);
       return;
     }
+    if (this.picking) {
+      this.turnPicked();
+      return;
+    }
     const id = this.selectedPiece;
     const p = id === -1 ? undefined : this.game.layout.getPiece(id);
     if (!p) return;
@@ -913,6 +945,10 @@ export class Interaction {
       this.removeProp(id);
       return;
     }
+    if (this.picking) {
+      this.deletePicked();
+      return;
+    }
     if (this.selectedPiece === -1) return;
     const id = this.selectedPiece;
     this.clearSelection();
@@ -931,70 +967,299 @@ export class Interaction {
 
   // ---- dragging pieces --------------------------------------------------------------------------------------
 
-  /**
-   * A placed piece taken hold of: pulled a little, its run of track comes along (free tails follow, track held at an
-   * end bends); pulled further than `PULL_BREAK`, it pops off and is moved on its own. A piece joined to nothing is
-   * simply picked up.
-   */
-  private beginPull(pieceId: number, pointerId: number, ground: Vector3): void {
-    const g = this.game;
-    const stays = (id: number) => this.fixedLabel(id) !== null || g.sim.pieceOccupied(id);
-    const { followers, benders } = runOf(g.layout, pieceId, stays);
-    const p = g.layout.getPiece(pieceId);
-    const joined = p && getPieceDef(p.type, p.flipped).connectors.some((_, k) => g.layout.joinedConnector(connectorRef(pieceId, k)) !== -1);
-    if (!p || !joined || g.sim.pieceOccupied(pieceId)) {
-      this.beginPieceMove(pieceId, pointerId, ground);
-      return;
-    }
+  // ---- picking several pieces --------------------------------------------------------------------------------
+
+  /** Piece card "Select more": the selected piece is the first picked, and taps on track pick more. */
+  selectMore(): void {
+    const first = this.selectedPiece;
     this.clearSelection();
-    this.hud.hideCards();
-    const movers = new Set([pieceId, ...followers]);
-    const before = new Map<number, Pose>();
-    for (const id of [...movers, ...benders]) before.set(id, { ...g.layout.getPiece(id)!.pose });
-    this.mode = { kind: "pull-run", pointerId, pieceId, grab: ground.clone(), movers, before, after: new Map(before) };
+    this.picking = true;
+    if (first !== -1) this.picked.add(first);
+    this.showPicked();
   }
 
-  private updatePull(m: Extract<Mode, { kind: "pull-run" }>, x: number, y: number): void {
+  /** Group card "Done": let the picked pieces go. */
+  doneSelecting(): void {
+    this.clearSelection();
+    this.hud.hideCards();
+  }
+
+  /** Can this piece be picked to move with others? Not stations and depots, nor track a train stands on. */
+  private pickable(id: number): boolean {
+    return this.game.layout.getPiece(id) !== undefined && this.fixedLabel(id) === null && !this.game.sim.pieceOccupied(id);
+  }
+
+  /** Tap while picking (or Shift+click): pick a piece, or put it back. */
+  private togglePick(id: number): void {
+    if (!this.picking) {
+      const first = this.selectedPiece;
+      this.clearSelection();
+      this.picking = true;
+      if (first !== -1) this.picked.add(first);
+    }
+    if (this.picked.has(id)) this.picked.delete(id);
+    else if (this.game.sim.pieceOccupied(id)) this.hud.toast("A train is on that track");
+    else if (this.pickable(id)) this.picked.add(id);
+    this.showPicked();
+  }
+
+  /** Group card "Joined track": pick all the track joined to the picked pieces (up to stations, depots and trains). */
+  selectJoined(): void {
+    for (const id of this.joinedTrack()) this.picked.add(id);
+    this.showPicked();
+  }
+
+  /** The pickable track joined (through any number of joints) to the picked pieces, not yet picked. */
+  private joinedTrack(limit = Infinity): number[] {
+    const layout = this.game.layout;
+    const seen = new Set(this.picked);
+    const queue = [...this.picked];
+    const found: number[] = [];
+    while (queue.length > 0 && found.length < limit) {
+      const id = queue.pop()!;
+      const p = layout.getPiece(id);
+      if (!p) continue;
+      const count = getPieceDef(p.type, p.flipped).connectors.length;
+      for (let i = 0; i < count; i++) {
+        const other = layout.joinedConnector(connectorRef(id, i));
+        if (other === -1) continue;
+        const next = pieceOfRef(other);
+        if (seen.has(next)) continue;
+        seen.add(next);
+        if (!this.pickable(next)) continue;
+        found.push(next);
+        queue.push(next);
+      }
+    }
+    return found;
+  }
+
+  private showPicked(tone: OutlineTone = "select"): void {
+    this.game.trackView.setHighlights(this.picked, tone);
+    this.hud.showGroupCard(this.picked.size, this.joinedTrack(1).length > 0);
+    this.game.invalidate();
+  }
+
+  /**
+   * The picked pieces and the risers that hold only them up (a raised run takes its stands along; a riser under a
+   * joint to track left behind stays with that track).
+   */
+  private pickedWithRisers(): number[] {
+    const layout = this.game.layout;
+    const ids = [...this.picked].filter((id) => layout.getPiece(id));
+    const members = new Set(ids);
+    const ends: { x: number; z: number; y: number; mine: boolean }[] = [];
+    const w: WorldConnector = { x: 0, z: 0, heading: 0, y: 0, kind: "socket" };
+    for (const id of layout.pieceIds()) {
+      const p = layout.getPiece(id)!;
+      if (p.type === "riser") continue;
+      const count = getPieceDef(p.type, p.flipped).connectors.length;
+      for (let i = 0; i < count; i++) {
+        layout.worldConnector(connectorRef(id, i), w);
+        ends.push({ x: w.x, z: w.z, y: w.y, mine: members.has(id) });
+      }
+    }
+    for (const id of layout.pieceIds()) {
+      const r = layout.getPiece(id)!;
+      if (r.type !== "riser" || members.has(id)) continue;
+      const over = ends.filter((e) => Math.hypot(e.x - r.pose.x, e.z - r.pose.z) < 6 && e.y > r.y);
+      if (over.length > 0 && over.every((e) => e.mine)) ids.push(id);
+    }
+    return ids;
+  }
+
+  /** Why the group can't stand where it now is in the layout (each piece, and what holds it up), or null. */
+  private groupBlocked(ids: readonly number[], members: ReadonlySet<number>): BlockReason | null {
     const g = this.game;
-    const at = this.groundAt(x, y);
-    if (!at) return;
-    const dx = at.x - m.grab.x;
-    const dz = at.z - m.grab.z;
-    if (Math.hypot(dx, dz) > PULL_BREAK) {
-      // Pulled hard: everything goes back, and the piece comes away on its own.
-      g.layout.nudgePieces(m.before);
-      g.trackView.moveInstances(m.before.keys());
-      this.mode = { kind: "idle" };
-      this.beginPieceMove(m.pieceId, m.pointerId, m.grab);
-      this.updateDrag(x, y);
+    const hills = hillsOf(g.landscape.grid);
+    for (const id of ids) {
+      const p = g.layout.getPiece(id)!;
+      const why = this.blockedBy(p.type, p.flipped, p.pose, p.y, id);
+      if (why) return why;
+      if (p.type === "riser") {
+        // A stand rests on the ground, or on another stand that came along.
+        const onGround = Math.abs(hills.groundAt(p.pose.x, p.pose.z) - p.y) <= 1;
+        const onStand = ids.some((o) => {
+          const q = g.layout.getPiece(o)!;
+          return members.has(o) && q.type === "riser" && Math.hypot(q.pose.x - p.pose.x, q.pose.z - p.pose.z) < 2 && Math.abs(q.y + RISER_HEIGHT - p.y) <= 1;
+        });
+        if (!onGround && !onStand) return "unsupported";
+        continue;
+      }
+      const s = checkSupport(g.landscape, g.layout, p.type, p.flipped, p.pose, p.y, id);
+      if (s.kind === "unsupported" || s.risers.length > 0) return "unsupported";
+    }
+    return null;
+  }
+
+  /** The group's poses turned an eighth about its middle. */
+  private turnedPoses(ids: readonly number[]): Map<number, Pose> {
+    const layout = this.game.layout;
+    let cx = 0;
+    let cz = 0;
+    for (const id of this.picked) {
+      const c = pieceCentre(layout, id);
+      cx += c.x / this.picked.size;
+      cz += c.z / this.picked.size;
+    }
+    const a = Math.PI / 4;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const out = new Map<number, Pose>();
+    for (const id of ids) {
+      const p = layout.getPiece(id)!.pose;
+      const x = p.x - cx;
+      const z = p.z - cz;
+      out.set(id, { x: cx + x * ca - z * sa, z: cz + x * sa + z * ca, heading: p.heading + a });
+    }
+    return out;
+  }
+
+  /** Turn the picked pieces together, an eighth about their middle (one undo step). */
+  private turnPicked(): void {
+    const g = this.game;
+    if (this.picked.size === 0) return;
+    const ids = this.pickedWithRisers();
+    const members = new Set(ids);
+    const before = new Map(ids.map((id) => [id, { ...g.layout.getPiece(id)!.pose }]));
+    const after = this.turnedPoses(ids);
+    // Try it in place, then put it back for the editor to do as one step.
+    const parted = g.layout.partFrom(members);
+    g.layout.nudgePieces(after);
+    const blocked = this.groupBlocked(ids, members);
+    g.layout.nudgePieces(before);
+    for (const ref of parted) g.layout.seatFree(ref);
+    if (blocked) {
+      this.hud.toast(BLOCK_MESSAGES[blocked]);
+      this.onRefused?.();
       return;
     }
-    // The movers shift with the hand; the track held at an end bends to meet them (stations stay put till the drop).
-    g.layout.nudgePieces(m.before);
-    const moved = new Map<number, Pose>();
-    for (const id of m.movers) {
-      const p = m.before.get(id)!;
-      moved.set(id, { x: p.x + dx, z: p.z + dz, heading: p.heading });
+    this.editor().moveGroup(before, after);
+    g.trackView.sync();
+    this.showPicked();
+    this.onTurned?.();
+  }
+
+  /** Take up all the picked pieces (and the stands under them), as one undo step. */
+  private deletePicked(): void {
+    const g = this.game;
+    const ids = this.pickedWithRisers();
+    if (ids.length === 0) return;
+    const pieces = ids.map((id) => g.layout.getPiece(id)!);
+    this.clearSelection();
+    this.hud.hideCards();
+    if (!this.editor().removeGroup(ids)) return;
+    // Stand-ins lift and shrink away where the pieces were (a few, for a big group).
+    for (const p of pieces.slice(0, 24)) {
+      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p));
+      mesh.position.set(p.pose.x, p.y, p.pose.z);
+      mesh.rotation.y = -p.pose.heading;
+      g.scene.add(mesh);
+      g.flourishes.add(shrinkAway(mesh, () => g.scene.remove(mesh)));
     }
-    g.layout.nudgePieces(moved);
-    const pinned = (id: number) => m.movers.has(id) || this.fixedLabel(id) !== null || g.sim.pieceOccupied(id);
-    const bent = relaxJoints(g.layout, [m.pieceId], pinned);
-    g.layout.nudgePieces(bent);
-    m.after = new Map([...m.before.keys()].map((id) => [id, { ...g.layout.getPiece(id)!.pose }]));
-    g.trackView.moveInstances(m.before.keys());
+  }
+
+  /** A picked piece taken hold of: all the picked pieces come along, parted from the track around them. */
+  private beginGroupMove(pieceId: number, pointerId: number, x: number, y: number): void {
+    const g = this.game;
+    const held = g.layout.getPiece(pieceId);
+    const grab = held && this.planeAt(x, y, held.y);
+    if (!held || !grab) return;
+    const ids = this.pickedWithRisers();
+    const members = new Set(ids);
+    const before = new Map(ids.map((id) => [id, { ...g.layout.getPiece(id)!.pose }]));
+    const parted = g.layout.partFrom(members);
+    g.sim.trackChanged();
+    const ends: WorldConnector[] = [];
+    for (const id of ids) {
+      const p = g.layout.getPiece(id)!;
+      const count = getPieceDef(p.type, p.flipped).connectors.length;
+      for (let i = 0; i < count; i++) {
+        const ref = connectorRef(id, i);
+        if (g.layout.joinedConnector(ref) === -1) ends.push({ ...g.layout.worldConnector(ref, { x: 0, z: 0, heading: 0, y: 0, kind: "socket" }) });
+      }
+    }
+    this.mode = { kind: "drag-group", pointerId, grab, ids, members, before, parted, ends, dx: 0, dz: 0, snapped: false, blocked: null, key: "" };
+    this.onPickup?.();
+  }
+
+  private readonly nearEnds: number[] = [];
+  private readonly otherEnd: WorldConnector = { x: 0, z: 0, heading: 0, y: 0, kind: "socket" };
+
+  private updateGroup(m: Extract<Mode, { kind: "drag-group" }>, x: number, y: number): void {
+    const g = this.game;
+    const at = this.planeAt(x, y, m.grab.y);
+    if (!at) return;
+    let dx = at.x - m.grab.x;
+    let dz = at.z - m.grab.z;
+    // A free end of the group near a free end of other track (the other kind, facing it, level with it): click on.
+    let best = GROUP_SNAP_REACH;
+    let sx = 0;
+    let sz = 0;
+    for (const e of m.ends) {
+      const ex = e.x + dx;
+      const ez = e.z + dz;
+      const n = g.layout.queryFreeConnectors(ex, ez, GROUP_SNAP_REACH, this.nearEnds);
+      for (let k = 0; k < n; k++) {
+        const ref = this.nearEnds[k];
+        if (m.members.has(pieceOfRef(ref))) continue;
+        const o = g.layout.worldConnector(ref, this.otherEnd);
+        if (o.kind === e.kind || Math.abs(o.y - e.y) > 2 || Math.abs(normalizeAngle(o.heading - e.heading - Math.PI)) > GROUP_SNAP_ANGLE) continue;
+        const d = Math.hypot(o.x - ex, o.z - ez);
+        if (d >= best) continue;
+        best = d;
+        sx = o.x - ex;
+        sz = o.z - ez;
+      }
+    }
+    m.snapped = best < GROUP_SNAP_REACH;
+    dx += sx;
+    dz += sz;
+    const key = `${Math.round(dx * 4)},${Math.round(dz * 4)}`;
+    if (key === m.key) return;
+    m.key = key;
+    m.dx = dx;
+    m.dz = dz;
+    const poses = new Map<number, Pose>();
+    for (const [id, p] of m.before) poses.set(id, { x: p.x + dx, z: p.z + dz, heading: p.heading });
+    g.layout.nudgePieces(poses);
+    g.trackView.moveInstances(m.ids);
+    const blocked = this.groupBlocked(m.ids, m.members);
+    if (blocked && blocked !== m.blocked) this.hud.toast(BLOCK_MESSAGES[blocked]);
+    m.blocked = blocked;
+    g.trackView.setHighlights(this.picked, m.blocked ? "blocked" : m.snapped ? "snap" : "select");
     g.moveShadows();
     g.invalidate();
   }
 
-  private dropPull(m: Extract<Mode, { kind: "pull-run" }>): void {
+  /** Back where the group was taken from, joined as it was. */
+  private putGroupBack(m: Extract<Mode, { kind: "drag-group" }>): void {
+    const g = this.game;
+    g.layout.nudgePieces(m.before);
+    for (const ref of m.parted) g.layout.seatFree(ref);
+    g.trackView.moveInstances(m.ids);
+    g.trackView.setHighlights(this.picked);
+    g.sim.trackChanged();
+    g.moveShadows();
+    g.invalidate();
+  }
+
+  private dropGroup(m: Extract<Mode, { kind: "drag-group" }>): void {
     const g = this.game;
     this.mode = { kind: "idle" };
     g.director.setEdgePointer(null);
-    // As one undo step; the run's ends may then close near misses (a tail pulled up to a station).
-    g.layout.nudgePieces(m.before);
-    this.editor().nudge(m.before, m.after);
+    const after = new Map(m.ids.map((id) => [id, { ...g.layout.getPiece(id)!.pose }]));
+    // Put back as it was: the editor then moves it, as one undo step.
+    this.putGroupBack(m);
+    if (Math.hypot(m.dx, m.dz) < 0.5) return;
+    if (m.blocked) {
+      this.onRefused?.();
+      return;
+    }
+    this.editor().moveGroup(m.before, after);
     g.trackView.sync();
-    this.onPlaced?.(false);
+    this.showPicked();
+    this.onPlaced?.(m.snapped);
   }
 
   private beginPieceMove(pieceId: number, pointerId: number, ground: Vector3): void {
@@ -1051,8 +1316,13 @@ export class Interaction {
 
   private updateDrag(x: number, y: number): void {
     const m = this.mode;
-    if (m.kind === "pull-run") {
-      this.updatePull(m, x, y);
+    if (m.kind === "drag-group") {
+      this.lastX = x;
+      this.lastY = y;
+      const r = this.game.canvas.getBoundingClientRect();
+      const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
+      this.game.director.setEdgePointer({ x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: false });
+      this.updateGroup(m, x, y);
       return;
     }
     if (m.kind === "drag-scenery") {

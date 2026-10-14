@@ -96,6 +96,9 @@ export class Editor {
   /** Called when pieces that give (stations, depots) were nudged by a change, its undo or its redo. */
   onNudge: ((ids: number[]) => void) | null = null;
 
+  /** Called when track is put down or moved (not undone), with the pieces it put down. */
+  onTrackEdit: ((ids: number[]) => void) | null = null;
+
   /** Called after a props-only edit is done, undone or redone (instead of `onChange`). */
   onPropsChange: (() => void) | null = null;
 
@@ -169,6 +172,45 @@ export class Editor {
       moves: ids,
       seats: () => ids,
     });
+  }
+
+  /**
+   * Move pieces together, rigidly (a selection dragged or turned): from `before` to `after`. Joints among them hold;
+   * joints to other track part, and their free ends seat wherever they now meet track. One undo step.
+   */
+  moveGroup(before: ReadonlyMap<number, Pose>, after: ReadonlyMap<number, Pose>): void {
+    const ids = new Set(after.keys());
+    let parted: number[] = [];
+    let seated: number[] = [];
+    this.run({
+      do: () => {
+        parted = this.layout.partFrom(ids);
+        this.layout.nudgePieces(after);
+        seated = this.layout.seatEnds(ids);
+      },
+      undo: () => {
+        for (const ref of seated) this.layout.unseat(ref);
+        this.layout.nudgePieces(before);
+        for (const ref of parted) this.layout.seatFree(ref);
+      },
+      moves: [...ids],
+      seats: () => [...ids],
+    });
+  }
+
+  /** Take up several pieces at once (one undo step). */
+  removeGroup(ids: readonly number[]): boolean {
+    const recs = ids.map((id) => this.record(id)).filter((r): r is PieceRecord => r !== null);
+    if (recs.length === 0) return false;
+    this.run({
+      do: () => {
+        for (const r of recs) this.layout.removePiece(r.id);
+      },
+      undo: () => {
+        for (const r of recs) this.layout.restorePiece(r.id, r.type, r.pose, r.y, r.flipped);
+      },
+    });
+    return true;
   }
 
   /** Move a piece; `flipped`, when given, is how it lands (a ramp may swap its ends to fit where it's put). */
@@ -252,6 +294,7 @@ export class Editor {
     c.do();
     if (c.seats) {
       const seeds = c.seats();
+      this.onTrackEdit?.(seeds);
       c = this.takeUpPlay(c, seeds);
       c = this.joinFacingHoles(c, seeds);
     }

@@ -328,3 +328,55 @@ describe("pushing a run (nudge)", () => {
     void a;
   });
 });
+
+describe("picked pieces moved together (moveGroup, removeGroup)", () => {
+  function line() {
+    const { layout, editor } = setup();
+    const a = editor.place("straight-216", { x: 0, z: 0, heading: 0 }, 0, false);
+    const b = editor.place("straight-216", { x: 216, z: 0, heading: 0 }, 0, false);
+    const c = editor.place("straight-216", { x: 432, z: 0, heading: 0 }, 0, false);
+    // Free track further on, a little off the line's end.
+    const d = editor.place("straight-216", { x: 1100, z: 0, heading: 0 }, 0, false);
+    const poses = (ids: number[]) => new Map(ids.map((id) => [id, { ...layout.getPiece(id)!.pose }]));
+    return { layout, editor, a, b, c, d, poses };
+  }
+
+  it("keeps the joints among them, parts the ones to other track; undo joins it back", () => {
+    const { layout, editor, a, b, c, poses } = line();
+    const before = poses([b, c]);
+    const after = new Map([...before].map(([id, p]) => [id, { ...p, z: p.z + 200 }]));
+    editor.moveGroup(before, after);
+    expect(layout.getPiece(b)!.pose.z).toBeCloseTo(200);
+    expect(layout.joinedConnector(connectorRef(b, 1))).toBe(connectorRef(c, 0));
+    expect(layout.joinedConnector(connectorRef(a, 1))).toBe(-1);
+    editor.undo();
+    expect(layout.getPiece(c)!.pose.z).toBeCloseTo(0);
+    expect(layout.joinedConnector(connectorRef(a, 1))).toBe(connectorRef(b, 0));
+    editor.redo();
+    expect(layout.joinedConnector(connectorRef(a, 1))).toBe(-1);
+    expect(layout.joinedConnector(connectorRef(b, 1))).toBe(connectorRef(c, 0));
+  });
+
+  it("a group put down with its end on other track's end joins it, in the same undo step", () => {
+    const { layout, editor, b, c, d, poses } = line();
+    const before = poses([b, c]);
+    // The line's end is at 648; d starts at 1100.
+    const after = new Map([...before].map(([id, p]) => [id, { ...p, x: p.x + 452 }]));
+    editor.moveGroup(before, after);
+    expect(layout.joinedConnector(connectorRef(c, 1))).toBe(connectorRef(d, 0));
+    editor.undo();
+    expect(layout.joinedConnector(connectorRef(c, 1))).toBe(-1);
+    expect(layout.joinedConnector(connectorRef(d, 0))).toBe(-1);
+  });
+
+  it("removes them all as one step; undo puts them back joined", () => {
+    const { layout, editor, a, b, c } = line();
+    editor.removeGroup([b, c]);
+    expect(layout.getPiece(b)).toBeUndefined();
+    expect(layout.getPiece(c)).toBeUndefined();
+    expect(layout.joinedConnector(connectorRef(a, 1))).toBe(-1);
+    editor.undo();
+    expect(layout.joinedConnector(connectorRef(a, 1))).toBe(connectorRef(b, 0));
+    expect(layout.joinedConnector(connectorRef(b, 1))).toBe(connectorRef(c, 0));
+  });
+});

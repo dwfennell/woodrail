@@ -207,6 +207,36 @@ export class Layout {
     }
   }
 
+  /** Part every joint between the pieces `ids` and track outside them; returns the parted ends on their side. */
+  partFrom(ids: ReadonlySet<number>): number[] {
+    const parted: number[] = [];
+    for (const id of ids) {
+      const piece = this.pieces.get(id);
+      if (!piece || this.lifted.has(id)) continue;
+      const count = getPieceDef(piece.type, piece.flipped).connectors.length;
+      for (let i = 0; i < count; i++) {
+        const ref = connectorRef(id, i);
+        const partner = this.joinedTo.get(ref);
+        if (partner === undefined || ids.has(pieceOfRef(partner))) continue;
+        this.unseat(ref);
+        parted.push(ref);
+      }
+    }
+    return parted;
+  }
+
+  /** Seat each free end of the pieces `ids` that now meets a free end; returns the ends seated. */
+  seatEnds(ids: Iterable<number>): number[] {
+    const seated: number[] = [];
+    for (const id of ids) {
+      const piece = this.pieces.get(id);
+      if (!piece) continue;
+      const count = getPieceDef(piece.type, piece.flipped).connectors.length;
+      for (let i = 0; i < count; i++) if (this.seatFree(connectorRef(id, i))) seated.push(connectorRef(id, i));
+    }
+    return seated;
+  }
+
   private seatAll(id: number): void {
     const piece = this.pieces.get(id)!;
     const count = getPieceDef(piece.type, piece.flipped).connectors.length;
