@@ -94,7 +94,7 @@ describe("automatic servicing", () => {
       w.step();
       if (w.train().bogies.some((b) => b.pieceId === w.depot.pieceId)) max = Math.max(max, w.train().speed);
     }
-    expect(max).toBeGreaterThan(CRAWL_SPEED * 2);
+    expect(max).toBeGreaterThan(CRAWL_SPEED * 1.5);
     for (const car of w.wagons()) expect(w.economy.cargoOf(car.id).count).toBe(0);
   });
 

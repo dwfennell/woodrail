@@ -53,4 +53,4 @@ describe("a timber loop runs itself", () => {
 });
 
 /** Recorded from the first run; a change here means the loop's timing changed. */
-const DELIVERED_IN_10_MINUTES = 25;
+const DELIVERED_IN_10_MINUTES = 28;

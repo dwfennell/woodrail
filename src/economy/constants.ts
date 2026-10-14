@@ -12,6 +12,6 @@ export const FOREST_TICKS = ticks(15);
 export const SAWMILL_TICKS = ticks(8);
 export const TOWN_USE_TICKS = ticks(30);
 /** The crane moves one unit in this time. */
-export const CRANE_TICKS = ticks(1.2);
+export const CRANE_TICKS = ticks(0.6);
 /** A train on a working depot crawls at this speed (mm/s). */
-export const CRAWL_SPEED = 30;
+export const CRAWL_SPEED = 60;
