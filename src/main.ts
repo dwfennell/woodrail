@@ -12,7 +12,7 @@ import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
 import { loadBlenderModels, loadModelSet } from "./render/blender-models";
-import { LoadingToys } from "./ui/loading-toys";
+import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -738,6 +738,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     enter(mode);
     openingView();
   } else showTitle();
+  progress.finish();
   loading?.classList.add("done");
   // The loading screen fades out (0.6 s); its toys go with it.
   setTimeout(() => toys?.stop(), 700);
@@ -761,6 +762,28 @@ function offerRetry(again: () => void): void {
   box.append(note, button);
 }
 
+/**
+ * The loading bar: each part of the loading has a share of it (the track pieces by how many are carved). It stops just
+ * short of the end until the game is built.
+ */
+const progress = (() => {
+  const bar = loading?.querySelector<HTMLElement>(".load-bar");
+  const shares = { trains: 0.15, dressing: 0.15, thumbnails: 0.05, pieces: 0.55 };
+  const done: Record<keyof typeof shares, number> = { trains: 0, dressing: 0, thumbnails: 0, pieces: 0 };
+  const show = (p: number) => {
+    bar?.style.setProperty("--p", p.toFixed(3));
+    bar?.setAttribute("aria-valuenow", String(Math.round(p * 100)));
+  };
+  return {
+    /** How far along a part is (0 to 1). */
+    set(part: keyof typeof shares, fraction: number): void {
+      done[part] = Math.max(done[part], fraction);
+      show((Object.keys(shares) as (keyof typeof shares)[]).reduce((p, k) => p + shares[k] * done[k], 0));
+    },
+    finish: () => show(1),
+  };
+})();
+
 /** Toys hopping onto the loading screen as their models arrive (none if WebGL won't start for it). */
 const toys = ((): LoadingToys | null => {
   const canvas = loading?.querySelector<HTMLCanvasElement>(".loading-toys");
@@ -773,11 +796,12 @@ const toys = ((): LoadingToys | null => {
   }
 })();
 if (toys) {
-  // One after another: a train on the top shelf, then the platform's folk, then the street's furniture.
-  const pop = async (models: Map<string, Object3D>, row: number, list: [string, Record<string, string>?][]) => {
+  // One after another: the train, then the platform's folk, the street's furniture, and (if they're in before the
+  // game is) a few buildings. The buildings come after what the game needs, so they never hold it up.
+  const pop = async (models: Map<string, Object3D>, shelf: Shelf, list: [string, Record<string, string>?][]) => {
     for (const [id, slots] of list) {
       const model = models.get(id);
-      if (model) toys.add(model, slots, row);
+      if (model) toys.add(model, shelf, slots);
       await new Promise((r) => setTimeout(r, 180));
     }
   };
@@ -785,8 +809,10 @@ if (toys) {
     try {
       const trains = loadModelSet("trains");
       const dressing = loadModelSet("dressing", true);
-      await pop(await trains, 0, [["engine-classic"], ["passenger-classic"], ["passenger-dining"], ["hopper-classic"], ["timber-classic"], ["caboose-classic"]]);
-      await pop(await dressing, 1, [
+      await pop(await trains, "train", [["engine-classic"], ["passenger-classic"], ["passenger-dining"], ["hopper-classic"], ["timber-classic"], ["caboose-classic"]]);
+      await dressing;
+      const buildings = loadModelSet("buildings", true);
+      await pop(await dressing, "folk", [
         ["porter"],
         ["peg-doll-hat", { coat: "#2f6db5", hat: "#2a2b2e" }],
         ["traveller"],
@@ -795,7 +821,7 @@ if (toys) {
         ["peg-doll-hat", { coat: "#e6b52c", hat: "#c8442f" }],
         ["peg-doll", { coat: "#c8442f" }],
       ]);
-      await pop(await dressing, 2, [
+      await pop(await dressing, "street", [
         ["lamp"],
         ["bench"],
         ["postbox"],
@@ -805,6 +831,7 @@ if (toys) {
         ["busstop"],
         ["lamp"],
       ]);
+      await pop(await buildings, "town", [["bldg-thatched-cottage"], ["bldg-signal-box"], ["bldg-church"], ["bldg-windmill"], ["bldg-toy-shop"], ["bldg-water-tower"]]);
     } catch {
       // The loading screen says so itself (see offerRetry).
     }
@@ -822,7 +849,13 @@ requestAnimationFrame(() =>
         console.error("Woodrail: couldn't load the models", e);
         return new Promise<void>((resolve) => offerRetry(() => resolve(models())));
       });
-    void Promise.all([TrackView.prebuildInWorkers(PIECE_TYPES), loadCached<Map<string, string>>("thumbnails", __BUILD_ID__), models()]).then(([, thumbs]) => {
+    void loadModelSet("trains").then(() => progress.set("trains", 1), () => {});
+    void loadModelSet("dressing", true).then(() => progress.set("dressing", 1), () => {});
+    void Promise.all([
+      TrackView.prebuildInWorkers(PIECE_TYPES, (n, total) => progress.set("pieces", n / total)).then(() => progress.set("pieces", 1)),
+      loadCached<Map<string, string>>("thumbnails", __BUILD_ID__).then((t) => (progress.set("thumbnails", 1), t)),
+      models(),
+    ]).then(([, thumbs]) => {
       console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms`);
       boot(thumbs);
     });

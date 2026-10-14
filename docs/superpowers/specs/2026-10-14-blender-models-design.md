@@ -39,6 +39,9 @@ domes, recessed windows, arched roofs) and fewer draw calls per model.
   load when the catalogue first needs them: the registry fetches the model set before importing the file (a module
   that failed would stay failed), and a failed load is forgotten so the next request retries (registry, prop
   library, props view).
+- **Loading screen:** a wooden progress bar (model sets, then track pieces carved), and toys hopping onto stepped
+  shelves as their sets arrive: the train, the platform's folk and the street's furniture (boot sets), then a few
+  buildings, fetched only after the boot sets so they never hold the game up (they warm the cache for the catalogue).
 - **Tests** read the model files from disk (no server), so they build the real models; tests that build cars or towns
   call `loadBlenderModels()` first.
 - The catalogue loads the models before it starts and serves `public/` too.
