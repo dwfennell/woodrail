@@ -1,11 +1,12 @@
 import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, Object3D, Quaternion, Vector3, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { CARGO, CARGO_KINDS, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
+import { CARGO, CARGO_KINDS, WAGON_CAPACITY, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
 import type { Layout, Pose } from "../track";
 import { TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
 import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, unitSize, wagonSlot } from "./cargo-layout";
+import { addPart, hasPart, partPieces } from "./blender-models";
 import { Batcher } from "./dressing/batcher";
 import { setCullBox, tileAt } from "./dressing/tiles";
 import type { Materials } from "./materials";
@@ -75,12 +76,13 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   },
   mill: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
-    crane: { kind: "gantry", t: 108, l: 45, height: 66 },
+    // The gantry spans the piles at the near end; the windmill stands at the far end (t 160).
+    crane: { kind: "gantry", t: 60, l: 45, height: 66 },
     piles: {
-      grain: { t: 108, l: 54, y: PAD_H, across: 3, axis: "t" },
-      flour: { t: 108, l: 92, y: PAD_H, across: 3, axis: "t" },
+      grain: { t: 60, l: 65, y: PAD_H, across: 3, axis: "t" },
+      flour: { t: 60, l: 98, y: PAD_H, across: 2, axis: "t" },
     },
-    trackT: 108,
+    trackT: 60,
   },
   town: {
     pad: null,
@@ -92,8 +94,19 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   },
 };
 
-/** Where a hopper's load sits (car-local y): in the top of its bin. A guess until the grain heap model comes. */
-const HOPPER_LOAD = TIMBER_DECK + 8;
+/** Each industry's buildings as a Blender part (tools/blender/dressing.py), with its colours. */
+const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<string, string> }>> = {
+  workshop: { part: "industry-workshop", slots: { roof: "#2f6db5", doors: "#c8442f", sign: "#e6b52c" } },
+  sawmill: { part: "industry-sawmill-shed", slots: { roof: "#c8442f" } },
+  forest: { part: "industry-forest-hut", slots: { roof: "#3c8f4e" } },
+  farm: { part: "industry-farm", slots: { silo: "#f0ebe0", roof: "#c8442f" } },
+  mill: { part: "industry-mill", slots: { cap: "#2f6db5" } },
+};
+
+/** Where a hopper's grain heap sits (car-local y): the top of its bin (Asset Gen: hopper-classic). */
+const HOPPER_HEAP = 43;
+/** A unit of grain lifted to or from a hopper is held about here (car-local y). */
+const HOPPER_LOAD = HOPPER_HEAP + 2;
 
 /** Gantry legs stand this far out on each side of the beam's middle. */
 const GANTRY_HALF = 70;
@@ -133,7 +146,8 @@ interface Site {
   pose: SitePose;
   layout: DepotLayout;
   crane: CraneParts;
-  blade: Mesh | null;
+  /** What turns while it works: a sawmill's saw, a mill's sails. */
+  blade: Object3D | null;
   /** This frame's crane move (scratch, reused), and whether there is one. */
   readonly move: CraneMove;
   moving: boolean;
@@ -169,6 +183,10 @@ export class DepotView {
   private sites: Site[] = [];
   /** Each kind of goods' meshes (logs, plank bundles, sacks). */
   private readonly units: Record<CargoKind, UnitMeshes>;
+  /** Grain heaps in hoppers (one per loaded hopper). */
+  private readonly heap: UnitMeshes;
+  /** Every kind's meshes and the heaps, to loop over without allocating. */
+  private readonly allUnits: UnitMeshes[];
   private static readonly MAX_UNITS = 2048;
   /** A unit being carried by hand: one fewer is drawn at its source. */
   dragging: CargoSlot | null = null;
@@ -202,6 +220,14 @@ export class DepotView {
         [tie, mats.lacquer("#2f6db5")],
       ],
     };
+    // The modelled sack when it's loaded (its base at y 0: units are placed by their centre).
+    if (hasPart("load-flour-sack")) looks.flour = partPieces(mats, "load-flour-sack").map(([g, m]) => [g.translate(0, -SACK_HEIGHT / 2, 0), m]);
+    // A hopper's grain: one heap filling its bin, raised by how full it is (in place of the coal it's modelled with).
+    const heap: [BufferGeometry, Material][] = hasPart("load-grain-heap")
+      ? partPieces(mats, "load-grain-heap")
+      : [[new RoundedBoxGeometry(59, 8, 25, 2, 3).translate(0, 4, 0), mats.lacquer("#d9a441")]];
+    this.heap = { parts: heap.map(([g, m]) => this.instanced(g, m)), owners: [], carried: new Group(), n: 0, last: 0 };
+    this.group.add(...this.heap.parts);
     const units = {} as Record<CargoKind, UnitMeshes>;
     for (const kind of CARGO_KINDS) {
       const parts = looks[kind].map(([g, m]) => this.instanced(g, m));
@@ -214,7 +240,8 @@ export class DepotView {
       units[kind] = { parts, owners: [], carried, n: 0, last: 0 };
     }
     this.units = units;
-    this.cargoMeshes = CARGO_KINDS.flatMap((k) => units[k].parts);
+    this.cargoMeshes = [...CARGO_KINDS.flatMap((k) => units[k].parts), ...this.heap.parts];
+    this.allUnits = [...CARGO_KINDS.map((k) => units[k]), this.heap];
   }
 
   private instanced(g: BufferGeometry, m: Material): InstancedMesh {
@@ -319,6 +346,13 @@ export class DepotView {
       }
       b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(6, 5, GANTRY_HALF * 2 + 6, 1, 1.2), c.t, c.l, c.height + 6.5));
     }
+    const model = INDUSTRY_MODELS[site.depot.role];
+    if (model && hasPart(model.part)) {
+      // The industry's buildings, modelled in Blender in this depot frame (tools/blender/dressing.py, "Industries").
+      addPart(b, mats, model.part, (g) => g.rotateY(-pose.heading).translate(pose.x, pose.y ?? 0, pose.z), model.slots);
+      return;
+    }
+    // Stand-ins drawn from code (unit tests, where the models aren't loaded).
     if (site.depot.role === "sawmill") {
       // The saw shed: an open-sided shed over the track and the saw table at the socket end of the yard, so the
       // track runs through it while the gantry and piles stay in the open where you can watch them.
@@ -402,27 +436,39 @@ export class DepotView {
     return { arm, trolley, rope, hook: new Vector3() };
   }
 
-  private buildBlade(pose: SitePose): Mesh {
-    const blade = new Mesh(new CylinderGeometry(11, 11, 1.4, 28).rotateX(Math.PI / 2), this.mats.magnet);
+  private buildBlade(pose: SitePose): Object3D {
+    const blade = hasPart("industry-saw-blade") ? this.partObject("industry-saw-blade") : new Mesh(new CylinderGeometry(11, 11, 1.4, 28).rotateX(Math.PI / 2), this.mats.magnet);
     toWorld(pose, 44, 74, PAD_H + 14 + 4, blade.position);
-    blade.rotation.y = -pose.heading;
-    blade.castShadow = true;
-    blade.userData.depotMoving = true;
-    this.group.add(blade);
-    return blade;
+    return this.addMoving(blade, pose);
   }
 
-  /** A windmill's sails, on the tower's track side; they turn (like the saw) while the mill grinds. */
-  private buildSails(pose: SitePose): Mesh {
+  /** A windmill's sails, facing the track; they turn (like the saw) while the mill grinds. */
+  private buildSails(pose: SitePose): Object3D {
+    if (hasPart("industry-mill-sails")) {
+      const sails = this.partObject("industry-mill-sails", { sails: "#f1ebdd" });
+      toWorld(pose, 160, 64, 60, sails.position);
+      return this.addMoving(sails, pose);
+    }
     const arm = new RoundedBoxGeometry(4, 34, 1.4, 1, 0.5).translate(0, 17, 0);
-    const blades = mergeGeometries([0, 1, 2, 3].map((k) => arm.clone().rotateZ((k * Math.PI) / 2)))!;
-    const sails = new Mesh(blades, this.mats.lacquer("#f1ebdd"));
+    const sails = new Mesh(mergeGeometries([0, 1, 2, 3].map((k) => arm.clone().rotateZ((k * Math.PI) / 2)))!, this.mats.lacquer("#f1ebdd"));
     toWorld(pose, 34, 74, PAD_H + 58, sails.position);
-    sails.rotation.y = -pose.heading;
-    sails.castShadow = true;
-    sails.userData.depotMoving = true;
-    this.group.add(sails);
-    return sails;
+    return this.addMoving(sails, pose);
+  }
+
+  /** A part as an object of its own (to move), its pieces as meshes. */
+  private partObject(name: string, slots: Readonly<Record<string, string>> = {}): Object3D {
+    const g = new Group();
+    for (const [geometry, material] of partPieces(this.mats, name, slots)) g.add(new Mesh(geometry, material));
+    return g;
+  }
+
+  /** Something of a depot's that moves on its own, turned to the depot and added to the view. */
+  private addMoving(o: Object3D, pose: SitePose): Object3D {
+    o.rotation.y = -pose.heading;
+    o.traverse((m) => (m.castShadow = true));
+    o.userData.depotMoving = true;
+    this.group.add(o);
+    return o;
   }
 
   /** World pose of pile unit k (its centre), written to `pos`; returns its yaw. */
@@ -453,6 +499,33 @@ export class DepotView {
     u.n++;
   }
 
+  /** Show or hide a hopper model's coal (its `coal…` nodes, found once per model). */
+  private showCoal(car: Object3D, on: boolean): void {
+    let coal = this.coalOf.get(car);
+    if (!coal) {
+      coal = [];
+      car.traverse((o) => {
+        if (o.name.startsWith("coal")) coal!.push(o);
+      });
+      this.coalOf.set(car, coal);
+    }
+    for (const o of coal) o.visible = on;
+  }
+  private readonly coalOf = new WeakMap<Object3D, Object3D[]>();
+
+  /** A hopper's grain heap, in the top of its bin, as high as it is full. */
+  private putHeap(car: Object3D, count: number, owner: CargoSlot): void {
+    const u = this.heap;
+    if (u.n >= DepotView.MAX_UNITS) return;
+    car.updateWorldMatrix(true, false);
+    _s.set(1, Math.max(0.25, count / WAGON_CAPACITY), 1);
+    _m.compose(_v.set(0, HOPPER_HEAP, 0), _q.identity(), _s).premultiply(car.matrixWorld);
+    _s.set(1, 1, 1);
+    u.owners[u.n] = owner;
+    for (const part of u.parts) part.setMatrixAt(u.n, _m);
+    u.n++;
+  }
+
   /** Is a crane lifting a unit off this car right now? */
   private liftedOff(carId: number): number {
     for (const site of this.sites) if (site.moving && site.move.toPile && site.move.carId === carId) return 1;
@@ -472,6 +545,8 @@ export class DepotView {
    */
   update(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, dt: number): "moving" | "changed" | "still" {
     let busy = this.dragging !== null;
+    this.heap.last = this.heap.n;
+    this.heap.n = 0;
     for (const kind of CARGO_KINDS) {
       const u = this.units[kind];
       u.last = u.n;
@@ -506,11 +581,17 @@ export class DepotView {
     for (let i = 0; i < carCount; i++) {
       const id = carIds[i];
       const cargo = economy.cargoOf(id);
-      if (!cargo.kind || cargo.count === 0) continue;
       const car = carObject(id);
+      // A hopper is modelled with coal in it: hidden while it carries grain (the heap fills its bin instead).
+      if (car && car.userData.carKind === "hopper") this.showCoal(car, cargo.kind !== "grain" || cargo.count === 0);
+      if (!cargo.kind || cargo.count === 0) continue;
       if (!car) continue;
       const count = cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0);
       const owner = this.carOwner(id);
+      if (cargo.kind === "grain" && car.userData.carKind === "hopper") {
+        if (count > 0) this.putHeap(car, count, owner);
+        continue;
+      }
       for (let k = 0; k < count; k++) this.put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m), owner);
     }
 
@@ -526,8 +607,7 @@ export class DepotView {
     }
 
     let changed = false;
-    for (const kind of CARGO_KINDS) {
-      const u = this.units[kind];
+    for (const u of this.allUnits) {
       for (const part of u.parts) part.count = u.n;
       if (u.n !== u.last) changed = true;
     }
@@ -620,10 +700,7 @@ export class DepotView {
   /** The pile or wagon a picked cargo unit belongs to, or null. */
   cargoAt(object: Object3D, instanceId: number | undefined): CargoSlot | null {
     if (instanceId === undefined) return null;
-    for (const kind of CARGO_KINDS) {
-      const u = this.units[kind];
-      if (u.parts.includes(object as InstancedMesh)) return u.owners[instanceId] ?? null;
-    }
+    for (const u of this.allUnits) if (u.parts.includes(object as InstancedMesh)) return u.owners[instanceId] ?? null;
     return null;
   }
 

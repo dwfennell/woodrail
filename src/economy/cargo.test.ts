@@ -3,8 +3,10 @@ import { CAR_KINDS, CAR_SPECS } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry } from "./cargo";
 
 describe("cargo", () => {
-  it("a kind of wagon per kind of goods: timber wagons take logs and planks, hoppers grain", () => {
-    for (const k of CAR_KINDS) expect(canCarry(k), k).toBe(k === "timber" || k === "hopper");
+  it("a kind of wagon per kind of goods: timber wagons take logs and planks, hoppers grain, vans flour", () => {
+    for (const k of CAR_KINDS) expect(canCarry(k), k).toBe(k === "timber" || k === "hopper" || k === "van");
+    expect(canCarry("van", "flour")).toBe(true);
+    expect(canCarry("van", "planks")).toBe(false);
     expect(canCarry("timber", "planks")).toBe(true);
     expect(canCarry("timber", "grain")).toBe(false);
     expect(canCarry("hopper", "grain")).toBe(true);

@@ -26,11 +26,14 @@ const ENGINE_BODY = "#2d6b3f";
 const ENGINE_TRIM = "#c8442f";
 const SECOND_SCHEME: Readonly<Record<string, string>> = { [ENGINE_BODY]: "#b8432f", [ENGINE_TRIM]: "#1f3f73" };
 
+/** Colours of a car's slots (the van's body). */
+const CAR_SLOTS: Partial<Record<CarKind, Record<string, string>>> = { van: { body: "#2f6db5" } };
+
 /** Car facing +x, centred on its two axles, y = 0 at the track base. The models must be loaded (loadBlenderModels). */
 export function buildCarModel(kind: CarKind, mats: Materials, variant = 0, look: CarLook = "classic"): CarModel {
   const lamp = new MeshStandardMaterial({ color: new Color("#ffcf6b"), emissive: new Color("#ffaa33"), emissiveIntensity: 0.2, roughness: 0.3 });
   const recolor = variant === 1 && kind === "engine" && look === "classic" ? SECOND_SCHEME : {};
-  const model = blenderCar(kind, look, mats, lamp, recolor);
+  const model = blenderCar(kind, look, mats, lamp, recolor, CAR_SLOTS[kind]);
   model.root.traverse((o) => (o.userData.carKind = kind));
   return model;
 }

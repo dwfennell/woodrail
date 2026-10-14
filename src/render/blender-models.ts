@@ -133,6 +133,21 @@ export function addPart(b: Batcher, mats: Materials, name: string, place: (g: Bu
   for (const p of pieces) b.add(partMaterial(mats, p.material, slots), place(p.geometry.clone()));
 }
 
+/** Is this building part loaded (the models are loaded in the game, not in unit tests)? */
+export function hasPart(name: string): boolean {
+  return parts.has(name);
+}
+
+/**
+ * A part's pieces as geometry and paint, each geometry a copy in the part's own space: for a part drawn many times
+ * (instanced, as cargo is) or moved on its own (a saw blade, a windmill's sails).
+ */
+export function partPieces(mats: Materials, name: string, slots: Readonly<Record<string, string>> = {}): [BufferGeometry, Material][] {
+  const pieces = parts.get(name);
+  if (!pieces) throw new Error(`No building part "${name}" (load the models first: loadBlenderModels)`);
+  return pieces.map((p) => [p.geometry.clone(), partMaterial(mats, p.material, slots)]);
+}
+
 function partMaterial(mats: Materials, name: string, slots: Readonly<Record<string, string>>): Material {
   if (name.startsWith("lacquer #")) return mats.lacquer(name.slice(8));
   if (name.startsWith("lacquer fixed #")) return mats.lacquer(name.slice(14));

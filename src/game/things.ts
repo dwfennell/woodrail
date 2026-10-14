@@ -47,6 +47,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "car:hopper": { label: "Hopper", cost: { planks: 3 }, tech: "farming" },
   "car:passenger": { label: "Coach", cost: { planks: 4 }, tech: "passengers" },
   "car:caboose": { label: "Caboose", cost: { planks: 2 }, tech: "passengers" },
+  "car:van": { label: "Van", cost: { planks: 3 }, tech: "mills" },
   "piece:depot-workshop": { label: "Workshop", cost: { planks: 12 } },
   "piece:depot-sawmill": { label: "Sawmill", cost: { planks: 20 }, tech: "sawmills" },
   "piece:depot-forest": { label: "Harvester", cost: { planks: 10 }, tech: "harvesters" },

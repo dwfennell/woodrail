@@ -66,8 +66,9 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["engine"], looks: ["tank"], label: "Tank engine" },
   { kind: "train", cars: ["engine"], looks: ["diesel"], label: "Diesel" },
   { kind: "train", cars: ["engine"], looks: ["electric"], label: "Electric" },
-  { kind: "train", cars: ["hopper"], label: "Coal wagon" },
+  { kind: "train", cars: ["hopper"], label: "Hopper" },
   { kind: "train", cars: ["timber"], label: "Timber wagon" },
+  { kind: "train", cars: ["van"], label: "Goods van" },
   { kind: "train", cars: ["passenger"], label: "Coach" },
   { kind: "train", cars: ["passenger"], looks: ["dining"], label: "Dining car" },
   { kind: "train", cars: ["passenger"], looks: ["sleeper"], label: "Sleeper" },
@@ -96,7 +97,7 @@ export const TRACK_GROUPS: TrayGroup[] = [
 export const TRAIN_GROUPS: TrayGroup[] = [
   { label: "Trains", items: TRAIN_ITEMS.slice(0, 2) },
   { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
-  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber")) },
+  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van")) },
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 

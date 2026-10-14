@@ -16,6 +16,7 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
 export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   timber: ["log", "planks"],
   hopper: ["grain"],
+  van: ["flour"],
 };
 
 /** Can this kind of car carry cargo (any, or this kind)? */
