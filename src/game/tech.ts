@@ -45,6 +45,7 @@ export const TECHS: readonly Tech[] = [
     needs: ["switches"],
     feature: { label: "Routes on the engine card", icon: "🗺️" },
   },
+  { id: "warehouses", label: "Warehouses", blurb: "Keep goods for later: routed trains drop them off and pick them up.", cost: { planks: 16 }, needs: ["routes"] },
   // Needs a city's library: the stone a city wants to keep growing.
   { id: "quarries", label: "Quarries", blurb: "Cut stone from the hills, for growing cities.", cost: { planks: 24 }, needs: ["mills"], landmark: "library" },
 ];

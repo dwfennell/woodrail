@@ -54,6 +54,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-farm": { label: "Farm yard", cost: { planks: 12 }, tech: "farming" },
   "piece:depot-mill": { label: "Mill", cost: { planks: 16 }, tech: "mills" },
   "piece:depot-quarry": { label: "Quarry", cost: { planks: 14 }, tech: "quarries" },
+  "piece:depot-warehouse": { label: "Warehouse", cost: { planks: 18 }, tech: "warehouses" },
 };
 
 /** What a new game's toy box holds: enough for a first timber train, its turnbacks and a workshop. */

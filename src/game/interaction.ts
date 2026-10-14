@@ -24,7 +24,7 @@ import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { cargoDropTarget } from "./cargo-drop";
-import { CARGO, PILE_CAP, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
+import { capOf, CARGO, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 
 /** On touch, held things float this far (px) above the finger so it doesn't hide them. */
 const TOUCH_LIFT_PX = 60;
@@ -885,7 +885,7 @@ export class Interaction {
     shown.auto = d.auto;
     shown.wait = d.waitFull;
     shown.delivered = delivered0;
-    const piles = pilesOf(d.role).map((kind) => ({ label: CARGO[kind].label, count: d.piles[CARGO[kind].index], cap: PILE_CAP }));
+    const piles = pilesOf(d.role).map((kind) => ({ label: CARGO[kind].label, count: d.piles[CARGO[kind].index], cap: capOf(d.role) }));
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
     this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, d.role === "town" ? `Delivered ${delivered}` : "");
   }

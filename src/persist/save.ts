@@ -6,7 +6,10 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ADV_OK, advanceCursor, ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, createAdvance, flipCursor, Sim, type AddTrainResult, type CarKind, type CarLook, type Cursor } from "../sim";
 import type { Bag } from "../economy/goods";
-import { CARGO, CARGO_KINDS, Economy, type StopAction, PILE_CAP, pilesOf, WAGON_CAPACITY, type CargoKind } from "../economy";
+import { capOf, CARGO, CARGO_KINDS, Economy, type StopAction, PILE_CAP, pilesOf, RECIPES, WAGON_CAPACITY, type CargoKind } from "../economy";
+
+/** The biggest pile any depot keeps (a warehouse's). */
+const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
@@ -70,12 +73,12 @@ const saveSchema = z.object({
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry"]),
+      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse"]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
       /** Units on each pile, in cargo order (saves from before grain and flour have just logs and planks). */
-      piles: z.array(z.number().int().min(0).max(PILE_CAP)).min(2).max(CARGO_KINDS.length),
+      piles: z.array(z.number().int().min(0).max(MAX_PILE)).min(2).max(CARGO_KINDS.length),
       timer: z.number().int().min(0),
     }),
   ),
@@ -218,7 +221,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     state.waitFull = d.waitFull;
     // Only the piles this kind of depot uses (its input and output) can hold anything.
     const kept = pilesOf(state.role);
-    for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? (d.piles[CARGO[kind].index] ?? 0) : 0;
+    for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(capOf(state.role), d.piles[CARGO[kind].index] ?? 0) : 0;
     state.timer = d.timer;
   }
   for (const [townId, n] of save.delivered) if (landscape.towns.some((t) => t.id === townId)) economy.delivered.set(townId, n);

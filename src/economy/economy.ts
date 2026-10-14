@@ -31,7 +31,7 @@ interface Service {
   readonly done: Set<number>;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry";
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse";
 
 /**
  * What a kind of depot does: the goods trains bring it (unloaded onto its piles), the goods it gives them, and what it
@@ -45,6 +45,10 @@ export interface Recipe {
    * uses and room for what it makes. `eats`: uses one of whatever it has of `takes` (a town using up its goods).
    */
   readonly cycle?: { readonly uses: Bag; readonly makes: Bag; readonly seconds: number; readonly eats?: boolean };
+  /** Most units each pile holds (default `PILE_CAP`). */
+  readonly cap?: number;
+  /** Serves only routed trains, at their stops (it takes and gives the same goods: a train must say which). */
+  readonly routedOnly?: boolean;
 }
 
 export const RECIPES: Record<DepotRole, Recipe> = {
@@ -58,9 +62,16 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   mill: { takes: ["grain"], gives: ["flour"], cycle: { uses: { grain: 1 }, makes: { flour: 1 }, seconds: 8 } },
   // Stone cut from a hillside (Game mode's quarries).
   quarry: { takes: [], gives: ["stone"], cycle: { uses: {}, makes: { stone: 1 }, seconds: 14 } },
+  // Keeps goods for later: everything, more of it. Routed trains drop or pick up there as their stops say.
+  warehouse: { takes: [...CARGO_KINDS], gives: [...CARGO_KINDS], cap: 24, routedOnly: true },
 };
 
 /** The piles a kind of depot keeps: what it takes and what it gives. */
+/** Most units a pile of this kind of depot holds. */
+export function capOf(role: DepotRole): number {
+  return RECIPES[role].cap ?? PILE_CAP;
+}
+
 export function pilesOf(role: DepotRole): CargoKind[] {
   const r = RECIPES[role];
   return CARGO_KINDS.filter((k) => r.takes.includes(k) || r.gives.includes(k));
@@ -198,7 +209,7 @@ export class Economy {
   /** Can a pile hold this cargo (it is the depot's input or output) and is there room? */
   pileAccepts(d: DepotState, kind: CargoKind): boolean {
     const r = RECIPES[d.role];
-    return (r.takes.includes(kind) || r.gives.includes(kind)) && d.piles[CARGO[kind].index] < PILE_CAP;
+    return (r.takes.includes(kind) || r.gives.includes(kind)) && d.piles[CARGO[kind].index] < capOf(d.role);
   }
 
   /** Can this car take one more unit of `kind`? */
@@ -273,7 +284,7 @@ export class Economy {
     if (!cycle || d.rate <= 0) return false;
     if (cycle.eats) return RECIPES[d.role].takes.some((k) => d.piles[CARGO[k].index] > 0);
     for (const k in cycle.uses) if (d.piles[CARGO[k as CargoKind].index] < cycle.uses[k as CargoKind]!) return false;
-    for (const k in cycle.makes) if (d.piles[CARGO[k as CargoKind].index] + cycle.makes[k as CargoKind]! > PILE_CAP) return false;
+    for (const k in cycle.makes) if (d.piles[CARGO[k as CargoKind].index] + cycle.makes[k as CargoKind]! > capOf(d.role)) return false;
     return true;
   }
 
@@ -286,10 +297,10 @@ export class Economy {
 
   private canUnload(d: DepotState, carId: number): boolean {
     const c = this.cargoOf(carId);
-    if (c.kind === null || c.count <= 0 || !RECIPES[d.role].takes.includes(c.kind) || d.piles[CARGO[c.kind].index] >= PILE_CAP) return false;
+    if (c.kind === null || c.count <= 0 || !RECIPES[d.role].takes.includes(c.kind) || d.piles[CARGO[c.kind].index] >= capOf(d.role)) return false;
     // A routed train drops goods only at its stops that say so.
     const route = this.routeOfCar(carId);
-    return !route || stopAt(route, d.id, "drop");
+    return route ? stopAt(route, d.id, "drop") : !RECIPES[d.role].routedOnly;
   }
 
   /** Give this engine's train a route (null or no stops: none; it's served wherever it goes). */
@@ -323,9 +334,9 @@ export class Economy {
   private loadKind(d: DepotState, carId: number): CargoKind | null {
     const c = this.cargoOf(carId);
     if (c.count >= WAGON_CAPACITY) return null;
-    // A routed train picks up goods only at its stops that say so.
+    // A routed train picks up goods only at its stops that say so (at a warehouse, only where it says Pick up).
     const route = this.routeOfCar(carId);
-    if (route && !stopAt(route, d.id, "pick")) return null;
+    if (route ? !stopAt(route, d.id, "pick") || (RECIPES[d.role].routedOnly && stopAt(route, d.id, "drop")) : RECIPES[d.role].routedOnly) return null;
     const found = this.sim.findCar(carId);
     if (!found) return null;
     const car = found.train.cars[found.index].kind;

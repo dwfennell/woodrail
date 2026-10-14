@@ -3,7 +3,7 @@ import { Sim, SIM_HZ } from "../sim";
 import { Layout } from "../track";
 import { CARGO } from "./cargo";
 import { PILE_CAP } from "./constants";
-import { Economy, pilesOf, RECIPES, type DepotRole, type Recipe } from "./economy";
+import { capOf, Economy, pilesOf, RECIPES, type DepotRole, type Recipe } from "./economy";
 
 /** Three long straights in a row along +x, and a train of the given cars led from the far end. */
 function world(cars: Parameters<Sim["addTrain"]>[0] = ["engine", "timber", "timber"]) {
@@ -140,6 +140,33 @@ describe("routes", () => {
     expect(economy.needsService(town, wagon.id)).toBe(true);
     economy.setRoute(engine.id, null);
     expect(economy.routeOf(engine.id)).toBeUndefined();
+  });
+});
+
+describe("warehouses", () => {
+  it("keep every good, more of it, for routed trains only: dropped where a stop says Drop, picked up where it says Pick up", () => {
+    const { layout, train, economy } = world();
+    const [a] = [...layout.pieceIds()];
+    const store = economy.addDepot("warehouse", a);
+    const [engine, full, empty] = train.cars;
+    economy.setCargo(full.id, "planks", 3);
+    store.piles[CARGO.flour.index] = 20;
+    expect(capOf("warehouse")).toBeGreaterThan(PILE_CAP);
+    // No route: passed by.
+    expect(economy.needsService(store, full.id)).toBe(false);
+    expect(economy.needsService(store, empty.id)).toBe(false);
+    // Drop (or Both, which is Drop here): unloads, loads nothing back.
+    for (const action of ["drop", "both"] as const) {
+      economy.setRoute(engine.id, { stops: [{ depotId: store.id, action }], next: 0 });
+      expect(economy.needsService(store, full.id), action).toBe(true);
+      expect(economy.needsService(store, empty.id), action).toBe(false);
+    }
+    // Pick up: an empty wagon that can carry what's there loads (a timber wagon: no flour, so nothing).
+    economy.setRoute(engine.id, { stops: [{ depotId: store.id, action: "pick" }], next: 0 });
+    expect(economy.needsService(store, full.id)).toBe(false);
+    expect(economy.needsService(store, empty.id)).toBe(false);
+    store.piles[CARGO.planks.index] = 4;
+    expect(economy.needsService(store, empty.id)).toBe(true);
   });
 });
 

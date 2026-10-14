@@ -21,6 +21,8 @@ interface PileSpot {
   across: number;
   /** Units lie along the track (t) or across it (l). */
   axis: "t" | "l";
+  /** Draw at most this many (a warehouse's piles hold more than look right stacked). */
+  show?: number;
 }
 
 interface CraneSpec {
@@ -74,6 +76,19 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     piles: { grain: { t: 100, l: 76, y: PAD_H, across: 3, axis: "t" } },
     trackT: 108,
   },
+  warehouse: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    // A pile of each good in a row along the track, each one unit wide (a warehouse holds 24 of each).
+    piles: {
+      log: { t: 24, l: 58, y: PAD_H, across: 1, axis: "l", show: 6 },
+      planks: { t: 42, l: 58, y: PAD_H, across: 1, axis: "l", show: 6 },
+      grain: { t: 60, l: 62, y: PAD_H, across: 1, axis: "l", show: 6 },
+      flour: { t: 76, l: 62, y: PAD_H, across: 1, axis: "l", show: 6 },
+      stone: { t: 92, l: 62, y: PAD_H, across: 1, axis: "l", show: 6 },
+    },
+    trackT: 60,
+  },
   quarry: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "gantry", t: 108, l: 45, height: 66 },
@@ -114,6 +129,7 @@ const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<s
   farm: { part: "industry-farm", slots: { silo: "#f0ebe0", roof: "#c8442f" } },
   mill: { part: "industry-mill", slots: { cap: "#2f6db5" } },
   quarry: { part: "industry-quarry", slots: { roof: "#c8442f" } },
+  warehouse: { part: "industry-warehouse", slots: { roof: "#3c8f4e", doors: "#e6b52c" } },
 };
 
 /** Where a hopper's grain heap sits (car-local y): the top of its bin (Asset Gen: hopper-classic). */
@@ -429,6 +445,11 @@ export class DepotView {
       b.add(mats.lacquer("#2f6db5"), place(new ConeGeometry(16, 16, 16), 34, 92, PAD_H + 70));
       b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(10, 14, 2, 1, 0.8), 34, 74.5, PAD_H + 7));
     }
+    if (site.depot.role === "warehouse") {
+      // A long beech goods shed with a green roof at the far side of the yard.
+      b.add(mats.blockWood, place(new RoundedBoxGeometry(120, 36, 30, 2, 3), 136, 98, PAD_H + 18));
+      b.add(mats.lacquer("#3c8f4e"), place(new RoundedBoxGeometry(126, 5, 36, 1, 2), 136, 98, PAD_H + 39));
+    }
     if (site.depot.role === "quarry") {
       // A rock face of grey blocks stepping up at the far side of the yard.
       for (const [t, l, w, h] of [[140, 104, 40, 30], [178, 104, 36, 46], [160, 96, 30, 16]] as const) b.add(mats.lacquer("#a9a49a"), place(new RoundedBoxGeometry(w, h, 18, 2, 3), t, l, PAD_H + h / 2));
@@ -592,7 +613,7 @@ export class DepotView {
     for (const site of this.sites) {
       for (const kind of CARGO_KINDS) {
         if (!site.layout.piles[kind]) continue;
-        let count = site.depot.piles[CARGO[kind].index];
+        let count = Math.min(site.depot.piles[CARGO[kind].index], site.layout.piles[kind]!.show ?? Infinity);
         if (site.moving && !site.move.toPile && site.move.kind === kind) count--; // being lifted off this pile
         if (drag?.kind === "pile" && drag.depotId === site.depot.id && drag.cargo === kind) count--; // in a hand
         const owner = site.pileOwners[kind];

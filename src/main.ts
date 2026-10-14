@@ -845,6 +845,10 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     box.hidden = stops.length === 0;
     box.classList.add("route");
     const nameOf = (id: number) => stops.find((st) => st.depotId === id)?.name ?? "?";
+    // A warehouse takes and gives the same goods: a stop there either drops off or picks up (Both reads as Drop).
+    const atWarehouse = (st: { depotId: number }) => game.economy.depot(st.depotId)?.role === "warehouse";
+    const shown = (st: { depotId: number; action: StopAction }): StopAction => (atWarehouse(st) && st.action === "both" ? "drop" : st.action);
+    const stored = (st: { depotId: number; action: StopAction }): StopAction => (atWarehouse(st) ? (shown(st) === "drop" ? "pick" : "drop") : ACTIONS[st.action].next);
     const set = (edit: (stops: { depotId: number; action: StopAction }[]) => void) => {
       const cur = game.economy.routeOf(carId);
       const list = cur ? cur.stops.map((st) => ({ ...st })) : [];
@@ -884,7 +888,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       row.append(
         mark,
         button(nameOf(st.depotId), "route-name", "Tap to choose another stop", () => set((l) => (l[k].depotId = nextStop(routeStops(game.world), l[k].depotId)))),
-        button(ACTIONS[st.action].label, "route-action", ACTIONS[st.action].tip, () => set((l) => (l[k].action = ACTIONS[l[k].action].next))),
+        button(ACTIONS[shown(st)].label, "route-action", ACTIONS[shown(st)].tip, () => set((l) => (l[k].action = stored(l[k])))),
         button("✕", "route-remove", "Take this stop off the route", () => set((l) => l.splice(k, 1))),
       );
       box.append(row);
