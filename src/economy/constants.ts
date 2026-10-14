@@ -1,7 +1,7 @@
 import { SIM_HZ } from "../sim";
 
 /** Ticks in `seconds` of simulated time. */
-const ticks = (seconds: number) => Math.round(seconds * SIM_HZ);
+export const ticks = (seconds: number) => Math.round(seconds * SIM_HZ);
 
 /** Units a timber wagon carries, all of one kind. */
 export const WAGON_CAPACITY = 3;

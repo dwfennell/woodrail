@@ -1,13 +1,15 @@
 import { getPieceDef, pathLength, type Layout } from "../track";
 import { SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, canCarry, type CargoKind } from "./cargo";
-import { CRANE_TICKS, CRAWL_SPEED, FOREST_TICKS, PILE_CAP, SAWMILL_TICKS, TOWN_USE_TICKS, WAGON_CAPACITY } from "./constants";
+import { ticks, CRANE_TICKS, CRAWL_SPEED, FOREST_TICKS, PILE_CAP, SAWMILL_TICKS, TOWN_USE_TICKS, WAGON_CAPACITY } from "./constants";
 
 const NONE = 0;
 const CRAWLING = 1;
 const HALTED = 2;
 /** A wagon centre this close to the crane point (mm) counts as under the crane. */
 const AT_CRANE = 0.5;
+/** A train crawling through a depot that has stood still this long is held up short of the crane. */
+const STUCK_TICKS = ticks(1);
 
 /** One train's visit to a depot. Allocated once per train and reused. */
 interface Service {
@@ -18,6 +20,8 @@ interface Service {
   carId: number;
   /** Ticks into the current crane move. */
   ticks: number;
+  /** Ticks it has stood still while crawling (held up short of the crane). */
+  still: number;
   /** Cars already served (or sent on) during this visit. */
   readonly done: Set<number>;
 }
@@ -279,7 +283,7 @@ export class Economy {
 
   private service(trainId: number): Service {
     let s = this.services.get(trainId);
-    if (!s) this.services.set(trainId, (s = { trainId, phase: NONE, depotId: -1, carId: -1, ticks: 0, done: new Set() }));
+    if (!s) this.services.set(trainId, (s = { trainId, phase: NONE, depotId: -1, carId: -1, ticks: 0, still: 0, done: new Set() }));
     return s;
   }
 
@@ -319,28 +323,54 @@ export class Economy {
     let cap = CRAWL_SPEED;
     const len = this.depotLength(d);
     const crane = d.craneAt;
+    // A wagon the crane can't stop under (rolled past it, or off the depot's track on a long train): served where it
+    // stands, once no other wagon is still coming up to the crane.
+    // The train runs front first (its cars in order): cars after the last one on the depot are still to come.
+    let lastOn = -1;
+    for (let c = 0; c < train.cars.length; c++) if (train.bogies[2 * c].pieceId === d.pieceId || train.bogies[2 * c + 1].pieceId === d.pieceId) lastOn = c;
+    // Stopped short of the crane (a buffer, a train ahead): the ones still to come won't, so they're reached for too.
+    s.still = train.speed === 0 ? s.still + 1 : 0;
+    const stuck = s.still > STUCK_TICKS;
+    let reach = -1;
+    let coming = false;
     for (let c = 0; c < train.cars.length; c++) {
       const car = train.cars[c];
       if (s.done.has(car.id) || !this.needsService(d, car.id)) continue;
       const front = train.bogies[2 * c];
       const rear = train.bogies[2 * c + 1];
-      if (front.pieceId !== d.pieceId || rear.pieceId !== d.pieceId) continue;
+      if (front.pieceId !== d.pieceId || rear.pieceId !== d.pieceId) {
+        // Running onto the depot (its leading end on it), or not there yet: it will come up to the crane.
+        const arriving = front.pieceId === d.pieceId || (rear.pieceId !== d.pieceId && c > lastOn);
+        if (arriving && !stuck) coming = true;
+        else if (reach === -1) reach = car.id;
+        continue;
+      }
       // Distance still to go before the car's centre is under the crane.
       const centre = (along(front, len) + along(rear, len)) / 2;
       const ahead = (crane - centre) * (front.reversed ? -1 : 1);
       if (ahead < -AT_CRANE) {
-        s.done.add(car.id); // it rolled past: leave it be
+        if (reach === -1) reach = car.id;
         continue;
       }
-      if (ahead <= AT_CRANE) {
-        s.phase = HALTED;
-        s.carId = car.id;
-        s.ticks = 0;
-        return 0;
+      if (ahead <= AT_CRANE) return this.halt(s, car.id);
+      if (stuck) {
+        if (reach === -1) reach = car.id;
+        continue;
       }
+      coming = true;
       if (ahead / SIM_DT < cap) cap = ahead / SIM_DT;
     }
+    // Beside the depot at all, every wagon gets its turn: the train stops for the ones the crane must reach to.
+    if (!coming && reach !== -1) return this.halt(s, reach);
     return cap;
+  }
+
+  /** Stop the train for the crane to work on this car. */
+  private halt(s: Service, carId: number): number {
+    s.phase = HALTED;
+    s.carId = carId;
+    s.ticks = 0;
+    return 0;
   }
 
   /** Net drive of a train's engines toward its front (sign only matters). */
@@ -360,6 +390,7 @@ export class Economy {
     s.depotId = -1;
     s.carId = -1;
     s.ticks = 0;
+    s.still = 0;
     s.done.clear();
   }
 
