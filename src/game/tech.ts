@@ -21,8 +21,9 @@ export interface Tech {
  */
 export const TECHS: readonly Tech[] = [
   { id: "switches", label: "Switches", blurb: "Branch a line in two.", cost: { planks: 6 }, needs: [] },
-  { id: "bridges", label: "Bridges", blurb: "Cross rivers and other lines.", cost: { planks: 8 }, needs: [] },
-  { id: "heights", label: "Ramps and risers", blurb: "Take the track up and down.", cost: { planks: 6 }, needs: [] },
+  // A bridge stands a level up, so ramps come with it (a bridge alone can't be reached).
+  { id: "bridges", label: "Bridges and ramps", blurb: "Ramp up and cross rivers and other lines.", cost: { planks: 8 }, needs: [] },
+  { id: "heights", label: "Risers", blurb: "Raise track higher, over bridges and hills.", cost: { planks: 6 }, needs: ["bridges"] },
   { id: "sawmills", label: "Sawmills", blurb: "Build your own sawmill, wherever you like.", cost: { planks: 15 }, needs: [] },
   { id: "passengers", label: "Passengers", blurb: "Coaches and cabooses.", cost: { planks: 10 }, needs: [] },
   { id: "loops", label: "Turning loops", blurb: "Turn a train round without stopping.", cost: { planks: 6 }, needs: ["switches"] },
