@@ -675,7 +675,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     },
   });
   // The blueprint board: choices from towns that grew, blueprints to learn with planks, and the rest of the tree.
-  const board = new BlueprintBoard(hud.root, {
+  const board = new BlueprintBoard(document.body, {
     choose: (k, id) => {
       const o = progress.offers[k];
       if (!o || !chooseTech(progress, id, o.ids)) return;

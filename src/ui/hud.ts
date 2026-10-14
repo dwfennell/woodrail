@@ -968,11 +968,30 @@ export class Hud {
     this.toastEl.textContent = message;
     this.toastEl.classList.toggle("celebrate", celebrate);
     this.toastEl.classList.remove("show");
+    this.clearOfPanels();
     // Restart the slide-in even when a toast is already showing.
     void this.toastEl.offsetWidth;
     this.toastEl.classList.add("show");
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), ms);
+  }
+
+  /**
+   * Keep a toast clear of what's pinned under the top bar (the goals; the picking card): below it if they'd overlap
+   * (on a phone they always do), else where it goes. Measured when a toast shows, not per frame.
+   */
+  private clearOfPanels(): void {
+    const t = this.toastEl;
+    t.style.top = "";
+    const r = t.getBoundingClientRect();
+    let below = 0;
+    for (const p of this.root.querySelectorAll<HTMLElement>(".goals, .piece-card.group")) {
+      if (p.hidden || p.offsetParent === null) continue;
+      const q = p.getBoundingClientRect();
+      if (q.width === 0 || q.right < r.left || q.left > r.right || q.bottom < r.top) continue;
+      below = Math.max(below, q.bottom);
+    }
+    if (below > 0) t.style.top = `${Math.round(below + 22)}px`;
   }
 
   /** Is the screen point over the tray (dropping there cancels / deletes)? */

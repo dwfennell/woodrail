@@ -78,7 +78,6 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .card-row, .lever-row { display: flex; gap: 8px; }
 .card-hint { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; margin-top: -6px; max-width: 300px; }
 .piece-card .select-more { background: transparent; box-shadow: none; height: 32px; font-size: 14px; color: #8a6036; text-decoration: underline dotted; text-underline-offset: 4px; margin-top: -4px; }
-.hud.picking .toast { top: calc(max(10px, env(safe-area-inset-top)) + 196px); }
 /* Picking several pieces: the card moves up out of the way of the track being picked. */
 .card.piece-card.group { bottom: auto; top: calc(max(10px, env(safe-area-inset-top)) + 64px); gap: 8px; padding: 10px 14px 12px; }
 .piece-card.group .card-row { flex-wrap: wrap; justify-content: center; }
@@ -129,7 +128,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
   .chip { min-width: 44px; height: 44px; padding: 0 10px; font-size: 16px; }
   .chip.text { font-size: 13px; }
   .tray-item { width: 70px; height: 80px; }
-  .tray-item .label { font-size: 10.5px; }
+  /* Whole words only (no "Crossroad / s"): a little smaller, two lines at most. */
+  .tray-item .label { font-size: 10px; overflow-wrap: normal; word-break: normal; hyphens: manual; letter-spacing: -0.01em; }
   .card { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 136px); min-width: 0; width: calc(100% - 24px); }
 }
 
@@ -272,11 +272,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .make-head { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #8a6440; margin-top: 4px; }
 
 /* ---- Blueprint board (Game mode) ---------------------------------------------------------------------------- */
-.board-panel { overflow: hidden; position: absolute; left: 50%; top: calc(max(10px, env(safe-area-inset-top)) + 62px); bottom: calc(max(12px, env(safe-area-inset-bottom)) + 12px); transform: translateX(-50%); width: min(720px, calc(100% - 24px)); height: fit-content; max-height: calc(100% - 100px); display: flex; flex-direction: column; border-radius: 20px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); color: #3a2a1c; z-index: 5; }
+/* On the page itself (not under the HUD, which lets touches through), centred by its margins, not a transform, and with a definite height in iOS units: any of these stops an
+   iPhone wouldn't scroll the body inside. */
+.board-panel { overflow: hidden; position: fixed; left: max(12px, calc(50% - 360px)); right: max(12px, calc(50% - 360px)); top: calc(max(10px, env(safe-area-inset-top)) + 62px); height: auto; max-height: calc(100% - 100px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); max-height: calc(100dvh - 100px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); display: flex; flex-direction: column; border-radius: 20px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); color: #3a2a1c; z-index: 12; }
 .board-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 6px; }
 .board-head h2 { margin: 0; font-size: 22px; font-weight: 900; }
 .board-head .close { position: static; }
-.board-body { overflow-y: auto; min-height: 0; flex: 1 1 auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
+.board-body { overflow-y: auto; touch-action: pan-y; min-height: 0; flex: 1 1 auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
 .board-sub { flex: 1; margin-left: 12px; font-size: 13px; font-weight: 700; color: #8a6440; }
 /* The line map: the workshop's trunk, a line out to each first blueprint, branches to those that need it. */
 .bp-map { position: relative; flex: none; display: grid; column-gap: 4px; padding: 0; border-radius: 16px; background: repeating-linear-gradient(0deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), repeating-linear-gradient(90deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), #f7eedd; box-shadow: inset 0 0 0 1.5px rgba(167, 138, 102, 0.35); }
@@ -334,7 +336,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .bp-offer .or { font-weight: 900; color: #8a6440; }
 @media (max-width: 520px) {
   .board-sub { display: none; }
-  .board-panel { top: calc(max(10px, env(safe-area-inset-top)) + 56px); width: calc(100% - 16px); }
+  .board-panel { top: calc(max(10px, env(safe-area-inset-top)) + 56px); left: 8px; right: 8px; }
   .board-head { padding: 12px 14px 4px; }
   .board-body { padding: 4px 12px 14px; }
   .bp-name { font-size: 11px; padding: 1px 3px; }
