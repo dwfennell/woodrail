@@ -17,7 +17,7 @@ import { SIM_HZ, type CarKind } from "../sim";
 import { looseHeight } from "../landscape";
 import { connectorRef, getPieceDef, type PieceTypeId } from "../track";
 import { play, type Blocked } from "./player";
-import { layOn, rulesFor } from "./rules";
+import { endOn, layOn, rulesFor } from "./rules";
 
 /**
  * A whole Game-mode playthrough, headless, using the game's own pieces: a simulated player lays the starter line
@@ -206,17 +206,10 @@ describe("a Game-mode playthrough", () => {
       P.note(`${name}: ${r.ok ? `joined (${r.pieces} pieces)` : `NOT JOINED ${JSON.stringify(r)}`}`);
       expect(r.ok, name).toBe(true);
     }
-    // Turnbacks on both ends (from the box). The sawmill's far end is a hole: an adapter first.
-    const sawEnd = connectorRef(depotPiece(w(), "sawmill"), 0);
-    let t1 = layOn(w(), P.editor, sawEnd, "buffer-turnback");
-    if ("why" in t1) {
-      P.findings.push(`A turnback won't go on the sawmill's far end (${t1.why}): a peg-peg adapter is needed first.`);
-      const ad = layOn(w(), P.editor, sawEnd, "adapter-peg");
-      if ("why" in ad) throw new Error(ad.why);
-      t1 = layOn(w(), P.editor, ad.next, "buffer-turnback");
-    }
+    // Turnbacks on both ends (from the box), turned over to fit a hole end.
+    const t1 = endOn(w(), P.editor, connectorRef(depotPiece(w(), "sawmill"), 0));
     expect("why" in t1).toBe(false);
-    const t2 = layOn(w(), P.editor, connectorRef(depotPiece(w(), "forest"), 1), "buffer-turnback");
+    const t2 = endOn(w(), P.editor, connectorRef(depotPiece(w(), "forest"), 1));
     expect("why" in t2).toBe(false);
     expect(P.allowed({ kind: "piece", type: "buffer-turnback" })).toBe("piece:buffer-turnback");
     P.note(`line laid: ${w().layout.pieceCount - P.fixed.size} pieces of track`);
@@ -246,8 +239,10 @@ describe("a Game-mode playthrough", () => {
       for (const id of w().sim.trainIds()) {
         if (!w().sim.getTrain(id)?.derailed) continue;
         const ok = w().sim.rerail(id) !== -1;
+        if (!ok && P.findings.some((f) => f.startsWith("A derailed train couldn't"))) continue;
         P.note(`a train derailed: Re-rail ${ok ? "put it back" : "COULDN'T put it back"}`);
-        if (!ok) P.findings.push("A derailed train couldn't be re-railed.");
+        const finding = `A derailed train couldn't be re-railed (first at minute ${minute}): ${w().sim.trainIds().length} trains on the line, ${w().sim.trainIds().filter((t) => w().sim.getTrain(t)!.derailed).length} derailed.`;
+        if (!ok && !P.findings.some((f) => f.startsWith("A derailed train couldn't"))) P.findings.push(finding);
       }
       // Choose from what towns offer (one free).
       while (P.progress.offers.length > 0) {
@@ -343,11 +338,7 @@ describe("a Game-mode playthrough", () => {
           if (r.ok) {
             thirdJoined = true;
             const far = connectorRef(station, near % 4 === 0 ? 1 : 0);
-            const tb = layOn(w(), P.editor, far, "buffer-turnback");
-            if ("why" in tb) {
-              const ad = layOn(w(), P.editor, far, "adapter-peg");
-              if (!("why" in ad)) layOn(w(), P.editor, ad.next, "buffer-turnback");
-            }
+            endOn(w(), P.editor, far);
             break;
           }
           P.findings.push(`The simulated player couldn't reach ${third.name} from the forest yard (${r.how}${r.blockedBy ? `, ${r.blockedBy}` : ""}).`);
@@ -409,9 +400,8 @@ describe("a Game-mode playthrough", () => {
       if ("why" in shop) throw new Error(shop.why);
       syncIndustries(w);
       expect(play(w.layout, P.editor, shop.next, connectorRef(depotPiece(w, "forest"), 0), { blocked: rulesFor(w), maxPieces: 60, fiddle: 3 }).ok).toBe(true);
-      const ad = layOn(w, P.editor, connectorRef(depotPiece(w, "sawmill"), 0), "adapter-peg");
-      if (!("why" in ad)) layOn(w, P.editor, ad.next, "buffer-turnback");
-      layOn(w, P.editor, connectorRef(depotPiece(w, "forest"), 1), "buffer-turnback");
+      endOn(w, P.editor, connectorRef(depotPiece(w, "sawmill"), 0));
+      endOn(w, P.editor, connectorRef(depotPiece(w, "forest"), 1));
       // The town stations' cranes: on (as a new game has them), or switched off on their cards.
       if (!townCranes) for (const d of w.economy.allDepots()) if (d.role === "town") w.economy.setAuto(d.id, false);
       const mid = [...w.layout.pieceIds()].find((id) => !P.fixed.has(id) && w.layout.getPiece(id)!.type.startsWith("straight") && Math.abs(w.layout.getPiece(id)!.pose.x) < 300)!;
@@ -453,9 +443,8 @@ describe("a Game-mode playthrough", () => {
         results.push(`seed ${seed}: couldn't lay ${failed.map(([n, r]) => `${n} (${r.how}${r.blockedBy ? `, ${r.blockedBy}` : ""})`).join(", ")}`);
         continue;
       }
-      const ad = layOn(w, P.editor, connectorRef(depotPiece(w, "sawmill"), 0), "adapter-peg");
-      if (!("why" in ad)) layOn(w, P.editor, ad.next, "buffer-turnback");
-      layOn(w, P.editor, connectorRef(depotPiece(w, "forest"), 1), "buffer-turnback");
+      endOn(w, P.editor, connectorRef(depotPiece(w, "sawmill"), 0));
+      endOn(w, P.editor, connectorRef(depotPiece(w, "forest"), 1));
       const mid = [...w.layout.pieceIds()].find((id) => !P.fixed.has(id) && w.layout.getPiece(id)!.type.startsWith("straight") && Math.abs(w.layout.getPiece(id)!.pose.x) < 300)!;
       const r = w.sim.addTrain(["engine", "timber", "timber", "timber"], { pieceId: mid, pathIndex: 0, reversed: false, s: 10 });
       if (r.kind !== "placed") {

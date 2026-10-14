@@ -37,3 +37,9 @@ export function layOn(w: World, editor: Editor, ref: number, type: PieceTypeId, 
   const other = def.connectors.findIndex((_, k) => k !== via);
   return { id, next: other === -1 ? -1 : connectorRef(id, other) };
 }
+
+/** Put a buffer (or turnback) on free end `ref`, flipped if that end is a hole: a player turns it over to fit. */
+export function endOn(w: World, editor: Editor, ref: number, type: PieceTypeId = "buffer-turnback"): { id: number; next: number } | { why: string } {
+  const r = layOn(w, editor, ref, type);
+  return "why" in r ? layOn(w, editor, ref, type, true) : r;
+}

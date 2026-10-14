@@ -1,26 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
-import { buildStarterWorld, syncIndustries, type World } from "../game/world";
-import { checkPlacement, checkSupport } from "../landscape";
+import { buildStarterWorld, syncIndustries } from "../game/world";
 import { LandEditor } from "../landscape/edit";
 import { addTownProps } from "../props/towns";
-import { appendPiece, connectorRef, findLowCrossing, findOverlap, getPieceDef } from "../track";
+import { connectorRef } from "../track";
 import { SIM_HZ } from "../sim";
 import { buildOnLots, nextLots } from "../game/town-growth";
 import { housesBy, townStatus } from "../game/towns";
 import { receivedBy } from "../game/town-life";
-import { play, type Blocked } from "./player";
+import { play } from "./player";
+import { endOn, rulesFor } from "./rules";
 
-function rulesFor(w: World): Blocked {
-  return (type, flipped, pose, y, ignoreId) => {
-    const c = checkPlacement(w.landscape, type, flipped, pose, y);
-    if (c.kind === "blocked") return c.reason;
-    if (findOverlap(w.layout, type, flipped, pose, y, ignoreId) !== -1) return "piece";
-    if (findLowCrossing(w.layout, type, flipped, pose, y, ignoreId) !== -1) return "headroom";
-    if (checkSupport(w.landscape, w.layout, type, flipped, pose, y, ignoreId).kind === "unsupported") return "unsupported";
-    return null;
-  };
-}
 
 /**
  * The Game mode's first job, played end to end: a simulated player lays the starter line (sawmill, Larkfield,
@@ -51,24 +41,9 @@ it("is laid by a player and grows a town into a city", () => {
   }
   // 2. Turnback buffers on the line's two ends (the sawmill's far end, the forest yard's far end).
   for (const [piece, k] of [[saw, 0], [forest, 1]] as const) {
-    const ref = connectorRef(piece, k);
-    const e = w.layout.worldConnector(ref, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
-    let end = ref;
-    let via = getPieceDef("buffer-turnback", false).connectors.findIndex((c) => c.kind !== e.kind);
-    if (via === -1) {
-      // A hole end: a buffer has a hole too, so a peg-peg adapter goes first (as a player would have to).
-      const aid = appendPiece(w.layout, "adapter-peg", false, ref, 0);
-      const ap = w.layout.getPiece(aid)!;
-      w.layout.removePiece(aid);
-      const placedAdapter = editor.place("adapter-peg", ap.pose, ap.y, false);
-      end = connectorRef(placedAdapter, 1);
-      via = 0;
-      log.push(`turnback on ${w.layout.getPiece(piece)!.type}: needed a peg-peg adapter first`);
-    } else log.push(`turnback on ${w.layout.getPiece(piece)!.type}: laid`);
-    const id = appendPiece(w.layout, "buffer-turnback", false, end, via);
-    const p = w.layout.getPiece(id)!;
-    w.layout.removePiece(id);
-    editor.place("buffer-turnback", p.pose, p.y, false);
+    const r = endOn(w, editor, connectorRef(piece, k));
+    log.push(`turnback on ${w.layout.getPiece(piece)!.type}: ${"why" in r ? `refused (${r.why})` : "laid"}`);
+    expect("why" in r).toBe(false);
   }
   syncIndustries(w);
   log.push(`track: ${w.layout.pieceCount - fixed.size} pieces laid`);
