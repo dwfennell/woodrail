@@ -1,5 +1,4 @@
-import { Color, Group, MeshStandardMaterial, Quaternion, Vector3, type Object3D } from "three";
-import type { CarPose } from "../physics/derail-physics";
+import { Color, Group, MeshStandardMaterial, type Object3D } from "three";
 import { CAR_KINDS, type CarLook, type SimSnapshot } from "../sim";
 import type { Materials } from "./materials";
 import { buildCarModel, carVariant, disposeObject, WHEEL_RADIUS, type CarModel } from "./train-models";
@@ -27,11 +26,12 @@ export class TrainView {
 
   constructor(private readonly mats: Materials) {}
 
-  private readonly pose: CarPose = { position: new Vector3(), quaternion: new Quaternion() };
   /** Cars seen this frame (kept between frames to avoid garbage). */
   private readonly seen = new Set<number>();
 
-  update(snap: SimSnapshot, dt: number, physicsPose?: (carId: number, out: CarPose) => CarPose | null): void {
+  /** Draw the cars where the sim has them. True while a derailed car is still toppling over. */
+  update(snap: SimSnapshot, dt: number): boolean {
+    let tipping = false;
     const seen = this.seen;
     seen.clear();
     for (let i = 0; i < snap.count; i++) {
@@ -69,18 +69,11 @@ export class TrainView {
       entry.lastX = x;
       entry.lastZ = z;
 
-      if (snap.derailed[i] && physicsPose?.(id, this.pose)) {
-        root.position.copy(this.pose.position);
-        root.quaternion.copy(this.pose.quaternion);
-        entry.lastX = root.position.x;
-        entry.lastZ = root.position.z;
-        entry.tip = 0;
-        continue;
-      }
-
-      // Without physics (still loading, or unavailable) a derailed car simply topples onto its side.
+      // A derailed car topples onto its side where it is.
       const targetTip = snap.derailed[i] ? 1 : 0;
       entry.tip += (targetTip - entry.tip) * Math.min(1, dt * 6);
+      if (Math.abs(targetTip - entry.tip) < 0.002) entry.tip = targetTip;
+      else tipping = true;
       root.rotation.x = entry.tip * (Math.PI / 2) * (id % 2 ? 1 : -1);
       root.position.y = y + entry.tip * 12;
 
@@ -98,6 +91,7 @@ export class TrainView {
         this.cars.delete(id);
       }
     }
+    return tipping;
   }
 
   carAt(object: Object3D): number {

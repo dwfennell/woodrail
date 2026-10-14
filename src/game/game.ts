@@ -17,7 +17,6 @@ import {
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { LandscapeView, type AroundPlot } from "../render/landscape-view";
-import { cutColumn } from "../render/dressing/hill-cuts";
 import { createMaterials, type Materials } from "../render/materials";
 import { Flourishes } from "../render/flourishes";
 import { createPost, type Post } from "../render/post";
@@ -30,9 +29,8 @@ import { TrainView } from "../render/train-view";
 import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
-import { DerailPhysics } from "../physics/derail-physics";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { bridgeLevels, findCrossings, syncCuttings, type HeldPiece, hillPieces, hillsOf, PLOT_DEPTH, type Landscape } from "../landscape";
+import { bridgeLevels, findCrossings, syncCuttings, type HeldPiece, PLOT_DEPTH, type Landscape } from "../landscape";
 import { setHazeLand, setHazeReach } from "../render/haze";
 import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
 import { isJoin, PIECE_TYPES, type Layout, type PlacedPiece } from "../track";
@@ -117,7 +115,6 @@ export class Game {
   readonly depotView: DepotView;
   readonly post: Post;
   readonly snapshot: SimSnapshot = createSnapshot();
-  readonly physics: DerailPhysics;
   /** Simulation events from the latest frame (derailments, couplings, …). */
   events: SimEvent[] = [];
   layout: Layout;
@@ -199,10 +196,6 @@ export class Game {
     this.trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
-    this.physics = new DerailPhysics(this.layout);
-    this.physics.bridgeLevels = this.bridgeLevelsOf;
-    this.hillsFor = null;
-    this.syncHillPhysics();
     this.trainView = new TrainView(this.mats);
     this.trainView.lookOf = (id) => this.sim.lookOf(id);
     this.scene.add(this.trainView.group);
@@ -271,9 +264,6 @@ export class Game {
     (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
-    this.physics.setLayout(this.layout);
-    this.hillsFor = null;
-    this.syncHillPhysics();
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.depotView.setWorld(this.economy, this.layout);
     this.landChanged();
@@ -289,8 +279,6 @@ export class Game {
     this.invalidate();
     const t0 = performance.now();
     this.landscapeView.addPlots(bought.slots, this.aroundReady());
-    // New stations and depots are new pieces; the hills' colliders take in the new plot.
-    this.hillsFor = null;
     this.trackChanged();
     this.depotView.setWorld(this.economy, this.layout);
     this.landChanged();
@@ -375,28 +363,6 @@ export class Game {
     return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy, props: this.props };
   }
 
-  /** What the hills' colliders were last built for (the cut blocks and what cuts them). */
-  private hillsFor: string | null = null;
-
-  /** Hills as derailed cars find them: blocks cut by cuttings as their cut shape. Call after `syncCuttings`. */
-  private syncHillPhysics(): void {
-    const grid = this.landscape.grid;
-    const cut = hillsOf(grid).cutBlocks();
-    const key = cut.map((b) => `${b.col},${b.row},${b.level}:${b.key}`).join(";");
-    if (key === this.hillsFor) return;
-    this.hillsFor = key;
-    const ids = new Set(cut.map((b) => `${b.col},${b.row},${b.level}`));
-    const pieces = hillPieces(grid, (c, r, level) => ids.has(`${c},${r},${level}`));
-    const columns = cut.map((b) => {
-      const { body, paint } = cutColumn(grid, b);
-      const soup = body.getAttribute("position").array as Float32Array;
-      body.dispose();
-      paint.dispose();
-      return soup;
-    });
-    this.physics.setSlabs(pieces.slabs, pieces.round, columns);
-  }
-
   /** Call after any layout edit. */
   trackChanged(): void {
     this.invalidate();
@@ -405,10 +371,8 @@ export class Game {
     syncCuttings(this.landscape, this.layout);
     const hop = this.landscapeView.syncTrees(this.layout, true);
     if (hop) this.flourishes.add(hop);
-    this.syncHillPhysics();
     this.economy.prune();
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
-    this.physics.markTrackDirty();
   }
 
   /**
@@ -428,8 +392,7 @@ export class Game {
   rerail(trainId: number): number {
     const t = this.sim.getTrain(trainId);
     if (!t) return -1;
-    const rest = this.physics.restingPoint(t.cars[0].id);
-    return this.sim.rerail(trainId, 150, rest ?? undefined);
+    return this.sim.rerail(trainId, 150);
   }
 
   /** Point the camera at the layout from the current viewing direction, fitting it on screen. */
@@ -535,25 +498,14 @@ export class Game {
       if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
     }
     this.events = this.sim.drainEvents();
-    for (const e of this.events) {
-      if (e.kind === "derailed") {
-        const t = this.sim.getTrain(e.trainId);
-        if (t) this.physics.derail(t);
-      }
-    }
     this.sim.writeSnapshot(this.snapshot);
-    const derailedCars = this.derailedCars;
-    derailedCars.clear();
-    for (let i = 0; i < this.snapshot.count; i++) if (this.snapshot.derailed[i]) derailedCars.add(this.snapshot.ids[i]);
-    this.physics.retain((id) => derailedCars.has(id));
-    if (!this.paused) this.physics.step(dt);
     this.simMs = performance.now() - t0;
-    this.trainView.update(this.snapshot, dt, (id, out) => this.physics.poseOf(id, out));
+    const tipping = this.trainView.update(this.snapshot, dt);
     let active = this.crossingsView.update(this.snapshot, dt);
     const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), dt);
     if (depots === "moving") active = true;
     else if (depots === "changed") this.invalidate();
-    if (this.trainsChanged() || this.physics.moving || this.flourishes.count > 0) active = true;
+    if (this.trainsChanged() || tipping || this.flourishes.count > 0) active = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
     const shadowsMoved = active || this.shadowsMoving;
     this.shadowsMoving = false;
@@ -728,10 +680,9 @@ export class Game {
   private readonly tiltSph = new Spherical();
 
   /** Something changed that the frame loop can't see (track, scenery, a selection, a resize): draw it (once). */
-  /** Squares' heights changed in these plots (land editing): redraw them, and re-fit cuttings, trees and colliders. */
+  /** Squares' heights changed in these plots (land editing): redraw them, and re-fit cuttings and trees. */
   editLand(slots: readonly number[]): void {
     for (const s of slots) this.landscape.grid.touch(s);
-    this.hillsFor = null;
     this.landscapeView.landEdited(slots);
     this.trackChanged();
     this.invalidate();
@@ -762,7 +713,6 @@ export class Game {
     this.shadowsMoving = true;
   }
 
-  private readonly derailedCars = new Set<number>();
   private dirty = true;
   /** Input arrived: keep drawing for a moment, for whatever it set easing (a held piece, a selection). */
   private woken = false;

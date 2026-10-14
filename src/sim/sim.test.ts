@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, Layout, RAMP_LENGTH, type PieceTypeId } from "../track";
 import { CAR_SPECS, COUPLER_GAP } from "./cars";
 import { createWorldSample, cursorWorld } from "./cursor";
-import { createSnapshot, Sim, SIM_DT, SIM_HZ } from "./sim";
+import { createSnapshot, ENGINE_SPEED, Sim, SIM_DT, SIM_HZ } from "./sim";
 
 function chain(types: PieceTypeId[], flips: boolean[] = []): { layout: Layout; ids: number[] } {
   const layout = new Layout();
@@ -166,7 +166,7 @@ describe("running", () => {
     expect(snap.transforms[engineIdx * 6]).toBeLessThan(x0 - 150);
   });
 
-  it("climbs a ramp more slowly than it runs on the level", () => {
+  it("climbs a ramp at the speed it runs on the level (a toy: slopes and loads don't slow it)", () => {
     const { layout, ids } = chain(["straight-216", "straight-216", "straight-216", "ramp", "bridge", "bridge"]);
     const sim = new Sim(layout);
     const r = sim.addTrain(["engine", "hopper", "hopper"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 200 });
@@ -181,12 +181,11 @@ describe("running", () => {
       if (b.pieceId === ids[3] && b.s > RAMP_LENGTH * 0.7) break;
     }
     expect(t.bogies[0].pieceId).toBe(ids[3]);
-    expect(flatSpeed).toBeGreaterThan(95);
-    expect(t.speed).toBeLessThan(flatSpeed * 0.8);
-    expect(t.speed).toBeGreaterThan(10);
+    expect(flatSpeed).toBe(ENGINE_SPEED);
+    expect(t.speed).toBe(ENGINE_SPEED);
   });
 
-  it("an unpowered car rolls down a ramp", () => {
+  it("an unpowered car stays put on a ramp", () => {
     const { layout, ids } = chain(["bridge", "bridge"]);
     // ramp descending from the bridge: attach a ramp by its peg (high end) to the bridge's socket
     const ramp = appendPiece(layout, "ramp", false, connectorRef(ids[0], 0), 1);
@@ -196,7 +195,7 @@ describe("running", () => {
     const r = sim.addTrain(["hopper"], { pieceId: ramp, pathIndex: 0, reversed: true, s: 60 });
     if (r.kind !== "placed") throw new Error("not placed");
     run(sim, 1);
-    expect(sim.getTrain(r.trainId)!.speed).toBeGreaterThan(20);
+    expect(sim.getTrain(r.trainId)!.speed).toBe(0);
   });
 });
 
@@ -299,13 +298,12 @@ describe("coupling", () => {
     expect(sim.getTrain(sim.trainIds()[0])!.cars).toHaveLength(2);
   });
 
-  it("a fast run into a train ahead doesn't derail: it slows to that train's pace and couples", () => {
-    const { sim, a, b } = twoTrains(["hopper"]);
-    sim.getTrain(a)!.speed = 400; // shoved hard by hand, motor off
+  it("a train shoved without power stops within a moment, rather than coasting on", () => {
+    const { sim, a } = twoTrains(["hopper"]);
+    sim.getTrain(a)!.speed = 400;
     run(sim, 2);
+    expect(sim.getTrain(a)!.speed).toBe(0);
     expect(sim.drainEvents().some((e) => e.kind === "derailed")).toBe(false);
-    expect(sim.trainCount).toBe(1);
-    void b;
   });
 
   it("two trains meeting head on stop, wait, and each turn back: no crash, no coupling", () => {

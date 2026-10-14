@@ -27,10 +27,8 @@ const TURN_CLEARANCE = 0.05;
 
 // Motion tuning (mm, s).
 export const ENGINE_SPEED = 120;
-const DRIVE_RESPONSE = 3; // 1/s: how quickly a motor pulls toward its target speed
-const GRAVITY = 600; // mm/s² per unit slope — toy-scaled so ramps matter without stalling trains
-const ROLLING_FRICTION = 40; // mm/s² when coasting
-const LOAD_PER_CAR = 0.05; // fractional speed loss per trailing car per engine
+/** How quickly (mm/s²) a train gets up to speed, or stops: half a second either way. */
+const ACCELERATION = ENGINE_SPEED * 2;
 const SIDE_HIT_DISTANCE = 12;
 
 export interface Car {
@@ -388,25 +386,18 @@ export class Sim {
   }
 
   private move(train: Train): void {
+    // A toy, not a simulation: with its lever on a train runs at the one speed (slopes and loads don't change it),
+    // easing up to it and, lever off, easing to a stop.
     let net = 0;
     for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
-    let grade = 0;
-    for (const w of train.world) grade += w.slope;
-    grade /= train.world.length;
-
+    let target = Math.sign(net) * ENGINE_SPEED;
+    const cap = net !== 0 && this.speedCap ? this.speedCap(train) : Infinity;
+    if (target > cap) target = cap;
     let v = train.speed;
-    if (net !== 0) {
-      const engines = Math.abs(net);
-      const target = Math.sign(net) * ENGINE_SPEED * Math.max(0.3, 1 - (LOAD_PER_CAR * (train.cars.length - 1)) / engines);
-      v += DRIVE_RESPONSE * (target - v) * SIM_DT;
-      v -= GRAVITY * grade * SIM_DT;
-      const cap = this.speedCap ? this.speedCap(train) : Infinity;
-      if (v > cap) v = cap;
-    } else {
-      v -= GRAVITY * grade * SIM_DT;
-      const f = ROLLING_FRICTION * SIM_DT;
-      v = Math.abs(v) <= f ? 0 : v - Math.sign(v) * f;
-    }
+    const step = ACCELERATION * SIM_DT;
+    v = Math.abs(target - v) <= step ? target : v + Math.sign(target - v) * step;
+    // A crane holding the train (cap 0) holds it there and then.
+    if (v > cap) v = cap;
     if (v < 0) {
       this.flipTrain(train);
       v = -v;
