@@ -126,7 +126,9 @@ export class RoadPlacer {
   fit(id: RoadPieceId, i: number, held: number): number {
     const g = this.land.grid;
     roadNeighbours(g, i, this.nbs, this.steps);
-    if (!pieceOf(encodeRoad(id, 0))?.ramp) return encodeRoad(id, bestTurn(id, this.nbs, held, this.steps));
+    const def = pieceOf(encodeRoad(id, 0));
+    if (def?.overRiver) return encodeRoad(id, this.bridgeTurn(i, held));
+    if (!def?.ramp) return encodeRoad(id, bestTurn(id, this.nbs, held, this.steps));
     const nb = g.neighbours();
     let best = encodeRoad("ramp-low", bestTurn("ramp-low", this.nbs, held, this.steps));
     let bestScore = -Infinity;
@@ -153,6 +155,34 @@ export class RoadPlacer {
   }
 
   private readonly steps = [0, 0, 0, 0];
+
+  /**
+   * A bridge's turn: across the river (both ends toward land) before anything else, then joining the roads beside it,
+   * then as held.
+   */
+  private bridgeTurn(i: number, held: number): number {
+    const g = this.land.grid;
+    const nb = g.neighbours();
+    const land = (e: number) => {
+      const j = nb[i * 4 + e];
+      return j !== -1 && g.surface[j] !== SURF_RIVER;
+    };
+    let best = held & 1;
+    let bestScore = -Infinity;
+    for (const t of [0, 1]) {
+      const road = encodeRoad("bridge", t);
+      let score = (land(t) ? 32 : 0) + (land(t + 2) ? 32 : 0) - (t === (held & 1) ? 0 : 1);
+      for (let e = t; e < 4; e += 2) {
+        const n = this.nbs[e];
+        if (n && roadsJoin(road, e as Edge, n, this.steps[e])) score += 16;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = t;
+      }
+    }
+    return best;
+  }
 
   private sampleTrack(layout: Layout): void {
     const g = this.land.grid;
