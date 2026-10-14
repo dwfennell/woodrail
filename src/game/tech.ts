@@ -28,7 +28,10 @@ export const TECHS: readonly Tech[] = [
   { id: "passengers", label: "Passengers", blurb: "Coaches and cabooses.", cost: { planks: 10 }, needs: [] },
   { id: "loops", label: "Turning loops", blurb: "Turn a train round without stopping.", cost: { planks: 6 }, needs: ["switches"] },
   { id: "junctions", label: "Junctions", blurb: "Three-ways, crossings, double track.", cost: { planks: 10 }, needs: ["switches"] },
-  { id: "hoppers", label: "Hopper wagons", blurb: "Wagons for loose loads.", cost: { planks: 8 }, needs: ["junctions"] },
+  // The industry line: more logs, then the farm chain.
+  { id: "harvesters", label: "Harvesters", blurb: "A forest yard of your own, beside the trees.", cost: { planks: 10 }, needs: [] },
+  { id: "farming", label: "Farming", blurb: "A farm yard by the fields, and hoppers for its grain.", cost: { planks: 12 }, needs: ["harvesters"] },
+  { id: "mills", label: "Mills", blurb: "Grind grain into flour, for the towns.", cost: { planks: 16 }, needs: ["farming"] },
 ];
 
 /** On the board from a new game's start, to be learned with goods. */

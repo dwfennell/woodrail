@@ -44,11 +44,14 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:bridge-curve": { label: "Curved bridge", cost: { planks: 5 }, tech: "bridges" },
   "car:engine": { label: "Engine", cost: { planks: 6 } },
   "car:timber": { label: "Timber wagon", cost: { planks: 3 } },
-  "car:hopper": { label: "Hopper", cost: { planks: 3 }, tech: "hoppers" },
+  "car:hopper": { label: "Hopper", cost: { planks: 3 }, tech: "farming" },
   "car:passenger": { label: "Coach", cost: { planks: 4 }, tech: "passengers" },
   "car:caboose": { label: "Caboose", cost: { planks: 2 }, tech: "passengers" },
   "piece:depot-workshop": { label: "Workshop", cost: { planks: 12 } },
   "piece:depot-sawmill": { label: "Sawmill", cost: { planks: 20 }, tech: "sawmills" },
+  "piece:depot-forest": { label: "Harvester", cost: { planks: 10 }, tech: "harvesters" },
+  "piece:depot-farm": { label: "Farm yard", cost: { planks: 12 }, tech: "farming" },
+  "piece:depot-mill": { label: "Mill", cost: { planks: 16 }, tech: "mills" },
 };
 
 /** What a new game's toy box holds: enough for a first timber train, its turnbacks and a workshop. */

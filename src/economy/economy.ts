@@ -27,7 +27,7 @@ interface Service {
   readonly done: Set<number>;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop";
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill";
 
 /**
  * What a kind of depot does: the goods trains bring it (unloaded onto its piles), the goods it gives them, and what it
@@ -49,6 +49,9 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   town: { takes: ["planks"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   workshop: { takes: ["planks"], gives: [] },
+  // The farm chain (Game mode): a farm yard by the fields fills hoppers with grain; a mill grinds it into flour.
+  farm: { takes: [], gives: ["grain"], cycle: { uses: {}, makes: { grain: 1 }, seconds: 12 } },
+  mill: { takes: ["grain"], gives: ["flour"], cycle: { uses: { grain: 1 }, makes: { flour: 1 }, seconds: 8 } },
 };
 
 /** The piles a kind of depot keeps: what it takes and what it gives. */

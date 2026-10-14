@@ -1,4 +1,4 @@
-import { BoxGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, Object3D, Quaternion, Vector3, type BufferGeometry, type Material } from "three";
+import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, Object3D, Quaternion, Vector3, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CARGO, CARGO_KINDS, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
@@ -65,6 +65,22 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
     piles: { planks: { t: 60, l: 84, y: PAD_H, across: 2, axis: "t" } },
     trackT: 60,
+  },
+  // The farm chain: a farm yard (grain from the fields) and a mill (grain into flour), laid out like the others.
+  farm: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 108, l: 40, height: 72 },
+    piles: { grain: { t: 100, l: 76, y: PAD_H, across: 3, axis: "t" } },
+    trackT: 108,
+  },
+  mill: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "gantry", t: 108, l: 45, height: 66 },
+    piles: {
+      grain: { t: 108, l: 54, y: PAD_H, across: 3, axis: "t" },
+      flour: { t: 108, l: 92, y: PAD_H, across: 3, axis: "t" },
+    },
+    trackT: 108,
   },
   town: {
     pad: null,
@@ -246,6 +262,7 @@ export class DepotView {
       tile.at.push({ x: at.x, z: at.z });
       this.buildStatic(site, tile.b);
       if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
+      if (depot.role === "mill") site.blade = this.buildSails(pose);
       // The crane's moving parts are small: drawn only within `CRANE_REACH` of the camera.
       for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
         if (!o) continue;
@@ -339,6 +356,24 @@ export class DepotView {
       b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(30, 28, 3, 1, 1), 156, 56, PAD_H + 14));
       for (const t of [126, 186]) b.add(mats.lacquer("#bfe0f2"), place(new RoundedBoxGeometry(14, 10, 2, 1, 0.8), t, 56.5, PAD_H + 26));
     }
+    if (site.depot.role === "farm") {
+      // A round silo with a red cap, and a little barn, at the far end of the yard.
+      b.add(mats.lacquer("#f0ebe0"), place(new CylinderGeometry(13, 13, 56, 18), 184, 66, PAD_H + 28));
+      b.add(mats.lacquer("#c8442f"), place(new CylinderGeometry(4, 14, 10, 18), 184, 66, PAD_H + 61));
+      b.add(mats.blockWood, place(new RoundedBoxGeometry(36, 26, 30, 2, 2.5), 176, 98, PAD_H + 13));
+      for (const side of [-1, 1]) {
+        const slope = new RoundedBoxGeometry(40, 3.5, 20, 1, 1.2);
+        slope.translate(0, 0, (side * 18) / 2);
+        slope.rotateX(side * 0.5);
+        b.add(mats.lacquer("#c8442f"), place(slope, 176, 98, PAD_H + 30));
+      }
+    }
+    if (site.depot.role === "mill") {
+      // A windmill: a beech tower with a blue cap (its sails turn while it grinds; see `buildSails`).
+      b.add(mats.blockWood, place(new CylinderGeometry(13, 17, 62, 16), 34, 92, PAD_H + 31));
+      b.add(mats.lacquer("#2f6db5"), place(new ConeGeometry(16, 16, 16), 34, 92, PAD_H + 70));
+      b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(10, 14, 2, 1, 0.8), 34, 74.5, PAD_H + 7));
+    }
     if (site.depot.role === "forest") {
       // A small beech hut with a green roof at the far end of the yard.
       b.add(mats.blockWood, place(new RoundedBoxGeometry(30, 26, 24, 2, 2.5), 186, 96, PAD_H + 13));
@@ -375,6 +410,19 @@ export class DepotView {
     blade.userData.depotMoving = true;
     this.group.add(blade);
     return blade;
+  }
+
+  /** A windmill's sails, on the tower's track side; they turn (like the saw) while the mill grinds. */
+  private buildSails(pose: SitePose): Mesh {
+    const arm = new RoundedBoxGeometry(4, 34, 1.4, 1, 0.5).translate(0, 17, 0);
+    const blades = mergeGeometries([0, 1, 2, 3].map((k) => arm.clone().rotateZ((k * Math.PI) / 2)))!;
+    const sails = new Mesh(blades, this.mats.lacquer("#f1ebdd"));
+    toWorld(pose, 34, 74, PAD_H + 58, sails.position);
+    sails.rotation.y = -pose.heading;
+    sails.castShadow = true;
+    sails.userData.depotMoving = true;
+    this.group.add(sails);
+    return sails;
   }
 
   /** World pose of pile unit k (its centre), written to `pos`; returns its yaw. */
@@ -472,7 +520,7 @@ export class DepotView {
     // The saw spins while the sawmill is cutting.
     for (const site of this.sites) {
       if (site.blade && economy.working(site.depot)) {
-        site.blade.rotateZ(dt * 14);
+        site.blade.rotateZ(dt * (site.depot.role === "mill" ? 2.5 : 14));
         busy = true;
       }
     }

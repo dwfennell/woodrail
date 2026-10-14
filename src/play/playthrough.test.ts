@@ -224,7 +224,7 @@ describe("a Game-mode playthrough", () => {
     P.note("timber train set going; the toy box has no more engines");
 
     // 3. Play: react each minute as a player would.
-    const prefer = ["bridges", "switches", "passengers", "sawmills", "heights", "loops", "junctions", "hoppers"];
+    const prefer = ["bridges", "switches", "passengers", "sawmills", "heights", "loops", "junctions", "harvesters", "farming", "mills"];
     const wanted: ThingId[] = ["piece:switch", "piece:bridge", "car:engine", "car:timber"];
     const done = new Set<string>();
     let extended = false;

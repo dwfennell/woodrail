@@ -63,6 +63,9 @@ const NO_MOUSE = -1 as unknown as MOUSE;
 const MAX_TILT = (2 * Math.PI) / 180;
 const TRAIN_DROP_RANGE = 70;
 
+/** Why a piece can't go somewhere: the track's own reasons, or a mode's rule ("site", with its own message). */
+type PlaceBlock = BlockReason | "site";
+
 type Press =
   | { kind: "car"; carId: number }
   | { kind: "lever"; pieceId: number }
@@ -100,7 +103,7 @@ type Mode =
       dx: number;
       dz: number;
       snapped: boolean;
-      blocked: BlockReason | null;
+      blocked: PlaceBlock | null;
       /** The last move drawn (skip a pointer move that lands on the same spot). */
       key: string;
     }
@@ -128,7 +131,7 @@ type Mode =
       pose: Pose;
       /** Base height for a loose (unsnapped) drop: high enough to rest on what's under its ends. */
       looseY: number;
-      blocked: BlockReason | null;
+      blocked: PlaceBlock | null;
       /** Risers to put under the piece's ends that are in the air (added with it). */
       risers: RiserAt[];
       overTray: boolean;
@@ -1062,7 +1065,7 @@ export class Interaction {
    * Can a piece go here, and what holds it up: null and the risers to add under ends in the air, or why not (the
    * landscape, another piece, nothing under an end, or no room for its risers).
    */
-  private placement(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): { reason: BlockReason | null; risers: RiserAt[] } {
+  private placement(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): { reason: PlaceBlock | null; risers: RiserAt[] } {
     const reason = this.blockedBy(type, flipped, pose, y, ignoreId);
     if (reason) return { reason, risers: [] };
     const s = checkSupport(this.game.landscape, this.game.layout, type, flipped, pose, y, ignoreId);
@@ -1071,14 +1074,31 @@ export class Interaction {
       const why = this.blockedBy("riser", false, r.pose, r.y, ignoreId);
       if (why) return { reason: why, risers: [] };
     }
+    const site = this.siteRule?.(type, pose) ?? null;
+    if (site) {
+      this.siteWhy = site;
+      return { reason: "site", risers: [] };
+    }
     return { reason: null, risers: s.risers };
+  }
+
+  /**
+   * A mode's own rule for where a piece may go, beyond the track's (Game mode: an industry stands near its resource),
+   * as the message to show, or null. Runs on every move while a piece is held: keep it cheap.
+   */
+  siteRule: ((type: PieceTypeId, pose: Pose) => string | null) | null = null;
+  /** The message for the last "site" refusal. */
+  private siteWhy = "";
+
+  private blockMessage(reason: PlaceBlock): string {
+    return reason === "site" ? this.siteWhy : BLOCK_MESSAGES[reason];
   }
 
   /** Check a would-be position for piece `id` (turned or flipped in place: no risers are added), explaining a refusal. */
   private allowed(id: number, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): boolean {
     const p = this.placement(type, flipped, pose, y, id);
     const reason = p.reason ?? (p.risers.length > 0 ? "unsupported" : null);
-    if (reason) this.hud.toast(BLOCK_MESSAGES[reason]);
+    if (reason) this.hud.toast(this.blockMessage(reason));
     return reason === null;
   }
 
@@ -1348,7 +1368,7 @@ export class Interaction {
     g.layout.nudgePieces(before);
     for (const ref of parted) g.layout.seatFree(ref);
     if (blocked) {
-      this.hud.toast(BLOCK_MESSAGES[blocked]);
+      this.hud.toast(this.blockMessage(blocked));
       this.onRefused?.();
       return;
     }
@@ -1443,7 +1463,7 @@ export class Interaction {
     g.layout.nudgePieces(poses);
     g.trackView.moveInstances(m.ids);
     const blocked = this.groupBlocked(m.ids, m.members);
-    if (blocked && blocked !== m.blocked) this.hud.toast(BLOCK_MESSAGES[blocked]);
+    if (blocked && blocked !== m.blocked) this.hud.toast(this.blockMessage(blocked));
     m.blocked = blocked;
     g.trackView.setHighlights(this.picked, m.blocked ? "blocked" : m.snapped ? "snap" : "select");
     g.moveShadows();
@@ -1670,7 +1690,7 @@ export class Interaction {
       const py = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
       const { reason, risers } = this.placement(m.type, m.flipped, pose, py, m.pieceId);
       // (A preview under the mouse just shows red: the reason comes if it's clicked.)
-      if (reason && reason !== m.blocked && !m.overTray && m !== this.preview) this.hud.toast(BLOCK_MESSAGES[reason]);
+      if (reason && reason !== m.blocked && !m.overTray && m !== this.preview) this.hud.toast(this.blockMessage(reason));
       m.blocked = reason;
       m.risers = risers;
       // Trees hop out of the way of where the piece would go (and back when it moves on); a ramp shows its cutting.

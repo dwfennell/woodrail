@@ -23,6 +23,7 @@ import { Progress } from "./game/progress";
 import { Crafting, workshops, workshopStock } from "./game/crafting";
 import { isFree, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { siteWhy, updateRates } from "./game/industries";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { deliveryStops, nextStop } from "./game/delivery";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
@@ -579,6 +580,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       hud.setCoins(progress.coins);
     },
     grew: (town, status, built) => {
+      // Its new houses may have felled trees a harvester counted.
+      industriesChanged();
       const level = aOrAn(status.name.toLowerCase());
       hud.toast(built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`, true, 3600);
       audio.chime();
@@ -659,8 +662,15 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     }
     if (added || key !== industryKey) game.depotView.setWorld(game.economy, game.layout);
     industryKey = key;
+    // Industries work as fast as what's around them allows: recounted when they move or the land changes.
+    const rateKey = `${key}#${game.landscape.grid.revision}`;
+    if (rateKey !== rateKeyShown) {
+      rateKeyShown = rateKey;
+      if (updateRates(game.world)) game.invalidate();
+    }
     hud.refreshTrayBadges();
   }
+  let rateKeyShown = "";
 
   const workshopPanel = new WorkshopPanel(hud.depotExtra, {
     order: (id) => {
@@ -957,6 +967,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     playing = true;
     save();
     goalsPanel.setVisible(mode === "game");
+    // An industry you place must stand near what it works with (trees, fields): Game mode's rule.
+    interaction.siteRule = mode === "game" ? (type, pose) => siteWhy(game.landscape, type, pose) : null;
     if (mode === "game") {
       townLife.reset();
       progress.coverMap(game.world);
