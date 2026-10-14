@@ -21,7 +21,7 @@ export interface GoalGuide {
   /** Places to mark with a pulse (depots, trains): the towns' signs flash instead. */
   marks: { x: number; z: number }[];
   /** The tray tab to open, and a shelf in it. */
-  tab?: "track" | "trains" | "bridges";
+  tab?: "track" | "trains";
   shelf?: string;
 }
 
@@ -233,7 +233,7 @@ export const GOALS: readonly Goal[] = [
     title: "Build a bridge",
     hint: "Learn bridges on the blueprint board and make one at your workshop. Then take your track over a river.",
     check: (w) => ({ done: hasPiece(w, (type) => isBridge(type)) }),
-    guide: (w) => guideTrains(w, "bridges"),
+    guide: (w) => guideTrains(w, "track", "Bridges"),
   },
   {
     id: "join-three",

@@ -119,7 +119,7 @@ describe("goal guides", () => {
     expect(goal("load-logs").guide(w).marks).toEqual([pose]);
     expect(goal("place-train").guide(w).tab).toBe("trains");
     expect(goal("lay-switch").guide(w)).toMatchObject({ tab: "track", shelf: "Switch" });
-    expect(goal("build-bridge").guide(w).tab).toBe("bridges");
+    expect(goal("build-bridge").guide(w)).toMatchObject({ tab: "track", shelf: "Bridges" });
   });
 });
 
