@@ -133,6 +133,29 @@ describe("automatic servicing", () => {
     for (const car of w.wagons()) expect(w.economy.cargoOf(car.id)).toEqual({ kind: "log", count: 3 });
   });
 
+  it("a depot at the end of the line loads every wagon before the train turns back", () => {
+    const layout = new Layout();
+    // Nothing past the depot: the train stops at its end, beside the crane, to turn back.
+    const types = ["straight-216", "straight-216", "depot-forest"] as const;
+    const ids = types.map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const placed = sim.addTrain(["engine", "timber", "timber"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const economy = new Economy(layout, sim);
+    const depot = economy.addDepot("forest", ids[2], 0);
+    depot.piles[CARGO.log.index] = PILE_CAP;
+    const train = sim.getTrain(placed.trainId)!;
+    sim.setLever(train.cars[0].id, 1);
+    const wagons = train.cars.filter((c) => c.kind === "timber").map((c) => c.id);
+    let turnedWith: number[] | null = null;
+    for (let i = 0; i < 90 * SIM_HZ && !turnedWith; i++) {
+      sim.tick();
+      economy.tick();
+      if (sim.drainEvents().some((e) => e.kind === "turned")) turnedWith = wagons.map((id) => economy.cargoOf(id).count);
+    }
+    expect(turnedWith).toEqual([3, 3]);
+  });
+
   it("a train held up short of the crane (a buffer just past the depot) has all its wagons loaded where they stand", () => {
     const layout = new Layout();
     const types = ["straight-216", "straight-216", "depot-forest", "buffer"] as const;
