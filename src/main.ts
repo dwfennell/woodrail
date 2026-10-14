@@ -25,14 +25,16 @@ import { isFree, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/thi
 import { syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { deliveryStops, nextStop } from "./game/delivery";
-import { BlueprintBoard, type BoardCard } from "./ui/blueprint-board";
+import { BlueprintBoard, type Station } from "./ui/blueprint-board";
+import { pieceIcon, trainIcon } from "./ui/icons";
 import { choose as chooseTech, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
 import { aOrAn, covers, describe as describeGoods, minus } from "./economy/goods";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { TrackView } from "./render/track-view";
-import { PIECE_TYPES, type Anchor } from "./track";
+import { PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
+import type { CarKind } from "./sim";
 import { Hud } from "./ui/hud";
 import { INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, plotSlotOf, setHeights } from "./landscape/edit";
@@ -707,19 +709,23 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     hud.setBoardButton(board.open, progress.offers.length > 0);
     if (!board.open) return;
     const stock = workshopStock(game.world);
-    const cardOf = (id: string): BoardCard => {
-      const t = techOf(id)!;
-      return { id, label: t.label, blurb: t.blurb, makes: unlocksOf(id).map((x) => ruleOf(x)!.label).join(", ") };
-    };
+    const offerOf = (id: string) => progress.offers.findIndex((o) => o.ids.includes(id));
+    const stations: Station[] = TECHS.map((t) => {
+      const makes = unlocksOf(t.id).map((x) => ({ label: ruleOf(x)!.label, icon: x.startsWith("piece:") ? pieceIcon(x.slice(6) as PieceTypeId) : trainIcon([x.slice(4) as CarKind]) }));
+      const base = { id: t.id, label: t.label, blurb: t.blurb, makes, needs: [...t.needs] };
+      if (progress.learned.has(t.id)) return { ...base, state: "learned" as const };
+      const offer = offerOf(t.id);
+      if (offer !== -1) return { ...base, state: "offered" as const, offer };
+      if (progress.board.has(t.id) && ready(progress, t.id)) return { ...base, state: "ready" as const, cost: describeGoods(t.cost), planks: t.cost.planks ?? 0, affordable: covers(stock, t.cost) };
+      const missing = t.needs.filter((n) => !progress.learned.has(n));
+      return { ...base, state: "locked" as const, waits: missing.length > 0 ? `Learn ${missing.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")} first` : "A town will offer it as it grows" };
+    });
+    const hasWorkshop = workshops(game.world).length > 0;
     board.show({
-      offers: progress.offers.map((o) => ({ from: o.from, cards: o.ids.map(cardOf) })),
-      board: TECHS.filter((t) => progress.board.has(t.id) && ready(progress, t.id)).map((t) => ({ ...cardOf(t.id), cost: describeGoods(t.cost), affordable: covers(stock, t.cost) })),
-      learned: TECHS.filter((t) => progress.learned.has(t.id)).map((t) => cardOf(t.id)),
-      later: TECHS.filter((t) => !progress.learned.has(t.id) && !(progress.board.has(t.id) && ready(progress, t.id)) && !progress.offers.some((o) => o.ids.includes(t.id))).map((t) => ({
-        ...cardOf(t.id),
-        waits: t.needs.some((n) => !progress.learned.has(n)) ? `Needs ${t.needs.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")}` : "Offered as towns grow",
-      })),
-      stock: workshops(game.world).length === 0 ? "Place your workshop first (Industries tab)" : `The workshop's yard has ${describeGoods(stock)}`,
+      stations,
+      offers: progress.offers.map((o) => ({ from: o.from, ids: [...o.ids] })),
+      planks: hasWorkshop ? stock.planks ?? 0 : null,
+      stock: hasWorkshop ? `The workshop's yard has ${describeGoods(stock)}` : "Place your workshop first (Industries tab)",
     });
   }
 
