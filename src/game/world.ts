@@ -7,7 +7,7 @@ import { addTownProps } from "../props/towns";
 
 export const depotPieceType = (kind: DepotKind): PieceTypeId => (kind === "forest" ? "depot-forest" : "depot-sawmill");
 
-export const DEPOT_NAMES: Record<Exclude<DepotRole, "town">, string> = { forest: "Forest yard", sawmill: "Sawmill", workshop: "Workshop", farm: "Farm yard", mill: "Mill" };
+export const DEPOT_NAMES: Record<Exclude<DepotRole, "town">, string> = { forest: "Forest yard", sawmill: "Sawmill", workshop: "Workshop", farm: "Farm yard", mill: "Mill", quarry: "Quarry" };
 
 /** Depot pieces and the work their economy depot does (the map's own, and industries the player places). */
 export const INDUSTRY_ROLE: Partial<Record<PieceTypeId, DepotRole>> = {
@@ -16,6 +16,7 @@ export const INDUSTRY_ROLE: Partial<Record<PieceTypeId, DepotRole>> = {
   "depot-workshop": "workshop",
   "depot-farm": "farm",
   "depot-mill": "mill",
+  "depot-quarry": "quarry",
 };
 
 /**

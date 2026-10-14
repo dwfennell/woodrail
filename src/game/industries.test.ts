@@ -57,6 +57,15 @@ describe("industries near their resource", () => {
     expect(siteWhy(land, "depot-farm", pose)).toBeNull();
   });
 
+  it("a quarry needs hillside: raised squares nearby", () => {
+    const { w, pose, near } = openPatch();
+    const land = w.landscape;
+    for (const i of near(300)) land.grid.height[i] = 0;
+    expect(siteWhy(land, "depot-quarry", pose)).toBe("Needs hillside nearby: 0 of 6");
+    for (const i of near(250).slice(0, 6)) land.grid.height[i] = 1;
+    expect(siteWhy(land, "depot-quarry", pose)).toBeNull();
+  });
+
   it("placed industries get their rate from what's around them; the map's own depots keep theirs", () => {
     const { w, pose, near } = openPatch();
     for (const i of near(200)) w.landscape.grid.feature[i] = FEAT_TREE;

@@ -13,6 +13,8 @@ export interface Tech {
   readonly cost: Bag;
   /** Blueprints to learn first. */
   readonly needs: readonly string[];
+  /** A town landmark one of your towns must have first (a city's library, for the advanced blueprints). */
+  readonly landmark?: string;
 }
 
 /**
@@ -32,6 +34,8 @@ export const TECHS: readonly Tech[] = [
   { id: "harvesters", label: "Harvesters", blurb: "A forest yard of your own, beside the trees.", cost: { planks: 10 }, needs: [] },
   { id: "farming", label: "Farming", blurb: "A farm yard by the fields, and hoppers for its grain.", cost: { planks: 12 }, needs: ["harvesters"] },
   { id: "mills", label: "Mills", blurb: "Grind grain into flour, for the towns.", cost: { planks: 16 }, needs: ["farming"] },
+  // Needs a city's library: the stone a city wants to keep growing.
+  { id: "quarries", label: "Quarries", blurb: "Cut stone from the hills, for growing cities.", cost: { planks: 24 }, needs: ["mills"], landmark: "library" },
 ];
 
 /** On the board from a new game's start, to be learned with goods. */
@@ -47,7 +51,7 @@ export function unlocksOf(id: string): ThingId[] {
 /** Can it be learned now: not learned, and everything it needs is? */
 export function ready(p: Progress, id: string): boolean {
   const t = techOf(id);
-  return !!t && !p.learned.has(id) && t.needs.every((n) => p.learned.has(n));
+  return !!t && !p.learned.has(id) && t.needs.every((n) => p.learned.has(n)) && (!t.landmark || p.landmarks.has(t.landmark));
 }
 
 /**

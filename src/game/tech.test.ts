@@ -16,6 +16,14 @@ describe("blueprints", () => {
     }
   });
 
+  it("an advanced blueprint waits for a town's landmark: quarries for a library", () => {
+    const p = Progress.fresh();
+    for (const t of ["harvesters", "farming", "mills"]) p.learned.add(t);
+    expect(ready(p, "quarries")).toBe(false);
+    p.landmarks.add("library");
+    expect(ready(p, "quarries")).toBe(true);
+  });
+
   it("start with switches and bridges on the board; junctions wait for switches", () => {
     const p = Progress.fresh();
     expect([...p.board].sort()).toEqual(["bridges", "switches"]);

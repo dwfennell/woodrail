@@ -5,7 +5,7 @@ import { CARGO, CARGO_KINDS, WAGON_CAPACITY, type CargoKind, type CargoSlot, typ
 import type { Layout, Pose } from "../track";
 import { TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
-import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, unitSize, wagonSlot } from "./cargo-layout";
+import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, unitSize, wagonSlot } from "./cargo-layout";
 import { addPart, hasPart, partPieces } from "./blender-models";
 import { Batcher } from "./dressing/batcher";
 import { setCullBox, tileAt } from "./dressing/tiles";
@@ -74,6 +74,12 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     piles: { grain: { t: 100, l: 76, y: PAD_H, across: 3, axis: "t" } },
     trackT: 108,
   },
+  quarry: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "gantry", t: 108, l: 45, height: 66 },
+    piles: { stone: { t: 105, l: 67, y: PAD_H, across: 3, axis: "t" } },
+    trackT: 108,
+  },
   mill: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     // The gantry spans the piles at the near end; the windmill stands at the far end (t 160).
@@ -93,6 +99,8 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
       planks: { t: 20.5, l: SIDE + 23, y: 14, across: 2, axis: "l" },
       // Flour sacks beside the planks, short of the crane's mast.
       flour: { t: 34, l: SIDE + 23, y: 14, across: 2, axis: "l" },
+      // Stone past the crane's mast.
+      stone: { t: 57, l: SIDE + 23, y: 14, across: 2, axis: "l" },
     },
     trackT: STATION_CRANE_AT,
   },
@@ -105,6 +113,7 @@ const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<s
   forest: { part: "industry-forest-hut", slots: { roof: "#3c8f4e" } },
   farm: { part: "industry-farm", slots: { silo: "#f0ebe0", roof: "#c8442f" } },
   mill: { part: "industry-mill", slots: { cap: "#2f6db5" } },
+  quarry: { part: "industry-quarry", slots: { roof: "#c8442f" } },
 };
 
 /** Where a hopper's grain heap sits (car-local y): the top of its bin (Asset Gen: hopper-classic). */
@@ -187,8 +196,8 @@ export class DepotView {
   private sites: Site[] = [];
   /** Each kind of goods' meshes (logs, plank bundles, sacks). */
   private readonly units: Record<CargoKind, UnitMeshes>;
-  /** Grain heaps in hoppers (one per loaded hopper). */
-  private readonly heap: UnitMeshes;
+  /** Heaps in hoppers (one per loaded hopper), by what they hold. */
+  private readonly heaps: Record<"grain" | "stone", UnitMeshes>;
   /** Every kind's meshes and the heaps, to loop over without allocating. */
   private readonly allUnits: UnitMeshes[];
   private static readonly MAX_UNITS = 2048;
@@ -209,7 +218,7 @@ export class DepotView {
     // A sack (grain golden, flour white) with a tie at its neck; stand-ins until the models come.
     const sack = new RoundedBoxGeometry(SACK_LENGTH, SACK_HEIGHT, SACK_WIDTH, 2, 2.4);
     const tie = new CylinderGeometry(1.6, 2.2, 2.4, 10).rotateZ(Math.PI / 2).translate(SACK_LENGTH / 2 + 0.6, 0, 0);
-    const looks: Record<CargoKind, [BufferGeometry, Material][]> = {
+    const looks: Record<Exclude<CargoKind, "stone">, [BufferGeometry, Material][]> & { stone?: [BufferGeometry, Material][] } = {
       log: [[log, logMat]],
       planks: [
         [boards, mats.naturalWood],
@@ -226,26 +235,34 @@ export class DepotView {
     };
     // The modelled sack when it's loaded (its base at y 0: units are placed by their centre).
     if (hasPart("load-flour-sack")) looks.flour = partPieces(mats, "load-flour-sack").map(([g, m]) => [g.translate(0, -SACK_HEIGHT / 2, 0), m]);
-    // A hopper's grain: one heap filling its bin, raised by how full it is (in place of the coal it's modelled with).
-    const heap: [BufferGeometry, Material][] = hasPart("load-grain-heap")
-      ? partPieces(mats, "load-grain-heap")
-      : [[new RoundedBoxGeometry(59, 8, 25, 2, 3).translate(0, 4, 0), mats.lacquer("#d9a441")]];
-    this.heap = { parts: heap.map(([g, m]) => this.instanced(g, m)), owners: [], carried: new Group(), n: 0, last: 0 };
-    this.group.add(...this.heap.parts);
+    // Cut stone: grey blocks (the modelled block when it's loaded).
+    looks.stone = hasPart("load-stone-block")
+      ? partPieces(mats, "load-stone-block").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m])
+      : [[new RoundedBoxGeometry(SACK_LENGTH, STONE_HEIGHT, SACK_WIDTH, 2, 1.6), mats.lacquer("#b9b4aa")]];
+    // A hopper's load: one heap filling its bin, raised by how full it is (in place of the coal it's modelled with).
+    const heapOf = (part: string, color: string): [BufferGeometry, Material][] =>
+      hasPart(part) ? partPieces(mats, part) : [[new RoundedBoxGeometry(59, 8, 25, 2, 3).translate(0, 4, 0), mats.lacquer(color)]];
+    const heapUnit = (looksOf: [BufferGeometry, Material][]): UnitMeshes => {
+      const parts = looksOf.map(([g, m]) => this.instanced(g, m));
+      this.group.add(...parts);
+      return { parts, owners: [], carried: new Group(), n: 0, last: 0 };
+    };
+    this.heaps = { grain: heapUnit(heapOf("load-grain-heap", "#d9a441")), stone: heapUnit(heapOf("load-stone-heap", "#a9a49a")) };
     const units = {} as Record<CargoKind, UnitMeshes>;
     for (const kind of CARGO_KINDS) {
-      const parts = looks[kind].map(([g, m]) => this.instanced(g, m));
+      const look = looks[kind]!;
+      const parts = look.map(([g, m]) => this.instanced(g, m));
       this.group.add(...parts);
       // The unit on the crane hook (one of each kind, shown as needed).
-      const carried = new Group().add(...looks[kind].map(([g, m]) => new Mesh(g, m)));
+      const carried = new Group().add(...look.map(([g, m]) => new Mesh(g, m)));
       carried.traverse((o) => (o.castShadow = true));
       carried.visible = false;
       this.group.add(carried);
       units[kind] = { parts, owners: [], carried, n: 0, last: 0 };
     }
     this.units = units;
-    this.cargoMeshes = [...CARGO_KINDS.flatMap((k) => units[k].parts), ...this.heap.parts];
-    this.allUnits = [...CARGO_KINDS.map((k) => units[k]), this.heap];
+    this.allUnits = [...CARGO_KINDS.map((k) => units[k]), this.heaps.grain, this.heaps.stone];
+    this.cargoMeshes = this.allUnits.flatMap((u) => u.parts);
   }
 
   private instanced(g: BufferGeometry, m: Material): InstancedMesh {
@@ -412,6 +429,10 @@ export class DepotView {
       b.add(mats.lacquer("#2f6db5"), place(new ConeGeometry(16, 16, 16), 34, 92, PAD_H + 70));
       b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(10, 14, 2, 1, 0.8), 34, 74.5, PAD_H + 7));
     }
+    if (site.depot.role === "quarry") {
+      // A rock face of grey blocks stepping up at the far side of the yard.
+      for (const [t, l, w, h] of [[140, 104, 40, 30], [178, 104, 36, 46], [160, 96, 30, 16]] as const) b.add(mats.lacquer("#a9a49a"), place(new RoundedBoxGeometry(w, h, 18, 2, 3), t, l, PAD_H + h / 2));
+    }
     if (site.depot.role === "forest") {
       // A small beech hut with a green roof at the far end of the yard.
       b.add(mats.blockWood, place(new RoundedBoxGeometry(30, 26, 24, 2, 2.5), 186, 96, PAD_H + 13));
@@ -517,9 +538,9 @@ export class DepotView {
   }
   private readonly coalOf = new WeakMap<Object3D, Object3D[]>();
 
-  /** A hopper's grain heap, in the top of its bin, as high as it is full. */
-  private putHeap(car: Object3D, count: number, owner: CargoSlot): void {
-    const u = this.heap;
+  /** A hopper's heap (grain or stone), in the top of its bin, as high as it is full. */
+  private putHeap(kind: "grain" | "stone", car: Object3D, count: number, owner: CargoSlot): void {
+    const u = this.heaps[kind];
     if (u.n >= DepotView.MAX_UNITS) return;
     car.updateWorldMatrix(true, false);
     _s.set(1, Math.max(0.25, count / WAGON_CAPACITY), 1);
@@ -549,8 +570,10 @@ export class DepotView {
    */
   update(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, dt: number): "moving" | "changed" | "still" {
     let busy = this.dragging !== null;
-    this.heap.last = this.heap.n;
-    this.heap.n = 0;
+    for (const h of [this.heaps.grain, this.heaps.stone]) {
+      h.last = h.n;
+      h.n = 0;
+    }
     for (const kind of CARGO_KINDS) {
       const u = this.units[kind];
       u.last = u.n;
@@ -586,14 +609,14 @@ export class DepotView {
       const id = carIds[i];
       const cargo = economy.cargoOf(id);
       const car = carObject(id);
-      // A hopper is modelled with coal in it: hidden while it carries grain (the heap fills its bin instead).
-      if (car && car.userData.carKind === "hopper") this.showCoal(car, cargo.kind !== "grain" || cargo.count === 0);
+      // A hopper is modelled with coal in it: hidden while it carries a load (its heap fills the bin instead).
+      if (car && car.userData.carKind === "hopper") this.showCoal(car, !cargo.kind || cargo.count === 0);
       if (!cargo.kind || cargo.count === 0) continue;
       if (!car) continue;
       const count = cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0);
       const owner = this.carOwner(id);
-      if (cargo.kind === "grain" && car.userData.carKind === "hopper") {
-        if (count > 0) this.putHeap(car, count, owner);
+      if ((cargo.kind === "grain" || cargo.kind === "stone") && car.userData.carKind === "hopper") {
+        if (count > 0) this.putHeap(cargo.kind, car, count, owner);
         continue;
       }
       for (let k = 0; k < count; k++) this.put(cargo.kind, this.wagonUnit(car, cargo.kind, k, _m), owner);

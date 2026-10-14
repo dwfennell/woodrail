@@ -12,7 +12,9 @@ describe("town levels", () => {
     expect(townStatus({ planks: 9 })).toMatchObject({ level: 1, got: { planks: 5 }, wants: { planks: 8 } });
     // A town wants flour to become a city: planks alone stop it at Town.
     expect(townStatus({ planks: 500 })).toMatchObject({ level: 2, name: "Town", wants: { planks: 14, flour: 6 } });
-    expect(townStatus({ planks: 4 + 8 + 14 + 22, flour: 6 + 12 }).level).toBe(4);
+    // And stone to be a city ★.
+    expect(townStatus({ planks: 4 + 8 + 14 + 22, flour: 6 + 12 }).level).toBe(3);
+    expect(townStatus({ planks: 4 + 8 + 14 + 22, flour: 6 + 12, stone: 10 }).level).toBe(4);
   });
 
   it("show a town's basket: what it has had of each good toward the next level", () => {

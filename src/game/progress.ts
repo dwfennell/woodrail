@@ -20,6 +20,8 @@ export class Progress {
   making = false;
   /** Coins: towns pay them for deliveries; they buy land. */
   coins = 0;
+  /** The landmarks your towns have (a school, a market, a library): from the map, not saved (see `landmarksOf`). */
+  readonly landmarks = new Set<string>();
 
   /** A new game: the starting box. */
   static fresh(): Progress {

@@ -753,6 +753,14 @@ function drawGood(ctx: CanvasRenderingContext2D, kind: CargoKind, x: number, y: 
     for (let k = 0; k < 3; k++) ctx.fillRect(x + 38, y + 4 + k * 16, 6, 12);
     return;
   }
+  if (kind === "stone") {
+    // Three grey blocks, two below and one on top.
+    ctx.fillStyle = "#b9b4aa";
+    ctx.fillRect(x, y + 28, 20, 22);
+    ctx.fillRect(x + 24, y + 28, 20, 22);
+    ctx.fillRect(x + 12, y + 4, 20, 22);
+    return;
+  }
   if (kind === "grain" || kind === "flour") {
     // A sack (golden grain, white flour) with a tie, and a blue band on flour.
     ctx.fillStyle = kind === "grain" ? "#d9a441" : "#f1ebdd";
