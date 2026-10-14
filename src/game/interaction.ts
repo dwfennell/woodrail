@@ -678,7 +678,8 @@ export class Interaction {
     this.game.controls.enabled = true;
     if (m.kind === "press") {
       this.mode = { kind: "idle" };
-      if (m.press.kind !== "lever" && this.noteTap(e)) this.focusOn(m.press);
+      // (Cargo is tapped again and again, a unit a tap: never a double tap.)
+      if (m.press.kind !== "lever" && m.press.kind !== "cargo" && this.noteTap(e)) this.focusOn(m.press);
       else this.tap(m.press, m.add);
       return;
     }
@@ -789,7 +790,14 @@ export class Interaction {
       return;
     }
     if (p.kind === "cargo") {
-      // A tap on cargo opens whatever it's on: its depot, or its wagon.
+      // A tap on cargo moves it, if it can go somewhere by itself: from a pile onto a wagon standing beside it, or
+      // from a wagon onto the pile of the depot it's at. Else it opens whatever it's on: its depot, or its wagon.
+      const to = g.economy.tapTarget(p.slot);
+      if (to && g.economy.moveCargo(p.slot, to)) {
+        this.onPlaced?.(true);
+        this.changed();
+        return;
+      }
       if (p.slot.kind === "pile") this.openDepot(p.slot.depotId);
       else this.tap({ kind: "car", carId: p.slot.carId });
       return;

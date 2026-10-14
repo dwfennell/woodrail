@@ -220,6 +220,50 @@ export class Economy {
     return c.count < WAGON_CAPACITY && (c.kind === null || c.kind === kind);
   }
 
+  /**
+   * Where a unit tapped (not dragged) goes: from a depot's pile onto a wagon standing beside it (one already part
+   * filled with it first, then the nearest the crane), or from a wagon onto the pile of a depot it stands at. Null
+   * when there's nowhere it can go.
+   */
+  tapTarget(from: CargoSlot): CargoSlot | null {
+    if (from.kind === "pile") {
+      const d = this.depots[from.depotId];
+      if (!d || d.piles[CARGO[from.cargo].index] <= 0) return null;
+      const kind = from.cargo;
+      let best: { carId: number; score: number } | null = null;
+      for (const id of this.sim.trainIds()) {
+        const train = this.sim.getTrain(id);
+        if (!train || train.derailed) continue;
+        for (let c = 0; c < train.cars.length; c++) {
+          const car = train.cars[c];
+          const front = train.bogies[2 * c];
+          const rear = train.bogies[2 * c + 1];
+          if (front.pieceId !== d.pieceId && rear.pieceId !== d.pieceId) continue;
+          if (!this.carAccepts(car.id, kind)) continue;
+          // Top up a part-filled wagon before starting another; then the one nearest the crane.
+          const started = this.cargoOf(car.id).count > 0 ? 0 : 1000;
+          const len = this.depotLength(d);
+          const at = front.pieceId === d.pieceId && rear.pieceId === d.pieceId ? (along(front, len) + along(rear, len)) / 2 : front.pieceId === d.pieceId ? along(front, len) : along(rear, len);
+          const score = started + Math.abs(at - d.craneAt);
+          if (!best || score < best.score) best = { carId: car.id, score };
+        }
+      }
+      return best ? { kind: "car", carId: best.carId } : null;
+    }
+    const c = this.cargoOf(from.carId);
+    const found = this.sim.findCar(from.carId);
+    if (c.kind === null || c.count <= 0 || !found) return null;
+    const kind = c.kind;
+    const train = found.train;
+    // A depot under this wagon, else under the rest of its train.
+    const under = [train.bogies[2 * found.index], train.bogies[2 * found.index + 1], ...train.bogies];
+    for (const b of under) {
+      const d = this.byPiece.get(b.pieceId);
+      if (d && this.pileAccepts(d, kind)) return { kind: "pile", depotId: d.id, cargo: kind };
+    }
+    return null;
+  }
+
   /** Move one unit by hand between a pile and a wagon (or two of either). False, changing nothing, if not allowed. */
   moveCargo(from: CargoSlot, to: CargoSlot): boolean {
     let kind: CargoKind;
