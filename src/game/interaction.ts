@@ -1901,9 +1901,12 @@ export class Interaction {
     // How near (mm) the drop point must be to a train's end: half the held cars' length and a hand's width more.
     const heldLength = cars.reduce((n, c) => n + CAR_SPECS[c.kind].length + COUPLER_GAP, 0);
     let best: { id: number; front: boolean; d: number } | null = null;
+    // Two trains each with an engine stay two trains (each keeps its own route): wagons join a train, an engine
+    // joins wagons.
+    const heldEngine = cars.some((c) => c.kind === "engine");
     for (const id of sim.trainIds()) {
       const t = sim.getTrain(id)!;
-      if (t.derailed) continue;
+      if (t.derailed || (heldEngine && t.cars.some((c) => c.kind === "engine"))) continue;
       const ends = [t.world[0], t.world[t.world.length - 1]];
       ends.forEach((w, k) => {
         const d = Math.hypot(w.x - drop.x, w.z - drop.z);
