@@ -62,6 +62,16 @@ either, but it can join one (§3).
 **Size on the square.** The road felt is 56 wide on a 64 board, centred on the square (two 28 mm lanes, so a 26 mm toy car fits its lane). That is the catalogue's look
 scaled to the square, and it leaves a 4 mm verge on each side. A curve.s felt runs from radius 8 to 64.
 
+**Auto roads (added after the user tried laying roads).** The first item in the Roads tab, "Road", is an auto road.
+Each auto square takes its shape from the roads around it: one neighbour makes a straight on through, two a straight
+or a bend, three a T, and four a crossroads. Placing, moving or deleting any road reshapes the auto squares beside it
+in the same undo step, so a road laid beside another bends to meet it and straightens again when that road goes.
+Auto squares join every auto square beside them at the same level, and every other road with an end facing them
+(town gates, open street ends, bridges, ramps). They never join the side of a hand-laid piece. The hand-laid pieces
+(Straight, Bend, T-junction and the rest) are never reshaped, so parallel roads and deliberate dead ends still work.
+Turning an auto road by hand makes it a hand-laid piece. An auto road under a level crossing keeps a shape the track
+can cross. A road byte's bit 5 marks an auto road (piece codes stay under 32), so saves don't change format.
+
 ## 3. Generated roads and town streets
 
 - **Town streets are road pieces, laid streets first (chosen).** See §3a.

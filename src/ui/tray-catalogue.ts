@@ -15,7 +15,7 @@ export type TrayItem =
   /** A catalogue model, placed as a decorative prop. */
   | { kind: "prop"; asset: string; label: string }
   /** A road piece (the Roads tab): fills one square, snaps to the roads beside it. */
-  | { kind: "road"; piece: RoadPieceId; label: string }
+  | { kind: "road"; piece: RoadPieceId; label: string; auto?: boolean }
   /** A land-editing tool (the Land tab): chosen with a tap, then used by tapping the land. */
   | { kind: "tool"; tool: LandTool; label: string };
 
@@ -106,7 +106,9 @@ export const ROAD_GROUPS: TrayGroup[] = [
   {
     label: "Roads",
     items: [
-      { kind: "road", piece: "straight", label: "Road" },
+      // Takes its shape from the roads around it, and reshapes them to meet it.
+      { kind: "road", piece: "straight", label: "Road", auto: true },
+      { kind: "road", piece: "straight", label: "Straight" },
       { kind: "road", piece: "curve", label: "Bend" },
       { kind: "road", piece: "tee", label: "T-junction" },
       { kind: "road", piece: "cross", label: "Crossroads" },
@@ -205,6 +207,6 @@ export async function propGroups(shelves: readonly PropShelf[]): Promise<TrayGro
 export function trayKey(item: TrayItem): string {
   if (item.kind === "piece") return `piece:${item.type}${item.auto ? ":auto" : ""}`;
   if (item.kind === "tool") return `tool:${item.tool}`;
-  if (item.kind === "road") return `road:${item.piece}`;
+  if (item.kind === "road") return `road:${item.auto ? "auto" : item.piece}`;
   return item.kind === "prop" ? `prop:${item.asset}` : `train:${item.label}`;
 }

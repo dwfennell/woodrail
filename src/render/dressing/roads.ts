@@ -342,14 +342,14 @@ export function buildRoadTiles(grids: readonly LandscapeGrid[], mats: RoadMateri
 function tileGeometry(squares: readonly Square[], slot: SlotName): BufferGeometry | null {
   const all = pieceMeshes();
   let n = 0;
-  for (const s of squares) n += all[s.road & 63][slot].position.length / 3;
+  for (const s of squares) n += all[s.road & 31][slot].position.length / 3;
   if (n === 0) return null;
   const position = new Float32Array(n * 3);
   const normal = new Float32Array(n * 3);
   const uv = new Float32Array(n * 2);
   let o = 0;
   for (const s of squares) {
-    const m = all[s.road & 63][slot];
+    const m = all[s.road & 31][slot];
     // A quarter turn takes +x to +z: (x, z) → (−z, x).
     const t = turnOf(s.road);
     const cos = [1, 0, -1, 0][t];

@@ -108,7 +108,14 @@ async function findSites() {
         if (line.every((j) => free(j) && G.height[j] === 0) && sides.every((j) => j !== -1 && G.height[j] === 0)) hill = { top: i, dir: e, line };
       }
     }
-    return { gate, river, hill };
+    // Open ground for auto roads: a 3 × 3 block of free level squares with no road beside it.
+    let auto = null;
+    const noRoadNear = (i) => [0, 1, 2, 3].every((e) => { const j = nb[i * 4 + e]; return j === -1 || (G.road[j] === 0 && G.surface[j] !== 2); });
+    for (let i = 0; i < G.cellCount && !auto; i++) {
+      const block = [-1, 0, 1].flatMap((dr) => [-1, 0, 1].map((dc) => G.index(G.colOf(i) + dc, G.rowOf(i) + dr)));
+      if (block.every((j) => free(j) && G.height[j] === 0 && noRoadNear(j))) auto = { a: G.index(G.colOf(i) - 1, G.rowOf(i)), b: i, c: G.index(G.colOf(i), G.rowOf(i) - 1) };
+    }
+    return { gate, river, hill, auto };
   });
 }
 
@@ -189,7 +196,7 @@ const imp = (path) => `import(${JSON.stringify(path)})`;
 
 await boot();
 const sites = await findSites();
-check("found test sites on seed 7", !!(sites.gate && sites.river && sites.hill), JSON.stringify({ gate: !!sites.gate, river: !!sites.river, hill: !!sites.hill }));
+check("found test sites on seed 7", !!(sites.gate && sites.river && sites.hill && sites.auto), JSON.stringify({ gate: !!sites.gate, river: !!sites.river, hill: !!sites.hill, auto: !!sites.auto }));
 await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Roads")?.click());
 await p.waitForTimeout(800);
 
@@ -327,6 +334,28 @@ const ramp = await p.evaluate(
 );
 check("G1 road, bottom half, top half and a road on the hilltop, all joined", JSON.stringify(ramp.ids) === JSON.stringify(["straight", "ramp-low", "ramp-high", "straight"]) && ramp.joins.every(Boolean), JSON.stringify(ramp));
 await shot("G-ramp");
+
+// ---- L: auto roads bend to meet each other, and go back -----------------------------------------------------------
+const L = sites.auto;
+await focusOn(L.b);
+const shape = (i) => p.evaluate(async (i) => { const { pieceOf, edgesOf, isAutoRoad } = await import("/src/roads/pieces.ts"); const r = T.g().road[i]; return { id: pieceOf(r)?.id ?? null, edges: edgesOf(r), auto: isAutoRoad(r) }; }, i);
+await trayDrag("Road", L.a);
+await trayDrag("Road", L.b);
+const two = [await shape(L.a), await shape(L.b)];
+// Grid edges as bits: +col 1, +row 2, −col 4, −row 8.
+check("L1 two auto roads side by side join as straights", two.every((x) => x.id === "straight" && x.auto && x.edges === 5), JSON.stringify(two));
+await trayDrag("Road", L.c);
+const bent = await shape(L.b);
+check("L2 a third laid beside the second bends it to meet it", bent.id === "curve" && bent.edges === (4 | 8), JSON.stringify(bent));
+await tap(L.c);
+await p.locator(".piece-card button", { hasText: "Delete" }).click();
+await p.waitForTimeout(500);
+const back = await shape(L.b);
+check("L3 taking the third away straightens it again", back.id === "straight" && back.edges === 5, JSON.stringify(back));
+await p.evaluate(() => window.woodrail.interaction.undo());
+await p.waitForTimeout(500);
+check("L4 Undo brings back the third and the bend in one step", (await shape(L.c)).auto && (await shape(L.b)).id === "curve");
+await shot("L-auto");
 
 // ---- H: track and roads: level crossings ----------------------------------------------------------------------------
 const crossing = await p.evaluate(

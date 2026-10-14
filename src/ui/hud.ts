@@ -337,7 +337,7 @@ export class Hud {
       if (thumb) return `<img src="${thumb}" alt="" draggable="false">`;
       if (item.kind === "piece") return pieceIcon(item.type);
       if (item.kind === "tool") return uiIcon(item.tool);
-      if (item.kind === "road") return roadIcon(item.piece);
+      if (item.kind === "road") return roadIcon(item.auto ? "auto" : item.piece);
       if (item.kind === "train") return trainIcon(item.cars);
       missing.push(item);
       return `<span class="thumb-pending" data-thumb="${key}"></span>`;
