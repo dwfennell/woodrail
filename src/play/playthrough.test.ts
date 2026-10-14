@@ -383,9 +383,9 @@ describe("a Game-mode playthrough", () => {
     for (const id of ["join-two", "place-train", "get-moving", "station-stop", "timber-train", "load-logs", "deliver-planks", "grow-town"]) expect(P.goals.isDone(id), id).toBe(true);
   }, 600_000);
 
-  it("a workshop after the towns on the line gets planks only once the towns' cranes are off", () => {
+  it("a workshop after the towns on the line gets planks once the towns' cranes are off, or the train delivers to it", () => {
     const result: string[] = [];
-    for (const townCranes of [true, false]) {
+    for (const [townCranes, toShop] of [[true, false], [false, false], [true, true]] as const) {
       // Sawmill - Larkfield - Elderwick - workshop - forest yard: planks pass both towns before the workshop.
       const P = new Playthrough(buildStarterWorld());
       const w = P.w;
@@ -408,23 +408,27 @@ describe("a Game-mode playthrough", () => {
       const r = w.sim.addTrain(["engine", "timber", "timber", "timber"], { pieceId: mid, pathIndex: 0, reversed: false, s: 10 });
       expect(r.kind).toBe("placed");
       if (r.kind !== "placed") return;
-      w.sim.setLever(w.sim.getTrain(r.trainId)!.cars[0].id, -1);
+      const engine = w.sim.getTrain(r.trainId)!.cars[0].id;
+      w.sim.setLever(engine, -1);
+      // "Deliver to: Workshop" on the engine's card.
+      if (toShop) w.economy.setDeliverTo(engine, w.economy.depotAtPiece(shop.id)!.id);
       let firstPlanks = -1;
       for (let m = 1; m <= 30; m++) {
         P.run(60);
         if (firstPlanks < 0 && (w.economy.depotAtPiece(shop.id)?.piles[CARGO.planks.index] ?? 0) > 0) firstPlanks = m;
       }
-      result.push(`town cranes ${townCranes ? "on" : "off"}: workshop's first planks ${firstPlanks > 0 ? `at minute ${firstPlanks}` : "never"}; towns got ${JSON.stringify(Object.fromEntries(w.economy.delivered))}`);
-      if (townCranes) expect(firstPlanks, "with the towns taking every plank, the workshop starves").toBe(-1);
+      result.push(`town cranes ${townCranes ? "on" : "off"}${toShop ? ", train delivers to the workshop" : ""}: workshop's first planks ${firstPlanks > 0 ? `at minute ${firstPlanks}` : "never"}; towns got ${JSON.stringify(Object.fromEntries(w.economy.delivered))}`);
+      if (townCranes && !toShop) expect(firstPlanks, "with the towns taking every plank, the workshop starves").toBe(-1);
       else expect(firstPlanks).toBeGreaterThan(0);
+      if (toShop) expect(w.economy.delivered.size, "a train delivering to the workshop leaves the towns alone").toBe(0);
     }
     console.log(`workshop after the towns:\n${result.join("\n")}`);
   }, 600_000);
 
-  // Found by the playthrough: a second train put on the same single line meets the first head-on, they couple, and
-  // the two engines push against each other for ever (speed 0, no deliveries). "Run two trains at once" ticks just
-  // before it jams. Wanted: a line with two trains keeps running (or the game says why it stopped).
-  it.todo("two trains meeting head-on on one line don't jam for ever");
+  // Found by the playthrough: a second train put on the same single line meets the first head-on and both derail, and
+  // Re-rail can't put either back (before 35de6fa they coupled and jammed instead). Passed to the Sandbox session.
+  // Wanted: a line with two trains keeps running (or the game says why it stopped).
+  it.todo("two trains meeting head-on on one line don't stop the line for ever");
 
   it("lays the starter line and grows a city on many starter maps", () => {
     const results: string[] = [];

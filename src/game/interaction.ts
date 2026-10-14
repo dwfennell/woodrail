@@ -799,6 +799,11 @@ export class Interaction {
 
   // ---- depots and cargo -------------------------------------------------------------------------------------
 
+  /** The engine whose card is open, or −1. */
+  get openEngineCarId(): number {
+    return this.hud.engineCardOpen ? this.selectedCar : -1;
+  }
+
   /** Economy depot whose card is open, or −1. */
   private selectedDepot = -1;
   /** The depot whose card is open, or −1. */

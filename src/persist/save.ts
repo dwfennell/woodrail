@@ -37,6 +37,8 @@ const trainSchema = z.object({
         lever: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
         look: z.enum(ALL_CAR_LOOKS as unknown as [CarLook, ...CarLook[]]).optional(),
         cargo: z.object({ kind: z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]]), count: z.number().int().min(1).max(WAGON_CAPACITY) }).optional(),
+        /** An engine's train delivers only to this depot (its index in `depots`). */
+        deliverTo: z.number().int().min(0).optional(),
       }),
     )
     .min(1),
@@ -100,13 +102,24 @@ export function serializeWorld(world: World): SaveData {
     const state = layout.switchState(id);
     if (state !== 0) switches.push([id, state]);
   }
+  // Depots on the map now (one whose industry piece was taken up is left out), numbered afresh.
+  const kept = world.economy.allDepots().filter((d) => world.layout.getPiece(d.pieceId));
+  const renumbered = new Map(kept.map((d, i) => [d.id, i]));
   const trains: SaveData["trains"] = sim.trainIds().map((id) => {
     const t = sim.getTrain(id)!;
     return {
       cars: t.cars.map((c) => {
         const cargo = world.economy.cargoOf(c.id);
         const look = sim.lookOf(c.id);
-        return { kind: c.kind, facing: c.facing, lever: c.lever, ...(look !== "classic" ? { look } : {}), ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}) };
+        const deliverTo = renumbered.get(world.economy.deliverToOf(c.id));
+        return {
+          kind: c.kind,
+          facing: c.facing,
+          lever: c.lever,
+          ...(look !== "classic" ? { look } : {}),
+          ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
+          ...(deliverTo !== undefined ? { deliverTo } : {}),
+        };
       }),
       lead: { ...t.bogies[0] },
     };
@@ -118,11 +131,7 @@ export function serializeWorld(world: World): SaveData {
     pieces,
     switches,
     trains,
-    // Depots on the map now (one whose industry piece was taken up is left out), numbered afresh.
-    depots: world.economy
-      .allDepots()
-      .filter((d) => world.layout.getPiece(d.pieceId))
-      .map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [d.piles[0], d.piles[1]] as [number, number], timer: d.timer })),
+    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [d.piles[0], d.piles[1]] as [number, number], timer: d.timer })),
     delivered: [...world.economy.delivered],
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}) })),
   };
@@ -212,6 +221,8 @@ export function deserializeWorld(data: unknown): Result<World, string> {
       const look = t.cars[i].look;
       if (look && CAR_LOOKS[car.kind].includes(look)) sim.setLook(car.id, look);
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
+      const deliverTo = t.cars[i].deliverTo;
+      if (car.kind === "engine" && deliverTo !== undefined && economy.depot(deliverTo)) economy.setDeliverTo(car.id, deliverTo);
       const cargo = t.cars[i].cargo;
       if (cargo && car.kind === "timber") economy.setCargo(car.id, cargo.kind, cargo.count);
     });

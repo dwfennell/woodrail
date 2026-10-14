@@ -89,6 +89,8 @@ export class Economy {
   private readonly depots: DepotState[] = [];
   private readonly byPiece = new Map<number, DepotState>();
   private readonly cargo = new Map<number, CarCargo>();
+  /** Engine car id → the depot its train delivers to (unloads only there). Trains with none unload at any depot. */
+  private readonly deliverTo = new Map<number, number>();
   /** Town id → plank bundles delivered there (by train or by hand). */
   readonly delivered = new Map<number, number>();
   private readonly services = new Map<number, Service>();
@@ -227,7 +229,36 @@ export class Economy {
   private canUnload(d: DepotState, carId: number): boolean {
     const takes = ROLE[d.role].takes;
     const c = this.cargoOf(carId);
-    return takes !== null && c.kind === takes && c.count > 0 && d.piles[CARGO[takes].index] < PILE_CAP;
+    if (takes === null || c.kind !== takes || c.count <= 0 || d.piles[CARGO[takes].index] >= PILE_CAP) return false;
+    // A destination is for the goods it takes: other goods (logs, when it's planks it wants) go where they can.
+    const to = this.destinationOf(carId);
+    return to === -1 || to === d.id || ROLE[this.depots[to].role].takes !== takes;
+  }
+
+  /**
+   * Have this engine's train deliver the goods depot `depotId` takes only there (−1: to whichever depot it reaches
+   * first). Other goods it carries still unload at the first depot that takes them.
+   */
+  setDeliverTo(engineCarId: number, depotId: number): void {
+    if (depotId === -1) this.deliverTo.delete(engineCarId);
+    else this.deliverTo.set(engineCarId, depotId);
+  }
+
+  /** The depot this engine was set to deliver to, or −1. */
+  deliverToOf(engineCarId: number): number {
+    return this.deliverTo.get(engineCarId) ?? -1;
+  }
+
+  /** Where the train with this car delivers: its first engine's depot that still exists, or −1 (anywhere). */
+  destinationOf(carId: number): number {
+    if (this.deliverTo.size === 0) return -1;
+    const found = this.sim.findCar(carId);
+    if (!found) return -1;
+    for (const car of found.train.cars) {
+      const to = this.deliverTo.get(car.id);
+      if (to !== undefined && this.depots[to] && this.layout.getPiece(this.depots[to].pieceId)) return to;
+    }
+    return -1;
   }
 
   private canLoad(d: DepotState, carId: number): boolean {
@@ -472,9 +503,10 @@ export class Economy {
     return e;
   }
 
-  /** Forget cargo on cars, and visits of trains, that no longer exist. */
+  /** Forget cargo and destinations on cars, and visits of trains, that no longer exist. */
   prune(): void {
     for (const id of this.cargo.keys()) if (!this.sim.findCar(id)) this.cargo.delete(id);
+    for (const id of this.deliverTo.keys()) if (!this.sim.findCar(id)) this.deliverTo.delete(id);
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);
   }
 }

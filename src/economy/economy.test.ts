@@ -111,3 +111,30 @@ describe("cargo stays with its wagon", () => {
     expect(economy.cargoOf(w1)).toEqual({ kind: "planks", count: 3 });
   });
 });
+
+describe("delivering to one depot", () => {
+  it("a train set to deliver somewhere unloads only there; with none, at any depot that takes its goods", () => {
+    const { layout, train, economy } = world();
+    const [a, b] = [...layout.pieceIds()];
+    const town = economy.addDepot("town", a, 0);
+    const shop = economy.addDepot("workshop", b);
+    const [engine, wagon] = train.cars;
+    economy.setCargo(wagon.id, "planks", 3);
+    expect(economy.needsService(town, wagon.id)).toBe(true);
+    expect(economy.needsService(shop, wagon.id)).toBe(true);
+    economy.setDeliverTo(engine.id, shop.id);
+    expect(economy.destinationOf(wagon.id)).toBe(shop.id);
+    expect(economy.needsService(town, wagon.id)).toBe(false);
+    expect(economy.needsService(shop, wagon.id)).toBe(true);
+    // Goods the destination doesn't take still go where they can: logs to a sawmill on the way to a workshop.
+    const saw = economy.addDepot("sawmill", [...layout.pieceIds()][2]);
+    economy.setCargo(wagon.id, "log", 3);
+    expect(economy.needsService(saw, wagon.id)).toBe(true);
+    economy.setCargo(wagon.id, "planks", 3);
+    // The destination's piece taken up: anywhere again.
+    layout.removePiece(b);
+    expect(economy.needsService(town, wagon.id)).toBe(true);
+    economy.setDeliverTo(engine.id, -1);
+    expect(economy.deliverToOf(engine.id)).toBe(-1);
+  });
+});

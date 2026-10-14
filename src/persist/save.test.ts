@@ -45,6 +45,17 @@ describe("save format", () => {
     expect(r.ok && r.value.sim.trainCount).toBe(2);
   });
 
+  it("keeps where a train delivers to", () => {
+    const world = worldWithTrain();
+    const engine = world.sim.getTrain(world.sim.trainIds()[0])!.cars[0];
+    const town = world.economy.allDepots().find((d) => d.role === "town")!;
+    world.economy.setDeliverTo(engine.id, town.id);
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
+    if (!r.ok) throw new Error(r.error);
+    const loaded = r.value.sim.getTrain(r.value.sim.trainIds()[0])!.cars[0];
+    expect(r.value.economy.depot(r.value.economy.deliverToOf(loaded.id))?.pieceId).toBe(town.pieceId);
+  });
+
   it("is at version 9 (a level is RISER_HEIGHT, not 64 mm)", () => {
     expect(SAVE_VERSION).toBe(9);
   });

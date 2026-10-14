@@ -122,6 +122,8 @@ export class Hud {
   private readonly depotCard = el("div", "card depot-card");
   /** Below a depot card's switches: filled by the game for some depots (Game mode's workshop), else hidden. */
   readonly depotExtra = el("div", "depot-extra");
+  /** Room on the engine card for Game mode's own rows (where the train delivers), filled by main. */
+  readonly engineExtra = el("div", "engine-extra");
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
   private readonly landCard = el("div", "card land-card");
   private readonly landText = el("div", "land-text");
@@ -254,6 +256,8 @@ export class Hud {
     this.followBtn = button("Follow", "Follow this train with the camera", h.follow, "chip text");
     row.append(this.followBtn, button("Turn", "Turn this engine around", h.turnCar, "chip text"), button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"));
     this.engineCard.appendChild(row);
+    this.engineExtra.hidden = true;
+    this.engineCard.appendChild(this.engineExtra);
     this.engineCard.appendChild(button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.engineCard);
 

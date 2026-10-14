@@ -24,6 +24,7 @@ import { Crafting, workshops, workshopStock } from "./game/crafting";
 import { isFree, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
+import { deliveryStops, nextStop } from "./game/delivery";
 import { BlueprintBoard, type BoardCard } from "./ui/blueprint-board";
 import { choose as chooseTech, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
 import { aOrAn, covers, describe as describeGoods, minus } from "./economy/goods";
@@ -768,6 +769,39 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows);
   }
 
+  // Where the open engine's train delivers (both modes): a chip that steps through the stops, then back to anywhere.
+  let deliverShown = "";
+  function showDeliverTo(): void {
+    const carId = interaction.openEngineCarId;
+    if (carId === -1) {
+      deliverShown = "";
+      return;
+    }
+    const to = game.economy.deliverToOf(carId);
+    const stops = deliveryStops(game.world);
+    const name = stops.find((st) => st.depotId === to)?.name ?? "Anywhere";
+    const key = `${carId}:${name}:${stops.length}`;
+    if (key === deliverShown) return;
+    deliverShown = key;
+    const box = hud.engineExtra;
+    box.innerHTML = "";
+    box.hidden = stops.length === 0;
+    const label = document.createElement("span");
+    label.className = "engine-extra-label";
+    label.textContent = "Deliver to";
+    const chip = document.createElement("button");
+    chip.className = "chip text deliver-to";
+    chip.classList.toggle("active", name !== "Anywhere");
+    chip.textContent = name;
+    chip.title = "Where this train takes its goods (other goods still unload where they can). Anywhere: the first stop that takes them.";
+    chip.addEventListener("click", () => {
+      game.economy.setDeliverTo(carId, nextStop(deliveryStops(game.world), game.economy.deliverToOf(carId)));
+      showDeliverTo();
+      scheduleSave();
+    });
+    box.append(label, chip);
+  }
+
   // The map view (Game mode): the whole land from above, with what each town wants and each depot holds.
   const mapView = new MapView(hud.root, { go: (m) => goToMarker(m), close: () => closeMap(true) });
   /** Where the camera was before the map opened, to go back to. */
@@ -1068,6 +1102,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       if (playing) townLife.update();
       showWorkshop();
     } else game.economy.delivered.forEach(showDelivered);
+    showDeliverTo();
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);
