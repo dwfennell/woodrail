@@ -10,3 +10,4 @@ tools/blender/out/
 tools/blender/*.blend
 __pycache__/
 e2e-out/
+dist-artifact/

@@ -8,6 +8,8 @@ A Brio-style wooden railway game: TypeScript, Three.js, Vite, Rapier physics. It
 - `npm test`: unit tests (Vitest)
 - `npm run typecheck`
 - `npm run build`
+- `npm run build:artifact`: a build to publish as a claude.ai Artifact (see `docs/artifact-builds.md`)
+- `npm run e2e:roads`: end-to-end road tests in a headless browser
 
 Designs and plans are in `docs/superpowers/specs` and `docs/superpowers/plans`.
 
