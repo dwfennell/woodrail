@@ -14,7 +14,7 @@ export const ROAD_MESSAGES: Record<RoadBlock, string> = {
   dry: "Bridges go over the river",
   slope: "A ramp climbs a block over two squares: lay it up to a step",
   "in-use": "Something stands there",
-  "station-way": "Keep the way into the station clear for track",
+  "station-way": "On a station's way in, only a straight road across the line",
   track: "Track can only cross a plain straight road, straight over",
   prop: "Move what's standing there first",
 };
@@ -64,7 +64,8 @@ export function roadsInRect(grid: LandscapeGrid, x0: number, z0: number, x1: num
 export class RoadPlacer {
   /** Grid square → which ways ground-level track runs over it (bit 1: along x, bit 2: along z, by its nearer axis). */
   private readonly trackSquares = new Map<number, number>();
-  private readonly corridors: Set<number>;
+  /** The station's way-in squares, each with the heading of the line it keeps clear. */
+  private readonly corridors: Map<number, number>;
   private readonly nbs = [0, 0, 0, 0];
 
   constructor(
@@ -72,7 +73,24 @@ export class RoadPlacer {
     layout: Layout | null,
     private readonly occupants: RoadOccupants = NONE,
   ) {
-    this.corridors = new Set(land.corridors);
+    // Each way-in square belongs to the nearest station or depot: the line runs along its heading.
+    const lines = [...land.towns.map((t) => ({ c: t.centre, heading: t.station.heading })), ...land.depots.map((d) => ({ c: d.centre, heading: d.piece.heading }))];
+    const g = land.grid;
+    this.corridors = new Map();
+    for (const i of land.corridors) {
+      const x = g.centreX(g.colOf(i));
+      const z = g.centreZ(g.rowOf(i));
+      let best = 0;
+      let bestD = Infinity;
+      for (const l of lines) {
+        const d = Math.hypot(l.c.x - x, l.c.z - z);
+        if (d < bestD) {
+          bestD = d;
+          best = l.heading;
+        }
+      }
+      this.corridors.set(i, best);
+    }
     if (layout) this.sampleTrack(layout);
   }
 
@@ -108,7 +126,10 @@ export class RoadPlacer {
     if (s !== SURF_RIVER && bridge) return "dry";
     if (s !== SURF_GRASS && s !== SURF_LANE && s !== SURF_RIVER) return "in-use";
     if (g.feature[i] !== FEAT_NONE && g.feature[i] !== FEAT_TREE) return "in-use";
-    if (this.corridors.has(i)) return "station-way";
+    // A station's way in stays clear for track, but a plain straight road across the line may go there (track laid
+    // later crosses it at a level crossing).
+    const line = this.corridors.get(i);
+    if (line !== undefined && !(this.road !== 0 && crossesRoad(this.road, line))) return "station-way";
     const def = this.road === 0 ? null : pieceOf(this.road);
     if (def?.ramp) {
       // Its high end meets the ground a block up (the top half), or the top half on level ground (the bottom half).

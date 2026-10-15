@@ -29,6 +29,11 @@ describe("road placement", () => {
     expect(placer.check(at(4, 1))).toBeNull();
     expect(placer.check(at(5, 1))).toBeNull();
     expect(placer.check(at(6, 1))).toBe("station-way");
+    // On a station's way in (here the line runs along x): only a plain straight across the line, a crossing to be.
+    expect(placer.check(at(6, 1), encodeRoad("straight", 1))).toBeNull();
+    expect(placer.check(at(6, 1), encodeRoad("straight", 0))).toBe("station-way");
+    expect(placer.check(at(6, 1), encodeRoad("curve", 0))).toBe("station-way");
+    expect(placer.check(at(6, 1), encodeRoad("tee", 1))).toBe("station-way");
     expect(placer.check(at(7, 1))).toBe("prop");
   });
 
