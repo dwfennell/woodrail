@@ -117,18 +117,17 @@ const site = await p.evaluate(async () => {
 });
 check("found a free end with open ground ahead", !!site, JSON.stringify(site));
 
-// A focus glides at most 30% closer at a time: a few, to come in from the whole-map view.
-// (Software rendering can be slow, a phone's 2× screen more so: each glide is waited out before the next.)
+/**
+ * Frame the view on (x, z) with about `r` mm round it in view: one glide straight there (a focus only ever comes 30%
+ * closer), waited out (software rendering can be slow, a phone's 2x screen more so).
+ */
 const focus = async (x, z, r = 320, page = p) => {
-  let last = Infinity;
-  for (let k = 0; k < 8; k++) {
-    await page.evaluate(([x, z, r]) => window.woodrail.director.focus(new window.woodrail.camera.position.constructor(x, 0, z), r), [x, z, r]);
-    await page.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 8000 }).catch(() => {});
-    // Done once a glide no longer brings it meaningfully closer.
-    const d = await page.evaluate(() => window.woodrail.camera.position.distanceTo(window.woodrail.controls.target));
-    if (d > last * 0.97) break;
-    last = d;
-  }
+  await page.evaluate(async ([x, z, r]) => {
+    const w = window.woodrail;
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    w.director.glideTo(new w.camera.position.constructor(x, 0, z), frameDistance(r, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+  }, [x, z, r]);
+  await page.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
 };
 /** Drag the mouse through world points (x, z) on the ground, a few px a step. */
 const drawThrough = async (pts, { shotAt = -1, shot = "", stepPx = 14 } = {}) => {
