@@ -137,6 +137,28 @@ export class LoadingToys {
     this.renderer.forceContextLoss();
   }
 
+  /** When the last toy will have finished hopping in (ms, `performance.now()` time; 0 with none). */
+  get doneAt(): number {
+    return this.toys.reduce((t, toy) => Math.max(t, toy.born + HOP_MS), 0);
+  }
+
+  /** Where the train's shelf ends on screen (client px, from the top), as last drawn. */
+  trainBottom = 0;
+
+  private rowBottom(i: number): number {
+    const row = this.rows[i];
+    if (!this.widths[i]) return 0;
+    const box = new Box3().setFromObject(row);
+    const r = this.canvas.getBoundingClientRect();
+    let low = -Infinity;
+    const v = new Vector3();
+    for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+      v.set(x, y, z).project(this.camera);
+      low = Math.max(low, r.top + ((1 - v.y) / 2) * r.height);
+    }
+    return low;
+  }
+
   /** Draw again (its canvas changed size). */
   refresh(): void {
     if (!this.stopped) this.start();
@@ -153,8 +175,7 @@ export class LoadingToys {
     const h = this.canvas.clientHeight;
     if (this.canvas.width !== Math.round(w * this.renderer.getPixelRatio())) this.renderer.setSize(w, h, false);
     // Each shelf keeps its row centred and about as wide as the train's, and keeps its height from the start (empty or
-    // not, so nothing moves up or down as they fill); the camera backs off to keep them all in view. Once loading's
-    // done only the train shows, framed on its own.
+    // not, so nothing moves up or down as they fill); the camera backs off to keep them all in view.
     const wide = Math.max(240, this.widths[ORDER.indexOf("train")]);
     let busy = false;
     let y = 0;
@@ -162,11 +183,10 @@ export class LoadingToys {
     let shelves = 0;
     const ease = this.calm ? 1 : 0.12;
     this.rows.forEach((g, i) => {
-      const shown = !this.trainOnly || ORDER[i] === "train";
-      g.visible = shown;
-      if (!shown || (this.trainOnly && !this.widths[i])) return;
+      // Once loading's done the other shelves go, but keep their room: the train doesn't move.
+      g.visible = !this.trainOnly || ORDER[i] === "train";
       const scale = this.widths[i] ? Math.min(SHELVES[ORDER[i]].grow, wide / this.widths[i]) : 1;
-      const height = this.trainOnly ? this.heights[i] * scale : Math.max(this.heights[i] * scale, SHELVES[ORDER[i]].slot);
+      const height = Math.max(this.heights[i] * scale, SHELVES[ORDER[i]].slot);
       if (shelves++) y -= height + SHELF_GAP;
       else top = height;
       const target = (-this.widths[i] / 2) * scale;
@@ -186,7 +206,6 @@ export class LoadingToys {
     this.camera.position.set(0, middle.y + dist * 0.32, middle.z + dist);
     this.camera.lookAt(0, middle.y, middle.z);
     this.camera.updateProjectionMatrix();
-    const still = this.calm || this.trainOnly;
     for (const t of this.toys) {
       if (now < t.born) {
         // Not its turn yet.
@@ -199,12 +218,18 @@ export class LoadingToys {
       const k = this.calm ? 1 : 1 + 2.7 * (age - 1) ** 3 + 1.7 * (age - 1) ** 2;
       t.root.scale.setScalar(Math.max(0.001, k));
       t.root.position.y = this.calm ? 0 : Math.sin(Math.PI * age) * 10;
-      t.root.rotation.y = still ? 0 : Math.sin(now / 1400 + t.x / 40) * SHELVES[t.shelf].sway;
+      if (this.trainOnly) {
+        // Swaying to rest (not snapping straight), then still.
+        t.root.rotation.y *= 0.85;
+        if (Math.abs(t.root.rotation.y) > 0.0005) busy = true;
+        else t.root.rotation.y = 0;
+      } else if (!this.calm) t.root.rotation.y = Math.sin(now / 1400 + t.x / 40) * SHELVES[t.shelf].sway;
       if (age < 1) busy = true;
     }
     this.renderer.render(this.scene, this.camera);
     // Keep drawing while anything moves (the toys sway while loading, unless motion is reduced; the train left under the
     // title stands still, so it costs nothing).
-    if (busy || !still) this.start();
+    if (busy || !(this.calm || this.trainOnly)) this.start();
+    this.trainBottom = this.rowBottom(ORDER.indexOf("train"));
   };
 }

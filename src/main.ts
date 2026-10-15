@@ -568,22 +568,32 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     loading?.classList.add("behind-title");
     title.root.classList.add("over-opening");
     title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") });
-    // Of the loading screen's toys, just the train stays: under the name, above the cards (drawn again at its new
-    // size, and whenever the window changes).
-    const canvas = loading?.querySelector<HTMLCanvasElement>(".loading-toys");
-    if (toys && canvas) {
-      title.root.querySelector(".title-head")?.append(canvas);
-      toys.showTrainOnly();
-      addEventListener("resize", refreshToys);
-    }
+    // Of the loading screen's toys, just the train stays, right where it is, under the name: the cards come in below it.
+    toys?.showTrainOnly();
+    placeCards();
+    addEventListener("resize", refreshToys);
   }
-  const refreshToys = () => toys?.refresh();
+  /** The title's cards start below the train (once it's drawn: the next frame). */
+  function placeCards(): void {
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (!overOpening) return;
+        const below = toys?.trainBottom || innerHeight * 0.4;
+        title.root.style.paddingTop = `${Math.round(below + 16)}px`;
+      }),
+    );
+  }
+  const refreshToys = () => {
+    toys?.refresh();
+    placeCards();
+  };
 
   /** The opening screen goes (fading over the map) once a mode is chosen. */
   function leaveOpening(): void {
     if (!overOpening) return;
     overOpening = false;
     title.root.classList.remove("over-opening");
+    title.root.style.paddingTop = "";
     loading?.classList.add("done");
     removeEventListener("resize", refreshToys);
   }
@@ -1186,7 +1196,6 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       if (leaving) return;
       leaving = true;
       toys?.stop();
-      title.root.querySelector(".loading-toys")?.remove();
       requestAnimationFrame(() => setTimeout(() => begin(next, fresh), 0));
       return;
     }
@@ -1407,16 +1416,31 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress });
   game.start();
-  if (opening.linked) {
-    enter(mode);
-    openingView();
-  } else showTitleOverOpening();
   loadBar.finish();
-  if (!overOpening) {
-    loading?.classList.add("done");
-    // The loading screen fades out (0.6 s); its toys go with it.
-    setTimeout(() => toys?.stop(), 700);
-  }
+  // The loading screen's toys play their entry in full before it moves on (it's short, and capped).
+  void entryPlayed().then(() => {
+    if (opening.linked) {
+      enter(mode);
+      openingView();
+    } else showTitleOverOpening();
+    if (!overOpening) {
+      loading?.classList.add("done");
+      // The loading screen fades out (0.6 s); its toys go with it.
+      setTimeout(() => toys?.stop(), 700);
+    }
+  });
+}
+
+/** The loading screen's toys' entry: done once each has hopped in. */
+let toysEntry: Promise<void> = Promise.resolve();
+/** However slow the toys, the loading screen moves on by this long after the page opened (ms). */
+const ENTRY_CAP_MS = 7000;
+
+/** Resolves when the toys have all come in (or at the cap). */
+function entryPlayed(): Promise<void> {
+  const cap = new Promise<void>((r) => setTimeout(r, Math.max(0, ENTRY_CAP_MS - performance.now())));
+  const played = toysEntry.then(() => new Promise<void>((r) => setTimeout(r, Math.max(0, (toys?.doneAt ?? 0) - performance.now()))));
+  return Promise.race([played, cap]);
 }
 
 /** Say on the loading screen that the toys couldn't be fetched, with a button to try again. */
@@ -1471,8 +1495,7 @@ const toys = ((): LoadingToys | null => {
   }
 })();
 if (toys) {
-  // One after another: the train, then the platform's folk, the street's furniture, and (if they're in before the
-  // game is) a few buildings. The buildings come after what the game needs, so they never hold it up.
+  // One after another: the train, then the platform's folk, then the street's furniture.
   const pop = async (models: Map<string, Object3D>, shelf: Shelf, list: [string, Record<string, string>?][]) => {
     for (const [id, slots] of list) {
       const model = models.get(id);
@@ -1480,7 +1503,7 @@ if (toys) {
       await new Promise((r) => setTimeout(r, 180));
     }
   };
-  void (async () => {
+  toysEntry = (async () => {
     try {
       const trains = loadModelSet("trains");
       const dressing = loadModelSet("dressing", true);
@@ -1503,7 +1526,7 @@ if (toys) {
           ["peg-doll-hat", { coat: "#e6b52c", hat: "#c8442f" }],
           ["peg-doll", { coat: "#c8442f" }],
         ]),
-        180,
+        150,
       );
       toys.addRow(
         "street",
@@ -1517,8 +1540,8 @@ if (toys) {
           ["busstop"],
           ["lamp"],
         ]),
-        180,
-        7 * 180,
+        150,
+        7 * 150,
       );
     } catch {
       // The loading screen says so itself (see offerRetry).
