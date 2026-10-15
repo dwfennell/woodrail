@@ -2,6 +2,16 @@
 
 Status: brainstorm, revised with the user on 2026-10-15. Nothing here is built yet.
 
+## The blueprint tree is the roadmap
+
+The full proposed web is [2026-10-15-blueprint-tree.html](2026-10-15-blueprint-tree.html). It is also published as a
+claude.ai page: https://claude.ai/artifact/JobSRZPvoV9qCExAL5G68z
+
+- **Size:** about 105 blueprints in 12 branches.
+- **Status:** each is in game, next, coming soon or someday.
+- **In the game:** what isn't built yet shows on the board as "coming soon".
+- **A rough plan:** nothing is committed until we build it.
+
 ## Principles
 
 - **The heart of the game: unlock new buildings and things, and see them change how you play.** Every step should
