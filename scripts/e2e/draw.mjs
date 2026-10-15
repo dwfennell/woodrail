@@ -218,7 +218,7 @@ if (site) {
   check("Esc switches drawing off", off);
 }
 
-// 7. On a phone: a touch drag (one finger) from the station end, straight on then round a curve.
+// 7. On a phone: a one-finger touch drag on open ground, up the screen then round to the right.
 if (site) {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
@@ -228,86 +228,33 @@ if (site) {
   await q.waitForTimeout(4000);
   await q.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
   await q.waitForTimeout(1500);
-  // A free end whose stroke (straight on, then a quarter turn to one side) stays well inside the view's bounds, over
-  // open ground, so the view can centre on it.
-  const phoneSite = await q.evaluate(async () => {
+  // A big patch of open, level ground, the view centred on it: a new line is drawn there in screen space (from a free
+  // end is checked on the desktop above).
+  const patch = await q.evaluate(() => {
     const w = window.woodrail;
-    const { createWorldConnector } = await import("/src/track/layout.ts");
     const G = w.landscape.grid;
     const B = w.director.bounds;
-    const c = createWorldConnector();
     const open = (px, pz) => {
       const cell = G.cellAtWorld(px, pz);
-      return cell !== -1 && G.height[cell] === 0 && G.surface[cell] === 0 && G.feature[cell] <= 1 && G.road[cell] === 0;
+      return cell !== -1 && G.height[cell] === 0 && G.surface[cell] === 0 && G.feature[cell] === 0 && G.road[cell] === 0;
     };
-    const inside = (px, pz) => px > B.x0 + 250 && px < B.x1 - 250 && pz > B.z0 + 250 && pz < B.z1 - 250;
-    for (const id of w.layout.pieceIds()) {
-      for (let i = 0; i < 4; i++) {
-        const ref = id * 4 + i;
-        if (w.layout.joinedConnector(ref) !== -1) continue;
-        try {
-          w.layout.worldConnector(ref, c);
-        } catch {
-          continue;
-        }
-        if (!Number.isFinite(c.x) || c.y !== 0) continue;
-        const fx = Math.cos(c.heading);
-        const fz = Math.sin(c.heading);
-        for (const side of [1, -1]) {
-          const lx = -fz * side;
-          const lz = fx * side;
-          const pts = [];
-          for (let d = 72; d <= 220; d += 36) pts.push([c.x + fx * d, c.z + fz * d]);
-          for (let a = 0.2; a <= Math.PI / 2 + 0.01; a += 0.2) pts.push([c.x + fx * (220 + 180 * Math.sin(a)) + lx * 180 * (1 - Math.cos(a)), c.z + fz * (220 + 180 * Math.sin(a)) + lz * 180 * (1 - Math.cos(a))]);
-          if (pts.every(([px, pz]) => open(px, pz) && inside(px, pz))) return { x: c.x, z: c.z, heading: c.heading, side };
-        }
+    for (let pz = B.z0 + 600; pz < B.z1 - 600; pz += 72) {
+      for (let px = B.x0 + 600; px < B.x1 - 600; px += 72) {
+        let ok = true;
+        for (let dz = -360; dz <= 360 && ok; dz += 72) for (let dx = -360; dx <= 360 && ok; dx += 72) ok = open(px + dx, pz + dz) && w.layout.queryFreeConnectors(px + dx, pz + dz, 72, []) === 0;
+        if (ok) return { x: px, z: pz };
       }
     }
     return null;
   });
-  check("on a phone, found a free end with room for the stroke", !!phoneSite, JSON.stringify(phoneSite));
-  if (!phoneSite) throw new Error("no phone site");
-  const { x, z, heading: h, side } = phoneSite;
-  const fx = Math.cos(h);
-  const fz = Math.sin(h);
-  const lx = -fz * side;
-  const lz = fx * side;
-  // Framed so the whole stroke is on screen, clear of the edges (where the view would edge-pan) and the tray. (A focus
-  // only ever comes closer, so one framing.)
-  let pts = [];
-  for (const radius of [700]) {
-    await focus(x + fx * 200 + lx * 90, z + fz * 200 + lz * 90, radius, q);
-    // Then centred exactly on the stroke's middle (a focus can leave the view off to one side near the map's edge).
-    await q.evaluate(([mx, mz]) => {
-      const w = window.woodrail;
-      const d = new w.camera.position.constructor(mx - w.controls.target.x, 0, mz - w.controls.target.z);
-      w.camera.position.add(d);
-      w.controls.target.add(d);
-      w.controls.update();
-      w.invalidate();
-    }, [x + fx * 200 + lx * 90, z + fz * 200 + lz * 90]);
-    await q.waitForTimeout(600);
-    pts = await q.evaluate(([x, z, fx, fz, lx, lz]) => {
-      const w = window.woodrail;
-      const V = w.camera.position.constructor;
-      const r = w.canvas.getBoundingClientRect();
-      const sc = (a, b) => {
-        const v = new V(a, 0, b).project(w.camera);
-        return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
-      };
-      const out = [];
-      for (let d = 0; d <= 220; d += 20) out.push(sc(x + fx * d, z + fz * d));
-      for (let a = Math.PI / 12; a <= Math.PI / 2 + 0.01; a += Math.PI / 12) {
-        const along = 220 + 180 * Math.sin(a);
-        const side = 180 * (1 - Math.cos(a));
-        out.push(sc(x + fx * along + lx * side, z + fz * along + lz * side));
-      }
-      return out;
-    }, [x, z, fx, fz, lx, lz]);
-  }
-  const fits = pts.every(([px, py]) => px > 60 && px < 330 && py > 120 && py < 600);
-  check("on a phone, the stroke is framed clear of the edges", fits, fits ? "" : JSON.stringify(pts.map(([a, b]) => [Math.round(a), Math.round(b)])));
+  check("on a phone, found open ground to draw on", !!patch, JSON.stringify(patch));
+  if (!patch) throw new Error("no open ground");
+  await focus(patch.x, patch.z, 420, q);
   await q.tap(".tray-draw");
+  // Up the screen from the middle, then round to the right: about a third of the screen.
+  const pts = [];
+  for (let k = 0; k <= 10; k++) pts.push([195, 520 - k * 12]);
+  for (let a = Math.PI / 12; a <= Math.PI / 2 + 0.01; a += Math.PI / 12) pts.push([195 + 90 * (1 - Math.cos(a)), 400 - 90 * Math.sin(a)]);
   const cdp = await ctx.newCDPSession(q);
   const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
   const n0 = await q.evaluate(() => window.woodrail.layout.pieceCount);
@@ -326,7 +273,7 @@ if (site) {
     const w = window.woodrail;
     return [...w.layout.pieceIds()].slice(n0).map((id) => w.layout.getPiece(id).type);
   }, n0);
-  check("on a phone, a one-finger drag lays straights then curves", added.length >= 3 && added.filter((t) => t.startsWith("curve")).length >= 2, added.join(" "));
+  check("on a phone, a one-finger drag lays a line that bends", added.length >= 2 && added.some((t) => t.startsWith("curve")), added.join(" "));
   // Nothing happening: no frames drawn.
   const idle = await q.evaluate(async () => {
     const r = window.woodrail.renderer;
