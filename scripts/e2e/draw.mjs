@@ -177,7 +177,8 @@ if (site) {
   await p.screenshot({ path: `${OUT}/draw-2-turn.png` });
   const types = await p.evaluate((n) => [...window.woodrail.layout.pieceIds()].slice(-n).map((id) => window.woodrail.layout.getPiece(id).type), 12);
   const curves = types.filter((t) => t.startsWith("curve")).length;
-  check("a stroke that turns lays curves", curves >= 2, types.join(" "));
+  const said = await p.evaluate(() => D.toasts());
+  check("a stroke that turns lays curves", curves >= 2, `${types.join(" ")}${said.length ? ` · toasts: ${said.join(" | ")}` : ""}`);
   await p.evaluate(() => window.woodrail.interaction.undo());
 
   // 4. Retracing takes ghosts off: out and back to the start lays nothing.
