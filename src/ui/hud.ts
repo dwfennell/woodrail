@@ -10,7 +10,7 @@ export { trayKey, type TrayItem } from "./tray-catalogue";
 
 export interface HudHandlers {
   trayPointerDown(item: TrayItem, e: PointerEvent): void;
-  /** A tray piece tapped: ready it (or put it away), to place with taps on the floor. */
+  /** A tray piece tapped (the ready one is put away). */
   trayTap(item: TrayItem): void;
   /** Another tray tab opened (the ready piece is put away). */
   trayTabChanged(): void;
@@ -396,12 +396,12 @@ export class Hud {
             this.trayPress(e, scroller, { tap: () => this.chooseLandTool(tool) });
           });
         } else if (item.kind === "piece") {
-          // A piece is dragged out, or tapped to ready it: then each tap on the floor puts one down (it stays ready
-          // after a drag too, for the next of the same kind).
+          // A piece is dragged out; once placed it stays ready (the next waits at the end it left: tap it to add it).
+          // A tap on the ready one here puts it away.
           const key = trayKey(item);
           b.dataset.key = key;
           b.classList.toggle("armed", this.armedKey === key);
-          b.title = `${item.label}: drag onto the floor, or tap it, then tap where it goes`;
+          b.title = `Drag onto the floor: ${item.label}`;
           b.addEventListener("pointerdown", (e) => {
             e.preventDefault();
             this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: () => this.handlers.trayTap(item) });

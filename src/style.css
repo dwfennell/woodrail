@@ -59,7 +59,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .tray-item:active { cursor: grabbing; }
 /* Ready to place with a tap on the floor: a green ring and a little "tap" tag. */
 .tray-item.armed { box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.16), 0 0 0 3px #6cbf5c, 0 3px 8px rgba(60, 120, 40, 0.3); position: relative; }
-.tray-item.armed::after { content: "tap to place"; position: absolute; top: 4px; left: 50%; transform: translateX(-50%); background: #6cbf5c; color: #fff; font-size: 9.5px; font-weight: 800; padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
+.tray-item.armed::after { content: "ready"; position: absolute; top: 4px; left: 50%; transform: translateX(-50%); background: #6cbf5c; color: #fff; font-size: 9.5px; font-weight: 800; padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 .tray-item .icon { width: 74px; height: 60px; display: grid; place-items: center; }
 .tray-item .icon svg { width: 76%; height: 76%; }
 .tray-item .icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 3px 2px rgba(80, 50, 20, 0.22)); pointer-events: none; }
