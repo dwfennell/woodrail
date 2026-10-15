@@ -1,7 +1,7 @@
 import { rng } from "../lib/rng";
 import type { Pose } from "../track";
 import { growTown } from "../roads/grow-town";
-import { coastOf, SAND, shoreDistance, type Coast } from "./coast";
+import { coastNear, coastOf, SAND, shoreDistance, type Coast } from "./coast";
 import { BORDER_BAND, hashInts, regionStubs, STUB_DEPTH, type Region, type Stub } from "./edges";
 import {
   CELL,
@@ -226,7 +226,12 @@ function treeHere(seed: number, col: number, row: number): boolean {
 }
 
 
-function attemptRegion(seed: number, region: Region, starter: boolean, attempt: number, coast: Coast | null): Landscape {
+function attemptRegion(seed: number, region: Region, starter: boolean, attempt: number, coastOfMap: Coast | null): Landscape {
+  // A region well inland (the start region, mostly) skips the coast's sums square by square: none can reach it. (The
+  // crossings on its edges still ask the map's coast, so they agree with the plots beside it.)
+  // (Squares more than SAND + MAX_HEIGHT from the shore are neither sand, nor beach-bound hills, nor too near for a
+  // town; the hills' settling looks MAX_HEIGHT squares round the region.)
+  const coast = coastNear(coastOfMap, region, SAND + MAX_HEIGHT - 1, MAX_HEIGHT) ? coastOfMap : null;
   const local = hashInts(seed, region.px0, region.pz0, region.w, region.h) + attempt * 1000;
   const random = rng(local);
   const grid = gridWithPlots(region.px0, region.pz0, region.w, region.h);
@@ -316,7 +321,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
 
   // Rivers: crossing the region's edges where the edge contracts say, joined up inside. (The contracts still name
   // where country lanes used to cross; there are no generated roads between towns now, only town gates.)
-  const stubs = regionStubs(seed, region, coast);
+  const stubs = regionStubs(seed, region, coastOfMap);
   const rivers = stubs.inside.filter((s) => s.kind === "river");
   for (const stub of rivers) for (const [col, row] of stub.cells) grid.surface[grid.index(col, row)] = SURF_RIVER;
   joinRivers(grid, rivers, region, random, local, interior, locked);
@@ -366,7 +371,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
     if (treeHere(seed, col, row)) grid.feature[i] = FEAT_TREE;
   });
 
-  return { seed, starter, grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null, depots, nextBuildingId: buildingId, coast };
+  return { seed, starter, grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null, depots, nextBuildingId: buildingId, coast: coastOfMap };
 }
 
 /** A station's or depot's squares (track and platform or yard), its approach corridors, and its town's area. */
