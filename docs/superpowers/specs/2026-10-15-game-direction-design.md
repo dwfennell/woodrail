@@ -68,6 +68,37 @@ There's no pivot. A city keeps growing minor specialties as you bring it new thi
 
 **Geography only nudges.** A town by fields starts slightly ahead toward baking, but your trains decide.
 
+### Specialties to discover
+
+**Discovery is part of the fun.** The town book lists every specialty, unseen ones as silhouettes. Your first town of a
+new kind reveals it and puts up a building you've never seen.
+
+**The major specialty is automatic:** a city's strongest. Some specialties come from what you bring a town:
+
+| Specialty | From | Its city building |
+|---|---|---|
+| Bakers' | flour | Grand bakery |
+| Builders' | stone | Stonemason's yard |
+| Carpenters' | lots of planks | Furniture works |
+| Market | passengers between towns | Grand station |
+| Resort | passengers, far from industry (by water or hills) | Pier or spa |
+| Industrial | working industries nearby | Engine works |
+| Trading | goods through its warehouse | Trading house |
+| Mining (C) | coal | Pithead |
+| Ironworks (C) | iron | Foundry |
+| Harbour (D) | trade by water | Harbour |
+| Scholars' | many blueprints learned (its school busy) | Observatory, a step toward the rocket |
+
+Some are rare **combinations of two minor specialties:**
+
+- Bakers' + Market makes a festival town: a fairground with a carousel.
+- Carpenters' + Trading makes a toymakers' town: a toy factory.
+- Ironworks + Scholars' makes a clockmakers' town: a clock tower.
+
+Combinations are found by experimenting and are shown only once found.
+
+The list grows with each phase. Each new specialty is mostly data plus one model.
+
 ## 3. Blueprints with varied requirements
 
 Each blueprint has its own mix of requirements, not one currency per line. So you can specialize and still need some
@@ -99,6 +130,33 @@ will need. Then the rocket asks for several major cities' specialties.
   - town: industries and logistics
   - city: advanced blueprints and the major buildings' lines
 - **Fold in the small blueprints:** Risers go into Bridges, and Turning loops into Junctions.
+
+## Crafting (a proposal, not yet part of the plan)
+
+Leaning further into the workshop:
+
+1. **Crafted goods as cargo.** The workshop also makes goods that leave by train:
+   - furniture from planks
+   - toys from planks and paint
+   - tools from iron (Phase C)
+
+   Towns at town level and up want some, so the workshop becomes part of the network, not just a menu.
+2. **Benches.** A workshop gets benches, each a recipe set:
+   - a carpenter's bench (planks)
+   - a paint shop (paint, from a dye works using flowers or fields)
+   - a smithy (iron)
+
+   Benches are blueprints. A city's major building can be a bigger bench: an engine works is a smithy for trains.
+3. **Recipes of more than planks.** Better wagons need planks and iron, and signals need iron and paint. This gives
+   the later goods a use beyond towns.
+4. **Craft your scenery.** Lamps, fences, flower beds, signals, tunnels, level crossings. Mostly decoration, some
+   useful (signals, crossings). It's cozy, and makes the layout yours.
+5. **Paint.** Paint your trains and stations with paints you've made (cosmetic).
+6. **Getting better at it.** The first of a new thing takes longer; each one after is quicker (a cozy kind of
+   mastery).
+
+Recommended first: 1 and 2. They fit the specialties (carpenters', toymakers') and the rocket's parts later. 4 and 5
+are a gentler side branch for later.
 
 ## Parked
 
