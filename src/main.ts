@@ -1514,6 +1514,12 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     // The two stations to join, along the screen's long side (up a phone held upright), close enough to see them.
     const f = frameAlong([a.station, b.station], game.camera.fov, game.camera.aspect, GOAL_MARGIN);
     game.lookAt(new Vector3(f.x, 0, f.z), f.distance, 0.95, f.theta);
+    // The hint toast shows across the top of the screen: the view leans toward the upper town (and stands back a
+    // little), so neither town is under it.
+    const up = [a.station, b.station].map((s) => new Vector3(s.x, 0, s.z).project(game.camera).y);
+    const top = up[0] > up[1] ? a.station : b.station;
+    const lean = 0.15;
+    game.lookAt(new Vector3(f.x + (top.x - f.x) * lean * 2, 0, f.z + (top.z - f.z) * lean * 2), f.distance * 1.3, 0.95, f.theta);
     // Their names over them for a while (as "Show me" does): the chip only says "Join two towns".
     if (game.layout.pieceCount === game.stations.size + game.depots.size) {
       const grid = game.landscape.grid;
