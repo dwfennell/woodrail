@@ -12,12 +12,24 @@ function open(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
     try {
       const req = indexedDB.open(DB, 2);
+      // Blocked (another tab holds the older version open): go on without the cache, and close the connection if
+      // it opens later after all.
+      let gaveUp = false;
       req.onupgradeneeded = () => {
         for (const s of STORES) if (!req.result.objectStoreNames.contains(s)) req.result.createObjectStore(s);
       };
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        const db = req.result;
+        if (gaveUp) return db.close();
+        // A newer version wanted elsewhere (a later build in another tab): let it go ahead.
+        db.onversionchange = () => db.close();
+        resolve(db);
+      };
       req.onerror = () => resolve(null);
-      req.onblocked = () => resolve(null);
+      req.onblocked = () => {
+        gaveUp = true;
+        resolve(null);
+      };
     } catch {
       resolve(null);
     }

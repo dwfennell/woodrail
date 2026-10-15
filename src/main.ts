@@ -644,13 +644,25 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     placeCards();
   };
 
+  /**
+   * The loading screen fades out (0.6 s) and is then taken out of the page, its toys and its letters' hop with it
+   * (left in, merely transparent, the hop would keep the page restyling every frame).
+   */
+  function dismissLoading(): void {
+    loading?.classList.add("done");
+    setTimeout(() => {
+      toys?.stop();
+      if (loading) loading.style.display = "none";
+    }, 700);
+  }
+
   /** The opening screen goes (fading over the map) once a mode is chosen. */
   function leaveOpening(): void {
     if (!overOpening) return;
     overOpening = false;
     title.root.classList.remove("over-opening");
     title.root.style.paddingTop = "";
-    loading?.classList.add("done");
+    dismissLoading();
     removeEventListener("resize", refreshToys);
   }
 
@@ -1116,6 +1128,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   const _b = new Vector3();
   /** The engine whose card the view was last shown for, and its status line as shown, and as it's been lately. */
   let viewCar = -1;
+  let viewStanding = false;
   const viewStatus = { shown: "", next: "", since: 0 };
   function showEngineView(): void {
     const carId = interaction.openEngineCarId;
@@ -1130,8 +1143,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     if (lever !== hud.engineLeverShown) hud.updateEngineCard(lever, game.following === carId);
     const opened = carId !== viewCar;
     viewCar = carId;
-    // Just opened on a stopped engine with its front up against a buffer: Go offers the open way.
-    if (opened && lever === 0 && game.sim.engineBlocked(carId, 1) && !game.sim.engineBlocked(carId, -1)) hud.setEngineWay(-1);
+    // Stopped (just opened on it, or come to a stand with the card open) with its front up against a buffer: Go
+    // offers the open way.
+    const standing = lever === 0 && found.train.speed === 0;
+    if (standing && (opened || !viewStanding) && game.sim.engineBlocked(carId, 1) && !game.sim.engineBlocked(carId, -1)) hud.setEngineWay(-1);
+    viewStanding = standing;
     // A town by its name; anything else as "the sawmill" ("the workshop 2" where there are more).
     const nameOf = (id: number) => {
       const d = game.economy.depot(id);
@@ -1624,11 +1640,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       enter(mode);
       openingView();
     } else showTitleOverOpening();
-    if (!overOpening) {
-      loading?.classList.add("done");
-      // The loading screen fades out (0.6 s); its toys go with it.
-      setTimeout(() => toys?.stop(), 700);
-    }
+    if (!overOpening) dismissLoading();
   });
 }
 
