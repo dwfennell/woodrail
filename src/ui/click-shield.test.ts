@@ -1,53 +1,81 @@
 import { describe, expect, it } from "vitest";
-import { strayClick } from "./click-shield";
+import { pressOf, strayClick, type ShieldNode } from "./click-shield";
 
-/** A stand-in DOM node: `contains` walks up its parents. */
-function node(parent: FakeNode | null = null): FakeNode {
-  const n: FakeNode = {
-    parent,
-    contains: (o) => {
-      for (let x = o as unknown as FakeNode | null; x; x = x.parent) if (x === n) return true;
-      return false;
-    },
-  };
-  return n;
+/** A stand-in DOM element: `contains` and `closest` walk up its parents; it can be taken off the page. */
+class Fake implements ShieldNode {
+  isConnected = true;
+  constructor(
+    readonly parent: Fake | null,
+    readonly tag = "div",
+    readonly className = "",
+    readonly textContent = "",
+    readonly dataset: Record<string, string> = {},
+  ) {}
+  contains(other: ShieldNode | null): boolean {
+    for (let x = other as Fake | null; x; x = x.parent) if (x === this) return true;
+    return false;
+  }
+  closest(selector: string): ShieldNode | null {
+    for (let x: Fake | null = this; x; x = x.parent) if (selector.split(", ").some((s) => s === x!.tag || (s.startsWith(".") && x!.className.split(" ").includes(s.slice(1))))) return x;
+    return null;
+  }
 }
-interface FakeNode {
-  parent: FakeNode | null;
-  contains(other: Node | null): boolean;
-}
-const N = (n: FakeNode) => n as unknown as Node;
 
 describe("click shield", () => {
-  const body = node();
-  const canvas = node(body);
-  const card = node(body);
-  const del = node(card);
-  const button = node(body);
-  const label = node(button);
+  const body = new Fake(null, "body");
+  const canvas = new Fake(body, "canvas");
+  const card = new Fake(body);
+  const del = new Fake(card, "button", "chip text danger", "Delete");
+  const plus = new Fake(body, "button", "chip", "+", { recipe: "rail" });
+  const label = new Fake(plus, "span");
+  const tap = (target: Fake, _at: number) => ({ target, pointer: true });
 
-  it("drops a tap's click that lands on something else than its press (a card opened under the finger)", () => {
-    expect(strayClick({ target: N(canvas), at: 1000 }, { target: N(del), at: 1015, detail: 1 })).toBe(true);
+  it("a tap on the map whose card opens under the finger: its click on the card is dropped (however slow)", () => {
+    const down = pressOf(canvas, 1000, canvas);
+    expect(strayClick(down, tap(del, 1015))).toBe(true);
+    expect(strayClick(down, tap(del, 4000))).toBe(true);
   });
 
-  it("drops it when the pressed element has gone (a shelf swapped for Back)", () => {
-    const gone = node(null);
-    expect(strayClick({ target: N(gone), at: 1000 }, { target: N(button), at: 1020, detail: 1 })).toBe(true);
+  it("a tap whose control is swapped for a different one (a shelf for Back): its click is dropped", () => {
+    const shelf = new Fake(body, "button", "tray-item tray-group", "Straight");
+    const down = pressOf(shelf, 1000, canvas);
+    shelf.isConnected = false;
+    const back = new Fake(body, "button", "tray-item tray-back", "‹ Back");
+    expect(strayClick(down, tap(back, 1020))).toBe(true);
+  });
+
+  it("a tap on a control drawn afresh while the finger is down (the workshop's +): its click counts", () => {
+    const old = new Fake(body, "button", "chip", "+", { recipe: "rail" });
+    const down = pressOf(old, 1000, canvas);
+    old.isConnected = false;
+    const fresh = new Fake(body, "button", "chip", "+", { recipe: "rail" });
+    expect(strayClick(down, tap(fresh, 1120))).toBe(false);
+    // …but not one for another recipe drawn where it was.
+    const other = new Fake(body, "button", "chip", "+", { recipe: "wheel" });
+    expect(strayClick(down, tap(other, 1120))).toBe(true);
   });
 
   it("keeps a click on what was pressed, or around or inside it", () => {
-    expect(strayClick({ target: N(button), at: 1000 }, { target: N(button), at: 1080, detail: 1 })).toBe(false);
-    expect(strayClick({ target: N(label), at: 1000 }, { target: N(button), at: 1080, detail: 1 })).toBe(false);
-    expect(strayClick({ target: N(button), at: 1000 }, { target: N(label), at: 1080, detail: 1 })).toBe(false);
+    expect(strayClick(pressOf(plus, 1000, canvas), tap(plus, 1080))).toBe(false);
+    expect(strayClick(pressOf(label, 1000, canvas), tap(plus, 1080))).toBe(false);
+    expect(strayClick(pressOf(plus, 1000, canvas), tap(label, 1080))).toBe(false);
+    expect(strayClick(pressOf(canvas, 1000, canvas), tap(canvas, 1080))).toBe(false);
   });
 
-  it("keeps keyboard and scripted clicks, and clicks long after the press", () => {
-    expect(strayClick({ target: N(canvas), at: 1000 }, { target: N(del), at: 1015, detail: 0 })).toBe(false);
-    expect(strayClick(null, { target: N(del), at: 1015, detail: 1 })).toBe(false);
-    expect(strayClick({ target: N(canvas), at: 1000 }, { target: N(del), at: 1700, detail: 1 })).toBe(false);
+  it("keeps keyboard and scripted clicks (no pointer behind them)", () => {
+    expect(strayClick(pressOf(canvas, 1000, canvas), { target: del, pointer: false })).toBe(false);
+    expect(strayClick(null, tap(del, 1015))).toBe(false);
+  });
+
+  it("a slow tap is the same tap: no time limit either way", () => {
+    const shelf = new Fake(body, "button", "tray-item tray-group", "Straight");
+    const down = pressOf(shelf, 1000, canvas);
+    shelf.isConnected = false;
+    expect(strayClick(down, tap(new Fake(body, "button", "tray-item tray-back", "‹ Back"), 4000))).toBe(true);
+    expect(strayClick(pressOf(plus, 1000, canvas), tap(plus, 4000))).toBe(false);
   });
 
   it("a quick second tap on a card button counts (it has its own press)", () => {
-    expect(strayClick({ target: N(del), at: 1300 }, { target: N(del), at: 1350, detail: 1 })).toBe(false);
+    expect(strayClick(pressOf(del, 1300, canvas), tap(del, 1350))).toBe(false);
   });
 });

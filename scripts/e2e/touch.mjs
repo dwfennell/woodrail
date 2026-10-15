@@ -85,6 +85,41 @@ async function mapTaps(p) {
   check("…and its card is open", await visible(".engine-card"));
 }
 
+/**
+ * A control drawn afresh while the finger is down (the workshop's + and −, redrawn as it crafts): the tap's click on
+ * the new one counts. A different control drawn there instead: it doesn't.
+ */
+async function redrawnControl(ctx, p) {
+  const cdp = await ctx.newCDPSession(p);
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  for (const [what, same] of [["the same control", true], ["a different control", false]]) {
+    await p.evaluate(() => {
+      window.__clicks = 0;
+      const b = document.createElement("button");
+      b.className = "chip test-redraw";
+      b.dataset.recipe = "rail";
+      b.textContent = "+";
+      Object.assign(b.style, { position: "fixed", left: "150px", top: "200px", width: "90px", height: "60px", zIndex: 99 });
+      b.addEventListener("click", () => window.__clicks++);
+      document.body.appendChild(b);
+    });
+    await touch("touchStart", 195, 230);
+    // Drawn afresh under the finger.
+    await p.evaluate((same) => {
+      const old = document.querySelector(".test-redraw");
+      const b = old.cloneNode(true);
+      if (!same) b.dataset.recipe = "wheel";
+      b.addEventListener("click", () => window.__clicks++);
+      old.replaceWith(b);
+    }, same);
+    await touch("touchEnd", 0, 0);
+    await p.evaluate(() => new Promise((r) => setTimeout(r, 400)));
+    const clicks = await p.evaluate(() => window.__clicks);
+    check(`a tap on a control redrawn under the finger as ${what}: ${same ? "counts" : "is dropped"}`, clicks === (same ? 1 : 0), `${clicks} clicks`);
+    await p.evaluate(() => document.querySelector(".test-redraw")?.remove());
+  }
+}
+
 for (const mode of ["sandbox", "game"]) {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
@@ -123,7 +158,10 @@ for (const mode of ["sandbox", "game"]) {
     await p.evaluate(() => new Promise((r) => setTimeout(r, 400)));
     check(`${mode}: a touch tap on Back goes back to the shelves (and stays there)`, !(await inGroup()));
   }
-  if (mode === "sandbox") await mapTaps(p);
+  if (mode === "sandbox") {
+    await mapTaps(p);
+    await redrawnControl(ctx, p);
+  }
   await ctx.close();
 }
 check("no page errors", errors.length === 0, errors.join(" | "));

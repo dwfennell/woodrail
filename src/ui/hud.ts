@@ -389,12 +389,14 @@ export class Hud {
         const b = el("button", "tray-item tray-back");
         b.innerHTML = `<span class="icon">‹</span><span class="label">Back</span>`;
         b.title = "Back to all kinds";
-        // Handled as a press like the tray's other buttons, never on "click": on touch, the tap that opened this shelf
-        // lifts with Back now under the finger, and the browser's click for that tap would land on it.
+        // Handled as a press like the tray's other buttons: on touch, the tap that opened this shelf lifts with Back now
+        // under the finger, and the browser's click for that tap lands on it (the click shield drops that one).
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
           this.trayPress(e, scroller, { tap: () => showGroups(groups) });
         });
+        // And on click, for the keyboard (a tap's own click is dropped: Back has gone by then, see click-shield.ts).
+        b.addEventListener("click", () => showGroups(groups));
         scroller.appendChild(b);
       }
       this.trayButtons = [];
