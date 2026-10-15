@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pressOf, strayClick, type ShieldNode } from "./click-shield";
+import { Presses, pressOf, strayClick, type ShieldNode } from "./click-shield";
 
 /** A stand-in DOM element: `contains` and `closest` walk up its parents; it can be taken off the page. */
 class Fake implements ShieldNode {
@@ -77,5 +77,26 @@ describe("click shield", () => {
 
   it("a quick second tap on a card button counts (it has its own press)", () => {
     expect(strayClick(pressOf(del, 1300, canvas), tap(del, 1350))).toBe(false);
+  });
+
+  it("keeps only a few presses: each goes once its click is judged, or its pointer is cancelled", () => {
+    const presses = new Presses();
+    // 100 taps, each a new touch pointer: press, then its click.
+    for (let id = 1; id <= 100; id++) {
+      presses.add(id, pressOf(plus, id, canvas));
+      expect(presses.take(id)?.at).toBe(id);
+    }
+    expect(presses.size).toBe(0);
+    // Taps whose clicks never come (drags, cancels): capped.
+    for (let id = 200; id < 300; id++) presses.add(id, pressOf(plus, id, canvas));
+    expect(presses.size).toBeLessThanOrEqual(8);
+    presses.cancel(299);
+    expect(presses.size).toBeLessThanOrEqual(7);
+    // Two fingers down at once each keep their own press.
+    const two = new Presses();
+    two.add(1, pressOf(plus, 1, canvas));
+    two.add(2, pressOf(del, 2, canvas));
+    expect(two.take(1)?.target).toBe(plus);
+    expect(two.take(2)?.target).toBe(del);
   });
 });
