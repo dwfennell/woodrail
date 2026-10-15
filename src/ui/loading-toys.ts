@@ -88,12 +88,25 @@ export class LoadingToys {
   }
 
   /**
-   * Fill a shelf at once, each toy hopping in `stagger` ms after the one before (the first after `delay`): each is in its final place from the
-   * start (the row is laid out whole), so nothing shifts along as the others arrive.
+   * Fill a shelf at once, held back (unseen) until `release`: each toy is in its final place from the start (the row
+   * is laid out whole), so nothing shifts along as the others arrive.
    */
-  addRow(shelf: Shelf, toys: readonly { model: Object3D; slots?: Readonly<Record<string, string>> }[], stagger: number, delay = 0): void {
-    const now = performance.now() + delay;
-    toys.forEach((t, k) => this.place(t.model, shelf, t.slots ?? {}, now + k * stagger));
+  addRow(shelf: Shelf, toys: readonly { model: Object3D; slots?: Readonly<Record<string, string>> }[]): void {
+    for (const t of toys) this.place(t.model, shelf, t.slots ?? {}, Infinity);
+    // Laid out after the release (its models were slow): it hops in now.
+    if (this.released !== null) this.release(this.released);
+  }
+
+  /** Set once the held toys have been let go (their stagger). */
+  private released: number | null = null;
+
+  /** The held toys hop in, in the order they were added, `stagger` ms apart. */
+  release(stagger: number): void {
+    this.released = stagger;
+    const now = performance.now();
+    let k = 0;
+    for (const t of this.toys) if (t.born === Infinity) t.born = now + k++ * stagger;
+    this.refresh();
   }
 
   /** Loading's done: just the train stays, still (the other shelves go). */
@@ -139,24 +152,27 @@ export class LoadingToys {
 
   /** When the last toy will have finished hopping in (ms, `performance.now()` time; 0 with none). */
   get doneAt(): number {
-    return this.toys.reduce((t, toy) => Math.max(t, toy.born + HOP_MS), 0);
+    return this.toys.reduce((t, toy) => (toy.born === Infinity ? t : Math.max(t, toy.born + HOP_MS)), 0);
   }
 
-  /** Where the train's shelf ends on screen (client px, from the top), as last drawn. */
-  trainBottom = 0;
+  /** Where the train's shelf is on screen (client px, from the top), as last drawn; null before it has a car. */
+  trainSpan: { top: number; bottom: number } | null = null;
 
-  private rowBottom(i: number): number {
+  private rowSpan(i: number): { top: number; bottom: number } | null {
     const row = this.rows[i];
-    if (!this.widths[i]) return 0;
+    if (!this.widths[i]) return null;
     const box = new Box3().setFromObject(row);
     const r = this.canvas.getBoundingClientRect();
-    let low = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
     const v = new Vector3();
     for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
       v.set(x, y, z).project(this.camera);
-      low = Math.max(low, r.top + ((1 - v.y) / 2) * r.height);
+      const sy = r.top + ((1 - v.y) / 2) * r.height;
+      top = Math.min(top, sy);
+      bottom = Math.max(bottom, sy);
     }
-    return low;
+    return { top, bottom };
   }
 
   /** Draw again (its canvas changed size). */
@@ -208,9 +224,9 @@ export class LoadingToys {
     this.camera.updateProjectionMatrix();
     for (const t of this.toys) {
       if (now < t.born) {
-        // Not its turn yet.
+        // Not its turn yet (or held back till released).
         t.root.scale.setScalar(0.001);
-        busy = true;
+        if (t.born !== Infinity) busy = true;
         continue;
       }
       const age = Math.min(1, (now - t.born) / HOP_MS);
@@ -230,6 +246,6 @@ export class LoadingToys {
     // Keep drawing while anything moves (the toys sway while loading, unless motion is reduced; the train left under the
     // title stands still, so it costs nothing).
     if (busy || !(this.calm || this.trainOnly)) this.start();
-    this.trainBottom = this.rowBottom(ORDER.indexOf("train"));
+    this.trainSpan = this.rowSpan(ORDER.indexOf("train"));
   };
 }

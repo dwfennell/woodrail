@@ -573,13 +573,42 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     placeCards();
     addEventListener("resize", refreshToys);
   }
-  /** The title's cards start below the train (once it's drawn: the next frame). */
+  /**
+   * The title over the opening screen, laid out once the train's drawn (the next frame): the name, the train and the
+   * cards as one group in the middle of the screen. The name and the train glide there (moved whole: the train is
+   * never drawn afresh); the cards fade in below.
+   */
+  const glide: { name: number; train: number } = { name: 0, train: 0 };
   function placeCards(): void {
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
         if (!overOpening) return;
-        const below = toys?.trainBottom || innerHeight * 0.4;
-        title.root.style.paddingTop = `${Math.round(below + 16)}px`;
+        const name = loading?.querySelector<HTMLElement>("h1");
+        const canvas = loading?.querySelector<HTMLElement>(".loading-toys");
+        const span = toys?.trainSpan;
+        const cards = title.root.querySelector<HTMLElement>(".title-cards");
+        if (!name || !canvas || !span || !cards) {
+          title.root.style.paddingTop = `${Math.round(innerHeight * 0.4)}px`;
+          return;
+        }
+        // Where they'd be unmoved.
+        const n = name.getBoundingClientRect();
+        const nameTop = n.top - glide.name;
+        const trainTop = span.top - glide.train;
+        const trainH = span.bottom - span.top;
+        const gap = Math.min(28, innerHeight * 0.03);
+        const total = n.height + gap + trainH + gap + cards.offsetHeight;
+        const top = Math.max(12, (innerHeight - total) / 2);
+        glide.name = top - nameTop;
+        glide.train = top + n.height + gap - trainTop;
+        for (const [el, dy] of [
+          [name, glide.name],
+          [canvas, glide.train],
+        ] as const) {
+          el.style.transition = "transform 0.7s cubic-bezier(0.3, 0.7, 0.2, 1)";
+          el.style.transform = `translateY(${Math.round(dy)}px)`;
+        }
+        title.root.style.paddingTop = `${Math.round(top + n.height + gap + trainH + gap)}px`;
       }),
     );
   }
@@ -1431,16 +1460,25 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   });
 }
 
-/** The loading screen's toys' entry: done once each has hopped in. */
+/** The loading screen's people and street furniture laid out (held back till the map's built). */
 let toysEntry: Promise<void> = Promise.resolve();
-/** However slow the toys, the loading screen moves on by this long after the page opened (ms). */
-const ENTRY_CAP_MS = 7000;
 
-/** Resolves when the toys have all come in (or at the cap). */
-function entryPlayed(): Promise<void> {
-  const cap = new Promise<void>((r) => setTimeout(r, Math.max(0, ENTRY_CAP_MS - performance.now())));
-  const played = toysEntry.then(() => new Promise<void>((r) => setTimeout(r, Math.max(0, (toys?.doneAt ?? 0) - performance.now()))));
-  return Promise.race([played, cap]);
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** The next frame drawn, or 100 ms (no frames come while the tab is hidden: never wait on them alone). */
+const nextFrame = () => Promise.race([new Promise<void>((r) => requestAnimationFrame(() => r())), sleep(100)]);
+
+/**
+ * The map's built: the toys' entry plays to its end before the loading screen moves on. The people and the street's
+ * furniture hop in only now, once the map's first frames are drawn (the building would stall them mid-hop), and the
+ * wait is short and capped, so a quick load never hangs here.
+ */
+async function entryPlayed(): Promise<void> {
+  await nextFrame();
+  await nextFrame();
+  // Laid out by now, unless their models are slow (then they're skipped).
+  await Promise.race([toysEntry, sleep(800)]);
+  toys?.release(120);
+  await sleep(Math.min(3000, Math.max(0, (toys?.doneAt ?? 0) - performance.now())));
 }
 
 /** Say on the loading screen that the toys couldn't be fetched, with a button to try again. */
@@ -1508,7 +1546,8 @@ if (toys) {
       const trains = loadModelSet("trains");
       const dressing = loadModelSet("dressing", true);
       await pop(await trains, "train", [["engine-classic"], ["passenger-classic"], ["passenger-dining"], ["hopper-classic"], ["timber-classic"], ["caboose-classic"]]);
-      // The people and the street's furniture, each shelf laid out whole and its toys hopping in one by one in place.
+      // The people and the street's furniture, each shelf laid out whole, to hop in one by one in place once the map's
+      // built (see `entryPlayed`).
       const dressed = await dressing;
       const row = (list: [string, Record<string, string>?][]) =>
         list.flatMap(([id, slots]) => {
@@ -1526,7 +1565,6 @@ if (toys) {
           ["peg-doll-hat", { coat: "#e6b52c", hat: "#c8442f" }],
           ["peg-doll", { coat: "#c8442f" }],
         ]),
-        150,
       );
       toys.addRow(
         "street",
@@ -1540,8 +1578,6 @@ if (toys) {
           ["busstop"],
           ["lamp"],
         ]),
-        150,
-        7 * 150,
       );
     } catch {
       // The loading screen says so itself (see offerRetry).
