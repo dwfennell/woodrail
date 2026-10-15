@@ -19,6 +19,14 @@ export const ROAD_MESSAGES: Record<RoadBlock, string> = {
   prop: "Move what's standing there first",
 };
 
+/** Is this road a plain straight running across a line with this heading (as a station's way in takes)? */
+function acrossLine(road: number, heading: number): boolean {
+  if (road === 0 || pieceOf(road)?.id !== "straight") return false;
+  // A straight at an even turn runs along x, at an odd one along z: across the line, not down it.
+  const along = turnOf(road) & 1 ? Math.abs(Math.sin(heading)) : Math.abs(Math.cos(heading));
+  return along < Math.SQRT1_2;
+}
+
 /** Something standing on the land that a road can't go under: the props' footprints, as world rectangles. */
 export interface RoadOccupants {
   inRect(x0: number, z0: number, x1: number, z1: number): boolean;
@@ -129,7 +137,7 @@ export class RoadPlacer {
     // A station's way in stays clear for track, but a plain straight road across the line may go there (track laid
     // later crosses it at a level crossing).
     const line = this.corridors.get(i);
-    if (line !== undefined && !(this.road !== 0 && crossesRoad(this.road, line))) return "station-way";
+    if (line !== undefined && !acrossLine(this.road, line)) return "station-way";
     const def = this.road === 0 ? null : pieceOf(this.road);
     if (def?.ramp) {
       // Its high end meets the ground a block up (the top half), or the top half on level ground (the bottom half).
