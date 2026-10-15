@@ -1,0 +1,89 @@
+# Draw track: lay a run of track by drawing it
+
+Status: in progress (branch `claude/zen-lamport-ktlz8y`).
+
+## Why
+
+Laying track a piece at a time is slow and calm. That suits younger players, and it stays as it is: drag a piece
+from the tray, watch it snap, hear the click. But to lay a long run of track you have to drag, or tap the waiting
+ghost, once for every piece. Drawing is the quick way: put your finger on a track end, draw where the line should go,
+and the pieces follow your finger. When you lift your finger they go down one after another, with a click-clack.
+
+## How it works for the player
+
+- **Draw** is a chip above the tray, shown while the Track tab is open, next to Turn and Flip. Tap it to turn drawing
+  on; it stays lit. Tap it again, press Esc, or open another tab to turn it off.
+- With drawing on, one finger (or a left drag) **draws** instead of moving the camera:
+  - Starting on or near a free track end (within about 40 px) continues the line from that end.
+  - Starting on empty ground starts a new line. Its first piece points the way you first move, rounded to an eighth
+    of a turn, like pieces from the tray. Its first end lands on the quarter-square grid.
+  - Two fingers still move the camera. Right drag and the wheel work as usual. The view pans at the screen edges
+    while you draw, as it does while you hold a piece.
+- While you draw, **ghost pieces follow your finger**. A piece appears once your finger has gone far enough past it
+  for it to be clear what you meant, so pieces don't flicker. Each new ghost makes a soft tick.
+- **Going back over the line takes pieces off.** Bring your finger back over a ghost and the ghosts past it lift away.
+- **A ghost that can't go there shows red** (a hill, a river, other track in the way), and the line doesn't grow past
+  it. Go back to before it and draw another way.
+- **Closing up:** if the line's end comes close to a free track end that faces it, the last ghost meets it. It may
+  shorten, or bend into a join, as the Auto piece does. The ghost turns green and the line is finished there.
+- **Let go** and the green ghosts become track, from the start of the line outward, each with the usual settle and a
+  click. One undo takes the whole line back up.
+- **Game mode:** the line only uses pieces you have. Pieces you haven't learned, or have run out of, aren't offered. If
+  you run out partway, the line stops there and a toast tells you which piece ran out.
+
+## Turning a stroke into pieces
+
+The stroke is the list of ground points under the finger, kept about 6 mm apart. The pieces it can become are:
+
+- the long, medium, short and mini straights (216, 144, 108 and 54 mm);
+- the curve, the wide curve and the tight curve, either way.
+
+S-curves aren't used: two curves the opposite way make the same shift, and the scoring finds them. Switches, crossings
+and ramps are left to the tray.
+
+The line grows one piece at a time, from the end the line has reached so far:
+
+1. **Candidates.** Each piece above, mirrored or not, is seated on the end through whichever of its ends fits a peg or
+   a hole. A piece with a peg at both ends never comes up: only pieces from the list above are tried.
+2. **Look ahead two pieces.** For each candidate, and each candidate after it, measure how far the second end lies
+   from the stroke, and how far its heading differs from the stroke's heading there. Measure at the first end too.
+   Each piece adds a small cost, so a long straight beats two short ones on a straight run. The best pair wins, and
+   only its first piece is laid. The next step looks again from there. This keeps a gentle curve from turning into a
+   zig-zag, and lets the line drift back onto the stroke with an opposite pair of curves.
+3. **Only grow behind the finger.** The next piece is chosen only once the stroke reaches at least one long piece past
+   the line's end, so the look-ahead sees where the finger went. When the finger lifts, the line grows to the end of
+   the stroke, choosing the best piece, until what's left is shorter than half a mini straight.
+4. **Stop** at the first piece that is blocked, or that the player has none of.
+
+The stroke near the line's end is found with a windowed nearest-point search, so each step costs the same however
+long the stroke is. A step tries 14 candidates × 14 pairs. That's fast enough for every pointer move on a phone
+(target: under 2 ms a step; it is timed in the tests).
+
+### Checks for each ghost
+
+Each ghost is checked as a held piece is: the landscape, the track already there, and whether there's ground under it
+(`Interaction.placement`). The line's own earlier pieces count as track already there, through a scratch `Layout` of
+the line, so a line that crosses itself shows red. Risers aren't added: a drawn line stays at the height it started.
+Ramps stay a tray piece.
+
+## Code
+
+- `src/track/draw-path.ts` (new, pure, tested): `DrawLine`, which holds the stroke and the chain, `extend(point)`,
+  `finish()` and `trimTo(point)`. It works out candidate poses, scores them, and picks pieces. A `check(piece)` callback
+  decides whether a piece may go down; the interaction passes it the landscape and track checks and the Game-mode
+  stock.
+- `src/game/interaction.ts`: a `drawing` mode with a `draw-track` drag mode. It handles the pointer: picking the start,
+  the edge pan, and the ghosts (green or red, the same meshes a held piece uses). When the finger lifts it calls
+  `Editor.placeRun`.
+- `src/editor/editor.ts`: `placeRun(pieces)` puts down a list of pieces in one undo step. Joint play is taken up
+  afterwards, as for any placement.
+- `src/ui/hud.ts`: the Draw chip, and `HudHandlers.trayDraw()`.
+- `src/main.ts`: Game mode's stock, through `interaction.drawStock`. Sound: a tick for each new ghost, and a click for
+  each piece as it settles.
+
+## Later
+
+- Ramps in a drawn line, when the stroke goes up a hill.
+- Holding on a free end, without the Draw chip on, to start drawing straight away.
+- Drawing a branch from the middle of existing track (it would put in a switch).
+- A "favourites" shelf in the tray (the player's own pick of pieces): planned next, its own short spec.

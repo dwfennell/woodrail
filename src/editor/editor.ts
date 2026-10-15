@@ -155,6 +155,24 @@ export class Editor {
     return id;
   }
 
+  /** Place a run of pieces (a drawn line), in order, as one undo step. Returns their ids. */
+  placeRun(pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean }[]): number[] {
+    const ids: number[] = [];
+    this.run({
+      do: () => {
+        pieces.forEach((p, i) => {
+          if (ids[i] === undefined) ids[i] = this.layout.addPiece(p.type, p.pose, p.y, p.flipped);
+          else this.layout.restorePiece(ids[i], p.type, p.pose, p.y, p.flipped);
+        });
+      },
+      undo: () => {
+        for (let i = ids.length - 1; i >= 0; i--) this.layout.removePiece(ids[i]);
+      },
+      seats: () => [...ids],
+    });
+    return ids;
+  }
+
   remove(id: number): boolean {
     const rec = this.record(id);
     if (!rec) return false;

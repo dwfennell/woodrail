@@ -186,6 +186,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
         if (trayAllowed(item)) interaction.tapTrayPiece(item);
       },
       trayTabChanged: () => interaction.arm(null),
+      trayDraw: (on) => interaction.setDrawing(on),
       undo: () => {
         interaction.undo();
       },
@@ -322,6 +323,12 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     if (snapped) hud.haptic("snap");
   };
   interaction.onPickup = () => audio.pickup();
+  interaction.onDrawGrow = () => audio.drawTick();
+  interaction.onDrawLaid = (i) => {
+    audio.lay(i);
+    if (i === 0) hud.haptic("snap");
+  };
+  interaction.onDrawing = (on) => hud.setDrawing(on);
   interaction.onRefused = () => {
     audio.refuse();
     hud.haptic("refuse");
@@ -760,6 +767,18 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       if (tech && !progress.learned.has(tech)) return tech;
     }
     return null;
+  }
+
+  /** Game mode: how many of a track piece the player could put down now (0 if not learned). */
+  function pieceStock(type: PieceTypeId): number {
+    const needs = thingsFor({ kind: "piece", type });
+    let n = Infinity;
+    for (const [id, k] of needs) {
+      if (isFree(id)) continue;
+      if (!progress.knows(id)) return 0;
+      n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
+    }
+    return n;
   }
 
   /** The toy box on the tray (Game mode): how many of each are left. */
@@ -1353,6 +1372,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     goalsPanel.setVisible(mode === "game");
     // An industry you place must stand near what it works with (trees, fields): Game mode's rule.
     interaction.siteRule = mode === "game" ? (type, pose) => siteWhy(game.landscape, type, pose) : null;
+    // A drawn line uses only the pieces in the toy box (Game mode).
+    interaction.draw.stock = mode === "game" ? pieceStock : null;
     if (mode === "game") {
       ensureGameModels();
       townLife.reset();

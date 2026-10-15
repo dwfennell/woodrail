@@ -148,6 +148,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 /* A card for a selected piece, car or depot has its own buttons there: the tray's Turn/Flip steps aside. */
 .card-open .tray.track-tab.in-group .tray-orient { display: none; }
 .tray-orient .chip { padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+/* Draw: above the tray, at the left, while the Track tab is open. */
+.tray-draw { position: absolute; left: 12px; top: -44px; display: none; padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+.tray.draw-tab .tray-draw { display: inline-flex; }
+.card-open .tray.draw-tab .tray-draw { display: none; }
 /* The Turn button's arrow points the way the next piece will face. */
 .tray-orient .turn-arrow { display: inline-block; transform: rotate(var(--tray-turn, 0deg)); transition: transform 0.2s ease; margin-left: 4px; }
 

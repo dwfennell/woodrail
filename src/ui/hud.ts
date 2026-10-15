@@ -51,6 +51,8 @@ export interface HudHandlers {
   trayTurn(): void;
   /** Tray: mirror the piece in hand and the ones taken out next. */
   trayFlip(): void;
+  /** Tray: drawing track switched on or off (the Draw chip). */
+  trayDraw(on: boolean): void;
   /** Depot card: turn automatic loading on or off. */
   depotAuto(): void;
   /** Depot card: trains wait for a full load, or not. */
@@ -168,6 +170,8 @@ export class Hud {
   /** Tray pictures by key: those drawn at start-up, and catalogue models' as they're drawn. */
   private readonly thumbs: Map<string, string>;
   private flipTrayBtn!: HTMLButtonElement;
+  private drawBtn!: HTMLButtonElement;
+  private drawing = false;
 
   constructor(parent: HTMLElement, h: HudHandlers, qualityLabel: () => string, opts: HudOptions) {
     this.handlers = h;
@@ -429,6 +433,9 @@ export class Hud {
       this.chooseLandTool(tab.land ? (this.landTool ?? "move") : null);
       tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));
       this.tray.classList.toggle("track-tab", !!tab.orient);
+      // Drawing track is on the Track tab only: another tab puts the pencil down.
+      this.tray.classList.toggle("draw-tab", tab.id === "track");
+      if (tab.id !== "track" && this.drawing) this.handlers.trayDraw(false);
       this.tray.classList.toggle("turn-only", tab.orient === "turn");
       this.propsTab = tab.orient === "turn";
       let groups = tab.groups;
@@ -475,7 +482,9 @@ export class Hud {
       button(`↻ Turn<span class="turn-arrow">↑</span>`, "Turn the next piece (or the one you're holding) an eighth of a turn", () => this.handlers.trayTurn(), "chip text"),
       this.flipTrayBtn,
     );
-    this.tray.append(orient, tabs, scroller);
+    // Draw: a drag on the map lays a line of track behind the finger (see DrawHand).
+    this.drawBtn = button("✎ Draw", "Draw track: drag from the end of a track, or across the ground", () => this.handlers.trayDraw(!this.drawing), "chip text tray-draw");
+    this.tray.append(orient, this.drawBtn, tabs, scroller);
     this.root.appendChild(this.tray);
 
     this.root.appendChild(this.toastEl);
@@ -525,6 +534,13 @@ export class Hud {
     this.perf.hidden = true;
     this.root.appendChild(this.perf);
     this.setMode("sandbox");
+  }
+
+  /** Show whether drawing track is on (the Draw chip lit). */
+  setDrawing(on: boolean): void {
+    this.drawing = on;
+    this.drawBtn.classList.toggle("active", on);
+    this.tray.classList.toggle("drawing", on);
   }
 
   /** The land tool in use (the Land tab open), or null. */
