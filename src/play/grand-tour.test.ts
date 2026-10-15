@@ -5,7 +5,7 @@ import { describe as describeGoods } from "../economy/goods";
 import { siteWhy, updateRates } from "../game/industries";
 import { landmarksOf, townLandmarks } from "../game/landmarks";
 import { Progress } from "../game/progress";
-import { offerOnGrowth, payDelivery, schoolIdeas } from "../game/rewards";
+import { describeThings, firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas } from "../game/rewards";
 import { choose, ready, techOf } from "../game/tech";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { buildStarterWorld, syncIndustries, type World } from "../game/world";
@@ -60,7 +60,9 @@ class Tour {
         const marks = built.length > 0 ? [...townLandmarks(t)].join(", ") : "";
         this.note(`${t.name} grew into a ${status.name.toLowerCase()} (+${built.length} buildings)${marks ? `; landmarks: ${marks}` : ""}`);
         this.syncLandmarks();
-        const offer = offerOnGrowth(this.progress, t.name, this.random);
+        const gift = firstTimeGift(this.progress, status.level);
+        if (gift.length > 0) this.note(`  first ${status.name.toLowerCase()}: a present of ${describeThings(gift)}`);
+        const offer = offerOnGrowth(this.progress, t.name, this.random, status.level);
         if (offer.length > 0) this.note(`  ${t.name} offers ${offer.map((id) => techOf(id)!.label).join(" or ")}`);
       },
     });

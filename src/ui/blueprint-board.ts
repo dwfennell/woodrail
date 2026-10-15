@@ -25,7 +25,7 @@ export interface Station {
 export interface BoardView {
   stations: Station[];
   /** Choices from towns that grew: pick one of each pair, free. */
-  offers: { from: string; ids: string[] }[];
+  offers: { from: string; ids: string[]; crate?: string }[];
   /** Planks in the workshop's yard (or null: no workshop yet). */
   planks: number | null;
   /** "The workshop's yard has 7 planks" (or how to get one). */
@@ -34,6 +34,8 @@ export interface BoardView {
 
 export interface BlueprintBoardHandlers {
   choose(offer: number, id: string): void;
+  /** Take an offer's crate instead of a blueprint. */
+  crate(offer: number): void;
   learn(id: string): void;
   close(): void;
 }
@@ -118,6 +120,7 @@ export class BlueprintBoard {
         this.selected = b.dataset.id!;
         this.render();
       } else if (act === "choose") handlers.choose(Number(b.dataset.offer), b.dataset.id!);
+      else if (act === "crate") handlers.crate(Number(b.dataset.offer));
       else if (act === "learn") handlers.learn(b.dataset.id!);
     });
     parent.appendChild(this.root);
@@ -191,12 +194,16 @@ export class BlueprintBoard {
     let html = "";
     // A town's choice, at the top: it's free, and the other goes on the board.
     v.offers.forEach((o, k) => {
-      const buttons = o.ids
+      const choices = o.ids
         .map((id) => at.get(id)?.station)
         .filter((s): s is Station => !!s)
-        .map((s) => `<button class="chip text primary" data-act="choose" data-offer="${k}" data-id="${s.id}">${esc(s.label)}</button>`)
-        .join(`<span class="or">or</span>`);
-      html += `<div class="bp-offer"><span>${esc(o.from)} grew! Learn one free:</span><span class="bp-offer-row">${buttons}</span></div>`;
+        .map((s) => `<button class="chip text primary" data-act="choose" data-offer="${k}" data-id="${s.id}">${esc(s.label)}</button>`);
+      // Or a crate of things for the toy box (the blueprints then wait on the board).
+      if (o.crate) choices.push(`<button class="chip text bp-crate" data-act="crate" data-offer="${k}" title="Into your toy box; the blueprints go on the board">📦 ${esc(o.crate)}</button>`);
+      const buttons = choices.join(`<span class="or">or</span>`);
+      const ask = o.crate ? (o.ids.length > 0 ? "Learn one free, or take a crate:" : "Take a crate:") : "Learn one free:";
+      const said = o.from.endsWith(" school") ? "has an idea!" : "grew!";
+      html += `<div class="bp-offer"><span>${esc(o.from)} ${said} ${ask}</span><span class="bp-offer-row">${buttons}</span></div>`;
     });
     html += `<div class="bp-map" style="grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},${ROW_H}px)"><svg class="bp-track" viewBox="0 0 100 ${rows * ROW_H}" preserveAspectRatio="none" style="height:${rows * ROW_H}px" aria-hidden="true">${rails}</svg>${workshop}${placed.map(stationHtml).join("")}</div>`;
     html += `<div class="bp-legend"><span class="bp-key learned"></span>Learned<span class="bp-key ready"></span>Learn with planks<span class="bp-key offered"></span>Free choice<span class="bp-key locked"></span>Later</div>`;

@@ -13,13 +13,15 @@ export class Progress {
   /** Blueprints on the board, to be learned with goods (see `tech.ts`). */
   readonly board = new Set<string>();
   /** Choices waiting: two blueprints a town offered when it grew (one is learned free). */
-  readonly offers: { from: string; ids: string[] }[] = [];
+  readonly offers: Offer[] = [];
   /** The workshop's orders, in order (see `Crafting`). */
   readonly orders: ThingId[] = [];
   /** The first order's goods are taken and it's being made. */
   making = false;
   /** Coins: towns pay them for deliveries; they buy land. */
   coins = 0;
+  /** The biggest any of your towns has grown (a level: 1 a village…), for the first-time gifts. */
+  bestLevel = 0;
   /** Fields planted with coins (each dearer than the last: see `fieldPrice`). */
   fieldsPlanted = 0;
   /** People carried to another town by coach, all game (they unlock the passenger line of blueprints). */
@@ -66,7 +68,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: this.offers.map((o) => ({ from: o.from, ids: [...o.ids] })), coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders };
+    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: this.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: o.crate.map(([id, n]) => [id, n] as [ThingId, number]) } : {}) })), coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -85,7 +87,8 @@ export class Progress {
     if (d && Array.isArray(d.offers)) {
       for (const o of d.offers) {
         const ids = Array.isArray(o?.ids) ? o.ids.filter((t): t is string => typeof t === "string" && !!techOf(t)) : [];
-        if (ids.length > 0) p.offers.push({ from: typeof o.from === "string" ? o.from : "", ids });
+        const crate = Array.isArray(o?.crate) ? o.crate.filter((e): e is [ThingId, number] => Array.isArray(e) && typeof e[0] === "string" && e[0] in THING_RULES && Number.isInteger(e[1]) && e[1] > 0) : [];
+        if (ids.length > 0 || crate.length > 0) p.offers.push({ from: typeof o.from === "string" ? o.from : "", ids, ...(crate.length > 0 ? { crate } : {}) });
       }
     }
     if (d && Array.isArray(d.orders)) for (const o of d.orders) if (typeof o === "string" && o in THING_RULES) p.orders.push(o as ThingId);
@@ -93,18 +96,30 @@ export class Progress {
     p.coins = Number.isInteger(d?.coins) && d!.coins! > 0 ? d!.coins! : 0;
     p.fieldsPlanted = Number.isInteger(d?.fieldsPlanted) && d!.fieldsPlanted! > 0 ? d!.fieldsPlanted! : 0;
     p.riders = Number.isInteger(d?.riders) && d!.riders! > 0 ? d!.riders! : 0;
+    p.bestLevel = Number.isInteger(d?.bestLevel) && d!.bestLevel! > 0 ? d!.bestLevel! : 0;
     return p;
   }
+}
+
+/**
+ * A reward waiting for you to choose: one of two blueprints (learned free), or a crate of things for the toy box
+ * (towns that grow offer both; a school offers only blueprints).
+ */
+export interface Offer {
+  from: string;
+  ids: string[];
+  crate?: [ThingId, number][];
 }
 
 export interface ProgressData {
   owned: [string, number][];
   learned: string[];
   board?: string[];
-  offers?: { from: string; ids: string[] }[];
+  offers?: { from: string; ids: string[]; crate?: [string, number][] }[];
   coins?: number;
   fieldsPlanted?: number;
   riders?: number;
+  bestLevel?: number;
   orders?: string[];
   making?: boolean;
 }

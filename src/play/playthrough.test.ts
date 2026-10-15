@@ -77,7 +77,7 @@ class Playthrough {
       },
       grew: (t, status, built) => {
         this.note(`${t.name} grew into a ${status.name.toLowerCase()} (+${built.length} buildings)`);
-        const offer = offerOnGrowth(this.progress, t.name, this.random);
+        const offer = offerOnGrowth(this.progress, t.name, this.random, status.level);
         if (offer.length > 0) this.note(`  ${t.name} offers: ${offer.join(" or ")}`);
       },
     });
