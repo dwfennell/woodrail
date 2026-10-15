@@ -1,4 +1,4 @@
-import { getPieceDef, type Layout } from "../track";
+import { connectorRef, getPieceDef, indexOfRef, pieceOfRef, type Layout } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -34,6 +34,11 @@ export const ENGINE_SPEED = 120;
 /** How quickly (mm/s²) a train gets up to speed, or stops: half a second either way. */
 const ACCELERATION = ENGINE_SPEED * 2;
 const SIDE_HIT_DISTANCE = 12;
+/** How far ahead (mm) a train looks for a signal at red, and in what steps: well past its stopping distance. */
+const SIGNAL_LOOK = 300;
+const SIGNAL_STEP = 12;
+/** A block runs on through at most this many pieces (a loop with no signal in it ends somewhere). */
+const MAX_BLOCK = 64;
 
 export interface Car {
   readonly id: number;
@@ -112,6 +117,7 @@ export function createSnapshot(capacity = 64): SimSnapshot {
 }
 
 const adv = createAdvance();
+const lookAdv = createAdvance();
 const face = { x: 0, y: 0, z: 0 };
 const otherFace = { x: 0, y: 0, z: 0 };
 
@@ -129,6 +135,13 @@ export class Sim {
   topSpeed: ((train: Train) => number) | null = null;
   /** Optional: how quickly a powered train gets up to speed and stops, against the usual (2: twice as quick). */
   quickness: ((train: Train) => number) | null = null;
+
+  /** The signal pieces on the layout (found again after the track changes: see `trackChanged`). */
+  private signals: number[] | null = null;
+  /** Each signal's aspect as of this tick: true at clear (its block's free), false at red. */
+  private readonly aspects = new Map<number, boolean>();
+  /** Goes up whenever a signal's aspect changes, so the view redraws only then. */
+  signalsVersion = 0;
 
   constructor(readonly layout: Layout) {}
 
@@ -273,6 +286,8 @@ export class Sim {
    * `moved` (rotated, moved or flipped out from under them).
    */
   trackChanged(moved: readonly number[] = []): void {
+    // Signals are found again (their aspects worked out on the next tick).
+    this.signals = null;
     for (const train of this.trains.values()) {
       if (train.derailed) continue;
       for (const b of train.bogies) {
@@ -336,9 +351,12 @@ export class Sim {
     const piece = this.layout.getPiece(pieceId);
     const routes = piece ? getPieceDef(piece.type, piece.flipped).paths.filter((p) => p.from === 0).length : 2;
     this.layout.setSwitchState(pieceId, (this.layout.switchState(pieceId) + 1) % Math.max(2, routes));
+    // A signal held or let go shows it at once (even paused).
+    this.updateSignals();
   }
 
   tick(): void {
+    this.updateSignals();
     for (const train of this.trains.values()) {
       if (train.derailed) continue;
       // Waiting at the end of the line beside a crane with work for it (a depot at the line's end): the wait holds
@@ -360,6 +378,96 @@ export class Sim {
       this.move(train);
     }
     this.resolveContacts();
+  }
+
+  // ---- signals: block working -----------------------------------------------------------------------------
+
+  /** Is this signal at clear (true), or red (false)? A signal not yet worked out shows clear. */
+  signalClear(pieceId: number): boolean {
+    return this.aspects.get(pieceId) ?? true;
+  }
+
+  /** Held at red by hand (a tap; saved with the switch states), whatever the line ahead. */
+  signalHeld(pieceId: number): boolean {
+    return this.layout.switchState(pieceId) % 2 === 1;
+  }
+
+  /**
+   * Each signal's aspect: red while it's held, or while any train stands on its block, the track from its far end up
+   * to and including the next signal, switch or crossing (or to the end of the line). Worked out once a tick.
+   */
+  private updateSignals(): void {
+    if (this.signals === null) {
+      this.signals = [];
+      for (const id of this.layout.pieceIds()) {
+        const p = this.layout.getPiece(id)!;
+        if (getPieceDef(p.type, p.flipped).signal) this.signals.push(id);
+      }
+      for (const id of this.aspects.keys()) if (!this.layout.getPiece(id)) this.aspects.delete(id);
+    }
+    if (this.signals.length === 0) return;
+    const occupied = new Set<number>();
+    for (const t of this.trains.values()) for (const b of t.bogies) occupied.add(b.pieceId);
+    for (const id of this.signals) {
+      if (!this.layout.getPiece(id) || this.layout.isLifted(id)) continue;
+      const clear = !this.signalHeld(id) && !this.blockOccupied(id, occupied);
+      if (this.aspects.get(id) !== clear) {
+        this.aspects.set(id, clear);
+        this.signalsVersion++;
+      }
+    }
+  }
+
+  /** Is any train on the block beyond this signal (see `updateSignals`)? */
+  private blockOccupied(signalId: number, occupied: ReadonlySet<number>): boolean {
+    let ref = connectorRef(signalId, 1);
+    for (let n = 0; n < MAX_BLOCK; n++) {
+      const next = this.layout.joinedConnector(ref);
+      if (next === -1) return false;
+      const id = pieceOfRef(next);
+      if (id === signalId) return false;
+      if (occupied.has(id)) return true;
+      const p = this.layout.getPiece(id);
+      if (!p) return false;
+      const def = getPieceDef(p.type, p.flipped);
+      // The block ends here: at the next signal, or at a switch or crossing (where lines meet).
+      if (def.signal || def.connectors.length !== 2) return false;
+      ref = connectorRef(id, 1 - indexOfRef(next));
+    }
+    return false;
+  }
+
+  /**
+   * How fast a train may go so as to stop at the next signal ahead showing red (its stop point, just short of the post),
+   * braking as it does at the end of the line: Infinity when there's none within sight.
+   */
+  private signalCap(train: Train): number {
+    if (!this.signals || this.signals.length === 0) return Infinity;
+    let anyRed = false;
+    for (const clear of this.aspects.values()) if (!clear) anyRed = true;
+    if (!anyRed) return Infinity;
+    // Walk ahead of the front axle a step at a time, looking for the stop point of a red signal it's running toward.
+    const c: Cursor = { ...train.bogies[0] };
+    let walked = 0;
+    for (let k = 0; walked <= SIGNAL_LOOK; k++) {
+      const piece = c.pieceId;
+      if (k > 0) {
+        advanceCursor(this.layout, c, SIGNAL_STEP, null, lookAdv);
+        walked += lookAdv.moved;
+      }
+      const p = this.layout.getPiece(c.pieceId);
+      const stopAt = p ? getPieceDef(p.type, p.flipped).signal?.stopAt : undefined;
+      if (stopAt !== undefined && !c.reversed && this.aspects.get(c.pieceId) === false) {
+        // Short of the stop point: brake to it. Stepped onto the piece already past it: it was within this step.
+        // (Already past it where the axle stands: that signal's behind; look on.)
+        let dist = -1;
+        if (c.s <= stopAt) dist = walked + stopAt - c.s;
+        else if (k > 0 && c.pieceId !== piece) dist = walked - (c.s - stopAt);
+        if (dist >= 0) return dist < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (dist - 0.5));
+      }
+      if (k > 0 && (lookAdv.status !== ADV_OK || lookAdv.moved === 0)) return Infinity;
+    }
+    return Infinity;
   }
 
   writeSnapshot(snap: SimSnapshot): SimSnapshot {
@@ -402,7 +510,7 @@ export class Sim {
     let net = 0;
     for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
     let target = net === 0 ? 0 : Math.sign(net) * (this.topSpeed ? this.topSpeed(train) : ENGINE_SPEED);
-    const cap = net !== 0 && this.speedCap ? this.speedCap(train) : Infinity;
+    const cap = net !== 0 ? Math.min(this.speedCap ? this.speedCap(train) : Infinity, this.signalCap(train)) : Infinity;
     if (target > cap) target = cap;
     let v = train.speed;
     const step = ACCELERATION * (this.quickness ? this.quickness(train) : 1) * SIM_DT;

@@ -328,7 +328,22 @@ export class TrackView {
     for (const id of this.layout.pieceIds()) {
       const p = this.layout.getPiece(id)!;
       const def = getPieceDef(p.type, p.flipped);
-      if (!def.isSwitch || this.layout.isLifted(id) || this.hidden.has(id)) continue;
+      if (this.layout.isLifted(id) || this.hidden.has(id)) continue;
+      if (def.signal) {
+        live.add(id);
+        // A signal piece: its post beside the far end on the right of the way it guards (clear of a road where
+        // there's room), the arm up at clear and level at red.
+        const signal = this.signalPost(id);
+        const post = signal.root.children[0];
+        const along = Math.abs(def.connectors[1].pose.x);
+        post.position.set(this.clearX(p, [along - 20, along - 44, along - 68], SWITCH_LEVER_OFFSET + 4), 0, SWITCH_LEVER_OFFSET + 4);
+        post.rotation.y = 0;
+        signal.arm.rotation.x = this.signalClear?.(id) === false ? 0 : -SIGNAL_RAISED;
+        signal.root.matrix.copy(pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading));
+        signal.root.updateMatrixWorld(true);
+        continue;
+      }
+      if (!def.isSwitch) continue;
       live.add(id);
       let lever = this.levers.get(id);
       if (!lever) {
@@ -353,22 +368,7 @@ export class TrackView {
       lever.matrix.copy(pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading)).multiply(local.matrix);
 
       // Signal at the trunk end on the lever's side, its arm reaching away from the track.
-      let signal = this.signals.get(id);
-      if (!signal) {
-        const root = new Group();
-        root.matrixAutoUpdate = false;
-        const parts = this.signalParts;
-        const post = new Group();
-        post.add(this.part(parts.base, this.mats.naturalWood, id), this.part(parts.post, this.mats.lacquer("#f6f1e6"), id), this.part(parts.cap, this.mats.magnet, id));
-        const arm = new Group();
-        arm.position.y = SIGNAL_HEIGHT - 8;
-        arm.add(this.part(parts.arm, this.mats.lacquer("#c8442f"), id), this.part(parts.stripe, this.mats.lacquer("#f6f1e6"), id));
-        post.add(arm);
-        root.add(post);
-        this.group.add(root);
-        signal = { root, arm };
-        this.signals.set(id, signal);
-      }
+      const signal = this.signalPost(id);
       const post = signal.root.children[0];
       post.position.set(this.clearX(p, [6, 54, 84, 114, 144].filter((x) => x < trunk - 10), -branchSide * (SWITCH_LEVER_OFFSET + 4)), 0, -branchSide * (SWITCH_LEVER_OFFSET + 4));
       // Arm geometry points along +z; turn it to reach away from the track, then raise it for the branch.
@@ -391,6 +391,48 @@ export class TrackView {
     }
   }
 
+  /** A piece's semaphore (a switch's, or a signal piece's), made the first time it's wanted. */
+  private signalPost(id: number): { root: Group; arm: Group } {
+    let signal = this.signals.get(id);
+    if (signal) return signal;
+    const root = new Group();
+    root.matrixAutoUpdate = false;
+    const parts = this.signalParts;
+    const post = new Group();
+    post.add(this.part(parts.base, this.mats.naturalWood, id), this.part(parts.post, this.mats.lacquer("#f6f1e6"), id), this.part(parts.cap, this.mats.magnet, id));
+    const arm = new Group();
+    arm.position.y = SIGNAL_HEIGHT - 8;
+    arm.add(this.part(parts.arm, this.mats.lacquer("#c8442f"), id), this.part(parts.stripe, this.mats.lacquer("#f6f1e6"), id));
+    post.add(arm);
+    root.add(post);
+    this.group.add(root);
+    signal = { root, arm };
+    this.signals.set(id, signal);
+    return signal;
+  }
+
+  /** A signal piece's semaphore on its own, as it stands on the piece (arm up): for the tray's picture. */
+  signalModel(): Group {
+    const parts = this.signalParts;
+    const post = new Group();
+    for (const [g, m] of [
+      [parts.base, this.mats.naturalWood],
+      [parts.post, this.mats.lacquer("#f6f1e6")],
+      [parts.cap, this.mats.magnet],
+    ] as const)
+      post.add(new Mesh(g, m));
+    const arm = new Group();
+    arm.position.y = SIGNAL_HEIGHT - 8;
+    arm.add(new Mesh(parts.arm, this.mats.lacquer("#c8442f")), new Mesh(parts.stripe, this.mats.lacquer("#f6f1e6")));
+    arm.rotation.x = -SIGNAL_RAISED;
+    post.add(arm);
+    post.position.set(124, 0, SWITCH_LEVER_OFFSET + 4);
+    return new Group().add(post);
+  }
+
+  /** Is this signal piece at clear (its arm up)? Set by the game from the sim's block working. */
+  signalClear: ((pieceId: number) => boolean) | null = null;
+
   /** The first of `xs` (along the piece, at `z` across it) that isn't on a road; the first if all are. */
   private clearX(p: PlacedPiece, xs: readonly number[], z: number): number {
     const onRoad = this.onRoad;
@@ -400,7 +442,7 @@ export class TrackView {
     return xs.find((x) => !onRoad(p.pose.x + c * x - s * z, p.pose.z + s * x + c * z)) ?? xs[0];
   }
 
-  /** A signal part; tapping it flips the switch, like the lever. */
+  /** A signal part; tapping it flips the switch, like the lever (a signal piece's: holds it at red, or lets it go). */
   private part(geometry: BufferGeometry, material: Material, pieceId: number): Mesh {
     const m = new Mesh(geometry, material);
     m.castShadow = true;

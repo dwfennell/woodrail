@@ -57,6 +57,7 @@ export type PieceTypeId =
   | "switch-3way"
   | "crossing"
   | "crossing-45"
+  | "signal"
   | "ramp"
   | "riser"
   | "bridge"
@@ -108,6 +109,11 @@ export interface PieceDef {
   readonly supportHeight: number;
   /** Double track: the centre line of the board between its two lines (drawing only). */
   readonly web?: PathGeom;
+  /**
+   * A signal: guards trains running from connector 0 toward 1, stopping them at `stopAt` (mm along the path) while the
+   * line ahead is occupied or it's held at red (see the sim's block working).
+   */
+  readonly signal?: { readonly stopAt: number };
 }
 
 export const MAX_CONNECTORS = 4;
@@ -192,6 +198,8 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   "straight-54": straight("straight-54", 54),
   "straight-108": straight("straight-108", 108),
   "straight-144": straight("straight-144", 144),
+  // A straight with a semaphore beside its far end: a train stops just short of it at red.
+  signal: { ...straight("signal", 144), signal: { stopAt: 100 } },
   "straight-216": straight("straight-216", 216),
   "curve-large": curve("curve-large", LARGE_CURVE_RADIUS),
   "curve-small": curve("curve-small", SMALL_CURVE_RADIUS),
