@@ -25,7 +25,7 @@ export interface Slot {
 export function unitSize(kind: CargoKind): { x: number; y: number; z: number } {
   if (kind === "log") return { x: LOG_LENGTH, y: LOG_RADIUS * 2, z: LOG_RADIUS * 2 };
   if (kind === "planks") return { x: BUNDLE_LENGTH, y: BUNDLE_HEIGHT, z: BUNDLE_WIDTH };
-  if (kind === "stone") return { x: SACK_LENGTH, y: STONE_HEIGHT, z: SACK_WIDTH };
+  if (kind === "stone" || kind === "coal" || kind === "ore" || kind === "iron") return { x: SACK_LENGTH, y: STONE_HEIGHT, z: SACK_WIDTH };
   return { x: SACK_LENGTH, y: SACK_HEIGHT, z: SACK_WIDTH };
 }
 

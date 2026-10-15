@@ -29,7 +29,9 @@ export function townLevel(n: number): TownLevel {
   if (n < TOWN_LEVELS.length) return TOWN_LEVELS[n];
   const last = TOWN_LEVELS[TOWN_LEVELS.length - 1];
   const beyond = n - TOWN_LEVELS.length + 1;
-  return { name: `${last.name} ${"★".repeat(Math.min(beyond, 5))}`, wants: times(last.wants, GROWTH ** beyond), houses: last.houses };
+  // From the second star on, a city wants iron too (Phase C: mines and a foundry).
+  const iron = beyond >= 2 ? { iron: Math.round(10 * GROWTH ** (beyond - 2)) } : {};
+  return { name: `${last.name} ${"★".repeat(Math.min(beyond, 5))}`, wants: { ...times(last.wants, GROWTH ** beyond), ...iron }, houses: last.houses };
 }
 
 export interface TownStatus {
@@ -69,7 +71,7 @@ export function housesBy(level: number): number {
 }
 
 /** Coins a town pays for one unit of each good it takes (the full price for what it wants now, half otherwise). */
-export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5 };
+export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8 };
 
 /** What a town pays for one unit of `kind`, as it is now. */
 export function payFor(kind: CargoKind, status: TownStatus): number {

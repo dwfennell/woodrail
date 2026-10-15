@@ -33,7 +33,7 @@ interface Service {
   readonly done: Set<number>;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse";
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry";
 
 /**
  * What a kind of depot does: the goods trains bring it (unloaded onto its piles), the goods it gives them, and what it
@@ -56,14 +56,17 @@ export interface Recipe {
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
-  town: { takes: ["planks", "flour", "stone"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
+  town: { takes: ["planks", "flour", "stone", "iron"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
-  workshop: { takes: ["planks"], gives: [] },
+  workshop: { takes: ["planks", "iron"], gives: [] },
   // The farm chain (Game mode): a farm yard by the fields fills hoppers with grain; a mill grinds it into flour.
   farm: { takes: [], gives: ["grain"], cycle: { uses: {}, makes: { grain: 1 }, seconds: 12 } },
   mill: { takes: ["grain"], gives: ["flour"], cycle: { uses: { grain: 1 }, makes: { flour: 1 }, seconds: 8 } },
   // Stone cut from a hillside (Game mode's quarries).
   quarry: { takes: [], gives: ["stone"], cycle: { uses: {}, makes: { stone: 1 }, seconds: 14 } },
+  // Mining and iron (Phase C): a mine in the hills brings up coal and ore; a foundry makes iron of them.
+  mine: { takes: [], gives: ["coal", "ore"], cycle: { uses: {}, makes: { coal: 1, ore: 1 }, seconds: 18 } },
+  foundry: { takes: ["coal", "ore"], gives: ["iron"], cycle: { uses: { coal: 1, ore: 1 }, makes: { iron: 1 }, seconds: 10 } },
   // Keeps goods for later: everything, more of it. Routed trains drop or pick up there as their stops say.
   warehouse: { takes: [...CARGO_KINDS], gives: [...CARGO_KINDS], cap: 24, routedOnly: true },
 };

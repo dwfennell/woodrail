@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -11,12 +11,17 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   grain: { index: 2, label: "Grain" },
   flour: { index: 3, label: "Flour" },
   stone: { index: 4, label: "Stone" },
+  // Mining and iron (Game mode's Phase C): coal and ore from a mine, iron from a foundry.
+  coal: { index: 5, label: "Coal" },
+  ore: { index: 6, label: "Ore" },
+  iron: { index: 7, label: "Iron" },
 };
 
 /** What each kind of wagon carries: a kind of wagon per kind of goods (timber wagons take logs and planks). */
 export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
-  timber: ["log", "planks"],
-  hopper: ["grain", "stone"],
+  // Timber wagons are flatbeds: logs, planks and iron bars.
+  timber: ["log", "planks", "iron"],
+  hopper: ["grain", "stone", "coal", "ore"],
   van: ["flour"],
 };
 

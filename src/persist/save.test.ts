@@ -272,7 +272,7 @@ describe("economy in saves", () => {
     data.depots[forest.id].piles = [3, 12];
     const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
     expect(r.ok).toBe(true);
-    if (r.ok) expect(Array.from(r.value.economy.depot(forest.id)!.piles)).toEqual([3, 0, 0, 0, 0]);
+    if (r.ok) expect(Array.from(r.value.economy.depot(forest.id)!.piles)).toEqual([3, 0, 0, 0, 0, 0, 0, 0]);
   });
 
   it("a train saved half way through loading carries on loading after a load", () => {

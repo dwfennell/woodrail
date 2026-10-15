@@ -34,6 +34,9 @@ export const PILE_TAG: Record<CargoKind, string> = {
   grain: "#e0a526",
   flour: "#2f6db5",
   stone: "#6f747b",
+  coal: "#2a2b2e",
+  ore: "#9a4f2c",
+  iron: "#5f7a96",
 };
 
 const PAD = { t: 108, l: 72, w: 196, d: 84 };

@@ -99,6 +99,26 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     piles: { stone: { t: 105, l: 67, y: YARD, across: 3, rows: 2, axis: "t" } },
     trackT: 108,
   },
+  // Mining and iron (Phase C): a mine's coal and ore piles under a gantry; a foundry's inputs and its iron.
+  mine: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "gantry", t: 108, l: 45, height: 66 },
+    piles: {
+      coal: { t: 92, l: 60, y: YARD, across: 2, rows: 2, axis: "t" },
+      ore: { t: 124, l: 60, y: YARD, across: 2, rows: 2, axis: "t" },
+    },
+    trackT: 108,
+  },
+  foundry: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "gantry", t: 60, l: 45, height: 66 },
+    piles: {
+      coal: { t: 44, l: 60, y: YARD, across: 2, rows: 2, axis: "t" },
+      ore: { t: 76, l: 60, y: YARD, across: 2, rows: 2, axis: "t" },
+      iron: { t: 60, l: 98, y: YARD, across: 3, axis: "t" },
+    },
+    trackT: 60,
+  },
   mill: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     // The gantry spans the piles at the near end; the windmill stands at the far end (t 160).
@@ -130,6 +150,11 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
  * Where an upgrade's machine stands in its yard (depot frame: t along the track, l out from it), for Game mode's
  * upgrades (Harvesters II and the like; models in dressing.glb, from Asset Gen).
  */
+/** Goods a hopper carries as a heap in its bin. */
+const HEAP_KINDS = ["grain", "stone", "coal", "ore"] as const;
+type HeapKind = (typeof HEAP_KINDS)[number];
+const isHeap = (k: CargoKind | null): k is HeapKind => (HEAP_KINDS as readonly string[]).includes(k ?? "");
+
 const UPGRADE_SPOTS: Record<string, { t: number; l: number }> = {
   "upgrade-log-loader": { t: 34, l: 100 },
   "upgrade-steam-log-crane": { t: 52, l: 98 },
@@ -148,6 +173,8 @@ const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<s
   mill: { part: "industry-mill", slots: { cap: "#2f6db5" } },
   quarry: { part: "industry-quarry", slots: { roof: "#c8442f" } },
   warehouse: { part: "industry-warehouse", slots: { roof: "#3c8f4e", doors: "#e6b52c" } },
+  mine: { part: "industry-mine", slots: {} },
+  foundry: { part: "industry-foundry", slots: {} },
 };
 
 /** Where a hopper's grain heap sits (car-local y): the top of its bin (Asset Gen: hopper-classic). */
@@ -231,7 +258,7 @@ export class DepotView {
   /** Each kind of goods' meshes (logs, plank bundles, sacks). */
   private readonly units: Record<CargoKind, UnitMeshes>;
   /** Heaps in hoppers (one per loaded hopper), by what they hold. */
-  private readonly heaps: Record<"grain" | "stone", UnitMeshes>;
+  private readonly heaps: Record<HeapKind, UnitMeshes>;
   /** Every kind's meshes and the heaps, to loop over without allocating. */
   private readonly allUnits: UnitMeshes[];
   private static readonly MAX_UNITS = 2048;
@@ -252,7 +279,13 @@ export class DepotView {
     // A sack (grain golden, flour white) with a tie at its neck; stand-ins until the models come.
     const sack = new RoundedBoxGeometry(SACK_LENGTH, SACK_HEIGHT, SACK_WIDTH, 2, 2.4);
     const tie = new CylinderGeometry(1.6, 2.2, 2.4, 10).rotateZ(Math.PI / 2).translate(SACK_LENGTH / 2 + 0.6, 0, 0);
+    // Coal and ore: lumps in a little heap; iron: bars in a bundle (stand-ins until the models come).
+    const lumps = (color: string): [BufferGeometry, Material][] => [[new RoundedBoxGeometry(SACK_LENGTH, STONE_HEIGHT, SACK_WIDTH, 2, 3.2), mats.lacquer(color)]];
+    const bars = mergeGeometries([0, 1, 2].map((k) => new RoundedBoxGeometry(SACK_LENGTH, STONE_HEIGHT / 2 - 0.3, SACK_WIDTH / 3 - 0.4, 1, 0.5).translate(0, -STONE_HEIGHT / 4, (k - 1) * (SACK_WIDTH / 3)).toNonIndexed()).concat([new RoundedBoxGeometry(SACK_LENGTH * 0.9, STONE_HEIGHT / 2 - 0.3, SACK_WIDTH / 2, 1, 0.5).translate(0, STONE_HEIGHT / 4, 0).toNonIndexed()]))!;
     const looks: Record<Exclude<CargoKind, "stone">, [BufferGeometry, Material][]> & { stone?: [BufferGeometry, Material][] } = {
+      coal: hasPart("load-coal") ? partPieces(mats, "load-coal").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m]) : lumps("#2a2b2e"),
+      ore: hasPart("load-ore") ? partPieces(mats, "load-ore").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m]) : lumps("#9a4f2c"),
+      iron: hasPart("load-iron") ? partPieces(mats, "load-iron").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m]) : [[bars, mats.lacquer("#7d8a98")]],
       log: [[log, logMat]],
       planks: [
         [boards, mats.naturalWood],
@@ -281,7 +314,12 @@ export class DepotView {
       this.group.add(...parts);
       return { parts, owners: [], carried: new Group(), n: 0, last: 0 };
     };
-    this.heaps = { grain: heapUnit(heapOf("load-grain-heap", "#d9a441")), stone: heapUnit(heapOf("load-stone-heap", "#a9a49a")) };
+    this.heaps = {
+      grain: heapUnit(heapOf("load-grain-heap", "#d9a441")),
+      stone: heapUnit(heapOf("load-stone-heap", "#a9a49a")),
+      coal: heapUnit(heapOf("load-coal-heap", "#2a2b2e")),
+      ore: heapUnit(heapOf("load-ore-heap", "#9a4f2c")),
+    };
     const units = {} as Record<CargoKind, UnitMeshes>;
     for (const kind of CARGO_KINDS) {
       const look = looks[kind]!;
@@ -295,7 +333,7 @@ export class DepotView {
       units[kind] = { parts, owners: [], carried, n: 0, last: 0 };
     }
     this.units = units;
-    this.allUnits = [...CARGO_KINDS.map((k) => units[k]), this.heaps.grain, this.heaps.stone];
+    this.allUnits = [...CARGO_KINDS.map((k) => units[k]), ...HEAP_KINDS.map((k) => this.heaps[k])];
     this.cargoMeshes = this.allUnits.flatMap((u) => u.parts);
   }
 
@@ -495,6 +533,20 @@ export class DepotView {
       // A rock face of grey blocks stepping up at the far side of the yard.
       for (const [t, l, w, h] of [[140, 104, 40, 30], [178, 104, 36, 46], [160, 96, 30, 16]] as const) b.add(mats.lacquer("#a9a49a"), place(new RoundedBoxGeometry(w, h, 18, 2, 3), t, l, PAD_H + h / 2));
     }
+    if (site.depot.role === "mine") {
+      // A winding tower (two posts and a wheel) over the shaft, and an engine house with a chimney.
+      for (const l of [86, 106]) b.add(mats.lacquer("#5a4a3a"), place(new RoundedBoxGeometry(4, 70, 4, 1, 1), 172, l, PAD_H + 35));
+      b.add(mats.lacquer("#c8442f"), place(new CylinderGeometry(12, 12, 3, 20).rotateX(Math.PI / 2), 172, 96, PAD_H + 70));
+      b.add(mats.blockWood, place(new RoundedBoxGeometry(34, 26, 26, 2, 2.5), 136, 98, PAD_H + 13));
+      b.add(mats.lacquer("#8a4b3a"), place(new CylinderGeometry(3.5, 4, 30, 10), 128, 104, PAD_H + 41));
+    }
+    if (site.depot.role === "foundry") {
+      // A brick furnace with a tall chimney and a casting shed.
+      b.add(mats.lacquer("#9a4f3a"), place(new RoundedBoxGeometry(36, 34, 30, 2, 3), 160, 96, PAD_H + 17));
+      b.add(mats.lacquer("#7a3f30"), place(new CylinderGeometry(4.5, 5.5, 60, 12), 172, 104, PAD_H + 50));
+      b.add(mats.lacquer("#ffb347"), place(new RoundedBoxGeometry(10, 8, 2, 1, 0.8), 160, 80.5, PAD_H + 10));
+      b.add(mats.blockWood, place(new RoundedBoxGeometry(40, 24, 26, 2, 2.5), 116, 100, PAD_H + 12));
+    }
     if (site.depot.role === "forest") {
       // A small beech hut with a green roof at the far end of the yard.
       b.add(mats.blockWood, place(new RoundedBoxGeometry(30, 26, 24, 2, 2.5), 186, 96, PAD_H + 13));
@@ -601,7 +653,7 @@ export class DepotView {
   private readonly coalOf = new WeakMap<Object3D, Object3D[]>();
 
   /** A hopper's heap (grain or stone), in the top of its bin, as high as it is full. */
-  private putHeap(kind: "grain" | "stone", car: Object3D, count: number, owner: CargoSlot): void {
+  private putHeap(kind: HeapKind, car: Object3D, count: number, owner: CargoSlot): void {
     const u = this.heaps[kind];
     if (u.n >= DepotView.MAX_UNITS) return;
     car.updateWorldMatrix(true, false);
@@ -632,7 +684,8 @@ export class DepotView {
    */
   update(economy: Economy, carIds: ArrayLike<number>, carCount: number, carObject: (id: number) => Object3D | undefined, dt: number): "moving" | "changed" | "still" {
     let busy = this.dragging !== null;
-    for (const h of [this.heaps.grain, this.heaps.stone]) {
+    for (const k of HEAP_KINDS) {
+      const h = this.heaps[k];
       h.last = h.n;
       h.n = 0;
     }
@@ -677,7 +730,7 @@ export class DepotView {
       if (!car) continue;
       const count = cargo.count - this.liftedOff(id) - (drag?.kind === "car" && drag.carId === id ? 1 : 0);
       const owner = this.carOwner(id);
-      if ((cargo.kind === "grain" || cargo.kind === "stone") && car.userData.carKind === "hopper") {
+      if (isHeap(cargo.kind) && car.userData.carKind === "hopper") {
         if (count > 0) this.putHeap(cargo.kind, car, count, owner);
         continue;
       }

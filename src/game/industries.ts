@@ -23,6 +23,8 @@ export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
   farm: { what: "farm fields", counts: (land, i) => land.grid.feature[i] === FEAT_FIELD, reach: 250, need: 8 },
   // Stone is cut from the hills: raised squares nearby.
   quarry: { what: "hillside", counts: (land, i) => land.grid.height[i] > 0, reach: 250, need: 12 },
+  // Coal and ore are dug out of the hills too.
+  mine: { what: "hillside", counts: (land, i) => land.grid.height[i] > 0, reach: 250, need: 12 },
 };
 
 /** The fastest an industry works, however much is around it (against its recipe). */
