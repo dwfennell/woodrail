@@ -1333,67 +1333,57 @@ def _crate(k, g, x, y, z, s=8, c="#c99a5b", a=0.0):
 
 def industry_harbour(k):
     """
-    The harbour: the yard's far side is a quay on the water (water beyond z 114). A stone quay edge (x 10-206, z 106-116,
-    its sea face dropping to y -10) with timber fenders and a timber capping at x >= 90, black bollards along it; a
-    small harbour shed (x 104-146, z 78-104, slot "roof", doors toward the track); crates, a barrel and a coil of rope
-    on the quay; and the derrick's mast and base at x 184, z 104 (its jib, the part "industry-harbour-jib", turns on y
-    about the mast at x 184, y 62, z 104, reaching out over the water toward +z). The front and x < 90 stay clear.
+    The harbour: the yard's far side is a quay on the water (its edge at z 112, the water beyond). A stone quay edge
+    (x 10-206, z 102-112, its sea face dropping to y -10) with a timber capping and fenders, bollards at x 30, 80, 130
+    and 180 on z 110; a little harbour office at the far end (x 175-193, z 89-103, slot "roof"), a barrel and crates by
+    it; and the derrick's mast and footing at x 199, z 105 (its jib, the part "industry-harbour-jib", turns on y about
+    the mast's top at x 199, y 62, z 105, reaching out over the water toward +z). Clear: the piles' strip (x 15-190,
+    z 35-90) and z 90-110 between the bollards, where the dock sheds stand (x 55, 105, 155).
     """
     g = Node()
-    # The quay edge: dressed stone blocks along the far side, standing a little proud of the pad, the sea face below.
+    # The quay edge: dressed stone blocks along the far side, flush with the pad, the sea face below.
     i = 0
     for x0 in range(10, 206, 28):
         w = min(28, 206 - x0)
-        g.add(k.box(k.paint(SEA_STONE[i % 3]), w - 0.6, PAD + 12, 10, 1.6, x0 + w / 2, -12, 111, seg=1))
+        g.add(k.box(k.paint(SEA_STONE[i % 3]), w - 0.6, PAD + 10, 10, 1.6, x0 + w / 2, -10, 107, seg=1))
         i += 1
-    # Timber capping and fenders where ships tie up.
-    g.add(k.box(k.wood, 206 - 90, 1.6, 4, 0.5, 148, PAD, 114.5, seg=1))
-    for x in range(96, 206, 14):
-        g.add(k.box(k.paint(TAR), 2.4, 15, 2, 0.6, x, -11, 117, seg=1))
-    g.add(k.box(k.paint(TAR), 206 - 90, 2, 1.6, 0.5, 148, -2, 118.2, seg=1))
+    # Timber capping along the edge, tarred fenders down its face.
+    g.add(k.box(k.wood, 196, 1.4, 3, 0.5, 108, PAD, 110.6, seg=1))
+    for x in range(17, 206, 14):
+        g.add(k.box(k.paint(TAR), 2.4, 13, 2, 0.6, x, -9, 113, seg=1))
+    g.add(k.box(k.paint(TAR), 196, 2, 1.6, 0.5, 108, -1, 114.2, seg=1))
     # Bollards.
-    for x in (100, 128, 156, 200):
+    for x in (30, 80, 130, 180):
         g.add(k.cyl(k.paint(DARK), 2.2, 5, x, PAD, 110, 1.8, 10))
         g.add(k.cyl(k.paint(DARK), 2.8, 1.4, x, PAD + 5, 110, 2.8, 10))
-    # The harbour shed: beech walls, a red-slot roof, double doors and a window to the track side, a name board.
+    # The harbour office: beech walls, a slot roof, a door and a window to the track side, a name board, a lamp.
     from bldg_parts import winZ
 
-    sx, sz, w, d, h = 125, 91, 42, 26, 24
-    front = sz - d / 2
-    g.add(k.box(k.wood, w, h, d, 2.4, sx, PAD, sz))
-    g.add(k.roof(k.paint(slot("roof")), w + 5, d + 5, 11, sx, PAD + h - 0.5, sz, 3))
-    for s in (-1, 1):
-        g.add(k.box(k.paint("#2f5d7a"), 8.4, 17, 1.6, 0.7, sx - 8 + s * 4.3, PAD, front - 0.4))
-    g.add(k.box(k.paint(CREAM), 19, 2, 2.2, 0.6, sx - 8, PAD + 17, front - 0.4))
-    g.add(winZ(k, sx + 12, PAD + 9, front, 8, 8))
-    g.add(k.box(k.paint(CREAM), 26, 5, 1.6, 0.8, sx, PAD + h - 4, front - 0.6))
-    # Crates, a barrel and a coil of rope by the shed.
-    _crate(k, g, 156, PAD, 96, 9, "#c99a5b", 0.1)
-    _crate(k, g, 166, PAD, 98, 8, "#b5824c", -0.2)
-    _crate(k, g, 160, PAD + 7.7, 97, 7, "#d8b07a", 0.4)
-    g.add(k.cyl(k.paint("#8a5a33"), 3.6, 9, 98, PAD, 92, 3.6, 16))
-    g.add(k.cyl(k.paint(DARK), 3.8, 1, 98, PAD + 1.5, 92, 3.8, 16))
-    g.add(k.cyl(k.paint(DARK), 3.8, 1, 98, PAD + 6.5, 92, 3.8, 16))
-    rope = Node()
-    rope.add(k.cyl(k.paint("#d9c08a"), 4, 2.4, 0, 0, 0, 4, 16))
-    rope.add(k.cyl(k.paint("#bfa470"), 2, 2.6, 0, 0, 0, 2, 12))
-    rope.position.set(176, PAD, 108)
-    g.add(rope)
-    # The derrick: a stone footing, a red mast with a cream cap; the jib turns on its top.
-    mx, mz = 184, 104
-    g.add(k.box(k.paint(SEA_STONE[1]), 14, 4, 14, 1.4, mx, PAD, mz))
-    g.add(k.cyl(k.paint(RED), 2.8, 54, mx, PAD + 4, mz, 2.2, 16))
+    ox, oz, w, d, h = 184, 96, 18, 14, 18
+    front = oz - d / 2
+    g.add(k.box(k.wood, w, h, d, 2, ox, PAD, oz))
+    g.add(k.roof(k.paint(slot("roof")), w + 4, d + 4, 8, ox, PAD + h - 0.5, oz, 2.4))
+    g.add(k.box(k.paint("#2f5d7a"), 6, 12, 1.4, 0.6, ox - 4.5, PAD, front - 0.4))
+    g.add(winZ(k, ox + 4.5, PAD + 6, front, 6, 6))
+    g.add(k.box(k.paint(CREAM), 14, 3.4, 1.4, 0.6, ox, PAD + h - 3.6, front - 0.5))
+    g.add(k.box(k.paint(GOLD), 1.8, 2.4, 1.8, 0.5, ox - 4.5, PAD + 13, front - 1.6))
+    g.add(k.cyl(k.paint("#8a5a33"), 3, 8, 198, PAD, 92, 3, 14))
+    g.add(k.cyl(k.paint(DARK), 3.2, 0.9, 198, PAD + 1.3, 92, 3.2, 14))
+    g.add(k.cyl(k.paint(DARK), 3.2, 0.9, 198, PAD + 5.8, 92, 3.2, 14))
+    _crate(k, g, 199, PAD, 82, 8, "#c99a5b", 0.1)
+    _crate(k, g, 199, PAD + 6.8, 82, 6, "#d8b07a", 0.5)
+    # The derrick: a stone footing, a red mast with a cream cap, a winch at its foot; the jib turns on its top.
+    mx, mz = 199, 105
+    g.add(k.box(k.paint(SEA_STONE[1]), 10, 3, 10, 1.2, mx, PAD, mz))
+    g.add(k.cyl(k.paint(RED), 2.8, 55, mx, PAD + 3, mz, 2.2, 16))
     g.add(k.cyl(k.paint(CREAM), 3.2, 2, mx, PAD + 56, mz, 3.2, 16))
-    # A winch drum at the mast's foot.
-    g.add(k.cylX(k.paint(DARK), 2.4, 8, mx - 9, PAD + 6, mz, 14))
-    for dx in (-4.5, 4.5):
-        g.add(k.box(k.paint(RED), 1.4, 8, 6, 0.4, mx - 9 + dx, PAD, mz))
+    g.add(k.cylZ(k.paint(DARK), 2, 6, mx, PAD + 7, mz - 6, 12))
     return g
 
 
 def industry_harbour_jib(k):
     """
-    The harbour derrick's jib: turns on y about the origin (the mast's top, x 184, y 62, z 104 in the yard). A red boom
+    The harbour derrick's jib: turns on y about the origin (the mast's top, x 199, y 62, z 105 in the yard). A red boom
     rising out along +z (reaching 44 out), a counterweight behind the mast, a stay from the mast's top to the boom's tip, a rope hanging from its tip to a hook with a crate.
     """
     g = Node()
@@ -1422,33 +1412,22 @@ def industry_harbour_jib(k):
 
 def industry_dock_shed(k):
     """
-    A dock shed placed beside a harbour: one square (72 x 72), centred on it, its base on y 0, doors toward -z. A
-    beech shed (48 x 40, walls 26) under a pitched roof (slot "roof", ridge along x), double doors on the front with a
-    cream lintel, a window either side, a lamp over the doors; crates and a barrel by it.
+    A dock shed on a harbour's quay: about 30 (x, with its crate) by 20 (z) by 20 high, centred on its footprint, its base on y 0,
+    doors toward -z (the piles). Beech walls under a pitched roof (slot "roof", ridge along x), double doors (slot
+    "doors") with a cream lintel, a lamp over them, a crate against its +x end.
     """
-    from bldg_parts import winZ
-
     g = Node()
-    w, d, h = 48, 40, 26
-    front = -d / 2 + 4
-    cz = 4
-    g.add(k.box(k.paint(SEA_STONE[1]), w + 4, 1.6, d + 4, 0.6, 0, 0, cz, seg=1))
-    g.add(k.box(k.wood, w, h, d, 2.4, 0, 1.6, cz))
-    g.add(k.roof(k.paint(slot("roof")), w + 6, d + 6, 13, 0, 1.6 + h - 0.5, cz, 3))
+    w, d, h = 24, 18, 13
+    front = -d / 2
+    g.add(k.box(k.wood, w, h, d, 1.8, 0, 0, 0))
+    g.add(k.roof(k.paint(slot("roof")), w + 2, d + 2, 7, 0, h - 0.5, 0, 2.2))
     for s in (-1, 1):
-        g.add(k.box(k.paint(slot("doors")), 9.4, 19, 1.6, 0.7, s * 4.8, 1.6, front - 0.4))
-        g.add(k.box(k.paint(CREAM), 8, 1.4, 1.2, 0.4, s * 4.8, 1.6 + 9, front - 1.2, seg=1))
-    g.add(k.box(k.paint(CREAM), 22, 2, 2.2, 0.6, 0, 1.6 + 19, front - 0.4))
-    for wx in (-17, 17):
-        g.add(winZ(k, wx, 1.6 + 9, front, 8, 8))
-    g.add(k.box(k.paint(DARK), 1, 1, 4, 0.3, 0, 1.6 + 23, front - 2, seg=1))
-    g.add(k.box(k.paint(GOLD), 2.4, 3, 2.4, 0.6, 0, 1.6 + 20.4, front - 4))
-    _crate(k, g, -27, 0, -26, 9, "#c99a5b", 0.15)
-    _crate(k, g, -17, 0, -28, 8, "#b5824c", -0.3)
-    _crate(k, g, -23, 7.6, -26, 7, "#d8b07a", 0.5)
-    g.add(k.cyl(k.paint("#8a5a33"), 3.6, 9, 27, 0, -26, 3.6, 16))
-    g.add(k.cyl(k.paint(DARK), 3.8, 1, 27, 1.5, -26, 3.8, 16))
-    g.add(k.cyl(k.paint(DARK), 3.8, 1, 27, 6.5, -26, 3.8, 16))
+        g.add(k.box(k.paint(slot("doors")), 5.6, 10, 1.4, 0.5, s * 2.9, 0, front - 0.3))
+    g.add(k.box(k.paint(CREAM), 13, 1.4, 1.8, 0.4, 0, 10, front - 0.3))
+    g.add(k.box(k.paint(GOLD), 1.6, 2, 1.6, 0.4, 0, 11.6, front - 1.4))
+    for wx in (-8.6, 8.6):
+        g.add(k.box(k.paint("#2b3644"), 3.6, 4, 1, 0.4, wx, 5, front - 0.2))
+    _crate(k, g, 14.8, 0, 4, 5, "#c99a5b", 0.2)
     return g
 
 
