@@ -73,7 +73,7 @@ export function describeThings(things: readonly [ThingId, number][]): string {
   return things.map(([id, n]) => `${n} ${n === 1 ? (ruleOf(id)?.label ?? id) : plural(ruleOf(id)?.label ?? id)}`).join(", ");
 }
 
-/** "Turnbacks", "Switches", "Timber wagons". */
+/** "Turnbacks", "Switches", "Flatbed wagons". */
 function plural(label: string): string {
   return /(s|x|ch|sh)$/.test(label) ? `${label}es` : `${label}s`;
 }

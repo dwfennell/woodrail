@@ -182,8 +182,8 @@ export const GOALS: readonly Goal[] = [
   },
   {
     id: "timber-train",
-    title: "Make up a timber train",
-    hint: "Couple a timber wagon to an engine.",
+    title: "Make up a flatbed train",
+    hint: "Couple a flatbed wagon to an engine.",
     check: (w) => ({
       done: w.sim.trainIds().some((id) => {
         const cars = w.sim.getTrain(id)?.cars ?? [];
@@ -195,7 +195,7 @@ export const GOALS: readonly Goal[] = [
   {
     id: "load-logs",
     title: "Load logs at the forest",
-    hint: "Lay track to the forest yard and stop a timber wagon under its crane.",
+    hint: "Lay track to the forest yard and stop a flatbed wagon under its crane.",
     check: (w) => ({ done: w.sim.trainIds().some((id) => w.sim.getTrain(id)?.cars.some((c) => w.economy.cargoOf(c.id).kind === "log")) }),
     guide: (w) => guideDepot(w, "forest"),
   },

@@ -523,7 +523,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       timberHinted = true;
       window.setTimeout(() => {
         const hasTimber = game.sim.trainIds().some((id) => game.sim.getTrain(id)?.cars.some((c) => c.kind === "timber"));
-        if (!hasTimber) hud.toast("Try a timber train: forest logs → sawmill → planks for the towns", false, 6000);
+        if (!hasTimber) hud.toast("Try a flatbed train: forest logs → sawmill → planks for the towns", false, 6000);
       }, 3500);
     }
     game.flourishes.add(game.landscapeView.flash(fresh.flat()));

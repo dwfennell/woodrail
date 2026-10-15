@@ -1053,7 +1053,7 @@ export class Interaction {
       this.changed();
     } else {
       this.onRefused?.();
-      this.hud.toast(m.cargo === "log" ? "Logs go on a timber wagon or the sawmill's log pile" : "Planks go on a timber wagon or a station's goods pile");
+      this.hud.toast(m.cargo === "log" ? "Logs go on a flatbed wagon or the sawmill's log pile" : "Planks go on a flatbed wagon or a station's goods pile");
     }
   }
 
