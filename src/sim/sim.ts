@@ -125,6 +125,8 @@ export class Sim {
    * halt with a wagon under the crane. Infinity for no limit; 0 holds the train where it is.
    */
   speedCap: ((train: Train) => number) | null = null;
+  /** Optional top speed for a powered train (mm/s): a mode's faster engines. Null: every train runs at `ENGINE_SPEED`. */
+  topSpeed: ((train: Train) => number) | null = null;
 
   constructor(readonly layout: Layout) {}
 
@@ -397,7 +399,7 @@ export class Sim {
     // easing up to it and, lever off, easing to a stop.
     let net = 0;
     for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
-    let target = Math.sign(net) * ENGINE_SPEED;
+    let target = net === 0 ? 0 : Math.sign(net) * (this.topSpeed ? this.topSpeed(train) : ENGINE_SPEED);
     const cap = net !== 0 && this.speedCap ? this.speedCap(train) : Infinity;
     if (target > cap) target = cap;
     let v = train.speed;

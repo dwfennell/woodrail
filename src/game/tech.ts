@@ -17,6 +17,11 @@ export interface Tech {
   readonly landmark?: string;
   /** What it lets you do that isn't a thing to make (train routes), with an icon for the board. */
   readonly feature?: { readonly label: string; readonly icon: string };
+  /**
+   * Learned by itself, free, once you've carried this many passengers (the passenger line): never offered by a town or
+   * put on the board.
+   */
+  readonly riders?: number;
 }
 
 /**
@@ -29,7 +34,7 @@ export const TECHS: readonly Tech[] = [
   { id: "bridges", label: "Bridges and ramps", blurb: "Ramp up and cross rivers and other lines.", cost: { planks: 8 }, needs: [] },
   { id: "heights", label: "Risers", blurb: "Raise track higher, over bridges and hills.", cost: { planks: 6 }, needs: ["bridges"] },
   { id: "sawmills", label: "Sawmills", blurb: "Build your own sawmill, wherever you like.", cost: { planks: 15 }, needs: [] },
-  { id: "passengers", label: "Passengers", blurb: "Coaches and cabooses.", cost: { planks: 10 }, needs: [] },
+  { id: "passengers", label: "Passengers", blurb: "Coaches carry people between towns: they pay a fare by how far they ride.", cost: { planks: 10 }, needs: [] },
   { id: "loops", label: "Turning loops", blurb: "Turn a train round without stopping.", cost: { planks: 6 }, needs: ["switches"] },
   { id: "junctions", label: "Junctions", blurb: "Three-ways, crossings, double track.", cost: { planks: 10 }, needs: ["switches"] },
   // The industry line: more logs, then the farm chain.
@@ -49,6 +54,52 @@ export const TECHS: readonly Tech[] = [
   { id: "warehouses", label: "Warehouses", blurb: "Keep goods for later: routed trains drop them off and pick them up.", cost: { planks: 16 }, needs: ["routes"] },
   // Needs a city's library: the stone a city wants to keep growing.
   { id: "quarries", label: "Quarries", blurb: "Cut stone from the hills, for growing cities.", cost: { planks: 24 }, needs: ["mills"], landmark: "library" },
+  // The passenger line: each learned by itself as you carry more people (see `learnByRiders`).
+  {
+    id: "dining",
+    label: "Dining car",
+    blurb: "Everyone on a train with a dining car pays half as much again.",
+    cost: {},
+    needs: ["passengers"],
+    riders: 20,
+    feature: { label: "Dining car (Trains tab)", icon: "🍽️" },
+  },
+  {
+    id: "first-class",
+    label: "First class",
+    blurb: "A first-class sleeper: three seats, each paying double.",
+    cost: {},
+    needs: ["dining"],
+    riders: 60,
+    feature: { label: "First-class sleeper (Trains tab)", icon: "🛏️" },
+  },
+  {
+    id: "stations",
+    label: "Busy stations",
+    blurb: "Twice as many people come to each station, and more can wait.",
+    cost: {},
+    needs: ["first-class"],
+    riders: 100,
+    feature: { label: "More people at stations", icon: "🚉" },
+  },
+  {
+    id: "double-decker",
+    label: "Double-decker",
+    blurb: "A coach with eight seats.",
+    cost: {},
+    needs: ["stations"],
+    riders: 160,
+    feature: { label: "Double-decker coach (Trains tab)", icon: "🚃" },
+  },
+  {
+    id: "express",
+    label: "Express engine",
+    blurb: "An engine that runs half as fast again.",
+    cost: {},
+    needs: ["double-decker"],
+    riders: 250,
+    feature: { label: "Express engine (Trains tab: Electric)", icon: "⚡" },
+  },
 ];
 
 /** On the board from a new game's start, to be learned with goods. */
@@ -64,7 +115,18 @@ export function unlocksOf(id: string): ThingId[] {
 /** Can it be learned now: not learned, and everything it needs is? */
 export function ready(p: Progress, id: string): boolean {
   const t = techOf(id);
-  return !!t && !p.learned.has(id) && t.needs.every((n) => p.learned.has(n)) && (!t.landmark || p.landmarks.has(t.landmark));
+  return !!t && !p.learned.has(id) && t.needs.every((n) => p.learned.has(n)) && (!t.landmark || p.landmarks.has(t.landmark)) && (t.riders === undefined || p.riders >= t.riders);
+}
+
+/** Learn the passenger line's blueprints you've carried enough people for (in order). Returns the ones learned now. */
+export function learnByRiders(p: Progress): string[] {
+  const out: string[] = [];
+  for (const t of TECHS) {
+    if (t.riders === undefined || !ready(p, t.id)) continue;
+    p.learned.add(t.id);
+    out.push(t.id);
+  }
+  return out;
 }
 
 /**
@@ -72,8 +134,8 @@ export function ready(p: Progress, id: string): boolean {
  * (0–1). Fewer when fewer are left.
  */
 export function offerFor(p: Progress, random: () => number): string[] {
-  const fresh = TECHS.filter((t) => ready(p, t.id) && !p.board.has(t.id)).map((t) => t.id);
-  const shown = TECHS.filter((t) => ready(p, t.id) && p.board.has(t.id)).map((t) => t.id);
+  const fresh = TECHS.filter((t) => t.riders === undefined && ready(p, t.id) && !p.board.has(t.id)).map((t) => t.id);
+  const shown = TECHS.filter((t) => t.riders === undefined && ready(p, t.id) && p.board.has(t.id)).map((t) => t.id);
   const out: string[] = [];
   for (const pool of [fresh, shown]) {
     const left = [...pool];

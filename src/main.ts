@@ -22,7 +22,7 @@ import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { Crafting, workshops, workshopStock } from "./game/crafting";
-import { costText, isFree, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
+import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
@@ -31,14 +31,15 @@ import { nextStop, routeStops } from "./game/route-stops";
 import type { StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
-import { choose as chooseTech, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
+import { choose as chooseTech, learnByRiders, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
+import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { aOrAn, covers, describe as describeGoods, minus, total } from "./economy/goods";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { TrackView } from "./render/track-view";
 import { PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
-import type { CarKind } from "./sim";
+import type { CarKind, CarLook } from "./sim";
 import { Hud } from "./ui/hud";
 import { INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
@@ -643,6 +644,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   /** Game mode: can this tray item come out (known, and enough of it in the toy box)? Says why not if not. */
   function trayAllowed(item: Parameters<typeof thingsFor>[0] | { kind: string }): boolean {
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train")) return true;
+    const look = lockedLook(item);
+    if (look) {
+      hud.toast(`${techOf(look)!.label}: carry ${techOf(look)!.riders} passengers to unlock it`, false, 3600);
+      return false;
+    }
     const short = progress.short(game.world, thingsFor(item as Parameters<typeof thingsFor>[0]));
     if (!short) return true;
     const rule = ruleOf(short)!;
@@ -652,12 +658,22 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     return false;
   }
 
+  /** A train item in a look whose blueprint isn't learned yet (a dining car, an express engine): that blueprint. */
+  function lockedLook(item: { kind: string; looks?: readonly CarLook[] }): string | null {
+    if (item.kind !== "train") return null;
+    for (const look of item.looks ?? []) {
+      const tech = LOOK_TECH[look];
+      if (tech && !progress.learned.has(tech)) return tech;
+    }
+    return null;
+  }
+
   /** The toy box on the tray (Game mode): how many of each are left. */
   function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean } | null {
     if (item.kind !== "piece" && item.kind !== "train") return null;
     const needs = thingsFor(item as Parameters<typeof thingsFor>[0]);
     if ([...needs.keys()].every(isFree)) return null;
-    if ([...needs.keys()].some((id) => !progress.knows(id))) return { text: "Locked", empty: true };
+    if ([...needs.keys()].some((id) => !progress.knows(id)) || lockedLook(item)) return { text: "Locked", empty: true };
     let n = Infinity;
     for (const [id, k] of needs) n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
     return { text: String(n), empty: n === 0 };
@@ -747,7 +763,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       if (progress.board.has(t.id) && ready(progress, t.id)) return { ...base, state: "ready" as const, cost: describeGoods(t.cost), planks: t.cost.planks ?? 0, affordable: covers(stock, t.cost) };
       const missing = t.needs.filter((n) => !progress.learned.has(n));
       const mark = t.landmark && !progress.landmarks.has(t.landmark) ? landmarkOf(t.landmark) : undefined;
-      const waits = missing.length > 0 ? `Learn ${missing.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")} first` : mark ? `Needs a ${mark.name.toLowerCase()}: grow a town to a ${["", "village", "town", "city"][mark.level] ?? "city"}` : "A town will offer it as it grows";
+      const waits = t.riders !== undefined && missing.length === 0 ? `Carry ${t.riders} passengers (${progress.riders} so far)` : missing.length > 0 ? `Learn ${missing.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")} first` : mark ? `Needs a ${mark.name.toLowerCase()}: grow a town to a ${["", "village", "town", "city"][mark.level] ?? "city"}` : "A town will offer it as it grows";
       return { ...base, state: "locked" as const, waits };
     });
     const hasWorkshop = workshops(game.world).length > 0;
@@ -840,6 +856,47 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       scheduleSave();
     });
     box.append(line, plant);
+  }
+
+  // Passengers (Game mode): people turn up at stations, coaches carry them, fares are paid, and the passenger line of
+  // blueprints is learned as you carry more.
+  const peopleClock = new Map<number, number>();
+  function passengersOn(): void {
+    peopleClock.clear();
+    attachPassengers(game.world, () => progress, () => {
+      hud.setCoins(progress.coins);
+      for (const id of learnByRiders(progress)) {
+        hud.toast(`${progress.riders} passengers carried: you've learned ${techOf(id)!.label}!`, true, 4200);
+        audio.chime();
+        hud.refreshTrayBadges();
+        refreshBoard();
+      }
+      scheduleSave();
+    });
+  }
+  setInterval(() => {
+    if (mode === "game" && playing && !game.paused) peopleArrive(game.world, progress, 1, peopleClock);
+  }, 1000);
+
+  // A town station's card (Game mode): who is waiting for a coach.
+  let stationShown = "";
+  function showStation(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    if (!d || d.role !== "town" || !progress.learned.has("passengers")) {
+      stationShown = "";
+      return;
+    }
+    const key = `${id}:${d.waiting}:${progress.riders}`;
+    if (key === stationShown) return;
+    stationShown = key;
+    const box = hud.depotExtra;
+    box.hidden = false;
+    box.innerHTML = "";
+    const line = document.createElement("div");
+    line.className = "station-waiting";
+    line.textContent = `Waiting for a coach: ${d.waiting} ${d.waiting === 1 ? "person" : "people"} (room for ${waitingCap(progress)}). Carried so far: ${progress.riders}`;
+    box.append(line);
   }
 
   let workshopShown = -1;
@@ -1072,6 +1129,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     saveLastBuilt("game", null);
     setWorld(freshGameWorld());
     townLife.reset();
+    passengersOn();
     save();
     openingView();
   }
@@ -1109,6 +1167,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     interaction.siteRule = mode === "game" ? (type, pose) => siteWhy(game.landscape, type, pose) : null;
     if (mode === "game") {
       townLife.reset();
+      passengersOn();
       progress.coverMap(game.world);
       syncLandmarks();
       hud.trayBadge = trayBadge;
@@ -1116,6 +1175,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       refreshBoard();
     } else {
       townLife.clear();
+      detachPassengers(game.world);
       shownDelivered = new Map();
       hud.trayBadge = null;
       hud.setCoins(null);
@@ -1265,6 +1325,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       if (playing) townLife.update();
       showWorkshop();
       showFarm();
+      showStation();
     } else game.economy.delivered.forEach(showDelivered);
     showRoute();
     let derailed = false;
@@ -1279,7 +1340,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress });
   game.start();
   if (opening.linked) {
     enter(mode);

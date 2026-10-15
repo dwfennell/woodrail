@@ -1,5 +1,5 @@
 import { describe as describeGoods, type Bag } from "../economy/goods";
-import type { CarKind } from "../sim";
+import type { CarKind, CarLook } from "../sim";
 import type { PieceTypeId } from "../track";
 
 /**
@@ -59,6 +59,12 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-quarry": { label: "Quarry", cost: { planks: 14 }, coins: 60, tech: "quarries" },
   "piece:depot-warehouse": { label: "Warehouse", cost: { planks: 18 }, coins: 50, tech: "warehouses" },
 };
+
+/**
+ * Cars in a look of their own that needs a blueprint (the passenger line's coaches, the express engine). Other looks
+ * come with the car.
+ */
+export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", sleeper: "first-class", "double-decker": "double-decker", electric: "express" };
 
 /** A thing's whole price, for cards: "12 planks + 30 coins". */
 export function costText(rule: ThingRule): string {

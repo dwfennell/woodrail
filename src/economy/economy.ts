@@ -15,6 +15,8 @@ const HALTED = 2;
 const AT_CRANE = 0.5;
 /** A train crawling through a depot that has stood still this long is held up short of the crane. */
 const STUCK_TICKS = ticks(1);
+/** A rider gets on or off a coach in this time. */
+const RIDER_TICKS = ticks(0.3);
 
 /** One train's visit to a depot. Allocated once per train and reused. */
 interface Service {
@@ -110,6 +112,14 @@ export interface DepotState {
   rate: number;
   /** Where wagons stop for the crane: distance (mm) from the depot path's `from` end. */
   readonly craneAt: number;
+  /** People waiting at a town's station for a coach (Game mode's passengers). */
+  waiting: number;
+}
+
+/** People riding a coach: how many, and the station (depot id) they got on at. */
+export interface Riders {
+  count: number;
+  from: number;
 }
 
 export interface CarCargo {
@@ -137,6 +147,7 @@ export interface EconomyEvent {
 export type CargoSlot = { readonly kind: "pile"; readonly depotId: number; readonly cargo: CargoKind } | { readonly kind: "car"; readonly carId: number };
 
 const EMPTY: CarCargo = { kind: null, count: 0 };
+const NO_RIDERS: Riders = { count: 0, from: -1 };
 
 /**
  * Depots, their piles and the cargo riding on wagons. Pure and deterministic: everything advances in whole sim
@@ -146,6 +157,8 @@ export class Economy {
   private readonly depots: DepotState[] = [];
   private readonly byPiece = new Map<number, DepotState>();
   private readonly cargo = new Map<number, CarCargo>();
+  /** Coach car id → the people riding it. */
+  private readonly riders = new Map<number, Riders>();
   /** Engine car id → its train's route (see `Route`). Trains with none are served at any depot they pass. */
   private readonly routes = new Map<number, Route>();
   /** Town id → plank bundles delivered there (by train or by hand). */
@@ -168,7 +181,7 @@ export class Economy {
   addDepot(role: DepotRole, pieceId: number, townId = -1, craneAt?: number): DepotState {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
-    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2 };
+    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0 };
     this.depots.push(d);
     this.byPiece.set(pieceId, d);
     return d;
@@ -194,6 +207,43 @@ export class Economy {
   setCargo(carId: number, kind: CargoKind | null, count: number): void {
     if (count <= 0 || kind === null) this.cargo.delete(carId);
     else this.cargo.set(carId, { kind, count: Math.min(count, WAGON_CAPACITY) });
+  }
+
+  ridersOf(carId: number): Readonly<Riders> {
+    return this.riders.get(carId) ?? NO_RIDERS;
+  }
+
+  /** Put people straight onto a coach (saves, tests): `count` who got on at depot `from`. */
+  setRiders(carId: number, count: number, from: number): void {
+    if (count <= 0) this.riders.delete(carId);
+    else this.riders.set(carId, { count, from });
+  }
+
+  /**
+   * Seats in a car (Game mode sets it: coaches by their look). Null, or 0 seats: it carries no one, and trains don't
+   * stop at stations for it (Sandbox).
+   */
+  seatsOf: ((carId: number) => number) | null = null;
+
+  /** Someone got off a coach at station `to`, having got on at `from` (Game mode pays their fare). */
+  onAlight: ((from: DepotState, to: DepotState, carId: number) => void) | null = null;
+
+  /** Would someone on this coach get off here: a town's station other than where they got on (a stop to drop at)? */
+  private canAlight(d: DepotState, carId: number): boolean {
+    const r = this.riders.get(carId);
+    if (!r || d.role !== "town" || r.from === d.id) return false;
+    const route = this.routeOfCar(carId);
+    return !route || stopAt(route, d.id, "drop");
+  }
+
+  /** Would someone waiting here get on this coach: a free seat, and no one aboard bound from elsewhere? */
+  private canBoard(d: DepotState, carId: number): boolean {
+    if (d.role !== "town" || d.waiting <= 0 || !this.seatsOf) return false;
+    const r = this.riders.get(carId);
+    if (r && (r.from !== d.id || r.count >= this.seatsOf(carId))) return false;
+    if (!r && this.seatsOf(carId) <= 0) return false;
+    const route = this.routeOfCar(carId);
+    return !route || stopAt(route, d.id, "pick");
   }
 
   setAuto(depotId: number, on: boolean): void {
@@ -335,7 +385,9 @@ export class Economy {
   /** Would the crane do anything for this car at this depot? */
   needsService(d: DepotState, carId: number): boolean {
     const found = this.sim.findCar(carId);
-    if (!found || !canCarry(found.train.cars[found.index].kind)) return false;
+    if (!found) return false;
+    if (found.train.cars[found.index].kind === "passenger") return this.canAlight(d, carId) || this.canBoard(d, carId);
+    if (!canCarry(found.train.cars[found.index].kind)) return false;
     return this.canUnload(d, carId) || this.loadKind(d, carId) !== null || this.waitsForLoad(d, carId);
   }
 
@@ -592,6 +644,22 @@ export class Economy {
         s.ticks = 0;
         continue;
       }
+      // People get off a coach, then on, by themselves (no crane).
+      const alight = this.canAlight(d, s.carId);
+      if (alight || this.canBoard(d, s.carId)) {
+        if (++s.ticks < RIDER_TICKS) continue;
+        s.ticks = 0;
+        const r = this.riders.get(s.carId);
+        if (alight) {
+          const from = this.depots[r!.from];
+          this.setRiders(s.carId, r!.count - 1, r!.from);
+          if (from) this.onAlight?.(from, d, s.carId);
+        } else {
+          d.waiting--;
+          this.setRiders(s.carId, (r?.count ?? 0) + 1, d.id);
+        }
+        continue;
+      }
       if (!this.canUnload(d, s.carId) && this.loadKind(d, s.carId) === null) {
         if (this.waitsForLoad(d, s.carId)) continue;
         s.done.add(s.carId);
@@ -693,6 +761,7 @@ export class Economy {
   /** Forget cargo and destinations on cars, and visits of trains, that no longer exist. */
   prune(): void {
     for (const id of this.cargo.keys()) if (!this.sim.findCar(id)) this.cargo.delete(id);
+    for (const id of this.riders.keys()) if (!this.sim.findCar(id)) this.riders.delete(id);
     for (const id of this.routes.keys()) if (!this.sim.findCar(id)) this.routes.delete(id);
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);
   }

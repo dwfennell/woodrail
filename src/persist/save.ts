@@ -6,10 +6,12 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ADV_OK, advanceCursor, ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, createAdvance, flipCursor, Sim, type AddTrainResult, type CarKind, type CarLook, type Cursor } from "../sim";
 import type { Bag } from "../economy/goods";
-import { capOf, CARGO, CARGO_KINDS, Economy, type StopAction, PILE_CAP, pilesOf, RECIPES, WAGON_CAPACITY, type CargoKind } from "../economy";
+import { canCarry, capOf, CARGO, CARGO_KINDS, Economy, type StopAction, PILE_CAP, pilesOf, RECIPES, WAGON_CAPACITY, type CargoKind } from "../economy";
 
 /** The biggest pile any depot keeps (a warehouse's). */
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
+/** Most people saved riding one coach, or waiting at one station. */
+const MAX_RIDERS = 24;
 import { getPieceDef, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
@@ -41,6 +43,8 @@ const trainSchema = z.object({
         lever: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
         look: z.enum(ALL_CAR_LOOKS as unknown as [CarLook, ...CarLook[]]).optional(),
         cargo: z.object({ kind: z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]]), count: z.number().int().min(1).max(WAGON_CAPACITY) }).optional(),
+        /** People riding a coach: how many, and the station they got on at (its index in `depots`). */
+        riders: z.object({ count: z.number().int().min(1).max(MAX_RIDERS), from: z.number().int().min(0) }).optional(),
         /** An engine's train delivers only to this depot (its index in `depots`). */
         deliverTo: z.number().int().min(0).optional(),
         /** An engine's route: its stops (depot indices in `depots`, and what it does there), and the one it heads for. */
@@ -80,6 +84,8 @@ const saveSchema = z.object({
       /** Units on each pile, in cargo order (saves from before grain and flour have just logs and planks). */
       piles: z.array(z.number().int().min(0).max(MAX_PILE)).min(2).max(CARGO_KINDS.length),
       timer: z.number().int().min(0),
+      /** People waiting at a town's station. */
+      waiting: z.number().int().min(0).max(MAX_RIDERS).optional(),
     }),
   ),
   /** Plank bundles delivered, by town id. */
@@ -124,6 +130,7 @@ export function serializeWorld(world: World): SaveData {
     return {
       cars: t.cars.map((c) => {
         const cargo = world.economy.cargoOf(c.id);
+        const riders = world.economy.ridersOf(c.id);
         const look = sim.lookOf(c.id);
         const r = world.economy.routeOf(c.id);
         const stops = r ? r.stops.flatMap((s) => (renumbered.has(s.depotId) ? [[renumbered.get(s.depotId)!, s.action] as [number, StopAction]] : [])) : [];
@@ -135,6 +142,7 @@ export function serializeWorld(world: World): SaveData {
           ...(look !== "classic" ? { look } : {}),
           ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
           ...(route ? { route } : {}),
+          ...(riders.count > 0 && renumbered.has(riders.from) ? { riders: { count: Math.min(riders.count, MAX_RIDERS), from: renumbered.get(riders.from)! } } : {}),
         };
       }),
       lead: { ...t.bogies[0] },
@@ -147,7 +155,7 @@ export function serializeWorld(world: World): SaveData {
     pieces,
     switches,
     trains,
-    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer })),
+    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}) })),
@@ -223,6 +231,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     const kept = pilesOf(state.role);
     for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(capOf(state.role), d.piles[CARGO[kind].index] ?? 0) : 0;
     state.timer = d.timer;
+    if (d.role === "town") state.waiting = d.waiting ?? 0;
   }
   for (const [townId, n] of save.delivered) if (landscape.towns.some((t) => t.id === townId)) economy.delivered.set(townId, n);
   for (const [townId, bag] of save.deliveredGoods ?? []) {
@@ -249,7 +258,9 @@ export function deserializeWorld(data: unknown): Result<World, string> {
       const stops = route ? route.stops.filter(([d]) => economy.depot(d)).map(([depotId, action]) => ({ depotId, action })) : [];
       if (car.kind === "engine" && stops.length > 0) economy.setRoute(car.id, { stops, next: Math.min(route!.next, stops.length - 1) });
       const cargo = t.cars[i].cargo;
-      if (cargo && car.kind === "timber") economy.setCargo(car.id, cargo.kind, cargo.count);
+      if (cargo && canCarry(car.kind, cargo.kind)) economy.setCargo(car.id, cargo.kind, cargo.count);
+      const riders = t.cars[i].riders;
+      if (riders && car.kind === "passenger" && economy.depot(riders.from)?.role === "town") economy.setRiders(car.id, riders.count, riders.from);
     });
   }
   const props = new PropStore();
