@@ -37,8 +37,8 @@ const EDGES = [
  * street with the street squares laid for it, on level land the editor allows. Then, if the streets can't reach far
  * enough (a river, a hill, track), its greens beside a street and the grass bordering the town. Each is checked by
  * `editor` (clear of track, props and stations' ways in, every town and depot still reachable), counting the lots
- * chosen before it. With `wide`, the first that many lots take two squares where any lot has them (landmarks are big
- * buildings). Changes nothing.
+ * chosen before it. With `wide`, that many lots take two squares where any lot has them (landmarks are big
+ * buildings), at the edge of town if the streets have none (one more lot each). Changes nothing.
  */
 export function nextLots(land: Landscape, town: Town, editor: LandEditor, n: number, options: { wide?: number } = {}): Lot[] {
   const g = land.grid;
@@ -65,7 +65,13 @@ export function nextLots(land: Landscape, town: Town, editor: LandEditor, n: num
       lots.push({ cells: step.cells, front: step.front, ...(step.corner ? { corner: true } : {}), streets: step.streets, ...(step.changes.length ? { changes: step.changes } : {}) });
       hold([...step.cells, ...fresh]);
     }
-    if (lots.length < n) for (const cell of spreadLots(land, town, editor, n - lots.length, hold)) lots.push({ cells: [cell], front: streetEdge(land, cell) });
+    const wideLeft = () => Math.max(0, (options.wide ?? 0) - lots.filter((l) => l.cells.length > 1).length);
+    const add = (cells: number[]) => lots.push({ cells, front: streetEdge(land, cells[0]) ?? streetEdge(land, cells[1] ?? cells[0]) });
+    // Landmarks still wanting a two-square lot get one beyond the streets if they can.
+    if (lots.length < n) for (const cells of spreadLots(land, town, editor, n - lots.length, hold, wideLeft())) add(cells);
+    // Still none (the streets' lots are all one square): a two-square lot of its own at the edge of town, as well.
+    const more = wideLeft();
+    if (more > 0) for (const cells of spreadLots(land, town, editor, more, hold, more)) if (cells.length > 1) add(cells);
   } finally {
     for (let k = taken.length - 1; k >= 0; k--) g.feature[taken[k][0]] = taken[k][1];
   }
@@ -85,9 +91,10 @@ function streetEdge(land: Landscape, i: number): Lot["front"] {
 /**
  * The squares for `n` buildings where the streets don't reach: the town's greens beside a street, then grass bordering
  * the town (felling any tree there, and up onto hills), nearest its centre first, spreading outward as it fills.
- * `hold` marks a square chosen (as built on) so the next checks count it.
+ * `hold` marks a square chosen (as built on) so the next checks count it. The first `wide` take two squares side by
+ * side where they can (the square and a free one beside it).
  */
-function spreadLots(land: Landscape, town: Town, editor: LandEditor, n: number, hold: (cells: readonly number[]) => void): number[] {
+function spreadLots(land: Landscape, town: Town, editor: LandEditor, n: number, hold: (cells: readonly number[]) => void, wide = 0): number[][] {
   const g = land.grid;
   const own = new Set(town.cells);
   for (const b of town.buildings) for (const c of b.cells) own.add(c);
@@ -105,22 +112,36 @@ function spreadLots(land: Landscape, town: Town, editor: LandEditor, n: number, 
     }
     return [...out].sort(byDistance);
   };
-  const cells: number[] = [];
+  const lots: number[][] = [];
+  const free = (i: number) => g.feature[i] === FEAT_NONE || g.feature[i] === FEAT_TREE;
   const choose = (i: number): boolean => {
-    if (g.feature[i] !== FEAT_NONE && g.feature[i] !== FEAT_TREE) return false;
-    if (editor.checkLot([i]) !== null) return false;
-    cells.push(i);
-    hold([i]);
-    own.add(i);
+    if (!free(i)) return false;
+    let cells = [i];
+    if (lots.filter((l) => l.length > 1).length < wide) {
+      // A two-square lot: this square and a free one beside it (green or grass), if the editor allows both.
+      for (const [dc, dr] of EDGES) {
+        const nb = g.index(g.colOf(i) + dc, g.rowOf(i) + dr);
+        if (nb === -1 || !free(nb) || (g.surface[nb] !== SURF_GRASS && g.surface[nb] !== SURF_TOWN) || (own.has(nb) && g.surface[nb] !== SURF_TOWN)) continue;
+        if (town.buildings.some((b) => b.cells.includes(nb))) continue;
+        if (editor.checkLot([i, nb]) === null) {
+          cells = [i, nb];
+          break;
+        }
+      }
+    }
+    if (cells.length === 1 && editor.checkLot([i]) !== null) return false;
+    lots.push(cells);
+    hold(cells);
+    for (const c of cells) own.add(c);
     return true;
   };
-  for (const i of greens.sort(byDistance)) if (cells.length < n) choose(i);
+  for (const i of greens.sort(byDistance)) if (lots.length < n) choose(i);
   // Then outward, a square at a time: each new building opens the squares beside it.
-  while (cells.length < n) {
+  while (lots.length < n) {
     const next = border().find(choose);
     if (next === undefined) break;
   }
-  return cells;
+  return lots;
 }
 
 /**

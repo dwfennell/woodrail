@@ -37,6 +37,20 @@ describe("town growth", () => {
     expect(reachable(land)).toBe(true);
   });
 
+  it("a landmark gets a two-square lot even when a grown town's streets have none (at its edge, one lot more)", () => {
+    const w = buildStarterWorld();
+    const land = w.landscape;
+    const town = land.towns[0];
+    const editor = () => new LandEditor(land, w.layout);
+    // A town grown big, a lot at a time.
+    for (let k = 0; k < 30; k++) buildOnLots(land, town, nextLots(land, town, editor(), 1));
+    const lots = nextLots(land, town, editor(), 1, { wide: 1 });
+    expect(lots.some((l) => l.cells.length === 2)).toBe(true);
+    const wide = lots.find((l) => l.cells.length === 2)!;
+    const [a, b] = wide.cells.map((c) => [land.grid.colOf(c), land.grid.rowOf(c)]);
+    expect(Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1])).toBe(1);
+  });
+
   it("keeps clear of track", () => {
     const w = buildStarterWorld();
     const town = w.landscape.towns[0];

@@ -576,7 +576,7 @@ describe("the grand tour", () => {
         if (ironAt() === 0) T.findings.push("Phase C: no iron reached Larkfield.");
         // Coal for the power station, then the same train behind an electric engine.
         w().economy.setRoute(ore, coalRun);
-        T.run(6 * 60, () => w().economy.depotAtPiece(power)!.piles[CARGO.coal.index] >= 6);
+        T.run(12 * 60, () => w().economy.depotAtPiece(power)!.piles[CARGO.coal.index] >= 6);
         T.note(`coal run: the power station has ${w().economy.depotAtPiece(power)!.piles[CARGO.coal.index]} coal`);
         w().economy.setRoute(ore, { ...ironRun, stops: [...ironRun.stops] });
         w().sim.setLook(ore, "electric");
@@ -586,6 +586,8 @@ describe("the grand tour", () => {
         T.note(`electric engine: top speed ${(top / ENGINE_SPEED).toFixed(2)}× (power ${powered(w()) ? "on" : "off"}), going ${Math.round(train.speed)} mm/s`);
         if (powered(w()) && top !== ENGINE_SPEED * 1.4) T.findings.push(`The electric engine's top speed with power is ${top}, not 1.4×.`);
         if (!powered(w())) T.findings.push("The power station had no coal by the time the electric engine went on.");
+        // (It runs only while the power station has coal, a coal a minute: back to the goods engine for the iron.)
+        w().sim.setLook(ore, "goods");
         T.run(15 * 60, () => ironAt() >= 10);
         T.note(`Larkfield has had ${ironAt()} iron (${minutes(T.tick - t0)} min after the ore train started)`);
         T.learnAnyway("smithy");

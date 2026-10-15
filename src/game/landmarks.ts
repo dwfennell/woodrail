@@ -11,7 +11,10 @@ export interface Landmark {
   readonly level: number;
   /** What it does, for the town's card and the toast. */
   readonly blurb: string;
-  /** Its catalogue model on a two-square lot, and on a one-square lot (the first that's in the catalogue). */
+  /**
+   * Its catalogue model on a two-square lot, and on a one-square lot (the first that's in the catalogue). One that
+   * comes with a blueprint goes up only on a two-square lot.
+   */
   readonly models: { readonly two: readonly string[]; readonly one: readonly string[] };
   /** Goes up only once this blueprint is learned (at the next town to grow to its level), and in one town only. */
   readonly tech?: string;
@@ -45,7 +48,7 @@ export const LANDMARKS: readonly Landmark[] = [
     level: 2,
     tech: "college",
     blurb: "Ideas come twice as often, and blueprints cost a fifth fewer planks.",
-    models: { two: ["bldg-college", "bldg-library", "bldg-school"], one: ["bldg-cafe"] },
+    models: { two: ["bldg-college", "bldg-library", "bldg-school"], one: [] },
   },
 ];
 

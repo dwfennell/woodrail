@@ -138,7 +138,9 @@ export class TownLife {
     const lots = nextLots(g.landscape, town, editor, houses, { wide: due.length });
     for (const mark of due) {
       const free = lots.filter((l) => !l.landmark);
-      const lot = free.find((l) => l.cells.length > 1) ?? free[0];
+      // One that comes with a blueprint (the college) has a big building of its own: it waits for a two-square lot
+      // (here when it next grows, or in the next town to grow).
+      const lot = free.find((l) => l.cells.length > 1) ?? (mark.tech ? undefined : free[0]);
       if (lot) lot.landmark = mark.id;
     }
     if (lots.length > 0) {

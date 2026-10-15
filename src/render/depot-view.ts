@@ -442,7 +442,8 @@ export class DepotView {
       this.buildStatic(site, tile.b);
       if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
       if (depot.role === "mill") site.blade = this.buildSails(pose);
-      if (depot.role === "mine") site.blade = this.buildMineWheel(pose);
+      if (depot.role === "mine") site.blade = this.buildWheel(pose, "industry-mine-wheel", 112, 96, 66);
+      if (depot.role === "power") site.blade = this.buildWheel(pose, "industry-power-wheel", 112, 72, 22);
       // The crane's moving parts are small: drawn only within `CRANE_REACH` of the camera.
       for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
         if (!o) continue;
@@ -654,11 +655,14 @@ export class DepotView {
   }
 
   /** A windmill's sails, facing the track; they turn (like the saw) while the mill grinds. */
-  /** The mine's winding wheel, turning while the mine works (Asset Gen's part; none without the models). */
-  private buildMineWheel(pose: SitePose): Object3D | null {
-    if (!hasPart("industry-mine-wheel")) return null;
-    const wheel = this.partObject("industry-mine-wheel", {});
-    toWorld(pose, 112, 96, 66, wheel.position);
+  /**
+   * A wheel turning while its yard works, its hub at `t`, `l` and height `h` in the depot's frame (the model's x, z
+   * and y): the mine's winding wheel, the power station's flywheel (Asset Gen's parts; none without the models).
+   */
+  private buildWheel(pose: SitePose, part: string, t: number, l: number, h: number): Object3D | null {
+    if (!hasPart(part)) return null;
+    const wheel = this.partObject(part, {});
+    toWorld(pose, t, l, h, wheel.position);
     return this.addMoving(wheel, pose);
   }
 
@@ -823,7 +827,7 @@ export class DepotView {
     // The saw spins while the sawmill is cutting.
     for (const site of this.sites) {
       if (site.blade && economy.working(site.depot)) {
-        site.blade.rotateZ(dt * (site.depot.role === "mill" ? 2.5 : site.depot.role === "mine" ? 3 : 14));
+        site.blade.rotateZ(dt * (site.depot.role === "mill" ? 2.5 : site.depot.role === "mine" ? 3 : site.depot.role === "power" ? 5 : 14));
         busy = true;
       }
     }
