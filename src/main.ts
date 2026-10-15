@@ -1018,6 +1018,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     for (const e of harbourTrade.update(game.world, progress)) {
       if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL);
       else if (e.kind === "leave") game.boats.leave(e.depotId, e.way, BOAT_SAIL);
+      else if (e.kind === "gone") game.boats.remove(e.depotId);
       else if (e.kind === "sold") {
         hud.setCoins(progress.coins);
         hud.toast(`A boat took ${describeGoods(e.goods)}: +${e.coins} coins`, false, 3200);
@@ -1067,26 +1068,33 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   }
 
   let harbourShown = "";
-  /** A harbour's card (Game mode): when the next boat calls. */
+  /** The open harbour card's line about its boats: kept and its text updated, so the countdown ticks without the card's button being made again (a tap mid-way would be lost). */
+  let harbourLine: HTMLElement | null = null;
+  /** A harbour's card (Game mode): when the next boat calls, and dock sheds to build. */
   function showHarbour(): void {
     const id = mode === "game" ? interaction.openDepotId : -1;
     if (id === -1 || game.economy.depot(id)?.role !== "harbour") {
       harbourShown = "";
+      harbourLine = null;
       return;
     }
     const d = game.economy.depot(id)!;
     const canShed = progress.learned.has("dock-sheds") && d.sheds < MAX_SHEDS;
     const text = harbourTrade.describe(id);
-    const key = `${text}|${d.sheds}|${canShed}|${progress.coins >= SHED_PRICE}`;
-    if (key === harbourShown) return;
+    const line = d.sheds > 0 ? `${text} Dock sheds: ${d.sheds} of ${MAX_SHEDS} (each holds ${SHED_CAP} more of every good).` : text;
+    const key = `${id}|${d.sheds}|${canShed}`;
+    if (key === harbourShown && harbourLine?.isConnected) {
+      if (harbourLine.textContent !== line) harbourLine.textContent = line;
+      return;
+    }
     harbourShown = key;
     const box = hud.depotExtra;
     box.hidden = false;
     box.innerHTML = "";
-    const line = document.createElement("div");
-    line.className = "station-waiting";
-    line.textContent = d.sheds > 0 ? `${text} Dock sheds: ${d.sheds} of ${MAX_SHEDS} (each holds ${SHED_CAP} more of every good).` : text;
-    box.append(line);
+    harbourLine = document.createElement("div");
+    harbourLine.className = "station-waiting";
+    harbourLine.textContent = line;
+    box.append(harbourLine);
     if (!canShed) return;
     const build = document.createElement("button");
     build.className = "chip text";

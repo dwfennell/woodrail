@@ -221,7 +221,7 @@ export class Game {
       this.invalidate();
     };
     this.propsView.sync(this.props);
-    this.boats = new BoatsView(this.propLibrary, (f) => this.flourishes.add(f), () => this.invalidate());
+    this.boats = new BoatsView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.boats.group);
     this.post = createPost(this.renderer, this.scene, this.camera, this.quality);
 
@@ -526,6 +526,8 @@ export class Game {
     if (depots === "moving") active = true;
     else if (depots === "changed") this.invalidate();
     if (this.trainsChanged() || tipping || this.flourishes.count > 0) active = true;
+    // Boats sailing in view (one out of view moves on unseen, drawing nothing).
+    if (this.boats.update(this.camera)) active = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
     const shadowsMoved = active || this.shadowsMoving;
     this.shadowsMoving = false;

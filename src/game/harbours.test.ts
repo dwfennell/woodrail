@@ -123,4 +123,32 @@ describe("harbours", () => {
     expect(e?.sheds).toBe(2);
     expect(e?.piles[CARGO.planks.index]).toBe(capOf("harbour") + 5);
   });
+
+  it("a boat in at a harbour that's taken up, or moved, is gone at once (the view's told)", () => {
+    for (const how of ["remove", "move"] as const) {
+      const w = coastWorld();
+      const pose = harbourSite(w);
+      const id = w.layout.addPiece("depot-harbour", pose);
+      syncIndustries(w);
+      const d = w.economy.depotAtPiece(id)!;
+      const p = Progress.fresh();
+      const trade = new HarbourTrade();
+      const log: HarbourEvent[] = [];
+      // Until the boat's tied up.
+      while (trade.boatAt(d.id)?.phase !== "docked") log.push(...trade.update(w, p));
+      if (how === "remove") {
+        w.layout.removePiece(id);
+        syncIndustries(w);
+      } else {
+        w.layout.movePiece(id, { ...pose, x: pose.x + 40 }, 0);
+      }
+      const after = trade.update(w, p);
+      expect(after, how).toEqual([{ kind: "gone", depotId: d.id }]);
+      // Nothing more of it: no leave for a boat that's gone; a moved harbour's next boat comes later as usual.
+      const more: HarbourEvent[] = [];
+      for (let t = 0; t < 60; t++) more.push(...trade.update(w, p));
+      expect(more.some((e) => e.kind === "leave" || e.kind === "gone")).toBe(false);
+      expect(log.filter((e) => e.kind === "arrive")).toHaveLength(1);
+    }
+  });
 });

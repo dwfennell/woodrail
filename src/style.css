@@ -86,7 +86,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .depot-card .card-row { flex-wrap: wrap; justify-content: center; }
 .land-text { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 320px; }
 .lever { width: 60px; height: 50px; font-size: 20px; }
-.close { position: absolute; top: 6px; right: 8px; border: none; background: transparent; font-size: 16px; color: #8a6a4a; cursor: pointer; padding: 6px; }
+.close { position: absolute; top: 0; right: 0; width: 44px; height: 44px; border: none; background: transparent; font-size: 16px; color: #8a6a4a; cursor: pointer; padding: 0; }
 
 /* Toasts: a little paper label that slides down and settles with a slight tilt. */
 .toast { position: absolute; left: 50%; top: calc(max(10px, env(safe-area-inset-top)) + 62px); transform: translate(-50%, -14px) rotate(0deg); background: #fbf5e8; color: #3a2a1c; padding: 9px 18px; border-radius: 6px; font-weight: 800; opacity: 0;
@@ -205,10 +205,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .goals.collapsed .goals-body { display: none; }
 .goals.collapsed .goals-head { padding: 9px 4px 9px 12px; }
 /* The round "show me" button: only while folded (unfolded, it's a chip under the hint). */
-.goals-show-icon { display: none; flex: none; width: 34px; height: 34px; border: 0; border-radius: 50%; place-items: center; cursor: pointer; color: #5a3f24; background: linear-gradient(180deg, #f6e3c1, #e8c992); box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.25); }
-.goals-show-icon:hover { filter: brightness(1.05); }
+.goals-show-icon { display: none; flex: none; width: 44px; height: 44px; margin: 0 -5px; border: 0; padding: 0; place-items: center; cursor: pointer; color: #5a3f24; background: transparent; isolation: isolate; }
+/* The drawn button (34 px) inside its 44 px hit area, which the panel's edge mustn't clip. */
+.goals-show-icon::before { content: ""; position: absolute; inset: 5px; z-index: -1; border-radius: 50%; background: linear-gradient(180deg, #f6e3c1, #e8c992); box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.25); }
+.goals-show-icon:hover::before { filter: brightness(1.05); }
 .goals.collapsed .goals-show-icon { display: grid; }
-.goals-show { margin-top: 8px; height: 32px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+.goals-show { margin-top: 6px; height: 40px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
 .goals-body { display: none; }
 .goals.collapsed .goals-head { padding-bottom: 10px; }
 .goals-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 6px; }
@@ -414,8 +416,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
   box-shadow: 0 2px 8px rgba(60, 40, 20, 0.25), inset 0 0 0 2px #ffcf6b;
 }
 
-/* "Show me" buttons: a hit area of at least 44 px round the drawn button. */
+/* "Show me" buttons: a hit area of at least 44 px (the round one is 44 px itself; the chip reaches past its edges). */
 .goals-show-icon,
 .goals-show { position: relative; }
-.goals-show-icon::after { content: ""; position: absolute; inset: -5px; }
-.goals-show::after { content: ""; position: absolute; inset: -6px -2px; }
+.goals-show::after { content: ""; position: absolute; inset: -2px; }

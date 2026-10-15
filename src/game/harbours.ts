@@ -161,7 +161,9 @@ export function loadBoat(d: DepotState, loads = BOAT_LOADS): Bag {
 
 export type HarbourEvent =
   | { kind: "arrive" | "leave"; depotId: number; way: readonly { x: number; z: number }[] }
-  | { kind: "sold"; depotId: number; goods: Bag; coins: number };
+  | { kind: "sold"; depotId: number; goods: Bag; coins: number }
+  /** The harbour went (taken up, or moved) while its boat was in: the boat's gone at once. */
+  | { kind: "gone"; depotId: number };
 
 interface Boat {
   phase: "away" | "in" | "docked" | "out";
@@ -169,6 +171,8 @@ interface Boat {
   left: number;
   /** The way it came in (it leaves the same way, backwards). */
   way: { x: number; z: number }[] | null;
+  /** Where its harbour stood (the piece and its pose) when the boat set out: a moved harbour sends it away. */
+  at: string;
 }
 
 /**
@@ -188,8 +192,13 @@ export class HarbourTrade {
       const piece = world.layout.getPiece(d.pieceId);
       if (!piece) continue;
       seen.add(d.id);
+      const at = `${d.pieceId},${piece.pose.x},${piece.pose.z},${piece.pose.heading}`;
       let boat = this.boats.get(d.id);
-      if (!boat) this.boats.set(d.id, (boat = { phase: "away", left: FIRST_BOAT, way: null }));
+      if (boat && boat.at !== at) {
+        if (boat.phase !== "away") events.push({ kind: "gone", depotId: d.id });
+        boat = undefined;
+      }
+      if (!boat) this.boats.set(d.id, (boat = { phase: "away", left: FIRST_BOAT, way: null, at }));
       boat.left -= seconds;
       if (boat.left > 0) continue;
       switch (boat.phase) {
@@ -231,7 +240,11 @@ export class HarbourTrade {
           break;
       }
     }
-    for (const id of [...this.boats.keys()]) if (!seen.has(id)) this.boats.delete(id);
+    for (const [id, boat] of [...this.boats]) {
+      if (seen.has(id)) continue;
+      if (boat.phase !== "away") events.push({ kind: "gone", depotId: id });
+      this.boats.delete(id);
+    }
     return events;
   }
 
@@ -250,8 +263,11 @@ export class HarbourTrade {
       return `Next boat in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}. ${each}`;
     }
     if (b.phase === "in") return `A boat is coming in. ${each}`;
-    if (b.phase === "docked") return "A boat is tied up at the quay.";
-    return "The boat is sailing away.";
+    // It's taken its loads: what's put on the quay now waits for the next.
+    const next = Math.round((b.left + (b.phase === "docked" ? BOAT_SAIL : 0) + BOAT_EVERY) / 60);
+    const wait = `Goods put on the quay now wait for the next boat, in about ${next} min.`;
+    if (b.phase === "docked") return `A boat is tied up at the quay. ${wait}`;
+    return `The boat is sailing away. ${wait}`;
   }
 
   /** Start again (a new world was loaded): every harbour's next boat comes soon. */
