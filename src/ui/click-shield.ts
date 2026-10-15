@@ -55,27 +55,59 @@ export function strayClick(down: Press | null, click: { target: ShieldNode | nul
   return !(!down.target.isConnected && down.signature !== null && down.signature === signatureOf(click.target));
 }
 
+/** At most this many presses are kept (fingers down at once, or waiting for their click). */
+const MAX_PRESSES = 8;
+
+/**
+ * Presses by pointer, waiting for their clicks. An entry goes when its click has been judged or its pointer is
+ * cancelled, and the oldest go past `MAX_PRESSES` (a touch pointer's id is new every tap; a press holds its element,
+ * which mustn't be kept alive once it's off the page).
+ */
+export class Presses {
+  private readonly byPointer = new Map<number, Press>();
+  /** The latest press, for a click that doesn't say which pointer it's from. */
+  private last: Press | null = null;
+
+  get size(): number {
+    return this.byPointer.size;
+  }
+
+  add(pointerId: number, press: Press): void {
+    this.byPointer.delete(pointerId);
+    this.byPointer.set(pointerId, press);
+    this.last = press;
+    while (this.byPointer.size > MAX_PRESSES) this.byPointer.delete(this.byPointer.keys().next().value!);
+  }
+
+  /** The press a click comes from (and forget it). */
+  take(pointerId: number | undefined): Press | null {
+    const own = pointerId !== undefined && pointerId >= 0 ? this.byPointer.get(pointerId) : undefined;
+    if (own) this.byPointer.delete(pointerId!);
+    const press = own ?? this.last;
+    if (press === this.last) this.last = null;
+    return press;
+  }
+
+  cancel(pointerId: number): void {
+    const press = this.byPointer.get(pointerId);
+    this.byPointer.delete(pointerId);
+    if (press === this.last) this.last = null;
+  }
+}
+
 /**
  * Install the shield on `win` (capture phase, so it runs before any control's own click handler). `map` is the game's
  * canvas: a press there never makes a click on the HUD.
  */
 export function installClickShield(map: HTMLElement | null, win: Window = window): void {
-  const presses = new Map<number, Press>();
-  let last: Press | null = null;
-  win.addEventListener(
-    "pointerdown",
-    (e) => {
-      last = pressOf(e.target as unknown as ShieldNode, e.timeStamp, map as unknown as ShieldNode);
-      presses.set(e.pointerId, last);
-    },
-    { capture: true },
-  );
+  const presses = new Presses();
+  win.addEventListener("pointerdown", (e) => presses.add(e.pointerId, pressOf(e.target as unknown as ShieldNode, e.timeStamp, map as unknown as ShieldNode)), { capture: true });
+  win.addEventListener("pointercancel", (e) => presses.cancel(e.pointerId), { capture: true });
   win.addEventListener(
     "click",
     (e) => {
       // A click is a PointerEvent (with its finger's id) in current browsers; else the latest press.
-      const id = (e as PointerEvent).pointerId;
-      const down = (id !== undefined && id >= 0 ? presses.get(id) : undefined) ?? last;
+      const down = presses.take((e as PointerEvent).pointerId);
       // From a pointer: its type says (a touch tap's click can have detail 0); "" for keyboard and scripted clicks.
       const type = (e as PointerEvent).pointerType;
       const pointer = type !== undefined ? type !== "" : e.detail > 0;
