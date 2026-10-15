@@ -115,3 +115,23 @@ time is still to be measured on a phone.
   with glazing bars in a frame.
 - **Cost** (seed 4242, the first town from the same camera): station view 331k triangles against 253k with the code
   shapes, town view 348k against 260k; draw calls unchanged (the parts join the towns' existing batches).
+
+## 8. Storey blocks (ready, not used yet)
+
+For town houses that may one day grow storeys: the house is stacked like a wooden toy, its door always on the ground
+floor. `tools/blender/bldg_floors.py` has three pieces for each house the towns place (the six one-square houses, the
+terrace, semi-detached, villa and cottage row, the corner shop, toy shop and apartment block), each matching the
+house's walls (colour, footprint, rounding) and printed windows; centred, front +x, base on y = 0:
+
+- `<id>-ground`: the bottom storey, with the house's entrance (its door, doorstep, porch or shop front).
+- `<id>-floor`: a plain storey of windows on every face, for the storeys between.
+- `<id>-upper`: the house itself with its entrance swapped for windows, standing on top.
+
+A house grown by n storeys is one ground block, n - 1 floor blocks and the upper house, each block 20 high (the
+apartment block's 24); the rounded edges leave a groove at each join. Each house's entrance is a function of its own in
+`bldg_houses.py` (`townhouse_entrance`), shared by the catalogue house and its ground block, and the houses take
+`door=False` for their upper piece, so the pieces always match the catalogue houses.
+
+They're built into a file of their own, `public/models/floors.glb` (`tools/blender/floors.py`, 642 KB), which nothing
+loads yet, so they cost nothing until the feature uses them: it adds "floors" to `ModelSet` and loads it with
+`loadModelSet("floors", true)`.

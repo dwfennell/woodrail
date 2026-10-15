@@ -1,7 +1,6 @@
 import { rng } from "../lib/rng";
 import type { Pose } from "../track";
-import { encodeRoad } from "../roads/pieces";
-import { planTown } from "../roads/town-plan";
+import { growTown } from "../roads/grow-town";
 import { BORDER_BAND, hashInts, regionStubs, STUB_DEPTH, type Region, type Stub } from "./edges";
 import {
   CELL,
@@ -112,14 +111,18 @@ const MIN_TOWN_SPACING = 900;
 /** Depots keep this far from towns and other depots (they have no town area of their own). */
 const DEPOT_SPACING = 750;
 /**
- * How far a town reaches from its centre: four and a half to six squares, by where it is (so towns differ in size,
- * and the town random stream is unchanged). Room for its street plan (see `planTown`): Station Road two squares out,
- * a main street on out with houses either side, and in the larger towns a side street.
+ * A town's flat ground: five squares from its centre, kept clear of hills and trees for it to grow on (see
+ * `growTown`). The town itself is only its station, streets and buildings; the rest stays grass.
  */
-const TOWN_RADII = [324, 360, 396, 432];
-const townRadius = (centre: { x: number; z: number }): number => TOWN_RADII[hashInts(Math.floor(centre.x / CELL), Math.floor(centre.z / CELL), 0x70b) % TOWN_RADII.length];
+const TOWN_RADIUS = 360;
+/** A new town is grown this many buildings, by where it is: from a hamlet to a small town. */
+const TOWN_START_MIN = 6;
+const TOWN_START_SPREAD = 9;
 const CORRIDOR_LENGTH = 6 * CELL;
 const CORRIDOR_HALF_WIDTH = 2 * CELL;
+/** A town's station keeps only the track's own row clear (trains come in on one straight track), so houses can
+ *  stand beside the line. */
+const TRACK_ROW = CELL / 2;
 /** On the starter map, from a first town's centre to its depot's (the sawmill beyond one, the forest beyond the other). */
 const STARTER_DEPOT_GAP = 1080;
 
@@ -244,8 +247,9 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
   }
 
   // Stations, platforms, corridors and town areas, measured from each station line (works for any heading).
+  const townGround = new Set<number>();
   for (const town of towns) {
-    const fp = footprint(town.centre, town.station.heading, townRadius(town.centre));
+    const fp = footprint(town.centre, town.station.heading, TOWN_RADIUS);
     const cells = new Set<number>();
     for (const [col, row] of fp.station) {
       const i = grid.index(col, row);
@@ -260,16 +264,14 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
     }
     for (const [col, row] of fp.area) {
       const i = grid.index(col, row);
-      if (grid.feature[i] === FEAT_NONE && !protectedCells.has(i)) {
-        grid.surface[i] = SURF_TOWN;
-        cells.add(i);
-      }
+      if (grid.feature[i] === FEAT_NONE && !protectedCells.has(i)) townGround.add(i);
     }
     town.cells = [...cells];
   }
   // A town's area must not swallow another town's corridor.
   for (const i of protectedCells) {
     if (grid.feature[i] === FEAT_NONE) grid.surface[i] = SURF_GRASS;
+    townGround.delete(i);
   }
   for (const town of towns) town.cells = town.cells.filter((i) => !protectedCells.has(i) || grid.feature[i] === FEAT_STATION);
 
@@ -280,7 +282,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
     grid.forEachCell((i, col, row) => {
       const x = grid.centreX(col);
       const z = grid.centreZ(row);
-      if (x > saw.centre.x + HALF_STATION - 32 && x < forest.centre.x - HALF_STATION + 32 && Math.abs(z - a.centre.z) < CORRIDOR_HALF_WIDTH) {
+      if (x > saw.centre.x + HALF_STATION - 32 && x < forest.centre.x - HALF_STATION + 32 && Math.abs(z - a.centre.z) < TRACK_ROW) {
         if (grid.feature[i] === FEAT_NONE) {
           protectedCells.add(i);
           grid.surface[i] = SURF_GRASS;
@@ -290,7 +292,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
   }
 
   const locked = (i: number) =>
-    protectedCells.has(i) || grid.surface[i] === SURF_TOWN || grid.feature[i] === FEAT_STATION || grid.feature[i] === FEAT_DEPOT;
+    protectedCells.has(i) || townGround.has(i) || grid.surface[i] === SURF_TOWN || grid.feature[i] === FEAT_STATION || grid.feature[i] === FEAT_DEPOT;
 
   // Rivers: crossing the region's edges where the edge contracts say, joined up inside. (The contracts still name
   // where country lanes used to cross; there are no generated roads between towns now, only town gates.)
@@ -303,32 +305,39 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
   // edges) so no square is more than one block above a neighbour.
   settleHeights(grid, seed, region, stubs.outside.filter((s) => s.kind === "river"), locked);
 
-  // Each town's streets, laid first (read-only road pieces on town squares, see `planTown`), then a building on each
-  // lot facing its street, and a gate leading on from each main street. Squares left over stay as town greens.
+  // Each town grown from its station a building at a time (see `growTown`), on its own flat ground: a hamlet to a
+  // small town, by where it is.
   let buildingId = 0;
   for (const town of towns) {
-    const plan = planTown(grid, { centre: town.centre, heading: town.station.heading, cells: town.cells }, () => random() < 0.4);
-    for (const [i, road] of plan.streets) {
-      grid.surface[i] = SURF_ROAD;
-      grid.road[i] = road;
-    }
-    for (const lot of plan.lots) {
-      const b: Building = {
-        id: buildingId++,
-        cells: lot.cells,
-        floors: random() < 0.35 ? 2 : 1,
-        kind: random() < 0.3 ? "shop" : "house",
-        roof: Math.floor(random() * 4),
-        front: lot.front,
-        corner: lot.corner,
-      };
-      for (const c of lot.cells) {
+    const n = TOWN_START_MIN + (hashInts(Math.floor(town.centre.x / CELL), Math.floor(town.centre.z / CELL), 0x6a2) % TOWN_START_SPREAD);
+    const canUse = (i: number) => townGround.has(i) && grid.surface[i] === SURF_GRASS && grid.feature[i] === FEAT_NONE && interior(grid.colOf(i), grid.rowOf(i));
+    const steps = growTown(grid, { centre: town.centre, heading: town.station.heading, cells: town.cells, buildings: town.buildings }, n, {
+      canUse,
+      toward: towns.filter((t) => t !== town).map((t) => t.centre),
+    });
+    const ids: number[] = [];
+    for (const step of steps) {
+      for (const [i, road] of step.streets) {
+        grid.surface[i] = SURF_ROAD;
+        grid.road[i] = road;
+        if (!town.cells.includes(i)) town.cells.push(i);
+      }
+      const b: Building = { id: buildingId++, cells: step.cells, floors: 1, kind: "house", roof: Math.floor(random() * 4), front: step.front, ...(step.corner ? { corner: true } : {}) };
+      ids.push(b.id);
+      for (const c of step.cells) {
         grid.feature[c] = FEAT_BUILDING;
+        grid.surface[c] = SURF_TOWN;
         grid.owner[c] = b.id;
+        town.cells.push(c);
       }
       town.buildings.push(b);
+      for (const c of step.changes) {
+        const changed = town.buildings.find((x) => x.id === (c.id < 0 ? ids[-1 - c.id] : c.id));
+        if (!changed) continue;
+        if (c.kind) changed.kind = c.kind;
+        if (c.floors) changed.floors = c.floors;
+      }
     }
-    addTownGates(grid, plan.exits, protectedCells, interior);
   }
 
   // Trees in clumps on open grass (where the noise says, the same either side of a plot's edge).
@@ -358,7 +367,7 @@ function footprint(centre: { x: number; z: number }, heading: number, radius = 0
       const l = -px * dz + pz * dx;
       const ad = Math.abs(d);
       if ((ad < HALF_STATION && Math.abs(l) < 26) || (ad < HALF_STATION - 8 && l >= 26 && l < 120)) station.push([col, row]);
-      else if (ad >= HALF_STATION - 32 && ad < HALF_STATION + CORRIDOR_LENGTH && Math.abs(l) < CORRIDOR_HALF_WIDTH) corridor.push([col, row]);
+      else if (ad >= HALF_STATION - 32 && ad < HALF_STATION + CORRIDOR_LENGTH && Math.abs(l) < (radius > 0 ? TRACK_ROW : CORRIDOR_HALF_WIDTH)) corridor.push([col, row]);
       else if (Math.hypot(px, pz) < radius) area.push([col, row]);
     }
   }
@@ -370,7 +379,7 @@ function fits(centre: { x: number; z: number }, heading: number, interior: (col:
   // Its corridors reach this far along the station; the town (or yard and corridors) this far across: a quick look at
   // the corners of that rectangle first.
   const along = HALF_STATION + CORRIDOR_LENGTH;
-  const radius = town ? townRadius(centre) : 0;
+  const radius = town ? TOWN_RADIUS : 0;
   const across = town ? radius : CORRIDOR_HALF_WIDTH;
   const ax = Math.abs(Math.cos(heading)) > 0.5;
   const hx = ax ? along : across;
@@ -698,31 +707,6 @@ function joinRivers(
     const ownCells = new Set(s.cells.map(([c, r]) => grid.index(c, r)));
     const joined = cheapestPath(grid, [start], (i) => river(i) && !ownCells.has(i), cost);
     if (!lay(joined)) pond(s);
-  }
-}
-
-/**
- * Town gates: a straight road piece just outside a town where a main street leaves it (`exits`), for the player's
- * roads to start from. Only on open grass, brought down to the felt from one block up if that leaves no step of two
- * beside it, and never on a station's approach or beside its track; with no room, the street just ends open.
- */
-function addTownGates(grid: LandscapeGrid, exits: readonly { cell: number; edge: number }[], protectedCells: ReadonlySet<number>, interior: (col: number, row: number) => boolean): void {
-  const nb = grid.neighbours();
-  const open = (j: number) => {
-    if (j === -1 || grid.surface[j] !== SURF_GRASS || grid.feature[j] !== FEAT_NONE || grid.height[j] > 1 || protectedCells.has(j)) return false;
-    if (!interior(grid.colOf(j), grid.rowOf(j))) return false;
-    for (let e = 0; e < 4; e++) {
-      const k = nb[j * 4 + e];
-      if (k !== -1 && grid.feature[k] === FEAT_STATION) return false;
-      if (k !== -1 && grid.height[k] > 1) return false;
-    }
-    return true;
-  };
-  for (const x of exits) {
-    const j = nb[x.cell * 4 + x.edge];
-    if (!open(j)) continue;
-    grid.height[j] = 0;
-    grid.setRoad(j, encodeRoad("straight", x.edge & 1));
   }
 }
 

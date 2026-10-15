@@ -8,7 +8,7 @@ import { addTownProps } from "../props/towns";
 import type { SignBadge } from "../render/landscape-view";
 import type { Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
-import { buildOnLots, lotPoint, nextLots } from "./town-growth";
+import { buildOnLots, changedBuildings, lotPoint, nextLots } from "./town-growth";
 import { LANDMARKS, townLandmarks } from "./landmarks";
 import { housesBy, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
@@ -129,10 +129,11 @@ export class TownLife {
     const g = this.game;
     const houses = housesBy(status.level) - housesBy(from);
     const editor = new LandEditor(g.landscape, g.layout, { inRect: (x0, z0, x1, z1) => propsInRect(g.props, (a) => g.footprintOf(a), x0, z0, x1, z1) });
-    const lots = nextLots(g.landscape, town, editor, houses);
     // Its landmarks go up as it reaches their levels (every one it hasn't got, if it grew by more than one): each on a
-    // lot of its own, a two-square one if there is one (they're big buildings).
+    // lot of its own, a two-square one if there is one (they're big buildings), so ask for that many.
     const have = townLandmarks(town);
+    const wide = LANDMARKS.filter((m) => m.level <= status.level && !have.has(m.id)).length;
+    const lots = nextLots(g.landscape, town, editor, houses, { wide });
     for (const mark of LANDMARKS) {
       if (mark.level > status.level || have.has(mark.id)) continue;
       const free = lots.filter((l) => !l.landmark);
@@ -141,6 +142,9 @@ export class TownLife {
     }
     if (lots.length > 0) {
       const slots = buildOnLots(g.landscape, town, lots);
+      // A building that changed (a house that's now a shop, or has a second floor) is dressed again.
+      const changed = new Set(changedBuildings(lots));
+      for (const p of [...g.props.all()]) if (p.building !== undefined && changed.has(p.building)) g.props.remove(p.id);
       addTownProps(g.landscape, g.props);
       g.editLand(slots);
       g.propsChanged();

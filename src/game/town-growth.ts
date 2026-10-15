@@ -1,7 +1,7 @@
-import { FEAT_BUILDING, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_LANE, SURF_ROAD, SURF_TOWN, type Building, type Landscape, type Town } from "../landscape";
+import { FEAT_BUILDING, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_ROAD, SURF_TOWN, type Building, type Landscape, type Town } from "../landscape";
 import { plotSlotOf, type LandEditor } from "../landscape/edit";
 import { rng } from "../lib/rng";
-import { planTown } from "../roads/town-plan";
+import { growTown } from "../roads/grow-town";
 
 /**
  * Squares a new building stands on (one, or two side by side along a street), the grid edge its front door faces (none:
@@ -14,6 +14,11 @@ export interface Lot {
   streets?: [number, number][];
   /** A landmark goes up here (see game/landmarks.ts). */
   landmark?: string;
+  /**
+   * Buildings that change as the town grows (a house becomes a shop, or gains a floor). By id; an id below zero is the
+   * building of lot `-1 - id` of the same `nextLots`.
+   */
+  changes?: { id: number; kind?: "shop"; floors?: 2 }[];
 }
 
 /** How far from its centre (mm) a town may spread: about six squares. */
@@ -28,13 +33,14 @@ const EDGES = [
 ] as const;
 
 /**
- * Where a growing town's next `n` buildings go. First along its streets as they'd run on (the town's street plan,
- * `planTown`, laid over the land around it): lots facing a street, nearest the centre first, each with the street
- * squares that lead to it. Then, if the streets can't reach far enough (a river, a hill, track), its greens beside a
- * street and the grass bordering the town. Each is checked by `editor` (clear of track, props and stations' ways in,
- * every town and depot still reachable), counting the lots chosen before it. Changes nothing.
+ * Where a growing town's next `n` buildings go: the town's next steps of growth (`growTown`), each a lot facing a
+ * street with the street squares laid for it, on level land the editor allows. Then, if the streets can't reach far
+ * enough (a river, a hill, track), its greens beside a street and the grass bordering the town. Each is checked by
+ * `editor` (clear of track, props and stations' ways in, every town and depot still reachable), counting the lots
+ * chosen before it. With `wide`, the first that many lots take two squares where any lot has them (landmarks are big
+ * buildings). Changes nothing.
  */
-export function nextLots(land: Landscape, town: Town, editor: LandEditor, n: number): Lot[] {
+export function nextLots(land: Landscape, town: Town, editor: LandEditor, n: number, options: { wide?: number } = {}): Lot[] {
   const g = land.grid;
   const lots: Lot[] = [];
   const taken: [number, number][] = [];
@@ -46,12 +52,18 @@ export function nextLots(land: Landscape, town: Town, editor: LandEditor, n: num
     }
   };
   try {
-    for (const lot of streetLots(land, town, editor, n)) {
-      if (lots.length >= n) break;
-      const streets = (lot.streets ?? []).map(([i]) => i).filter((i) => !taken.some(([t]) => t === i));
-      if (editor.checkLot([...lot.cells, ...streets]) !== null) continue;
-      lots.push({ ...lot, streets: (lot.streets ?? []).filter(([i]) => streets.includes(i)) });
-      hold([...lot.cells, ...streets]);
+    const steps = growTown(g, { centre: town.centre, heading: town.station.heading, cells: town.cells, buildings: town.buildings }, n, {
+      // A quick look at each square; each lot is checked in full (every town still reachable) below.
+      canUse: (i) => editor.checkLot([i], false) === null,
+      toward: land.towns.filter((t) => t !== town).map((t) => t.centre),
+      wide: options.wide,
+    });
+    for (const step of steps) {
+      // Each step builds on the ones before: the first that the editor refuses as a whole ends the run.
+      const fresh = step.streets.map(([i]) => i).filter((i) => g.surface[i] !== SURF_ROAD);
+      if (editor.checkLot([...step.cells, ...fresh]) !== null) break;
+      lots.push({ cells: step.cells, front: step.front, ...(step.corner ? { corner: true } : {}), streets: step.streets, ...(step.changes.length ? { changes: step.changes } : {}) });
+      hold([...step.cells, ...fresh]);
     }
     if (lots.length < n) for (const cell of spreadLots(land, town, editor, n - lots.length, hold)) lots.push({ cells: [cell], front: streetEdge(land, cell) });
   } finally {
@@ -68,85 +80,6 @@ function streetEdge(land: Landscape, i: number): Lot["front"] {
     if (nb !== -1 && g.surface[nb] === SURF_ROAD) return e as Lot["front"];
   }
   return undefined;
-}
-
-/**
- * Lots along the town's streets run on: the street plan laid over the town and the level, open land around it within
- * reach, and every lot of it not built on yet, nearest the centre first, with the new street squares between it and
- * the streets there are now. Changes nothing (squares are marked for the plan and put back).
- */
-function streetLots(land: Landscape, town: Town, editor: LandEditor, n: number): Lot[] {
-  const g = land.grid;
-  const nb = g.neighbours();
-  const own = new Set(town.cells);
-  const level = g.height[town.cells[0]];
-  const away = (i: number) => Math.hypot(g.centreX(g.colOf(i)) - town.centre.x, g.centreZ(g.rowOf(i)) - town.centre.z);
-  const isRoad = (i: number) => g.surface[i] === SURF_ROAD || g.surface[i] === SURF_LANE;
-  // The area the plan may use: the town, and level land joined to it within reach (roads, or open grass that a
-  // building could stand on).
-  const area = new Set(own);
-  const queue = [...own];
-  while (queue.length > 0) {
-    const i = queue.pop()!;
-    for (let e = 0; e < 4; e++) {
-      const j = nb[i * 4 + e];
-      if (j === -1 || area.has(j) || g.height[j] !== level || away(j) > MAX_REACH) continue;
-      if (!isRoad(j) && (g.surface[j] !== SURF_GRASS || editor.checkLot([j]) !== null)) continue;
-      area.add(j);
-      queue.push(j);
-    }
-  }
-  if (area.size === own.size) return [];
-  // Plan it as all town: roads and grass read as open town squares (trees felled), then put back.
-  const saved = [...area].map((i) => [i, g.surface[i], g.feature[i]] as const);
-  const roads = new Set([...area].filter(isRoad));
-  for (const i of area) {
-    if (isRoad(i) || g.surface[i] === SURF_GRASS) g.surface[i] = SURF_TOWN;
-    if (g.feature[i] === FEAT_TREE) g.feature[i] = FEAT_NONE;
-  }
-  const random = rng((Math.imul(land.seed, 131) + town.id * 977 + town.buildings.length * 17 + 3) >>> 0);
-  let plan: ReturnType<typeof planTown>;
-  try {
-    plan = planTown(g, { centre: town.centre, heading: town.station.heading, cells: [...area] }, () => random() < 0.4);
-  } finally {
-    for (const [i, s, f] of saved) {
-      g.surface[i] = s;
-      g.feature[i] = f;
-    }
-  }
-  /** The new street squares from `start` back to a street there is now (along the plan's streets), or null. */
-  const pathFrom = (start: number): number[] | null => {
-    if (roads.has(start)) return [];
-    const back = new Map<number, number>([[start, -1]]);
-    const todo = [start];
-    for (let k = 0; k < todo.length; k++) {
-      const i = todo[k];
-      for (let e = 0; e < 4; e++) {
-        const j = nb[i * 4 + e];
-        if (j === -1 || back.has(j) || !plan.streets.has(j)) continue;
-        back.set(j, i);
-        if (roads.has(j)) {
-          const out: number[] = [];
-          for (let c = i; c !== -1; c = back.get(c)!) out.push(c);
-          return out;
-        }
-        todo.push(j);
-      }
-    }
-    return null;
-  };
-  const free = (i: number) => (g.surface[i] === SURF_TOWN || g.surface[i] === SURF_GRASS) && (g.feature[i] === FEAT_NONE || g.feature[i] === FEAT_TREE);
-  const out: (Lot & { d: number })[] = [];
-  for (const lot of plan.lots) {
-    if (!lot.cells.every(free)) continue;
-    const c = lot.cells[0];
-    const street = nb[c * 4 + lot.front];
-    const path = street === -1 ? null : pathFrom(street);
-    if (!path) continue;
-    out.push({ cells: lot.cells, front: lot.front, corner: lot.corner, streets: path.map((i) => [i, plan.streets.get(i)!]), d: Math.min(...lot.cells.map(away)) });
-  }
-  out.sort((a, b) => a.d - b.d || a.cells[0] - b.cells[0]);
-  return out.slice(0, n * 4).map(({ d: _, ...lot }) => lot);
 }
 
 /**
@@ -192,7 +125,9 @@ function spreadLots(land: Landscape, town: Town, editor: LandEditor, n: number, 
 
 /**
  * Lay each lot's new streets and put up its building: town squares from now on, recorded in the town (so they save
- * with the map, and the building is dressed with a catalogue model by `addTownProps`). Returns the plot slots changed.
+ * with the map, and the building is dressed with a catalogue model by `addTownProps`). A new building is a one-floor
+ * house; as the town grows, its middle changes (the lots' `changes`: houses become shops and gain floors). Returns the
+ * plot slots changed (a changed building's model must be dressed again: see `changedBuildings`).
  */
 export function buildOnLots(land: Landscape, town: Town, lots: readonly Lot[]): number[] {
   const g = land.grid;
@@ -202,6 +137,7 @@ export function buildOnLots(land: Landscape, town: Town, lots: readonly Lot[]): 
     if (!town.cells.includes(i)) town.cells.push(i);
     slots.add(plotSlotOf(i));
   };
+  const ids: number[] = [];
   for (const lot of lots) {
     for (const [i, road] of lot.streets ?? []) {
       g.surface[i] = SURF_ROAD;
@@ -212,8 +148,8 @@ export function buildOnLots(land: Landscape, town: Town, lots: readonly Lot[]): 
     const b: Building = {
       id: land.nextBuildingId++,
       cells: [...lot.cells],
-      floors: r() < 0.35 ? 2 : 1,
-      kind: lot.corner || r() < 0.25 ? "shop" : "house",
+      floors: 1,
+      kind: "house",
       roof: Math.floor(r() * 4),
       ...(lot.front !== undefined ? { front: lot.front } : {}),
       ...(lot.corner ? { corner: true } : {}),
@@ -226,9 +162,24 @@ export function buildOnLots(land: Landscape, town: Town, lots: readonly Lot[]): 
       claim(c);
     }
     town.buildings.push(b);
+    ids.push(b.id);
+  }
+  for (const lot of lots) {
+    for (const c of lot.changes ?? []) {
+      const b = town.buildings.find((x) => x.id === (c.id < 0 ? ids[-1 - c.id] : c.id));
+      if (!b) continue;
+      if (c.kind) b.kind = c.kind;
+      if (c.floors) b.floors = c.floors;
+      for (const i of b.cells) claim(i);
+    }
   }
   for (const s of slots) g.touch(s);
   return [...slots];
+}
+
+/** The buildings already standing that `lots` change (their models must be dressed again once they're built). */
+export function changedBuildings(lots: readonly Lot[]): number[] {
+  return [...new Set(lots.flatMap((l) => (l.changes ?? []).map((c) => c.id)).filter((id) => id >= 0))];
 }
 
 /** A lot's centre (for a camera or a puff of sawdust). */

@@ -62,7 +62,8 @@ async function boot() {
 
 /** Squares used by the scenarios, found from the map. */
 async function findSites() {
-  return p.evaluate(() => {
+  return p.evaluate(async () => {
+    const { edgesOf } = await import("/src/roads/pieces.ts");
     const w = window.woodrail;
     const G = T.g();
     const nb = G.neighbours();
@@ -75,13 +76,13 @@ async function findSites() {
       for (let n = 0; n < k && j !== -1; n++) j = nb[j * 4 + e];
       return j;
     };
-    // A town gate with four free level squares straight out from it, and one beside the fourth.
+    // A town street's open end with four free level squares straight out from it, and one beside the fourth.
     let gate = null;
     for (let i = 0; i < G.cellCount && !gate; i++) {
-      if (G.surface[i] !== 4 || G.road[i] === 0) continue;
+      if (G.surface[i] !== 2 || G.road[i] === 0) continue;
       for (let e = 0; e < 4; e++) {
         const back = nb[i * 4 + ((e + 2) & 3)];
-        if (back === -1 || G.surface[back] !== 2) continue;
+        if (!(edgesOf(G.road[i]) & (1 << e)) || back === -1 || G.surface[back] !== 2) continue;
         const line = [1, 2, 3, 4].map((k) => step(i, e, k));
         const side = step(line[2], (e + 1) & 3);
         if (line.every((j) => free(j) && G.height[j] === G.height[i]) && free(side) && G.height[side] === G.height[i]) gate = { gate: i, dir: e, line, side, street: back };
@@ -200,7 +201,7 @@ check("found test sites on seed 7", !!(sites.gate && sites.river && sites.hill &
 await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Roads")?.click());
 await p.waitForTimeout(800);
 
-// ---- A: lay roads out of a town gate; each turns to join --------------------------------------------------------
+// ---- A: lay roads out of a town street's open end; each turns to join --------------------------------------------------------
 const G = sites.gate;
 await focusOn(G.line[1]);
 for (const i of G.line.slice(0, 3)) await trayDrag("Road", i);
@@ -213,7 +214,7 @@ const joins = await p.evaluate(
   },
   { G },
 );
-check("A1 three roads laid from a town gate, each joined to the last", joins.every(Boolean), JSON.stringify(joins));
+check("A1 three roads laid from a town street's end, each joined to the last", joins.every(Boolean), JSON.stringify(joins));
 await trayDrag("Bend", G.line[3]);
 const bendJoins = await p.evaluate(
   async ({ G }) => {
