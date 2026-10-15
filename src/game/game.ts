@@ -190,7 +190,7 @@ export class Game {
     this.stage = createStage(this.scene, this.renderer, this.quality);
     // Join pieces (dozens of S-bend sizes) are built when first used.
     TrackView.prebuild(PIECE_TYPES.filter((t) => !isJoin(t)));
-    TrackView.warmBridges(PIECE_TYPES);
+    void TrackView.warmBridges(PIECE_TYPES);
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
     syncCuttings(this.landscape, this.layout);

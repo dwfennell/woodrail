@@ -533,13 +533,7 @@ export class TrackView {
     if (typeof Worker === "undefined") return;
     const results: PieceResult[] = [];
     const take = (r: PieceResult) => {
-      const g = new BufferGeometry();
-      for (const a of r.attributes) g.setAttribute(a.name, new BufferAttribute(a.array, a.itemSize));
-      if (r.index) g.setIndex(new BufferAttribute(r.index, 1));
-      for (const gr of r.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
-      g.computeBoundingBox();
-      g.computeBoundingSphere();
-      geometryCache.set(`${r.type}:n:${r.levels}`, g);
+      takeResult(r);
       results.push(r);
     };
     // Saved from an earlier visit to this same build: nothing to carve.
@@ -595,23 +589,72 @@ export class TrackView {
     }
   }
 
-  /** Build the taller bridges' (and raised ramps') arches in idle moments after loading, so lifting a bridge higher never stalls. */
-  static warmBridges(types: readonly PieceTypeId[]): void {
-    const queue: [PieceTypeId, boolean, number][] = [];
+  /**
+   * Build the taller bridges' (and raised ramps') arches after loading, so lifting a bridge higher never stalls: in one
+   * background worker (the carving would otherwise keep the main thread busy for seconds after start-up), kept for the
+   * next visit to this build. Where workers can't run, they're built when first wanted.
+   */
+  static async warmBridges(types: readonly PieceTypeId[]): Promise<void> {
+    if (typeof Worker === "undefined") return;
+    const results: PieceResult[] = [];
+    for (const r of (await loadCached<PieceResult[]>("arches", __BUILD_ID__)) ?? []) {
+      takeResult(r);
+      results.push(r);
+    }
+    const jobs: PieceJob[] = [];
     for (const t of types) {
       if (!canStandOnArches(t)) continue;
-      for (let levels = isBridge(t) ? 2 : 1; levels <= MAX_BRIDGE_LEVELS; levels++) for (const flipped of [false, true]) queue.push([t, flipped, levels]);
+      for (let levels = isBridge(t) ? 2 : 1; levels <= MAX_BRIDGE_LEVELS; levels++) {
+        if (!geometryCache.has(resultKey({ type: t, levels }))) jobs.push({ type: t, levels });
+        // Mirrored pieces are cheap to make from the plain one; a flip that swaps the ends is carved afresh.
+        if (flipSwapsEnds(t) && !geometryCache.has(resultKey({ type: t, levels, flipped: true }))) jobs.push({ type: t, levels, flipped: true });
+      }
     }
-    const idle = (fn: () => void) => ("requestIdleCallback" in window ? window.requestIdleCallback(fn) : setTimeout(fn, 50));
-    const next = () => {
-      const job = queue.shift();
-      if (!job) return;
-      pieceGeometry(...job);
-      idle(next);
-    };
-    idle(next);
+    if (jobs.length === 0) return;
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL("./piece-worker.ts", import.meta.url), { type: "module" });
+    } catch {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      const next = () => {
+        const job = jobs.shift();
+        if (!job) {
+          worker.terminate();
+          resolve();
+          return;
+        }
+        worker.postMessage(job);
+      };
+      worker.onmessage = (e: MessageEvent<PieceResult>) => {
+        // Built on the main thread meanwhile (a bridge lifted early): keep that one.
+        if (!geometryCache.has(resultKey(e.data))) takeResult(e.data);
+        results.push(e.data);
+        next();
+      };
+      worker.onerror = () => {
+        worker.terminate();
+        resolve();
+      };
+      next();
+    });
+    void saveCached("arches", __BUILD_ID__, results);
   }
 }
+
+/** A piece's geometry built in a worker (or saved from an earlier visit), into the cache. */
+function takeResult(r: PieceResult): void {
+  const g = new BufferGeometry();
+  for (const a of r.attributes) g.setAttribute(a.name, new BufferAttribute(a.array, a.itemSize));
+  if (r.index) g.setIndex(new BufferAttribute(r.index, 1));
+  for (const gr of r.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
+  geometryCache.set(resultKey(r), g);
+}
+
+const resultKey = (r: PieceJob): string => `${r.type}:${r.flipped ? "f" : "n"}:${r.levels}`;
 
 /** A stand-in mesh for a piece (held, settling, shrinking away). Pass [face, groove] materials for real wood. */
 export function ghostMesh(type: PieceTypeId, flipped: boolean, material: Material | Material[], levels = 0): Mesh {

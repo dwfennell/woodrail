@@ -584,8 +584,18 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") });
     // Of the loading screen's toys, just the train stays, right where it is, under the name: the cards come in below it.
     toys?.showTrainOnly();
+    settleHop();
     placeCards();
     addEventListener("resize", refreshToys);
+  }
+  /** Loaded: the name's letters stop hopping (each finishes the hop it's in), so the title screen sits still. */
+  function settleHop(): void {
+    for (const block of loading?.querySelectorAll<HTMLElement>(".wb") ?? []) {
+      for (const a of block.getAnimations()) {
+        const done = a.effect?.getComputedTiming().currentIteration;
+        if (typeof done === "number") a.effect?.updateTiming({ iterations: done + 1 });
+      }
+    }
   }
   /**
    * The title over the opening screen, laid out once the train's drawn (the next frame): the name, the train and the

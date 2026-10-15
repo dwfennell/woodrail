@@ -5,15 +5,15 @@
  * windows, blocked site data): things are then just made as usual.
  */
 const DB = "woodrail-cache";
-export type CacheStore = "pieces" | "thumbnails";
-const STORES: CacheStore[] = ["pieces", "thumbnails"];
+export type CacheStore = "pieces" | "thumbnails" | "arches";
+const STORES: CacheStore[] = ["pieces", "thumbnails", "arches"];
 
 function open(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
     try {
-      const req = indexedDB.open(DB, 1);
+      const req = indexedDB.open(DB, 2);
       req.onupgradeneeded = () => {
-        for (const s of STORES) req.result.createObjectStore(s);
+        for (const s of STORES) if (!req.result.objectStoreNames.contains(s)) req.result.createObjectStore(s);
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
