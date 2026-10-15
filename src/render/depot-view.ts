@@ -5,7 +5,7 @@ import { CARGO, CARGO_KINDS, WAGON_CAPACITY, type CargoKind, type CargoSlot, typ
 import type { Layout, Pose } from "../track";
 import { TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
-import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, unitSize, wagonSlot } from "./cargo-layout";
+import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
 import { addPart, hasPart, partPieces } from "./blender-models";
 import { Batcher } from "./dressing/batcher";
 import { setCullBox, tileAt } from "./dressing/tiles";
@@ -336,8 +336,8 @@ export class DepotView {
     const looks: Record<Exclude<CargoKind, "stone">, [BufferGeometry, Material][]> & { stone?: [BufferGeometry, Material][] } = {
       coal: hasPart("load-coal") ? partPieces(mats, "load-coal").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m]) : lumps("#2a2b2e"),
       ore: hasPart("load-ore") ? partPieces(mats, "load-ore").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m]) : lumps("#9a4f2c"),
-      furniture: hasPart("load-furniture") ? partPieces(mats, "load-furniture").map(([g, m]) => [g.translate(0, -SACK_HEIGHT / 2, 0), m]) : [[sack, mats.lacquer("#a0612e")], [tie, strapMat]],
-      tools: hasPart("load-tools") ? partPieces(mats, "load-tools").map(([g, m]) => [g.translate(0, -SACK_HEIGHT / 2, 0), m]) : [[sack, mats.lacquer("#8a5a2b")], [tie, mats.lacquer("#7d8a98")]],
+      furniture: hasPart("load-furniture") ? partPieces(mats, "load-furniture").map(([g, m]) => [g.translate(0, -CRATE_HEIGHT / 2, 0), m]) : [[sack, mats.lacquer("#a0612e")], [tie, strapMat]],
+      tools: hasPart("load-tools") ? partPieces(mats, "load-tools").map(([g, m]) => [g.translate(0, -TOOLBOX_PITCH / 2, 0), m]) : [[sack, mats.lacquer("#8a5a2b")], [tie, mats.lacquer("#7d8a98")]],
       iron: hasPart("load-iron") ? partPieces(mats, "load-iron").map(([g, m]) => [g.translate(0, -7.5 / 2, 0), m]) : [[bars, mats.lacquer("#7d8a98")]],
       log: [[log, logMat]],
       planks: [

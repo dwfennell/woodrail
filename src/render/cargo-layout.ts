@@ -13,6 +13,14 @@ export const SACK_WIDTH = 9;
 export const SACK_HEIGHT = 6;
 /** A cut stone block: a sack's footprint, a little taller. */
 export const STONE_HEIGHT = 8;
+/** Made goods on a sack's footprint: a furniture crate (flat-topped), and a tool box (its handles poke up: stacked 7.5 apart). */
+export const CRATE_HEIGHT = 9;
+export const TOOLBOX_PITCH = 7.5;
+
+/** How far apart units of a sack-sized kind stack. */
+function sackPitch(kind: CargoKind): number {
+  return kind === "furniture" ? CRATE_HEIGHT : kind === "tools" ? TOOLBOX_PITCH : kind === "stone" || kind === "coal" || kind === "ore" ? STONE_HEIGHT : SACK_HEIGHT;
+}
 
 export interface Slot {
   /** Along the unit's length (x), up (y), across (z). */
@@ -27,8 +35,7 @@ export function unitSize(kind: CargoKind): { x: number; y: number; z: number } {
   if (kind === "planks") return { x: BUNDLE_LENGTH, y: BUNDLE_HEIGHT, z: BUNDLE_WIDTH };
   // Iron bars come in bundles the size of a planks bundle (they ride flatbeds like planks).
   if (kind === "iron") return { x: BUNDLE_LENGTH, y: 7.5, z: BUNDLE_WIDTH };
-  if (kind === "stone" || kind === "coal" || kind === "ore") return { x: SACK_LENGTH, y: STONE_HEIGHT, z: SACK_WIDTH };
-  return { x: SACK_LENGTH, y: SACK_HEIGHT, z: SACK_WIDTH };
+  return { x: SACK_LENGTH, y: sackPitch(kind), z: SACK_WIDTH };
 }
 
 /**
@@ -58,6 +65,7 @@ export function wagonSlot(kind: CargoKind, k: number): Slot {
   // Iron bundles stack like planks.
   if (kind === "iron") return { x: 0, y: 7.5 / 2 + k * 7.5, z: 0 };
   // Sacks: in a row along the wagon; a heavy wagon's fourth and fifth on top.
-  if (k < 3) return { x: (k - 1) * (SACK_LENGTH + 1), y: SACK_HEIGHT / 2, z: 0 };
-  return { x: (k - 3.5) * (SACK_LENGTH + 1), y: SACK_HEIGHT * 1.5, z: 0 };
+  const h = sackPitch(kind);
+  if (k < 3) return { x: (k - 1) * (SACK_LENGTH + 1), y: h / 2, z: 0 };
+  return { x: (k - 3.5) * (SACK_LENGTH + 1), y: h * 1.5, z: 0 };
 }
