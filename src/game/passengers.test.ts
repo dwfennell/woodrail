@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Economy } from "../economy";
 import { deserializeWorld, serializeWorld } from "../persist/save";
-import { ENGINE_SPEED, Sim, SIM_HZ, type CarKind } from "../sim";
+import { Sim, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, Layout, type PieceTypeId } from "../track";
-import { attachPassengers, detachPassengers, EXPRESS, fareFor, peopleArrive, RIDER_SECONDS, SEATS, topSpeed, WAITING_CAP } from "./passengers";
+import { attachPassengers, detachPassengers, fareFor, peopleArrive, RIDER_SECONDS, SEATS, WAITING_CAP } from "./passengers";
 import { Progress } from "./progress";
 import { learnAuto, offerFor, ready, TECHS } from "./tech";
 import { buildStarterWorld, STATION_CRANE_AT, type World } from "./world";
@@ -118,15 +118,6 @@ describe("passengers", () => {
     sim.setLook(c2.id, "dining");
     expect(fareFor(w, A, B, c1.id)).toBe(Math.round(plain * 2 * 1.5));
     void car;
-  });
-
-  it("an express engine runs half as fast again, once learned", () => {
-    const { w, sim, train, car } = line();
-    const p = Progress.fresh();
-    sim.setLook(car("engine").id, "express");
-    expect(topSpeed(w, p, train())).toBe(ENGINE_SPEED);
-    p.learned.add("express");
-    expect(topSpeed(w, p, train())).toBe(ENGINE_SPEED * EXPRESS);
   });
 
   it("riders and people waiting are saved", () => {

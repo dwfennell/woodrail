@@ -133,6 +133,8 @@ export class Sim {
   speedCap: ((train: Train) => number) | null = null;
   /** Optional top speed for a powered train (mm/s): a mode's faster engines. Null: every train runs at `ENGINE_SPEED`. */
   topSpeed: ((train: Train) => number) | null = null;
+  /** Optional: how quickly a powered train gets up to speed and stops, against the usual (2: twice as quick). */
+  quickness: ((train: Train) => number) | null = null;
 
   /** The signal pieces on the layout (found again after the track changes: see `trackChanged`). */
   private signals: number[] | null = null;
@@ -511,7 +513,7 @@ export class Sim {
     const cap = net !== 0 ? Math.min(this.speedCap ? this.speedCap(train) : Infinity, this.signalCap(train)) : Infinity;
     if (target > cap) target = cap;
     let v = train.speed;
-    const step = ACCELERATION * SIM_DT;
+    const step = ACCELERATION * (this.quickness ? this.quickness(train) : 1) * SIM_DT;
     v = Math.abs(target - v) <= step ? target : v + Math.sign(target - v) * step;
     // A crane holding the train (cap 0) holds it there and then.
     if (v > cap) v = cap;

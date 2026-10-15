@@ -1,5 +1,5 @@
 import type { DepotState } from "../economy";
-import { ENGINE_SPEED, type CarLook, type Train } from "../sim";
+import type { CarLook } from "../sim";
 import type { Progress } from "./progress";
 import { townStatus } from "./towns";
 import { receivedBy } from "./town-life";
@@ -18,8 +18,6 @@ export const SEATS: Partial<Record<CarLook, number>> = { classic: 4, dining: 2, 
 export const FIRST_CLASS = 2;
 /** A train with a dining car: every rider on it pays this many times the fare. */
 export const DINING = 1.5;
-/** An express engine's train runs this many times as fast. */
-export const EXPRESS = 1.5;
 
 /** A hamlet's station gets someone new waiting this often (s); each level up, as often again. */
 export const RIDER_SECONDS = 24;
@@ -93,25 +91,17 @@ export function payFare(world: World, p: Progress, from: DepotState, to: DepotSt
   return fare;
 }
 
-/** A train's top speed: half as fast again behind an express engine (once learned). */
-export function topSpeed(world: World, p: Progress, train: Train): number {
-  if (!p.learned.has("express")) return ENGINE_SPEED;
-  return train.cars.some((c) => c.kind === "engine" && world.sim.lookOf(c.id) === "express") ? ENGINE_SPEED * EXPRESS : ENGINE_SPEED;
-}
-
-/** Put Game mode's passengers into the world's economy and sim (seats, fares, express engines). */
+/** Put Game mode's passengers into the world's economy (seats and fares). */
 export function attachPassengers(world: World, p: () => Progress, paid?: (fare: number, from: DepotState, to: DepotState) => void): void {
   world.economy.seatsOf = (carId) => seatsIn(world, carId);
   world.economy.onAlight = (from, to, carId) => {
     const fare = payFare(world, p(), from, to, carId);
     paid?.(fare, from, to);
   };
-  world.sim.topSpeed = (train) => topSpeed(world, p(), train);
 }
 
-/** Back to Sandbox: coaches carry no one, every engine one speed. */
+/** Back to Sandbox: coaches carry no one. */
 export function detachPassengers(world: World): void {
   world.economy.seatsOf = null;
   world.economy.onAlight = null;
-  world.sim.topSpeed = null;
 }

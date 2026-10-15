@@ -469,7 +469,7 @@ export class Economy {
 
   /** Progress (0–1) of the crane's current move at a depot, or −1 when idle. */
   cranePhase(depotId: number): number {
-    for (const s of this.services.values()) if (s.phase === HALTED && s.depotId === depotId) return s.ticks / CRANE_TICKS;
+    for (const s of this.services.values()) if (s.phase === HALTED && s.depotId === depotId) return s.ticks / this.craneTicks;
     return -1;
   }
 
@@ -482,7 +482,7 @@ export class Economy {
       if (s.phase !== HALTED || s.depotId !== depotId || s.ticks === 0) continue;
       const d = this.depots[depotId];
       out.carId = s.carId;
-      out.phase = s.ticks / CRANE_TICKS;
+      out.phase = s.ticks / this.craneTicks;
       if (this.canUnload(d, s.carId)) {
         out.kind = this.cargoOf(s.carId).kind!;
         out.toPile = true;
@@ -667,14 +667,18 @@ export class Economy {
         s.ticks = 0;
         continue;
       }
-      if (++s.ticks < CRANE_TICKS) continue;
+      if (++s.ticks < this.craneTicks) continue;
       s.ticks = 0;
-      if (this.canUnload(d, s.carId)) {
-        this.events.push({ kind: "unloaded", depotId: d.id, cargo: this.cargoOf(s.carId).kind! });
-        this.unloadOne(d, s.carId);
-      } else {
-        this.events.push({ kind: "loaded", depotId: d.id, cargo: this.loadKind(d, s.carId)! });
-        this.loadOne(d, s.carId);
+      // A grab crane lifts more than one load a move (while there's more to move).
+      for (let n = 0; n < this.craneLoads; n++) {
+        if (this.canUnload(d, s.carId)) {
+          this.events.push({ kind: "unloaded", depotId: d.id, cargo: this.cargoOf(s.carId).kind! });
+          this.unloadOne(d, s.carId);
+        } else if (this.loadKind(d, s.carId) !== null) {
+          this.events.push({ kind: "loaded", depotId: d.id, cargo: this.loadKind(d, s.carId)! });
+          this.loadOne(d, s.carId);
+        } else break;
+        this.loadsMoved++;
       }
     }
   }
@@ -701,7 +705,10 @@ export class Economy {
         continue;
       }
       for (const k in cycle.uses) d.piles[CARGO[k as CargoKind].index] -= cycle.uses[k as CargoKind]!;
-      for (const k in cycle.makes) d.piles[CARGO[k as CargoKind].index] += cycle.makes[k as CargoKind]!;
+      for (const k in cycle.makes) {
+        d.piles[CARGO[k as CargoKind].index] += cycle.makes[k as CargoKind]!;
+        this.made[CARGO[k as CargoKind].index] += cycle.makes[k as CargoKind]!;
+      }
     }
   }
 
@@ -710,6 +717,15 @@ export class Economy {
    * wants for its next level, so the rest rides on to the next town). Null: everything its recipe takes.
    */
   accepts: ((d: DepotState, kind: CargoKind) => boolean) | null = null;
+
+  /** Ticks a crane takes to move a load (Game mode's quicker cranes make it shorter). */
+  craneTicks = CRANE_TICKS;
+  /** Loads a crane moves at once (grab cranes: two). */
+  craneLoads = 1;
+  /** Units of each good made at industries, by cargo index, since this economy began (counters for Game mode). */
+  readonly made = new Int32Array(CARGO_KINDS.length);
+  /** Loads the cranes have moved, since this economy began. */
+  loadsMoved = 0;
 
   /** Called when a route has set a switch (the game redraws its lever). */
   onSwitch: ((pieceId: number) => void) | null = null;
