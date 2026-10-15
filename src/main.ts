@@ -32,6 +32,8 @@ import type { StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { goodsOf, learnAuto, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
+import { applyCranes, boostOf, Counters, upgradeKey } from "./game/upgrades";
+import { CRANE_TICKS } from "./economy/constants";
 import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { aOrAn, covers, describe as describeGoods, minus, total } from "./economy/goods";
@@ -775,10 +777,10 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     if (added || key !== industryKey) game.depotView.setWorld(game.economy, game.layout);
     industryKey = key;
     // Industries work as fast as what's around them allows: recounted when they move or the land changes.
-    const rateKey = `${key}#${game.landscape.grid.revision}`;
+    const rateKey = `${key}#${game.landscape.grid.revision}#${mode === "game" ? upgradeKey(progress) : ""}`;
     if (rateKey !== rateKeyShown) {
       rateKeyShown = rateKey;
-      if (updateRates(game.world)) game.invalidate();
+      if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined)) game.invalidate();
     }
     hud.refreshTrayBadges();
   }
@@ -819,7 +821,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   function learned(id: string): void {
     const makes = unlocksOf(id).map((t) => ruleOf(t)!.label.toLowerCase());
-    hud.toast(`Learned ${techOf(id)!.label.toLowerCase()}! Make ${makes.slice(0, 2).join(" and ")}${makes.length > 2 ? " and more" : ""} at the workshop`, true, 3800);
+    const t = techOf(id)!;
+    hud.toast(makes.length > 0 ? `Learned ${t.label.toLowerCase()}! Make ${makes.slice(0, 2).join(" and ")}${makes.length > 2 ? " and more" : ""} at the workshop` : `Learned ${t.label}! ${t.blurb}`, true, 3800);
+    // An upgrade takes effect at once: industries' rates and the cranes.
+    applyCranes(game.economy, progress);
+    industriesChanged();
     audio.chime();
     hud.refreshTrayBadges();
     game.invalidate();
@@ -967,8 +973,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   // Passengers (Game mode): people turn up at stations, coaches carry them, fares are paid, and the passenger line of
   // blueprints is learned as you carry more.
   const peopleClock = new Map<number, number>();
+  const counters = new Counters();
   function passengersOn(): void {
     peopleClock.clear();
+    counters.reset(game.economy);
+    applyCranes(game.economy, progress);
     attachPassengers(game.world, () => progress, () => {
       hud.setCoins(progress.coins);
       for (const id of learnAuto(progress)) {
@@ -982,6 +991,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   }
   setInterval(() => {
     if (mode !== "game" || !playing || game.paused) return;
+    // What's been done (logs cut, loads moved, goods delivered) toward the blueprints that ask for it.
+    if (counters.collect(game.economy, progress) && board.open) refreshBoard();
     peopleArrive(game.world, progress, 1, peopleClock);
     // (Nothing else may be drawing: new arrivals redraw their platform themselves.)
     showWaiting();
@@ -1311,6 +1322,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     } else {
       townLife.clear();
       detachPassengers(game.world);
+      game.economy.craneTicks = CRANE_TICKS;
+      game.economy.craneLoads = 1;
       showWaiting();
       shownDelivered = new Map();
       hud.trayBadge = null;
