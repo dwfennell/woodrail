@@ -44,7 +44,8 @@ const HOUSES_2 = ["bldg-semi-detached", "bldg-villa", "bldg-terrace"];
 const BY_LOOK: Record<Look, { 1?: readonly string[]; 2?: readonly string[] }> = {
   house: {},
   terrace: { 2: ["bldg-terrace", "bldg-cottage-row"] },
-  shop: { 1: ["bldg-corner-shop", "bldg-toy-shop"], 2: ["bldg-apartment-block"] },
+  // The toy shop (pinwheel on its ridge) is a rare find: about one small shop in ten.
+  shop: { 1: [...Array<string>(9).fill("bldg-corner-shop"), "bldg-toy-shop"], 2: ["bldg-apartment-block"] },
   bakery: { 1: ["bldg-bakery"], 2: ["bldg-bakery"] },
   cafe: { 1: ["bldg-corner-shop"], 2: ["bldg-cafe"] },
   post: { 1: ["bldg-corner-shop"], 2: ["bldg-post-office"] },

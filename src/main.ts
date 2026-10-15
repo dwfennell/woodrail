@@ -568,17 +568,61 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     loading?.classList.add("behind-title");
     title.root.classList.add("over-opening");
     title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") });
-    // Its toys move down to make room: drawn again at their new size, and whenever the window changes.
-    toys?.refresh();
+    // Of the loading screen's toys, just the train stays, right where it is, under the name: the cards come in below it.
+    toys?.showTrainOnly();
+    placeCards();
     addEventListener("resize", refreshToys);
   }
-  const refreshToys = () => toys?.refresh();
+  /**
+   * The title over the opening screen, laid out once the train's drawn (the next frame): the name, the train and the
+   * cards as one group in the middle of the screen. The name and the train glide there (moved whole: the train is
+   * never drawn afresh); the cards fade in below.
+   */
+  const glide: { name: number; train: number } = { name: 0, train: 0 };
+  function placeCards(): void {
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (!overOpening) return;
+        const name = loading?.querySelector<HTMLElement>("h1");
+        const canvas = loading?.querySelector<HTMLElement>(".loading-toys");
+        const span = toys?.trainSpan;
+        const cards = title.root.querySelector<HTMLElement>(".title-cards");
+        if (!name || !canvas || !span || !cards) {
+          title.root.style.paddingTop = `${Math.round(innerHeight * 0.4)}px`;
+          return;
+        }
+        // Where they'd be unmoved.
+        const n = name.getBoundingClientRect();
+        const nameTop = n.top - glide.name;
+        const trainTop = span.top - glide.train;
+        const trainH = span.bottom - span.top;
+        const gap = Math.min(28, innerHeight * 0.03);
+        const total = n.height + gap + trainH + gap + cards.offsetHeight;
+        const top = Math.max(12, (innerHeight - total) / 2);
+        glide.name = top - nameTop;
+        glide.train = top + n.height + gap - trainTop;
+        for (const [el, dy] of [
+          [name, glide.name],
+          [canvas, glide.train],
+        ] as const) {
+          el.style.transition = "transform 0.7s cubic-bezier(0.3, 0.7, 0.2, 1)";
+          el.style.transform = `translateY(${Math.round(dy)}px)`;
+        }
+        title.root.style.paddingTop = `${Math.round(top + n.height + gap + trainH + gap)}px`;
+      }),
+    );
+  }
+  const refreshToys = () => {
+    toys?.refresh();
+    placeCards();
+  };
 
   /** The opening screen goes (fading over the map) once a mode is chosen. */
   function leaveOpening(): void {
     if (!overOpening) return;
     overOpening = false;
     title.root.classList.remove("over-opening");
+    title.root.style.paddingTop = "";
     loading?.classList.add("done");
     removeEventListener("resize", refreshToys);
   }
@@ -1401,16 +1445,40 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress });
   game.start();
-  if (opening.linked) {
-    enter(mode);
-    openingView();
-  } else showTitleOverOpening();
   loadBar.finish();
-  if (!overOpening) {
-    loading?.classList.add("done");
-    // The loading screen fades out (0.6 s); its toys go with it.
-    setTimeout(() => toys?.stop(), 700);
-  }
+  // The loading screen's toys play their entry in full before it moves on (it's short, and capped).
+  void entryPlayed().then(() => {
+    if (opening.linked) {
+      enter(mode);
+      openingView();
+    } else showTitleOverOpening();
+    if (!overOpening) {
+      loading?.classList.add("done");
+      // The loading screen fades out (0.6 s); its toys go with it.
+      setTimeout(() => toys?.stop(), 700);
+    }
+  });
+}
+
+/** The loading screen's people and street furniture laid out (held back till the map's built). */
+let toysEntry: Promise<void> = Promise.resolve();
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** The next frame drawn, or 100 ms (no frames come while the tab is hidden: never wait on them alone). */
+const nextFrame = () => Promise.race([new Promise<void>((r) => requestAnimationFrame(() => r())), sleep(100)]);
+
+/**
+ * The map's built: the toys' entry plays to its end before the loading screen moves on. The people and the street's
+ * furniture hop in only now, once the map's first frames are drawn (the building would stall them mid-hop), and the
+ * wait is short and capped, so a quick load never hangs here.
+ */
+async function entryPlayed(): Promise<void> {
+  await nextFrame();
+  await nextFrame();
+  // Laid out by now, unless their models are slow (then they're skipped).
+  await Promise.race([toysEntry, sleep(800)]);
+  toys?.release(120);
+  await sleep(Math.min(3000, Math.max(0, (toys?.doneAt ?? 0) - performance.now())));
 }
 
 /** Say on the loading screen that the toys couldn't be fetched, with a button to try again. */
@@ -1465,8 +1533,7 @@ const toys = ((): LoadingToys | null => {
   }
 })();
 if (toys) {
-  // One after another: the train, then the platform's folk, the street's furniture, and (if they're in before the
-  // game is) a few buildings. The buildings come after what the game needs, so they never hold it up.
+  // One after another: the train, then the platform's folk, then the street's furniture.
   const pop = async (models: Map<string, Object3D>, shelf: Shelf, list: [string, Record<string, string>?][]) => {
     for (const [id, slots] of list) {
       const model = models.get(id);
@@ -1474,33 +1541,44 @@ if (toys) {
       await new Promise((r) => setTimeout(r, 180));
     }
   };
-  void (async () => {
+  toysEntry = (async () => {
     try {
       const trains = loadModelSet("trains");
       const dressing = loadModelSet("dressing", true);
       await pop(await trains, "train", [["engine-classic"], ["passenger-classic"], ["passenger-dining"], ["hopper-classic"], ["timber-classic"], ["caboose-classic"]]);
-      await dressing;
-      const buildings = loadModelSet("buildings", true);
-      await pop(await dressing, "folk", [
-        ["porter"],
-        ["peg-doll-hat", { coat: "#2f6db5", hat: "#2a2b2e" }],
-        ["traveller"],
-        ["peg-doll", { coat: "#3f8f4e" }],
-        ["conductor"],
-        ["peg-doll-hat", { coat: "#e6b52c", hat: "#c8442f" }],
-        ["peg-doll", { coat: "#c8442f" }],
-      ]);
-      await pop(await dressing, "street", [
-        ["lamp"],
-        ["bench"],
-        ["postbox"],
-        ["planter", { flower0: "#d9443a", flower1: "#e6b52c", flower2: "#e98aa8", flower3: "#f3ead8" }],
-        ["fountain"],
-        ["phone"],
-        ["busstop"],
-        ["lamp"],
-      ]);
-      await pop(await buildings, "town", [["bldg-thatched-cottage"], ["bldg-signal-box"], ["bldg-church"], ["bldg-windmill"], ["bldg-toy-shop"], ["bldg-water-tower"]]);
+      // The people and the street's furniture, each shelf laid out whole, to hop in one by one in place once the map's
+      // built (see `entryPlayed`).
+      const dressed = await dressing;
+      const row = (list: [string, Record<string, string>?][]) =>
+        list.flatMap(([id, slots]) => {
+          const model = dressed.get(id);
+          return model ? [{ model, slots }] : [];
+        });
+      toys.addRow(
+        "folk",
+        row([
+          ["porter"],
+          ["peg-doll-hat", { coat: "#2f6db5", hat: "#2a2b2e" }],
+          ["traveller"],
+          ["peg-doll", { coat: "#3f8f4e" }],
+          ["conductor"],
+          ["peg-doll-hat", { coat: "#e6b52c", hat: "#c8442f" }],
+          ["peg-doll", { coat: "#c8442f" }],
+        ]),
+      );
+      toys.addRow(
+        "street",
+        row([
+          ["lamp"],
+          ["bench"],
+          ["postbox"],
+          ["planter", { flower0: "#d9443a", flower1: "#e6b52c", flower2: "#e98aa8", flower3: "#f3ead8" }],
+          ["fountain"],
+          ["phone"],
+          ["busstop"],
+          ["lamp"],
+        ]),
+      );
     } catch {
       // The loading screen says so itself (see offerRetry).
     }

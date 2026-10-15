@@ -178,12 +178,18 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
   .title-buttons { grid-column: 1 / -1; }
 }
 @media (prefers-reduced-motion: reduce) { .title-screen:not([hidden]), .title-logo .wb { animation: none; } }
-/* At start-up the title stands on the opening screen (above it, see #loading), not over the map: no darkening, and the
-   opening screen's own name and bar make way for the title's; its toys stay, on their shelves along the bottom. */
-.title-screen.over-opening { z-index: 60; background: none; }
-#loading.behind-title h1, #loading.behind-title .load-bar, #loading.behind-title p { display: none; }
-#loading.behind-title > div { position: absolute; left: 0; right: 0; bottom: max(8px, env(safe-area-inset-bottom)); }
-#loading.behind-title .loading-toys { height: clamp(150px, 30vh, 280px); opacity: 0.9; }
+/* At start-up the title stands on the opening screen (above it, see #loading), not over the map: no darkening. The
+   opening screen keeps its name and its train just where they were (the bar goes, keeping its room); the title's own
+   name stays hidden, and its cards fade in below the train (their top set from where the train ends). */
+.title-screen.over-opening { z-index: 60; background: none; justify-content: flex-start; animation: none; }
+.title-screen.over-opening .title-head { display: none; }
+/* The choices fade in, rising a little, one after the other. */
+.title-screen.over-opening .title-card { animation: card-in 0.6s ease-out backwards; }
+.title-screen.over-opening .title-card + .title-card { animation-delay: 0.15s; }
+@keyframes card-in { from { opacity: 0; translate: 0 14px; } }
+@media (prefers-reduced-motion: reduce) { .title-screen.over-opening .title-card { animation: card-fade 0.4s ease-out backwards; } }
+@keyframes card-fade { from { opacity: 0; } }
+#loading.behind-title .load-bar, #loading.behind-title p { visibility: hidden; }
 
 /* ---- goals (Game mode) ----------------------------------------------------------------------------------- */
 .goals { position: absolute; left: 12px; top: calc(max(10px, env(safe-area-inset-top)) + 62px); width: min(320px, calc(100% - 24px)); border-radius: 16px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 8px 26px rgba(60, 40, 20, 0.22); color: #3a2a1c; overflow: hidden; }
