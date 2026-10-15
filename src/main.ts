@@ -23,11 +23,12 @@ import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { Crafting, workshops, workshopStock } from "./game/crafting";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
-import { syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { nextStop, routeStops } from "./game/route-stops";
+import { engineStatus } from "./game/engine-status";
 import type { StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
@@ -1091,6 +1092,42 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     drop: { label: "Drop", next: "pick", tip: "Only drops goods off here" },
     pick: { label: "Pick up", next: "both", tip: "Only picks goods up here" },
   };
+  /**
+   * The open engine card's live parts: what the train's doing, and which way its engine's front points on screen (the
+   * way arrow follows the camera and the track). Cheap: a few lookups a frame, and the card redraws only on change.
+   */
+  const _a = new Vector3();
+  const _b = new Vector3();
+  function showEngineView(): void {
+    const carId = interaction.openEngineCarId;
+    if (carId === -1) return;
+    const stops = routeStops(game.world);
+    const nameOf = (id: number) => {
+      const stop = stops.find((st) => st.depotId === id);
+      if (stop) return stop.name;
+      const d = game.economy.depot(id);
+      return d && d.role !== "town" ? `the ${DEPOT_NAMES[d.role].toLowerCase()}` : "the station";
+    };
+    const status = engineStatus(game.sim, game.economy, carId, nameOf);
+    // The engine's own front, as a screen direction (degrees clockwise from right).
+    const snap = game.snapshot;
+    let angle = 0;
+    for (let i = 0; i < snap.count; i++) {
+      if (snap.ids[i] !== carId) continue;
+      const o = i * 6;
+      const h = snap.transforms[o + 3];
+      _a.set(snap.transforms[o], snap.transforms[o + 1], snap.transforms[o + 2]);
+      _b.set(_a.x + Math.cos(h) * 60, _a.y, _a.z + Math.sin(h) * 60);
+      _a.project(game.camera);
+      _b.project(game.camera);
+      const w = game.canvas.clientWidth;
+      const ht = game.canvas.clientHeight;
+      angle = (Math.atan2(-(_b.y - _a.y) * ht, (_b.x - _a.x) * w) * 180) / Math.PI;
+      break;
+    }
+    hud.setEngineView(status, angle);
+  }
+
   function showRoute(): void {
     const carId = interaction.openEngineCarId;
     const allowed = mode === "sandbox" || progress.learned.has("routes");
@@ -1525,6 +1562,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
     showRoute();
+    showEngineView();
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);

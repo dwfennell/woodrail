@@ -519,6 +519,12 @@ export class Economy {
     return false;
   }
 
+  /** The depot whose crane is working this train now (it's crawling to, or halted at, the crane), if any. */
+  servingDepot(trainId: number): DepotState | undefined {
+    const s = this.services.get(trainId);
+    return s && s.phase !== NONE && s.depotId !== -1 ? this.depots[s.depotId] : undefined;
+  }
+
   private service(trainId: number): Service {
     let s = this.services.get(trainId);
     if (!s) this.services.set(trainId, (s = { trainId, phase: NONE, depotId: -1, carId: -1, ticks: 0, still: 0, done: new Set() }));

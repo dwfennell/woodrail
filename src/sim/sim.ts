@@ -387,6 +387,12 @@ export class Sim {
     return this.aspects.get(pieceId) ?? true;
   }
 
+  /** Is this train standing at a red signal, waiting for it to clear (for the engine card)? */
+  atRedSignal(trainId: number): boolean {
+    const t = this.trains.get(trainId);
+    return !!t && !t.derailed && t.speed < 1 && this.signalCap(t) === 0;
+  }
+
   /** Held at red by hand (a tap; saved with the switch states), whatever the line ahead. */
   signalHeld(pieceId: number): boolean {
     return this.layout.switchState(pieceId) % 2 === 1;

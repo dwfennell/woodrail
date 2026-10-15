@@ -86,6 +86,21 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .depot-card .card-row { flex-wrap: wrap; justify-content: center; }
 .land-text { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 320px; }
 .lever { width: 60px; height: 50px; font-size: 20px; }
+/* The engine card: what it's doing, a big Go/Stop and the way it goes; Follow and ⋯ in the top corners. */
+.engine-card { padding-top: 14px; min-width: 270px; }
+.engine-card .corner { position: absolute; top: 6px; border: none; background: transparent; color: #8a6a4a; cursor: pointer; padding: 6px; border-radius: 10px; line-height: 0; }
+.engine-card .corner.follow { left: 8px; }
+.engine-card .corner.follow.active { background: #6cbf5c; color: #fff; }
+.engine-card .corner.more { right: 38px; font-size: 20px; line-height: 20px; font-weight: 800; }
+.engine-status { min-height: 18px; font-size: 14px; font-weight: 700; color: #6a4a2c; text-align: center; max-width: 260px; margin-top: -4px; }
+.engine-controls { display: flex; gap: 10px; align-items: stretch; }
+.chip.go { width: 150px; height: 58px; font-size: 20px; font-weight: 800; gap: 8px; background: linear-gradient(180deg, #8fd47f, #5fb24f); color: #163b10; box-shadow: inset 0 -3px 0 rgba(30, 80, 20, 0.35), 0 3px 8px rgba(40, 90, 30, 0.25); }
+.chip.go.stop { background: linear-gradient(180deg, #f3a08f, #d9634d); color: #3b130b; box-shadow: inset 0 -3px 0 rgba(110, 30, 15, 0.35), 0 3px 8px rgba(120, 40, 20, 0.25); }
+.chip.go .go-icon { font-size: 16px; margin-right: 8px; }
+.chip.way { width: 58px; height: 58px; padding: 0; color: #4a3220; }
+.chip.way .way-arrow { display: inline-block; line-height: 0; transform: rotate(var(--way, 0deg)); transition: transform 0.25s ease; }
+.engine-more { display: flex; gap: 8px; }
+.engine-more[hidden] { display: none; }
 .close { position: absolute; top: 6px; right: 8px; border: none; background: transparent; font-size: 16px; color: #8a6a4a; cursor: pointer; padding: 6px; }
 
 /* Toasts: a little paper label that slides down and settles with a slight tilt. */
