@@ -1514,6 +1514,13 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     // The two stations to join, along the screen's long side (up a phone held upright), close enough to see them.
     const f = frameAlong([a.station, b.station], game.camera.fov, game.camera.aspect, GOAL_MARGIN);
     game.lookAt(new Vector3(f.x, 0, f.z), f.distance, 0.95, f.theta);
+    // Their names over them for a while (as "Show me" does): the chip only says "Join two towns".
+    if (game.layout.pieceCount === game.stations.size + game.depots.size) {
+      const grid = game.landscape.grid;
+      const y = (p: { x: number; z: number }) => grid.groundY(Math.max(0, grid.cellAtWorld(p.x, p.z))) + 90;
+      const labels = goalLabels(game.camera, game.canvas, [a, b].map((t) => ({ x: t.station.x, y: y(t.station), z: t.station.z, text: t.name })), 9);
+      if (labels) game.flourishes.add(labels);
+    }
     // A bare map: suggest the first job.
     if (game.layout.pieceCount === game.stations.size + game.depots.size) {
       window.setTimeout(() => {

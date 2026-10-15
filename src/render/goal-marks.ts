@@ -54,11 +54,25 @@ export function goalMarks(scene: Scene, points: readonly { x: number; y: number;
 /** How long a goal's labels stay up (s), the last part fading. */
 const LABEL_LIFE = 5;
 
+/** The labels showing now (a second "Show me" replaces them rather than stacking more). */
+let showing: { els: HTMLElement[]; done: boolean } | null = null;
+
 /**
  * "Show me": the names of a goal's places (its towns) over them on screen, for a few seconds: they're small from far
- * off. Plain page elements pinned to the places each frame, gone afterwards.
+ * off. Plain page elements pinned to the places each frame (only their transforms written: the canvas's place on the
+ * page is read once, and again only on a resize), gone afterwards.
  */
-export function goalLabels(camera: Camera, canvas: HTMLCanvasElement, places: readonly { x: number; y: number; z: number; text: string }[]): Flourish | null {
+export function goalLabels(
+  camera: Camera,
+  canvas: HTMLCanvasElement,
+  places: readonly { x: number; y: number; z: number; text: string }[],
+  life = LABEL_LIFE,
+): Flourish | null {
+  if (showing) {
+    for (const el of showing.els) el.remove();
+    showing.done = true;
+    showing = null;
+  }
   if (places.length === 0) return null;
   const host = canvas.parentElement ?? document.body;
   const els = places.map((p) => {
@@ -68,29 +82,46 @@ export function goalLabels(camera: Camera, canvas: HTMLCanvasElement, places: re
     host.append(el);
     return el;
   });
+  const mine = { els, done: false };
+  showing = mine;
+  // Where the canvas is within the labels' host (read now and on a resize: never between writing labels each frame).
+  let left = 0;
+  let top = 0;
+  let width = 1;
+  let height = 1;
+  const measure = () => {
+    const r = canvas.getBoundingClientRect();
+    const h = host.getBoundingClientRect();
+    left = r.left - h.left;
+    top = r.top - h.top;
+    width = r.width;
+    height = r.height;
+  };
+  measure();
+  window.addEventListener("resize", measure);
   const v = new Vector3();
   let t = 0;
   const place = () => {
-    const r = canvas.getBoundingClientRect();
-    const h = host.getBoundingClientRect();
     places.forEach((p, i) => {
       v.set(p.x, p.y, p.z).project(camera);
-      const behind = v.z > 1;
-      const x = r.left - h.left + ((v.x + 1) / 2) * r.width;
-      const y = r.top - h.top + ((1 - v.y) / 2) * r.height;
+      const x = left + ((v.x + 1) / 2) * width;
+      const y = top + ((1 - v.y) / 2) * height;
       els[i].style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
-      els[i].style.opacity = behind ? "0" : String(Math.min(1, (LABEL_LIFE - t) / 0.8));
+      els[i].style.opacity = v.z > 1 ? "0" : String(Math.min(1, (life - t) / 0.8));
     });
   };
   place();
   return {
     update(dt) {
+      if (mine.done) return false;
       t += dt;
       place();
-      return t < LABEL_LIFE;
+      return t < life;
     },
     dispose() {
+      window.removeEventListener("resize", measure);
       for (const el of els) el.remove();
+      if (showing === mine) showing = null;
     },
   };
 }

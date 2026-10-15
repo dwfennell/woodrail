@@ -413,3 +413,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(60, 40, 20, 0.25), inset 0 0 0 2px #ffcf6b;
 }
+
+/* "Show me" buttons: a hit area of at least 44 px round the drawn button. */
+.goals-show-icon,
+.goals-show { position: relative; }
+.goals-show-icon::after { content: ""; position: absolute; inset: -5px; }
+.goals-show::after { content: ""; position: absolute; inset: -6px -2px; }
