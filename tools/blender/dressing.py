@@ -704,6 +704,205 @@ def load_stone_heap(k):
     return g
 
 
+# ——— Industry upgrades (Game mode): a machine that appears in a yard once its upgrade is learned ———
+#
+# Each centred on its own footprint, its base on y = 0 (stand it on the pad: y 4), in the depot's frame: +x along the
+# track, the track side toward -z. All static (the code places them with the yard's other parts).
+
+YELLOW = "#e6b52c"
+IRON_GREY = "#6d7178"
+BRICK = "#a8553a"
+
+
+def _log(k, length, r, x, y, z, ry=0):
+    """A log lying along x (turned by ry): beech with a darker end grain ring at each end."""
+    g = Node()
+    g.add(k.cylX(k.wood, r, length, 0, 0, 0, 20))
+    for e in (-1, 1):
+        g.add(k.cylX(k.paint("#a87b4f"), r * 0.72, 0.8, e * (length / 2 + 0.1), 0, 0, 16))
+    g.rotation.y = ry
+    g.position.set(x, y, z)
+    return g
+
+
+def upgrade_log_loader(k):
+    """
+    Harvesters II: a log loader. A yellow base and post with a red boom reaching out toward the track, a grab hanging
+    from its tip holding a log. About 46 x 18, 34 high.
+    """
+    g = Node()
+    g.add(k.box(k.paint(YELLOW), 16, 6, 16, 2, -12, 0, 0))
+    g.add(k.cyl(k.paint(YELLOW), 3, 24, -12, 6, 0, 2.6, 20))
+    g.add(k.box(k.paint(DARK), 7, 6, 7, 1.4, -12, 28, 0))
+    boom = Node()
+    boom.add(k.box(k.paint(RED), 34, 4, 4, 1.2, 15, -2, 0))
+    boom.rotation.z = -0.32
+    boom.position.set(-12, 31, 0)
+    g.add(boom)
+    tip_x, tip_y = -12 + 32 * math.cos(0.32), 31 - 32 * math.sin(0.32)
+    g.add(k.cyl(k.paint(DARK), 0.5, 7, tip_x, tip_y - 7, 0, 0.5, 6))
+    for s in (-1, 1):
+        claw = Node()
+        claw.add(k.box(k.paint(IRON_GREY), 1.6, 8, 3, 0.5, 0, -8, 0))
+        claw.rotation.x = s * 0.45
+        claw.position.set(tip_x, tip_y - 7, 0)
+        g.add(claw)
+    g.add(_log(k, 22, 2.6, tip_x, tip_y - 14, 0))
+    return g
+
+
+def upgrade_steam_log_crane(k):
+    """
+    Harvesters III: a steam log crane. A turntable platform with an upright green boiler and black chimney, a cab, and
+    a long lattice boom reaching out with a hook and a log. About 64 x 26, 52 high.
+    """
+    g = Node()
+    g.add(k.cyl(k.paint(DARK), 13, 3, -18, 0, 0, 13, 32))
+    g.add(k.box(k.paint("#1f4a2e"), 26, 14, 22, 2.2, -20, 3, 0))
+    g.add(k.box(k.paint(RED), 27, 2, 23, 0.8, -20, 17, 0))
+    g.add(k.cyl(k.paint("#1f4a2e"), 6, 16, -28, 19, 0, 6, 24))
+    g.add(k.cyl(k.paint(DARK), 2.4, 16, -28, 35, 0, 3, 16))
+    g.add(k.box(k.paint(YELLOW), 12, 14, 18, 1.6, -14, 19, 0))
+    g.add(k.box(k.paint(DARK), 14, 2, 20, 0.8, -14, 33, 0))
+    boom = Node()
+    for s in (-1, 1):
+        boom.add(k.box(k.paint(RED), 48, 2.4, 2.4, 0.8, 24, 0, s * 3.4))
+    for i in range(6):
+        boom.add(k.box(k.paint(RED), 1.6, 2, 7, 0.4, 4 + i * 8, 0, 0))
+    boom.rotation.z = 0.42
+    boom.position.set(-8, 22, 0)
+    g.add(boom)
+    tip_x, tip_y = -8 + 46 * math.cos(0.42), 22 + 46 * math.sin(0.42)
+    g.add(k.cyl(k.paint(DARK), 0.5, 24, tip_x, tip_y - 24, 0, 0.5, 6))
+    g.add(k.box(k.paint(IRON_GREY), 4, 3, 4, 0.8, tip_x, tip_y - 27, 0))
+    g.add(_log(k, 24, 3, tip_x, tip_y - 30.5, 0))
+    return g
+
+
+def upgrade_saw_bench(k):
+    """Sawmills II: a second saw bench, as the first: a beech block, cream top, a blade standing in its slot, red stops,
+    and a plank waiting on it. About 40 x 22, 22 high."""
+    g = Node()
+    g.add(k.box(k.wood, 40, 12, 22, 2.4, 0, 0, 0))
+    g.add(k.box(k.paint(CREAM), 40, 1.6, 22, 0.7, 0, 11.4, 0))
+    g.add(k.box(k.paint(DARK), 22, 0.6, 2.6, 0.25, 0, 12.8, 0))
+    blade = Node()
+    blade.add(k.cylZ(k.metal, 9, 1.4, 0, 0, 0, 28))
+    blade.add(k.cylZ(k.paint(RED), 2.6, 2.6, 0, 0, 0, 16))
+    blade.position.set(4, 13, 0)
+    g.add(blade)
+    for x in (-16, 16):
+        g.add(k.box(k.paint(RED), 3.4, 3.4, 3.4, 0.9, x, 13, -8))
+    g.add(k.box(k.wood, 18, 1.8, 6, 0.6, -10, 13, 5))
+    return g
+
+
+def upgrade_steam_saw_house(k):
+    """
+    Sawmills III: a steam saw house. A beech shed with a red roof and a tall brick chimney, a big red flywheel at its
+    +x end driving a saw bench beside it by a dark belt. About 70 x 34, 58 high to the chimney top.
+    """
+    g = Node()
+    x, w, d, h = -12, 40, 30, 22
+    g.add(k.box(k.wood, w, h, d, 2.6, x, 0, 0))
+    g.add(k.roof(k.paint(RED), w + 5, d + 5, 11, x, h - 0.5, 0, 3))
+    g.add(k.box(k.paint("#9a4a2c"), 10, 15, 1.6, 0.8, x - 6, 0, -d / 2 - 0.4))
+    g.add(k.box(k.paint(DARK), 8, 8, 1.4, 0.8, x + 9, 7, -d / 2 - 0.3))
+    g.add(k.cyl(k.paint(BRICK), 4, 42, x - 10, 0, d / 2 - 6, 3.4, 20))
+    g.add(k.cyl(k.paint(DARK), 4.2, 2.4, x - 10, 42, d / 2 - 6, 4.2, 20))
+    # Flywheel on the end wall, belt to the saw.
+    g.add(k.cylX(k.paint(RED), 9, 2.4, x + w / 2 + 1.6, 12, -4, 32))
+    g.add(k.cylX(k.paint(DARK), 2.6, 4, x + w / 2 + 1.6, 12, -4, 16))
+    bx = x + w / 2 + 14
+    g.add(k.box(k.wood, 18, 10, 14, 1.6, bx, 0, -4))
+    g.add(k.box(k.paint(CREAM), 18, 1.2, 14, 0.5, bx, 9.6, -4))
+    sb = Node()
+    sb.add(k.cylX(k.metal, 6.5, 1.2, 0, 0, 0, 24))
+    sb.position.set(bx, 11, -4)
+    sb.rotation.y = math.pi / 2
+    g.add(sb)
+    for y in (21, 3):
+        belt = Node()
+        belt.add(k.box(k.paint(DARK), 14, 0.8, 2, 0.3, 0, 0, 0))
+        belt.rotation.z = (11 - y) / 30
+        belt.position.set(x + w / 2 + 8, (y + 11) / 2 + (y - 12) * 0.2, -4)
+        g.add(belt)
+    return g
+
+
+def upgrade_tractor(k):
+    """Farming II: a toy tractor facing +x. A red body and bonnet, big black rear wheels with yellow hubs, small front
+    wheels, a seat and steering wheel, and an exhaust stack. About 26 x 18, 19 high."""
+    g = Node()
+    red = k.paint(RED)
+    g.add(k.box(red, 14, 7, 10, 2, 4, 5, 0))
+    g.add(k.box(red, 10, 8, 12, 2, -6, 5, 0))
+    g.add(k.box(k.paint(DARK), 6, 1.6, 7, 0.6, -7, 13, 0))
+    g.add(k.box(k.paint(DARK), 2, 5, 6, 0.6, -10, 13, 0))
+    g.add(k.cyl(k.paint(DARK), 0.5, 5, -1, 13, 0, 0.5, 8))
+    g.add(k.cylZ(k.paint(DARK), 2.6, 0.8, -0.4, 17.5, 0, 16))
+    g.add(k.cyl(k.paint(DARK), 0.9, 8, 8, 12, -2.5, 0.9, 10))
+    for s in (-1, 1):
+        g.add(k.cylZ(k.paint(DARK), 6.5, 4, -6, 6.5, s * 8, 24))
+        g.add(k.cylZ(k.paint(YELLOW), 3, 4.6, -6, 6.5, s * 8, 16))
+        g.add(k.cylZ(k.paint(DARK), 3.6, 3, 7, 3.6, s * 6.5, 20))
+        g.add(k.cylZ(k.paint(YELLOW), 1.6, 3.4, 7, 3.6, s * 6.5, 12))
+    g.add(k.box(k.paint(CREAM), 1.2, 3, 6, 0.4, 11.2, 7, 0))
+    return g
+
+
+def upgrade_millstones(k):
+    """
+    Mills II: a second pair of millstones under a hopper. A beech frame carrying two grey stones, a wooden hopper
+    above feeding them, a chute and a sack catching the flour. About 30 x 24, 34 high.
+    """
+    g = Node()
+    for x in (-10, 10):
+        for z in (-8, 8):
+            g.add(k.box(k.wood, 3, 14, 3, 0.8, x, 0, z))
+    g.add(k.box(k.wood, 26, 3, 22, 1.2, 0, 14, 0))
+    g.add(k.cyl(k.paint("#b9b7b0"), 10, 4, 0, 17, 0, 10, 32))
+    g.add(k.cyl(k.paint("#a3a098"), 10, 4, 0, 21.2, 0, 10, 32))
+    g.add(k.cyl(k.paint(DARK), 1.6, 1.2, 0, 25, 0, 1.6, 12))
+    g.add(k.lathe(k.wood, [(0.0, 0), (1.6, 0), (9, 10), (9, 11), (0.0, 11)], 0, 25, 0, 4))
+    g.add(k.lathe(k.paint("#e2b84a"), [(0.0, 0), (8, 0), (6, 1.2), (0.0, 1.8)], 0, 35.2, 0, 4))
+    chute = Node()
+    chute.add(k.box(k.wood, 3, 1.4, 10, 0.4, 0, 0, -5))
+    chute.rotation.x = 0.5
+    chute.position.set(0, 16, -11)
+    g.add(chute)
+    g.add(k.box(k.paint("#f3ead8"), 7, 8, 6, 2.2, 0, 0, -18))
+    g.add(k.box(k.paint("#2f6db5"), 7.2, 1.8, 6.2, 0.6, 0, 3, -18, seg=1))
+    return g
+
+
+def upgrade_stone_crusher(k):
+    """
+    Quarries II: a stone crusher. A grey hopper on top of an iron jaw box with a big red flywheel at its side, on legs,
+    and a short chute dropping gravel toward the track. About 40 x 30, 42 high.
+    """
+    g = Node()
+    for x in (-10, 10):
+        for z in (-8, 8):
+            g.add(k.box(k.paint(DARK), 3, 12, 3, 0.8, x, 0, z))
+    g.add(k.box(k.paint(IRON_GREY), 26, 14, 20, 2.4, 0, 12, 0))
+    for z in (-10.6, 10.6):
+        g.add(k.box(k.paint(DARK), 20, 1.4, 1.2, 0.4, 0, 18, z))
+    g.add(k.lathe(k.paint("#a7a59d"), [(0.0, 0), (6, 0), (16, 14), (16, 16), (0.0, 16)], 0, 26, 0, 4))
+    for i, (x, z) in enumerate(((-4, 2), (3, -3), (5, 4), (-2, -5))):
+        g.add(k.box(k.paint(("#bdbab2", "#9d9a92")[i % 2]), 4, 3, 4, 1, x, 40.5, z, seg=1))
+    g.add(k.cylX(k.paint(RED), 10, 2.4, 14.6, 19, 0, 32))
+    g.add(k.cylX(k.paint(DARK), 2.6, 4, 14.6, 19, 0, 16))
+    chute = Node()
+    chute.add(k.box(k.paint(IRON_GREY), 8, 1.6, 14, 0.5, 0, 0, -7))
+    chute.rotation.x = 0.55
+    chute.position.set(0, 12, -10)
+    g.add(chute)
+    for x, z in ((-3, -22), (2, -21), (0, -24)):
+        g.add(k.box(k.paint("#a7a59d"), 3, 2, 3, 0.8, x, 0, z, seg=1))
+    return g
+
+
 PARTS = [
     ("door", door),
     ("flower-box", flower_box),
@@ -740,6 +939,13 @@ PARTS = [
     ("industry-warehouse", industry_warehouse),
     ("load-stone-block", load_stone_block),
     ("load-stone-heap", load_stone_heap),
+    ("upgrade-log-loader", upgrade_log_loader),
+    ("upgrade-steam-log-crane", upgrade_steam_log_crane),
+    ("upgrade-saw-bench", upgrade_saw_bench),
+    ("upgrade-steam-saw-house", upgrade_steam_saw_house),
+    ("upgrade-tractor", upgrade_tractor),
+    ("upgrade-millstones", upgrade_millstones),
+    ("upgrade-stone-crusher", upgrade_stone_crusher),
 ]
 
 

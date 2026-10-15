@@ -28,16 +28,16 @@ export const CAR_SPECS: Record<CarKind, CarSpec> = {
  * How a car looks: the same car underneath (length, speed, what it carries), in a different body. Each kind's first
  * look is its usual one.
  */
-export type CarLook = "classic" | "tank" | "diesel" | "electric" | "dining" | "sleeper" | "double-decker" | "bay-window" | "express" | "first-class";
+export type CarLook = "classic" | "tank" | "diesel" | "electric" | "dining" | "sleeper" | "double-decker" | "bay-window" | "express" | "first-class" | "goods";
 export const CAR_LOOKS: Record<CarKind, readonly CarLook[]> = {
-  engine: ["classic", "tank", "diesel", "electric", "express"],
+  engine: ["classic", "tank", "diesel", "electric", "express", "goods"],
   hopper: ["classic"],
   passenger: ["classic", "dining", "sleeper", "double-decker", "first-class"],
   caboose: ["classic", "bay-window"],
   timber: ["classic"],
   van: ["classic"],
 };
-export const ALL_CAR_LOOKS: readonly CarLook[] = ["classic", "tank", "diesel", "electric", "dining", "sleeper", "double-decker", "bay-window", "express", "first-class"];
+export const ALL_CAR_LOOKS: readonly CarLook[] = ["classic", "tank", "diesel", "electric", "dining", "sleeper", "double-decker", "bay-window", "express", "first-class", "goods"];
 
 /** In snapshot-index order. */
 export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van"];

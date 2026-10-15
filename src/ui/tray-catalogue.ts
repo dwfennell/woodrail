@@ -67,6 +67,7 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["engine"], looks: ["diesel"], label: "Diesel" },
   { kind: "train", cars: ["engine"], looks: ["electric"], label: "Electric" },
   { kind: "train", cars: ["engine"], looks: ["express"], label: "Express" },
+  { kind: "train", cars: ["engine"], looks: ["goods"], label: "Goods engine" },
   { kind: "train", cars: ["hopper"], label: "Hopper" },
   { kind: "train", cars: ["timber"], label: "Timber wagon" },
   { kind: "train", cars: ["van"], label: "Goods van" },
