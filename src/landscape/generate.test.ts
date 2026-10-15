@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_NONE, FEAT_STATION, FEAT_TREE, PLOT_COLS, PLOT_DEPTH, PLOT_ROWS, PLOT_WIDTH, SURF_GRASS, SURF_LANE, SURF_RIVER, type LandscapeGrid } from "./grid";
+import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_NONE, FEAT_STATION, FEAT_TREE, PLOT_COLS, PLOT_DEPTH, PLOT_ROWS, PLOT_WIDTH, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_SAND, SURF_SEA, type LandscapeGrid } from "./grid";
 import { adoptRegion, corridorCells, fixedHome, generateLandscape, generatePlot, generateRegion, reachable, stationEnds, type Landscape } from "./generate";
 import { BORDER_BAND, edgeContract, STUB_DEPTH } from "./edges";
 
@@ -233,8 +233,8 @@ describe("generated plots", () => {
         expect([FEAT_STATION, FEAT_DEPOT, FEAT_FIELD, FEAT_BUILDING]).not.toContain(g.feature[i]);
         if (g.surface[i] !== SURF_GRASS) stubs.add(i);
       });
-      // Only crossings: straight in from the edge.
-      for (const i of stubs) expect([SURF_RIVER, SURF_LANE]).toContain(g.surface[i]);
+      // Only crossings (straight in from the edge), and the sea and its sand (the same either side of an edge).
+      for (const i of stubs) expect([SURF_RIVER, SURF_LANE, SURF_SEA, SURF_SAND]).toContain(g.surface[i]);
       expect(stubs.size % 1).toBe(0);
       expect(STUB_DEPTH).toBeGreaterThan(BORDER_BAND);
     }

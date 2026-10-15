@@ -1,6 +1,7 @@
 import { rng } from "../lib/rng";
 import type { Pose } from "../track";
 import { growTown } from "../roads/grow-town";
+import { coastOf, SAND, shoreDistance, type Coast } from "./coast";
 import { BORDER_BAND, hashInts, regionStubs, STUB_DEPTH, type Region, type Stub } from "./edges";
 import {
   CELL,
@@ -21,6 +22,8 @@ import {
   SURF_LANE,
   SURF_RIVER,
   SURF_ROAD,
+  SURF_SAND,
+  SURF_SEA,
   SURF_TOWN,
   type PlotCoord,
 } from "./grid";
@@ -103,6 +106,8 @@ export interface Landscape {
   depots: Depot[];
   /** The id the next building gets. */
   nextBuildingId: number;
+  /** Where the sea is (see `coast.ts`); null on maps from before the coast. */
+  coast?: Coast | null;
 }
 
 export const STATION_LENGTH = 216;
@@ -164,23 +169,25 @@ export function corridorCells(land: Landscape): number[] {
 }
 
 /** The world a new game starts with: the start region, generated deterministically from a seed. */
-export function generateLandscape(seed: number, options: { starter?: boolean } = {}): Landscape {
-  return generateRegion(seed, START_REGION, { starter: options.starter ?? false, shed: true });
+export function generateLandscape(seed: number, options: { starter?: boolean; coast?: boolean } = {}): Landscape {
+  const starter = options.starter ?? false;
+  const coast = options.coast === false ? null : coastOf(seed, starter);
+  return generateRegion(seed, START_REGION, { starter, shed: true, coast });
 }
 
 /** One plot of land, as it would be if added to a world with this seed (ids from 0: see `adoptRegion`). */
-export function generatePlot(seed: number, px: number, pz: number): Landscape {
-  return generateRegion(seed, { px0: px, pz0: pz, w: 1, h: 1 }, { starter: false, shed: false });
+export function generatePlot(seed: number, px: number, pz: number, coast: Coast | null = coastOf(seed)): Landscape {
+  return generateRegion(seed, { px0: px, pz0: pz, w: 1, h: 1 }, { starter: false, shed: false, coast });
 }
 
 /**
  * A rectangle of plots, deterministically from the seed and where it is (retrying internally until every town and
  * depot is reachable from the others and from the region's edge). Its edges meet the land either side: see `edges.ts`.
  */
-export function generateRegion(seed: number, region: Region, options: { starter: boolean; shed: boolean }): Landscape {
+export function generateRegion(seed: number, region: Region, options: { starter: boolean; shed: boolean; coast?: Coast | null }): Landscape {
   let last: Landscape | null = null;
   for (let attempt = 0; attempt < 20; attempt++) {
-    const land = attemptRegion(seed, region, options.starter, attempt);
+    const land = attemptRegion(seed, region, options.starter, attempt, options.coast ?? null);
     if (reachable(land)) {
       if (options.shed) addShed(land);
       addFields(land, region);
@@ -202,11 +209,14 @@ function noise(seed: number): (x: number, y: number) => number {
   return n;
 }
 
-/** The hills as the noise has them, before anything flattens them (whole blocks). The same everywhere for a seed. */
-function rawHeight(seed: number, col: number, row: number): number {
+/**
+ * The hills as the noise has them, before anything flattens them (whole blocks), sloping down to the beach (flat) by
+ * the sea. The same everywhere for a seed.
+ */
+function rawHeight(seed: number, col: number, row: number, coast: Coast | null): number {
   const hill = noise(seed * 7 + 1);
   const n = hill(col / 8, row / 8) * 0.7 + hill(col / 3.5 + 17, row / 3.5 + 5) * 0.3;
-  return Math.max(0, Math.min(MAX_HEIGHT, Math.floor((n - 0.42) * 7)));
+  return Math.max(0, Math.min(MAX_HEIGHT, Math.floor((n - 0.42) * 7), shoreDistance(coast, col, row) - SAND));
 }
 
 /** Is a tree's noise high enough here for a clump (and a coin toss per square)? The same everywhere for a seed. */
@@ -216,7 +226,7 @@ function treeHere(seed: number, col: number, row: number): boolean {
 }
 
 
-function attemptRegion(seed: number, region: Region, starter: boolean, attempt: number): Landscape {
+function attemptRegion(seed: number, region: Region, starter: boolean, attempt: number, coast: Coast | null): Landscape {
   const local = hashInts(seed, region.px0, region.pz0, region.w, region.h) + attempt * 1000;
   const random = rng(local);
   const grid = gridWithPlots(region.px0, region.pz0, region.w, region.h);
@@ -228,8 +238,18 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
   const interior = (col: number, row: number) => col >= col0 + BORDER_BAND && col < col1 - BORDER_BAND && row >= row0 + BORDER_BAND && row < row1 - BORDER_BAND;
   /** Squares for towns and depots: clear of the crossings' stubs too, with a square to spare. */
   const SITE_BAND = STUB_DEPTH + 1;
-  const siteRoom = (col: number, row: number) => col >= col0 + SITE_BAND && col < col1 - SITE_BAND && row >= row0 + SITE_BAND && row < row1 - SITE_BAND;
+  const siteRoom = (col: number, row: number) =>
+    col >= col0 + SITE_BAND && col < col1 - SITE_BAND && row >= row0 + SITE_BAND && row < row1 - SITE_BAND && shoreDistance(coast, col, row) > SAND + 2;
   const area = region.w * region.h;
+
+  // The sea past the shore, and a strip of sand along it.
+  if (coast) {
+    grid.forEachCell((i, col, row) => {
+      const d = shoreDistance(coast, col, row);
+      if (d <= 0) grid.surface[i] = SURF_SEA;
+      else if (d <= SAND) grid.surface[i] = SURF_SAND;
+    });
+  }
 
   const towns = placeTowns(random, region, starter, siteRoom, area);
   const depots = placeDepots(local, seed, towns, region, starter, siteRoom, area);
@@ -296,14 +316,14 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
 
   // Rivers: crossing the region's edges where the edge contracts say, joined up inside. (The contracts still name
   // where country lanes used to cross; there are no generated roads between towns now, only town gates.)
-  const stubs = regionStubs(seed, region);
+  const stubs = regionStubs(seed, region, coast);
   const rivers = stubs.inside.filter((s) => s.kind === "river");
   for (const stub of rivers) for (const [col, row] of stub.cells) grid.surface[grid.index(col, row)] = SURF_RIVER;
   joinRivers(grid, rivers, region, random, local, interior, locked);
 
   // Hills: the noise's heights, flattened down to the felt by towns, depots and rivers (here and across the region's
   // edges) so no square is more than one block above a neighbour.
-  settleHeights(grid, seed, region, stubs.outside.filter((s) => s.kind === "river"), locked);
+  settleHeights(grid, seed, region, stubs.outside.filter((s) => s.kind === "river"), locked, coast);
 
   // Each town grown from its station a building at a time (see `growTown`), on its own flat ground: a hamlet to a
   // small town, by where it is.
@@ -346,7 +366,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
     if (treeHere(seed, col, row)) grid.feature[i] = FEAT_TREE;
   });
 
-  return { seed, starter, grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null, depots, nextBuildingId: buildingId };
+  return { seed, starter, grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null, depots, nextBuildingId: buildingId, coast };
 }
 
 /** A station's or depot's squares (track and platform or yard), its approach corridors, and its town's area. */
@@ -639,7 +659,11 @@ function joinRivers(
   const mx = (region.px0 + region.w / 2) * PLOT_COLS;
   const mz = (region.pz0 + region.h / 2) * PLOT_ROWS;
   const ordered = [...stubs].sort((a, b) => Math.atan2(a.cells[0][1] - mz, a.cells[0][0] - mx) - Math.atan2(b.cells[0][1] - mz, b.cells[0][0] - mx));
-  const river = (i: number) => grid.surface[i] === SURF_RIVER;
+  const river = (i: number) => grid.surface[i] === SURF_RIVER || grid.surface[i] === SURF_SEA;
+  let sea = false;
+  grid.forEachCell((i) => {
+    if (grid.surface[i] === SURF_SEA) sea = true;
+  });
   // Each square's cost, worked out once: broad bends from the noise, a little jitter square by square so no run stays
   // dead straight, and dearer near the region's edge, so rivers keep to the middle rather than run along it.
   const base = new Float32Array(grid.cellCount);
@@ -653,7 +677,7 @@ function joinRivers(
   };
   const lay = (path: number[] | null) => {
     if (!path) return false;
-    for (const i of path) grid.surface[i] = SURF_RIVER;
+    for (const i of path) if (grid.surface[i] !== SURF_SEA) grid.surface[i] = SURF_RIVER;
     return true;
   };
   const pond = (s: Stub) => {
@@ -675,6 +699,25 @@ function joinRivers(
       if (i !== -1 && interior(cb + dc * k, rb + dr * k) && !locked(i)) grid.surface[i] = SURF_RIVER;
     }
   };
+  // By the sea, every river runs down to it (the first two still meet on the way, if there are two).
+  if (sea) {
+    // The first to the sea itself; the others to the sea or a river already running there (not to another crossing's
+    // stub, which may not reach it).
+    const reaches = new Set<number>();
+    grid.forEachCell((i) => {
+      if (grid.surface[i] === SURF_SEA) reaches.add(i);
+    });
+    for (const s of ordered) {
+      const path = cheapestPath(grid, [innerEnd(grid, s)], (i) => reaches.has(i), cost);
+      if (!lay(path)) {
+        pond(s);
+        continue;
+      }
+      for (const i of path!) reaches.add(i);
+      for (const [c, r] of s.cells) reaches.add(grid.index(c, r));
+    }
+    return;
+  }
   if (ordered.length === 1) {
     pond(ordered[0]);
     return;
@@ -715,7 +758,7 @@ function joinRivers(
  * within reach — towns, depots, rivers and lanes count as flat ground, here and in the neighbouring plots' crossings.
  * Worked out from the squares within `MAX_HEIGHT` alone, so plots either side of an edge agree on it.
  */
-function settleHeights(grid: LandscapeGrid, seed: number, region: Region, outside: readonly Stub[], locked: (i: number) => boolean): void {
+function settleHeights(grid: LandscapeGrid, seed: number, region: Region, outside: readonly Stub[], locked: (i: number) => boolean, coast: Coast | null): void {
   const pad = MAX_HEIGHT;
   const col0 = region.px0 * PLOT_COLS - pad;
   const row0 = region.pz0 * PLOT_ROWS - pad;
@@ -733,7 +776,7 @@ function settleHeights(grid: LandscapeGrid, seed: number, region: Region, outsid
       let flat: boolean;
       if (i === -1) flat = flatOutside.has(k);
       else flat = locked(i) || grid.surface[i] !== SURF_GRASS;
-      base[k] = flat ? 0 : rawHeight(seed, col, row);
+      base[k] = flat ? 0 : rawHeight(seed, col, row, coast);
     }
   }
   // MAX_HEIGHT passes of "no more than one above a neighbour": exactly the lowest of (height + distance) within reach.
@@ -864,7 +907,7 @@ function normaliseHeading(h: number): number {
 export function reachable(land: Landscape): boolean {
   const g = land.grid;
   const component = new Int32Array(g.cellCount).fill(-1);
-  const passable = (i: number) => g.feature[i] === FEAT_NONE && (g.surface[i] === SURF_GRASS || g.surface[i] === SURF_RIVER || g.surface[i] === SURF_LANE);
+  const passable = (i: number) => g.feature[i] === FEAT_NONE && (g.surface[i] === SURF_GRASS || g.surface[i] === SURF_RIVER || g.surface[i] === SURF_LANE || g.surface[i] === SURF_SAND);
   const atEdge: boolean[] = [];
   let next = 0;
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];

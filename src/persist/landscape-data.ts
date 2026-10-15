@@ -13,6 +13,7 @@ import {
   PLOT_CELLS,
   SURF_LANE,
   SURF_RIVER,
+  SURF_SAND,
   SURF_ROAD,
   type Landscape,
 } from "../landscape";
@@ -32,6 +33,8 @@ export const landscapeSchema = z.object({
   seed: z.number().int(),
   starter: z.boolean(),
   nextBuildingId: id,
+  /** Where the sea is; missing in saves from before the coast (no sea). */
+  coast: z.object({ side: z.enum(["n", "e", "s", "w"]), plot: z.number().int().min(-30000).max(30000) }).optional(),
   plots: z.array(
     z.object({
       px: z.number().int().min(-30000).max(30000),
@@ -98,6 +101,7 @@ export function serializeLandscape(land: Landscape): LandscapeData {
     seed: land.seed,
     starter: land.starter,
     nextBuildingId: land.nextBuildingId,
+    ...(land.coast ? { coast: { side: land.coast.side, plot: land.coast.plot } } : {}),
     plots: g.plots.map((p, slot) => {
       const a = slot * PLOT_CELLS;
       const b = a + PLOT_CELLS;
@@ -137,7 +141,7 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
     const owner = new Int32Array(ownerBytes.buffer, 0, PLOT_CELLS);
     const base = slot * PLOT_CELLS;
     for (let k = 0; k < PLOT_CELLS; k++) {
-      if (height[k] > MAX_HEIGHT || surface[k] > SURF_LANE || feature[k] > FEAT_DEPOT) return err(`plot ${p.px},${p.pz} has an unknown square`);
+      if (height[k] > MAX_HEIGHT || surface[k] > SURF_SAND || feature[k] > FEAT_DEPOT) return err(`plot ${p.px},${p.pz} has an unknown square`);
     }
     grid.height.set(height, base);
     grid.surface.set(surface, base);
@@ -184,5 +188,6 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
     shed: data.shed,
     corridors: data.corridors,
     nextBuildingId: data.nextBuildingId,
+    coast: data.coast ? { ...data.coast, seed: data.seed } : null,
   });
 }

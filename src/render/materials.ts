@@ -16,6 +16,7 @@ export interface Materials {
   hemFelt: MeshPhysicalMaterial;
   stitch: MeshStandardMaterial;
   riverFelt: MeshPhysicalMaterial;
+  sandFelt: MeshPhysicalMaterial;
   roadFelt: MeshPhysicalMaterial;
   blockWood: MeshStandardMaterial;
   blockTop: MeshStandardMaterial;
@@ -120,6 +121,7 @@ export function createMaterials(anisotropy: number): Materials {
   const hemFelt = feltMaterial("#2f5223", 24, "#6f9a55", 0.05);
   const riverFelt = feltMaterial("#2a63a0", 1, "#86b4e8", 0.08);
   const roadFelt = feltMaterial("#8d8a82", 1, "#e8e4da", 0.05);
+  const sandFelt = feltMaterial("#d9c48f", 1, "#f4e8c4", 0.06);
   const stitch = new MeshStandardMaterial({ map: stitchTexture(anisotropy), transparent: true, alphaTest: 0.3, roughness: 0.9 });
   // Building blocks are bare, unvarnished beech: matte, and a cheap shader for the hundreds on screen.
   const blockWood = new MeshStandardMaterial({ map: beech.map, roughnessMap: beech.roughnessMap, bumpMap: beech.bumpMap, bumpScale: 0.5, roughness: 0.92 });
@@ -171,6 +173,7 @@ export function createMaterials(anisotropy: number): Materials {
     hemFelt,
     stitch,
     riverFelt,
+    sandFelt,
     roadFelt,
     blockWood,
     blockTop,

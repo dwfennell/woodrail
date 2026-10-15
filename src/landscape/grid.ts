@@ -15,6 +15,13 @@ export const SURF_ROAD = 2;
 export const SURF_TOWN = 3;
 /** A country lane: felt road outside the towns that track may cross (a level crossing). */
 export const SURF_LANE = 4;
+/** The sea, past the shore (see `coast.ts`): water like a river's. */
+export const SURF_SEA = 5;
+/** The beach between the grass and the sea: open ground nothing is built on by the map. */
+export const SURF_SAND = 6;
+
+/** River or sea. */
+export const isWater = (surface: number): boolean => surface === SURF_RIVER || surface === SURF_SEA;
 
 export const FEAT_NONE = 0;
 export const FEAT_TREE = 1;

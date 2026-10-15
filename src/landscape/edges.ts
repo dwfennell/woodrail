@@ -1,4 +1,5 @@
 import { rng } from "../lib/rng";
+import { seaPlot, shoreDistance, type Coast } from "./coast";
 import { PLOT_COLS, PLOT_ROWS } from "./grid";
 
 /**
@@ -43,8 +44,8 @@ const contracts = new Map<string, EdgeContract>();
  * The contract of one edge. A vertical edge (`vertical`) is the west edge of plot (px, pz), running along z
  * (`PLOT_ROWS` long); otherwise it's the north edge of plot (px, pz), running along x (`PLOT_COLS` long).
  */
-export function edgeContract(seed: number, vertical: boolean, px: number, pz: number): EdgeContract {
-  const key = `${seed},${vertical ? 1 : 0},${px},${pz}`;
+export function edgeContract(seed: number, vertical: boolean, px: number, pz: number, coast: Coast | null = null): EdgeContract {
+  const key = `${seed},${vertical ? 1 : 0},${px},${pz},${coast ? `${coast.side}${coast.plot}` : ""}`;
   const have = contracts.get(key);
   if (have) return have;
   const random = rng(hashInts(seed, vertical ? 1 : 2, px, pz, 0x5eed));
@@ -58,7 +59,24 @@ export function edgeContract(seed: number, vertical: boolean, px: number, pz: nu
     const lane = at();
     if (rivers.every((r) => Math.abs(r - lane) >= 3)) lanes.push(lane);
   }
-  const contract = { rivers, lanes };
+  // Nothing crosses into the sea, nor so near the shore that its stubs would reach the sand.
+  if (coast) {
+    const other = vertical ? { px: px - 1, pz } : { px, pz: pz - 1 };
+    const dry = (k: number) => {
+      if (seaPlot(coast, px, pz) || seaPlot(coast, other.px, other.pz)) return false;
+      for (let d = -STUB_DEPTH - 1; d <= STUB_DEPTH; d++) {
+        const col = vertical ? px * PLOT_COLS + d : px * PLOT_COLS + k;
+        const row = vertical ? pz * PLOT_ROWS + k : pz * PLOT_ROWS + d;
+        if (shoreDistance(coast, col, row) < 6) return false;
+      }
+      return true;
+    };
+    return remember(key, { rivers: rivers.filter(dry), lanes: lanes.filter(dry) });
+  }
+  return remember(key, { rivers, lanes });
+}
+
+function remember(key: string, contract: EdgeContract): EdgeContract {
   if (contracts.size > 4096) contracts.clear();
   contracts.set(key, contract);
   return contract;
@@ -83,7 +101,7 @@ export interface Region {
  * The crossings on a region's outer edges: their stubs inside the region (`inside`) and inside the neighbouring plots
  * (`outside`, which flatten the hills on the far side the same way).
  */
-export function regionStubs(seed: number, r: Region): { inside: Stub[]; outside: Stub[] } {
+export function regionStubs(seed: number, r: Region, coast: Coast | null = null): { inside: Stub[]; outside: Stub[] } {
   const inside: Stub[] = [];
   const outside: Stub[] = [];
   const add = (kind: Stub["kind"], vertical: boolean, along: number, edge: number, inward: 1 | -1) => {
@@ -99,7 +117,7 @@ export function regionStubs(seed: number, r: Region): { inside: Stub[]; outside:
     outside.push({ kind, cells: b });
   };
   const edge = (vertical: boolean, px: number, pz: number, inward: 1 | -1) => {
-    const c = edgeContract(seed, vertical, px, pz);
+    const c = edgeContract(seed, vertical, px, pz, coast);
     const start = vertical ? pz * PLOT_ROWS : px * PLOT_COLS;
     const line = vertical ? px * PLOT_COLS : pz * PLOT_ROWS;
     for (const k of c.rivers) add("river", vertical, start + k, line, inward);

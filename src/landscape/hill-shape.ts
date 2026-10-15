@@ -1,5 +1,5 @@
 import { getPieceDef, pathLength, RISER_HEIGHT, TRACK_WIDTH, type PathGeom, type PieceTypeId, type Pose } from "../track";
-import { CELL, MAX_HEIGHT, SURF_RIVER, type LandscapeGrid } from "./grid";
+import { CELL, isWater, MAX_HEIGHT, type LandscapeGrid } from "./grid";
 
 /** Half the width of a cutting's bed (mm): the track, and a little room each side. */
 export const CUT_BED_HALF = TRACK_WIDTH / 2 + 4;
@@ -208,7 +208,7 @@ export class HillShape {
     };
     const river = (c: number, r: number) => {
       const i = g.index(c, r);
-      return i !== -1 && g.surface[i] === SURF_RIVER;
+      return i !== -1 && isWater(g.surface[i]);
     };
     let mask = 0;
     for (const { sx, sz, bit } of CORNERS) {
