@@ -30,6 +30,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:buffer-turnback": { label: "Turnback", cost: { planks: 1 } },
   "piece:switch": { label: "Switch", cost: { planks: 3 }, tech: "switches" },
   "piece:switch-y": { label: "Y switch", cost: { planks: 3 }, tech: "switches" },
+  "piece:signal": { label: "Signal", cost: { planks: 2 }, tech: "signals" },
   "piece:switch-3way": { label: "Three-way", cost: { planks: 5 }, tech: "junctions" },
   "piece:crossing": { label: "Crossing", cost: { planks: 3 }, tech: "junctions" },
   "piece:crossing-45": { label: "45° crossing", cost: { planks: 3 }, tech: "junctions" },
