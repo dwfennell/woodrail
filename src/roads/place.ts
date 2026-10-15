@@ -5,12 +5,14 @@ import { ALONG_ROAD, crossesRoad } from "../landscape/clearance";
 import { bestTurn, edgesOf, encodeRoad, pieceOf, roadsJoin, turnOf, type Edge, type RoadPieceId } from "./pieces";
 
 /** Why a road piece can't go on a square. */
-export type RoadBlock = "off-land" | "town" | "river" | "dry" | "slope" | "in-use" | "station-way" | "track" | "prop";
+export type RoadBlock = "off-land" | "town" | "river" | "sea" | "beach" | "dry" | "slope" | "in-use" | "station-way" | "track" | "prop";
 
 export const ROAD_MESSAGES: Record<RoadBlock, string> = {
   "off-land": "Roads go on your own land",
   town: "Town streets are already laid",
   river: "Use a road bridge over the river",
+  sea: "Roads can't go out over the sea",
+  beach: "Roads keep off the beach",
   dry: "Bridges go over the river",
   slope: "A ramp climbs a block over two squares: lay it up to a step",
   "in-use": "Something stands there",
@@ -129,12 +131,13 @@ export class RoadPlacer {
     if (i === -1) return "off-land";
     const s = g.surface[i];
     if (s === SURF_TOWN || s === SURF_ROAD) return "town";
-    // No road out over the sea (a road bridge spans a river).
-    if (s === SURF_SEA) return "river";
+    // No road out over the sea (a road bridge spans a river), nor on the beach (its sand would be lost under a lane).
+    if (s === SURF_SEA) return "sea";
+    if (s === SURF_SAND) return "beach";
     const bridge = this.road !== 0 && pieceOf(this.road)?.overRiver === true;
     if (s === SURF_RIVER && !bridge) return "river";
     if (s !== SURF_RIVER && bridge) return "dry";
-    if (s !== SURF_GRASS && s !== SURF_LANE && s !== SURF_RIVER && s !== SURF_SAND) return "in-use";
+    if (s !== SURF_GRASS && s !== SURF_LANE && s !== SURF_RIVER) return "in-use";
     if (g.feature[i] !== FEAT_NONE && g.feature[i] !== FEAT_TREE) return "in-use";
     // A station's way in stays clear for track, but a plain straight road across the line may go there (track laid
     // later crosses it at a level crossing).

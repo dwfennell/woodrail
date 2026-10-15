@@ -11,3 +11,6 @@ tools/blender/*.blend
 __pycache__/
 e2e-out/
 dist-artifact/
+
+# Screenshots belong in a scratch folder, not the repo root.
+/*.png
