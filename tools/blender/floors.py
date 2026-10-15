@@ -29,7 +29,7 @@ def main():
         root = build(kit.Kit())
         pivots = kit.realize(root, block_id)
         toy.finish(block_id, (i % 8 * 220, -(i // 8) * 220, 0), pivots)
-    print(f"{len(bldg_floors.ASSETS)} floor blocks")
+    print(f"{len(bldg_floors.ASSETS)} storey blocks")
     if not os.environ.get("NOEXPORT"):
         toy.save_and_export("floors")
 
