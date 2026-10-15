@@ -903,6 +903,216 @@ def upgrade_stone_crusher(k):
     return g
 
 
+# ——— Phase C: mining and iron ———
+
+ROCK = ("#9d9a92", "#b0ada5", "#8f8b83")
+RUST = ("#8a4a2c", "#a0593a", "#7a3f26")
+IRON_BAR = "#8d9096"
+
+
+def _arch(w, h):
+    """An arch outline w wide and h high at the crown (x/y, its base on y = 0)."""
+    r = w / 2
+    pts = [(-r, 0), (r, 0), (r, h - r)]
+    for i in range(1, 12):
+        a = math.pi * i / 12
+        pts.append((r * math.cos(a), h - r + r * math.sin(a)))
+    pts.append((-r, h - r))
+    return pts
+
+
+def industry_mine(k):
+    """
+    The mine: a rocky hill at the far end (x 150-206, z 60-114) with a timbered tunnel mouth facing the yard and rails
+    running out of it, a red winding tower (its wheel is a part of its own, "industry-mine-wheel": hub at x 112,
+    y 66, z 96, turning on z), and a brick engine house with a tall chimney at x 72, z 100.
+    """
+    g = Node()
+    # The hill: rock blocks stepping up, grass on top.
+    for x0, x1, z0, h, c in ((150, 206, 60, 22, 0), (158, 206, 72, 36, 1), (170, 206, 86, 48, 2)):
+        g.add(k.box(k.paint(ROCK[c]), x1 - x0, h, 114 - z0, 4, (x0 + x1) / 2, PAD, (z0 + 114) / 2))
+    g.add(k.box(k.paint("#5d8a45"), 36, 3, 28, 1.5, 188, PAD + 48, 100))
+    # The tunnel mouth on the hill's front (-x) face, framed in timber, rails running out across the yard.
+    portal = Node()
+    portal.add(k.extrude(k.paint("#c6c3ba"), _arch(26, 26), 3, 0, 0, 0, 0.8))
+    portal.add(k.extrude(k.paint("#1c1c1f"), _arch(18, 19), 3.6, 0, 0, 0.2, 0.4))
+    portal.rotation.y = math.pi / 2
+    portal.position.set(150, PAD, 86)
+    g.add(portal)
+    for dz in (-10.5, 10.5):
+        g.add(k.box(k.wood, 3, 21, 3, 0.8, 147.5, PAD, 86 + dz))
+    g.add(k.box(k.wood, 3, 3, 26, 0.8, 147.5, PAD + 21, 86))
+    for dz in (-4, 4):
+        g.add(k.box(k.metal, 46, 1.2, 1.2, 0.3, 127, PAD, 86 + dz, seg=1))
+    for x in range(108, 150, 7):
+        g.add(k.box(k.wood, 2.4, 0.8, 12, 0.3, x, PAD, 86, seg=1))
+    # A little tub of ore on the rails.
+    g.add(k.box(k.paint(DARK), 10, 6, 8, 1.4, 128, PAD + 2, 86))
+    for i, (dx, dz) in enumerate(((-2.5, -1.5), (2, 1.5), (0, -2), (-1, 2))):
+        g.add(k.box(k.paint(RUST[i % 3]), 3.2, 2.6, 3, 0.8, 128 + dx, PAD + 8, 86 + dz, seg=1))
+    # The winding tower: four red legs leaning in, cross braces, a platform, a back stay toward the engine house.
+    red = k.paint(RED)
+    tx, tz, top = 112, 96, PAD + 62
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            leg = Node()
+            leg.add(k.box(red, 2.6, 60, 2.6, 0.8, 0, 0, 0))
+            # Leaning in: each leg's top 6 in from its foot.
+            leg.rotation.z = sx * 0.1
+            leg.rotation.x = -sz * 0.1
+            leg.position.set(tx + sx * 9, PAD, tz + sz * 9)
+            g.add(leg)
+    for y in (20, 40):
+        g.add(k.box(red, 18 - y * 0.18, 1.6, 1.6, 0.4, tx, PAD + y, tz - 9 + y * 0.1))
+        g.add(k.box(red, 18 - y * 0.18, 1.6, 1.6, 0.4, tx, PAD + y, tz + 9 - y * 0.1))
+    g.add(k.box(k.wood, 12, 2, 12, 0.6, tx, top - 2, tz))
+    stay = Node()
+    stay.add(k.box(red, 2.4, 52, 2.4, 0.6, 0, 0, 0))
+    stay.rotation.z = 0.62
+    stay.position.set(tx - 2 + 30, PAD, tz)
+    g.add(stay)
+    g.add(k.cyl(k.paint(DARK), 0.5, 52, tx, PAD + 10, tz - 4, 0.5, 6))
+    # The engine house.
+    ex, ez = 72, 100
+    g.add(k.box(k.paint(BRICK), 26, 22, 22, 2.4, ex, PAD, ez))
+    g.add(k.roof(k.paint(DARK), 30, 26, 10, ex, PAD + 21.5, ez, 3))
+    g.add(k.box(k.paint("#9a4a2c"), 8, 13, 1.6, 0.8, ex - 5, PAD, ez - 11.4))
+    g.add(k.box(k.paint(DARK), 6, 6, 1.4, 0.8, ex + 6, PAD + 8, ez - 11.3))
+    g.add(k.cyl(k.paint(BRICK), 4.2, 52, ex - 8, PAD, ez + 8, 3.4, 20))
+    g.add(k.cyl(k.paint(DARK), 4.2, 2.4, ex - 8, PAD + 52, ez + 8, 4.2, 20))
+    return g
+
+
+def industry_mine_wheel(k):
+    """The winding tower's wheel: 22 across with four spokes and a hub, in the x/y plane, its hub at the origin (turn
+    it on z)."""
+    g = Node()
+    g.add(k.extrude(k.paint(DARK), [(11 * math.cos(2 * math.pi * i / 32), 11 * math.sin(2 * math.pi * i / 32)) for i in range(32)], 2.4, 0, 0, 0, 0.5))
+    g.add(k.extrude(k.paint("#e9e2d4"), [(8.6 * math.cos(2 * math.pi * i / 32), 8.6 * math.sin(2 * math.pi * i / 32)) for i in range(32)], 2.8, 0, 0, 0, 0.4))
+    for i in range(4):
+        sp = Node()
+        sp.add(k.box(k.paint(RED), 1.6, 17, 1.6, 0.4, 0, -8.5, 0))
+        sp.rotation.z = i * math.pi / 4
+        g.add(sp)
+    g.add(k.cylZ(k.paint(RED), 2.6, 4, 0, 0, 0, 16))
+    return g
+
+
+def industry_foundry(k):
+    """
+    The foundry: a brick furnace (x 166, z 88) glowing orange at its mouth, its tall chimney behind it; an open
+    casting shed (x 70-126, z 80-112) over rows of iron moulds; and a ladle on a little cart by the yard's front at
+    x 140, z 44, on a short length of rail.
+    """
+    g = Node()
+    brick = k.paint(BRICK)
+    fx, fz = 166, 88
+    g.add(k.cyl(brick, 17, 34, fx, PAD, fz, 13, 32))
+    g.add(k.cyl(k.paint(DARK), 14, 3, fx, PAD + 34, fz, 13, 32))
+    mouth = Node()
+    mouth.add(k.extrude(k.paint(DARK), _arch(14, 15), 3, 0, 0, 0, 0.6))
+    mouth.add(k.extrude(k.paint("#ff8a2a"), _arch(10, 11), 1.2, 0, 0.6, -1.6, 0.3))
+    mouth.position.set(fx, PAD, fz - 16)
+    g.add(mouth)
+    g.add(k.cyl(brick, 6, 66, fx + 18, PAD, fz + 14, 4.6, 24))
+    g.add(k.cyl(k.paint(DARK), 5, 3, fx + 18, PAD + 66, fz + 14, 5, 24))
+    # Coal and ore waiting by the furnace.
+    for i, (dx, dz, c) in enumerate(((-26, -6, DARK), (-24, 4, RUST[0]), (-30, 0, RUST[1]))):
+        g.add(k.box(k.paint(c), 6, 4, 6, 1.2, fx + dx, PAD, fz + dz, seg=1))
+    # The casting shed: posts and a red roof, open on every side, iron moulds in rows under it.
+    for x in (72, 98, 124):
+        for z in (82, 110):
+            g.add(k.box(k.paint(SHED_POST), 3.6, 26, 3.6, 1, x, PAD, z))
+    g.add(k.roof(k.paint(RED), 62, 38, 11, 98, PAD + 25.5, 96, 3))
+    for x in (80, 92, 104, 116):
+        for z in (90, 102):
+            g.add(k.box(k.paint(DARK), 9, 3, 8, 1, x, PAD, z))
+            g.add(k.box(k.paint(IRON_BAR), 6.4, 0.8, 5, 0.4, x, PAD + 2.6, z, seg=1))
+    # The ladle on its cart and rails.
+    for dz in (-4, 4):
+        g.add(k.box(k.metal, 30, 1.2, 1.2, 0.3, 140, PAD, 44 + dz, seg=1))
+    g.add(k.box(k.paint(DARK), 14, 4, 10, 1.2, 140, PAD + 3, 44))
+    for dx in (-4.5, 4.5):
+        for dz in (-4, 4):
+            g.add(k.cylZ(k.paint(RED), 2.2, 1.6, 140 + dx, PAD + 2.4, 44 + dz, 14))
+    ladle = Node()
+    ladle.add(k.cyl(k.paint(IRON_BAR), 5.6, 9, 0, 0, 0, 7, 24))
+    ladle.add(k.cyl(k.paint("#ff8a2a"), 6.4, 0.8, 0, 8.6, 0, 6.4, 24))
+    ladle.rotation.x = -0.25
+    ladle.position.set(140, PAD + 7, 44)
+    g.add(ladle)
+    return g
+
+
+def load_coal(k):
+    """A unit of coal, 14 (x) by 6 high by 9 (z): a soft black block with chunky lumps set in its sides, flat on top so
+    units stack; centred on its footprint, its base on y = 0."""
+    g = Node()
+    g.add(k.box("coal", 14, 6, 9, 1.6, 0, 0, 0))
+    for x, y, z in ((-4, 2, 4.4), (3, 3.4, 4.4), (-1, 1.6, -4.4), (5, 2.6, -4.4), (6.8, 2.4, 1), (-6.8, 3.2, -1)):
+        g.add(k.box("coal", 3.2, 2.6, 2.4, 0.6, x, y, z, seg=1))
+    return g
+
+
+def load_ore(k):
+    """A unit of iron ore, 14 (x) by 6 high by 9 (z): a rusty red-brown block of rock with darker and lighter chunks
+    set in its sides; flat on top so units stack; centred on its footprint, its base on y = 0."""
+    g = Node()
+    g.add(k.box(k.paint(RUST[0]), 14, 6, 9, 1.8, 0, 0, 0))
+    for i, (x, y, z) in enumerate(((-4, 2, 4.4), (3, 3.2, 4.4), (-1, 1.8, -4.4), (5, 2.6, -4.4), (6.8, 2.4, 1), (-6.8, 3, -1))):
+        g.add(k.box(k.paint(RUST[1 + i % 2]), 3.4, 2.8, 2.6, 0.7, x, y, z, seg=1))
+    return g
+
+
+def load_iron(k):
+    """A bundle of iron ingots (a planks bundle's size: 32 (x) by 7.5 high by 12 (z)): six grey bars in two layers,
+    strapped twice in dark iron; centred on its footprint, its base on y = 0."""
+    g = Node()
+    bar = k.paint(IRON_BAR)
+    for layer in range(2):
+        for i in range(3):
+            g.add(k.box(bar, 31 - layer * 1.5, 3.5, 3.7, 1, 0, layer * 3.7, (i - 1) * 4))
+    for x in (-9, 9):
+        g.add(k.box(k.paint(DARK), 1.6, 7.7, 12.2, 0.5, x, -0.1, 0))
+    return g
+
+
+def _heap(k, g, base, lumps, seed):
+    """A low mound fitting a hopper's bin top (59 x 25, about 8 high) with chunky lumps on it."""
+    import random
+
+    mound = Node()
+    prof = [(0.0, 0), (1.0, 0), (0.98, 0.18), (0.9, 0.42), (0.74, 0.68), (0.52, 0.86), (0.26, 0.97), (0.0, 1.0)]
+    mound.add(k.lathe(base, prof, 0, 0, 0, 24))
+    mound.scale.set(29.5, 6.5, 12.5)
+    g.add(mound)
+    rnd = random.Random(seed)
+    for i in range(16):
+        u, v = rnd.uniform(-0.85, 0.85), rnd.uniform(-0.8, 0.8)
+        if u * u + v * v > 0.8:
+            continue
+        rr = math.sqrt(u * u + v * v)
+        st = Node()
+        sz = rnd.uniform(3.4, 5.2)
+        st.add(k.box(lumps[i % len(lumps)], sz, sz * 0.7, sz * 0.85, 0.7, 0, -sz * 0.35, 0, seg=1))
+        st.rotation.y = rnd.uniform(0, math.pi)
+        st.rotation.x = rnd.uniform(-0.3, 0.3)
+        st.position.set(u * 29.5, 6.5 * (1 - rr * rr * 0.9), v * 12.5)
+        g.add(st)
+    return g
+
+
+def load_coal_heap(k):
+    """A heap of coal for a hopper's bin (the grain heap's 59 x 25 mound, black, lumpy); base on y = 0, scale y by how
+    full the hopper is."""
+    return _heap(k, Node(), "coal", ["coal"], 5)
+
+
+def load_ore_heap(k):
+    """A heap of iron ore for a hopper's bin (rusty red-brown rocks); base on y = 0, scale y by how full."""
+    return _heap(k, Node(), k.paint(RUST[0]), [k.paint(c) for c in RUST], 9)
+
+
 PARTS = [
     ("door", door),
     ("flower-box", flower_box),
@@ -946,6 +1156,14 @@ PARTS = [
     ("upgrade-tractor", upgrade_tractor),
     ("upgrade-millstones", upgrade_millstones),
     ("upgrade-stone-crusher", upgrade_stone_crusher),
+    ("industry-mine", industry_mine),
+    ("industry-mine-wheel", industry_mine_wheel),
+    ("industry-foundry", industry_foundry),
+    ("load-coal", load_coal),
+    ("load-ore", load_ore),
+    ("load-iron", load_iron),
+    ("load-coal-heap", load_coal_heap),
+    ("load-ore-heap", load_ore_heap),
 ]
 
 
