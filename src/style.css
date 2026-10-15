@@ -87,6 +87,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .land-text { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 320px; }
 .lever { width: 60px; height: 50px; font-size: 20px; }
 .close { position: absolute; top: 0; right: 0; width: 44px; height: 44px; border: none; background: transparent; font-size: 16px; color: #8a6a4a; cursor: pointer; padding: 0; }
+/* Titles of cards with a ✕ keep clear of it (padded both sides, so they stay centred). */
+.depot-card > .card-title, .piece-card > .card-title { padding: 0 34px; }
 
 /* Toasts: a little paper label that slides down and settles with a slight tilt. */
 .toast { position: absolute; left: 50%; top: calc(max(10px, env(safe-area-inset-top)) + 62px); transform: translate(-50%, -14px) rotate(0deg); background: #fbf5e8; color: #3a2a1c; padding: 9px 18px; border-radius: 6px; font-weight: 800; opacity: 0;

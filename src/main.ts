@@ -1098,8 +1098,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     if (!canShed) return;
     const build = document.createElement("button");
     build.className = "chip text";
-    build.textContent = `Build a dock shed (${SHED_PRICE} coins)`;
-    build.title = `Holds ${SHED_CAP} more of every good for the boats`;
+    // (No title: on a desktop its tooltip can linger over the tray after the click.)
+    build.textContent = `Build a dock shed: room for ${SHED_CAP} more of each good (${SHED_PRICE} coins)`;
     build.addEventListener("click", () => {
       if (progress.coins < SHED_PRICE) {
         hud.toast(`A dock shed costs ${SHED_PRICE} coins: you have ${progress.coins}`, false, 3200);

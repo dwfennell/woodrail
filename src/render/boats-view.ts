@@ -40,6 +40,8 @@ export class BoatsView {
   /** Each harbour's boat still loading, by a token that a later arrive, a remove or a clear makes stale. */
   private readonly pending = new Map<number, number>();
   private token = 0;
+  /** A boat moved while out of view since the shadows were last drawn for it (its old shadow may be on the map). */
+  shadowsStale = false;
 
   constructor(
     private readonly library: PropLibrary,
@@ -119,6 +121,7 @@ export class BoatsView {
       sphere.radius = BOAT_REACH;
       const seen = frustum.intersectsSphere(sphere);
       if (seen || s.seen) draw = true;
+      else this.shadowsStale = true;
       s.seen = seen;
       if (t >= s.seconds) {
         this.sailing.splice(i, 1);

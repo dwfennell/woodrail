@@ -555,7 +555,15 @@ export class Game {
       this.camera.near = near;
       this.camera.updateProjectionMatrix();
     }
-    if (this.cameraMoved() || this.woken) active = true;
+    if (this.cameraMoved() || this.woken) {
+      active = true;
+      // A boat moved unseen: its shadow may still be drawn where it was, now coming into view.
+      if (this.boats.shadowsStale) {
+        this.boats.shadowsStale = false;
+        this.shadowsMoving = true;
+        this.invalidate();
+      }
+    }
     this.woken = false;
     // Draw only while something on screen is changing (and a moment after, for anything easing to rest): a still
     // scene stays on screen without being drawn again, so an idle game costs next to nothing.
