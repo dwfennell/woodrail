@@ -50,6 +50,7 @@ import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/e
 import { propsInRect } from "./props/placement";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TitleScreen } from "./ui/title";
+import { installClickShield } from "./ui/click-shield";
 import "./style.css";
 
 /** How far (mm) the opening view stands from where track was last built: the middle of the zoom range. */
@@ -178,6 +179,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   };
   drawThumbnails([...TRACK_ITEMS, ...TRAIN_ITEMS]);
 
+  // A tap that opens a card (or a tray shelf) under the finger mustn't also press what opened there.
+  installClickShield();
   const hud = new Hud(
     document.body,
     {
