@@ -482,6 +482,28 @@ export class Game {
     this.post.setSize(Math.floor(w * pr), Math.floor(h * pr));
   }
 
+  /** Frames drawn since start (for tests and measuring: an idle game should add none). */
+  framesDrawn = 0;
+  /** Those waiting for the scene to be still: how many ticks in a row each still wants, and how many it's seen. */
+  private settling: { ticks: number; still: number; done: () => void }[] = [];
+
+  /**
+   * Resolves once the scene has been still (nothing drawn) for `ticks` ticks in a row, counted from now: for tests,
+   * in place of waiting a fixed time for animations and camera moves to end.
+   */
+  settled(ticks = 5): Promise<void> {
+    return new Promise((done) => this.settling.push({ ticks, still: 0, done }));
+  }
+
+  private settleWaiters(drew: boolean): void {
+    this.settling = this.settling.filter((w) => {
+      w.still = drew ? 0 : w.still + 1;
+      if (w.still < w.ticks) return true;
+      w.done();
+      return false;
+    });
+  }
+
   start(): void {
     this.renderer.setAnimationLoop((time) => {
       if (time - this.lastFrameAt < FRAME_MS - FRAME_SLACK_MS) return;
@@ -557,8 +579,10 @@ export class Game {
     this.dirty = false;
     if (!once && now - this.lastActive > IDLE_TAIL) {
       this.drewLastTick = false;
+      if (this.settling.length > 0) this.settleWaiters(false);
       return;
     }
+    if (this.settling.length > 0) this.settleWaiters(true);
     const radius = shadowRadiusForView(this.camera, t);
     const refit = shouldRefit(this.stage.shadowFit, t.x, t.z, radius);
     if (refit) this.stage.fitShadow(t.x, t.z, radius);
@@ -574,6 +598,7 @@ export class Game {
     pulseBeacons(this.mats, now);
     this.post.setFocus(dist);
     this.post.render(now);
+    this.framesDrawn++;
     // A picture of this frame wanted (a debug report): taken now, while the drawing buffer still holds it.
     if (this.grabFrame) {
       const take = this.grabFrame;

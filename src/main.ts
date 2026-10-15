@@ -564,6 +564,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") save();
   });
+  // Leaving the page (closed, reloaded): some browsers don't report it hidden first.
+  addEventListener("pagehide", save);
 
   const title = new TitleScreen(document.body, { play }, { thumbnails });
 
