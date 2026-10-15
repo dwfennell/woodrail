@@ -1,4 +1,5 @@
 import { normalizeAngle, solveParentPose, transformPose, type Pose } from "./math";
+import { createSample, pathLength, samplePath } from "./path";
 import { getPieceDef, type ConnectorKind, type PieceTypeId } from "./pieces";
 
 /**
@@ -29,8 +30,10 @@ export interface DrawnPiece {
   /** How far along the stroke (mm) the line had got before this piece, and how many stroke points lead up to there. */
   readonly from: number;
   readonly points: number;
-  /** It may not go there (the line stops at it). */
-  readonly blocked: boolean;
+  /** Why it may not go there (the line stops at it), or null. */
+  readonly blocked: string | null;
+  /** Points along its track, from where it joins the line to its free end: x, z and the heading the line runs, in threes. */
+  readonly track: readonly number[];
 }
 
 /** A piece the line could take next, before it's checked. */
@@ -50,8 +53,8 @@ export interface DrawCandidate {
 export const DRAW_TYPES: readonly PieceTypeId[] = ["straight-216", "straight-144", "straight-108", "straight-54", "curve-large", "curve-wide", "curve-small"];
 
 export interface DrawOptions {
-  /** May this piece go here? (The landscape, other track, the line's own pieces, the player's stock.) */
-  check?: (c: DrawCandidate, line: readonly DrawnPiece[]) => boolean;
+  /** May this piece go here (the landscape, other track, the line's own pieces)? Null, or why not. */
+  check?: (c: DrawCandidate, line: readonly DrawnPiece[]) => string | null;
   /** Which types it may use now (Game mode: only those the player has left). */
   allow?: (type: PieceTypeId, line: readonly DrawnPiece[]) => boolean;
   /**
@@ -69,8 +72,10 @@ const STEP = 6;
 export const DRAW_LOOKAHEAD = 250;
 /** Finishing: the line stops when less than this much stroke (mm) is left. */
 const FINISH_SLACK = 27;
-/** Retracing: the finger this close (mm) to a joint of the line, heading back along it, takes the pieces after off. */
+/** Retracing: the finger this close (mm) to a piece's track, heading back along it, takes it (and those after) off. */
 const TRIM_REACH = 30;
+/** Pieces' tracks are kept as points this far apart (mm), for retracing. */
+const TRACK_STEP = 12;
 /** Scoring: how far off the stroke (mm), and off its heading (radians), count as one unit of cost. */
 const SIGMA_D = 18;
 const SIGMA_H = 0.3;
@@ -123,7 +128,7 @@ export class DrawLine {
   private progress = 0;
   /** The line has stopped: at a piece that can't go there, or on other track. */
   stopped: "blocked" | "closed" | null = null;
-  /** Pieces it was refused (Game mode: none left), the last time the line grew. */
+  /** A piece the line would have used but the player has none of left (Game mode), or null. */
   refused: PieceTypeId | null = null;
 
   constructor(
@@ -188,8 +193,8 @@ export class DrawLine {
   }
 
   /**
-   * Going back over the line: if the finger is at one of its joints, heading back the way the line came, the pieces
-   * after that joint come off (and the stroke goes back to where it was then).
+   * Going back over the line: if the finger is over one of its pieces, heading back the way the line runs there, that
+   * piece and those after it come off (and the stroke goes back to where the line was before it).
    */
   private retrace(x: number, z: number): boolean {
     const n = this.xs.length;
@@ -197,10 +202,16 @@ export class DrawLine {
     const dz = z - this.zs[n - 1];
     const len = Math.hypot(dx, dz);
     for (let k = 0; k < this.pieces.length; k++) {
-      const at = k === 0 ? this.start : this.pieces[k - 1].end;
-      if (Math.hypot(x - at.x, z - at.z) > TRIM_REACH) continue;
-      // Heading back along the line (against the way it runs from this joint).
-      if ((dx * Math.cos(at.heading) + dz * Math.sin(at.heading)) / len > -0.3) continue;
+      const t = this.pieces[k].track;
+      let over = false;
+      // Not its last few points: back at a joint, the piece before it stays.
+      const upTo = t.length - 3 * Math.ceil(TRIM_REACH / TRACK_STEP);
+      for (let i = 0; i < upTo && !over; i += 3) {
+        if (Math.hypot(x - t[i], z - t[i + 1]) > TRIM_REACH) continue;
+        // Heading back along the line (against the way it runs here).
+        over = (dx * Math.cos(t[i + 2]) + dz * Math.sin(t[i + 2])) / len < -0.3;
+      }
+      if (!over) continue;
       const p = this.pieces[k];
       this.pieces.length = k;
       this.xs.length = this.zs.length = this.ss.length = p.points;
@@ -217,9 +228,9 @@ export class DrawLine {
       const left = this.strokeLength - this.progress;
       if (left < (finishing ? FINISH_SLACK : DRAW_LOOKAHEAD)) return;
       const end = this.end;
-      // Finishing: only if the finger was let go a little way from the line's end (not back on it, after retracing).
-      const n = this.xs.length - 1;
-      if (finishing && Math.hypot(this.xs[n] - end.x, this.zs[n] - end.z) < FINISH_SLACK) return;
+      // Finishing: only if the finger was let go a little way from the line's end, moving away from it (not coming back
+      // to it, retracing, or round the tip of a hairpin).
+      if (finishing && !this.leavingEnd(end)) return;
       const met = this.options.meet?.(end, this.pieces);
       const near = met ? this.nearest(met.end.x, met.end.z, this.progress, this.progress + met.length * 1.6 + 40) : null;
       if (met && near && near.d < MEET_REACH && near.s <= this.strokeLength + MEET_REACH) {
@@ -234,11 +245,26 @@ export class DrawLine {
     }
   }
 
+  /** Is the finger, where it was let go, a little way ahead of the line's end and moving away from it? */
+  private leavingEnd(end: DrawEnd): boolean {
+    const n = this.xs.length - 1;
+    const ax = this.xs[n] - end.x;
+    const az = this.zs[n] - end.z;
+    if (Math.hypot(ax, az) < FINISH_SLACK) return false;
+    // Ahead of the end (track only goes on forward from it).
+    if (ax * Math.cos(end.heading) + az * Math.sin(end.heading) <= 0) return false;
+    // The finger's last few centimetres of movement.
+    const back = this.pointAt(Math.max(0, this.strokeLength - 30));
+    const mx = this.xs[n] - back.x;
+    const mz = this.zs[n] - back.z;
+    return mx * ax + mz * az > 0;
+  }
+
   private lay(c: DrawCandidate, s: number): void {
-    const blocked = this.options.check ? !this.options.check(c, this.pieces) : false;
+    const blocked = this.options.check?.(c, this.pieces) ?? null;
     let points = 1;
     while (points < this.ss.length && this.ss[points] <= this.progress) points++;
-    this.pieces.push({ type: c.type, flipped: c.flipped, pose: c.pose, y: c.y, entry: c.entry, exit: c.exit, end: c.end, from: this.progress, points, blocked });
+    this.pieces.push({ type: c.type, flipped: c.flipped, pose: c.pose, y: c.y, entry: c.entry, exit: c.exit, end: c.end, from: this.progress, points, blocked, track: trackOf(c) });
     this.progress = Math.max(this.progress, s);
     if (blocked) this.stopped = "blocked";
   }
@@ -246,12 +272,15 @@ export class DrawLine {
   /** The best next piece: scored with the one after it (or alone, finishing near the stroke's end). */
   private choose(end: DrawEnd, finishing: boolean): { candidate: DrawCandidate; s: number } | null {
     const allow = this.options.allow;
-    this.refused = null;
-    const types = allow ? DRAW_TYPES.filter((t) => allow(t, this.pieces)) : DRAW_TYPES;
-    if (types.length === 0) {
-      this.refused = DRAW_TYPES[0];
-      return null;
-    }
+    if (!allow) return this.best(end, finishing, DRAW_TYPES);
+    const types = DRAW_TYPES.filter((t) => allow(t, this.pieces));
+    // The piece it would have used, if it's one the player has run out of (Game mode): said when the line goes down.
+    const ideal = types.length < DRAW_TYPES.length ? this.best(end, finishing, DRAW_TYPES) : null;
+    if (ideal && !types.includes(ideal.candidate.type)) this.refused ??= ideal.candidate.type;
+    return types.length === 0 ? null : this.best(end, finishing, types);
+  }
+
+  private best(end: DrawEnd, finishing: boolean, types: readonly PieceTypeId[]): { candidate: DrawCandidate; s: number } | null {
     const firsts = candidatesFrom(end, types);
     let best: { candidate: DrawCandidate; s: number } | null = null;
     let bestCost = Infinity;
@@ -359,4 +388,24 @@ export class DrawLine {
     const t = span > 0 ? Math.min(1, (s - this.ss[lo]) / span) : 0;
     return { x: this.xs[lo] + (this.xs[hi] - this.xs[lo]) * t, z: this.zs[lo] + (this.zs[hi] - this.zs[lo]) * t };
   }
+}
+
+/** A piece's track as points (x, z, heading the line runs), from where it joins the line to its free end. */
+function trackOf(c: DrawCandidate): number[] {
+  const def = getPieceDef(c.type, c.flipped);
+  const geom = def.paths[0].geom;
+  const len = pathLength(geom);
+  // Path 0 runs from connector 0: backwards when the line came in at the other end.
+  const reverse = c.entry !== def.paths[0].from;
+  const steps = Math.max(1, Math.ceil(len / TRACK_STEP));
+  const out: number[] = [];
+  const sample = createSample();
+  const w: Pose = { x: 0, z: 0, heading: 0 };
+  for (let i = 0; i <= steps; i++) {
+    const d = reverse ? len - (len * i) / steps : (len * i) / steps;
+    samplePath(geom, d, sample);
+    transformPose(c.pose, { x: sample.x, z: sample.z, heading: sample.heading + (reverse ? Math.PI : 0) }, w);
+    out.push(w.x, w.z, w.heading);
+  }
+  return out;
 }

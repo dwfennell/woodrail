@@ -127,10 +127,72 @@ describe("draw path", () => {
     expect(line.pieces).toHaveLength(0);
   });
 
+  /** Out along +x to `out`, then back to `back` (dense points, as a finger gives), and lift. */
+  const outAndBack = (out: number, back: number, step = 2) => {
+    const line = new DrawLine(START);
+    for (let x = step; x <= out; x += step) line.addPoint(x, 0);
+    for (let x = out; x >= back; x -= step) line.addPoint(x, 0);
+    line.finish();
+    return line;
+  };
+
+  it("retracing to cancel lays nothing: back to the start, past it, or a little short of it (dense points)", () => {
+    expect(outAndBack(600, 0).pieces).toHaveLength(0);
+    expect(outAndBack(600, -30).pieces).toHaveLength(0);
+    expect(outAndBack(600, 40).pieces).toHaveLength(0);
+    expect(outAndBack(900, 0, 1).pieces).toHaveLength(0);
+  });
+
+  it("retracing part way takes off the pieces gone back over, mid-piece too, and keeps the rest", () => {
+    const line = outAndBack(1100, 300);
+    // Nothing reaches past where the finger came back to.
+    const far = Math.max(...line.pieces.map((p) => p.end.x));
+    expect(far).toBeLessThanOrEqual(300);
+    expect(line.pieces.length).toBeGreaterThan(0);
+  });
+
+  it("coming back part way and turning, the line turns there (not at the next joint on)", () => {
+    const line = new DrawLine(START);
+    for (let x = 2; x <= 700; x += 2) line.addPoint(x, 0);
+    for (let x = 700; x >= 300; x -= 2) line.addPoint(x, 0);
+    for (let s = 2; s <= 400; s += 2) line.addPoint(300 + 180 * Math.sin(s / 180), 180 * (1 - Math.cos(s / 180)));
+    line.finish();
+    const firstCurve = line.pieces.findIndex((p) => p.type.startsWith("curve"));
+    expect(firstCurve).toBeGreaterThan(-1);
+    const turnAt = firstCurve === 0 ? 0 : line.pieces[firstCurve - 1].end.x;
+    // Within a piece of where the finger turned (the next joint on was at 432).
+    expect(turnAt).toBeLessThanOrEqual(360);
+  });
+
+  it("a hairpin drawn without retracing ends where the finger did, heading back (no hook at its tip)", () => {
+    const line = new DrawLine(START);
+    for (let x = 2; x <= 500; x += 2) line.addPoint(x, 0);
+    for (let a = 0; a <= Math.PI; a += 0.01) line.addPoint(500 + 180 * Math.sin(a), 180 * (1 - Math.cos(a)));
+    for (let x = 500; x >= 400; x -= 2) line.addPoint(x, 360);
+    line.finish();
+    const end = line.end;
+    expect(angleDiff(end.heading, Math.PI)).toBeLessThan(0.05);
+    expect(Math.abs(end.z - 360)).toBeLessThan(30);
+    expect(end.x).toBeGreaterThan(330);
+  });
+
+  it("each piece's track runs from where it joins the line to its free end", () => {
+    for (const c of candidatesFrom({ ...START, kind: "socket" })) {
+      const line = new DrawLine({ ...START, kind: "socket" }, { meet: () => c });
+      line.addPoint(c.end.x, c.end.z);
+      line.addPoint(c.end.x + 1, c.end.z + 300);
+      line.finish();
+      const t = line.pieces[0]?.track;
+      if (!t) continue;
+      expect(Math.hypot(t[0], t[1])).toBeLessThan(0.01);
+      expect(Math.hypot(t[t.length - 3] - c.end.x, t[t.length - 2] - c.end.z)).toBeLessThan(0.01);
+    }
+  });
+
   it("stops at a piece that can't go there, and lays only up to it", () => {
-    const line = draw(new DrawLine(START, { check: (c) => c.pose.x < 400 }), 1000, (s) => ({ x: s, z: 0 }));
+    const line = draw(new DrawLine(START, { check: (c) => (c.pose.x < 400 ? null : "in the way") }), 1000, (s) => ({ x: s, z: 0 }));
     expect(line.stopped).toBe("blocked");
-    expect(line.pieces[line.pieces.length - 1].blocked).toBe(true);
+    expect(line.pieces[line.pieces.length - 1].blocked).toBe("in the way");
     expect(line.placeable().every((p) => p.pose.x < 400)).toBe(true);
   });
 

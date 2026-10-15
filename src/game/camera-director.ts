@@ -192,10 +192,11 @@ export class CameraDirector {
    * While dragging a piece: pan when the pointer nears a screen edge (null when not dragging). `bottom` is where the
    * usable view ends (the top of the tray), so the bottom edge zone sits just above it. With `waitForExit`, a pointer
    * that arrives inside the band (a drag coming up out of the tray) doesn't pan until it has left the band once.
+   * `zone` overrides the band's width (px).
    */
-  setEdgePointer(p: { x: number; y: number; touch: boolean; bottom?: number; waitForExit?: boolean } | null): void {
+  setEdgePointer(p: { x: number; y: number; touch: boolean; bottom?: number; waitForExit?: boolean; zone?: number } | null): void {
     if (p && !this.edgePointer) this.edgeWaiting = !!p.waitForExit;
-    this.edgePointer = p ? { x: p.x, y: p.y, zone: p.touch ? 72 : 48, bottom: p.bottom } : null;
+    this.edgePointer = p ? { x: p.x, y: p.y, zone: p.zone ?? (p.touch ? 72 : 48), bottom: p.bottom } : null;
   }
 
   /** True when the last update panned the view (dragged things under the pointer need re-placing). */

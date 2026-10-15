@@ -18,10 +18,16 @@ and the pieces follow your finger. When you lift your finger they go down one af
   - Starting on empty ground starts a new line. Its first piece points the way you first move, rounded to an eighth
     of a turn, like pieces from the tray. Its first end lands on the quarter-square grid.
   - Two fingers still move the camera. Right drag and the wheel work as usual. The view pans at the screen edges
-    while you draw, as it does while you hold a piece.
+    while you draw, as it does while you hold a piece. The edge band is narrower than a held piece's (36 px on touch),
+    so a phone keeps room to draw. A line started inside the band doesn't pan until the finger has left the band once.
+  - On the ground, a tap that doesn't draw does what a tap there always does: it deselects, and a double tap focuses
+    the view.
 - While you draw, **ghost pieces follow your finger**. A piece appears once your finger has gone far enough past it
   for it to be clear what you meant, so pieces don't flicker. Each new ghost makes a soft tick.
-- **Going back over the line takes pieces off.** Bring your finger back over a ghost and the ghosts past it lift away.
+- **Going back over the line takes pieces off.** Move your finger back over any part of a ghost, heading back the way
+  the line runs, and that ghost and every one after it lift away. Coming back exactly to a joint keeps the ghost before
+  it. Lifting your finger grows the line only if the finger is ahead of the line's end and moving away from it, so
+  retracing to cancel lays nothing, and the tip of a hairpin leaves no hook.
 - **A ghost that can't go there shows red** (a hill, a river, other track in the way), and the line doesn't grow past
   it. Go back to before it and draw another way.
 - **Closing up:** if the line's end comes close to a free track end that faces it, the last ghost meets it. It may

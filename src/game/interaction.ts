@@ -710,10 +710,17 @@ export class Interaction {
       return;
     }
     // Drawing: from a free end, or on empty ground, a drag draws track (two fingers still move the view).
-    if (this.drawing && this.touches.size <= 1 && (this.draw.nearFreeEnd(e.clientX, e.clientY) || !this.pick(e.clientX, e.clientY))) {
-      if (this.draw.begin(e.clientX, e.clientY)) {
+    if (this.drawing && this.touches.size <= 1) {
+      const atEnd = this.draw.nearFreeEnd(e.clientX, e.clientY);
+      if ((atEnd || !this.pick(e.clientX, e.clientY)) && this.draw.begin(e.clientX, e.clientY)) {
         this.game.controls.enabled = false;
         this.mode = { kind: "draw-track", pointerId: e.pointerId };
+        // On the ground, a tap (no line drawn) still does what a tap there does: deselect, or a double tap focuses.
+        if (!atEnd) {
+          this.hud.hideCards();
+          this.clearSelection();
+          this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp };
+        }
         return;
       }
     }
@@ -928,8 +935,9 @@ export class Interaction {
     this.lastY = y;
     const r = this.game.canvas.getBoundingClientRect();
     const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
-    // A line started near the screen's edge doesn't pan the view until the finger has been clear of the edge once.
-    this.game.director.setEdgePointer({ x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
+    // A line started near the screen's edge doesn't pan the view until the finger has been clear of the edge once. The
+    // edge band is narrower than for a held piece (a phone is narrow, and a line wants room to bend).
+    this.game.director.setEdgePointer({ x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true, zone: this.lastPointerWasTouch ? 36 : 40 });
     this.draw.move(x, y);
   }
 
@@ -1977,8 +1985,9 @@ export class Interaction {
           g.flourishes.add(dustPuff(g.scene, pose.x + c.x * ch - c.z * sh, y, pose.z + c.x * sh + c.z * ch));
         }
         this.onPlaced?.(snapped);
-        // The next is likely the same kind: it stays ready, waiting at this one's free end for a tap.
-        if (m.tray) {
+        // The next is likely the same kind: it stays ready, waiting at this one's free end for a tap. (Not while
+        // drawing: a press there draws.)
+        if (m.tray && !this.drawing) {
           this.arm(m.tray);
           this.previewNextAt(id);
         }

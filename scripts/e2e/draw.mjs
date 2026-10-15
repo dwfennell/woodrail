@@ -7,9 +7,10 @@ import { createServer } from "vite";
 
 const OUT = process.argv[2] ?? "e2e-out";
 mkdirSync(OUT, { recursive: true });
-const server = await createServer({ server: { port: 5198, strictPort: true }, logLevel: "warn" });
+// Any free port (other dev servers may be running).
+const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
 await server.listen();
-const URL = "http://localhost:5198/#seed-7";
+const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const results = [];
 const check = (name, ok, detail = "") => {
@@ -22,11 +23,14 @@ const p = await b.newPage({ viewport: { width: 1200, height: 800 } });
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 
-await p.goto(URL);
-await p.waitForFunction(() => !!window.woodrail, null, { timeout: 120000 });
-await p.waitForTimeout(4000);
-await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
-await p.waitForTimeout(1000);
+/** Load the game and start playing (condition waits: software rendering under load can be slow). */
+const boot = async (page) => {
+  await page.goto(URL);
+  await page.waitForFunction(() => !!window.woodrail && [...document.querySelectorAll("button")].some((b) => /let.s play/i.test(b.textContent ?? "")), null, { timeout: 180000 });
+  await page.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
+  await page.waitForFunction(() => document.querySelector(".tray-draw") !== null && window.woodrail.layout.pieceCount > 0, null, { timeout: 60000 });
+};
+await boot(p);
 await p.evaluate(() => {
   const w = window.woodrail;
   window.__toasts = [];
@@ -125,19 +129,20 @@ const focus = async (x, z, r = 320, page = p) => {
   }
 };
 /** Drag the mouse through world points (x, z) on the ground, a few px a step. */
-const drawThrough = async (pts, { shotAt = -1, shot = "" } = {}) => {
+const drawThrough = async (pts, { shotAt = -1, shot = "", stepPx = 14 } = {}) => {
   const screen = await p.evaluate((pts) => pts.map(([x, z]) => D.screen(x, 0, z)), pts);
   await p.mouse.move(screen[0][0], screen[0][1]);
   await p.mouse.down();
   for (let i = 1; i < screen.length; i++) {
     const [ax, ay] = screen[i - 1];
     const [bx, by] = screen[i];
-    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 14));
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / stepPx));
     for (let k = 1; k <= n; k++) await p.mouse.move(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
     if (i === shotAt) await p.screenshot({ path: `${OUT}/${shot}` });
   }
   await p.mouse.up();
-  await p.waitForTimeout(1200);
+  // The line's pieces have settled (their flourishes done).
+  await p.waitForFunction(() => window.woodrail.flourishes.count === 0, null, { timeout: 30000 });
 };
 
 if (site) {
@@ -165,7 +170,6 @@ if (site) {
 
   // 2. One undo takes the whole line back up.
   await p.evaluate(() => window.woodrail.interaction.undo());
-  await p.waitForTimeout(300);
   const undone = await p.evaluate(() => D.pieces());
   check("one undo takes the whole line up", undone === before[0], `${undone} vs ${before[0]}`);
 
@@ -202,6 +206,14 @@ if (site) {
   await drawThrough(outBack);
   const n1 = await p.evaluate(() => D.pieces());
   check("drawing out and back again lays nothing", n1 === n0, `${n1 - n0} pieces`);
+  // The same with dense points (a finger's), stopping back at the start, a little past it, and a little short of it.
+  for (const stop of [0, -30, 40]) {
+    const dense = [...[0, 150, 300, 450, 600].map((d) => [x + fx * d, z + fz * d]), ...[450, 300, 150, stop].map((d) => [x + fx * d, z + fz * d])];
+    await drawThrough(dense, { stepPx: 3 });
+    const n = await p.evaluate(() => D.pieces());
+    check(`dense out and back to ${stop} mm from the start lays nothing`, n === n0, `${n - n0} pieces`);
+    if (n !== n0) await p.evaluate(() => window.woodrail.interaction.undo());
+  }
 
   // 5. A new line on empty ground (away from track).
   const gx = x + fx * 300 + lx * 300;
@@ -223,11 +235,7 @@ if (site) {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
   q.on("pageerror", (e) => errors.push(e.message));
-  await q.goto(URL);
-  await q.waitForFunction(() => !!window.woodrail, null, { timeout: 120000 });
-  await q.waitForTimeout(4000);
-  await q.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
-  await q.waitForTimeout(1500);
+  await boot(q);
   // A big patch of open, level ground, the view centred on it: a new line is drawn there in screen space (from a free
   // end is checked on the desktop above).
   const patch = await q.evaluate(() => {
@@ -267,7 +275,7 @@ if (site) {
     if (i === pts.length - 3) await q.screenshot({ path: `${OUT}/draw-7-phone-drawing.png` });
   }
   await touch("touchEnd", 0, 0);
-  await q.waitForTimeout(1500);
+  await q.waitForFunction(() => window.woodrail.flourishes.count === 0, null, { timeout: 30000 });
   await q.screenshot({ path: `${OUT}/draw-7-phone-laid.png` });
   const added = await q.evaluate((n0) => {
     const w = window.woodrail;

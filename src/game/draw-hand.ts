@@ -1,4 +1,4 @@
-import { BufferAttribute, BufferGeometry, Line, LineBasicMaterial, Vector3, type Mesh } from "three";
+import { BufferAttribute, BufferGeometry, Line, LineBasicMaterial, Vector3, type Material, type Mesh } from "three";
 import type { Editor } from "../editor/editor";
 import { CELL, looseHeight } from "../landscape";
 import { dustPuff } from "../render/dust";
@@ -24,6 +24,13 @@ import {
   type Pose,
 } from "../track";
 import type { Game } from "./game";
+import { TRACK_ITEMS } from "../ui/tray-catalogue";
+
+/** A piece's name as the tray shows it, in lower case ("long", "curve"). */
+function pieceName(type: PieceTypeId): string {
+  const item = TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === type && !i.auto);
+  return (item?.label ?? type).toLowerCase() + (item && item.label.includes("curve") ? "s" : " pieces");
+}
 
 /** A press this close (screen px) to a free end of track continues the line from it. */
 const END_REACH_PX = 44;
@@ -69,17 +76,20 @@ export class DrawHand {
   /** The stroke still ahead of the line's end, drawn as a pencil line on the ground. */
   private readonly trail: Line;
   private readonly trailPoints: number[] = [];
-  /** The first reason a ghost was refused (shown once, when it's lifted). */
-  private why: string | null = null;
   /** The line's own pieces, as a layout, so it can't cross itself. */
   private readonly own = new Layout();
   private ownCount = -1;
+  /** Ghosts are a little bolder than a held piece's preview: a line is several of them, seen from further out. */
+  private readonly okMat: Material;
+  private readonly blockedMat: Material;
 
   constructor(
     private readonly game: Game,
     private readonly editor: () => Editor,
     private readonly hooks: DrawHooks,
   ) {
+    this.okMat = Object.assign(game.mats.trackGhostSnap.clone(), { opacity: 0.85 });
+    this.blockedMat = Object.assign(game.mats.trackGhostBlocked.clone(), { opacity: 0.85 });
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new BufferAttribute(new Float32Array(3 * 1024), 3));
     this.trail = new Line(geometry, new LineBasicMaterial({ color: "#fff6e0", transparent: true, opacity: 0.85, depthTest: false }));
@@ -147,8 +157,9 @@ export class DrawHand {
     const pieces = line.placeable();
     const g = this.game;
     const ghosts = this.ghosts.splice(0, pieces.length);
-    if (line.stopped === "blocked" && this.why) this.hooks.toast(this.why);
-    else if (line.refused) this.hooks.toast("No more track pieces left for that line");
+    const blocked = line.pieces.find((p) => p.blocked)?.blocked;
+    if (blocked) this.hooks.toast(blocked);
+    else if (line.refused) this.hooks.toast(`No ${pieceName(line.refused)} left: the line used other pieces`);
     this.clear();
     if (pieces.length === 0) return;
     const ids = this.editor().placeRun(pieces.map((p) => ({ type: p.type, pose: p.pose, y: p.y, flipped: p.flipped })));
@@ -187,7 +198,6 @@ export class DrawHand {
   }
 
   private start(end: DrawEnd): void {
-    this.why = null;
     this.ownCount = -1;
     this.line = new DrawLine(end, {
       check: (c, line) => this.check(c, line),
@@ -197,25 +207,22 @@ export class DrawHand {
     });
   }
 
-  /** May a drawn piece go here: on the land and clear of other track (the line's own pieces too), resting on what's under it. */
-  private check(c: DrawCandidate, line: readonly DrawnPiece[]): boolean {
+  /**
+   * May a drawn piece go here: on the land and clear of other track (the line's own pieces too), resting on what's
+   * under it? Null, or why not (as the toast says it).
+   */
+  private check(c: DrawCandidate, line: readonly DrawnPiece[]): string | null {
     const { reason, risers } = this.hooks.placement(c.type, c.flipped, c.pose, c.y);
     // A drawn line stays at its height: no risers are put in under it.
     const why = reason ?? (risers.length > 0 ? "unsupported" : null);
-    if (why) {
-      this.why ??= this.hooks.message(why);
-      return false;
-    }
+    if (why) return this.hooks.message(why);
     if (this.ownCount !== line.length) {
       for (const id of [...this.own.pieceIds()]) this.own.removePiece(id);
       for (const p of line) this.own.addPiece(p.type, p.pose, p.y, p.flipped);
       this.ownCount = line.length;
     }
-    if (findOverlap(this.own, c.type, c.flipped, c.pose, c.y, -1) !== -1) {
-      this.why ??= "The line would cross itself";
-      return false;
-    }
-    return true;
+    if (findOverlap(this.own, c.type, c.flipped, c.pose, c.y, -1) !== -1) return "The line would cross itself";
+    return null;
   }
 
   /** The Auto piece's fit from the line's end onto a free end of track just ahead of it (or a little to one side). */
@@ -282,7 +289,7 @@ export class DrawHand {
       const key = `${p.type}|${p.flipped}|${p.pose.x.toFixed(1)}|${p.pose.z.toFixed(1)}|${p.pose.heading.toFixed(3)}|${p.blocked}`;
       if (this.ghosts[i]?.key === key) continue;
       if (this.ghosts[i]) g.scene.remove(this.ghosts[i].mesh);
-      const mesh = ghostMesh(p.type, p.flipped, p.blocked ? g.mats.trackGhostBlocked : g.mats.trackGhostSnap);
+      const mesh = ghostMesh(p.type, p.flipped, p.blocked ? this.blockedMat : this.okMat);
       mesh.matrixAutoUpdate = false;
       mesh.matrix.makeRotationY(-p.pose.heading);
       mesh.matrix.setPosition(p.pose.x, p.y + 1, p.pose.z);
