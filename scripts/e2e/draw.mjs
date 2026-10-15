@@ -67,6 +67,20 @@ await p.evaluate(() => {
   check("★ again on the favourites row takes it off", removed === 5, `${removed}`);
 }
 
+// A drag up on a shelf (not opened) takes out its first piece: the first thing a new player tries.
+{
+  await p.click(".tabs [data-tab=track]");
+  const shelf = await p.$(".scroller .tray-group:has-text('Curve')");
+  const box = await shelf.boundingBox();
+  await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await p.mouse.down();
+  for (let k = 1; k <= 12; k++) await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - k * 25);
+  const held = await p.evaluate(() => window.woodrail.interaction.mode.kind === "drag-piece" && window.woodrail.interaction.mode.type);
+  await p.keyboard.press("Escape");
+  await p.mouse.up();
+  check("a drag up on a shelf takes out its first piece", held === "curve-large", String(held));
+}
+
 /** A free end of track on level ground with clear, level, empty land ahead of it (found from the map). */
 const site = await p.evaluate(async () => {
   const w = window.woodrail;

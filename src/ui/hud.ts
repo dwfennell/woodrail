@@ -369,9 +369,12 @@ export class Hud {
         const b = el("button", "tray-item tray-group");
         b.innerHTML = `<span class="icon">${picture(group.items[0])}</span><span class="label">${group.label}</span><span class="count">${group.items.length}</span>`;
         b.title = `${group.label}: ${group.items.map((i) => i.label).join(", ")}`;
+        // A tap opens the shelf; a drag up takes out its first item (the first thing a new player tries).
+        const first = group.items[0];
+        const pick = first.kind === "tool" ? undefined : (move: PointerEvent) => this.handlers.trayPointerDown(first, move);
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(e, scroller, { tap: () => showItems(groups, group) });
+          this.trayPress(e, scroller, { pick, tap: () => showItems(groups, group) });
         });
         scroller.appendChild(b);
       }
