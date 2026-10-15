@@ -190,16 +190,19 @@ parts.
   already has rowing boats, tugboats, fishing boats and a cargo ship.
 - **The trade happens on the quay.** A boat takes what's on the export pile and leaves what was ordered. Trains bring
   goods to the harbour and take them away like any other depot (routes work there too).
+- **Boats have a capacity.** A small boat takes about 6 loads a visit. Later blueprints bring more (bigger boats, a
+  lighthouse for more visits, cargo ships).
+- **Dock sheds (buildable):** storage beside the quay, so goods can wait for the next boat. A harbour on its own holds
+  a pile like any depot; each dock shed placed beside it adds about 12 more, up to three sheds. Trains drop into the
+  sheds, and boats load from them.
 - **Performance:** a boat is one animated model. Frames are drawn only while a boat is moving and in view.
 
 ### D2. Selling and buying
 
-- **Selling:** anything a train drops at a harbour goes out on the next boat, paid at about half a town's price. There's
-  no limit, so it's a steady but modest outlet: towns stay the better buyer.
+- **Selling:** goods dropped at a harbour go out on the boats, as much as each boat takes, paid at about half a town's
+  price. Towns stay the better buyer; a harbour is for what they don't want.
 - **Buying:** on the harbour's card you order goods ("6 iron, 96 coins") and they come on the next boat, at about twice
   a town's price. A standing order ("keep 6 iron here") makes it a supply line.
-- **Wanted this season:** each harbour has one good it pays double for, changing every 20 minutes or so. It gives a
-  little variety without a market that can go wrong. Nothing ever costs you.
 
 ### D3. The mainline siding (trade at the map's edge)
 
@@ -225,13 +228,13 @@ parts.
 ### Blueprint changes
 
 - **Harbours:** keep as they are (tier 3, after warehouses and bridges, stone in the price, a town by water).
-- **Imports and exports:** comes with Harbours (selling only), so the first boat already does something. Buying comes
-  with the trading house.
-- **New:** Mainline siding (logistics, tier 2–3: the river-less way in), and Trading house (civic).
+- **Imports and exports:** comes with Harbours. Buying is still open (see below).
+- **New:** Dock sheds (with Harbours), Mainline siding (logistics, tier 2–3: the river-less way in), and Trading house
+  (civic).
 
 ### Models wanted (Asset Gen)
 
-- A harbour quay depot (crane, bollards, a shed).
+- A harbour quay depot (crane, bollards), and a dock shed.
 - A mainline siding: a signal box and a long platform running off the mat.
 - A trading house.
 - Boats are already in the catalogue.
@@ -245,11 +248,18 @@ parts.
 
 The grand tour plays each step on the starter map (it has a river).
 
-### Questions
+### Decided (2026-10-15)
 
-- Is selling with no limit (at half price) right, or should a boat take only so much each visit?
-- Should buying wait for the trading house, or come with harbours from the start?
-- Does "wanted this season" add enough, or is it noise?
+- Boats have a capacity; dock sheds store goods for export.
+- "Wanted this season" is cut.
+
+### Still open: when buying comes
+
+- **Recommended: with harbours, limited to goods you've already made**, at about twice a town's price. A harbour pays
+  off from the first boat, coins get a use early, and a map short of hills can still get iron once you've seen it. The
+  trading house then lowers prices and adds goods from abroad (cocoa, animals), so it still unlocks something new.
+- **Or: with the trading house.** Harbours start as export only, and buying is the trading house's reward. It's simpler
+  to begin with, but the first harbour does less.
 
 ## Parked
 
