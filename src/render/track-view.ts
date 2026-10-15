@@ -25,6 +25,7 @@ import { rng } from "./textures";
 import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry, compactPiece } from "./track-geometry";
 import type { PieceJob, PieceResult } from "./piece-worker";
 import { loadCached, saveCached } from "./piece-cache";
+import { drainQueue } from "./worker-queue";
 
 const geometryCache = new Map<string, BufferGeometry>();
 /** Selection outline colours: selected, about to join track, can't go there. */
@@ -37,8 +38,8 @@ const bufferBlockCache = new Map<string, BufferGeometry | null>();
 /** Arches still waiting for the background worker (see `warmBridges`), and the kinds of piece moved to their front. */
 let archQueue: PieceJob[] = [];
 const hurried = new Set<PieceTypeId>();
-/** A worker that hasn't answered in this long (ms) is given up: what's left is carved when wanted. */
-const ARCH_WORKER_PATIENCE_MS = 20_000;
+/** A piece worker that hasn't answered in this long (ms) is given up, and what it had left is carved here. */
+const WORKER_PATIENCE_MS = 20_000;
 
 /** A piece's geometry; `levels` is how many riser heights a bridge's arches reach below its deck. */
 export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0): BufferGeometry {
@@ -557,29 +558,13 @@ export class TrackView {
     const cost = (t: PieceTypeId) => getPieceDef(t, false).paths.reduce((n, p) => n + pathLength(p.geom), 0) * getPieceDef(t, false).paths.length;
     jobs.sort((a, b) => cost(b.type) - cost(a.type));
     const count = Math.max(1, Math.min(jobs.length, (navigator.hardwareConcurrency || 4) - 1, 6));
+    // A worker that fails, or goes silent, leaves its pieces to be built on the main thread (`prebuild`): loading
+    // never waits on it for ever.
     const run = (worker: Worker) =>
-      new Promise<void>((resolve) => {
-        const next = () => {
-          const job = jobs.shift();
-          if (!job) {
-            worker.terminate();
-            resolve();
-            return;
-          }
-          worker.postMessage(job);
-        };
-        worker.onmessage = (e: MessageEvent<PieceResult>) => {
-          take(e.data);
-          onProgress?.(++done, total);
-          next();
-        };
-        // A worker that fails leaves its pieces to be built on the main thread as before.
-        worker.onerror = () => {
-          worker.terminate();
-          resolve();
-        };
-        next();
-      });
+      drainQueue<PieceJob, PieceResult>(worker, jobs, (r) => {
+        take(r);
+        onProgress?.(++done, total);
+      }, WORKER_PATIENCE_MS);
     try {
       await Promise.all(Array.from({ length: count }, () => run(new Worker(new URL("./piece-worker.ts", import.meta.url), { type: "module" }))));
     } catch {
@@ -627,33 +612,19 @@ export class TrackView {
     } catch {
       return;
     }
-    await new Promise<void>((resolve) => {
-      let patience = 0;
-      const stop = () => {
-        clearTimeout(patience);
-        jobs.length = 0;
-        worker.terminate();
-        resolve();
-      };
-      const next = () => {
-        clearTimeout(patience);
-        // Built on the main thread meanwhile (a bridge lifted early): not needed.
-        let job = jobs.shift();
-        while (job && geometryCache.has(resultKey(job))) job = jobs.shift();
-        if (!job) return stop();
-        patience = window.setTimeout(stop, ARCH_WORKER_PATIENCE_MS);
-        worker.postMessage(job);
-      };
-      worker.onmessage = (e: MessageEvent<PieceResult>) => {
-        if (!geometryCache.has(resultKey(e.data))) takeResult(e.data);
-        results.push(e.data);
-        next();
-      };
-      // A result that couldn't be read: that one's carved when wanted.
-      worker.onmessageerror = next;
-      worker.onerror = stop;
-      next();
-    });
+    // Anything it doesn't get to (it fails, or goes silent) is carved when wanted.
+    await drainQueue<PieceJob, PieceResult>(
+      worker,
+      jobs,
+      (r) => {
+        if (!geometryCache.has(resultKey(r))) takeResult(r);
+        results.push(r);
+      },
+      WORKER_PATIENCE_MS,
+      // Built on the main thread meanwhile (a bridge lifted early): not needed.
+      (job) => geometryCache.has(resultKey(job)),
+    );
+    jobs.length = 0;
     void saveCached("arches", __BUILD_ID__, results);
   }
 }
