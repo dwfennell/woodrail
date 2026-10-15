@@ -11,6 +11,7 @@ import { Batcher } from "./dressing/batcher";
 import { setCullBox, tileAt } from "./dressing/tiles";
 import type { Materials } from "./materials";
 import { TIMBER_DECK } from "./train-models";
+import { dressIndustry, PAD_H, PALLET_H, pallet } from "./industry-dressing";
 
 /** A pile's place in depot coordinates: `t` along the depot track from its socket end, `l` across (yard side +). */
 interface PileSpot {
@@ -21,6 +22,8 @@ interface PileSpot {
   across: number;
   /** Units lie along the track (t) or across it (l). */
   axis: "t" | "l";
+  /** Rows of units end to end along their length, before they stack (default 1): a lower, wider pile. */
+  rows?: number;
   /** Draw at most this many (a warehouse's piles hold more than look right stacked). */
   show?: number;
 }
@@ -43,7 +46,8 @@ interface DepotLayout {
 }
 
 const SIDE = TRACK_WIDTH / 2;
-const PAD_H = 4;
+/** Where a yard's piles stand: on their pallets, on the pad. */
+const YARD = PAD_H + PALLET_H;
 
 /** Where everything stands at each kind of depot (depot coordinates; see PileSpot). */
 export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
@@ -51,29 +55,29 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     // Crane arms that swing over the track clear the engine's chimney (63 mm).
     crane: { kind: "jib", t: 108, l: 40, height: 72 },
-    piles: { log: { t: 108, l: 82, y: PAD_H, across: 4, axis: "t" } },
+    piles: { log: { t: 108, l: 82, y: YARD, across: 4, axis: "t" } },
     trackT: 108,
   },
   sawmill: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "gantry", t: 108, l: 45, height: 66 },
     piles: {
-      log: { t: 108, l: 52, y: PAD_H, across: 3, axis: "t" },
-      planks: { t: 108, l: 96, y: PAD_H, across: 2, axis: "t" },
+      log: { t: 108, l: 52, y: YARD, across: 3, axis: "t" },
+      planks: { t: 108, l: 96, y: YARD, across: 2, axis: "t" },
     },
     trackT: 108,
   },
   workshop: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
-    piles: { planks: { t: 60, l: 84, y: PAD_H, across: 2, axis: "t" } },
+    piles: { planks: { t: 60, l: 84, y: YARD, across: 2, axis: "t" } },
     trackT: 60,
   },
   // The farm chain: a farm yard (grain from the fields) and a mill (grain into flour), laid out like the others.
   farm: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 108, l: 40, height: 72 },
-    piles: { grain: { t: 100, l: 76, y: PAD_H, across: 3, axis: "t" } },
+    piles: { grain: { t: 100, l: 76, y: YARD, across: 3, rows: 2, axis: "t" } },
     trackT: 108,
   },
   warehouse: {
@@ -81,18 +85,18 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
     // A pile of each good in a row along the track, each one unit wide (a warehouse holds 24 of each).
     piles: {
-      log: { t: 24, l: 58, y: PAD_H, across: 1, axis: "l", show: 6 },
-      planks: { t: 42, l: 58, y: PAD_H, across: 1, axis: "l", show: 6 },
-      grain: { t: 60, l: 62, y: PAD_H, across: 1, axis: "l", show: 6 },
-      flour: { t: 76, l: 62, y: PAD_H, across: 1, axis: "l", show: 6 },
-      stone: { t: 92, l: 62, y: PAD_H, across: 1, axis: "l", show: 6 },
+      log: { t: 24, l: 58, y: YARD, across: 1, axis: "l", show: 6 },
+      planks: { t: 42, l: 58, y: YARD, across: 1, axis: "l", show: 6 },
+      grain: { t: 60, l: 62, y: YARD, across: 1, axis: "l", show: 6 },
+      flour: { t: 76, l: 62, y: YARD, across: 1, axis: "l", show: 6 },
+      stone: { t: 92, l: 62, y: YARD, across: 1, axis: "l", show: 6 },
     },
     trackT: 60,
   },
   quarry: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "gantry", t: 108, l: 45, height: 66 },
-    piles: { stone: { t: 105, l: 67, y: PAD_H, across: 3, axis: "t" } },
+    piles: { stone: { t: 105, l: 67, y: YARD, across: 3, rows: 2, axis: "t" } },
     trackT: 108,
   },
   mill: {
@@ -100,8 +104,8 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     // The gantry spans the piles at the near end; the windmill stands at the far end (t 160).
     crane: { kind: "gantry", t: 60, l: 45, height: 66 },
     piles: {
-      grain: { t: 60, l: 65, y: PAD_H, across: 3, axis: "t" },
-      flour: { t: 60, l: 98, y: PAD_H, across: 2, axis: "t" },
+      grain: { t: 60, l: 65, y: YARD, across: 3, rows: 2, axis: "t" },
+      flour: { t: 60, l: 98, y: YARD, across: 2, rows: 2, axis: "t" },
     },
     trackT: 60,
   },
@@ -369,7 +373,20 @@ export class DepotView {
       toWorld(pose, t, l, y, _v);
       return g.translate(_v.x, _v.y, _v.z);
     };
-    if (layout.pad) b.add(mats.blockWood, place(new RoundedBoxGeometry(layout.pad.w, PAD_H, layout.pad.d, 2, 1.5), layout.pad.t, layout.pad.l, PAD_H / 2));
+    // The yard: an industry's own ground and props, or the plain beech pad; then a pallet under each pile.
+    const add = (m: Material, g: BufferGeometry, t: number, l: number, y: number) => b.add(m, place(g, t, l, y));
+    if (layout.pad && !dressIndustry(site.depot.role, add, mats)) b.add(mats.blockWood, place(new RoundedBoxGeometry(layout.pad.w, PAD_H, layout.pad.d, 2, 1.5), layout.pad.t, layout.pad.l, PAD_H / 2));
+    if (layout.pad) {
+      for (const kind of CARGO_KINDS) {
+        const spot = layout.piles[kind];
+        if (!spot) continue;
+        const size = unitSize(kind);
+        const len = size.x * (spot.rows ?? 1) + 0.6 * ((spot.rows ?? 1) - 1) + 3;
+        const wide = spot.across * (size.z + 0.6) + 2.4;
+        if (spot.axis === "t") pallet(add, mats, kind, spot.t, spot.l, len, wide);
+        else pallet(add, mats, kind, spot.t, spot.l, wide, len);
+      }
+    }
     const c = layout.crane;
     const base = layout.pad ? PAD_H : 14;
     if (c.kind === "jib") {
@@ -520,7 +537,7 @@ export class DepotView {
   /** World pose of pile unit k (its centre), written to `pos`; returns its yaw. */
   private pileUnit(site: Site, kind: CargoKind, k: number, pos: Vector3): number {
     const spot = site.layout.piles[kind]!;
-    const slot = pileSlot(kind, k, spot.across);
+    const slot = pileSlot(kind, k, spot.across, spot.rows);
     // Pile-local: x along the unit, z across. Turn into depot axes.
     const t = spot.axis === "t" ? spot.t + slot.x : spot.t + slot.z;
     const l = spot.axis === "t" ? spot.l + slot.z : spot.l + slot.x;
