@@ -127,9 +127,9 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "metro", label: "Metro", branch: "track", tier: 3, plan: "later", needs: ["tunnels", "electricity"], price: { planks: 30, coins: 200, goods: { iron: 30 } }, requires: [CITY_STAR], blurb: "Trains under a city: a station in every quarter.", brings: "Metro stations, metro train" }),
 
   // Trains
-  row({ id: "tank", label: "Tank engine", branch: "trains", tier: 1, key: true, plan: "next", needs: [], price: { planks: 8 }, blurb: "Pulls 3 cars, but gets going and stops in half the time.", brings: "Tank engine" }),
+  row({ id: "tank", label: "Tank engine", branch: "trains", tier: 1, key: true, needs: [], price: { planks: 8 }, blurb: "Pulls 3 cars (a classic engine pulls 4), but gets going and stops in half the time.", brings: "Tank engine", feature: { label: "Tank engine (Trains tab)", icon: "🚂" } }),
   row({ id: "goods-engine", label: "Goods engine", branch: "trains", tier: 2, plan: "next", needs: ["tank"], price: { planks: 16, coins: 40 }, requires: [count("loadsMoved", 200)], blurb: "Pulls 8 cars at 0.8× speed, for long freight trains.", brings: "Goods engine" }),
-  row({ id: "diesel", label: "Diesel", branch: "trains", tier: 2, plan: "next", needs: ["tank"], price: { planks: 18, coins: 60 }, requires: [TOWN], blurb: "Pulls 6 at 1.2×, and drives as well backwards.", brings: "Diesel engine" }),
+  row({ id: "diesel", label: "Diesel", branch: "trains", tier: 2, needs: ["tank"], price: { planks: 18, coins: 60 }, requires: [TOWN], blurb: "Pulls 6 at 1.2×, and drives as well backwards.", brings: "Diesel engine", feature: { label: "Diesel (Trains tab)", icon: "🚂" } }),
   row({ id: "breakdown", label: "Breakdown crane", branch: "trains", tier: 2, plan: "soon", needs: ["goods-engine", "cranes1"], price: { planks: 14, coins: 40 }, blurb: "A crane wagon that puts derailed trains back on the line by itself.", brings: "Breakdown crane wagon" }),
   row({ id: "tankers", label: "Tank wagons", branch: "trains", tier: 2, plan: "soon", needs: ["dairy"], price: { planks: 6, coins: 20 }, blurb: "Milk, and later oil and water, in tanks.", brings: "Tank wagon" }),
   row({ id: "reefer", label: "Cold van", branch: "trains", tier: 2, plan: "later", needs: ["creamery"], price: { planks: 8, coins: 30 }, blurb: "Keeps ice cream, butter and fish cold on the way.", brings: "Refrigerated van" }),
