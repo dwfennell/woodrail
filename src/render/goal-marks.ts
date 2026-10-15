@@ -1,4 +1,4 @@
-import { Color, DoubleSide, Group, Mesh, MeshBasicMaterial, RingGeometry, type Scene } from "three";
+import { Color, DoubleSide, Group, Mesh, MeshBasicMaterial, RingGeometry, Vector3, type Camera, type Scene } from "three";
 import type { Flourish } from "./flourishes";
 
 /** How long the marks pulse (s). */
@@ -47,6 +47,60 @@ export function goalMarks(scene: Scene, points: readonly { x: number; y: number;
       geometry.dispose();
       const mats = new Set(rings.map((r) => r.material as MeshBasicMaterial));
       for (const m of mats) m.dispose();
+    },
+  };
+}
+
+/** How long a goal's labels stay up (s), the last part fading. */
+const LABEL_LIFE = 5;
+
+/**
+ * "Show me": the names of a goal's places (its towns) over them on screen, for a few seconds: they're small from far
+ * off. Plain page elements pinned to the places each frame, gone afterwards.
+ */
+export function goalLabels(camera: Camera, canvas: HTMLCanvasElement, places: readonly { x: number; y: number; z: number; text: string }[]): Flourish | null {
+  if (places.length === 0) return null;
+  // The labels' own layer over the canvas, clipping them: a label off screen never widens the page (which pans or
+  // zooms it on phones).
+  const host = document.createElement("div");
+  host.className = "goal-labels";
+  (canvas.parentElement ?? document.body).append(host);
+  const els = places.map((p) => {
+    const el = document.createElement("div");
+    el.className = "goal-label";
+    el.textContent = p.text;
+    host.append(el);
+    return el;
+  });
+  const v = new Vector3();
+  let t = 0;
+  const place = () => {
+    const r = canvas.getBoundingClientRect();
+    host.style.left = `${r.left}px`;
+    host.style.top = `${r.top}px`;
+    host.style.width = `${r.width}px`;
+    host.style.height = `${r.height}px`;
+    places.forEach((p, i) => {
+      v.set(p.x, p.y, p.z).project(camera);
+      // Off screen (or behind the camera): not shown at all.
+      const off = v.z > 1 || v.x < -1.5 || v.x > 1.5 || v.y < -1.5 || v.y > 1.5;
+      els[i].style.display = off ? "none" : "";
+      if (off) return;
+      const x = ((v.x + 1) / 2) * r.width;
+      const y = ((1 - v.y) / 2) * r.height;
+      els[i].style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
+      els[i].style.opacity = String(Math.min(1, (LABEL_LIFE - t) / 0.8));
+    });
+  };
+  place();
+  return {
+    update(dt) {
+      t += dt;
+      place();
+      return t < LABEL_LIFE;
+    },
+    dispose() {
+      host.remove();
     },
   };
 }

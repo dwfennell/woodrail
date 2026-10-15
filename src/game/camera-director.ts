@@ -10,6 +10,46 @@ export function frameDistance(radius: number, fovDeg: number, aspect: number): n
 }
 
 /**
+ * A view of some places (on the ground, mm) with the two furthest apart along the screen's long side (up the screen on
+ * a phone held upright, across it on a wide one): where to look, how far back, and which way to face (`theta`, as
+ * three's Spherical has it). `margin` is room round the places. With one place, `theta` is null (face as before).
+ */
+export function frameAlong(
+  points: readonly { x: number; z: number }[],
+  fovDeg: number,
+  aspect: number,
+  margin: number,
+): { x: number; z: number; distance: number; theta: number | null } {
+  let a = points[0];
+  let b = points[0];
+  let far = 0;
+  for (const p of points) {
+    for (const q of points) {
+      const d = Math.hypot(p.x - q.x, p.z - q.z);
+      if (d > far) {
+        far = d;
+        a = p;
+        b = q;
+      }
+    }
+  }
+  const xs = points.map((p) => p.x);
+  const zs = points.map((p) => p.z);
+  const x = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const z = (Math.min(...zs) + Math.max(...zs)) / 2;
+  const vHalf = (fovDeg * Math.PI) / 360;
+  const hHalf = Math.atan(Math.tan(vHalf) * aspect);
+  const long = Math.max(vHalf, hHalf);
+  const short = Math.min(vHalf, hHalf);
+  // The span fits the long side, and the places' own surroundings the short one.
+  const distance = Math.max((far / 2 + margin) / Math.sin(long), margin / Math.sin(short));
+  if (far < 1) return { x, z, distance, theta: null };
+  // The camera stands back along `theta`: facing along the span puts it up the screen.
+  const along = Math.atan2(b.x - a.x, b.z - a.z);
+  return { x, z, distance, theta: aspect < 1 ? along : along + Math.PI / 2 };
+}
+
+/**
  * Near clipping plane for a camera `distance` from what it looks at. Depth precision falls with the square of
  * distance over the near plane, so a fixed close plane makes the felt's hem, the rivers and the blocks' painted tops
  * shimmer against what's under them in wide views. Scaling it with distance keeps that steady while staying well

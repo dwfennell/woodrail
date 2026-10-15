@@ -415,3 +415,22 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .route-stop .route-name { flex: 1; text-align: left; }
 .route-stop .route-remove { padding-inline: 8px; }
 .route-add { align-self: flex-start; }
+
+/* "Show me": a goal town's name over it for a few seconds (positioned by the game each frame). */
+/* Goal labels' layer over the canvas: clips them, so one off screen never widens the page. */
+.goal-labels { position: fixed; inset: 0; z-index: 5; overflow: hidden; pointer-events: none; }
+.goal-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 5;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: #fff8e8;
+  color: #4a3420;
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(60, 40, 20, 0.25), inset 0 0 0 2px #ffcf6b;
+}

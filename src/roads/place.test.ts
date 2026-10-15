@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { checkPlacement, crossesRoad, FEAT_BUILDING, FEAT_TREE, gridWithPlots, SURF_RIVER, SURF_ROAD, CELL, type Landscape } from "../landscape";
+import { checkPlacement, crossesRoad, FEAT_BUILDING, FEAT_TREE, gridWithPlots, SURF_RIVER, SURF_ROAD, SURF_SAND, SURF_SEA, CELL, type Landscape } from "../landscape";
 import { Layout } from "../track";
 import { edgesOf, encodeRoad, EDGE_E, EDGE_W, pieceOf, roadsJoin, turnOf } from "./pieces";
-import { RoadPlacer, roadNeighbours, roadsInRect, setRoadSquare } from "./place";
+import { ROAD_MESSAGES, RoadPlacer, roadNeighbours, roadsInRect, setRoadSquare } from "./place";
 
 function land(): Landscape {
   return { seed: 1, starter: false, grid: gridWithPlots(0, 0, 1, 1), towns: [], depots: [], fields: [], shed: null, corridors: [], nextBuildingId: 0 };
@@ -35,6 +35,21 @@ describe("road placement", () => {
     expect(placer.check(at(6, 1), encodeRoad("curve", 0))).toBe("station-way");
     expect(placer.check(at(6, 1), encodeRoad("tee", 1))).toBe("station-way");
     expect(placer.check(at(7, 1))).toBe("prop");
+  });
+
+  it("keeps off the sea (even as a bridge) and the beach, each saying so", () => {
+    const l = land();
+    const g = l.grid;
+    const at = (c: number, r: number) => g.index(c, r);
+    g.surface[at(1, 2)] = SURF_SEA;
+    g.surface[at(2, 2)] = SURF_SAND;
+    const placer = new RoadPlacer(l, null, { inRect: () => false });
+    expect(placer.check(at(1, 2))).toBe("sea");
+    expect(placer.check(at(1, 2), encodeRoad("bridge", 0))).toBe("sea");
+    expect(placer.check(at(2, 2))).toBe("beach");
+    expect(ROAD_MESSAGES.sea).toMatch(/sea/);
+    // So the beach's sand is never laid over (and lost when the road goes).
+    expect(g.surface[at(2, 2)]).toBe(SURF_SAND);
   });
 
   it("keeps clear of ground-level track", () => {

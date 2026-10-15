@@ -125,6 +125,12 @@ time is still to be measured on a phone.
   planks-sized) and the hopper heaps `load-coal-heap`, `load-ore-heap`; then `industry-carpenter`, `industry-smithy`,
   `industry-power` (its flywheel `industry-power-wheel` a part of its own), the loads `load-furniture` and `load-tools`,
   and the town landmark `bldg-college`.
+- **Harbours** (Game mode, Phase D1): `industry-harbour`, a quay along the yard's far side (its edge at z 112, the
+  water beyond): a stone quay edge with timber fenders, bollards at x 30/80/130/180 on z 110, a harbour office at the
+  far end (x 175-193), and a derrick whose jib `industry-harbour-jib` is a part of its own, turning on y about the
+  mast's top at x 199, y 62, z 105; the piles' strip (x 15-190, z 35-90) and z 90-110 between the bollards stay
+  clear. `industry-dock-shed` stands in that row (the game places up to three, at x 55, 105, 155, z 100): about 30 x
+  20 x 20, centred on its footprint (base y 0, doors toward -z; slots "roof", "doors").
 - **Lean parts:** the parts on every house (door, flower box, chimney top) are built lean (`Kit(lean=True)`: one-step
   roundings, the code's segment counts); a map has hundreds. Windows stay in code: they're already a printed pane
   with glazing bars in a frame.
