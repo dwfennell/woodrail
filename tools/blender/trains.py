@@ -39,6 +39,7 @@ DARK = "#2a2b2e"
 GREY = "#8d8f93"
 WHEEL = "#b8432f"
 PANE = "#a9cfe6"
+GOODS = "#1f4a2e"
 EXPRESS = "#1f5aa6"
 MAROON = "#6e1f2e"
 MAROON_ROOF = "#4a1823"
@@ -52,19 +53,23 @@ SPECS = {"engine": (96, 20), "hopper": (80, 18), "passenger": (88, 18), "caboose
 # ——— Running gear, shared by every car ———
 
 
-def running_gear(L, inset):
-    """A beech slab with an arch over each wheel, four red wheels with domed hubs, and a magnet coupler at each end."""
+def running_gear(L, inset, mid=False):
+    """
+    A beech slab with an arch over each wheel, four red wheels with domed hubs (six with `mid`: a pair at the middle
+    too), and a magnet coupler at each end.
+    """
     chassis = box("wood", (L - 6, W - 2, 8), (0, 0, DECK), r=2.2)
     ax = L / 2 - inset
+    axles = (-ax, 0, ax) if mid else (-ax, ax)
     inner = GROOVE_SPACING / 2 - WHEEL_W / 2 - 1.5
     depth = W / 2 - inner + 2
-    for x in (-ax, ax):
+    for x in axles:
         for s in (-1, 1):
             cut(chassis, cutter_cylinder(WHEEL_R + 1.5, depth, (x, s * (inner + depth / 2), AXLE_Z), "Y", 24))
     r, hw = WHEEL_R, WHEEL_W / 2
     profile = [(0.0, -hw + 0.6), (r - 2.4, -hw + 0.6), (r - 1.2, -hw), (r - 0.4, -hw + 0.3), (r, -hw + 1.0), (r, hw - 1.0), (r - 0.4, hw - 0.3), (r - 1.2, hw), (r - 2.4, hw - 0.6), (0.0, hw - 0.6)]
     i = 0
-    for x in (ax, -ax):
+    for x in (ax, -ax, 0) if mid else (ax, -ax):
         for y in (GROOVE_SPACING / 2, -GROOVE_SPACING / 2):
             moving(lathe(paint(WHEEL), profile, (x, y, AXLE_Z), "Y", 28, f"wheel_{i}"))
             s = 1 if y > 0 else -1
@@ -178,6 +183,33 @@ def engine_classic():
     lathe(paint(RED), [(0.0, 0), (2.2, 0), (1.2, 1.2), (1.1, 4.5), (1.8, 5.2), (1.8, 6.6), (0.0, 7.0)], (-6, 0, bz + 11.5), "Z", 16)
     roof = cab(GREEN, -44, -12, 32, RED)
     lamp((-30, 0, roof))
+    buffer_beam(L, RED)
+
+
+def engine_goods():
+    """
+    A heavy goods engine: a six-wheeler in dark green with a long boiler, black smokebox and chimney, a cab, and a coal
+    tender behind it heaped with coal, a black running plate along each side and a red buffer beam.
+    """
+    L = 96
+    running_gear(L, 15, mid=True)
+    bz = TOP + 12.5
+    green = GOODS
+    boiler(green, RED, -6, 42, 12.5, bz)
+    handrails(-2, 34, 12.5, bz)
+    box(paint(green), (48, 18, 12.5), (18, 0, TOP + 6.25), r=1.5)
+    for s in (-1, 1):
+        box(paint(DARK), (90, 3, 1.8), (0, s * (W / 2 - 0.6), TOP + 0.9), r=0.5, seg=1)
+    chimney(34, bz + 10, 15)
+    steam_dome(18, bz + 10, green, 6.5, 10)
+    lathe(paint(RED), [(0.0, 0), (2.2, 0), (1.2, 1.2), (1.1, 4.5), (1.8, 5.2), (1.8, 6.6), (0.0, 7.0)], (4, 0, bz + 11.5), "Z", 16)
+    roof = cab(green, -30, -6, 30, DARK)
+    lamp((-18, 0, roof))
+    # The tender: a bunker behind the cab with a red band, heaped with coal.
+    box(paint(green), (16, W, 22), (-39, 0, TOP + 11), r=2.2)
+    box(paint(RED), (16.6, W + 0.6, 2.4), (-39, 0, TOP + 19), r=0.8, seg=1)
+    box("coal", (13, W - 4, 2), (-39, 0, TOP + 21.6), r=0.4)
+    lumps("coal", (-39, 0, TOP + 22), (12, W - 7, 6), count=40, lump=4.2, seed=3, subdivisions=0)
     buffer_beam(L, RED)
 
 
@@ -435,6 +467,7 @@ MODELS = [
     ("engine-diesel", engine_diesel),
     ("engine-electric", engine_electric),
     ("engine-express", engine_express),
+    ("engine-goods", engine_goods),
     ("hopper-classic", hopper),
     ("passenger-classic", passenger_classic),
     ("passenger-dining", passenger_dining),

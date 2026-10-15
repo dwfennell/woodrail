@@ -61,8 +61,8 @@ time is still to be measured on a phone.
 
 ## 5. Phases
 
-1. **Trains** (done): the car kinds and their extra looks (later added: the goods van, the express engine and the
-   first-class coach).
+1. **Trains** (done): the car kinds and their extra looks (later added: the goods van, the express and goods engines
+   and the first-class coach).
 2. **People and animals** (done): all 48 of the catalogue's `life` assets, used as props in Sandbox. See §6.
 3. **Buildings** (done): the catalogue's 52 buildings, and parts for the map's own towns and stations. See §7.
 
@@ -110,6 +110,10 @@ time is still to be measured on a phone.
   Phase B adds `industry-quarry`, `industry-warehouse`, `load-stone-block` and `load-stone-heap`, and the town
   landmarks `bldg-library` and `bldg-market-hall` (new) and `bldg-school` (turned to face the street on a two-square
   lot, about 60 x 130 at most).
+- **Industry upgrades** (Game mode): `upgrade-log-loader`, `upgrade-steam-log-crane`, `upgrade-saw-bench`,
+  `upgrade-steam-saw-house`, `upgrade-tractor`, `upgrade-millstones`, `upgrade-stone-crusher`: machines that appear in
+  a yard as its upgrades are learned, each centred on its own footprint (base y 0; the depot frame's axes: +x along
+  the track, the track toward -z), placed by the depot view.
 - **Lean parts:** the parts on every house (door, flower box, chimney top) are built lean (`Kit(lean=True)`: one-step
   roundings, the code's segment counts); a map has hundreds. Windows stay in code: they're already a printed pane
   with glazing bars in a frame.
