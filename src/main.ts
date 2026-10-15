@@ -16,7 +16,7 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
-import { offerOnGrowth, payDelivery, schoolIdeas } from "./game/rewards";
+import { describeThings, firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas, takeBlueprint, takeCrate } from "./game/rewards";
 import { landmarkOf, landmarksOf } from "./game/landmarks";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
@@ -31,7 +31,7 @@ import { nextStop, routeStops } from "./game/route-stops";
 import type { StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
-import { choose as chooseTech, learnByRiders, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
+import { learnByRiders, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { aOrAn, covers, describe as describeGoods, minus, total } from "./economy/goods";
 import { qualityFor, saveQualityOverride } from "./render/quality";
@@ -672,9 +672,17 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       const level = aOrAn(status.name.toLowerCase());
       hud.toast(built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`, true, 3600);
       audio.chime();
-      // A town that grows offers two blueprints to choose from (one learned free).
-      if (offerOnGrowth(progress, town.name, Math.random).length > 0) {
-        hud.toast(`${town.name} offers you a blueprint: open Blueprints to choose`, false, 4200);
+      // The first village, town and city each bring a present.
+      const gift = firstTimeGift(progress, status.level);
+      if (gift.length > 0) {
+        hud.toast(`Your first ${status.name.toLowerCase()}! A present for your toy box: ${describeThings(gift)}`, true, 5200);
+        hud.refreshTrayBadges();
+      }
+      // A town that grows offers two blueprints suited to its new size (one learned free), or a crate of things.
+      const offered = progress.offers.length;
+      offerOnGrowth(progress, town.name, Math.random, status.level);
+      if (progress.offers.length > offered) hud.toast(`${town.name} has a reward for you: open Blueprints to choose`, false, 4200);
+      if (gift.length > 0 || progress.offers.length > offered) {
         refreshBoard();
         scheduleSave();
       }
@@ -789,10 +797,16 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   // The blueprint board: choices from towns that grew, blueprints to learn with planks, and the rest of the tree.
   const board = new BlueprintBoard(document.body, {
     choose: (k, id) => {
-      const o = progress.offers[k];
-      if (!o || !chooseTech(progress, id, o.ids)) return;
-      progress.offers.splice(k, 1);
-      learned(id);
+      if (takeBlueprint(progress, k, id)) learned(id);
+    },
+    crate: (k) => {
+      const crate = progress.offers[k]?.crate;
+      if (!crate || !takeCrate(progress, k)) return;
+      hud.toast(`Into your toy box: ${describeThings(crate)}`, true, 3800);
+      audio.chime();
+      hud.refreshTrayBadges();
+      refreshBoard();
+      save();
     },
     learn: (id) => {
       if (learnWithGoods(game.world, progress, id)) learned(id);
@@ -843,7 +857,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     const hasWorkshop = workshops(game.world).length > 0;
     board.show({
       stations,
-      offers: progress.offers.map((o) => ({ from: o.from, ids: [...o.ids] })),
+      offers: progress.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: describeThings(o.crate) } : {}) })),
       planks: hasWorkshop ? stock.planks ?? 0 : null,
       stock: hasWorkshop ? `The workshop's yard has ${describeGoods(stock)}` : "Place your workshop first (Industries tab)",
     });
@@ -1270,6 +1284,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       townLife.reset();
       passengersOn();
       progress.coverMap(game.world);
+      // (A save from before first-time gifts: its towns' levels were reached already.)
+      for (const t of game.landscape.towns) progress.bestLevel = Math.max(progress.bestLevel, townLife.status(t.id).level);
       syncLandmarks();
       hud.trayBadge = trayBadge;
       hud.setCoins(progress.coins);
