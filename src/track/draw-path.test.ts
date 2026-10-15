@@ -118,6 +118,15 @@ describe("draw path", () => {
     expect(line.pieces.slice(1).map((p) => p.type)).toEqual(["curve-large", "curve-large"]);
   });
 
+  it("going all the way back to the start and lifting lays nothing", () => {
+    const line = new DrawLine(START);
+    for (let x = 4; x <= 900; x += 4) line.addPoint(x, 0);
+    expect(line.pieces.length).toBeGreaterThan(0);
+    for (let x = 900; x >= 6; x -= 3) line.addPoint(x, 0);
+    line.finish();
+    expect(line.pieces).toHaveLength(0);
+  });
+
   it("stops at a piece that can't go there, and lays only up to it", () => {
     const line = draw(new DrawLine(START, { check: (c) => c.pose.x < 400 }), 1000, (s) => ({ x: s, z: 0 }));
     expect(line.stopped).toBe("blocked");

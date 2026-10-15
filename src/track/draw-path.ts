@@ -217,6 +217,9 @@ export class DrawLine {
       const left = this.strokeLength - this.progress;
       if (left < (finishing ? FINISH_SLACK : DRAW_LOOKAHEAD)) return;
       const end = this.end;
+      // Finishing: only if the finger was let go a little way from the line's end (not back on it, after retracing).
+      const n = this.xs.length - 1;
+      if (finishing && Math.hypot(this.xs[n] - end.x, this.zs[n] - end.z) < FINISH_SLACK) return;
       const met = this.options.meet?.(end, this.pieces);
       const near = met ? this.nearest(met.end.x, met.end.z, this.progress, this.progress + met.length * 1.6 + 40) : null;
       if (met && near && near.d < MEET_REACH && near.s <= this.strokeLength + MEET_REACH) {
