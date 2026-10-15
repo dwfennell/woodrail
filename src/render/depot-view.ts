@@ -126,6 +126,20 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
 };
 
 /** Each industry's buildings as a Blender part (tools/blender/dressing.py), with its colours. */
+/**
+ * Where an upgrade's machine stands in its yard (depot frame: t along the track, l out from it), for Game mode's
+ * upgrades (Harvesters II and the like; models in dressing.glb, from Asset Gen).
+ */
+const UPGRADE_SPOTS: Record<string, { t: number; l: number }> = {
+  "upgrade-log-loader": { t: 34, l: 100 },
+  "upgrade-steam-log-crane": { t: 52, l: 98 },
+  "upgrade-saw-bench": { t: 176, l: 72 },
+  "upgrade-steam-saw-house": { t: 172, l: 94 },
+  "upgrade-tractor": { t: 40, l: 100 },
+  "upgrade-millstones": { t: 112, l: 98 },
+  "upgrade-stone-crusher": { t: 32, l: 94 },
+};
+
 const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<string, string> }>> = {
   workshop: { part: "industry-workshop", slots: { roof: "#2f6db5", doors: "#c8442f", sign: "#e6b52c" } },
   sawmill: { part: "industry-sawmill-shed", slots: { roof: "#c8442f" } },
@@ -294,6 +308,12 @@ export class DepotView {
     return mesh;
   }
 
+  /**
+   * Extra machines in a kind of yard (Game mode's upgrades: part ids from `UPGRADE_SPOTS`). Null: none. Set it, then
+   * `setWorld` to draw them.
+   */
+  extras: ((role: DepotRole) => readonly string[]) | null = null;
+
   /** Rebuild for a world: one site per economy depot. */
   setWorld(economy: Economy, layout: Layout): void {
     for (const child of [...this.group.children]) {
@@ -399,6 +419,10 @@ export class DepotView {
         b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(6, c.height + 6, 6, 1, 1.2), c.t, l, (c.height + 6) / 2));
       }
       b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(6, 5, GANTRY_HALF * 2 + 6, 1, 1.2), c.t, c.l, c.height + 6.5));
+    }
+    for (const id of this.extras?.(site.depot.role) ?? []) {
+      const spot = UPGRADE_SPOTS[id];
+      if (spot && hasPart(id)) addPart(b, mats, id, (g) => place(g, spot.t, spot.l, PAD_H));
     }
     const model = INDUSTRY_MODELS[site.depot.role];
     if (model && hasPart(model.part)) {

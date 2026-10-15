@@ -58,3 +58,11 @@ describe("engines", () => {
     expect(speedAfter(["tank"])).toBeGreaterThan(speedAfter(["classic"]));
   });
 });
+
+describe("the goods engine", () => {
+  it("pulls 8 cars, slowly, and is slow to get going", () => {
+    const t = line(["engine", "timber", "timber", "timber", "timber", "hopper", "hopper", "van", "van"], ["goods"]);
+    expect(topSpeed(t.w, t.train())).toBeCloseTo(ENGINE_SPEED * 0.8);
+    expect(quickness(t.w, t.train())).toBe(0.7);
+  });
+});

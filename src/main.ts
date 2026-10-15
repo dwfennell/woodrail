@@ -32,7 +32,7 @@ import type { StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { goodsOf, learnAuto, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
-import { applyCranes, boostOf, Counters, upgradeKey } from "./game/upgrades";
+import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, detachEngines, tooHeavy } from "./game/engines";
 import { CRANE_TICKS } from "./economy/constants";
 import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
@@ -776,6 +776,9 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       const p = game.layout.getPiece(id)!;
       if (INDUSTRY_ROLE[p.type]) key += `${id}:${p.pose.x},${p.pose.z},${p.pose.heading};`;
     }
+    // Upgrades put a machine in their yards (Game mode): the yards are drawn again when one is learned.
+    key += `#${mode === "game" ? upgradeKey(progress) : ""}`;
+    game.depotView.extras = mode === "game" ? (role) => machinesFor(progress, role) : null;
     if (added || key !== industryKey) game.depotView.setWorld(game.economy, game.layout);
     industryKey = key;
     // Industries work as fast as what's around them allows: recounted when they move or the land changes.
