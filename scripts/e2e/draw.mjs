@@ -31,6 +31,8 @@ const boot = async (page) => {
   await page.waitForFunction(() => !!window.woodrail && [...document.querySelectorAll("button")].some((b) => /let.s play/i.test(b.textContent ?? "")), null, { timeout: 180000 });
   await page.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
   await page.waitForFunction(() => document.querySelector(".tray-draw") !== null && window.woodrail.layout.pieceCount > 0, null, { timeout: 60000 });
+  // A new player's opening camera move (if any) has finished, so it doesn't undo the test's framing.
+  await page.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
 };
 await boot(p);
 await p.evaluate(() => {
@@ -275,7 +277,15 @@ if (site) {
   });
   check("on a phone, found open ground to draw on", !!patch, JSON.stringify(patch));
   if (!patch) throw new Error("no open ground");
-  await focus(patch.x, patch.z, 420, q);
+  // Framed on it (again, if something else moved the view meanwhile): the open ground under the stroke's start.
+  for (let k = 0; k < 3; k++) {
+    await focus(patch.x, patch.z, 420, q);
+    const off = await q.evaluate(([px, pz]) => {
+      const g = window.woodrail.interaction.groundAt(195, 460);
+      return g ? Math.hypot(g.x - px, g.z - pz) : Infinity;
+    }, [patch.x, patch.z]);
+    if (off < 200) break;
+  }
   await q.tap(".tray-draw");
   // Up the screen from the middle, then round to the right: about a third of the screen.
   const pts = [];
