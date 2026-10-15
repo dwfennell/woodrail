@@ -426,7 +426,8 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
   };
   place(placements);
   group.userData.place = place;
-  group.add(...meshes);
+  // (A tile of scenery over the open sea may have no trees.)
+  if (meshes.length > 0) group.add(...meshes);
   return group;
 }
 

@@ -104,6 +104,29 @@ export function shoreDistance(c: Coast | null, col: number, row: number): number
   }
 }
 
+/**
+ * Could squares of this rectangle of plots (and `pad` squares round it) be within `reach` squares of the shore? The
+ * shore is never less than `MIN_DEPTH` of the way into its coast plot, so a region well inland can skip the coast.
+ */
+export function coastNear(c: Coast | null, r: { px0: number; pz0: number; w: number; h: number }, reach: number, pad = 0): boolean {
+  if (!c) return false;
+  const rows = Math.round(PLOT_ROWS * MIN_DEPTH);
+  const cols = Math.round(PLOT_COLS * MIN_DEPTH);
+  switch (c.side) {
+    case "s":
+      return c.plot * PLOT_ROWS + rows - ((r.pz0 + r.h) * PLOT_ROWS - 1 + pad) <= reach;
+    case "n":
+      return r.pz0 * PLOT_ROWS - pad - ((c.plot + 1) * PLOT_ROWS - 1 - rows) <= reach;
+    case "e":
+      return c.plot * PLOT_COLS + cols - ((r.px0 + r.w) * PLOT_COLS - 1 + pad) <= reach;
+    case "w":
+      return r.px0 * PLOT_COLS - pad - ((c.plot + 1) * PLOT_COLS - 1 - cols) <= reach;
+  }
+}
+
+/** The least the shore is into its coast plot, as a fraction of it (see `depthAt`: its wave is never below 0). */
+const MIN_DEPTH = 0.3;
+
 /** Is this whole plot sea (past the coast plots)? Such plots aren't for sale. */
 export function seaPlot(c: Coast | null, px: number, pz: number): boolean {
   if (!c) return false;
