@@ -215,10 +215,12 @@ if (site) {
   await drawThrough(outBack);
   const n1 = await p.evaluate(() => D.pieces());
   check("drawing out and back again lays nothing", n1 === n0, `${n1 - n0} pieces`);
-  // The same with dense points (a finger's), stopping back at the start, a little past it, and a little short of it.
-  for (const stop of [0, -30, 40]) {
+  // The same with dense points (a finger's), stopping a little short of the start (the unit tests cover the other
+  // stopping points: each mouse move is slow in software rendering).
+  await focus(x + fx * 300, z + fz * 300, 700);
+  for (const stop of [40]) {
     const dense = [...[0, 150, 300, 450, 600].map((d) => [x + fx * d, z + fz * d]), ...[450, 300, 150, stop].map((d) => [x + fx * d, z + fz * d])];
-    await drawThrough(dense, { stepPx: 3 });
+    await drawThrough(dense, { stepPx: 4 });
     const n = await p.evaluate(() => D.pieces());
     check(`dense out and back to ${stop} mm from the start lays nothing`, n === n0, `${n - n0} pieces`);
     if (n !== n0) await p.evaluate(() => window.woodrail.interaction.undo());
@@ -259,12 +261,13 @@ if (site) {
     const B = w.director.bounds;
     const open = (px, pz) => {
       const cell = G.cellAtWorld(px, pz);
-      return cell !== -1 && G.height[cell] === 0 && G.surface[cell] === 0 && G.feature[cell] === 0 && G.road[cell] === 0;
+      // (Trees step aside for track.)
+      return cell !== -1 && G.height[cell] === 0 && G.surface[cell] === 0 && G.feature[cell] <= 1 && G.road[cell] === 0;
     };
     for (let pz = B.z0 + 600; pz < B.z1 - 600; pz += 72) {
       for (let px = B.x0 + 600; px < B.x1 - 600; px += 72) {
         let ok = true;
-        for (let dz = -360; dz <= 360 && ok; dz += 72) for (let dx = -360; dx <= 360 && ok; dx += 72) ok = open(px + dx, pz + dz) && w.layout.queryFreeConnectors(px + dx, pz + dz, 72, []) === 0;
+        for (let dz = -216; dz <= 216 && ok; dz += 72) for (let dx = -216; dx <= 216 && ok; dx += 72) ok = open(px + dx, pz + dz) && w.layout.queryFreeConnectors(px + dx, pz + dz, 72, []) === 0;
         if (ok) return { x: px, z: pz };
       }
     }
