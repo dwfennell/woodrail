@@ -179,11 +179,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 }
 @media (prefers-reduced-motion: reduce) { .title-screen:not([hidden]), .title-logo .wb { animation: none; } }
 /* At start-up the title stands on the opening screen (above it, see #loading), not over the map: no darkening, and the
-   opening screen's own name and bar make way for the title's; its toys stay, on their shelves along the bottom. */
+   opening screen's own name and bar make way for the title's, and of its toys the train stays, under the name. */
 .title-screen.over-opening { z-index: 60; background: none; }
 #loading.behind-title h1, #loading.behind-title .load-bar, #loading.behind-title p { display: none; }
-#loading.behind-title > div { position: absolute; left: 0; right: 0; bottom: max(8px, env(safe-area-inset-bottom)); }
-#loading.behind-title .loading-toys { height: clamp(150px, 30vh, 280px); opacity: 0.9; }
+/* The train from the loading screen, moved under the title's name. */
+.title-screen .loading-toys { display: block; width: min(620px, 92vw); height: clamp(64px, 13vh, 120px); margin: 4px auto 0; }
 
 /* ---- goals (Game mode) ----------------------------------------------------------------------------------- */
 .goals { position: absolute; left: 12px; top: calc(max(10px, env(safe-area-inset-top)) + 62px); width: min(320px, calc(100% - 24px)); border-radius: 16px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 8px 26px rgba(60, 40, 20, 0.22); color: #3a2a1c; overflow: hidden; }

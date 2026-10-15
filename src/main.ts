@@ -568,9 +568,14 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     loading?.classList.add("behind-title");
     title.root.classList.add("over-opening");
     title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") });
-    // Its toys move down to make room: drawn again at their new size, and whenever the window changes.
-    toys?.refresh();
-    addEventListener("resize", refreshToys);
+    // Of the loading screen's toys, just the train stays: under the name, above the cards (drawn again at its new
+    // size, and whenever the window changes).
+    const canvas = loading?.querySelector<HTMLCanvasElement>(".loading-toys");
+    if (toys && canvas) {
+      title.root.querySelector(".title-head")?.append(canvas);
+      toys.showTrainOnly();
+      addEventListener("resize", refreshToys);
+    }
   }
   const refreshToys = () => toys?.refresh();
 
@@ -1181,6 +1186,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       if (leaving) return;
       leaving = true;
       toys?.stop();
+      title.root.querySelector(".loading-toys")?.remove();
       requestAnimationFrame(() => setTimeout(() => begin(next, fresh), 0));
       return;
     }
@@ -1479,28 +1485,41 @@ if (toys) {
       const trains = loadModelSet("trains");
       const dressing = loadModelSet("dressing", true);
       await pop(await trains, "train", [["engine-classic"], ["passenger-classic"], ["passenger-dining"], ["hopper-classic"], ["timber-classic"], ["caboose-classic"]]);
-      await dressing;
-      const buildings = loadModelSet("buildings", true);
-      await pop(await dressing, "folk", [
-        ["porter"],
-        ["peg-doll-hat", { coat: "#2f6db5", hat: "#2a2b2e" }],
-        ["traveller"],
-        ["peg-doll", { coat: "#3f8f4e" }],
-        ["conductor"],
-        ["peg-doll-hat", { coat: "#e6b52c", hat: "#c8442f" }],
-        ["peg-doll", { coat: "#c8442f" }],
-      ]);
-      await pop(await dressing, "street", [
-        ["lamp"],
-        ["bench"],
-        ["postbox"],
-        ["planter", { flower0: "#d9443a", flower1: "#e6b52c", flower2: "#e98aa8", flower3: "#f3ead8" }],
-        ["fountain"],
-        ["phone"],
-        ["busstop"],
-        ["lamp"],
-      ]);
-      await pop(await buildings, "town", [["bldg-thatched-cottage"], ["bldg-signal-box"], ["bldg-church"], ["bldg-windmill"], ["bldg-toy-shop"], ["bldg-water-tower"]]);
+      // The people and the street's furniture, each shelf laid out whole and its toys hopping in one by one in place.
+      const dressed = await dressing;
+      const row = (list: [string, Record<string, string>?][]) =>
+        list.flatMap(([id, slots]) => {
+          const model = dressed.get(id);
+          return model ? [{ model, slots }] : [];
+        });
+      toys.addRow(
+        "folk",
+        row([
+          ["porter"],
+          ["peg-doll-hat", { coat: "#2f6db5", hat: "#2a2b2e" }],
+          ["traveller"],
+          ["peg-doll", { coat: "#3f8f4e" }],
+          ["conductor"],
+          ["peg-doll-hat", { coat: "#e6b52c", hat: "#c8442f" }],
+          ["peg-doll", { coat: "#c8442f" }],
+        ]),
+        180,
+      );
+      toys.addRow(
+        "street",
+        row([
+          ["lamp"],
+          ["bench"],
+          ["postbox"],
+          ["planter", { flower0: "#d9443a", flower1: "#e6b52c", flower2: "#e98aa8", flower3: "#f3ead8" }],
+          ["fountain"],
+          ["phone"],
+          ["busstop"],
+          ["lamp"],
+        ]),
+        180,
+        7 * 180,
+      );
     } catch {
       // The loading screen says so itself (see offerRetry).
     }
