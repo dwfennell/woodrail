@@ -67,11 +67,11 @@ export const TECHS: readonly Tech[] = [
   {
     id: "first-class",
     label: "First class",
-    blurb: "A first-class sleeper: three seats, each paying double.",
+    blurb: "A first-class coach: three seats, each paying double.",
     cost: {},
     needs: ["dining"],
     riders: 60,
-    feature: { label: "First-class sleeper (Trains tab)", icon: "🛏️" },
+    feature: { label: "First-class coach (Trains tab)", icon: "🥇" },
   },
   {
     id: "stations",
@@ -98,7 +98,7 @@ export const TECHS: readonly Tech[] = [
     cost: {},
     needs: ["double-decker"],
     riders: 250,
-    feature: { label: "Express engine (Trains tab: Electric)", icon: "⚡" },
+    feature: { label: "Express engine (Trains tab)", icon: "⚡" },
   },
 ];
 

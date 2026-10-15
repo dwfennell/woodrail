@@ -29,7 +29,7 @@ export interface Port {
 export type RoadPieceId = "straight" | "curve" | "tee" | "cross" | "end" | "zebra" | "bridge" | "ramp-low" | "ramp-high";
 
 export interface RoadPieceDef {
-  /** Stored in the low six bits of a square's road byte (never 0: that's no road). Never renumber. */
+  /** Stored in the low five bits of a square's road byte (never 0: that's no road; under 32). Never renumber. */
   readonly code: number;
   readonly id: RoadPieceId;
   readonly name: string;
@@ -77,11 +77,20 @@ for (const p of ROAD_PIECES) {
 
 export const roadPieceDef = (id: RoadPieceId): RoadPieceDef => byId.get(id)!;
 
-/** A square's road byte: 0 for none, else the piece's code in the low six bits and its quarter turns in the top two. */
-export const encodeRoad = (id: RoadPieceId, turn: number): number => byId.get(id)!.code | ((turn & 3) << 6);
+/** The road byte's bit for an auto road: a square that takes its shape from the roads around it. */
+export const AUTO_ROAD = 32;
+
+/**
+ * A square's road byte: 0 for none, else the piece's code in the low five bits, `AUTO_ROAD` if it shapes itself to the
+ * roads around it (see `auto.ts`), and its quarter turns in the top two.
+ */
+export const encodeRoad = (id: RoadPieceId, turn: number, auto = false): number => byId.get(id)!.code | (auto ? AUTO_ROAD : 0) | ((turn & 3) << 6);
+
+
+export const isAutoRoad = (road: number): boolean => road !== 0 && (road & AUTO_ROAD) !== 0;
 
 /** The piece in a road byte, or null (none, or a code this build doesn't know). */
-export const pieceOf = (road: number): RoadPieceDef | null => byCode[road & 63] ?? null;
+export const pieceOf = (road: number): RoadPieceDef | null => byCode[road & 31] ?? null;
 
 export const turnOf = (road: number): number => road >> 6;
 

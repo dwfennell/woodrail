@@ -140,3 +140,16 @@ describe("ramps", () => {
     expect(placer.check(g.index(3, 4), encodeRoad("ramp-high", 0))).toBe("slope");
   });
 });
+
+describe("bridge turn", () => {
+  it("spans the river, whatever the road beside it was held at", () => {
+    const l = land();
+    const g = l.grid;
+    // A river running north–south down column 5.
+    for (let r = 0; r < 23; r++) g.surface[g.index(5, r)] = SURF_RIVER;
+    // A road beside it, laid running north–south (along the bank, not toward the river).
+    g.setRoad(g.index(4, 8), encodeRoad("straight", 1));
+    const placer = new RoadPlacer(l, null);
+    for (const held of [0, 1, 2, 3]) expect(edgesOf(placer.fit("bridge", g.index(5, 8), held))).toBe((1 << EDGE_E) | (1 << EDGE_W));
+  });
+});

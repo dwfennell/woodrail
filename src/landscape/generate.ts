@@ -111,8 +111,13 @@ const HALF_STATION = STATION_LENGTH / 2;
 const MIN_TOWN_SPACING = 900;
 /** Depots keep this far from towns and other depots (they have no town area of their own). */
 const DEPOT_SPACING = 750;
-/** A town reaches four squares out from its centre (room for a street plan: see `planTown`). */
-const TOWN_RADIUS = 288;
+/**
+ * How far a town reaches from its centre: four and a half to six squares, by where it is (so towns differ in size,
+ * and the town random stream is unchanged). Room for its street plan (see `planTown`): Station Road two squares out,
+ * a main street on out with houses either side, and in the larger towns a side street.
+ */
+const TOWN_RADII = [324, 360, 396, 432];
+const townRadius = (centre: { x: number; z: number }): number => TOWN_RADII[hashInts(Math.floor(centre.x / CELL), Math.floor(centre.z / CELL), 0x70b) % TOWN_RADII.length];
 const CORRIDOR_LENGTH = 6 * CELL;
 const CORRIDOR_HALF_WIDTH = 2 * CELL;
 /** On the starter map, from a first town's centre to its depot's (the sawmill beyond one, the forest beyond the other). */
@@ -240,7 +245,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
 
   // Stations, platforms, corridors and town areas, measured from each station line (works for any heading).
   for (const town of towns) {
-    const fp = footprint(town.centre, town.station.heading);
+    const fp = footprint(town.centre, town.station.heading, townRadius(town.centre));
     const cells = new Set<number>();
     for (const [col, row] of fp.station) {
       const i = grid.index(col, row);
@@ -336,7 +341,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
 }
 
 /** A station's or depot's squares (track and platform or yard), its approach corridors, and its town's area. */
-function footprint(centre: { x: number; z: number }, heading: number): { station: [number, number][]; corridor: [number, number][]; area: [number, number][] } {
+function footprint(centre: { x: number; z: number }, heading: number, radius = 0): { station: [number, number][]; corridor: [number, number][]; area: [number, number][] } {
   const dx = Math.cos(heading);
   const dz = Math.sin(heading);
   const station: [number, number][] = [];
@@ -354,7 +359,7 @@ function footprint(centre: { x: number; z: number }, heading: number): { station
       const ad = Math.abs(d);
       if ((ad < HALF_STATION && Math.abs(l) < 26) || (ad < HALF_STATION - 8 && l >= 26 && l < 120)) station.push([col, row]);
       else if (ad >= HALF_STATION - 32 && ad < HALF_STATION + CORRIDOR_LENGTH && Math.abs(l) < CORRIDOR_HALF_WIDTH) corridor.push([col, row]);
-      else if (Math.hypot(px, pz) < TOWN_RADIUS) area.push([col, row]);
+      else if (Math.hypot(px, pz) < radius) area.push([col, row]);
     }
   }
   return { station, corridor, area };
@@ -365,14 +370,15 @@ function fits(centre: { x: number; z: number }, heading: number, interior: (col:
   // Its corridors reach this far along the station; the town (or yard and corridors) this far across: a quick look at
   // the corners of that rectangle first.
   const along = HALF_STATION + CORRIDOR_LENGTH;
-  const across = town ? TOWN_RADIUS : CORRIDOR_HALF_WIDTH;
+  const radius = town ? townRadius(centre) : 0;
+  const across = town ? radius : CORRIDOR_HALF_WIDTH;
   const ax = Math.abs(Math.cos(heading)) > 0.5;
   const hx = ax ? along : across;
   const hz = ax ? across : along;
   for (const [x, z] of [[centre.x - hx, centre.z - hz], [centre.x + hx, centre.z + hz]]) {
     if (!interior(Math.floor(x / CELL), Math.floor(z / CELL))) return false;
   }
-  const fp = footprint(centre, heading);
+  const fp = footprint(centre, heading, radius);
   const cells = town ? [...fp.station, ...fp.corridor, ...fp.area] : [...fp.station, ...fp.corridor];
   return cells.every(([c, r]) => interior(c, r));
 }

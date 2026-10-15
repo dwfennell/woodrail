@@ -39,6 +39,12 @@ DARK = "#2a2b2e"
 GREY = "#8d8f93"
 WHEEL = "#b8432f"
 PANE = "#a9cfe6"
+EXPRESS = "#1f5aa6"
+MAROON = "#6e1f2e"
+MAROON_ROOF = "#4a1823"
+GOLD = "#d9a93a"
+LIT = "#f3d27a"
+CURTAIN = "#b0303f"
 
 SPECS = {"engine": (96, 20), "hopper": (80, 18), "passenger": (88, 18), "caboose": (76, 18), "timber": (84, 18)}
 
@@ -234,6 +240,31 @@ def engine_electric():
     lamp((bl / 2 - 6, 0, TOP + 31.8))
 
 
+def engine_express():
+    """
+    A streamlined express: one long blue body whose nose sweeps down in a curved cowl to a low front with a headlamp,
+    a valance over the wheels, a bold yellow stripe along each side, the cab's windows behind the nose and the lamp on
+    the roof.
+    """
+    L = 96
+    running_gear(L, 20)
+    blue = paint(EXPRESS)
+    body = box(blue, (86, W, 28), (-2, 0, TOP + 14), r=5)
+    # The cowl: a big round cutter takes the top off the front, leaving a smooth slope down to the nose.
+    cut(body, cutter_cylinder(36, W + 12, (44, 0, TOP + 50), "Y", 64))
+    side_windows(body, [(-31, TOP + 19, 13, 9), (-15, TOP + 19, 7, 7)], W / 2)
+    end_windows(body, [(-6.5, TOP + 19, 10, 8), (6.5, TOP + 19, 10, 8)], -45)
+    for s in (-1, 1):
+        # The valance, hiding the top of the wheels, and the stripes.
+        box(blue, (82, 1.8, 9.5), (-2, s * (W / 2 + 0.7), DECK + 0.5), r=0.8)
+        box(paint(YELLOW), (80, 0.8, 4.6), (-3, s * (W / 2 + 0.15), TOP + 8), r=0.3, seg=1)
+        box(paint(CREAM), (78, 0.8, 1.4), (-4, s * (W / 2 + 0.15), TOP + 12), r=0.2, seg=1)
+    box(paint(GREY), (44, W - 6, 2.2), (-22, 0, TOP + 28.6), r=1)
+    ball(paint(CREAM), 3, (40.6, 0, TOP + 7), 20, squash=0.9)
+    box(paint(YELLOW), (2.2, W - 10, 3), (40.4, 0, TOP + 2.5), r=0.6, seg=1)
+    lamp((4, 0, TOP + 28.4))
+
+
 # ——— Wagons and coaches ———
 
 
@@ -303,6 +334,42 @@ def passenger_double_decker():
         box(paint(CREAM), (bl - 2, 0.8, 2.2), (0, s * (W / 2 + 0.1), TOP + h * 0.54), r=0.3, seg=1)
 
 
+def passenger_first_class():
+    """
+    A first-class coach: maroon below and cream above, lined in gold, warm-lit windows with crimson curtains drawn
+    back, a door at each end with a gold "1", and a maroon roof.
+    """
+    L = 88
+    running_gear(L, 18)
+    bl, h = 76, 30
+    body = box(paint(MAROON), (bl, W, h), (0, 0, TOP + h / 2), r=3)
+    arch_roof(paint(MAROON_ROOF), bl + 8, W + 5, 3, 3, (0, 0, TOP + h - 0.5))
+    for s in (-1, 1):
+        y = s * (W / 2 + 0.1)
+        box(paint(CREAM), (bl - 18, 0.8, 13), (0, y, TOP + 19), r=0.4, seg=1)
+        for z in (TOP + 12.2, TOP + 25.8):
+            box(paint(GOLD), (bl - 16, 0.9, 0.9), (0, y + s * 0.1, z), r=0.2, seg=1)
+        for x in (-16, 0, 16):
+            # A warm-lit pane in a maroon frame, a curtain valance across its top and the curtains tied back at its
+            # sides.
+            box(paint(MAROON), (12.6, 0.5, 10), (x, y + s * 0.3, TOP + 19), r=0.3, seg=1)
+            box(paint(LIT), (11, 0.6, 8.4), (x, y + s * 0.5, TOP + 18.8), r=0)
+            box(paint(CURTAIN), (11.2, 0.7, 1.8), (x, y + s * 0.8, TOP + 22.4), r=0.3, seg=1)
+            for c in (-1, 1):
+                box(paint(CURTAIN), (1.4, 0.7, 5.6), (x + c * 4.6, y + s * 0.8, TOP + 19.4), r=0.3, seg=1)
+        # A door at each end, with a gold "1".
+        for e in (-1, 1):
+            dx = e * (bl / 2 - 6.5)
+            box(paint(MAROON), (8.5, 1.0, h - 7), (dx, y + s * 0.4, TOP + (h - 7) / 2 + 1.5), r=0.6, seg=1)
+            box(paint(GOLD), (2, 0.7, 10), (dx + 0.4, y + s * 0.95, TOP + 17), r=0.3, seg=1)
+            box(paint(GOLD), (5, 0.7, 1.6), (dx + 0.4, y + s * 0.95, TOP + 12.6), r=0.3, seg=1)
+            # The 1's flag points to the viewer's left on each side (+x seen from +y, -x from -y).
+            box(paint(GOLD), (2.6, 0.7, 1.6), (dx + 0.4 + s * 1.4, y + s * 0.95, TOP + 20.4), r=0.3, seg=1)
+    # A gold lamp on the roof at each end.
+    for e in (-1, 1):
+        cylinder(paint(GOLD), 1.8, 3, (e * (bl / 2 - 6), 0, TOP + h + 4), "Z", 12, 0.5)
+
+
 def caboose_classic():
     L = 76
     bl = L - 12
@@ -367,11 +434,13 @@ MODELS = [
     ("engine-tank", engine_tank),
     ("engine-diesel", engine_diesel),
     ("engine-electric", engine_electric),
+    ("engine-express", engine_express),
     ("hopper-classic", hopper),
     ("passenger-classic", passenger_classic),
     ("passenger-dining", passenger_dining),
     ("passenger-sleeper", passenger_sleeper),
     ("passenger-double-decker", passenger_double_decker),
+    ("passenger-first-class", passenger_first_class),
     ("caboose-classic", caboose_classic),
     ("caboose-bay-window", caboose_bay_window),
     ("timber-classic", timber),

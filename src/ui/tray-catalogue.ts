@@ -15,7 +15,7 @@ export type TrayItem =
   /** A catalogue model, placed as a decorative prop. */
   | { kind: "prop"; asset: string; label: string }
   /** A road piece (the Roads tab): fills one square, snaps to the roads beside it. */
-  | { kind: "road"; piece: RoadPieceId; label: string }
+  | { kind: "road"; piece: RoadPieceId; label: string; auto?: boolean }
   /** A land-editing tool (the Land tab): chosen with a tap, then used by tapping the land. */
   | { kind: "tool"; tool: LandTool; label: string };
 
@@ -66,6 +66,7 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["engine"], looks: ["tank"], label: "Tank engine" },
   { kind: "train", cars: ["engine"], looks: ["diesel"], label: "Diesel" },
   { kind: "train", cars: ["engine"], looks: ["electric"], label: "Electric" },
+  { kind: "train", cars: ["engine"], looks: ["express"], label: "Express" },
   { kind: "train", cars: ["hopper"], label: "Hopper" },
   { kind: "train", cars: ["timber"], label: "Timber wagon" },
   { kind: "train", cars: ["van"], label: "Goods van" },
@@ -73,6 +74,7 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["passenger"], looks: ["dining"], label: "Dining car" },
   { kind: "train", cars: ["passenger"], looks: ["sleeper"], label: "Sleeper" },
   { kind: "train", cars: ["passenger"], looks: ["double-decker"], label: "Double-decker" },
+  { kind: "train", cars: ["passenger"], looks: ["first-class"], label: "First class" },
   { kind: "train", cars: ["caboose"], label: "Caboose" },
   { kind: "train", cars: ["caboose"], looks: ["bay-window"], label: "Bay-window caboose" },
 ];
@@ -106,7 +108,9 @@ export const ROAD_GROUPS: TrayGroup[] = [
   {
     label: "Roads",
     items: [
-      { kind: "road", piece: "straight", label: "Road" },
+      // Takes its shape from the roads around it, and reshapes them to meet it.
+      { kind: "road", piece: "straight", label: "Road", auto: true },
+      { kind: "road", piece: "straight", label: "Straight" },
       { kind: "road", piece: "curve", label: "Bend" },
       { kind: "road", piece: "tee", label: "T-junction" },
       { kind: "road", piece: "cross", label: "Crossroads" },
@@ -205,6 +209,6 @@ export async function propGroups(shelves: readonly PropShelf[]): Promise<TrayGro
 export function trayKey(item: TrayItem): string {
   if (item.kind === "piece") return `piece:${item.type}${item.auto ? ":auto" : ""}`;
   if (item.kind === "tool") return `tool:${item.tool}`;
-  if (item.kind === "road") return `road:${item.piece}`;
+  if (item.kind === "road") return `road:${item.auto ? "auto" : item.piece}`;
   return item.kind === "prop" ? `prop:${item.asset}` : `train:${item.label}`;
 }

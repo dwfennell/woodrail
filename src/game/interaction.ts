@@ -345,7 +345,7 @@ export class Interaction {
     else if (item.kind === "road") {
       // Comes out turned as set in the tray (quarter turns from facing away from the camera).
       const held = Math.round(this.cameraHeading() / (Math.PI / 2)) + Math.floor(this.trayTurns / 2);
-      this.mode = { kind: "drag-road", pointerId: e.pointerId, drag: this.roads.begin(item.piece, held), overTray: true };
+      this.mode = { kind: "drag-road", pointerId: e.pointerId, drag: this.roads.begin(item.piece, held, item.auto), overTray: true };
     } else if (item.kind === "prop") {
       this.mode = this.propDrag(item.asset, -1, e.pointerId, this.nextPropHeading(), null, { x: 0, z: 0 });
     } else if (item.kind === "train") {

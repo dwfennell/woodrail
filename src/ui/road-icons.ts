@@ -59,8 +59,23 @@ function paint(piece: RoadPieceId): string {
   }
 }
 
-/** Top-down SVG of a road piece on its square, as it comes out of the tray. */
-export function roadIcon(piece: RoadPieceId): string {
+/** The auto road's picture: a road with faint branches each way, as it may grow to meet the roads beside it. */
+function autoIcon(): string {
+  const branch = (y: number, h: number) => `<rect x="${36 - F}" y="${y}" width="${2 * F}" height="${h}" fill="${FELT}" opacity="0.35" stroke="${PAINT}" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+  return (
+    `<svg viewBox="-4 -4 80 80" xmlns="http://www.w3.org/2000/svg">` +
+    branch(0, 36 - F) +
+    branch(36 + F, 36 - F) +
+    `<g fill="${BOARD}" stroke="#a07447" stroke-width="1.5">${run(B)}</g>` +
+    `<g fill="${FELT}">${run(F)}</g>` +
+    `<g fill="${PAINT}">${[12, 36, 60].map((x) => `<rect x="${x - 5}" y="35" width="10" height="2.4"/>`).join("")}</g>` +
+    `</svg>`
+  );
+}
+
+/** Top-down SVG of a road piece on its square (or the auto road), as it comes out of the tray. */
+export function roadIcon(piece: RoadPieceId | "auto"): string {
+  if (piece === "auto") return autoIcon();
   // A bridge stands over water, with parapets along its edges.
   const water = piece === "bridge" ? `<rect x="22" y="-4" width="28" height="80" fill="#2a63a0"/>` : "";
   const parapets = piece === "bridge" ? `<g fill="#a07447">${[36 - B, 36 + B - 3].map((y) => `<rect x="0" y="${y}" width="72" height="3"/>`).join("")}</g>` : "";

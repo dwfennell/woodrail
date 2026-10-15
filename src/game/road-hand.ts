@@ -5,13 +5,15 @@ import { plotSlotOf } from "../landscape/edit";
 import { propsInRect } from "../props/placement";
 import { roadPieceGroup, roadMaterials } from "../render/dressing/roads";
 import { FootprintOutline } from "../render/props/outline";
-import { distinctTurns, encodeRoad, pieceOf, ROAD_MESSAGES, RoadPlacer, setRoadSquare, turnOf, type RoadBlock, type RoadPieceId } from "../roads";
+import { autoReshapes, autoShape, distinctTurns, encodeRoad, isAutoRoad, pieceOf, ROAD_MESSAGES, RoadPlacer, setRoadSquare, turnOf, type RoadBlock, type RoadPieceId } from "../roads";
 import type { Hud } from "../ui/hud";
 import type { Game } from "./game";
 
 /** A road piece in the hand: new from the tray, or picked up off its square (`from`). */
 export interface RoadDrag {
   piece: RoadPieceId;
+  /** An auto road: it takes its shape from the roads around it (see `roads/auto.ts`). */
+  auto: boolean;
   /** Quarter turns as held (snapping may turn it to join the roads beside it). */
   held: number;
   from: { cell: number; road: number } | null;
@@ -65,10 +67,10 @@ export class RoadHand {
     return new RoadPlacer(g.landscape, g.layout, { inRect: (x0, z0, x1, z1) => propsInRect(g.props, g.propLibrary.footprint, x0, z0, x1, z1) });
   }
 
-  /** Take a new piece from the tray, held at quarter turn `held`. */
-  begin(piece: RoadPieceId, held: number): RoadDrag {
+  /** Take a new piece (or an auto road) from the tray, held at quarter turn `held`. */
+  begin(piece: RoadPieceId, held: number, auto = false): RoadDrag {
     this.clear();
-    return { piece, held: held & 3, from: null, cell: -1, road: 0, blocked: null, ghost: null, ghostRoad: 0, placer: this.placer(), overTray: true };
+    return { piece, auto, held: held & 3, from: null, cell: -1, road: 0, blocked: null, ghost: null, ghostRoad: 0, placer: this.placer(), overTray: true };
   }
 
   /** Pick up the piece on square `cell` (selected first): it leaves its square (for now) and goes in the hand. */
@@ -79,7 +81,7 @@ export class RoadHand {
     this.clear();
     this.hud.hideCards();
     this.lift(cell, 0);
-    return { piece: def.id, held: turnOf(road), from: { cell, road }, cell: -1, road, blocked: null, ghost: null, ghostRoad: 0, placer: this.placer(), overTray: false };
+    return { piece: def.id, auto: isAutoRoad(road), held: turnOf(road), from: { cell, road }, cell: -1, road, blocked: null, ghost: null, ghostRoad: 0, placer: this.placer(), overTray: false };
   }
 
   /** Set a square's piece outside the undo history (a piece held in the hand), and redraw it. */
@@ -105,7 +107,7 @@ export class RoadHand {
     }
     const moved = cell !== d.cell;
     d.cell = cell;
-    d.road = d.placer.fit(d.piece, cell, d.held);
+    d.road = d.auto ? autoShape(this.grid, cell, d.held) : d.placer.fit(d.piece, cell, d.held);
     const blocked = d.placer.check(cell, d.road);
     if (blocked && blocked !== d.blocked && moved) this.hud.toast(ROAD_MESSAGES[blocked]);
     d.blocked = blocked;
@@ -116,6 +118,12 @@ export class RoadHand {
 
   /** Turn the piece in the hand a quarter (to the next turn that looks different). */
   turnHeld(d: RoadDrag): void {
+    if (d.auto) {
+      // An auto road takes its shape from the roads around it: turning only matters while it stands alone.
+      d.held = (d.held + 1) & 3;
+      if (d.cell !== -1) this.update(d, d.cell, d.overTray);
+      return;
+    }
     const turns = distinctTurns(d.piece);
     const k = turns.indexOf(turnOf(d.road || encodeRoad(d.piece, d.held)));
     d.held = turns[(k + 1) % turns.length];
@@ -166,7 +174,8 @@ export class RoadHand {
     if (!this.pickable(cell)) return;
     this.selected = cell;
     this.showSquare(cell, "#fff2d8");
-    this.hud.showPieceCard(false, pieceOf(this.grid.road[cell])!.name, false);
+    const road = this.grid.road[cell];
+    this.hud.showPieceCard(false, isAutoRoad(road) ? "Road (auto)" : pieceOf(road)!.name, false);
     this.game.invalidate();
   }
 
@@ -177,7 +186,7 @@ export class RoadHand {
     this.game.invalidate();
   }
 
-  /** Turn the selected piece a quarter (to its next distinct turn). */
+  /** Turn the selected piece a quarter (to its next distinct turn). An auto road turned by hand keeps that turn: it stops being auto. */
   turnSelected(): void {
     const i = this.selected;
     if (!this.pickable(i)) return;
@@ -204,9 +213,17 @@ export class RoadHand {
     this.edit([[i, 0]]);
   }
 
-  /** Set squares' road pieces as one undo step. */
-  private edit(changes: readonly [number, number][]): void {
+  /**
+   * Set squares' road pieces as one undo step, with the auto roads beside them reshaped to meet them (an auto road
+   * over track keeps a shape the track can cross).
+   */
+  private edit(direct: readonly [number, number][]): void {
     const g = this.grid;
+    const placer = this.placer();
+    const reshaped = autoReshapes(g, new Map(direct), (i, road) => placer.check(i, road) === "track");
+    const changes: [number, number][] = [...direct, ...[...reshaped].filter(([i]) => !direct.some(([j]) => j === i))];
+    // A square both changed and reshaped (an auto road just laid) takes its reshaped form.
+    for (const c of changes) if (reshaped.has(c[0])) c[1] = reshaped.get(c[0])!;
     const slots = [...new Set(changes.map(([i]) => plotSlotOf(i)))];
     const trees = changes.some(([i]) => g.feature[i] === FEAT_TREE);
     let restore: (() => void)[] = [];

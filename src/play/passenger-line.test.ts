@@ -12,7 +12,7 @@ import { endOn, rulesFor } from "./rules";
 /**
  * A passenger line on the starter map: Larkfield and Elderwick joined, a turnback past each, and a train of an engine
  * and two coaches shuttling between them, on the game's own code. As the passenger line of blueprints is learned the
- * player puts its coaches on (a dining car, a first-class sleeper, a double-decker, the express engine). How long each
+ * player puts its coaches on (a dining car, a first-class coach, a double-decker, the express engine). How long each
  * takes, and the fares, are printed: the thresholds are tuned from this.
  */
 describe("a passenger line", () => {
@@ -38,7 +38,7 @@ describe("a passenger line", () => {
     const train = () => w.sim.getTrain(w.sim.trainIds()[0])!;
     w.sim.setLever(train().cars[0].id, 1);
     /** What the player does with each new blueprint: put it on the train. */
-    const looks: Record<string, [number, CarLook]> = { dining: [1, "dining"], "first-class": [2, "sleeper"], "double-decker": [1, "double-decker"], express: [0, "electric"] };
+    const looks: Record<string, [number, CarLook]> = { dining: [1, "dining"], "first-class": [2, "first-class"], "double-decker": [1, "double-decker"], express: [0, "express"] };
     const clock = new Map<number, number>();
     const learnedAt = new Map<string, number>();
     for (; tick < 60 * 60 * SIM_HZ; tick++) {

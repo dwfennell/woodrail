@@ -14,6 +14,7 @@ import {
   SRGBColorSpace,
   type Camera,
   type InstancedMesh,
+  type Material,
 } from "three";
 import {
   CELL,
@@ -50,7 +51,7 @@ import { SIGN_HEIGHT, SIGN_THICKNESS, SIGN_WIDTH, SIGN_Y, signPose, STATION_ROOF
 import { Batcher } from "./dressing/batcher";
 import { buildBlocks, type BlockInstanceRef } from "./dressing/blocks";
 import { HillCutsView } from "./dressing/hill-cuts";
-import { buildShed, buildStation, buildTown } from "./dressing/buildings";
+import { buildShed, buildStation, buildTown, buildWaiting, MAX_WAITING_DOLLS } from "./dressing/buildings";
 import { buildContactShadows, type Footprint } from "./dressing/contact";
 import { buildFeltGround, buildFeltTiles, type FeltTiles } from "./dressing/felt";
 import { buildRoadTiles, roadMaterials, type RoadTiles } from "./dressing/roads";
@@ -90,6 +91,24 @@ export interface AroundPlot {
 const POST_RADIUS = 2.4;
 const RAIL_H = 3;
 
+/** A platform's peg dolls (see `LandscapeView.buildWaitingDolls`): vertices per mesh material after each doll. */
+interface WaitingDolls {
+  readonly group: Group;
+  readonly marks: Map<Material, number>[];
+  /** How many stand there when it's not counting riders (Sandbox). */
+  readonly usual: number;
+}
+
+/** Draw only the first `count` dolls (null: the usual few). */
+function showDolls(dolls: WaitingDolls, count: number | null): void {
+  const mark = dolls.marks[Math.min(count ?? dolls.usual, dolls.marks.length - 1)];
+  for (const o of dolls.group.children) {
+    if (!(o instanceof Mesh)) continue;
+    o.geometry.setDrawRange(0, mark.get(o.material as Material) ?? 0);
+    o.visible = (mark.get(o.material as Material) ?? 0) > 0;
+  }
+}
+
 export class LandscapeView {
   readonly group = new Group();
   /**
@@ -124,6 +143,9 @@ export class LandscapeView {
   /** What each town's sign shows beside its name (see `SignBadge`). */
   private readonly badges = new Map<number, SignBadge>();
   private connected = new Set<number>();
+  /** People waiting on each town's platform (null: the town's usual few), and the peg dolls drawn for them. */
+  private readonly waiting = new Map<number, number | null>();
+  private readonly waitingGroups = new Map<number, WaitingDolls>();
   private placeTrees: PlaceTrees = () => {};
   private clearance!: TreeClearance;
   /** Hill blocks cut by ramps' cuttings. */
@@ -418,6 +440,7 @@ export class LandscapeView {
       if (!here(town.centre.x, town.centre.z)) continue;
       for (const h of buildTown(land, town, this.mats, b)) prints.push({ x: h.cx, z: h.cz, y: 0, rx: h.w / 2 + 12, rz: h.d / 2 + 12, heading: 0, strength: 1 });
       buildStation(town, this.mats, b);
+      this.buildWaitingDolls(town);
       this.buildSign(town, b, things);
     }
     for (const field of land.fields) {
@@ -710,6 +733,39 @@ export class LandscapeView {
   /** Show how many plank bundles have reached a town, on its sign (from the first one on). */
   setDelivered(townId: number, count: number): void {
     this.setSignBadge(townId, count > 0 ? { count } : null);
+  }
+
+  /**
+   * How many people wait on a town's platform (null: its usual few, as in Sandbox). Rebuilds only that platform's peg
+   * dolls, and only when the number changed. True if it did (draw a frame).
+   */
+  setWaiting(townId: number, count: number | null): boolean {
+    if ((this.waiting.get(townId) ?? null) === count) return false;
+    this.waiting.set(townId, count);
+    const dolls = this.waitingGroups.get(townId);
+    if (dolls) showDolls(dolls, count);
+    return true;
+  }
+
+  /**
+   * A platform's peg dolls: all it has room for, built once with the town, each mesh drawn only as far as the number
+   * waiting (a draw range), so a rider getting on costs nothing to redraw.
+   */
+  private buildWaitingDolls(town: Town): void {
+    const old = this.waitingGroups.get(town.id);
+    if (old) {
+      old.group.removeFromParent();
+      disposeTree(old.group);
+    }
+    const group = new Group();
+    const b = new Batcher(this.mats.paint);
+    const marks: Map<Material, number>[] = [];
+    const usual = buildWaiting(town, MAX_WAITING_DOLLS, this.mats, b, () => marks.push(b.vertexCounts()));
+    b.build(group);
+    const dolls: WaitingDolls = { group, marks, usual };
+    showDolls(dolls, this.waiting.get(town.id) ?? null);
+    this.waitingGroups.set(town.id, dolls);
+    this.group.add(group);
   }
 
   /** What a town's sign shows beside its name (null: just the name). Repaints only the sign's own picture. */

@@ -28,6 +28,16 @@ export class Batcher {
     list.push(g);
   }
 
+  /**
+   * Vertices collected so far, per material bucket (as `build` will key its meshes). Marked between additions, they
+   * let a `drawRange` show only what came before the mark (see the waiting passengers on a platform).
+   */
+  vertexCounts(): Map<Material, number> {
+    const out = new Map<Material, number>();
+    for (const [material, list] of this.buckets) out.set(material, list.reduce((n, g) => n + g.getAttribute("position").count, 0));
+    return out;
+  }
+
   /** Each material's geometry merged into one (the collected pieces are freed); for merging again later. */
   merged(): Map<Material, BufferGeometry> {
     const out = new Map<Material, BufferGeometry>();
