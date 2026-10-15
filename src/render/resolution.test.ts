@@ -43,4 +43,12 @@ describe("ResolutionGovernor", () => {
       t += 5 * 34 + 2000;
     }
   });
+
+  it("while resting (the map just built or shown), slow frames don't step it down; after, they do", () => {
+    const g = new ResolutionGovernor(3, 3, 1.5);
+    g.rest(SAMPLE_FRAMES * 5 * 60);
+    expect(run(g, 0, 60, SAMPLE_FRAMES * 5)).toEqual([]);
+    expect(g.current).toBe(3);
+    expect(run(g, SAMPLE_FRAMES * 5 * 60, 60, SAMPLE_FRAMES + 2)).toEqual([2.25]);
+  });
 });

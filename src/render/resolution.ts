@@ -25,6 +25,19 @@ export class ResolutionGovernor {
     this.ratio = Math.max(Math.min(deviceRatio, maxRatio), Math.min(deviceRatio, minRatio));
   }
 
+  /** Frames before this time (ms) aren't judged. */
+  private restUntil = -Infinity;
+
+  /**
+   * Don't judge frames until `until` (ms): the first frames after the map is built or shown are slow while shaders
+   * compile and geometry uploads, which says nothing about how fast it draws once settled.
+   */
+  rest(until: number): void {
+    this.restUntil = until;
+    this.total = 0;
+    this.count = 0;
+  }
+
   get current(): number {
     return this.ratio;
   }
@@ -36,7 +49,7 @@ export class ResolutionGovernor {
   frameDrawn(time: number, continuous: boolean): number | null {
     const gap = time - this.last;
     this.last = time;
-    if (!continuous) {
+    if (!continuous || time < this.restUntil) {
       this.total = 0;
       this.count = 0;
       return null;

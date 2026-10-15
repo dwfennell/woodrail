@@ -553,6 +553,36 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   /** Paused or not when the title came up (the game pauses behind the title, so the still backdrop costs nothing). */
   let pausedBeforeTitle = false;
 
+  /** The title is up over the opening screen (at start-up), not over the map: the map shows once a mode is chosen. */
+  let overOpening = false;
+  /** A mode was chosen on the opening screen, and the map is about to be built. */
+  let leaving = false;
+
+  /** At start-up: the title over the opening screen (its toys behind the cards), the map built and waiting unseen. */
+  function showTitleOverOpening(): void {
+    overOpening = true;
+    playing = false;
+    hud.setVisible(false);
+    pausedBeforeTitle = game.paused;
+    game.paused = true;
+    loading?.classList.add("behind-title");
+    title.root.classList.add("over-opening");
+    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") });
+    // Its toys move down to make room: drawn again at their new size, and whenever the window changes.
+    toys?.refresh();
+    addEventListener("resize", refreshToys);
+  }
+  const refreshToys = () => toys?.refresh();
+
+  /** The opening screen goes (fading over the map) once a mode is chosen. */
+  function leaveOpening(): void {
+    if (!overOpening) return;
+    overOpening = false;
+    title.root.classList.remove("over-opening");
+    loading?.classList.add("done");
+    removeEventListener("resize", refreshToys);
+  }
+
   /** Save, then show the title over a still, wide view of the map. */
   function showTitle(): void {
     closeMap(false);
@@ -1136,6 +1166,21 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   /** Leave the title for a mode: carry on with its railway, or start it afresh. */
   function play(next: GameMode, fresh: boolean): void {
+    // From the opening screen: its toys go first, and the screen paints without them before a map is built (building
+    // holds the page for a moment, and a toy canvas left showing through it can flash white).
+    if (overOpening) {
+      if (leaving) return;
+      leaving = true;
+      toys?.stop();
+      requestAnimationFrame(() => setTimeout(() => begin(next, fresh), 0));
+      return;
+    }
+    begin(next, fresh);
+  }
+
+  /** Load or make the mode's world, and play. */
+  function begin(next: GameMode, fresh: boolean): void {
+    leaving = false;
     if (fresh && next === "game") resetGoals();
     if (fresh) saveLastBuilt(next, null);
     if (fresh) setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
@@ -1153,6 +1198,9 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     mode = next;
     saveLastMode(mode);
     title.hide();
+    leaveOpening();
+    // The first frames after the map appears (or changes) are slow while it settles: not a reason to draw coarser.
+    game.settleResolution();
     game.director.cancel();
     game.paused = pausedBeforeTitle;
     hud.setPaused(game.paused);
@@ -1345,11 +1393,13 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   if (opening.linked) {
     enter(mode);
     openingView();
-  } else showTitle();
+  } else showTitleOverOpening();
   loadBar.finish();
-  loading?.classList.add("done");
-  // The loading screen fades out (0.6 s); its toys go with it.
-  setTimeout(() => toys?.stop(), 700);
+  if (!overOpening) {
+    loading?.classList.add("done");
+    // The loading screen fades out (0.6 s); its toys go with it.
+    setTimeout(() => toys?.stop(), 700);
+  }
 }
 
 /** Say on the loading screen that the toys couldn't be fetched, with a button to try again. */

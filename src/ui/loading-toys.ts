@@ -76,6 +76,8 @@ export class LoadingToys {
     const sun = new DirectionalLight(new Color("#fff1dc"), 2.2);
     sun.position.set(-60, 160, 120);
     this.scene.add(sun, ...this.rows);
+    // A lost context draws as a white box (the browser may take it back while the game builds): hide it, don't flash.
+    canvas.addEventListener("webglcontextlost", () => (canvas.style.visibility = "hidden"));
   }
 
   /** Put a model at the end of a shelf (it hops in). `slots`: colours for its slots (a coat, a hat). */
@@ -107,9 +109,15 @@ export class LoadingToys {
   /** Stop drawing and free the stage (its own WebGL context). */
   stop(): void {
     this.stopped = true;
+    this.canvas.style.visibility = "hidden";
     cancelAnimationFrame(this.frame);
     this.renderer.dispose();
     this.renderer.forceContextLoss();
+  }
+
+  /** Draw again (its canvas changed size). */
+  refresh(): void {
+    if (!this.stopped) this.start();
   }
 
   private start(): void {

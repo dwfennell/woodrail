@@ -579,6 +579,11 @@ export class Game {
     }
   }
 
+  /** Give the drawing resolution a rest from judging frame times for a while (see `ResolutionGovernor.rest`). */
+  settleResolution(ms = 3000): void {
+    this.resolution.rest(performance.now() + ms);
+  }
+
   private grabFrame: ((canvas: HTMLCanvasElement) => void) | null = null;
 
   /** A picture of the next frame drawn (it's drawn at once), as a WebP or PNG. */
