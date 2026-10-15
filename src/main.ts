@@ -11,7 +11,7 @@ import { hasSave, loadFromStorage, loadGoals, loadProgress, saveGoals, saveProgr
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
-import { loadBlenderModels, loadModelSet } from "./render/blender-models";
+import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
@@ -150,11 +150,14 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   const audio = new ToyAudio();
   let muted = loadMuted();
   audio.setMuted(muted);
-  // Tray pictures: saved from an earlier visit to this build, or drawn now (and saved for next time).
-  const trayItems = [...TRACK_ITEMS, ...TRAIN_ITEMS, ...INDUSTRY_GROUPS.flatMap((g) => g.items)];
+  // Tray pictures: saved from an earlier visit to this build, or drawn now (and saved for next time). The industries'
+  // wait for Game mode's models (`ensureGameModels`), so they're never drawn from stand-ins.
+  const industryItems = INDUSTRY_GROUPS.flatMap((g) => g.items);
   const thumbnails = new Map(savedThumbnails ?? []);
-  const unseen = trayItems.filter((item) => !thumbnails.has(trayKey(item)));
-  if (unseen.length > 0) {
+  /** Draw the tray pictures not drawn yet among `items`; returns the keys drawn. */
+  const drawThumbnails = (items: readonly TrayItem[]): string[] => {
+    const unseen = items.filter((item) => !thumbnails.has(trayKey(item)));
+    if (unseen.length === 0) return [];
     const drawn = renderThumbnails(
       game.renderer,
       game.mats,
@@ -169,7 +172,9 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     );
     for (const [k, v] of drawn) thumbnails.set(k, v);
     void saveCached("thumbnails", __BUILD_ID__, thumbnails);
-  }
+    return [...drawn.keys()];
+  };
+  drawThumbnails([...TRACK_ITEMS, ...TRAIN_ITEMS]);
 
   const hud = new Hud(
     document.body,
@@ -1307,6 +1312,27 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     openingView();
   }
 
+  /**
+   * Game mode's models (its industries, upgrade machines and cargo loads: industry.glb), fetched the first time Game
+   * mode starts and never in Sandbox. Once in, the depots' goods and yards are rebuilt with them and the industries'
+   * tray pictures drawn; until then the depots show their stand-ins. A failed fetch is tried again on the next entry.
+   */
+  let gameModels: Promise<void> | null = null;
+  function ensureGameModels(): void {
+    gameModels ??= loadGameModels().then(
+      () => {
+        game.depotView.rebuildUnits();
+        game.depotView.setWorld(game.economy, game.layout);
+        for (const key of drawThumbnails(industryItems)) hud.setThumbnail(key, thumbnails.get(key)!);
+        game.invalidate();
+      },
+      (e: unknown) => {
+        console.warn("Woodrail: couldn't load Game mode's models", e);
+        gameModels = null;
+      },
+    );
+  }
+
   /** Start playing a mode on the world now loaded. */
   function enter(next: GameMode): void {
     mode = next;
@@ -1328,6 +1354,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     // An industry you place must stand near what it works with (trees, fields): Game mode's rule.
     interaction.siteRule = mode === "game" ? (type, pose) => siteWhy(game.landscape, type, pose) : null;
     if (mode === "game") {
+      ensureGameModels();
       townLife.reset();
       passengersOn();
       progress.coverMap(game.world);
@@ -1512,6 +1539,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress });
   game.start();
+  // Opening in Game mode: start fetching its models now, ahead of play.
+  if (mode === "game") ensureGameModels();
   loadBar.finish();
   // The loading screen's toys play their entry in full before it moves on (it's short, and capped).
   void entryPlayed().then(() => {

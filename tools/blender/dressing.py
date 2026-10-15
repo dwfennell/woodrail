@@ -12,7 +12,8 @@ way it placed its boxes.
 A colour that changes from copy to copy (a door, a coat, a flower) is a slot: lacquer named "lacquer slot <name>", which
 the game fills in when it places the part.
 
-Writes tools/blender/dressing.blend and tools/blender/out/dressing.glb (one node per part, named by it).
+Writes tools/blender/dressing.blend and tools/blender/out/dressing.glb (one node per part, named by it); with SET=industry,
+Game mode's parts (see `game_only`) into industry.blend and out/industry.glb instead.
 """
 
 import math
@@ -1113,6 +1114,206 @@ def load_ore_heap(k):
     return _heap(k, Node(), k.paint(RUST[0]), [k.paint(c) for c in RUST], 9)
 
 
+# ——— Phase C, second batch: furniture, tools and power ———
+
+STONE_GREY = ("#a9a59c", "#b8b4ab", "#9a968d")
+
+
+def _planks_stack(k, g, x, z, n=4):
+    """A stack of n beech boards, 30 long along x, at (x, z) on the pad, with a red strap."""
+    for i in range(n):
+        g.add(k.box(k.wood, 30, 2, 10, 0.6, x, PAD + i * 2.1, z, seg=1))
+    g.add(k.box(k.paint(RED), 1.6, n * 2.1 + 0.4, 10.4, 0.4, x, PAD - 0.1, z, seg=1))
+
+
+def industry_carpenter(k):
+    """
+    The carpenter's yard: a beech workshop (x 126-194, z 74-110) under a saw-tooth roof of four red teeth with skylights
+    facing the track side, a big door; stacks of planks at the left of it; a bench in the yard with a half-built chair
+    and table.
+    """
+    g = Node()
+    x0, x1, z0, z1, h = 126, 194, 74, 110, 22
+    g.add(k.box(k.wood, x1 - x0, h, z1 - z0, 2.4, (x0 + x1) / 2, PAD, (z0 + z1) / 2))
+    tooth = (x1 - x0) / 4
+    for i in range(4):
+        tx = x0 + i * tooth
+        t = k.extrude(k.paint(RED), [(0, 0), (tooth, 0), (0, 11)], z1 - z0 + 3, 0, 0, 0, 0.8)
+        n = Node()
+        n.add(t)
+        n.position.set(tx, PAD + h - 0.5, (z0 + z1) / 2)
+        g.add(n)
+        # The skylight on the tooth's upright face (glass toward -x), seen as a pale band.
+        g.add(k.box(k.paint("#a9cfe6"), 1, 8, z1 - z0 - 4, 0.3, tx + 0.6, PAD + h + 1, (z0 + z1) / 2, seg=1))
+    g.add(k.box(k.paint("#9a4a2c"), 18, 17, 1.6, 0.8, 150, PAD, z0 - 0.4))
+    g.add(k.box(k.paint(CREAM), 21, 2, 2.2, 0.6, 150, PAD + 17, z0 - 0.4))
+    for wx in (134, 178):
+        g.add(k.box(k.paint("#2b3644"), 9, 8, 1.4, 0.6, wx, PAD + 8, z0 - 0.3))
+    for i, z in enumerate((84, 100)):
+        _planks_stack(k, g, 104, z, 4 - i)
+    # The bench with a half-built chair and table on it.
+    bx, bz = 112, 64
+    g.add(k.box(k.wood, 24, 2, 10, 0.6, bx, PAD + 8, bz))
+    for dx in (-10, 10):
+        for dz in (-3.5, 3.5):
+            g.add(k.box(k.wood, 1.6, 8, 1.6, 0.4, bx + dx, PAD, bz + dz))
+    chair = k.paint("#c99a5b")
+    cx = bx - 5
+    g.add(k.box(chair, 6, 1, 6, 0.3, cx, PAD + 13.5, bz))
+    for dx in (-2.4, 2.4):
+        for dz in (-2.4, 2.4):
+            g.add(k.box(chair, 1, 3.5, 1, 0.2, cx + dx, PAD + 10, bz + dz))
+    g.add(k.box(chair, 1, 6, 6, 0.3, cx - 2.6, PAD + 14.5, bz))
+    tx = bx + 5
+    g.add(k.box(chair, 8, 1, 7, 0.3, tx, PAD + 14, bz))
+    for dx, dz in ((-3.2, -2.6), (3.2, -2.6), (-3.2, 2.6)):
+        g.add(k.box(chair, 1, 4, 1, 0.2, tx + dx, PAD + 10, bz + dz))
+    g.add(k.box(chair, 1, 1, 4, 0.2, tx + 4, PAD + 10, bz + 5))
+    return g
+
+
+def industry_smithy(k):
+    """
+    The smithy: a stone forge house (x 150-190, z 80-110) with a dark roof and a tall stone chimney, open at the front
+    on its glowing hearth; an anvil on a stump; a rack of tools; a cartwheel leaning by the door.
+    """
+    g = Node()
+    fx, fz, w, d, h = 170, 95, 40, 30, 22
+    stone = k.paint(STONE_GREY[0])
+    g.add(k.box(stone, w, h, d, 2.6, fx, PAD, fz))
+    g.add(k.roof(k.paint(DARK), w + 5, d + 5, 11, fx, PAD + h - 0.5, fz, 3))
+    g.add(k.box(k.paint(STONE_GREY[1]), 7, 46, 7, 1.8, fx + 13, PAD, fz + 8))
+    g.add(k.box(k.paint(DARK), 8, 2, 8, 0.8, fx + 13, PAD + 46, fz + 8))
+    # The hearth: a stone block before the front wall, glowing coals on it, a hood over it.
+    hx, hz = fx - 6, fz - d / 2 - 6
+    g.add(k.box(k.paint(STONE_GREY[2]), 16, 9, 10, 1.6, hx, PAD, hz))
+    g.add(k.box(k.paint("#ff8a2a"), 11, 1.6, 6, 0.6, hx, PAD + 9, hz))
+    g.add(k.box(k.paint("#ffcf6b"), 5, 1.2, 3, 0.4, hx, PAD + 10, hz))
+    g.add(k.box(k.paint(DARK), 14, 3, 10, 1, hx, PAD + 18, hz + 1))
+    g.add(k.box(k.paint(DARK), 6, 4, 6, 0.8, hx, PAD + 21, hz + 3))
+    # The anvil on its stump.
+    ax, az = 132, 76
+    g.add(k.cyl(k.wood, 4.5, 7, ax, PAD, az, 4.8, 18))
+    g.add(k.box(k.paint(DARK), 4, 3, 3, 0.6, ax, PAD + 7, az))
+    g.add(k.box(k.paint(DARK), 8, 2.4, 4, 0.6, ax, PAD + 10, az))
+    horn = Node()
+    horn.add(k.cone(k.paint(DARK), 1.4, 4, 0, 0, 0, 12))
+    horn.rotation.z = -math.pi / 2
+    horn.position.set(ax + 4, PAD + 11.2, az)
+    g.add(horn)
+    # The tool rack: two posts and a rail, tools hanging from it.
+    rx, rz = 196, 72
+    for dx in (-8, 8):
+        g.add(k.box(k.wood, 1.8, 16, 1.8, 0.4, rx + dx, PAD, rz))
+    g.add(k.box(k.wood, 18, 1.6, 1.6, 0.4, rx, PAD + 14, rz))
+    for i, dx in enumerate((-5, -1.5, 2, 5.5)):
+        g.add(k.box(k.wood, 0.9, 8, 0.9, 0.2, rx + dx, PAD + 6, rz))
+        g.add(k.box(k.paint(DARK), 2.6 if i % 2 else 1.6, 1.6 if i % 2 else 3, 1.2, 0.3, rx + dx, PAD + 4.5, rz))
+    # A cartwheel leaning by the forge.
+    wheel = Node()
+    wheel.add(k.cylZ(k.paint(DARK), 9, 1.8, 0, 0, 0, 28))
+    wheel.add(k.cylZ(k.wood, 7.6, 2, 0, 0, 0, 28))
+    wheel.add(k.cylZ(k.paint(DARK), 2, 3, 0, 0, 0, 14))
+    for i in range(6):
+        sp = Node()
+        sp.add(k.box(k.wood, 1, 7, 1, 0.3, 0, 0, 0))
+        sp.rotation.z = i * math.pi / 6
+        wheel.add(sp)
+    wheel.rotation.x = -0.2
+    wheel.position.set(fx - w / 2 - 3, PAD + 9, fz + 6)
+    wheel.rotation.y = math.pi / 2
+    g.add(wheel)
+    return g
+
+
+def industry_power(k):
+    """
+    The coal power station: a brick turbine hall (x 124-194, z 80-112) with tall arched windows along its front, two
+    tall chimneys behind, a coal bunker on legs at its left heaped with coal; and the engine's flywheel, a part of its
+    own ("industry-power-wheel": hub at x 112, y 22, z 72, turning on z) on a stand before the hall.
+    """
+    g = Node()
+    hx, hz, w, d, h = 159, 96, 70, 32, 32
+    g.add(k.box(k.paint(BRICK), w, h, d, 2.8, hx, PAD, hz))
+    g.add(k.roof(k.paint(DARK), w + 4, d + 4, 8, hx, PAD + h - 0.5, hz, 3))
+    front = hz - d / 2
+    for wx in range(hx - 28, hx + 29, 14):
+        win = Node()
+        win.add(k.extrude(k.paint(CREAM), [(-4.6, 0), (4.6, 0), (4.6, 16)] + [(4.6 * math.cos(a), 16 + 4.6 * math.sin(a)) for a in (0.5, 1.0, 1.57, 2.1, 2.6)] + [(-4.6, 16)], 1.0, 0, 0, 0, 0.3))
+        win.add(k.extrude(k.paint("#2b3644"), [(-3.4, 0), (3.4, 0), (3.4, 15)] + [(3.4 * math.cos(a), 15 + 3.4 * math.sin(a)) for a in (0.5, 1.0, 1.57, 2.1, 2.6)] + [(-3.4, 15)], 1.4, 0, 0.6, -0.3, 0.2))
+        win.position.set(wx, PAD + 6, front - 0.3)
+        g.add(win)
+    for cx in (140, 176):
+        g.add(k.cyl(k.paint(BRICK), 5, 72, cx, PAD, hz + 10, 4, 24))
+        g.add(k.cyl(k.paint(CREAM), 5.2, 2.4, cx, PAD + 60, hz + 10, 4.6, 24))
+        g.add(k.cyl(k.paint(DARK), 4.4, 2.4, cx, PAD + 72, hz + 10, 4.4, 24))
+    # The coal bunker: a dark box on four legs, heaped with coal, a chute into the hall.
+    bx, bz = 108, 98
+    for dx in (-8, 8):
+        for dz in (-8, 8):
+            g.add(k.box(k.paint(DARK), 2.4, 16, 2.4, 0.6, bx + dx, PAD, bz + dz))
+    g.add(k.box(k.paint(IRON_GREY), 22, 12, 22, 2, bx, PAD + 16, bz))
+    g.add(k.box("coal", 19, 2, 19, 0.6, bx, PAD + 27, bz))
+    for i, (dx, dz) in enumerate(((-4, -3), (3, 4), (0, 0), (5, -5), (-5, 5))):
+        g.add(k.box("coal", 4, 3, 4, 0.8, bx + dx, PAD + 28, bz + dz, seg=1))
+    chute = Node()
+    chute.add(k.box(k.paint(IRON_GREY), 12, 1.6, 5, 0.5, 6, 0, 0))
+    chute.rotation.z = -0.4
+    chute.position.set(bx + 10, PAD + 22, bz)
+    g.add(chute)
+    # The flywheel's stand (the wheel is its own part).
+    g.add(k.box(k.paint(DARK), 4, 20, 8, 1, 112, PAD, 76))
+    g.add(k.box(k.paint(IRON_GREY), 14, 4, 12, 1.4, 112, PAD, 76))
+    return g
+
+
+def industry_power_wheel(k):
+    """The power station's flywheel: 30 across, red with six spokes, in the x/y plane, its hub at the origin (turn on z)."""
+    g = Node()
+    g.add(k.extrude(k.paint(RED), [(15 * math.cos(2 * math.pi * i / 40), 15 * math.sin(2 * math.pi * i / 40)) for i in range(40)], 3, 0, 0, 0, 0.8))
+    g.add(k.extrude(k.paint(DARK), [(12 * math.cos(2 * math.pi * i / 40), 12 * math.sin(2 * math.pi * i / 40)) for i in range(40)], 3.4, 0, 0, 0, 0.4))
+    for i in range(6):
+        sp = Node()
+        sp.add(k.box(k.paint(RED), 2, 24, 2, 0.6, 0, -12, 0))
+        sp.rotation.z = i * math.pi / 3
+        g.add(sp)
+    g.add(k.cylZ(k.paint(CREAM), 3, 5, 0, 0, 0, 18))
+    return g
+
+
+def load_furniture(k):
+    """A unit of furniture, sack-sized (14 x 9 high x 9): a slatted beech crate with a chair and a little table inside
+    (seen between the slats) and a red strap; flat on top so units stack; centred on its footprint, base y 0."""
+    g = Node()
+    g.add(k.box(k.paint("#8a5a33"), 12.4, 8, 7.4, 0.8, 0, 0.4, 0))
+    for y in (0, 3.2, 6.4):
+        for z in (-4.1, 4.1):
+            g.add(k.box(k.wood, 14, 2.4, 0.9, 0.3, 0, y, z, seg=1))
+        for x in (-6.6, 6.6):
+            g.add(k.box(k.wood, 0.9, 2.4, 9, 0.3, x, y, 0, seg=1))
+    for x in (-4, 0, 4):
+        g.add(k.box(k.wood, 3, 0.9, 9, 0.3, x, 8.1, 0, seg=1))
+    g.add(k.box(k.paint(RED), 1.4, 9.2, 9.3, 0.3, 2, -0.1, 0, seg=1))
+    return g
+
+
+def load_tools(k):
+    """A unit of tools, sack-sized (14 x 6 x 9): a wooden tool box with a hammer and a saw's handles poking out of it,
+    its top flat beside them; centred on its footprint, base y 0."""
+    g = Node()
+    g.add(k.box(k.wood, 14, 5, 9, 1, 0, 0, 0))
+    g.add(k.box(k.paint("#8a5a33"), 12.6, 0.6, 7.6, 0.3, 0, 4.7, 0, seg=1))
+    g.add(k.box(k.paint(RED), 14.2, 1, 9.2, 0.3, 0, 1.6, 0, seg=1))
+    hammer = Node()
+    hammer.add(k.box(k.paint("#c99a5b"), 1, 6, 1, 0.3, 0, 0, 0))
+    hammer.add(k.box(k.paint(DARK), 3.4, 1.4, 1.4, 0.4, 0, 6, 0))
+    hammer.rotation.z = 0.5
+    hammer.position.set(-3, 3.2, -1.5)
+    g.add(hammer)
+    g.add(k.box(k.paint(RED), 3, 2.6, 1.2, 0.5, 3.5, 4.6, 1.8))
+    return g
+
+
 PARTS = [
     ("door", door),
     ("flower-box", flower_box),
@@ -1164,26 +1365,44 @@ PARTS = [
     ("load-iron", load_iron),
     ("load-coal-heap", load_coal_heap),
     ("load-ore-heap", load_ore_heap),
+    ("industry-carpenter", industry_carpenter),
+    ("industry-smithy", industry_smithy),
+    ("industry-power", industry_power),
+    ("industry-power-wheel", industry_power_wheel),
+    ("load-furniture", load_furniture),
+    ("load-tools", load_tools),
 ]
 
 
 # Parts on every house: built lean (see kit.Kit), as a map has hundreds of them.
 LEAN = {"door", "flower-box", "chimney-top"}
 
+# Industries both modes show (the map's own forest yards and sawmills): in dressing.glb with the rest.
+SHARED_INDUSTRY = {"industry-forest-hut", "industry-sawmill-shed", "industry-saw-blade"}
+
+
+def game_only(name):
+    """Game mode's parts (its other industries, the upgrade machines, the cargo loads): built into industry.glb, which
+    the game loads only when Game mode starts, so Sandbox never fetches them."""
+    return name.startswith(("industry-", "upgrade-", "load-")) and name not in SHARED_INDUSTRY
+
 
 def main():
+    # SET=industry builds industry.glb (Game mode's parts); otherwise dressing.glb (the rest).
+    which = os.environ.get("SET", "dressing")
+    parts = [(n, b) for n, b in PARTS if game_only(n) == (which == "industry")]
     toy.reset()
     only = set(filter(None, os.environ.get("ONLY", "").split(",")))
-    for i, (name, build) in enumerate(PARTS):
+    for i, (name, build) in enumerate(parts):
         if only and name not in only:
             continue
         toy.begin()
         root = build(kit.Kit(lean=name in LEAN))
         pivots = kit.realize(root, name)
         toy.finish(name, (i % 8 * 60, -(i // 8) * 60, 0), pivots)
-    print(f"{len(PARTS)} parts")
+    print(f"{len(parts)} parts ({which})")
     if not os.environ.get("NOEXPORT"):
-        toy.save_and_export("dressing")
+        toy.save_and_export(which)
 
 
 main()

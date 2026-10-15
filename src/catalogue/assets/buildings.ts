@@ -380,6 +380,18 @@ export const ASSETS: Asset[] = [
     animate: (root, t) => animateClock(root, t),
   },
   {
+    id: "bldg-college",
+    name: "College",
+    category: CAT,
+    tags: ["college", "brick", "clock", "bell", "arch", "quad", "landmark", "town"],
+    notes: "A long brick college with a gate tower: the arch into its quad, a clock, and a bell swinging in its white cupola. Students might fill the morning trains.",
+    build: model("bldg-college"),
+    animate: (root, t) => {
+      animateClock(root, t);
+      for (const b of parts(root, "bell")) b.rotation.x = Math.sin(t * 3) * 0.5;
+    },
+  },
+  {
     id: "bldg-castle-gate",
     name: "Castle gate",
     category: CAT,

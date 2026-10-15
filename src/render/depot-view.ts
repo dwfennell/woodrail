@@ -291,19 +291,35 @@ export class DepotView {
   readonly group = new Group();
   private sites: Site[] = [];
   /** Each kind of goods' meshes (logs, plank bundles, sacks). */
-  private readonly units: Record<CargoKind, UnitMeshes>;
+  private units!: Record<CargoKind, UnitMeshes>;
   /** Heaps in hoppers (one per loaded hopper), by what they hold. */
-  private readonly heaps: Record<HeapKind, UnitMeshes>;
+  private heaps!: Record<HeapKind, UnitMeshes>;
   /** Every kind's meshes and the heaps, to loop over without allocating. */
-  private readonly allUnits: UnitMeshes[];
+  private allUnits: UnitMeshes[] = [];
   private static readonly MAX_UNITS = 2048;
   /** A unit being carried by hand: one fewer is drawn at its source. */
   dragging: CargoSlot | null = null;
   /** Picking owners for wagon loads by car id, made once per car. */
   private readonly carOwners = new Map<number, CargoSlot>();
-  private readonly cargoMeshes: InstancedMesh[];
+  private cargoMeshes: InstancedMesh[] = [];
 
   constructor(private readonly mats: Materials) {
+    this.rebuildUnits();
+  }
+
+  /**
+   * (Re)make the goods' and heaps' meshes from the parts loaded now: the modelled sacks, blocks, loads and heaps where
+   * they're in, stand-ins where not. Call again once Game mode's parts arrive (`loadGameModels`), then `setWorld`.
+   */
+  rebuildUnits(): void {
+    const mats = this.mats;
+    for (const u of this.allUnits) {
+      for (const m of u.parts) {
+        this.group.remove(m);
+        m.dispose();
+      }
+      if (u.carried.parent) this.group.remove(u.carried);
+    }
     const log = new CylinderGeometry(LOG_RADIUS, LOG_RADIUS, LOG_LENGTH, 14).rotateZ(Math.PI / 2);
     const boards = mergeGeometries(
       [0, 1, 2].map((k) => new RoundedBoxGeometry(BUNDLE_LENGTH, BUNDLE_HEIGHT / 3 - 0.3, BUNDLE_WIDTH, 1, 0.5).translate(0, -BUNDLE_HEIGHT / 3 + (k * BUNDLE_HEIGHT) / 3, 0).toNonIndexed()),

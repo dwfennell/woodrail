@@ -11,7 +11,7 @@ import type { Materials } from "./materials";
  * named by its id. They wear the game's own materials, swapped in by material name ("wood", "metal",
  * "lacquer #rrggbb", ...), so they're lit and painted like everything else.
  */
-export type ModelSet = "trains" | "life" | "buildings" | "dressing";
+export type ModelSet = "trains" | "life" | "buildings" | "dressing" | "industry";
 
 const sets = new Map<ModelSet, Promise<Map<string, Object3D>>>();
 
@@ -99,9 +99,29 @@ export async function loadBlenderModels(): Promise<void> {
   const [t, d] = await Promise.all([loadModelSet("trains"), loadModelSet("dressing", true)]);
   trains = t;
   parts.clear();
+  addParts(d);
+  if (industry) addParts(industry);
+}
+
+/** Game mode's parts (its industries, upgrade machines and cargo loads), once `loadGameModels` has them. */
+let industry: Map<string, Object3D> | null = null;
+
+/**
+ * Fetch Game mode's parts (tools/blender/dressing.py, SET=industry): its industries other than the map's forest yards
+ * and sawmills, the upgrade machines and the cargo loads. Only Game mode needs them, so only it loads them; until
+ * they're in, `hasPart` says no and the depots draw their stand-ins. Rejects if they can't be had.
+ */
+export async function loadGameModels(): Promise<void> {
+  const m = await loadModelSet("industry", true);
+  if (industry) return;
+  industry = m;
+  addParts(m);
+}
+
+/** Flatten each model of a set into its pieces, one geometry per material, in the part's own space. */
+function addParts(models: ReadonlyMap<string, Object3D>): void {
   const inv = new Matrix4();
-  for (const [name, model] of d) {
-    // Each part flattened into its pieces, one geometry per material, in the part's own space.
+  for (const [name, model] of models) {
     model.updateMatrixWorld(true);
     inv.copy(model.matrixWorld).invert();
     const pieces: Piece[] = [];
@@ -120,7 +140,8 @@ interface Piece {
   geometry: BufferGeometry;
 }
 
-/** The map's building parts (tools/blender/dressing.py) by name: a door, a station clock, a street lamp. */
+/** The map's building parts (tools/blender/dressing.py) by name: a door, a station clock, a street lamp; and Game mode's
+ * (industry.glb) once loaded. */
 const parts = new Map<string, Piece[]>();
 
 /**
