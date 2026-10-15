@@ -41,6 +41,7 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "switch-3way", label: "Three-way" },
   { kind: "piece", type: "crossing", label: "Crossing" },
   { kind: "piece", type: "crossing-45", label: "45° crossing" },
+  { kind: "piece", type: "signal", label: "Signal" },
   { kind: "piece", type: "crossover", label: "Crossover" },
   { kind: "piece", type: "double-straight", label: "Double track" },
   { kind: "piece", type: "double-curve", label: "Double curve" },
@@ -90,7 +91,7 @@ const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i
 export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Straight", items: [TRACK_ITEMS[0], ...pieces("straight-288", "straight-216", "straight-144", "straight-108", "straight-54", "straight-36", "double-straight")] },
   { label: "Curve", items: pieces("curve-large", "curve-small", "curve-wide", "s-curve", "s-curve-short", "double-curve") },
-  { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45") },
+  { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45", "signal") },
   { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "riser") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
   { label: "Adapters", items: pieces("adapter-peg", "adapter-socket", "joiner") },

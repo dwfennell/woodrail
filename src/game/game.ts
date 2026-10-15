@@ -197,6 +197,7 @@ export class Game {
     this.landscapeView.syncTrees(this.layout);
     this.trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
     this.trackView.onRoad = this.onRoad;
+    this.trackView.signalClear = (id) => this.sim.signalClear(id);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
     this.trainView = new TrainView(this.mats);
@@ -267,6 +268,7 @@ export class Game {
     this.trackView.dispose();
     (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
     this.trackView.onRoad = this.onRoad;
+    this.trackView.signalClear = (id) => this.sim.signalClear(id);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
@@ -502,6 +504,12 @@ export class Game {
       }
       if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
     }
+    // A signal changed aspect: its arm moves (nothing else is redrawn).
+    if (this.sim.signalsVersion !== this.signalsShown) {
+      this.signalsShown = this.sim.signalsVersion;
+      this.trackView.syncSwitches();
+      this.invalidate();
+    }
     this.events = this.sim.drainEvents();
     this.sim.writeSnapshot(this.snapshot);
     this.simMs = performance.now() - t0;
@@ -731,6 +739,9 @@ export class Game {
     this.hiddenProp = hidden;
     if (this.propsView.sync(this.props, hidden)) this.invalidate();
   }
+
+  /** The sim's signal aspects last drawn (see `Sim.signalsVersion`). */
+  private signalsShown = -1;
 
   /** Is this spot on a road or lane (switch levers stand clear of them)? */
   private readonly onRoad = (x: number, z: number): boolean => {

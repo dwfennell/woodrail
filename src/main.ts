@@ -162,7 +162,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
             ? [{ key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks }]
             : [],
       ),
-      (type) => (INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : null),
+      (type) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : null),
     );
     for (const [k, v] of drawn) thumbnails.set(k, v);
     void saveCached("thumbnails", __BUILD_ID__, thumbnails);
