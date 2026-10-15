@@ -212,11 +212,50 @@ if (site) {
   await q.waitForTimeout(4000);
   await q.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
   await q.waitForTimeout(1500);
-  const { x, z, heading: h } = site;
+  // A free end whose stroke (straight on, then a quarter turn to one side) stays well inside the view's bounds, over
+  // open ground, so the view can centre on it.
+  const phoneSite = await q.evaluate(async () => {
+    const w = window.woodrail;
+    const { createWorldConnector } = await import("/src/track/layout.ts");
+    const G = w.landscape.grid;
+    const B = w.director.bounds;
+    const c = createWorldConnector();
+    const open = (px, pz) => {
+      const cell = G.cellAtWorld(px, pz);
+      return cell !== -1 && G.height[cell] === 0 && G.surface[cell] === 0 && G.feature[cell] <= 1 && G.road[cell] === 0;
+    };
+    const inside = (px, pz) => px > B.x0 + 250 && px < B.x1 - 250 && pz > B.z0 + 250 && pz < B.z1 - 250;
+    for (const id of w.layout.pieceIds()) {
+      for (let i = 0; i < 4; i++) {
+        const ref = id * 4 + i;
+        if (w.layout.joinedConnector(ref) !== -1) continue;
+        try {
+          w.layout.worldConnector(ref, c);
+        } catch {
+          continue;
+        }
+        if (!Number.isFinite(c.x) || c.y !== 0) continue;
+        const fx = Math.cos(c.heading);
+        const fz = Math.sin(c.heading);
+        for (const side of [1, -1]) {
+          const lx = -fz * side;
+          const lz = fx * side;
+          const pts = [];
+          for (let d = 72; d <= 220; d += 36) pts.push([c.x + fx * d, c.z + fz * d]);
+          for (let a = 0.2; a <= Math.PI / 2 + 0.01; a += 0.2) pts.push([c.x + fx * (220 + 180 * Math.sin(a)) + lx * 180 * (1 - Math.cos(a)), c.z + fz * (220 + 180 * Math.sin(a)) + lz * 180 * (1 - Math.cos(a))]);
+          if (pts.every(([px, pz]) => open(px, pz) && inside(px, pz))) return { x: c.x, z: c.z, heading: c.heading, side };
+        }
+      }
+    }
+    return null;
+  });
+  check("on a phone, found a free end with room for the stroke", !!phoneSite, JSON.stringify(phoneSite));
+  if (!phoneSite) throw new Error("no phone site");
+  const { x, z, heading: h, side } = phoneSite;
   const fx = Math.cos(h);
   const fz = Math.sin(h);
-  const lx = -fz;
-  const lz = fx;
+  const lx = -fz * side;
+  const lz = fx * side;
   // Framed so the whole stroke is on screen, clear of the edges (where the view would edge-pan) and the tray. (A focus
   // only ever comes closer, so one framing.)
   let pts = [];
