@@ -128,7 +128,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
 
   // Trains
   row({ id: "tank", label: "Tank engine", branch: "trains", tier: 1, key: true, needs: [], price: { planks: 8 }, blurb: "Pulls 3 cars (a classic engine pulls 4), but gets going and stops in half the time.", brings: "Tank engine", feature: { label: "Tank engine (Trains tab)", icon: "🚂" } }),
-  row({ id: "goods-engine", label: "Goods engine", branch: "trains", tier: 2, plan: "next", needs: ["tank"], price: { planks: 16, coins: 40 }, requires: [count("loadsMoved", 200)], blurb: "Pulls 8 cars at 0.8× speed, for long freight trains.", brings: "Goods engine" }),
+  row({ id: "goods-engine", label: "Goods engine", branch: "trains", tier: 2, needs: ["tank"], price: { planks: 16, coins: 40 }, requires: [count("loadsMoved", 200)], blurb: "Pulls 8 cars at 0.8× speed, for long freight trains.", brings: "Goods engine", feature: { label: "Goods engine (Trains tab)", icon: "🚂" } }),
   row({ id: "diesel", label: "Diesel", branch: "trains", tier: 2, needs: ["tank"], price: { planks: 18, coins: 60 }, requires: [TOWN], blurb: "Pulls 6 at 1.2×, and drives as well backwards.", brings: "Diesel engine", feature: { label: "Diesel (Trains tab)", icon: "🚂" } }),
   row({ id: "breakdown", label: "Breakdown crane", branch: "trains", tier: 2, plan: "soon", needs: ["goods-engine", "cranes1"], price: { planks: 14, coins: 40 }, blurb: "A crane wagon that puts derailed trains back on the line by itself.", brings: "Breakdown crane wagon" }),
   row({ id: "tankers", label: "Tank wagons", branch: "trains", tier: 2, plan: "soon", needs: ["dairy"], price: { planks: 6, coins: 20 }, blurb: "Milk, and later oil and water, in tanks.", brings: "Tank wagon" }),

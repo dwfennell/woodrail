@@ -18,6 +18,7 @@ export interface EngineKind {
 export const ENGINES: Partial<Record<CarLook, EngineKind>> = {
   classic: { label: "engine", pulls: 4, speed: 1, quick: 1 },
   tank: { label: "tank engine", pulls: 3, speed: 1, quick: 2 },
+  goods: { label: "goods engine", pulls: 8, speed: 0.8, quick: 0.7 },
   diesel: { label: "diesel", pulls: 6, speed: 1.2, quick: 1 },
   electric: { label: "electric engine", pulls: 6, speed: 1.4, quick: 1.2 },
   express: { label: "express engine", pulls: 4, speed: 1.5, quick: 1 },

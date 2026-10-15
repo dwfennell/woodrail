@@ -19,6 +19,24 @@ export const RATE_UPGRADES: readonly { readonly tech: string; readonly role: Dep
   { tech: "quarries2", role: "quarry", factor: 1.5 },
 ];
 
+/** The machine each upgrade puts in its yard (a model part); a yard shows its best one. */
+const MACHINES: Record<string, string> = {
+  harvesters2: "upgrade-log-loader",
+  harvesters3: "upgrade-steam-log-crane",
+  sawmills2: "upgrade-saw-bench",
+  sawmills3: "upgrade-steam-saw-house",
+  farming2: "upgrade-tractor",
+  mills2: "upgrade-millstones",
+  quarries2: "upgrade-stone-crusher",
+};
+
+/** The machines a kind of yard shows for the upgrades learned: the best one. */
+export function machinesFor(p: Progress, role: DepotRole): string[] {
+  let best: { factor: number; part: string } | null = null;
+  for (const u of RATE_UPGRADES) if (u.role === role && p.learned.has(u.tech) && (!best || u.factor > best.factor)) best = { factor: u.factor, part: MACHINES[u.tech] };
+  return best ? [best.part] : [];
+}
+
 /** How much faster industries of this kind work, from the upgrades learned (1: none). */
 export function boostOf(p: Progress, role: DepotRole): number {
   let f = 1;
