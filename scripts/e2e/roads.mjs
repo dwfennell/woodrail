@@ -116,7 +116,14 @@ async function findSites() {
       const block = [-1, 0, 1].flatMap((dr) => [-1, 0, 1].map((dc) => G.index(G.colOf(i) + dc, G.rowOf(i) + dr)));
       if (block.every((j) => free(j) && G.height[j] === 0 && noRoadNear(j))) auto = { a: G.index(G.colOf(i) - 1, G.rowOf(i)), b: i, c: G.index(G.colOf(i), G.rowOf(i) - 1) };
     }
-    return { gate, river, hill, auto };
+    // A second open stretch, well away from the first, for roads laid by clicking.
+    let ready = null;
+    for (let i = 0; i < G.cellCount && !ready && auto; i++) {
+      const row = [0, 1, 2].map((dc) => G.index(G.colOf(i) + dc, G.rowOf(i)));
+      const far = Math.hypot(G.colOf(i) - G.colOf(auto.b), G.rowOf(i) - G.rowOf(auto.b)) > 6;
+      if (far && row.every((j) => free(j) && G.height[j] === 0 && noRoadNear(j))) ready = { a: row[0], b: row[1], c: row[2] };
+    }
+    return { gate, river, hill, auto, ready };
   });
 }
 
@@ -197,7 +204,7 @@ const imp = (path) => `import(${JSON.stringify(path)})`;
 
 await boot();
 const sites = await findSites();
-check("found test sites on seed 7", !!(sites.gate && sites.river && sites.hill && sites.auto), JSON.stringify({ gate: !!sites.gate, river: !!sites.river, hill: !!sites.hill, auto: !!sites.auto }));
+check("found test sites on seed 7", !!(sites.gate && sites.river && sites.hill && sites.auto && sites.ready), JSON.stringify({ gate: !!sites.gate, river: !!sites.river, hill: !!sites.hill, auto: !!sites.auto, ready: !!sites.ready }));
 await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Roads")?.click());
 await p.waitForTimeout(800);
 
@@ -357,6 +364,23 @@ await p.evaluate(() => window.woodrail.interaction.undo());
 await p.waitForTimeout(500);
 check("L4 Undo brings back the third and the bend in one step", (await shape(L.c)).auto && (await shape(L.b)).id === "curve");
 await shot("L-auto");
+
+// ---- M: on a desktop, a road tapped in the tray is laid by clicking the map ----------------------------------------
+const M = sites.ready;
+await focusOn(M.b);
+await p.locator(".tray-item", { hasText: "Road" }).first().click();
+await p.waitForTimeout(400);
+for (const i of [M.a, M.b, M.c]) await tap(i);
+const laid = [await shape(M.a), await shape(M.b), await shape(M.c)];
+const cardOpen = await p.evaluate(() => [...document.querySelectorAll(".piece-card")].some((c) => !c.hidden));
+check("M1 a road tapped in the tray is laid at each click, joined up", laid.every((x) => x.id === "straight" && x.edges === 5), JSON.stringify(laid));
+check("M2 laying roads opens no card to get in the way", !cardOpen);
+await p.keyboard.press("Escape");
+await p.waitForTimeout(300);
+await tap(M.b);
+check("M3 after Esc, a click selects a road again (and opens its card)", await p.evaluate(() => [...document.querySelectorAll(".piece-card")].some((c) => !c.hidden)));
+await p.mouse.click(1100, 120);
+await p.waitForTimeout(300);
 
 // ---- H: track and roads: level crossings ----------------------------------------------------------------------------
 const crossing = await p.evaluate(

@@ -137,8 +137,11 @@ export class RoadHand {
     }
   }
 
-  /** Let go: put the piece down, or back in the tray, or refuse. */
-  drop(d: RoadDrag): void {
+  /**
+   * Let go: put the piece down, or back in the tray, or refuse. A piece put down stays selected (shown by its outline,
+   * to drag on or tap for its card), or with `select` false (laying one after another) doesn't.
+   */
+  drop(d: RoadDrag, select = true): void {
     this.removeGhost(d);
     this.outline.hide();
     this.putBack(d);
@@ -150,7 +153,7 @@ export class RoadHand {
     }
     if (d.blocked) {
       this.onRefused();
-      if (d.from) this.select(d.from.cell);
+      if (d.from) this.select(d.from.cell, false);
       this.game.invalidate();
       return;
     }
@@ -159,8 +162,8 @@ export class RoadHand {
     changes.push([d.cell, d.road]);
     this.edit(changes);
     this.onPlaced();
-    // It stays selected, to turn again straight away.
-    this.select(d.cell);
+    // Its card would cover where the next one goes: it's opened by a tap.
+    if (select) this.select(d.cell, false);
   }
 
   cancel(d: RoadDrag): void {
@@ -170,12 +173,14 @@ export class RoadHand {
     this.game.invalidate();
   }
 
-  select(cell: number): void {
+  /** Select the road on square `cell`: its outline, and (unless `card` is false) its card. */
+  select(cell: number, card = true): void {
     if (!this.pickable(cell)) return;
     this.selected = cell;
     this.showSquare(cell, "#fff2d8");
     const road = this.grid.road[cell];
-    this.hud.showPieceCard(false, isAutoRoad(road) ? "Road (auto)" : pieceOf(road)!.name, false);
+    if (card) this.hud.showPieceCard(false, isAutoRoad(road) ? "Road (auto)" : pieceOf(road)!.name, false);
+    else this.hud.hideCards();
     this.game.invalidate();
   }
 
