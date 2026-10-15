@@ -217,7 +217,7 @@ const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<s
   carpenter: { part: "industry-carpenter", slots: {} },
   smithy: { part: "industry-smithy", slots: {} },
   power: { part: "industry-power", slots: {} },
-  harbour: { part: "industry-harbour", slots: {} },
+  harbour: { part: "industry-harbour", slots: { roof: "#2f6fb0" } },
   foundry: { part: "industry-foundry", slots: {} },
 };
 
@@ -529,7 +529,7 @@ export class DepotView {
     // A harbour's dock sheds along its quay (Asset Gen's shed, or a stand-in).
     for (let k = 0; k < (site.depot.role === "harbour" ? site.depot.sheds : 0); k++) {
       const t = 55 + k * 50;
-      if (hasPart("dock-shed")) addPart(b, mats, "dock-shed", (g) => place(g, t, 100, PAD_H));
+      if (hasPart("industry-dock-shed")) addPart(b, mats, "industry-dock-shed", (g) => place(g, t, 100, PAD_H), { roof: "#7a5a3a", doors: "#2f6fb0" });
       else {
         b.add(mats.blockWood, place(new RoundedBoxGeometry(30, 18, 20, 2, 2), t, 100, PAD_H + 9));
         b.add(mats.lacquer("#7a5a3a"), place(new RoundedBoxGeometry(34, 3, 24, 1, 1.2), t, 100, PAD_H + 19));
@@ -539,6 +539,8 @@ export class DepotView {
     if (model && hasPart(model.part)) {
       // The industry's buildings, modelled in Blender in this depot frame (tools/blender/dressing.py, "Industries").
       addPart(b, mats, model.part, (g) => g.rotateY(-pose.heading).translate(pose.x, pose.y ?? 0, pose.z), model.slots);
+      // The harbour's derrick: its jib reaches out over the water (a part of its own, so it could swing one day).
+      if (site.depot.role === "harbour" && hasPart("industry-harbour-jib")) addPart(b, mats, "industry-harbour-jib", (g) => place(g, 199, 105, 62));
       return;
     }
     // Stand-ins drawn from code (unit tests, where the models aren't loaded).
