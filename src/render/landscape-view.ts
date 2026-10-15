@@ -9,6 +9,8 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
+  Shape,
+  ShapeGeometry,
   Sprite,
   SpriteMaterial,
   SRGBColorSpace,
@@ -23,6 +25,8 @@ import {
   generateSurroundings,
   hashInts,
   plotKey,
+  shoreDistance,
+  shoreLine,
   heldCut,
   hillsOf,
   PLOT_COLS,
@@ -31,6 +35,8 @@ import {
   PLOT_WIDTH,
   plotSlabs,
   SURF_RIVER,
+  SURF_SAND,
+  SURF_SEA,
   SURF_ROAD,
   TreeClearance,
   extentOf,
@@ -71,6 +77,9 @@ const TREE_HOP_SPREAD = 0.3;
 
 /** How brightly an unconnected name board lights itself (connected ones glow warm). */
 const SIGN_SELF_LIGHT = 0.3;
+
+/** Height of the open sea's sheet: under the felt sea of the land (1.6 thick), over the sand under it (0.8). */
+const SEA_SHEET_Y = 1.2;
 
 /** How far (mm) the land shown around the world reaches past its last plot, before the far scenery takes over. */
 const AROUND_MARGIN = 0;
@@ -132,7 +141,7 @@ export class LandscapeView {
   /** The countryside beyond, made ready to draw, and the rectangle it's around. */
   private backdrop: { key: string; parts: SceneryPart[] } | null = null;
   /** Felt already extruded, by tile (see `buildFeltTiles`). */
-  private readonly feltTiles: Record<"river" | "roads", FeltTiles> = { river: new Map(), roads: new Map() };
+  private readonly feltTiles: Record<"river" | "sand" | "roads", FeltTiles> = { river: new Map(), sand: new Map(), roads: new Map() };
   /** Road pieces already built, by tile (see `buildRoadTiles`). */
   private readonly roadTiles: RoadTiles = new Map();
   /** The markers on plots for sale, while choosing one. */
@@ -176,6 +185,7 @@ export class LandscapeView {
     disposeTree(this.group);
     for (const p of this.aroundParts.values()) disposeSceneryPart(p);
     if (this.backdrop) for (const p of this.backdrop.parts) disposeSceneryPart(p);
+    this.sea?.geometry.dispose();
     for (const cache of Object.values(this.feltTiles)) {
       for (const t of cache.values()) {
         t.geometry?.dispose();
@@ -317,8 +327,11 @@ export class LandscapeView {
     const key = `${shown.x0},${shown.z0},${shown.x1},${shown.z1},${margin}`;
     if (this.backdrop?.key === key) return;
     if (this.backdrop) for (const p of this.backdrop.parts) disposeSceneryPart(p);
+    // Nothing out on the sea, past the shore.
+    const coast = this.land.coast ?? null;
+    const wet = coast ? (x: number, z: number) => shoreDistance(coast, Math.floor(x / CELL), Math.floor(z / CELL)) <= 0 : undefined;
     // In big chunks (two tiles each way): enough that a close view skips most of it, few enough to stay cheap to draw.
-    const chunks = splitSurroundings(generateSurroundings(this.land.seed, shown, margin), 2 * TILE_WIDTH, 2 * TILE_DEPTH);
+    const chunks = splitSurroundings(generateSurroundings(this.land.seed, shown, margin, wet), 2 * TILE_WIDTH, 2 * TILE_DEPTH);
     this.backdrop = { key, parts: chunks.map((c, k) => sceneryPart(c, this.mats, k * 101)) };
   }
 
@@ -474,13 +487,22 @@ export class LandscapeView {
     this.feltOf(which);
   }
 
-  /** The river felt, or the road and lane felt, a mesh per tile (their geometry belongs to the cache). */
+  /**
+   * The water felt (rivers and the sea, one piece where they meet) with the beach's sand, or the road and lane felt,
+   * a mesh per tile (their geometry belongs to the cache).
+   */
   private feltOf(which: "river" | "roads"): Group {
     const grids = [this.land.grid, ...this.around.map((a) => a.land.grid)];
-    return which === "river"
-      ? buildFeltTiles(grids, [SURF_RIVER], this.mats.riverFelt, () => 1.6, this.feltTiles.river)
-      : // Town streets laid as road pieces are drawn with the roads; older towns' streets stay felt.
-        buildFeltTiles(grids, [SURF_ROAD], this.mats.roadFelt, () => 1.1, this.feltTiles.roads, (g, i) => g.road[i] !== 0);
+    if (which === "river") {
+      const g = new Group();
+      g.add(buildFeltTiles(grids, [[SURF_RIVER, SURF_SEA]], this.mats.riverFelt, () => 1.6, this.feltTiles.river));
+      // The sand runs on under the water (sea and rivers), so no grass shows between the beach's rounded edge and the
+      // water's. (Under a river inland it has the river's own outline: hidden.)
+      g.add(buildFeltTiles(grids, [[SURF_SAND, SURF_SEA, SURF_RIVER]], this.mats.sandFelt, () => 0.8, this.feltTiles.sand));
+      return g;
+    }
+    // Town streets laid as road pieces are drawn with the roads; older towns' streets stay felt.
+    return buildFeltTiles(grids, [SURF_ROAD], this.mats.roadFelt, () => 1.1, this.feltTiles.roads, (g, i) => g.road[i] !== 0);
   }
 
   /** The road pieces on the land and the land around now, a mesh per material per tile (geometry owned by the cache). */
@@ -568,7 +590,65 @@ export class LandscapeView {
     const tiles = byTile(this.around, (a) => ({ x: (a.px + 0.5) * PLOT_WIDTH, z: (a.pz + 0.5) * PLOT_DEPTH }));
     for (const list of tiles.values()) group.add(buildScenery(list.map((a) => this.aroundParts.get(plotKey(a.px, a.pz))!), this.mats, this.landRect));
     for (const part of this.backdrop!.parts) group.add(buildScenery([part], this.mats, this.landRect));
+    const sea = this.seaPlane();
+    if (sea) group.add(sea);
     return group;
+  }
+
+  /** The open sea out to the horizon (the same for the whole game: built once). */
+  private sea: { geometry: ShapeGeometry } | null = null;
+
+  /**
+   * The open sea, past the shore out to the horizon: one flat sheet of the rivers' felt, just under the felt sea of
+   * the land and the land around (which covers it there).
+   */
+  private seaPlane(): Mesh | null {
+    const c = this.land.coast;
+    if (!c) return null;
+    if (!this.sea) {
+      const across = c.side === "n" || c.side === "s";
+      const reach = 60000;
+      const out = c.side === "s" || c.side === "e" ? 1 : -1;
+      // The shore, square by square along the coast (the middle of each), then out to the horizon.
+      const centre = 0;
+      const n = Math.ceil(reach / CELL);
+      const pts: { a: number; b: number }[] = [];
+      for (let k = -n; k <= n; k++) pts.push({ a: (centre + k + 0.5) * CELL, b: shoreLine(c, centre + k) * CELL });
+      const far = pts[0].b + out * reach;
+      const shape = new Shape();
+      // In the shape's own plane: x is along the coast, y the way out (flipped to z below).
+      shape.moveTo(pts[0].a, pts[0].b);
+      for (const p of pts) shape.lineTo(p.a, p.b);
+      shape.lineTo(pts[pts.length - 1].a, far);
+      shape.lineTo(pts[0].a, far);
+      const g = new ShapeGeometry(shape);
+      // Shape (x, y) to the ground: along the coast and out to sea, lying flat.
+      const pos = g.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const a = pos.getX(i);
+        const b = pos.getY(i);
+        if (across) pos.setXYZ(i, a, SEA_SHEET_Y, b);
+        else pos.setXYZ(i, b, SEA_SHEET_Y, a);
+      }
+      g.computeVertexNormals();
+      // Facing up whichever way the shape wound.
+      if (g.attributes.normal.getY(0) < 0) {
+        const idx = g.index!;
+        for (let i = 0; i < idx.count; i += 3) {
+          const t = idx.getX(i + 1);
+          idx.setX(i + 1, idx.getX(i + 2));
+          idx.setX(i + 2, t);
+        }
+        g.computeVertexNormals();
+      }
+      g.computeBoundingSphere();
+      this.sea = { geometry: g };
+    }
+    const mesh = new Mesh(this.sea.geometry, this.mats.riverFelt);
+    mesh.receiveShadow = true;
+    mesh.userData.sharedGeometry = true;
+    mesh.name = "open-sea";
+    return mesh;
   }
 
   /** The layout the trees were last kept clear of. */

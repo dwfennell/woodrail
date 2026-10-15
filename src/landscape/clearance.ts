@@ -1,5 +1,5 @@
 import { createSample, getPieceDef, isBridge, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
-import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
+import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, isWater, SURF_RIVER, SURF_ROAD, SURF_SEA, SURF_TOWN, type LandscapeGrid } from "./grid";
 import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
 import { cutsHills, hillsOf } from "./hill-shape";
@@ -144,7 +144,7 @@ const riverOutlines = new WeakMap<LandscapeGrid, { revision: number; outlines: O
 function riverOutline(g: LandscapeGrid): Outline[] {
   let cached = riverOutlines.get(g);
   if (!cached || cached.revision !== g.revision) {
-    const outlines = surfaceOutlines(g, SURF_RIVER).map((loop) => {
+    const outlines = surfaceOutlines(g, [SURF_RIVER, SURF_SEA]).map((loop) => {
       const xs = loop.map((p) => p.x);
       const zs = loop.map((p) => p.z);
       return { loop, x0: Math.min(...xs), z0: Math.min(...zs), x1: Math.max(...xs), z1: Math.max(...zs) };
@@ -159,11 +159,12 @@ function riverOutline(g: LandscapeGrid): Outline[] {
  * Outlines of every region of squares with this surface, over the whole grid, smoothed (in square units: x = column,
  * z = row). The felt is drawn from the same outlines, so it meets itself across plots' edges.
  */
-export function surfaceOutlines(g: LandscapeGrid, surface: number): Loop[] {
+export function surfaceOutlines(g: LandscapeGrid, surface: number | readonly number[]): Loop[] {
   const e = g.extent();
+  const of = typeof surface === "number" ? [surface] : surface;
   const mask = (c: number, r: number) => {
     const i = g.index(e.col0 + c, e.row0 + r);
-    return i !== -1 && g.surface[i] === surface;
+    return i !== -1 && of.includes(g.surface[i]);
   };
   return traceRegions(mask, e.col1 - e.col0, e.row1 - e.row0).map((l) => smoothLoop(l).map((p) => ({ x: p.x + e.col0, z: p.z + e.row0 })));
 }
@@ -180,7 +181,7 @@ export function inRiver(g: LandscapeGrid, x: number, z: number): boolean {
   for (let dr = -1; dr <= 1 && !near; dr++) {
     for (let dc = -1; dc <= 1 && !near; dc++) {
       const i = g.index(col + dc, row + dr);
-      near = i !== -1 && g.surface[i] === SURF_RIVER;
+      near = i !== -1 && isWater(g.surface[i]);
     }
   }
   if (!near) return false;

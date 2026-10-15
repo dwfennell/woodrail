@@ -133,6 +133,13 @@ will need. Then the rocket asks for several major cities' specialties.
 
 ## 5. Maps (taken back from Roads)
 
+- **The coast (built):** every map has the sea along one side, one or two plots out from the start (the starter map's
+  is the next plot out, so it's one purchase away and in view from the start). Coast plots have a wavy shore with a
+  strip of sand; the hills step down to the beach; rivers run into the sea. Plots past the coast are open sea, not for
+  sale, and the sea runs on to the horizon. Track crosses the sea only as it crosses a river (on a bridge); roads stay
+  off it. Worked out from the seed and the square alone (`src/landscape/coast.ts`), so plots agree at their edges.
+  Maps saved before the coast have none.
+
 - **Resources sometimes cluster:** forests mostly on one side, fields along a river, hills at one end. Only some seeds,
   so it stays fresh.
 - **Rare towns are placed by the map** (see 2).
@@ -217,6 +224,17 @@ parts.
 - **What it does:** better prices at its town's harbour or siding (a quarter better each way), and it unlocks the next
   trade blueprints.
 - **Fits the plan:** it's the Trading specialty's building, ahead of the specialties being built.
+
+### Boats in the blueprint tree
+
+- **Harbours:** rowing boats, 6 loads a visit.
+- **Dock sheds:** storage for the next boat.
+- **River barges** (after Two-arm cranes): a tugboat and barges, 12 loads a visit.
+- **Lighthouse:** boats call twice as often.
+- **Cargo ships** (after barges, trade and Grab cranes): 24 loads a visit, with a container crane.
+- **Fishing boats** (food branch): boats go out from your harbours and bring back fish. Towns take fish as well as flour
+  (a town's flour want can be met by either), so a town by the water can grow without a farm: an alternative to the
+  farm chain, not a replacement.
 
 ### Later in D, or after
 

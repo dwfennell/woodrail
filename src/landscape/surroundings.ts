@@ -191,9 +191,13 @@ function houseRect(h: OuterHouse, pad: number): Rect {
 }
 
 /** The scenery around a rectangle of land (`margin`: a flat strip of felt left just outside it). */
-export function generateSurroundings(seed: number, land: Rect, margin = SCENERY_MARGIN): Surroundings {
+export function generateSurroundings(seed: number, land: Rect, margin = SCENERY_MARGIN, wet: (x: number, z: number) => boolean = () => false): Surroundings {
   const random = rng(seed * 977 + 31);
-  const { houses, count: hamlets } = placeHamlets(random, land);
+  const placed = placeHamlets(random, land);
+  // Nothing out on the sea: a square is wet if any corner is.
+  const anyWet = (x: number, z: number, half: number) => wet(x - half, z - half) || wet(x + half, z - half) || wet(x - half, z + half) || wet(x + half, z + half);
+  const houses = placed.houses.filter((h) => !anyWet(h.cx, h.cz, Math.max(h.w, h.d) / 2 + CELL));
+  const hamlets = placed.count;
   const clear = houses.map((h) => houseRect(h, HOUSE_CLEARANCE));
   const cleared = (x: number, z: number, half: number) => clear.some((r) => overlaps(r, { x0: x - half, x1: x + half, z0: z - half, z1: z + half }));
 
@@ -207,7 +211,7 @@ export function generateSurroundings(seed: number, land: Rect, margin = SCENERY_
       const x = cx(near, c);
       const z = cz(near, r);
       // Never on the land itself (whatever the margin), nor within the margin of it.
-      if (outsideDistance(x, z, land) < CELL / 2 || squareDistance(x, z, CELL, land) < margin) continue;
+      if (outsideDistance(x, z, land) < CELL / 2 || squareDistance(x, z, CELL, land) < margin || anyWet(x, z, CELL)) continue;
       const i = r * near.cols + c;
       near.open[i] = 1;
       if (cleared(x, z, CELL / 2)) continue;
@@ -227,7 +231,7 @@ export function generateSurroundings(seed: number, land: Rect, margin = SCENERY_
       // The near band has this square; the round corners of the ring stop at its outer edge.
       if (overlaps({ x0: x - half, x1: x + half, z0: z - half, z1: z + half }, nearRect)) continue;
       const d = outsideDistance(x, z, land);
-      if (d > RING_WIDTH) continue;
+      if (d > RING_WIDTH || anyWet(x, z, half + CELL)) continue;
       const i = r * far.cols + c;
       far.open[i] = 1;
       const n = hill(x / 700 + 40, z / 700 + 40) * 0.65 + hill(x / 300 + 71, z / 300 + 13) * 0.35;

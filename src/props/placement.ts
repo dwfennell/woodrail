@@ -1,4 +1,4 @@
-import { addTrackPoints, BUCKET, bucketKey, FEAT_BUILDING, FEAT_DEPOT, FEAT_SHED, FEAT_STATION, hillsOf, SURF_RIVER, trackPoints, type Landscape } from "../landscape";
+import { addTrackPoints, BUCKET, bucketKey, FEAT_BUILDING, FEAT_DEPOT, FEAT_SHED, FEAT_STATION, hillsOf, isWater, trackPoints, type Landscape } from "../landscape";
 import { TRACK_WIDTH, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { PlaceOn } from "./kinds";
 import type { PropStore } from "./store";
@@ -160,7 +160,7 @@ export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | 
     if ((f === FEAT_BUILDING && !ownSquares.has(cell)) || f === FEAT_SHED) return { kind: "blocked", reason: "building" };
     if (f === FEAT_STATION) return { kind: "blocked", reason: "station" };
     if (f === FEAT_DEPOT) return { kind: "blocked", reason: "depot" };
-    const river = grid.surface[cell] === SURF_RIVER;
+    const river = isWater(grid.surface[cell]);
     if (river && on === "land") return { kind: "blocked", reason: "river" };
     const g = hills.groundAt(x, z);
     if (Number.isNaN(y)) y = g;
@@ -171,7 +171,7 @@ export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | 
     const c = Math.cos(pose.heading);
     const s = Math.sin(pose.heading);
     const mid = grid.cellAtWorld(pose.x + fp.cx * c - fp.cz * s, pose.z + fp.cx * s + fp.cz * c);
-    if (mid === -1 || grid.surface[mid] !== SURF_RIVER) return { kind: "blocked", reason: "dry" };
+    if (mid === -1 || !isWater(grid.surface[mid])) return { kind: "blocked", reason: "dry" };
   }
   if (ctx.track.hits(fp, pose)) return { kind: "blocked", reason: "track" };
   for (const other of ctx.props.all()) {
