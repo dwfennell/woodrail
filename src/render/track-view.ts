@@ -598,7 +598,7 @@ export class TrackView {
     if (typeof Worker === "undefined") return;
     const results: PieceResult[] = [];
     for (const r of (await loadCached<PieceResult[]>("arches", __BUILD_ID__)) ?? []) {
-      takeResult(r);
+      if (!geometryCache.has(resultKey(r))) takeResult(r);
       results.push(r);
     }
     const jobs: PieceJob[] = [];
