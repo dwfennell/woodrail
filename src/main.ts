@@ -561,11 +561,20 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   // Save train positions periodically and when the page is hidden.
   setInterval(save, 5000);
+  // Hidden, or leaving the page (closed, reloaded: some browsers report only one of the two, Chrome both): saved
+  // once on the way out, and again only after the page has been back in view.
+  let savedOnLeaving = false;
+  const saveOnLeaving = () => {
+    if (savedOnLeaving) return;
+    savedOnLeaving = true;
+    save();
+  };
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") save();
+    if (document.visibilityState === "hidden") saveOnLeaving();
+    else savedOnLeaving = false;
   });
-  // Leaving the page (closed, reloaded): some browsers don't report it hidden first.
-  addEventListener("pagehide", save);
+  addEventListener("pagehide", saveOnLeaving);
+  addEventListener("pageshow", () => (savedOnLeaving = false));
 
   const title = new TitleScreen(document.body, { play }, { thumbnails });
 
