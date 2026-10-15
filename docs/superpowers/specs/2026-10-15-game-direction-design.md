@@ -133,6 +133,13 @@ will need. Then the rocket asks for several major cities' specialties.
 
 ## 5. Maps (taken back from Roads)
 
+- **The coast (built):** every map has the sea along one side, one or two plots out from the start (the starter map's
+  is the next plot out, so it's one purchase away and in view from the start). Coast plots have a wavy shore with a
+  strip of sand; the hills step down to the beach; rivers run into the sea. Plots past the coast are open sea, not for
+  sale, and the sea runs on to the horizon. Track crosses the sea only as it crosses a river (on a bridge); roads stay
+  off it. Worked out from the seed and the square alone (`src/landscape/coast.ts`), so plots agree at their edges.
+  Maps saved before the coast have none.
+
 - **Resources sometimes cluster:** forests mostly on one side, fields along a river, hills at one end. Only some seeds,
   so it stays fresh.
 - **Rare towns are placed by the map** (see 2).

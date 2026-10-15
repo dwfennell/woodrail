@@ -5,7 +5,7 @@ import { frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
-import { CELL, connectedPairs, fixedHome, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, type Landscape, type PlotCoord } from "./landscape";
+import { CELL, connectedPairs, fixedHome, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasSave, loadFromStorage, loadGoals, loadProgress, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
@@ -373,11 +373,14 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     if (mills) parts.push("a sawmill");
     const g = land.grid;
     let river = false;
+    let sea = false;
     let hills = 0;
     for (let i = 0; i < g.cellCount; i++) {
       if (g.surface[i] === SURF_RIVER) river = true;
+      if (g.surface[i] === SURF_SEA) sea = true;
       if (g.height[i] > 0) hills++;
     }
+    if (sea) parts.push("the coast");
     if (river) parts.push("a river");
     if (hills > g.cellCount * 0.25) parts.push("hills");
     if (parts.length === 0) return "Open countryside.";

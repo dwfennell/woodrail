@@ -1,4 +1,4 @@
-import { adoptRegion, generateLandscape, generatePlot, plotKey, type DepotKind, type Landscape, type PlotCoord } from "../landscape";
+import { adoptRegion, generateLandscape, generatePlot, plotKey, seaPlot, type DepotKind, type Landscape, type PlotCoord } from "../landscape";
 import { Economy, type DepotRole } from "../economy";
 import { Sim } from "../sim";
 import { Layout, type PieceTypeId } from "../track";
@@ -107,14 +107,14 @@ export function freshGameWorld(random: () => number = Math.random): World {
   return first ? buildStarterWorld() : createWorld(Math.floor(random() * 1_000_000), true);
 }
 
-/** Plots that can be added to the world: those sharing an edge with land it has. */
+/** Plots that can be added to the world: those sharing an edge with land it has (not the open sea). */
 export function plotsForSale(land: Landscape): PlotCoord[] {
   const g = land.grid;
   const out = new Map<number, PlotCoord>();
   for (const p of g.plots) {
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const q = { px: p.px + dx, pz: p.pz + dz };
-      if (!g.hasPlot(q.px, q.pz)) out.set(plotKey(q.px, q.pz), q);
+      if (!g.hasPlot(q.px, q.pz) && !seaPlot(land.coast ?? null, q.px, q.pz)) out.set(plotKey(q.px, q.pz), q);
     }
   }
   return [...out.values()];
@@ -144,7 +144,7 @@ export function landForSale(land: Landscape, px: number, pz: number): Landscape 
   if (!cache) forSale.set(land, (cache = new Map()));
   const key = plotKey(px, pz);
   let part = cache.get(key);
-  if (!part) cache.set(key, (part = generatePlot(land.seed, px, pz)));
+  if (!part) cache.set(key, (part = generatePlot(land.seed, px, pz, land.coast ?? null)));
   return part;
 }
 

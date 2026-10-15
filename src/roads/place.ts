@@ -1,6 +1,6 @@
 import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type Layout } from "../track";
 import type { Landscape } from "../landscape/generate";
-import { CELL, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "../landscape/grid";
+import { CELL, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_SAND, SURF_SEA, SURF_TOWN, type LandscapeGrid } from "../landscape/grid";
 import { ALONG_ROAD, crossesRoad } from "../landscape/clearance";
 import { bestTurn, edgesOf, encodeRoad, pieceOf, roadsJoin, turnOf, type Edge, type RoadPieceId } from "./pieces";
 
@@ -129,10 +129,12 @@ export class RoadPlacer {
     if (i === -1) return "off-land";
     const s = g.surface[i];
     if (s === SURF_TOWN || s === SURF_ROAD) return "town";
+    // No road out over the sea (a road bridge spans a river).
+    if (s === SURF_SEA) return "river";
     const bridge = this.road !== 0 && pieceOf(this.road)?.overRiver === true;
     if (s === SURF_RIVER && !bridge) return "river";
     if (s !== SURF_RIVER && bridge) return "dry";
-    if (s !== SURF_GRASS && s !== SURF_LANE && s !== SURF_RIVER) return "in-use";
+    if (s !== SURF_GRASS && s !== SURF_LANE && s !== SURF_RIVER && s !== SURF_SAND) return "in-use";
     if (g.feature[i] !== FEAT_NONE && g.feature[i] !== FEAT_TREE) return "in-use";
     // A station's way in stays clear for track, but a plain straight road across the line may go there (track laid
     // later crosses it at a level crossing).

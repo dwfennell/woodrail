@@ -150,7 +150,8 @@ export type FeltTiles = Map<number, FeltTile>;
  */
 export function buildFeltTiles(
   grids: readonly LandscapeGrid[],
-  surfaces: readonly number[],
+  /** The surfaces drawn, each its own felt; a list of several is drawn as one (a river running into the sea). */
+  surfaces: readonly (number | readonly number[])[],
   material: Material,
   thickness: (surface: number) => number,
   cache: FeltTiles,
@@ -158,6 +159,8 @@ export function buildFeltTiles(
   skip: (grid: LandscapeGrid, i: number) => boolean = () => false,
 ): Group {
   const group = new Group();
+  const groups = surfaces.map((s) => (typeof s === "number" ? [s] : s));
+  const groupOf = (s: number) => groups.findIndex((g) => g.includes(s));
   const tileCols = TILE_WIDTH / CELL;
   const tileRows = TILE_DEPTH / CELL;
   const at = (col: number, row: number): number => {
@@ -171,7 +174,7 @@ export function buildFeltTiles(
   const tiles = new Map<number, { tc: number; tr: number }>();
   for (const g of grids) {
     g.forEachCell((i, col, row) => {
-      if (!surfaces.includes(g.surface[i]) || skip(g, i)) return;
+      if (groupOf(g.surface[i]) === -1 || skip(g, i)) return;
       const tc = Math.floor(col / tileCols);
       const tr = Math.floor(row / tileRows);
       tiles.set(tileAt(tc * TILE_WIDTH, tr * TILE_DEPTH), { tc, tr });
@@ -190,7 +193,7 @@ export function buildFeltTiles(
     for (let r = 0; r < d; r++) {
       for (let c = 0; c < w; c++) {
         const s = at(col0 + c, row0 + r);
-        const k = surfaces.indexOf(s);
+        const k = groupOf(s);
         window[r * w + c] = k;
         key = Math.imul(key ^ (k + 2), 0x01000193);
       }
@@ -199,7 +202,7 @@ export function buildFeltTiles(
     if (!tile || tile.key !== key) {
       tile?.geometry?.dispose();
       const parts: BufferGeometry[] = [];
-      surfaces.forEach((surface, k) => {
+      groups.forEach(([surface], k) => {
         const loops = traceRegions((c, r) => window[r * w + c] === k, w, d).map((l) => {
           // A loop cut off by the window's edge continues beyond it: smooth it fully, as the whole world's would be.
           const cut = l.some((p) => p.x <= 0 || p.z <= 0 || p.x >= w || p.z >= d);
