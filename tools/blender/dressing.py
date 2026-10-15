@@ -1314,6 +1314,123 @@ def load_tools(k):
     return g
 
 
+# ——— Harbours (Game mode) ———
+
+SEA_STONE = ("#c9c3b4", "#b7b1a3", "#d4cebf")
+TAR = "#4a3a2c"
+
+
+def _crate(k, g, x, y, z, s=8, c="#c99a5b", a=0.0):
+    """A slatted crate s across, its base at (x, y, z), turned a about y."""
+    n = Node()
+    n.add(k.box(k.paint(c), s, s * 0.85, s, 0.6, 0, 0, 0, seg=1))
+    for dy in (0.15, 0.55):
+        n.add(k.box(k.wood, s + 0.4, s * 0.12, s + 0.4, 0.2, 0, s * dy, 0, seg=1))
+    n.rotation.y = a
+    n.position.set(x, y, z)
+    g.add(n)
+
+
+def industry_harbour(k):
+    """
+    The harbour: the yard's far side is a quay on the water (its edge at z 112, the water beyond). A stone quay edge
+    (x 10-206, z 102-112, its sea face dropping to y -10) with a timber capping and fenders, bollards at x 30, 80, 130
+    and 180 on z 110; a little harbour office at the far end (x 175-193, z 89-103, slot "roof"), a barrel and crates by
+    it; and the derrick's mast and footing at x 199, z 105 (its jib, the part "industry-harbour-jib", turns on y about
+    the mast's top at x 199, y 62, z 105, reaching out over the water toward +z). Clear: the piles' strip (x 15-190,
+    z 35-90) and z 90-110 between the bollards, where the dock sheds stand (x 55, 105, 155).
+    """
+    g = Node()
+    # The quay edge: dressed stone blocks along the far side, flush with the pad, the sea face below.
+    i = 0
+    for x0 in range(10, 206, 28):
+        w = min(28, 206 - x0)
+        g.add(k.box(k.paint(SEA_STONE[i % 3]), w - 0.6, PAD + 10, 10, 1.6, x0 + w / 2, -10, 107, seg=1))
+        i += 1
+    # Timber capping along the edge, tarred fenders down its face.
+    g.add(k.box(k.wood, 196, 1.4, 3, 0.5, 108, PAD, 110.6, seg=1))
+    for x in range(17, 206, 14):
+        g.add(k.box(k.paint(TAR), 2.4, 13, 2, 0.6, x, -9, 113, seg=1))
+    g.add(k.box(k.paint(TAR), 196, 2, 1.6, 0.5, 108, -1, 114.2, seg=1))
+    # Bollards.
+    for x in (30, 80, 130, 180):
+        g.add(k.cyl(k.paint(DARK), 2.2, 5, x, PAD, 110, 1.8, 10))
+        g.add(k.cyl(k.paint(DARK), 2.8, 1.4, x, PAD + 5, 110, 2.8, 10))
+    # The harbour office: beech walls, a slot roof, a door and a window to the track side, a name board, a lamp.
+    from bldg_parts import winZ
+
+    ox, oz, w, d, h = 184, 96, 18, 14, 18
+    front = oz - d / 2
+    g.add(k.box(k.wood, w, h, d, 2, ox, PAD, oz))
+    g.add(k.roof(k.paint(slot("roof")), w + 4, d + 4, 8, ox, PAD + h - 0.5, oz, 2.4))
+    g.add(k.box(k.paint("#2f5d7a"), 6, 12, 1.4, 0.6, ox - 4.5, PAD, front - 0.4))
+    g.add(winZ(k, ox + 4.5, PAD + 6, front, 6, 6))
+    g.add(k.box(k.paint(CREAM), 14, 3.4, 1.4, 0.6, ox, PAD + h - 3.6, front - 0.5))
+    g.add(k.box(k.paint(GOLD), 1.8, 2.4, 1.8, 0.5, ox - 4.5, PAD + 13, front - 1.6))
+    g.add(k.cyl(k.paint("#8a5a33"), 3, 8, 198, PAD, 92, 3, 14))
+    g.add(k.cyl(k.paint(DARK), 3.2, 0.9, 198, PAD + 1.3, 92, 3.2, 14))
+    g.add(k.cyl(k.paint(DARK), 3.2, 0.9, 198, PAD + 5.8, 92, 3.2, 14))
+    _crate(k, g, 199, PAD, 82, 8, "#c99a5b", 0.1)
+    _crate(k, g, 199, PAD + 6.8, 82, 6, "#d8b07a", 0.5)
+    # The derrick: a stone footing, a red mast with a cream cap, a winch at its foot; the jib turns on its top.
+    mx, mz = 199, 105
+    g.add(k.box(k.paint(SEA_STONE[1]), 10, 3, 10, 1.2, mx, PAD, mz))
+    g.add(k.cyl(k.paint(RED), 2.8, 55, mx, PAD + 3, mz, 2.2, 16))
+    g.add(k.cyl(k.paint(CREAM), 3.2, 2, mx, PAD + 56, mz, 3.2, 16))
+    g.add(k.cylZ(k.paint(DARK), 2, 6, mx, PAD + 7, mz - 6, 12))
+    return g
+
+
+def industry_harbour_jib(k):
+    """
+    The harbour derrick's jib: turns on y about the origin (the mast's top, x 199, y 62, z 105 in the yard). A red boom
+    rising out along +z (reaching 44 out), a counterweight behind the mast, a stay from the mast's top to the boom's tip, a rope hanging from its tip to a hook with a crate.
+    """
+    g = Node()
+    red = k.paint(RED)
+    boom = Node()
+    boom.add(k.box(red, 2.6, 2.6, 46, 0.8, 0, -1.3, 23))
+    boom.rotation.x = -0.18
+    boom.position.set(0, -14, 0)
+    g.add(boom)
+    # Where the boom ends: 46 out along it, lifted by its tilt.
+    tz, ty = 46 * math.cos(0.18), -14 + 46 * math.sin(0.18)
+    g.add(k.cyl(k.paint(CREAM), 2.6, 2.4, 0, -1.2, 0, 2.6, 14))
+    stay = Node()
+    length = math.hypot(tz, ty + 1)
+    stay.add(k.box(k.paint(DARK), 0.8, 0.8, length, 0.2, 0, -0.4, length / 2, seg=1))
+    stay.rotation.x = math.atan2(-(ty + 1), tz)
+    g.add(stay)
+    # A short tail behind the mast with a counterweight.
+    g.add(k.box(red, 2.6, 2.6, 12, 0.8, 0, -15.3, -6))
+    g.add(k.box(k.paint(DARK), 7, 7, 6, 1.4, 0, -19, -10))
+    g.add(k.cyl(k.paint(DARK), 0.5, 26, 0, ty - 26, tz, 0.5, 6))
+    g.add(k.box(k.paint(DARK), 3, 2, 3, 0.5, 0, ty - 28, tz))
+    _crate(k, g, 0, ty - 37, tz, 8, "#c99a5b")
+    return g
+
+
+def industry_dock_shed(k):
+    """
+    A dock shed on a harbour's quay: about 30 (x, with its crate) by 20 (z) by 20 high, centred on its footprint, its base on y 0,
+    doors toward -z (the piles). Beech walls under a pitched roof (slot "roof", ridge along x), double doors (slot
+    "doors") with a cream lintel, a lamp over them, a crate against its +x end.
+    """
+    g = Node()
+    w, d, h = 24, 18, 13
+    front = -d / 2
+    g.add(k.box(k.wood, w, h, d, 1.8, 0, 0, 0))
+    g.add(k.roof(k.paint(slot("roof")), w + 2, d + 2, 7, 0, h - 0.5, 0, 2.2))
+    for s in (-1, 1):
+        g.add(k.box(k.paint(slot("doors")), 5.6, 10, 1.4, 0.5, s * 2.9, 0, front - 0.3))
+    g.add(k.box(k.paint(CREAM), 13, 1.4, 1.8, 0.4, 0, 10, front - 0.3))
+    g.add(k.box(k.paint(GOLD), 1.6, 2, 1.6, 0.4, 0, 11.6, front - 1.4))
+    for wx in (-8.6, 8.6):
+        g.add(k.box(k.paint("#2b3644"), 3.6, 4, 1, 0.4, wx, 5, front - 0.2))
+    _crate(k, g, 14.8, 0, 4, 5, "#c99a5b", 0.2)
+    return g
+
+
 PARTS = [
     ("door", door),
     ("flower-box", flower_box),
@@ -1371,6 +1488,9 @@ PARTS = [
     ("industry-power-wheel", industry_power_wheel),
     ("load-furniture", load_furniture),
     ("load-tools", load_tools),
+    ("industry-harbour", industry_harbour),
+    ("industry-harbour-jib", industry_harbour_jib),
+    ("industry-dock-shed", industry_dock_shed),
 ]
 
 
