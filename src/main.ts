@@ -319,6 +319,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   };
   interaction.onTurned = () => audio.rotate();
   interaction.onDepart = () => audio.bell();
+  interaction.onSwitched = () => scheduleSave();
 
   // ---- adding land -----------------------------------------------------------------------------------------
 

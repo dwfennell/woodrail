@@ -212,6 +212,8 @@ export class Interaction {
   onTurned: (() => void) | null = null;
   /** An engine was set going from a standstill. */
   onDepart: (() => void) | null = null;
+  /** A switch was thrown (it's saved; nothing else changed). */
+  onSwitched: (() => void) | null = null;
   /**
    * A tap on empty ground (where it landed, and where on screen): true if it was taken (then it doesn't count toward
    * a double tap).
@@ -858,9 +860,11 @@ export class Interaction {
   private tap(p: Press, add = false): void {
     const g = this.game;
     if (p.kind === "lever") {
+      // Only the points move: redrawn and saved, nothing else rebuilt (no geometry changed).
       g.sim.toggleSwitch(p.pieceId);
       g.trackView.syncSwitches();
-      this.changed();
+      g.invalidate();
+      this.onSwitched?.();
       return;
     }
     if (p.kind === "piece") {

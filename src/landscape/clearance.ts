@@ -1,5 +1,5 @@
 import { createSample, getPieceDef, isBridge, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
-import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
+import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
 import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
 import { cutsHills, hillsOf } from "./hill-shape";
@@ -210,6 +210,8 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
   const overRiver = isBridge(type);
   // A ramp may cut into hills up to the height of its top end (see `HillShape` cuttings).
   const cutTop = cutsHills(type) ? y + Math.max(...getPieceDef(type, flipped).connectors.map((c) => c.y)) : -Infinity;
+  // Points (and diamond crossings) don't sit on a lane: where track meets a road it crosses straight over.
+  const branched = getPieceDef(type, flipped).paths.length > 1;
   let result = CLEAR;
   forEachSample(type, flipped, pose, (x, z, trackY, heading) => {
     const i = g.cellAtWorld(x, z);
@@ -230,6 +232,7 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
       } else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
       else if (!overRiver && inRiver(g, x, z)) result = BLOCKED.river;
       else if (g.road[i] !== 0 && y + trackY <= g.groundY(i) + LEVEL && !crossesRoad(g.road[i], heading)) result = BLOCKED.road;
+      else if (branched && (s === SURF_LANE || g.road[i] !== 0) && y + trackY <= g.groundY(i) + LEVEL) result = BLOCKED.road;
       else {
         // Below the ground here: a hill in the way, unless a ramp can cut its way in (no higher than its top end).
         const ground = hillsOf(g).groundAt(x, z);

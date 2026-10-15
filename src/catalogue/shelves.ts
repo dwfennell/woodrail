@@ -24,8 +24,6 @@ export const PROP_TABS: readonly PropTab[] = [
         label: "Railway",
         assets: [
           "bldg-country-halt",
-          "bldg-two-platform-station",
-          "bldg-grand-terminus",
           "bldg-mountain-station",
           "bldg-harbour-station",
           "bldg-signal-box",
@@ -35,8 +33,6 @@ export const PROP_TABS: readonly PropTab[] = [
           "bldg-station-clock",
           "bldg-water-tower",
           "bldg-coal-stage",
-          "bldg-engine-shed",
-          "bldg-roundhouse-segment",
           "bldg-goods-shed",
         ],
       },
@@ -57,7 +53,7 @@ export const PROP_TABS: readonly PropTab[] = [
       },
       {
         label: "Town",
-        assets: ["bldg-town-hall", "bldg-library", "bldg-market-hall", "bldg-church", "bldg-school", "bldg-hospital", "bldg-fire-station", "bldg-police-station", "bldg-castle-gate", "bldg-lighthouse", "bldg-control-tower"],
+        assets: ["bldg-town-hall", "bldg-library", "bldg-market-hall", "bldg-church", "bldg-school", "bldg-hospital", "bldg-fire-station", "bldg-police-station", "bldg-lighthouse", "bldg-control-tower"],
       },
       {
         label: "Farm & industry",
@@ -216,63 +212,65 @@ export const PROP_TABS: readonly PropTab[] = [
     id: "machines",
     label: "Machines",
     shelves: [
-      {
-        label: "Cranes & loaders",
-        assets: [
-          "mech-gantry-crane",
-          "mech-harbour-crane",
-          "mech-magnet-crane",
-          "mech-log-loader",
-          "mech-coal-chute",
-          "mech-coaling-crane",
-          "mech-water-crane",
-          "mech-grain-elevator",
-          "mech-cargo-conveyor",
-          "mech-tipping-dump",
-          "mech-drop-hopper",
-          "mech-fuel-station",
-          "mech-weighbridge",
-        ],
-      },
-      {
-        label: "Signals & crossings",
-        assets: [
-          "mech-semaphore-signal",
-          "mech-colour-light-signal",
-          "mech-signal-gantry",
-          "mech-level-crossing",
-          "mech-gated-crossing",
-          "mech-buffer-stop-lamp",
-          "mech-lever-frame",
-          "mech-whistle-post",
-          "mech-ticket-barrier",
-        ],
-      },
-      { label: "Railway kit", assets: ["mech-turntable", "mech-transfer-table", "mech-train-lift", "mech-train-wash", "mech-track-cleaner", "mech-loop-the-loop", "mech-lighthouse-beacon"] },
+      // What's left of the machines once those that carry their own track are held back (see RAIL_HELD_BACK).
+      { label: "Railway & yard", assets: ["mech-magnet-crane", "mech-lever-frame", "mech-whistle-post", "mech-ticket-barrier", "mech-lighthouse-beacon"] },
     ],
   },
 ];
 
 /**
- * Decorative bridges: a shelf on the Bridges tab, after the track bridges. (Tunnels wait until track can tunnel through
- * the map's hills: see the design's Deferred list.)
+ * Decorative bridges: a shelf on the Track tab, after the track bridges. Empty for now: each model bridge carries its
+ * own deck of track that trains can't use (see RAIL_HELD_BACK).
  */
-export const BRIDGE_PROP_SHELVES: readonly PropShelf[] = [
-  {
-    label: "Model bridges",
-    assets: [
-      "mech-stone-arch-bridge",
-      "mech-viaduct",
-      "mech-truss-bridge",
-      "mech-suspension-bridge",
-      "mech-covered-bridge",
-      "mech-trestle",
-      "mech-rope-bridge",
-      "mech-bascule-bridge",
-      "mech-swing-bridge",
-      "mech-lift-bridge",
-      "mech-road-over-rail",
-      "mech-river-ford",
-    ],
-  },
+export const BRIDGE_PROP_SHELVES: readonly PropShelf[] = [];
+
+/**
+ * Catalogue models that look as if they join the railway but don't yet: each carries its own stretch of track (or runs
+ * on it) that trains can't use: signals and crossings on a length of track, cranes and loaders over a siding, the
+ * railway kit (turntable, lift, wash, loop-the-loop), the model bridges, stations with their own tracks, the castle
+ * gate the line runs through. Off the tray until they work with real track; the models stay in the catalogue (and the
+ * viewer) to be reworked, and any already placed in a saved map still load.
+ */
+export const RAIL_HELD_BACK: readonly string[] = [
+  "bldg-two-platform-station",
+  "bldg-grand-terminus",
+  "bldg-engine-shed",
+  "bldg-roundhouse-segment",
+  "bldg-castle-gate",
+  "mech-gantry-crane",
+  "mech-harbour-crane",
+  "mech-log-loader",
+  "mech-coal-chute",
+  "mech-coaling-crane",
+  "mech-water-crane",
+  "mech-grain-elevator",
+  "mech-cargo-conveyor",
+  "mech-tipping-dump",
+  "mech-drop-hopper",
+  "mech-fuel-station",
+  "mech-weighbridge",
+  "mech-semaphore-signal",
+  "mech-colour-light-signal",
+  "mech-signal-gantry",
+  "mech-level-crossing",
+  "mech-gated-crossing",
+  "mech-buffer-stop-lamp",
+  "mech-turntable",
+  "mech-transfer-table",
+  "mech-train-lift",
+  "mech-train-wash",
+  "mech-track-cleaner",
+  "mech-loop-the-loop",
+  "mech-stone-arch-bridge",
+  "mech-viaduct",
+  "mech-truss-bridge",
+  "mech-suspension-bridge",
+  "mech-covered-bridge",
+  "mech-trestle",
+  "mech-rope-bridge",
+  "mech-bascule-bridge",
+  "mech-swing-bridge",
+  "mech-lift-bridge",
+  "mech-road-over-rail",
+  "mech-river-ford",
 ];

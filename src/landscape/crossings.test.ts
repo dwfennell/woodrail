@@ -56,6 +56,13 @@ describe("findCrossings", () => {
     expect(checkPlacement(land, p.type, false, p.pose, 0)).toEqual({ kind: "clear" });
   });
 
+  it("points don't sit on a road: a switch laid across it is refused", () => {
+    for (const type of ["switch", "switch-y"] as const) {
+      const p = { x: g.centreX(col) - 72, z: g.centreZ(row), heading };
+      expect(checkPlacement(land, type, false, p, 0)).toEqual({ kind: "blocked", reason: "road" });
+    }
+  });
+
   it("finds one crossing where a straight runs over a lane, at the lane, with the lane's direction", () => {
     const layout = new Layout();
     layout.addPiece("straight-216", pose);
