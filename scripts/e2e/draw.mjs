@@ -112,10 +112,12 @@ const site = await p.evaluate(async () => {
 check("found a free end with open ground ahead", !!site, JSON.stringify(site));
 
 // A focus glides at most 30% closer at a time: a few, to come in from the whole-map view.
+// (Software rendering can be slow, a phone's 2× screen more so: each glide is waited out before the next.)
 const focus = async (x, z, r = 320, page = p) => {
-  for (let k = 0; k < 8; k++) {
+  for (let k = 0; k < 10; k++) {
     await page.evaluate(([x, z, r]) => window.woodrail.director.focus(new window.woodrail.camera.position.constructor(x, 0, z), r), [x, z, r]);
-    await page.waitForTimeout(900);
+    await page.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 30000 });
+    await page.waitForTimeout(200);
   }
 };
 /** Drag the mouse through world points (x, z) on the ground, a few px a step. */
