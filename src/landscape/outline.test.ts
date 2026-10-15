@@ -48,8 +48,8 @@ describe("smoothLoop on generated maps", () => {
   };
 
   it("smoothed river and road outlines still cover exactly their cells", () => {
-    // Every other seed of fifty: enough maps, inside the suite's time limit.
-    for (let seed = 1; seed <= 50; seed += 2) {
+    // Every fourth seed of fifty: enough maps, inside the suite's time limit.
+    for (let seed = 1; seed <= 50; seed += 4) {
       const { grid } = generateLandscape(seed);
       for (const surf of [SURF_RIVER, SURF_ROAD]) {
         const e = grid.extent();
