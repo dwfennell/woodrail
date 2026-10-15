@@ -218,6 +218,17 @@ parts.
   trade blueprints.
 - **Fits the plan:** it's the Trading specialty's building, ahead of the specialties being built.
 
+### Boats in the blueprint tree
+
+- **Harbours:** rowing boats, 6 loads a visit.
+- **Dock sheds:** storage for the next boat.
+- **River barges** (after Two-arm cranes): a tugboat and barges, 12 loads a visit.
+- **Lighthouse:** boats call twice as often.
+- **Cargo ships** (after barges, trade and Grab cranes): 24 loads a visit, with a container crane.
+- **Fishing boats** (food branch): boats go out from your harbours and bring back fish. Towns take fish as well as flour
+  (a town's flour want can be met by either), so a town by the water can grow without a farm: an alternative to the
+  farm chain, not a replacement.
+
 ### Later in D, or after
 
 - A lighthouse (boats come more often), a fishing harbour (fish for towns), a lift bridge, a train ferry.
