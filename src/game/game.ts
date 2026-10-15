@@ -696,6 +696,11 @@ export class Game {
     return this.propLibrary.footprint(asset);
   }
 
+  /** How many people wait on a town's platform (Game mode's passengers; null: its usual few). Cheap when unchanged. */
+  setWaiting(townId: number, count: number | null): void {
+    if (this.landscapeView.setWaiting(townId, count)) this.invalidate();
+  }
+
   /** What a town's sign shows beside its name (Game mode: what it wants; see `SignBadge`). */
   setSignBadge(townId: number, badge: SignBadge | null): void {
     this.landscapeView.setSignBadge(townId, badge);

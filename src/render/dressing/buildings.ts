@@ -246,15 +246,7 @@ export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batch
  * roof, as with a wooden toy station) and a little beech station house.
  */
 export function buildStation(town: Town, mats: Materials, b: Batcher): void {
-  const s = town.station;
-  const dx = Math.cos(s.heading);
-  const dz = Math.sin(s.heading);
-  const yaw = -s.heading;
-  const place = (g: BufferGeometry, t: number, lateral: number, y: number) => {
-    g.rotateY(yaw);
-    g.translate(s.x + dx * t - dz * lateral, y, s.z + dz * t + dx * lateral);
-    return g;
-  };
+  const place = stationPlace(town);
   const side = TRACK_WIDTH / 2;
   b.add(mats.blockWood, place(new RoundedBoxGeometry(196, 14, 38, 2, 2.5), 108, side + 21, 7));
   b.add(mats.lacquer("#e6b52c"), place(new RoundedBoxGeometry(196, 2, 4, 1, 0.8), 108, side + 4, 14.5));
@@ -287,24 +279,61 @@ export function buildStation(town: Town, mats: Materials, b: Batcher): void {
   // Station staff and a traveller (their own stream, so the waiting passengers below keep their places): a conductor
   // with a flag near the far end, a porter with a luggage barrow by the station house, a traveller with a suitcase.
   // Each faces the track (authored facing +z, turned to face −lateral).
-  const staff = rng((town.id * 131 + Math.round(s.x) * 7 + Math.round(s.z) * 3 + 29) >>> 0);
   const facing = (t: number, lateral: number) => (g: BufferGeometry) => place(g.rotateY(Math.PI), t, side + lateral, 14);
-  const who = 1 + Math.floor(staff() * 7); // a non-empty set of the three
-  const withConductor = (who & 1) !== 0;
-  if (withConductor) conductor(b, mats, facing(196, 8));
+  const who = stationStaff(town);
+  if (who & 1) conductor(b, mats, facing(196, 8));
   if (who & 2) porter(b, mats, facing(124, 36.5));
   if (who & 4) traveller(b, mats, facing(170, 27));
+  // (The peg-doll passengers waiting on the platform are drawn apart, by `buildWaiting`: their number can change.)
+}
 
-  // A few peg-doll passengers waiting on the platform.
+/** Place geometry authored at a station's origin: `t` mm along its track, `lateral` mm across, `y` up. */
+function stationPlace(town: Town): (g: BufferGeometry, t: number, lateral: number, y: number) => BufferGeometry {
+  const s = town.station;
+  const dx = Math.cos(s.heading);
+  const dz = Math.sin(s.heading);
+  const yaw = -s.heading;
+  return (g, t, lateral, y) => {
+    g.rotateY(yaw);
+    g.translate(s.x + dx * t - dz * lateral, y, s.z + dz * t + dx * lateral);
+    return g;
+  };
+}
+
+/** Which of the station staff stand on a town's platform: bits for the conductor (1), porter (2) and traveller (4). */
+function stationStaff(town: Town): number {
+  const s = town.station;
+  const staff = rng((town.id * 131 + Math.round(s.x) * 7 + Math.round(s.z) * 3 + 29) >>> 0);
+  return 1 + Math.floor(staff() * 7); // a non-empty set of the three
+}
+
+/** Most peg dolls a platform has room for. */
+export const MAX_WAITING_DOLLS = 12;
+
+/**
+ * Peg-doll passengers waiting on a town's platform: `count` of them (up to `MAX_WAITING_DOLLS`), or null for the usual
+ * few (two to four, the town's own). Each town's dolls keep their places and coats as the number changes: the first
+ * ones are always the same. `after(k)` is called once the first k have been added. Returns the usual number.
+ */
+export function buildWaiting(town: Town, count: number | null, mats: Materials, b: Batcher, after?: (k: number) => void): number {
+  const place = stationPlace(town);
+  const side = TRACK_WIDTH / 2;
   const r = rng(town.id * 97 + 11);
   // (The socket end of the platform is the goods corner: crane and plank pile.)
-  const spots = withConductor ? [96, 120, 158, 168, 176] : [96, 120, 158, 168, 190];
-  const count = 2 + Math.floor(r() * 3);
-  for (let k = 0; k < count; k++) {
-    const t = spots.splice(Math.floor(r() * spots.length), 1)[0];
+  const spots = stationStaff(town) & 1 ? [96, 120, 158, 168, 176] : [96, 120, 158, 168, 190];
+  // More room further along, between the benches and the station house's door (for a busy platform).
+  const more = [70, 82, 108, 132, 146, 186, 62];
+  const usual = 2 + Math.floor(r() * 3);
+  const n = Math.min(count ?? usual, MAX_WAITING_DOLLS);
+  after?.(0);
+  for (let k = 0; k < n; k++) {
+    const pool = spots.length > 0 ? spots : more;
+    const t = pool.splice(Math.floor(r() * pool.length), 1)[0];
     const lateral = side + 10 + r() * 8;
     pegDoll(b, mats, (g) => place(g, t, lateral, 14), r);
+    after?.(k + 1);
   }
+  return usual;
 }
 
 const PEG_COATS = ["#c8442f", "#2f6db5", "#3c8f4e", "#e6b52c", "#6b4a8f", "#e98aa8"];

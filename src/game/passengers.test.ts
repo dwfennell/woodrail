@@ -58,6 +58,10 @@ describe("passengers", () => {
     const { w, A } = line();
     const p = Progress.fresh();
     const clock = new Map<number, number>();
+    // Not before coaches are known.
+    peopleArrive(w, p, RIDER_SECONDS * 2, clock);
+    expect(A.waiting).toBe(0);
+    p.learned.add("passengers");
     peopleArrive(w, p, RIDER_SECONDS - 1, clock);
     expect(A.waiting).toBe(0);
     peopleArrive(w, p, 1, clock);

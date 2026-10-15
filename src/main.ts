@@ -875,8 +875,17 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     });
   }
   setInterval(() => {
-    if (mode === "game" && playing && !game.paused) peopleArrive(game.world, progress, 1, peopleClock);
+    if (mode !== "game" || !playing || game.paused) return;
+    peopleArrive(game.world, progress, 1, peopleClock);
+    // (Nothing else may be drawing: new arrivals redraw their platform themselves.)
+    showWaiting();
   }, 1000);
+
+  /** The peg dolls on each platform are the people waiting (Game mode, once coaches are known; else the usual few). */
+  function showWaiting(): void {
+    const live = mode === "game" && progress.learned.has("passengers");
+    for (const d of game.economy.allDepots()) if (d.role === "town") game.setWaiting(d.townId, live ? d.waiting : null);
+  }
 
   // A town station's card (Game mode): who is waiting for a coach.
   let stationShown = "";
@@ -1176,6 +1185,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     } else {
       townLife.clear();
       detachPassengers(game.world);
+      showWaiting();
       shownDelivered = new Map();
       hud.trayBadge = null;
       hud.setCoins(null);
@@ -1326,6 +1336,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       showWorkshop();
       showFarm();
       showStation();
+      showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
     showRoute();
     let derailed = false;

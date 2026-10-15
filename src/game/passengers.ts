@@ -44,6 +44,8 @@ export function riderSeconds(level: number, busy = false): number {
  * (kept by the caller between calls). Cheap: a few towns, called about once a second.
  */
 export function peopleArrive(world: World, p: Progress, seconds: number, clock: Map<number, number>): void {
+  // No one waits for coaches that can't be made yet.
+  if (!p.learned.has("passengers")) return;
   const cap = waitingCap(p);
   for (const d of world.economy.allDepots()) {
     if (d.role !== "town" || !world.layout.getPiece(d.pieceId)) continue;
