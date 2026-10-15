@@ -115,7 +115,7 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     piles: {
       coal: { t: 44, l: 60, y: YARD, across: 2, rows: 2, axis: "t" },
       ore: { t: 76, l: 60, y: YARD, across: 2, rows: 2, axis: "t" },
-      iron: { t: 60, l: 98, y: YARD, across: 3, axis: "t" },
+      iron: { t: 34, l: 96, y: YARD, across: 2, axis: "t" },
     },
     trackT: 60,
   },
@@ -291,7 +291,7 @@ export class DepotView {
     const looks: Record<Exclude<CargoKind, "stone">, [BufferGeometry, Material][]> & { stone?: [BufferGeometry, Material][] } = {
       coal: hasPart("load-coal") ? partPieces(mats, "load-coal").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m]) : lumps("#2a2b2e"),
       ore: hasPart("load-ore") ? partPieces(mats, "load-ore").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m]) : lumps("#9a4f2c"),
-      iron: hasPart("load-iron") ? partPieces(mats, "load-iron").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m]) : [[bars, mats.lacquer("#7d8a98")]],
+      iron: hasPart("load-iron") ? partPieces(mats, "load-iron").map(([g, m]) => [g.translate(0, -7.5 / 2, 0), m]) : [[bars, mats.lacquer("#7d8a98")]],
       log: [[log, logMat]],
       planks: [
         [boards, mats.naturalWood],
@@ -395,6 +395,7 @@ export class DepotView {
       this.buildStatic(site, tile.b);
       if (depot.role === "sawmill") site.blade = this.buildBlade(pose);
       if (depot.role === "mill") site.blade = this.buildSails(pose);
+      if (depot.role === "mine") site.blade = this.buildMineWheel(pose);
       // The crane's moving parts are small: drawn only within `CRANE_REACH` of the camera.
       for (const o of [site.crane.arm, site.crane.trolley, site.crane.rope, site.blade]) {
         if (!o) continue;
@@ -588,6 +589,14 @@ export class DepotView {
   }
 
   /** A windmill's sails, facing the track; they turn (like the saw) while the mill grinds. */
+  /** The mine's winding wheel, turning while the mine works (Asset Gen's part; none without the models). */
+  private buildMineWheel(pose: SitePose): Object3D | null {
+    if (!hasPart("industry-mine-wheel")) return null;
+    const wheel = this.partObject("industry-mine-wheel", {});
+    toWorld(pose, 112, 96, 66, wheel.position);
+    return this.addMoving(wheel, pose);
+  }
+
   private buildSails(pose: SitePose): Object3D {
     if (hasPart("industry-mill-sails")) {
       const sails = this.partObject("industry-mill-sails", { sails: "#f1ebdd" });
@@ -749,7 +758,7 @@ export class DepotView {
     // The saw spins while the sawmill is cutting.
     for (const site of this.sites) {
       if (site.blade && economy.working(site.depot)) {
-        site.blade.rotateZ(dt * (site.depot.role === "mill" ? 2.5 : 14));
+        site.blade.rotateZ(dt * (site.depot.role === "mill" ? 2.5 : site.depot.role === "mine" ? 3 : 14));
         busy = true;
       }
     }
