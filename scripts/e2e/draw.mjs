@@ -169,42 +169,32 @@ if (site) {
   const undone = await p.evaluate(() => D.pieces());
   check("one undo takes the whole line up", undone === before[0], `${undone} vs ${before[0]}`);
 
-  // 3. A turn: straight on, then round to whichever side is open ground.
+  // 3. A turn: straight on, then round to one side (the other side if a hill or a river is in the way of the first).
   const r = 180;
-  const turnSide = await p.evaluate(([x, z, fx, fz]) => {
-    const G = window.woodrail.landscape.grid;
-    const open = (px, pz) => {
-      const cell = G.cellAtWorld(px, pz);
-      return cell !== -1 && G.height[cell] === 0 && G.surface[cell] === 0 && G.feature[cell] <= 1 && G.road[cell] === 0;
-    };
-    for (const side of [1, -1]) {
-      let ok = true;
-      for (let a = 0.2; a <= Math.PI / 2 + 0.01 && ok; a += 0.2) {
-        const along = 200 + 180 * Math.sin(a);
-        const across = 180 * (1 - Math.cos(a)) * side;
-        ok = open(x + fx * along - fz * across, z + fz * along + fx * across);
-      }
-      if (ok) return side;
+  let types = [];
+  let curves = 0;
+  let said = [];
+  for (const turnSide of [1, -1]) {
+    const tx = lx * turnSide;
+    const tz = lz * turnSide;
+    const turn = [];
+    for (let d = 0; d <= 200; d += 25) turn.push([x + fx * d, z + fz * d]);
+    for (let a = 0; a <= Math.PI / 2; a += Math.PI / 16) {
+      const along = 200 + r * Math.sin(a);
+      const side = r * (1 - Math.cos(a));
+      turn.push([x + fx * along + tx * side, z + fz * along + tz * side]);
     }
-    return 1;
-  }, [x, z, fx, fz]);
-  const tx = lx * turnSide;
-  const tz = lz * turnSide;
-  const turn = [];
-  for (let d = 0; d <= 200; d += 25) turn.push([x + fx * d, z + fz * d]);
-  for (let a = 0; a <= Math.PI / 2; a += Math.PI / 16) {
-    const along = 200 + r * Math.sin(a);
-    const side = r * (1 - Math.cos(a));
-    turn.push([x + fx * along + tx * side, z + fz * along + tz * side]);
+    const n0 = await p.evaluate(() => D.pieces());
+    await focus(x + fx * 250 + tx * 120, z + fz * 250 + tz * 120, 380);
+    await drawThrough(turn, { shotAt: turn.length - 2, shot: "draw-2-turn-midway.png" });
+    await p.screenshot({ path: `${OUT}/draw-2-turn.png` });
+    types = await p.evaluate((n0) => [...window.woodrail.layout.pieceIds()].slice(n0).map((id) => window.woodrail.layout.getPiece(id).type), n0);
+    curves = types.filter((t) => t.startsWith("curve")).length;
+    said = await p.evaluate(() => D.toasts());
+    if (types.length > 0) await p.evaluate(() => window.woodrail.interaction.undo());
+    if (curves >= 2) break;
   }
-  await focus(x + fx * 250 + tx * 120, z + fz * 250 + tz * 120, 380);
-  await drawThrough(turn, { shotAt: turn.length - 2, shot: "draw-2-turn-midway.png" });
-  await p.screenshot({ path: `${OUT}/draw-2-turn.png` });
-  const types = await p.evaluate((n) => [...window.woodrail.layout.pieceIds()].slice(-n).map((id) => window.woodrail.layout.getPiece(id).type), 12);
-  const curves = types.filter((t) => t.startsWith("curve")).length;
-  const said = await p.evaluate(() => D.toasts());
   check("a stroke that turns lays curves", curves >= 2, `${types.join(" ")}${said.length ? ` · toasts: ${said.join(" | ")}` : ""}`);
-  await p.evaluate(() => window.woodrail.interaction.undo());
 
   // 4. Retracing takes ghosts off: out and back to the start lays nothing.
   const n0 = await p.evaluate(() => D.pieces());
