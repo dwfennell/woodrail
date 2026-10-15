@@ -1,109 +1,116 @@
-# Game mode: direction (rewards, specialties, the long game)
+# Game mode: direction (rewards, how towns grow apart, the long game)
 
-Status: plan, agreed in outline with the user on 2026-10-15. Nothing here is built yet.
+Status: brainstorm, revised with the user on 2026-10-15. Nothing here is built yet.
 
 ## Principles
 
-- **Cozy.** Nothing fails, expires or wears out. Pressure comes from wanting things, never from losing them.
-- **A clear early game.** Every map starts the same way: timber, planks, a workshop, towns that want planks. Variety
-  arrives once you know the basics.
-- **Forks you feel, not walls.** Choices are rewarded for sticking with them. Nothing is closed off for good.
-- **A long game with an end.** A big final project needs several top-level cities. You can keep playing after it.
-- **First game on the starter map, later games on generated maps** (as now).
+- **Cozy.** Nothing fails, expires or wears out.
+- **A clear early game.** The opening is the same on every map: timber, then planks, then a workshop, then towns that
+  want planks. Variety grows from there.
+- **Your choices shape your towns** more than geography does. Geography nudges; what you bring a town decides what it
+  becomes.
+- **Specialize, don't lock out.** Leaning into something is rewarded. Everything stays reachable.
+- **Building up to something big:** a rocket (the asset exists). The details come later. You can keep playing after it.
+- **Maps:** the first game is on the starter map, and later games are generated. Map generation is Game mode's, taken
+  back from Roads.
 
 ## 1. Town rewards
 
-- **Offers by tier.** When a town grows, it offers blueprints that suit its new size:
-  - a village offers track
-  - a town offers industries and logistics
-  - a city offers its specialty's line (see 3)
-- **A choice of kind.** Pick one of:
-  - one of two blueprints
-  - a crate (a few things you know, free in the toy box)
-  - coins
+When a town grows, it offers a reward suited to its new size:
 
-  A blueprint you pass on goes to the board, to learn with planks.
-- **First-time gifts.** Your first village, first town and first city each give a one-off present (for example an
-  engine, a crate, or coins toward a first industry).
-- Schools keep their ideas, by the same tiers (the highest level among your towns).
+- a village offers track
+- a town offers industries and logistics
+- a city offers advanced blueprints
 
-## 2. Towns with a little character
+The reward is one of:
 
-Character doesn't change the early game: hamlets and villages all want planks, as now.
+- **One of two blueprints.** The one you pass on goes onto the blueprint board (the tech tree screen), to learn later
+  at its own price.
+- **A crate:** a few things you already know, free into your toy box.
 
-- **When a town becomes a town, its character shows.** The character comes from what's around it:
-  - a forest town (trees nearby)
-  - a farm town (fields)
-  - a hill town (hillsides)
-  - a market town (other towns near it)
-- **Character tilts its basket.** A farm town wants more flour and less stone. Its favourite good pays more.
-- **It's a nudge, not a rule.** Every town can still grow on any mix, and character never blocks growth.
+Your first village, first town and first city each also give a one-off gift.
 
-## 3. City specialties (soft forks)
+## 2. How towns grow apart
 
-When a town becomes a city you choose its specialty. **A city has one top-level building,** its specialty building.
-It goes up in the city, a tech building that spawns in town, the way the school, market and library do now:
+**Most hamlets start the same,** wanting planks. A few are rare towns with an unusual want and their own growth path:
 
-| Specialty | Building in the city | Its line of blueprints | Specialization rewards |
-|---|---|---|---|
-| Freight | Engine works | Heavier wagons, faster cranes, the mining chain (Phase C: mine, coal, iron, foundry) | Industries near it work faster; wagons hold more |
-| Passenger | Grand station | The passenger line (dining car → express), bigger stations | Busier stations, higher fares |
-| Trade | Trading house | Warehouses and their upgrades, imports and exports (Phase D: ports) | Better export prices |
+- a fishing hamlet that wants planks for boats, then stone for a harbour wall
+- a miners' camp that wants timber props and, later, grows around a mine
+- a mill village beside a stream that wants grain from the start
 
-**Soft forks:**
-- **Each specialty has its own mastery,** built up by doing its thing: freight delivered, people carried, goods
-  exported. Mastery unlocks the line's later blueprints and makes its rewards stronger.
-- **The second city of the same specialty costs less.** A city's specialty building also works faster when your
-  mastery in that specialty is high.
-- **Other lines stay open.** Another city can take another specialty, so a big railway gets all three in time.
-- **Pivoting is allowed.** A city can change specialty for coins. Its building is rebuilt, and mastery stays with the
-  specialty, not the city.
+Rare towns are uncommon (about one per map, sometimes none) and always reachable in the early game.
 
-**The workshop.** The workshop is still placed by hand at the start. Later workshops could also spawn in cities: an
-engine works is a better workshop for trains.
+**Then towns become what you bring them.** As a town grows, each new level adds a minor specialty from what it has
+received and how it's served:
 
-## 4. The long game: a final project
+- **Flour** makes a bakers' town: it wants more flour and pays well for it.
+- **Stone** makes a builders' town: bigger buildings, and it grows faster with stone.
+- **Many passengers** makes a market town, or a resort if it's far from industry: more people wait, and fares are
+  higher.
+- **Beside working industries** makes an industrial town: industries near it work faster.
+- **Goods passing through a warehouse there** makes a trading town: in Phase D, better prices.
 
-**A Factorio-style ending.** Build something grand that needs every kind of city. It could be a wooden toy rocket on a
-launch pad, or another big toy, to be decided. Its parts come from different specialties:
+A big town collects several minor specialties over its life, its strongest first. **Each city has one major
+specialty:** its strongest, which earns it a building of its own that goes up in the city (a tech building, like the
+school, market and library now). For example:
 
-- Freight makes its frame (iron from Phase C).
-- Trade imports its rare parts (Phase D).
-- Passenger brings the crowd to watch.
+- an engine works: a better workshop for trains
+- a grand station
+- a trading house
 
-**It is built in stages.** Each part is a delivery by train to the launch site. You need several cities at the top
-level (city ★). The launch is a celebration, and the railway carries on afterwards.
+Rewards for specializing:
 
-## 5. Maps that shape the plan
+- the major specialty's bonuses are bigger
+- a city's major building unlocks its advanced blueprints
+- a second city with the same major specialty builds its building sooner
 
-- **Within a map:** some seeds cluster resources, with most forests on one side, fields along a river, or hills at one
-  end, so where you build matters. Not every seed is like this.
-- **Map generation is shared work.** It belongs to the map/roads sessions, so this needs coordinating with them.
+There's no pivot. A city keeps growing minor specialties as you bring it new things.
+
+**Geography only nudges.** A town by fields starts slightly ahead toward baking, but your trains decide.
+
+## 3. Blueprints with varied requirements
+
+Each blueprint has its own mix of requirements, not one currency per line. So you can specialize and still need some
+of everything:
+
+- **Track:** mostly planks.
+- **Industries:** planks and coins.
+- **Advanced blueprints:** planks, plus something you've achieved. For example: an express engine needs 250 passengers
+  carried and a town with a grand station; a foundry needs coins, a library, and 40 stone delivered.
+
+This "something achieved" brings every player up to a minimum in each area, while the cheapest path follows what you
+specialize in.
+
+## 4. Building up to the rocket
+
+Not planned in detail yet. Phases C (mining: coal, iron, a foundry) and D (trade, ports) add the goods and towns it
+will need. Then the rocket asks for several major cities' specialties.
+
+## 5. Maps (taken back from Roads)
+
+- **Resources sometimes cluster:** forests mostly on one side, fields along a river, hills at one end. Only some seeds,
+  so it stays fresh.
+- **Rare towns are placed by the map** (see 2).
 
 ## 6. The tech tree, reshaped as we go
 
-- **Three tiers matching town size:**
+- **Three tiers by town size:**
   - village: track
   - town: industries and logistics
-  - city: specialty lines
+  - city: advanced blueprints and the major buildings' lines
 - **Fold in the small blueprints:** Risers go into Bridges, and Turning loops into Junctions.
-- **Each line has its own currency:**
-  - planks for track
-  - coins for industries
-  - mastery for the specialty lines
-  - landmarks for the advanced blueprints
 
-## Later
+## Parked
 
-- Town requests (cut for now: not cozy).
-- Optional goals, par times and an end-of-game summary, once the game has settled.
+- Coin rewards for growth.
+- Town requests.
+- Optional goals, par times and an end-of-game summary.
+- Planning the rocket in detail.
 
 ## Order
 
-1. Rewards rework (1).
-2. Town character (2).
-3. City specialties and specialty buildings, with today's content: freight = industries, passenger = the passenger
-   line, trade = warehouses (3).
-4. Phase C (mining) as the freight line's top; Phase D (ports, trade) as trade's.
-5. The final project (4).
-6. Map variety (5), with the map sessions.
+1. Rewards (1).
+2. Minor specialties from what towns receive (2), then major specialties and their city buildings.
+3. Varied blueprint requirements (3), with the tree reshape.
+4. Rare towns and map variety (2, 5).
+5. Phase C, Phase D, then the rocket.
