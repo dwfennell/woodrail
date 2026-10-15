@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Vector3 } from "three";
-import { clampTarget, clampView, edgePan, frameDistance, isDoubleTap, lerpAngle, nearPlaneFor } from "./camera-director";
+import { clampTarget, clampView, edgePan, frameAlong, frameDistance, isDoubleTap, lerpAngle, nearPlaneFor } from "./camera-director";
 
 describe("frameDistance", () => {
   it("fits a sphere to the narrower side of the frustum", () => {
@@ -179,5 +179,24 @@ describe("CameraDirector over the scenery around the mat", () => {
     d.zoomAt(new Vector3(30000, 0, 0), -200);
     d.update(1 / 60, 1000, 800);
     expect(controls.target.x).toBeLessThan(400);
+  });
+});
+
+describe("frameAlong", () => {
+  it("lays two places up the screen on a phone held upright, across it on a wide screen, and fits them", () => {
+    const pts = [
+      { x: 0, z: 0 },
+      { x: 1000, z: 0 },
+    ];
+    const tall = frameAlong(pts, 45, 390 / 844, 200);
+    const wide = frameAlong(pts, 45, 1280 / 800, 200);
+    expect([tall.x, tall.z]).toEqual([500, 0]);
+    // Upright: the camera stands back along the span (it runs up the screen); wide: across it.
+    expect(Math.abs(Math.sin(tall.theta!))).toBeCloseTo(1);
+    expect(Math.abs(Math.cos(wide.theta!))).toBeCloseTo(1);
+    // The span fits the phone's long side: half as far back as fitting it across (its short side).
+    expect(tall.distance).toBeLessThan(frameDistance(700, 45, 390 / 844) * 0.55);
+    expect(wide.distance).toBeLessThan(tall.distance);
+    expect(frameAlong([{ x: 5, z: 5 }], 45, 1, 200).theta).toBeNull();
   });
 });

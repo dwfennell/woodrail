@@ -442,9 +442,10 @@ export class Game {
    * Put the camera straight onto a view (no glide): looking at `target` from `distance`, tilted `phi` from straight
    * down, from the side it's on now.
    */
-  lookAt(target: Vector3, distance: number, phi: number): void {
+  lookAt(target: Vector3, distance: number, phi: number, theta: number | null = null): void {
     const dir = this.camera.position.clone().sub(this.controls.target);
     dir.y = 0;
+    if (theta !== null) dir.set(Math.sin(theta), 0, Math.cos(theta));
     if (dir.lengthSq() < 1e-6) dir.set(0, 0, 1);
     dir.normalize();
     this.controls.target.copy(target);
