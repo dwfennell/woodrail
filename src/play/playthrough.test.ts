@@ -6,7 +6,7 @@ import { Crafting, workshops, workshopStock } from "../game/crafting";
 import { GOALS, GoalTracker } from "../game/goals";
 import { inUse, Progress } from "../game/progress";
 import { offerOnGrowth, payDelivery } from "../game/rewards";
-import { choose, learnWithGoods, ready, techOf } from "../game/tech";
+import { choose, goodsOf, learnWithGoods, ready, techOf } from "../game/tech";
 import { isFree, ruleOf, thingsFor, type ThingId } from "../game/things";
 import { TownLife, type TownLifeHost } from "../game/town-life";
 import { plotPrice, townStatus } from "../game/towns";
@@ -257,7 +257,7 @@ describe("a Game-mode playthrough", () => {
       }
       // Learn from the board with planks, when the workshop has them.
       for (const t of ["switches", "bridges"]) {
-        if (P.progress.board.has(t) && ready(P.progress, t) && learnWithGoods(w(), P.progress, t)) P.note(`learned ${techOf(t)!.label} with ${describeGoods(techOf(t)!.cost)}`);
+        if (P.progress.board.has(t) && ready(P.progress, t) && learnWithGoods(w(), P.progress, t)) P.note(`learned ${techOf(t)!.label} with ${describeGoods(goodsOf(techOf(t)!))}`);
       }
       // Order what's wanted, once each, when known.
       for (const id of wanted) {

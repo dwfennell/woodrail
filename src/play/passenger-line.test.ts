@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { Progress } from "../game/progress";
-import { learnByRiders, techOf } from "../game/tech";
+import { learnAuto, techOf } from "../game/tech";
 import { buildStarterWorld } from "../game/world";
 import { SIM_HZ, type CarLook } from "../sim";
 import { connectorRef } from "../track";
@@ -46,7 +46,7 @@ describe("a passenger line", () => {
       w.economy.tick();
       if (tick % SIM_HZ !== 0) continue;
       peopleArrive(w, p, 1, clock);
-      for (const id of learnByRiders(p)) {
+      for (const id of learnAuto(p)) {
         learnedAt.set(id, tick);
         log.push(`${at(tick)}  ${p.riders} carried, ${p.coins} coins: learned ${techOf(id)!.label}`);
         const swap = looks[id];

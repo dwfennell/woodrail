@@ -4,7 +4,7 @@ Status: brainstorm, revised with the user on 2026-10-15. Nothing here is built y
 
 ## The blueprint tree is the roadmap
 
-The full proposed web is [2026-10-15-blueprint-tree.html](2026-10-15-blueprint-tree.html). It is also published as a
+The full web lives in the game's catalogue, `src/game/blueprints.ts`; `npm run blueprints:page` makes [docs/blueprints.html](../../blueprints.html) from it. It is also published as a
 claude.ai page: https://claude.ai/artifact/JobSRZPvoV9qCExAL5G68z
 
 - **Size:** about 105 blueprints in 12 branches.

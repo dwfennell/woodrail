@@ -1,134 +1,88 @@
 import type { Bag } from "../economy/goods";
+import { BLUEPRINTS, type Blueprint, type Need } from "./blueprints";
 import { takeFromWorkshops } from "./crafting";
 import type { Progress } from "./progress";
 import { THING_RULES, type ThingId } from "./things";
 import type { World } from "./world";
 
-/** A blueprint: learned once (paid in goods at the workshop, or chosen free when a town grows). */
-export interface Tech {
-  readonly id: string;
-  readonly label: string;
-  /** One line for the board. */
-  readonly blurb: string;
-  readonly cost: Bag;
-  /** Blueprints to learn first. */
-  readonly needs: readonly string[];
-  /** A town landmark one of your towns must have first (a city's library, for the advanced blueprints). */
-  readonly landmark?: string;
-  /** What it lets you do that isn't a thing to make (train routes), with an icon for the board. */
-  readonly feature?: { readonly label: string; readonly icon: string };
-  /**
-   * Learned by itself, free, once you've carried this many passengers (the passenger line): never offered by a town or
-   * put on the board.
-   */
-  readonly riders?: number;
-  /**
-   * Which size of town offers it when it grows (1 a village, 2 a town, 3 a city): track for villages, industries and
-   * logistics for towns, the advanced blueprints for cities. A growing town offers its own tier first.
-   */
-  readonly tier?: number;
-}
-
 /**
- * The blueprint board's tree, as data. What each blueprint lets you make comes from `THING_RULES` (the things whose
- * `tech` it is), so a new piece is added in one place.
+ * The rules for learning blueprints (Game mode), on the catalogue in `blueprints.ts`: what can be learned now, what a
+ * growing town offers, learning one free or at its price, and the ones learned by themselves.
  */
-export const TECHS: readonly Tech[] = [
-  { id: "switches", label: "Switches", blurb: "Branch a line in two.", cost: { planks: 6 }, tier: 1, needs: [] },
-  // A bridge stands a level up, so ramps come with it (a bridge alone can't be reached).
-  { id: "bridges", label: "Bridges and ramps", blurb: "Ramp up and cross rivers and other lines.", cost: { planks: 8 }, tier: 1, needs: [] },
-  { id: "heights", label: "Risers", blurb: "Raise track higher, over bridges and hills.", cost: { planks: 6 }, tier: 1, needs: ["bridges"] },
-  { id: "sawmills", label: "Sawmills", blurb: "Build your own sawmill, wherever you like.", cost: { planks: 15 }, tier: 2, needs: [] },
-  { id: "passengers", label: "Passengers", blurb: "Coaches carry people between towns: they pay a fare by how far they ride.", cost: { planks: 10 }, tier: 1, needs: [] },
-  { id: "loops", label: "Turning loops", blurb: "Turn a train round without stopping.", cost: { planks: 6 }, tier: 1, needs: ["switches"] },
-  { id: "junctions", label: "Junctions", blurb: "Three-ways, crossings, double track.", cost: { planks: 10 }, tier: 2, needs: ["switches"] },
-  // The industry line: more logs, then the farm chain.
-  { id: "harvesters", label: "Harvesters", blurb: "A forest yard of your own, beside the trees.", cost: { planks: 10 }, tier: 1, needs: [] },
-  // Early, on its own: a farm yard, hoppers for its grain, and fields to plant (with coins) where there are few.
-  { id: "farming", label: "Farming", blurb: "A farm yard by the fields, hoppers for its grain, and fields to plant.", cost: { planks: 12 }, tier: 1, needs: [] },
-  { id: "mills", label: "Mills", blurb: "Grind grain into flour, for the towns.", cost: { planks: 16 }, tier: 2, needs: ["farming"] },
-  // The logistics line: trains that know where to go.
-  {
-    id: "routes",
-    tier: 2,
-    label: "Train routes",
-    blurb: "Give a train its stops: it sets the switches on its way.",
-    cost: { planks: 10 },
-    needs: ["switches"],
-    feature: { label: "Routes on the engine card", icon: "🗺️" },
-  },
-  { id: "warehouses", label: "Warehouses", blurb: "Keep goods for later: routed trains drop them off and pick them up.", cost: { planks: 16 }, tier: 2, needs: ["routes"] },
-  // Needs a city's library: the stone a city wants to keep growing.
-  { id: "quarries", label: "Quarries", blurb: "Cut stone from the hills, for growing cities.", cost: { planks: 24 }, tier: 3, needs: ["mills"], landmark: "library" },
-  // The passenger line: each learned by itself as you carry more people (see `learnByRiders`).
-  {
-    id: "dining",
-    label: "Dining car",
-    blurb: "Everyone on a train with a dining car pays half as much again.",
-    cost: {},
-    needs: ["passengers"],
-    riders: 20,
-    feature: { label: "Dining car (Trains tab)", icon: "🍽️" },
-  },
-  {
-    id: "first-class",
-    label: "First class",
-    blurb: "A first-class coach: three seats, each paying double.",
-    cost: {},
-    needs: ["dining"],
-    riders: 60,
-    feature: { label: "First-class coach (Trains tab)", icon: "🥇" },
-  },
-  {
-    id: "stations",
-    label: "Busy stations",
-    blurb: "Twice as many people come to each station, and more can wait.",
-    cost: {},
-    needs: ["first-class"],
-    riders: 100,
-    feature: { label: "More people at stations", icon: "🚉" },
-  },
-  {
-    id: "double-decker",
-    label: "Double-decker",
-    blurb: "A coach with eight seats.",
-    cost: {},
-    needs: ["stations"],
-    riders: 160,
-    feature: { label: "Double-decker coach (Trains tab)", icon: "🚃" },
-  },
-  {
-    id: "express",
-    label: "Express engine",
-    blurb: "An engine that runs half as fast again.",
-    cost: {},
-    needs: ["double-decker"],
-    riders: 250,
-    feature: { label: "Express engine (Trains tab)", icon: "⚡" },
-  },
-];
+
+/** A blueprint (see `Blueprint`). */
+export type Tech = Blueprint;
+
+/** Every blueprint, built or planned. */
+export const TECHS: readonly Tech[] = BLUEPRINTS;
 
 /** On the board from a new game's start, to be learned with goods. */
 export const STARTING_BOARD: readonly string[] = ["switches", "bridges"];
 
-export const techOf = (id: string): Tech | undefined => TECHS.find((t) => t.id === id);
+const BY_ID = new Map(TECHS.map((t) => [t.id, t]));
+export const techOf = (id: string): Tech | undefined => BY_ID.get(id);
+
+/** Is it in the game yet (not just planned, "coming soon")? */
+export const built = (t: Tech): boolean => t.plan === undefined;
 
 /** What a blueprint lets you make. */
 export function unlocksOf(id: string): ThingId[] {
   return (Object.keys(THING_RULES) as ThingId[]).filter((t) => THING_RULES[t]!.tech === id);
 }
 
-/** Can it be learned now: not learned, and everything it needs is? */
-export function ready(p: Progress, id: string): boolean {
-  const t = techOf(id);
-  return !!t && !p.learned.has(id) && t.needs.every((n) => p.learned.has(n)) && (!t.landmark || p.landmarks.has(t.landmark)) && (t.riders === undefined || p.riders >= t.riders);
+/** A counted thing toward a requirement: people carried, blueprints learned, and the counters the game keeps. */
+export function statOf(p: Progress, stat: string): number {
+  if (stat === "riders") return p.riders;
+  if (stat === "blueprints") return p.learned.size;
+  return p.counts.get(stat) ?? 0;
 }
 
-/** Learn the passenger line's blueprints you've carried enough people for (in order). Returns the ones learned now. */
-export function learnByRiders(p: Progress): string[] {
+/** Has this requirement been met? (Ones the game can't check yet, like "a town by water", never are.) */
+export function needMet(p: Progress, n: Need): boolean {
+  switch (n.kind) {
+    case "count":
+      return statOf(p, n.stat) >= n.n;
+    case "delivered":
+      return statOf(p, `delivered:${n.good}`) >= n.n;
+    case "level":
+      return (n.towns ?? 1) <= 1 && p.bestLevel >= n.level;
+    case "landmark":
+      return p.landmarks.has(n.id);
+    case "place":
+      return false;
+  }
+}
+
+/** Can it be learned now: built, not learned, everything it needs learned and everything it requires done? */
+export function ready(p: Progress, id: string): boolean {
+  const t = techOf(id);
+  return !!t && built(t) && !p.learned.has(id) && t.needs.every((n) => p.learned.has(n)) && t.requires.every((n) => needMet(p, n));
+}
+
+/**
+ * How much of each blueprint a player sees: "shown" if it's a key one, learned, offered, on the board, or next to
+ * something learned; a "?" (hint) one step further on; beyond that nothing yet, so the web grows as you learn. A
+ * university shows everything.
+ */
+export function seenOf(p: Progress, offered: ReadonlySet<string> = new Set()): Map<string, "shown" | "hint" | "unseen"> {
+  const all = p.learned.has("university");
+  const shown = new Set(TECHS.filter((t) => all || t.key || p.learned.has(t.id) || offered.has(t.id) || p.board.has(t.id) || t.needs.some((n) => p.learned.has(n))).map((t) => t.id));
+  return new Map(TECHS.map((t) => [t.id, shown.has(t.id) ? "shown" : t.needs.some((n) => shown.has(n)) ? "hint" : "unseen"]));
+}
+
+/** The goods its price takes from the workshop's yard (planks and others; coins aside). */
+export function goodsOf(t: Tech): Bag {
+  return { ...(t.price.planks ? { planks: t.price.planks } : {}), ...t.price.goods } as Bag;
+}
+
+/**
+ * Learn the blueprints that come by themselves once what they require is done (the passenger line, by people carried;
+ * the school and library, when a town builds one). Returns the ones learned now, in order.
+ */
+export function learnAuto(p: Progress): string[] {
   const out: string[] = [];
   for (const t of TECHS) {
-    if (t.riders === undefined || !ready(p, t.id)) continue;
+    if (t.learn !== "auto" || !ready(p, t.id)) continue;
     p.learned.add(t.id);
     out.push(t.id);
   }
@@ -141,7 +95,7 @@ export function learnByRiders(p: Progress): string[] {
  * `random` (0–1). Fewer when fewer are left.
  */
 export function offerFor(p: Progress, random: () => number, tier = 0): string[] {
-  const can = TECHS.filter((t) => t.riders === undefined && ready(p, t.id));
+  const can = TECHS.filter((t) => t.learn === "board" && ready(p, t.id));
   const mine = (t: Tech) => tier === 0 || (t.tier ?? 1) === tier;
   const pools = [
     can.filter((t) => mine(t) && !p.board.has(t.id)),
@@ -166,10 +120,16 @@ export function choose(p: Progress, id: string, offered: readonly string[]): boo
   return true;
 }
 
-/** Learn a blueprint from the board, paying its goods from the workshops' yards. False if it can't be (yet). */
+/**
+ * Learn a blueprint from the board at its price: planks (and goods) from the workshops' yards, and coins. False, taking
+ * nothing, if it can't be (yet).
+ */
 export function learnWithGoods(world: World, p: Progress, id: string): boolean {
   if (!ready(p, id) || !p.board.has(id)) return false;
-  if (!takeFromWorkshops(world, techOf(id)!.cost)) return false;
+  const t = techOf(id)!;
+  const coins = t.price.coins ?? 0;
+  if (p.coins < coins || !takeFromWorkshops(world, goodsOf(t))) return false;
+  p.coins -= coins;
   p.learned.add(id);
   p.board.delete(id);
   return true;

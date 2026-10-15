@@ -1,0 +1,355 @@
+<title>Woodrail Blueprint Tree</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700&display=swap">
+<style>
+/* Layout: a toy-box ledger. Branches run across the page as painted bands; each blueprint is a wooden tag, wired to what it needs. */
+:root {
+  --bg: #efe6d5; --surface: #fbf7ef; --ink: #2b241c; --muted: #6d5f4e; --line: #d9cbb3;
+  --red: #c8442f; --blue: #2f6db5; --green: #3c8f4e; --yellow: #d9a520; --wood: #b98552; --purple: #7b4fa0; --teal: #1f8a8a; --pink: #c9557f; --focus: #2f6db5;
+  --band-a: rgba(185, 133, 82, .07); --band-b: rgba(185, 133, 82, .14);
+  --chip-planks: #f0dcc0; --chip-planks-ink: #6b4320; --chip-coins: #f8e7ae; --chip-coins-ink: #6a4f00;
+  --chip-goods: #d9ecd9; --chip-goods-ink: #24592f; --chip-feat: #d8e5f6; --chip-feat-ink: #1f4a80;
+  --chip-place: #f6d9d2; --chip-place-ink: #8a2b1b;
+  --shadow: 0 1px 0 #d9cbb3, 0 2px 6px rgba(80, 55, 25, .08);
+  --display: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  --body: "Nunito Sans", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #1d1813; --surface: #2a231c; --ink: #f1e8da; --muted: #b9a990; --line: #463a2d;
+  --red: #e2654f; --blue: #6fa2e6; --green: #6fbf7f; --yellow: #e9c25a; --wood: #c99a6a; --purple: #b08ad6; --teal: #5cc2c2; --pink: #e486a8; --focus: #8fb8f0;
+  --band-a: rgba(201, 154, 106, .05); --band-b: rgba(201, 154, 106, .11);
+  --chip-planks: #4a3622; --chip-planks-ink: #f1d4b0; --chip-coins: #4a3d12; --chip-coins-ink: #f5dc8a;
+  --chip-goods: #1f3d26; --chip-goods-ink: #b7e2bf; --chip-feat: #1d3352; --chip-feat-ink: #c3d8f5;
+  --chip-place: #4d231c; --chip-place-ink: #f5c3b8;
+  --shadow: 0 1px 0 #120e0a, 0 2px 8px rgba(0,0,0,.35);
+  color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #1d1813; --surface: #2a231c; --ink: #f1e8da; --muted: #b9a990; --line: #463a2d;
+  --red: #e2654f; --blue: #6fa2e6; --green: #6fbf7f; --yellow: #e9c25a; --wood: #c99a6a; --purple: #b08ad6; --teal: #5cc2c2; --pink: #e486a8; --focus: #8fb8f0;
+  --band-a: rgba(201, 154, 106, .05); --band-b: rgba(201, 154, 106, .11);
+  --chip-planks: #4a3622; --chip-planks-ink: #f1d4b0; --chip-coins: #4a3d12; --chip-coins-ink: #f5dc8a;
+  --chip-goods: #1f3d26; --chip-goods-ink: #b7e2bf; --chip-feat: #1d3352; --chip-feat-ink: #c3d8f5;
+  --chip-place: #4d231c; --chip-place-ink: #f5c3b8;
+  --shadow: 0 1px 0 #120e0a, 0 2px 8px rgba(0,0,0,.35);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 30px; }
+h1, h2, h3 { font-family: var(--display); line-height: 1.1; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 800; }
+h2 { font-size: 26px; font-weight: 700; }
+h3 { font-size: 19px; font-weight: 700; }
+p { margin: 0; max-width: 70ch; }
+.lede { color: var(--muted); font-size: 16px; }
+header { display: grid; gap: 12px; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; color: var(--red); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; color: var(--muted); }
+.legend > span { display: inline-flex; gap: 6px; align-items: center; }
+.section-head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; border-bottom: 3px solid var(--wood); padding-bottom: 8px; }
+.section-head .sub { color: var(--muted); font-size: 14px; }
+
+.controls { display: grid; gap: 8px; }
+.ctl-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ctl-row .label { font-size: 12px; letter-spacing: .07em; text-transform: uppercase; font-weight: 700; color: var(--muted); min-width: 64px; }
+.pill { font: 600 13px var(--body); border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 4px 12px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.pill[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.pill .sw { width: 10px; height: 10px; border-radius: 3px; }
+.pill:focus-visible, .node:focus-visible, .linkish:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chip i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex: none; }
+.chip.planks { background: var(--chip-planks); color: var(--chip-planks-ink); } .chip.planks i { background: var(--chip-planks-ink); border-radius: 1px; height: 5px; width: 12px; }
+.chip.coins { background: var(--chip-coins); color: var(--chip-coins-ink); } .chip.coins i { background: var(--chip-coins-ink); border-radius: 50%; }
+.chip.goods { background: var(--chip-goods); color: var(--chip-goods-ink); } .chip.goods i { background: var(--chip-goods-ink); }
+.chip.feat { background: var(--chip-feat); color: var(--chip-feat-ink); } .chip.feat i { background: var(--chip-feat-ink); transform: rotate(45deg); width: 8px; height: 8px; }
+.chip.place { background: var(--chip-place); color: var(--chip-place-ink); } .chip.place i { background: var(--chip-place-ink); clip-path: polygon(50% 0, 100% 45%, 100% 100%, 0 100%, 0 45%); }
+
+.stamp { font: 700 10.5px var(--body); letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; border: 1.5px solid currentColor; white-space: nowrap; }
+.stamp.game { color: var(--green); } .stamp.changed { color: var(--blue); } .stamp.next { color: var(--yellow); } .stamp.soon { color: var(--red); } .stamp.later { color: var(--muted); } .stamp.ending { color: var(--ink); }
+
+/* The web */
+.web-scroll { overflow: auto; background: var(--surface); border-radius: 14px; box-shadow: var(--shadow); max-height: 78vh; }
+.web { position: relative; }
+.web svg.links { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.band { position: absolute; left: 0; right: 0; }
+.band-label { position: sticky; left: 0; display: inline-grid; gap: 2px; padding: 10px 12px; font-family: var(--display); font-weight: 800; font-size: 15px; line-height: 1.1; max-width: 132px; background: var(--surface); border-radius: 0 10px 10px 0; box-shadow: var(--shadow); z-index: 2; }
+.band-label small { font: 600 11.5px var(--body); color: var(--muted); }
+.link { fill: none; stroke-width: 2.5; stroke-linecap: round; transition: opacity .15s; }
+.link.same { opacity: .7; }
+.link.cross { opacity: 0; stroke-dasharray: 6 5; }
+.web.all-lines .link.cross { opacity: .35; }
+.link.lit { stroke: var(--focus) !important; stroke-width: 3.5; opacity: 1 !important; }
+.web.focusing .link:not(.lit) { opacity: .06; }
+.node .cross-needs { font-size: 11px; color: var(--muted); line-height: 1.25; }
+.node .cross-needs span { white-space: nowrap; }
+.node { position: absolute; width: 184px; min-height: 64px; background: var(--bg); border: 2px solid var(--line); border-left: 6px solid var(--c, var(--wood)); border-radius: 10px; padding: 6px 8px 7px; display: grid; gap: 3px; align-content: start; text-align: left; font: inherit; color: inherit; cursor: pointer; z-index: 1; }
+.node .top { display: flex; justify-content: space-between; align-items: start; gap: 6px; }
+.node b { font-family: var(--display); font-size: 14px; line-height: 1.15; }
+.node .row { display: flex; flex-wrap: wrap; gap: 3px; }
+.node .chip { font-size: 10.5px; padding: 0 6px; }
+.node .stamp { font-size: 9px; padding: 0 4px; }
+.node.auto { border-style: dashed; }
+.node.ending { background: var(--ink); color: var(--surface); }
+.node .q { display: none; }
+.node.dim { opacity: .22; }
+.node.focus { outline: 3px solid var(--focus); outline-offset: 2px; }
+.node.pre { border-color: var(--focus); }
+.web.player .node:not(.key) > :not(.q) { visibility: hidden; }
+.web.player .node:not(.key) { background: transparent; border-style: dashed; }
+.web.player .node:not(.key) .q { display: grid; position: absolute; inset: 0; place-items: center; font: 800 26px var(--display); color: var(--line); }
+
+/* Details */
+.detail { background: var(--surface); border-radius: 14px; box-shadow: var(--shadow); padding: 18px 20px; display: grid; gap: 10px; border-left: 8px solid var(--c, var(--wood)); }
+.detail .head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: baseline; }
+.detail .branch { font-size: 13px; color: var(--muted); font-weight: 600; }
+.detail .row { display: flex; flex-wrap: wrap; gap: 5px; }
+.detail .lbl { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; font-weight: 700; color: var(--muted); }
+.detail .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.linkish { background: none; border: 0; padding: 0; font: inherit; color: var(--blue); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+
+/* Roadmap */
+.roadmap { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.lane { background: var(--surface); border-radius: 12px; box-shadow: var(--shadow); padding: 14px 16px; display: grid; gap: 8px; align-content: start; border-top: 5px solid var(--c); }
+.lane h3 { display: flex; justify-content: space-between; gap: 8px; }
+.lane h3 span { font: 700 13px var(--body); color: var(--muted); font-variant-numeric: tabular-nums; }
+.lane p { font-size: 13.5px; color: var(--muted); }
+.lane ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.lane li button { font: 600 12.5px var(--body); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; color: var(--ink); cursor: pointer; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--surface); }
+.table-scroll { overflow-x: auto; border-radius: 12px; box-shadow: var(--shadow); }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+td:first-child { font-family: var(--display); font-weight: 700; font-size: 15px; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+.combo { color: var(--red); }
+.notes { display: grid; gap: 8px; font-size: 14px; color: var(--muted); margin: 0; padding-left: 20px; }
+.notes li { max-width: 82ch; }
+footer { font-size: 13px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Woodrail · Game mode · Blueprints and roadmap</span>
+    <h1>The blueprint tree</h1>
+    <p class="lede">Everything a Game-mode railway could grow into, from the first switch to the rocket: track, trains, industry, food, crafting, learning, the town hall and the football stadium. It doubles as our roadmap. What isn't built yet would show in the game as "coming soon". It's a rough plan: nothing is committed until we build it, and costs are first guesses for tuning.</p>
+    <div class="legend" aria-label="What things cost">
+      <span><span class="chip planks"><i></i>planks</span></span>
+      <span><span class="chip coins"><i></i>coins</span></span>
+      <span><span class="chip goods"><i></i>goods</span> delivered or spent</span>
+      <span><span class="chip feat"><i></i>achieved</span> something you've done</span>
+      <span><span class="chip place"><i></i>a building</span> in one of your towns</span>
+      <span><span class="stamp game">In game</span><span class="stamp changed">Changing</span><span class="stamp next">Next</span><span class="stamp soon">Coming soon</span><span class="stamp later">Someday</span></span>
+    </div>
+  </header>
+
+  <section style="display:grid;gap:14px" aria-labelledby="w">
+    <div class="section-head"><h2 id="w">The web</h2><span class="sub">Arrows run from a blueprint to what it opens, within each branch. "+ Name" on a tag is a need from another branch. Point at a blueprint to see its lines; click it for details and its whole path.</span></div>
+    <div class="controls">
+      <div class="ctl-row" role="group" aria-label="View"><span class="label">View</span><button class="pill" data-view="all" aria-pressed="true">Everything</button><button class="pill" data-view="player" aria-pressed="false">As a new player sees it</button><button class="pill" id="all-lines" aria-pressed="false">Show lines between branches</button></div>
+      <div class="ctl-row" role="group" aria-label="Status"><span class="label">Status</span><button class="pill" data-status="all" aria-pressed="true">All</button><button class="pill" data-status="game" aria-pressed="false">In game</button><button class="pill" data-status="next" aria-pressed="false">Next</button><button class="pill" data-status="soon" aria-pressed="false">Coming soon</button><button class="pill" data-status="later" aria-pressed="false">Someday</button></div>
+      <div class="ctl-row" role="group" aria-label="Branch" id="branches"><span class="label">Branch</span></div>
+    </div>
+    <div class="web-scroll"><div class="web" id="web" role="group" aria-label="Blueprint web"></div></div>
+    <div class="detail" id="detail" aria-live="polite"></div>
+  </section>
+
+  <section style="display:grid;gap:14px" aria-labelledby="rm">
+    <div class="section-head"><h2 id="rm">Roadmap</h2><span class="sub">The same blueprints, by when we'd build them</span></div>
+    <div class="roadmap" id="roadmap"></div>
+  </section>
+
+  <section style="display:grid;gap:14px" aria-labelledby="sp">
+    <div class="section-head"><h2 id="sp">City specialties</h2><span class="sub">Not learned: a city's strongest specialty puts its building up. Combinations come from two minor specialties.</span></div>
+    <div class="table-scroll"><table>
+      <thead><tr><th>Building</th><th>Specialty, from</th><th>What it does</th></tr></thead>
+      <tbody id="spec"></tbody>
+    </table></div>
+  </section>
+
+  <section style="display:grid;gap:12px" aria-labelledby="nt">
+    <div class="section-head"><h2 id="nt">How it works</h2></div>
+    <ul class="notes">
+      <li><b>Learning:</b> towns offer blueprints as they grow (village: track, town: industries, city: advanced). Pick one free or take a crate. The rest wait on the board at their own price. Schools have ideas, colleges twice as often.</li>
+      <li><b>A web, not a line:</b> many blueprints need two or three others, so different railways reach the same place by different roads. A stadium needs a sports field and busy stations; the airport needs electricity and trade; the rocket needs five lines.</li>
+      <li><b>Discovery:</b> a new player sees the key blueprints. The rest show as "?" until something next to them is learned, and the University shows everything left.</li>
+      <li><b>Coming soon:</b> in the game, blueprints we haven't built would show on the board as "coming soon" tags, so players can see where the railway is going.</li>
+      <li><b>Each one shows:</b> a blueprint brings a building, car or piece you haven't seen, and most change how you play. Many need a model from the asset session; the dashed ones (school, library) go up in towns by themselves.</li>
+    </ul>
+  </section>
+  <footer>Woodrail · made from the game's blueprint catalogue (src/game/blueprints.ts) by <code>npm run blueprints:page</code>.</footer>
+</div>
+
+<script>
+// Filled in by scripts/blueprint-page.mjs from src/game/blueprints.ts (the game's own catalogue).
+const DATA = /*BLUEPRINTS*/ { branches: [], blueprints: [], key: [] };
+const BRANCHES = DATA.branches.map((b) => [b.id, b.label, b.sub, b.color]);
+const N = DATA.blueprints;
+// A new player sees these from the start; the rest are "?" until something next to them is learned.
+const KEY = new Set(DATA.key);
+
+const SPEC = [
+  ["Grand bakery", "Bakers': flour and cakes", "The town pays more for flour and bread, and wants more"],
+  ["Stonemason's yard", "Builders': stone", "Bigger buildings; grows faster on stone"],
+  ["Furniture works", "Carpenters': furniture", "Furniture made twice as fast"],
+  ["Grand station", "Market: passengers between towns", "More people wait; fares +25%. Opens the express"],
+  ["Pier or spa", "Resort: visitors, far from industry", "Visitors pay double fares"],
+  ["Engine works", "Industrial: industries nearby", "A second workshop for trains; nearby industries faster"],
+  ["Trading house", "Trading: goods through its warehouse", "Better prices. Opens imports and exports"],
+  ["Dairy hall", "Dairy: milk and cheese", "Food goods pay more"],
+  ["Pithead", "Mining: coal", "Mines nearby work faster"],
+  ["Foundry hall", "Ironworks: iron", "Iron made faster"],
+  ["Harbour master's", "Harbour: trade by water", "Boats load faster"],
+  ["Sports ground", "Sporting: match and race days", "Bigger crowds on event days"],
+  ["Observatory", "Scholars': many blueprints learned", "Ideas twice as often. A step to the rocket"],
+  ["Fairground", "Combination: Bakers' + Market", "Visitors from every town", true],
+  ["Toy factory", "Combination: Carpenters' + Trading", "Toys made fast; toys pay the best of all goods", true],
+  ["Clock tower", "Combination: Ironworks + Scholars'", "Timetables: trains leave on time", true],
+  ["Ice cream parlour", "Combination: Dairy + Resort", "Seaside visitors stay longer and spend more", true],
+];
+
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+const branchOf = new Map(BRANCHES.map(([id, name, sub, color]) => [id, { id, name, sub, color }]));
+const byId = new Map(N.map((n) => [n.id, n]));
+const STATUS = { game: "In game", changed: "Changing", next: "Next", soon: "Coming soon", later: "Someday", ending: "The end" };
+function chips(cost) {
+  return cost.split(/ (?=[pcgfb][:\d])/).map((tok) => {
+    if (/^p\d/.test(tok)) return `<span class="chip planks"><i></i>${tok.slice(1)} planks</span>`;
+    if (/^c\d/.test(tok)) return `<span class="chip coins"><i></i>${tok.slice(1)} coins</span>`;
+    const kind = { g: "goods", f: "feat", b: "place" }[tok[0]];
+    return `<span class="chip ${kind}"><i></i>${esc(tok.slice(2))}</span>`;
+  }).join("");
+}
+
+// Layout: each blueprint one column right of its furthest prerequisite; branches as bands; within a band's column,
+// ordered by where the prerequisites sit (a few sweeps), so lines mostly run straight.
+const depth = new Map();
+const depthOf = (n) => { if (!depth.has(n.id)) depth.set(n.id, 1 + Math.max(0, ...n.needs.map((x) => depthOf(byId.get(x))))); return depth.get(n.id); };
+N.forEach(depthOf);
+const NCOL = Math.max(...depth.values()) + 1;
+const COL = 224, ROW = 112, LABEL = 150, W = 184, MID = 26, BAND_PAD = 18;
+const yOf = new Map();
+const cells = new Map();
+N.forEach((n, k) => { n.k = k; const key = `${n.branch}:${depth.get(n.id)}`; if (!cells.has(key)) cells.set(key, []); cells.get(key).push(n); });
+const bandTop = new Map();
+function placeAll() {
+  let top = 0;
+  for (const [b] of BRANCHES) {
+    bandTop.set(b, top);
+    let rows = 1;
+    for (let c = 1; c < NCOL; c++) {
+      const list = cells.get(`${b}:${c}`) ?? [];
+      list.forEach((n, r) => yOf.set(n.id, top + BAND_PAD + r * ROW));
+      rows = Math.max(rows, list.length);
+    }
+    top += BAND_PAD * 2 + rows * ROW;
+  }
+  return top;
+}
+let H = placeAll();
+for (let sweep = 0; sweep < 6; sweep++) {
+  for (const list of cells.values()) {
+    const key = (n) => (n.needs.length ? n.needs.reduce((a, x) => a + yOf.get(x), 0) / n.needs.length : (() => { const kids = N.filter((m) => m.needs.includes(n.id)); return kids.length ? Math.min(...kids.map((m) => yOf.get(m.id))) : 1e6 + n.k; })());
+    list.sort((a, b) => key(a) - key(b) || a.k - b.k);
+  }
+  H = placeAll();
+}
+const crossNeeds = (n) => { const xs = n.needs.filter((x) => byId.get(x).branch !== n.branch); return xs.length ? `<span class="cross-needs">${xs.map((x) => `<span>+ ${esc(byId.get(x).name)}</span>`).join(", ")}</span>` : ""; };
+const xOf = (id) => LABEL + (depth.get(id) - 1) * COL;
+const WIDTH = LABEL + (NCOL - 1) * COL + 20;
+
+const web = document.getElementById("web");
+web.style.width = `${WIDTH}px`;
+web.style.height = `${H}px`;
+let html = "";
+BRANCHES.forEach(([b, name, sub], i) => {
+  const top = bandTop.get(b);
+  const next = BRANCHES[i + 1] ? bandTop.get(BRANCHES[i + 1][0]) : H;
+  html += `<div class="band" style="top:${top}px;height:${next - top}px;background:${i % 2 ? "var(--band-b)" : "var(--band-a)"}"><span class="band-label" style="margin-top:${BAND_PAD}px;border-left:6px solid ${branchOf.get(b).color}">${esc(name)}${sub ? `<small>${esc(sub)}</small>` : ""}</span></div>`;
+});
+// Lines within a branch are drawn; a need from another branch is written on the tag instead ("+ Electricity"), and its
+// line shows when you point at or pick a blueprint (or turn all lines on).
+let links = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/></marker></defs>`;
+for (const n of N) for (const x of n.needs) {
+  const cross = byId.get(x).branch !== n.branch;
+  const x0 = xOf(x) + W, y0 = yOf.get(x) + MID, x1 = xOf(n.id) - 2, y1 = yOf.get(n.id) + MID, dx = Math.max(24, (x1 - x0) / 2);
+  links += `<path class="link ${cross ? "cross" : "same"}" style="stroke:${branchOf.get(byId.get(x).branch).color}" marker-end="url(#arrow)" data-a="${x}" data-b="${n.id}" d="M${x0} ${y0} C${x0 + dx} ${y0} ${x1 - dx} ${y1} ${x1} ${y1}"/>`;
+}
+html += `<svg class="links" width="${WIDTH}" height="${H}" aria-hidden="true">${links}</svg>`;
+html += N.map((n) => `<button type="button" class="node${n.auto ? " auto" : ""}${n.status === "ending" ? " ending" : ""}${KEY.has(n.id) ? " key" : ""}" data-id="${n.id}" data-status="${n.status}" data-branch="${n.branch}" style="left:${xOf(n.id)}px;top:${yOf.get(n.id)}px;--c:${branchOf.get(n.branch).color}"><span class="top"><b>${esc(n.name)}</b><span class="stamp ${n.status}">${STATUS[n.status]}</span></span><span class="row">${chips(n.cost)}</span>${crossNeeds(n)}<span class="q" aria-hidden="true">?</span></button>`).join("");
+web.innerHTML = html;
+
+const br = document.getElementById("branches");
+br.insertAdjacentHTML("beforeend", `<button class="pill" data-branch="all" aria-pressed="true">All</button>` + BRANCHES.map(([b, name, , color]) => `<button class="pill" data-branch="${b}" aria-pressed="false"><span class="sw" style="background:${color}"></span>${esc(name)}</button>`).join(""));
+
+const anc = (id, out = new Set()) => { for (const x of byId.get(id).needs) if (!out.has(x)) { out.add(x); anc(x, out); } return out; };
+const desc = (id) => new Set(N.filter((m) => anc(m.id).has(id)).map((m) => m.id));
+let focus = null, hover = null, statusF = "all", branchF = "all";
+const statusMatch = (s) => statusF === "all" || s === statusF || (statusF === "game" && s === "changed");
+function paint() {
+  const pre = focus ? anc(focus) : new Set(), post = focus ? desc(focus) : new Set();
+  const on = new Set([focus, ...pre, ...post]);
+  web.classList.toggle("focusing", !!focus || !!hover);
+  for (const el of web.querySelectorAll(".node")) {
+    const id = el.dataset.id;
+    const filtered = !statusMatch(el.dataset.status) || (branchF !== "all" && el.dataset.branch !== branchF);
+    el.classList.toggle("focus", id === focus);
+    el.classList.toggle("pre", pre.has(id) || post.has(id));
+    el.classList.toggle("dim", filtered || (!!focus && !on.has(id)));
+    el.setAttribute("aria-pressed", String(id === focus));
+  }
+  // Pointing at a blueprint lights its own lines (what it needs, what needs it); picking one lights whole paths.
+  for (const l of web.querySelectorAll(".link")) l.classList.toggle("lit", (!!focus && on.has(l.dataset.a) && on.has(l.dataset.b)) || (!!hover && (l.dataset.a === hover || l.dataset.b === hover)));
+}
+function show(id, scroll) {
+  focus = id;
+  paint();
+  const n = byId.get(id);
+  const d = document.getElementById("detail");
+  const leads = N.filter((m) => m.needs.includes(id));
+  const link = (m) => `<button class="linkish" data-go="${m.id}">${esc(m.name)}</button>`;
+  d.style.setProperty("--c", branchOf.get(n.branch).color);
+  d.innerHTML = `<div class="head"><h3>${esc(n.name)}</h3><span class="stamp ${n.status}">${STATUS[n.status]}</span><span class="branch">${esc(branchOf.get(n.branch).name)}${n.auto ? " · goes up in a town by itself" : ""}</span></div>
+    <p>${esc(n.does)}</p>
+    <div class="grid2">
+      <div><div class="lbl">To learn</div><div class="row">${chips(n.cost)}</div></div>
+      <div><div class="lbl">Brings</div><div>${esc(n.brings)}</div></div>
+      <div><div class="lbl">Needs first</div><div>${n.needs.length ? n.needs.map((x) => link(byId.get(x))).join(", ") : "Nothing: a starting point"}</div></div>
+      <div><div class="lbl">Leads to</div><div>${leads.length ? leads.map(link).join(", ") : "Nothing yet"}</div></div>
+    </div>`;
+  for (const b of d.querySelectorAll("[data-go]")) b.addEventListener("click", () => show(b.dataset.go, true));
+  if (scroll) web.querySelector(`[data-id="${id}"]`).scrollIntoView({ block: "nearest", inline: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+}
+for (const el of web.querySelectorAll(".node")) {
+  el.addEventListener("mouseenter", () => { hover = el.dataset.id; paint(); });
+  el.addEventListener("mouseleave", () => { hover = null; paint(); });
+}
+for (const el of web.querySelectorAll(".node")) el.addEventListener("click", () => (focus === el.dataset.id ? (focus = null, paint()) : show(el.dataset.id)));
+const group = (sel, set) => { const btns = document.querySelectorAll(sel); for (const b of btns) b.addEventListener("click", () => { for (const c of btns) c.setAttribute("aria-pressed", String(c === b)); set(b); paint(); }); };
+document.getElementById("all-lines").addEventListener("click", (e) => { const on = web.classList.toggle("all-lines"); e.currentTarget.setAttribute("aria-pressed", String(on)); });
+group("[data-view]", (b) => web.classList.toggle("player", b.dataset.view === "player"));
+group("[data-status]", (b) => (statusF = b.dataset.status));
+group("#branches [data-branch]", (b) => (branchF = b.dataset.branch));
+show("signals");
+focus = null;
+paint();
+
+const LANES = [
+  ["In the game", ["game", "changed"], "var(--green)", "Playable on main today (some to be reworked)."],
+  ["Next", ["next"], "var(--yellow)", "Specialties, crafting benches, signals, engines and upgrades."],
+  ["Coming soon", ["soon"], "var(--red)", "Phase C (mines, iron, power) and Phase D (harbours, trade), with the first food and town buildings."],
+  ["Someday", ["later"], "var(--muted)", "Going wide: sports, leisure, civic, air, and the big track pieces."],
+  ["The ending", ["ending"], "var(--ink)", "The rocket."],
+];
+document.getElementById("roadmap").innerHTML = LANES.map(([name, sts, color, about]) => {
+  const items = N.filter((n) => sts.includes(n.status));
+  return `<div class="lane" style="--c:${color}"><h3>${esc(name)} <span>${items.length}</span></h3><p>${esc(about)}</p><ul>${items.map((n) => `<li><button data-go="${n.id}">${esc(n.name)}</button></li>`).join("")}</ul></div>`;
+}).join("");
+for (const b of document.querySelectorAll("#roadmap [data-go]")) b.addEventListener("click", () => { show(b.dataset.go, true); document.getElementById("w").scrollIntoView({ behavior: "smooth" }); });
+document.getElementById("spec").innerHTML = SPEC.map(([b, from, does, combo]) => `<tr><td${combo ? ' class="combo"' : ""}>${esc(b)}</td><td>${esc(from)}</td><td>${esc(does)}</td></tr>`).join("");
+</script>

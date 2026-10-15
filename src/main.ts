@@ -31,7 +31,8 @@ import { nextStop, routeStops } from "./game/route-stops";
 import type { StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
-import { learnByRiders, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
+import { goodsOf, learnAuto, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
+import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { aOrAn, covers, describe as describeGoods, minus, total } from "./economy/goods";
 import { qualityFor, saveQualityOverride } from "./render/quality";
@@ -729,7 +730,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train")) return true;
     const look = lockedLook(item);
     if (look) {
-      hud.toast(`${techOf(look)!.label}: carry ${techOf(look)!.riders} passengers to unlock it`, false, 3600);
+      hud.toast(`${techOf(look)!.label}: ${techOf(look)!.requires.map(describeNeed).join(", ")} to unlock it`, false, 3600);
       return false;
     }
     const short = progress.short(game.world, thingsFor(item as Parameters<typeof thingsFor>[0]));
@@ -811,7 +812,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     },
     learn: (id) => {
       if (learnWithGoods(game.world, progress, id)) learned(id);
-      else hud.toast(`Bring ${describeGoods(techOf(id)!.cost)} to the workshop to learn ${techOf(id)!.label.toLowerCase()}`, false, 3600);
+      else hud.toast(`${techOf(id)!.label} costs ${describePrice(techOf(id)!.price)}: planks from the workshop's yard, coins from deliveries`, false, 3600);
     },
     close: () => setBoardOpen(false),
   });
@@ -837,27 +838,41 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     refreshBoard();
   }
 
+  const PLAN_WORDS: Record<Plan, string> = { next: "Coming soon: next on the list", soon: "Coming soon", later: "Coming one day", ending: "The ending: coming one day" };
+
   function refreshBoard(): void {
     hud.setBoardButton(board.open, progress.offers.length > 0);
     if (!board.open) return;
     const stock = workshopStock(game.world);
     const offerOf = (id: string) => progress.offers.findIndex((o) => o.ids.includes(id));
+    const seen = seenOf(progress, new Set(progress.offers.flatMap((o) => o.ids)));
     const stations: Station[] = TECHS.map((t) => {
       const makes = unlocksOf(t.id).map((x) => ({ label: ruleOf(x)!.label, icon: x.startsWith("piece:") ? pieceIcon(x.slice(6) as PieceTypeId) : trainIcon([x.slice(4) as CarKind]) }));
       if (t.feature) makes.push({ label: t.feature.label, icon: `<span class="bp-feature">${t.feature.icon}</span>` });
-      const base = { id: t.id, label: t.label, blurb: t.blurb, makes, needs: [...t.needs] };
+      if (makes.length === 0) makes.push({ label: t.brings, icon: `<span class="bp-feature">✨</span>` });
+      const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
+      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price: describePrice(t.price), planks: t.price.planks ?? 0, requires };
       if (progress.learned.has(t.id)) return { ...base, state: "learned" as const };
+      if (t.plan) return { ...base, state: "soon" as const, waits: PLAN_WORDS[t.plan] };
       const offer = offerOf(t.id);
       if (offer !== -1) return { ...base, state: "offered" as const, offer };
-      if (progress.board.has(t.id) && ready(progress, t.id)) return { ...base, state: "ready" as const, cost: describeGoods(t.cost), planks: t.cost.planks ?? 0, affordable: covers(stock, t.cost) };
+      if (progress.board.has(t.id) && ready(progress, t.id)) return { ...base, state: "ready" as const, affordable: covers(stock, goodsOf(t)) && progress.coins >= (t.price.coins ?? 0) };
       const missing = t.needs.filter((n) => !progress.learned.has(n));
-      const mark = t.landmark && !progress.landmarks.has(t.landmark) ? landmarkOf(t.landmark) : undefined;
-      const waits = t.riders !== undefined && missing.length === 0 ? `Carry ${t.riders} passengers (${progress.riders} so far)` : missing.length > 0 ? `Learn ${missing.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")} first` : mark ? `Needs a ${mark.name.toLowerCase()}: grow a town to a ${["", "village", "town", "city"][mark.level] ?? "city"}` : "A town will offer it as it grows";
+      const unmet = t.requires.filter((n) => !needMet(progress, n));
+      const waits =
+        missing.length > 0
+          ? `Learn ${missing.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")} first`
+          : unmet.length > 0
+            ? `Needs ${unmet.map(describeNeed).join(" and ")}`
+            : t.learn === "auto"
+              ? "Comes by itself"
+              : "A town will offer it as it grows";
       return { ...base, state: "locked" as const, waits };
     });
     const hasWorkshop = workshops(game.world).length > 0;
     board.show({
       stations,
+      branches: BRANCHES.map((b) => ({ id: b.id, label: b.label, color: b.color })),
       offers: progress.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: describeThings(o.crate) } : {}) })),
       planks: hasWorkshop ? stock.planks ?? 0 : null,
       stock: hasWorkshop ? `The workshop's yard has ${describeGoods(stock)}` : "Place your workshop first (Industries tab)",
@@ -871,6 +886,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   function syncLandmarks(): void {
     progress.landmarks.clear();
     for (const id of landmarksOf(game.landscape)) progress.landmarks.add(id);
+    // The school and library blueprints come with the buildings.
+    learnAuto(progress);
   }
   setInterval(() => {
     if (mode === "game" && board.open) refreshBoard();
@@ -954,7 +971,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     peopleClock.clear();
     attachPassengers(game.world, () => progress, () => {
       hud.setCoins(progress.coins);
-      for (const id of learnByRiders(progress)) {
+      for (const id of learnAuto(progress)) {
         hud.toast(`${progress.riders} passengers carried: you've learned ${techOf(id)!.label}!`, true, 4200);
         audio.chime();
         hud.refreshTrayBadges();

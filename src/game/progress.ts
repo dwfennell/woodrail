@@ -1,3 +1,4 @@
+import { RENAMED } from "./blueprints";
 import { STARTING_BOARD, techOf } from "./tech";
 import { isFree, ruleOf, STARTING_BOX, THING_RULES, type ThingId } from "./things";
 import type { World } from "./world";
@@ -20,6 +21,8 @@ export class Progress {
   making = false;
   /** Coins: towns pay them for deliveries; they buy land. */
   coins = 0;
+  /** Things counted over the game that blueprints can require ("loadsMoved", "delivered:planks"…), beyond riders. */
+  readonly counts = new Map<string, number>();
   /** The biggest any of your towns has grown (a level: 1 a village…), for the first-time gifts. */
   bestLevel = 0;
   /** Fields planted with coins (each dearer than the last: see `fieldPrice`). */
@@ -68,7 +71,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: this.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: o.crate.map(([id, n]) => [id, n] as [ThingId, number]) } : {}) })), coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel };
+    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: this.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: o.crate.map(([id, n]) => [id, n] as [ThingId, number]) } : {}) })), coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, counts: [...this.counts] };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -82,11 +85,13 @@ export class Progress {
         if (Number.isInteger(n) && n > 0) p.owned.set(e[0] as ThingId, n);
       }
     }
-    if (d && Array.isArray(d.learned)) for (const t of d.learned) if (typeof t === "string" && techOf(t)) p.learned.add(t);
-    if (d && Array.isArray(d.board)) for (const t of d.board) if (typeof t === "string" && techOf(t)) p.board.add(t);
+    // Blueprints renamed since (risers joined bridges, turning loops joined junctions) come back as what they became.
+    const known = (t: unknown): string | null => (typeof t === "string" ? (techOf(RENAMED[t] ?? t) ? (RENAMED[t] ?? t) : null) : null);
+    if (d && Array.isArray(d.learned)) for (const t of d.learned) if (known(t)) p.learned.add(known(t)!);
+    if (d && Array.isArray(d.board)) for (const t of d.board) if (known(t) && !p.learned.has(known(t)!)) p.board.add(known(t)!);
     if (d && Array.isArray(d.offers)) {
       for (const o of d.offers) {
-        const ids = Array.isArray(o?.ids) ? o.ids.filter((t): t is string => typeof t === "string" && !!techOf(t)) : [];
+        const ids = Array.isArray(o?.ids) ? [...new Set(o.ids.map(known).filter((t): t is string => !!t))] : [];
         const crate = Array.isArray(o?.crate) ? o.crate.filter((e): e is [ThingId, number] => Array.isArray(e) && typeof e[0] === "string" && e[0] in THING_RULES && Number.isInteger(e[1]) && e[1] > 0) : [];
         if (ids.length > 0 || crate.length > 0) p.offers.push({ from: typeof o.from === "string" ? o.from : "", ids, ...(crate.length > 0 ? { crate } : {}) });
       }
@@ -97,6 +102,7 @@ export class Progress {
     p.fieldsPlanted = Number.isInteger(d?.fieldsPlanted) && d!.fieldsPlanted! > 0 ? d!.fieldsPlanted! : 0;
     p.riders = Number.isInteger(d?.riders) && d!.riders! > 0 ? d!.riders! : 0;
     p.bestLevel = Number.isInteger(d?.bestLevel) && d!.bestLevel! > 0 ? d!.bestLevel! : 0;
+    if (d && Array.isArray(d.counts)) for (const e of d.counts) if (Array.isArray(e) && typeof e[0] === "string" && Number.isFinite(e[1]) && e[1] > 0) p.counts.set(e[0], e[1]);
     return p;
   }
 }
@@ -120,6 +126,7 @@ export interface ProgressData {
   fieldsPlanted?: number;
   riders?: number;
   bestLevel?: number;
+  counts?: [string, number][];
   orders?: string[];
   making?: boolean;
 }

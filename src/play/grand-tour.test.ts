@@ -6,7 +6,7 @@ import { siteWhy, updateRates } from "../game/industries";
 import { landmarksOf, townLandmarks } from "../game/landmarks";
 import { Progress } from "../game/progress";
 import { describeThings, firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas } from "../game/rewards";
-import { choose, ready, techOf } from "../game/tech";
+import { choose, learnAuto, ready, techOf } from "../game/tech";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { buildStarterWorld, syncIndustries, type World } from "../game/world";
 import { FEAT_FIELD, type Town } from "../landscape";
@@ -88,6 +88,7 @@ class Tour {
   syncLandmarks(): void {
     this.progress.landmarks.clear();
     for (const id of landmarksOf(this.w.landscape)) this.progress.landmarks.add(id);
+    learnAuto(this.progress);
   }
 
   note(s: string): void {

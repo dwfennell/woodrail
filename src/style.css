@@ -292,26 +292,38 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .board-head .close { position: static; }
 .board-body { overflow-y: auto; touch-action: pan-y; min-height: 0; flex: 1 1 auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
 .board-sub { flex: 1; margin-left: 12px; font-size: 13px; font-weight: 700; color: #8a6440; }
-/* The line map: the workshop's trunk, a line out to each first blueprint, branches to those that need it. */
-.bp-map { position: relative; flex: none; display: grid; column-gap: 4px; padding: 0; border-radius: 16px; background: repeating-linear-gradient(0deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), repeating-linear-gradient(90deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), #f7eedd; box-shadow: inset 0 0 0 1.5px rgba(167, 138, 102, 0.35); }
-.bp-track { position: absolute; left: 0; top: 0; width: 100%; pointer-events: none; overflow: visible; }
-.bp-rail { fill: none; stroke: #b8a68c; stroke-width: 3; stroke-dasharray: 6 5; stroke-linecap: round; stroke-linejoin: round; }
-.bp-rail.laid { stroke: #a06a36; stroke-width: 7; stroke-dasharray: none; filter: drop-shadow(0 1px 0 rgba(80, 50, 20, 0.35)); }
-.bp-station { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 3px; padding: 9px 2px 0; border: none; background: none; font: inherit; color: #3a2a1c; cursor: pointer; min-width: 0; }
-.bp-station.terminus { cursor: default; }
-.bp-dot { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 17px; color: #fff; background: #fffaf0; box-shadow: 0 0 0 3px #b8a68c; transition: transform 0.15s; }
-.bp-station:hover .bp-dot { transform: scale(1.08); }
-.bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; text-align: center; max-width: 100%; overflow-wrap: anywhere; background: rgba(247, 238, 221, 0.92); padding: 1px 5px; border-radius: 6px; }
-.bp-tag { font-size: 10.5px; font-weight: 800; color: #7a5532; background: #f1e1c2; padding: 1px 6px; border-radius: 8px; }
+/* The web: a band per branch, a tag per blueprint, arrows from each to what it opens in its branch. */
+.bp-web-scroll { flex: none; max-height: min(52vh, 460px); overflow: auto; overscroll-behavior: contain; border-radius: 16px; background: repeating-linear-gradient(0deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), repeating-linear-gradient(90deg, rgba(120, 90, 50, 0.05) 0 1px, transparent 1px 22px), #f7eedd; box-shadow: inset 0 0 0 1.5px rgba(167, 138, 102, 0.35); touch-action: pan-x pan-y; }
+.bp-web { position: relative; }
+.bp-band { position: absolute; left: 0; right: 0; }
+.bp-band.alt { background: rgba(160, 106, 54, 0.06); }
+.bp-band-label { position: sticky; left: 0; display: inline-block; margin-top: 10px; max-width: 84px; padding: 4px 8px 4px 6px; border-left: 5px solid #b8a68c; border-radius: 0 8px 8px 0; background: rgba(255, 250, 240, 0.94); font-size: 11.5px; font-weight: 900; line-height: 1.15; color: #5a3d22; z-index: 2; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); }
+.bp-links { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.bp-link { fill: none; stroke-width: 2; stroke-dasharray: 5 4; opacity: 0.55; }
+.bp-link.laid { stroke-dasharray: none; stroke-width: 3; opacity: 0.8; }
+.bp-link.lit { stroke: #2f6db5 !important; stroke-dasharray: none; stroke-width: 3.5; opacity: 1; }
+.bp-node { position: absolute; z-index: 1; width: 148px; min-height: 44px; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 6px; align-items: center; padding: 5px 7px 5px 6px; border: 1.5px solid #d8c6a6; border-left: 5px solid var(--c, #b8a68c); border-radius: 10px; background: #fffaf0; font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); transition: opacity 0.15s, transform 0.15s; }
+.bp-node .bp-dot { grid-row: 1 / span 2; width: 20px; height: 20px; font-size: 12px; }
+.bp-node .bp-name { font-size: 12px; font-weight: 800; line-height: 1.15; background: none; padding: 0; text-align: left; }
+.bp-node .bp-tag { justify-self: start; margin-top: 2px; }
+.bp-node:hover { transform: translateY(-1px); }
+.bp-node.selected { box-shadow: 0 0 0 3px #3a2a1c, 0 0 0 6px #fff1c2; }
+.bp-node.soon { border-style: dashed; background: rgba(255, 250, 240, 0.7); }
+.bp-node.soon .bp-name { color: #7a6650; }
+.bp-node.hint { border-style: dashed; background: transparent; box-shadow: none; }
+.bp-node.hint .bp-name { font-size: 18px; color: #b8a68c; }
+.bp-node.hint .bp-dot { visibility: hidden; }
+.bp-tag.soon { color: #7a6650; background: transparent; border: 1.5px dashed #b8a68c; }
+.bp-dot { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 17px; color: #fff; background: #fffaf0; box-shadow: 0 0 0 3px #b8a68c; }
+.bp-name { font-size: 12.5px; font-weight: 800; line-height: 1.15; overflow-wrap: anywhere; }
+.bp-tag { font-size: 10.5px; font-weight: 800; color: #7a5532; background: #f1e1c2; padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 .bp-tag.free { color: #5a3d06; background: #ffd88a; }
-.terminus .bp-dot { background: #c8442f; box-shadow: 0 0 0 3px #8e2c1c; font-size: 18px; }
-.learned .bp-dot { background: linear-gradient(180deg, #8fd08a, #5aa35a); box-shadow: 0 0 0 3px #3f7d3c; }
-.ready .bp-dot { background: #fff6dc; box-shadow: 0 0 0 3px #d9a441; }
-.ready.can .bp-dot { background: #ffe9a8; box-shadow: 0 0 0 3px #d9a441, 0 0 14px 4px rgba(255, 196, 70, 0.75); animation: bp-lamp 1.8s ease-in-out infinite; }
-.offered .bp-dot { background: #ffd88a; box-shadow: 0 0 0 3px #e2a12b, 0 0 14px 4px rgba(255, 196, 70, 0.8); animation: bp-lamp 1.4s ease-in-out infinite; }
-.locked .bp-dot { background: #f7eedd; box-shadow: 0 0 0 2px #b8a68c; outline: 2px dashed #b8a68c; outline-offset: -8px; }
-.locked .bp-name { color: #8a7a66; font-weight: 700; }
-.bp-station.selected .bp-dot { transform: scale(1.12); box-shadow: 0 0 0 3px #3a2a1c, 0 0 0 6px #fff1c2; }
+.learned .bp-dot { background: linear-gradient(180deg, #8fd08a, #5aa35a); box-shadow: 0 0 0 2px #3f7d3c; }
+.ready .bp-dot { background: #fff6dc; box-shadow: 0 0 0 2px #d9a441; }
+.ready.can .bp-dot { background: #ffe9a8; box-shadow: 0 0 0 2px #d9a441, 0 0 10px 3px rgba(255, 196, 70, 0.75); animation: bp-lamp 1.8s ease-in-out infinite; }
+.offered .bp-dot { background: #ffd88a; box-shadow: 0 0 0 2px #e2a12b, 0 0 10px 3px rgba(255, 196, 70, 0.8); animation: bp-lamp 1.4s ease-in-out infinite; }
+.locked .bp-dot, .soon .bp-dot { background: #f7eedd; box-shadow: 0 0 0 2px #b8a68c; }
+.locked .bp-name { color: #6a5340; }
 @keyframes bp-lamp { 50% { filter: brightness(1.12); } }
 .bp-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 11.5px; font-weight: 700; color: #7a6650; }
 .bp-key { width: 12px; height: 12px; border-radius: 50%; margin-left: 8px; }
@@ -319,7 +331,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .bp-key.learned { background: #5aa35a; }
 .bp-key.ready { background: #fff6dc; box-shadow: 0 0 0 2px #d9a441; }
 .bp-key.offered { background: #ffd88a; box-shadow: 0 0 0 2px #e2a12b; }
-.bp-key.locked { border: 2px dashed #b8a68c; }
+.bp-key.locked { background: #f7eedd; box-shadow: 0 0 0 2px #b8a68c; }
+.bp-key.soon { border: 2px dashed #b8a68c; }
+.bp-key.hint { width: auto; height: auto; border-radius: 0; font-weight: 900; color: #b8a68c; }
+.bp-ticket-needs { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; font-weight: 700; color: #6a5340; }
+.bp-req { padding: 0 7px; border-radius: 8px; background: #e7eef8; color: #2a4f80; }
+.bp-req.met { background: #e1f0dd; color: #3f7d3c; }
+.bp-ticket { border-left-color: var(--c, #b8a68c) !important; }
 /* The ticket: a station's details, punched like a railway ticket. */
 .bp-ticket { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-radius: 12px; background: #fffaf0; box-shadow: 0 2px 0 rgba(120, 80, 40, 0.18), 0 6px 18px rgba(60, 40, 20, 0.12); border-left: 6px solid #b8a68c; }
 .bp-ticket::before, .bp-ticket::after { content: ""; position: absolute; left: -9px; width: 12px; height: 12px; border-radius: 50%; background: #f5e8d0; }
@@ -351,11 +369,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
   .board-panel { top: calc(max(10px, env(safe-area-inset-top)) + 56px); left: 8px; right: 8px; }
   .board-head { padding: 12px 14px 4px; }
   .board-body { padding: 4px 12px 14px; }
-  .bp-name { font-size: 11px; padding: 1px 3px; }
   .bp-tag { font-size: 10px; }
   .bp-ticket { padding: 10px 12px; }
 }
-@media (prefers-reduced-motion: reduce) { .ready.can .bp-dot, .offered .bp-dot { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .ready.can .bp-dot, .offered .bp-dot { animation: none; } .bp-node { transition: none; } }
 .icon-btn-alert { position: relative; }
 .icon-btn-alert::after { content: ""; position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #c8442f; box-shadow: 0 0 0 2px #fbf3e4; animation: alert-pulse 1.2s ease-in-out infinite; }
 @keyframes alert-pulse { 50% { transform: scale(1.3); } }

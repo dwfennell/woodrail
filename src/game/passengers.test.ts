@@ -5,7 +5,7 @@ import { ENGINE_SPEED, Sim, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, Layout, type PieceTypeId } from "../track";
 import { attachPassengers, detachPassengers, EXPRESS, fareFor, peopleArrive, RIDER_SECONDS, SEATS, topSpeed, WAITING_CAP } from "./passengers";
 import { Progress } from "./progress";
-import { learnByRiders, offerFor, ready, TECHS } from "./tech";
+import { learnAuto, offerFor, ready, TECHS } from "./tech";
 import { buildStarterWorld, STATION_CRANE_AT, type World } from "./world";
 
 /** Lay `type` on free end `ref` (seated by an end of the other kind); returns its id. */
@@ -156,14 +156,14 @@ describe("passengers", () => {
 
 describe("the passenger line of blueprints", () => {
   it("is learned by itself as you carry more people, in order, and never offered by a town", () => {
-    const line = TECHS.filter((t) => t.riders !== undefined);
+    const line = TECHS.filter((t) => t.branch === "passengers" && t.learn === "auto" && !t.plan);
     expect(line.map((t) => t.id)).toEqual(["dining", "first-class", "stations", "double-decker", "express"]);
     const p = Progress.fresh();
     p.riders = 500;
-    expect(learnByRiders(p)).toEqual([]);
+    expect(learnAuto(p)).toEqual([]);
     p.learned.add("passengers");
     p.riders = 70;
-    expect(learnByRiders(p)).toEqual(["dining", "first-class"]);
+    expect(learnAuto(p)).toEqual(["dining", "first-class"]);
     expect(ready(p, "stations")).toBe(false);
     for (let i = 0; i < 20; i++) for (const id of offerFor(p, Math.random)) expect(line.some((t) => t.id === id)).toBe(false);
   });
