@@ -30,8 +30,10 @@ export function townLevel(n: number): TownLevel {
   const last = TOWN_LEVELS[TOWN_LEVELS.length - 1];
   const beyond = n - TOWN_LEVELS.length + 1;
   // From the second star on, a city wants iron too (Phase C: mines and a foundry).
-  const iron = beyond >= 2 ? { iron: Math.round(10 * GROWTH ** (beyond - 2)) } : {};
-  return { name: `${last.name} ${"★".repeat(Math.min(beyond, 5))}`, wants: { ...times(last.wants, GROWTH ** beyond), ...iron }, houses: last.houses };
+  // ★★ on: iron and furniture; ★★★ on: tools too.
+  const iron = beyond >= 2 ? { iron: Math.round(10 * GROWTH ** (beyond - 2)), furniture: Math.round(6 * GROWTH ** (beyond - 2)) } : {};
+  const tools = beyond >= 3 ? { tools: Math.round(4 * GROWTH ** (beyond - 3)) } : {};
+  return { name: `${last.name} ${"★".repeat(Math.min(beyond, 5))}`, wants: { ...times(last.wants, GROWTH ** beyond), ...iron, ...tools }, houses: last.houses };
 }
 
 export interface TownStatus {
@@ -71,7 +73,10 @@ export function housesBy(level: number): number {
 }
 
 /** Coins a town pays for one unit of each good it takes (the full price for what it wants now, half otherwise). */
-export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8 };
+export const PRICES: Bag = { planks: 4, log: 1, grain: 2, flour: 6, stone: 5, coal: 2, ore: 2, iron: 8, furniture: 12, tools: 14 };
+
+/** Made goods a town always takes (and pays for), wanted for growth or not: they're treats. */
+export const LUXURIES: ReadonlySet<CargoKind> = new Set(["furniture", "tools"]);
 
 /** What a town pays for one unit of `kind`, as it is now. */
 export function payFor(kind: CargoKind, status: TownStatus): number {

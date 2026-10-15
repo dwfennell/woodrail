@@ -60,6 +60,9 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-quarry": { label: "Quarry", cost: { planks: 14 }, coins: 60, tech: "quarries" },
   "piece:depot-mine": { label: "Mine", cost: { planks: 20 }, coins: 60, tech: "mines" },
   "piece:depot-foundry": { label: "Foundry", cost: { planks: 30 }, coins: 100, tech: "foundry" },
+  "piece:depot-carpenter": { label: "Carpenter's yard", cost: { planks: 14 }, coins: 30, tech: "carpentry" },
+  "piece:depot-smithy": { label: "Smithy", cost: { planks: 16, iron: 4 }, coins: 60, tech: "smithy" },
+  "piece:depot-power": { label: "Power station", cost: { planks: 24, iron: 6 }, coins: 80, tech: "electricity" },
   "piece:depot-warehouse": { label: "Warehouse", cost: { planks: 18 }, coins: 50, tech: "warehouses" },
 };
 

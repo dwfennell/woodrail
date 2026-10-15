@@ -5,6 +5,8 @@ export const ticks = (seconds: number) => Math.round(seconds * SIM_HZ);
 
 /** Units a timber wagon carries, all of one kind. */
 export const WAGON_CAPACITY = 3;
+/** The most a wagon can hold, with every upgrade (heavy wagons). */
+export const MAX_WAGON_CAPACITY = 5;
 /** Most units any pile holds. */
 export const PILE_CAP = 12;
 

@@ -6,6 +6,7 @@ import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape"
 import { encodeRoad, pieceOf } from "../roads";
 import { SIM_DT } from "../sim";
 import { deserializeWorld, SAVE_VERSION, serializeWorld, type SaveData } from "./save";
+import { CARGO_KINDS } from "../economy";
 
 /** The starter map with its first two towns joined by a line and a train running on it. */
 function worldWithTrain(): World {
@@ -272,7 +273,7 @@ describe("economy in saves", () => {
     data.depots[forest.id].piles = [3, 12];
     const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
     expect(r.ok).toBe(true);
-    if (r.ok) expect(Array.from(r.value.economy.depot(forest.id)!.piles)).toEqual([3, 0, 0, 0, 0, 0, 0, 0]);
+    if (r.ok) expect(Array.from(r.value.economy.depot(forest.id)!.piles)).toEqual([3, ...new Array(CARGO_KINDS.length - 1).fill(0)]);
   });
 
   it("a train saved half way through loading carries on loading after a load", () => {

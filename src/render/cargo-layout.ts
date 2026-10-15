@@ -50,11 +50,14 @@ export function wagonSlot(kind: CargoKind, k: number): Slot {
   if (kind === "log") {
     // Two side by side, the third resting in the groove on top.
     if (k < 2) return { x: 0, y: LOG_RADIUS, z: (k === 0 ? -1 : 1) * (LOG_RADIUS + 0.3) };
-    return { x: 0, y: LOG_RADIUS + LOG_RADIUS * 1.75, z: 0 };
+    if (k === 2) return { x: 0, y: LOG_RADIUS + LOG_RADIUS * 1.75, z: 0 };
+    // A heavy wagon's fourth and fifth: on top, either side of the third.
+    return { x: (k === 3 ? -1 : 1) * (LOG_LENGTH / 4), y: LOG_RADIUS + LOG_RADIUS * 3.5, z: 0 };
   }
   if (kind === "planks") return { x: 0, y: BUNDLE_HEIGHT / 2 + k * BUNDLE_HEIGHT, z: 0 };
   // Iron bundles stack like planks.
   if (kind === "iron") return { x: 0, y: 7.5 / 2 + k * 7.5, z: 0 };
-  // Sacks: in a row along the wagon.
-  return { x: (k - 1) * (SACK_LENGTH + 1), y: SACK_HEIGHT / 2, z: 0 };
+  // Sacks: in a row along the wagon; a heavy wagon's fourth and fifth on top.
+  if (k < 3) return { x: (k - 1) * (SACK_LENGTH + 1), y: SACK_HEIGHT / 2, z: 0 };
+  return { x: (k - 3.5) * (SACK_LENGTH + 1), y: SACK_HEIGHT * 1.5, z: 0 };
 }

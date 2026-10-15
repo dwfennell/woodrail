@@ -31,10 +31,10 @@ import { nextStop, routeStops } from "./game/route-stops";
 import type { StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
-import { goodsOf, learnAuto, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
+import { goodsOf, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, detachEngines, tooHeavy } from "./game/engines";
-import { CRANE_TICKS } from "./economy/constants";
+import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { aOrAn, covers, describe as describeGoods, minus, total } from "./economy/goods";
@@ -659,6 +659,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   // Game mode's towns: they want things, and grow when they get them.
   const townLife = new TownLife(game, {
+    knows: (tech) => progress.learned.has(tech),
     received: (town, kind, n, before) => {
       payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
@@ -862,12 +863,13 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       if (t.feature) makes.push({ label: t.feature.label, icon: `<span class="bp-feature">${t.feature.icon}</span>` });
       if (makes.length === 0) makes.push({ label: t.brings, icon: `<span class="bp-feature">✨</span>` });
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
-      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price: describePrice(t.price), planks: t.price.planks ?? 0, requires };
+      const price = priceOf(progress, t);
+      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price: describePrice(price), planks: price.planks ?? 0, requires };
       if (progress.learned.has(t.id)) return { ...base, state: "learned" as const };
       if (t.plan) return { ...base, state: "soon" as const, waits: PLAN_WORDS[t.plan] };
       const offer = offerOf(t.id);
       if (offer !== -1) return { ...base, state: "offered" as const, offer };
-      if (progress.board.has(t.id) && ready(progress, t.id)) return { ...base, state: "ready" as const, affordable: covers(stock, goodsOf(t)) && progress.coins >= (t.price.coins ?? 0) };
+      if (progress.board.has(t.id) && ready(progress, t.id)) return { ...base, state: "ready" as const, affordable: covers(stock, goodsOf(t, price)) && progress.coins >= (price.coins ?? 0) };
       const missing = t.needs.filter((n) => !progress.learned.has(n));
       const unmet = t.requires.filter((n) => !needMet(progress, n));
       const waits =
@@ -904,7 +906,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     if (mode === "game" && board.open) refreshBoard();
     // Schools have ideas while the game runs.
     if (mode === "game" && playing && !game.paused) {
-      const from = schoolIdeas(progress, game.landscape, schoolClock, CRAFT_STEP, Math.random);
+      // A college: ideas twice as often.
+      const from = schoolIdeas(progress, game.landscape, schoolClock, CRAFT_STEP * (progress.learned.has("college") ? 2 : 1), Math.random);
       if (from) {
         hud.toast(`${from} has an idea: open Blueprints to choose`, true, 4200);
         refreshBoard();
@@ -1340,6 +1343,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       detachEngines(game.world);
       game.economy.craneTicks = CRANE_TICKS;
       game.economy.craneLoads = 1;
+      game.economy.wagonCapacity = WAGON_CAPACITY;
       showWaiting();
       shownDelivered = new Map();
       hud.trayBadge = null;

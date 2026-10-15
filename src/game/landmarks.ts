@@ -13,6 +13,8 @@ export interface Landmark {
   readonly blurb: string;
   /** Its catalogue model on a two-square lot, and on a one-square lot (the first that's in the catalogue). */
   readonly models: { readonly two: readonly string[]; readonly one: readonly string[] };
+  /** Goes up only once this blueprint is learned (at the next town to grow to its level), and in one town only. */
+  readonly tech?: string;
 }
 
 export const LANDMARKS: readonly Landmark[] = [
@@ -37,7 +39,25 @@ export const LANDMARKS: readonly Landmark[] = [
     blurb: "Opens the advanced blueprints (quarries and more).",
     models: { two: ["bldg-library", "bldg-apartment-block"], one: ["bldg-cafe"] },
   },
+  {
+    id: "college",
+    name: "College",
+    level: 2,
+    tech: "college",
+    blurb: "Ideas come twice as often, and blueprints cost a fifth fewer planks.",
+    models: { two: ["bldg-college", "bldg-library", "bldg-school"], one: ["bldg-cafe"] },
+  },
 ];
+
+/**
+ * The landmarks due in `town` now it's at `level`: those of its level or below it hasn't got, and (for one that comes
+ * with a blueprint) only if `knows` it and no town has it yet.
+ */
+export function dueLandmarks(land: Landscape, town: Town, level: number, knows: (tech: string) => boolean): Landmark[] {
+  const have = townLandmarks(town);
+  const anywhere = landmarksOf(land);
+  return LANDMARKS.filter((m) => m.level <= level && !have.has(m.id) && (!m.tech || (knows(m.tech) && !anywhere.has(m.id))));
+}
 
 export const landmarkOf = (id: string): Landmark | undefined => LANDMARKS.find((l) => l.id === id);
 

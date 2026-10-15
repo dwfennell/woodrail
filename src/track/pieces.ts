@@ -83,6 +83,9 @@ export type PieceTypeId =
   | "depot-quarry"
   | "depot-mine"
   | "depot-foundry"
+  | "depot-carpenter"
+  | "depot-smithy"
+  | "depot-power"
   | "depot-warehouse"
   | JoinTypeId
   | FitTypeId;
@@ -471,6 +474,9 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   "depot-quarry": straight("depot-quarry", 216),
   "depot-mine": straight("depot-mine", 216),
   "depot-foundry": straight("depot-foundry", 216),
+  "depot-carpenter": straight("depot-carpenter", 216),
+  "depot-smithy": straight("depot-smithy", 216),
+  "depot-power": straight("depot-power", 216),
   "depot-warehouse": straight("depot-warehouse", 216),
 };
 

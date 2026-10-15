@@ -1,5 +1,5 @@
 import type { Bag } from "../economy/goods";
-import { BLUEPRINTS, type Blueprint, type Need } from "./blueprints";
+import { BLUEPRINTS, type Blueprint, type Need, type Price } from "./blueprints";
 import { takeFromWorkshops } from "./crafting";
 import type { Progress } from "./progress";
 import { THING_RULES, type ThingId } from "./things";
@@ -70,9 +70,15 @@ export function seenOf(p: Progress, offered: ReadonlySet<string> = new Set()): M
   return new Map(TECHS.map((t) => [t.id, shown.has(t.id) ? "shown" : t.needs.some((n) => shown.has(n)) ? "hint" : "unseen"]));
 }
 
-/** The goods its price takes from the workshop's yard (planks and others; coins aside). */
-export function goodsOf(t: Tech): Bag {
-  return { ...(t.price.planks ? { planks: t.price.planks } : {}), ...t.price.goods } as Bag;
+/** What it costs this player: its price, a fifth fewer planks once a college is learned. */
+export function priceOf(p: Progress, t: Tech): Price {
+  if (!p.learned.has("college") || !t.price.planks) return t.price;
+  return { ...t.price, planks: Math.ceil(t.price.planks * 0.8) };
+}
+
+/** The goods a price takes from the workshop's yard (planks and others; coins aside). */
+export function goodsOf(t: Tech, price: Price = t.price): Bag {
+  return { ...(price.planks ? { planks: price.planks } : {}), ...price.goods } as Bag;
 }
 
 /**
@@ -127,8 +133,9 @@ export function choose(p: Progress, id: string, offered: readonly string[]): boo
 export function learnWithGoods(world: World, p: Progress, id: string): boolean {
   if (!ready(p, id) || !p.board.has(id)) return false;
   const t = techOf(id)!;
-  const coins = t.price.coins ?? 0;
-  if (p.coins < coins || !takeFromWorkshops(world, goodsOf(t))) return false;
+  const price = priceOf(p, t);
+  const coins = price.coins ?? 0;
+  if (p.coins < coins || !takeFromWorkshops(world, goodsOf(t, price))) return false;
   p.coins -= coins;
   p.learned.add(id);
   p.board.delete(id);

@@ -1,9 +1,9 @@
 import type { CarKind } from "../sim";
 
-export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron";
+export type CargoKind = "log" | "planks" | "grain" | "flour" | "stone" | "coal" | "ore" | "iron" | "furniture" | "tools";
 
 /** Cargo kinds by snapshot index. */
-export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron"];
+export const CARGO_KINDS: readonly CargoKind[] = ["log", "planks", "grain", "flour", "stone", "coal", "ore", "iron", "furniture", "tools"];
 
 export const CARGO: Record<CargoKind, { readonly index: number; readonly label: string }> = {
   log: { index: 0, label: "Logs" },
@@ -15,6 +15,9 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   coal: { index: 5, label: "Coal" },
   ore: { index: 6, label: "Ore" },
   iron: { index: 7, label: "Iron" },
+  // Made goods: furniture from a carpenter's yard, tools from a smithy (towns pay well for them).
+  furniture: { index: 8, label: "Furniture" },
+  tools: { index: 9, label: "Tools" },
 };
 
 /** What each kind of wagon carries: a kind of wagon per kind of goods (timber wagons take logs and planks). */
@@ -22,7 +25,7 @@ export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   // Timber wagons are flatbeds: logs, planks and iron bars.
   timber: ["log", "planks", "iron"],
   hopper: ["grain", "stone", "coal", "ore"],
-  van: ["flour"],
+  van: ["flour", "furniture", "tools"],
 };
 
 /** Can this kind of car carry cargo (any, or this kind)? */

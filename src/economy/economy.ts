@@ -33,7 +33,7 @@ interface Service {
   readonly done: Set<number>;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry";
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power";
 
 /**
  * What a kind of depot does: the goods trains bring it (unloaded onto its piles), the goods it gives them, and what it
@@ -56,7 +56,7 @@ export interface Recipe {
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
-  town: { takes: ["planks", "flour", "stone", "iron"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
+  town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
   workshop: { takes: ["planks", "iron"], gives: [] },
   // The farm chain (Game mode): a farm yard by the fields fills hoppers with grain; a mill grinds it into flour.
@@ -67,6 +67,11 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   // Mining and iron (Phase C): a mine in the hills brings up coal and ore; a foundry makes iron of them.
   mine: { takes: [], gives: ["coal", "ore"], cycle: { uses: {}, makes: { coal: 1, ore: 1 }, seconds: 18 } },
   foundry: { takes: ["coal", "ore"], gives: ["iron"], cycle: { uses: { coal: 1, ore: 1 }, makes: { iron: 1 }, seconds: 10 } },
+  // Made goods: a carpenter's yard makes furniture of planks, a smithy tools of iron.
+  carpenter: { takes: ["planks"], gives: ["furniture"], cycle: { uses: { planks: 3 }, makes: { furniture: 1 }, seconds: 12 } },
+  smithy: { takes: ["iron"], gives: ["tools"], cycle: { uses: { iron: 2 }, makes: { tools: 1 }, seconds: 14 } },
+  // A power station burns coal; while it has some, electric engines run.
+  power: { takes: ["coal"], gives: [], cycle: { uses: { coal: 1 }, makes: {}, seconds: 20 } },
   // Keeps goods for later: everything, more of it. Routed trains drop or pick up there as their stops say.
   warehouse: { takes: [...CARGO_KINDS], gives: [...CARGO_KINDS], cap: 24, routedOnly: true },
 };
@@ -209,7 +214,7 @@ export class Economy {
   /** Put cargo straight onto a car (saves, tests). */
   setCargo(carId: number, kind: CargoKind | null, count: number): void {
     if (count <= 0 || kind === null) this.cargo.delete(carId);
-    else this.cargo.set(carId, { kind, count: Math.min(count, WAGON_CAPACITY) });
+    else this.cargo.set(carId, { kind, count: Math.min(count, this.wagonCapacity) });
   }
 
   ridersOf(carId: number): Readonly<Riders> {
@@ -270,7 +275,7 @@ export class Economy {
     const found = this.sim.findCar(carId);
     if (!found || !canCarry(found.train.cars[found.index].kind, kind)) return false;
     const c = this.cargoOf(carId);
-    return c.count < WAGON_CAPACITY && (c.kind === null || c.kind === kind);
+    return c.count < this.wagonCapacity && (c.kind === null || c.kind === kind);
   }
 
   /**
@@ -437,7 +442,7 @@ export class Economy {
   /** What the crane would load onto this car here: goods the depot gives, the car carries and has room for, or null. */
   private loadKind(d: DepotState, carId: number): CargoKind | null {
     const c = this.cargoOf(carId);
-    if (c.count >= WAGON_CAPACITY) return null;
+    if (c.count >= this.wagonCapacity) return null;
     // A routed train picks up goods only at its stops that say so (at a warehouse, only where it says Pick up).
     const route = this.routeOfCar(carId);
     if (route ? !stopAt(route, d.id, "pick") || (RECIPES[d.role].routedOnly && stopAt(route, d.id, "drop")) : RECIPES[d.role].routedOnly) return null;
@@ -455,7 +460,7 @@ export class Economy {
    */
   private waitsForLoad(d: DepotState, carId: number): boolean {
     const c = this.cargoOf(carId);
-    if (!d.waitFull || c.count >= WAGON_CAPACITY || this.canUnload(d, carId)) return false;
+    if (!d.waitFull || c.count >= this.wagonCapacity || this.canUnload(d, carId)) return false;
     const found = this.sim.findCar(carId);
     if (!found) return false;
     const car = found.train.cars[found.index].kind;
@@ -723,6 +728,8 @@ export class Economy {
 
   /** Ticks a crane takes to move a load (Game mode's quicker cranes make it shorter). */
   craneTicks = CRANE_TICKS;
+  /** Units a wagon holds (Game mode's heavy wagons, from the smithy: more). */
+  wagonCapacity = WAGON_CAPACITY;
   /** Loads a crane moves at once (grab cranes: two). */
   craneLoads = 1;
   /** Units of each good made at industries, by cargo index, since this economy began (counters for Game mode). */

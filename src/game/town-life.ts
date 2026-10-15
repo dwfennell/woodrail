@@ -9,8 +9,8 @@ import type { SignBadge } from "../render/landscape-view";
 import type { Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
 import { buildOnLots, changedBuildings, lotPoint, nextLots } from "./town-growth";
-import { LANDMARKS, townLandmarks } from "./landmarks";
-import { housesBy, townStatus, type TownStatus } from "./towns";
+import { dueLandmarks } from "./landmarks";
+import { housesBy, LUXURIES, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
 
 /** Everything a town has received, by kind. */
@@ -46,6 +46,8 @@ export interface TownLifeEvents {
   grew(town: Town, status: TownStatus, built: { x: number; z: number }[]): void;
   /** Goods reached a town in play (not on loading): `n` units of `kind`, with the town as it was before them. */
   received(town: Town, kind: CargoKind, n: number, before: TownStatus): void;
+  /** Is this blueprint learned? (A landmark that comes with one, like the college, waits for it.) */
+  knows?(tech: string): boolean;
 }
 
 /**
@@ -72,7 +74,8 @@ export class TownLife {
     this.shown.clear();
     this.statuses.clear();
     // A town takes from trains only what it still wants for its next level: the rest rides on to the next town.
-    this.game.economy.accepts = (d, kind) => d.role !== "town" || this.wants(d.townId, kind);
+    // (Made goods, furniture and tools, are always welcome: towns pay for them, wanted or not.)
+    this.game.economy.accepts = (d, kind) => d.role !== "town" || this.wants(d.townId, kind) || LUXURIES.has(kind);
     for (const t of this.game.landscape.towns) {
       const received = receivedBy(this.game, t.id);
       this.levels.set(t.id, townStatus(received).level);
@@ -131,11 +134,9 @@ export class TownLife {
     const editor = new LandEditor(g.landscape, g.layout, { inRect: (x0, z0, x1, z1) => propsInRect(g.props, (a) => g.footprintOf(a), x0, z0, x1, z1) });
     // Its landmarks go up as it reaches their levels (every one it hasn't got, if it grew by more than one): each on a
     // lot of its own, a two-square one if there is one (they're big buildings), so ask for that many.
-    const have = townLandmarks(town);
-    const wide = LANDMARKS.filter((m) => m.level <= status.level && !have.has(m.id)).length;
-    const lots = nextLots(g.landscape, town, editor, houses, { wide });
-    for (const mark of LANDMARKS) {
-      if (mark.level > status.level || have.has(mark.id)) continue;
+    const due = dueLandmarks(g.landscape, town, status.level, (t) => this.events.knows?.(t) ?? false);
+    const lots = nextLots(g.landscape, town, editor, houses, { wide: due.length });
+    for (const mark of due) {
       const free = lots.filter((l) => !l.landmark);
       const lot = free.find((l) => l.cells.length > 1) ?? free[0];
       if (lot) lot.landmark = mark.id;

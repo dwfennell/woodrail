@@ -119,6 +119,32 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     },
     trackT: 60,
   },
+  // Made goods and power (Phase C): the carpenter's planks and furniture, the smithy's iron and tools, the power
+  // station's coal.
+  carpenter: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      planks: { t: 44, l: 66, y: YARD, across: 2, axis: "t" },
+      furniture: { t: 80, l: 64, y: YARD, across: 2, rows: 2, axis: "t" },
+    },
+    trackT: 60,
+  },
+  smithy: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: {
+      iron: { t: 40, l: 66, y: YARD, across: 2, axis: "t" },
+      tools: { t: 80, l: 64, y: YARD, across: 2, rows: 2, axis: "t" },
+    },
+    trackT: 60,
+  },
+  power: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "gantry", t: 60, l: 45, height: 66 },
+    piles: { coal: { t: 60, l: 62, y: YARD, across: 3, rows: 2, axis: "t" } },
+    trackT: 60,
+  },
   mill: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     // The gantry spans the piles at the near end; the windmill stands at the far end (t 160).
@@ -180,6 +206,9 @@ const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<s
   quarry: { part: "industry-quarry", slots: { roof: "#c8442f" } },
   warehouse: { part: "industry-warehouse", slots: { roof: "#3c8f4e", doors: "#e6b52c" } },
   mine: { part: "industry-mine", slots: {} },
+  carpenter: { part: "industry-carpenter", slots: {} },
+  smithy: { part: "industry-smithy", slots: {} },
+  power: { part: "industry-power", slots: {} },
   foundry: { part: "industry-foundry", slots: {} },
 };
 
@@ -291,6 +320,8 @@ export class DepotView {
     const looks: Record<Exclude<CargoKind, "stone">, [BufferGeometry, Material][]> & { stone?: [BufferGeometry, Material][] } = {
       coal: hasPart("load-coal") ? partPieces(mats, "load-coal").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m]) : lumps("#2a2b2e"),
       ore: hasPart("load-ore") ? partPieces(mats, "load-ore").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m]) : lumps("#9a4f2c"),
+      furniture: hasPart("load-furniture") ? partPieces(mats, "load-furniture").map(([g, m]) => [g.translate(0, -SACK_HEIGHT / 2, 0), m]) : [[sack, mats.lacquer("#a0612e")], [tie, strapMat]],
+      tools: hasPart("load-tools") ? partPieces(mats, "load-tools").map(([g, m]) => [g.translate(0, -SACK_HEIGHT / 2, 0), m]) : [[sack, mats.lacquer("#8a5a2b")], [tie, mats.lacquer("#7d8a98")]],
       iron: hasPart("load-iron") ? partPieces(mats, "load-iron").map(([g, m]) => [g.translate(0, -7.5 / 2, 0), m]) : [[bars, mats.lacquer("#7d8a98")]],
       log: [[log, logMat]],
       planks: [
@@ -554,6 +585,24 @@ export class DepotView {
       b.add(mats.lacquer("#ffb347"), place(new RoundedBoxGeometry(10, 8, 2, 1, 0.8), 160, 80.5, PAD_H + 10));
       b.add(mats.blockWood, place(new RoundedBoxGeometry(40, 24, 26, 2, 2.5), 116, 100, PAD_H + 12));
     }
+    if (site.depot.role === "carpenter") {
+      // A workshop shed with a red roof, a bench out front.
+      b.add(mats.blockWood, place(new RoundedBoxGeometry(60, 30, 30, 2, 3), 160, 96, PAD_H + 15));
+      b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(66, 4, 36, 1, 1.5), 160, 96, PAD_H + 32));
+      b.add(mats.naturalWood, place(new RoundedBoxGeometry(24, 10, 10, 1, 1), 124, 76, PAD_H + 5));
+    }
+    if (site.depot.role === "smithy") {
+      // A stone forge with a chimney and a glowing hearth; an anvil.
+      b.add(mats.lacquer("#8f8a80"), place(new RoundedBoxGeometry(40, 28, 30, 2, 3), 160, 96, PAD_H + 14));
+      b.add(mats.lacquer("#5a524a"), place(new CylinderGeometry(4, 5, 34, 10), 174, 104, PAD_H + 40));
+      b.add(mats.lacquer("#ffb347"), place(new RoundedBoxGeometry(12, 8, 2, 1, 0.8), 156, 80.5, PAD_H + 9));
+      b.add(mats.lacquer("#3a3a3e"), place(new RoundedBoxGeometry(12, 8, 6, 1, 1), 124, 80, PAD_H + 4));
+    }
+    if (site.depot.role === "power") {
+      // A brick turbine hall with two tall chimneys.
+      b.add(mats.lacquer("#9a4f3a"), place(new RoundedBoxGeometry(70, 40, 34, 2, 3), 150, 94, PAD_H + 20));
+      for (const t of [130, 170]) b.add(mats.lacquer("#7a3f30"), place(new CylinderGeometry(4.5, 5.5, 70, 12), t, 108, PAD_H + 35));
+    }
     if (site.depot.role === "forest") {
       // A small beech hut with a green roof at the far end of the yard.
       b.add(mats.blockWood, place(new RoundedBoxGeometry(30, 26, 24, 2, 2.5), 186, 96, PAD_H + 13));
@@ -672,7 +721,7 @@ export class DepotView {
     const u = this.heaps[kind];
     if (u.n >= DepotView.MAX_UNITS) return;
     car.updateWorldMatrix(true, false);
-    _s.set(1, Math.max(0.25, count / WAGON_CAPACITY), 1);
+    _s.set(1, Math.min(1, Math.max(0.25, count / WAGON_CAPACITY)), 1);
     _m.compose(_v.set(0, HOPPER_HEAP, 0), _q.identity(), _s).premultiply(car.matrixWorld);
     _s.set(1, 1, 1);
     u.owners[u.n] = owner;

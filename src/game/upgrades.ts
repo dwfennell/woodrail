@@ -1,5 +1,5 @@
 import { CARGO, CARGO_KINDS, type CargoKind, type DepotRole, type Economy } from "../economy";
-import { CRANE_TICKS, ticks } from "../economy/constants";
+import { CRANE_TICKS, MAX_WAGON_CAPACITY, ticks, WAGON_CAPACITY } from "../economy/constants";
 import type { Stat } from "./blueprints";
 import type { Progress } from "./progress";
 
@@ -46,11 +46,12 @@ export function boostOf(p: Progress, role: DepotRole): number {
 
 /** The upgrades learned, as a key (so rates are worked out again only when it changes). */
 export function upgradeKey(p: Progress): string {
-  return [...RATE_UPGRADES.map((u) => u.tech), "cranes1", "cranes2", "cranes3"].filter((t) => p.learned.has(t)).join(",");
+  return [...RATE_UPGRADES.map((u) => u.tech), "cranes1", "cranes2", "cranes3", "smithy"].filter((t) => p.learned.has(t)).join(",");
 }
 
-/** Quicker cranes: a load in 0.45 s, then 0.3 s; grab cranes lift two at a time. */
+/** Quicker cranes: a load in 0.45 s, then 0.3 s; grab cranes lift two at a time; the smithy's heavy wagons hold 5. */
 export function applyCranes(economy: Economy, p: Progress): void {
+  economy.wagonCapacity = p.learned.has("smithy") ? MAX_WAGON_CAPACITY : WAGON_CAPACITY;
   economy.craneTicks = p.learned.has("cranes2") ? ticks(0.3) : p.learned.has("cranes1") ? ticks(0.45) : CRANE_TICKS;
   economy.craneLoads = p.learned.has("cranes3") ? 2 : 1;
 }
