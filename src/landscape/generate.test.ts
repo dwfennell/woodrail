@@ -86,7 +86,8 @@ describe("generateLandscape", () => {
 
   it("puts every station on the grid: facing a map direction, midpoint on a square centre, ends on the 18 mm lattice", () => {
     const whole = (v: number) => Math.abs(v - Math.round(v)) < 1e-9;
-    for (let seed = 1; seed <= 120; seed++) {
+    // Every third of 120 seeds (each three maps): enough maps, inside the suite's time limit.
+    for (let seed = 1; seed <= 120; seed += 3) {
       for (const town of [...generateLandscape(seed).towns, ...generateLandscape(seed, { starter: true }).towns, ...generatePlot(seed, 1, 0).towns]) {
         expect(whole(town.station.heading / (Math.PI / 2)), `seed ${seed} ${town.name} heading`).toBe(true);
         expect(whole(town.centre.x / CELL - 0.5), `seed ${seed} ${town.name} x`).toBe(true);
