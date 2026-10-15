@@ -33,7 +33,7 @@ interface Service {
   readonly done: Set<number>;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power";
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour";
 
 /**
  * What a kind of depot does: the goods trains bring it (unloaded onto its piles), the goods it gives them, and what it
@@ -72,6 +72,8 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   smithy: { takes: ["iron"], gives: ["tools"], cycle: { uses: { iron: 2 }, makes: { tools: 1 }, seconds: 14 } },
   // A power station burns coal; while it has some, electric engines run.
   power: { takes: ["coal"], gives: [], cycle: { uses: { coal: 1 }, makes: {}, seconds: 60 } },
+  // A harbour (Game mode) takes any good onto its quay for the boats that call by themselves (`src/game/harbours.ts`).
+  harbour: { takes: [...CARGO_KINDS], gives: [] },
   // Keeps goods for later: everything, more of it. Routed trains drop or pick up there as their stops say.
   warehouse: { takes: [...CARGO_KINDS], gives: [...CARGO_KINDS], cap: 24, routedOnly: true },
 };
@@ -80,6 +82,15 @@ export const RECIPES: Record<DepotRole, Recipe> = {
 /** Most units a pile of this kind of depot holds. */
 export function capOf(role: DepotRole): number {
   return RECIPES[role].cap ?? PILE_CAP;
+}
+
+/** What a harbour's dock shed adds to each of its piles (Game mode; up to `MAX_SHEDS`). */
+export const SHED_CAP = 12;
+export const MAX_SHEDS = 3;
+
+/** How much each pile of this depot holds: its kind's, and its dock sheds' (a harbour's). */
+export function capAt(d: DepotState): number {
+  return capOf(d.role) + d.sheds * SHED_CAP;
 }
 
 export function pilesOf(role: DepotRole): CargoKind[] {
@@ -123,6 +134,8 @@ export interface DepotState {
   readonly craneAt: number;
   /** People waiting at a town's station for a coach (Game mode's passengers). */
   waiting: number;
+  /** Dock sheds beside a harbour's quay (Game mode): each holds more of every good (see `capAt`). */
+  sheds: number;
 }
 
 /** People riding a coach: how many, and the station (depot id) they got on at. */
@@ -190,7 +203,7 @@ export class Economy {
   addDepot(role: DepotRole, pieceId: number, townId = -1, craneAt?: number): DepotState {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
-    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0 };
+    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0 };
     this.depots.push(d);
     this.byPiece.set(pieceId, d);
     return d;
@@ -268,7 +281,7 @@ export class Economy {
   /** Can a pile hold this cargo (it is the depot's input or output) and is there room? */
   pileAccepts(d: DepotState, kind: CargoKind): boolean {
     const r = RECIPES[d.role];
-    return (r.takes.includes(kind) || r.gives.includes(kind)) && d.piles[CARGO[kind].index] < capOf(d.role);
+    return (r.takes.includes(kind) || r.gives.includes(kind)) && d.piles[CARGO[kind].index] < capAt(d);
   }
 
   /** Can this car take one more unit of `kind`? */
@@ -354,7 +367,7 @@ export class Economy {
   private put(slot: CargoSlot, kind: CargoKind): void {
     if (slot.kind === "pile") {
       const d = this.depots[slot.depotId];
-      d.piles[CARGO[kind].index] = Math.min(capOf(d.role), d.piles[CARGO[kind].index] + 1);
+      d.piles[CARGO[kind].index] = Math.min(capAt(d), d.piles[CARGO[kind].index] + 1);
       if (d.role === "town" && kind === "planks") this.delivered.set(d.townId, (this.delivered.get(d.townId) ?? 0) + 1);
       if (d.role === "town") {
         const got = this.deliveredGoods.get(d.townId) ?? {};
@@ -387,7 +400,7 @@ export class Economy {
     if (!cycle || d.rate <= 0) return false;
     if (cycle.eats) return RECIPES[d.role].takes.some((k) => d.piles[CARGO[k].index] > 0);
     for (const k in cycle.uses) if (d.piles[CARGO[k as CargoKind].index] < cycle.uses[k as CargoKind]!) return false;
-    for (const k in cycle.makes) if (d.piles[CARGO[k as CargoKind].index] + cycle.makes[k as CargoKind]! > capOf(d.role)) return false;
+    for (const k in cycle.makes) if (d.piles[CARGO[k as CargoKind].index] + cycle.makes[k as CargoKind]! > capAt(d)) return false;
     return true;
   }
 
@@ -406,8 +419,8 @@ export class Economy {
     if (this.accepts) {
       if (!this.accepts(d, c.kind)) return false;
       // What a town still wants it takes in even with its platform's pile full (it's counted, not stacked).
-      if (d.role !== "town" && d.piles[CARGO[c.kind].index] >= capOf(d.role)) return false;
-    } else if (d.piles[CARGO[c.kind].index] >= capOf(d.role)) return false;
+      if (d.role !== "town" && d.piles[CARGO[c.kind].index] >= capAt(d)) return false;
+    } else if (d.piles[CARGO[c.kind].index] >= capAt(d)) return false;
     // A routed train drops goods only at its stops that say so.
     const route = this.routeOfCar(carId);
     return route ? stopAt(route, d.id, "drop") : !RECIPES[d.role].routedOnly;

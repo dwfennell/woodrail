@@ -28,12 +28,13 @@ import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } fro
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { nextStop, routeStops } from "./game/route-stops";
-import type { StopAction } from "./economy";
+import { MAX_SHEDS, SHED_CAP, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { goodsOf, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, detachEngines, tooHeavy } from "./game/engines";
+import { BOAT_SAIL, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
@@ -993,8 +994,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   const peopleClock = new Map<number, number>();
   const counters = new Counters();
   const warnedHeavy = new Set<number>();
+  // Harbours (Game mode): boats call by themselves and buy what's on the quay.
+  const harbourTrade = new HarbourTrade();
   function passengersOn(): void {
     peopleClock.clear();
+    harbourTrade.reset();
     counters.reset(game.economy);
     applyCranes(game.economy, progress);
     attachEngines(game.world);
@@ -1011,6 +1015,16 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   }
   setInterval(() => {
     if (mode !== "game" || !playing || game.paused) return;
+    for (const e of harbourTrade.update(game.world, progress)) {
+      if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL);
+      else if (e.kind === "leave") game.boats.leave(e.depotId, e.way, BOAT_SAIL);
+      else if (e.kind === "gone") game.boats.remove(e.depotId);
+      else if (e.kind === "sold") {
+        hud.setCoins(progress.coins);
+        hud.toast(`A boat took ${describeGoods(e.goods)}: +${e.coins} coins`, false, 3200);
+        scheduleSave();
+      }
+    }
     // What's been done (logs cut, loads moved, goods delivered) toward the blueprints that ask for it.
     if (counters.collect(game.economy, progress) && board.open) refreshBoard();
     // A train set going that's too heavy for its engines says so, once.
@@ -1051,6 +1065,57 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     line.className = "station-waiting";
     line.textContent = `Waiting for a coach: ${d.waiting} ${d.waiting === 1 ? "person" : "people"} (room for ${waitingCap(progress)}). Carried so far: ${progress.riders}`;
     box.append(line);
+  }
+
+  let harbourShown = "";
+  /** The open harbour card's line about its boats: kept and its text updated, so the countdown ticks without the card's button being made again (a tap mid-way would be lost). */
+  let harbourLine: HTMLElement | null = null;
+  /** A harbour's card (Game mode): when the next boat calls, and dock sheds to build. */
+  function showHarbour(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    if (id === -1 || game.economy.depot(id)?.role !== "harbour") {
+      harbourShown = "";
+      harbourLine = null;
+      return;
+    }
+    const d = game.economy.depot(id)!;
+    const canShed = progress.learned.has("dock-sheds") && d.sheds < MAX_SHEDS;
+    const text = harbourTrade.describe(id);
+    const line = d.sheds > 0 ? `${text} Dock sheds: ${d.sheds} of ${MAX_SHEDS} (each holds ${SHED_CAP} more of every good).` : text;
+    const key = `${id}|${d.sheds}|${canShed}`;
+    if (key === harbourShown && harbourLine?.isConnected) {
+      if (harbourLine.textContent !== line) harbourLine.textContent = line;
+      return;
+    }
+    harbourShown = key;
+    const box = hud.depotExtra;
+    box.hidden = false;
+    box.innerHTML = "";
+    harbourLine = document.createElement("div");
+    harbourLine.className = "station-waiting";
+    harbourLine.textContent = line;
+    box.append(harbourLine);
+    if (!canShed) return;
+    const build = document.createElement("button");
+    build.className = "chip text";
+    // (No title: on a desktop its tooltip can linger over the tray after the click.)
+    build.textContent = `Build a dock shed: room for ${SHED_CAP} more of each good (${SHED_PRICE} coins)`;
+    build.addEventListener("click", () => {
+      if (progress.coins < SHED_PRICE) {
+        hud.toast(`A dock shed costs ${SHED_PRICE} coins: you have ${progress.coins}`, false, 3200);
+        return;
+      }
+      progress.coins -= SHED_PRICE;
+      d.sheds++;
+      hud.setCoins(progress.coins);
+      game.depotView.setWorld(game.economy, game.layout);
+      game.invalidate();
+      audio.chime();
+      harbourShown = "";
+      interaction.refreshDepotCard();
+      scheduleSave();
+    });
+    box.append(build);
   }
 
   let workshopShown = -1;
@@ -1457,6 +1522,19 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     // The two stations to join, along the screen's long side (up a phone held upright), close enough to see them.
     const f = frameAlong([a.station, b.station], game.camera.fov, game.camera.aspect, GOAL_MARGIN);
     game.lookAt(new Vector3(f.x, 0, f.z), f.distance, 0.95, f.theta);
+    // The hint toast shows across the top of the screen: the view leans toward the upper town (and stands back a
+    // little), so neither town is under it.
+    const up = [a.station, b.station].map((s) => new Vector3(s.x, 0, s.z).project(game.camera).y);
+    const top = up[0] > up[1] ? a.station : b.station;
+    const lean = 0.15;
+    game.lookAt(new Vector3(f.x + (top.x - f.x) * lean * 2, 0, f.z + (top.z - f.z) * lean * 2), f.distance * 1.3, 0.95, f.theta);
+    // Their names over them for a while (as "Show me" does): the chip only says "Join two towns".
+    if (game.layout.pieceCount === game.stations.size + game.depots.size) {
+      const grid = game.landscape.grid;
+      const y = (p: { x: number; z: number }) => grid.groundY(Math.max(0, grid.cellAtWorld(p.x, p.z))) + 90;
+      const labels = goalLabels(game.camera, game.canvas, [a, b].map((t) => ({ x: t.station.x, y: y(t.station), z: t.station.z, text: t.name })), 9);
+      if (labels) game.flourishes.add(labels);
+    }
     // A bare map: suggest the first job.
     if (game.layout.pieceCount === game.stations.size + game.depots.size) {
       window.setTimeout(() => {
@@ -1528,6 +1606,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       showWorkshop();
       showFarm();
       showStation();
+      showHarbour();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
     showRoute();

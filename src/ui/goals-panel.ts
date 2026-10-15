@@ -53,6 +53,8 @@ export class GoalsPanel {
       if (t.closest(".goals-new")) handlers.newGame();
       if (t.closest(".goals-show")) {
         e.stopPropagation();
+        // Folded up, so the panel doesn't cover what it shows.
+        this.root.classList.add("collapsed");
         handlers.showMe();
       }
     });
