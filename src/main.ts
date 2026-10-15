@@ -185,7 +185,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   drawThumbnails([...TRACK_ITEMS, ...TRAIN_ITEMS]);
 
   // A tap that opens a card (or a tray shelf) under the finger mustn't also press what opened there.
-  installClickShield();
+  installClickShield(canvas);
   const hud = new Hud(
     document.body,
     {
