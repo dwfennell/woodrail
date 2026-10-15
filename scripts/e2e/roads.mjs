@@ -188,12 +188,17 @@ async function trayDrag(label, i) {
   await changed(i, m);
 }
 
-/** Tap square i (a click, as a finger's tap: down and up a frame apart). */
+/**
+ * Tap square i: the pointer comes to it (a frame to see it there), then a quick press and release, as a finger's tap
+ * (a release a slow frame later, under software drawing, would read as a long press).
+ */
 async function tap(i) {
+  // Aimed with the view at rest (a glide still under way would move the square from under the click).
+  await settle();
   const [x, y] = await p.evaluate((i) => T.screen(i), i);
   await p.mouse.move(x, y);
-  await p.mouse.down();
   await frame();
+  await p.mouse.down();
   await p.mouse.up();
   await frame();
 }
