@@ -208,6 +208,16 @@ if (site) {
   let pts = [];
   for (const radius of [700]) {
     await focus(x + fx * 200 + lx * 90, z + fz * 200 + lz * 90, radius, q);
+    // Then centred exactly on the stroke's middle (a focus can leave the view off to one side near the map's edge).
+    await q.evaluate(([mx, mz]) => {
+      const w = window.woodrail;
+      const d = new w.camera.position.constructor(mx - w.controls.target.x, 0, mz - w.controls.target.z);
+      w.camera.position.add(d);
+      w.controls.target.add(d);
+      w.controls.update();
+      w.invalidate();
+    }, [x + fx * 200 + lx * 90, z + fz * 200 + lz * 90]);
+    await q.waitForTimeout(600);
     pts = await q.evaluate(([x, z, fx, fz, lx, lz]) => {
       const w = window.woodrail;
       const V = w.camera.position.constructor;
