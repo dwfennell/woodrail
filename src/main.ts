@@ -59,6 +59,9 @@ const OPENING_DISTANCE = 1000;
 /** How far a station or depot may turn when it gives (radians). */
 const GIVE_TURN = (4 * Math.PI) / 180;
 
+/** How long (ms) an engine's status must hold before its card shows it (so it doesn't flicker between steps). */
+const STATUS_HOLD_MS = 600;
+
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const loading = document.querySelector<HTMLDivElement>("#loading");
 
@@ -1111,17 +1114,40 @@ function boot(savedThumbnails: Map<string, string> | null): void {
    */
   const _a = new Vector3();
   const _b = new Vector3();
+  /** The engine whose card the view was last shown for, and its status line as shown, and as it's been lately. */
+  let viewCar = -1;
+  const viewStatus = { shown: "", next: "", since: 0 };
   function showEngineView(): void {
     const carId = interaction.openEngineCarId;
-    if (carId === -1) return;
-    const stops = routeStops(game.world);
+    if (carId === -1) {
+      viewCar = -1;
+      return;
+    }
+    const found = game.sim.findCar(carId);
+    if (!found) return;
+    const lever = found.train.cars[found.index].lever;
+    // The train changed its lever by itself (sent back from the end of the line): the card follows.
+    if (lever !== hud.engineLeverShown) hud.updateEngineCard(lever, game.following === carId);
+    const opened = carId !== viewCar;
+    viewCar = carId;
+    // Just opened on a stopped engine with its front up against a buffer: Go offers the open way.
+    if (opened && lever === 0 && game.sim.engineBlocked(carId, 1) && !game.sim.engineBlocked(carId, -1)) hud.setEngineWay(-1);
+    // A town by its name; anything else as "the sawmill" ("the workshop 2" where there are more).
     const nameOf = (id: number) => {
-      const stop = stops.find((st) => st.depotId === id);
-      if (stop) return stop.name;
       const d = game.economy.depot(id);
-      return d && d.role !== "town" ? `the ${DEPOT_NAMES[d.role].toLowerCase()}` : "the station";
+      const stop = routeStops(game.world).find((st) => st.depotId === id);
+      if (d?.role === "town") return stop?.name ?? "the station";
+      return `the ${(stop?.name ?? (d ? DEPOT_NAMES[d.role] : "depot")).toLowerCase()}`;
     };
-    const status = engineStatus(game.sim, game.economy, carId, nameOf);
+    // A status shows once it's held a moment (a train being worked at the end of the line passes through several).
+    const now = performance.now();
+    const latest = engineStatus(game.sim, game.economy, carId, nameOf);
+    if (latest !== viewStatus.next) {
+      viewStatus.next = latest;
+      viewStatus.since = now;
+    }
+    if (opened || now - viewStatus.since >= STATUS_HOLD_MS) viewStatus.shown = latest;
+    const status = viewStatus.shown;
     // The engine's own front, as a screen direction (degrees clockwise from right).
     const snap = game.snapshot;
     let angle = 0;
@@ -1133,9 +1159,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       _b.set(_a.x + Math.cos(h) * 60, _a.y, _a.z + Math.sin(h) * 60);
       _a.project(game.camera);
       _b.project(game.camera);
-      const w = game.canvas.clientWidth;
-      const ht = game.canvas.clientHeight;
-      angle = (Math.atan2(-(_b.y - _a.y) * ht, (_b.x - _a.x) * w) * 180) / Math.PI;
+      // Screen x and y in the same units: the camera's aspect (kept on resize), no reading the page's layout.
+      angle = (Math.atan2(-(_b.y - _a.y), (_b.x - _a.x) * game.camera.aspect) * 180) / Math.PI;
       break;
     }
     hud.setEngineView(status, angle);

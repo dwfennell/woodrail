@@ -101,6 +101,11 @@ const CAMERA_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden
 /** The way arrow, pointing right before it's turned. */
 const WAY_ARROW = `<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M4 12h13M12 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+/** `angle` (degrees), plus or minus whole turns, nearest `from`. */
+function nearestTurn(from: number, angle: number): number {
+  return from + ((((angle - from) % 360) + 540) % 360) - 180;
+}
+
 /** A celebration message shows at least this long (ms) before the next one replaces it. */
 const TOAST_READ_MS = 1800;
 
@@ -155,6 +160,8 @@ export class Hud {
   /** Shown status and arrow angle (degrees), to touch the page only when they change. */
   private shownStatus = "";
   private shownAngle = NaN;
+  /** The arrow's angle as last set, unwrapped (it runs on past ±180°), kept when the shown one is forgotten. */
+  private wayAngle = 0;
   private readonly toastEl = el("div", "toast");
   private readonly menu = el("div", "menu");
   private readonly help = el("div", "help");
@@ -287,7 +294,7 @@ export class Hud {
       if (this.engineLever !== 0) h.lever(this.engineWay);
       else this.drawEngine();
     }, "chip way");
-    this.wayBtn.innerHTML = `<span class="way-arrow">${WAY_ARROW}</span>`;
+    this.wayBtn.innerHTML = `<span class="way-arrow">${WAY_ARROW}</span><span class="way-hint" aria-hidden="true">⇄</span>`;
     controls.append(this.goBtn, this.wayBtn);
     this.engineCard.appendChild(controls);
     this.engineMore.hidden = true;
@@ -721,6 +728,8 @@ export class Hud {
     this.shownStatus = "";
     this.shownAngle = NaN;
     this.engineLever = Number.NaN;
+    // A new card starts the engine's own front first (a way turned round on another engine's card isn't carried over).
+    this.engineWay = 1;
     this.updateEngineCard(lever, following);
   }
 
@@ -730,6 +739,18 @@ export class Hud {
     this.engineLever = lever;
     this.followBtn.classList.toggle("active", following);
     this.followBtn.title = following ? "Following this train (tap to stop)" : "Follow this train with the camera";
+    this.drawEngine();
+  }
+
+  /** The engine's lever as the card shows it (to notice the train changing it by itself, turning back). */
+  get engineLeverShown(): number {
+    return this.engineLever;
+  }
+
+  /** Stopped: Go sends it this way (main picks the open way when one end is up against a buffer). */
+  setEngineWay(way: 1 | -1): void {
+    if (this.engineLever !== 0 || way === this.engineWay) return;
+    this.engineWay = way;
     this.drawEngine();
   }
 
@@ -743,16 +764,20 @@ export class Hud {
       this.engineStatus.textContent = status;
     }
     const a = frontAngle + (this.engineWay === 1 ? 0 : 180);
-    if (!(Math.abs((((a - this.shownAngle) % 360) + 540) % 360 - 180) < 4)) {
-      this.shownAngle = a;
-      this.wayBtn.style.setProperty("--way", `${a.toFixed(0)}deg`);
+    // Turned the short way from the angle shown (not round the long way when it passes ±180°): the angle set is
+    // unwrapped, so the arrow's turn eases straight there.
+    const target = nearestTurn(this.wayAngle, a);
+    if (Number.isNaN(this.shownAngle) || Math.abs(target - this.shownAngle) >= 4) {
+      this.shownAngle = this.wayAngle = target;
+      this.wayBtn.style.setProperty("--way", `${target.toFixed(0)}deg`);
     }
   }
 
   private drawEngine(): void {
     const moving = this.engineLever !== 0;
     this.goBtn.classList.toggle("stop", moving);
-    this.goBtn.innerHTML = moving ? `<span class="go-icon">■</span>Stop` : `<span class="go-icon">▶</span>Go`;
+    // Go goes the way the arrow beside it shows (no triangle of its own pointing elsewhere).
+    this.goBtn.innerHTML = moving ? `<span class="go-icon">■</span>Stop` : "Go";
     this.goBtn.title = moving ? "Stop" : "Go";
     // The arrow's angle depends on the way chosen: redrawn on the next view update.
     this.shownAngle = NaN;

@@ -56,4 +56,45 @@ describe("the engine card's status line", () => {
     run(sim, 0.3);
     expect(engineStatus(sim, economy, engine, (id) => (id === d.id ? "the sawmill" : "?"))).toBe("On its way to the sawmill");
   });
+
+  it("says what a depot's crane does there: a forest yard only loads", () => {
+    const layout = new Layout();
+    const ids = (["straight-216", "straight-216", "depot-forest", "straight-216", "straight-216"] as const).map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const d = economy.addDepot("forest", ids[2], 0);
+    const r = sim.addTrain(["engine", "timber", "timber"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
+    if (r.kind !== "placed") throw new Error();
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    sim.setLever(engine, 1);
+    const seen = new Set<string>();
+    for (let k = 0; k < 120 * 20; k++) {
+      sim.tick();
+      economy.tick();
+      seen.add(engineStatus(sim, economy, engine, (id) => (id === d.id ? "the forest yard" : "?")));
+    }
+    expect(seen).toContain("Loading at the forest yard");
+    expect([...seen].some((st) => st.startsWith("Loading and unloading"))).toBe(false);
+  });
+});
+
+describe("which way a stopped engine can go", () => {
+  it("knows when its front, or its back, is up against a buffer", () => {
+    const { layout, ids } = chain(["straight-216", "straight-216", "straight-216", "buffer"]);
+    const sim = new Sim(layout);
+    const r = sim.addTrain(["engine"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 120 });
+    if (r.kind !== "placed") throw new Error();
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    expect(sim.engineBlocked(engine, 1)).toBe(false);
+    sim.setLever(engine, 1);
+    for (let k = 0; k < 120 * 8 && sim.findCar(engine)!.train.turnback < 0; k++) sim.tick();
+    sim.setLever(engine, 0);
+    // At the buffer: its front is blocked, its back is open.
+    expect(sim.engineBlocked(engine, 1)).toBe(true);
+    expect(sim.engineBlocked(engine, -1)).toBe(false);
+    // Swapped end for end, the same holds for the other way round.
+    sim.flipCar(engine);
+    expect(sim.engineBlocked(engine, -1)).toBe(true);
+    expect(sim.engineBlocked(engine, 1)).toBe(false);
+  });
 });

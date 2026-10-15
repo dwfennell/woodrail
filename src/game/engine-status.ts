@@ -1,4 +1,4 @@
-import type { Economy } from "../economy";
+import { RECIPES, type Economy } from "../economy";
 import type { Sim } from "../sim";
 
 /**
@@ -11,9 +11,14 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
   if (!found) return "";
   const t = found.train;
   if (t.derailed) return "Off the rails: Rerail puts it back";
-  if (t.turnback >= 0) return "Turning back at the end of the line";
+  // Being worked by a crane comes first: at a depot at the end of the line the train also waits to turn back.
   const depot = economy.servingDepot(t.id);
-  if (depot) return `Loading and unloading at ${nameOf(depot.id)}`;
+  if (depot) {
+    const r = RECIPES[depot.role];
+    const work = r.takes.length === 0 ? "Loading" : r.gives.length === 0 ? "Unloading" : "Loading and unloading";
+    return `${work} at ${nameOf(depot.id)}`;
+  }
+  if (t.turnback >= 0) return "Turning back at the end of the line";
   if (sim.atRedSignal(t.id)) return "Waiting at a red signal";
   const lever = found.train.cars[found.index].lever;
   if (lever === 0) return t.speed > 1 ? "Slowing to a stop" : "Stopped";
