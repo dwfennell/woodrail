@@ -53,7 +53,7 @@ export const PROP_TABS: readonly PropTab[] = [
       },
       {
         label: "Town",
-        assets: ["bldg-town-hall", "bldg-library", "bldg-market-hall", "bldg-church", "bldg-school", "bldg-hospital", "bldg-fire-station", "bldg-police-station", "bldg-lighthouse", "bldg-control-tower"],
+        assets: ["bldg-town-hall", "bldg-library", "bldg-college", "bldg-market-hall", "bldg-church", "bldg-school", "bldg-hospital", "bldg-fire-station", "bldg-police-station", "bldg-lighthouse", "bldg-control-tower"],
       },
       {
         label: "Farm & industry",

@@ -429,6 +429,52 @@ def library(k):
     return g
 
 
+def college(k):
+    """
+    A college for a two-square town lot (about 40 x 108): a long brick range under a slate roof, two rows of windows,
+    and in the middle a gate tower with the arch into the quad, a clock ("hour", "minute") and a white bell cupola
+    (its bell, "bell", swings).
+    """
+    g = Node()
+    brick = k.paint(BRICK)
+    stone = k.paint(STONE)
+    # The range: long along z, its front on +x.
+    g.add(k.box(stone, 32, 2, 106, 0.8, -6, 0, 0))
+    g.add(k.box(brick, 28, 30, 104, 2.6, -6, 2, 0))
+    roof = k.roof(k.paint(SLATE), 108, 33, 13, 0, 0, 0, 3.5)
+    g.add(k.at(roof, -6, 31.5, 0, math.pi / 2))
+    for y in (7, 19):
+        for z in (-44, -34, -24, 24, 34, 44):
+            g.add(winX(k, 8, y, z, 6, 9))
+    g.add(k.box(stone, 1.2, 1.6, 104, 0.4, 8.2, 16, 0))
+    # The gate tower, forward of the range, with the arch through it.
+    tw, td, th = 30, 22, 46
+    g.add(k.box(brick, td, th, tw, 2.6, 3, 2, 0))
+    arch = Node()
+    pts = [(-7, 0), (7, 0), (7, 11)] + [(7 * math.cos(a), 11 + 7 * math.sin(a)) for a in (0.4, 0.8, 1.2, 1.57, 1.97, 2.37, 2.74)] + [(-7, 11)]
+    arch.add(k.extrude(stone, [(x * 1.25, y * 1.12) for x, y in pts], 2, 0, 0, 0, 0.5))
+    arch.add(k.extrude(k.paint("#2b2420"), pts, 2.6, 0, 0, 0.4, 0.4))
+    arch.rotation.y = math.pi / 2
+    arch.position.set(14, 2, 0)
+    g.add(arch)
+    for z in (-8, 8):
+        g.add(winX(k, 14, 26, z, 5, 8))
+    g.add(k.box(stone, td + 2, 3, tw + 2, 1, 3, th + 2, 0))
+    g.add(clock(k, 5.6, 15, 37, 0))
+    # The bell cupola on the tower.
+    white = k.paint(TOY.white)
+    g.add(k.box(white, 12, 3, 12, 1, 3, th + 5, 0))
+    for dx, dz in ((-4.5, -4.5), (4.5, -4.5), (-4.5, 4.5), (4.5, 4.5)):
+        g.add(k.box(white, 1.8, 10, 1.8, 0.4, 3 + dx, th + 8, dz))
+    g.add(hip(k, k.paint(SLATE), 15, 8, 3, th + 18, 0))
+    g.add(k.ball(k.paint(TOY.yellow), 1.4, 3, th + 26.5, 0))
+    bell = named(Node(), "bell")
+    bell.add(k.lathe(k.paint(TOY.yellow), [(0, -6), (3.2, -6), (2.8, -4.4), (2, -1.6), (0, -0.8)], 0, 0, 0, 16))
+    g.add(k.at(bell, 3, th + 17, 0))
+    g.add(_step(k, 14, 0, 14))
+    return g
+
+
 ASSETS = [
     ("bldg-fire-station", fire_station),
     ("bldg-police-station", police_station),
@@ -446,4 +492,5 @@ ASSETS = [
     ("bldg-market-stall", market_stall),
     ("bldg-market-hall", market_hall),
     ("bldg-library", library),
+    ("bldg-college", college),
 ]

@@ -122,7 +122,9 @@ time is still to be measured on a phone.
   the track, the track toward -z), placed by the depot view.
 - **Mining and iron** (Game mode, Phase C): `industry-mine` (its winding wheel `industry-mine-wheel` a part of its
   own, to turn), `industry-foundry`, and the loads `load-coal`, `load-ore` (sack-sized units), `load-iron` (a bundle,
-  planks-sized) and the hopper heaps `load-coal-heap`, `load-ore-heap`.
+  planks-sized) and the hopper heaps `load-coal-heap`, `load-ore-heap`; then `industry-carpenter`, `industry-smithy`,
+  `industry-power` (its flywheel `industry-power-wheel` a part of its own), the loads `load-furniture` and `load-tools`,
+  and the town landmark `bldg-college`.
 - **Lean parts:** the parts on every house (door, flower box, chimney top) are built lean (`Kit(lean=True)`: one-step
   roundings, the code's segment counts); a map has hundreds. Windows stay in code: they're already a printed pane
   with glazing bars in a frame.
