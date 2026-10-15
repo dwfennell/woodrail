@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildStarterWorld, landForSale, plotsForSale, unlockPlot } from "../game/world";
 import { deserializeLandscape, serializeLandscape } from "../persist/landscape-data";
-import { coastOf, SAND, seaPlot, shoreDistance } from "./coast";
+import { coastNear, coastOf, SAND, seaPlot, shoreDistance } from "./coast";
 import { adoptRegion, generateLandscape, generatePlot } from "./generate";
 import { PLOT_COLS, PLOT_ROWS, SURF_RIVER, SURF_SAND, SURF_SEA } from "./grid";
 
@@ -136,5 +136,26 @@ describe("the coast", () => {
     const back = deserializeLandscape(JSON.parse(JSON.stringify(data)));
     expect(back.ok && back.value.coast).toBeNull();
     expect(PLOT_ROWS).toBeGreaterThan(0);
+  });
+
+  it("a region said to be far from the shore is: no square of it (or round it) is within reach", () => {
+    for (const seed of SEEDS.slice(0, 20)) {
+      for (const c of [coastOf(seed), coastOf(seed, true)]) {
+        for (const [px, pz] of [[-1, -1], [0, 0], [1, 0], [0, 1], [-1, 1], [-2, 0], [0, -2], [2, 2], [-3, -3]]) {
+          const r = { px0: px, pz0: pz, w: 1, h: 1 };
+          if (coastNear(c, r, 4, 3)) continue;
+          let nearest = Infinity;
+          for (let row = pz * PLOT_ROWS - 3; row < (pz + 1) * PLOT_ROWS + 3; row++) {
+            for (let col = px * PLOT_COLS - 3; col < (px + 1) * PLOT_COLS + 3; col++) nearest = Math.min(nearest, shoreDistance(c, col, row));
+          }
+          expect(nearest, `seed ${seed} plot ${px},${pz}`).toBeGreaterThan(4);
+        }
+      }
+      // The start region is far from every coast; a coast plot isn't.
+      expect(coastNear(coastOf(seed, true), { px0: -1, pz0: -1, w: 2, h: 2 }, 4, 3)).toBe(false);
+      const c = coastOf(seed);
+      const [px, pz] = c.side === "n" || c.side === "s" ? [0, c.plot] : [c.plot, 0];
+      expect(coastNear(c, { px0: px, pz0: pz, w: 1, h: 1 }, 4, 3)).toBe(true);
+    }
   });
 });
