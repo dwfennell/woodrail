@@ -1,3 +1,4 @@
+import { hashInts } from "../landscape/edges";
 import { CELL, FEAT_NONE, SURF_TOWN, type LandscapeGrid } from "../landscape/grid";
 import { pieceForEdges, type Edge } from "./pieces";
 
@@ -31,6 +32,8 @@ export interface TownPlan {
 
 /** Side streets leave the main street this many squares apart (out from Station Road): two rows of houses between. */
 const SIDE_STREET_EVERY = 3;
+/** A loop's cross street is this many squares out from Station Road. */
+const LOOP_DEPTH = 3;
 
 /**
  * A town's street plan, laid before its buildings (see the road-system design, §3a). On each side of the station:
@@ -71,27 +74,49 @@ export function planTown(grid: LandscapeGrid, site: TownSite, pair: () => boolea
       for (; open(at(a, high)); a += dir) road.push(at(a, high));
       if (a !== dir) ends.push({ cell: at(a - dir, high), edge: edgeOf(dir * ac, dir * ar) });
     }
+    // Each side has its own plan, by where the town is (so towns differ, and a town planned again as it grows keeps
+    // it): the main street leaves Station Road at its middle or a square either way, and on some sides a loop of two
+    // short streets out from Station Road meets a cross street, with the main street going on out from its middle.
+    const h = hashInts(cc, cr, s + 2, 0x3a1);
+    const shift = (h % 3) - 1;
+    const m = open(at(shift, high)) && open(at(shift, high + s)) ? shift : 0;
+    const loopRow = high + LOOP_DEPTH * s;
+    const loop =
+      (h >>> 4) % 2 === 1 &&
+      [-2, 0, 2].every((d) => {
+        for (let b = high + s; b !== loopRow + s; b += s) if (!open(at(m + d, b))) return false;
+        return true;
+      });
+    const arms: number[][] = [];
+    if (loop) for (const d of [-2, 2]) arms.push(Array.from({ length: LOOP_DEPTH - 1 }, (_, k) => at(m + d, high + s * (k + 1))));
     const main: number[] = [];
     let b = high + s;
-    for (; open(at(0, b)); b += s) main.push(at(0, b));
-    // Side streets: off the main street every few squares out, along the track, two rows of houses apart.
+    for (; open(at(m, b)); b += s) if (!loop || Math.abs(b - high) > LOOP_DEPTH) main.push(at(m, b));
+    // Side streets: off the main street every few squares out (from Station Road, or from the loop's cross street,
+    // which is one of them), along the track, two rows of houses apart.
+    const base = loop ? loopRow - SIDE_STREET_EVERY * s : high;
     const sides: number[][] = [];
-    for (let k = 1; k * SIDE_STREET_EVERY < Math.abs(b - high); k++) {
-      const row = high + s * k * SIDE_STREET_EVERY;
+    for (let k = 1; k * SIDE_STREET_EVERY < Math.abs(b - base) || (loop && k === 1); k++) {
+      const row = base + s * k * SIDE_STREET_EVERY;
+      const cross: number[] = [];
       for (const dir of [1, -1]) {
         const side: number[] = [];
-        let a = dir;
+        let a = m + dir;
         for (; open(at(a, row)); a += dir) side.push(at(a, row));
         if (side.length === 0) continue;
         sides.push(side);
         // Its far end stays open, for a road laid on.
         ends.push({ cell: side[side.length - 1], edge: edgeOf(dir * ac, dir * ar) });
       }
+      // The loop's cross street has its middle square too (the main street begins beyond it).
+      if (loop && k === 1) cross.push(at(m, row));
+      if (cross.length) sides.push(cross);
     }
+    sides.push(...arms);
     order.push(road, main, ...sides);
     for (const i of main) mainStreet.add(i);
     for (const i of [...road, ...main, ...sides.flat()]) streets.set(i, 0);
-    const end = main.length > 0 ? main[main.length - 1] : road[0];
+    const end = main.length > 0 ? main[main.length - 1] : loop ? at(m, loopRow) : road[0];
     exits.push({ cell: end, edge: edgeOf(s * lc, s * lr) });
   }
 

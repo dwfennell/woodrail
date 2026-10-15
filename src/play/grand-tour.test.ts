@@ -244,7 +244,9 @@ describe("the grand tour", () => {
         expect(r.ok, name).toBe(true);
       }
       endOn(w(), T.editor, connectorRef(saw, 0));
-      const between = [...w().layout.pieceIds()].find((id) => !T.fixed.has(id) && w().layout.getPiece(id)!.type.startsWith("straight") && Math.abs(w().layout.getPiece(id)!.pose.x) < 300)!;
+      /** A straight of the line near the middle, to put a train on (picked again if it has become the switch since). */
+      const middle = () => [...w().layout.pieceIds()].find((id) => !T.fixed.has(id) && w().layout.getPiece(id)!.type.startsWith("straight") && Math.abs(w().layout.getPiece(id)!.pose.x) < 300)!;
+      let between = middle();
       const timber = T.train(["engine", "timber", "timber"], between, -1);
       T.note("timber train set going");
       T.run(30 * 60, () => T.level(larkfield()) >= 2);
@@ -410,6 +412,7 @@ describe("the grand tour", () => {
       // The van comes off and the mixed train goes back on, to run the line for the other towns.
       // (Loading gives cars new ids: take up whatever is on the line.)
       for (const id of [...w().sim.trainIds()]) w().sim.removeTrain(id);
+      if (!w().layout.getPiece(between)) between = middle();
       mixed = T.train(["engine", "timber", "timber", "hopper", "van"], between, -1);
       T.note("the van picked up; the mixed train back on the line");
       T.run(40 * 60, () => T.level(larkfield()) >= 4);
