@@ -114,6 +114,9 @@ time is still to be measured on a phone.
   `upgrade-steam-saw-house`, `upgrade-tractor`, `upgrade-millstones`, `upgrade-stone-crusher`: machines that appear in
   a yard as its upgrades are learned, each centred on its own footprint (base y 0; the depot frame's axes: +x along
   the track, the track toward -z), placed by the depot view.
+- **Mining and iron** (Game mode, Phase C): `industry-mine` (its winding wheel `industry-mine-wheel` a part of its
+  own, to turn), `industry-foundry`, and the loads `load-coal`, `load-ore` (sack-sized units), `load-iron` (a bundle,
+  planks-sized) and the hopper heaps `load-coal-heap`, `load-ore-heap`.
 - **Lean parts:** the parts on every house (door, flower box, chimney top) are built lean (`Kit(lean=True)`: one-step
   roundings, the code's segment counts); a map has hundreds. Windows stay in code: they're already a printed pane
   with glazing bars in a frame.
