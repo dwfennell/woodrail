@@ -113,7 +113,7 @@ describe("passengers", () => {
     const { w, sim, A, B, car } = line(["engine", "passenger", "passenger"]);
     const [c1, c2] = sim.getTrain(sim.trainIds()[0])!.cars.filter((c) => c.kind === "passenger");
     const plain = fareFor(w, A, B, c1.id);
-    sim.setLook(c1.id, "sleeper");
+    sim.setLook(c1.id, "first-class");
     expect(fareFor(w, A, B, c1.id)).toBe(Math.round(plain * 2));
     sim.setLook(c2.id, "dining");
     expect(fareFor(w, A, B, c1.id)).toBe(Math.round(plain * 2 * 1.5));
@@ -123,7 +123,7 @@ describe("passengers", () => {
   it("an express engine runs half as fast again, once learned", () => {
     const { w, sim, train, car } = line();
     const p = Progress.fresh();
-    sim.setLook(car("engine").id, "electric");
+    sim.setLook(car("engine").id, "express");
     expect(topSpeed(w, p, train())).toBe(ENGINE_SPEED);
     p.learned.add("express");
     expect(topSpeed(w, p, train())).toBe(ENGINE_SPEED * EXPRESS);

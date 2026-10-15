@@ -145,17 +145,17 @@ branch by a routed train in 6 min, flour kept in a warehouse and brought by a ro
 ## Passenger service (built 2026-10-15)
 
 - **People wait at towns' stations:** a hamlet gets one every 24 s, each level up as often again, up to 6 waiting. Riders are `DepotState.waiting`; the game layer adds them once a second (`peopleArrive`).
-- **Coaches carry them to another town.** People get off and on by themselves in 0.3 s each, with no crane. The economy holds riders per coach (`ridersOf`, `{count, from}`) and calls `onAlight` when someone gets off. Routes apply: people get off only at Drop stops and on only at Pick stops. Seats come from `Economy.seatsOf`, which Game mode sets by look: classic 4, dining 2, sleeper 3, double-decker 8. In Sandbox it is null, so coaches carry no one and trains don't stop for them.
-- **Fares:** one coin per 800 mm between the two stations, at least 1. A first-class sleeper pays ×2, and every rider on a train with a dining car pays ×1.5.
+- **Coaches carry them to another town.** People get off and on by themselves in 0.3 s each, with no crane. The economy holds riders per coach (`ridersOf`, `{count, from}`) and calls `onAlight` when someone gets off. Routes apply: people get off only at Drop stops and on only at Pick stops. Seats come from `Economy.seatsOf`, which Game mode sets by look: classic 4, dining 2, sleeper 4, double-decker 8, first-class 3. In Sandbox it is null, so coaches carry no one and trains don't stop for them.
+- **Fares:** one coin per 800 mm between the two stations, at least 1. A first-class coach pays ×2, and every rider on a train with a dining car pays ×1.5.
 - **The passenger line of blueprints** is learned by itself as riders are carried (`Tech.riders`). Towns never offer these and they never go on the board:
 
   | Riders | Blueprint | What it unlocks |
   |---|---|---|
   | 20 | Dining car | The dining look |
-  | 60 | First class | The sleeper look |
+  | 60 | First class | The first-class look |
   | 100 | Busy stations | People come twice as often and twice as many wait |
   | 160 | Double-decker | The double-decker look |
-  | 250 | Express engine | The electric look runs ×1.5, through `Sim.topSpeed` |
+  | 250 | Express engine | The express look runs ×1.5, through `Sim.topSpeed` |
 
   Looks gated this way are listed in `LOOK_TECH`.
 - **Headless run** (`src/play/passenger-line.test.ts`): Larkfield and Elderwick, both hamlets, with an engine and two coaches. Dining car at 4.5 min, First class at 12.7, Busy stations at 20.5, Double-decker at 26.8, Express at 35.7. After an hour: 493 riders and 674 coins. That is about freight's income (around 500 coins in 52 min in the grand tour).

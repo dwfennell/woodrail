@@ -12,7 +12,7 @@ import type { World } from "./world";
  */
 
 /** Seats in a coach, by its look. */
-export const SEATS: Partial<Record<CarLook, number>> = { classic: 4, dining: 2, sleeper: 3, "double-decker": 8 };
+export const SEATS: Partial<Record<CarLook, number>> = { classic: 4, dining: 2, sleeper: 4, "double-decker": 8, "first-class": 3 };
 
 /** A first-class coach's riders pay this many times the fare. */
 export const FIRST_CLASS = 2;
@@ -79,7 +79,7 @@ export function fareFor(world: World, from: DepotState, to: DepotState, carId: n
   let fare = a && b ? Math.max(MIN_FARE, Math.round(Math.hypot(a.x - b.x, a.z - b.z) * FARE_PER_MM)) : MIN_FARE;
   const found = world.sim.findCar(carId);
   if (found) {
-    if (world.sim.lookOf(carId) === "sleeper") fare *= FIRST_CLASS;
+    if (world.sim.lookOf(carId) === "first-class") fare *= FIRST_CLASS;
     if (found.train.cars.some((c) => c.kind === "passenger" && world.sim.lookOf(c.id) === "dining")) fare *= DINING;
   }
   return Math.round(fare);
@@ -96,7 +96,7 @@ export function payFare(world: World, p: Progress, from: DepotState, to: DepotSt
 /** A train's top speed: half as fast again behind an express engine (once learned). */
 export function topSpeed(world: World, p: Progress, train: Train): number {
   if (!p.learned.has("express")) return ENGINE_SPEED;
-  return train.cars.some((c) => c.kind === "engine" && world.sim.lookOf(c.id) === "electric") ? ENGINE_SPEED * EXPRESS : ENGINE_SPEED;
+  return train.cars.some((c) => c.kind === "engine" && world.sim.lookOf(c.id) === "express") ? ENGINE_SPEED * EXPRESS : ENGINE_SPEED;
 }
 
 /** Put Game mode's passengers into the world's economy and sim (seats, fares, express engines). */
