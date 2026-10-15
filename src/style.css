@@ -144,9 +144,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 
 /* Turn / Flip: above the tray while a group of track pieces is open. */
 .tray-orient { position: absolute; right: 12px; top: -44px; display: none; gap: 6px; }
-.tray.track-tab.in-group .tray-orient { display: flex; }
+.tray.track-tab.in-group .tray-orient, .tray.track-tab.has-favourites .tray-orient { display: flex; }
 /* A card for a selected piece, car or depot has its own buttons there: the tray's Turn/Flip steps aside. */
-.card-open .tray.track-tab.in-group .tray-orient { display: none; }
+.card-open .tray.track-tab.in-group .tray-orient, .card-open .tray.track-tab.has-favourites .tray-orient { display: none; }
 .tray-orient .chip { padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 /* Draw: above the tray, at the left, while the Track tab is open. */
 .tray-draw { position: absolute; left: 12px; top: -44px; display: none; padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
@@ -271,6 +271,11 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 
 /* Game mode's toy box: how many of a piece are left, on its tray item; faded when there are none. */
 .tray-item { position: relative; }
+/* ★ in a tray item's corner: tap to make it a favourite (shown first on the tab). Big enough for a finger. */
+.tray-item .fav { position: absolute; top: 0; left: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; color: rgba(120, 85, 45, 0.45); cursor: pointer; border-radius: 14px 0 10px 0; }
+.tray-item .fav.on { color: #e0a21c; text-shadow: 0 1px 0 rgba(120, 70, 10, 0.35); }
+/* Between the favourites and the shelves. */
+.tray-divider { flex: 0 0 auto; width: 2px; align-self: stretch; margin: 10px 4px; border-radius: 1px; background: rgba(120, 85, 45, 0.18); }
 .tray-item .have { position: absolute; top: 5px; right: 6px; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: #3f8f4a; color: #fff; font-size: 12px; font-weight: 800; line-height: 1.4; text-align: center; }
 .tray-item.empty .have { background: #b9a487; }
 .tray-item.empty .icon { opacity: 0.45; filter: grayscale(0.6); }

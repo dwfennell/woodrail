@@ -164,6 +164,8 @@ export interface TrayTab {
   orient?: "turn" | "turn-flip";
   /** Land editing is on while this tab is open. */
   land?: boolean;
+  /** The player's favourites (★) come first, ahead of the shelves, on this tab. */
+  favourites?: boolean;
 }
 
 const BOTH: readonly GameMode[] = ["sandbox", "game"];
@@ -171,8 +173,8 @@ const SANDBOX: readonly GameMode[] = ["sandbox"];
 const GAME: readonly GameMode[] = ["game"];
 
 export const TRAY_TABS: TrayTab[] = [
-  { id: "track", label: "Track", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip" },
-  { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS },
+  { id: "track", label: "Track", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip", favourites: true },
+  { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS, favourites: true },
   { id: "industries", label: "Industries", modes: GAME, groups: INDUSTRY_GROUPS, orient: "turn-flip" },
   ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
   { id: "roads", label: "Roads", modes: BOTH, groups: ROAD_GROUPS, orient: "turn" },
@@ -218,4 +220,22 @@ export function trayKey(item: TrayItem): string {
   if (item.kind === "tool") return `tool:${item.tool}`;
   if (item.kind === "road") return `road:${item.auto ? "auto" : item.piece}`;
   return item.kind === "prop" ? `prop:${item.asset}` : `train:${item.label}`;
+}
+
+/** Favourites before the player picks any: the pieces most lines are made of. */
+export const DEFAULT_FAVOURITES: readonly string[] = ["piece:straight-216:auto", "piece:straight-144", "piece:curve-large", "piece:switch", "piece:buffer"];
+
+/** Can this item be a favourite (a piece or a train, which come out of the tray)? */
+export const canFavourite = (item: TrayItem): boolean => item.kind === "piece" || item.kind === "train";
+
+/** The favourite items found among `groups`, in the order they were picked (keys from other tabs are left out). */
+export function favouriteItems(keys: readonly string[], groups: readonly TrayGroup[]): TrayItem[] {
+  const byKey = new Map<string, TrayItem>();
+  for (const g of groups) for (const item of g.items) if (canFavourite(item)) byKey.set(trayKey(item), item);
+  return keys.map((k) => byKey.get(k)).filter((i): i is TrayItem => i !== undefined);
+}
+
+/** Favourites with `key` added at the end, or taken out if it's there. */
+export function toggleFavourite(keys: readonly string[], key: string): string[] {
+  return keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key];
 }

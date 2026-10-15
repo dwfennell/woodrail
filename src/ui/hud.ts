@@ -4,7 +4,8 @@ import { note } from "../debug/report";
 import { blockWord } from "./blocks";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 import { roadIcon } from "./road-icons";
-import { propGroups, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
+import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
+import { loadFavourites, saveFavourites } from "./prefs";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
 
@@ -171,6 +172,8 @@ export class Hud {
   private readonly thumbs: Map<string, string>;
   private flipTrayBtn!: HTMLButtonElement;
   private drawBtn!: HTMLButtonElement;
+  /** The tray favourites (tray keys, in order): first on the Track and Trains tabs. */
+  private favourites: string[] = loadFavourites() ?? [...DEFAULT_FAVOURITES];
   private drawing = false;
 
   constructor(parent: HTMLElement, h: HudHandlers, qualityLabel: () => string, opts: HudOptions) {
@@ -356,6 +359,12 @@ export class Hud {
       scroller.innerHTML = "";
       scroller.scrollLeft = 0;
       this.tray.classList.remove("in-group");
+      // Favourites first: pieces to drag straight out, without opening a shelf.
+      this.trayButtons = [];
+      const favs = openDef?.favourites ? favouriteItems(this.favourites, groups) : [];
+      this.tray.classList.toggle("has-favourites", favs.length > 0);
+      for (const item of favs) scroller.appendChild(itemButton(item, () => showGroups(groups)));
+      if (favs.length > 0) scroller.appendChild(el("span", "tray-divider"));
       for (const group of groups) {
         const b = el("button", "tray-item tray-group");
         b.innerHTML = `<span class="icon">${picture(group.items[0])}</span><span class="label">${group.label}</span><span class="count">${group.items.length}</span>`;
@@ -381,54 +390,81 @@ export class Hud {
         scroller.appendChild(b);
       }
       this.trayButtons = [];
-      for (const item of group.items) {
-        const b = el("button", "tray-item");
-        b.innerHTML = `<span class="icon">${picture(item)}</span><span class="label">${item.label}</span>`;
-        if (item.kind !== "tool") {
-          this.trayButtons.push([b, item]);
-          this.decorate(b, item);
-        }
-        if (item.kind === "tool") {
-          // A tool is chosen with a tap, then used on the land.
-          const tool = item.tool;
-          b.classList.add("tray-tool");
-          b.dataset.tool = tool;
-          b.classList.toggle("active", this.landTool === tool);
-          b.title = `${item.label}: tap the land`;
-          b.addEventListener("pointerdown", (e) => {
-            e.preventDefault();
-            this.trayPress(e, scroller, { tap: () => this.chooseLandTool(tool) });
-          });
-        } else if (item.kind === "piece" || item.kind === "road") {
-          // A piece is dragged out; once placed it stays ready (the next waits at the end it left: tap it to add it).
-          // A road is dragged out, or tapped to make it ready (then each click on the map lays one). A tap on the
-          // ready one here puts it away.
-          const key = trayKey(item);
-          b.dataset.key = key;
-          b.classList.toggle("armed", this.armedKey === key);
-          b.title = item.kind === "road" ? `Drag onto the map, or tap then click the map: ${item.label}` : `Drag onto the floor: ${item.label}`;
-          b.addEventListener("pointerdown", (e) => {
-            e.preventDefault();
-            this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: () => this.handlers.trayTap(item) });
-          });
-        } else {
-          b.title = `Drag onto the floor: ${item.label}`;
-          b.addEventListener("pointerdown", (e) => {
-            e.preventDefault();
-            this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move) });
-          });
-        }
-        scroller.appendChild(b);
-      }
+      this.tray.classList.remove("has-favourites");
+      for (const item of group.items) scroller.appendChild(itemButton(item, null));
       show();
+    };
+    /** A tray item's button. `unpinned` redraws the row when its ★ is taken off (the favourites row). */
+    const itemButton = (item: TrayItem, unpinned: (() => void) | null): HTMLElement => {
+      const b = el("button", "tray-item");
+      b.innerHTML = `<span class="icon">${picture(item)}</span><span class="label">${item.label}</span>`;
+      if (item.kind !== "tool") {
+        this.trayButtons.push([b, item]);
+        this.decorate(b, item);
+      }
+      if (item.kind === "tool") {
+        // A tool is chosen with a tap, then used on the land.
+        const tool = item.tool;
+        b.classList.add("tray-tool");
+        b.dataset.tool = tool;
+        b.classList.toggle("active", this.landTool === tool);
+        b.title = `${item.label}: tap the land`;
+        b.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          this.trayPress(e, scroller, { tap: () => this.chooseLandTool(tool) });
+        });
+      } else if (item.kind === "piece" || item.kind === "road") {
+        // A piece is dragged out; once placed it stays ready (the next waits at the end it left: tap it to add it).
+        // A road is dragged out, or tapped to make it ready (then each click on the map lays one). A tap on the
+        // ready one here puts it away.
+        const key = trayKey(item);
+        b.dataset.key = key;
+        b.classList.toggle("armed", this.armedKey === key);
+        b.title = item.kind === "road" ? `Drag onto the map, or tap then click the map: ${item.label}` : `Drag onto the floor: ${item.label}`;
+        b.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: () => this.handlers.trayTap(item) });
+        });
+      } else {
+        b.title = `Drag onto the floor: ${item.label}`;
+        b.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move) });
+        });
+      }
+      if (openDef?.favourites && canFavourite(item)) {
+        // ★: a favourite (shown first on the tab). Tapped, it's added or taken off.
+        const key = trayKey(item);
+        const star = el("span", "fav");
+        const mark = () => {
+          const on = this.favourites.includes(key);
+          star.textContent = on ? "★" : "☆";
+          star.classList.toggle("on", on);
+          star.title = on ? "Take off favourites" : "Add to favourites";
+        };
+        mark();
+        star.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.favourites = toggleFavourite(this.favourites, key);
+          saveFavourites(this.favourites);
+          this.handlers.buttonTap();
+          mark();
+          if (unpinned) unpinned();
+        });
+        b.appendChild(star);
+      }
+      return b;
     };
     // The tabs for the mode; a tab with a single shelf opens straight onto its items.
     // A tab's catalogue shelves, once loaded (their code is fetched the first time the tab opens).
     const loadedGroups = new Map<string, TrayGroup[]>();
     let openId = "";
+    let openDef: TrayTab | null = null;
     const openTab = (tab: TrayTab, shelf?: string) => {
       if (openId !== "" && openId !== tab.id) this.handlers.trayTabChanged();
       openId = tab.id;
+      openDef = tab;
       // The Land tab switches land editing on (with its first tool), any other tab off.
       this.chooseLandTool(tab.land ? (this.landTool ?? "move") : null);
       tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));

@@ -49,6 +49,24 @@ await p.evaluate(() => {
   };
 });
 
+// Favourites: first on the Track tab, a ★ on a shelf's piece adds it, and it's remembered.
+{
+  await p.evaluate(() => localStorage.removeItem("woodrail.favourites"));
+  await p.click(".tabs [data-tab=track]");
+  const favs = await p.$$eval(".scroller > .tray-item:not(.tray-group)", (bs) => bs.map((b) => b.querySelector(".label")?.textContent));
+  check("the Track tab shows favourites before its shelves", favs.length === 5, favs.join(", "));
+  await p.screenshot({ path: `${OUT}/fav-0-row.png` });
+  await p.click(".scroller .tray-group:has-text('Curve')");
+  await p.click(".scroller .tray-item:has-text('Wide curve') .fav");
+  await p.click(".tabs [data-tab=track]");
+  const after = await p.$$eval(".scroller > .tray-item:not(.tray-group)", (bs) => bs.map((b) => b.querySelector(".label")?.textContent));
+  const saved = await p.evaluate(() => localStorage.getItem("woodrail.favourites") ?? "");
+  check("★ on a shelf's piece adds it to the favourites, and it's saved", after.at(-1) === "Wide curve" && saved.includes("curve-wide"), after.join(", "));
+  await p.click(".scroller > .tray-item:has-text('Wide curve') .fav");
+  const removed = await p.$$eval(".scroller > .tray-item:not(.tray-group)", (bs) => bs.length);
+  check("★ again on the favourites row takes it off", removed === 5, `${removed}`);
+}
+
 /** A free end of track on level ground with clear, level, empty land ahead of it (found from the map). */
 const site = await p.evaluate(async () => {
   const w = window.woodrail;
@@ -79,9 +97,12 @@ const site = await p.evaluate(async () => {
 });
 check("found a free end with open ground ahead", !!site, JSON.stringify(site));
 
-const focus = async (x, z, r = 320) => {
-  await p.evaluate(([x, z, r]) => window.woodrail.director.focus(new D.V(x, 0, z), r), [x, z, r]);
-  await p.waitForTimeout(1500);
+// A focus glides at most 30% closer at a time: a few, to come in from the whole-map view.
+const focus = async (x, z, r = 320, page = p) => {
+  for (let k = 0; k < 8; k++) {
+    await page.evaluate(([x, z, r]) => window.woodrail.director.focus(new window.woodrail.camera.position.constructor(x, 0, z), r), [x, z, r]);
+    await page.waitForTimeout(900);
+  }
 };
 /** Drag the mouse through world points (x, z) on the ground, a few px a step. */
 const drawThrough = async (pts, { shotAt = -1, shot = "" } = {}) => {
@@ -165,6 +186,70 @@ if (site) {
   await p.keyboard.press("Escape");
   const off = await p.evaluate(() => !window.woodrail.interaction.isDrawing && !document.querySelector(".tray-draw").classList.contains("active"));
   check("Esc switches drawing off", off);
+}
+
+// 7. On a phone: a touch drag (one finger) from the station end, straight on then round a curve.
+if (site) {
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const q = await ctx.newPage();
+  q.on("pageerror", (e) => errors.push(e.message));
+  await q.goto(URL);
+  await q.waitForFunction(() => !!window.woodrail, null, { timeout: 120000 });
+  await q.waitForTimeout(4000);
+  await q.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
+  await q.waitForTimeout(1500);
+  const { x, z, heading: h } = site;
+  const fx = Math.cos(h);
+  const fz = Math.sin(h);
+  const lx = -fz;
+  const lz = fx;
+  await focus(x + fx * 220 + lx * 80, z + fz * 220 + lz * 80, 260, q);
+  await q.tap(".tray-draw");
+  const pts = await q.evaluate(([x, z, fx, fz, lx, lz]) => {
+    const w = window.woodrail;
+    const V = w.camera.position.constructor;
+    const r = w.canvas.getBoundingClientRect();
+    const sc = (a, b) => {
+      const v = new V(a, 0, b).project(w.camera);
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+    };
+    const out = [];
+    for (let d = 0; d <= 220; d += 20) out.push(sc(x + fx * d, z + fz * d));
+    for (let a = Math.PI / 12; a <= Math.PI / 2 + 0.01; a += Math.PI / 12) {
+      const along = 220 + 180 * Math.sin(a);
+      const side = 180 * (1 - Math.cos(a));
+      out.push(sc(x + fx * along + lx * side, z + fz * along + lz * side));
+    }
+    return out;
+  }, [x, z, fx, fz, lx, lz]);
+  const cdp = await ctx.newCDPSession(q);
+  const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
+  const n0 = await q.evaluate(() => window.woodrail.layout.pieceCount);
+  await touch("touchStart", pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, ay] = pts[i - 1];
+    const [bx, by] = pts[i];
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
+    for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+    if (i === pts.length - 3) await q.screenshot({ path: `${OUT}/draw-7-phone-drawing.png` });
+  }
+  await touch("touchEnd", 0, 0);
+  await q.waitForTimeout(1500);
+  await q.screenshot({ path: `${OUT}/draw-7-phone-laid.png` });
+  const added = await q.evaluate((n0) => {
+    const w = window.woodrail;
+    return [...w.layout.pieceIds()].slice(n0).map((id) => w.layout.getPiece(id).type);
+  }, n0);
+  check("on a phone, a one-finger drag lays straights then curves", added.length >= 3 && added.filter((t) => t.startsWith("curve")).length >= 2, added.join(" "));
+  // Nothing happening: no frames drawn.
+  const idle = await q.evaluate(async () => {
+    const r = window.woodrail.renderer;
+    await new Promise((res) => setTimeout(res, 2500));
+    const f0 = r.info.render.frame;
+    await new Promise((res) => setTimeout(res, 2000));
+    return r.info.render.frame - f0;
+  });
+  check("idle after drawing: no frames drawn", idle === 0, `${idle} frames in 2 s`);
 }
 
 check("no page errors", errors.length === 0, errors.join(" | "));

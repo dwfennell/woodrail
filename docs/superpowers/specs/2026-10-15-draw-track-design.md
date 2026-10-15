@@ -86,4 +86,17 @@ Ramps stay a tray piece.
 - Ramps in a drawn line, when the stroke goes up a hill.
 - Holding on a free end, without the Draw chip on, to start drawing straight away.
 - Drawing a branch from the middle of existing track (it would put in a switch).
-- A "favourites" shelf in the tray (the player's own pick of pieces): planned next, its own short spec.
+
+## Favourites (built alongside)
+
+Shelves are tidy, but the pieces you use most sit behind a tap. **Favourites** come first on the Track and Trains tabs,
+ahead of the shelves (a thin divider between), ready to drag straight out.
+
+- Every piece or train on an open shelf has a ☆ in its top-left corner (a 28 px target): tap it to add the item (★) or
+  take it off. A ★ tapped on the favourites row takes it off there and then.
+- Before the player picks any, the favourites are Auto, Medium, Curve, Switch and Buffer.
+- They're kept per device in `localStorage` (`woodrail.favourites`, tray keys in order), not in the save: they're the
+  player's way of working, not part of the layout. Without storage they last the session.
+- Turn and Flip show above the tray while favourites are showing, as on an open shelf.
+- Code: `favouriteItems` / `toggleFavourite` / `DEFAULT_FAVOURITES` in `src/ui/tray-catalogue.ts` (tested), the row and
+  the ★ in `src/ui/hud.ts`, storage in `src/ui/prefs.ts`.
