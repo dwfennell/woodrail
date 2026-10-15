@@ -172,6 +172,85 @@ Leaning further into the workshop:
 Recommended first: 1 and 2. They fit the specialties (carpenters', toymakers') and the rocket's parts later. 4 and 5
 are a gentler side branch for later.
 
+## Phase D: trade by water and rail (proposal, not built)
+
+Agreed so far: harbours are depots that ships visit by themselves; goods can be bought and sold beyond the map, at
+harbours and at the map's edge. Player-steered boats come later.
+
+**Why:** coins get a use (buying goods), surplus gets somewhere to go (selling it), and a map without hills or fields
+can still get iron or flour. It also opens the goods from abroad that later blueprints want: cocoa, zoo animals, rocket
+parts.
+
+### D1. Harbours
+
+- **A depot by a river.** Its site rule is river squares within reach, the way a quarry needs hillside. It has a quay
+  and a crane on the water side and a track on the land side.
+- **Boats come by themselves.** A boat comes up the river from the map's edge every few minutes, stays about half a
+  minute, then leaves. There's no steering or pathfinding: a boat follows the river's own line of squares. The catalogue
+  already has rowing boats, tugboats, fishing boats and a cargo ship.
+- **The trade happens on the quay.** A boat takes what's on the export pile and leaves what was ordered. Trains bring
+  goods to the harbour and take them away like any other depot (routes work there too).
+- **Performance:** a boat is one animated model. Frames are drawn only while a boat is moving and in view.
+
+### D2. Selling and buying
+
+- **Selling:** anything a train drops at a harbour goes out on the next boat, paid at about half a town's price. There's
+  no limit, so it's a steady but modest outlet: towns stay the better buyer.
+- **Buying:** on the harbour's card you order goods ("6 iron, 96 coins") and they come on the next boat, at about twice
+  a town's price. A standing order ("keep 6 iron here") makes it a supply line.
+- **Wanted this season:** each harbour has one good it pays double for, changing every 20 minutes or so. It gives a
+  little variety without a market that can go wrong. Nothing ever costs you.
+
+### D3. The mainline siding (trade at the map's edge)
+
+- **For maps without a river.** A depot that must sit at the edge of your land, track running off the mat: "the big
+  railway calls here". A mainline train comes by on its own and trades just like a boat does.
+- **Different prices:** it pays a little less for selling than a harbour, so harbours stay worth building.
+
+### D4. The trading house
+
+- **The city building for trade.** A landmark (like the college) that goes up in a city with a harbour or siding and a
+  warehouse.
+- **What it does:** better prices at its town's harbour or siding (a quarter better each way), and it unlocks the next
+  trade blueprints.
+- **Fits the plan:** it's the Trading specialty's building, ahead of the specialties being built.
+
+### Later in D, or after
+
+- A lighthouse (boats come more often), a fishing harbour (fish for towns), a lift bridge, a train ferry.
+- Cargo ships and gantry cranes (containers), and an airport.
+- Goods only from abroad: cocoa for a chocolate factory, animals for a zoo.
+- Player-steered boats.
+
+### Blueprint changes
+
+- **Harbours:** keep as they are (tier 3, after warehouses and bridges, stone in the price, a town by water).
+- **Imports and exports:** comes with Harbours (selling only), so the first boat already does something. Buying comes
+  with the trading house.
+- **New:** Mainline siding (logistics, tier 2–3: the river-less way in), and Trading house (civic).
+
+### Models wanted (Asset Gen)
+
+- A harbour quay depot (crane, bollards, a shed).
+- A mainline siding: a signal box and a long platform running off the mat.
+- A trading house.
+- Boats are already in the catalogue.
+
+### Order
+
+1. Harbour, boats and selling (D1, and D2's selling).
+2. Buying and standing orders (D2).
+3. The mainline siding (D3).
+4. The trading house and its prices (D4).
+
+The grand tour plays each step on the starter map (it has a river).
+
+### Questions
+
+- Is selling with no limit (at half price) right, or should a boat take only so much each visit?
+- Should buying wait for the trading house, or come with harbours from the start?
+- Does "wanted this season" add enough, or is it noise?
+
 ## Parked
 
 - Coin rewards for growth.
