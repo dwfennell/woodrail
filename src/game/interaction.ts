@@ -928,7 +928,8 @@ export class Interaction {
     this.lastY = y;
     const r = this.game.canvas.getBoundingClientRect();
     const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
-    this.game.director.setEdgePointer({ x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: false });
+    // A line started near the screen's edge doesn't pan the view until the finger has been clear of the edge once.
+    this.game.director.setEdgePointer({ x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
     this.draw.move(x, y);
   }
 

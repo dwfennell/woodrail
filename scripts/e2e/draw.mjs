@@ -203,7 +203,7 @@ if (site) {
   const fz = Math.sin(h);
   const lx = -fz;
   const lz = fx;
-  await focus(x + fx * 220 + lx * 80, z + fz * 220 + lz * 80, 260, q);
+  await focus(x + fx * 200 + lx * 90, z + fz * 200 + lz * 90, 420, q);
   await q.tap(".tray-draw");
   const pts = await q.evaluate(([x, z, fx, fz, lx, lz]) => {
     const w = window.woodrail;
