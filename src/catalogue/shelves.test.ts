@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CATALOGUE } from "./assets";
 import { fileOf } from "./registry";
-import { BRIDGE_PROP_SHELVES, PROP_TABS } from "./shelves";
+import { BRIDGE_PROP_SHELVES, PROP_TABS, RAIL_HELD_BACK } from "./shelves";
 
 const listed = [...PROP_TABS.flatMap((t) => t.shelves), ...BRIDGE_PROP_SHELVES].flatMap((s) => s.assets);
 const ids = new Set(CATALOGUE.map((a) => a.id));
@@ -15,10 +15,12 @@ describe("prop shelves", () => {
     expect(new Set(listed).size).toBe(listed.length);
   });
 
-  it("leave out what's deferred: roads, tunnels, the sky, the catalogue's track and trains", () => {
+  it("leave out what's deferred: roads, tunnels, the sky, the catalogue's track and trains, and what looks like railway but isn't yet", () => {
     for (const id of ["scene-road-straight", "scene-roundabout", "scene-car-park", "scene-rainbow", "scene-clouds", "scene-sun-moon"]) expect(listed).not.toContain(id);
     const offered = new Set(listed);
-    const rest = CATALOGUE.filter((a) => !offered.has(a.id) && !a.inGame && a.category !== "Track" && a.category !== "Trains" && a.category !== "Wagons");
+    for (const id of RAIL_HELD_BACK) expect(ids.has(id), id).toBe(true);
+    const held = new Set(RAIL_HELD_BACK);
+    const rest = CATALOGUE.filter((a) => !offered.has(a.id) && !held.has(a.id) && !a.inGame && a.category !== "Track" && a.category !== "Trains" && a.category !== "Wagons");
     expect(rest.map((a) => a.id).sort()).toEqual([
       "mech-double-tunnel",
       "mech-mountain-tunnel",

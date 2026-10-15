@@ -21,10 +21,19 @@ interface Barrier {
   angle: number;
 }
 
+interface Crossing {
+  c: LevelCrossing;
+  key: string;
+  barriers: Barrier[];
+  posts: Group[];
+}
+
+const keyOf = (c: LevelCrossing) => `${Math.round(c.x)}|${Math.round(c.z)}|${Math.round(c.y)}|${c.laneAlongX ? 1 : 0}`;
+
 /** Toy level crossings: a white post with a red lamp and a striped arm on each side, lowered while a train passes. */
 export class CrossingsView {
   readonly group = new Group();
-  private crossings: { c: LevelCrossing; barriers: Barrier[] }[] = [];
+  private crossings: Crossing[] = [];
   private readonly post: BufferGeometry;
   private readonly lamp: BufferGeometry;
   private readonly base: BufferGeometry;
@@ -43,39 +52,58 @@ export class CrossingsView {
     this.wood = mats.naturalWood;
   }
 
+  /**
+   * The crossings now on the map. Only what changed is rebuilt: a crossing that's still there keeps its posts and its
+   * arms just as they are (a change elsewhere, or a switch thrown, doesn't send them back up), new ones are added and
+   * gone ones removed.
+   */
   setCrossings(list: readonly LevelCrossing[]): void {
-    this.clear();
+    const had = new Map(this.crossings.map((x) => [x.key, x]));
+    const next: Crossing[] = [];
     for (const c of list) {
-      const r = c.laneAlongX ? { x: 1, z: 0 } : { x: 0, z: 1 };
-      const p = { x: -r.z, z: r.x };
-      const barriers: Barrier[] = [];
-      // Each barrier on the right of traffic coming toward the track, its arm reaching across that half of the lane.
-      for (const s of [1, -1]) {
-        const px = c.x + r.x * ALONG * s + p.x * ASIDE * s;
-        const pz = c.z + r.z * ALONG * s + p.z * ASIDE * s;
-        const post = new Group();
-        post.position.set(px, c.y, pz);
-        post.add(this.mesh(this.base, this.wood), this.mesh(this.post, this.white));
-        const lamp = this.mesh(this.lamp, this.red);
-        // Face the lamp toward the track.
-        lamp.rotation.y = Math.atan2(-r.x * s, -r.z * s);
-        post.add(lamp);
-        const pivot = new Group();
-        pivot.position.set(0, POST_H - 3, 0);
-        // Local +x along the arm: pointing across the lane, toward its middle.
-        pivot.rotation.y = -Math.atan2(-p.z * s, -p.x * s);
-        pivot.rotation.z = UP;
-        for (let k = 0; k < STRIPES; k++) {
-          const m = this.mesh(this.stripe, k % 2 ? this.white : this.red);
-          m.position.x = 4 + (ARM_LEN / STRIPES) * (k + 0.5);
-          pivot.add(m);
-        }
-        post.add(pivot);
-        this.group.add(post);
-        barriers.push({ pivot, angle: UP });
-      }
-      this.crossings.push({ c, barriers });
+      const key = keyOf(c);
+      const kept = had.get(key);
+      if (kept) {
+        had.delete(key);
+        next.push(kept);
+      } else next.push(this.build(c, key));
     }
+    for (const gone of had.values()) for (const post of gone.posts) this.group.remove(post);
+    this.crossings = next;
+  }
+
+  private build(c: LevelCrossing, key: string): Crossing {
+    const r = c.laneAlongX ? { x: 1, z: 0 } : { x: 0, z: 1 };
+    const p = { x: -r.z, z: r.x };
+    const barriers: Barrier[] = [];
+    const posts: Group[] = [];
+    // Each barrier on the right of traffic coming toward the track, its arm reaching across that half of the lane.
+    for (const s of [1, -1]) {
+      const px = c.x + r.x * ALONG * s + p.x * ASIDE * s;
+      const pz = c.z + r.z * ALONG * s + p.z * ASIDE * s;
+      const post = new Group();
+      post.position.set(px, c.y, pz);
+      post.add(this.mesh(this.base, this.wood), this.mesh(this.post, this.white));
+      const lamp = this.mesh(this.lamp, this.red);
+      // Face the lamp toward the track.
+      lamp.rotation.y = Math.atan2(-r.x * s, -r.z * s);
+      post.add(lamp);
+      const pivot = new Group();
+      pivot.position.set(0, POST_H - 3, 0);
+      // Local +x along the arm: pointing across the lane, toward its middle.
+      pivot.rotation.y = -Math.atan2(-p.z * s, -p.x * s);
+      pivot.rotation.z = UP;
+      for (let k = 0; k < STRIPES; k++) {
+        const m = this.mesh(this.stripe, k % 2 ? this.white : this.red);
+        m.position.x = 4 + (ARM_LEN / STRIPES) * (k + 0.5);
+        pivot.add(m);
+      }
+      post.add(pivot);
+      this.group.add(post);
+      posts.push(post);
+      barriers.push({ pivot, angle: UP });
+    }
+    return { c, key, barriers, posts };
   }
 
   /** Lower the arms where a car is near, raise them elsewhere. */
