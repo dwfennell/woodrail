@@ -203,25 +203,32 @@ if (site) {
   const fz = Math.sin(h);
   const lx = -fz;
   const lz = fx;
-  await focus(x + fx * 200 + lx * 90, z + fz * 200 + lz * 90, 420, q);
+  // Framed so the whole stroke is on screen, clear of the edges (where the view would edge-pan) and the tray. (A focus
+  // only ever comes closer, so one framing.)
+  let pts = [];
+  for (const radius of [700]) {
+    await focus(x + fx * 200 + lx * 90, z + fz * 200 + lz * 90, radius, q);
+    pts = await q.evaluate(([x, z, fx, fz, lx, lz]) => {
+      const w = window.woodrail;
+      const V = w.camera.position.constructor;
+      const r = w.canvas.getBoundingClientRect();
+      const sc = (a, b) => {
+        const v = new V(a, 0, b).project(w.camera);
+        return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+      };
+      const out = [];
+      for (let d = 0; d <= 220; d += 20) out.push(sc(x + fx * d, z + fz * d));
+      for (let a = Math.PI / 12; a <= Math.PI / 2 + 0.01; a += Math.PI / 12) {
+        const along = 220 + 180 * Math.sin(a);
+        const side = 180 * (1 - Math.cos(a));
+        out.push(sc(x + fx * along + lx * side, z + fz * along + lz * side));
+      }
+      return out;
+    }, [x, z, fx, fz, lx, lz]);
+  }
+  const fits = pts.every(([px, py]) => px > 60 && px < 330 && py > 120 && py < 600);
+  check("on a phone, the stroke is framed clear of the edges", fits, fits ? "" : JSON.stringify(pts.map(([a, b]) => [Math.round(a), Math.round(b)])));
   await q.tap(".tray-draw");
-  const pts = await q.evaluate(([x, z, fx, fz, lx, lz]) => {
-    const w = window.woodrail;
-    const V = w.camera.position.constructor;
-    const r = w.canvas.getBoundingClientRect();
-    const sc = (a, b) => {
-      const v = new V(a, 0, b).project(w.camera);
-      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
-    };
-    const out = [];
-    for (let d = 0; d <= 220; d += 20) out.push(sc(x + fx * d, z + fz * d));
-    for (let a = Math.PI / 12; a <= Math.PI / 2 + 0.01; a += Math.PI / 12) {
-      const along = 220 + 180 * Math.sin(a);
-      const side = 180 * (1 - Math.cos(a));
-      out.push(sc(x + fx * along + lx * side, z + fz * along + lz * side));
-    }
-    return out;
-  }, [x, z, fx, fz, lx, lz]);
   const cdp = await ctx.newCDPSession(q);
   const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
   const n0 = await q.evaluate(() => window.woodrail.layout.pieceCount);
