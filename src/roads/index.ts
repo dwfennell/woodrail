@@ -1,5 +1,5 @@
 export * from "./pieces";
 export * from "./lanes";
 export * from "./place";
-export * from "./town-plan";
+export * from "./grow-town";
 export * from "./auto";

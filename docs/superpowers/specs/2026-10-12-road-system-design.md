@@ -74,7 +74,7 @@ can cross. A road byte's bit 5 marks an auto road (piece codes stay under 32), s
 
 ## 3. Generated roads and town streets
 
-- **Town streets are road pieces, laid streets first (chosen).** See §3a.
+- **Town streets are road pieces, laid as the town grows (chosen).** See §3a.
 - **No generated roads between towns (chosen).** The generator stops laying country lanes (`joinLanes`, and the
   lane stubs that cross plot edges). Rivers, towns and trees must come out exactly as before, so dropping the lanes
   must not change any other random stream: the generator still draws the numbers the lanes used. Hills change only
@@ -87,63 +87,61 @@ can cross. A road byte's bit 5 marks an auto road (piece codes stay under 32), s
   A gate square one block up is brought down to the felt, as long as that leaves no step of two beside it. Gates
   never go on a station's approach or beside its track. A gate is an ordinary piece, so the player can see where to
   start a road, and can remove or extend it. With §3a, gates sit at the outer end of each main street.
-  Measured on 200 seeds: 98.7% of towns get a gate, 1.7 per town on average.
+  Measured on 200 seeds: 98.7% of towns get a gate, 1.7 per town on average. *Since replaced: towns that grow leave
+  every street end open for roads to join (§3a).*
 - **Old saves.** Lanes already in a save are kept. On load, a lane square without a piece gets the piece that fits
   its lane neighbours.
 
-## 3a. Town streets (chosen: streets first)
+## 3a. Towns that grow (chosen)
 
-Town interiors are made of road pieces and are read-only to the player. The street plan is laid first, then
-buildings go on lots facing the streets. The aim is a network that makes sense (every building on a street, every
-street reaching the station and a gate) and looks like a small toy town.
+Town interiors are made of road pieces and are read-only to the player. Fixed street plans (laid first, then
+buildings on their lots) came out either sparse or too big, with Station Road facing the station's kept-clear
+approach on one side, and every town looked alike. So towns now *grow*: one set of rules, `growTown` in
+`src/roads/grow-town.ts`, lays a town out on a new map and grows it in Game mode, a building at a time. An interactive
+prototype of the rules was agreed with the user before the game version.
 
-**Town size (chosen).** Towns grew from a radius of 210 mm (about 13 squares besides the station) to 288 mm (four
-squares, about 27), so each side has room for a street and houses. That still read as sparse and same-y in play (a
-one-square main street, more street than houses), so each town now takes a radius of 4½, 5, 5½ or 6 squares (324 to
-432 mm), by a hash of where it is: the town random stream is unchanged, and towns differ in size.
+**The station's approach (chosen: one track).** A town's station keeps only the track's own row clear, 6 squares
+each way: trains come in on one straight track, and houses can stand beside the station and the line. Depots keep
+their wider approach.
 
-**The plan.** A town is a disc of squares (its radius as above) around its station. The track runs
-through it along a map axis, and the platform is on one side. The plan works in the town's own axes: *along* the
-track and *out* to each side. `planTown(grid, town)` in `src/roads/town-plan.ts` is pure and its own random stream,
-and gives:
+**Start.** A town starts as its station and three squares of Station Road in front of the platform. About two towns
+in five (by where they are) also start with three squares behind the station, across the line, reached by a
+footbridge; the rest open that street when they reach 14 buildings.
 
-- **Station Road:** on each side, the row two squares out from the track: along the platform's front on the platform
-  side, and one row of houses back from the track on the far side. It runs as far as the town does, and its ends stay
-  open for roads laid on.
-- **Main street:** on each side, from the middle of Station Road (or a square either way) straight out to the town's
-  edge. Its outer end leads on to that side's town gate.
-- **Side streets:** off the main street every 3 squares out, along the track, two rows of houses apart, where the
-  town reaches that far. Their far ends stay open.
-- **Each side's own plan:** by a hash of the town's centre and side (so a town planned again as it grows keeps it),
-  the main street is shifted, and about half the sides with room take a *loop* instead of a plain high street: two
-  short streets out from Station Road, two squares either side of the main street's line, meet a cross street three
-  squares out, and the main street goes on out from the cross street's middle. The block inside the loop is all
-  houses.
-- **Lots:** every other town square that touches a street is a building lot, 1 or 2 squares along the street. Each
-  lot records the street it faces (its door side). Corners can face either street.
-- **The rest:** squares that touch no street stay as town squares without a road (a little green). Track still
-  can't cross them, and they're left free for a fountain, trees or a bandstand.
-- **Pieces:** each street square gets the piece for its street neighbours (straight, bend, T, crossroads, or a
-  rounded dead end where a street stops). Street squares stay `SURF_ROAD` with a road byte, so track still can't
-  cross them and the player can't change them.
-- The near and far sides aren't joined inside the town, because the track runs between them. Each side has its own
-  gate, so the player's roads can join them up outside the town, over a level crossing.
+**Each step adds one building.**
 
-Measured on 60 seeds: per town, 8.4 buildings (4.6 before), 14.8 street squares, 0.6 greens and 1.5 gates.
-Generation takes the same time (12.7 ms a map), with 6 towns a map as before. With the varied radius and plans (60
-starter maps): per town 22.3 buildings (10.4 before), 26.6 street squares, 5.3 greens; 350 towns (360 before: a
-bigger town fits in fewer places); generation 14 to 16 ms a map, within noise of before.
+1. Every empty square beside a street is a possible lot, facing that street. Distance is measured along the streets
+   from Station Road.
+2. If two or more lots are within a square of the town's current edge, it builds on the best: close to the station,
+   beside other buildings, and opposite a building across the street, so both sides of a street fill together. Two
+   kinds of square are held back while there's other room: the square straight on from a street's end, and a gap
+   every 3 squares along a street, where a side street can leave later. About a third of buildings take a second
+   square beside them along the street (terraces, and room for a landmark).
+3. Otherwise it lays one square of street, close to the middle where it can, so towns grow in blocks: a side street
+   leaves a plain stretch of street that has houses, runs out three squares (two lots deep), then turns and runs
+   alongside, joining up with the next street where it can. Ribbons along the way to other towns start at 12
+   buildings. No street is two wide, parallel streets keep two lots between them, and junctions keep apart.
+4. The middle evolves, at most one change a step and only to buildings already standing: from 6 buildings, a house
+   close to the station may become a shop (corners first, the shopping area widening as the town grows); from 12, a
+   house within two squares of the station gains a second floor. Game mode's landmarks are unchanged.
 
-**Buildings.** Today's house and shop records go on the lots: one building per lot, with its door facing the street.
-Land editing's L4 (catalogue towns) then chooses what model stands on each lot, from the lot's size and facing. Town
-furniture keeps going along the street edges. Every seed gives a different town from today, which the user has
-accepted.
+Every street end stays open (a straight on through), so the player's roads can join a town wherever a street ends;
+the town gates of §3 are gone. Towns grow only on level ground at the station's height, on squares the game allows
+(clear of track, props and the station's approach, and every town still reachable).
 
-**Old saves.** Town street squares saved without road bytes are still drawn as felt, as before, so old towns keep
-their look. The felt draws only street squares that have no road piece.
+**New maps.** Each town is grown 6 to 14 buildings, by where it is. Its flat ground (five squares from its centre)
+is kept clear of hills and trees for it to grow on, but stays grass until it's built on: a town is only its station,
+streets and buildings. Measured on 60 maps: 9.4 buildings and 10.4 street squares a town, a quarter of them shops;
+generation 15.6 ms a map (12.2 before).
 
-**The player's roads** join a town only at its gates or where a street ends at the town's edge, where a street has
-an open end. A road built up against the side of a street doesn't join it.
+**Game mode.** `nextLots` takes the town's next steps from `growTown` and checks each in full with the land editor
+(every town still reachable), stopping at the first it refuses; where the streets can't reach (a river, a hill,
+track), it falls back to the town's greens and the grass bordering it, as before. `buildOnLots` puts up one-floor
+houses and applies the steps' changes, and the changed buildings are dressed again. Finding 4 lots: 6.5 ms (15.8
+before), since each square gets a quick look and only each chosen lot the full check.
+
+**Old saves.** Towns keep the buildings and streets they have and grow on from there under these rules. Town street
+squares saved without road bytes are still drawn as felt.
 
 ## 3b. Rivers and hills (bridges and ramps)
 
@@ -240,7 +238,10 @@ goals are deferred.
 - Road-over-rail bridges.
 - Multi-square pieces: roundabout, wide curves, car park.
 - Bus stops, traffic lights and street furniture beside roads.
-- A back street in deeper towns, and town greens with something on them (a fountain, a bandstand).
+- Town greens with something on them (a fountain, a bandstand), kept at some new junctions.
+- Town streets that cross the line (level crossings) or a river (bridges) as a town grows, as the prototype did.
+- Growing along the player's roads into a town, and a hierarchy of town sizes across a map (one market town, a few
+  villages, the rest hamlets).
 - Vehicles on roads.
 - Road costs and goals in Game mode.
 - One-way roads half a square wide: the port model has room for them, but no pieces yet.

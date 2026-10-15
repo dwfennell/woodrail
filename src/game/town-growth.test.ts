@@ -96,8 +96,10 @@ describe("town growth", () => {
         const front = g.index(g.colOf(c) + [1, 0, -1, 0][l.front!], g.rowOf(c) + [0, 1, 0, -1][l.front!]);
         expect([SURF_ROAD, SURF_LANE], `${town.name}: a street in front`).toContain(g.surface[front]);
       }
-      // New streets join the ones there were: no stranded pieces of street.
-      expect(networks(town), `${town.name}: street networks`).toBe(before);
+      // New streets join the ones there were: no stranded pieces of street. (A town may open a street behind its
+      // station, across the line, reached by footbridge: one network each side of the line at most.)
+      expect(networks(town), `${town.name}: street networks`).toBeGreaterThanOrEqual(before);
+      expect(networks(town), `${town.name}: street networks`).toBeLessThanOrEqual(Math.max(before, 2));
     }
     expect(reachable(land)).toBe(true);
   });

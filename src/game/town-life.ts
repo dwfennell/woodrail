@@ -8,7 +8,7 @@ import { addTownProps } from "../props/towns";
 import type { SignBadge } from "../render/landscape-view";
 import type { Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
-import { buildOnLots, lotPoint, nextLots } from "./town-growth";
+import { buildOnLots, changedBuildings, lotPoint, nextLots } from "./town-growth";
 import { LANDMARKS, townLandmarks } from "./landmarks";
 import { housesBy, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
@@ -141,6 +141,9 @@ export class TownLife {
     }
     if (lots.length > 0) {
       const slots = buildOnLots(g.landscape, town, lots);
+      // A building that changed (a house that's now a shop, or has a second floor) is dressed again.
+      const changed = new Set(changedBuildings(lots));
+      for (const p of [...g.props.all()]) if (p.building !== undefined && changed.has(p.building)) g.props.remove(p.id);
       addTownProps(g.landscape, g.props);
       g.editLand(slots);
       g.propsChanged();

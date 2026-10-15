@@ -192,9 +192,9 @@ export class LandEditor {
   /**
    * Can a building go on these squares (a town growing)? Each must be open grass or a town green (a tree there is
    * felled), all at one height, not a station's way in, clear of track and props; and every town and depot must stay
-   * reachable.
+   * reachable (unless `reach` is false: a quick look at the squares alone, for sifting many).
    */
-  checkLot(cells: readonly number[]): LandBlock | null {
+  checkLot(cells: readonly number[], reach = true): LandBlock | null {
     const g = this.land.grid;
     for (const t of cells) {
       if (g.surface[t] !== SURF_GRASS && g.surface[t] !== SURF_TOWN) return "not-grass";
@@ -206,7 +206,7 @@ export class LandEditor {
       if (this.trackIn(x0, z0, x0 + CELL, z0 + CELL)) return "track";
       if (this.occupants.inRect(x0, z0, x0 + CELL, z0 + CELL)) return "prop";
     }
-    if (this.wasReachable && cells.some((t) => g.surface[t] === SURF_GRASS)) {
+    if (reach && this.wasReachable && cells.some((t) => g.surface[t] === SURF_GRASS)) {
       const before = cells.map((t) => g.feature[t]);
       for (const t of cells) g.feature[t] = FEAT_BUILDING;
       const ok = reachable(this.land);
