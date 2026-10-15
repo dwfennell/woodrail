@@ -44,6 +44,8 @@ export interface GrowOptions {
   canUse(i: number): boolean;
   /** Other towns (or anywhere a road leads): the town's ribbons reach toward the nearest. */
   toward?: readonly { x: number; z: number }[];
+  /** The first this many buildings take two squares where there's any such lot (for big buildings: landmarks). */
+  wide?: number;
 }
 
 /** How far a town may grow from its centre, in squares. */
@@ -279,6 +281,16 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
     return out.sort((x, y) => y.score - x.score || x.t - y.t);
   };
 
+  /** The square beside a lot along its street that could join it (free, facing the same street), or −1. */
+  const partner = (l: Lot): number => {
+    for (const p of [(l.e + 1) & 3, (l.e + 3) & 3]) {
+      const j = step(l.i, p);
+      if (is(j, FREE) && isStreet(step(j, l.e)) && !reserved(j, step(j, l.e), (l.e + 2) & 3)) return j;
+    }
+    return -1;
+  };
+  let wide = options.wide ?? 0;
+
   const steps: GrowthStep[] = [];
   // A town with no Station Road yet (a new one) lays it first.
   let pending: [number, number][] = [];
@@ -301,7 +313,12 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
       const ext = tries < 5 ? extensions() : [];
       if (near.length >= 2 || (all.length > 0 && ext.length === 0)) {
         const open = all.filter((l) => !l.reserved);
-        const pool = near.length >= 2 ? near : open.length > 0 ? open : all;
+        let pool = near.length >= 2 ? near : open.length > 0 ? open : all;
+        if (wide > 0) {
+          // A big building wants two squares: the best lot that has them, close in if it can be.
+          const pairs = (ls: Lot[]) => ls.filter((l) => partner(l) !== -1);
+          pool = [pairs(pool), pairs(open), pairs(all)].find((ls) => ls.length > 0) ?? pool;
+        }
         built = pool.reduce((x, y) => (lotScore(y) > lotScore(x) || (lotScore(y) === lotScore(x) && y.i < x.i) ? y : x));
       } else if (ext.length > 0) streets.push(...lay([ext[0].t]));
       else break;
@@ -309,15 +326,15 @@ export function growTown(grid: LandscapeGrid, town: GrowingTown, n: number, opti
     if (!built) break;
     state.set(built.i, BUILT);
     const cells = [built.i];
-    // Sometimes two squares side by side along the street, both facing it.
-    if (noise(15, built.i) < PAIRED) {
-      for (const p of [(built.e + 1) & 3, (built.e + 3) & 3]) {
-        const j = step(built.i, p);
-        if (cells.length > 1 || !is(j, FREE) || !isStreet(step(j, built.e)) || reserved(j, step(j, built.e), (built.e + 2) & 3)) continue;
+    // Sometimes (or when asked for) two squares side by side along the street, both facing it.
+    if (wide > 0 || noise(15, built.i) < PAIRED) {
+      const j = partner(built);
+      if (j !== -1) {
         state.set(j, BUILT);
         cells.push(j);
       }
     }
+    if (wide > 0) wide--;
     count++;
     const corner = cells.some((i) => streetsBeside(i) >= 2);
     records.set(built.i, { id: -1 - steps.length, kind: "house", floors: 1, front: built.e });

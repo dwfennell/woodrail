@@ -74,6 +74,12 @@ describe("growTown", () => {
     }
   });
 
+  it("gives the first buildings two squares when asked (wide: room for a landmark)", () => {
+    const { g, town, canUse } = openSite();
+    const steps = growTown(g, town, 6, { canUse, wide: 3 });
+    expect(steps.slice(0, 3).map((s) => s.cells.length)).toEqual([2, 2, 2]);
+  });
+
   it("evolves its middle: houses near the station become shops and gain floors", () => {
     const { g, town, canUse } = openSite();
     const steps = growTown(g, town, 30, { canUse });

@@ -37,9 +37,10 @@ const EDGES = [
  * street with the street squares laid for it, on level land the editor allows. Then, if the streets can't reach far
  * enough (a river, a hill, track), its greens beside a street and the grass bordering the town. Each is checked by
  * `editor` (clear of track, props and stations' ways in, every town and depot still reachable), counting the lots
- * chosen before it. Changes nothing.
+ * chosen before it. With `wide`, the first that many lots take two squares where any lot has them (landmarks are big
+ * buildings). Changes nothing.
  */
-export function nextLots(land: Landscape, town: Town, editor: LandEditor, n: number): Lot[] {
+export function nextLots(land: Landscape, town: Town, editor: LandEditor, n: number, options: { wide?: number } = {}): Lot[] {
   const g = land.grid;
   const lots: Lot[] = [];
   const taken: [number, number][] = [];
@@ -55,6 +56,7 @@ export function nextLots(land: Landscape, town: Town, editor: LandEditor, n: num
       // A quick look at each square; each lot is checked in full (every town still reachable) below.
       canUse: (i) => editor.checkLot([i], false) === null,
       toward: land.towns.filter((t) => t !== town).map((t) => t.centre),
+      wide: options.wide,
     });
     for (const step of steps) {
       // Each step builds on the ones before: the first that the editor refuses as a whole ends the run.

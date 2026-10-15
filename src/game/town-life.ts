@@ -129,10 +129,11 @@ export class TownLife {
     const g = this.game;
     const houses = housesBy(status.level) - housesBy(from);
     const editor = new LandEditor(g.landscape, g.layout, { inRect: (x0, z0, x1, z1) => propsInRect(g.props, (a) => g.footprintOf(a), x0, z0, x1, z1) });
-    const lots = nextLots(g.landscape, town, editor, houses);
     // Its landmarks go up as it reaches their levels (every one it hasn't got, if it grew by more than one): each on a
-    // lot of its own, a two-square one if there is one (they're big buildings).
+    // lot of its own, a two-square one if there is one (they're big buildings), so ask for that many.
     const have = townLandmarks(town);
+    const wide = LANDMARKS.filter((m) => m.level <= status.level && !have.has(m.id)).length;
+    const lots = nextLots(g.landscape, town, editor, houses, { wide });
     for (const mark of LANDMARKS) {
       if (mark.level > status.level || have.has(mark.id)) continue;
       const free = lots.filter((l) => !l.landmark);
