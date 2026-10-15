@@ -165,6 +165,10 @@ async function trayDrag(label, i) {
     await p.mouse.move(sx, sy - 20 * k);
     await frame();
   }
+  // Picked up (the tray saw the press go up and out): in hand before it's carried over the map.
+  await until(() => window.woodrail.interaction.mode.kind.startsWith("drag"));
+  const held = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+  if (!held.startsWith("drag")) console.log(`(${label}: not picked up from the tray: ${held}, tray scrolled to ${await p.evaluate(() => document.querySelector(".tray-item")?.parentElement?.scrollLeft)})`);
   const [x, y] = await p.evaluate((i) => T.screen(i), i);
   const ty = sy - 80;
   for (let k = 1; k <= 10; k++) {
