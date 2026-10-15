@@ -19,6 +19,10 @@ export const SIM_HZ = 120;
 export const SIM_DT = 1 / SIM_HZ;
 /** A train stopped at the end of the line waits this long (2 s) before driving back. */
 export const TURNBACK_TICKS = 2 * SIM_HZ;
+/** How far back (mm) an engine following another train's engine holds. */
+const FOLLOW_GAP = 10;
+const hasEngine = (t: Train): boolean => t.cars.some((c) => c.kind === "engine");
+
 /** How far along the track (mm) a re-railed train may be slid to find room, and in what steps. */
 const RERAIL_SLIDE = 1200;
 const RERAIL_STEP = 24;
@@ -531,7 +535,10 @@ export class Sim {
         for (let side = 0; side < 2; side++) {
           const front = side === 1;
           this.endFace(b, front, otherFace);
-          if (Math.hypot(face.x - otherFace.x, face.z - otherFace.z) > reach || Math.abs(face.y - otherFace.y) > 20) continue;
+          // An engine behind another train's engine holds back a little short of touching (it follows, it doesn't
+          // couple), so it waits smoothly rather than stopping and starting.
+          const follow = !front && hasEngine(a) && hasEngine(b) ? FOLLOW_GAP : 0;
+          if (Math.hypot(face.x - otherFace.x, face.z - otherFace.z) > reach + follow || Math.abs(face.y - otherFace.y) > 20) continue;
           ends = true;
           const closing = a.speed + (front ? b.speed : -b.speed);
           if (closing <= 0) continue;
@@ -542,8 +549,14 @@ export class Sim {
             if (b.speed > 0) this.meet(b);
             continue;
           }
-          // Catching up with a train ahead couples on, whichever way the cars' magnets face (a toy that never
-          // refuses), however fast: they go on together at their shared pace.
+          // Two trains each with an engine stay two (each has its own lever, and route): the one behind keeps pace
+          // with the one ahead.
+          if (follow > 0) {
+            a.speed = Math.min(a.speed, Math.max(0, b.speed));
+            continue;
+          }
+          // Catching up with wagons (or an engine catching wagons) couples on, whichever way the cars' magnets face
+          // (a toy that never refuses), however fast: they go on together at their shared pace.
           this.couple(a, b, front);
           return this.resolveContacts();
         }

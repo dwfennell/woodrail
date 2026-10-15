@@ -306,6 +306,21 @@ describe("coupling", () => {
     expect(sim.drainEvents().some((e) => e.kind === "derailed")).toBe(false);
   });
 
+  it("an engine catching up with another train's engine follows it, rather than coupling on", () => {
+    const { layout, ids } = longLine(14);
+    const sim = new Sim(layout);
+    const ahead = sim.addTrain(["engine", "hopper"], { pieceId: ids[7], pathIndex: 0, reversed: false, s: 100 });
+    const behind = sim.addTrain(["engine", "hopper"], { pieceId: ids[4], pathIndex: 0, reversed: false, s: 100 });
+    if (ahead.kind !== "placed" || behind.kind !== "placed") throw new Error("not placed");
+    // The one ahead stands still; the one behind runs up to it.
+    sim.setLever(sim.getTrain(behind.trainId)!.cars[0].id, 1);
+    run(sim, 8);
+    const ev = sim.drainEvents();
+    expect(sim.trainCount).toBe(2);
+    expect(ev.some((e) => e.kind === "coupled" || e.kind === "derailed")).toBe(false);
+    expect(sim.getTrain(behind.trainId)!.speed).toBe(0);
+  });
+
   it("two trains meeting head on stop, wait, and each turn back: no crash, no coupling", () => {
     const { layout, ids } = longLine(14);
     const sim = new Sim(layout);
