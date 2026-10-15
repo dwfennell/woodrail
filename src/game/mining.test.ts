@@ -41,9 +41,9 @@ describe("mining and iron", () => {
     expect(f.piles[CARGO.iron.index] + m.piles[CARGO.coal.index]).toBeGreaterThan(0);
   });
 
-  it("cities want iron from their second star on", () => {
-    expect(townLevel(4).wants.iron).toBeUndefined();
-    expect(townLevel(5).wants.iron).toBe(10);
-    expect(townLevel(6).wants.iron).toBe(15);
+  it("a city ★ wants iron to grow its second star, and more from then on", () => {
+    expect(townLevel(3).wants.iron).toBeUndefined();
+    expect(townLevel(4).wants.iron).toBe(10);
+    expect(townLevel(5).wants.iron).toBe(15);
   });
 });

@@ -71,7 +71,7 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   carpenter: { takes: ["planks"], gives: ["furniture"], cycle: { uses: { planks: 3 }, makes: { furniture: 1 }, seconds: 12 } },
   smithy: { takes: ["iron"], gives: ["tools"], cycle: { uses: { iron: 2 }, makes: { tools: 1 }, seconds: 14 } },
   // A power station burns coal; while it has some, electric engines run.
-  power: { takes: ["coal"], gives: [], cycle: { uses: { coal: 1 }, makes: {}, seconds: 20 } },
+  power: { takes: ["coal"], gives: [], cycle: { uses: { coal: 1 }, makes: {}, seconds: 60 } },
   // Keeps goods for later: everything, more of it. Routed trains drop or pick up there as their stops say.
   warehouse: { takes: [...CARGO_KINDS], gives: [...CARGO_KINDS], cap: 24, routedOnly: true },
 };
@@ -91,8 +91,9 @@ export function pilesOf(role: DepotRole): CargoKind[] {
 export type StopAction = "both" | "drop" | "pick";
 
 /**
- * A train's route: the depots it stops at, in order, and what it does at each. A routed train is served only at its
- * stops, and the switches ahead of it are set toward `next` (see `steer`); passing that stop moves `next` on.
+ * A train's route: the depots it stops at, in order, and what it does at each. A routed train is served only at the
+ * stop it's heading for, `next` (stops in a row at one depot are one visit), and the switches ahead of it are set
+ * toward it (see `steer`); passing that stop moves `next` on.
  */
 export interface Route {
   stops: { depotId: number; action: StopAction }[];
@@ -449,8 +450,20 @@ export class Economy {
     const found = this.sim.findCar(carId);
     if (!found) return null;
     const car = found.train.cars[found.index].kind;
-    for (const k of RECIPES[d.role].gives) if ((c.kind === null || c.kind === k) && canCarry(car, k) && d.piles[CARGO[k].index] > 0) return k;
-    return null;
+    let best: CargoKind | null = null;
+    let fewest = Infinity;
+    for (const k of RECIPES[d.role].gives) {
+      if ((c.kind !== null && c.kind !== k) || !canCarry(car, k) || d.piles[CARGO[k].index] <= 0) continue;
+      if (c.kind !== null) return k;
+      // An empty wagon takes the good its train carries least of: a train of hoppers at a mine takes coal and ore both.
+      let n = 0;
+      for (const other of found.train.cars) if (this.cargo.get(other.id)?.kind === k) n++;
+      if (n < fewest) {
+        best = k;
+        fewest = n;
+      }
+    }
+    return best;
   }
 
   /**
@@ -757,8 +770,12 @@ export class Economy {
       const on = found.train.bogies.some((b) => b.pieceId === d.pieceId);
       if (on) r.at = true;
       else if (r.at) {
+        // Left it: on past it, and past any stops after it at the same depot (they were the same visit).
         r.at = false;
-        r.next = (r.next + 1) % r.stops.length;
+        for (let k = 0; k < r.stops.length; k++) {
+          r.next = (r.next + 1) % r.stops.length;
+          if (r.stops[r.next].depotId !== stop.depotId) break;
+        }
       }
     }
   }
@@ -795,8 +812,18 @@ export class Economy {
 
 
 /** Is depot `depotId` a stop on `route` where the train may `act` (drop or pick up)? */
+/**
+ * Does a routed train `act` at this depot now? Only at the stop it's heading for (with any stops right after it at
+ * the same depot: one visit), so goods picked up for a later stop aren't dropped at another on the way.
+ */
 function stopAt(route: Route, depotId: number, act: "drop" | "pick"): boolean {
-  return route.stops.some((s) => s.depotId === depotId && (s.action === "both" || s.action === act));
+  const n = route.stops.length;
+  for (let k = 0; k < n; k++) {
+    const s = route.stops[(route.next + k) % n];
+    if (s.depotId !== depotId) return false;
+    if (s.action === "both" || s.action === act) return true;
+  }
+  return false;
 }
 
 /** Ticks in one cycle of `seconds` at `rate` (whole ticks, so production stays in step with the sim). */

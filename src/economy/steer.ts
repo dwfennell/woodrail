@@ -4,7 +4,7 @@ import { flipCursor, type Cursor, type Train } from "../sim";
 /** How far ahead of a train (pieces) a switch is set for it: the next one it will choose at, within this many. */
 const LOOK_AHEAD = 6;
 /** The most track pieces a search for the way to a stop goes through. */
-const SEARCH = 600;
+const SEARCH = 4000;
 
 /** The way out of a piece entered through `entry`: each path from that end, and where it leaves (−1: a buffer). */
 function waysFrom(layout: Layout, pieceId: number, entry: number): { option: number; exit: number }[] {
@@ -26,22 +26,37 @@ function next(layout: Layout, pieceId: number, exit: number): { pieceId: number;
   return joined === -1 ? null : { pieceId: pieceOfRef(joined), entry: indexOfRef(joined) };
 }
 
-/** How many pieces from (piece, entry) to `target` along the track, going on (no turning back); −1 if it can't be reached. */
-function distanceTo(layout: Layout, start: { pieceId: number; entry: number }, target: number): number {
+/** What turning back at the end of a line costs a way to a stop, in pieces: a way straight on is better. */
+const TURN_COST = 12;
+
+/**
+ * How many pieces from (piece, entry) to `target` along the track; −1 if it can't be reached. A train turns back at
+ * the end of a line (a buffer, or track that just stops), so a way may too, at a cost (`TURN_COST`).
+ */
+export function distanceTo(layout: Layout, start: { pieceId: number; entry: number }, target: number): number {
   const seen = new Set<number>([start.pieceId * 8 + start.entry]);
-  let frontier = [start];
-  for (let depth = 0; frontier.length > 0 && seen.size < SEARCH; depth++) {
-    const after: { pieceId: number; entry: number }[] = [];
-    for (const at of frontier) {
+  // Ways by length: turning back puts a way further down the list.
+  const byDepth: { pieceId: number; entry: number }[][] = [[start]];
+  let count = 1;
+  for (let depth = 0; depth < byDepth.length && count < SEARCH; depth++) {
+    for (const at of byDepth[depth] ?? []) {
       if (at.pieceId === target) return depth;
+      const push = (n: { pieceId: number; entry: number }, d: number) => {
+        if (seen.has(n.pieceId * 8 + n.entry)) return;
+        seen.add(n.pieceId * 8 + n.entry);
+        (byDepth[d] ??= []).push(n);
+        count++;
+      };
       for (const w of waysFrom(layout, at.pieceId, at.entry)) {
         const n = next(layout, at.pieceId, w.exit);
-        if (!n || seen.has(n.pieceId * 8 + n.entry)) continue;
-        seen.add(n.pieceId * 8 + n.entry);
-        after.push(n);
+        if (n) push(n, depth + 1);
+        // The end of the line: the train comes back the way it came, through this piece and out where it came in.
+        else {
+          const back = next(layout, at.pieceId, at.entry);
+          if (back) push(back, depth + TURN_COST);
+        }
       }
     }
-    frontier = after;
   }
   return -1;
 }

@@ -69,4 +69,57 @@ describe("routes steer", () => {
     expect(visits.slice(0, 2)).toEqual([j.b, j.a]);
     expect(j.economy.routeOf(j.engine().id)!.next).toBeGreaterThanOrEqual(0);
   });
+
+  it("finds a stop it can reach only by turning back at the end of a line", () => {
+    // Trunk → switch S; S's straight way runs to depot A (an end), its curve on to a second switch S2, entered from
+    // its curve end (trailing): through S2 the track goes on to an open end, so depot T on S2's straight way is
+    // reached by running to that end, turning back, and taking S2 from its trunk.
+    const layout = new Layout();
+    const t0 = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    const t1 = lay(layout, connectorRef(t0, 1), "straight-216");
+    const sw = lay(layout, otherEnd(layout, t1), "switch");
+    const a1 = lay(layout, connectorRef(sw, 1), "straight-216");
+    const a = lay(layout, otherEnd(layout, a1), "depot-farm");
+    const b1 = lay(layout, connectorRef(sw, 2), "straight-216");
+    const fit = lay(layout, otherEnd(layout, b1), "adapter-socket");
+    const sw2 = appendPiece(layout, "switch", false, otherEnd(layout, fit), 2);
+    const e1 = lay(layout, connectorRef(sw2, 0), "straight-216");
+    lay(layout, otherEnd(layout, e1), "straight-216");
+    const c1 = lay(layout, connectorRef(sw2, 1), "straight-216");
+    const t = lay(layout, otherEnd(layout, c1), "depot-mill");
+    const sim = new Sim(layout);
+    const placed = sim.addTrain(["engine", "hopper"], { pieceId: t1, pathIndex: 0, reversed: false, s: 200 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const economy = new Economy(layout, sim);
+    economy.addDepot("farm", a);
+    const target = economy.addDepot("mill", t);
+    const engine = sim.getTrain(sim.trainIds()[0])!.cars.find((c) => c.kind === "engine")!;
+    sim.setLever(engine.id, 1);
+    economy.setRoute(engine.id, { stops: [{ depotId: target.id, action: "both" }], next: 0 });
+    let reached = false;
+    let farm = false;
+    for (let i = 0; i < 120 * SIM_HZ && !reached; i++) {
+      sim.tick();
+      economy.tick();
+      const bogies = sim.getTrain(sim.trainIds()[0])!.bogies;
+      reached = bogies.some((x) => x.pieceId === t);
+      farm ||= bogies.some((x) => x.pieceId === a);
+    }
+    expect(reached).toBe(true);
+    expect(farm, "never down the wrong branch").toBe(false);
+  });
+
+  it("stops in a row at one depot are one visit: leaving it, the route goes on past them all", () => {
+    const j = junction();
+    j.economy.setRoute(j.engine().id, {
+      stops: [
+        { depotId: j.depotB.id, action: "drop" },
+        { depotId: j.depotB.id, action: "pick" },
+        { depotId: j.depotA.id, action: "both" },
+      ],
+      next: 0,
+    });
+    const visits = j.run(90);
+    expect(visits.slice(0, 2)).toEqual([j.b, j.a]);
+  });
 });

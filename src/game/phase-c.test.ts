@@ -24,6 +24,8 @@ describe("Phase C, the rest", () => {
     for (let i = 0; i < ticks(40); i++) e.tick();
     expect(carp.piles[CARGO.furniture.index]).toBe(2);
     expect(smith.piles[CARGO.tools.index]).toBe(2);
+    expect(e.working(power)).toBe(true);
+    for (let i = 0; i < ticks(30); i++) e.tick();
     expect(e.working(power)).toBe(false);
   });
 

@@ -113,7 +113,7 @@ describe("cargo stays with its wagon", () => {
 });
 
 describe("routes", () => {
-  it("a routed train is served only at its stops, dropping or picking up as each says; with none, anywhere", () => {
+  it("a routed train is served only at the stop it's heading for, dropping or picking up as it says; with none, anywhere", () => {
     const { layout, train, economy } = world();
     const [a, b, c] = [...layout.pieceIds()];
     const town = economy.addDepot("town", a, 0);
@@ -129,7 +129,14 @@ describe("routes", () => {
     economy.setRoute(engine.id, { stops: [{ depotId: saw.id, action: "pick" }, { depotId: shop.id, action: "drop" }], next: 0 });
     expect(economy.routeOfCar(wagon.id)?.stops).toHaveLength(2);
     expect(economy.needsService(town, wagon.id)).toBe(false);
+    // Heading for the sawmill: the workshop's drop waits for its turn (goods for later stops stay on).
+    expect(economy.needsService(shop, wagon.id)).toBe(false);
+    expect(economy.needsService(saw, empty.id)).toBe(true);
+    economy.routeOf(engine.id)!.next = 1;
     expect(economy.needsService(shop, wagon.id)).toBe(true);
+    expect(economy.needsService(saw, empty.id)).toBe(false);
+    // Stops in a row at one depot are one visit: drop there, then pick up there.
+    economy.setRoute(engine.id, { stops: [{ depotId: shop.id, action: "drop" }, { depotId: saw.id, action: "drop" }, { depotId: saw.id, action: "pick" }], next: 1 });
     expect(economy.needsService(saw, empty.id)).toBe(true);
     // "Drop" only: nothing picked up there.
     economy.setRoute(engine.id, { stops: [{ depotId: saw.id, action: "drop" }], next: 0 });

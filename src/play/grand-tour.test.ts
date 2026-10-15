@@ -6,14 +6,17 @@ import { siteWhy, updateRates } from "../game/industries";
 import { landmarksOf, townLandmarks } from "../game/landmarks";
 import { Progress } from "../game/progress";
 import { describeThings, firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas } from "../game/rewards";
-import { choose, learnAuto, ready, techOf } from "../game/tech";
+import { attachEngines, powered, topSpeed } from "../game/engines";
+import { choose, learnAuto, needMet, ready, techOf } from "../game/tech";
+import { describeNeed } from "../game/blueprints";
+import { applyCranes, Counters } from "../game/upgrades";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { buildStarterWorld, syncIndustries, type World } from "../game/world";
 import { FEAT_FIELD, type Town } from "../landscape";
 import { rng } from "../lib/rng";
 import { deserializeWorld, serializeWorld } from "../persist/save";
-import { SIM_HZ, type CarKind } from "../sim";
-import { appendPiece, connectorRef, getPieceDef, pieceOfRef, type PieceTypeId, type Pose } from "../track";
+import { ENGINE_SPEED, SIM_HZ, type CarKind } from "../sim";
+import { appendPiece, connectorRef, getPieceDef, indexOfRef, pieceOfRef, type PieceTypeId, type Pose } from "../track";
 import { play } from "./player";
 import { endOn, rulesFor } from "./rules";
 
@@ -22,7 +25,9 @@ import { endOn, rulesFor } from "./rules";
  * Larkfield to a town (its school and market go up); the line runs on to a farm yard and mill by the fields, and one
  * mixed train's flour makes it a city (its library opens Quarries); a quarry on a branch off the line, joined by a
  * switch, and a routed stone train that sets that switch itself, make it a city ★; a warehouse keeps flour for a
- * routed van. Saved and loaded on the way. Shortcuts, to keep to what's new: blueprints are learned outright (the
+ * routed van. Then Phase C: a mine on a branch with a foundry and a power station; a goods train that brings iron to
+ * Larkfield, behind an electric engine once the power station has coal; a carpenter's yard for furniture; the
+ * college. Iron, furniture and more stone make Larkfield a city ★★. Saved and loaded on the way. Shortcuts, to keep to what's new: blueprints are learned outright (the
  * workshop and the board are the main playthrough's), and pieces aren't drawn from the toy box.
  */
 
@@ -41,6 +46,11 @@ class Tour {
   readonly findings: string[] = [];
   readonly random = rng(2026);
   fixed = new Set<number>();
+  readonly counters = new Counters();
+  /** Game mode's engine kinds on the sim (from Phase C on: before, every engine is the classic one). */
+  engines = false;
+  /** Seconds between reports of where the trains are. */
+  reportEvery = 300;
 
   constructor(w: World) {
     this.attach(w);
@@ -65,9 +75,13 @@ class Tour {
         const offer = offerOnGrowth(this.progress, t.name, this.random, status.level);
         if (offer.length > 0) this.note(`  ${t.name} offers ${offer.map((id) => techOf(id)!.label).join(" or ")}`);
       },
+      knows: (id) => this.progress.learned.has(id),
     });
     this.town.reset();
     this.syncLandmarks();
+    this.counters.reset(w.economy);
+    applyCranes(w.economy, this.progress);
+    if (this.engines) attachEngines(w);
   }
 
   /** Where each train is and what it carries (every five minutes, for the report). */
@@ -104,11 +118,12 @@ class Tour {
       this.tick++;
       if (this.tick % SIM_HZ !== 0) continue;
       this.town.update();
+      this.counters.collect(this.w.economy, this.progress);
       const from = schoolIdeas(this.progress, this.w.landscape, this.school, 1, this.random);
       if (from) this.note(`${from} has an idea: ${this.progress.offers[this.progress.offers.length - 1].ids.map((id) => techOf(id)!.label).join(" or ")}`);
       this.chooseOffers();
       if (this.tick % (SIM_HZ * 30) === 0) updateRates(this.w);
-      if (this.tick % (SIM_HZ * 300) === 0) this.trains();
+      if (this.tick % (SIM_HZ * this.reportEvery) === 0) this.trains();
       if (until?.()) return;
     }
   }
@@ -129,6 +144,17 @@ class Tour {
     expect(ready(this.progress, id), `${id} ready`).toBe(true);
     this.progress.learned.add(id);
     this.note(`learned ${techOf(id)!.label} (shortcut)`);
+  }
+
+  /** Learn a blueprint whether or not it's ready yet; one that isn't is a finding (what it still asked for). */
+  learnAnyway(id: string): void {
+    if (this.progress.learned.has(id)) return;
+    const t = techOf(id)!;
+    const missing = [...t.needs.filter((n) => !this.progress.learned.has(n)), ...t.requires.filter((n) => !needMet(this.progress, n)).map(describeNeed)];
+    if (missing.length > 0) this.findings.push(`${t.label} wasn't ready when the tour wanted it (at ${minutes(this.tick)} min): still wanted ${missing.join(", ")}`);
+    this.progress.learned.add(id);
+    applyCranes(this.w.economy, this.progress);
+    this.note(`learned ${t.label} (shortcut${missing.length > 0 ? ", NOT READY" : ""})`);
   }
 
   level(t: Town): number {
@@ -226,7 +252,7 @@ function freeEnd(t: Tour, id: number): number {
 }
 
 describe("the grand tour", () => {
-  it("plays all of Game mode's content on the starter map, to a city ★", () => {
+  it("plays all of Game mode's content on the starter map, to a city ★★", () => {
     const T = new Tour(buildStarterWorld());
     const w = () => T.w;
     const st = (i: number) => w().stations.get(w().landscape.towns[i].id)!;
@@ -310,46 +336,69 @@ describe("the grand tour", () => {
       g.forEachCell((i) => {
         if (g.height[i] > 0) hills.push(i);
       });
-      let quarry = -1;
-      // A straight of the line between the sawmill and Larkfield becomes a switch and a short straight.
-      const line = [...w().layout.pieceIds()].filter((id) => !T.fixed.has(id) && w().layout.getPiece(id)!.type === "straight-216");
-      for (const s of line) {
-        if (quarry !== -1) break;
-        const p = w().layout.getPiece(s)!;
-        const ends = [0, 1].map((c) => w().layout.joinedConnector(connectorRef(s, c)));
-        if (ends.some((e) => e === -1) || w().sim.pieceOccupied(s)) continue;
-        for (const flipped of [false, true]) {
-          T.editor.remove(s);
-          const sw = T.editor.place("switch", p.pose, p.y, flipped);
-          const short = placeOn(T, connectorRef(sw, 1), "straight-72");
-          // Joined at both ends of the old straight: the switch's trunk and the short straight's far end.
-          const joined = w().layout.joinedConnector(connectorRef(sw, 0)) !== -1 && freeEnd(T, short) === -1;
-          let ok = false;
-          if (joined) {
-            const at = w().layout.worldConnector(connectorRef(sw, 2), peg);
-            const near = hills.filter((i) => Math.hypot(g.centreX(g.colOf(i)) - at.x, g.centreZ(g.rowOf(i)) - at.z) < 900);
-            let n = 0;
-            for (const site of sitesNear(T, "depot-quarry", near.slice(0, 40))) {
-              if (++n > 25) break;
-              const q = T.editor.place("depot-quarry", site.pose, site.y, false);
-              const had = new Set(w().layout.pieceIds());
-              const r = play(w().layout, T.editor, connectorRef(sw, 2), connectorRef(q, 1), { blocked: rulesFor(w()), maxPieces: 60, fiddle: 3 });
-              if (r.ok) {
-                quarry = q;
-                ok = true;
-                T.note(`switch laid in the line (piece ${s}); quarry placed; switch → quarry: joined (${r.pieces} pieces)`);
-                break;
-              }
-              for (const id of [...w().layout.pieceIds()]) if (!had.has(id)) T.editor.remove(id);
-              T.editor.remove(q);
-            }
+      /**
+       * An industry on a new branch: a straight of the line becomes a switch and a short straight, and track runs from
+       * the switch to a site for `type` near it (on `cells`; with `after`, room for that piece after it).
+       */
+      /** Is a line end (a buffer, or track that stops) within `n` pieces of piece `id`, either way? */
+      const nearEnd = (id: number, n: number): boolean => {
+        for (let c = 0; c < 2; c++) {
+          let at = id;
+          let exit = c;
+          for (let k = 0; k < n; k++) {
+            const j = w().layout.joinedConnector(connectorRef(at, exit));
+            if (j === -1) return true;
+            at = pieceOfRef(j);
+            const p = w().layout.getPiece(at)!;
+            const ends = getPieceDef(p.type, p.flipped).connectors.length;
+            if (ends === 1) return true;
+            if (ends !== 2) break;
+            exit = 1 - indexOfRef(j);
           }
-          if (ok) break;
-          T.editor.remove(short);
-          T.editor.remove(sw);
-          T.editor.place("straight-216", p.pose, p.y, false);
         }
-      }
+        return false;
+      };
+      const branchOff = (type: PieceTypeId, cells: number[], after?: PieceTypeId): number => {
+        // Not close to the end of a line: a train turning back there would still be on the switch, and couldn't take
+        // its branch.
+        const line = [...w().layout.pieceIds()].filter((id) => !T.fixed.has(id) && w().layout.getPiece(id)!.type === "straight-216" && (type === "depot-quarry" || !nearEnd(id, 4)));
+        for (const s of line) {
+          const p = w().layout.getPiece(s)!;
+          const ends = [0, 1].map((c) => w().layout.joinedConnector(connectorRef(s, c)));
+          if (ends.some((e) => e === -1) || w().sim.pieceOccupied(s)) continue;
+          // (Put back after a try that didn't work, the straight has a new id.)
+          let straight = s;
+          for (const flipped of [false, true]) {
+            T.editor.remove(straight);
+            const sw = T.editor.place("switch", p.pose, p.y, flipped);
+            const short = placeOn(T, connectorRef(sw, 1), "straight-72");
+            // Joined at both ends of the old straight: the switch's trunk and the short straight's far end.
+            const joined = w().layout.joinedConnector(connectorRef(sw, 0)) !== -1 && freeEnd(T, short) === -1;
+            if (joined) {
+              const at = w().layout.worldConnector(connectorRef(sw, 2), peg);
+              const near = cells.filter((i) => Math.hypot(g.centreX(g.colOf(i)) - at.x, g.centreZ(g.rowOf(i)) - at.z) < 900);
+              let n = 0;
+              for (const site of sitesNear(T, type, near.slice(0, 40), after)) {
+                if (++n > 25) break;
+                const q = T.editor.place(type, site.pose, site.y, false);
+                const had = new Set(w().layout.pieceIds());
+                const r = play(w().layout, T.editor, connectorRef(sw, 2), connectorRef(q, 1), { blocked: rulesFor(w()), maxPieces: 60, fiddle: 3 });
+                if (r.ok) {
+                  T.note(`switch laid in the line (piece ${s}); ${type} placed; switch → ${type}: joined (${r.pieces} pieces)`);
+                  return q;
+                }
+                for (const id of [...w().layout.pieceIds()]) if (!had.has(id)) T.editor.remove(id);
+                T.editor.remove(q);
+              }
+            }
+            T.editor.remove(short);
+            T.editor.remove(sw);
+            straight = T.editor.place("straight-216", p.pose, p.y, false);
+          }
+        }
+        return -1;
+      };
+      const quarry = branchOff("depot-quarry", hills);
       if (quarry === -1) {
         T.findings.push("The simulated player couldn't reach hillside for a quarry from a switch in the starter line.");
       } else {
@@ -419,6 +468,178 @@ describe("the grand tour", () => {
       mixed = T.train(["engine", "timber", "timber", "hopper", "van"], between, -1);
       T.note("the van picked up; the mixed train back on the line");
       T.run(40 * 60, () => T.level(larkfield()) >= 4);
+      T.note(`Larkfield is a ${T.town.status(larkfield().id).name.toLowerCase()}; counts ${[...T.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}`);
+
+      // 5. Phase C: a mine on a branch, then a foundry and a power station; a train of ore and coal that brings
+      // iron back to Larkfield, behind an electric engine once the power station has coal; a carpenter's yard after the
+      // warehouse for furniture; the smithy's heavy wagons; the college.
+      // More stone first (a city ★ wants it, and Mines asks for 20 delivered): the stone train again.
+      for (const id of [...w().sim.trainIds()]) w().sim.removeTrain(id);
+      if (quarry !== -1) {
+        const branchRef = w().layout.joinedConnector(connectorRef(quarry, 1));
+        const stoneTrain = T.train(["engine", "hopper", "hopper"], branchRef === -1 ? quarry : pieceOfRef(branchRef), 1);
+        w().economy.setRoute(stoneTrain, { stops: [{ depotId: depotAt(quarry), action: "pick" }, { depotId: depotAt(st(0)), action: "drop" }], next: 0 });
+        const t0 = T.tick;
+        T.run(20 * 60, () => (receivedBy(w(), larkfield().id).stone ?? 0) >= 25);
+        T.note(`the stone train again: Larkfield has had ${receivedBy(w(), larkfield().id).stone ?? 0} stone (${minutes(T.tick - t0)} min)`);
+        for (const id of [...w().sim.trainIds()]) w().sim.removeTrain(id);
+      }
+      for (const id of ["tank", "goods-engine", "mines", "foundry", "carpentry", "college"]) T.learnAnyway(id);
+      T.engines = true;
+      attachEngines(w());
+      const blocked = (id: number) => {
+        const p = w().layout.getPiece(id)!;
+        return rulesFor(w())(p.type, p.flipped, p.pose, p.y, id) ?? siteWhy(w().landscape, p.type, p.pose);
+      };
+      /** Put an industry on a free end, or say why it can't go there (and take it up again). */
+      const industryOn = (ref: number, type: PieceTypeId): number => {
+        if (ref === -1) return -1;
+        const id = placeOn(T, ref, type);
+        const why = blocked(id);
+        if (!why) return id;
+        T.note(`${type} on the end of piece ${pieceOfRef(ref)}: ${why}`);
+        T.editor.remove(id);
+        return -1;
+      };
+      /**
+       * An industry joined to free end `from`: straight on it if it can go there, else at a site near it (on `cells`, or
+       * any square within 900 mm) with track to it. With `after`, the site must have room for that piece after it.
+       */
+      const reach = (from: number, type: PieceTypeId, cells?: number[], after?: PieceTypeId): number => {
+        if (from === -1) return -1;
+        const straight = industryOn(from, type);
+        if (straight !== -1) return straight;
+        const at = w().layout.worldConnector(from, peg);
+        const away = (i: number) => Math.hypot(g.centreX(g.colOf(i)) - at.x, g.centreZ(g.rowOf(i)) - at.z);
+        const pool: number[] = [];
+        if (cells) pool.push(...cells);
+        else g.forEachCell((i) => void pool.push(i));
+        const near = pool.filter((i) => away(i) < 900).sort((a, b) => away(a) - away(b));
+        let n = 0;
+        for (const site of sitesNear(T, type, near.filter((_, k) => k % 3 === 0).slice(0, 60), after)) {
+          if (++n > 40) break;
+          const id = T.editor.place(type, site.pose, site.y, false);
+          const had = new Set(w().layout.pieceIds());
+          let r = play(w().layout, T.editor, from, connectorRef(id, 1), { blocked: rulesFor(w()), maxPieces: 60, fiddle: 3 });
+          if (!r.ok) r = play(w().layout, T.editor, from, connectorRef(id, 0), { blocked: rulesFor(w()), maxPieces: 60, fiddle: 3 });
+          if (r.ok) {
+            T.note(`${type}: track from piece ${pieceOfRef(from)} joined to it (${r.pieces} pieces, site ${n})`);
+            return id;
+          }
+          for (const p of [...w().layout.pieceIds()]) if (!had.has(p)) T.editor.remove(p);
+          T.editor.remove(id);
+        }
+        T.note(`${type}: no site joined from piece ${pieceOfRef(from)} (${n} tried)`);
+        return -1;
+      };
+      const mine = branchOff("depot-mine", hills, "depot-foundry");
+      const foundry = mine === -1 ? -1 : reach(freeEnd(T, mine), "depot-foundry");
+      const anywhere: number[] = [];
+      g.forEachCell((i) => void anywhere.push(i));
+      let power = foundry === -1 ? -1 : reach(freeEnd(T, foundry), "depot-power");
+      if (foundry !== -1 && power === -1) power = branchOff("depot-power", anywhere.filter((i) => i % 2 === 0));
+      T.note(`mine ${mine === -1 ? "NOT PLACED" : "placed"}; foundry ${foundry === -1 ? "NOT PLACED" : "after it"}; power station ${power === -1 ? "NOT PLACED" : "after that"}`);
+      const ironAt = () => receivedBy(w(), larkfield().id).iron ?? 0;
+      if (power === -1) {
+        T.findings.push("Phase C: couldn't place the mine, foundry and power station.");
+      } else {
+        T.learnAnyway("electricity");
+        syncIndustries(w());
+        updateRates(w());
+        const branchRef = w().layout.joinedConnector(connectorRef(mine, 1));
+        const branch = branchRef === -1 ? mine : pieceOfRef(branchRef);
+        // A goods engine with two hoppers (coal and ore) and a timber wagon (iron).
+        const ore = T.train(["engine", "hopper", "hopper", "timber"], branch, 1);
+        T.reportEvery = 60;
+        w().sim.setLook(ore, "goods");
+        // (A routed train drops at every stop that says so, in passing: coal for the power station goes on a route of
+        // its own, or the foundry takes it first.)
+        const coalRun = { stops: [{ depotId: depotAt(mine), action: "pick" as const }, { depotId: depotAt(power), action: "drop" as const }], next: 0 };
+        const ironRun = {
+          stops: [
+            { depotId: depotAt(mine), action: "pick" as const },
+            { depotId: depotAt(foundry), action: "drop" as const },
+            { depotId: depotAt(foundry), action: "pick" as const },
+            { depotId: depotAt(st(0)), action: "drop" as const },
+          ],
+          next: 0,
+        };
+        w().economy.setRoute(ore, ironRun);
+        T.note("goods engine, 2 hoppers and a timber wagon; route: mine (pick up) → foundry (drop, pick up) → Larkfield (drop)");
+        const t0 = T.tick;
+        T.run(15 * 60, () => ironAt() >= 4);
+        const mineD = w().economy.depotAtPiece(mine)!;
+        const foundryD = w().economy.depotAtPiece(foundry)!;
+        const powerD = w().economy.depotAtPiece(power)!;
+        const pile = (d: typeof mineD, k: keyof typeof CARGO) => d.piles[CARGO[k].index];
+        T.note(`after ${minutes(T.tick - t0)} min: Larkfield has had ${ironAt()} iron; mine coal ${pile(mineD, "coal")} ore ${pile(mineD, "ore")}; foundry coal ${pile(foundryD, "coal")} ore ${pile(foundryD, "ore")} iron ${pile(foundryD, "iron")}; power station coal ${pile(powerD, "coal")} (${powered(w()) ? "working" : "idle"})`);
+        if (ironAt() === 0) T.findings.push("Phase C: no iron reached Larkfield.");
+        // Coal for the power station, then the same train behind an electric engine.
+        w().economy.setRoute(ore, coalRun);
+        T.run(6 * 60, () => w().economy.depotAtPiece(power)!.piles[CARGO.coal.index] >= 6);
+        T.note(`coal run: the power station has ${w().economy.depotAtPiece(power)!.piles[CARGO.coal.index]} coal`);
+        w().economy.setRoute(ore, { ...ironRun, stops: [...ironRun.stops] });
+        w().sim.setLook(ore, "electric");
+        T.run(20);
+        const train = w().sim.findCar(ore)!.train;
+        const top = topSpeed(w(), train);
+        T.note(`electric engine: top speed ${(top / ENGINE_SPEED).toFixed(2)}× (power ${powered(w()) ? "on" : "off"}), going ${Math.round(train.speed)} mm/s`);
+        if (powered(w()) && top !== ENGINE_SPEED * 1.4) T.findings.push(`The electric engine's top speed with power is ${top}, not 1.4×.`);
+        if (!powered(w())) T.findings.push("The power station had no coal by the time the electric engine went on.");
+        T.run(15 * 60, () => ironAt() >= 10);
+        T.note(`Larkfield has had ${ironAt()} iron (${minutes(T.tick - t0)} min after the ore train started)`);
+        T.learnAnyway("smithy");
+        T.note(`wagons now hold ${w().economy.wagonCapacity}`);
+        const found = w().sim.findCar(ore);
+        if (found) w().sim.removeTrain(found.train.id);
+        T.reportEvery = 300;
+      }
+
+      // Furniture: a carpenter's yard on a branch of its own.
+      const carpenter = branchOff("depot-carpenter", anywhere.filter((i) => i % 2 === 0));
+      const furnitureAt = () => receivedBy(w(), larkfield().id).furniture ?? 0;
+      if (carpenter === -1) {
+        T.findings.push("Phase C: couldn't place a carpenter's yard.");
+      } else {
+        syncIndustries(w());
+        if (!w().layout.getPiece(between)) between = middle();
+        const vanTrain = T.train(["engine", "timber", "timber", "van"], between, -1);
+        w().economy.setRoute(vanTrain, {
+          stops: [
+            { depotId: depotAt(forest), action: "pick" },
+            { depotId: depotAt(saw), action: "drop" },
+            { depotId: depotAt(saw), action: "pick" },
+            { depotId: depotAt(carpenter), action: "drop" },
+            { depotId: depotAt(carpenter), action: "pick" },
+            { depotId: depotAt(st(0)), action: "drop" },
+          ],
+          next: 0,
+        });
+        T.note("carpenter's yard on a branch; 2 timber wagons and a van, route: forest yard (pick up) → sawmill (drop, pick up) → carpenter's yard (drop, pick up) → Larkfield (drop)");
+        const t0 = T.tick;
+        T.run(25 * 60, () => furnitureAt() >= 6);
+        const cd = w().economy.depotAtPiece(carpenter)!;
+        T.note(`Larkfield has had ${furnitureAt()} furniture (${minutes(T.tick - t0)} min after the furniture train started); the carpenter's yard has ${cd.piles[CARGO.planks.index]} planks, ${cd.piles[CARGO.furniture.index]} furniture`);
+        T.trains();
+        if (furnitureAt() === 0) T.findings.push("Phase C: no furniture reached Larkfield.");
+        const found = w().sim.findCar(vanTrain);
+        if (found) w().sim.removeTrain(found.train.id);
+      }
+      T.saveAndLoad();
+      // The mixed train runs the line again: towns keep growing (the college goes up in the next to grow). The routed
+      // trains left the switches set toward their branches; a train with no route follows them, so they go back to
+      // the main line.
+      for (const id of [...w().sim.trainIds()]) w().sim.removeTrain(id);
+      for (const id of w().layout.pieceIds()) if (w().layout.getPiece(id)!.type === "switch") w().layout.setSwitchState(id, 0);
+      if (!w().layout.getPiece(between)) between = middle();
+      T.train(["engine", "timber", "timber", "hopper", "van"], between, -1);
+      T.run(20 * 60, () => T.level(larkfield()) >= 5 && w().landscape.towns.some((t) => townLandmarks(t).has("college")));
+      const colleges = w().landscape.towns.filter((t) => townLandmarks(t).has("college")).map((t) => t.name);
+      T.note(`Larkfield is a ${T.town.status(larkfield().id).name.toLowerCase()}; colleges: ${colleges.join(", ") || "none"}`);
+      const s5 = T.town.status(larkfield().id);
+      const short = Object.entries(s5.wants).map(([k, n]) => `${s5.got[k as keyof typeof s5.got] ?? 0}/${n} ${k}`).join(", ");
+      if (T.level(larkfield()) < 5) T.findings.push(`Larkfield didn't reach City ★★: ${short}`);
+      if (colleges.length === 0) T.findings.push("No college went up after College was learned.");
     } finally {
       const status = w().landscape.towns.map((t) => `${t.name} ${T.town.status(t.id).name.toLowerCase()} [${[...townLandmarks(t)].join(", ")}] ${describeGoods(receivedBy(w(), t.id))}`);
       console.log(
@@ -431,6 +652,7 @@ describe("the grand tour", () => {
         ].join("\n"),
       );
     }
-    expect(T.level(larkfield())).toBeGreaterThanOrEqual(4);
+    expect(T.findings).toEqual([]);
+    expect(T.level(larkfield())).toBeGreaterThanOrEqual(5);
   }, 900_000);
 });
