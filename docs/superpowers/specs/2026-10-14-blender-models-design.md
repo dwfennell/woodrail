@@ -115,3 +115,17 @@ time is still to be measured on a phone.
   with glazing bars in a frame.
 - **Cost** (seed 4242, the first town from the same camera): station view 331k triangles against 253k with the code
   shapes, town view 348k against 260k; draw calls unchanged (the parts join the towns' existing batches).
+
+## 8. Floor blocks (ready, not used yet)
+
+For town houses that may one day grow a storey: a floor block slides in under the house and lifts it, like a stacked
+wooden toy. `tools/blender/bldg_floors.py` has one per house the towns place (the six one-square houses, the terrace,
+semi-detached, villa and cottage row, the corner shop, toy shop and apartment block): a storey of the house's own walls
+(colour, footprint, rounding) with its printed windows on every face, no roof and no door. Ids are the house's plus
+`-floor` (`bldg-townhouse-floor`); centred, front +x, base on y = 0, 20 high (the apartment block's 24), so the house
+above rises by the block's height, and the rounded edges leave a groove at each join.
+
+They're built into a file of their own, `public/models/floors.glb` (`tools/blender/floors.py`, 204 KB), which nothing
+loads yet, so they cost nothing until the feature uses them: it adds "floors" to `ModelSet` and loads it with
+`loadModelSet("floors", true)`. Open: the house's door stays on its own ground storey, so it ends up a floor up when a
+block goes under it; a door-bearing ground block, or houses with their door on a part of its own, would fix that.
