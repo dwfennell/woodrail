@@ -22,16 +22,17 @@ import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { Crafting, workshops, workshopStock } from "./game/crafting";
-import { isFree, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
+import { costText, isFree, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { syncIndustries, INDUSTRY_ROLE } from "./game/world";
-import { siteWhy, updateRates } from "./game/industries";
+import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
+import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { nextStop, routeStops } from "./game/route-stops";
 import type { StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { choose as chooseTech, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
-import { aOrAn, covers, describe as describeGoods, minus } from "./economy/goods";
+import { aOrAn, covers, describe as describeGoods, minus, total } from "./economy/goods";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -40,7 +41,8 @@ import { PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
 import type { CarKind } from "./sim";
 import { Hud } from "./ui/hud";
 import { INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
-import { LAND_MESSAGES, plotSlotOf, setHeights } from "./landscape/edit";
+import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
+import { propsInRect } from "./props/placement";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TitleScreen } from "./ui/title";
 import "./style.css";
@@ -778,7 +780,9 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     }
     if (mode !== "game" || !playing || game.paused || progress.orders.length === 0) return;
     const wasMaking = progress.making;
+    const coinsBefore = progress.coins;
     const made = crafting.tick(game.world, CRAFT_STEP);
+    if (progress.coins !== coinsBefore) hud.setCoins(progress.coins);
     showWorkshop();
     // Planks leave the yard when an order starts: draw the pile going down (only then, not on every step).
     if (made || progress.making !== wasMaking) game.invalidate();
@@ -788,6 +792,56 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     hud.refreshTrayBadges();
     scheduleSave();
   }, CRAFT_STEP * 1000);
+  // A farm yard's card (Game mode): its fields, how fast that makes it work, and a field to plant with coins.
+  let farmShown = "";
+  function showFarm(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    const piece = d && d.role === "farm" ? game.layout.getPiece(d.pieceId) : undefined;
+    if (!d || !piece) {
+      farmShown = "";
+      return;
+    }
+    const r = resourceAt(game.landscape, "farm", piece.pose)!;
+    const price = fieldPrice(progress.fieldsPlanted);
+    const key = `${id}:${r.count}:${price}:${progress.coins >= price}`;
+    if (key === farmShown) return;
+    farmShown = key;
+    const box = hud.depotExtra;
+    box.hidden = false;
+    box.innerHTML = "";
+    const line = document.createElement("div");
+    line.className = "farm-fields";
+    const speed = Math.round(rateFor(r.count, r.need) * 100);
+    line.textContent = `Field squares nearby: ${r.count} (works at ${speed}% speed; full speed at ${r.need})`;
+    const plant = document.createElement("button");
+    plant.className = "chip text farm-plant";
+    plant.textContent = `Plant a field · ${price} coins`;
+    plant.title = "A field of crops on open grass near this yard (trees there are felled)";
+    plant.disabled = progress.coins < price;
+    plant.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const p = game.layout.getPiece(d.pieceId);
+      if (!p || progress.coins < fieldPrice(progress.fieldsPlanted)) return;
+      const editor = new LandEditor(game.landscape, game.layout, { inRect: (x0, z0, x1, z1) => propsInRect(game.props, (a) => game.footprintOf(a), x0, z0, x1, z1) });
+      const cells = fieldSpot(game.landscape, editor, yardMiddle(p.pose), SITE_RULES.farm!.reach);
+      if (!cells) {
+        hud.toast("No open grass near this farm yard for a field");
+        return;
+      }
+      progress.coins -= fieldPrice(progress.fieldsPlanted);
+      progress.fieldsPlanted++;
+      game.editLand(plantField(game.landscape, cells));
+      industriesChanged();
+      hud.setCoins(progress.coins);
+      hud.toast("A field planted: more grain for the farm yard", true);
+      audio.chime();
+      showFarm();
+      scheduleSave();
+    });
+    box.append(line, plant);
+  }
+
   let workshopShown = -1;
   /** Keep the workshop's card current while it's open (Game mode). */
   function showWorkshop(force = false): void {
@@ -807,7 +861,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       rows.push({
         id: tid,
         label: rule.label,
-        cost: describeGoods(rule.cost),
+        cost: costText(rule),
         have: progress.available(game.world, tid),
         queued: progress.orders.filter((o) => o === tid).length,
         shelf: tid.startsWith("car:") ? "Trains" : tid.includes("depot-") ? "Industries" : "Track",
@@ -815,7 +869,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     }
     rows.sort((a, b) => ["Track", "Trains", "Industries"].indexOf(a.shelf) - ["Track", "Trains", "Industries"].indexOf(b.shelf));
     const now = crafting.now;
-    const need = now?.waiting ? describeGoods(minus(ruleOf(now.id)!.cost, workshopStock(game.world))) : null;
+    // What it's waiting for: goods in the workshop's yard, and coins.
+    const nowRule = now ? ruleOf(now.id)! : null;
+    const shortGoods = nowRule ? minus(nowRule.cost, workshopStock(game.world)) : {};
+    const shortCoins = nowRule ? Math.max(0, (nowRule.coins ?? 0) - progress.coins) : 0;
+    const need = now?.waiting ? [total(shortGoods) > 0 ? describeGoods(shortGoods) : "", shortCoins > 0 ? `${shortCoins} coins` : ""].filter(Boolean).join(" + ") || null : null;
     workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows);
   }
 
@@ -1206,6 +1264,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     if (mode === "game") {
       if (playing) townLife.update();
       showWorkshop();
+      showFarm();
     } else game.economy.delivered.forEach(showDelivered);
     showRoute();
     let derailed = false;

@@ -34,7 +34,8 @@ export const TECHS: readonly Tech[] = [
   { id: "junctions", label: "Junctions", blurb: "Three-ways, crossings, double track.", cost: { planks: 10 }, needs: ["switches"] },
   // The industry line: more logs, then the farm chain.
   { id: "harvesters", label: "Harvesters", blurb: "A forest yard of your own, beside the trees.", cost: { planks: 10 }, needs: [] },
-  { id: "farming", label: "Farming", blurb: "A farm yard by the fields, and hoppers for its grain.", cost: { planks: 12 }, needs: ["harvesters"] },
+  // Early, on its own: a farm yard, hoppers for its grain, and fields to plant (with coins) where there are few.
+  { id: "farming", label: "Farming", blurb: "A farm yard by the fields, hoppers for its grain, and fields to plant.", cost: { planks: 12 }, needs: [] },
   { id: "mills", label: "Mills", blurb: "Grind grain into flour, for the towns.", cost: { planks: 16 }, needs: ["farming"] },
   // The logistics line: trains that know where to go.
   {

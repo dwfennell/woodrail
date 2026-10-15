@@ -71,3 +71,22 @@ describe("the workshop", () => {
     if (gone.ok) expect(gone.value.economy.allDepots().some((d) => d.role === "workshop")).toBe(false);
   });
 });
+
+describe("coins as well as goods", () => {
+  it("an industry waits for its coins too, and pays them when the workshop starts on it", () => {
+    const { w, d: shop } = withWorkshop(12);
+    const p = Progress.fresh();
+    p.learned.add("farming");
+    const c = new Crafting(p);
+    c.order("piece:depot-farm");
+    p.coins = 10;
+    c.tick(w, 1);
+    expect(p.making).toBe(false);
+    expect(shop.piles[CARGO.planks.index]).toBe(12);
+    p.coins = 45;
+    c.tick(w, 1);
+    expect(p.making).toBe(true);
+    expect(p.coins).toBe(15);
+    expect(shop.piles[CARGO.planks.index]).toBe(0);
+  });
+});

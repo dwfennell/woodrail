@@ -1,4 +1,4 @@
-import type { Bag } from "../economy/goods";
+import { describe as describeGoods, type Bag } from "../economy/goods";
 import type { CarKind } from "../sim";
 import type { PieceTypeId } from "../track";
 
@@ -15,6 +15,8 @@ export const carThing = (kind: CarKind): ThingId => `car:${kind}`;
 export interface ThingRule {
   readonly label: string;
   readonly cost: Bag;
+  /** Coins it costs too, paid when the workshop starts making it (industry buildings). */
+  readonly coins?: number;
   /** The blueprint that must be learned first (none: known from the start). */
   readonly tech?: string;
 }
@@ -49,13 +51,20 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "car:caboose": { label: "Caboose", cost: { planks: 2 }, tech: "passengers" },
   "car:van": { label: "Van", cost: { planks: 3 }, tech: "mills" },
   "piece:depot-workshop": { label: "Workshop", cost: { planks: 12 } },
-  "piece:depot-sawmill": { label: "Sawmill", cost: { planks: 20 }, tech: "sawmills" },
-  "piece:depot-forest": { label: "Harvester", cost: { planks: 10 }, tech: "harvesters" },
-  "piece:depot-farm": { label: "Farm yard", cost: { planks: 12 }, tech: "farming" },
-  "piece:depot-mill": { label: "Mill", cost: { planks: 16 }, tech: "mills" },
-  "piece:depot-quarry": { label: "Quarry", cost: { planks: 14 }, tech: "quarries" },
-  "piece:depot-warehouse": { label: "Warehouse", cost: { planks: 18 }, tech: "warehouses" },
+  // Industry buildings cost coins as well as goods: what towns pay you builds the economy.
+  "piece:depot-sawmill": { label: "Sawmill", cost: { planks: 20 }, coins: 50, tech: "sawmills" },
+  "piece:depot-forest": { label: "Harvester", cost: { planks: 10 }, coins: 20, tech: "harvesters" },
+  "piece:depot-farm": { label: "Farm yard", cost: { planks: 12 }, coins: 30, tech: "farming" },
+  "piece:depot-mill": { label: "Mill", cost: { planks: 16 }, coins: 40, tech: "mills" },
+  "piece:depot-quarry": { label: "Quarry", cost: { planks: 14 }, coins: 60, tech: "quarries" },
+  "piece:depot-warehouse": { label: "Warehouse", cost: { planks: 18 }, coins: 50, tech: "warehouses" },
 };
+
+/** A thing's whole price, for cards: "12 planks + 30 coins". */
+export function costText(rule: ThingRule): string {
+  const goods = describeGoods(rule.cost);
+  return rule.coins ? `${goods === "nothing" ? "" : `${goods} + `}${rule.coins} coins` : goods;
+}
 
 /** What a new game's toy box holds: enough for a first timber train, its turnbacks and a workshop. */
 export const STARTING_BOX: Partial<Record<ThingId, number>> = {

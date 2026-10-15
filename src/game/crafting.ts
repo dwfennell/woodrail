@@ -75,7 +75,11 @@ export class Crafting {
     const id = this.progress.orders[0];
     if (!id) return null;
     if (!this.progress.making) {
-      if (!takeFromWorkshops(world, ruleOf(id)!.cost)) return null;
+      // Its coins first (it waits for them as for goods), paid once its goods are taken.
+      const rule = ruleOf(id)!;
+      if ((rule.coins ?? 0) > this.progress.coins) return null;
+      if (!takeFromWorkshops(world, rule.cost)) return null;
+      this.progress.coins -= rule.coins ?? 0;
       this.progress.making = true;
       this.elapsed = 0;
     }

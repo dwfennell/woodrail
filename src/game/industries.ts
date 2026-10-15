@@ -29,7 +29,7 @@ export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
 const MAX_RATE = 1.5;
 
 /** The middle of a depot's yard (depot coordinates t 108, l 72: see `DEPOT_LAYOUT`) for a piece at `pose`. */
-function yardMiddle(pose: Pose): { x: number; z: number } {
+export function yardMiddle(pose: Pose): { x: number; z: number } {
   const c = Math.cos(pose.heading);
   const s = Math.sin(pose.heading);
   return { x: pose.x + c * 108 - s * 72, z: pose.z + s * 108 + c * 72 };

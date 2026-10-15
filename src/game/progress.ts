@@ -20,6 +20,8 @@ export class Progress {
   making = false;
   /** Coins: towns pay them for deliveries; they buy land. */
   coins = 0;
+  /** Fields planted with coins (each dearer than the last: see `fieldPrice`). */
+  fieldsPlanted = 0;
   /** The landmarks your towns have (a school, a market, a library): from the map, not saved (see `landmarksOf`). */
   readonly landmarks = new Set<string>();
 
@@ -62,7 +64,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: this.offers.map((o) => ({ from: o.from, ids: [...o.ids] })), coins: this.coins, orders: [...this.orders], making: this.making };
+    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: this.offers.map((o) => ({ from: o.from, ids: [...o.ids] })), coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -87,6 +89,7 @@ export class Progress {
     if (d && Array.isArray(d.orders)) for (const o of d.orders) if (typeof o === "string" && o in THING_RULES) p.orders.push(o as ThingId);
     p.making = !!d?.making && p.orders.length > 0;
     p.coins = Number.isInteger(d?.coins) && d!.coins! > 0 ? d!.coins! : 0;
+    p.fieldsPlanted = Number.isInteger(d?.fieldsPlanted) && d!.fieldsPlanted! > 0 ? d!.fieldsPlanted! : 0;
     return p;
   }
 }
@@ -97,6 +100,7 @@ export interface ProgressData {
   board?: string[];
   offers?: { from: string; ids: string[] }[];
   coins?: number;
+  fieldsPlanted?: number;
   orders?: string[];
   making?: boolean;
 }
