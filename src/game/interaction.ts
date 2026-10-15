@@ -337,15 +337,14 @@ export class Interaction {
     this.hidePreview();
     this.cancel();
     // Something else taken from the tray: the ready piece is put away (a piece dragged out is ready once placed).
-    if (this.armed && trayKey(this.armed) !== trayKey(item)) this.arm(null);
+    if ((this.armed && trayKey(this.armed) !== trayKey(item)) || this.roadReady) this.arm(null);
     this.clearSelection();
     // The last piece's card would cover the bottom of the view, where this one may be going.
     this.hud.hideCards();
     if (item.kind === "piece") this.mode = this.pieceFromTray(item, e.pointerId);
     else if (item.kind === "road") {
-      // Comes out turned as set in the tray (quarter turns from facing away from the camera).
-      const held = Math.round(this.cameraHeading() / (Math.PI / 2)) + Math.floor(this.trayTurns / 2);
-      this.mode = { kind: "drag-road", pointerId: e.pointerId, drag: this.roads.begin(item.piece, held, item.auto), overTray: true };
+      // Comes out turned as set in the tray.
+      this.mode = { kind: "drag-road", pointerId: e.pointerId, drag: this.roads.begin(item.piece, this.trayHeld(), item.auto), overTray: true };
     } else if (item.kind === "prop") {
       this.mode = this.propDrag(item.asset, -1, e.pointerId, this.nextPropHeading(), null, { x: 0, z: 0 });
     } else if (item.kind === "train") {
@@ -399,6 +398,12 @@ export class Interaction {
   onArmed: ((item: TrayItem | null) => void) | null = null;
 
   arm(item: TrayItem | null): void {
+    // A road is laid where the map is clicked (see `readyRoad`); anything else puts a ready road away.
+    if (item?.kind === "road") {
+      this.readyRoad(item);
+      return;
+    }
+    this.readyRoad(null);
     if (item && item.kind !== "piece") item = null;
     if (item === this.armed || (item && this.armed && trayKey(item) === trayKey(this.armed))) return;
     const first = item !== null && this.armed === null && !this.armHinted;
@@ -413,9 +418,47 @@ export class Interaction {
 
   private armHinted = false;
 
-  /** Tray tap on the ready piece puts it away (a piece is taken from the tray by dragging it out). */
+  /**
+   * A road ready to lay (a road tapped in the tray): its outline follows the mouse over the map, and each click (or tap)
+   * on the map lays one there, without its card, ready for the next. Tapping it in the tray again, Esc, or taking
+   * something else from the tray puts it away. A drag on the map still moves the camera.
+   */
+  private roadReady: { item: Extract<TrayItem, { kind: "road" }>; drag: RoadDrag } | null = null;
+  private roadHinted = false;
+
+  private readyRoad(item: Extract<TrayItem, { kind: "road" }> | null): void {
+    if (this.roadReady) {
+      this.roads.cancel(this.roadReady.drag);
+      this.roadReady = null;
+      if (!item) this.onArmed?.(null);
+    }
+    if (!item) return;
+    if (this.armed) {
+      this.armed = null;
+      this.hidePreview();
+    }
+    this.clearSelection();
+    this.hud.hideCards();
+    this.roadReady = { item, drag: this.roads.begin(item.piece, this.trayHeld(), item.auto) };
+    this.onArmed?.(item);
+    if (!this.roadHinted) {
+      this.roadHinted = true;
+      this.hud.toast("Click the map to lay it · tap it in the tray again to stop", false, 3200);
+    }
+  }
+
+  /** Tray tap: a road is made ready to lay (or put away, if it already is); the ready piece is put away. */
   tapTrayPiece(item: TrayItem): void {
+    if (item.kind === "road") {
+      this.arm(this.roadReady && trayKey(this.roadReady.item) === trayKey(item) ? null : item);
+      return;
+    }
     if (this.armed && trayKey(this.armed) === trayKey(item)) this.arm(null);
+  }
+
+  /** Quarter turns a road comes out of the tray at: as set in the tray, from facing away from the camera. */
+  private trayHeld(): number {
+    return Math.round(this.cameraHeading() / (Math.PI / 2)) + Math.floor(this.trayTurns / 2);
   }
 
   /**
@@ -566,6 +609,7 @@ export class Interaction {
     }
     if (this.mode.kind === "drag-piece") this.rotateSelected();
     if (this.mode.kind === "drag-road") this.roads.turnHeld(this.mode.drag);
+    else if (this.roadReady) this.roads.turnHeld(this.roadReady.drag);
     this.trayTurns = (this.trayTurns + 1) % 8;
     this.onTurned?.();
   }
@@ -603,6 +647,11 @@ export class Interaction {
         return;
       }
     }
+    // A ready road: a tap lays it there (handled as a floor tap, so a drag still pans).
+    if (this.roadReady && this.touches.size <= 1) {
+      this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, road: true };
+      return;
+    }
     // The ready piece's ghost: a tap on it puts it down (handled as a floor tap, so a drag from it still pans).
     if (this.armed && this.touches.size <= 1 && this.onPreview(e.clientX, e.clientY)) {
       this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, ghost: true };
@@ -634,6 +683,11 @@ export class Interaction {
   private onMove(e: PointerEvent): void {
     const m = this.mode;
     if (m.kind === "idle" && this.landCursor && e.pointerType === "mouse" && e.target === this.game.canvas) this.showSquare(this.squareAt(e.clientX, e.clientY));
+    // A ready road's outline follows the mouse (not while the camera's being dragged).
+    if (m.kind === "idle" && this.roadReady && e.pointerType === "mouse" && !this.floorDown) {
+      const off = e.target !== this.game.canvas || this.hud.isOverTray(e.clientX, e.clientY);
+      this.roads.update(this.roadReady.drag, off ? -1 : this.squareAt(e.clientX, e.clientY), off);
+    }
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
@@ -691,6 +745,14 @@ export class Interaction {
       this.floorDown = null;
       if (Math.hypot(e.clientX - f.x, e.clientY - f.y) < DRAG_THRESHOLD && e.timeStamp - f.t < 300 && this.touches.size <= 1) {
         const ground = this.groundAt(e.clientX, e.clientY);
+        if (f.road && this.roadReady) {
+          const r = this.roadReady;
+          this.roads.update(r.drag, this.squareAt(e.clientX, e.clientY), false);
+          this.roads.drop(r.drag, false);
+          r.drag = this.roads.begin(r.item.piece, r.drag.held, r.item.auto);
+          this.lastTap = null;
+          return;
+        }
         if (f.ghost) {
           // On the waiting piece: put it down where it waits.
           const at = this.previewAt?.clone().project(this.game.camera);
@@ -730,7 +792,7 @@ export class Interaction {
     else this.dropTrain(m);
   }
 
-  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean } | null = null;
+  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean } | null = null;
 
   private somethingSelected(): boolean {
     return this.selectedPiece !== -1 || this.selectedProp !== -1 || this.selectedCar !== -1 || this.selectedDepot !== -1 || this.selectedScenery !== null;
@@ -1029,6 +1091,10 @@ export class Interaction {
   rotateSelected(): void {
     if (this.mode.kind === "drag-road") {
       this.roads.turnHeld(this.mode.drag);
+      return;
+    }
+    if (this.roadReady) {
+      this.roads.turnHeld(this.roadReady.drag);
       return;
     }
     if (this.roads.selected !== -1) {

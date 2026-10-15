@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gridWithPlots } from "../landscape/grid";
+import { gridWithPlots, SURF_ROAD } from "../landscape/grid";
 import { autoEdges, autoReshapes, autoShape } from "./auto";
 import { EDGE_E, EDGE_N, EDGE_S, EDGE_W, edgesOf, encodeRoad, isAutoRoad, pieceOf } from "./pieces";
 
@@ -40,21 +40,46 @@ describe("auto roads", () => {
     expect(edgesOf(g.road[b])).toBe(bits(EDGE_W, EDGE_E));
   });
 
-  it("joins a road's open end, never the side of a piece laid by hand", () => {
+  it("meets a plain road laid by hand: it bends or branches to join, and goes back", () => {
     const g = gridWithPlots(0, 0, 1, 1);
-    // A hand-laid road running north–south at column 8, and a gate-like straight pointing east at (3,3).
+    // A hand-laid road running north–south at column 8.
     for (let r = 2; r < 9; r++) g.setRoad(g.index(8, r), encodeRoad("straight", 1));
-    g.setRoad(g.index(3, 3), encodeRoad("straight", 0));
     const side = lay(g, 7, 5);
-    // Beside it, it isn't joined (alone, it just keeps the turn it was held at).
-    expect(autoEdges(g, side)).toBe(0);
-    // The hand-laid road is left as it was.
-    expect(isAutoRoad(g.road[g.index(8, 5)])).toBe(false);
-    const end = lay(g, 4, 3);
-    expect(edgesOf(g.road[end]) & bits(EDGE_W)).not.toBe(0);
-    // Below the end of the hand-laid road (which is open southward): joined.
-    const below = lay(g, 8, 9);
-    expect(edgesOf(g.road[below])).toBe(bits(EDGE_N, EDGE_S));
+    // Laid against its side: joined, and the straight there becomes a T (an auto road from now on).
+    expect(edgesOf(g.road[side])).toBe(bits(EDGE_E, EDGE_W));
+    expect(pieceOf(g.road[g.index(8, 5)])?.id).toBe("tee");
+    expect(edgesOf(g.road[g.index(8, 5)])).toBe(bits(EDGE_N, EDGE_S, EDGE_W));
+    expect(isAutoRoad(g.road[g.index(8, 5)])).toBe(true);
+    // Its neighbours along the road are left as they were.
+    expect(isAutoRoad(g.road[g.index(8, 4)])).toBe(false);
+    remove(g, side);
+    expect(pieceOf(g.road[g.index(8, 5)])?.id).toBe("straight");
+    expect(edgesOf(g.road[g.index(8, 5)])).toBe(bits(EDGE_N, EDGE_S));
+
+    // A straight at a road's free end bends round to a road laid beside it.
+    g.setRoad(g.index(3, 3), encodeRoad("straight", 0));
+    g.setRoad(g.index(4, 3), encodeRoad("straight", 0));
+    lay(g, 4, 4);
+    expect(pieceOf(g.road[g.index(4, 3)])?.id).toBe("curve");
+    expect(edgesOf(g.road[g.index(4, 3)])).toBe(bits(EDGE_W, EDGE_S));
+  });
+
+  it("never reshapes a town street, and leaves side-by-side hand-laid roads alone", () => {
+    const g = gridWithPlots(0, 0, 1, 1);
+    for (let r = 2; r < 9; r++) {
+      const i = g.index(12, r);
+      g.surface[i] = SURF_ROAD;
+      g.road[i] = encodeRoad("straight", 1);
+    }
+    const beside = lay(g, 11, 5);
+    expect(autoEdges(g, beside)).toBe(0);
+    expect(pieceOf(g.road[g.index(12, 5)])?.id).toBe("straight");
+    // Two hand-laid roads side by side: laying a third elsewhere doesn't join them.
+    g.setRoad(g.index(3, 10), encodeRoad("straight", 0));
+    g.setRoad(g.index(3, 11), encodeRoad("straight", 0));
+    lay(g, 6, 10);
+    expect(isAutoRoad(g.road[g.index(3, 10)])).toBe(false);
+    expect(isAutoRoad(g.road[g.index(3, 11)])).toBe(false);
   });
 
   it("an auto road may be kept as it is (track over it)", () => {
