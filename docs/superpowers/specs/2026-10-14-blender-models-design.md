@@ -42,6 +42,12 @@ domes, recessed windows, arched roofs) and fewer draw calls per model.
 - **Loading screen:** a wooden progress bar (model sets, then track pieces carved), and toys hopping onto stepped
   shelves as their sets arrive: the train, the platform's folk and the street's furniture (boot sets), then a few
   buildings, fetched only after the boot sets so they never hold the game up (they warm the cache for the catalogue).
+- **Game mode's parts** (its industries other than the map's forest yards and sawmills, the upgrade machines, the
+  cargo loads) are a set of their own, `public/models/industry.glb` (`dressing.py` with `SET=industry`), so the boot
+  set stays small and Sandbox never fetches them. `loadGameModels()` adds them to the parts when Game mode starts
+  (main.ts `ensureGameModels`, and at boot when it opens in Game mode); then the depots' goods and yards are rebuilt
+  (`DepotView.rebuildUnits`, `setWorld`) and the industries' tray pictures drawn. Until then the depots show their
+  stand-ins.
 - **Tests** read the model files from disk (no server), so they build the real models; tests that build cars or towns
   call `loadBlenderModels()` first.
 - The catalogue loads the models before it starts and serves `public/` too.

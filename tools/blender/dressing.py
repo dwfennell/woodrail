@@ -12,7 +12,8 @@ way it placed its boxes.
 A colour that changes from copy to copy (a door, a coat, a flower) is a slot: lacquer named "lacquer slot <name>", which
 the game fills in when it places the part.
 
-Writes tools/blender/dressing.blend and tools/blender/out/dressing.glb (one node per part, named by it).
+Writes tools/blender/dressing.blend and tools/blender/out/dressing.glb (one node per part, named by it); with SET=industry,
+Game mode's parts (see `game_only`) into industry.blend and out/industry.glb instead.
 """
 
 import math
@@ -1170,20 +1171,32 @@ PARTS = [
 # Parts on every house: built lean (see kit.Kit), as a map has hundreds of them.
 LEAN = {"door", "flower-box", "chimney-top"}
 
+# Industries both modes show (the map's own forest yards and sawmills): in dressing.glb with the rest.
+SHARED_INDUSTRY = {"industry-forest-hut", "industry-sawmill-shed", "industry-saw-blade"}
+
+
+def game_only(name):
+    """Game mode's parts (its other industries, the upgrade machines, the cargo loads): built into industry.glb, which
+    the game loads only when Game mode starts, so Sandbox never fetches them."""
+    return name.startswith(("industry-", "upgrade-", "load-")) and name not in SHARED_INDUSTRY
+
 
 def main():
+    # SET=industry builds industry.glb (Game mode's parts); otherwise dressing.glb (the rest).
+    which = os.environ.get("SET", "dressing")
+    parts = [(n, b) for n, b in PARTS if game_only(n) == (which == "industry")]
     toy.reset()
     only = set(filter(None, os.environ.get("ONLY", "").split(",")))
-    for i, (name, build) in enumerate(PARTS):
+    for i, (name, build) in enumerate(parts):
         if only and name not in only:
             continue
         toy.begin()
         root = build(kit.Kit(lean=name in LEAN))
         pivots = kit.realize(root, name)
         toy.finish(name, (i % 8 * 60, -(i // 8) * 60, 0), pivots)
-    print(f"{len(PARTS)} parts")
+    print(f"{len(parts)} parts ({which})")
     if not os.environ.get("NOEXPORT"):
-        toy.save_and_export("dressing")
+        toy.save_and_export(which)
 
 
 main()
