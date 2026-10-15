@@ -130,14 +130,20 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
  * Where an upgrade's machine stands in its yard (depot frame: t along the track, l out from it), for Game mode's
  * upgrades (Harvesters II and the like; models in dressing.glb, from Asset Gen).
  */
-const UPGRADE_SPOTS: Record<string, { t: number; l: number }> = {
-  "upgrade-log-loader": { t: 34, l: 100 },
-  "upgrade-steam-log-crane": { t: 52, l: 98 },
+const UPGRADE_SPOTS: Record<string, { t: number; l: number; turn?: number }> = {
+  // Forest yard: the free end beyond the hut's far side, booms reaching away from the track (turned so the model's +x
+  // runs out across the yard), clear of the log pile and the jib.
+  "upgrade-log-loader": { t: 40, l: 66, turn: -Math.PI / 2 },
+  "upgrade-steam-log-crane": { t: 40, l: 66, turn: -Math.PI / 2 },
+  // Sawmill: the far end, past the plank pile and the gantry.
   "upgrade-saw-bench": { t: 176, l: 72 },
-  "upgrade-steam-saw-house": { t: 172, l: 94 },
-  "upgrade-tractor": { t: 40, l: 100 },
-  "upgrade-millstones": { t: 112, l: 98 },
-  "upgrade-stone-crusher": { t: 32, l: 94 },
+  "upgrade-steam-saw-house": { t: 172, l: 92 },
+  // Farm yard: the open ground between the grain pile and the barn, off the crop beds.
+  "upgrade-tractor": { t: 136, l: 46 },
+  // Mill: beside the flour sacks, between the piles and the windmill.
+  "upgrade-millstones": { t: 112, l: 96 },
+  // Quarry: between the tool shed and the stone pile, its chute toward the track.
+  "upgrade-stone-crusher": { t: 68, l: 92 },
 };
 
 const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<string, string> }>> = {
@@ -422,7 +428,7 @@ export class DepotView {
     }
     for (const id of this.extras?.(site.depot.role) ?? []) {
       const spot = UPGRADE_SPOTS[id];
-      if (spot && hasPart(id)) addPart(b, mats, id, (g) => place(g, spot.t, spot.l, PAD_H));
+      if (spot && hasPart(id)) addPart(b, mats, id, (g) => place(spot.turn ? g.rotateY(spot.turn) : g, spot.t, spot.l, PAD_H));
     }
     const model = INDUSTRY_MODELS[site.depot.role];
     if (model && hasPart(model.part)) {
