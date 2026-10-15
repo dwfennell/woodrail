@@ -4,9 +4,6 @@ import type { LevelCrossing } from "../landscape";
 import type { SimSnapshot } from "../sim";
 import type { Materials } from "./materials";
 
-/** Barriers stand on the lane this far either side of the crossing's centre, at its edge. */
-const ALONG = 52;
-const ASIDE = 30;
 const POST_H = 30;
 const ARM_LEN = 48;
 const STRIPES = 6;
@@ -28,7 +25,7 @@ interface Crossing {
   posts: Group[];
 }
 
-const keyOf = (c: LevelCrossing) => `${Math.round(c.x)}|${Math.round(c.z)}|${Math.round(c.y)}|${c.laneAlongX ? 1 : 0}`;
+const keyOf = (c: LevelCrossing) => `${Math.round(c.x)}|${Math.round(c.z)}|${Math.round(c.y)}|${c.gates.map((g) => `${Math.round(g.x)},${Math.round(g.z)}`).join(";")}`;
 
 /** Toy level crossings: a white post with a red lamp and a striped arm on each side, lowered while a train passes. */
 export class CrossingsView {
@@ -73,25 +70,22 @@ export class CrossingsView {
   }
 
   private build(c: LevelCrossing, key: string): Crossing {
-    const r = c.laneAlongX ? { x: 1, z: 0 } : { x: 0, z: 1 };
-    const p = { x: -r.z, z: r.x };
     const barriers: Barrier[] = [];
     const posts: Group[] = [];
-    // Each barrier on the right of traffic coming toward the track, its arm reaching across that half of the lane.
-    for (const s of [1, -1]) {
-      const px = c.x + r.x * ALONG * s + p.x * ASIDE * s;
-      const pz = c.z + r.z * ALONG * s + p.z * ASIDE * s;
+    // A barrier at each gate, its arm reaching across that half of the road.
+    for (const gate of c.gates) {
+      // The post where the gate is (clear of the track: see `findCrossings`), its arm reaching across the road.
       const post = new Group();
-      post.position.set(px, c.y, pz);
+      post.position.set(gate.x, gate.y, gate.z);
       post.add(this.mesh(this.base, this.wood), this.mesh(this.post, this.white));
       const lamp = this.mesh(this.lamp, this.red);
       // Face the lamp toward the track.
-      lamp.rotation.y = Math.atan2(-r.x * s, -r.z * s);
+      lamp.rotation.y = Math.atan2(gate.dx, gate.dz);
       post.add(lamp);
       const pivot = new Group();
       pivot.position.set(0, POST_H - 3, 0);
-      // Local +x along the arm: pointing across the lane, toward its middle.
-      pivot.rotation.y = -Math.atan2(-p.z * s, -p.x * s);
+      // Local +x along the arm: pointing across the road, toward its middle.
+      pivot.rotation.y = -Math.atan2(gate.az, gate.ax);
       pivot.rotation.z = UP;
       for (let k = 0; k < STRIPES; k++) {
         const m = this.mesh(this.stripe, k % 2 ? this.white : this.red);

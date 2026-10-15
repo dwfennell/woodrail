@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { Layout } from "../track";
+import { createSample, getPieceDef, Layout, pathLength, samplePath, TRACK_WIDTH } from "../track";
+
+const s = createSample();
 import { checkPlacement } from "./clearance";
 import { findCrossings } from "./crossings";
 import { generateLandscape } from "./generate";
@@ -44,7 +46,6 @@ describe("findCrossings", () => {
   const col = 10;
   const row = 8;
   for (let r = 2; r < 20; r++) g.setRoad(g.index(col, r), encodeRoad("straight", 1));
-  const alongX = false;
   const heading = 0;
   const pose = { x: g.centreX(col) - 108, z: g.centreZ(row), heading };
 
@@ -56,20 +57,60 @@ describe("findCrossings", () => {
     expect(checkPlacement(land, p.type, false, p.pose, 0)).toEqual({ kind: "clear" });
   });
 
-  it("points don't sit on a road: a switch laid across it is refused", () => {
-    for (const type of ["switch", "switch-y"] as const) {
+  it("switches and curves may cross a road too: only running down it is refused", () => {
+    for (const type of ["switch", "switch-y", "curve-small"] as const) {
       const p = { x: g.centreX(col) - 72, z: g.centreZ(row), heading };
-      expect(checkPlacement(land, type, false, p, 0)).toEqual({ kind: "blocked", reason: "road" });
+      expect(checkPlacement(land, type, false, p, 0), type).toEqual({ kind: "clear" });
     }
   });
 
-  it("finds one crossing where a straight runs over a lane, at the lane, with the lane's direction", () => {
+  it("finds one crossing where a straight runs over a lane, at the lane, with a gate each side where the road carries on", () => {
     const layout = new Layout();
     layout.addPiece("straight-216", pose);
     const found = findCrossings(land, layout);
     expect(found).toHaveLength(1);
     expect(Math.hypot(found[0].x - g.centreX(col), found[0].z - g.centreZ(row))).toBeLessThan(40);
-    expect(found[0].laneAlongX).toBe(alongX);
+    // The road runs along z: a gate up the road and one down it, each facing into the crossing, its post to one
+    // side of the road (clear of the track) and its arm reaching across.
+    const gates = [...found[0].gates].sort((a, b) => a.z - b.z);
+    expect(gates).toHaveLength(2);
+    expect(gates.map((q) => [q.dx, q.dz])).toEqual([
+      [-0, 1],
+      [-0, -1],
+    ]);
+    for (const q of gates) {
+      expect(Math.abs(q.z - g.centreZ(row))).toBeGreaterThan(36);
+      expect(Math.abs(q.x - g.centreX(col))).toBeCloseTo(30);
+      // The arm points back toward the road's middle.
+      expect(Math.sign(q.ax)).toBe(-Math.sign(q.x - g.centreX(col)));
+      expect(Math.abs(q.az)).toBe(0);
+    }
+  });
+
+  it("a barrier's post never stands on track: a curve leaving the road puts it on the other side, or further back", () => {
+    for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      const layout = new Layout();
+      layout.addPiece("curve-small", { x: g.centreX(col) - 60, z: g.centreZ(row), heading });
+      layout.addPiece("curve-small", { x: g.centreX(col) + 30, z: g.centreZ(row + 2), heading: heading + 1 });
+      for (const c of findCrossings(land, layout)) {
+        for (const q of c.gates) {
+          for (const id of layout.pieceIds()) {
+            const p = layout.getPiece(id)!;
+            // Far enough from every piece's middle line: sampled along each path.
+            const def = getPieceDef(p.type, p.flipped);
+            for (const path of def.paths) {
+              const len = pathLength(path.geom);
+              for (let k = 0; k <= 40; k++) {
+                samplePath(path.geom, (len * k) / 40, s);
+                const x = p.pose.x + s.x * Math.cos(p.pose.heading) - s.z * Math.sin(p.pose.heading);
+                const z = p.pose.z + s.x * Math.sin(p.pose.heading) + s.z * Math.cos(p.pose.heading);
+                expect(Math.hypot(x - q.x, z - q.z)).toBeGreaterThan(TRACK_WIDTH / 2);
+              }
+            }
+          }
+        }
+      }
+    }
   });
 
   it("ignores lifted pieces and track raised off the ground", () => {

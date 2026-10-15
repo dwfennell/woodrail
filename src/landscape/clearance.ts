@@ -1,5 +1,5 @@
 import { createSample, getPieceDef, isBridge, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
-import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
+import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "./grid";
 import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
 import { cutsHills, hillsOf } from "./hill-shape";
@@ -14,7 +14,7 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   station: "The station is in the way",
   town: "Keep the track out of town",
   river: "Needs a bridge over the river",
-  road: "Cross a road straight over, on a plain stretch",
+  road: "Track can't run along a road, or cross a junction",
   hill: "Too low — the hill is in the way",
   undercut: "That would dig away the ground under other track",
   field: "That's a farm field — go around it",
@@ -51,11 +51,17 @@ const LEVEL = 4;
 
 /** Can ground-level track heading this way cross this road piece? Only a plain straight, and only across its run. */
 export function crossesRoad(road: number, heading: number): boolean {
-  if (!pieceOf(road)?.trackMayCross) return false;
-  // A straight at an even turn runs along x; at an odd one along z. Within 45° of across is across.
+  const piece = pieceOf(road);
+  if (!piece?.trackMayCross) return false;
+  if (piece.id !== "straight") return true;
+  // Across a straight road at any angle (a curve, a switch's branch), just not running down it: a straight at an even
+  // turn runs along x, at an odd one along z.
   const along = turnOf(road) & 1 ? Math.abs(Math.sin(heading)) : Math.abs(Math.cos(heading));
-  return along < Math.SQRT1_2 + 1e-6;
+  return along < ALONG_ROAD;
 }
+
+/** Track heading closer than this to a straight road's own line (cos 25°) would be running down it, not across. */
+export const ALONG_ROAD = Math.cos((25 * Math.PI) / 180);
 
 const STEP = 16;
 const END_INSET = 6;
@@ -210,8 +216,6 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
   const overRiver = isBridge(type);
   // A ramp may cut into hills up to the height of its top end (see `HillShape` cuttings).
   const cutTop = cutsHills(type) ? y + Math.max(...getPieceDef(type, flipped).connectors.map((c) => c.y)) : -Infinity;
-  // Points (and diamond crossings) don't sit on a lane: where track meets a road it crosses straight over.
-  const branched = getPieceDef(type, flipped).paths.length > 1;
   let result = CLEAR;
   forEachSample(type, flipped, pose, (x, z, trackY, heading) => {
     const i = g.cellAtWorld(x, z);
@@ -232,7 +236,6 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
       } else if (s === SURF_TOWN || s === SURF_ROAD) result = BLOCKED.town;
       else if (!overRiver && inRiver(g, x, z)) result = BLOCKED.river;
       else if (g.road[i] !== 0 && y + trackY <= g.groundY(i) + LEVEL && !crossesRoad(g.road[i], heading)) result = BLOCKED.road;
-      else if (branched && (s === SURF_LANE || g.road[i] !== 0) && y + trackY <= g.groundY(i) + LEVEL) result = BLOCKED.road;
       else {
         // Below the ground here: a hill in the way, unless a ramp can cut its way in (no higher than its top end).
         const ground = hillsOf(g).groundAt(x, z);

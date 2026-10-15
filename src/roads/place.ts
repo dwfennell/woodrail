@@ -1,7 +1,7 @@
 import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type Layout } from "../track";
 import type { Landscape } from "../landscape/generate";
 import { CELL, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "../landscape/grid";
-import { crossesRoad } from "../landscape/clearance";
+import { ALONG_ROAD, crossesRoad } from "../landscape/clearance";
 import { bestTurn, edgesOf, encodeRoad, pieceOf, roadsJoin, turnOf, type Edge, type RoadPieceId } from "./pieces";
 
 /** Why a road piece can't go on a square. */
@@ -78,8 +78,8 @@ export class RoadPlacer {
 
   /**
    * Can a road piece go on square `i` (−1: off the land)? Null if so. A road already there may be replaced. With
-   * `road` (the piece as it would be laid), track on the square is fine if it crosses the piece straight over (a level
-   * crossing: see `crossesRoad`).
+   * `road` (the piece as it would be laid), track on the square is fine if it crosses the piece (a level crossing: see
+   * `crossesRoad`).
    */
   check(i: number, road = 0): RoadBlock | null {
     this.road = road;
@@ -88,10 +88,14 @@ export class RoadPlacer {
 
   private road = 0;
 
-  /** Does all the ground-level track on square `i` cross the piece being laid straight over (one way, across it)? */
+  /** Does the ground-level track on square `i` cross the piece being laid (at any angle, but not running down it)? */
   private crossable(i: number): boolean {
     const ways = this.trackSquares.get(i) ?? 0;
-    return (ways === 1 || ways === 2) && crossesRoad(this.road, ways === 1 ? 0 : Math.PI / 2);
+    if (!(ways & 4)) return false;
+    // Each way the track runs here must be one that crosses the road (bits 1 and 2: along x or z; else at an angle).
+    if (ways & 1 && !crossesRoad(this.road, 0)) return false;
+    if (ways & 2 && !crossesRoad(this.road, Math.PI / 2)) return false;
+    return crossesRoad(this.road, Math.PI / 4);
   }
 
   private checkSquare(i: number): RoadBlock | null {
@@ -200,7 +204,8 @@ export class RoadPlacer {
         for (let k = 0; k <= n; k++) {
           samplePath(path.geom, (len * k) / n, sample);
           const h = p.pose.heading + sample.heading;
-          const way = Math.abs(Math.cos(h)) >= Math.abs(Math.sin(h)) ? 1 : 2;
+          // Bit 4: track here; bit 1: running (near) along x; bit 2: along z (within 25°, see `crossesRoad`).
+          const way = 4 | (Math.abs(Math.cos(h)) >= ALONG_ROAD ? 1 : 0) | (Math.abs(Math.sin(h)) >= ALONG_ROAD ? 2 : 0);
           const x = p.pose.x + sample.x * ch - sample.z * sh;
           const z = p.pose.z + sample.x * sh + sample.z * ch;
           for (const [dx, dz] of [[-m, -m], [m, -m], [-m, m], [m, m]]) {
