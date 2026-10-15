@@ -34,20 +34,18 @@ const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), 
 /** Wait (up to 20 s) for something in the page to be true; the check after says whether it was. */
 const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 20000, polling: 50 }).catch(() => {});
 
-/** Close the help card that greets a new player, if it comes. */
-async function letsPlay() {
-  const btn = p.locator("button", { hasText: /let.s play/i }).first();
-  if (await btn.waitFor({ state: "visible", timeout: 30000 }).then(() => true, () => false)) {
-    await btn.click();
-    await btn.waitFor({ state: "hidden", timeout: 20000 }).catch(() => {});
-  }
+// The help card that greets a first visit is taken as read (it would cover the tray, arriving whenever loading's done).
+await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+
+/** The game loaded and on screen: the map entered, the loading screen gone. */
+async function ready() {
+  await p.waitForFunction(() => !!window.woodrail?.landscape?.grid && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  await settle();
 }
 
 async function boot() {
   await p.goto(URL);
-  await p.waitForFunction(() => !!window.woodrail, null, { timeout: 120000 });
-  await letsPlay();
-  await settle();
+  await ready();
   // Helpers in the page: squares, projection to the screen, toasts collected.
   await p.evaluate(() => {
     const w = window.woodrail;
@@ -168,7 +166,11 @@ async function trayDrag(label, i) {
   // Picked up (the tray saw the press go up and out): in hand before it's carried over the map.
   await until(() => window.woodrail.interaction.mode.kind.startsWith("drag"));
   const held = await p.evaluate(() => window.woodrail.interaction.mode.kind);
-  if (!held.startsWith("drag")) console.log(`(${label}: not picked up from the tray: ${held}, tray scrolled to ${await p.evaluate(() => document.querySelector(".tray-item")?.parentElement?.scrollLeft)})`);
+  if (!held.startsWith("drag")) {
+    const top = await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return `${e?.tagName}.${e?.className}`; }, [sx, sy]);
+    console.log(`(${label}: not picked up from the tray: ${held}; on top at the press: ${top})`);
+    await shot(`not-picked-${label}`);
+  }
   const [x, y] = await p.evaluate((i) => T.screen(i), i);
   const ty = sy - 80;
   for (let k = 1; k <= 10; k++) {
@@ -489,7 +491,7 @@ const snapshot = await p.evaluate(() => {
 });
 // Leaving the page saves it (as closing the tab does); then the reloaded map's roads, once it's built.
 await p.reload();
-await p.waitForFunction(() => !!window.woodrail?.landscape?.grid, null, { timeout: 120000 });
+await ready();
 await until((n) => {
   const g = window.woodrail.landscape.grid;
   let k = 0;
@@ -505,7 +507,6 @@ const reloaded = await p.evaluate(() => {
 check("I1 the player's roads survive a reload (autosave)", snapshot === reloaded, `${JSON.parse(snapshot).length} road squares before, ${JSON.parse(reloaded).length} after`);
 
 // ---- J: idle cost ---------------------------------------------------------------------------------------------------
-await letsPlay();
 // Settled (the scene drew nothing for a good while): then count what it draws over 5 s, which should be nothing.
 await p.evaluate(() => Promise.race([window.woodrail.settled(30), new Promise((r) => setTimeout(r, 60000))]));
 const frames = await p.evaluate(async () => {
