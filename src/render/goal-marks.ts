@@ -74,7 +74,11 @@ export function goalLabels(
     showing = null;
   }
   if (places.length === 0) return null;
-  const host = canvas.parentElement ?? document.body;
+  // The labels' own layer over the canvas, clipping them: a label off screen never widens the page (which pans or
+  // zooms it on phones).
+  const host = document.createElement("div");
+  host.className = "goal-labels";
+  (canvas.parentElement ?? document.body).append(host);
   const els = places.map((p) => {
     const el = document.createElement("div");
     el.className = "goal-label";
@@ -82,20 +86,17 @@ export function goalLabels(
     host.append(el);
     return el;
   });
-  const mine = { els, done: false };
+  const mine = { els: [host], done: false };
   showing = mine;
-  // Where the canvas is within the labels' host (read now and on a resize: never between writing labels each frame).
-  let left = 0;
-  let top = 0;
+  // Where the canvas is (read now and on a resize: never between writing labels each frame).
   let width = 1;
   let height = 1;
   const measure = () => {
     const r = canvas.getBoundingClientRect();
-    const h = host.getBoundingClientRect();
-    left = r.left - h.left;
-    top = r.top - h.top;
-    width = r.width;
-    height = r.height;
+    host.style.left = `${r.left}px`;
+    host.style.top = `${r.top}px`;
+    host.style.width = `${(width = r.width)}px`;
+    host.style.height = `${(height = r.height)}px`;
   };
   measure();
   window.addEventListener("resize", measure);
@@ -104,10 +105,14 @@ export function goalLabels(
   const place = () => {
     places.forEach((p, i) => {
       v.set(p.x, p.y, p.z).project(camera);
-      const x = left + ((v.x + 1) / 2) * width;
-      const y = top + ((1 - v.y) / 2) * height;
+      // Off screen (or behind the camera): not shown at all.
+      const off = v.z > 1 || v.x < -1.5 || v.x > 1.5 || v.y < -1.5 || v.y > 1.5;
+      els[i].style.display = off ? "none" : "";
+      if (off) return;
+      const x = ((v.x + 1) / 2) * width;
+      const y = ((1 - v.y) / 2) * height;
       els[i].style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
-      els[i].style.opacity = v.z > 1 ? "0" : String(Math.min(1, (life - t) / 0.8));
+      els[i].style.opacity = String(Math.min(1, (life - t) / 0.8));
     });
   };
   place();
@@ -120,7 +125,7 @@ export function goalLabels(
     },
     dispose() {
       window.removeEventListener("resize", measure);
-      for (const el of els) el.remove();
+      host.remove();
       if (showing === mine) showing = null;
     },
   };

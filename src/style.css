@@ -399,7 +399,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .route-stop .route-remove { padding-inline: 8px; }
 .route-add { align-self: flex-start; }
 
-/* "Show me": a goal town's name over it for a few seconds (positioned by the game each frame). */
+/* "Show me": a goal town's name over it for a few seconds (positioned by the game each frame), in a layer over the
+   canvas that clips them, so one off screen never widens the page. */
+.goal-labels { position: fixed; inset: 0; z-index: 5; overflow: hidden; pointer-events: none; }
 .goal-label {
   position: absolute;
   left: 0;
