@@ -30,15 +30,17 @@ export function unitSize(kind: CargoKind): { x: number; y: number; z: number } {
 }
 
 /**
- * Where the k-th unit (from 0) sits in a pile `across` units wide, relative to the pile's centre on the ground:
- * rows fill across, then stack upward. Logs lie side by side; bundles in neat columns.
+ * Where the k-th unit (from 0) sits in a pile `across` units wide and `rows` long, relative to the pile's centre on
+ * the ground: rows fill across, then along, then stack upward. Logs lie side by side; bundles in neat columns.
  */
-export function pileSlot(kind: CargoKind, k: number, across: number): Slot {
+export function pileSlot(kind: CargoKind, k: number, across: number, rows = 1): Slot {
+  const perLayer = across * rows;
   const col = k % across;
-  const layer = Math.floor(k / across);
+  const row = Math.floor(k / across) % rows;
+  const layer = Math.floor(k / perLayer);
   const size = unitSize(kind);
   const pitch = size.z + 0.6;
-  return { x: 0, y: size.y / 2 + layer * size.y, z: (col - (across - 1) / 2) * pitch };
+  return { x: (row - (rows - 1) / 2) * (size.x + 0.6), y: size.y / 2 + layer * size.y, z: (col - (across - 1) / 2) * pitch };
 }
 
 /** Where the k-th unit rides on a timber wagon's deck, relative to the deck's centre. */
