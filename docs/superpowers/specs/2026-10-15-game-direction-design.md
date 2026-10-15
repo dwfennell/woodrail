@@ -4,6 +4,10 @@ Status: brainstorm, revised with the user on 2026-10-15. Nothing here is built y
 
 ## Principles
 
+- **The heart of the game: unlock new buildings and things, and see them change how you play.** Every step should
+  reveal something you haven't seen: a building, a car, a piece, a specialty. Where it can, it should also change how
+  the railway plays. Plan content so each unlock has a model and, ideally, an effect.
+
 - **Cozy.** Nothing fails, expires or wears out.
 - **A clear early game.** The opening is the same on every map: timber, then planks, then a workshop, then towns that
   want planks. Variety grows from there.
@@ -131,7 +135,7 @@ will need. Then the rocket asks for several major cities' specialties.
   - city: advanced blueprints and the major buildings' lines
 - **Fold in the small blueprints:** Risers go into Bridges, and Turning loops into Junctions.
 
-## Crafting (a proposal, not yet part of the plan)
+## Crafting (agreed: 1 and 2 are in the plan; 4 and 5 are optional, for later)
 
 Leaning further into the workshop:
 
@@ -171,4 +175,6 @@ are a gentler side branch for later.
 2. Minor specialties from what towns receive (2), then major specialties and their city buildings.
 3. Varied blueprint requirements (3), with the tree reshape.
 4. Rare towns and map variety (2, 5).
-5. Phase C, Phase D, then the rocket.
+5. Crafting 1 and 2: crafted goods as cargo, and workshop benches. These can come alongside 2, as carpenters' and
+   toymakers' towns want furniture and toys.
+6. Phase C, Phase D, then the rocket.
