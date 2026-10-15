@@ -395,13 +395,14 @@ export class Hud {
             e.preventDefault();
             this.trayPress(e, scroller, { tap: () => this.chooseLandTool(tool) });
           });
-        } else if (item.kind === "piece") {
+        } else if (item.kind === "piece" || item.kind === "road") {
           // A piece is dragged out; once placed it stays ready (the next waits at the end it left: tap it to add it).
-          // A tap on the ready one here puts it away.
+          // A road is dragged out, or tapped to make it ready (then each click on the map lays one). A tap on the
+          // ready one here puts it away.
           const key = trayKey(item);
           b.dataset.key = key;
           b.classList.toggle("armed", this.armedKey === key);
-          b.title = `Drag onto the floor: ${item.label}`;
+          b.title = item.kind === "road" ? `Drag onto the map, or tap then click the map: ${item.label}` : `Drag onto the floor: ${item.label}`;
           b.addEventListener("pointerdown", (e) => {
             e.preventDefault();
             this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: () => this.handlers.trayTap(item) });
