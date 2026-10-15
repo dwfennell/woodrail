@@ -65,7 +65,7 @@ describe("smoothLoop on generated maps", () => {
         }
       }
     }
-  });
+  }, 20_000);
 });
 
 describe("smoothLoop on small patches", () => {

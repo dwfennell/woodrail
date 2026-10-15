@@ -2,6 +2,7 @@ import type { Footprint } from "../props/placement";
 import type { SignBadge } from "../render/landscape-view";
 import type { PropStore } from "../props/store";
 import { PropLibrary } from "../render/props/library";
+import { BoatsView } from "../render/boats-view";
 import { PropsView } from "../render/props/props-view";
 import {
   ACESFilmicToneMapping,
@@ -127,6 +128,8 @@ export class Game {
   props: PropStore;
   /** Builds catalogue models on first use (see `PropLibrary`). */
   readonly propLibrary: PropLibrary;
+  /** Boats calling at harbours (Game mode). */
+  readonly boats: BoatsView;
   readonly propsView: PropsView;
   /** A prop being moved by hand: not drawn where it stood. */
   private hiddenProp = -1;
@@ -218,6 +221,8 @@ export class Game {
       this.invalidate();
     };
     this.propsView.sync(this.props);
+    this.boats = new BoatsView(this.propLibrary, (f) => this.flourishes.add(f), () => this.invalidate());
+    this.scene.add(this.boats.group);
     this.post = createPost(this.renderer, this.scene, this.camera, this.quality);
 
     this.landChanged();
@@ -248,6 +253,7 @@ export class Game {
   setWorld(world: GameWorld): void {
     this.invalidate();
     this.flourishes.clear();
+    this.boats.clear();
     this.layout = world.layout;
     this.sim = world.sim;
     this.landscape = world.landscape;

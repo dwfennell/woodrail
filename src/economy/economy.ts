@@ -33,7 +33,7 @@ interface Service {
   readonly done: Set<number>;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power";
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour";
 
 /**
  * What a kind of depot does: the goods trains bring it (unloaded onto its piles), the goods it gives them, and what it
@@ -72,6 +72,8 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   smithy: { takes: ["iron"], gives: ["tools"], cycle: { uses: { iron: 2 }, makes: { tools: 1 }, seconds: 14 } },
   // A power station burns coal; while it has some, electric engines run.
   power: { takes: ["coal"], gives: [], cycle: { uses: { coal: 1 }, makes: {}, seconds: 60 } },
+  // A harbour (Game mode) takes any good onto its quay for the boats that call by themselves (`src/game/harbours.ts`).
+  harbour: { takes: [...CARGO_KINDS], gives: [] },
   // Keeps goods for later: everything, more of it. Routed trains drop or pick up there as their stops say.
   warehouse: { takes: [...CARGO_KINDS], gives: [...CARGO_KINDS], cap: 24, routedOnly: true },
 };

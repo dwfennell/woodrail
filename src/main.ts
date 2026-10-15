@@ -34,6 +34,7 @@ import { pieceIcon, trainIcon } from "./ui/icons";
 import { goodsOf, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, detachEngines, tooHeavy } from "./game/engines";
+import { BOAT_SAIL, HarbourTrade } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
@@ -991,8 +992,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   const peopleClock = new Map<number, number>();
   const counters = new Counters();
   const warnedHeavy = new Set<number>();
+  // Harbours (Game mode): boats call by themselves and buy what's on the quay.
+  const harbourTrade = new HarbourTrade();
   function passengersOn(): void {
     peopleClock.clear();
+    harbourTrade.reset();
     counters.reset(game.economy);
     applyCranes(game.economy, progress);
     attachEngines(game.world);
@@ -1009,6 +1013,15 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   }
   setInterval(() => {
     if (mode !== "game" || !playing || game.paused) return;
+    for (const e of harbourTrade.update(game.world, progress)) {
+      if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL);
+      else if (e.kind === "leave") game.boats.leave(e.depotId, e.way, BOAT_SAIL);
+      else if (e.kind === "sold") {
+        hud.setCoins(progress.coins);
+        hud.toast(`A boat took ${describeGoods(e.goods)}: +${e.coins} coins`, false, 3200);
+        scheduleSave();
+      }
+    }
     // What's been done (logs cut, loads moved, goods delivered) toward the blueprints that ask for it.
     if (counters.collect(game.economy, progress) && board.open) refreshBoard();
     // A train set going that's too heavy for its engines says so, once.

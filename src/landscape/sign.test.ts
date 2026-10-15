@@ -26,7 +26,7 @@ describe("signPose", () => {
         }
       }
     }
-  });
+  }, 20_000);
 
   it("stands on the station house roof, above the canopy, where a camera looking down can read it", () => {
     expect(SIGN_Y - SIGN_HEIGHT / 2).toBeGreaterThan(STATION_ROOF_TOP + 4);

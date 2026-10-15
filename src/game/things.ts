@@ -64,6 +64,7 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-smithy": { label: "Smithy", cost: { planks: 16, iron: 4 }, coins: 60, tech: "smithy" },
   "piece:depot-power": { label: "Power station", cost: { planks: 24, iron: 6 }, coins: 80, tech: "electricity" },
   "piece:depot-warehouse": { label: "Warehouse", cost: { planks: 18 }, coins: 50, tech: "warehouses" },
+  "piece:depot-harbour": { label: "Harbour", cost: { planks: 30, stone: 10 }, coins: 100, tech: "harbours" },
 };
 
 /**

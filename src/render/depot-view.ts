@@ -145,6 +145,14 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     piles: { coal: { t: 60, l: 62, y: YARD, across: 3, rows: 2, axis: "t" } },
     trackT: 60,
   },
+  // A harbour (Phase D): a pile of each good along the quay, waiting for the boats; the water is past the yard's far
+  // side (l > 114), where the boats tie up.
+  harbour: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: Object.fromEntries(CARGO_KINDS.map((k, i) => [k, { t: 22 + i * 17.5, l: 62, y: YARD, across: 1, axis: "l", show: 4 }])),
+    trackT: 60,
+  },
   mill: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     // The gantry spans the piles at the near end; the windmill stands at the far end (t 160).
@@ -209,6 +217,7 @@ const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<s
   carpenter: { part: "industry-carpenter", slots: {} },
   smithy: { part: "industry-smithy", slots: {} },
   power: { part: "industry-power", slots: {} },
+  harbour: { part: "industry-harbour", slots: {} },
   foundry: { part: "industry-foundry", slots: {} },
 };
 
@@ -614,6 +623,13 @@ export class DepotView {
       b.add(mats.lacquer("#5a524a"), place(new CylinderGeometry(4, 5, 34, 10), 174, 104, PAD_H + 40));
       b.add(mats.lacquer("#ffb347"), place(new RoundedBoxGeometry(12, 8, 2, 1, 0.8), 156, 80.5, PAD_H + 9));
       b.add(mats.lacquer("#3a3a3e"), place(new RoundedBoxGeometry(12, 8, 6, 1, 1), 124, 80, PAD_H + 4));
+    }
+    if (site.depot.role === "harbour") {
+      // Timber quay edging along the water side, a few bollards, and a little harbour office at the far end.
+      b.add(mats.naturalWood, place(new RoundedBoxGeometry(196, 6, 8, 1, 1.5), 108, 112, PAD_H - 1));
+      for (const t of [30, 80, 130, 180]) b.add(mats.lacquer("#3a3a3e"), place(new CylinderGeometry(2.5, 3, 7, 10), t, 110, PAD_H + 3.5));
+      b.add(mats.lacquer("#e9e1cf"), place(new RoundedBoxGeometry(26, 24, 22, 2, 2.5), 184, 92, PAD_H + 12));
+      b.add(mats.lacquer("#2f6fb0"), place(new RoundedBoxGeometry(30, 4, 26, 1, 1.5), 184, 92, PAD_H + 26));
     }
     if (site.depot.role === "power") {
       // A brick turbine hall with two tall chimneys.
