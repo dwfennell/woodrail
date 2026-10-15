@@ -61,7 +61,8 @@ time is still to be measured on a phone.
 
 ## 5. Phases
 
-1. **Trains** (done): five car kinds and their seven extra looks.
+1. **Trains** (done): the car kinds and their extra looks (later added: the goods van, the express engine and the
+   first-class coach).
 2. **People and animals** (done): all 48 of the catalogue's `life` assets, used as props in Sandbox. See §6.
 3. **Buildings** (done): the catalogue's 52 buildings, and parts for the map's own towns and stations. See §7.
 

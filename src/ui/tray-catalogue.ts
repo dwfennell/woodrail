@@ -66,6 +66,7 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["engine"], looks: ["tank"], label: "Tank engine" },
   { kind: "train", cars: ["engine"], looks: ["diesel"], label: "Diesel" },
   { kind: "train", cars: ["engine"], looks: ["electric"], label: "Electric" },
+  { kind: "train", cars: ["engine"], looks: ["express"], label: "Express" },
   { kind: "train", cars: ["hopper"], label: "Hopper" },
   { kind: "train", cars: ["timber"], label: "Timber wagon" },
   { kind: "train", cars: ["van"], label: "Goods van" },
@@ -73,6 +74,7 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["passenger"], looks: ["dining"], label: "Dining car" },
   { kind: "train", cars: ["passenger"], looks: ["sleeper"], label: "Sleeper" },
   { kind: "train", cars: ["passenger"], looks: ["double-decker"], label: "Double-decker" },
+  { kind: "train", cars: ["passenger"], looks: ["first-class"], label: "First class" },
   { kind: "train", cars: ["caboose"], label: "Caboose" },
   { kind: "train", cars: ["caboose"], looks: ["bay-window"], label: "Bay-window caboose" },
 ];
