@@ -1,7 +1,7 @@
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre } from "./editor/editor";
-import { frameDistance } from "./game/camera-director";
+import { frameAlong, frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
@@ -13,7 +13,7 @@ import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
 import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
-import { goalMarks, SQUARE_RING } from "./render/goal-marks";
+import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
 import { describeThings, firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas, takeBlueprint, takeCrate } from "./game/rewards";
@@ -54,6 +54,8 @@ import "./style.css";
 
 /** How far (mm) the opening view stands from where track was last built: the middle of the zoom range. */
 const OPENING_DISTANCE = 1000;
+/** Room round the places a view frames for a goal (mm): a station and its town around it. */
+const GOAL_MARGIN = 260;
 
 /** How far a station or depot may turn when it gives (radians). */
 const GIVE_TURN = (4 * Math.PI) / 180;
@@ -1243,15 +1245,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     const guide = goal.guide(game.world);
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
     if (guide.points.length > 0) {
-      const xs = guide.points.map((p) => p.x);
-      const zs = guide.points.map((p) => p.z);
-      const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
-      // A margin round the places, so a lone town or depot is seen with its surroundings, and room for the goals card
-      // and the tray, which cover the top left and the bottom of the screen.
-      const radius = (Math.hypot(x1 - x0, z1 - z0) / 2) * 1.3 + 360;
-      const distance = Math.min(frameDistance(radius, game.camera.fov, game.camera.aspect), game.controls.maxDistance);
+      // The places along the screen's long side, with room round them for their surroundings (and for the goals card
+      // and the tray, which cover the top and the bottom of the screen).
+      const f = frameAlong(guide.points, game.camera.fov, game.camera.aspect, GOAL_MARGIN);
       game.follow(-1);
-      game.director.glideTo(new Vector3((x0 + x1) / 2, 0, (z0 + z1) / 2), distance, { duration: 1 });
+      game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 1, ...(f.theta === null ? {} : { theta: f.theta }) });
     }
     if (guide.towns.length > 0) game.flourishes.add(game.landscapeView.flash(guide.towns));
     const grid = game.landscape.grid;
@@ -1259,8 +1257,12 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       const i = grid.cellAtWorld(x, z);
       return i < 0 ? 0 : grid.groundY(i);
     };
-    const marks = goalMarks(game.scene, guide.marks.map((p) => ({ x: p.x, y: ground(p.x, p.z), z: p.z })));
+    // The goal's towns get rings at their stations, and their names over them (they're small from far off).
+    const towns = guide.towns.map((id) => game.landscape.towns.find((t) => t.id === id)).filter((t) => !!t);
+    const marks = goalMarks(game.scene, [...guide.marks, ...towns.map((t) => t.station)].map((p) => ({ x: p.x, y: ground(p.x, p.z), z: p.z })));
     if (marks) game.flourishes.add(marks);
+    const labels = goalLabels(game.camera, game.canvas, towns.map((t) => ({ x: t.station.x, y: ground(t.station.x, t.station.z) + 90, z: t.station.z, text: t.name })));
+    if (labels) game.flourishes.add(labels);
     game.invalidate();
   }
 
@@ -1452,8 +1454,9 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     }
     const [a, b] = game.landscape.towns;
     if (!a || !b) return;
-    const radius = Math.hypot(a.centre.x - b.centre.x, a.centre.z - b.centre.z) / 2 + 140;
-    game.lookAt(new Vector3((a.centre.x + b.centre.x) / 2, 0, (a.centre.z + b.centre.z) / 2), frameDistance(radius, game.camera.fov, game.camera.aspect), 0.95);
+    // The two stations to join, along the screen's long side (up a phone held upright), close enough to see them.
+    const f = frameAlong([a.station, b.station], game.camera.fov, game.camera.aspect, GOAL_MARGIN);
+    game.lookAt(new Vector3(f.x, 0, f.z), f.distance, 0.95, f.theta);
     // A bare map: suggest the first job.
     if (game.layout.pieceCount === game.stations.size + game.depots.size) {
       window.setTimeout(() => {
