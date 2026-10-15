@@ -60,7 +60,11 @@ const LABEL_LIFE = 5;
  */
 export function goalLabels(camera: Camera, canvas: HTMLCanvasElement, places: readonly { x: number; y: number; z: number; text: string }[]): Flourish | null {
   if (places.length === 0) return null;
-  const host = canvas.parentElement ?? document.body;
+  // The labels' own layer over the canvas, clipping them: a label off screen never widens the page (which pans or
+  // zooms it on phones).
+  const host = document.createElement("div");
+  host.className = "goal-labels";
+  (canvas.parentElement ?? document.body).append(host);
   const els = places.map((p) => {
     const el = document.createElement("div");
     el.className = "goal-label";
@@ -72,14 +76,20 @@ export function goalLabels(camera: Camera, canvas: HTMLCanvasElement, places: re
   let t = 0;
   const place = () => {
     const r = canvas.getBoundingClientRect();
-    const h = host.getBoundingClientRect();
+    host.style.left = `${r.left}px`;
+    host.style.top = `${r.top}px`;
+    host.style.width = `${r.width}px`;
+    host.style.height = `${r.height}px`;
     places.forEach((p, i) => {
       v.set(p.x, p.y, p.z).project(camera);
-      const behind = v.z > 1;
-      const x = r.left - h.left + ((v.x + 1) / 2) * r.width;
-      const y = r.top - h.top + ((1 - v.y) / 2) * r.height;
+      // Off screen (or behind the camera): not shown at all.
+      const off = v.z > 1 || v.x < -1.5 || v.x > 1.5 || v.y < -1.5 || v.y > 1.5;
+      els[i].style.display = off ? "none" : "";
+      if (off) return;
+      const x = ((v.x + 1) / 2) * r.width;
+      const y = ((1 - v.y) / 2) * r.height;
       els[i].style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
-      els[i].style.opacity = behind ? "0" : String(Math.min(1, (LABEL_LIFE - t) / 0.8));
+      els[i].style.opacity = String(Math.min(1, (LABEL_LIFE - t) / 0.8));
     });
   };
   place();
@@ -90,7 +100,7 @@ export function goalLabels(camera: Camera, canvas: HTMLCanvasElement, places: re
       return t < LABEL_LIFE;
     },
     dispose() {
-      for (const el of els) el.remove();
+      host.remove();
     },
   };
 }
