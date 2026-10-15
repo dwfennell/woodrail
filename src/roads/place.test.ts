@@ -29,6 +29,11 @@ describe("road placement", () => {
     expect(placer.check(at(4, 1))).toBeNull();
     expect(placer.check(at(5, 1))).toBeNull();
     expect(placer.check(at(6, 1))).toBe("station-way");
+    // On a station's way in (here the line runs along x): only a plain straight across the line, a crossing to be.
+    expect(placer.check(at(6, 1), encodeRoad("straight", 1))).toBeNull();
+    expect(placer.check(at(6, 1), encodeRoad("straight", 0))).toBe("station-way");
+    expect(placer.check(at(6, 1), encodeRoad("curve", 0))).toBe("station-way");
+    expect(placer.check(at(6, 1), encodeRoad("tee", 1))).toBe("station-way");
     expect(placer.check(at(7, 1))).toBe("prop");
   });
 
@@ -92,7 +97,13 @@ describe("level crossings", () => {
     expect(along).toEqual({ kind: "blocked", reason: "road" });
     // Up on risers it passes over.
     expect(checkPlacement(l, "straight-216", false, { x: 4.5 * CELL, z: 1 * CELL, heading: Math.PI / 2 }, 24).kind).not.toBe("blocked");
-    expect(crossesRoad(encodeRoad("curve", 0), 0)).toBe(false);
+    // A bend or a dead end may be crossed any way; a junction not at all.
+    expect(crossesRoad(encodeRoad("curve", 0), 0)).toBe(true);
+    expect(crossesRoad(encodeRoad("end", 0), Math.PI / 2)).toBe(true);
+    expect(crossesRoad(encodeRoad("tee", 0), Math.PI / 2)).toBe(false);
+    // A straight road at an angle (a curve or a switch's branch crossing it), but not running (nearly) down it.
+    expect(crossesRoad(encodeRoad("straight", 0), Math.PI / 4)).toBe(true);
+    expect(crossesRoad(encodeRoad("straight", 0), 0.3)).toBe(false);
   });
 });
 

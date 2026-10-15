@@ -37,7 +37,7 @@ export interface RoadPieceDef {
   readonly ports: readonly Port[];
   /** Pairs of port indices traffic can go between (both ways unless the ports say otherwise). */
   readonly links: readonly (readonly [number, number])[];
-  /** Ground-level track may cross this square, across the road's run only (a level crossing). */
+  /** Ground-level track may cross this square (a level crossing): a plain road, a bend or a dead end, not a junction. */
   readonly trackMayCross: boolean;
   /** Goes over a river square (and only there): a road bridge. */
   readonly overRiver?: boolean;
@@ -49,7 +49,7 @@ const two = (edge: Edge): Port => ({ edge, slot: "mid", flow: "both" });
 
 export const ROAD_PIECES: readonly RoadPieceDef[] = [
   { code: 1, id: "straight", name: "Road", ports: [two(EDGE_W), two(EDGE_E)], links: [[0, 1]], trackMayCross: true },
-  { code: 2, id: "curve", name: "Road bend", ports: [two(EDGE_W), two(EDGE_S)], links: [[0, 1]], trackMayCross: false },
+  { code: 2, id: "curve", name: "Road bend", ports: [two(EDGE_W), two(EDGE_S)], links: [[0, 1]], trackMayCross: true },
   { code: 3, id: "tee", name: "T-junction", ports: [two(EDGE_W), two(EDGE_E), two(EDGE_S)], links: [[0, 1], [0, 2], [1, 2]], trackMayCross: false },
   {
     code: 4,
@@ -59,7 +59,7 @@ export const ROAD_PIECES: readonly RoadPieceDef[] = [
     links: [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]],
     trackMayCross: false,
   },
-  { code: 5, id: "end", name: "Dead end", ports: [two(EDGE_W)], links: [], trackMayCross: false },
+  { code: 5, id: "end", name: "Dead end", ports: [two(EDGE_W)], links: [], trackMayCross: true },
   { code: 6, id: "zebra", name: "Zebra crossing", ports: [two(EDGE_W), two(EDGE_E)], links: [[0, 1]], trackMayCross: false },
   { code: 7, id: "bridge", name: "Road bridge", ports: [two(EDGE_W), two(EDGE_E)], links: [[0, 1]], trackMayCross: false, overRiver: true },
   // A ramp up a block, over two squares at the lower ground: the bottom half climbs to half a block, the top half on

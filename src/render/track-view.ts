@@ -133,6 +133,8 @@ export class TrackView {
   /** Turnback flag: a pole standing on the buffer block and a pennant, in piece-local space. */
   private readonly flagParts = turnbackFlagParts();
   private levers = new Map<number, Mesh>();
+  /** Is this spot on a road (or lane)? A switch's lever and signal stand clear of roads where there's room. */
+  onRoad: ((x: number, z: number) => boolean) | null = null;
   /** A toy semaphore signal beside each switch: arm level for the straight route, raised for the branch. */
   private signals = new Map<number, { root: Group; arm: Group }>();
   private readonly signalParts = {
@@ -336,10 +338,12 @@ export class TrackView {
         this.group.add(lever);
         this.levers.set(id, lever);
       }
-      // Lever stands beside the trunk on the side opposite the branch, leaning toward the active route.
+      // Lever stands beside the trunk on the side opposite the branch, leaning toward the active route: near the
+      // trunk end, or further along where that's on a road (a switch over a level crossing).
       const branchSide = Math.sign(def.connectors[2].pose.z) || 1;
+      const trunk = Math.abs(def.connectors[1].pose.x);
       const local = new Object3D();
-      local.position.set(30, TRACK_THICKNESS * 0 + 0, -branchSide * SWITCH_LEVER_OFFSET);
+      local.position.set(this.clearX(p, [30, 60, 90, 120, 150, 180, 6].filter((x) => x < trunk - 10), -branchSide * SWITCH_LEVER_OFFSET), 0, -branchSide * SWITCH_LEVER_OFFSET);
       // Two-way: leans toward the route set. Three-way: upright for straight on, leaning toward a curve.
       const state = this.layout.switchState(id);
       const lean = def.paths.filter((p) => p.from === 0).length === 3 ? (state === 0 ? 0 : state === 1 ? 1 : -1) * branchSide : (state === 1 ? 1 : -1) * branchSide;
@@ -366,7 +370,7 @@ export class TrackView {
         this.signals.set(id, signal);
       }
       const post = signal.root.children[0];
-      post.position.set(6, 0, -branchSide * (SWITCH_LEVER_OFFSET + 4));
+      post.position.set(this.clearX(p, [6, 54, 84, 114, 144].filter((x) => x < trunk - 10), -branchSide * (SWITCH_LEVER_OFFSET + 4)), 0, -branchSide * (SWITCH_LEVER_OFFSET + 4));
       // Arm geometry points along +z; turn it to reach away from the track, then raise it for the branch.
       post.rotation.y = branchSide > 0 ? Math.PI : 0;
       signal.arm.rotation.x = this.layout.switchState(id) !== 0 ? -SIGNAL_RAISED : 0;
@@ -385,6 +389,15 @@ export class TrackView {
         this.signals.delete(id);
       }
     }
+  }
+
+  /** The first of `xs` (along the piece, at `z` across it) that isn't on a road; the first if all are. */
+  private clearX(p: PlacedPiece, xs: readonly number[], z: number): number {
+    const onRoad = this.onRoad;
+    if (!onRoad) return xs[0];
+    const c = Math.cos(p.pose.heading);
+    const s = Math.sin(p.pose.heading);
+    return xs.find((x) => !onRoad(p.pose.x + c * x - s * z, p.pose.z + s * x + c * z)) ?? xs[0];
   }
 
   /** A signal part; tapping it flips the switch, like the lever. */

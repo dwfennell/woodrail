@@ -1,7 +1,7 @@
 import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type Layout } from "../track";
 import type { Landscape } from "../landscape/generate";
 import { CELL, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_TOWN, type LandscapeGrid } from "../landscape/grid";
-import { crossesRoad } from "../landscape/clearance";
+import { ALONG_ROAD, crossesRoad } from "../landscape/clearance";
 import { bestTurn, edgesOf, encodeRoad, pieceOf, roadsJoin, turnOf, type Edge, type RoadPieceId } from "./pieces";
 
 /** Why a road piece can't go on a square. */
@@ -14,10 +14,18 @@ export const ROAD_MESSAGES: Record<RoadBlock, string> = {
   dry: "Bridges go over the river",
   slope: "A ramp climbs a block over two squares: lay it up to a step",
   "in-use": "Something stands there",
-  "station-way": "Keep the way into the station clear for track",
+  "station-way": "On a station's way in, only a straight road across the line",
   track: "Track can only cross a plain straight road, straight over",
   prop: "Move what's standing there first",
 };
+
+/** Is this road a plain straight running across a line with this heading (as a station's way in takes)? */
+function acrossLine(road: number, heading: number): boolean {
+  if (road === 0 || pieceOf(road)?.id !== "straight") return false;
+  // A straight at an even turn runs along x, at an odd one along z: across the line, not down it.
+  const along = turnOf(road) & 1 ? Math.abs(Math.sin(heading)) : Math.abs(Math.cos(heading));
+  return along < Math.SQRT1_2;
+}
 
 /** Something standing on the land that a road can't go under: the props' footprints, as world rectangles. */
 export interface RoadOccupants {
@@ -64,7 +72,8 @@ export function roadsInRect(grid: LandscapeGrid, x0: number, z0: number, x1: num
 export class RoadPlacer {
   /** Grid square → which ways ground-level track runs over it (bit 1: along x, bit 2: along z, by its nearer axis). */
   private readonly trackSquares = new Map<number, number>();
-  private readonly corridors: Set<number>;
+  /** The station's way-in squares, each with the heading of the line it keeps clear. */
+  private readonly corridors: Map<number, number>;
   private readonly nbs = [0, 0, 0, 0];
 
   constructor(
@@ -72,14 +81,31 @@ export class RoadPlacer {
     layout: Layout | null,
     private readonly occupants: RoadOccupants = NONE,
   ) {
-    this.corridors = new Set(land.corridors);
+    // Each way-in square belongs to the nearest station or depot: the line runs along its heading.
+    const lines = [...land.towns.map((t) => ({ c: t.centre, heading: t.station.heading })), ...land.depots.map((d) => ({ c: d.centre, heading: d.piece.heading }))];
+    const g = land.grid;
+    this.corridors = new Map();
+    for (const i of land.corridors) {
+      const x = g.centreX(g.colOf(i));
+      const z = g.centreZ(g.rowOf(i));
+      let best = 0;
+      let bestD = Infinity;
+      for (const l of lines) {
+        const d = Math.hypot(l.c.x - x, l.c.z - z);
+        if (d < bestD) {
+          bestD = d;
+          best = l.heading;
+        }
+      }
+      this.corridors.set(i, best);
+    }
     if (layout) this.sampleTrack(layout);
   }
 
   /**
    * Can a road piece go on square `i` (−1: off the land)? Null if so. A road already there may be replaced. With
-   * `road` (the piece as it would be laid), track on the square is fine if it crosses the piece straight over (a level
-   * crossing: see `crossesRoad`).
+   * `road` (the piece as it would be laid), track on the square is fine if it crosses the piece (a level crossing: see
+   * `crossesRoad`).
    */
   check(i: number, road = 0): RoadBlock | null {
     this.road = road;
@@ -88,10 +114,14 @@ export class RoadPlacer {
 
   private road = 0;
 
-  /** Does all the ground-level track on square `i` cross the piece being laid straight over (one way, across it)? */
+  /** Does the ground-level track on square `i` cross the piece being laid (at any angle, but not running down it)? */
   private crossable(i: number): boolean {
     const ways = this.trackSquares.get(i) ?? 0;
-    return (ways === 1 || ways === 2) && crossesRoad(this.road, ways === 1 ? 0 : Math.PI / 2);
+    if (!(ways & 4)) return false;
+    // Each way the track runs here must be one that crosses the road (bits 1 and 2: along x or z; else at an angle).
+    if (ways & 1 && !crossesRoad(this.road, 0)) return false;
+    if (ways & 2 && !crossesRoad(this.road, Math.PI / 2)) return false;
+    return crossesRoad(this.road, Math.PI / 4);
   }
 
   private checkSquare(i: number): RoadBlock | null {
@@ -104,7 +134,10 @@ export class RoadPlacer {
     if (s !== SURF_RIVER && bridge) return "dry";
     if (s !== SURF_GRASS && s !== SURF_LANE && s !== SURF_RIVER) return "in-use";
     if (g.feature[i] !== FEAT_NONE && g.feature[i] !== FEAT_TREE) return "in-use";
-    if (this.corridors.has(i)) return "station-way";
+    // A station's way in stays clear for track, but a plain straight road across the line may go there (track laid
+    // later crosses it at a level crossing).
+    const line = this.corridors.get(i);
+    if (line !== undefined && !acrossLine(this.road, line)) return "station-way";
     const def = this.road === 0 ? null : pieceOf(this.road);
     if (def?.ramp) {
       // Its high end meets the ground a block up (the top half), or the top half on level ground (the bottom half).
@@ -200,7 +233,8 @@ export class RoadPlacer {
         for (let k = 0; k <= n; k++) {
           samplePath(path.geom, (len * k) / n, sample);
           const h = p.pose.heading + sample.heading;
-          const way = Math.abs(Math.cos(h)) >= Math.abs(Math.sin(h)) ? 1 : 2;
+          // Bit 4: track here; bit 1: running (near) along x; bit 2: along z (within 25°, see `crossesRoad`).
+          const way = 4 | (Math.abs(Math.cos(h)) >= ALONG_ROAD ? 1 : 0) | (Math.abs(Math.sin(h)) >= ALONG_ROAD ? 2 : 0);
           const x = p.pose.x + sample.x * ch - sample.z * sh;
           const z = p.pose.z + sample.x * sh + sample.z * ch;
           for (const [dx, dz] of [[-m, -m], [m, -m], [-m, m], [m, m]]) {

@@ -123,7 +123,10 @@ async function findSites() {
       const far = Math.hypot(G.colOf(i) - G.colOf(auto.b), G.rowOf(i) - G.rowOf(auto.b)) > 6;
       if (far && row.every((j) => free(j) && G.height[j] === 0 && noRoadNear(j))) ready = { a: row[0], b: row[1], c: row[2] };
     }
-    return { gate, river, hill, auto, ready };
+    // A station's way in: a level square of it, inside the land, with no road on it.
+    let way = null;
+    for (const i of w.landscape.corridors) if (!way && inner(i) && G.height[i] === 0 && G.road[i] === 0 && G.feature[i] === 0) way = i;
+    return { gate, river, hill, auto, ready, way };
   });
 }
 
@@ -204,7 +207,7 @@ const imp = (path) => `import(${JSON.stringify(path)})`;
 
 await boot();
 const sites = await findSites();
-check("found test sites on seed 7", !!(sites.gate && sites.river && sites.hill && sites.auto && sites.ready), JSON.stringify({ gate: !!sites.gate, river: !!sites.river, hill: !!sites.hill, auto: !!sites.auto, ready: !!sites.ready }));
+check("found test sites on seed 7", !!(sites.gate && sites.river && sites.hill && sites.auto && sites.ready && sites.way !== null), JSON.stringify({ gate: !!sites.gate, river: !!sites.river, hill: !!sites.hill, auto: !!sites.auto, ready: !!sites.ready, way: sites.way !== null }));
 await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Roads")?.click());
 await p.waitForTimeout(800);
 
@@ -297,6 +300,22 @@ const slopeToast = (await toasts()).join(" | ");
 const sideRoad = await road(G.side);
 check("E3 a ramp on level ground is laid as a bottom half (no step needed)", sideRoad !== 0 || slopeToast.includes("ramp"), `road ${sideRoad}, ${slopeToast}`);
 if (sideRoad !== 0) await p.evaluate(() => window.woodrail.interaction.undo());
+// A station's way in takes a straight road across the line (a level crossing once track is laid), nothing else.
+await focusOn(sites.way);
+await trayDrag("Road", sites.way);
+const way = await p.evaluate(async (i) => {
+  const { pieceOf } = await import("/src/roads/pieces.ts");
+  const w = window.woodrail;
+  const g = T.g();
+  const t = [...w.landscape.towns.map((x) => ({ c: x.centre, h: x.station.heading })), ...w.landscape.depots.map((d) => ({ c: d.centre, h: d.piece.heading }))]
+    .sort((a, b) => Math.hypot(a.c.x - g.centreX(g.colOf(i)), a.c.z - g.centreZ(g.rowOf(i))) - Math.hypot(b.c.x - g.centreX(g.colOf(i)), b.c.z - g.centreZ(g.rowOf(i))))[0];
+  const road = g.road[i];
+  // A straight at an odd turn runs along z: across a line along x.
+  const lineAlongX = Math.abs(Math.cos(t.h)) > 0.5;
+  return { id: pieceOf(road)?.id ?? null, across: road !== 0 && ((road >> 6) & 1) === (lineAlongX ? 1 : 0) };
+}, sites.way);
+check("E4 a road on a station's way in goes down as a straight across the line", way.id === "straight" && way.across, JSON.stringify(way));
+await p.evaluate(() => window.woodrail.interaction.undo());
 await shot("E-refusals");
 
 // ---- F: a road bridge over the river --------------------------------------------------------------------------------

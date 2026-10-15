@@ -31,7 +31,7 @@ import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { bridgeLevels, findCrossings, syncCuttings, type HeldPiece, PLOT_DEPTH, type Landscape } from "../landscape";
+import { bridgeLevels, findCrossings, SURF_LANE, syncCuttings, type HeldPiece, PLOT_DEPTH, type Landscape } from "../landscape";
 import { setHazeLand, setHazeReach } from "../render/haze";
 import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
 import { isJoin, PIECE_TYPES, type Layout, type PlacedPiece } from "../track";
@@ -196,6 +196,7 @@ export class Game {
     syncCuttings(this.landscape, this.layout);
     this.landscapeView.syncTrees(this.layout);
     this.trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
+    this.trackView.onRoad = this.onRoad;
     this.scene.add(this.trackView.group);
     this.trackView.sync();
     this.trainView = new TrainView(this.mats);
@@ -265,6 +266,7 @@ export class Game {
     this.scene.remove(this.trackView.group);
     this.trackView.dispose();
     (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
+    this.trackView.onRoad = this.onRoad;
     this.scene.add(this.trackView.group);
     this.trackView.sync();
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
@@ -719,6 +721,8 @@ export class Game {
     for (const s of slots) this.landscape.grid.touch(s);
     this.landscapeView.roadsEdited(trees);
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
+    // Switch levers stand clear of the roads.
+    this.trackView.syncSwitches();
     this.invalidate();
   }
 
@@ -727,6 +731,13 @@ export class Game {
     this.hiddenProp = hidden;
     if (this.propsView.sync(this.props, hidden)) this.invalidate();
   }
+
+  /** Is this spot on a road or lane (switch levers stand clear of them)? */
+  private readonly onRoad = (x: number, z: number): boolean => {
+    const g = this.landscape.grid;
+    const i = g.cellAtWorld(x, z);
+    return i !== -1 && (g.surface[i] === SURF_LANE || g.road[i] !== 0);
+  };
 
   /** A train's route sets switches as it goes: show their levers where they now point. */
   private watchSwitches(): void {

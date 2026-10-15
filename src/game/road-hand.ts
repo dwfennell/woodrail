@@ -108,7 +108,15 @@ export class RoadHand {
     const moved = cell !== d.cell;
     d.cell = cell;
     d.road = d.auto ? autoShape(this.grid, cell, d.held) : d.placer.fit(d.piece, cell, d.held);
-    const blocked = d.placer.check(cell, d.road);
+    let blocked = d.placer.check(cell, d.road);
+    // A straight road on a station's way in turns to cross the line, if it can.
+    if (blocked === "station-way" && pieceOf(d.road)?.id === "straight") {
+      const across = encodeRoad("straight", turnOf(d.road) + 1, isAutoRoad(d.road));
+      if (d.placer.check(cell, across) === null) {
+        d.road = across;
+        blocked = null;
+      }
+    }
     if (blocked && blocked !== d.blocked && moved) this.hud.toast(ROAD_MESSAGES[blocked]);
     d.blocked = blocked;
     this.showGhost(d);
@@ -220,12 +228,15 @@ export class RoadHand {
 
   /**
    * Set squares' road pieces as one undo step, with the auto roads beside them reshaped to meet them (an auto road
-   * over track keeps a shape the track can cross).
+   * over track, or on a station's way in, keeps a shape the track can cross).
    */
   private edit(direct: readonly [number, number][]): void {
     const g = this.grid;
     const placer = this.placer();
-    const reshaped = autoReshapes(g, new Map(direct), (i, road) => placer.check(i, road) === "track");
+    const reshaped = autoReshapes(g, new Map(direct), (i, road) => {
+      const why = placer.check(i, road);
+      return why === "track" || why === "station-way";
+    });
     const changes: [number, number][] = [...direct, ...[...reshaped].filter(([i]) => !direct.some(([j]) => j === i))];
     // A square both changed and reshaped (an auto road just laid) takes its reshaped form.
     for (const c of changes) if (reshaped.has(c[0])) c[1] = reshaped.get(c[0])!;
