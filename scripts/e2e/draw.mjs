@@ -12,6 +12,8 @@ const server = await createServer({ server: { port: 0, strictPort: false }, logL
 await server.listen();
 const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
+const T0 = Date.now();
+const step = (name) => console.log(`...   ${((Date.now() - T0) / 1000).toFixed(0)}s  ${name}`);
 const results = [];
 const check = (name, ok, detail = "") => {
   results.push({ name, ok, detail });
@@ -159,6 +161,8 @@ if (site) {
   check("the Draw chip switches drawing on", on);
 
   // 1. Straight on from the free end.
+
+  step("1");
   const before = await p.evaluate(() => [D.pieces(), D.joints()]);
   const line = [0, 100, 200, 300, 400].map((d) => [x + fx * d, z + fz * d]);
   await drawThrough(line, { shotAt: 3, shot: "draw-1-midway.png" });
@@ -169,11 +173,15 @@ if (site) {
   check("the drawn pieces are joined to the track and each other", after[1] - before[1] === added, `${after[1] - before[1]} joints for ${added} pieces`);
 
   // 2. One undo takes the whole line back up.
+
+  step("2");
   await p.evaluate(() => window.woodrail.interaction.undo());
   const undone = await p.evaluate(() => D.pieces());
   check("one undo takes the whole line up", undone === before[0], `${undone} vs ${before[0]}`);
 
   // 3. A turn: straight on, then round to one side (the other side if a hill or a river is in the way of the first).
+
+  step("3");
   const r = 180;
   let types = [];
   let curves = 0;
@@ -201,6 +209,8 @@ if (site) {
   check("a stroke that turns lays curves", curves >= 2, `${types.join(" ")}${said.length ? ` · toasts: ${said.join(" | ")}` : ""}`);
 
   // 4. Retracing takes ghosts off: out and back to the start lays nothing.
+
+  step("4");
   const n0 = await p.evaluate(() => D.pieces());
   const outBack = [...[0, 150, 300, 450, 600].map((d) => [x + fx * d, z + fz * d]), ...[450, 300, 150, 10].map((d) => [x + fx * d, z + fz * d])];
   await drawThrough(outBack);
@@ -216,6 +226,8 @@ if (site) {
   }
 
   // 5. A new line on empty ground (away from track).
+
+  step("5");
   const gx = x + fx * 300 + lx * 300;
   const gz = z + fz * 300 + lz * 300;
   await focus(gx + fx * 150, gz + fz * 150, 380);
@@ -225,12 +237,16 @@ if (site) {
   await p.screenshot({ path: `${OUT}/draw-5-ground.png` });
 
   // 6. Esc puts the pencil down; a drag then pans as usual.
+
+  step("6");
   await p.keyboard.press("Escape");
   const off = await p.evaluate(() => !window.woodrail.interaction.isDrawing && !document.querySelector(".tray-draw").classList.contains("active"));
   check("Esc switches drawing off", off);
 }
 
 // 7. On a phone: a one-finger touch drag on open ground, up the screen then round to the right.
+
+step("7");
 if (site) {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
