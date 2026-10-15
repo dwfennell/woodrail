@@ -28,13 +28,13 @@ import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } fro
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { nextStop, routeStops } from "./game/route-stops";
-import type { StopAction } from "./economy";
+import { MAX_SHEDS, SHED_CAP, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { goodsOf, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, detachEngines, tooHeavy } from "./game/engines";
-import { BOAT_SAIL, HarbourTrade } from "./game/harbours";
+import { BOAT_SAIL, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
@@ -1064,6 +1064,50 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     box.append(line);
   }
 
+  let harbourShown = "";
+  /** A harbour's card (Game mode): when the next boat calls. */
+  function showHarbour(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    if (id === -1 || game.economy.depot(id)?.role !== "harbour") {
+      harbourShown = "";
+      return;
+    }
+    const d = game.economy.depot(id)!;
+    const canShed = progress.learned.has("dock-sheds") && d.sheds < MAX_SHEDS;
+    const text = harbourTrade.describe(id);
+    const key = `${text}|${d.sheds}|${canShed}|${progress.coins >= SHED_PRICE}`;
+    if (key === harbourShown) return;
+    harbourShown = key;
+    const box = hud.depotExtra;
+    box.hidden = false;
+    box.innerHTML = "";
+    const line = document.createElement("div");
+    line.className = "station-waiting";
+    line.textContent = d.sheds > 0 ? `${text} Dock sheds: ${d.sheds} of ${MAX_SHEDS} (each holds ${SHED_CAP} more of every good).` : text;
+    box.append(line);
+    if (!canShed) return;
+    const build = document.createElement("button");
+    build.className = "chip text";
+    build.textContent = `Build a dock shed (${SHED_PRICE} coins)`;
+    build.title = `Holds ${SHED_CAP} more of every good for the boats`;
+    build.addEventListener("click", () => {
+      if (progress.coins < SHED_PRICE) {
+        hud.toast(`A dock shed costs ${SHED_PRICE} coins: you have ${progress.coins}`, false, 3200);
+        return;
+      }
+      progress.coins -= SHED_PRICE;
+      d.sheds++;
+      hud.setCoins(progress.coins);
+      game.depotView.setWorld(game.economy, game.layout);
+      game.invalidate();
+      audio.chime();
+      harbourShown = "";
+      interaction.refreshDepotCard();
+      scheduleSave();
+    });
+    box.append(build);
+  }
+
   let workshopShown = -1;
   /** Keep the workshop's card current while it's open (Game mode). */
   function showWorkshop(force = false): void {
@@ -1538,6 +1582,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       showWorkshop();
       showFarm();
       showStation();
+      showHarbour();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
     showRoute();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { CARGO } from "../economy";
-import { isWater, SURF_SEA } from "../landscape";
+import { capAt, capOf, CARGO, SHED_CAP } from "../economy";
+import { deserializeWorld, serializeWorld } from "../persist/save";
+import { isWater, SURF_RIVER, SURF_SEA } from "../landscape";
 import { siteWhy } from "./industries";
 import { BOAT_DOCKED, BOAT_EVERY, BOAT_LOADS, BOAT_SAIL, boatPays, depotPoint, HarbourTrade, loadBoat, QUAY, waterWay, type HarbourEvent } from "./harbours";
 import { Progress } from "./progress";
@@ -21,12 +22,12 @@ function coastWorld(): World {
   return w;
 }
 
-/** A pose for a harbour on this land: its site rule met, its quay on the water. */
-function harbourSite(w: World): { x: number; z: number; heading: number } {
+/** A pose for a harbour on this land: its site rule met, its quay on the water (the sea, or a river). */
+function harbourSite(w: World, water = SURF_SEA): { x: number; z: number; heading: number } {
   const g = w.landscape.grid;
   let found: { x: number; z: number; heading: number } | null = null;
   g.forEachCell((i, col, row) => {
-    if (found || g.surface[i] !== SURF_SEA) return;
+    if (found || g.surface[i] !== water) return;
     for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
       // The quay's point on this sea square: the piece stands back from it, on the land.
       const c = Math.cos(heading);
@@ -56,6 +57,19 @@ describe("harbours", () => {
     expect(way[way.length - 1]).toEqual(q);
     // Inland, nowhere near water: not a harbour.
     expect(siteWhy(w.landscape, "depot-harbour", { x: 0, z: 0, heading: 0 })).toMatch(/water/);
+  });
+
+  it("on a river, boats come up it from the edge of the land", () => {
+    const w = buildStarterWorld();
+    const pose = harbourSite(w, SURF_RIVER);
+    const way = waterWay(w.landscape, pose)!;
+    // It comes in from past the land's edge (off the grid), over river squares.
+    const g = w.landscape.grid;
+    expect(g.cellAtWorld(way[0].x, way[0].z)).toBe(-1);
+    for (const p of way.slice(2, -2)) {
+      const i = g.cellAtWorld(p.x, p.z);
+      if (i !== -1) expect(isWater(g.surface[i])).toBe(true);
+    }
   });
 
   it("a boat takes so many loads, the biggest piles first, and pays half a town's price", () => {
@@ -92,5 +106,21 @@ describe("harbours", () => {
     expect(sold.e.kind === "sold" && sold.e.goods).toEqual({ planks: 6 });
     expect(p.coins).toBe(12 + 4);
     expect(p.counts.get("exported")).toBe(8);
+  });
+
+  it("dock sheds hold more of every good for the boats, and are saved", () => {
+    const w = coastWorld();
+    const id = w.layout.addPiece("depot-harbour", harbourSite(w));
+    syncIndustries(w);
+    const d = w.economy.depotAtPiece(id)!;
+    expect(capAt(d)).toBe(capOf("harbour"));
+    d.sheds = 2;
+    expect(capAt(d)).toBe(capOf("harbour") + 2 * SHED_CAP);
+    d.piles[CARGO.planks.index] = capOf("harbour") + 5;
+    const back = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
+    expect(back.ok).toBe(true);
+    const e = back.ok ? back.value.economy.depotAtPiece(id)! : null;
+    expect(e?.sheds).toBe(2);
+    expect(e?.piles[CARGO.planks.index]).toBe(capOf("harbour") + 5);
   });
 });

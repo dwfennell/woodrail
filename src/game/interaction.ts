@@ -24,7 +24,7 @@ import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { cargoDropTarget } from "./cargo-drop";
-import { capOf, CARGO, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
+import { capAt, CARGO, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 
 /** On touch, held things float this far (px) above the finger so it doesn't hide them. */
 const TOUCH_LIFT_PX = 60;
@@ -981,20 +981,25 @@ export class Interaction {
     const d = this.game.economy.depot(this.selectedDepot);
     if (!d) return;
     // Only redraw the card when something on it changed (this runs every frame).
-    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
+    // (A harbour's dock sheds change what its piles hold: they count here too.)
+    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.sheds;
     const shown = this.shownDepot;
-    // Every pile's count in one number (piles hold at most 12): no allocation on this per-frame check.
+    // Every pile's count hashed into one number (a warehouse's or harbour's piles hold more than 15): no allocation on
+    // this per-frame check.
     let pileKey = 0;
-    for (let k = 0; k < d.piles.length; k++) pileKey = pileKey * 16 + d.piles[k];
+    for (let k = 0; k < d.piles.length; k++) pileKey = (Math.imul(pileKey, 0x01000193) ^ (d.piles[k] + 1)) | 0;
     if (shown.id === d.id && shown.piles === pileKey && shown.auto === d.auto && shown.wait === d.waitFull && shown.delivered === delivered0) return;
     shown.id = d.id;
     shown.piles = pileKey;
     shown.auto = d.auto;
     shown.wait = d.waitFull;
     shown.delivered = delivered0;
-    const piles = pilesOf(d.role).map((kind) => ({ label: CARGO[kind].label, count: d.piles[CARGO[kind].index], cap: capOf(d.role) }));
+    let piles = pilesOf(d.role).map((kind) => ({ label: CARGO[kind].label, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
+    // A harbour's quay takes any good: it lists only what's there.
+    if (d.role === "harbour") piles = piles.filter((p) => p.count > 0);
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;
-    this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, d.role === "town" ? `Delivered ${delivered}` : "");
+    const note = d.role === "town" ? `Delivered ${delivered}` : d.role === "harbour" && piles.length === 0 ? "Nothing on the quay: drop goods here for the boats" : "";
+    this.hud.updateDepotCard(piles, d.auto, RECIPES[d.role].gives.length > 0 ? d.waitFull : null, note);
   }
 
   toggleDepotAuto(): void {

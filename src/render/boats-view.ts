@@ -104,9 +104,12 @@ function sail(boat: Object3D, way: readonly Point[], seconds: number, leaving: b
   };
   place(0);
   let finished = false;
+  // By the clock, not by frames: a slow device's frames (whose steps the game caps) don't leave the boat behind its
+  // harbour's timetable.
+  const start = performance.now();
   return {
-    update(dt: number): boolean {
-      t = Math.min(seconds, t + dt);
+    update(): boolean {
+      t = Math.min(seconds, (performance.now() - start) / 1000);
       const u = t / seconds;
       // Ease in when arriving (slowing to the quay), out when leaving (getting going).
       place(leaving ? u * u : 1 - (1 - u) * (1 - u));

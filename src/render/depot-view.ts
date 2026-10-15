@@ -526,6 +526,15 @@ export class DepotView {
       const spot = UPGRADE_SPOTS[id];
       if (spot && hasPart(id)) addPart(b, mats, id, (g) => place(spot.turn ? g.rotateY(spot.turn) : g, spot.t, spot.l, PAD_H));
     }
+    // A harbour's dock sheds along its quay (Asset Gen's shed, or a stand-in).
+    for (let k = 0; k < (site.depot.role === "harbour" ? site.depot.sheds : 0); k++) {
+      const t = 55 + k * 50;
+      if (hasPart("dock-shed")) addPart(b, mats, "dock-shed", (g) => place(g, t, 100, PAD_H));
+      else {
+        b.add(mats.blockWood, place(new RoundedBoxGeometry(30, 18, 20, 2, 2), t, 100, PAD_H + 9));
+        b.add(mats.lacquer("#7a5a3a"), place(new RoundedBoxGeometry(34, 3, 24, 1, 1.2), t, 100, PAD_H + 19));
+      }
+    }
     const model = INDUSTRY_MODELS[site.depot.role];
     if (model && hasPart(model.part)) {
       // The industry's buildings, modelled in Blender in this depot frame (tools/blender/dressing.py, "Industries").

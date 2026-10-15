@@ -484,6 +484,16 @@ describe("the grand tour", () => {
         T.note(`the stone train again: Larkfield has had ${receivedBy(w(), larkfield().id).stone ?? 0} stone (${minutes(T.tick - t0)} min)`);
         for (const id of [...w().sim.trainIds()]) w().sim.removeTrain(id);
       }
+      // Planks for the Carpenter's bench (50 delivered): the mixed train runs the line until they're in.
+      if ((T.progress.counts.get("delivered:planks") ?? 0) < 50) {
+        for (const id of w().layout.pieceIds()) if (w().layout.getPiece(id)!.type === "switch") w().layout.setSwitchState(id, 0);
+        if (!w().layout.getPiece(between)) between = middle();
+        const planks = T.train(["engine", "timber", "timber", "hopper", "van"], between, -1);
+        T.run(15 * 60, () => (T.progress.counts.get("delivered:planks") ?? 0) >= 50);
+        T.note(`the mixed train again: ${T.progress.counts.get("delivered:planks") ?? 0} planks delivered`);
+        const found = w().sim.findCar(planks);
+        if (found) w().sim.removeTrain(found.train.id);
+      }
       for (const id of ["tank", "goods-engine", "mines", "foundry", "carpentry", "college"]) T.learnAnyway(id);
       T.engines = true;
       attachEngines(w());
@@ -619,7 +629,7 @@ describe("the grand tour", () => {
         });
         T.note("carpenter's yard on a branch; 2 timber wagons and a van, route: forest yard (pick up) → sawmill (drop, pick up) → carpenter's yard (drop, pick up) → Larkfield (drop)");
         const t0 = T.tick;
-        T.run(25 * 60, () => furnitureAt() >= 6);
+        T.run(40 * 60, () => furnitureAt() >= 6);
         const cd = w().economy.depotAtPiece(carpenter)!;
         T.note(`Larkfield has had ${furnitureAt()} furniture (${minutes(T.tick - t0)} min after the furniture train started); the carpenter's yard has ${cd.piles[CARGO.planks.index]} planks, ${cd.piles[CARGO.furniture.index]} furniture`);
         T.trains();

@@ -21,6 +21,8 @@ export const BOAT_EVERY = 150;
 export const BOAT_SAIL = 12;
 /** Seconds a boat stays at the quay. */
 export const BOAT_DOCKED = 30;
+/** What a dock shed costs to build (Game mode, once Dock sheds is learned). */
+export const SHED_PRICE = 30;
 /** The first boat to a new harbour comes this soon. */
 const FIRST_BOAT = 40;
 
@@ -233,9 +235,23 @@ export class HarbourTrade {
     return events;
   }
 
-  /** Is a boat at (or coming to, or leaving) this harbour now? */
-  boatAt(depotId: number): Boat["phase"] | null {
-    return this.boats.get(depotId)?.phase ?? null;
+  /** Where this harbour's boat is (away, coming in, tied up, leaving) and the seconds left at that; null if none yet. */
+  boatAt(depotId: number): { phase: Boat["phase"]; left: number } | null {
+    const b = this.boats.get(depotId);
+    return b ? { phase: b.phase, left: Math.max(0, Math.ceil(b.left)) } : null;
+  }
+
+  /** What a harbour's card says about its boats. */
+  describe(depotId: number): string {
+    const b = this.boatAt(depotId);
+    const each = `A boat takes ${BOAT_LOADS} loads a visit, paying half a town's price.`;
+    if (!b || b.phase === "away") {
+      const s = b?.left ?? FIRST_BOAT;
+      return `Next boat in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}. ${each}`;
+    }
+    if (b.phase === "in") return `A boat is coming in. ${each}`;
+    if (b.phase === "docked") return "A boat is tied up at the quay.";
+    return "The boat is sailing away.";
   }
 
   /** Start again (a new world was loaded): every harbour's next boat comes soon. */

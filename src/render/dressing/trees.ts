@@ -426,7 +426,7 @@ export function buildTrees(placements: readonly TreePlacement[], mats: Materials
   };
   place(placements);
   group.userData.place = place;
-  group.add(...meshes);
+  if (meshes.length > 0) group.add(...meshes);
   return group;
 }
 
