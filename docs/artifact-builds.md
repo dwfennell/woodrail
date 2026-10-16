@@ -30,4 +30,4 @@ apart by their label and description.
 ## Checking a build before publishing
 
 `npx vite preview --outDir dist-artifact` serves it locally. The game should reach the title screen with its models
-loaded. A 404 for the missing favicon is expected.
+loaded.

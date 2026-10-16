@@ -1,6 +1,9 @@
 // End-to-end road tests (`npm run e2e:roads`): the game in a headless browser on seed 7, driven with real pointer
-// drags and taps, each result read back from the map. Starts its own dev server. Screenshots go to the folder given
-// as the first argument (default: e2e-out/). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium if present,
+// drags and taps, each result read back from the map. Starts its own dev server (on 5199, or the next free port, so
+// runs can go side by side). Screenshots go to the folder given as the first argument (default: e2e-out/).
+//
+// No fixed waits: each step waits for what it's waiting for (a frame, the scene to settle, a road or a message to
+// appear), so a slow machine is only slower, not wrong. Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium if present,
 // else Playwright's own (`npx playwright-core install chromium`).
 import { existsSync, mkdirSync } from "node:fs";
 import { chromium } from "playwright-core";
@@ -8,9 +11,9 @@ import { createServer } from "vite";
 
 const OUT = process.argv[2] ?? "e2e-out";
 mkdirSync(OUT, { recursive: true });
-const server = await createServer({ server: { port: 5199, strictPort: true }, logLevel: "warn" });
+const server = await createServer({ server: { port: 5199, strictPort: false }, logLevel: "warn" });
 await server.listen();
-const URL = "http://localhost:5199/#seed-7";
+const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const results = [];
 const check = (name, ok, detail = "") => {
@@ -24,12 +27,25 @@ const p = await b.newPage({ viewport: { width: 1200, height: 800 } });
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 
+/** The next frame drawn (or not) by the page: pointer events sent one per frame, as a finger's are. */
+const frame = () => p.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())));
+/** The scene still for a few ticks (camera glides, eases and animations over), or 20 s, whichever's first. */
+const settle = () => p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
+/** Wait (up to 20 s) for something in the page to be true; the check after says whether it was. */
+const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 20000, polling: 50 }).catch(() => {});
+
+// The help card that greets a first visit is taken as read (it would cover the tray, arriving whenever loading's done).
+await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+
+/** The game loaded and on screen: the map entered, the loading screen gone. */
+async function ready() {
+  await p.waitForFunction(() => !!window.woodrail?.landscape?.grid && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  await settle();
+}
+
 async function boot() {
   await p.goto(URL);
-  await p.waitForFunction(() => !!window.woodrail, null, { timeout: 120000 });
-  await p.waitForTimeout(4000);
-  await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
-  await p.waitForTimeout(1000);
+  await ready();
   // Helpers in the page: squares, projection to the screen, toasts collected.
   await p.evaluate(() => {
     const w = window.woodrail;
@@ -130,9 +146,13 @@ async function findSites() {
   });
 }
 
-/** Drag a tray item (by its label) onto square i. */
+/** The road on square i and how many messages have shown: what a drop changes (a road laid, or a refusal said). */
+const mark = (i) => p.evaluate((i) => ({ road: T.g().road[i], toasts: window.__toasts.length }), i);
+const changed = (i, m) => until(({ i, m }) => T.g().road[i] !== m.road || window.__toasts.length > m.toasts, { i, m });
+
+/** Drag a tray item (by its label) onto square i, and wait for the drop to lay a road there or say why not. */
 async function trayDrag(label, i) {
-  const [x, y] = await p.evaluate((i) => T.screen(i), i);
+  const m = await mark(i);
   const btn = p.locator(".tray-item", { hasText: label }).first();
   const box = await btn.boundingBox();
   const sx = box.x + box.width / 2;
@@ -141,43 +161,64 @@ async function trayDrag(label, i) {
   await p.mouse.down();
   for (let k = 1; k <= 4; k++) {
     await p.mouse.move(sx, sy - 20 * k);
-    await p.waitForTimeout(40);
+    await frame();
   }
+  // Picked up (the tray saw the press go up and out): in hand before it's carried over the map.
+  await until(() => window.woodrail.interaction.mode.kind.startsWith("drag"));
+  const held = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+  if (!held.startsWith("drag")) {
+    const top = await p.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return `${e?.tagName}.${e?.className}`; }, [sx, sy]);
+    console.log(`(${label}: not picked up from the tray: ${held}; on top at the press: ${top})`);
+    await shot(`not-picked-${label}`);
+  }
+  const [x, y] = await p.evaluate((i) => T.screen(i), i);
   const ty = sy - 80;
   for (let k = 1; k <= 10; k++) {
     await p.mouse.move(sx + ((x - sx) * k) / 10, ty + ((y - ty) * k) / 10);
-    await p.waitForTimeout(40);
+    await frame();
   }
   // Aim again (the view may have moved), then let go.
   for (let k = 0; k < 2; k++) {
-    await p.waitForTimeout(200);
+    await frame();
     const [ax, ay] = await p.evaluate((i) => T.screen(i), i);
     await p.mouse.move(ax, ay);
+    await frame();
   }
-  await p.waitForTimeout(250);
+  // In hand over the map (its ghost following the pointer) before it's let go.
+  await until(() => window.woodrail.interaction.mode.kind.startsWith("drag"));
   await p.mouse.up();
-  await p.waitForTimeout(600);
+  await changed(i, m);
 }
 
+/**
+ * Tap square i: the pointer comes to it (a frame to see it there), then a quick press and release, as a finger's tap
+ * (a release a slow frame later, under software drawing, would read as a long press).
+ */
 async function tap(i) {
+  // Aimed with the view at rest (a glide still under way would move the square from under the click).
+  await settle();
   const [x, y] = await p.evaluate((i) => T.screen(i), i);
-  await p.mouse.click(x, y);
-  await p.waitForTimeout(500);
+  await p.mouse.move(x, y);
+  await frame();
+  await p.mouse.down();
+  await p.mouse.up();
+  await frame();
 }
+const cardShown = () => until(() => [...document.querySelectorAll(".piece-card")].some((c) => !c.hidden));
 
-/** Press on square a and drag to square b (or to a screen point). */
+/** Press on square a and drag to square b (or to a screen point), a step a frame, as a finger does. */
 async function dragSquare(a, b) {
   const [x0, y0] = await p.evaluate((i) => T.screen(i), a);
   const [x1, y1] = typeof b === "number" ? await p.evaluate((i) => T.screen(i), b) : b;
   await p.mouse.move(x0, y0);
   await p.mouse.down();
+  await frame();
   for (let k = 1; k <= 12; k++) {
     await p.mouse.move(x0 + ((x1 - x0) * k) / 12, y0 + ((y1 - y0) * k) / 12);
-    await p.waitForTimeout(40);
+    await frame();
   }
-  await p.waitForTimeout(250);
   await p.mouse.up();
-  await p.waitForTimeout(600);
+  await frame();
 }
 
 /** Put the camera straight over square i, looking down at it from a fixed angle and distance, and let it settle. */
@@ -197,19 +238,20 @@ async function focusOn(i, distance = 900) {
     },
     { i, distance },
   );
-  await p.waitForTimeout(1500);
+  await settle();
 }
 
 const road = (i) => p.evaluate((i) => T.g().road[i], i);
 const toasts = () => p.evaluate(() => T.toasts());
-const shot = (name) => p.screenshot({ path: `${OUT}/${name}.png` });
+// A picture for a person to look at: slow under software drawing, and never a reason to stop the run.
+const shot = (name) => p.screenshot({ path: `${OUT}/${name}.png`, timeout: 60000 }).catch((e) => console.log(`(no picture ${name}: ${e.message.split("\n")[0]})`));
 const imp = (path) => `import(${JSON.stringify(path)})`;
 
 await boot();
 const sites = await findSites();
 check("found test sites on seed 7", !!(sites.gate && sites.river && sites.hill && sites.auto && sites.ready && sites.way !== null), JSON.stringify({ gate: !!sites.gate, river: !!sites.river, hill: !!sites.hill, auto: !!sites.auto, ready: !!sites.ready, way: sites.way !== null }));
 await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Roads")?.click());
-await p.waitForTimeout(800);
+await p.locator(".tray-item", { hasText: "Road bridge" }).first().waitFor({ state: "visible", timeout: 20000 });
 
 // ---- A: lay roads out of a town street's open end; each turns to join --------------------------------------------------------
 const G = sites.gate;
@@ -239,53 +281,55 @@ await shot("A-laid");
 
 // ---- B: select, rotate, delete, undo, redo ------------------------------------------------------------------------
 await p.mouse.click(1100, 120); // clear any selection
-await p.waitForTimeout(300);
+await frame();
 await tap(G.line[3]);
+await cardShown();
 const card = await p.evaluate(() => [...document.querySelectorAll(".piece-card")].find((c) => !c.hidden)?.textContent ?? "");
 check("B1 a tap selects a placed road and shows its card", /Road bend/.test(card), card.slice(0, 40));
 const before = await road(G.line[3]);
 await p.locator(".piece-card button", { hasText: "Rotate" }).click();
-await p.waitForTimeout(500);
+await until(({ i, before }) => T.g().road[i] !== before, { i: G.line[3], before });
 const rotated = await road(G.line[3]);
 check("B2 Rotate turns it a quarter", rotated !== before && (rotated & 63) === (before & 63), `${before} -> ${rotated}`);
 await p.evaluate(() => window.woodrail.interaction.undo());
-await p.waitForTimeout(500);
 check("B3 Undo puts the turn back", (await road(G.line[3])) === before);
 await tap(G.line[3]);
+await cardShown();
 await p.locator(".piece-card button", { hasText: "Delete" }).click();
-await p.waitForTimeout(500);
+await until((i) => T.g().road[i] === 0, G.line[3]);
 check("B4 Delete takes it away", (await road(G.line[3])) === 0);
 await p.evaluate(() => window.woodrail.interaction.undo());
-await p.waitForTimeout(500);
 check("B5 Undo brings it back", (await road(G.line[3])) === before);
 await p.evaluate(() => window.woodrail.interaction.redo());
-await p.waitForTimeout(500);
 check("B6 Redo takes it away again", (await road(G.line[3])) === 0);
 await p.evaluate(() => window.woodrail.interaction.undo());
-await p.waitForTimeout(500);
 
 // ---- C: a drag on an unselected road pans; on a selected one, moves it ------------------------------------------
 await p.mouse.click(1100, 120);
-await p.waitForTimeout(300);
+await frame();
+await settle();
 const camBefore = await p.evaluate(() => window.woodrail.controls.target.toArray());
 await dragSquare(G.line[3], G.side);
+await settle();
 const camAfter = await p.evaluate(() => window.woodrail.controls.target.toArray());
 check("C1 dragging an unselected road pans the view, leaving the road", (await road(G.line[3])) !== 0 && (await road(G.side)) === 0 && camBefore.some((v, k) => Math.abs(v - camAfter[k]) > 1));
 await focusOn(G.line[1]);
 await tap(G.line[3]);
+await cardShown();
 await dragSquare(G.line[3], G.side);
+await until(({ a, b }) => T.g().road[a] === 0 && T.g().road[b] !== 0, { a: G.line[3], b: G.side });
 check("C2 dragging a selected road moves it to the square under the finger", (await road(G.line[3])) === 0 && (await road(G.side)) !== 0);
 await p.evaluate(() => window.woodrail.interaction.undo());
-await p.waitForTimeout(500);
 check("C3 Undo moves it back", (await road(G.line[3])) !== 0 && (await road(G.side)) === 0);
 
 // ---- D: drop back on the tray removes it --------------------------------------------------------------------------
 await tap(G.line[3]);
+await cardShown();
 const trayBox = await p.locator(".tray-item").first().boundingBox();
 await dragSquare(G.line[3], [trayBox.x + 200, trayBox.y + 20]);
+await until((i) => T.g().road[i] === 0, G.line[3]);
 check("D1 a road dragged back onto the tray is removed", (await road(G.line[3])) === 0);
 await p.evaluate(() => window.woodrail.interaction.undo());
-await p.waitForTimeout(500);
 
 // ---- E: refusals ---------------------------------------------------------------------------------------------------
 await toasts();
@@ -375,12 +419,12 @@ await trayDrag("Road", L.c);
 const bent = await shape(L.b);
 check("L2 a third laid beside the second bends it to meet it", bent.id === "curve" && bent.edges === (4 | 8), JSON.stringify(bent));
 await tap(L.c);
+await cardShown();
 await p.locator(".piece-card button", { hasText: "Delete" }).click();
-await p.waitForTimeout(500);
+await until((i) => T.g().road[i] === 0, L.c);
 const back = await shape(L.b);
 check("L3 taking the third away straightens it again", back.id === "straight" && back.edges === 5, JSON.stringify(back));
 await p.evaluate(() => window.woodrail.interaction.undo());
-await p.waitForTimeout(500);
 check("L4 Undo brings back the third and the bend in one step", (await shape(L.c)).auto && (await shape(L.b)).id === "curve");
 await shot("L-auto");
 
@@ -388,18 +432,22 @@ await shot("L-auto");
 const M = sites.ready;
 await focusOn(M.b);
 await p.locator(".tray-item", { hasText: "Road" }).first().click();
-await p.waitForTimeout(400);
-for (const i of [M.a, M.b, M.c]) await tap(i);
+await frame();
+for (const i of [M.a, M.b, M.c]) {
+  await tap(i);
+  await until((i) => T.g().road[i] !== 0, i);
+}
 const laid = [await shape(M.a), await shape(M.b), await shape(M.c)];
 const cardOpen = await p.evaluate(() => [...document.querySelectorAll(".piece-card")].some((c) => !c.hidden));
 check("M1 a road tapped in the tray is laid at each click, joined up", laid.every((x) => x.id === "straight" && x.edges === 5), JSON.stringify(laid));
 check("M2 laying roads opens no card to get in the way", !cardOpen);
 await p.keyboard.press("Escape");
-await p.waitForTimeout(300);
+await frame();
 await tap(M.b);
+await cardShown();
 check("M3 after Esc, a click selects a road again (and opens its card)", await p.evaluate(() => [...document.querySelectorAll(".piece-card")].some((c) => !c.hidden)));
 await p.mouse.click(1100, 120);
-await p.waitForTimeout(300);
+await frame();
 
 // ---- H: track and roads: level crossings ----------------------------------------------------------------------------
 const crossing = await p.evaluate(
@@ -441,10 +489,15 @@ const snapshot = await p.evaluate(() => {
   for (let i = 0; i < g.cellCount; i++) if (g.road[i] && g.surface[i] !== 2) out.push([g.colOf(i), g.rowOf(i), g.road[i]]);
   return JSON.stringify(out);
 });
-await p.waitForTimeout(2000);
+// Leaving the page saves it (as closing the tab does); then the reloaded map's roads, once it's built.
 await p.reload();
-await p.waitForFunction(() => !!window.woodrail, null, { timeout: 120000 });
-await p.waitForTimeout(3000);
+await ready();
+await until((n) => {
+  const g = window.woodrail.landscape.grid;
+  let k = 0;
+  for (let i = 0; i < g.cellCount; i++) if (g.road[i] && g.surface[i] !== 2) k++;
+  return k === n;
+}, JSON.parse(snapshot).length);
 const reloaded = await p.evaluate(() => {
   const g = window.woodrail.landscape.grid;
   const out = [];
@@ -454,15 +507,13 @@ const reloaded = await p.evaluate(() => {
 check("I1 the player's roads survive a reload (autosave)", snapshot === reloaded, `${JSON.parse(snapshot).length} road squares before, ${JSON.parse(reloaded).length} after`);
 
 // ---- J: idle cost ---------------------------------------------------------------------------------------------------
-await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
-await p.waitForTimeout(15000);
+// Settled (the scene drew nothing for a good while): then count what it draws over 5 s, which should be nothing.
+await p.evaluate(() => Promise.race([window.woodrail.settled(30), new Promise((r) => setTimeout(r, 60000))]));
 const frames = await p.evaluate(async () => {
   const w = window.woodrail;
-  let n = 0;
-  const orig = w.post.render.bind(w.post);
-  w.post.render = (...a) => { n++; return orig(...a); };
+  const n = w.framesDrawn;
   await new Promise((res) => setTimeout(res, 5000));
-  return n;
+  return w.framesDrawn - n;
 });
 check("J1 an idle scene with the player's roads, a bridge, ramps and a level crossing draws (next to) no frames", frames <= 1, `${frames} frames drawn in 5 s`);
 

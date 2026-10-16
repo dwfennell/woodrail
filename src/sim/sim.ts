@@ -387,6 +387,28 @@ export class Sim {
     return this.aspects.get(pieceId) ?? true;
   }
 
+  /**
+   * Is the way an engine's own front points (`way` 1), or its back (−1), up against the end of the line: a buffer or
+   * track that just stops, within `within`? (For the engine card: a stopped train offers to go the open way.)
+   */
+  engineBlocked(engineCarId: number, way: 1 | -1, within = 6): boolean {
+    const found = this.findCar(engineCarId);
+    if (!found) return false;
+    const t = found.train;
+    // The train's leading end (bogie 0) is where an engine facing 1 points its front.
+    const leading = way * found.train.cars[found.index].facing === 1;
+    const c: Cursor = { ...(leading ? t.bogies[0] : t.bogies[t.bogies.length - 1]) };
+    if (!leading) flipCursor(this.layout, c);
+    advanceCursor(this.layout, c, within, null, lookAdv);
+    return lookAdv.status === ADV_BUFFER || lookAdv.status === ADV_OPEN_END;
+  }
+
+  /** Is this train standing at a red signal, waiting for it to clear (for the engine card)? */
+  atRedSignal(trainId: number): boolean {
+    const t = this.trains.get(trainId);
+    return !!t && !t.derailed && t.speed < 1 && this.signalCap(t) === 0;
+  }
+
   /** Held at red by hand (a tap; saved with the switch states), whatever the line ahead. */
   signalHeld(pieceId: number): boolean {
     return this.layout.switchState(pieceId) % 2 === 1;

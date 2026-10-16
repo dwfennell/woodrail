@@ -23,15 +23,25 @@ export function frameAlong(
   let a = points[0];
   let b = points[0];
   let far = 0;
-  for (const p of points) {
-    for (const q of points) {
-      const d = Math.hypot(p.x - q.x, p.z - q.z);
-      if (d > far) {
-        far = d;
-        a = p;
-        b = q;
+  if (points.length <= 16) {
+    for (const p of points) {
+      for (const q of points) {
+        const d = Math.hypot(p.x - q.x, p.z - q.z);
+        if (d > far) {
+          far = d;
+          a = p;
+          b = q;
+        }
       }
     }
+  } else {
+    // Many places (a big layout's track): the two furthest along its bounding box's longer side, near enough.
+    const xs0 = points.reduce((m, p) => (p.x < m.x ? p : m));
+    const xs1 = points.reduce((m, p) => (p.x > m.x ? p : m));
+    const zs0 = points.reduce((m, p) => (p.z < m.z ? p : m));
+    const zs1 = points.reduce((m, p) => (p.z > m.z ? p : m));
+    [a, b] = xs1.x - xs0.x >= zs1.z - zs0.z ? [xs0, xs1] : [zs0, zs1];
+    far = Math.hypot(a.x - b.x, a.z - b.z);
   }
   const xs = points.map((p) => p.x);
   const zs = points.map((p) => p.z);

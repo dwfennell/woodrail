@@ -23,17 +23,19 @@ import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { Crafting, workshops, workshopStock } from "./game/crafting";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
-import { syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { nextStop, routeStops } from "./game/route-stops";
-import type { StopAction } from "./economy";
+import { engineStatus } from "./game/engine-status";
+import { MAX_SHEDS, SHED_CAP, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { goodsOf, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, detachEngines, tooHeavy } from "./game/engines";
+import { BOAT_SAIL, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
@@ -60,6 +62,9 @@ const GOAL_MARGIN = 260;
 
 /** How far a station or depot may turn when it gives (radians). */
 const GIVE_TURN = (4 * Math.PI) / 180;
+
+/** How long (ms) an engine's status must hold before its card shows it (so it doesn't flicker between steps). */
+const STATUS_HOLD_MS = 600;
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const loading = document.querySelector<HTMLDivElement>("#loading");
@@ -569,9 +574,20 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   // Save train positions periodically and when the page is hidden.
   setInterval(save, 5000);
+  // Hidden, or leaving the page (closed, reloaded: some browsers report only one of the two, Chrome both): saved
+  // once on the way out, and again only after the page has been back in view.
+  let savedOnLeaving = false;
+  const saveOnLeaving = () => {
+    if (savedOnLeaving) return;
+    savedOnLeaving = true;
+    save();
+  };
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") save();
+    if (document.visibilityState === "hidden") saveOnLeaving();
+    else savedOnLeaving = false;
   });
+  addEventListener("pagehide", saveOnLeaving);
+  addEventListener("pageshow", () => (savedOnLeaving = false));
 
   const title = new TitleScreen(document.body, { play }, { thumbnails });
 
@@ -595,8 +611,18 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") });
     // Of the loading screen's toys, just the train stays, right where it is, under the name: the cards come in below it.
     toys?.showTrainOnly();
+    settleHop();
     placeCards();
     addEventListener("resize", refreshToys);
+  }
+  /** Loaded: the name's letters stop hopping (each finishes the hop it's in), so the title screen sits still. */
+  function settleHop(): void {
+    for (const block of loading?.querySelectorAll<HTMLElement>(".wb") ?? []) {
+      for (const a of block.getAnimations()) {
+        const done = a.effect?.getComputedTiming().currentIteration;
+        if (typeof done === "number") a.effect?.updateTiming({ iterations: done + 1 });
+      }
+    }
   }
   /**
    * The title over the opening screen, laid out once the train's drawn (the next frame): the name, the train and the
@@ -642,13 +668,25 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     placeCards();
   };
 
+  /**
+   * The loading screen fades out (0.6 s) and is then taken out of the page, its toys and its letters' hop with it
+   * (left in, merely transparent, the hop would keep the page restyling every frame).
+   */
+  function dismissLoading(): void {
+    loading?.classList.add("done");
+    setTimeout(() => {
+      toys?.stop();
+      if (loading) loading.style.display = "none";
+    }, 700);
+  }
+
   /** The opening screen goes (fading over the map) once a mode is chosen. */
   function leaveOpening(): void {
     if (!overOpening) return;
     overOpening = false;
     title.root.classList.remove("over-opening");
     title.root.style.paddingTop = "";
-    loading?.classList.add("done");
+    dismissLoading();
     removeEventListener("resize", refreshToys);
   }
 
@@ -1015,8 +1053,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   const peopleClock = new Map<number, number>();
   const counters = new Counters();
   const warnedHeavy = new Set<number>();
+  // Harbours (Game mode): boats call by themselves and buy what's on the quay.
+  const harbourTrade = new HarbourTrade();
   function passengersOn(): void {
     peopleClock.clear();
+    harbourTrade.reset();
     counters.reset(game.economy);
     applyCranes(game.economy, progress);
     attachEngines(game.world);
@@ -1033,6 +1074,16 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   }
   setInterval(() => {
     if (mode !== "game" || !playing || game.paused) return;
+    for (const e of harbourTrade.update(game.world, progress)) {
+      if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL);
+      else if (e.kind === "leave") game.boats.leave(e.depotId, e.way, BOAT_SAIL);
+      else if (e.kind === "gone") game.boats.remove(e.depotId);
+      else if (e.kind === "sold") {
+        hud.setCoins(progress.coins);
+        hud.toast(`A boat took ${describeGoods(e.goods)}: +${e.coins} coins`, false, 3200);
+        scheduleSave();
+      }
+    }
     // What's been done (logs cut, loads moved, goods delivered) toward the blueprints that ask for it.
     if (counters.collect(game.economy, progress) && board.open) refreshBoard();
     // A train set going that's too heavy for its engines says so, once.
@@ -1073,6 +1124,57 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     line.className = "station-waiting";
     line.textContent = `Waiting for a coach: ${d.waiting} ${d.waiting === 1 ? "person" : "people"} (room for ${waitingCap(progress)}). Carried so far: ${progress.riders}`;
     box.append(line);
+  }
+
+  let harbourShown = "";
+  /** The open harbour card's line about its boats: kept and its text updated, so the countdown ticks without the card's button being made again (a tap mid-way would be lost). */
+  let harbourLine: HTMLElement | null = null;
+  /** A harbour's card (Game mode): when the next boat calls, and dock sheds to build. */
+  function showHarbour(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    if (id === -1 || game.economy.depot(id)?.role !== "harbour") {
+      harbourShown = "";
+      harbourLine = null;
+      return;
+    }
+    const d = game.economy.depot(id)!;
+    const canShed = progress.learned.has("dock-sheds") && d.sheds < MAX_SHEDS;
+    const text = harbourTrade.describe(id);
+    const line = d.sheds > 0 ? `${text} Dock sheds: ${d.sheds} of ${MAX_SHEDS} (each holds ${SHED_CAP} more of every good).` : text;
+    const key = `${id}|${d.sheds}|${canShed}`;
+    if (key === harbourShown && harbourLine?.isConnected) {
+      if (harbourLine.textContent !== line) harbourLine.textContent = line;
+      return;
+    }
+    harbourShown = key;
+    const box = hud.depotExtra;
+    box.hidden = false;
+    box.innerHTML = "";
+    harbourLine = document.createElement("div");
+    harbourLine.className = "station-waiting";
+    harbourLine.textContent = line;
+    box.append(harbourLine);
+    if (!canShed) return;
+    const build = document.createElement("button");
+    build.className = "chip text";
+    // (No title: on a desktop its tooltip can linger over the tray after the click.)
+    build.textContent = `Build a dock shed: room for ${SHED_CAP} more of each good (${SHED_PRICE} coins)`;
+    build.addEventListener("click", () => {
+      if (progress.coins < SHED_PRICE) {
+        hud.toast(`A dock shed costs ${SHED_PRICE} coins: you have ${progress.coins}`, false, 3200);
+        return;
+      }
+      progress.coins -= SHED_PRICE;
+      d.sheds++;
+      hud.setCoins(progress.coins);
+      game.depotView.setWorld(game.economy, game.layout);
+      game.invalidate();
+      audio.chime();
+      harbourShown = "";
+      interaction.refreshDepotCard();
+      scheduleSave();
+    });
+    box.append(build);
   }
 
   let workshopShown = -1;
@@ -1118,6 +1220,68 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     drop: { label: "Drop", next: "pick", tip: "Only drops goods off here" },
     pick: { label: "Pick up", next: "both", tip: "Only picks goods up here" },
   };
+  /**
+   * The open engine card's live parts: what the train's doing, and which way its engine's front points on screen (the
+   * way arrow follows the camera and the track). Cheap: a few lookups a frame, and the card redraws only on change.
+   */
+  const _a = new Vector3();
+  const _b = new Vector3();
+  /** The engine whose card the view was last shown for, and its status line as shown, and as it's been lately. */
+  let viewCar = -1;
+  let viewStanding = false;
+  const viewStatus = { shown: "", next: "", since: 0 };
+  function showEngineView(): void {
+    const carId = interaction.openEngineCarId;
+    if (carId === -1) {
+      viewCar = -1;
+      return;
+    }
+    const found = game.sim.findCar(carId);
+    if (!found) return;
+    const lever = found.train.cars[found.index].lever;
+    // The train changed its lever by itself (sent back from the end of the line): the card follows.
+    if (lever !== hud.engineLeverShown) hud.updateEngineCard(lever, game.following === carId);
+    const opened = carId !== viewCar;
+    viewCar = carId;
+    // Stopped (just opened on it, or come to a stand with the card open) with its front up against a buffer: Go
+    // offers the open way.
+    const standing = lever === 0 && found.train.speed === 0;
+    if (standing && (opened || !viewStanding) && game.sim.engineBlocked(carId, 1) && !game.sim.engineBlocked(carId, -1)) hud.setEngineWay(-1);
+    viewStanding = standing;
+    // A town by its name; anything else as "the sawmill" ("the workshop 2" where there are more).
+    const nameOf = (id: number) => {
+      const d = game.economy.depot(id);
+      const stop = routeStops(game.world).find((st) => st.depotId === id);
+      if (d?.role === "town") return stop?.name ?? "the station";
+      return `the ${(stop?.name ?? (d ? DEPOT_NAMES[d.role] : "depot")).toLowerCase()}`;
+    };
+    // A status shows once it's held a moment (a train being worked at the end of the line passes through several).
+    const now = performance.now();
+    const latest = engineStatus(game.sim, game.economy, carId, nameOf);
+    if (latest !== viewStatus.next) {
+      viewStatus.next = latest;
+      viewStatus.since = now;
+    }
+    if (opened || now - viewStatus.since >= STATUS_HOLD_MS) viewStatus.shown = latest;
+    const status = viewStatus.shown;
+    // The engine's own front, as a screen direction (degrees clockwise from right).
+    const snap = game.snapshot;
+    let angle = 0;
+    for (let i = 0; i < snap.count; i++) {
+      if (snap.ids[i] !== carId) continue;
+      const o = i * 6;
+      const h = snap.transforms[o + 3];
+      _a.set(snap.transforms[o], snap.transforms[o + 1], snap.transforms[o + 2]);
+      _b.set(_a.x + Math.cos(h) * 60, _a.y, _a.z + Math.sin(h) * 60);
+      _a.project(game.camera);
+      _b.project(game.camera);
+      // Screen x and y in the same units: the camera's aspect (kept on resize), no reading the page's layout.
+      angle = (Math.atan2(-(_b.y - _a.y), (_b.x - _a.x) * game.camera.aspect) * 180) / Math.PI;
+      break;
+    }
+    hud.setEngineView(status, angle);
+  }
+
   function showRoute(): void {
     const carId = interaction.openEngineCarId;
     const allowed = mode === "sandbox" || progress.learned.has("routes");
@@ -1481,6 +1645,19 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     // The two stations to join, along the screen's long side (up a phone held upright), close enough to see them.
     const f = frameAlong([a.station, b.station], game.camera.fov, game.camera.aspect, GOAL_MARGIN);
     game.lookAt(new Vector3(f.x, 0, f.z), f.distance, 0.95, f.theta);
+    // The hint toast shows across the top of the screen: the view leans toward the upper town (and stands back a
+    // little), so neither town is under it.
+    const up = [a.station, b.station].map((s) => new Vector3(s.x, 0, s.z).project(game.camera).y);
+    const top = up[0] > up[1] ? a.station : b.station;
+    const lean = 0.15;
+    game.lookAt(new Vector3(f.x + (top.x - f.x) * lean * 2, 0, f.z + (top.z - f.z) * lean * 2), f.distance * 1.3, 0.95, f.theta);
+    // Their names over them for a while (as "Show me" does): the chip only says "Join two towns".
+    if (game.layout.pieceCount === game.stations.size + game.depots.size) {
+      const grid = game.landscape.grid;
+      const y = (p: { x: number; z: number }) => grid.groundY(Math.max(0, grid.cellAtWorld(p.x, p.z))) + 90;
+      const labels = goalLabels(game.camera, game.canvas, [a, b].map((t) => ({ x: t.station.x, y: y(t.station), z: t.station.z, text: t.name })), 9);
+      if (labels) game.flourishes.add(labels);
+    }
     // A bare map: suggest the first job.
     if (game.layout.pieceCount === game.stations.size + game.depots.size) {
       window.setTimeout(() => {
@@ -1552,9 +1729,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       showWorkshop();
       showFarm();
       showStation();
+      showHarbour();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
     showRoute();
+    showEngineView();
     let derailed = false;
     for (const id of game.sim.trainIds()) if (game.sim.getTrain(id)?.derailed) derailed = true;
     hud.setRerailVisible(derailed);
@@ -1578,11 +1757,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       enter(mode);
       openingView();
     } else showTitleOverOpening();
-    if (!overOpening) {
-      loading?.classList.add("done");
-      // The loading screen fades out (0.6 s); its toys go with it.
-      setTimeout(() => toys?.stop(), 700);
-    }
+    if (!overOpening) dismissLoading();
   });
 }
 

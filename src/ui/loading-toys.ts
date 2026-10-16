@@ -143,6 +143,7 @@ export class LoadingToys {
 
   /** Stop drawing and free the stage (its own WebGL context). */
   stop(): void {
+    if (this.stopped) return;
     this.stopped = true;
     this.canvas.style.visibility = "hidden";
     cancelAnimationFrame(this.frame);

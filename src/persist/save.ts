@@ -6,7 +6,7 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ADV_OK, advanceCursor, ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, createAdvance, flipCursor, Sim, type AddTrainResult, type CarKind, type CarLook, type Cursor } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capOf, CARGO, CARGO_KINDS, Economy, type StopAction, PILE_CAP, pilesOf, RECIPES, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, type StopAction, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
 
 /** The biggest pile any depot keeps (a warehouse's). */
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
@@ -77,7 +77,7 @@ const saveSchema = z.object({
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power"]),
+      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour"]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
@@ -86,6 +86,8 @@ const saveSchema = z.object({
       timer: z.number().int().min(0),
       /** People waiting at a town's station. */
       waiting: z.number().int().min(0).max(MAX_RIDERS).optional(),
+      /** A harbour's dock sheds. */
+      sheds: z.number().int().min(0).max(MAX_SHEDS).optional(),
     }),
   ),
   /** Plank bundles delivered, by town id. */
@@ -155,7 +157,7 @@ export function serializeWorld(world: World): SaveData {
     pieces,
     switches,
     trains,
-    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}) })),
+    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}) })),
@@ -227,9 +229,10 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId);
     state.auto = d.auto;
     state.waitFull = d.waitFull;
+    if (d.role === "harbour") state.sheds = d.sheds ?? 0;
     // Only the piles this kind of depot uses (its input and output) can hold anything.
     const kept = pilesOf(state.role);
-    for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(capOf(state.role), d.piles[CARGO[kind].index] ?? 0) : 0;
+    for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(capAt(state), d.piles[CARGO[kind].index] ?? 0) : 0;
     state.timer = d.timer;
     if (d.role === "town") state.waiting = d.waiting ?? 0;
   }

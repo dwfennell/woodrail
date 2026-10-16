@@ -1,5 +1,6 @@
 import type { DepotRole } from "../economy";
-import { CELL, FEAT_FIELD, FEAT_TREE, type Landscape } from "../landscape";
+import { CELL, FEAT_FIELD, FEAT_TREE, isWater, type Landscape } from "../landscape";
+import { harbourWhy } from "./harbours";
 import type { PieceTypeId, Pose } from "../track";
 import { INDUSTRY_ROLE, type World } from "./world";
 
@@ -16,6 +17,8 @@ export interface SiteRule {
   readonly reach: number;
   /** This many works at the recipe's speed; half as many is the least it can be placed with. */
   readonly need: number;
+  /** Measured from this far across the yard (depot coordinate l; the yard's middle, 72, if not given). */
+  readonly l?: number;
 }
 
 export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
@@ -25,16 +28,18 @@ export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
   quarry: { what: "hillside", counts: (land, i) => land.grid.height[i] > 0, reach: 250, need: 12 },
   // Coal and ore are dug out of the hills too.
   mine: { what: "hillside", counts: (land, i) => land.grid.height[i] > 0, reach: 250, need: 12 },
+  // A harbour's quay is on the water, past the yard's far side.
+  harbour: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 110, need: 8, l: 150 },
 };
 
 /** The fastest an industry works, however much is around it (against its recipe). */
 const MAX_RATE = 1.5;
 
 /** The middle of a depot's yard (depot coordinates t 108, l 72: see `DEPOT_LAYOUT`) for a piece at `pose`. */
-export function yardMiddle(pose: Pose): { x: number; z: number } {
+export function yardMiddle(pose: Pose, l = 72): { x: number; z: number } {
   const c = Math.cos(pose.heading);
   const s = Math.sin(pose.heading);
-  return { x: pose.x + c * 108 - s * 72, z: pose.z + s * 108 + c * 72 };
+  return { x: pose.x + c * 108 - s * l, z: pose.z + s * 108 + c * l };
 }
 
 /** How many of its resource an industry of `role` at `pose` has around it, and how many it needs; null if it needs none. */
@@ -42,7 +47,7 @@ export function resourceAt(land: Landscape, role: DepotRole, pose: Pose): { coun
   const rule = SITE_RULES[role];
   if (!rule) return null;
   const g = land.grid;
-  const m = yardMiddle(pose);
+  const m = yardMiddle(pose, rule.l);
   const r = Math.ceil(rule.reach / CELL);
   const col = g.colAt(m.x);
   const row = g.rowAt(m.z);
@@ -68,7 +73,9 @@ export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose): string 
   const r = role && resourceAt(land, role, pose);
   if (!r) return null;
   const least = Math.ceil(r.need / 2);
-  return r.count >= least ? null : `Needs ${r.rule.what} nearby: ${r.count} of ${least}`;
+  if (r.count < least) return `Needs ${r.rule.what} nearby: ${r.count} of ${least}`;
+  // A harbour's boats must be able to get to it.
+  return role === "harbour" ? harbourWhy(land, pose) : null;
 }
 
 /**
