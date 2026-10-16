@@ -227,8 +227,10 @@ export class Economy {
 
   /** Put cargo straight onto a car (saves, tests). */
   setCargo(carId: number, kind: CargoKind | null, count: number): void {
-    if (count <= 0 || kind === null) this.cargo.delete(carId);
-    else this.cargo.set(carId, { kind, count: Math.min(count, this.wagonCapacity) });
+    if (count <= 0 || kind === null) {
+      this.cargo.delete(carId);
+      this.landedFrom.delete(carId);
+    } else this.cargo.set(carId, { kind, count: Math.min(count, this.wagonCapacity) });
   }
 
   ridersOf(carId: number): Readonly<Riders> {
@@ -387,6 +389,12 @@ export class Economy {
   /** Load one unit from a depot's output pile onto a car (crane work). */
   protected loadOne(d: DepotState, carId: number): void {
     const kind = this.loadKind(d, carId)!;
+    const landed = this.landed.get(d.id);
+    if (landed && landed[CARGO[kind].index] > 0) {
+      landed[CARGO[kind].index]--;
+      // The car carries landed goods away: it doesn't hand them back here.
+      this.landedFrom.set(carId, d.id);
+    }
     this.take({ kind: "pile", depotId: d.id, cargo: kind }, kind);
     this.put({ kind: "car", carId }, kind);
   }
@@ -416,6 +424,8 @@ export class Economy {
   private canUnload(d: DepotState, carId: number): boolean {
     const c = this.cargoOf(carId);
     if (c.kind === null || c.count <= 0 || !RECIPES[d.role].takes.includes(c.kind)) return false;
+    // Goods landed here for trains to take away aren't taken back (from any car, nor a car that took them here).
+    if ((this.landed.get(d.id)?.[CARGO[c.kind].index] ?? 0) > 0 || this.landedFrom.get(carId) === d.id) return false;
     if (this.accepts) {
       if (!this.accepts(d, c.kind)) return false;
       // What a town still wants it takes in even with its platform's pile full (it's counted, not stacked).
@@ -468,7 +478,7 @@ export class Economy {
     const car = found.train.cars[found.index].kind;
     let best: CargoKind | null = null;
     let fewest = Infinity;
-    for (const k of RECIPES[d.role].gives) {
+    for (const k of this.givesAt(d)) {
       if ((c.kind !== null && c.kind !== k) || !canCarry(car, k) || d.piles[CARGO[k].index] <= 0) continue;
       if (c.kind !== null) return k;
       // An empty wagon takes the good its train carries least of: a train of hoppers at a mine takes coal and ore both.
@@ -771,6 +781,29 @@ export class Economy {
    * on the board needs): towns don't take them from unrouted trains, which carry them on to the workshop.
    */
   reserved: ((kind: CargoKind) => boolean) | null = null;
+
+  /**
+   * Goods landed at a depot for trains to take away (Game mode: what a boat brought to a harbour), by depot id and
+   * cargo index. A depot gives these as well as its recipe's goods.
+   */
+  readonly landed = new Map<number, Int32Array>();
+  /** Cars carrying goods landed at a depot, by car id: the depot they came from (they're not unloaded back there). */
+  readonly landedFrom = new Map<number, number>();
+
+  /** Land `n` of `kind` on a depot's pile for trains to take away. */
+  land(d: DepotState, kind: CargoKind, n: number): void {
+    let l = this.landed.get(d.id);
+    if (!l) this.landed.set(d.id, (l = new Int32Array(CARGO_KINDS.length)));
+    l[CARGO[kind].index] += n;
+    d.piles[CARGO[kind].index] += n;
+  }
+
+  /** The goods a depot gives trains: its recipe's, and any landed there. */
+  private givesAt(d: DepotState): readonly CargoKind[] {
+    const l = this.landed.get(d.id);
+    if (!l) return RECIPES[d.role].gives;
+    return [...RECIPES[d.role].gives, ...CARGO_KINDS.filter((k) => l[CARGO[k].index] > 0 && !RECIPES[d.role].gives.includes(k))];
+  }
 
   /** Ticks a crane takes to move a load (Game mode's quicker cranes make it shorter). */
   craneTicks = CRANE_TICKS;
