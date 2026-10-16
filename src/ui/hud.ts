@@ -697,7 +697,9 @@ export class Hud {
     const was = Number(this.coinTag.dataset.n ?? n);
     if (this.coinTag.dataset.n === text) return;
     this.coinTag.dataset.n = text;
-    this.coinTag.innerHTML = `<i></i>${text}`;
+    // (A short count on a phone's top bar: 12k, not 12345.)
+    this.coinTag.innerHTML = `<i></i>${n >= 10000 ? `${Math.floor(n / 1000)}k` : text}`;
+    this.coinTag.title = `${n} coins: towns pay them for deliveries; they buy land`;
     if (n > was) {
       this.coinTag.classList.remove("pop");
       void this.coinTag.offsetWidth;
