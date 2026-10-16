@@ -40,6 +40,8 @@ export class GoalsPanel {
   /** The journal entry each News row shows, and the newest entry seq drawn, so a new entry adds to the list in place. */
   private readonly rowEntry = new WeakMap<HTMLElement, JournalEntry>();
   private drawnSeq = 0;
+  /** A finger (or button) is down on the News list. */
+  private pressed = false;
   /** The current goal's title in the header, shown when the card is folded up. */
   private readonly now = document.createElement("span");
   private readonly showBtn = document.createElement("button");
@@ -115,6 +117,16 @@ export class GoalsPanel {
     this.body.append(tabs, this.pane, this.newsPane);
     this.root.append(top, this.body);
     this.setTab("goals");
+    // A new entry put in at the top mid-tap would move the row away from the finger: it waits for the press to end
+    // (until just after the click it makes).
+    this.newsPane.addEventListener("pointerdown", () => (this.pressed = true));
+    const release = () => {
+      if (!this.pressed) return;
+      this.pressed = false;
+      window.setTimeout(() => this.syncNews(), 0);
+    };
+    window.addEventListener("pointerup", release, { capture: true });
+    window.addEventListener("pointercancel", release, { capture: true });
     this.newsPane.addEventListener("click", (e) => {
       const row = (e.target as HTMLElement).closest<HTMLElement>(".news-item");
       const entry = row ? this.rowEntry.get(row) : undefined;
@@ -195,8 +207,8 @@ export class GoalsPanel {
 
   private fillRow(el: HTMLElement, e: JournalEntry, now: number): void {
     el.className = `news-item${e.kind === "milestone" ? " milestone" : ""}${e.place ? " go" : ""}`;
-    // One mark per row: a star for a milestone, unless its text leads with its own (a goal's "✓").
-    const star = e.kind === "milestone" && !e.text.startsWith("✓") ? `<i>★</i> ` : "";
+    // One mark per row: a star for a milestone, unless its text has its own (a goal's "✓", maybe joined onto a growth).
+    const star = e.kind === "milestone" && !e.text.includes("✓") ? `<i>★</i> ` : "";
     el.innerHTML = `<span class="news-text">${star}${escapeHtml(e.text)}</span><span class="news-time">${ago(now - e.time)}</span>${e.place ? `<span class="news-go" aria-hidden="true">›</span>` : ""}`;
     this.rowEntry.set(el, e);
   }
@@ -207,6 +219,7 @@ export class GoalsPanel {
    */
   private updateNews(): void {
     const now = performance.now();
+    if (this.pressed && this.drawnSeq !== 0) return;
     const entries = this.journal.entries;
     const pane = this.newsPane;
     if (entries.length === 0) {
