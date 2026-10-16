@@ -11,7 +11,7 @@ import { hasSave, loadFromStorage, loadGoals, loadProgress, saveGoals, saveProgr
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
-import { Journal, type NoteInput } from "./game/journal";
+import { Journal, type JournalEntry, type JournalPlace, type NoteInput } from "./game/journal";
 import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
@@ -60,6 +60,8 @@ import "./style.css";
 const OPENING_DISTANCE = 1000;
 /** Room round the places a view frames for a goal (mm): a station and its town around it. */
 const GOAL_MARGIN = 260;
+/** Room round a news place made of several spots (new houses, a connection). */
+const PLACE_MARGIN = 140;
 
 /** How far a station or depot may turn when it gives (radians). */
 const GIVE_TURN = (4 * Math.PI) / 180;
@@ -532,7 +534,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const bought = game.unlockPlot(chosen.px, chosen.pz);
     if (!bought) return;
     const names = bought.towns.map((id) => game.landscape.towns[id].name);
-    hud.toast(names.length > 0 ? `Welcome to ${names.join(" and ")}!` : "New land added", names.length > 0);
+    if (names.length > 0) {
+      const stations = bought.towns.map((id) => game.landscape.towns[id].station);
+      milestone({ kind: "milestone", text: `Welcome to ${names.join(" and ")}!`, place: placeOf(stations) });
+    } else hud.toast("New land added");
     audio.chime();
     chosen = null;
     game.landscapeView.showForSale(plotsForSale(game.landscape));
@@ -564,7 +569,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const fresh = pairs.filter(([a, b]) => !announced.has(`${a}-${b}`));
     for (const [a, b] of fresh) announced.add(`${a}-${b}`);
     if (!announce || fresh.length === 0) return;
-    hud.toast(fresh.map(([a, b]) => `${name(a)} ↔ ${name(b)}`).join(", ") + " connected!", true);
+    const station = (id: number) => game.landscape.towns.find((t) => t.id === id)?.station;
+    const ends = fresh[0].map(station).filter((p) => !!p);
+    milestone({ kind: "milestone", text: fresh.map(([a, b]) => `${name(a)} ↔ ${name(b)}`).join(", ") + " connected!", place: ends.length > 0 ? placeOf(ends) : undefined });
     audio.chime();
     // After the first connection, point at the next thing to try (once, and only if there's no timber train yet). Game
     // mode's goals do this there.
@@ -751,7 +758,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       newGame: () => newGame(),
       showMe: () => showGoal(),
       fly: (place) => {
-        const f = frameAlong([place], game.camera.fov, game.camera.aspect, GOAL_MARGIN);
+        // Several spots (new houses, two stations) are framed together, closer than a lone spot.
+        const f = frameAlong(place.points ?? [place], game.camera.fov, game.camera.aspect, place.points ? PLACE_MARGIN : GOAL_MARGIN);
         game.follow(-1);
         game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 1 });
       },
@@ -759,12 +767,28 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     journal,
   );
   /** Report something in Game mode: logged in the Journal (not in Sandbox); a milestone is also toasted. */
-  function note(n: NoteInput, ms?: number): void {
-    if (mode !== "game") return;
+  function note(n: NoteInput, ms?: number, hold = false): JournalEntry | null {
+    if (mode !== "game") return null;
     const r = journal.add(n);
     goalsPanel.newsChanged();
-    if (r.toast) hud.toast(n.text, true, ms);
+    // (`hold`: the caller toasts it itself, after folding something else into it.)
+    if (r.toast && !hold) hud.toast(n.text, true, ms);
+    return r.entry;
   }
+  /** A milestone that is toasted in both modes (land, connections) and logged in Game mode. */
+  function milestone(n: NoteInput, ms?: number): void {
+    if (mode === "game") note(n, ms);
+    else hud.toast(n.text, true, ms);
+  }
+  /** A place made of these spots: their centre, to be framed together. */
+  function placeOf(points: readonly { x: number; z: number }[]): JournalPlace {
+    const xs = points.map((p) => p.x);
+    const zs = points.map((p) => p.z);
+    return { x: (Math.min(...xs) + Math.max(...xs)) / 2, z: (Math.min(...zs) + Math.max(...zs)) / 2, points: points.map((p) => ({ x: p.x, z: p.z })) };
+  }
+  /** The latest growth milestone: a goal ticked within a moment of it joins its toast and entry. */
+  let growth: { entry: JournalEntry; at: number } | null = null;
+  const GROWTH_JOIN_MS = 1500;
   const depotPlace = (depotId: number) => {
     const d = game.economy.depot(depotId);
     const p = d && game.layout.getPiece(d.pieceId)?.pose;
@@ -797,16 +821,27 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         note({ kind: "milestone", text: `${town.name} has ${aOrAn(mark.name.toLowerCase())}! ${mark.blurb}`, place: here }, 5200);
       }
       const level = aOrAn(status.name.toLowerCase());
-      note({ kind: "event", text: built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`, place: here });
-      audio.chime();
       // The first village, town and city each bring a present; a town that grows offers two blueprints suited to its
-      // new size (one learned free), or a crate of things. Both in one short line after the growth.
+      // new size (one learned free), or a crate of things.
       const gift = firstTimeGift(progress, status.level);
       if (gift.length > 0) hud.refreshTrayBadges();
       const offered = progress.offers.length;
       offerOnGrowth(progress, town.name, Math.random, status.level);
       const extras = [gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Reward in Blueprints" : ""].filter(Boolean);
-      if (extras.length > 0) note({ kind: "event", text: `${town.name}: ${extras.join(" · ")}`, place: here });
+      const grew = built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`;
+      const where = built.length > 0 ? placeOf(built) : here;
+      if (extras.length > 0) {
+        // A first, or a present: a moment. One toast and one entry, and the goal it ticks joins them.
+        const entry = note({ kind: "milestone", text: `${grew} ${extras.join(" · ")}`, place: where }, 5200, true);
+        growth = entry ? { entry, at: performance.now() } : null;
+        checkGoals(true);
+        if (entry) hud.toast(entry.text, true, 5200);
+        growth = entry ? { entry, at: performance.now() } : null;
+      } else {
+        note({ kind: "event", text: grew, place: where });
+        checkGoals(true); // (its tick is logged after the growth)
+      }
+      audio.chime();
       if (gift.length > 0 || progress.offers.length > offered) {
         refreshBoard();
         scheduleSave();
@@ -834,7 +869,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh.length > 0) {
       saveGoals(goals.ids());
       if (announce) {
-        note({ kind: "milestone", text: `✓ ${fresh.map((g) => g.title).join(" · ")}` }, 3200);
+        const tick = `✓ ${fresh.map((g) => g.title).join(" · ")}`;
+        if (growth && (performance.now() - growth.at < GROWTH_JOIN_MS)) {
+          // Right after a growth milestone: part of the same toast and entry.
+          growth.entry.text += ` · ${tick}`;
+          goalsPanel.newsChanged();
+        } else {
+          const where = fresh[0].guide(game.world).points[0];
+          note({ kind: "milestone", text: tick, place: where && { x: where.x, z: where.z } }, 3200);
+        }
         audio.chime();
         goalsPanel.celebrate();
       }
@@ -974,7 +1017,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     crate: (k) => {
       const crate = progress.offers[k]?.crate;
       if (!crate || !takeCrate(progress, k)) return;
-      hud.toast(`Into your toy box: ${describeThings(crate)}`, true, 3800);
+      note({ kind: "milestone", text: `Into your toy box: ${describeThings(crate)}` }, 3800);
       audio.chime();
       hud.refreshTrayBadges();
       refreshBoard();
@@ -1677,6 +1720,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     goals = new GoalTracker();
     saveGoals([]);
     journal.clear();
+    growth = null;
     goalsPanel.reset();
   }
 

@@ -1,8 +1,12 @@
 import { GOALS, type Goal, type GoalProgress } from "../game/goals";
-import { ago, type Journal, type JournalPlace } from "../game/journal";
+import { ago, type Journal, type JournalEntry, type JournalPlace } from "../game/journal";
 
 /** How often the news times ("2 min ago") are refreshed, only while the News tab is open. */
 const NEWS_TICK_MS = 30_000;
+/** A small screen (a phone, either way up): the card starts folded up. */
+const SMALL_SCREEN = "(max-width: 640px), (max-height: 520px)";
+/** Where the open Journal is a bottom sheet (keep in step with style.css). */
+const SHEET = "(max-width: 560px), (max-height: 520px)";
 
 export interface GoalsPanelHandlers {
   /** All goals done: start a new game. */
@@ -33,6 +37,9 @@ export class GoalsPanel {
   private readonly newsBadge = document.createElement("span");
   private tab: "goals" | "news" = "goals";
   private newsTimer = 0;
+  /** The journal entry each News row shows, and the newest entry seq drawn, so a new entry adds to the list in place. */
+  private readonly rowEntry = new WeakMap<HTMLElement, JournalEntry>();
+  private drawnSeq = 0;
   /** The current goal's title in the header, shown when the card is folded up. */
   private readonly now = document.createElement("span");
   private readonly showBtn = document.createElement("button");
@@ -46,7 +53,7 @@ export class GoalsPanel {
   ) {
     this.root.className = "goals";
     // Folded up to one line on a small screen, to leave the view clear.
-    if (window.matchMedia("(max-width: 640px)").matches) this.root.classList.add("collapsed");
+    if (window.matchMedia(SMALL_SCREEN).matches) this.root.classList.add("collapsed");
     this.root.hidden = true;
     const head = document.createElement("button");
     head.className = "goals-head";
@@ -109,11 +116,11 @@ export class GoalsPanel {
     this.root.append(top, this.body);
     this.setTab("goals");
     this.newsPane.addEventListener("click", (e) => {
-      const row = (e.target as HTMLElement).closest<HTMLElement>(".news-item[data-i]");
-      const entry = row ? this.journal.entries[Number(row.dataset.i)] : undefined;
+      const row = (e.target as HTMLElement).closest<HTMLElement>(".news-item");
+      const entry = row ? this.rowEntry.get(row) : undefined;
       if (!entry?.place) return;
       // Folded up on a phone, so the sheet doesn't cover where the camera goes.
-      if (window.matchMedia("(max-width: 560px)").matches) this.setOpen(false);
+      if (window.matchMedia(SHEET).matches) this.setOpen(false);
       handlers.fly(entry.place);
     });
     this.body.addEventListener("click", (e) => {
@@ -126,6 +133,14 @@ export class GoalsPanel {
         handlers.showMe();
       }
     });
+    // A phone's sheet closes on a tap outside it (the map, or a drag of the camera, starts with a press).
+    window.addEventListener(
+      "pointerdown",
+      (e) => {
+        if (!this.root.classList.contains("collapsed") && window.matchMedia(SHEET).matches && !this.root.contains(e.target as Node)) this.setOpen(false);
+      },
+      { capture: true },
+    );
     parent.appendChild(this.root);
   }
 
@@ -154,13 +169,13 @@ export class GoalsPanel {
     this.syncNews();
   }
 
-  /** Badge and list; the 30 s time tick runs only while the News tab is showing. */
+  /** Badge and list; the 30 s time tick runs only while the News tab is showing in a visible Journal. */
   private syncNews(): void {
-    const showing = !this.root.classList.contains("collapsed") && this.tab === "news";
+    const showing = !this.root.hidden && !this.root.classList.contains("collapsed") && this.tab === "news";
     if (showing) {
       this.journal.markRead();
-      this.renderNews();
-      this.newsTimer ||= window.setInterval(() => this.renderNews(), NEWS_TICK_MS);
+      this.updateNews();
+      this.newsTimer ||= window.setInterval(() => this.refreshTimes(), NEWS_TICK_MS);
     } else if (this.newsTimer) {
       clearInterval(this.newsTimer);
       this.newsTimer = 0;
@@ -172,14 +187,70 @@ export class GoalsPanel {
     this.newsBadge.textContent = String(n);
   }
 
-  private renderNews(): void {
+  private row(e: JournalEntry, now: number): HTMLElement {
+    const el = document.createElement(e.place ? "button" : "div");
+    this.fillRow(el, e, now);
+    return el;
+  }
+
+  private fillRow(el: HTMLElement, e: JournalEntry, now: number): void {
+    el.className = `news-item${e.kind === "milestone" ? " milestone" : ""}${e.place ? " go" : ""}`;
+    // One mark per row: a star for a milestone, unless its text leads with its own (a goal's "✓").
+    const star = e.kind === "milestone" && !e.text.startsWith("✓") ? `<i>★</i> ` : "";
+    el.innerHTML = `<span class="news-text">${star}${escapeHtml(e.text)}</span><span class="news-time">${ago(now - e.time)}</span>${e.place ? `<span class="news-go" aria-hidden="true">›</span>` : ""}`;
+    this.rowEntry.set(el, e);
+  }
+
+  /**
+   * Bring the list up to date without redrawing it (rows shift under a finger): a new entry is put in at the top, a
+   * merged one is updated where it stands, and the first showing draws everything.
+   */
+  private updateNews(): void {
     const now = performance.now();
-    const rows = this.journal.entries.map((e, i) => {
-      const tag = e.place ? "button" : "div";
-      const star = e.kind === "milestone" ? `<i>★</i> ` : "";
-      return `<${tag} class="news-item${e.kind === "milestone" ? " milestone" : ""}${e.place ? " go" : ""}" data-i="${i}"><span class="news-text">${star}${escapeHtml(e.text)}</span><span class="news-time">${ago(now - e.time)}</span>${e.place ? `<span class="news-go" aria-hidden="true">›</span>` : ""}</${tag}>`;
-    });
-    this.newsPane.innerHTML = rows.length > 0 ? rows.join("") : `<p class="news-empty">Nothing yet. Deliveries and boats show up here.</p>`;
+    const entries = this.journal.entries;
+    const pane = this.newsPane;
+    if (entries.length === 0) {
+      pane.innerHTML = `<p class="news-empty">Nothing yet. Deliveries and boats show up here.</p>`;
+      this.drawnSeq = 0;
+      return;
+    }
+    if (this.drawnSeq === 0 || pane.firstElementChild?.classList.contains("news-empty")) {
+      pane.replaceChildren(...entries.map((e) => this.row(e, now)));
+      this.drawnSeq = entries[0].seq;
+      return;
+    }
+    const have = new Map<JournalEntry, HTMLElement>();
+    for (const el of Array.from(pane.children) as HTMLElement[]) {
+      const e = this.rowEntry.get(el);
+      if (e) have.set(e, el);
+    }
+    // Entries newer than what's drawn are a prefix of the list (each add or merge takes the next seq).
+    const fresh: JournalEntry[] = [];
+    for (const e of entries) {
+      if (e.seq <= this.drawnSeq) break;
+      fresh.push(e);
+    }
+    const added: HTMLElement[] = [];
+    for (const e of fresh) {
+      const el = have.get(e);
+      if (el) this.fillRow(el, e, now);
+      else added.push(this.row(e, now));
+    }
+    if (added.length > 0) pane.prepend(...added);
+    // Entries that fell off the end of the journal.
+    const keep = new Set<JournalEntry>(entries);
+    for (const [e, el] of have) if (!keep.has(e)) el.remove();
+    this.drawnSeq = entries[0].seq;
+  }
+
+  /** Only the "2 min ago" texts change on the timer. */
+  private refreshTimes(): void {
+    const now = performance.now();
+    for (const el of Array.from(this.newsPane.children) as HTMLElement[]) {
+      const e = this.rowEntry.get(el);
+      const t = el.querySelector(".news-time");
+      if (e && t) t.textContent = ago(now - e.time);
+    }
   }
 
   /** A goal was just done: pop the count. */
@@ -192,11 +263,16 @@ export class GoalsPanel {
   /** Forget what's shown (a new game starts over without the arrival flourish). */
   reset(): void {
     this.shownKey = "";
+    this.drawnSeq = 0;
+    this.newsPane.replaceChildren();
     this.syncNews();
   }
 
   setVisible(visible: boolean): void {
     this.root.hidden = !visible;
+    // Leaving Game mode: fold the sheet up, and stop the news timer.
+    if (!visible) this.root.classList.add("collapsed");
+    this.syncNews();
   }
 
   /** Show the current goal (null when all are done) and its progress. */

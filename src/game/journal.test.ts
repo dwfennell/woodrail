@@ -27,12 +27,31 @@ describe("Journal", () => {
     expect(j.entries[0].kind).toBe("milestone");
   });
 
-  it("merges 5 quick deliveries into one entry with x5 and the summed quantity", () => {
+  it("merges 5 quick deliveries into one entry with the summed quantity and no x5", () => {
     const j = new Journal(() => 0);
     for (let i = 0; i < 5; i++) j.add(planks("Larkfield"), i * 1000);
     expect(j.entries).toHaveLength(1);
-    expect(j.entries[0].text).toBe("Delivered 15 planks to Larkfield (×5)");
+    expect(j.entries[0].text).toBe("Delivered 15 planks to Larkfield");
     expect(j.entries[0].qty).toBe(15);
+  });
+
+  it("adds x2 only where the text carries no quantity", () => {
+    const j = new Journal(() => 0);
+    j.add({ kind: "event", key: "boat", text: "A boat came in" }, 0);
+    j.add({ kind: "event", key: "boat", text: "A boat came in" }, 10);
+    expect(j.entries).toHaveLength(1);
+    expect(j.entries[0].text).toBe("A boat came in (×2)");
+    expect(j.entries[0].count).toBe(2);
+  });
+
+  it("puts a merged entry first again, and a later add before older ones", () => {
+    const j = new Journal(() => 0);
+    j.add(planks("Larkfield"), 0);
+    j.add({ kind: "milestone", text: "grew" }, 1);
+    j.add({ kind: "milestone", text: "goal" }, 2);
+    expect(j.entries.map((e) => e.text)).toEqual(["goal", "grew", "Delivered 3 planks to Larkfield"]);
+    j.add(planks("Larkfield"), 3);
+    expect(j.entries[0].text).toBe("Delivered 6 planks to Larkfield");
   });
 
   it("keeps different towns apart", () => {

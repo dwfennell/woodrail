@@ -11,11 +11,13 @@ export type NoteKind = JournalKind | "refusal";
 export interface JournalPlace {
   x: number;
   z: number;
+  /** Several spots to frame together (new houses, a connection's two stations); x, z is their centre. */
+  points?: { x: number; z: number }[];
 }
 
 export interface JournalEntry {
   kind: JournalKind;
-  /** What is shown, with the merged count ("×5") and quantity worked in. */
+  /** What is shown: the quantity worked in, or the merged count ("×5") when the text carries no quantity. */
   text: string;
   place?: JournalPlace;
   /** When it was added or last merged into (ms on the journal's clock). */
@@ -37,7 +39,8 @@ export interface NoteInput {
   key?: string;
   /** This report's quantity; summed when merged. */
   qty?: number;
-  /** The text for a running quantity (e.g. `(n) => "Delivered " + n + " planks to Larkfield"`). Defaults to `text`. */
+  /** The text for a running quantity (e.g. `(n) => "Delivered " + n + " planks to Larkfield"`). Defaults to `text`.
+   * With a `format` the text carries the quantity, so no " (×N)" is added (it would read as a multiple of it). */
   format?: (qty: number, count: number) => string;
 }
 
@@ -98,7 +101,7 @@ export class Journal {
       old.qty += qty;
       old.time = now;
       old.seq = ++this.seq;
-      old.text = shown(format(old.qty, old.count), old.count);
+      old.text = input.format ? format(old.qty, old.count) : shown(format(old.qty, old.count), old.count);
       if (input.place) old.place = input.place;
       this.list.unshift(old);
       return { toast, entry: old };
