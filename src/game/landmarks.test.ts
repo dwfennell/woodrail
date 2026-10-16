@@ -3,7 +3,7 @@ import { townProps } from "../props/towns";
 import { landmarksOf, LANDMARKS, SCHOOL_IDEA_SECONDS, townLandmarks } from "./landmarks";
 import { Progress } from "./progress";
 import { payDelivery, SCHOOL_BOARD_CAP, schoolIdeas } from "./rewards";
-import { ready } from "./tech";
+import { ready, TECHS } from "./tech";
 import { TownLife, type TownLifeHost } from "./town-life";
 import { townStatus } from "./towns";
 import { buildStarterWorld, type World } from "./world";
@@ -73,6 +73,23 @@ describe("town landmarks", () => {
     expect(p.board.has(idea.id)).toBe(true);
     expect(p.learned.has(idea.id)).toBe(false);
     expect(p.offers).toHaveLength(0);
+  });
+
+  it("an idea with nothing new to put on the board keeps until there is", () => {
+    const w = buildStarterWorld();
+    const p = Progress.fresh();
+    w.landscape.towns[0].buildings[0].landmark = "school";
+    const clock = { seconds: 0 };
+    // Everything learnable is already learned.
+    for (const t of TECHS) p.learned.add(t.id);
+    expect(schoolIdeas(p, w.landscape, clock, SCHOOL_IDEA_SECONDS, () => 0.3)).toBeNull();
+    expect(clock.seconds).toBeGreaterThanOrEqual(SCHOOL_IDEA_SECONDS);
+    // One comes back within reach: the waiting idea puts it on the board at once.
+    const back = TECHS.find((t) => t.learn === "board" && t.needs.length === 0 && t.requires.length === 0)!;
+    p.learned.delete(back.id);
+    p.board.delete(back.id);
+    expect(schoolIdeas(p, w.landscape, clock, 1, () => 0.3)?.id).toBe(back.id);
+    expect(clock.seconds).toBe(0);
   });
 
   it("no school ideas while enough blueprints already wait on the board", () => {
