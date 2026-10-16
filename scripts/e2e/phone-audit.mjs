@@ -90,12 +90,16 @@ async function run(vw, vh, mode, landscape = false) {
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group, .tray .scroller .tray-item") !== null, null, { timeout: 60000 });
   await new Promise((r) => setTimeout(r, 2500));
   await shot(p, `${tag}-02-start`, "first screen (help?)");
-  if (landscape) { await ctx.close(); return; }
   // Close help as a player would.
   const helpOpen = await p.evaluate(() => { const h = document.querySelector(".help"); return !!h && !h.hidden && getComputedStyle(h).display !== "none"; });
   if (helpOpen) await tapSel(p, ".help-card .chip");
   await new Promise((r) => setTimeout(r, 2000));
   await shot(p, `${tag}-03-hud`);
+  if (landscape) {
+    if (mode === "game" && (await tapSel(p, ".goals-head"))) await shot(p, `${tag}-07-goals`);
+    await ctx.close();
+    return;
+  }
   // Menu
   if (await tapSel(p, ".actions > button:last-child")) await shot(p, `${tag}-04-menu`);
   await tapSel(p, ".actions > button:last-child");
@@ -170,7 +174,8 @@ async function run(vw, vh, mode, landscape = false) {
   await ctx.close();
 }
 
-for (const [w, h] of [[390, 844], [360, 740]]) for (const mode of ["game", "sandbox"]) {
+// ONLY=landscape: just the landscape pass.
+if (process.env.ONLY !== "landscape") for (const [w, h] of [[390, 844], [360, 740]]) for (const mode of ["game", "sandbox"]) {
   try { await run(w, h, mode); } catch (e) { console.log("ERR", w, h, mode, e.message.split("\n")[0]); }
 }
 try { await run(390, 844, "game", true); } catch (e) { console.log("ERR landscape", e.message.split("\n")[0]); }

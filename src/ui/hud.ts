@@ -120,6 +120,8 @@ export function toastMs(message: string, celebrate: boolean, ms = 0): number {
 }
 /** Toasts waiting their turn at most (a busy moment drops the oldest plain ones). */
 const TOAST_QUEUE = 3;
+/** The help card's tips drawn with tray pictures: the picture's key, and the tip's art. */
+const HELP_ART: Record<string, string> = { "piece:curve-large": ".art-build", "train:Full train": ".art-run" };
 
 
 /** The HTML overlay: top bar, piece tray, context cards, menu, help, toasts and perf readout. */
@@ -570,19 +572,16 @@ export class Hud {
           <p class="help-keys">Keys: WASD or arrows pan · Q E turn · R F tilt (Shift: faster) · R rotate, F (or tap Cmd/Ctrl) flip what’s selected · Del delete · Ctrl+Z undo · Space pause · \` performance</p>
         </details>
       </div>`;
-    // Illustrate the tips with the same rendered pictures as the tray.
-    const art: [string, string | undefined][] = [
-      [".art-build", opts.thumbnails?.get("piece:curve-large")],
-      [".art-run", opts.thumbnails?.get("train:Full train")],
-    ];
-    for (const [sel, url] of art) {
-      const node = this.help.querySelector<HTMLElement>(sel);
-      if (node && url) node.style.backgroundImage = `url(${url})`;
+    // Illustrate the tips with the same rendered pictures as the tray (or, on a first visit, once they're drawn).
+    for (const key of Object.keys(HELP_ART)) {
+      const url = this.thumbs.get(key);
+      if (url) this.setHelpArt(key, url);
     }
     const look = this.help.querySelector<HTMLElement>(".art-look");
     if (look) look.innerHTML = `<svg viewBox="0 0 48 48" width="44" height="44" fill="none" stroke="#6a4a2c" stroke-width="3" stroke-linecap="round"><circle cx="21" cy="21" r="11"/><path d="m29.5 29.5 9 9"/><path d="M21 16v10M16 21h10"/></svg>`;
     const ok = button("Let's play", "Close help", () => {
       this.help.hidden = true;
+      this.flushToasts();
       try {
         localStorage.setItem("woodrail.helpSeen", "1");
       } catch {
@@ -611,6 +610,7 @@ export class Hud {
   /** A tray picture drawn: keep it, and put it in place of any placeholder showing. */
   setThumbnail(key: string, url: string): void {
     this.thumbs.set(key, url);
+    this.setHelpArt(key, url);
     for (const node of this.tray.querySelectorAll<HTMLElement>(`[data-thumb="${CSS.escape(key)}"]`)) {
       const img = document.createElement("img");
       img.src = url;
@@ -618,6 +618,13 @@ export class Hud {
       img.draggable = false;
       node.replaceWith(img);
     }
+  }
+
+  /** A help tip's picture, if `key` is one of theirs. */
+  private setHelpArt(key: string, url: string): void {
+    const sel = HELP_ART[key];
+    const node = sel ? this.help.querySelector<HTMLElement>(sel) : null;
+    if (node) node.style.backgroundImage = `url(${url})`;
   }
 
   /** Show the help card if this player hasn't closed it before. */
@@ -1115,6 +1122,8 @@ export class Hud {
 
   private flushToasts(): void {
     clearTimeout(this.toastFlushTimer);
+    // Held while the help card is up (it would cover them); closing it lets them through.
+    if (!this.help.hidden) return;
     const wait = this.toastHeldUntil - performance.now();
     if (wait > 0) {
       this.toastFlushTimer = window.setTimeout(() => this.flushToasts(), wait);

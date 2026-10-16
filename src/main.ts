@@ -817,11 +817,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // A landmark may have gone up (a school, a market, a library): what it opens comes with it.
       const before = new Set(progress.landmarks);
       syncLandmarks();
-      for (const id of progress.landmarks) {
-        if (before.has(id)) continue;
-        const mark = landmarkOf(id)!;
-        note({ kind: "milestone", text: `${town.name} has ${aOrAn(mark.name.toLowerCase())}! ${mark.blurb}`, place: here }, 5200);
-      }
+      // Folded into the growth's own line, after it: one new landmark with what it does, several by name.
+      const raised = [...progress.landmarks].filter((id) => !before.has(id)).map((id) => landmarkOf(id)!);
+      const landmarks =
+        raised.length === 1 ? `New ${raised[0].name.toLowerCase()}: ${raised[0].blurb}` : raised.length > 1 ? `New ${raised.map((m) => m.name.toLowerCase()).join(", ")}` : "";
       const level = aOrAn(status.name.toLowerCase());
       // The first village, town and city each bring a present; a town that grows offers two blueprints suited to its
       // new size (one learned free), or a crate of things.
@@ -829,11 +828,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (gift.length > 0) hud.refreshTrayBadges();
       const offered = progress.offers.length;
       offerOnGrowth(progress, town.name, Math.random, status.level);
-      const extras = [gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Reward in Blueprints" : ""].filter(Boolean);
+      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Reward in Blueprints" : ""].filter(Boolean);
       const grew = built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`;
       const where = built.length > 0 ? placeOf(built) : here;
       if (extras.length > 0) {
-        // A first, or a present: a moment. One toast and one entry, and the goal it ticks joins them.
+        // A first, a present or a landmark: a moment. One toast and one entry, and the goal it ticks joins them.
         const entry = note({ kind: "milestone", text: `${grew} ${extras.join(" · ")}`, place: where }, 5200, true);
         growth = entry ? { entry, at: performance.now() } : null;
         checkGoals(true);
