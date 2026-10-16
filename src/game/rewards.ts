@@ -44,9 +44,10 @@ export function schoolIdeas(
   if (waiting >= SCHOOL_BOARD_CAP) return null;
   clock.seconds += seconds * (schools.length > 1 ? 1.5 : 1);
   if (clock.seconds < SCHOOL_IDEA_SECONDS) return null;
-  clock.seconds = 0;
+  // (offerFor gives only blueprints ready to learn.) Nothing new to put on the board: the idea keeps until there is.
   const id = offerFor(p, random).find((x) => !p.board.has(x));
   if (!id) return null;
+  clock.seconds = 0;
   p.board.add(id);
   const town = schools[Math.floor(random() * schools.length)];
   return { from: `${town.name} school`, id };
