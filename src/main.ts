@@ -1293,8 +1293,44 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (found) hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
     // It faces the open way now: Go sends it off engine first.
     hud.setEngineWay(1);
+    if (game.following !== carId) keepEngineInView(carId);
     game.invalidate();
     onChange();
+  }
+
+  /**
+   * The engine has run round to the other end of its train: if that's off screen or under the card, glide just far
+   * enough to show it.
+   */
+  function keepEngineInView(carId: number): void {
+    const found = game.sim.findCar(carId);
+    if (!found) return;
+    const w = found.train.world;
+    const f = w[2 * found.index];
+    const r = w[2 * found.index + 1];
+    _a.set((f.x + r.x) / 2, (f.y + r.y) / 2, (f.z + r.z) / 2);
+    const rect = game.canvas.getBoundingClientRect();
+    const card = document.querySelector<HTMLElement>(".engine-card");
+    const bottom = card && card.offsetParent ? Math.min(rect.bottom, card.getBoundingClientRect().top) : rect.bottom;
+    // The visible area in NDC, with a margin so the engine isn't left on the very edge.
+    const m = 56;
+    const x0 = ((m / rect.width) * 2) - 1;
+    const x1 = 1 - (m / rect.width) * 2;
+    const y1 = 1 - (m / rect.height) * 2;
+    const y0 = 1 - (2 * (bottom - rect.top - m)) / rect.height;
+    if (y0 >= y1) return;
+    _b.copy(_a).project(game.camera);
+    const nx = Math.min(x1, Math.max(x0, _b.x));
+    const ny = Math.min(y1, Math.max(y0, _b.y));
+    if (nx === _b.x && ny === _b.y) return;
+    // Where the screen point it should sit at falls on the engine's own level, and the shift between the two.
+    const cam = game.camera.position;
+    _b.set(nx, ny, 0.5).unproject(game.camera).sub(cam);
+    if (_b.y >= 0) return;
+    _b.multiplyScalar((_a.y - cam.y) / _b.y).add(cam);
+    const t = game.controls.target;
+    _b.set(t.x + _a.x - _b.x, t.y, t.z + _a.z - _b.z);
+    game.director.glideTo(_b, cam.distanceTo(t), { duration: 0.6 });
   }
 
   /** The engine whose card the view was last shown for, and its status line as shown, and as it's been lately. */
