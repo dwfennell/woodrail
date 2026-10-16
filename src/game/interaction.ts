@@ -23,6 +23,8 @@ import { dropOutcome } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { RoadHand, type RoadDrag } from "./road-hand";
+import { dragMoves } from "./drag-rule";
+import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 
@@ -85,7 +87,7 @@ type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; 
 type Mode =
   | { kind: "idle" }
   /** `add`: Shift was held (a tap picks the piece, along with any already picked). */
-  | { kind: "press"; press: Press; pointerId: number; x: number; y: number; ground: Vector3; add: boolean }
+  | { kind: "press"; press: Press; pointerId: number; pointerType: string; x: number; y: number; ground: Vector3; add: boolean }
   | {
       /** The picked pieces dragged together, rigidly (with the risers under them). */
       kind: "drag-group";
@@ -679,7 +681,29 @@ export class Interaction {
       return;
     }
     this.game.controls.enabled = false;
-    this.mode = { kind: "press", press: hit, pointerId: e.pointerId, x: e.clientX, y: e.clientY, ground, add: e.shiftKey };
+    this.mode = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey };
+  }
+
+  /**
+   * Does a drag that starts on `press` move it, rather than pan the view (see `dragMoves`: on touch, only what's
+   * selected)? Picking several, only a picked piece moves. Cargo is fetched from its pile with a drag either way.
+   */
+  private dragsWhatsPressed(press: Press, pointerType: string): boolean {
+    switch (press.kind) {
+      case "piece":
+        if (this.picking) return this.picked.has(press.pieceId);
+        return dragMoves("piece", press.pieceId === this.selectedPiece, pointerType);
+      case "car":
+        return dragMoves("car", this.selectedCar !== -1 && this.game.sim.findCar(press.carId)?.train === this.game.sim.findCar(this.selectedCar)?.train, pointerType);
+      case "depot":
+        return dragMoves("depot", press.depotId === this.selectedDepot, pointerType);
+      case "prop":
+        return dragMoves("prop", press.propId === this.selectedProp, pointerType);
+      case "road":
+        return dragMoves("road", press.cell === this.roads.selected, pointerType);
+      default:
+        return true;
+    }
   }
 
   private onMove(e: PointerEvent): void {
@@ -693,9 +717,10 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
-      if ((m.press.kind === "prop" && m.press.propId !== this.selectedProp) || (m.press.kind === "road" && m.press.cell !== this.roads.selected)) {
-        // Select first: a drag that starts on a prop not selected pans the view, like the floor (so panning over a
-        // busy town never moves a house by accident). The camera picks the gesture up from here.
+      if (!this.dragsWhatsPressed(m.press, m.pointerType)) {
+        // Select first: a drag that starts on anything placed that isn't selected (a piece, a train, an industry, a
+        // prop, a road) pans the view, like the floor, so panning over a busy map never moves something by accident.
+        // Tap it to select it, then drag it. The camera picks the gesture up from here.
         this.mode = { kind: "idle" };
         this.game.controls.enabled = true;
         return;
@@ -915,6 +940,7 @@ export class Interaction {
     const car = found.train.cars[found.index];
     if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === p.carId);
     else this.hud.showCarCard();
+    this.hintDrag();
   }
 
   private selectPiece(id: number): void {
@@ -923,6 +949,20 @@ export class Interaction {
     this.game.trackView.setHighlight(id);
     const p = this.game.layout.getPiece(id)!;
     this.hud.showPieceCard(getPieceDef(p.type, false).flippable, "Track piece", true, true, true);
+    if (!this.fixedLabel(id)) this.hintDrag();
+  }
+
+  private dragHinted = hintSeen("drag-selected");
+
+  /**
+   * The first time ever (on this device) something movable is selected: it moves with a drag now (and on touch only
+   * now: see `dragsWhatsPressed`).
+   */
+  private hintDrag(): void {
+    if (this.dragHinted) return;
+    this.dragHinted = true;
+    markHintSeen("drag-selected");
+    this.hud.toast("Drag it to move it · drag anywhere else to look around", false, 3600);
   }
 
   clearSelection(): void {
@@ -974,6 +1014,8 @@ export class Interaction {
     this.shownDepot.id = -1;
     this.hud.showDepotCard(this.depotTitle(depotId));
     this.refreshDepotCard();
+    // An industry the player placed moves too (select first, as anything else).
+    if (this.movableIndustry(depotId) !== -1) this.hintDrag();
   }
 
   /** Keep the open depot card's pile counts current (call every frame). */
@@ -2401,6 +2443,7 @@ export class Interaction {
     this.selectedProp = id;
     this.propOutline.show(g.propLibrary.footprint(p.asset) ?? null, p.x, p.y, p.z, p.heading);
     this.hud.showPieceCard(false, g.propLibrary.model(modelKey(p.asset, p.variant))?.name ?? "Model", false);
+    this.hintDrag();
   }
 
   /** Turn a placed prop an eighth, if it still fits. */

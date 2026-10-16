@@ -44,3 +44,26 @@ describe("muted preference", () => {
     expect(loadMuted()).toBe(false);
   });
 });
+
+describe("one-time hints", () => {
+  it("are remembered as seen, each on its own, and survive without storage", async () => {
+    const { hintSeen, markHintSeen } = await import("./prefs");
+    const store = new Map<string, string>();
+    const g = globalThis as unknown as { localStorage?: unknown };
+    const before = g.localStorage;
+    g.localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    try {
+      expect(hintSeen("drag-selected")).toBe(false);
+      markHintSeen("drag-selected");
+      expect(hintSeen("drag-selected")).toBe(true);
+      expect(hintSeen("other")).toBe(false);
+      markHintSeen("other");
+      expect(hintSeen("drag-selected") && hintSeen("other")).toBe(true);
+    } finally {
+      g.localStorage = before;
+    }
+    // No storage at all: never seen, and marking doesn't throw.
+    expect(hintSeen("x")).toBe(false);
+    expect(() => markHintSeen("x")).not.toThrow();
+  });
+});
