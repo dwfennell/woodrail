@@ -74,6 +74,8 @@ export const DRAW_LOOKAHEAD = 250;
 const FINISH_SLACK = 27;
 /** Retracing: the finger this close (mm) to a piece's track, heading back along it, takes it (and those after) off. */
 const TRIM_REACH = 30;
+/** The finger counts as moving away from the line's end when its movement is at least this far (a cosine) that way. */
+const AWAY = 0.3;
 /** Pieces' tracks are kept as points this far apart (mm), for retracing. */
 const TRACK_STEP = 12;
 /** Scoring: how far off the stroke (mm), and off its heading (radians), count as one unit of cost. */
@@ -168,19 +170,22 @@ export class DrawLine {
     const mz = z - this.fz;
     this.fx = x;
     this.fz = z;
+    // Is the finger moving away from the line's end (any way: on, or off to a side to turn), or back toward it?
+    const e = this.end;
+    const ex = x - e.x;
+    const ez = z - e.z;
+    // (Ahead of the end, too: track only goes on forward from it, so behind it the finger is going back.)
+    const ahead = ex * Math.cos(e.heading) + ez * Math.sin(e.heading);
+    const away = ahead > 0 && (mx * ex + mz * ez) / (Math.hypot(mx, mz) * Math.hypot(ex, ez) || 1) > AWAY;
     if (this.retreating) {
-      // Still going back, or not yet forward past the line's end: the stroke waits at the end. It carries on once the
-      // finger is ahead of the end and moving forward (the way the line runs on from there).
-      const e = this.end;
-      const c = Math.cos(e.heading);
-      const sn = Math.sin(e.heading);
-      const ahead = (x - e.x) * c + (z - e.z) * sn;
-      const forward = (mx * c + mz * sn) / Math.hypot(mx, mz);
-      if (trimmed || ahead < FINISH_SLACK || forward < 0.5) return trimmed;
+      // Still going back, or not yet past the line's end: the stroke waits at the end. It carries on once the finger is
+      // ahead of the end and moving away from it, whichever way (going back and drawing another way is a sharp turn).
+      if (trimmed || ahead < FINISH_SLACK || !away) return trimmed;
       this.retreating = false;
     }
     this.push(x, z);
-    this.grow(false);
+    // Coming back toward the end (turning round to retrace, the tip of a hairpin): no new ghost meanwhile.
+    if (away) this.grow(false);
     return trimmed || this.pieces.length !== before;
   }
 

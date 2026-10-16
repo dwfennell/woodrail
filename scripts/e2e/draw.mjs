@@ -262,6 +262,25 @@ if (site) {
     if (n !== n0) await p.evaluate(() => window.woodrail.interaction.undo());
   }
 
+  // QA's turn: out 600 mm, back to 300, then off at 90° (toward open ground): the line draws on round the corner.
+  {
+    const side = await p.evaluate(([x, z, fx, fz]) => {
+      const G = window.woodrail.landscape.grid;
+      const open = (px, pz) => {
+        const c = G.cellAtWorld(px, pz);
+        return c !== -1 && G.height[c] === 0 && G.surface[c] === 0 && G.feature[c] <= 1 && G.road[c] === 0;
+      };
+      for (const s of [1, -1]) if ([100, 200, 300].every((d) => open(x + fx * 300 - fz * d * s, z + fz * 300 + fx * d * s))) return s;
+      return 1;
+    }, [x, z, fx, fz]);
+    const n0 = await p.evaluate(() => D.pieces());
+    const turn = [...[0, 200, 400, 600].map((d) => [x + fx * d, z + fz * d]), ...[450, 300].map((d) => [x + fx * d, z + fz * d]), ...[100, 200, 300].map((d) => [x + fx * 300 + lx * d * side, z + fz * 300 + lz * d * side])];
+    await drawThrough(turn, { stepPx: 6 });
+    const types = await p.evaluate((n0) => [...window.woodrail.layout.pieceIds()].slice(n0).map((id) => window.woodrail.layout.getPiece(id).type), n0);
+    check("retrace part way, then turn 90°: the line draws on round the corner", types.length >= 2 && types.some((t) => t.startsWith("curve")), types.join(" "));
+    if (types.length) await p.evaluate(() => window.woodrail.interaction.undo());
+  }
+
   // 5. A new line on empty ground (away from track).
 
   step("5");

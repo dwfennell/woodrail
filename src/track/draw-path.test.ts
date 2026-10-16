@@ -157,7 +157,8 @@ describe("draw path", () => {
     for (let x = out; x >= stop; x -= step) {
       line.addPoint(x, offset);
       if (line.pieces.length < low) trimmed = true;
-      if (trimmed && line.pieces.length > low) regrew = true;
+      // No growth on the way back at all (not even a ghost flashing up as the finger turns, before the first trim).
+      if (line.pieces.length > low) regrew = true;
       low = Math.min(low, line.pieces.length);
     }
     line.addPoint(stop, offset);
@@ -175,6 +176,23 @@ describe("draw path", () => {
           expect(r.laid, name).toBe(r.shown);
           expect(r.regrew, name).toBe(false);
         }
+  });
+
+  it("after a partial retrace, a sharp turn draws on (75° and 90°, either way)", () => {
+    for (const deg of [75, 90, -75, -90]) {
+      const a = (deg * Math.PI) / 180;
+      const line = new DrawLine(START);
+      for (let x = 4; x <= 700; x += 4) line.addPoint(x, 0);
+      for (let x = 700; x >= 300; x -= 4) line.addPoint(x, 0);
+      const kept = line.pieces.length;
+      for (let d = 4; d <= 400; d += 4) line.addPoint(300 + d * Math.cos(a), d * Math.sin(a));
+      line.finish();
+      expect(line.pieces.length, `${deg}°`).toBeGreaterThan(kept + 1);
+      expect(line.pieces.slice(kept).some((p) => p.type.startsWith("curve")), `${deg}°`).toBe(true);
+      // It ends near the finger.
+      const e = line.end;
+      expect(Math.hypot(e.x - (300 + 400 * Math.cos(a)), e.z - 400 * Math.sin(a)), `${deg}°`).toBeLessThan(140);
+    }
   });
 
   it("QA's cases: 40 mm short of the start, halfway back, and a hairpin back over the line lay nothing", () => {
