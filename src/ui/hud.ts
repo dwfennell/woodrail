@@ -25,6 +25,8 @@ export interface HudHandlers {
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
   swapEnds(): void;
+  /** Either card: uncouple there (a wagon from the cars on its engine's side; an engine from its cars). */
+  decouple(): void;
   rotate(): void;
   flip(): void;
   deletePiece(): void;
@@ -314,6 +316,10 @@ export class Hud {
         this.engineMore.hidden = true;
         h.swapEnds();
       }, "chip text"),
+      button("Decouple", "Uncouple the engine from its cars", () => {
+        this.engineMore.hidden = true;
+        h.decouple();
+      }, "chip text"),
       button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"),
     );
     this.engineCard.appendChild(this.engineMore);
@@ -326,7 +332,11 @@ export class Hud {
     this.carCard.hidden = true;
     this.carCard.appendChild(el("div", "card-title", "Wagon"));
     const carRow = el("div", "card-row");
-    carRow.append(button("Turn around", "Flip the wagon so its other magnet leads", h.turnCar, "chip text"), button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"));
+    carRow.append(
+      button("Turn around", "Flip the wagon so its other magnet leads", h.turnCar, "chip text"),
+      button("Decouple", "Uncouple this wagon (and those behind it) from the cars on the engine's side", h.decouple, "chip text"),
+      button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"),
+    );
     this.carCard.appendChild(carRow);
     this.carCard.appendChild(button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.carCard);

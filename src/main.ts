@@ -223,6 +223,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       removeTrain: () => interaction.removeSelectedTrain(),
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
+      decouple: () => decouple(),
       rotate: () => interaction.rotateSelected(),
       flip: () => interaction.flipSelected(),
       deletePiece: () => interaction.deleteSelected(),
@@ -1294,6 +1295,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // It faces the open way now: Go sends it off engine first.
     hud.setEngineWay(1);
     if (game.following !== carId) keepEngineInView(carId);
+    game.invalidate();
+    onChange();
+  }
+
+  /** Decouple (a card): split the train there, the part that goes standing a little apart. */
+  function decouple(): void {
+    const carId = interaction.selectedCarId;
+    if (carId === -1) return;
+    const r = game.sim.decouple(carId);
+    if (r.kind === "moving") return hud.toast("Stop the train to decouple", false, 2500);
+    if (r.kind === "alone") return hud.toast("Nothing coupled to uncouple there", false, 2500);
+    if (r.kind !== "decoupled") return;
+    audio.magnet(0.6, 0);
+    const found = game.sim.findCar(carId);
+    if (found?.train.cars[found.index].kind === "engine") hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
     game.invalidate();
     onChange();
   }

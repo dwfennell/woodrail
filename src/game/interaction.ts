@@ -935,10 +935,14 @@ export class Interaction {
       this.changed();
       return;
     }
+    // A first tap on any car takes the whole train (its engine's card); once it's taken, a tap on one of its cars
+    // opens that car's own card. A train with no engine (wagons left standing) opens the car's card at once.
+    const taken = this.selectedCar !== -1 && g.sim.findCar(this.selectedCar)?.train === found.train;
+    const engine = found.train.cars.find((c) => c.kind === "engine");
+    const car = !taken && engine ? engine : found.train.cars[found.index];
     this.clearSelection();
-    this.selectedCar = p.carId;
-    const car = found.train.cars[found.index];
-    if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === p.carId);
+    this.selectedCar = car.id;
+    if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === car.id);
     else this.hud.showCarCard();
     this.hintDrag();
   }
@@ -986,6 +990,11 @@ export class Interaction {
   }
 
   // ---- depots and cargo -------------------------------------------------------------------------------------
+
+  /** The car whose card is open (an engine's or a wagon's), or −1. */
+  get selectedCarId(): number {
+    return this.selectedCar;
+  }
 
   /** The engine whose card is open, or −1. */
   get openEngineCarId(): number {
