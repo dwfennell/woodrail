@@ -254,7 +254,7 @@ if (site) {
   // QA's cases: back to 40 mm short of the start, 5 mm to one side; and lifted halfway back, 8 mm to one side. Either
   // way, what's laid is exactly the ghosts showing before the lift.
   for (const [stop, side] of [[40, 5], [200, 8]]) {
-    const dense = [...[0, 150, 300, 450, 600].map((d) => [x + fx * d, z + fz * d]), ...[450, 300, 150, stop].map((d) => [x + fx * d + lx * side, z + fz * d + lz * side])];
+    const dense = [...[0, 150, 300, 450, 600].map((d) => [x + fx * d, z + fz * d]), ...[...[450, 300, 150].filter((d) => d > stop), stop].map((d) => [x + fx * d + lx * side, z + fz * d + lz * side])];
     const shown = await drawThrough(dense, { stepPx: 4 });
     const n = await p.evaluate(() => D.pieces());
     // Back to 40 mm short, nothing's left; halfway back, the piece before the finger may stay (shown as a ghost).
