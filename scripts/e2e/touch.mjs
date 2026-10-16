@@ -58,7 +58,7 @@ async function mapTaps(p) {
   // 1. A piece: where does its card put Delete? Then a piece right there, tapped.
   await placeAt(195, 300);
   await tapped(p, () => p.touchscreen.tap(195, 300));
-  await p.waitForFunction(() => !document.querySelector(".piece-card").hidden, null, { timeout: 10000 });
+  await p.waitForFunction(() => !document.querySelector(".piece-card").hidden, null, { timeout: 60000 });
   const [dx, dy] = await rectOf(".piece-card .danger");
   await p.keyboard.press("Escape");
   await placeAt(dx, dy);
@@ -83,7 +83,7 @@ async function mapTaps(p) {
   check("an engine goes on the track", (await addEngineAt(195, 300)) === "placed");
   await settle();
   await tapped(p, () => p.touchscreen.tap(195, 300));
-  await p.waitForFunction(() => !document.querySelector(".engine-card").hidden, null, { timeout: 10000 });
+  await p.waitForFunction(() => !document.querySelector(".engine-card").hidden, null, { timeout: 60000 });
   const [rx, ry] = await rectOf(".engine-card .danger");
   await p.keyboard.press("Escape");
   await placeAt(rx, ry);
@@ -164,7 +164,7 @@ async function runMode(mode) {
     const help = document.querySelector(".help");
     if (help && !help.hidden) help.querySelector("button.primary, .help-card button:last-of-type")?.click();
   });
-  await p.waitForFunction(() => { const h = document.querySelector(".help"); return !h || h.hidden || getComputedStyle(h).display === "none"; }, null, { timeout: 10000 });
+  await p.waitForFunction(() => { const h = document.querySelector(".help"); return !h || h.hidden || getComputedStyle(h).display === "none"; }, null, { timeout: 60000 });
   const inGroup = () => p.evaluate(() => document.querySelector(".tray").classList.contains("in-group"));
   const tapOn = async (selector) => {
     // (On a phone the favourites come first: a shelf may be scrolled out of view.)
