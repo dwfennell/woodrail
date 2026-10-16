@@ -5,7 +5,7 @@ import { plotSlotOf } from "../landscape/edit";
 import { propsInRect } from "../props/placement";
 import { roadPieceGroup, roadMaterials } from "../render/dressing/roads";
 import { FootprintOutline } from "../render/props/outline";
-import { autoReshapes, autoShape, distinctTurns, encodeRoad, isAutoRoad, pieceOf, ROAD_MESSAGES, RoadPlacer, setRoadSquare, turnOf, type RoadBlock, type RoadPieceId } from "../roads";
+import { autoReshapes, autoShape, distinctTurns, encodeRoad, groundUnder, isAutoRoad, pieceOf, ROAD_MESSAGES, RoadPlacer, setRoadSquare, turnOf, type RoadBlock, type RoadPieceId } from "../roads";
 import type { Hud } from "../ui/hud";
 import type { Game } from "./game";
 
@@ -86,7 +86,7 @@ export class RoadHand {
 
   /** Set a square's piece outside the undo history (a piece held in the hand), and redraw it. */
   private lift(cell: number, road: number): void {
-    this.grid.setRoad(cell, road);
+    this.grid.setRoad(cell, road, groundUnder(this.game.landscape, cell));
     this.game.roadsEdited([plotSlotOf(cell)], false);
   }
 
@@ -245,7 +245,7 @@ export class RoadHand {
     let restore: (() => void)[] = [];
     this.editor().editRoads({
       do: () => {
-        restore = changes.map(([i, road]) => setRoadSquare(g, i, road));
+        restore = changes.map(([i, road]) => setRoadSquare(g, i, road, groundUnder(this.game.landscape, i)));
       },
       undo: () => {
         for (let k = restore.length - 1; k >= 0; k--) restore[k]();

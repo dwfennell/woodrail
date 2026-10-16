@@ -2,17 +2,17 @@ import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type La
 import type { Landscape } from "../landscape/generate";
 import { CELL, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_SAND, SURF_SEA, SURF_TOWN, type LandscapeGrid } from "../landscape/grid";
 import { ALONG_ROAD, crossesRoad } from "../landscape/clearance";
+import { SAND, shoreDistance } from "../landscape/coast";
 import { bestTurn, edgesOf, encodeRoad, pieceOf, roadsJoin, turnOf, type Edge, type RoadPieceId } from "./pieces";
 
 /** Why a road piece can't go on a square. */
-export type RoadBlock = "off-land" | "town" | "river" | "sea" | "beach" | "dry" | "slope" | "in-use" | "station-way" | "track" | "prop";
+export type RoadBlock = "off-land" | "town" | "river" | "sea" | "dry" | "slope" | "in-use" | "station-way" | "track" | "prop";
 
 export const ROAD_MESSAGES: Record<RoadBlock, string> = {
   "off-land": "Roads go on your own land",
   town: "Town streets are already laid",
   river: "Use a road bridge over the river",
   sea: "Roads can't go out over the sea",
-  beach: "Roads keep off the beach",
   dry: "Bridges go over the river",
   slope: "A ramp climbs a block over two squares: lay it up to a step",
   "in-use": "Something stands there",
@@ -131,13 +131,13 @@ export class RoadPlacer {
     if (i === -1) return "off-land";
     const s = g.surface[i];
     if (s === SURF_TOWN || s === SURF_ROAD) return "town";
-    // No road out over the sea (a road bridge spans a river), nor on the beach (its sand would be lost under a lane).
+    // No road out over the sea (a road bridge spans a river). The beach is fine: its sand comes back when the road
+    // goes (see `groundUnder`).
     if (s === SURF_SEA) return "sea";
-    if (s === SURF_SAND) return "beach";
     const bridge = this.road !== 0 && pieceOf(this.road)?.overRiver === true;
     if (s === SURF_RIVER && !bridge) return "river";
     if (s !== SURF_RIVER && bridge) return "dry";
-    if (s !== SURF_GRASS && s !== SURF_LANE && s !== SURF_RIVER) return "in-use";
+    if (s !== SURF_GRASS && s !== SURF_SAND && s !== SURF_LANE && s !== SURF_RIVER) return "in-use";
     if (g.feature[i] !== FEAT_NONE && g.feature[i] !== FEAT_TREE) return "in-use";
     // A station's way in stays clear for track, but a plain straight road across the line may go there (track laid
     // later crosses it at a level crossing).
@@ -254,12 +254,22 @@ export class RoadPlacer {
 }
 
 /**
+ * The ground under a road on square `i`, for when the road goes: the beach's sand where the coast puts it (worked out
+ * from the coast, so it needs keeping nowhere and survives a save), else grass.
+ */
+export function groundUnder(land: Landscape, i: number): number {
+  const g = land.grid;
+  const d = shoreDistance(land.coast ?? null, g.colOf(i), g.rowOf(i));
+  return d > 0 && d <= SAND ? SURF_SAND : SURF_GRASS;
+}
+
+/**
  * Put a road piece on a square (0 takes it off), clearing a tree there. Returns how to put the square back as it was
  * (for undo). The caller redraws.
  */
-export function setRoadSquare(grid: LandscapeGrid, i: number, road: number): () => void {
+export function setRoadSquare(grid: LandscapeGrid, i: number, road: number, bare = SURF_GRASS): () => void {
   const before = { road: grid.road[i], surface: grid.surface[i], feature: grid.feature[i] };
-  grid.setRoad(i, road);
+  grid.setRoad(i, road, bare);
   if (road !== 0 && grid.feature[i] === FEAT_TREE) grid.feature[i] = FEAT_NONE;
   return () => {
     grid.road[i] = before.road;
