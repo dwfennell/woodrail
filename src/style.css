@@ -9,6 +9,8 @@
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+/* An icon standing in for a tray picture not drawn yet: laid out as the icon itself. */
+.thumb-icon { display: contents; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; color: var(--ink); font-family: "Nunito", system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
 /* A toy, not a page: nothing on screen is selected as text or brings up a long-press menu, and a quick second tap on
    a button is another tap, never a page zoom (iOS ignores user-scalable=no in the viewport; touch-action is what
@@ -23,7 +25,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* ---- HUD ------------------------------------------------------------------------------------------------ */
 .hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
 .hud > * { pointer-events: auto; }
-.topbar { position: absolute; top: max(10px, env(safe-area-inset-top)); left: 12px; right: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; pointer-events: none; }
+.topbar { position: absolute; top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); display: flex; align-items: center; justify-content: space-between; gap: 8px; pointer-events: none; }
 .topbar > * { pointer-events: auto; }
 .brand { font-weight: 800; font-size: 20px; letter-spacing: 0.02em; color: #3a2a1c; background: rgba(250, 243, 230, 0.82); backdrop-filter: blur(8px); padding: 8px 14px 8px 10px; border-radius: 14px; box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); display: flex; align-items: center; gap: 8px; }
 .brand-block { font-size: 26px; }
@@ -38,10 +40,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .chip.danger { background: linear-gradient(180deg, #f2b3a3, #d9785f); }
 .chip.primary { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
 .chip.attention { background: linear-gradient(180deg, #ffd88a, #f0ae3c); animation: nudge 1.6s ease-in-out infinite; }
+/* Under the top bar, on the right (the goals panel is on the left); the toast, which is centred, sits above it. */
+.menu-update { color: #2d5a2a; background: #d9ead2; }
 .chip .ui-icon { display: block; margin: 0 auto; }
 @keyframes nudge { 0%, 70%, 100% { transform: none; } 78% { transform: rotate(-4deg); } 86% { transform: rotate(4deg); } }
 
-.menu { z-index: 30; position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 54px); right: 12px; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 16px; background: rgba(250, 243, 230, 0.94); backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(60, 40, 20, 0.25); min-width: 210px; }
+.menu { z-index: 36; position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 54px); right: max(12px, env(safe-area-inset-right)); display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 16px; background: rgba(250, 243, 230, 0.94); backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(60, 40, 20, 0.25); min-width: 210px; }
 .menu-item { text-align: left; border: none; background: transparent; font: inherit; font-weight: 700; padding: 12px 14px; border-radius: 10px; color: #3a2a1c; cursor: pointer; }
 .menu-item:hover { background: #ead7b8; }
 .menu-item:disabled { opacity: 0.45; cursor: default; }
@@ -49,7 +53,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @media (max-width: 640px) { .menu .narrow-only { display: block; } }
 
 /* The tray: a shallow beech box the pieces sit in. */
-.tray { position: absolute; left: 50%; transform: translateX(-50%); bottom: max(10px, env(safe-area-inset-bottom)); width: min(980px, calc(100% - 20px)); border-radius: 20px; padding: 0 8px 9px;
+.tray { position: absolute; left: 50%; transform: translateX(-50%); bottom: max(10px, env(safe-area-inset-bottom)); width: min(980px, calc(100% - 20px - env(safe-area-inset-left) - env(safe-area-inset-right))); border-radius: 20px; padding: 0 8px 9px;
   background: repeating-linear-gradient(90deg, rgba(150, 100, 50, 0.05) 0 2px, transparent 2px 11px), linear-gradient(180deg, #f1dcb6, #e0bf8d);
   box-shadow: inset 0 1px 0 #fff9, inset 0 -3px 0 rgba(120, 75, 35, 0.28), 0 12px 34px rgba(60, 40, 20, 0.32); }
 .tabs { display: flex; gap: 4px; padding: 0 6px; transform: translateY(-1px); overflow-x: auto; scrollbar-width: none; }
@@ -64,6 +68,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item { flex: 0 0 auto; width: 84px; height: 90px; border: none; border-radius: 14px; background: radial-gradient(circle at 50% 38%, #fffaf0, #f6e8d0); box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.16), 0 2px 5px rgba(80, 50, 20, 0.14); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; cursor: grab; touch-action: none; font: inherit; color: #3a2a1c; user-select: none; -webkit-user-select: none; }
 .tray-item:hover { background: radial-gradient(circle at 50% 38%, #fffdf6, #f9ecd6); }
 .tray-item:active { cursor: grabbing; }
+/* A tray item with none left that the workshop can make on the spot: its badge shows the cost. */
+.tray-item.craft .have { background: #f6e3c1; color: #7a5532; }
 /* A tray item the player should reach for now (the workshop, until one is placed). */
 .tray-item.attention { position: relative; box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.16), 0 0 0 3px #f0ae3c, 0 3px 8px rgba(160, 100, 20, 0.3); }
 /* Ready to place with a tap on the floor: a green ring and a little "tap" tag. */
@@ -87,6 +93,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .card-row, .lever-row { display: flex; gap: 8px; }
 .card-hint { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; margin-top: -6px; max-width: 300px; }
 .piece-card .select-more { background: transparent; box-shadow: none; height: 32px; font-size: 14px; color: #8a6036; text-decoration: underline dotted; text-underline-offset: 4px; margin-top: -4px; }
+/* (Drawn 32 px, a link; it takes a tap 4 px above, clear of the buttons, and 8 below: 44 px.) */
+.piece-card .select-more { position: relative; }
+.piece-card .select-more::after { content: ""; position: absolute; inset: -4px 0 -8px; }
 /* Picking several pieces: the card moves up out of the way of the track being picked. */
 .card.piece-card.group { bottom: auto; top: calc(max(10px, env(safe-area-inset-top)) + 64px); gap: 8px; padding: 10px 14px 12px; }
 .piece-card.group .card-row { flex-wrap: wrap; justify-content: center; }
@@ -126,7 +135,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .toast { z-index: 35; }
 .toast.celebrate { background: #fff3c9; border-left-color: #e6b52c; }
 
-.help { position: absolute; inset: 0; background: rgba(40, 28, 16, 0.35); display: grid; place-items: center; padding: 16px; }
+.help { position: absolute; inset: 0; z-index: 32; background: rgba(40, 28, 16, 0.35); display: grid; place-items: center; padding: 16px; }
 .help-card { background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 20px 60px rgba(30, 20, 10, 0.4); border-radius: 22px; padding: 22px 24px; max-width: 520px; display: flex; flex-direction: column; gap: 6px; }
 .help-card h2 { margin: 0 0 4px; font-size: 24px; }
 .help-card ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
@@ -156,13 +165,31 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* The bar keeps what's used most; the rest are in the menu. Re-rail, when it shows, sits under the bar. */
   .actions .wide-only { display: none; }
   .actions > .chip { min-width: 40px; height: 40px; padding: 0 8px; }
+  /* (They stay 40 px drawn, to fit a 360 px screen with the coins showing, but take a tap 2 px around: 44 px.) */
+  .actions > .chip:not(.attention) { position: relative; }
+  .actions > .chip::after { content: ""; position: absolute; inset: -2px; }
   .actions > .chip.attention { position: absolute; top: 50px; right: 0; }
   .chip { min-width: 44px; height: 44px; padding: 0 10px; font-size: 16px; }
   .chip.text { font-size: 13px; }
   .tray-item { width: 70px; height: 80px; }
+  /* The tray's tabs tall enough to tap (they were 30 px); the cards above sit that much higher. */
+  .tab { padding: 11px 14px 10px; }
   /* Whole words only (no "Crossroad / s"): a little smaller, two lines at most. */
-  .tray-item .label { font-size: 10px; overflow-wrap: normal; word-break: normal; hyphens: manual; letter-spacing: -0.01em; }
-  .card { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 136px); min-width: 0; width: calc(100% - 24px); }
+  .tray-item .label { font-size: 11px; overflow-wrap: normal; word-break: normal; hyphens: manual; letter-spacing: -0.01em; }
+  .card { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 146px); min-width: 0; width: calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+}
+
+/* A phone on its side (short screens): a little less tray, and a card or the menu never runs off the screen. A card
+   taller than the room beside the top bar and above the tray (the engine card's) scrolls inside, its top row in view. */
+@media (max-height: 520px) {
+  .tray-item { width: 70px; height: 80px; }
+  .tray-item .label { font-size: 11px; letter-spacing: -0.01em; }
+  .tab { padding: 9px 14px 8px; }
+  /* Cards dock at the right, under the top bar: in the middle they'd sit on the very train or piece just tapped, and
+     a second tap on it (a car, for its own card) would land on the card's Go instead. */
+  .card, .card.piece-card.group { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; top: calc(max(10px, env(safe-area-inset-top)) + 56px); bottom: auto; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 140px); overflow-y: auto; overscroll-behavior: contain; }
+  .card > * { flex-shrink: 0; }
+  .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
 }
 
 /* ---- motion ---------------------------------------------------------------------------------------------- */
@@ -175,13 +202,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @media (prefers-reduced-motion: reduce) { .card:not([hidden]), .menu:not([hidden]) { animation: none; } }
 
 /* Turn / Flip: above the tray while a group of track pieces is open. */
-.tray-orient { position: absolute; right: 12px; top: -44px; display: none; gap: 6px; }
+.tray-orient { position: absolute; right: 12px; top: -52px; display: none; gap: 6px; }
 .tray.track-tab.in-group .tray-orient, .tray.track-tab.has-favourites .tray-orient { display: flex; }
 /* A card for a selected piece, car or depot has its own buttons there: the tray's Turn/Flip steps aside. */
 .card-open .tray.track-tab.in-group .tray-orient, .card-open .tray.track-tab.has-favourites .tray-orient { display: none; }
 .tray-orient .chip { padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 /* Draw: above the tray, at the left, while the Track tab is open. */
-.tray-draw { position: absolute; left: 12px; top: -44px; display: none; padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+.tray-draw { position: absolute; left: 12px; top: -52px; display: none; padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 .tray.draw-tab .tray-draw { display: inline-flex; }
 .card-open .tray.draw-tab .tray-draw { display: none; }
 /* The Turn button's arrow points the way the next piece will face. */
@@ -228,18 +255,18 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 #loading.behind-title .load-bar, #loading.behind-title p { visibility: hidden; }
 
 /* ---- goals (Game mode) ----------------------------------------------------------------------------------- */
-.goals { position: absolute; left: 12px; top: calc(max(10px, env(safe-area-inset-top)) + 62px); width: min(320px, calc(100% - 24px)); border-radius: 16px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 8px 26px rgba(60, 40, 20, 0.22); color: #3a2a1c; overflow: hidden; }
+.goals { position: absolute; left: max(12px, env(safe-area-inset-left)); top: calc(max(10px, env(safe-area-inset-top)) + 62px); width: min(320px, calc(100% - 24px)); border-radius: 16px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 8px 26px rgba(60, 40, 20, 0.22); color: #3a2a1c; overflow: hidden; }
 /* Folded up: one line, as wide as the goal's title needs (up to a limit). */
 .goals.collapsed { width: auto; max-width: min(460px, calc(100% - 24px)); }
 .goals-top { display: flex; align-items: center; gap: 4px; padding-right: 8px; }
-.goals-head { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; font: inherit; color: inherit; padding: 10px 6px 6px 14px; cursor: pointer; text-align: left; }
+.goals-head { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; font: inherit; color: inherit; padding: 10px 6px 6px 14px; min-height: 44px; cursor: pointer; text-align: left; }
 .goals-label { flex: none; font-weight: 800; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #8a6440; }
 .goals-count { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 800; font-size: 12px; background: #d9ead2; color: #2d5a2a; border-radius: 999px; padding: 2px 8px; }
 .goals-now { display: none; font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .goals.collapsed .goals-label { display: none; }
 .goals.collapsed .goals-now { display: block; }
 .goals.collapsed .goals-body { display: none; }
-.goals.collapsed .goals-head { padding: 9px 4px 9px 12px; }
+.goals.collapsed .goals-head { padding: 9px 4px 9px 12px; min-height: 44px; }
 /* The round "show me" button: only while folded (unfolded, it's a chip under the hint). */
 .goals-show-icon { display: none; flex: none; width: 44px; height: 44px; margin: 0 -5px; border: 0; padding: 0; place-items: center; cursor: pointer; color: #5a3f24; background: transparent; isolation: isolate; }
 /* The drawn button (34 px) inside its 44 px hit area, which the panel's edge mustn't clip. */
@@ -264,6 +291,34 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @keyframes goal-pop { 30% { transform: scale(1.35); background: #8fd08a; } }
 .goals-new { align-self: flex-start; }
 @media (prefers-reduced-motion: reduce) { .goal.arrive, .goals.ticked .goals-count { animation: none; } }
+/* The Journal: Goals and News tabs, the unread bell on the chip, and the news list. */
+.goals-pane { display: flex; flex-direction: column; gap: 6px; }
+.goals-pane[hidden], .news-pane[hidden], .goals-bell[hidden], .goals-tab-badge[hidden] { display: none; }
+.goals-bell { flex: none; white-space: nowrap; font-weight: 800; font-size: 12px; color: #8a4a12; background: #ffe2a8; border-radius: 999px; padding: 2px 8px; }
+.goals-tabs { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+/* The open Journal shows its count on the tab, not twice. */
+.goals:not(.collapsed) .goals-bell { display: none; }
+.goals-tab { flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 10px; background: rgba(255, 250, 240, 0.6); box-shadow: inset 0 0 0 2px #d8c6a6; font: inherit; font-weight: 800; font-size: 14px; color: #6a5340; cursor: pointer; }
+.goals-tab.on { background: #fffaf0; box-shadow: inset 0 0 0 2px #c9a57a; color: #3a2a1c; }
+.goals-tab-badge { font-size: 12px; font-weight: 800; background: #e2a12b; color: #fff; border-radius: 999px; min-width: 20px; padding: 1px 6px; text-align: center; }
+.goals-close { display: none; flex: none; width: 44px; height: 44px; border: 0; background: transparent; font: inherit; font-size: 18px; color: #8a6440; cursor: pointer; }
+.news-pane { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; }
+.news-item { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border: 0; border-radius: 10px; background: #fffaf0; font: inherit; font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #3a2a1c; text-align: left; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); }
+.news-item.go { cursor: pointer; }
+.news-item.milestone { background: #fff1cf; }
+.news-item i { font-style: normal; color: #d9a441; }
+.news-text { flex: 1; min-width: 0; }
+.news-time { flex: none; font-size: 11.5px; font-weight: 700; color: #8a7660; white-space: nowrap; }
+.news-go { flex: none; font-size: 20px; line-height: 1; color: #b88a54; }
+.news-empty { margin: 8px 4px; font-size: 13px; color: #6a5340; }
+/* Phones: the open Journal is a bottom sheet, like the Blueprints ticket (the chip stays at the top). */
+@media (max-width: 560px), (max-height: 520px) {
+  .goals:not(.collapsed) .goals-body { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: min(62dvh, 520px); overflow-y: auto; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 -8px 26px rgba(60, 40, 20, 0.28); }
+  .goals-close { display: block; }
+  /* The tabs and ✕ stay put while the list scrolls. */
+  .goals-tabs { position: sticky; top: 0; z-index: 1; padding: 8px 0 4px; margin-bottom: 0; background: var(--wood-panel); }
+  .news-pane { max-height: none; overflow: visible; }
+}
 
 /* ---- catalogue models in the tray ------------------------------------------------------------------------ */
 .tray.turn-only .tray-flip { display: none; }

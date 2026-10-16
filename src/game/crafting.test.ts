@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
 import { appendPiece, connectorRef } from "../track";
-import { Crafting, CRAFT_SECONDS, workshopStock } from "./crafting";
+import { costOf, craftNow, Crafting, CRAFT_SECONDS, lacking, workshopStock } from "./crafting";
+import type { ThingId } from "./things";
 import { Progress } from "./progress";
 import { buildStarterWorld, syncIndustries } from "./world";
 
@@ -88,5 +89,52 @@ describe("coins as well as goods", () => {
     expect(p.making).toBe(true);
     expect(p.coins).toBe(15);
     expect(shop.piles[CARGO.planks.index]).toBe(0);
+  });
+
+  it("from the tray: one made at once from the yard's planks, into the toy box", () => {
+    const { w } = withWorkshop(5);
+    const p = Progress.fresh();
+    p.learned.add("switches");
+    const before = p.owned.get("piece:switch") ?? 0;
+    expect(craftNow(w, p, new Map([["piece:switch", 1]]))).toBeNull();
+    expect(p.owned.get("piece:switch")).toBe(before + 1);
+    expect(workshopStock(w).planks).toBe(2);
+  });
+
+  it("from the tray, short of goods: says what's missing, takes nothing", () => {
+    const { w } = withWorkshop(1);
+    const p = Progress.fresh();
+    p.learned.add("switches");
+    expect(craftNow(w, p, new Map([["piece:switch", 1]]))).toEqual({ goods: { planks: 2 }, coins: 0 });
+    expect(workshopStock(w).planks).toBe(1);
+  });
+
+  it("from the tray, with no workshop: nothing made", () => {
+    const w = buildStarterWorld();
+    const p = Progress.fresh();
+    p.learned.add("switches");
+    expect(craftNow(w, p, new Map([["piece:switch", 1]]))).toBe("no-workshop");
+  });
+
+  it("from the tray, a train's missing cars: all made or none, priced together", () => {
+    const { w } = withWorkshop(10);
+    const p = Progress.fresh();
+    const needs = new Map<ThingId, number>([["car:engine", 1], ["car:timber", 2]]);
+    // Whatever the toy box lacks of them, priced as one.
+    for (const [id] of needs) p.owned.set(id, 0);
+    const lack = lacking(w, p, needs);
+    expect([...lack]).toEqual([["car:engine", 1], ["car:timber", 2]]);
+    const cost = costOf(lack);
+    expect(cost.goods.planks).toBe(costOf(new Map([["car:engine", 1]])).goods.planks! + 2 * costOf(new Map([["car:timber", 1]])).goods.planks!);
+    if (cost.goods.planks! > 10) {
+      // Not enough for the lot: nothing made, nothing taken.
+      expect(craftNow(w, p, lack)).toMatchObject({ goods: { planks: cost.goods.planks! - 10 } });
+      expect(workshopStock(w).planks).toBe(10);
+      expect(p.owned.get("car:engine")).toBe(0);
+    }
+    const { w: rich } = withWorkshop(cost.goods.planks!);
+    expect(craftNow(rich, p, lack)).toBeNull();
+    expect(workshopStock(rich).planks).toBe(0);
+    expect([p.owned.get("car:engine"), p.owned.get("car:timber")]).toEqual([1, 2]);
   });
 });

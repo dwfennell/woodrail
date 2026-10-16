@@ -1,6 +1,7 @@
-import { Color, Group, MeshStandardMaterial, type Object3D } from "three";
+import { BackSide, Box3, Color, Group, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector3, type Object3D } from "three";
 import { CAR_KINDS, type CarLook, type SimSnapshot } from "../sim";
 import type { Materials } from "./materials";
+import { OUTLINE_TONES } from "./track-view";
 import { buildCarModel, carVariant, disposeObject, WHEEL_RADIUS, type CarModel } from "./train-models";
 
 interface CarEntry {
@@ -9,7 +10,15 @@ interface CarEntry {
   lastZ: number;
   spin: number;
   tip: number;
+  /** Its selection shells (made the first time it's selected), and how strongly they show: 0 off, 1 its train, 2 it. */
+  shells: Mesh[] | null;
+  shown: 0 | 1 | 2;
 }
+
+/** How far a selection shell stands proud of a car's parts (mm). */
+const SHELL_GROW = 2.2;
+/** A part gets a shell if it's at least this share of the car's longest part. */
+const SHELL_PART = 0.4;
 
 const LAMP_COLORS: Record<number, [Color, number]> = {
   1: [new Color("#7dff8a"), 2.5],
@@ -24,7 +33,20 @@ export class TrainView {
   readonly group = new Group();
   private readonly cars = new Map<number, CarEntry>();
 
+  /** The car whose card is open (its whole train is outlined, it a little more), or −1. */
+  private selected = -1;
+  // The selection look of track pieces (track-view): each part drawn again, back faces only, a little larger, so a
+  // light rim shows round the edges. Static: a selected train standing still draws nothing more.
+  private readonly shellTrain = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.select), side: BackSide, transparent: true, opacity: 0.7, depthWrite: false });
+  // The car whose card is open: the same colour, lighter and solid.
+  private readonly shellCar = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.select).lerp(new Color("#ffffff"), 0.55), side: BackSide, transparent: true, opacity: 1, depthWrite: false });
+
   constructor(private readonly mats: Materials) {}
+
+  /** Outline the train of this car, and it a little more (−1: none). Draws at the next frame (the caller invalidates). */
+  setSelected(carId: number): void {
+    this.selected = carId;
+  }
 
   /** Cars seen this frame (kept between frames to avoid garbage). */
   private readonly seen = new Set<number>();
@@ -49,7 +71,7 @@ export class TrainView {
         model.root.traverse((obj) => (obj.userData.carId = id));
         if (model.lamp) model.lamp.userData.ownsMaterial = true;
         this.group.add(model.root);
-        entry = { model, lastX: x, lastZ: z, spin: 0, tip: 0 };
+        entry = { model, lastX: x, lastZ: z, spin: 0, tip: 0, shells: null, shown: 0 };
         this.cars.set(id, entry);
       }
       const heading = snap.transforms[o + 3];
@@ -84,6 +106,7 @@ export class TrainView {
         m.emissiveIntensity = intensity;
       }
     }
+    this.syncSelection(snap);
     for (const [id, entry] of this.cars) {
       if (!seen.has(id)) {
         this.group.remove(entry.model.root);
@@ -92,6 +115,73 @@ export class TrainView {
       }
     }
     return tipping;
+  }
+
+  /** Each car's shells as its selection asks (only those that change are touched; trains coupling or parting follow). */
+  private syncSelection(snap: SimSnapshot): void {
+    let train = -1;
+    if (this.selected !== -1) {
+      for (let i = 0; i < snap.count; i++) if (snap.ids[i] === this.selected) train = snap.trainIds[i];
+    }
+    for (let i = 0; i < snap.count; i++) {
+      const entry = this.cars.get(snap.ids[i]);
+      if (!entry) continue;
+      const want = train === -1 ? 0 : snap.ids[i] === this.selected ? 2 : snap.trainIds[i] === train ? 1 : 0;
+      if (want !== entry.shown) this.showShells(entry, want);
+    }
+  }
+
+  private showShells(entry: CarEntry, level: 0 | 1 | 2): void {
+    entry.shown = level;
+    if (level === 0 && !entry.shells) return;
+    entry.shells ??= this.makeShells(entry.model.root);
+    for (const shell of entry.shells) {
+      shell.visible = level !== 0;
+      shell.material = level === 2 ? this.shellCar : this.shellTrain;
+    }
+  }
+
+  /**
+   * A shell on each big part of a car (body, chassis, cab, boiler: what makes its outline): its own geometry, scaled
+   * about its centre to stand SHELL_GROW proud all round. Small parts (wheels, stanchions, lamps) and
+   * a hopper's coal get none: their rims would lie over the body beside them.
+   */
+  private makeShells(root: Object3D): Mesh[] {
+    const parts: { part: Mesh; size: Vector3; centre: Vector3; scale: Vector3 }[] = [];
+    root.traverse((o) => {
+      const part = o as Mesh;
+      if (!part.isMesh) return;
+      // A hopper's modelled coal is a load, not the car's shape (and its lumps' rims would only speckle it).
+      for (let p: Object3D | null = part; p && p !== root; p = p.parent) if (p.name.startsWith("coal")) return;
+      const g = part.geometry;
+      if (!g.boundingBox) g.computeBoundingBox();
+      const box = g.boundingBox ?? new Box3();
+      // The part's own scale (up to the car), so its size is in mm and the rim is as wide on a stretched part.
+      const scale = new Vector3(1, 1, 1);
+      for (let p: Object3D | null = part; p && p !== root; p = p.parent) scale.multiply(p.scale);
+      parts.push({ part, size: box.getSize(new Vector3()), centre: box.getCenter(new Vector3()), scale });
+    });
+    const span = (q: (typeof parts)[number]) => Math.max(q.size.x * Math.abs(q.scale.x), q.size.y * Math.abs(q.scale.y), q.size.z * Math.abs(q.scale.z));
+    const longest = Math.max(0, ...parts.map(span));
+    return parts
+      .filter((q) => span(q) >= SHELL_PART * longest)
+      .map(({ part, size, centre, scale }) => {
+        const grow = (n: number, s: number) => (n > 1e-6 ? (n + (2 * SHELL_GROW) / Math.abs(s || 1)) / n : 1);
+        const shell = new Mesh(part.geometry, this.shellTrain);
+        shell.matrixAutoUpdate = false;
+        shell.matrix
+          .makeTranslation(centre.x, centre.y, centre.z)
+          .multiply(new Matrix4().makeScale(grow(size.x, scale.x), grow(size.y, scale.y), grow(size.z, scale.z)))
+          .multiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z));
+        shell.renderOrder = 2;
+        shell.castShadow = false;
+        shell.receiveShadow = false;
+        shell.raycast = () => {};
+        // The part owns the geometry (disposeObject frees it once); the materials are this view's.
+        shell.userData.sharedGeometry = true;
+        part.add(shell);
+        return shell;
+      });
   }
 
   carAt(object: Object3D): number {

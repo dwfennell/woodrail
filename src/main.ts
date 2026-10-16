@@ -11,6 +11,7 @@ import { hasSave, loadFromStorage, loadGoals, loadProgress, saveGoals, saveProgr
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
+import { Journal, type JournalEntry, type JournalPlace, type NoteInput } from "./game/journal";
 import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
@@ -21,7 +22,7 @@ import { landmarkOf, landmarksOf } from "./game/landmarks";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { Crafting, workshops, workshopStock } from "./game/crafting";
+import { costOf, craftNow, Crafting, lacking, workshops, workshopStock } from "./game/crafting";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
@@ -53,18 +54,23 @@ import { propsInRect } from "./props/placement";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { installClickShield } from "./ui/click-shield";
+import { startUpdateCheck } from "./ui/update-check";
 import "./style.css";
 
 /** How far (mm) the opening view stands from where track was last built: the middle of the zoom range. */
 const OPENING_DISTANCE = 1000;
 /** Room round the places a view frames for a goal (mm): a station and its town around it. */
 const GOAL_MARGIN = 260;
+/** Room round a news place made of several spots (new houses, a connection). */
+const PLACE_MARGIN = 140;
 
 /** How far a station or depot may turn when it gives (radians). */
 const GIVE_TURN = (4 * Math.PI) / 180;
 
 /** Tray pictures drawn together, a batch a frame, after the title's up. */
 const THUMBNAIL_BATCH = 8;
+/** How long (ms) a batch of tray pictures waits for the scene to be still before it's drawn anyway. */
+const THUMBNAIL_STILL_WAIT_MS = 1500;
 
 /** How long (ms) an engine's status must hold before its card shows it (so it doesn't flicker between steps). */
 const STATUS_HOLD_MS = 600;
@@ -224,6 +230,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       removeTrain: () => interaction.removeSelectedTrain(),
       turnCar: () => interaction.turnSelectedCar(),
       swapEnds: () => swapEnds(),
+      decouple: () => decouple(),
       rotate: () => interaction.rotateSelected(),
       flip: () => interaction.flipSelected(),
       deletePiece: () => interaction.deleteSelected(),
@@ -308,17 +315,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   async function drawTrayThumbnails(): Promise<void> {
     const items = [...TRACK_ITEMS, ...TRAIN_ITEMS].filter((item) => !thumbnails.has(trayKey(item)));
     if (items.length === 0) return;
-    // Once their pieces are carved, a few at a time in one studio, while the scene's still: each picture is read back
-    // from the graphics card, which waits for what it's drawing, so pictures go in batches (one wait each).
-    await Promise.all(items.map((item) => (item.kind === "piece" ? TrackView.whenBuilt(item.type) : null)));
+    // A few at a time in one studio, each batch once its pieces are carved: each picture is read back from the
+    // graphics card, which waits for what it's drawing, so pictures go in batches (one wait each). Preferably while
+    // nothing's moving on screen, but not waiting long for that (a train going round would hold them up for good).
     const studio = new ThumbnailStudio(game.renderer);
     for (let i = 0; i < items.length; i += THUMBNAIL_BATCH) {
-      // While nothing's moving on screen (never in the middle of a pan, a drag or a train going by).
-      await game.settled(10);
-      for (const key of drawThumbnails(items.slice(i, i + THUMBNAIL_BATCH), false, studio)) hud.setThumbnail(key, thumbnails.get(key)!);
+      const batch = items.slice(i, i + THUMBNAIL_BATCH);
+      await Promise.all(batch.map((item) => (item.kind === "piece" ? TrackView.whenBuilt(item.type) : null)));
+      await Promise.race([game.settled(10), sleep(THUMBNAIL_STILL_WAIT_MS)]);
+      for (const key of drawThumbnails(batch, false, studio)) hud.setThumbnail(key, thumbnails.get(key)!);
+      // Kept as they come (a visit cut short keeps what it drew).
+      saveThumbnailsSoon();
     }
     studio.dispose();
-    void saveCached("thumbnails", __BUILD_ID__, thumbnails);
   }
 
   // Catalogue models' tray pictures: drawn when their shelf is first shown, one a frame (each builds the model, if it
@@ -326,6 +335,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const thumbQueue: string[] = [];
   let studio: ThumbnailStudio | null = null;
   let thumbSaveTimer = 0;
+  /** Save the tray pictures drawn so far, once the drawing's paused a moment. */
+  function saveThumbnailsSoon(): void {
+    clearTimeout(thumbSaveTimer);
+    thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", __BUILD_ID__, thumbnails), 2000);
+  }
   function drawPropThumbnails(items: TrayItem[]): void {
     const idle = thumbQueue.length === 0;
     for (const item of items) if (item.kind === "prop" && !thumbQueue.includes(item.asset)) thumbQueue.push(item.asset);
@@ -345,8 +359,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const key = `prop:${asset}`;
         hud.setThumbnail(key, url);
         thumbnails.set(key, url);
-        clearTimeout(thumbSaveTimer);
-        thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", __BUILD_ID__, thumbnails), 2000);
+        saveThumbnailsSoon();
       }
       if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
     });
@@ -530,7 +543,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const bought = game.unlockPlot(chosen.px, chosen.pz);
     if (!bought) return;
     const names = bought.towns.map((id) => game.landscape.towns[id].name);
-    hud.toast(names.length > 0 ? `Welcome to ${names.join(" and ")}!` : "New land added", names.length > 0);
+    if (names.length > 0) {
+      const stations = bought.towns.map((id) => game.landscape.towns[id].station);
+      milestone({ kind: "milestone", text: `Welcome to ${names.join(" and ")}!`, place: placeOf(stations) });
+    } else hud.toast("New land added");
     audio.chime();
     chosen = null;
     game.landscapeView.showForSale(plotsForSale(game.landscape));
@@ -562,7 +578,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const fresh = pairs.filter(([a, b]) => !announced.has(`${a}-${b}`));
     for (const [a, b] of fresh) announced.add(`${a}-${b}`);
     if (!announce || fresh.length === 0) return;
-    hud.toast(fresh.map(([a, b]) => `${name(a)} ↔ ${name(b)}`).join(", ") + " connected!", true);
+    const station = (id: number) => game.landscape.towns.find((t) => t.id === id)?.station;
+    const ends = fresh[0].map(station).filter((p) => !!p);
+    milestone({ kind: "milestone", text: fresh.map(([a, b]) => `${name(a)} ↔ ${name(b)}`).join(", ") + " connected!", place: ends.length > 0 ? placeOf(ends) : undefined });
     audio.chime();
     // After the first connection, point at the next thing to try (once, and only if there's no timber train yet). Game
     // mode's goals do this there.
@@ -740,7 +758,51 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // Game mode's goals: checked about once a second and after every change to the track.
   let goals = new GoalTracker(loadGoals());
-  const goalsPanel = new GoalsPanel(hud.root, { newGame: () => newGame(), showMe: () => showGoal() });
+  // The Journal: what happened (events: quiet, with an unread bell) and what was achieved (milestones: also toasted).
+  // Refusals aren't logged: they stay plain `hud.toast`s.
+  const journal = new Journal();
+  const goalsPanel = new GoalsPanel(
+    hud.root,
+    {
+      newGame: () => newGame(),
+      showMe: () => showGoal(),
+      fly: (place) => {
+        // Several spots (new houses, two stations) are framed together, closer than a lone spot.
+        const f = frameAlong(place.points ?? [place], game.camera.fov, game.camera.aspect, place.points ? PLACE_MARGIN : GOAL_MARGIN);
+        game.follow(-1);
+        game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 1 });
+      },
+    },
+    journal,
+  );
+  /** Report something in Game mode: logged in the Journal (not in Sandbox); a milestone is also toasted. */
+  function note(n: NoteInput, ms?: number, hold = false): JournalEntry | null {
+    if (mode !== "game") return null;
+    const r = journal.add(n);
+    goalsPanel.newsChanged();
+    // (`hold`: the caller toasts it itself, after folding something else into it.)
+    if (r.toast && !hold) hud.toast(n.text, true, ms);
+    return r.entry;
+  }
+  /** A milestone that is toasted in both modes (land, connections) and logged in Game mode. */
+  function milestone(n: NoteInput, ms?: number): void {
+    if (mode === "game") note(n, ms);
+    else hud.toast(n.text, true, ms);
+  }
+  /** A place made of these spots: their centre, to be framed together. */
+  function placeOf(points: readonly { x: number; z: number }[]): JournalPlace {
+    const xs = points.map((p) => p.x);
+    const zs = points.map((p) => p.z);
+    return { x: (Math.min(...xs) + Math.max(...xs)) / 2, z: (Math.min(...zs) + Math.max(...zs)) / 2, points: points.map((p) => ({ x: p.x, z: p.z })) };
+  }
+  /** The latest growth milestone: a goal ticked within a moment of it joins its toast and entry. */
+  let growth: { entry: JournalEntry; at: number } | null = null;
+  const GROWTH_JOIN_MS = 1500;
+  const depotPlace = (depotId: number) => {
+    const d = game.economy.depot(depotId);
+    const p = d && game.layout.getPiece(d.pieceId)?.pose;
+    return p ? { x: p.x, z: p.z } : undefined;
+  };
 
   /** When each town last had a delivery (performance.now): its school thinks only while it's supplied. */
   const lastDelivered = new Map<number, number>();
@@ -752,29 +814,42 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       lastDelivered.set(town.id, performance.now());
       payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
+      // Logged quietly, one entry per town and kind for a burst of deliveries.
+      note({ kind: "event", key: `deliver:${town.id}:${kind}`, qty: n, text: "", format: (q) => `Delivered ${describeGoods({ [kind]: q })} to ${town.name}`, place: { x: town.station.x, z: town.station.z } });
     },
     grew: (town, status, built) => {
+      const here = { x: town.station.x, z: town.station.z };
       // Its new houses may have felled trees a harvester counted.
       industriesChanged();
       // A landmark may have gone up (a school, a market, a library): what it opens comes with it.
       const before = new Set(progress.landmarks);
       syncLandmarks();
-      for (const id of progress.landmarks) {
-        if (before.has(id)) continue;
-        const mark = landmarkOf(id)!;
-        hud.toast(`${town.name} has ${aOrAn(mark.name.toLowerCase())}! ${mark.blurb}`, true, 5200);
-      }
+      // Folded into the growth's own line, after it: one new landmark with what it does, several by name.
+      const raised = [...progress.landmarks].filter((id) => !before.has(id)).map((id) => landmarkOf(id)!);
+      const landmarks =
+        raised.length === 1 ? `New ${raised[0].name.toLowerCase()}: ${raised[0].blurb}` : raised.length > 1 ? `New ${raised.map((m) => m.name.toLowerCase()).join(", ")}` : "";
       const level = aOrAn(status.name.toLowerCase());
-      hud.toast(built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`, true, 3600);
-      audio.chime();
       // The first village, town and city each bring a present; a town that grows offers two blueprints suited to its
-      // new size (one learned free), or a crate of things. Both in one short line after the growth.
+      // new size (one learned free), or a crate of things.
       const gift = firstTimeGift(progress, status.level);
       if (gift.length > 0) hud.refreshTrayBadges();
       const offered = progress.offers.length;
       offerOnGrowth(progress, town.name, Math.random, status.level);
-      const extras = [gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Reward in Blueprints" : ""].filter(Boolean);
-      if (extras.length > 0) hud.toast(extras.join(" · "), gift.length > 0, 4200);
+      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Reward in Blueprints" : ""].filter(Boolean);
+      const grew = built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`;
+      const where = built.length > 0 ? placeOf(built) : here;
+      if (extras.length > 0) {
+        // A first, a present or a landmark: a moment. One toast and one entry, and the goal it ticks joins them.
+        const entry = note({ kind: "milestone", text: `${grew} ${extras.join(" · ")}`, place: where }, 5200, true);
+        growth = entry ? { entry, at: performance.now() } : null;
+        checkGoals(true);
+        if (entry) hud.toast(entry.text, true, 5200);
+        growth = entry ? { entry, at: performance.now() } : null;
+      } else {
+        note({ kind: "event", text: grew, place: where });
+        checkGoals(true); // (its tick is logged after the growth)
+      }
+      audio.chime();
       if (gift.length > 0 || progress.offers.length > offered) {
         refreshBoard();
         scheduleSave();
@@ -802,7 +877,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh.length > 0) {
       saveGoals(goals.ids());
       if (announce) {
-        hud.toast(`✓ ${fresh.map((g) => g.title).join(" · ")}`, true, 3200);
+        const tick = `✓ ${fresh.map((g) => g.title).join(" · ")}`;
+        if (growth && (performance.now() - growth.at < GROWTH_JOIN_MS)) {
+          // Right after a growth milestone: part of the same toast and entry.
+          journal.amend(growth.entry, `${growth.entry.text} · ${tick}`);
+          goalsPanel.newsChanged();
+        } else {
+          const where = fresh[0].guide(game.world).points[0];
+          note({ kind: "milestone", text: tick, place: where && { x: where.x, z: where.z } }, 3200);
+        }
         audio.chime();
         goalsPanel.celebrate();
       }
@@ -818,6 +901,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const thingLabel = (id: ThingId) => ruleOf(id)?.label ?? id;
 
   /** Game mode: can this tray item come out (known, and enough of it in the toy box)? Says why not if not. */
+  interaction.trayAllowed = (item) => trayAllowed(item);
   function trayAllowed(item: Parameters<typeof thingsFor>[0] | { kind: string }): boolean {
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train")) return true;
     const look = lockedLook(item);
@@ -826,13 +910,44 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.toast(t.plan ? `${t.label}: coming soon` : `${t.label}: learn its blueprint first${t.requires.length ? ` (${t.requires.map(describeNeed).join(", ")})` : ""}`, false, 3600);
       return false;
     }
-    const short = progress.short(game.world, thingsFor(item as Parameters<typeof thingsFor>[0]));
-    if (!short) return true;
-    const rule = ruleOf(short)!;
-    if (!progress.knows(short)) hud.toast(`${rule.label}: not learned yet`);
-    else if (workshops(game.world).length === 0) hud.toast(`No ${rule.label.toLowerCase()} left. Place your workshop (Industries tab) to make more`, false, 3600);
-    else hud.toast(`No ${rule.label.toLowerCase()} left. Make one at the workshop: ${describeGoods(rule.cost)}`, false, 3600);
-    return false;
+    const needs = thingsFor(item as Parameters<typeof thingsFor>[0]);
+    for (const id of needs.keys()) {
+      if (isFree(id) || progress.knows(id)) continue;
+      hud.toast(`${ruleOf(id)!.label}: not learned yet`);
+      return false;
+    }
+    // None left of something it takes: all of what's missing is made on the spot from the workshop's yard, or none.
+    const lack = lacking(game.world, progress, needs);
+    if (lack.size === 0) return true;
+    const label = lack.size === 1 ? ruleOf([...lack.keys()][0])!.label : "label" in item && typeof item.label === "string" ? item.label : "That";
+    const why = craftNow(game.world, progress, lack);
+    if (why === "no-workshop") {
+      hud.toast(`No ${label.toLowerCase()} left. Place your workshop (Industries tab) to make more`, false, 3600);
+      return false;
+    }
+    if (why) {
+      const short = [total(why.goods) > 0 ? `${describeGoods(why.goods)} more at the workshop` : "", why.coins > 0 ? `${why.coins} more coins` : ""].filter(Boolean).join(" and ");
+      hud.toast(`${label}: needs ${short}`, false, 3600);
+      return false;
+    }
+    const cost = costOf(lack);
+    hud.toast(`Made ${lack.size === 1 && [...lack.values()][0] === 1 ? aOrAn(label.toLowerCase()) : label.toLowerCase()}: ${[total(cost.goods) > 0 ? `${describeGoods(cost.goods)} from the workshop` : "", cost.coins > 0 ? `${cost.coins} coins` : ""].filter(Boolean).join(" and ")}`, false, 2600);
+    afterCraft();
+    return true;
+  }
+
+  /** A short cost for a tray badge: "3🪵" for planks, else "2 iron"; coins "50🪙". */
+  function costTag(cost: Bag, coins = 0): string {
+    const goods = kindsOf(cost).map((k) => (k === "planks" ? `${cost[k]}🪵` : `${cost[k]} ${k}`));
+    return [...goods, ...(coins > 0 ? [`${coins}🪙`] : [])].join(" ");
+  }
+
+  /** Something was made from the tray: the toy box's counts and the coins change. */
+  function afterCraft(): void {
+    hud.setCoins(progress.coins);
+    hud.refreshTrayBadges();
+    showWorkshop(true);
+    scheduleSave();
   }
 
   /** A train item in a look whose blueprint isn't learned yet (a dining car, an express engine): that blueprint. */
@@ -858,7 +973,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /** The toy box on the tray (Game mode): how many of each are left. */
-  function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean; attention?: boolean } | null {
+  function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean } | null {
     if (item.kind !== "piece" && item.kind !== "train") return null;
     const needs = thingsFor(item as Parameters<typeof thingsFor>[0]);
     if ([...needs.keys()].every(isFree)) return null;
@@ -867,6 +982,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     for (const [id, k] of needs) n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
     // The workshop, while there's none on the map: it's where planks go to learn blueprints.
     const attention = n > 0 && "type" in item && item.type === "depot-workshop" && workshops(game.world).length === 0;
+    // None left, but a workshop to make more: what one costs (taken from its yard on the spot).
+    if (n === 0 && workshops(game.world).length > 0) {
+      const lack = lacking(game.world, progress, needs);
+      if (lack.size > 0) {
+        const cost = costOf(lack);
+        return { text: costTag(cost.goods, cost.coins), empty: false, craft: true };
+      }
+    }
     return { text: String(n), empty: n === 0, ...(attention ? { attention } : {}) };
   }
 
@@ -914,7 +1037,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     crate: (k) => {
       const crate = progress.offers[k]?.crate;
       if (!crate || !takeCrate(progress, k)) return;
-      hud.toast(`Into your toy box: ${describeThings(crate)}`, true, 3800);
+      note({ kind: "milestone", text: `Into your toy box: ${describeThings(crate)}` }, 3800);
       audio.chime();
       hud.refreshTrayBadges();
       refreshBoard();
@@ -930,7 +1053,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function learned(id: string): void {
     const makes = unlocksOf(id).map((t) => ruleOf(t)!.label.toLowerCase());
     const t = techOf(id)!;
-    hud.toast(makes.length > 0 ? `Learned ${t.label.toLowerCase()}! Make ${makes.slice(0, 2).join(" and ")}${makes.length > 2 ? " and more" : ""} at the workshop` : `Learned ${t.label}! ${t.blurb}`, true, 3800);
+    note({ kind: "milestone", text: makes.length > 0 ? `Learned ${t.label.toLowerCase()}! Make ${makes.slice(0, 2).join(" and ")}${makes.length > 2 ? " and more" : ""} at the workshop` : `Learned ${t.label}! ${t.blurb}` }, 3800);
     // An upgrade takes effect at once: industries' rates and the cranes.
     applyCranes(game.economy, progress);
     industriesChanged();
@@ -1033,7 +1156,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const supplied = (town: number) => performance.now() - (lastDelivered.get(town) ?? -Infinity) < SCHOOL_SUPPLIED_MS;
       const idea = schoolIdeas(progress, game.landscape, schoolClock, CRAFT_STEP * (progress.learned.has("college") ? 2 : 1), Math.random, supplied);
       if (idea) {
-        hud.toast(`${idea.from}: ${techOf(idea.id)!.label} is on the board`, true, 4200);
+        const school = game.landscape.towns.find((t) => t.name === idea.from);
+        note({ kind: "event", text: `${idea.from}: ${techOf(idea.id)!.label} is on the board`, place: school && { x: school.station.x, z: school.station.z } });
         refreshBoard();
         scheduleSave();
       }
@@ -1118,7 +1242,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     attachPassengers(game.world, () => progress, () => {
       hud.setCoins(progress.coins);
       for (const id of learnAuto(progress)) {
-        hud.toast(`${progress.riders} passengers carried: you've learned ${techOf(id)!.label}!`, true, 4200);
+        note({ kind: "milestone", text: `${progress.riders} passengers carried: you've learned ${techOf(id)!.label}!` }, 4200);
         audio.chime();
         hud.refreshTrayBadges();
         refreshBoard();
@@ -1155,11 +1279,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         hud.setCoins(progress.coins);
         const why = e.short === "room" ? "the quay was full" : "too few coins";
         const got = `A boat brought ${describeGoods(e.goods)}: −${e.coins} coins`;
-        hud.toast(total(e.goods) === 0 ? `Your order went back: ${why}` : e.short ? `${got} (the rest went back: ${why})` : got, false, 3200);
+        // An order that all went back is a refusal (a plain toast); a delivery is logged quietly.
+        if (total(e.goods) === 0) hud.toast(`Your order went back: ${why}`, false, 3200);
+        else note({ kind: "event", key: `bought:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: (c, n) => (n > 1 ? `Boats brought goods: −${c} coins` : e.short ? `${got} (the rest went back: ${why})` : got) });
         scheduleSave();
       } else if (e.kind === "sold") {
         hud.setCoins(progress.coins);
-        hud.toast(`A boat took ${describeGoods(e.goods)}: +${e.coins} coins`, false, 3200);
+        note({ kind: "event", key: `sold:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: (c, n) => (n > 1 ? `Boats took goods: +${c} coins` : `A boat took ${describeGoods(e.goods)}: +${c} coins`) });
         scheduleSave();
       }
     }
@@ -1375,8 +1501,68 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (found) hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
     // It faces the open way now: Go sends it off engine first.
     hud.setEngineWay(1);
+    if (game.following !== carId) keepEngineInView(carId);
     game.invalidate();
     onChange();
+  }
+
+  /** Decouple (a card): split the train there, the part that goes standing a little apart. */
+  function decouple(): void {
+    const carId = interaction.selectedCarId;
+    if (carId === -1) return;
+    const before = game.sim.findCar(carId)?.train.id ?? -1;
+    const r = game.sim.decouple(carId);
+    if (r.kind === "moving") return hud.toast("Stop the train to decouple", false, 2500);
+    if (r.kind === "alone") return hud.toast("Nothing coupled to uncouple there", false, 2500);
+    if (r.kind !== "decoupled") return;
+    audio.magnet(0.6, 0);
+    // The gap is only a few mm: say what came away. With an engine on this side, the cars that came away from it;
+    // otherwise both parts, this car's first.
+    const mine = game.sim.findCar(carId)?.train.cars ?? [];
+    const away = game.sim.getTrain(r.trainId === (game.sim.findCar(carId)?.train.id ?? -1) ? before : r.trainId)?.cars ?? [];
+    const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+    const engineHere = mine.some((c) => c.kind === "engine");
+    const engineThere = away.some((c) => c.kind === "engine");
+    hud.toast(engineHere && !engineThere ? `Uncoupled ${plural(away.length, "wagon")}` : `Split into ${mine.length} + ${away.length}`, false, 2500);
+    const found = game.sim.findCar(carId);
+    if (found?.train.cars[found.index].kind === "engine") hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
+    game.invalidate();
+    onChange();
+  }
+
+  /**
+   * The engine has run round to the other end of its train: if that's off screen or under the card, glide just far
+   * enough to show it.
+   */
+  function keepEngineInView(carId: number): void {
+    const found = game.sim.findCar(carId);
+    if (!found) return;
+    const w = found.train.world;
+    const f = w[2 * found.index];
+    const r = w[2 * found.index + 1];
+    _a.set((f.x + r.x) / 2, (f.y + r.y) / 2, (f.z + r.z) / 2);
+    const rect = game.canvas.getBoundingClientRect();
+    const card = document.querySelector<HTMLElement>(".engine-card");
+    const bottom = card && card.offsetParent ? Math.min(rect.bottom, card.getBoundingClientRect().top) : rect.bottom;
+    // The visible area in NDC, with a margin so the engine isn't left on the very edge.
+    const m = 56;
+    const x0 = ((m / rect.width) * 2) - 1;
+    const x1 = 1 - (m / rect.width) * 2;
+    const y1 = 1 - (m / rect.height) * 2;
+    const y0 = 1 - (2 * (bottom - rect.top - m)) / rect.height;
+    if (y0 >= y1) return;
+    _b.copy(_a).project(game.camera);
+    const nx = Math.min(x1, Math.max(x0, _b.x));
+    const ny = Math.min(y1, Math.max(y0, _b.y));
+    if (nx === _b.x && ny === _b.y) return;
+    // Where the screen point it should sit at falls on the engine's own level, and the shift between the two.
+    const cam = game.camera.position;
+    _b.set(nx, ny, 0.5).unproject(game.camera).sub(cam);
+    if (_b.y >= 0) return;
+    _b.multiplyScalar((_a.y - cam.y) / _b.y).add(cam);
+    const t = game.controls.target;
+    _b.set(t.x + _a.x - _b.x, t.y, t.z + _a.z - _b.z);
+    game.director.glideTo(_b, cam.distanceTo(t), { duration: 0.6 });
   }
 
   /** The engine whose card the view was last shown for, and its status line as shown, and as it's been lately. */
@@ -1613,6 +1799,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     refreshBoard();
     goals = new GoalTracker();
     saveGoals([]);
+    journal.clear();
+    growth = null;
     goalsPanel.reset();
   }
 
@@ -1835,10 +2023,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (now - mapRefreshedAt > 1000) refreshMap();
       else placeMap();
     }
-    if (now - goalsCheckedAt > 1000) {
-      goalsCheckedAt = now;
-      checkGoals(true);
-    }
     let hum = 0;
     for (const e of game.events) {
       const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);
@@ -1887,6 +2071,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showHarbour();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
+    // Goals after the towns: a delivery that grows a town is announced (with its tick folded in) before the poll could
+    // see the new size and tick it on its own.
+    if (now - goalsCheckedAt > 1000) {
+      goalsCheckedAt = now;
+      checkGoals(true);
+    }
     showRoute();
     showEngineView();
     let derailed = false;
@@ -1903,11 +2093,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note });
   game.start();
   // Opening in Game mode: start fetching its models now, ahead of play.
   if (mode === "game") ensureGameModels();
   loadBar.finish();
+  // A newer deploy: offer a chip. Tapping it saves, then reloads past any cached page (the hash, a map link, stays).
+  if (__UPDATE_CHECK__) {
+    startUpdateCheck({
+      currentBuild: __BUILD_ID__,
+      onNewVersion: (build) =>
+        hud.showUpdate(() => {
+          saveOnLeaving();
+          location.replace(`${location.pathname}?v=${encodeURIComponent(build)}${location.hash}`);
+        }),
+    });
+  }
   // The loading screen's toys play their entry in full before it moves on (it's short, and capped).
   void entryPlayed().then(() => {
     void drawTrayThumbnails();

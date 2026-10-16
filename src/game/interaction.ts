@@ -522,6 +522,8 @@ export class Interaction {
   private placeArmedAt(x: number, y: number): boolean {
     const item = this.armed;
     if (!item) return false;
+    // The ready piece comes out of the toy box like one taken from the tray (Game mode: owned, or made on the spot).
+    if (this.trayAllowed && !this.trayAllowed(item)) return false;
     this.startTrayDrag(item, { pointerId: -1 } as PointerEvent);
     const m = this.mode;
     if (m.kind !== "drag-piece") return false;
@@ -539,6 +541,9 @@ export class Interaction {
     this.dropPiece(m);
     return true;
   }
+
+  /** May this tray item come out now (Game mode: in the toy box, or made on the spot)? Null: always. */
+  trayAllowed: ((item: TrayItem) => boolean) | null = null;
 
   /** The ready piece shown where it would go (as if held there): waiting at the free end of the piece just put down. */
   private preview: Extract<Mode, { kind: "drag-piece" }> | null = null;
@@ -1021,10 +1026,16 @@ export class Interaction {
       this.changed();
       return;
     }
+    // A first tap on any car takes the whole train (its engine's card); once it's taken, a tap on one of its cars
+    // opens that car's own card. A train with no engine (wagons left standing) opens the car's card at once.
+    const taken = this.selectedCar !== -1 && g.sim.findCar(this.selectedCar)?.train === found.train;
+    const engine = found.train.cars.find((c) => c.kind === "engine");
+    const car = !taken && engine ? engine : found.train.cars[found.index];
     this.clearSelection();
-    this.selectedCar = p.carId;
-    const car = found.train.cars[found.index];
-    if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === p.carId);
+    this.selectedCar = car.id;
+    g.trainView.setSelected(car.id);
+    g.invalidate();
+    if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === car.id);
     else this.hud.showCarCard();
     this.hintDrag();
   }
@@ -1048,7 +1059,7 @@ export class Interaction {
     if (this.dragHinted) return;
     this.dragHinted = true;
     markHintSeen("drag-selected");
-    this.hud.toast("Drag it to move it · drag anywhere else to look around", false, 3600);
+    this.hud.toast("Drag to move · drag elsewhere to look", false, 3600);
   }
 
   clearSelection(): void {
@@ -1067,11 +1078,20 @@ export class Interaction {
     this.selectedScenery = null;
     this.selectedProp = -1;
     this.selectedPiece = -1;
+    if (this.selectedCar !== -1) {
+      this.game.trainView.setSelected(-1);
+      this.game.invalidate();
+    }
     this.selectedCar = -1;
     this.selectedDepot = -1;
   }
 
   // ---- depots and cargo -------------------------------------------------------------------------------------
+
+  /** The car whose card is open (an engine's or a wagon's), or −1. */
+  get selectedCarId(): number {
+    return this.selectedCar;
+  }
 
   /** The engine whose card is open, or −1. */
   get openEngineCarId(): number {

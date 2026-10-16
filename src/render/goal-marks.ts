@@ -29,10 +29,11 @@ export function goalMarks(scene: Scene, points: readonly { x: number; y: number;
     }
   }
   scene.add(group);
-  let t = 0;
+  // By the clock (see goalLabels): capped frame steps would stretch them on a slow page.
+  const start = performance.now();
   return {
-    update(dt) {
-      t += dt;
+    update() {
+      const t = (performance.now() - start) / 1000;
       const fade = Math.min(1, (LIFE - t) / 0.6);
       for (let i = 0; i < rings.length; i++) {
         // Two rings per place, half a beat apart: one ripple after another.
@@ -102,6 +103,9 @@ export function goalLabels(
   window.addEventListener("resize", measure);
   const v = new Vector3();
   let t = 0;
+  // By the clock, not by frames: frame steps are capped (0.1 s), so on a slow or throttled page the labels would
+  // last many times `life`, and keep frames being drawn all that while.
+  const start = performance.now();
   const place = () => {
     places.forEach((p, i) => {
       v.set(p.x, p.y, p.z).project(camera);
@@ -117,9 +121,9 @@ export function goalLabels(
   };
   place();
   return {
-    update(dt) {
+    update() {
       if (mine.done) return false;
-      t += dt;
+      t = (performance.now() - start) / 1000;
       place();
       return t < life;
     },

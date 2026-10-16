@@ -26,6 +26,8 @@ const hasEngine = (t: Train): boolean => t.cars.some((c) => c.kind === "engine")
 /** How far along the track (mm) a re-railed train may be slid to find room, and in what steps. */
 const RERAIL_SLIDE = 1200;
 const RERAIL_STEP = 24;
+/** How far (mm) a part uncoupled from its train is set back from the rest: a small visible gap. */
+const DECOUPLE_GAP = 8;
 /** How far (mm) a turned train is set down away from the buffer it turned at. */
 const TURN_CLEARANCE = 0.05;
 
@@ -337,6 +339,77 @@ export class Sim {
     this.rememberStraddledSwitches(t);
     this.refreshWorld(t);
     return "ran-round";
+  }
+
+  /**
+   * Uncouple a car from its neighbour on the engine's side. An engine comes away from its cars (or, in the middle of
+   * a train, keeps the ones in front of it). The part with an engine keeps the train's id; the other part becomes a
+   * new train, set back a few mm so the gap shows. Only while the train's stopped. Neither part is moving, so they
+   * stay apart until an engine drives them together again.
+   */
+  decouple(carId: number): { kind: "decoupled"; trainId: number } | { kind: "moving" } | { kind: "alone" } | { kind: "none" } {
+    const found = this.findCar(carId);
+    if (!found || found.train.derailed) return { kind: "none" };
+    const t = found.train;
+    const n = t.cars.length;
+    const i = found.index;
+    let k: number;
+    if (t.cars[i].kind === "engine") {
+      k = i === 0 ? 1 : i === n - 1 ? n - 1 : i + 1;
+    } else {
+      // The nearest engine decides which side is "the engine's side" (the front, if there's none).
+      let e = -1;
+      for (let j = 0; j < n; j++) {
+        if (t.cars[j].kind === "engine" && (e < 0 || Math.abs(j - i) < Math.abs(e - i))) e = j;
+      }
+      k = e > i ? i + 1 : i;
+    }
+    if (k <= 0 || k >= n) return { kind: "alone" };
+    if (t.speed > 0) return { kind: "moving" };
+    const frontHas = t.cars.slice(0, k).some((c) => c.kind === "engine");
+    const rearHas = t.cars.slice(k).some((c) => c.kind === "engine");
+    const frontKeeps = frontHas || rearHas ? frontHas : i < k;
+    const carsA = t.cars.slice(0, k);
+    const carsB = t.cars.slice(k);
+    const bogiesA = t.bogies.slice(0, 2 * k);
+    const bogiesB = t.bogies.slice(2 * k);
+    const part: Train = {
+      id: this.nextTrainId++,
+      turnback: -1,
+      cars: frontKeeps ? carsB : carsA,
+      bogies: frontKeeps ? bogiesB : bogiesA,
+      speed: 0,
+      derailed: false,
+      memory: new Map(t.memory),
+      world: (frontKeeps ? bogiesB : bogiesA).map(() => createWorldSample()),
+    };
+    t.cars = frontKeeps ? carsA : carsB;
+    t.bogies = frontKeeps ? bogiesA : bogiesB;
+    t.world = t.bogies.map(() => createWorldSample());
+    t.speed = 0;
+    t.turnback = -1;
+    this.refreshWorld(t);
+    // Set the part that went away from the other one: back if it's the rear part, forward if it's the front.
+    const moved: Cursor[] = [];
+    for (const b of part.bogies) {
+      const c = { ...b };
+      if (frontKeeps) flipCursor(this.layout, c);
+      advanceCursor(this.layout, c, DECOUPLE_GAP, null, adv);
+      if (adv.status !== ADV_OK) break;
+      if (frontKeeps) flipCursor(this.layout, c);
+      moved.push(c);
+    }
+    if (moved.length === part.bogies.length) {
+      this.trains.delete(t.id);
+      const blocked = this.occupied(moved);
+      this.trains.set(t.id, t);
+      if (!blocked) part.bogies = moved;
+    }
+    this.trains.set(part.id, part);
+    this.rememberStraddledSwitches(t);
+    this.rememberStraddledSwitches(part);
+    this.refreshWorld(part);
+    return { kind: "decoupled", trainId: part.id };
   }
 
   /**
@@ -734,9 +807,10 @@ export class Sim {
           ends = true;
           const closing = a.speed + (front ? b.speed : -b.speed);
           if (closing <= 0) continue;
-          if (front) {
-            // Head on: like the end of the line, each stops, waits, and turns back (coupled, their engines would
-            // only push against each other).
+          if (front && hasEngine(a) && hasEngine(b)) {
+            // Head on, engine against engine: like the end of the line, each stops, waits, and turns back (coupled,
+            // their engines would only push against each other). Wagons met end to end are coupled on (below), so an
+            // engine backing into the wagons it left picks them up again.
             this.meet(a);
             if (b.speed > 0) this.meet(b);
             continue;

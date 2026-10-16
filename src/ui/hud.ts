@@ -26,6 +26,8 @@ export interface HudHandlers {
   turnCar(): void;
   /** The engine card: the engine runs round to the other end of its train. */
   swapEnds(): void;
+  /** Either card: uncouple there (a wagon from the cars on its engine's side; an engine from its cars). */
+  decouple(): void;
   rotate(): void;
   flip(): void;
   deletePiece(): void;
@@ -121,6 +123,8 @@ export function toastMs(message: string, celebrate: boolean, ms = 0): number {
 }
 /** Toasts waiting their turn at most (a busy moment drops the oldest plain ones). */
 const TOAST_QUEUE = 3;
+/** The help card's tips drawn with tray pictures: the picture's key, and the tip's art. */
+const HELP_ART: Record<string, string> = { "piece:curve-large": ".art-build", "train:Full train": ".art-run" };
 
 
 /** The HTML overlay: top bar, piece tray, context cards, menu, help, toasts and perf readout. */
@@ -178,6 +182,7 @@ export class Hud {
   private wayAngle = 0;
   private readonly toastEl = el("div", "toast");
   private readonly menu = el("div", "menu");
+  private menuBtn!: HTMLButtonElement;
   private readonly help = el("div", "help");
   private readonly modeTag = el("span", "mode-tag");
   /** Game mode's coins, by the logo. */
@@ -241,7 +246,8 @@ export class Hud {
     // On a phone the bar can't hold them all: these move into the menu (see `.narrow-menu`).
     for (const b of [this.landBtn, this.redoBtn, this.soundBtn]) b.classList.add("wide-only");
     actions.append(this.rerailBtn, this.boardBtn, this.mapBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn);
-    actions.append(button(uiIcon("menu"), "Menu", () => this.toggleMenu()));
+    this.menuBtn = button(uiIcon("menu"), "Menu", () => this.toggleMenu());
+    actions.append(this.menuBtn);
     top.appendChild(actions);
     this.root.appendChild(top);
     installTooltips(this.root);
@@ -321,6 +327,10 @@ export class Hud {
         this.engineMore.hidden = true;
         h.swapEnds();
       }, "chip text"),
+      button("Decouple", "Uncouple the engine from its cars", () => {
+        this.engineMore.hidden = true;
+        h.decouple();
+      }, "chip text"),
       button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"),
     );
     this.engineCard.appendChild(this.engineMore);
@@ -333,7 +343,11 @@ export class Hud {
     this.carCard.hidden = true;
     this.carCard.appendChild(el("div", "card-title", "Wagon"));
     const carRow = el("div", "card-row");
-    carRow.append(button("Turn around", "Flip the wagon so its other magnet leads", h.turnCar, "chip text"), button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"));
+    carRow.append(
+      button("Turn around", "Flip the wagon so its other magnet leads", h.turnCar, "chip text"),
+      button("Decouple", "Uncouple this wagon (and those behind it) from the cars on the engine's side", h.decouple, "chip text"),
+      button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"),
+    );
     this.carCard.appendChild(carRow);
     this.carCard.appendChild(button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.carCard);
@@ -387,10 +401,11 @@ export class Hud {
       const key = trayKey(item);
       const thumb = this.thumbs.get(key);
       if (thumb) return `<img src="${thumb}" alt="" draggable="false">`;
-      if (item.kind === "piece") return pieceIcon(item.type);
+      // A piece or train not drawn yet shows its icon till its picture comes (`setThumbnail` swaps it in).
+      if (item.kind === "piece") return `<span class="thumb-icon" data-thumb="${key}">${pieceIcon(item.type)}</span>`;
       if (item.kind === "tool") return uiIcon(item.tool);
       if (item.kind === "road") return roadIcon(item.auto ? "auto" : item.piece);
-      if (item.kind === "train") return trainIcon(item.cars);
+      if (item.kind === "train") return `<span class="thumb-icon" data-thumb="${key}">${trainIcon(item.cars)}</span>`;
       missing.push(item);
       return `<span class="thumb-pending" data-thumb="${key}"></span>`;
     };
@@ -582,11 +597,7 @@ export class Hud {
     // A tap dismisses a toast early (and the next waiting comes on).
     this.toastEl.addEventListener("click", (e) => {
       e.stopPropagation();
-      clearTimeout(this.toastTimer);
-      this.toastEl.classList.remove("show");
-      this.toastHeldUntil = 0;
-      this.heldRefusal = null;
-      this.flushToasts();
+      this.dismissToast();
     });
 
     this.help.hidden = true;
@@ -609,19 +620,16 @@ export class Hud {
           <p class="help-keys">Keys: WASD or arrows pan · Q E turn · R F tilt (Shift: faster) · R rotate, F (or tap Cmd/Ctrl) flip what’s selected · Del delete · Ctrl+Z undo · Space pause · \` performance</p>
         </details>
       </div>`;
-    // Illustrate the tips with the same rendered pictures as the tray.
-    const art: [string, string | undefined][] = [
-      [".art-build", opts.thumbnails?.get("piece:curve-large")],
-      [".art-run", opts.thumbnails?.get("train:Full train")],
-    ];
-    for (const [sel, url] of art) {
-      const node = this.help.querySelector<HTMLElement>(sel);
-      if (node && url) node.style.backgroundImage = `url(${url})`;
+    // Illustrate the tips with the same rendered pictures as the tray (or, on a first visit, once they're drawn).
+    for (const key of Object.keys(HELP_ART)) {
+      const url = this.thumbs.get(key);
+      if (url) this.setHelpArt(key, url);
     }
     const look = this.help.querySelector<HTMLElement>(".art-look");
     if (look) look.innerHTML = `<svg viewBox="0 0 48 48" width="44" height="44" fill="none" stroke="#6a4a2c" stroke-width="3" stroke-linecap="round"><circle cx="21" cy="21" r="11"/><path d="m29.5 29.5 9 9"/><path d="M21 16v10M16 21h10"/></svg>`;
     const ok = button("Let's play", "Close help", () => {
       this.help.hidden = true;
+      this.flushToasts();
       try {
         localStorage.setItem("woodrail.helpSeen", "1");
       } catch {
@@ -657,6 +665,7 @@ export class Hud {
   /** A tray picture drawn: keep it, and put it in place of any placeholder showing. */
   setThumbnail(key: string, url: string): void {
     this.thumbs.set(key, url);
+    this.setHelpArt(key, url);
     for (const node of this.tray.querySelectorAll<HTMLElement>(`[data-thumb="${CSS.escape(key)}"]`)) {
       const img = document.createElement("img");
       img.src = url;
@@ -664,6 +673,13 @@ export class Hud {
       img.draggable = false;
       node.replaceWith(img);
     }
+  }
+
+  /** A help tip's picture, if `key` is one of theirs. */
+  private setHelpArt(key: string, url: string): void {
+    const sel = HELP_ART[key];
+    const node = sel ? this.help.querySelector<HTMLElement>(sel) : null;
+    if (node) node.style.backgroundImage = `url(${url})`;
   }
 
   /** Show the help card if this player hasn't closed it before. */
@@ -686,7 +702,7 @@ export class Hud {
    * What a tray item's corner says (Game mode's toy box: how many are left, or that it's locked), or null for nothing.
    * Set by the game; `refreshTrayBadges` applies it to the items showing.
    */
-  trayBadge: ((item: TrayItem) => { text: string; empty: boolean; attention?: boolean } | null) | null = null;
+  trayBadge: ((item: TrayItem) => { text: string; empty: boolean; attention?: boolean; craft?: boolean } | null) | null = null;
   private trayButtons: [HTMLElement, TrayItem][] = [];
 
   refreshTrayBadges(): void {
@@ -697,6 +713,8 @@ export class Hud {
     const badge = this.trayBadge?.(item) ?? null;
     let tag = b.querySelector<HTMLElement>(".have");
     b.classList.toggle("attention", badge?.attention === true);
+    // None left, but it can be made on the spot: its cost shows instead of a dead zero.
+    b.classList.toggle("craft", badge?.craft === true);
     if (!badge) {
       tag?.remove();
       b.classList.remove("empty");
@@ -748,6 +766,21 @@ export class Hud {
     this.boardBtn.classList.toggle("icon-btn-alert", alert);
   }
 
+  /**
+   * A newer build is out: offered in the menu (its button gets a dot) and said once in a toast. Nothing new on the map
+   * or over the tray, so it never covers a control or a card, on a phone or not.
+   */
+  showUpdate(onTap: () => void): void {
+    if (this.menu.querySelector(".menu-update")) return;
+    const item = button("New version · Update", "A newer version of Woodrail is ready: saves, then reloads", () => {
+      this.menu.hidden = true;
+      onTap();
+    }, "menu-item menu-update");
+    this.menu.prepend(item);
+    this.menuBtn.classList.add("icon-btn-alert");
+    this.toast("A new version is ready: Update is in the menu", false, 6000);
+  }
+
   /** The map view is open: its button lit, the goals and tray put away. */
   setMapOpen(open: boolean): void {
     this.mapBtn.classList.toggle("active", open);
@@ -766,6 +799,8 @@ export class Hud {
 
   toggleMenu(): void {
     this.menu.hidden = !this.menu.hidden;
+    // The toast showing is over the menu's top items: it goes (the next waiting, if any, comes on under the menu).
+    if (!this.menu.hidden && this.toastEl.classList.contains("show")) this.dismissToast();
   }
 
   setHistory(canUndo: boolean, canRedo: boolean): void {
@@ -1131,8 +1166,19 @@ export class Hud {
     this.flushToasts();
   }
 
+  /** The toast showing goes now, and the next waiting comes on. */
+  private dismissToast(): void {
+    clearTimeout(this.toastTimer);
+    this.toastEl.classList.remove("show");
+    this.toastHeldUntil = 0;
+    this.heldRefusal = null;
+    this.flushToasts();
+  }
+
   private flushToasts(): void {
     clearTimeout(this.toastFlushTimer);
+    // Held while the help card is up (it would cover them); closing it lets them through.
+    if (!this.help.hidden) return;
     const wait = this.toastHeldUntil - performance.now();
     if (wait > 0) {
       this.toastFlushTimer = window.setTimeout(() => this.flushToasts(), wait);
@@ -1189,8 +1235,19 @@ export class Hud {
    */
   private clearOfPanels(): void {
     const t = this.toastEl;
-    t.style.top = "";
-    const r = t.getBoundingClientRect();
+    t.style.top = t.style.left = t.style.maxWidth = "";
+    let r = t.getBoundingClientRect();
+    // A card open beside it (on a phone on its side, cards dock at the right, under the top bar): the toast goes in the
+    // room to the card's left rather than over the card's top row (its close).
+    for (const c of this.root.querySelectorAll<HTMLElement>(".card")) {
+      if (c.hidden || c.offsetParent === null) continue;
+      const q = c.getBoundingClientRect();
+      if (q.right < r.left || q.left > r.right || q.bottom < r.top || q.top > r.bottom || q.left < 200) continue;
+      t.style.left = `${Math.round(q.left / 2)}px`;
+      t.style.maxWidth = `${Math.round(q.left - 24)}px`;
+      r = t.getBoundingClientRect();
+      break;
+    }
     let below = 0;
     for (const p of this.root.querySelectorAll<HTMLElement>(".goals, .piece-card.group")) {
       if (p.hidden || p.offsetParent === null) continue;

@@ -43,6 +43,8 @@ const trainSchema = z.object({
         lever: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
         look: z.enum(ALL_CAR_LOOKS as unknown as [CarLook, ...CarLook[]]).optional(),
         cargo: z.object({ kind: z.enum(CARGO_KINDS as unknown as [CargoKind, ...CargoKind[]]), count: z.number().int().min(1).max(MAX_WAGON_CAPACITY) }).optional(),
+        /** The harbour (economy depot id) its cargo was bought at: not unloaded back there. */
+        landedFrom: z.number().int().min(0).optional(),
         /** People riding a coach: how many, and the station they got on at (its index in `depots`). */
         riders: z.object({ count: z.number().int().min(1).max(MAX_RIDERS), from: z.number().int().min(0) }).optional(),
         /** An engine's train delivers only to this depot (its index in `depots`). */
@@ -151,6 +153,7 @@ export function serializeWorld(world: World): SaveData {
           lever: c.lever,
           ...(look !== "classic" ? { look } : {}),
           ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
+          ...(cargo.count > 0 && renumbered.has(world.economy.landedFrom.get(c.id) ?? -1) ? { landedFrom: renumbered.get(world.economy.landedFrom.get(c.id)!)! } : {}),
           ...(route ? { route } : {}),
           ...(riders.count > 0 && renumbered.has(riders.from) ? { riders: { count: Math.min(riders.count, MAX_RIDERS), from: renumbered.get(riders.from)! } } : {}),
         };
@@ -277,7 +280,11 @@ export function deserializeWorld(data: unknown): Result<World, string> {
       const stops = route ? route.stops.filter(([d]) => economy.depot(d)).map(([depotId, action]) => ({ depotId, action })) : [];
       if (car.kind === "engine" && stops.length > 0) economy.setRoute(car.id, { stops, next: Math.min(route!.next, stops.length - 1) });
       const cargo = t.cars[i].cargo;
-      if (cargo && canCarry(car.kind, cargo.kind)) economy.setCargo(car.id, cargo.kind, cargo.count);
+      if (cargo && canCarry(car.kind, cargo.kind)) {
+        economy.setCargo(car.id, cargo.kind, cargo.count);
+        const from = t.cars[i].landedFrom;
+        if (from !== undefined && economy.depot(from)) economy.landedFrom.set(car.id, from);
+      }
       const riders = t.cars[i].riders;
       if (riders && car.kind === "passenger" && economy.depot(riders.from)?.role === "town") economy.setRiders(car.id, riders.count, riders.from);
     });
