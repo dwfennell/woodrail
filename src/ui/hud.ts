@@ -380,10 +380,11 @@ export class Hud {
       const key = trayKey(item);
       const thumb = this.thumbs.get(key);
       if (thumb) return `<img src="${thumb}" alt="" draggable="false">`;
-      if (item.kind === "piece") return pieceIcon(item.type);
+      // A piece or train not drawn yet shows its icon till its picture comes (`setThumbnail` swaps it in).
+      if (item.kind === "piece") return `<span class="thumb-icon" data-thumb="${key}">${pieceIcon(item.type)}</span>`;
       if (item.kind === "tool") return uiIcon(item.tool);
       if (item.kind === "road") return roadIcon(item.auto ? "auto" : item.piece);
-      if (item.kind === "train") return trainIcon(item.cars);
+      if (item.kind === "train") return `<span class="thumb-icon" data-thumb="${key}">${trainIcon(item.cars)}</span>`;
       missing.push(item);
       return `<span class="thumb-pending" data-thumb="${key}"></span>`;
     };
