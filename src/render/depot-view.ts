@@ -1,4 +1,4 @@
-import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, Object3D, Quaternion, Vector3, type BufferGeometry, type Material } from "three";
+import { BoxGeometry, ConeGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, Mesh, Object3D, Plane, Quaternion, Vector3, type Ray, type BufferGeometry, type Material } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CARGO, CARGO_KINDS, WAGON_CAPACITY, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
@@ -245,6 +245,27 @@ function toWorld(pose: SitePose, t: number, l: number, y: number, out: Vector3):
   return out.set(pose.x + c * t - s * l, y + (pose.y ?? 0), pose.z + s * t + c * l);
 }
 
+/**
+ * A town station's whole footprint in its own frame (t along the 216 mm piece, l across): the canopy over the track,
+ * the platform, and the station house behind it.
+ */
+const STATION_T = 216;
+const STATION_L_MIN = -(TRACK_WIDTH / 2 + 6);
+const STATION_L_MAX = TRACK_WIDTH / 2 + 73;
+/** Height (mm above the piece) the tap ray is tested at: between the platform (14) and the canopy (76). */
+const STATION_TAP_Y = 45;
+
+/** Is a ground point on a town station at `pose`, or within `margin` mm of its footprint? */
+export function inStationFootprint(pose: Pose, x: number, z: number, margin: number): boolean {
+  const c = Math.cos(pose.heading);
+  const s = Math.sin(pose.heading);
+  const dx = x - pose.x;
+  const dz = z - pose.z;
+  const t = c * dx + s * dz;
+  const l = -s * dx + c * dz;
+  return t >= -margin && t <= STATION_T + margin && l >= STATION_L_MIN - margin && l <= STATION_L_MAX + margin;
+}
+
 /** Rotation that turns a unit's length (x) along depot axis `axis`. */
 function axisYaw(pose: Pose, axis: "t" | "l"): number {
   return axis === "t" ? -pose.heading : -pose.heading - Math.PI / 2;
@@ -291,6 +312,7 @@ const _a = new Vector3();
 const _b = new Vector3();
 const _s = new Vector3(1, 1, 1);
 const _up = new Vector3(0, 1, 0);
+const _plane = new Plane();
 
 /**
  * Depots as toys: the static yards, sheds and cranes (batched), the moving crane parts, the piles, and the cargo
@@ -980,6 +1002,20 @@ export class DepotView {
       }
     }
     return best;
+  }
+
+  /**
+   * The town (depot id) whose station is under a tap ray: the platform, canopy or station house, `margin` mm of slack
+   * all round for a fingertip. Cheap: one plane test per town. −1 if none.
+   */
+  stationUnder(ray: Ray, margin: number): number {
+    for (const site of this.sites) {
+      if (site.depot.role !== "town") continue;
+      _plane.set(_up, -((site.pose.y ?? 0) + STATION_TAP_Y));
+      if (!ray.intersectPlane(_plane, _v)) continue;
+      if (inStationFootprint(site.pose, _v.x, _v.z, margin)) return site.depot.id;
+    }
+    return -1;
   }
 
   /** Every pile in the world (economy depot id, cargo, ground centre), for dropping cargo by hand. */
