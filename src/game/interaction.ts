@@ -682,6 +682,27 @@ export class Interaction {
     this.mode = { kind: "press", press: hit, pointerId: e.pointerId, x: e.clientX, y: e.clientY, ground, add: e.shiftKey };
   }
 
+  /**
+   * Does a drag that starts on `press` move it (it's selected, or being picked with others), rather than pan the view?
+   * Cargo is fetched from its pile with a drag, selected or not.
+   */
+  private dragsWhatsPressed(press: Press): boolean {
+    switch (press.kind) {
+      case "piece":
+        return this.picking ? this.picked.has(press.pieceId) : press.pieceId === this.selectedPiece;
+      case "car":
+        return this.selectedCar !== -1 && this.game.sim.findCar(press.carId)?.train === this.game.sim.findCar(this.selectedCar)?.train;
+      case "depot":
+        return press.depotId === this.selectedDepot;
+      case "prop":
+        return press.propId === this.selectedProp;
+      case "road":
+        return press.cell === this.roads.selected;
+      default:
+        return true;
+    }
+  }
+
   private onMove(e: PointerEvent): void {
     const m = this.mode;
     if (m.kind === "idle" && this.landCursor && e.pointerType === "mouse" && e.target === this.game.canvas) this.showSquare(this.squareAt(e.clientX, e.clientY));
@@ -693,9 +714,10 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
-      if ((m.press.kind === "prop" && m.press.propId !== this.selectedProp) || (m.press.kind === "road" && m.press.cell !== this.roads.selected)) {
-        // Select first: a drag that starts on a prop not selected pans the view, like the floor (so panning over a
-        // busy town never moves a house by accident). The camera picks the gesture up from here.
+      if (!this.dragsWhatsPressed(m.press)) {
+        // Select first: a drag that starts on anything placed that isn't selected (a piece, a train, an industry, a
+        // prop, a road) pans the view, like the floor, so panning over a busy map never moves something by accident.
+        // Tap it to select it, then drag it. The camera picks the gesture up from here.
         this.mode = { kind: "idle" };
         this.game.controls.enabled = true;
         return;
@@ -915,6 +937,7 @@ export class Interaction {
     const car = found.train.cars[found.index];
     if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === p.carId);
     else this.hud.showCarCard();
+    this.hintDrag();
   }
 
   private selectPiece(id: number): void {
@@ -923,6 +946,16 @@ export class Interaction {
     this.game.trackView.setHighlight(id);
     const p = this.game.layout.getPiece(id)!;
     this.hud.showPieceCard(getPieceDef(p.type, false).flippable, "Track piece", true, true, true);
+    if (!this.fixedLabel(id)) this.hintDrag();
+  }
+
+  private dragHinted = false;
+
+  /** The first time something movable is selected: it moves with a drag now (and only now: see `dragsWhatsPressed`). */
+  private hintDrag(): void {
+    if (this.dragHinted) return;
+    this.dragHinted = true;
+    this.hud.toast("Drag it to move it · drag anywhere else to look around", false, 3600);
   }
 
   clearSelection(): void {
@@ -2401,6 +2434,7 @@ export class Interaction {
     this.selectedProp = id;
     this.propOutline.show(g.propLibrary.footprint(p.asset) ?? null, p.x, p.y, p.z, p.heading);
     this.hud.showPieceCard(false, g.propLibrary.model(modelKey(p.asset, p.variant))?.name ?? "Model", false);
+    this.hintDrag();
   }
 
   /** Turn a placed prop an eighth, if it still fits. */
