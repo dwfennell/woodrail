@@ -27,9 +27,14 @@ import { dragMoves } from "./drag-rule";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
+import { carNearTap, nearCarWins, type CarOnScreen } from "./touch-pick";
 
 /** On touch, held things float this far (px) above the finger so it doesn't hide them. */
 const TOUCH_LIFT_PX = 60;
+/** A tap on touch takes a car this near it on screen (half a 44 px target): cars are small at the default zoom. */
+const TOUCH_SLACK_PX = 22;
+/** About the middle of a car's body above the rails (mm): where a finger aims at it. */
+const CAR_BODY_MID_MM = 14;
 /** Loose pieces snap to this grid (mm): a quarter of a landscape square, the step between straight lengths. */
 const PLACE_GRID = CELL / 4;
 /** A train dropped this far (mm) beyond half its own length from another's end couples on to it. */
@@ -666,7 +671,7 @@ export class Interaction {
       this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, ghost: true };
       return;
     }
-    let hit = this.pick(e.clientX, e.clientY);
+    let hit = this.pick(e.clientX, e.clientY, e.pointerType === "touch");
     // Pressing on anything else puts the ready piece away.
     if (hit && this.armed) this.arm(null);
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
@@ -2592,7 +2597,18 @@ export class Interaction {
     return this.raycaster.ray.intersectPlane(this.floor, p);
   }
 
-  private pick(x: number, y: number): Press | null {
+  /**
+   * What's under the pointer. On touch (`touch`), a car within a fingertip of the tap wins over track, a road, a town's
+   * footprint or bare floor (see `nearCarWins`): at the default zoom a car is only 10–20 px long.
+   */
+  private pick(x: number, y: number, touch = false): Press | null {
+    const exact = this.pickExact(x, y);
+    if (!touch || !nearCarWins(exact ? (exact.kind === "depot" && exact.footprint ? "station" : exact.kind) : null)) return exact;
+    const carId = carNearTap(x, y, this.carsOnScreen(), TOUCH_SLACK_PX);
+    return carId !== -1 ? { kind: "car", carId } : exact;
+  }
+
+  private pickExact(x: number, y: number): (Press & { footprint?: boolean }) | null {
     this.setNdc(x, y);
     const g = this.game;
     const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group], true);
@@ -2618,11 +2634,36 @@ export class Interaction {
     // Nothing solid under the tap, but it may be on a town's station (platform, canopy, house): the whole footprint
     // opens the town, with a fingertip's slack. Trains and track were tried first above, so they win.
     const town = g.depotView.stationUnder(this.raycaster.ray, this.fingerMm(x, y));
-    if (town !== -1) return { kind: "depot", depotId: town };
+    if (town !== -1) return { kind: "depot", depotId: town, footprint: true };
     // Nothing standing there: a road piece the player laid, on the square under the pointer.
     const cell = this.squareAt(x, y);
     if (this.roads.pickable(cell)) return { kind: "road", cell };
     return null;
+  }
+
+  /** Every car's line end to end on screen (px), at about the height of its body. */
+  private carsOnScreen(): CarOnScreen[] {
+    const sim = this.game.sim;
+    const r = this.game.canvas.getBoundingClientRect();
+    const out: CarOnScreen[] = [];
+    const v = new Vector3();
+    const toScreen = (p: { x: number; y: number; z: number }): [number, number] => {
+      v.set(p.x, p.y + CAR_BODY_MID_MM, p.z).project(this.game.camera);
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+    };
+    for (const trainId of sim.trainIds()) {
+      const t = sim.getTrain(trainId);
+      if (!t) continue;
+      t.cars.forEach((car, i) => {
+        const a = t.world[2 * i];
+        const b = t.world[2 * i + 1];
+        if (!a || !b) return;
+        const [ax, ay] = toScreen(a);
+        const [bx, by] = toScreen(b);
+        out.push({ id: car.id, ax, ay, bx, by });
+      });
+    }
+    return out;
   }
 
   /** About 22 screen pixels (half a 44 px phone target) as mm on the ground at the pointer, capped at 60. */
