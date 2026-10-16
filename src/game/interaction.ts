@@ -8,7 +8,7 @@ import { ghostMesh, pieceGeometry, type OutlineTone } from "../render/track-view
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, findLowCrossing, findOverlap, findSnap, flipSwapsEnds, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, findLowCrossing, findOverlap, findSnap, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
@@ -1811,18 +1811,16 @@ export class Interaction {
       const stack = getPieceDef(m.type, m.heldFlipped).connectors.length === 0 ? riserStackAt(this.game.layout, m.pose.x, m.pose.z, m.pieceId) : null;
       if (stack) m.pose = { ...stack.pose };
       const capture = this.captureRadius(x, y);
-      // Look for pegs on the floor, up to a few risers up, and on whatever the piece is over. Ends that don't match
-      // (peg to peg, hole to hole) turn the piece round, or for a new piece mirror it, so it fits.
-      // A moved piece keeps its hand (a curve stays a left or a right); a ramp may still swap its ends to fit.
-      const autoFit = m.pieceId === -1 || flipSwapsEnds(holdType) ? "turn-or-mirror" : "turn";
+      // Look for track ends on the floor, up to a few risers up, and on whatever the piece is over. Any end joins, peg or
+      // hole: the piece keeps the turn and the hand it's held with (it never turns or mirrors itself to fit).
       m.snap = { kind: "none" };
       // A free end under the finger wins: the piece goes where it's pointed. Else the nearest end to the held piece's.
       let atFinger = false;
       for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
         const held = heldAt(level) ?? m.pose;
         const finger = this.planeAt(x, sy, level);
-        const f = finger ? findSnapAtPoint(this.game.layout, holdType, m.heldFlipped, held, level, finger, m.pieceId, Math.max(capture, m.tapReach ?? 0), autoFit) : null;
-        const s = f?.kind === "snapped" ? f : findSnap(this.game.layout, holdType, m.heldFlipped, held, level, m.pieceId, capture, autoFit);
+        const f = finger ? findSnapAtPoint(this.game.layout, holdType, m.heldFlipped, held, level, finger, m.pieceId, Math.max(capture, m.tapReach ?? 0)) : null;
+        const s = f?.kind === "snapped" ? f : findSnap(this.game.layout, holdType, m.heldFlipped, held, level, m.pieceId, capture);
         // A bridge only joins track it can stand at (raised track, another bridge): beside track on the ground it
         // keeps to its own height, a level up.
         if (s.kind === "snapped" && isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;

@@ -3,7 +3,7 @@ import { connectorRef, Layout } from "./layout";
 import { solveParentPose, transformPose, type Pose } from "./math";
 import { getPieceDef } from "./pieces";
 import { appendPiece, findSnap, findSnapAtPoint } from "./snap";
-import { RAMP_LENGTH, RISER_HEIGHT, SNAP_CAPTURE_RADIUS } from "./constants";
+import { RAMP_LENGTH, RISER_HEIGHT } from "./constants";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -149,77 +149,79 @@ describe("auto-fit (ends that don't match turn or mirror the piece to fit)", () 
     return { x: x / d.connectors.length, z: z / d.connectors.length };
   };
 
-  it("a straight held peg-to-peg seats turned round, where it was held", () => {
+  it("a straight held turned round, its peg against a peg, seats as held (peg to peg: any ends join)", () => {
     const layout = base();
     // Held turned round: its peg end at x = 216 (against the other peg), its hole end out at x = 432.
-    const held = { x: 432, z: 0, heading: Math.PI };
-    expect(findSnap(layout, "straight-216", false, held, 0).kind).toBe("none");
-    const s = findSnap(layout, "straight-216", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn");
+    const s = findSnap(layout, "straight-216", false, { x: 432, z: 0, heading: Math.PI }, 0);
     expect(s.kind).toBe("snapped");
     if (s.kind !== "snapped") return;
-    expect(s.pose.x).toBeCloseTo(216, 6);
-    expect(s.pose.z).toBeCloseTo(0, 6);
-    expect(Math.cos(s.pose.heading)).toBeCloseTo(1, 6);
+    expect(s.pose.x).toBeCloseTo(432, 6);
+    expect(Math.cos(s.pose.heading)).toBeCloseTo(-1, 6);
+    expect(getPieceDef("straight-216", false).connectors[s.connector].kind).toBe("peg");
   });
 
-  it("a curve held peg-to-peg seats mirrored when allowed, so it still bends the way it was held", () => {
+  it("a curve held peg-to-peg seats as held: never mirrored, it bends the way it was held", () => {
     const layout = base();
-    // Hold a curve with its peg end against the straight's peg (facing back along −x), bending away beyond it.
     const peg = getPieceDef("curve-large", false).connectors[1];
     const held = solveParentPose(peg.pose, { x: 216, z: 0, heading: Math.PI }, { x: 0, z: 0, heading: 0 });
     const was = centre("curve-large", false, held);
-    const turned = findSnap(layout, "curve-large", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn");
-    const fitted = findSnap(layout, "curve-large", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
-    expect(turned.kind).toBe("snapped");
-    expect(fitted.kind).toBe("snapped");
-    if (turned.kind !== "snapped" || fitted.kind !== "snapped") return;
-    expect(fitted.flipped).toBe(true);
-    const away = (s: typeof fitted) => {
-      const c = centre("curve-large", s.flipped, s.pose);
-      return Math.hypot(c.x - was.x, c.z - was.z);
-    };
-    expect(away(fitted)).toBeLessThan(1);
-    expect(away(turned)).toBeGreaterThan(away(fitted) + 20);
+    const s = findSnap(layout, "curve-large", false, held, 0);
+    expect(s.kind).toBe("snapped");
+    if (s.kind !== "snapped") return;
+    expect(s.flipped).toBe(false);
+    const c = centre("curve-large", false, s.pose);
+    expect(Math.hypot(c.x - was.x, c.z - was.z)).toBeLessThan(1);
   });
 
-  it("an exact fit nearby still wins over a turned one", () => {
+  it("an exact fit nearby seats as held", () => {
     const layout = base();
-    // Held the right way round, its hole end at the straight's peg.
-    const s = findSnap(layout, "straight-216", false, { x: 217, z: 0, heading: 0 }, 0, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
+    const s = findSnap(layout, "straight-216", false, { x: 217, z: 0, heading: 0 }, 0);
     expect(s.kind).toBe("snapped");
     if (s.kind === "snapped") expect(s.flipped).toBe(false);
   });
 
-  it("never turns a ramp round to fit (an up ramp stays up); flipped, its ends swap to come down from a peg", () => {
+  it("a ramp seats as held: never turned or its ends swapped (an up ramp stays up, a down ramp comes down)", () => {
     const layout = base();
-    // A ramp held with its (high) end against the straight's peg on the ground, sloping back the other way: no fit.
+    // Its high end against the straight's peg on the ground: the heights don't meet, so no seat.
     const held = { x: 216 + RAMP_LENGTH, z: 0, heading: Math.PI };
-    expect(findSnap(layout, "ramp", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn").kind).toBe("none");
-    // Flipped, the ramp has a hole at its top: held a level lower (so its top is at the peg's height, as when coming
-    // down from a raised peg), it seats there.
-    const down = findSnap(layout, "ramp", false, held, -RISER_HEIGHT, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
+    expect(findSnap(layout, "ramp", false, held, 0).kind).toBe("none");
+    // Held a level lower, its top meets the peg's height: it seats there as held, coming down.
+    const down = findSnap(layout, "ramp", false, held, -RISER_HEIGHT);
     expect(down.kind).toBe("snapped");
     if (down.kind === "snapped") {
-      expect(down.flipped).toBe(true);
-      expect(getPieceDef("ramp", true).connectors[down.connector].kind).toBe("socket");
-      expect(getPieceDef("ramp", true).connectors[down.connector].y).toBe(RISER_HEIGHT);
+      expect(down.flipped).toBe(false);
+      expect(getPieceDef("ramp", false).connectors[down.connector].y).toBe(RISER_HEIGHT);
     }
-    // Held the right way round, it fits as it is: rising away from the straight.
-    const s = findSnap(layout, "ramp", false, { x: 220, z: 0, heading: 0 }, 0, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
+    // Held the right way round, rising away from the straight.
+    const s = findSnap(layout, "ramp", false, { x: 220, z: 0, heading: 0 }, 0);
     expect(s.kind).toBe("snapped");
     if (s.kind === "snapped") expect(s.y).toBe(0);
   });
 
-  it("a buffer held at a hole end flips to stop it with a peg", () => {
+  it("a buffer held at a hole end seats as held (hole to hole)", () => {
     const layout = base();
-    // Past the straight's hole end (x = 0), running away from it.
-    const held = { x: -2, z: 0, heading: Math.PI };
-    expect(findSnap(layout, "buffer-turnback", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn").kind).toBe("none");
-    const s = findSnap(layout, "buffer-turnback", false, held, 0, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
+    const s = findSnap(layout, "buffer-turnback", false, { x: -2, z: 0, heading: Math.PI }, 0);
     expect(s.kind).toBe("snapped");
-    if (s.kind === "snapped") {
-      expect(s.flipped).toBe(true);
-      expect(getPieceDef("buffer-turnback", true).connectors[s.connector].kind).toBe("peg");
+    if (s.kind === "snapped") expect(s.flipped).toBe(false);
+  });
+
+  it("a switch rotated and mirrored by the player joins in that orientation, by whichever end is dropped on the track", () => {
+    for (const flipped of [false, true]) {
+      const def = getPieceDef("switch", flipped);
+      for (let k = 0; k < def.connectors.length; k++) {
+        const layout = base(); // free peg at x = 216 heading +x, free hole at x = 0 heading −x
+        // Held so its end k sits a few mm off the straight's peg, facing it.
+        const held = solveParentPose(def.connectors[k].pose, { x: 219, z: 2, heading: Math.PI }, { x: 0, z: 0, heading: 0 });
+        const s = findSnap(layout, "switch", flipped, held, 0);
+        expect(s.kind, `${flipped} ${k}`).toBe("snapped");
+        if (s.kind !== "snapped") continue;
+        expect(s.flipped, `${flipped} ${k}`).toBe(flipped);
+        expect(s.connector, `${flipped} ${k}`).toBe(k);
+        expect(Math.abs(Math.sin(s.pose.heading - held.heading)), `${flipped} ${k}`).toBeLessThan(0.02);
+        // Put down there, it joins.
+        const id = layout.addPiece("switch", s.pose, s.y, s.flipped);
+        expect(layout.joinedConnector(connectorRef(id, k)), `${flipped} ${k}`).not.toBe(-1);
+      }
     }
   });
 });
@@ -229,36 +231,35 @@ describe("findSnapAtPoint", () => {
     const l = new Layout();
     l.addPiece("straight-144", P(0, 0)); // free peg at x=144, free socket at x=0
     // Held centred on the pointer, at the peg: its own ends are 108 mm either side.
-    const r = findSnapAtPoint(l, "straight-216", false, P(144 - 108, 0), 0, { x: 150, z: 6 }, -1, SNAP_CAPTURE_RADIUS, "turn");
+    const r = findSnapAtPoint(l, "straight-216", false, P(144 - 108, 0), 0, { x: 150, z: 6 });
     expect(r.kind).toBe("snapped");
     if (r.kind !== "snapped") return;
     expect(r.connector).toBe(0);
     expect(r.pose.x).toBeCloseTo(144);
     expect(r.pose.heading).toBeCloseTo(0);
     // The plain end-based snap finds nothing from here.
-    expect(findSnap(l, "straight-216", false, P(144 - 108, 0), 0, -1, SNAP_CAPTURE_RADIUS, "turn").kind).toBe("none");
+    expect(findSnap(l, "straight-216", false, P(144 - 108, 0), 0).kind).toBe("none");
   });
 
   it("picks the end nearest the pointer when two are in reach", () => {
     const l = new Layout();
     l.addPiece("straight-144", P(0, 0));
-    const r = findSnapAtPoint(l, "straight-144", false, P(-72, 0), 0, { x: 4, z: 0 }, -1, 60, "turn");
+    const r = findSnapAtPoint(l, "straight-144", false, P(-72, 0), 0, { x: 4, z: 0 }, -1, 60);
     expect(r.kind).toBe("snapped");
     if (r.kind === "snapped") expect(r.pose.x).toBeCloseTo(-144);
   });
 
-  it("chooses the curve's seating most like the piece as held", () => {
+  it("a curve seats keeping its hand: it bends the way it's held, mirrored or not", () => {
     const l = new Layout();
     l.addPiece("straight-144", P(0, 0));
-    for (const held of [deg(30), deg(-30)]) {
-      // A new curve held just past the peg, swinging one way or the other.
-      const pose = P(150, 0, held);
-      const r = findSnapAtPoint(l, "curve-large", false, pose, 0, { x: 146, z: 0 }, -1, SNAP_CAPTURE_RADIUS, "turn-or-mirror");
+    for (const flipped of [false, true]) {
+      const r = findSnapAtPoint(l, "curve-large", flipped, P(150, 0, deg(10)), 0, { x: 146, z: 0 });
       expect(r.kind).toBe("snapped");
       if (r.kind !== "snapped") continue;
+      expect(r.flipped).toBe(flipped);
       const def = getPieceDef("curve-large", r.flipped);
       const far = transformPose(r.pose, def.connectors[1 - r.connector].pose, P(0, 0));
-      expect(Math.sign(far.z)).toBe(Math.sign(held));
+      expect(Math.sign(far.z)).toBe(flipped ? -1 : 1);
     }
   });
 
