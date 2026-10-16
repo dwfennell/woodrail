@@ -1180,6 +1180,30 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     box.append(line);
   }
 
+  // A sawmill's card (Game mode): a hint at the faster-sawmills blueprint until it's learned.
+  let sawmillShown = "";
+  function showSawmill(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    const tech = techOf("sawmills2");
+    if (!d || d.role !== "sawmill" || !tech || progress.learned.has(tech.id)) {
+      if (sawmillShown !== "") hud.depotExtra.hidden = true;
+      sawmillShown = "";
+      return;
+    }
+    const unmet = tech.requires.filter((n) => !needMet(progress, n));
+    const text = unmet.length > 0 ? `Faster sawmills: ${tech.label}, after ${unmet.map(describeNeed).join(" and ")}` : `Faster: ${tech.label} (blueprint)`;
+    if (text === sawmillShown) return;
+    sawmillShown = text;
+    const box = hud.depotExtra;
+    box.hidden = false;
+    box.innerHTML = "";
+    const line = document.createElement("div");
+    line.className = "station-waiting";
+    line.textContent = text;
+    box.append(line);
+  }
+
   let harbourShown = "";
   /** The open harbour card's line about its boats: kept and its text updated, so the countdown ticks without the card's button being made again (a tap mid-way would be lost). */
   let harbourLine: HTMLElement | null = null;
@@ -1799,6 +1823,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showWorkshop();
       showFarm();
       showStation();
+      showSawmill();
       showHarbour();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
