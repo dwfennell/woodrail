@@ -1180,8 +1180,19 @@ export class Hud {
    */
   private clearOfPanels(): void {
     const t = this.toastEl;
-    t.style.top = "";
-    const r = t.getBoundingClientRect();
+    t.style.top = t.style.left = t.style.maxWidth = "";
+    let r = t.getBoundingClientRect();
+    // A card open beside it (on a phone on its side, cards dock at the right, under the top bar): the toast goes in the
+    // room to the card's left rather than over the card's top row (its close).
+    for (const c of this.root.querySelectorAll<HTMLElement>(".card")) {
+      if (c.hidden || c.offsetParent === null) continue;
+      const q = c.getBoundingClientRect();
+      if (q.right < r.left || q.left > r.right || q.bottom < r.top || q.top > r.bottom || q.left < 200) continue;
+      t.style.left = `${Math.round(q.left / 2)}px`;
+      t.style.maxWidth = `${Math.round(q.left - 24)}px`;
+      r = t.getBoundingClientRect();
+      break;
+    }
     let below = 0;
     for (const p of this.root.querySelectorAll<HTMLElement>(".goals, .piece-card.group")) {
       if (p.hidden || p.offsetParent === null) continue;
