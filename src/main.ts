@@ -221,7 +221,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       lever: (v) => interaction.setLever(v),
       follow: () => interaction.toggleFollow(),
       removeTrain: () => interaction.removeSelectedTrain(),
-      turnCar: () => interaction.turnSelectedCar(),
+      turnCar: () => swapEnds(),
       rotate: () => interaction.rotateSelected(),
       flip: () => interaction.flipSelected(),
       deletePiece: () => interaction.deleteSelected(),
@@ -1233,6 +1233,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    */
   const _a = new Vector3();
   const _b = new Vector3();
+  /** Swap ends (the engine card): the engine runs round to the other end of its train, or turns if it can't. */
+  function swapEnds(): void {
+    const carId = interaction.openEngineCarId;
+    if (carId === -1) return;
+    const r = game.sim.runAround(carId);
+    if (r === "moving") return hud.toast("Stop the train to swap ends", false, 2500);
+    if (r === "no-room") return hud.toast("No room for the engine at the other end", false, 2500);
+    if (r === "none") return;
+    audio.rotate();
+    const found = game.sim.findCar(carId);
+    if (found) hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
+    // It faces the open way now: Go sends it off engine first.
+    hud.setEngineWay(1);
+    game.invalidate();
+    onChange();
+  }
+
   /** The engine whose card the view was last shown for, and its status line as shown, and as it's been lately. */
   let viewCar = -1;
   let viewStanding = false;

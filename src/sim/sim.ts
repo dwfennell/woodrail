@@ -282,6 +282,63 @@ export class Sim {
   }
 
   /**
+   * Swap ends: the engine runs round its train to the other end and faces the new way, the wagons staying just where
+   * they are on the track (as at the end of a real line), so it leads the other way instead of pushing. An engine on
+   * its own, one in the middle of a train, or a train with an engine at each end just turns round. Only while the
+   * train's stopped; refused where there's no room for the engine at the other end (a buffer, the end of the track,
+   * another train). The train keeps its id (a depot working it carries on).
+   */
+  runAround(engineCarId: number): "ran-round" | "turned" | "moving" | "no-room" | "none" {
+    const found = this.findCar(engineCarId);
+    if (!found || found.train.derailed) return "none";
+    const t = found.train;
+    if (t.speed > 0) return "moving";
+    const n = t.cars.length;
+    const i = found.index;
+    const engine = t.cars[i];
+    const atFront = i === 0;
+    const atRear = i === n - 1;
+    if (n === 1 || !(atFront || atRear) || t.cars[atFront ? n - 1 : 0].kind === "engine") {
+      // Nothing to run round: turn it, and the train goes the other way (led by its other engine, if it has one).
+      this.flipCar(engineCarId);
+      return "turned";
+    }
+    const cars = atFront ? [...t.cars.slice(1), engine] : [engine, ...t.cars.slice(0, n - 1)];
+    const offsets = bogieOffsets(cars.map((c) => c.kind));
+    // The new front axle: the first wagon's (staying put) when the engine goes to the back; ahead of it by the
+    // engine's length when the engine comes to the front.
+    const at: Cursor = { ...t.bogies[atFront ? 2 : 0] };
+    if (!atFront) {
+      advanceCursor(this.layout, at, offsets[2], null, adv);
+      if (adv.status !== ADV_OK) return "no-room";
+    }
+    const bogies: Cursor[] = [];
+    for (const off of offsets) {
+      const c = { ...at };
+      flipCursor(this.layout, c);
+      advanceCursor(this.layout, c, off, null, adv);
+      if (adv.status !== ADV_OK) return "no-room";
+      flipCursor(this.layout, c);
+      bogies.push(c);
+    }
+    this.trains.delete(t.id);
+    const blocked = this.occupied(bogies);
+    this.trains.set(t.id, t);
+    if (blocked) return "no-room";
+    // Facing out from its new end, so it leads.
+    engine.facing = atFront ? -1 : 1;
+    engine.lever = 0;
+    t.cars = cars;
+    t.bogies = bogies;
+    t.world = bogies.map(() => createWorldSample());
+    t.memory = new Map();
+    t.turnback = -1;
+    this.rememberStraddledSwitches(t);
+    this.refreshWorld(t);
+    return "ran-round";
+  }
+
+  /**
    * Call after the layout changes: trains on removed or lifted pieces derail, as do trains on any piece in
    * `moved` (rotated, moved or flipped out from under them).
    */
