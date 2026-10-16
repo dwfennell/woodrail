@@ -808,14 +808,16 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   }
 
   /** The toy box on the tray (Game mode): how many of each are left. */
-  function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean } | null {
+  function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean; attention?: boolean } | null {
     if (item.kind !== "piece" && item.kind !== "train") return null;
     const needs = thingsFor(item as Parameters<typeof thingsFor>[0]);
     if ([...needs.keys()].every(isFree)) return null;
     if ([...needs.keys()].some((id) => !progress.knows(id)) || lockedLook(item)) return { text: "Locked", empty: true };
     let n = Infinity;
     for (const [id, k] of needs) n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
-    return { text: String(n), empty: n === 0 };
+    // The workshop, while there's none on the map: it's where planks go to learn blueprints.
+    const attention = n > 0 && "type" in item && item.type === "depot-workshop" && workshops(game.world).length === 0;
+    return { text: String(n), empty: n === 0, ...(attention ? { attention } : {}) };
   }
 
   /** Industries placed or moved: give new ones their depots, and redraw the yards where they stand. */
@@ -912,11 +914,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
    */
   function learnWhy(goods: Bag, coins: number, stock: Bag): string | null {
     const kinds = kindsOf(goods);
-    if (kinds.length > 0 && workshops(game.world).length === 0) return "Place your workshop first";
+    if (kinds.length > 0 && workshops(game.world).length === 0) return "Place your workshop (Industries tab)";
     for (const k of kinds) {
       const have = stock[k] ?? 0;
       if (have >= goods[k]!) continue;
-      if (have === 0 && k === "planks") return "Bring planks from the sawmill";
+      if (have === 0 && k === "planks") return "Bring planks from the sawmill by train";
       return `${describeGoods({ [k]: goods[k] })} needed at workshop (${have} there)`;
     }
     if (progress.coins < coins) return `${coins} coins needed (${progress.coins} now)`;
@@ -962,7 +964,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       branches: BRANCHES.map((b) => ({ id: b.id, label: b.label, color: b.color })),
       offers: progress.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: describeThings(o.crate) } : {}) })),
       planks: hasWorkshop ? stock.planks ?? 0 : null,
-      stock: hasWorkshop ? `The workshop's yard has ${describeGoods(stock)}` : "Place your workshop first",
+      stock: hasWorkshop ? `The workshop's yard has ${describeGoods(stock)}` : "Place your workshop (Industries tab)",
     });
   }
 

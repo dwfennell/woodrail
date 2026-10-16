@@ -614,7 +614,7 @@ export class Hud {
    * What a tray item's corner says (Game mode's toy box: how many are left, or that it's locked), or null for nothing.
    * Set by the game; `refreshTrayBadges` applies it to the items showing.
    */
-  trayBadge: ((item: TrayItem) => { text: string; empty: boolean } | null) | null = null;
+  trayBadge: ((item: TrayItem) => { text: string; empty: boolean; attention?: boolean } | null) | null = null;
   private trayButtons: [HTMLElement, TrayItem][] = [];
 
   refreshTrayBadges(): void {
@@ -624,6 +624,7 @@ export class Hud {
   private decorate(b: HTMLElement, item: TrayItem): void {
     const badge = this.trayBadge?.(item) ?? null;
     let tag = b.querySelector<HTMLElement>(".have");
+    b.classList.toggle("attention", badge?.attention === true);
     if (!badge) {
       tag?.remove();
       b.classList.remove("empty");
