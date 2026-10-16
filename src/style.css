@@ -143,7 +143,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tip { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; background: #fff8ec; border-radius: 14px; padding: 10px 8px 12px; box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.12); font-size: 13.5px; line-height: 1.35; }
 .tip b { font-size: 15px; }
 .tip-art { width: 88px; height: 66px; background: center / contain no-repeat; display: grid; place-items: center; }
-.more-help summary { cursor: pointer; font-weight: 800; color: #8a6a4a; padding: 4px 0; }
+.more-help summary { cursor: pointer; font-weight: 800; color: #8a6a4a; padding: 12px 0; margin: -8px 0; }
 @media (max-width: 520px) {
   .tips { grid-template-columns: 1fr; gap: 8px; }
   .tip { display: grid; grid-template-columns: 64px 1fr; grid-template-rows: auto auto; column-gap: 12px; row-gap: 1px; text-align: left; align-items: center; padding: 8px 12px; }
@@ -161,7 +161,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @media (max-width: 640px) {
   .brand { padding: 8px; gap: 0; }
   .brand-name, .mode-tag { display: none; }
-  .actions { flex-wrap: nowrap; gap: 5px; }
+  /* The buttons never shrink (the menu must stay on screen): the brand gives way, and from 400 px its W goes while
+     the coins show. */
+  .actions { flex-wrap: nowrap; gap: 5px; flex: none; }
+  .brand { min-width: 0; overflow: hidden; }
   /* The bar keeps what's used most; the rest are in the menu. Re-rail, when it shows, sits under the bar. */
   .actions .wide-only { display: none; }
   .actions > .chip { min-width: 40px; height: 40px; padding: 0 8px; }
@@ -177,6 +180,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* Whole words only (no "Crossroad / s"): a little smaller, two lines at most. */
   .tray-item .label { font-size: 11px; overflow-wrap: normal; word-break: normal; hyphens: manual; letter-spacing: -0.01em; }
   .card { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 146px); min-width: 0; width: calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+}
+@media (max-width: 400px) {
+  .brand:has(.coins:not([hidden])) .brand-block { display: none; }
 }
 
 /* A phone on its side (short screens): a little less tray, and a card or the menu never runs off the screen. A card
