@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { townProps } from "../props/towns";
 import { landmarksOf, LANDMARKS, SCHOOL_IDEA_SECONDS, townLandmarks } from "./landmarks";
 import { Progress } from "./progress";
-import { payDelivery, schoolIdeas } from "./rewards";
+import { payDelivery, SCHOOL_BOARD_CAP, schoolIdeas } from "./rewards";
+import { ready } from "./tech";
 import { TownLife, type TownLifeHost } from "./town-life";
 import { townStatus } from "./towns";
 import { buildStarterWorld, type World } from "./world";
@@ -54,17 +55,60 @@ describe("town landmarks", () => {
     expect([...townLandmarks(t)].sort()).toEqual(["library", "market", "school"]);
   });
 
-  it("a school has ideas: a blueprint offer every few minutes of play, one waiting at a time", () => {
+  it("a school has ideas: now and then a blueprint goes on the board, to learn at its price, while its town is supplied", () => {
     const w = buildStarterWorld();
     const p = Progress.fresh();
     const clock = { seconds: 0 };
     const random = () => 0.3;
     expect(schoolIdeas(p, w.landscape, clock, SCHOOL_IDEA_SECONDS, random)).toBeNull();
-    w.landscape.towns[0].buildings[0].landmark = "school";
+    const town = w.landscape.towns[0];
+    town.buildings[0].landmark = "school";
+    // Not supplied: no thinking (the clock doesn't run).
+    expect(schoolIdeas(p, w.landscape, clock, SCHOOL_IDEA_SECONDS * 2, random, () => false)).toBeNull();
+    expect(clock.seconds).toBe(0);
     expect(schoolIdeas(p, w.landscape, clock, SCHOOL_IDEA_SECONDS - 1, random)).toBeNull();
-    expect(schoolIdeas(p, w.landscape, clock, 1, random)).toBe(`${w.landscape.towns[0].name} school`);
-    expect(p.offers).toHaveLength(1);
-    expect(schoolIdeas(p, w.landscape, clock, SCHOOL_IDEA_SECONDS * 2, random)).toBeNull();
+    const idea = schoolIdeas(p, w.landscape, clock, 1, random)!;
+    expect(idea.from).toBe(`${town.name} school`);
+    // On the board, not learned, and no offer to choose from.
+    expect(p.board.has(idea.id)).toBe(true);
+    expect(p.learned.has(idea.id)).toBe(false);
+    expect(p.offers).toHaveLength(0);
+  });
+
+  it("no school ideas while enough blueprints already wait on the board", () => {
+    const w = buildStarterWorld();
+    const p = Progress.fresh();
+    w.landscape.towns[0].buildings[0].landmark = "school";
+    const clock = { seconds: 0 };
+    let n = 0;
+    for (let k = 0; k < 20; k++) if (schoolIdeas(p, w.landscape, clock, SCHOOL_IDEA_SECONDS, () => 0.3)) n++;
+    const waiting = [...p.board].filter((id) => !p.learned.has(id) && ready(p, id)).length;
+    expect(waiting).toBeLessThanOrEqual(SCHOOL_BOARD_CAP);
+    expect(n).toBeLessThanOrEqual(SCHOOL_BOARD_CAP);
+  });
+
+  it("over half an hour, a school is a modest help (the numbers in the commit)", () => {
+    // A player with one school, its town always supplied, learning everything the school puts on the board at once
+    // (the best case for the school). Before: an idea every 240 s learned one of two blueprints free. Now: one every
+    // 480 s puts one on the board, to pay for.
+    const run = (college: boolean) => {
+      const w = buildStarterWorld();
+      const p = Progress.fresh();
+      w.landscape.towns[0].buildings[0].landmark = "school";
+      const clock = { seconds: 0 };
+      let revealed = 0;
+      for (let t = 0; t < 30 * 60; t++) {
+        const idea = schoolIdeas(p, w.landscape, clock, college ? 2 : 1, () => 0.3);
+        if (!idea) continue;
+        revealed++;
+        p.learned.add(idea.id);
+        p.board.delete(idea.id);
+      }
+      return revealed;
+    };
+    const before = (college: boolean) => Math.floor((30 * 60 * (college ? 2 : 1)) / 240);
+    expect([before(false), before(true)]).toEqual([7, 15]);
+    expect([run(false), run(true)]).toEqual([3, 7]);
   });
 
   it("a market pays half again", () => {
