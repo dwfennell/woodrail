@@ -947,6 +947,8 @@ export class Interaction {
     const car = !taken && engine ? engine : found.train.cars[found.index];
     this.clearSelection();
     this.selectedCar = car.id;
+    g.trainView.setSelected(car.id);
+    g.invalidate();
     if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === car.id);
     else this.hud.showCarCard();
     this.hintDrag();
@@ -990,6 +992,10 @@ export class Interaction {
     this.selectedScenery = null;
     this.selectedProp = -1;
     this.selectedPiece = -1;
+    if (this.selectedCar !== -1) {
+      this.game.trainView.setSelected(-1);
+      this.game.invalidate();
+    }
     this.selectedCar = -1;
     this.selectedDepot = -1;
   }

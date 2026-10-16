@@ -29,7 +29,7 @@ import { drainQueue } from "./worker-queue";
 
 const geometryCache = new Map<string, BufferGeometry>();
 /** Selection outline colours: selected, about to join track, can't go there. */
-const OUTLINE_TONES = { select: "#ffe489", snap: "#86ec7a", blocked: "#ff7461" } as const;
+export const OUTLINE_TONES = { select: "#ffe489", snap: "#86ec7a", blocked: "#ff7461" } as const;
 export type OutlineTone = keyof typeof OUTLINE_TONES;
 /** Picked pieces' tint (multiplies the wood): golden, green when they'll join track, red when they can't go there. */
 const PICK_TINTS: Record<OutlineTone, string> = { select: "#ffd36b", snap: "#9be38a", blocked: "#ff8f7d" };
