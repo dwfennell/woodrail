@@ -54,11 +54,25 @@ export function goalMarks(scene: Scene, points: readonly { x: number; y: number;
 /** How long a goal's labels stay up (s), the last part fading. */
 const LABEL_LIFE = 5;
 
+/** The labels showing now (a second "Show me" replaces them rather than stacking more). */
+let showing: { els: HTMLElement[]; done: boolean } | null = null;
+
 /**
  * "Show me": the names of a goal's places (its towns) over them on screen, for a few seconds: they're small from far
- * off. Plain page elements pinned to the places each frame, gone afterwards.
+ * off. Plain page elements pinned to the places each frame (only their transforms written: the canvas's place on the
+ * page is read once, and again only on a resize), gone afterwards.
  */
-export function goalLabels(camera: Camera, canvas: HTMLCanvasElement, places: readonly { x: number; y: number; z: number; text: string }[]): Flourish | null {
+export function goalLabels(
+  camera: Camera,
+  canvas: HTMLCanvasElement,
+  places: readonly { x: number; y: number; z: number; text: string }[],
+  life = LABEL_LIFE,
+): Flourish | null {
+  if (showing) {
+    for (const el of showing.els) el.remove();
+    showing.done = true;
+    showing = null;
+  }
   if (places.length === 0) return null;
   // The labels' own layer over the canvas, clipping them: a label off screen never widens the page (which pans or
   // zooms it on phones).
@@ -72,35 +86,47 @@ export function goalLabels(camera: Camera, canvas: HTMLCanvasElement, places: re
     host.append(el);
     return el;
   });
-  const v = new Vector3();
-  let t = 0;
-  const place = () => {
+  const mine = { els: [host], done: false };
+  showing = mine;
+  // Where the canvas is (read now and on a resize: never between writing labels each frame).
+  let width = 1;
+  let height = 1;
+  const measure = () => {
     const r = canvas.getBoundingClientRect();
     host.style.left = `${r.left}px`;
     host.style.top = `${r.top}px`;
-    host.style.width = `${r.width}px`;
-    host.style.height = `${r.height}px`;
+    host.style.width = `${(width = r.width)}px`;
+    host.style.height = `${(height = r.height)}px`;
+  };
+  measure();
+  window.addEventListener("resize", measure);
+  const v = new Vector3();
+  let t = 0;
+  const place = () => {
     places.forEach((p, i) => {
       v.set(p.x, p.y, p.z).project(camera);
       // Off screen (or behind the camera): not shown at all.
       const off = v.z > 1 || v.x < -1.5 || v.x > 1.5 || v.y < -1.5 || v.y > 1.5;
       els[i].style.display = off ? "none" : "";
       if (off) return;
-      const x = ((v.x + 1) / 2) * r.width;
-      const y = ((1 - v.y) / 2) * r.height;
+      const x = ((v.x + 1) / 2) * width;
+      const y = ((1 - v.y) / 2) * height;
       els[i].style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
-      els[i].style.opacity = String(Math.min(1, (LABEL_LIFE - t) / 0.8));
+      els[i].style.opacity = String(Math.min(1, (life - t) / 0.8));
     });
   };
   place();
   return {
     update(dt) {
+      if (mine.done) return false;
       t += dt;
       place();
-      return t < LABEL_LIFE;
+      return t < life;
     },
     dispose() {
+      window.removeEventListener("resize", measure);
       host.remove();
+      if (showing === mine) showing = null;
     },
   };
 }
