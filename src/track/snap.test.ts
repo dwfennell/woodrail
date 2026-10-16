@@ -205,6 +205,28 @@ describe("auto-fit (ends that don't match turn or mirror the piece to fit)", () 
     if (s.kind === "snapped") expect(s.flipped).toBe(false);
   });
 
+  it("keeps the held heading: a switch held the wrong way round seats by the end that keeps it as held, not swung 45°", () => {
+    const layout = base(); // free peg at x = 216 heading +x
+    // Held turned right round (heading π), its straight-through end (1) a little past the peg: it seats by that end, as
+    // held, though its branch end (2) is about as near.
+    for (const flipped of [false, true]) {
+      const held = solveParentPose(getPieceDef("switch", flipped).connectors[1].pose, { x: 222, z: 6, heading: Math.PI }, { x: 0, z: 0, heading: 0 });
+      const s = findSnap(layout, "switch", flipped, held, 0);
+      expect(s.kind).toBe("snapped");
+      if (s.kind !== "snapped") continue;
+      expect(s.connector).toBe(1);
+      expect(Math.abs(Math.sin(s.pose.heading - held.heading))).toBeLessThan(0.02);
+    }
+  });
+
+  it("a piece held across a track end (a quarter turn off) still seats, turned the least it can be", () => {
+    const layout = base(); // free peg at x = 216 heading +x
+    const across = solveParentPose(getPieceDef("straight-144", false).connectors[0].pose, { x: 218, z: 0, heading: Math.PI / 2 }, { x: 0, z: 0, heading: 0 });
+    const s = findSnap(layout, "straight-144", false, across, 0);
+    expect(s.kind).toBe("snapped");
+    if (s.kind === "snapped") expect(Math.abs(Math.cos(s.pose.heading - across.heading))).toBeLessThan(0.02);
+  });
+
   it("a switch rotated and mirrored by the player joins in that orientation, by whichever end is dropped on the track", () => {
     for (const flipped of [false, true]) {
       const def = getPieceDef("switch", flipped);

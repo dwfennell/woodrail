@@ -21,14 +21,17 @@ export type SnapResult =
 const NONE: SnapResult = { kind: "none" };
 /** Seating an end that turns the piece from how it's held counts as this many mm further away per radian turned. */
 const TURN_COST = 200;
+/** A piece never seats turned further than this from how it's held (it's put down the way the player holds it). */
+const MAX_TURN = Math.PI / 2 + 0.01;
 const local: Pose = { x: 0, z: 0, heading: 0 };
 const target = createWorldConnector();
 const candidates: number[] = [];
 
 /**
  * Where should a piece being dragged at `pose` land? Its ends seat on any free end of track near them, peg or hole
- * alike (a joint doesn't care: see `Layout`): the piece keeps the turn and the hand it's held with, and the end of it
- * nearest a free end seats there. Called on pointer move (not per sim tick), so returning a fresh result object is fine.
+ * alike (a joint doesn't care: see `Layout`). The piece keeps the hand it's held with and, as near as it can, the way
+ * it's turned: of the ends that could seat, the one that turns it least from how it's held wins (then the nearest), and
+ * none that would turn it more than a quarter turn. Called on pointer move, so returning a fresh result is fine.
  */
 export function findSnap(
   layout: Layout,
@@ -41,7 +44,7 @@ export function findSnap(
 ): SnapResult {
   const def = getPieceDef(type, flipped);
   let best: SnapResult = NONE;
-  let bestDistance = Infinity;
+  let bestScore = Infinity;
   for (let i = 0; i < def.connectors.length; i++) {
     const c = def.connectors[i];
     transformPose(pose, c.pose, local);
@@ -52,10 +55,14 @@ export function findSnap(
       if (pieceOfRef(ref) === excludePieceId) continue;
       const t = layout.worldConnector(ref, target);
       const distance = Math.hypot(t.x - local.x, t.z - local.z);
-      if (distance > captureRadius || distance >= bestDistance || Math.abs(t.y - cy) > SNAP_HEIGHT_TOLERANCE) continue;
-      bestDistance = distance;
-      const seat = { x: t.x, z: t.z, heading: t.heading + Math.PI };
-      best = { kind: "snapped", pose: solveParentPose(c.pose, seat, { x: 0, z: 0, heading: 0 }), y: t.y - c.y, connector: i, target: ref, distance, flipped };
+      if (distance > captureRadius || Math.abs(t.y - cy) > SNAP_HEIGHT_TOLERANCE) continue;
+      const p = solveParentPose(c.pose, { x: t.x, z: t.z, heading: t.heading + Math.PI }, { x: 0, z: 0, heading: 0 });
+      const turn = angleDiff(p.heading, pose.heading);
+      if (turn > MAX_TURN) continue;
+      const score = distance + turn * TURN_COST;
+      if (score >= bestScore) continue;
+      bestScore = score;
+      best = { kind: "snapped", pose: p, y: t.y - c.y, connector: i, target: ref, distance, flipped };
     }
   }
   return best;
@@ -115,8 +122,10 @@ export function findSnapAtPoint(
     const c = held.connectors[k];
     if (Math.abs(t.y - (y + c.y)) > SNAP_HEIGHT_TOLERANCE) continue;
     const p = solveParentPose(c.pose, seat, { x: 0, z: 0, heading: 0 });
+    const turn = angleDiff(p.heading, pose.heading);
+    if (turn > MAX_TURN) continue;
     transformPose(pose, c.pose, local);
-    const score = angleDiff(p.heading, pose.heading) * TURN_COST + Math.hypot(local.x - t.x, local.z - t.z);
+    const score = turn * TURN_COST + Math.hypot(local.x - t.x, local.z - t.z);
     if (score >= bestScore) continue;
     bestScore = score;
     best = { kind: "snapped", pose: p, y: t.y - c.y, connector: k, target: ref, distance, flipped };
