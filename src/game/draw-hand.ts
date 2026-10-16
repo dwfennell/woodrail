@@ -1,4 +1,7 @@
-import { BufferAttribute, BufferGeometry, Line, LineBasicMaterial, Vector3, type Material, type Mesh } from "three";
+import { Group, Vector3, type Material, type Mesh } from "three";
+import { Line2 } from "three/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Editor } from "../editor/editor";
 import { CELL, looseHeight } from "../landscape";
 import { dustPuff } from "../render/dust";
@@ -73,8 +76,10 @@ export class DrawHand {
   /** A new line on empty ground, before the finger has moved far enough to know which way it goes. */
   private origin: Vector3 | null = null;
   private ghosts: { mesh: Mesh; key: string }[] = [];
-  /** The stroke still ahead of the line's end, drawn as a pencil line on the ground. */
-  private readonly trail: Line;
+  /** The stroke still ahead of the line's end, drawn as a pencil line on the ground: light, with a dark edge, wide
+   * enough to see beside a finger (pixels on screen, however far off the view is). */
+  private readonly trail = new Group();
+  private readonly trailLines: { line: Line2; material: LineMaterial }[] = [];
   private readonly trailPoints: number[] = [];
   /** The line's own pieces, as a layout, so it can't cross itself. */
   private readonly own = new Layout();
@@ -90,11 +95,15 @@ export class DrawHand {
   ) {
     this.okMat = Object.assign(game.mats.trackGhostSnap.clone(), { opacity: 0.85 });
     this.blockedMat = Object.assign(game.mats.trackGhostBlocked.clone(), { opacity: 0.85 });
-    const geometry = new BufferGeometry();
-    geometry.setAttribute("position", new BufferAttribute(new Float32Array(3 * 1024), 3));
-    this.trail = new Line(geometry, new LineBasicMaterial({ color: "#fff6e0", transparent: true, opacity: 0.85, depthTest: false }));
-    this.trail.renderOrder = 20;
-    this.trail.frustumCulled = false;
+    // The dark edge under, then the light line.
+    for (const [color, width, order] of [["#3a2614", 5, 20], ["#fff6e0", 3, 21]] as const) {
+      const material = new LineMaterial({ color, linewidth: width, transparent: true, opacity: 0.9, depthTest: false });
+      const line = new Line2(new LineGeometry(), material);
+      line.renderOrder = order;
+      line.frustumCulled = false;
+      this.trail.add(line);
+      this.trailLines.push({ line, material });
+    }
     this.trail.visible = false;
     game.scene.add(this.trail);
   }
@@ -308,12 +317,21 @@ export class DrawHand {
       return;
     }
     const n = Math.min(1024, line.ahead(this.trailPoints));
-    const attr = this.trail.geometry.getAttribute("position") as BufferAttribute;
-    const y = line.start.y + 3;
-    for (let i = 0; i < n; i++) attr.setXYZ(i, this.trailPoints[2 * i], y, this.trailPoints[2 * i + 1]);
-    attr.needsUpdate = true;
-    this.trail.geometry.setDrawRange(0, n);
     this.trail.visible = n > 1;
+    if (n > 1) {
+      const y = line.start.y + 3;
+      const positions = new Float32Array(3 * n);
+      for (let i = 0; i < n; i++) positions.set([this.trailPoints[2 * i], y, this.trailPoints[2 * i + 1]], 3 * i);
+      const canvas = this.game.canvas;
+      for (const { line: l, material } of this.trailLines) {
+        // A new geometry each time (a LineGeometry's buffers are sized to its points); the old one freed.
+        const geometry = new LineGeometry();
+        geometry.setPositions(positions);
+        l.geometry.dispose();
+        l.geometry = geometry;
+        material.resolution.set(canvas.clientWidth, canvas.clientHeight);
+      }
+    }
     this.game.invalidate();
   }
 

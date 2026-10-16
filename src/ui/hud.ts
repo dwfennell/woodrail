@@ -644,6 +644,16 @@ export class Hud {
     this.setMode("sandbox");
   }
 
+  /** Where the tray's chips start (Draw, Turn and Flip above it), or the tray where none show: in client pixels. */
+  chipsTop(): number {
+    let top = this.tray.getBoundingClientRect().top;
+    for (const chip of [this.drawBtn, this.tray.querySelector<HTMLElement>(".tray-orient")]) {
+      const r = chip?.getBoundingClientRect();
+      if (r && r.height > 0) top = Math.min(top, r.top);
+    }
+    return top;
+  }
+
   /** Show whether drawing track is on (the Draw chip lit). */
   setDrawing(on: boolean): void {
     this.drawing = on;
@@ -702,7 +712,7 @@ export class Hud {
    * What a tray item's corner says (Game mode's toy box: how many are left, or that it's locked), or null for nothing.
    * Set by the game; `refreshTrayBadges` applies it to the items showing.
    */
-  trayBadge: ((item: TrayItem) => { text: string; empty: boolean; attention?: boolean; craft?: boolean } | null) | null = null;
+  trayBadge: ((item: TrayItem) => { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null) | null = null;
   private trayButtons: [HTMLElement, TrayItem][] = [];
 
   refreshTrayBadges(): void {
@@ -715,6 +725,8 @@ export class Hud {
     b.classList.toggle("attention", badge?.attention === true);
     // None left, but it can be made on the spot: its cost shows instead of a dead zero.
     b.classList.toggle("craft", badge?.craft === true);
+    // Not learned yet: says so in its corner (and no ★ to make it a favourite).
+    b.classList.toggle("locked", badge?.locked === true);
     if (!badge) {
       tag?.remove();
       b.classList.remove("empty");

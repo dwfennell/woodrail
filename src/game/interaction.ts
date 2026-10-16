@@ -444,7 +444,7 @@ export class Interaction {
       this.hud.hideCards();
       if (!this.drawHinted) {
         this.drawHinted = true;
-        this.hud.toast("Draw from the end of a track, or anywhere on the ground · two fingers move the view", false, 3600);
+        this.hud.toast("Draw from a track end or open ground · two fingers to pan", false, 3600);
       }
     } else if (this.mode.kind === "draw-track") this.cancel();
     this.onDrawing?.(on);
@@ -970,10 +970,12 @@ export class Interaction {
     this.lastX = x;
     this.lastY = y;
     const r = this.game.canvas.getBoundingClientRect();
-    const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
+    // The bottom edge is the chips above the tray (Draw), not the tray: a line pulled down that far pans the view on
+    // rather than ending hidden under the chips and the finger.
+    const chipsTop = this.hud.chipsTop() - r.top;
     // A line started near the screen's edge doesn't pan the view until the finger has been clear of the edge once. The
     // edge band is narrower than for a held piece (a phone is narrow, and a line wants room to bend).
-    this.game.director.setEdgePointer({ x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true, zone: this.lastPointerWasTouch ? 36 : 40 });
+    this.game.director.setEdgePointer({ x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: chipsTop, waitForExit: true, zone: this.lastPointerWasTouch ? 36 : 40 });
     this.draw.move(x, y);
   }
 
