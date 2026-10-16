@@ -1491,15 +1491,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function decouple(): void {
     const carId = interaction.selectedCarId;
     if (carId === -1) return;
+    const before = game.sim.findCar(carId)?.train.id ?? -1;
     const r = game.sim.decouple(carId);
     if (r.kind === "moving") return hud.toast("Stop the train to decouple", false, 2500);
     if (r.kind === "alone") return hud.toast("Nothing coupled to uncouple there", false, 2500);
     if (r.kind !== "decoupled") return;
     audio.magnet(0.6, 0);
-    // The gap is only a few mm: say what came away.
-    const away = game.sim.getTrain(r.trainId)?.cars ?? [];
-    const noun = away.some((c) => c.kind === "engine") ? "car" : "wagon";
-    hud.toast(`Uncoupled ${away.length} ${noun}${away.length === 1 ? "" : "s"}`, false, 2500);
+    // The gap is only a few mm: say what came away. With an engine on this side, the cars that came away from it;
+    // otherwise both parts, this car's first.
+    const mine = game.sim.findCar(carId)?.train.cars ?? [];
+    const away = game.sim.getTrain(r.trainId === (game.sim.findCar(carId)?.train.id ?? -1) ? before : r.trainId)?.cars ?? [];
+    const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+    const engineHere = mine.some((c) => c.kind === "engine");
+    const engineThere = away.some((c) => c.kind === "engine");
+    hud.toast(engineHere && !engineThere ? `Uncoupled ${plural(away.length, "wagon")}` : `Split into ${mine.length} + ${away.length}`, false, 2500);
     const found = game.sim.findCar(carId);
     if (found?.train.cars[found.index].kind === "engine") hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
     game.invalidate();
