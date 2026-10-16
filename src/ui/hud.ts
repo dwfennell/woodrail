@@ -106,9 +106,13 @@ function nearestTurn(from: number, angle: number): number {
   return from + ((((angle - from) % 360) + 540) % 360) - 180;
 }
 
-/** A celebration message shows at least this long (ms) before the next one replaces it; any other, this long. */
-const TOAST_READ_MS = 1800;
-const TOAST_GLANCE_MS = 1000;
+/**
+ * How long a toast stays up (ms), and before the next replaces it: long enough to read, at least 3 s (a celebration
+ * 4 s), longer for longer text. One timing for every toast. Tapping one dismisses it early.
+ */
+export function toastMs(message: string, celebrate: boolean, ms = 0): number {
+  return Math.max(ms, celebrate ? 4000 : 3000, 1200 + message.length * 45);
+}
 /** Toasts waiting their turn at most (a busy moment drops the oldest plain ones). */
 const TOAST_QUEUE = 3;
 
@@ -523,6 +527,14 @@ export class Hud {
     this.root.appendChild(this.tray);
 
     this.root.appendChild(this.toastEl);
+    // A tap dismisses a toast early (and the next waiting comes on).
+    this.toastEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      clearTimeout(this.toastTimer);
+      this.toastEl.classList.remove("show");
+      this.toastHeldUntil = 0;
+      this.flushToasts();
+    });
 
     this.help.hidden = true;
     this.help.innerHTML = `
@@ -1069,7 +1081,7 @@ export class Hud {
     const next = this.toastQueue.shift();
     if (!next) return;
     this.showToast(next.message, next.celebrate, next.ms);
-    this.toastHeldUntil = performance.now() + Math.min(next.ms, next.celebrate ? TOAST_READ_MS : TOAST_GLANCE_MS);
+    this.toastHeldUntil = performance.now() + toastMs(next.message, next.celebrate, next.ms);
     if (this.toastQueue.length > 0) this.flushToasts();
   }
 
@@ -1082,7 +1094,7 @@ export class Hud {
     void this.toastEl.offsetWidth;
     this.toastEl.classList.add("show");
     clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), ms);
+    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), toastMs(message, celebrate, ms));
   }
 
   /**
