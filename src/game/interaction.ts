@@ -1218,7 +1218,7 @@ export class Interaction {
     const g = this.game;
     const p = g.layout.getPiece(id);
     if (!p) return;
-    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p));
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
     mesh.castShadow = true;
     g.scene.add(mesh);
     g.trackView.setHidden(id, true);
@@ -1384,7 +1384,7 @@ export class Interaction {
     if (!this.editor().remove(id) || !p) return;
     // A stand-in lifts and shrinks away where the piece was.
     const g = this.game;
-    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p));
+    const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
     mesh.castShadow = true;
     mesh.position.set(p.pose.x, p.y, p.pose.z);
     mesh.rotation.y = -p.pose.heading;
@@ -1579,7 +1579,7 @@ export class Interaction {
     if (!this.editor().removeGroup(ids)) return;
     // Stand-ins lift and shrink away where the pieces were (a few, for a big group).
     for (const p of pieces.slice(0, 24)) {
-      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p));
+      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
       mesh.position.set(p.pose.x, p.y, p.pose.z);
       mesh.rotation.y = -p.pose.heading;
       g.scene.add(mesh);

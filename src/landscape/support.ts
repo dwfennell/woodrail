@@ -1,4 +1,4 @@
-import { canStandOnArches, createSample, getPieceDef, isBridge, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, type Layout, type PieceTypeId, type Pose } from "../track";
+import { ARCH_CENTRES, ARCH_RADIUS, canStandOnArches, createSample, getPieceDef, isBridge, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, TRACK_WIDTH, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
 import { hillsOf } from "./hill-shape";
 
@@ -68,6 +68,38 @@ export function bridgeLevels(land: Landscape, type: PieceTypeId, flipped: boolea
   // A bridge ramp's high end counts toward the limit too.
   const rise = Math.max(0, ...getPieceDef(type, flipped).connectors.map((c) => c.y)) / RISER_HEIGHT;
   return whole >= 1 && whole + rise <= MAX_BRIDGE_LEVELS && Math.abs(n - whole) * RISER_HEIGHT <= TOL ? whole : 0;
+}
+
+/**
+ * How far down each of a bridge's arch openings reaches (`ARCH_CENTRES` order), in riser heights below its base:
+ * down to the highest ground under that arch, so an arch over a hill springs from the hilltop rather than running
+ * down into it. (The viaduct itself still stands on the lowest ground under the deck: its foot in the hill is hidden
+ * by the hill.) Null when every opening reaches all `levels` down, as on level ground.
+ */
+export function archFloors(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, levels: number): number[] | null {
+  if (levels <= 0) return null;
+  const def = getPieceDef(type, flipped);
+  if (def.paths.length !== 1) return null;
+  const path = def.paths[0].geom;
+  const len = pathLength(path);
+  const ch = Math.cos(pose.heading);
+  const sh = Math.sin(pose.heading);
+  const hills = hillsOf(land.grid);
+  const reach = len * ARCH_RADIUS + 2;
+  const floors = ARCH_CENTRES.map((at) => {
+    let high = 0;
+    for (let k = -2; k <= 2; k++) {
+      samplePath(path, Math.min(len, Math.max(0, len * at + (reach * k) / 2)), bridgeSample);
+      for (const across of [-TRACK_WIDTH / 2, 0, TRACK_WIDTH / 2]) {
+        const lx = bridgeSample.x - Math.sin(bridgeSample.heading) * across;
+        const lz = bridgeSample.z + Math.cos(bridgeSample.heading) * across;
+        high = Math.max(high, hills.groundAt(pose.x + lx * ch - lz * sh, pose.z + lx * sh + lz * ch));
+      }
+    }
+    // Whole levels above that ground (never below it).
+    return Math.max(0, Math.min(levels, Math.floor((y - high) / RISER_HEIGHT + 0.02)));
+  });
+  return floors.every((f) => f === levels) ? null : floors;
 }
 
 /** Where a piece rests: each track end at its own height, and a riser on its base. (Bridges stand on their arches.) */
