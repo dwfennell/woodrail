@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { Layout, RAMP_LENGTH, RISER_HEIGHT } from "../track";
+import { BRIDGE_LENGTH, Layout, RAMP_LENGTH, RISER_HEIGHT } from "../track";
 import { gridWithPlots } from "./grid";
 import type { Landscape } from "./generate";
-import { bridgeLevels, checkSupport, looseHeight, riserStackAt } from "./support";
+import { archFloors, bridgeLevels, checkSupport, looseHeight, riserStackAt } from "./support";
 
 function flat(): Landscape {
   return { seed: 0, starter: false, grid: gridWithPlots(-1, -1, 2, 2), towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
@@ -173,5 +173,27 @@ describe("looseHeight", () => {
     layout.addPiece("riser", P(0, Z), RISER_HEIGHT);
     expect(looseHeight(flat(), layout, "riser", false, P(3, Z), -1)).toBe(2 * RISER_HEIGHT);
     expect(riserStackAt(layout, 10, Z - 6, -1)).toEqual({ pose: P(0, Z), top: 2 * RISER_HEIGHT });
+  });
+});
+
+describe("archFloors", () => {
+  it("an arch over a hill's edge springs from the hilltop; one over the felt reaches the felt", () => {
+    const land = flat();
+    // A one-block hill under the bridge's second half (from x = BRIDGE_LENGTH / 2 + a square on).
+    const edge = Math.ceil(BRIDGE_LENGTH / 2 / 72) * 72;
+    hill(land, edge, 1200, -144, 216);
+    const y = 2 * RISER_HEIGHT;
+    const levels = bridgeLevels(land, "bridge", false, P(0, Z), y);
+    expect(levels).toBe(2);
+    expect(archFloors(land, "bridge", false, P(0, Z), y, levels)).toEqual([2, 1]);
+    // Turned round, the other arch is the one over the hill.
+    expect(archFloors(land, "bridge", false, P(BRIDGE_LENGTH, Z, Math.PI), y, levels)).toEqual([1, 2]);
+  });
+
+  it("on level ground, or wholly over the hill, every arch reaches all the way down (null)", () => {
+    const land = flat();
+    expect(archFloors(land, "bridge", false, P(0, Z), RISER_HEIGHT, 1)).toBeNull();
+    hill(land, -216, 1200, -144, 216);
+    expect(archFloors(land, "bridge", false, P(0, Z), 2 * RISER_HEIGHT, bridgeLevels(land, "bridge", false, P(0, Z), 2 * RISER_HEIGHT))).toBeNull();
   });
 });

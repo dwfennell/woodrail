@@ -1,6 +1,6 @@
 import { Box3, Raycaster, Mesh, MeshBasicMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
-import { createSample, getPieceDef, pathLength, RAMP_LENGTH, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH } from "../track";
+import { BRIDGE_LENGTH, createSample, getPieceDef, pathLength, RAMP_LENGTH, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH } from "../track";
 import { buildPieceGeometry, GROOVE_DEPTH, PEG_HEIGHT } from "./track-geometry";
 
 function topHeightAt(geomMesh: Mesh, x: number, z: number): number | null {
@@ -38,6 +38,21 @@ describe("buildPieceGeometry", () => {
     samplePath(mid, pathLength(mid) * 0.5, s);
     const ray = new Raycaster(new Vector3(s.x, -RISER_HEIGHT / 2, s.z - 100), new Vector3(0, 0, 1));
     expect(ray.intersectObject(curve).length).toBeGreaterThan(0);
+  });
+
+  it("an arch whose floor is higher stops there (over a hill's edge); the viaduct still reaches all the way down", () => {
+    const def = getPieceDef("bridge", false);
+    const m = new Mesh(buildPieceGeometry(def, 2, [2, 1]), new MeshBasicMaterial());
+    const box = new Box3().setFromObject(m);
+    expect(box.min.y).toBeCloseTo(-2 * RISER_HEIGHT - 1, 0);
+    // Across each arch's opening, low down (between one and two levels below the deck): open under the first arch,
+    // solid under the second (its opening stops a level down, on the hilltop).
+    const across = (x: number, y: number) => new Raycaster(new Vector3(x, y, -100), new Vector3(0, 0, 1)).intersectObject(m).length;
+    const low = -1.5 * RISER_HEIGHT;
+    expect(across(BRIDGE_LENGTH * 0.28, low)).toBe(0);
+    expect(across(BRIDGE_LENGTH * 0.72, low)).toBeGreaterThan(0);
+    // Higher up, both are open.
+    expect(across(BRIDGE_LENGTH * 0.72, -0.6 * RISER_HEIGHT)).toBe(0);
   });
 
   it("a raised ramp's arches stand level on the ground under its slope", () => {

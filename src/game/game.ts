@@ -32,7 +32,7 @@ import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { bridgeLevels, findCrossings, SURF_LANE, syncCuttings, type HeldPiece, PLOT_DEPTH, type Landscape } from "../landscape";
+import { archFloors, bridgeLevels, findCrossings, SURF_LANE, syncCuttings, type HeldPiece, PLOT_DEPTH, type Landscape } from "../landscape";
 import { setHazeLand, setHazeReach } from "../render/haze";
 import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
 import type { Layout, PlacedPiece } from "../track";
@@ -203,7 +203,7 @@ export class Game {
     this.scene.add(this.landscapeView.group);
     syncCuttings(this.landscape, this.layout);
     this.landscapeView.syncTrees(this.layout);
-    this.trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
+    this.trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf, this.archFloorsOf);
     this.trackView.onRoad = this.onRoad;
     this.trackView.signalClear = (id) => this.sim.signalClear(id);
     this.scene.add(this.trackView.group);
@@ -277,7 +277,7 @@ export class Game {
     this.landscapeView.syncTrees(this.layout);
     this.scene.remove(this.trackView.group);
     this.trackView.dispose();
-    (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf);
+    (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf, this.archFloorsOf);
     this.trackView.onRoad = this.onRoad;
     this.trackView.signalClear = (id) => this.sim.signalClear(id);
     this.scene.add(this.trackView.group);
@@ -376,6 +376,8 @@ export class Game {
 
   /** How many riser heights a placed bridge's arches reach down to the ground (0 for other pieces). */
   readonly bridgeLevelsOf = (p: PlacedPiece): number => bridgeLevels(this.landscape, p.type, p.flipped, p.pose, p.y);
+  /** How far down a placed bridge's arch openings reach, over a hill's edge (null: all its levels). */
+  readonly archFloorsOf = (p: PlacedPiece, levels = this.bridgeLevelsOf(p)): number[] | null => archFloors(this.landscape, p.type, p.flipped, p.pose, p.y, levels);
 
   get world(): World {
     return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy, props: this.props };

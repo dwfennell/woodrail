@@ -301,7 +301,8 @@ evaluator.attributes = ["position", "normal", "uv"];
  * Bridge: a painted viaduct `height` tall under the deck (which is at y = 0), straight or curved, two round arches on
  * three piers.
  */
-function bridgeSupport(def: PieceDef, height: number): BufferGeometry {
+/** `floors`: how far down (riser heights) each arch's opening reaches, in `ARCH_CENTRES` order; all of `height` without. */
+function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[] | null): BufferGeometry {
   const path = def.paths[0].geom;
   const len = pathLength(path);
   // The viaduct body: a softly rounded block swept along the deck, from just below the ground to just under the track.
@@ -325,23 +326,26 @@ function bridgeSupport(def: PieceDef, height: number): BufferGeometry {
   }
   // Arch tops a spandrel below the deck; the openings reach the ground. A low viaduct's arches are smaller, so each
   // still springs a little above the ground (a full-size one would be cut off by it).
-  for (const at of ARCH_CENTRES) {
+  ARCH_CENTRES.forEach((at, i) => {
+    // Over a hill, an arch springs from the hilltop: its opening stops there (the viaduct's foot goes on down, hidden).
+    const floor = floors ? -floors[i] * RISER_HEIGHT : -height;
     samplePath(path, len * at, p);
     const archTop = p.y - ARCH_CROWN_DROP;
-    const radius = Math.min(len * ARCH_RADIUS, archTop - ground - 4);
+    // The arch's circle reaches below its centre: stopping on a hilltop, it's small enough to stand clear of it.
+    const radius = Math.min(len * ARCH_RADIUS, archTop - floor - 4, floor > -height ? (archTop - floor) / 2 : Infinity);
     // No room for an arch here (a ramp's low end, close to the ground): solid.
-    if (radius < 6) continue;
+    if (radius < 6) return;
     const arch = onlyCsgAttributes(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40).toNonIndexed());
     arch.rotateX(Math.PI / 2);
     arch.translate(0, archTop - radius, 0);
-    const opening = onlyCsgAttributes(new BoxGeometry(radius * 2, archTop - radius - ground + 2, TRACK_WIDTH + 10).toNonIndexed());
-    opening.translate(0, (archTop - radius + ground) / 2 - 1, 0);
+    const opening = onlyCsgAttributes(new BoxGeometry(radius * 2, archTop - radius - floor + 2, TRACK_WIDTH + 10).toNonIndexed());
+    opening.translate(0, (archTop - radius + floor) / 2 - 1, 0);
     for (const g of [arch, opening]) {
       g.rotateY(-p.heading);
       g.translate(p.x, 0, p.z);
       result = evaluator.evaluate(result, brush(g), SUBTRACTION);
     }
-  }
+  });
   return result.geometry;
 }
 
@@ -507,7 +511,7 @@ export function buildScaffold(def: PieceDef, bottom: number, top: number): Buffe
 }
 
 /** Geometry for a piece type in piece-local space (plan x/z → world x/z, y up, track base at y = 0). */
-export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
+export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly number[] | null = null): BufferGeometry {
   if (def.paths.length === 0) return riserGeometry();
   if (def.type === "joiner") return joinerGeometry(def);
   if (def.paths.length === 1 && def.paths[0].geom.kind === "loop") return loopGeometry(def);
@@ -522,7 +526,7 @@ export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
   const ownSupport = def.type === "ramp" && def.paths.length === 1;
   if ((levels > 0 || ownSupport) && def.paths.length === 1) {
     // Keep the viaduct's own (painted) group through the union.
-    const support = new Brush(bridgeSupport(def, levels * RISER_HEIGHT), [PAINT, PAINT, PAINT]);
+    const support = new Brush(bridgeSupport(def, levels * RISER_HEIGHT, floors), [PAINT, PAINT, PAINT]);
     support.updateMatrixWorld();
     result = evaluator.evaluate(result, support, ADDITION);
   }

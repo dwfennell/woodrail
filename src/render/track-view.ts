@@ -83,9 +83,14 @@ const baseLevels = (type: PieceTypeId) => (isBridge(type) ? 1 : 0);
 const carvedInBackground = (type: PieceTypeId) => !isJoin(type);
 
 /** The job that carves this piece (a mirrored piece is made here from the plain one; a flip that swaps ends is carved). */
-function jobFor(type: PieceTypeId, flipped: boolean, levels: number): PieceJob {
-  return flipped && getPieceDef(type, true) !== getPieceDef(type, false) && flipSwapsEnds(type) ? { type, levels, flipped: true } : { type, levels };
+function jobFor(type: PieceTypeId, flipped: boolean, levels: number, floors: readonly number[] | null = null): PieceJob {
+  const job: PieceJob = flipped && getPieceDef(type, true) !== getPieceDef(type, false) && flipSwapsEnds(type) ? { type, levels, flipped: true } : { type, levels };
+  if (floors) job.floors = floors;
+  return job;
 }
+
+/** A key's part for arch floors (none where every opening reaches all the way down). */
+const floorsKey = (floors: readonly number[] | null | undefined): string => (floors ? `/${floors.join(",")}` : "");
 
 /** Carved (by a worker, or here): into the cache, anyone waiting told (swaps batched to once a tick). */
 function built(key: string, g: BufferGeometry): void {
@@ -166,14 +171,17 @@ function carveSoon(): void {
     carving.localScheduled = false;
     let job = carving.localQueue.shift();
     while (job && geometryCache.has(resultKey(job))) job = carving.localQueue.shift();
-    if (job) built(resultKey(job), compactPiece(buildPieceGeometry(getPieceDef(job.type, !!job.flipped), job.levels)));
+    if (job) built(resultKey(job), compactPiece(buildPieceGeometry(getPieceDef(job.type, !!job.flipped), job.levels, job.floors ?? null)));
     carveSoon();
   }, LOCAL_CARVE_GAP_MS);
 }
 
 const jobOfKey = (key: string): PieceJob => {
-  const [type, side, levels] = key.split(":");
-  return side === "f" ? { type: type as PieceTypeId, levels: Number(levels), flipped: true } : { type: type as PieceTypeId, levels: Number(levels) };
+  const [type, side, rest] = key.split(":");
+  const [levels, floors] = rest.split("/");
+  const job: PieceJob = side === "f" ? { type: type as PieceTypeId, levels: Number(levels), flipped: true } : { type: type as PieceTypeId, levels: Number(levels) };
+  if (floors) job.floors = floors.split(",").map(Number);
+  return job;
 };
 
 /** Wanted now: first in line (with that kind's other heights after it, nearest first, in case it's lifted). */
@@ -228,24 +236,28 @@ function onScaffolding(shown: BufferGeometry, def: PieceDef, bottom: number, top
   return merged;
 }
 
-/** A piece's geometry; `levels` is how many riser heights a bridge's arches reach below its deck. */
-export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0): BufferGeometry {
+/**
+ * A piece's geometry; `levels` is how many riser heights a bridge's arches reach below its deck, and `floors` how far
+ * down each arch's opening reaches where that's less (a bridge over a hill's edge: see `archFloors`).
+ */
+export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0, floors: readonly number[] | null = null): BufferGeometry {
   const def = getPieceDef(type, flipped);
   const plain = def === getPieceDef(type, false);
-  const key = `${type}:${plain ? "n" : "f"}:${levels}`;
+  const key = `${type}:${plain ? "n" : "f"}:${levels}${floorsKey(floors)}`;
   let g = geometryCache.get(key);
   if (!g && carving.started && !carving.broken && carvedInBackground(type)) {
     // Not carved yet: next in line, and a stand-in meanwhile. (A mirrored piece is made here once the plain one's in.)
-    const job = jobFor(type, flipped, levels);
+    const job = jobFor(type, flipped, levels, floors);
     if (!geometryCache.has(resultKey(job))) {
       hurry(job);
-      return standIn(type, levels, def);
+      // Arches over a hill's edge: the bridge with its arches all the way down meanwhile (or its own stand-in).
+      return floors ? pieceGeometry(type, flipped, levels) : standIn(type, levels, def);
     }
   }
   if (!g) {
     // A mirrored piece is its plain shape reflected across its centre line: no need to carve it again.
     // A piece whose flip swaps its ends' peg and hole is carved as it is.
-    g = plain || flipSwapsEnds(type) ? compactPiece(buildPieceGeometry(def, levels)) : mirrored(pieceGeometry(type, false, levels));
+    g = plain || flipSwapsEnds(type) ? compactPiece(buildPieceGeometry(def, levels, floors)) : mirrored(pieceGeometry(type, false, levels, floors));
     geometryCache.set(key, g);
   }
   return g;
@@ -297,6 +309,9 @@ function turnbackFlagParts(): { pole: BufferGeometry; flag: BufferGeometry } {
   const flag = new BoxGeometry(12, 8, 1.2).translate(x - 6.5, y + 26, 12);
   return { pole, flag };
 }
+
+/** Arch floors back from a mesh key's part ("" for none). */
+const floorsOf = (part: string): number[] | null => (part ? part.split(",").map(Number) : null);
 
 /** Matrix placing piece-local geometry at a plan pose (plan x/z → world x/z; heading h → rotation.y = -h). */
 export function pieceMatrix(x: number, y: number, z: number, heading: number, out = new Matrix4()): Matrix4 {
@@ -357,6 +372,8 @@ export class TrackView {
     private readonly mats: Materials,
     /** How many riser heights a placed bridge's arches reach down (from the ground under it). */
     private readonly bridgeLevels: (piece: PlacedPiece) => number = () => 0,
+    /** How far down each of a placed bridge's arch openings reaches, where less than all its levels (`archFloors`). */
+    private readonly archFloors: (piece: PlacedPiece, levels: number) => number[] | null = () => null,
   ) {}
 
   /** A piece's colour: its own slight tint, or the selection's while it's picked. */
@@ -414,7 +431,8 @@ export class TrackView {
       if (this.layout.isLifted(id) || this.hidden.has(id)) continue;
       const p = this.layout.getPiece(id)!;
       const def = getPieceDef(p.type, p.flipped);
-      const key = `${p.type}|${def === getPieceDef(p.type, false) ? 0 : 1}|${this.bridgeLevels(p)}`;
+      const levels = this.bridgeLevels(p);
+      const key = `${p.type}|${def === getPieceDef(p.type, false) ? 0 : 1}|${levels}|${this.archFloors(p, levels)?.join(",") ?? ""}`;
       let list = groups.get(key);
       if (!list) groups.set(key, (list = []));
       list.push(id);
@@ -423,8 +441,8 @@ export class TrackView {
     const m = new Matrix4();
     const bufferIds: number[] = [];
     for (const [key, ids] of groups) {
-      const [type, flipped, levels] = key.split("|") as [PieceTypeId, string, string];
-      const mesh = new InstancedMesh(pieceGeometry(type, flipped === "1", Number(levels)), [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
+      const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
+      const mesh = new InstancedMesh(pieceGeometry(type, flipped === "1", Number(levels), floorsOf(floors)), [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       ids.forEach((id, i) => {
@@ -484,8 +502,8 @@ export class TrackView {
   /** Pieces carved in the background: those showing a stand-in take theirs (no rebuild of the rest). */
   piecesBuilt(): void {
     for (const [key, { mesh }] of this.meshes) {
-      const [type, flipped, levels] = key.split("|") as [PieceTypeId, string, string];
-      const g = pieceGeometry(type, flipped === "1", Number(levels));
+      const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
+      const g = pieceGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
       if (mesh.geometry !== g) {
         mesh.geometry = g;
         mesh.computeBoundingSphere();
@@ -506,7 +524,8 @@ export class TrackView {
     for (const id of this.highlighted) {
       const p = this.hidden.has(id) ? undefined : this.layout.getPiece(id);
       if (!p || this.layout.isLifted(id)) continue;
-      const geometry = pieceGeometry(p.type, p.flipped, this.bridgeLevels(p));
+      const levels = this.bridgeLevels(p);
+      const geometry = pieceGeometry(p.type, p.flipped, levels, this.archFloors(p, levels));
       let outline = this.outlines[n];
       if (!outline) {
         outline = new Mesh(geometry, this.outlineMaterial);
@@ -802,11 +821,11 @@ function geometryOf(r: PieceResult): BufferGeometry {
   return g;
 }
 
-const resultKey = (r: PieceJob): string => `${r.type}:${r.flipped ? "f" : "n"}:${r.levels}`;
+const resultKey = (r: PieceJob): string => `${r.type}:${r.flipped ? "f" : "n"}:${r.levels}${floorsKey(r.floors)}`;
 
 /** A stand-in mesh for a piece (held, settling, shrinking away). Pass [face, groove] materials for real wood. */
-export function ghostMesh(type: PieceTypeId, flipped: boolean, material: Material | Material[], levels = 0): Mesh {
-  const mesh = new Mesh(pieceGeometry(type, flipped, levels), material);
+export function ghostMesh(type: PieceTypeId, flipped: boolean, material: Material | Material[], levels = 0, floors: readonly number[] | null = null): Mesh {
+  const mesh = new Mesh(pieceGeometry(type, flipped, levels, floors), material);
   mesh.renderOrder = 10;
   return mesh;
 }
