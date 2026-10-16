@@ -18,11 +18,11 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { canStandOnArches, flipSwapsEnds, getPieceDef, isBridge, isJoin, pathLength, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceDef, type PieceTypeId, type PlacedPiece } from "../track";
+import { canStandOnArches, flipSwapsEnds, getPieceDef, isBridge, isJoin, pathLength, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceDef, type PieceTypeId, type PlacedPiece } from "../track";
 import { MAX_BRIDGE_LEVELS } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
-import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry, buildPieceStandIn, compactPiece } from "./track-geometry";
+import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry, buildPieceStandIn, buildScaffold, compactPiece, SLOT_CUT } from "./track-geometry";
 import type { PieceJob, PieceResult } from "./piece-worker";
 import { loadCached, saveCached } from "./piece-cache";
 import { drainQueue } from "./worker-queue";
@@ -193,16 +193,39 @@ function hurry(job: PieceJob, then?: () => void): void {
   if (carving.running === 0) startWorkers(1);
 }
 
-/** Drawn while a piece is carved: its lowest arches if those are ready, else its plain body. */
-function standIn(type: PieceTypeId, flipped: boolean, levels: number, def: PieceDef): BufferGeometry {
-  if (levels > baseLevels(type)) {
-    const base = geometryCache.get(`${type}:${def === getPieceDef(type, false) ? "n" : "f"}:${baseLevels(type)}`);
-    if (base) return base;
-  }
-  const key = `${type}:${flipped ? "f" : "n"}`;
+/**
+ * Drawn while a piece is carved: its lowest arches if those are ready, else its plain body; standing on wooden
+ * scaffolding where it's lifted higher than that reaches.
+ */
+function standIn(type: PieceTypeId, levels: number, def: PieceDef): BufferGeometry {
+  const side = def === getPieceDef(type, false) ? "n" : "f";
+  const lowest = geometryCache.get(`${type}:${side}:${baseLevels(type)}`);
+  const plainKey = `${type}:${side}`;
+  let plain = standIns.get(plainKey);
+  if (!lowest && !plain) standIns.set(plainKey, (plain = buildPieceStandIn(def)));
+  const shown = lowest ?? plain!;
+  if (levels <= baseLevels(type)) return shown;
+  // Scaffolding from the ground up to where what's shown stops (the lowest arches' feet, or the deck).
+  const key = `${type}:${side}:${levels}:${lowest ? "arches" : "plain"}`;
   let g = standIns.get(key);
-  if (!g) standIns.set(key, (g = buildPieceStandIn(def)));
+  if (!g) standIns.set(key, (g = onScaffolding(shown, def, -levels * RISER_HEIGHT, lowest ? -baseLevels(type) * RISER_HEIGHT : 0)));
   return g;
+}
+
+/** `shown` with scaffolding under it, from `bottom` to `top`, in the darker wood. */
+function onScaffolding(shown: BufferGeometry, def: PieceDef, bottom: number, top: number): BufferGeometry {
+  const built = buildScaffold(def, bottom, top);
+  if (!built) return shown;
+  const scaffold = shown.index ? built : built.toNonIndexed();
+  const merged = mergeGeometries([shown, scaffold]);
+  if (!merged) return shown;
+  merged.clearGroups();
+  for (const gr of shown.groups) merged.addGroup(gr.start, gr.count, gr.materialIndex);
+  const count = (g: BufferGeometry) => (g.index ? g.index.count : g.attributes.position.count);
+  merged.addGroup(count(shown), count(scaffold), SLOT_CUT);
+  merged.computeBoundingBox();
+  merged.computeBoundingSphere();
+  return merged;
 }
 
 /** A piece's geometry; `levels` is how many riser heights a bridge's arches reach below its deck. */
@@ -216,7 +239,7 @@ export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0): 
     const job = jobFor(type, flipped, levels);
     if (!geometryCache.has(resultKey(job))) {
       hurry(job);
-      return standIn(type, flipped, levels, def);
+      return standIn(type, levels, def);
     }
   }
   if (!g) {

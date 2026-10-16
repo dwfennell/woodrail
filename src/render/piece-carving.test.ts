@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getPieceDef, type PieceTypeId } from "../track";
+import { getPieceDef, RISER_HEIGHT, type PieceTypeId } from "../track";
 import type { PieceJob, PieceResult } from "./piece-worker";
 import { buildPieceGeometry, compactPiece } from "./track-geometry";
 
@@ -93,9 +93,14 @@ describe("pieces carved in the background", () => {
     expect(built).toBe(true);
     const low = tv.pieceGeometry("bridge", false, 1);
     const shown = tv.pieceGeometry("bridge", false, 3);
-    expect(shown).toBe(low);
+    // Its lowest arches, on scaffolding (one more group, the darker wood) down to the ground three levels below;
+    // made once (the same one each time it's asked for).
+    expect(shown.groups.length).toBe(low.groups.length + 1);
+    shown.computeBoundingBox();
+    expect(shown.boundingBox!.min.y).toBeCloseTo(-3 * RISER_HEIGHT, -1);
+    expect(tv.pieceGeometry("bridge", false, 3)).toBe(shown);
     const asked = jobs.length;
-    await until(() => tv.pieceGeometry("bridge", false, 3) !== low);
+    await until(() => tv.pieceGeometry("bridge", false, 3) !== shown);
     expect(jobs[asked]).toEqual({ type: "bridge", levels: 3 });
     expect(swaps.n).toBeGreaterThan(0);
     const real = tv.pieceGeometry("bridge", false, 3);
