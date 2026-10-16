@@ -423,7 +423,10 @@ export class Economy {
     } else if (d.piles[CARGO[c.kind].index] >= capAt(d)) return false;
     // A routed train drops goods only at its stops that say so.
     const route = this.routeOfCar(carId);
-    return route ? stopAt(route, d.id, "drop") : !RECIPES[d.role].routedOnly;
+    if (route) return stopAt(route, d.id, "drop");
+    // Goods kept for a workshop: an unrouted train carries them on past the towns.
+    if (d.role === "town" && this.reserved?.(c.kind)) return false;
+    return !RECIPES[d.role].routedOnly;
   }
 
   /** Give this engine's train a route (null or no stops: none; it's served wherever it goes). */
@@ -757,6 +760,12 @@ export class Economy {
    * wants for its next level, so the rest rides on to the next town). Null: everything its recipe takes.
    */
   accepts: ((d: DepotState, kind: CargoKind) => boolean) | null = null;
+
+  /**
+   * Goods a mode keeps for a workshop (Game mode: planks, while the workshop is short of what the cheapest blueprint
+   * on the board needs): towns don't take them from unrouted trains, which carry them on to the workshop.
+   */
+  reserved: ((kind: CargoKind) => boolean) | null = null;
 
   /** Ticks a crane takes to move a load (Game mode's quicker cranes make it shorter). */
   craneTicks = CRANE_TICKS;

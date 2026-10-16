@@ -871,12 +871,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       save();
     },
     learn: (id) => {
+      // (Not yet: the card's reason line beside the button already says why.)
       if (learnWithGoods(game.world, progress, id)) learned(id);
-      else {
-        const t = techOf(id)!;
-        const price = priceOf(progress, t);
-        hud.toast(learnWhy(goodsOf(t, price), price.coins ?? 0, workshopStock(game.world)) ?? `${t.label}: can't learn it yet`, false, 3200);
-      }
     },
     close: () => setBoardOpen(false),
   });
@@ -1078,7 +1074,26 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       scheduleSave();
     });
   }
+  /** Planks kept for the workshop: it's short of what the cheapest blueprint on the board needs (worked out once a second). */
+  let planksKept = false;
+  const keepPlanks = (kind: string) => kind === "planks" && planksKept;
+  function updatePlanksKept(): void {
+    game.economy.reserved = mode === "game" ? keepPlanks : null;
+    if (mode !== "game" || workshops(game.world).length === 0) {
+      planksKept = false;
+      return;
+    }
+    let cheapest = Infinity;
+    for (const t of TECHS) {
+      if (!progress.board.has(t.id) || progress.learned.has(t.id) || !ready(progress, t.id)) continue;
+      const planks = priceOf(progress, t).planks ?? 0;
+      if (planks > 0) cheapest = Math.min(cheapest, planks);
+    }
+    planksKept = (workshopStock(game.world).planks ?? 0) < cheapest && cheapest < Infinity;
+  }
+
   setInterval(() => {
+    updatePlanksKept();
     if (mode !== "game" || !playing || game.paused) return;
     for (const e of harbourTrade.update(game.world, progress)) {
       if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL);
