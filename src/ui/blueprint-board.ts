@@ -315,7 +315,12 @@ export class BlueprintBoard {
       return `<div class="bp-ticket hint"><div class="bp-ticket-head"><b>Not found yet</b><span>Something new${known.length ? ` after ${esc(known.map((k) => k.label).join(" and "))}` : ""}. Learn what leads to it to see what it is.</span></div></div>`;
     }
     const makes = s.makes.map((m) => `<span class="bp-make">${m.icon}<span>${esc(m.label)}</span></span>`).join("");
-    const needs = s.needs.map((n) => byId.get(n)?.label ?? "something not found yet");
+    // What it needs and what it opens, in words (on a phone the list draws no links between them).
+    const needs = s.needs.map((n) => {
+      const x = byId.get(n);
+      return x ? `${x.label}${x.state === "learned" ? " ✓" : ""}` : "something not found yet";
+    });
+    const opens = [...byId.values()].filter((x) => x.needs.includes(s.id) && x.seen === "shown").map((x) => x.label);
     const reqs = s.requires.map((r) => `<span class="bp-req${r.met ? " met" : ""}">${r.met ? "✓ " : ""}${esc(r.text)}</span>`).join("");
     let foot = "";
     if (s.state === "learned") foot = `<span class="bp-done">Learned</span>`;
@@ -333,6 +338,6 @@ export class BlueprintBoard {
       const cost = s.why ? `<span class="bp-why">${esc(s.why)}</span>` : gauge;
       foot = `<span class="bp-cost">${cost}</span><button class="chip text${s.affordable ? " primary" : ""}" data-act="learn" data-id="${s.id}" ${s.affordable ? "" : `aria-disabled="true" title="${esc(s.why ?? "")}"`}>Learn · ${esc(s.price)}</button>`;
     } else foot = `<span class="bp-waits">${esc(s.waits ?? "Later")}</span>`;
-    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b><span>${esc(s.blurb)}</span></div>${makes ? `<div class="bp-makes">${makes}</div>` : ""}<div class="bp-ticket-needs">${needs.length ? `<span>Needs ${esc(needs.join(" + "))}</span>` : ""}${s.state !== "learned" && (s.price !== "free" || reqs) ? `<span>${s.price !== "free" ? `Price: ${esc(s.price)}` : ""}</span>${reqs}` : ""}</div><div class="bp-ticket-foot">${foot}</div></div>`;
+    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b><span>${esc(s.blurb)}</span></div>${makes ? `<div class="bp-makes">${makes}</div>` : ""}<div class="bp-ticket-needs">${needs.length ? `<span>Needs: ${esc(needs.join(" + "))}</span>` : ""}${opens.length ? `<span>Opens: ${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}</span>` : ""}${s.state !== "learned" && (s.price !== "free" || reqs) ? `<span>${s.price !== "free" ? `Price: ${esc(s.price)}` : ""}</span>${reqs}` : ""}</div><div class="bp-ticket-foot">${foot}</div></div>`;
   }
 }

@@ -407,7 +407,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-make { display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 4px; border-radius: 10px; background: #f3e6cf; font-size: 12.5px; font-weight: 700; color: #5a3d22; }
 .bp-make svg { width: 34px; height: 22px; }
 .bp-ticket-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.bp-ticket-foot .chip { height: 38px; font-size: 14.5px; }
+.bp-ticket-foot .chip { height: 44px; font-size: 14.5px; }
 .bp-ticket-foot .chip:disabled { opacity: 0.5; cursor: default; }
 .bp-cost { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 150px; }
 .bp-gauge { height: 10px; border-radius: 5px; background: #ecdcbf; overflow: hidden; box-shadow: inset 0 1px 2px rgba(80, 50, 20, 0.2); }
@@ -418,7 +418,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-done { color: #3f7d3c; }
 .bp-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px; border-radius: 14px; background: rgba(226, 161, 43, 0.18); font-weight: 800; color: #5a3d06; }
 .bp-offer-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.bp-offer .chip { height: 36px; font-size: 14px; }
+.bp-offer .chip { height: 44px; font-size: 14px; }
 .bp-offer .or { font-weight: 900; color: #8a6440; }
 @media (max-width: 520px) {
   .board-sub { display: none; }
