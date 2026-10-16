@@ -41,11 +41,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .chip.primary { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
 .chip.attention { background: linear-gradient(180deg, #ffd88a, #f0ae3c); animation: nudge 1.6s ease-in-out infinite; }
 /* Under the top bar, on the right (the goals panel is on the left); the toast, which is centred, sits above it. */
-.update-chip { position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%); z-index: 20; height: 44px; white-space: nowrap; }
+.menu-update { color: #2d5a2a; background: #d9ead2; }
 .chip .ui-icon { display: block; margin: 0 auto; }
 @keyframes nudge { 0%, 70%, 100% { transform: none; } 78% { transform: rotate(-4deg); } 86% { transform: rotate(4deg); } }
 
-.menu { z-index: 30; position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 54px); right: 12px; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 16px; background: rgba(250, 243, 230, 0.94); backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(60, 40, 20, 0.25); min-width: 210px; }
+.menu { z-index: 36; position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 54px); right: 12px; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 16px; background: rgba(250, 243, 230, 0.94); backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(60, 40, 20, 0.25); min-width: 210px; }
 .menu-item { text-align: left; border: none; background: transparent; font: inherit; font-weight: 700; padding: 12px 14px; border-radius: 10px; color: #3a2a1c; cursor: pointer; }
 .menu-item:hover { background: #ead7b8; }
 .menu-item:disabled { opacity: 0.45; cursor: default; }

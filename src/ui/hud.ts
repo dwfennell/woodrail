@@ -177,6 +177,7 @@ export class Hud {
   private wayAngle = 0;
   private readonly toastEl = el("div", "toast");
   private readonly menu = el("div", "menu");
+  private menuBtn!: HTMLButtonElement;
   private readonly help = el("div", "help");
   private readonly modeTag = el("span", "mode-tag");
   /** Game mode's coins, by the logo. */
@@ -236,7 +237,8 @@ export class Hud {
     // On a phone the bar can't hold them all: these move into the menu (see `.narrow-menu`).
     for (const b of [this.landBtn, this.redoBtn, this.soundBtn]) b.classList.add("wide-only");
     actions.append(this.rerailBtn, this.boardBtn, this.mapBtn, this.landBtn, this.undoBtn, this.redoBtn, this.pauseBtn, this.soundBtn);
-    actions.append(button(uiIcon("menu"), "Menu", () => this.toggleMenu()));
+    this.menuBtn = button(uiIcon("menu"), "Menu", () => this.toggleMenu());
+    actions.append(this.menuBtn);
     top.appendChild(actions);
     this.root.appendChild(top);
     installTooltips(this.root);
@@ -545,11 +547,7 @@ export class Hud {
     // A tap dismisses a toast early (and the next waiting comes on).
     this.toastEl.addEventListener("click", (e) => {
       e.stopPropagation();
-      clearTimeout(this.toastTimer);
-      this.toastEl.classList.remove("show");
-      this.toastHeldUntil = 0;
-      this.heldRefusal = null;
-      this.flushToasts();
+      this.dismissToast();
     });
 
     this.help.hidden = true;
@@ -706,12 +704,19 @@ export class Hud {
     this.boardBtn.classList.toggle("icon-btn-alert", alert);
   }
 
-  /** A newer build is out: a chip under the top bar offers it (once). */
-  showUpdateChip(onTap: () => void): void {
-    if (this.root.querySelector(".update-chip")) return;
-    // Over the tray, in the middle: clear of the top bar, the goals and the nudges (and away with the tray while a
-    // card's up).
-    this.tray.appendChild(button("New version · Update", "A newer version of Woodrail is ready: saves, then reloads", onTap, "chip text update-chip"));
+  /**
+   * A newer build is out: offered in the menu (its button gets a dot) and said once in a toast. Nothing new on the map
+   * or over the tray, so it never covers a control or a card, on a phone or not.
+   */
+  showUpdate(onTap: () => void): void {
+    if (this.menu.querySelector(".menu-update")) return;
+    const item = button("New version · Update", "A newer version of Woodrail is ready: saves, then reloads", () => {
+      this.menu.hidden = true;
+      onTap();
+    }, "menu-item menu-update");
+    this.menu.prepend(item);
+    this.menuBtn.classList.add("icon-btn-alert");
+    this.toast("A new version is ready: Update is in the menu", false, 6000);
   }
 
   /** The map view is open: its button lit, the goals and tray put away. */
@@ -732,6 +737,8 @@ export class Hud {
 
   toggleMenu(): void {
     this.menu.hidden = !this.menu.hidden;
+    // The toast showing is over the menu's top items: it goes (the next waiting, if any, comes on under the menu).
+    if (!this.menu.hidden && this.toastEl.classList.contains("show")) this.dismissToast();
   }
 
   setHistory(canUndo: boolean, canRedo: boolean): void {
@@ -1094,6 +1101,15 @@ export class Hud {
       const old = this.toastQueue.findIndex((q) => !q.celebrate);
       this.toastQueue.splice(old === -1 ? 0 : old, 1);
     }
+    this.flushToasts();
+  }
+
+  /** The toast showing goes now, and the next waiting comes on. */
+  private dismissToast(): void {
+    clearTimeout(this.toastTimer);
+    this.toastEl.classList.remove("show");
+    this.toastHeldUntil = 0;
+    this.heldRefusal = null;
     this.flushToasts();
   }
 

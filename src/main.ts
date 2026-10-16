@@ -1497,6 +1497,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (r.kind === "alone") return hud.toast("Nothing coupled to uncouple there", false, 2500);
     if (r.kind !== "decoupled") return;
     audio.magnet(0.6, 0);
+    // The gap is only a few mm: say what came away.
+    const away = game.sim.getTrain(r.trainId)?.cars ?? [];
+    const noun = away.some((c) => c.kind === "engine") ? "car" : "wagon";
+    hud.toast(`Uncoupled ${away.length} ${noun}${away.length === 1 ? "" : "s"}`, false, 2500);
     const found = game.sim.findCar(carId);
     if (found?.train.cars[found.index].kind === "engine") hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
     game.invalidate();
@@ -2072,7 +2076,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     startUpdateCheck({
       currentBuild: __BUILD_ID__,
       onNewVersion: (build) =>
-        hud.showUpdateChip(() => {
+        hud.showUpdate(() => {
           saveOnLeaving();
           location.replace(`${location.pathname}?v=${encodeURIComponent(build)}${location.hash}`);
         }),
