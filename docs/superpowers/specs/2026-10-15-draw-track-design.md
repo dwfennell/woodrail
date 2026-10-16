@@ -58,10 +58,21 @@ The line grows one piece at a time, from the end the line has reached so far:
    from the stroke, and how far its heading differs from the stroke's heading there. Measure at the first end too.
    Each piece adds a small cost, so a long straight beats two short ones on a straight run. The best pair wins, and
    only its first piece is laid. The next step looks again from there. This keeps a gentle curve from turning into a
-   zig-zag, and lets the line drift back onto the stroke with an opposite pair of curves.
+   zig-zag, and lets the line drift back onto the stroke with an opposite pair of curves. To keep the choice calm
+   (QA N3):
+   - The stroke's heading is taken across 6 cm either side (less near its ends), and the first 5 mm and 0.1 rad
+     (about 6°) off cost nothing, so a hand's wobble of up to ±10 mm doesn't break a straight run into short pieces.
+   - Each piece's own turn is compared with how much the stroke turns along it. A straight run on into a wide arc,
+     made up for by a tighter curve, can have both its ends on the stroke, but it doesn't turn the way the stroke does.
+   - A piece bending another way from the one before costs a little (another radius or the other hand more, straight
+     to curve or back less), so a steady arc stays one radius.
+   - While drawing, a second piece that runs on past the stroke drawn so far is scored only up to the stroke's end, and
+     costs only the share of it used there. Gaining stroke counts only up to its end. (Beyond the end, nobody knows yet
+     where the finger goes; scoring a straight carried on there used to favour straights on a curve.)
 3. **Only grow behind the finger.** The next piece is chosen only once the stroke reaches at least one long piece past
    the line's end, so the look-ahead sees where the finger went. When the finger lifts, the line grows to the end of
-   the stroke, choosing the best piece, until what's left is shorter than half a mini straight.
+   the stroke, choosing the best piece. Stopping is scored too (how far the line's end is from the stroke's end, and
+   off its heading), so the line ends a little short of or past the finger, whichever fits, within about 2 cm.
 4. **Stop** at the first piece that is blocked, or that the player has none of.
 
 The stroke near the line's end is found with a windowed nearest-point search, so each step costs the same however

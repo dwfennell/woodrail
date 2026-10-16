@@ -80,6 +80,61 @@ describe("draw path", () => {
     expect(line.pieces.every((p) => p.type.startsWith("straight"))).toBe(true);
   });
 
+  /** Straight on `lead` mm along +x, then a quarter circle of radius r turning toward +z (sign 1) or −z (sign −1). */
+  const leadThenArc = (lead: number, r: number, sign: 1 | -1) => (s: number) => {
+    if (s < lead) return { x: s, z: 0 };
+    const a = (s - lead) / r;
+    return { x: lead + r * Math.sin(a), z: sign * r * (1 - Math.cos(a)) };
+  };
+
+  it("a wide arc after a straight lead-in is wide curves, not straights and tighter curves in turn (QA N3)", () => {
+    for (const lead of [100, 150, 200])
+      for (const sign of [1, -1] as const) {
+        const name = `lead ${lead}, sign ${sign}`;
+        const line = draw(new DrawLine(START), lead + (270 * Math.PI) / 2, leadThenArc(lead, 270, sign));
+        const types = line.pieces.map((p) => p.type);
+        const curves = types.filter((t) => t.startsWith("curve"));
+        expect(curves.filter((t) => t === "curve-wide").length, `${name}: ${types}`).toBeGreaterThan(curves.length / 2);
+        // At most one straight among the curves.
+        const first = types.findIndex((t) => t.startsWith("curve"));
+        const last = types.length - 1 - [...types].reverse().findIndex((t) => t.startsWith("curve"));
+        expect(types.slice(first, last + 1).filter((t) => t.startsWith("straight")).length, `${name}: ${types}`).toBeLessThanOrEqual(1);
+        expect(angleDiff(line.end.heading, (sign * Math.PI) / 2), name).toBeLessThan(0.01);
+        expectJoined(line);
+      }
+  });
+
+  it("the curve's own radius after a lead-in is still the curve", () => {
+    for (const lead of [100, 150, 200]) {
+      const line = draw(new DrawLine(START), lead + (180 * Math.PI) / 2, leadThenArc(lead, 180, 1));
+      const types = line.pieces.map((p) => p.type);
+      expect(types.filter((t) => t.startsWith("curve")), `lead ${lead}: ${types}`).toEqual(["curve-large", "curve-large"]);
+      expect(angleDiff(line.end.heading, Math.PI / 2)).toBeLessThan(0.01);
+    }
+  });
+
+  it("a 200 mm straight is one long piece (ending within joint play of the stroke's end), not a long one and minis (QA N3)", () => {
+    const line = draw(new DrawLine(START), 200, (s) => ({ x: s, z: 0 }));
+    const types = line.pieces.map((p) => p.type);
+    expect(types.length, `${types}`).toBeLessThanOrEqual(2);
+    expect(types, `${types}`).not.toContain("straight-54");
+    expect(Math.abs(line.end.x - 200)).toBeLessThanOrEqual(20);
+  });
+
+  it("a hand's wobble (±8 mm, ±10 mm) doesn't break a long straight into short pieces (QA N3)", () => {
+    for (const amp of [8, 10])
+      for (const phase of [0, 1, 2, 3, 4, 5]) {
+        const name = `±${amp} mm, phase ${phase}`;
+        const at = (s: number) => ({ x: s, z: amp * (Math.sin((2 * Math.PI * s) / 150 + phase) - Math.sin(phase)) });
+        const line = draw(new DrawLine(START), 900, at);
+        const types = line.pieces.map((p) => p.type);
+        // Long and medium straights only, but for one shorter piece at the end.
+        expect(types.slice(0, -1).every((t) => t === "straight-216" || t === "straight-144"), `${name}: ${types}`).toBe(true);
+        expect(types[types.length - 1].startsWith("straight"), `${name}: ${types}`).toBe(true);
+        expect(Math.abs(line.end.x - 900), name).toBeLessThan(30);
+      }
+  });
+
   it("an L with a rounded corner: straights, two curves, straights", () => {
     const pts = (s: number) => {
       if (s < 400) return { x: s, z: 0 };
