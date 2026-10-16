@@ -21,7 +21,7 @@ import { landmarkOf, landmarksOf } from "./game/landmarks";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { Crafting, workshops, workshopStock } from "./game/crafting";
+import { craftNow, Crafting, workshops, workshopStock } from "./game/crafting";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
@@ -819,13 +819,47 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.toast(t.plan ? `${t.label}: coming soon` : `${t.label}: learn its blueprint first${t.requires.length ? ` (${t.requires.map(describeNeed).join(", ")})` : ""}`, false, 3600);
       return false;
     }
-    const short = progress.short(game.world, thingsFor(item as Parameters<typeof thingsFor>[0]));
-    if (!short) return true;
-    const rule = ruleOf(short)!;
-    if (!progress.knows(short)) hud.toast(`${rule.label}: not learned yet`);
-    else if (workshops(game.world).length === 0) hud.toast(`No ${rule.label.toLowerCase()} left. Place your workshop (Industries tab) to make more`, false, 3600);
-    else hud.toast(`No ${rule.label.toLowerCase()} left. Make one at the workshop: ${describeGoods(rule.cost)}`, false, 3600);
-    return false;
+    const needs = thingsFor(item as Parameters<typeof thingsFor>[0]);
+    // None left of something it takes: made on the spot from the workshop's yard, if it has the goods.
+    let made = false;
+    for (let guard = 0; guard < 12; guard++) {
+      const short = progress.short(game.world, needs);
+      if (!short) break;
+      const rule = ruleOf(short)!;
+      if (!progress.knows(short)) {
+        hud.toast(`${rule.label}: not learned yet`);
+        return false;
+      }
+      const why = craftNow(game.world, progress, short);
+      if (why === "no-workshop") {
+        hud.toast(`No ${rule.label.toLowerCase()} left. Place your workshop (Industries tab) to make more`, false, 3600);
+        return false;
+      }
+      if (why) {
+        const lack = [total(why.goods) > 0 ? `${describeGoods(why.goods)} more at the workshop` : "", why.coins > 0 ? `${why.coins} more coins` : ""].filter(Boolean).join(" and ");
+        hud.toast(`${rule.label}: needs ${lack}`, false, 3600);
+        if (made) afterCraft();
+        return false;
+      }
+      made = true;
+    }
+    if (made) afterCraft();
+    return true;
+  }
+
+  /** A short cost for a tray badge: "3🪵" for planks, else "2 iron". */
+  function costTag(cost: Bag): string {
+    return kindsOf(cost)
+      .map((k) => (k === "planks" ? `${cost[k]}🪵` : `${cost[k]} ${k}`))
+      .join(" ");
+  }
+
+  /** Something was made from the tray: the toy box's counts and the coins change. */
+  function afterCraft(): void {
+    hud.setCoins(progress.coins);
+    hud.refreshTrayBadges();
+    showWorkshop(true);
+    scheduleSave();
   }
 
   /** A train item in a look whose blueprint isn't learned yet (a dining car, an express engine): that blueprint. */
@@ -839,7 +873,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /** The toy box on the tray (Game mode): how many of each are left. */
-  function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean; attention?: boolean } | null {
+  function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean } | null {
     if (item.kind !== "piece" && item.kind !== "train") return null;
     const needs = thingsFor(item as Parameters<typeof thingsFor>[0]);
     if ([...needs.keys()].every(isFree)) return null;
@@ -848,6 +882,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     for (const [id, k] of needs) n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
     // The workshop, while there's none on the map: it's where planks go to learn blueprints.
     const attention = n > 0 && "type" in item && item.type === "depot-workshop" && workshops(game.world).length === 0;
+    // None left, but a workshop to make more: what one costs (taken from its yard on the spot).
+    if (n === 0 && workshops(game.world).length > 0) {
+      const short = progress.short(game.world, needs);
+      const rule = short ? ruleOf(short) : null;
+      if (rule) return { text: costTag(rule.cost), empty: false, craft: true };
+    }
     return { text: String(n), empty: n === 0, ...(attention ? { attention } : {}) };
   }
 

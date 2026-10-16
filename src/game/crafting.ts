@@ -1,6 +1,6 @@
 import { CARGO, CARGO_KINDS } from "../economy/cargo";
 import type { DepotState } from "../economy/economy";
-import { covers, kindsOf, type Bag } from "../economy/goods";
+import { covers, kindsOf, minus, total, type Bag } from "../economy/goods";
 import type { Progress } from "./progress";
 import { ruleOf, type ThingId } from "./things";
 import type { World } from "./world";
@@ -33,6 +33,23 @@ export function takeFromWorkshops(world: World, bag: Bag): boolean {
     }
   }
   return true;
+}
+
+/**
+ * Make one `id` at once, from the tray (Game mode): its goods from the workshops' yards and its coins, into the toy
+ * box. Returns null if made, else what's missing (goods still needed in the yards, and coins), or "no-workshop".
+ */
+export function craftNow(world: World, p: Progress, id: ThingId): null | "no-workshop" | { goods: Bag; coins: number } {
+  const rule = ruleOf(id);
+  if (!rule || !p.knows(id)) return { goods: {}, coins: 0 };
+  if (workshops(world).length === 0) return "no-workshop";
+  const goods = minus(rule.cost, workshopStock(world));
+  const coins = Math.max(0, (rule.coins ?? 0) - p.coins);
+  if (total(goods) > 0 || coins > 0) return { goods, coins };
+  takeFromWorkshops(world, rule.cost);
+  p.coins -= rule.coins ?? 0;
+  p.add(id);
+  return null;
 }
 
 /**
