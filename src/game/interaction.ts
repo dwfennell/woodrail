@@ -967,7 +967,7 @@ export class Interaction {
     if (this.dragHinted) return;
     this.dragHinted = true;
     markHintSeen("drag-selected");
-    this.hud.toast("Drag it to move it · drag anywhere else to look around", false, 3600);
+    this.hud.toast("Drag to move · drag elsewhere to look", false, 3600);
   }
 
   clearSelection(): void {

@@ -91,6 +91,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .card-row, .lever-row { display: flex; gap: 8px; }
 .card-hint { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; margin-top: -6px; max-width: 300px; }
 .piece-card .select-more { background: transparent; box-shadow: none; height: 32px; font-size: 14px; color: #8a6036; text-decoration: underline dotted; text-underline-offset: 4px; margin-top: -4px; }
+/* (Drawn 32 px, a link; it takes a tap 4 px above, clear of the buttons, and 8 below: 44 px.) */
+.piece-card .select-more { position: relative; }
+.piece-card .select-more::after { content: ""; position: absolute; inset: -4px 0 -8px; }
 /* Picking several pieces: the card moves up out of the way of the track being picked. */
 .card.piece-card.group { bottom: auto; top: calc(max(10px, env(safe-area-inset-top)) + 64px); gap: 8px; padding: 10px 14px 12px; }
 .piece-card.group .card-row { flex-wrap: wrap; justify-content: center; }
