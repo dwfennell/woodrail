@@ -1623,7 +1623,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   });
   /**
    * The opening view: a medium view of where track was last put down (else of the track built so far) or, on a bare
-   * map, the first two towns, with a hint to join them.
+   * map, the first two towns (in Game mode, with a hint to join them: Sandbox has no goals).
    */
   function openingView(): void {
     let at = loadLastBuilt(mode);
@@ -1656,6 +1656,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const top = up[0] > up[1] ? a.station : b.station;
     const lean = 0.15;
     game.lookAt(new Vector3(f.x + (top.x - f.x) * lean * 2, 0, f.z + (top.z - f.z) * lean * 2), f.distance * 1.3, 0.95, f.theta);
+    if (mode !== "game") return;
     // Their names over them for a while (as "Show me" does): the chip only says "Join two towns".
     if (game.layout.pieceCount === game.stations.size + game.depots.size) {
       const grid = game.landscape.grid;
