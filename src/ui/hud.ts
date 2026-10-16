@@ -573,6 +573,7 @@ export class Hud {
     if (look) look.innerHTML = `<svg viewBox="0 0 48 48" width="44" height="44" fill="none" stroke="#6a4a2c" stroke-width="3" stroke-linecap="round"><circle cx="21" cy="21" r="11"/><path d="m29.5 29.5 9 9"/><path d="M21 16v10M16 21h10"/></svg>`;
     const ok = button("Let's play", "Close help", () => {
       this.help.hidden = true;
+      this.flushToasts();
       try {
         localStorage.setItem("woodrail.helpSeen", "1");
       } catch {
@@ -1087,6 +1088,8 @@ export class Hud {
 
   private flushToasts(): void {
     clearTimeout(this.toastFlushTimer);
+    // Held while the help card is up (it would cover them); closing it lets them through.
+    if (!this.help.hidden) return;
     const wait = this.toastHeldUntil - performance.now();
     if (wait > 0) {
       this.toastFlushTimer = window.setTimeout(() => this.flushToasts(), wait);

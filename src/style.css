@@ -240,7 +240,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* Folded up: one line, as wide as the goal's title needs (up to a limit). */
 .goals.collapsed { width: auto; max-width: min(460px, calc(100% - 24px)); }
 .goals-top { display: flex; align-items: center; gap: 4px; padding-right: 8px; }
-.goals-head { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; font: inherit; color: inherit; padding: 10px 6px 6px 14px; cursor: pointer; text-align: left; }
+.goals-head { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; font: inherit; color: inherit; padding: 10px 6px 6px 14px; min-height: 44px; cursor: pointer; text-align: left; }
 .goals-label { flex: none; font-weight: 800; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #8a6440; }
 .goals-count { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 800; font-size: 12px; background: #d9ead2; color: #2d5a2a; border-radius: 999px; padding: 2px 8px; }
 .goals-now { display: none; font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
