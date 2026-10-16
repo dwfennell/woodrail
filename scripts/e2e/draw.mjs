@@ -363,15 +363,26 @@ if (site) {
     return [...w.layout.pieceIds()].slice(n0).map((id) => w.layout.getPiece(id).type);
   }, n0);
   check("on a phone, a one-finger drag lays a line that bends", added.length >= 2 && added.some((t) => t.startsWith("curve")), added.join(" "));
-  // Nothing happening: no frames drawn.
-  const idle = await q.evaluate(async () => {
-    const r = window.woodrail.renderer;
+  // Nothing happening: no frames drawn. (Boats sail on and draw as they go: held still while this is measured, and the
+  // frames they draw counted on their own.)
+  const [idle, sailing] = await q.evaluate(async () => {
+    const w = window.woodrail;
+    const r = w.renderer;
+    const frames = async () => {
+      const f0 = r.info.render.frame;
+      await new Promise((res) => setTimeout(res, 2000));
+      return r.info.render.frame - f0;
+    };
     await new Promise((res) => setTimeout(res, 2500));
-    const f0 = r.info.render.frame;
-    await new Promise((res) => setTimeout(res, 2000));
-    return r.info.render.frame - f0;
+    const sailing = await frames();
+    const sail = w.boats.update;
+    w.boats.update = () => false;
+    await new Promise((res) => setTimeout(res, 500));
+    const idle = await frames();
+    w.boats.update = sail;
+    return [idle, sailing];
   });
-  check("idle after drawing: no frames drawn", idle === 0, `${idle} frames in 2 s`);
+  check("idle after drawing: no frames drawn", idle === 0, `${idle} frames in 2 s (${sailing} with boats sailing)`);
 }
 
 check("no page errors", errors.length === 0, errors.join(" | "));
