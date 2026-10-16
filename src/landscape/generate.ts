@@ -130,6 +130,19 @@ const CORRIDOR_HALF_WIDTH = 2 * CELL;
 const TRACK_ROW = CELL / 2;
 /** On the starter map, from a first town's centre to its depot's (the sawmill beyond one, the forest beyond the other). */
 const STARTER_DEPOT_GAP = 1080;
+/**
+ * The starter sawmill's way in: three long straights (648 mm) out from the first town's station, then a quarter turn
+ * of two large curves (radius 180) into the sawmill, which stands across the line, toward the middle of the map.
+ */
+const STARTER_RUN = 648;
+const STARTER_TURN = 180;
+/** Rows either side of the first two towns' line kept free of hills between them (open ground to join them). */
+const STARTER_OPEN_ROWS = 5;
+
+/** Where the starter line's straight run ends and the turn to the sawmill begins, and which way it turns (+1: +z). */
+function starterTurn(a: { centre: { x: number; z: number } }): { x: number; side: number } {
+  return { x: a.centre.x - HALF_STATION - STARTER_RUN, side: a.centre.z > 0 ? -1 : 1 };
+}
 
 const NAMES = [
   "Applebury", "Millbrook", "Oakhollow", "Pinecrest", "Thimble Cross", "Larkfield", "Brambleton", "Copperdale",
@@ -300,24 +313,31 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
   }
   for (const town of towns) town.cells = town.cells.filter((i) => !protectedCells.has(i) || grid.feature[i] === FEAT_STATION);
 
+  /** Kept free of hills (but not of trees): open ground between the starter map's first two towns. */
+  const open = new Set<number>();
   if (starter) {
-    // The starter line: a clear strip along the first two towns' stations, from the sawmill to the forest yard.
-    const [a] = towns;
-    const [saw, forest] = depots;
+    // The starter line: a clear strip along the first two towns' stations, from the turn to the sawmill to the forest
+    // yard, and the turn itself (a quarter circle into the sawmill).
+    const [a, b] = towns;
+    const [, forest] = depots;
+    const turn = starterTurn(a);
+    const pivot = { x: turn.x, z: a.centre.z + turn.side * STARTER_TURN };
     grid.forEachCell((i, col, row) => {
       const x = grid.centreX(col);
       const z = grid.centreZ(row);
-      if (x > saw.centre.x + HALF_STATION - 32 && x < forest.centre.x - HALF_STATION + 32 && Math.abs(z - a.centre.z) < TRACK_ROW) {
-        if (grid.feature[i] === FEAT_NONE) {
-          protectedCells.add(i);
-          grid.surface[i] = SURF_GRASS;
-        }
+      const onLine = x > turn.x - 32 && x < forest.centre.x - HALF_STATION + 32 && Math.abs(z - a.centre.z) < TRACK_ROW;
+      const r = Math.hypot(x - pivot.x, z - pivot.z);
+      const onTurn = x <= turn.x + CELL / 2 && (z - a.centre.z) * turn.side >= -CELL / 2 && Math.abs(r - STARTER_TURN) < CELL;
+      if ((onLine || onTurn) && grid.feature[i] === FEAT_NONE) {
+        protectedCells.add(i);
+        grid.surface[i] = SURF_GRASS;
       }
+      if (x > a.centre.x && x < b.centre.x && Math.abs(z - a.centre.z) <= STARTER_OPEN_ROWS * CELL) open.add(i);
     });
   }
 
   const locked = (i: number) =>
-    protectedCells.has(i) || townGround.has(i) || grid.surface[i] === SURF_TOWN || grid.feature[i] === FEAT_STATION || grid.feature[i] === FEAT_DEPOT;
+    protectedCells.has(i) || open.has(i) || townGround.has(i) || grid.surface[i] === SURF_TOWN || grid.feature[i] === FEAT_STATION || grid.feature[i] === FEAT_DEPOT;
 
   // Rivers: crossing the region's edges where the edge contracts say, joined up inside. (The contracts still name
   // where country lanes used to cross; there are no generated roads between towns now, only town gates.)
@@ -444,7 +464,7 @@ function placeTowns(random: () => number, region: Region, starter: boolean, inte
     const z = snap(-200 + random() * 300);
     towns.push(make(-540, z, 0));
     towns.push(make(540, z, 0));
-    const ends = [-540 - STARTER_DEPOT_GAP, 540 + STARTER_DEPOT_GAP];
+    const ends = [starterTurn({ centre: { x: -540, z } }).x - STARTER_TURN, 540 + STARTER_DEPOT_GAP];
     offLine = (x, tz) =>
       ends.every((ex) => Math.hypot(ex - x, z - tz) >= MIN_TOWN_SPACING) && !(Math.abs(tz - z) < 6 * CELL && x > ends[0] - 6 * CELL && x < ends[1] + 6 * CELL);
   }
@@ -512,10 +532,14 @@ function placeDepots(local: number, seed: number, towns: readonly Town[], region
     // On one line with the first two towns' stations: the sawmill beyond the first town, the forest yard beyond the
     // second, so the first timber line is one straight run (a clear strip joins them all: see `attemptRegion`).
     const [a, b] = towns;
-    const put = (kind: DepotKind, x: number) =>
-      depots.push({ id: depots.length, kind, centre: { x, z: a.centre.z }, piece: { x: x - HALF_STATION, z: a.centre.z, heading: 0 } });
-    put("sawmill", a.centre.x - STARTER_DEPOT_GAP);
-    put("forest", b.centre.x + STARTER_DEPOT_GAP);
+    // The sawmill across the line after its quarter turn (so the way to it takes a curve), the forest yard on it.
+    const turn = starterTurn(a);
+    const sx = turn.x - STARTER_TURN;
+    const sz = a.centre.z + turn.side * STARTER_TURN;
+    // (Its piece runs toward the line, so its second end meets the turn, as the straight line's sawmill did.)
+    depots.push({ id: depots.length, kind: "sawmill", centre: { x: sx, z: sz + turn.side * HALF_STATION }, piece: { x: sx, z: sz + turn.side * STATION_LENGTH, heading: normaliseHeading((-turn.side * Math.PI) / 2) } });
+    const fx = b.centre.x + STARTER_DEPOT_GAP;
+    depots.push({ id: depots.length, kind: "forest", centre: { x: fx, z: a.centre.z }, piece: { x: fx - HALF_STATION, z: a.centre.z, heading: 0 } });
     return depots;
   }
   const mid =
