@@ -11,6 +11,7 @@ import { hasSave, loadFromStorage, loadGoals, loadProgress, saveGoals, saveProgr
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
+import { Journal, type NoteInput } from "./game/journal";
 import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
@@ -733,7 +734,34 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // Game mode's goals: checked about once a second and after every change to the track.
   let goals = new GoalTracker(loadGoals());
-  const goalsPanel = new GoalsPanel(hud.root, { newGame: () => newGame(), showMe: () => showGoal() });
+  // The Journal: what happened (events: quiet, with an unread bell) and what was achieved (milestones: also toasted).
+  // Refusals aren't logged: they stay plain `hud.toast`s.
+  const journal = new Journal();
+  const goalsPanel = new GoalsPanel(
+    hud.root,
+    {
+      newGame: () => newGame(),
+      showMe: () => showGoal(),
+      fly: (place) => {
+        const f = frameAlong([place], game.camera.fov, game.camera.aspect, GOAL_MARGIN);
+        game.follow(-1);
+        game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 1 });
+      },
+    },
+    journal,
+  );
+  /** Report something in Game mode: logged in the Journal (not in Sandbox); a milestone is also toasted. */
+  function note(n: NoteInput, ms?: number): void {
+    if (mode !== "game") return;
+    const r = journal.add(n);
+    goalsPanel.newsChanged();
+    if (r.toast) hud.toast(n.text, true, ms);
+  }
+  const depotPlace = (depotId: number) => {
+    const d = game.economy.depot(depotId);
+    const p = d && game.layout.getPiece(d.pieceId)?.pose;
+    return p ? { x: p.x, z: p.z } : undefined;
+  };
 
   /** When each town last had a delivery (performance.now): its school thinks only while it's supplied. */
   const lastDelivered = new Map<number, number>();
@@ -745,8 +773,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       lastDelivered.set(town.id, performance.now());
       payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
+      // Logged quietly, one entry per town and kind for a burst of deliveries.
+      note({ kind: "event", key: `deliver:${town.id}:${kind}`, qty: n, text: "", format: (q) => `Delivered ${describeGoods({ [kind]: q })} to ${town.name}`, place: { x: town.station.x, z: town.station.z } });
     },
     grew: (town, status, built) => {
+      const here = { x: town.station.x, z: town.station.z };
       // Its new houses may have felled trees a harvester counted.
       industriesChanged();
       // A landmark may have gone up (a school, a market, a library): what it opens comes with it.
@@ -755,10 +786,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       for (const id of progress.landmarks) {
         if (before.has(id)) continue;
         const mark = landmarkOf(id)!;
-        hud.toast(`${town.name} has ${aOrAn(mark.name.toLowerCase())}! ${mark.blurb}`, true, 5200);
+        note({ kind: "milestone", text: `${town.name} has ${aOrAn(mark.name.toLowerCase())}! ${mark.blurb}`, place: here }, 5200);
       }
       const level = aOrAn(status.name.toLowerCase());
-      hud.toast(built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`, true, 3600);
+      note({ kind: "event", text: built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`, place: here });
       audio.chime();
       // The first village, town and city each bring a present; a town that grows offers two blueprints suited to its
       // new size (one learned free), or a crate of things. Both in one short line after the growth.
@@ -767,7 +798,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const offered = progress.offers.length;
       offerOnGrowth(progress, town.name, Math.random, status.level);
       const extras = [gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Reward in Blueprints" : ""].filter(Boolean);
-      if (extras.length > 0) hud.toast(extras.join(" · "), gift.length > 0, 4200);
+      if (extras.length > 0) note({ kind: "event", text: `${town.name}: ${extras.join(" · ")}`, place: here });
       if (gift.length > 0 || progress.offers.length > offered) {
         refreshBoard();
         scheduleSave();
@@ -795,7 +826,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh.length > 0) {
       saveGoals(goals.ids());
       if (announce) {
-        hud.toast(`✓ ${fresh.map((g) => g.title).join(" · ")}`, true, 3200);
+        note({ kind: "milestone", text: `✓ ${fresh.map((g) => g.title).join(" · ")}` }, 3200);
         audio.chime();
         goalsPanel.celebrate();
       }
@@ -911,7 +942,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function learned(id: string): void {
     const makes = unlocksOf(id).map((t) => ruleOf(t)!.label.toLowerCase());
     const t = techOf(id)!;
-    hud.toast(makes.length > 0 ? `Learned ${t.label.toLowerCase()}! Make ${makes.slice(0, 2).join(" and ")}${makes.length > 2 ? " and more" : ""} at the workshop` : `Learned ${t.label}! ${t.blurb}`, true, 3800);
+    note({ kind: "milestone", text: makes.length > 0 ? `Learned ${t.label.toLowerCase()}! Make ${makes.slice(0, 2).join(" and ")}${makes.length > 2 ? " and more" : ""} at the workshop` : `Learned ${t.label}! ${t.blurb}` }, 3800);
     // An upgrade takes effect at once: industries' rates and the cranes.
     applyCranes(game.economy, progress);
     industriesChanged();
@@ -1014,7 +1045,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const supplied = (town: number) => performance.now() - (lastDelivered.get(town) ?? -Infinity) < SCHOOL_SUPPLIED_MS;
       const idea = schoolIdeas(progress, game.landscape, schoolClock, CRAFT_STEP * (progress.learned.has("college") ? 2 : 1), Math.random, supplied);
       if (idea) {
-        hud.toast(`${idea.from}: ${techOf(idea.id)!.label} is on the board`, true, 4200);
+        const school = game.landscape.towns.find((t) => t.name === idea.from);
+        note({ kind: "event", text: `${idea.from}: ${techOf(idea.id)!.label} is on the board`, place: school && { x: school.station.x, z: school.station.z } });
         refreshBoard();
         scheduleSave();
       }
@@ -1099,7 +1131,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     attachPassengers(game.world, () => progress, () => {
       hud.setCoins(progress.coins);
       for (const id of learnAuto(progress)) {
-        hud.toast(`${progress.riders} passengers carried: you've learned ${techOf(id)!.label}!`, true, 4200);
+        note({ kind: "milestone", text: `${progress.riders} passengers carried: you've learned ${techOf(id)!.label}!` }, 4200);
         audio.chime();
         hud.refreshTrayBadges();
         refreshBoard();
@@ -1136,11 +1168,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         hud.setCoins(progress.coins);
         const why = e.short === "room" ? "the quay was full" : "too few coins";
         const got = `A boat brought ${describeGoods(e.goods)}: −${e.coins} coins`;
-        hud.toast(total(e.goods) === 0 ? `Your order went back: ${why}` : e.short ? `${got} (the rest went back: ${why})` : got, false, 3200);
+        // An order that all went back is a refusal (a plain toast); a delivery is logged quietly.
+        if (total(e.goods) === 0) hud.toast(`Your order went back: ${why}`, false, 3200);
+        else note({ kind: "event", key: `bought:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: (c, n) => (n > 1 ? `Boats brought goods: −${c} coins` : e.short ? `${got} (the rest went back: ${why})` : got) });
         scheduleSave();
       } else if (e.kind === "sold") {
         hud.setCoins(progress.coins);
-        hud.toast(`A boat took ${describeGoods(e.goods)}: +${e.coins} coins`, false, 3200);
+        note({ kind: "event", key: `sold:${e.depotId}`, qty: e.coins, text: "", place: depotPlace(e.depotId), format: (c, n) => (n > 1 ? `Boats took goods: +${c} coins` : `A boat took ${describeGoods(e.goods)}: +${c} coins`) });
         scheduleSave();
       }
     }
@@ -1570,6 +1604,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     refreshBoard();
     goals = new GoalTracker();
     saveGoals([]);
+    journal.clear();
     goalsPanel.reset();
   }
 
@@ -1857,7 +1892,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note });
   game.start();
   // Opening in Game mode: start fetching its models now, ahead of play.
   if (mode === "game") ensureGameModels();

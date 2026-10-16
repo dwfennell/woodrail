@@ -1,0 +1,81 @@
+import { describe, expect, it } from "vitest";
+import { ago, Journal, JOURNAL_CAP } from "./journal";
+
+const planks = (town: string) => ({ kind: "event" as const, key: `deliver:${town}:planks`, qty: 3, text: "", format: (n: number) => `Delivered ${n} planks to ${town}`, place: { x: 1, z: 2 } });
+
+describe("Journal", () => {
+  it("does not log a refusal; it stays a plain toast", () => {
+    const j = new Journal(() => 0);
+    const r = j.add({ kind: "refusal", text: "No room" });
+    expect(r.toast).toBe(true);
+    expect(r.entry).toBeNull();
+    expect(j.entries).toHaveLength(0);
+    expect(j.unread).toBe(0);
+  });
+
+  it("logs an event with no toast", () => {
+    const j = new Journal(() => 0);
+    const r = j.add({ kind: "event", text: "A boat took 3 planks" });
+    expect(r.toast).toBe(false);
+    expect(j.entries).toHaveLength(1);
+  });
+
+  it("logs a milestone with a toast", () => {
+    const j = new Journal(() => 0);
+    const r = j.add({ kind: "milestone", text: "Goal done" });
+    expect(r.toast).toBe(true);
+    expect(j.entries[0].kind).toBe("milestone");
+  });
+
+  it("merges 5 quick deliveries into one entry with x5 and the summed quantity", () => {
+    const j = new Journal(() => 0);
+    for (let i = 0; i < 5; i++) j.add(planks("Larkfield"), i * 1000);
+    expect(j.entries).toHaveLength(1);
+    expect(j.entries[0].text).toBe("Delivered 15 planks to Larkfield (×5)");
+    expect(j.entries[0].qty).toBe(15);
+  });
+
+  it("keeps different towns apart", () => {
+    const j = new Journal(() => 0);
+    j.add(planks("Larkfield"), 0);
+    j.add(planks("Mill End"), 100);
+    expect(j.entries).toHaveLength(2);
+  });
+
+  it("starts a new entry for a delivery after the window", () => {
+    const j = new Journal(() => 0);
+    j.add(planks("Larkfield"), 0);
+    j.add(planks("Larkfield"), 61_000);
+    expect(j.entries).toHaveLength(2);
+    expect(j.entries[0].text).toBe("Delivered 3 planks to Larkfield");
+  });
+
+  it("keeps the last 50, newest first", () => {
+    const j = new Journal(() => 0);
+    for (let i = 0; i < 60; i++) j.add({ kind: "event", text: `e${i}` }, i);
+    expect(j.entries).toHaveLength(JOURNAL_CAP);
+    expect(j.entries[0].text).toBe("e59");
+    expect(j.entries[49].text).toBe("e10");
+  });
+
+  it("counts unread until marked read, and a merge into a read entry is unread again", () => {
+    const j = new Journal(() => 0);
+    j.add({ kind: "event", text: "a" }, 0);
+    j.add(planks("Larkfield"), 1);
+    expect(j.unread).toBe(2);
+    j.markRead();
+    expect(j.unread).toBe(0);
+    j.add(planks("Larkfield"), 2);
+    expect(j.unread).toBe(1);
+    j.add({ kind: "milestone", text: "m" }, 3);
+    expect(j.unread).toBe(2);
+  });
+});
+
+describe("ago", () => {
+  it("words the time", () => {
+    expect(ago(10_000)).toBe("just now");
+    expect(ago(125_000)).toBe("2 min ago");
+    expect(ago(3 * 3_600_000)).toBe("3 h ago");
+  });
+});
