@@ -131,11 +131,22 @@ export class DrawLine {
   /** A piece the line would have used but the player has none of left (Game mode), or null. */
   refused: PieceTypeId | null = null;
 
+  /** Where the finger last was (for the way it's moving), whether or not that went into the stroke. */
+  private fx: number;
+  private fz: number;
+  /**
+   * Going back over the line: pieces were taken off. Nothing grows (while drawing, or when the finger lifts) until the
+   * finger has gone forward past the line's end again; the stroke then carries on from there.
+   */
+  private retreating = false;
+
   constructor(
     readonly start: DrawEnd,
     private readonly options: DrawOptions = {},
   ) {
     this.push(start.x, start.z);
+    this.fx = start.x;
+    this.fz = start.z;
   }
 
   /** Where the line has got to. */
@@ -150,10 +161,24 @@ export class DrawLine {
 
   /** The finger has moved to (x, z): extend the stroke, take pieces off if it's retracing, and grow behind it. True if the pieces changed. */
   addPoint(x: number, z: number): boolean {
-    const n = this.xs.length;
-    if (Math.hypot(x - this.xs[n - 1], z - this.zs[n - 1]) < STEP) return false;
+    if (Math.hypot(x - this.fx, z - this.fz) < STEP) return false;
     const before = this.pieces.length;
     const trimmed = this.retrace(x, z);
+    const mx = x - this.fx;
+    const mz = z - this.fz;
+    this.fx = x;
+    this.fz = z;
+    if (this.retreating) {
+      // Still going back, or not yet forward past the line's end: the stroke waits at the end. It carries on once the
+      // finger is ahead of the end and moving forward (the way the line runs on from there).
+      const e = this.end;
+      const c = Math.cos(e.heading);
+      const sn = Math.sin(e.heading);
+      const ahead = (x - e.x) * c + (z - e.z) * sn;
+      const forward = (mx * c + mz * sn) / Math.hypot(mx, mz);
+      if (trimmed || ahead < FINISH_SLACK || forward < 0.5) return trimmed;
+      this.retreating = false;
+    }
     this.push(x, z);
     this.grow(false);
     return trimmed || this.pieces.length !== before;
@@ -197,9 +222,8 @@ export class DrawLine {
    * piece and those after it come off (and the stroke goes back to where the line was before it).
    */
   private retrace(x: number, z: number): boolean {
-    const n = this.xs.length;
-    const dx = x - this.xs[n - 1];
-    const dz = z - this.zs[n - 1];
+    const dx = x - this.fx;
+    const dz = z - this.fz;
     const len = Math.hypot(dx, dz);
     for (let k = 0; k < this.pieces.length; k++) {
       const t = this.pieces[k].track;
@@ -218,12 +242,14 @@ export class DrawLine {
       this.progress = Math.min(p.from, this.strokeLength);
       this.stopped = null;
       this.refused = null;
+      this.retreating = true;
       return true;
     }
     return false;
   }
 
   private grow(finishing: boolean): void {
+    if (this.retreating) return;
     for (let guard = 0; guard < MAX_PIECES && !this.stopped && this.pieces.length < MAX_PIECES; guard++) {
       const left = this.strokeLength - this.progress;
       if (left < (finishing ? FINISH_SLACK : DRAW_LOOKAHEAD)) return;

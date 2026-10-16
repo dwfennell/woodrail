@@ -15,6 +15,9 @@ const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chro
 const T0 = Date.now();
 const step = (name) => console.log(`...   ${((Date.now() - T0) / 1000).toFixed(0)}s  ${name}`);
 const results = [];
+/** The scene has been still a few ticks (the game's own hook), within a generous cap: no fixed waits. */
+const settled = (page) =>
+  page.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((_, no) => setTimeout(() => no(new Error("never settled")), 120000))]));
 const check = (name, ok, detail = "") => {
   results.push({ name, ok, detail });
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
@@ -145,7 +148,7 @@ const drawThrough = async (pts, { shotAt = -1, shot = "", stepPx = 14 } = {}) =>
   }
   await p.mouse.up();
   // The line's pieces have settled (their flourishes done).
-  await p.waitForFunction(() => window.woodrail.flourishes.count === 0, null, { timeout: 30000 });
+  await settled(p);
 };
 
 if (site) {
@@ -220,11 +223,12 @@ if (site) {
   // The same with dense points (a finger's), stopping a little short of the start (the unit tests cover the other
   // stopping points: each mouse move is slow in software rendering).
   await focus(x + fx * 300, z + fz * 300, 700);
-  for (const stop of [40]) {
-    const dense = [...[0, 150, 300, 450, 600].map((d) => [x + fx * d, z + fz * d]), ...[450, 300, 150, stop].map((d) => [x + fx * d, z + fz * d])];
+  // QA's cases: back to 40 mm short of the start, 5 mm to one side; and lifted halfway back, 8 mm to one side.
+  for (const [stop, side] of [[40, 5], [200, 8]]) {
+    const dense = [...[0, 150, 300, 450, 600].map((d) => [x + fx * d, z + fz * d]), ...[450, 300, 150, stop].map((d) => [x + fx * d + lx * side, z + fz * d + lz * side])];
     await drawThrough(dense, { stepPx: 4 });
     const n = await p.evaluate(() => D.pieces());
-    check(`dense out and back to ${stop} mm from the start lays nothing`, n === n0, `${n - n0} pieces`);
+    check(`dense out and back to ${stop} mm from the start, ${side} mm aside, lays nothing`, n === n0, `${n - n0} pieces`);
     if (n !== n0) await p.evaluate(() => window.woodrail.interaction.undo());
   }
 
@@ -303,7 +307,7 @@ if (site) {
     if (i === pts.length - 3) await q.screenshot({ path: `${OUT}/draw-7-phone-drawing.png` });
   }
   await touch("touchEnd", 0, 0);
-  await q.waitForFunction(() => window.woodrail.flourishes.count === 0, null, { timeout: 30000 });
+  await settled(q);
   await q.screenshot({ path: `${OUT}/draw-7-phone-laid.png` });
   const added = await q.evaluate((n0) => {
     const w = window.woodrail;

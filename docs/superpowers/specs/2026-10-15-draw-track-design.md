@@ -26,8 +26,11 @@ and the pieces follow your finger. When you lift your finger they go down one af
   for it to be clear what you meant, so pieces don't flicker. Each new ghost makes a soft tick.
 - **Going back over the line takes pieces off.** Move your finger back over any part of a ghost, heading back the way
   the line runs, and that ghost and every one after it lift away. Coming back exactly to a joint keeps the ghost before
-  it. Lifting your finger grows the line only if the finger is ahead of the line's end and moving away from it, so
-  retracing to cancel lays nothing, and the tip of a hairpin leaves no hook.
+  it. Once anything has come off, the line
+  doesn't grow (while drawing, or when you lift) until your finger moves forward past the line's end again. So
+  lifting partway through a retrace lays exactly the ghosts shown, and ghosts don't regrow and flicker on the way
+  back. Otherwise, lifting grows the line only if the finger is ahead of its end and moving away, so the tip of a
+  hairpin leaves no hook.
 - **A ghost that can't go there shows red** (a hill, a river, other track in the way), and the line doesn't grow past
   it. Go back to before it and draw another way.
 - **Closing up:** if the line's end comes close to a free track end that faces it, the last ghost meets it. It may

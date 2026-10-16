@@ -143,6 +143,46 @@ describe("draw path", () => {
     expect(outAndBack(900, 0, 1).pieces).toHaveLength(0);
   });
 
+  /**
+   * Out along +x, then back along it `offset` mm to the side, `step` mm a point, stopping at `stop`: how many ghosts
+   * showed just before the finger lifted, the most there were on the way back after the first trim, and how many pieces
+   * went down when it lifted.
+   */
+  const retraceCase = (out: number, stop: number, offset: number, step: number) => {
+    const line = new DrawLine(START);
+    for (let x = step; x <= out; x += step) line.addPoint(x, 0);
+    let trimmed = false;
+    let regrew = false;
+    let low = line.pieces.length;
+    for (let x = out; x >= stop; x -= step) {
+      line.addPoint(x, offset);
+      if (line.pieces.length < low) trimmed = true;
+      if (trimmed && line.pieces.length > low) regrew = true;
+      low = Math.min(low, line.pieces.length);
+    }
+    line.addPoint(stop, offset);
+    const shown = line.pieces.length;
+    line.finish();
+    return { shown, laid: line.pieces.length, regrew, trimmed };
+  };
+
+  it("lifting during a retrace lays exactly what the ghosts showed, and ghosts don't regrow on the way back (QA sweep)", () => {
+    for (const step of [4, 8, 15, 30])
+      for (const stop of [300, 200, 60, 40, 20, 0, -30, -60])
+        for (const offset of [0, 5, 12]) {
+          const r = retraceCase(600, stop, offset, step);
+          const name = `step ${step}, stop ${stop}, offset ${offset}`;
+          expect(r.laid, name).toBe(r.shown);
+          expect(r.regrew, name).toBe(false);
+        }
+  });
+
+  it("QA's cases: 40 mm short of the start, halfway back, and a hairpin back over the line lay nothing", () => {
+    for (const offset of [2, 5, 8]) expect(retraceCase(600, 40, offset, 4).laid, `40 short, offset ${offset}`).toBe(0);
+    expect(retraceCase(600, 200, 8, 4).laid).toBe(0);
+    expect(retraceCase(400, 200, 15, 4).laid).toBe(0);
+  });
+
   it("retracing part way takes off the pieces gone back over, mid-piece too, and keeps the rest", () => {
     const line = outAndBack(1100, 300);
     // Nothing reaches past where the finger came back to.
