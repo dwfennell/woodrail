@@ -102,7 +102,7 @@ export const TRAIN_GROUPS: TrayGroup[] = [
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
-/** Road pieces, on the Roads tab (both modes). */
+/** Road pieces, on the Roads tab (Sandbox only: in Game mode towns lay their own streets). */
 export const ROAD_GROUPS: TrayGroup[] = [
   {
     label: "Roads",
@@ -173,7 +173,7 @@ export const TRAY_TABS: TrayTab[] = [
   { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS },
   { id: "industries", label: "Industries", modes: GAME, groups: INDUSTRY_GROUPS, orient: "turn-flip" },
   ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
-  { id: "roads", label: "Roads", modes: BOTH, groups: ROAD_GROUPS, orient: "turn" },
+  { id: "roads", label: "Roads", modes: SANDBOX, groups: ROAD_GROUPS, orient: "turn" },
   // Opening the Land tab switches land editing on; the tools act on the land itself.
   {
     id: "land",

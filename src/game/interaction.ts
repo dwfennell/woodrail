@@ -2595,10 +2595,23 @@ export class Interaction {
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
       if (pieceId !== -1) return { kind: "piece", pieceId };
     }
+    // Nothing solid under the tap, but it may be on a town's station (platform, canopy, house): the whole footprint
+    // opens the town, with a fingertip's slack. Trains and track were tried first above, so they win.
+    const town = g.depotView.stationUnder(this.raycaster.ray, this.fingerMm(x, y));
+    if (town !== -1) return { kind: "depot", depotId: town };
     // Nothing standing there: a road piece the player laid, on the square under the pointer.
     const cell = this.squareAt(x, y);
     if (this.roads.pickable(cell)) return { kind: "road", cell };
     return null;
+  }
+
+  /** About 22 screen pixels (half a 44 px phone target) as mm on the ground at the pointer, capped at 60. */
+  private fingerMm(x: number, y: number): number {
+    const a = this.groundAt(x, y);
+    const b = this.groundAt(x + 22, y);
+    this.setNdc(x, y); // groundAt moved the ray; put it back on the pointer
+    if (!a || !b) return 0;
+    return Math.min(60, a.distanceTo(b));
   }
 
   /** Snap capture in mm: about 28 screen pixels at the pointer, never less than the physical 30 mm. */

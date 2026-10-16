@@ -517,9 +517,12 @@ const frames = await p.evaluate(async () => {
 });
 check("J1 an idle scene with the player's roads, a bridge, ramps and a level crossing draws (next to) no frames", frames <= 1, `${frames} frames drawn in 5 s`);
 
-// ---- K: Game mode has the Roads tab ----------------------------------------------------------------------------------
-const tabs = await p.evaluate(async () => (await import("/src/ui/tray-catalogue.ts")).trayTabs("game").map((t) => t.id));
-check("K1 Game mode's tray has the Roads tab", tabs.includes("roads"), tabs.join(", "));
+// ---- K: only Sandbox has the Roads tab ----------------------------------------------------------------------------------
+const tabs = await p.evaluate(async () => {
+  const { trayTabs } = await import("/src/ui/tray-catalogue.ts");
+  return { game: trayTabs("game").map((t) => t.id), sandbox: trayTabs("sandbox").map((t) => t.id) };
+});
+check("K1 Game mode's tray has no Roads tab, Sandbox's does", !tabs.game.includes("roads") && tabs.sandbox.includes("roads"), `game: ${tabs.game.join(", ")}; sandbox: ${tabs.sandbox.join(", ")}`);
 
 check("no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 const failed = results.filter((r) => !r.ok).length;
