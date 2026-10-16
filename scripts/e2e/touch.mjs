@@ -18,6 +18,20 @@ const check = (name, ok, detail = "") => {
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const errors = [];
 
+/** Two frames from now (a layout and a paint): what a tap did has been drawn. */
+const frames = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
+/**
+ * Do `act` (a tap), then wait for that tap's own click to have been dispatched (counted before any game code sees it,
+ * so a click the shield drops counts too), and a frame after it. No fixed waits: under load the click can lag seconds.
+ */
+async function tapped(page, act) {
+  const before = await page.evaluate(() => window.__allClicks);
+  await act();
+  await page.waitForFunction((n) => window.__allClicks > n, before, { timeout: 60000 });
+  await frames(page);
+}
+
 /** Taps on the map that open a card under the finger: the card's buttons mustn't take the tap's click. */
 async function mapTaps(p) {
   await p.keyboard.press("Escape");
@@ -39,18 +53,17 @@ async function mapTaps(p) {
     }, [sx, sy]);
   const visible = (sel) => p.evaluate((sel) => { const e = document.querySelector(sel); return !!e && !e.hidden && e.getBoundingClientRect().height > 0; }, sel);
   const rectOf = (sel) => p.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }, sel);
-  const settle = () => p.evaluate(() => new Promise((r) => setTimeout(r, 500)));
+  const settle = () => frames(p);
 
   // 1. A piece: where does its card put Delete? Then a piece right there, tapped.
   await placeAt(195, 300);
-  await p.touchscreen.tap(195, 300);
+  await tapped(p, () => p.touchscreen.tap(195, 300));
   await p.waitForFunction(() => !document.querySelector(".piece-card").hidden, null, { timeout: 10000 });
   const [dx, dy] = await rectOf(".piece-card .danger");
   await p.keyboard.press("Escape");
   await placeAt(dx, dy);
   const before = await p.evaluate(() => window.woodrail.layout.pieceCount);
-  await p.touchscreen.tap(dx, dy);
-  await settle();
+  await tapped(p, () => p.touchscreen.tap(dx, dy));
   const after = await p.evaluate(() => window.woodrail.layout.pieceCount);
   check("a tap on a piece where its card's Delete opens doesn't delete it", after === before, `${before} → ${after} pieces`);
   check("…and its card is open", await visible(".piece-card"));
@@ -69,7 +82,7 @@ async function mapTaps(p) {
     }, [sx, sy]);
   check("an engine goes on the track", (await addEngineAt(195, 300)) === "placed");
   await settle();
-  await p.touchscreen.tap(195, 300);
+  await tapped(p, () => p.touchscreen.tap(195, 300));
   await p.waitForFunction(() => !document.querySelector(".engine-card").hidden, null, { timeout: 10000 });
   const [rx, ry] = await rectOf(".engine-card .danger");
   await p.keyboard.press("Escape");
@@ -78,8 +91,7 @@ async function mapTaps(p) {
   await settle();
   const trains = () => p.evaluate(() => window.woodrail.sim.trainIds().map((id) => window.woodrail.sim.getTrain(id).cars.map((c) => c.lever).join("")).join("|"));
   const t0 = await trains();
-  await p.touchscreen.tap(rx, ry);
-  await settle();
+  await tapped(p, () => p.touchscreen.tap(rx, ry));
   const t1 = await trains();
   check("a tap on an engine where its card's Remove opens neither removes nor starts it", t1 === t0, `${t0} → ${t1}`);
   check("…and its card is open", await visible(".engine-card"));
@@ -94,36 +106,52 @@ async function redrawnControl(ctx, p) {
   const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
   for (const [what, same] of [["the same control", true], ["a different control", false]]) {
     await p.evaluate(() => {
-      window.__clicks = 0;
+      window.__hits = 0;
       const b = document.createElement("button");
       b.className = "chip test-redraw";
       b.dataset.recipe = "rail";
       b.textContent = "+";
       Object.assign(b.style, { position: "fixed", left: "150px", top: "200px", width: "90px", height: "60px", zIndex: 99 });
-      b.addEventListener("click", () => window.__clicks++);
+      b.addEventListener("click", () => window.__hits++);
       document.body.appendChild(b);
     });
+    await frames(p);
     await touch("touchStart", 195, 230);
     // Drawn afresh under the finger.
     await p.evaluate((same) => {
       const old = document.querySelector(".test-redraw");
       const b = old.cloneNode(true);
       if (!same) b.dataset.recipe = "wheel";
-      b.addEventListener("click", () => window.__clicks++);
+      b.addEventListener("click", () => window.__hits++);
       old.replaceWith(b);
     }, same);
+    const before = await p.evaluate(() => window.__allClicks);
     await touch("touchEnd", 0, 0);
-    await p.evaluate(() => new Promise((r) => setTimeout(r, 400)));
-    const clicks = await p.evaluate(() => window.__clicks);
+    await p.waitForFunction((n) => window.__allClicks > n, before, { timeout: 60000 });
+    await frames(p);
+    const clicks = await p.evaluate(() => window.__hits);
     check(`a tap on a control redrawn under the finger as ${what}: ${same ? "counts" : "is dropped"}`, clicks === (same ? 1 : 0), `${clicks} clicks`);
     await p.evaluate(() => document.querySelector(".test-redraw")?.remove());
   }
 }
 
 for (const mode of ["sandbox", "game"]) {
+  try {
+    await runMode(mode);
+  } catch (e) {
+    check(`${mode}: ran to the end`, false, String(e?.message ?? e).split("\n")[0]);
+  }
+}
+
+async function runMode(mode) {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   // No favourites: the shelves start in the tray's first slot, where Back appears when one opens (under the finger).
   await ctx.addInitScript(() => localStorage.setItem("woodrail.favourites", "[]"));
+  // Every click, counted before the game's own listeners (the click shield's included) see it.
+  await ctx.addInitScript(() => {
+    window.__allClicks = 0;
+    window.addEventListener("click", () => window.__allClicks++, { capture: true });
+  });
   const p = await ctx.newPage();
   p.on("pageerror", (e) => errors.push(e.message));
   await p.goto(URL);
@@ -141,21 +169,19 @@ for (const mode of ["sandbox", "game"]) {
   const tapOn = async (selector) => {
     // (On a phone the favourites come first: a shelf may be scrolled out of view.)
     await p.evaluate((sel) => document.querySelector(sel)?.scrollIntoView({ inline: "center" }), selector);
-    await p.evaluate(() => new Promise((r) => setTimeout(r, 200)));
+    await frames(p);
     const el = await p.$(selector);
     if (!el) throw new Error(`no ${selector}`);
     const box = await el.boundingBox();
-    await p.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await tapped(p, () => p.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2));
   };
   for (const shelf of ["Straight", "Curve", "Switch"]) {
     const index = await p.evaluate((name) => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === name), shelf);
     await tapOn(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
-    // Give the tap's click time to land (it arrives after pointerup): the shelf must still be open after it.
-    await p.waitForFunction(() => document.querySelector(".tray").classList.contains("in-group"), null, { timeout: 5000 }).catch(() => {});
-    await p.evaluate(() => new Promise((r) => setTimeout(r, 400)));
+    // (`tapOn` waited for the tap's click: the shelf must still be open after it.)
     check(`${mode}: a touch tap on the ${shelf} shelf opens it (and it stays open)`, await inGroup());
+    if (!(await inGroup())) continue;
     await tapOn(".scroller .tray-back");
-    await p.evaluate(() => new Promise((r) => setTimeout(r, 400)));
     check(`${mode}: a touch tap on Back goes back to the shelves (and stays there)`, !(await inGroup()));
   }
   if (mode === "sandbox") {
