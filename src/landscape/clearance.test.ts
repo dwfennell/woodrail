@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getPieceDef } from "../track";
-import { BLOCK_MESSAGES, checkPlacement, inRiver } from "./clearance";
+import { getPieceDef, RISER_HEIGHT } from "../track";
+import { BLOCK_MESSAGES, checkPlacement, hillMessage, inRiver, levelsAbove } from "./clearance";
 import { FEAT_BUILDING, FEAT_TREE, gridWithPlots, PLOT_WIDTH, SURF_RIVER, SURF_TOWN } from "./grid";
 import { generateLandscape, stationEnds, type Landscape } from "./generate";
 
@@ -110,5 +110,29 @@ describe("station ends across many maps", () => {
       expect(checkPlacement(land, "straight-54", false, seat(pegEnd, true), 0), `${town.name} peg end`).toEqual({ kind: "clear" });
       expect(checkPlacement(land, "straight-54", false, seat(socketEnd, false), 0), `${town.name} socket end`).toEqual({ kind: "clear" });
     }
+  });
+});
+
+describe("how far up a hill in the way is", () => {
+  const flat = (): Landscape => ({ seed: 0, starter: false, grid: gridWithPlots(-1, -1, 2, 2), towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 }) as Landscape;
+  const raise = (land: Landscape, x0: number, x1: number, h: number) => {
+    for (let x = x0 + 1; x < x1; x += 8) for (let z = -200; z < 260; z += 8) {
+      const i = land.grid.cellAtWorld(x, z);
+      if (i !== -1) land.grid.height[i] = h;
+    }
+  };
+  it("counts the levels the ground rises above the track, and says how to climb them", () => {
+    const land = flat();
+    raise(land, 144, 900, 2);
+    // A straight a level up (off a ramp's top) running into a hill two levels high: one more level to go.
+    const pose = { x: 144, z: 36, heading: 0 };
+    expect(checkPlacement(land, "straight-144", false, pose, RISER_HEIGHT)).toEqual({ kind: "blocked", reason: "hill" });
+    expect(levelsAbove(land, "straight-144", false, pose, RISER_HEIGHT)).toBe(1);
+    // On the ground: two levels to go.
+    expect(levelsAbove(land, "straight-144", false, pose, 0)).toBe(2);
+    expect(hillMessage(2)).toContain("two ramps");
+    expect(hillMessage(1)).toContain("a ramp");
+    // On top of it: nothing higher.
+    expect(levelsAbove(land, "straight-144", false, { x: 400, z: 36, heading: 0 }, 2 * RISER_HEIGHT)).toBe(0);
   });
 });

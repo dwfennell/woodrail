@@ -109,8 +109,16 @@ function nearestTurn(from: number, angle: number): number {
   return from + ((((angle - from) % 360) + 540) % 360) - 180;
 }
 
-/** A celebration message shows at least this long (ms) before the next one replaces it. */
-const TOAST_READ_MS = 1800;
+/**
+ * How long a toast stays up (ms), and before the next replaces it: long enough to read, at least 3 s (a celebration
+ * 4 s), longer for longer text. One timing for every toast. Tapping one dismisses it early.
+ */
+export function toastMs(message: string, celebrate: boolean, ms = 0): number {
+  return Math.max(ms, celebrate ? 4000 : 3000, 1200 + message.length * 45);
+}
+/** Toasts waiting their turn at most (a busy moment drops the oldest plain ones). */
+const TOAST_QUEUE = 3;
+
 
 /** The HTML overlay: top bar, piece tray, context cards, menu, help, toasts and perf readout. */
 export class Hud {
@@ -568,6 +576,15 @@ export class Hud {
     this.root.appendChild(this.tray);
 
     this.root.appendChild(this.toastEl);
+    // A tap dismisses a toast early (and the next waiting comes on).
+    this.toastEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      clearTimeout(this.toastTimer);
+      this.toastEl.classList.remove("show");
+      this.toastHeldUntil = 0;
+      this.heldRefusal = null;
+      this.flushToasts();
+    });
 
     this.help.hidden = true;
     this.help.innerHTML = `
@@ -666,7 +683,7 @@ export class Hud {
    * What a tray item's corner says (Game mode's toy box: how many are left, or that it's locked), or null for nothing.
    * Set by the game; `refreshTrayBadges` applies it to the items showing.
    */
-  trayBadge: ((item: TrayItem) => { text: string; empty: boolean } | null) | null = null;
+  trayBadge: ((item: TrayItem) => { text: string; empty: boolean; attention?: boolean } | null) | null = null;
   private trayButtons: [HTMLElement, TrayItem][] = [];
 
   refreshTrayBadges(): void {
@@ -676,6 +693,7 @@ export class Hud {
   private decorate(b: HTMLElement, item: TrayItem): void {
     const badge = this.trayBadge?.(item) ?? null;
     let tag = b.querySelector<HTMLElement>(".have");
+    b.classList.toggle("attention", badge?.attention === true);
     if (!badge) {
       tag?.remove();
       b.classList.remove("empty");
@@ -1091,9 +1109,22 @@ export class Hud {
    * Show a message. A celebration stays up long enough to read: messages that come while it's fresh wait their turn
    * (several things often happen at once: a connection, a goal done, a hint). A plain message gives way at once.
    */
+  /**
+   * Show a message. Toasts come one at a time, each up long enough to read; celebrations go ahead of plain ones
+   * waiting, a few wait at most, and the same message isn't queued twice.
+   */
   toast(message: string, celebrate = false, ms = 2200): void {
     note("toast", message);
-    this.toastQueue.push({ message, celebrate, ms });
+    const showing = this.toastHeldUntil > performance.now() && this.toastEl.textContent === message;
+    if (showing || this.toastQueue.some((t) => t.message === message)) return;
+    const t = { message, celebrate, ms };
+    const plain = celebrate ? this.toastQueue.findIndex((q) => !q.celebrate) : -1;
+    if (plain !== -1) this.toastQueue.splice(plain, 0, t);
+    else this.toastQueue.push(t);
+    while (this.toastQueue.length > TOAST_QUEUE) {
+      const old = this.toastQueue.findIndex((q) => !q.celebrate);
+      this.toastQueue.splice(old === -1 ? 0 : old, 1);
+    }
     this.flushToasts();
   }
 
@@ -1107,8 +1138,34 @@ export class Hud {
     const next = this.toastQueue.shift();
     if (!next) return;
     this.showToast(next.message, next.celebrate, next.ms);
-    this.toastHeldUntil = next.celebrate ? performance.now() + Math.min(next.ms, TOAST_READ_MS) : 0;
+    this.toastHeldUntil = performance.now() + toastMs(next.message, next.celebrate, next.ms);
     if (this.toastQueue.length > 0) this.flushToasts();
+  }
+
+  /** The refusal showing while a held piece is over where it can't go (kept up until it can, or it's put down). */
+  private heldRefusal: string | null = null;
+
+  /**
+   * Why the piece in hand can't go where it is (null: it can now). Stays on screen as long as that's so, rather than
+   * flashing by; once it can go, it goes after a short while (it may still be being read).
+   */
+  setRefusal(message: string | null): void {
+    if (message === this.heldRefusal) return;
+    this.heldRefusal = message;
+    if (message) {
+      this.toastQueue.length = 0;
+      this.showToast(message, false, 600000);
+      this.toastHeldUntil = performance.now() + toastMs(message, false);
+    } else if (this.toastEl.classList.contains("show")) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), 1500);
+    }
+  }
+
+  /** A refusal when something's put down where it can't go: up long enough to read (`toastMs`, as every toast). */
+  refuse(message: string): void {
+    this.heldRefusal = null;
+    this.toast(message);
   }
 
   private showToast(message: string, celebrate: boolean, ms: number): void {
@@ -1120,7 +1177,7 @@ export class Hud {
     void this.toastEl.offsetWidth;
     this.toastEl.classList.add("show");
     clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), ms);
+    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), toastMs(message, celebrate, ms));
   }
 
   /**

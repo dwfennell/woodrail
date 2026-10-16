@@ -25,7 +25,7 @@ export const LANDMARKS: readonly Landmark[] = [
     id: "school",
     name: "School",
     level: 1,
-    blurb: "Its pupils have ideas: a blueprint to choose every few minutes.",
+    blurb: "Its pupils have ideas: a new blueprint on the board now and then, while the town is supplied.",
     models: { two: ["bldg-school", "bldg-church"], one: ["bldg-corner-shop"] },
   },
   {
@@ -80,7 +80,7 @@ export function landmarksOf(land: Landscape): Set<string> {
 }
 
 /** How long (seconds of play) a school takes to come up with a blueprint idea. */
-export const SCHOOL_IDEA_SECONDS = 240;
+export const SCHOOL_IDEA_SECONDS = 480;
 
 /** Coins for goods delivered to a town with a market: half again. */
 export const MARKET_BONUS = 1.5;

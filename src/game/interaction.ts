@@ -7,7 +7,7 @@ import { setRim } from "../render/materials";
 import { ghostMesh, pieceGeometry, type OutlineTone } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
-import { BLOCK_MESSAGES, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
+import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { connectorRef, findLowCrossing, findOverlap, findSnap, flipSwapsEnds, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
@@ -900,6 +900,7 @@ export class Interaction {
 
   private cancel(): void {
     this.game.director.setEdgePointer(null);
+    this.hud.setRefusal(null);
     const m = this.mode;
     this.game.controls.enabled = true;
     if (m.kind === "drag-piece") {
@@ -1269,6 +1270,8 @@ export class Interaction {
    */
   private placement(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): { reason: PlaceBlock | null; risers: RiserAt[] } {
     const reason = this.blockedBy(type, flipped, pose, y, ignoreId);
+    // A hill in the way: say how far up it is, and how to get there (only worked out when it's so).
+    if (reason === "hill") this.hillWhy = hillMessage(levelsAbove(this.game.landscape, type, flipped, pose, y));
     if (reason) return { reason, risers: [] };
     const s = checkSupport(this.game.landscape, this.game.layout, type, flipped, pose, y, ignoreId);
     if (s.kind === "unsupported") return { reason: "unsupported", risers: [] };
@@ -1293,14 +1296,18 @@ export class Interaction {
   private siteWhy = "";
 
   private blockMessage(reason: PlaceBlock): string {
+    if (reason === "hill") return this.hillWhy;
     return reason === "site" ? this.siteWhy : BLOCK_MESSAGES[reason];
   }
+
+  /** The message for the last "hill" refusal (how many levels up, and how to climb it). */
+  private hillWhy = BLOCK_MESSAGES.hill;
 
   /** Check a would-be position for piece `id` (turned or flipped in place: no risers are added), explaining a refusal. */
   private allowed(id: number, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): boolean {
     const p = this.placement(type, flipped, pose, y, id);
     const reason = p.reason ?? (p.risers.length > 0 ? "unsupported" : null);
-    if (reason) this.hud.toast(this.blockMessage(reason));
+    if (reason) this.hud.refuse(this.blockMessage(reason));
     return reason === null;
   }
 
@@ -1570,7 +1577,7 @@ export class Interaction {
     g.layout.nudgePieces(before);
     for (const ref of parted) g.layout.seatFree(ref);
     if (blocked) {
-      this.hud.toast(this.blockMessage(blocked));
+      this.hud.refuse(this.blockMessage(blocked));
       this.onRefused?.();
       return;
     }
@@ -1665,7 +1672,7 @@ export class Interaction {
     g.layout.nudgePieces(poses);
     g.trackView.moveInstances(m.ids);
     const blocked = this.groupBlocked(m.ids, m.members);
-    if (blocked && blocked !== m.blocked) this.hud.toast(this.blockMessage(blocked));
+    this.hud.setRefusal(blocked ? this.blockMessage(blocked) : null);
     m.blocked = blocked;
     g.trackView.setHighlights(this.picked, m.blocked ? "blocked" : m.snapped ? "snap" : "select");
     g.moveShadows();
@@ -1691,8 +1698,10 @@ export class Interaction {
     const after = new Map(m.ids.map((id) => [id, { ...g.layout.getPiece(id)!.pose }]));
     // Put back as it was: the editor then moves it, as one undo step.
     this.putGroupBack(m);
+    this.hud.setRefusal(null);
     if (Math.hypot(m.dx, m.dz) < 0.5) return;
     if (m.blocked) {
+      this.hud.refuse(this.blockMessage(m.blocked));
       this.onRefused?.();
       return;
     }
@@ -1892,7 +1901,8 @@ export class Interaction {
       const py = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
       const { reason, risers } = this.placement(m.type, m.flipped, pose, py, m.pieceId);
       // (A preview under the mouse just shows red: the reason comes if it's clicked.)
-      if (reason && reason !== m.blocked && !m.overTray && m !== this.preview) this.hud.toast(this.blockMessage(reason));
+      // While it's held where it can't go, the reason stays up (and goes once it can, or it's over the tray).
+      if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? this.blockMessage(reason) : null);
       m.blocked = reason;
       m.risers = risers;
       // Trees hop out of the way of where the piece would go (and back when it moves on); a ramp shows its cutting.
@@ -1958,6 +1968,9 @@ export class Interaction {
     const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
     const y = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
     const { reason: final, risers } = this.placement(m.type, m.flipped, pose, y, m.pieceId);
+    // The reason it couldn't go (if it can't) stays up long enough to read; else the held one goes.
+    this.hud.setRefusal(null);
+    if (final && !m.overTray) this.hud.refuse(this.blockMessage(final));
     const mesh = m.ghost;
     const shown: PiecePose = { x: m.shown.x, y: m.shown.y, z: m.shown.z, heading: m.shown.heading };
     const industry = !!INDUSTRY_ROLE[m.type];
@@ -2671,6 +2684,11 @@ export class Interaction {
     this.game.flourishes.clear();
     this.arm(null);
     this.editor().redo();
+  }
+
+  /** A piece's geometry came in (a bridge's taller arches): the piece in hand is redrawn where it is, finger still. */
+  refreshHeld(): void {
+    if (this.mode.kind === "drag-piece") this.updateDrag(this.lastX, this.lastY);
   }
 
   /** True while a press or drag is in progress (undo/redo must wait). */

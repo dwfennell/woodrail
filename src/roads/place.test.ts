@@ -37,7 +37,7 @@ describe("road placement", () => {
     expect(placer.check(at(7, 1))).toBe("prop");
   });
 
-  it("keeps off the sea (even as a bridge) and the beach, each saying so", () => {
+  it("keeps off the sea (even as a bridge), saying so; the beach is fine", () => {
     const l = land();
     const g = l.grid;
     const at = (c: number, r: number) => g.index(c, r);
@@ -46,10 +46,8 @@ describe("road placement", () => {
     const placer = new RoadPlacer(l, null, { inRect: () => false });
     expect(placer.check(at(1, 2))).toBe("sea");
     expect(placer.check(at(1, 2), encodeRoad("bridge", 0))).toBe("sea");
-    expect(placer.check(at(2, 2))).toBe("beach");
+    expect(placer.check(at(2, 2))).toBeNull();
     expect(ROAD_MESSAGES.sea).toMatch(/sea/);
-    // So the beach's sand is never laid over (and lost when the road goes).
-    expect(g.surface[at(2, 2)]).toBe(SURF_SAND);
   });
 
   it("keeps clear of ground-level track", () => {

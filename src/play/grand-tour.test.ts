@@ -119,8 +119,14 @@ class Tour {
       if (this.tick % SIM_HZ !== 0) continue;
       this.town.update();
       this.counters.collect(this.w.economy, this.progress);
-      const from = schoolIdeas(this.progress, this.w.landscape, this.school, 1, this.random);
-      if (from) this.note(`${from} has an idea: ${this.progress.offers[this.progress.offers.length - 1].ids.map((id) => techOf(id)!.label).join(" or ")}`);
+      // (The tour's towns are kept supplied.) A school's idea goes on the board; the tour learns it (a shortcut for
+      // paying its planks at the workshop).
+      const idea = schoolIdeas(this.progress, this.w.landscape, this.school, 1, this.random);
+      if (idea) {
+        this.note(`${idea.from} has an idea: ${techOf(idea.id)!.label} on the board`);
+        this.progress.learned.add(idea.id);
+        this.progress.board.delete(idea.id);
+      }
       this.chooseOffers();
       if (this.tick % (SIM_HZ * 30) === 0) updateRates(this.w);
       if (this.tick % (SIM_HZ * this.reportEvery) === 0) this.trains();
@@ -330,6 +336,8 @@ describe("the grand tour", () => {
 
       // 3. Stone: quarries (the library opened them), on a branch off the line by a switch; a routed stone train.
       T.learn("quarries");
+      // (Switches with planks at the workshop: schools no longer hand out blueprints free.)
+      T.learn("switches");
       T.learn("routes");
       const g = w().landscape.grid;
       const hills: number[] = [];

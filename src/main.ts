@@ -39,11 +39,11 @@ import { BOAT_SAIL, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
-import { aOrAn, covers, describe as describeGoods, minus, total } from "./economy/goods";
+import { aOrAn, describe as describeGoods, kindsOf, minus, total, type Bag } from "./economy/goods";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
-import { TrackView } from "./render/track-view";
+import { onArchesBuilt, TrackView } from "./render/track-view";
 import { PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
 import type { CarKind, CarLook } from "./sim";
 import { Hud } from "./ui/hud";
@@ -715,10 +715,14 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   let goals = new GoalTracker(loadGoals());
   const goalsPanel = new GoalsPanel(hud.root, { newGame: () => newGame(), showMe: () => showGoal() });
 
+  /** When each town last had a delivery (performance.now): its school thinks only while it's supplied. */
+  const lastDelivered = new Map<number, number>();
+  const SCHOOL_SUPPLIED_MS = 180_000;
   // Game mode's towns: they want things, and grow when they get them.
   const townLife = new TownLife(game, {
     knows: (tech) => progress.learned.has(tech),
     received: (town, kind, n, before) => {
+      lastDelivered.set(town.id, performance.now());
       payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
     },
@@ -736,16 +740,14 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       const level = aOrAn(status.name.toLowerCase());
       hud.toast(built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`, true, 3600);
       audio.chime();
-      // The first village, town and city each bring a present.
+      // The first village, town and city each bring a present; a town that grows offers two blueprints suited to its
+      // new size (one learned free), or a crate of things. Both in one short line after the growth.
       const gift = firstTimeGift(progress, status.level);
-      if (gift.length > 0) {
-        hud.toast(`Your first ${status.name.toLowerCase()}! A present for your toy box: ${describeThings(gift)}`, true, 5200);
-        hud.refreshTrayBadges();
-      }
-      // A town that grows offers two blueprints suited to its new size (one learned free), or a crate of things.
+      if (gift.length > 0) hud.refreshTrayBadges();
       const offered = progress.offers.length;
       offerOnGrowth(progress, town.name, Math.random, status.level);
-      if (progress.offers.length > offered) hud.toast(`${town.name} has a reward for you: open Blueprints to choose`, false, 4200);
+      const extras = [gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Reward in Blueprints" : ""].filter(Boolean);
+      if (extras.length > 0) hud.toast(extras.join(" · "), gift.length > 0, 4200);
       if (gift.length > 0 || progress.offers.length > offered) {
         refreshBoard();
         scheduleSave();
@@ -768,7 +770,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   let goalsCheckedAt = 0;
   function checkGoals(announce: boolean): void {
     if (mode !== "game" || !playing) return;
-    const fresh = goals.update(game.world);
+    const ctx = { learned: progress.learned };
+    const fresh = goals.update(game.world, ctx);
     if (fresh.length > 0) {
       saveGoals(goals.ids());
       if (announce) {
@@ -778,7 +781,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       }
     }
     const current = goals.current();
-    goalsPanel.show(goals.doneCount, current, current ? current.check(game.world) : null, goals.next());
+    goalsPanel.show(goals.doneCount, current, current ? current.check(game.world, ctx) : null, goals.next());
   }
 
   // Game mode's toy box and workshop: what you own (worked out against what's on the map), and what's being made.
@@ -828,14 +831,16 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   }
 
   /** The toy box on the tray (Game mode): how many of each are left. */
-  function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean } | null {
+  function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean; attention?: boolean } | null {
     if (item.kind !== "piece" && item.kind !== "train") return null;
     const needs = thingsFor(item as Parameters<typeof thingsFor>[0]);
     if ([...needs.keys()].every(isFree)) return null;
     if ([...needs.keys()].some((id) => !progress.knows(id)) || lockedLook(item)) return { text: "Locked", empty: true };
     let n = Infinity;
     for (const [id, k] of needs) n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
-    return { text: String(n), empty: n === 0 };
+    // The workshop, while there's none on the map: it's where planks go to learn blueprints.
+    const attention = n > 0 && "type" in item && item.type === "depot-workshop" && workshops(game.world).length === 0;
+    return { text: String(n), empty: n === 0, ...(attention ? { attention } : {}) };
   }
 
   /** Industries placed or moved: give new ones their depots, and redraw the yards where they stand. */
@@ -889,8 +894,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       save();
     },
     learn: (id) => {
+      // (Not yet: the card's reason line beside the button already says why.)
       if (learnWithGoods(game.world, progress, id)) learned(id);
-      else hud.toast(`${techOf(id)!.label} costs ${describePrice(techOf(id)!.price)}: planks from the workshop's yard, coins from deliveries`, false, 3600);
     },
     close: () => setBoardOpen(false),
   });
@@ -922,6 +927,23 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   const PLAN_WORDS: Record<Plan, string> = { next: "Coming soon: next on the list", soon: "Coming soon", later: "Coming one day", ending: "The ending: coming one day" };
 
+  /**
+   * Why a blueprint can't be learned now, in one short line (null if it can): the goods it takes must be in the
+   * workshop's yard (planks at the sawmill, on a train or delivered to a town don't count), and the coins in hand.
+   */
+  function learnWhy(goods: Bag, coins: number, stock: Bag): string | null {
+    const kinds = kindsOf(goods);
+    if (kinds.length > 0 && workshops(game.world).length === 0) return "Place your workshop (Industries tab)";
+    for (const k of kinds) {
+      const have = stock[k] ?? 0;
+      if (have >= goods[k]!) continue;
+      if (have === 0 && k === "planks") return "Bring planks from the sawmill by train";
+      return `${describeGoods({ [k]: goods[k] })} needed at workshop (${have} there)`;
+    }
+    if (progress.coins < coins) return `${coins} coins needed (${progress.coins} now)`;
+    return null;
+  }
+
   function refreshBoard(): void {
     hud.setBoardButton(board.open, progress.offers.length > 0);
     if (!board.open) return;
@@ -939,7 +961,10 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       if (t.plan) return { ...base, state: "soon" as const, waits: PLAN_WORDS[t.plan] };
       const offer = offerOf(t.id);
       if (offer !== -1) return { ...base, state: "offered" as const, offer };
-      if (progress.board.has(t.id) && ready(progress, t.id)) return { ...base, state: "ready" as const, affordable: covers(stock, goodsOf(t, price)) && progress.coins >= (price.coins ?? 0) };
+      if (progress.board.has(t.id) && ready(progress, t.id)) {
+        const why = learnWhy(goodsOf(t, price), price.coins ?? 0, stock);
+        return { ...base, state: "ready" as const, affordable: why === null, ...(why ? { why } : {}) };
+      }
       const missing = t.needs.filter((n) => !progress.learned.has(n));
       const unmet = t.requires.filter((n) => !needMet(progress, n));
       const waits =
@@ -958,7 +983,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       branches: BRANCHES.map((b) => ({ id: b.id, label: b.label, color: b.color })),
       offers: progress.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: describeThings(o.crate) } : {}) })),
       planks: hasWorkshop ? stock.planks ?? 0 : null,
-      stock: hasWorkshop ? `The workshop's yard has ${describeGoods(stock)}` : "Place your workshop first (Industries tab)",
+      stock: hasWorkshop ? `The workshop's yard has ${describeGoods(stock)}` : "Place your workshop (Industries tab)",
     });
   }
 
@@ -977,9 +1002,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     // Schools have ideas while the game runs.
     if (mode === "game" && playing && !game.paused) {
       // A college: ideas twice as often.
-      const from = schoolIdeas(progress, game.landscape, schoolClock, CRAFT_STEP * (progress.learned.has("college") ? 2 : 1), Math.random);
-      if (from) {
-        hud.toast(`${from} has an idea: open Blueprints to choose`, true, 4200);
+      // A school thinks only while its town has had a delivery lately.
+      const supplied = (town: number) => performance.now() - (lastDelivered.get(town) ?? -Infinity) < SCHOOL_SUPPLIED_MS;
+      const idea = schoolIdeas(progress, game.landscape, schoolClock, CRAFT_STEP * (progress.learned.has("college") ? 2 : 1), Math.random, supplied);
+      if (idea) {
+        hud.toast(`${idea.from}: ${techOf(idea.id)!.label} is on the board`, true, 4200);
         refreshBoard();
         scheduleSave();
       }
@@ -1072,7 +1099,26 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       scheduleSave();
     });
   }
+  /** Planks kept for the workshop: it's short of what the cheapest blueprint on the board needs (worked out once a second). */
+  let planksKept = false;
+  const keepPlanks = (kind: string) => kind === "planks" && planksKept;
+  function updatePlanksKept(): void {
+    game.economy.reserved = mode === "game" ? keepPlanks : null;
+    if (mode !== "game" || workshops(game.world).length === 0) {
+      planksKept = false;
+      return;
+    }
+    let cheapest = Infinity;
+    for (const t of TECHS) {
+      if (!progress.board.has(t.id) || progress.learned.has(t.id) || !ready(progress, t.id)) continue;
+      const planks = priceOf(progress, t).planks ?? 0;
+      if (planks > 0) cheapest = Math.min(cheapest, planks);
+    }
+    planksKept = (workshopStock(game.world).planks ?? 0) < cheapest && cheapest < Infinity;
+  }
+
   setInterval(() => {
+    updatePlanksKept();
     if (mode !== "game" || !playing || game.paused) return;
     for (const e of harbourTrade.update(game.world, progress)) {
       if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL);
@@ -1744,6 +1790,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     }
   };
 
+  // A bridge held still while its taller arches were being made: they come in without waiting for the finger to move.
+  onArchesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress });

@@ -20,6 +20,8 @@ export interface Station {
   price: string;
   planks: number;
   affordable?: boolean;
+  /** For `ready` and not affordable: why not, in one short line ("6 planks needed at workshop (2 there)"). */
+  why?: string;
   /** What must be done first, in words, and whether it is. */
   requires: { text: string; met: boolean }[];
   /** For `offered`: which offer (to choose it). */
@@ -302,7 +304,9 @@ export class BlueprintBoard {
           : need > 0
             ? `<span class="bp-gauge"><span class="bp-gauge-fill" style="width:${Math.min(100, (have / need) * 100)}%"></span></span><span class="bp-gauge-text">${Math.min(have, need)} of ${need} planks in the yard</span>`
             : "";
-      foot = `<span class="bp-cost">${gauge}</span><button class="chip text${s.affordable ? " primary" : ""}" data-act="learn" data-id="${s.id}" ${s.affordable ? "" : "disabled"}>Learn · ${esc(s.price)}</button>`;
+      // Not yet: why, in place of the count (so a greyed Learn always says why).
+      const cost = s.why ? `<span class="bp-why">${esc(s.why)}</span>` : gauge;
+      foot = `<span class="bp-cost">${cost}</span><button class="chip text${s.affordable ? " primary" : ""}" data-act="learn" data-id="${s.id}" ${s.affordable ? "" : `aria-disabled="true" title="${esc(s.why ?? "")}"`}>Learn · ${esc(s.price)}</button>`;
     } else foot = `<span class="bp-waits">${esc(s.waits ?? "Later")}</span>`;
     return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b><span>${esc(s.blurb)}</span></div>${makes ? `<div class="bp-makes">${makes}</div>` : ""}<div class="bp-ticket-needs">${needs.length ? `<span>Needs ${esc(needs.join(" + "))}</span>` : ""}${s.state !== "learned" && (s.price !== "free" || reqs) ? `<span>${s.price !== "free" ? `Price: ${esc(s.price)}` : ""}</span>${reqs}` : ""}</div><div class="bp-ticket-foot">${foot}</div></div>`;
   }
