@@ -83,10 +83,10 @@ async function run(vw, vh, mode, landscape = false) {
   const p = await ctx.newPage();
   p.on("pageerror", (e) => console.log("PAGEERROR", e.message));
   await p.goto(URL);
-  await p.waitForFunction((m) => !!window.woodrail && !document.querySelector(".title-screen").hidden && document.querySelector(`.title-card.mode-${m} .title-buttons .primary`) !== null, mode, { timeout: 180000 });
+  await p.waitForFunction((m) => !!window.woodrail && !document.querySelector(".title-screen").hidden && document.querySelector(`.title-card.mode-${m} .title-buttons .primary:not([hidden])`) !== null, mode, { timeout: 180000 });
   await new Promise((r) => setTimeout(r, 1500));
   await shot(p, `${tag}-01-title`);
-  await tapSel(p, `.title-card.mode-${mode} .title-buttons .primary`);
+  await tapSel(p, `.title-card.mode-${mode} .title-buttons .primary:not([hidden])`);
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group, .tray .scroller .tray-item") !== null, null, { timeout: 60000 });
   await new Promise((r) => setTimeout(r, 2500));
   await shot(p, `${tag}-02-start`, "first screen (help?)");
@@ -108,7 +108,10 @@ async function run(vw, vh, mode, landscape = false) {
   if (tabs.length > 1) { await tapSel(p, ".tabs .tab:nth-child(2)"); await shot(p, `${tag}-06-tab2`); await tapSel(p, ".tabs .tab:nth-child(1)"); }
   if (mode === "game") {
     // Goals panel: expand.
+    await shot(p, `${tag}-07a-goals-chip`);
     if (await tapSel(p, ".goals-head")) await shot(p, `${tag}-07-goals`);
+    if (await tapSel(p, ".goals-tab:nth-child(2)")) await shot(p, `${tag}-07c-news`);
+    await tapSel(p, ".goals-close");
     if (await tapSel(p, ".goals-show-icon")) await shot(p, `${tag}-07b-goals-show`);
     await p.keyboard.press("Escape");
     // Blueprints board
