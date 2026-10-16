@@ -480,3 +480,4 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A harbour's card: goods to buy from the next boat. */
 .harbour-buy { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .harbour-buy-line { flex-basis: 100%; font-size: 13px; font-weight: 700; color: #6a5340; }
+.coin-dot { display: inline-block; width: 13px; height: 13px; margin-left: 4px; vertical-align: -2px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffe08a, #e2a12b 70%); box-shadow: inset 0 0 0 1.5px #c98a1c; }

@@ -1134,11 +1134,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else if (e.kind === "gone") game.boats.remove(e.depotId);
       else if (e.kind === "bought") {
         hud.setCoins(progress.coins);
-        const got = total(e.goods) > 0 ? `A boat brought ${describeGoods(e.goods)}: −${e.coins} coins` : "A boat came, but you had too few coins for your order";
-        hud.toast(e.short && total(e.goods) > 0 ? `${got} (the rest went back)` : got, false, 3200);
+        const why = e.short === "room" ? "the quay was full" : "too few coins";
+        const got = `A boat brought ${describeGoods(e.goods)}: −${e.coins} coins`;
+        hud.toast(total(e.goods) === 0 ? `Your order went back: ${why}` : e.short ? `${got} (the rest went back: ${why})` : got, false, 3200);
         scheduleSave();
-      }
-      else if (e.kind === "sold") {
+      } else if (e.kind === "sold") {
         hud.setCoins(progress.coins);
         hud.toast(`A boat took ${describeGoods(e.goods)}: +${e.coins} coins`, false, 3200);
         scheduleSave();
@@ -1225,7 +1225,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       for (const k of forSale) {
         const b = document.createElement("button");
         b.className = "chip text";
-        b.textContent = `+${describeGoods({ [k]: BUY_LOT })} · ${BUY_LOT * buyPrice(k)}`;
+        b.innerHTML = `+${describeGoods({ [k]: BUY_LOT })} · ${BUY_LOT * buyPrice(k)}<i class="coin-dot" aria-label="coins"></i>`;
+        b.disabled = harbourTrade.full(id);
         b.addEventListener("click", (e) => {
           e.stopPropagation();
           if (!harbourTrade.order(id, k)) hud.toast("A boat brings 6 loads at most", false);

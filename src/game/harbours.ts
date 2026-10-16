@@ -188,8 +188,11 @@ export function loadBoat(d: DepotState, loads = BOAT_LOADS, landed?: Int32Array)
 export type HarbourEvent =
   | { kind: "arrive" | "leave"; depotId: number; way: readonly { x: number; z: number }[] }
   | { kind: "sold"; depotId: number; goods: Bag; coins: number }
-  /** A boat unloaded goods you ordered (paid for as they came off: `short` were left aboard, not enough coins). */
-  | { kind: "bought"; depotId: number; goods: Bag; coins: number; short: boolean }
+  /**
+   * A boat unloaded goods you ordered, paid for as they came off. `short`: some went back, for want of coins or of
+   * room on the quay (null: all came).
+   */
+  | { kind: "bought"; depotId: number; goods: Bag; coins: number; short: "coins" | "room" | null }
   /** The harbour went (taken up, or moved) while its boat was in: the boat's gone at once. */
   | { kind: "gone"; depotId: number };
 
@@ -293,6 +296,13 @@ export class HarbourTrade {
     return true;
   }
 
+  /** Is this harbour's order full (a boat brings no more)? */
+  full(depotId: number): boolean {
+    let n = 0;
+    for (const v of Object.values(this.ordered(depotId))) n += v ?? 0;
+    return n + BUY_LOT > BUY_MAX;
+  }
+
   /** What's on order at this harbour (empty: nothing). */
   ordered(depotId: number): Bag {
     return this.orders.get(depotId) ?? {};
@@ -313,12 +323,16 @@ export class HarbourTrade {
     this.orders.delete(d.id);
     const goods: Bag = {};
     let coins = 0;
-    let short = false;
+    let short: "coins" | "room" | null = null;
     for (const k of CARGO_KINDS) {
       for (let n = o[k] ?? 0; n > 0; n--) {
         const price = buyPrice(k);
-        if (p.coins < price || d.piles[CARGO[k].index] >= capAt(d)) {
-          short = true;
+        if (d.piles[CARGO[k].index] >= capAt(d)) {
+          short ??= "room";
+          break;
+        }
+        if (p.coins < price) {
+          short ??= "coins";
           break;
         }
         p.coins -= price;
