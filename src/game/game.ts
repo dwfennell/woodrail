@@ -384,9 +384,10 @@ export class Game {
   /** Call after any layout edit. */
   trackChanged(): void {
     this.invalidate();
-    this.trackView.sync();
-    // Ramps cut into the hills (before anything asks the ground, trees included).
+    // Ramps cut into the hills, before anything asks the ground: the track's arches (how far down a bridge reaches),
+    // trees.
     syncCuttings(this.landscape, this.layout);
+    this.trackView.sync();
     const hop = this.landscapeView.syncTrees(this.layout, true);
     if (hop) this.flourishes.add(hop);
     this.economy.prune();

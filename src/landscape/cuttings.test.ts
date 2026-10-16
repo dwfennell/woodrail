@@ -67,6 +67,22 @@ describe("ramp cuttings", () => {
     expect(cutUndermines(l, far, "ramp", false, RAMP, 0, -1)).toBe(-1);
   });
 
+  it("a ramp out on the felt beside a hill leaves the hill whole: its banks don't scoop the blocks beside it", () => {
+    const l = land();
+    const layout = new Layout();
+    // Along the hill's north edge (its last row ends at z = 288), on the felt: the bed's edge 12 mm short of the hill.
+    layout.addPiece("ramp", P(200, 288 + CUT_BED_HALF + 12), 0);
+    syncCuttings(l, layout);
+    const hills = hillsOf(l.grid);
+    expect(hills.cutBlocks()).toEqual([]);
+    expect(hills.groundAt(230, 284)).toBe(RISER_HEIGHT);
+    // Run into the hill, the same ramp cuts its bed and banks as ever.
+    const into = new Layout();
+    into.addPiece("ramp", P(200, 288 - CUT_BED_HALF), 0);
+    syncCuttings(l, into);
+    expect(hills.cutBlocks().length).toBeGreaterThan(0);
+  });
+
   it("only plain ramps cut: not ones up on arches, and not other track", () => {
     const l = land();
     const layout = new Layout();

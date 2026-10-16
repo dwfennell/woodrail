@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { Mesh, MeshBasicMaterial, Raycaster, Vector3, type BufferGeometry } from "three";
-import { blockOutline, hillsOf, insideBlock, gridWithPlots, SURF_RIVER, syncCuttings, type Landscape } from "../../landscape";
+import { Matrix4, Mesh, MeshBasicMaterial, Raycaster, Vector3, type BufferGeometry, type InstancedMesh } from "three";
+import { blockOutline, heldCut, hillsOf, insideBlock, gridWithPlots, SURF_RIVER, syncCuttings, type Landscape } from "../../landscape";
 import { Layout, RAMP_LENGTH, RISER_HEIGHT } from "../../track";
+import { blockKey, type BlockInstanceRef } from "./blocks";
 import { columnGeometry, cutColumn, HillCutsView } from "./hill-cuts";
 
 /** Signed volume (positive when faces point out) and how many edges aren't shared by exactly two triangles. */
@@ -171,5 +172,68 @@ describe("HillCutsView when plots are built again", () => {
     view.plotsRebuilt([0, 1, 2, 3]);
     view.plotsRebuilt([3]);
     expect(view.group.children.length).toBe(before);
+  });
+});
+
+describe("HillCutsView keeps to the ramps placed", () => {
+  /** A one-block hill from x = 72 east, rows z -300..300; felt elsewhere. */
+  function land(): Landscape {
+    const grid = gridWithPlots(-1, -1, 2, 2);
+    for (let x = 72 + 36; x < 1200; x += 72) for (let z = -300; z < 300; z += 72) grid.height[grid.cellAtWorld(x, z)] = 1;
+    return { seed: 0, starter: false, grid, towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
+  }
+  /** Stand-in block instances, one per block, recording whether each is shown (or hidden for its cut column). */
+  function blocks() {
+    const shown = new Map<string, boolean>();
+    const refs = new Map<string, BlockInstanceRef>();
+    const refsOf = (key: string): BlockInstanceRef[] => {
+      let ref = refs.get(key);
+      if (!ref) {
+        const mesh = { setMatrixAt: (_: number, m: Matrix4) => shown.set(key, new Vector3().setFromMatrixScale(m).lengthSq() > 0), instanceMatrix: { needsUpdate: false } };
+        refs.set(key, (ref = { mesh: mesh as unknown as InstancedMesh, i: 0, matrix: new Matrix4() }));
+      }
+      return [ref];
+    };
+    const hidden = () => [...shown].filter(([, on]) => !on).map(([key]) => key).sort();
+    return { refsOf, hidden };
+  }
+  const mats = { wood: new MeshBasicMaterial(), top: new MeshBasicMaterial() };
+  /** The blocks the map's cuttings cut, by block key: exactly those drawn cut. */
+  const cutKeys = (l: Landscape) => hillsOf(l.grid).cutBlocks().map((b) => blockKey(l.grid.centreX(b.col), l.grid.centreZ(b.row), b.level * RISER_HEIGHT)).sort();
+
+  it("after placing, moving, a held ramp, taking up and loading, the blocks drawn cut are the ones the ramps cut", () => {
+    const l = land();
+    const layout = new Layout();
+    const b = blocks();
+    const view = new HillCutsView(l.grid, mats, b.refsOf);
+    const changed = () => {
+      syncCuttings(l, layout);
+      view.sync();
+    };
+    // A ramp from the felt into the hill.
+    const ramp = layout.addPiece("ramp", { x: 0, z: 36, heading: 0 }, 0);
+    changed();
+    expect(cutKeys(l).length).toBeGreaterThan(0);
+    expect(b.hidden()).toEqual(cutKeys(l));
+    const first = cutKeys(l);
+    // Moved along the hill's edge: the blocks it left are whole again.
+    layout.movePiece(ramp, { x: 0, z: -180, heading: 0 }, 0);
+    changed();
+    expect(b.hidden()).toEqual(cutKeys(l));
+    expect(cutKeys(l).some((k) => first.includes(k))).toBe(false);
+    // Held over another spot, then put back where it was.
+    view.sync(heldCut(l, { type: "ramp", flipped: false, pose: { x: 0, z: 180, heading: 0 }, y: 0 }));
+    view.sync();
+    expect(b.hidden()).toEqual(cutKeys(l));
+    // Taken up (undone): nothing cut.
+    layout.removePiece(ramp);
+    changed();
+    expect(b.hidden()).toEqual([]);
+    // Loaded afresh with a ramp in place: drawn cut from the start.
+    layout.addPiece("ramp", { x: 0, z: 36, heading: 0 }, 0);
+    syncCuttings(l, layout);
+    const fresh = blocks();
+    new HillCutsView(l.grid, mats, fresh.refsOf);
+    expect(fresh.hidden()).toEqual(cutKeys(l));
   });
 });
