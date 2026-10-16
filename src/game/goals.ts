@@ -1,5 +1,6 @@
 import { connectedPairs } from "../landscape";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
+import { workshops, workshopStock } from "./crafting";
 import { receivedBy } from "./town-life";
 import { townStatus } from "./towns";
 import type { World } from "./world";
@@ -21,9 +22,16 @@ export interface GoalGuide {
   /** Places to mark with a pulse (depots, trains): the towns' signs flash instead. */
   marks: { x: number; z: number }[];
   /** The tray tab to open, and a shelf in it. */
-  tab?: "track" | "trains";
+  tab?: "track" | "trains" | "industries";
   shelf?: string;
 }
+
+/** What a goal may ask beyond the world: the player's progress (blueprints learned). */
+export interface GoalContext {
+  learned: ReadonlySet<string>;
+}
+
+const NO_CONTEXT: GoalContext = { learned: new Set() };
 
 export interface Goal {
   readonly id: string;
@@ -31,7 +39,7 @@ export interface Goal {
   /** A nudge toward how to do it. */
   readonly hint: string;
   /** Reads only the world's state, so it holds after a reload as well as in play. */
-  check(world: World): GoalProgress;
+  check(world: World, ctx?: GoalContext): GoalProgress;
   /** Where to look and what to reach for, from the world as it is now. */
   guide(world: World): GoalGuide;
 }
@@ -222,9 +230,36 @@ export const GOALS: readonly Goal[] = [
     },
   },
   {
+    id: "place-workshop",
+    title: "Place your workshop",
+    hint: "Drag it from the Industries tab onto your line.",
+    check: (w, ctx = NO_CONTEXT) => ({ done: workshops(w).length > 0 || ctx.learned.has("switches") }),
+    guide: (w) => ({ ...guideTrains(w), tab: "industries", shelf: "Industries" }),
+  },
+  {
+    id: "workshop-planks",
+    title: "Bring planks to the workshop",
+    hint: "Run planks from the sawmill to it.",
+    check: (w, ctx = NO_CONTEXT) => ({ done: (workshopStock(w).planks ?? 0) > 0 || ctx.learned.has("switches") }),
+    guide: (w) => {
+      const shop = workshops(w)[0];
+      const saw = guideDepot(w, "sawmill");
+      if (!shop) return saw;
+      const at = piecePoint(w, shop.pieceId);
+      return { points: [at, ...saw.points.slice(0, 1)], towns: [], marks: [at] };
+    },
+  },
+  {
+    id: "learn-switches",
+    title: "Learn switches",
+    hint: "Open Blueprints and tap Switches.",
+    check: (_w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches") }),
+    guide: (w) => guideTrains(w),
+  },
+  {
     id: "lay-switch",
     title: "Lay a switch",
-    hint: "Learn switches on the blueprint board, make one at your workshop, then lay it from the Switch shelf.",
+    hint: "Make one at the workshop, then lay it from the Switch shelf.",
     check: (w) => ({ done: hasPiece(w, (type, flipped) => getPieceDef(type, flipped).isSwitch) }),
     guide: (w) => guideTrains(w, "track", "Switch"),
   },
@@ -272,28 +307,33 @@ export const GOALS: readonly Goal[] = [
 ];
 
 /**
- * Goals done, in the order they were done. A goal once done stays done; goals may be done out of order (laying a
- * switch before running a train), but the panel shows the first one not yet done.
+ * Goals done, in order. A goal met early (a switch laid before any train runs) waits, met, until its turn: goals are
+ * ticked off one at a time, in order, at most one a check, so a busy moment doesn't tick off several at once. A goal
+ * once met stays met (some only hold for a moment, like a train moving).
  */
 export class GoalTracker {
   private readonly done: Set<string>;
+  /** Met, not yet ticked off (its turn hasn't come). */
+  private readonly met = new Set<string>();
 
   constructor(done: Iterable<string> = []) {
     const known = new Set(GOALS.map((g) => g.id));
     this.done = new Set([...done].filter((id) => known.has(id)));
   }
 
-  /** Check every goal not yet done; returns the ones done now, in goal order. */
-  update(world: World): Goal[] {
-    const fresh: Goal[] = [];
-    for (const g of GOALS) {
-      if (this.done.has(g.id)) continue;
-      if (g.check(world).done) {
-        this.done.add(g.id);
-        fresh.push(g);
-      }
-    }
-    return fresh;
+  /** Check every goal not yet done; returns the one ticked off now (the current goal, if it's met), or none. */
+  update(world: World, ctx: GoalContext = NO_CONTEXT): Goal[] {
+    for (const g of GOALS) if (!this.done.has(g.id) && !this.met.has(g.id) && g.check(world, ctx).done) this.met.add(g.id);
+    const now = this.current();
+    if (!now || !this.met.has(now.id)) return [];
+    this.met.delete(now.id);
+    this.done.add(now.id);
+    return [now];
+  }
+
+  /** Is this goal met, waiting for its turn? */
+  waiting(id: string): boolean {
+    return this.met.has(id);
   }
 
   isDone(id: string): boolean {
@@ -315,7 +355,8 @@ export class GoalTracker {
     return left[1] ?? null;
   }
 
+  /** The goals to save: those done, and those met and waiting (they're ticked off after a reload). */
   ids(): string[] {
-    return [...this.done];
+    return [...this.done, ...this.met];
   }
 }
