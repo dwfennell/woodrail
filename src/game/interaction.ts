@@ -472,6 +472,8 @@ export class Interaction {
   private placeArmedAt(x: number, y: number): boolean {
     const item = this.armed;
     if (!item) return false;
+    // The ready piece comes out of the toy box like one taken from the tray (Game mode: owned, or made on the spot).
+    if (this.trayAllowed && !this.trayAllowed(item)) return false;
     this.startTrayDrag(item, { pointerId: -1 } as PointerEvent);
     const m = this.mode;
     if (m.kind !== "drag-piece") return false;
@@ -489,6 +491,9 @@ export class Interaction {
     this.dropPiece(m);
     return true;
   }
+
+  /** May this tray item come out now (Game mode: in the toy box, or made on the spot)? Null: always. */
+  trayAllowed: ((item: TrayItem) => boolean) | null = null;
 
   /** The ready piece shown where it would go (as if held there): waiting at the free end of the piece just put down. */
   private preview: Extract<Mode, { kind: "drag-piece" }> | null = null;

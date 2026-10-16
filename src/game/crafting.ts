@@ -2,7 +2,7 @@ import { CARGO, CARGO_KINDS } from "../economy/cargo";
 import type { DepotState } from "../economy/economy";
 import { covers, kindsOf, minus, total, type Bag } from "../economy/goods";
 import type { Progress } from "./progress";
-import { ruleOf, type ThingId } from "./things";
+import { isFree, ruleOf, type ThingId } from "./things";
 import type { World } from "./world";
 
 /** Seconds of play to make one thing, once its goods are taken. */
@@ -36,20 +36,46 @@ export function takeFromWorkshops(world: World, bag: Bag): boolean {
 }
 
 /**
- * Make one `id` at once, from the tray (Game mode): its goods from the workshops' yards and its coins, into the toy
- * box. Returns null if made, else what's missing (goods still needed in the yards, and coins), or "no-workshop".
+ * The goods and coins to make `wants` (how many of each thing), from the tray (Game mode).
  */
-export function craftNow(world: World, p: Progress, id: ThingId): null | "no-workshop" | { goods: Bag; coins: number } {
-  const rule = ruleOf(id);
-  if (!rule || !p.knows(id)) return { goods: {}, coins: 0 };
+export function costOf(wants: ReadonlyMap<ThingId, number>): { goods: Bag; coins: number } {
+  const goods: Bag = {};
+  let coins = 0;
+  for (const [id, n] of wants) {
+    const rule = ruleOf(id);
+    if (!rule) continue;
+    for (const k of kindsOf(rule.cost)) goods[k] = (goods[k] ?? 0) + rule.cost[k]! * n;
+    coins += (rule.coins ?? 0) * n;
+  }
+  return { goods, coins };
+}
+
+/**
+ * Make `wants` (how many of each thing) at once, from the tray (Game mode): all of them or none. Their goods come from
+ * the workshops' yards and their coins from hand, into the toy box. Returns null if made, else "no-workshop", or
+ * what's missing for the lot (goods still needed in the yards, and coins), having taken nothing.
+ */
+export function craftNow(world: World, p: Progress, wants: ReadonlyMap<ThingId, number>): null | "no-workshop" | { goods: Bag; coins: number } {
   if (workshops(world).length === 0) return "no-workshop";
-  const goods = minus(rule.cost, workshopStock(world));
-  const coins = Math.max(0, (rule.coins ?? 0) - p.coins);
+  const cost = costOf(wants);
+  const goods = minus(cost.goods, workshopStock(world));
+  const coins = Math.max(0, cost.coins - p.coins);
   if (total(goods) > 0 || coins > 0) return { goods, coins };
-  takeFromWorkshops(world, rule.cost);
-  p.coins -= rule.coins ?? 0;
-  p.add(id);
+  takeFromWorkshops(world, cost.goods);
+  p.coins -= cost.coins;
+  for (const [id, n] of wants) p.add(id, n);
   return null;
+}
+
+/** What `needs` lacks in the toy box: how many more of each thing (none: empty). */
+export function lacking(world: World, p: Progress, needs: ReadonlyMap<ThingId, number>): Map<ThingId, number> {
+  const out = new Map<ThingId, number>();
+  for (const [id, n] of needs) {
+    if (isFree(id)) continue;
+    const short = n - p.available(world, id);
+    if (short > 0) out.set(id, short);
+  }
+  return out;
 }
 
 /**
