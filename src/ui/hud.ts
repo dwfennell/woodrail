@@ -106,8 +106,11 @@ function nearestTurn(from: number, angle: number): number {
   return from + ((((angle - from) % 360) + 540) % 360) - 180;
 }
 
-/** A celebration message shows at least this long (ms) before the next one replaces it. */
+/** A celebration message shows at least this long (ms) before the next one replaces it; any other, this long. */
 const TOAST_READ_MS = 1800;
+const TOAST_GLANCE_MS = 1000;
+/** Toasts waiting their turn at most (a busy moment drops the oldest plain ones). */
+const TOAST_QUEUE = 3;
 
 /** The HTML overlay: top bar, piece tray, context cards, menu, help, toasts and perf readout. */
 export class Hud {
@@ -1036,9 +1039,22 @@ export class Hud {
    * Show a message. A celebration stays up long enough to read: messages that come while it's fresh wait their turn
    * (several things often happen at once: a connection, a goal done, a hint). A plain message gives way at once.
    */
+  /**
+   * Show a message. Toasts come one at a time, each up long enough to read; celebrations go ahead of plain ones
+   * waiting, a few wait at most, and the same message isn't queued twice.
+   */
   toast(message: string, celebrate = false, ms = 2200): void {
     note("toast", message);
-    this.toastQueue.push({ message, celebrate, ms });
+    const showing = this.toastHeldUntil > performance.now() && this.toastEl.textContent === message;
+    if (showing || this.toastQueue.some((t) => t.message === message)) return;
+    const t = { message, celebrate, ms };
+    const plain = celebrate ? this.toastQueue.findIndex((q) => !q.celebrate) : -1;
+    if (plain !== -1) this.toastQueue.splice(plain, 0, t);
+    else this.toastQueue.push(t);
+    while (this.toastQueue.length > TOAST_QUEUE) {
+      const old = this.toastQueue.findIndex((q) => !q.celebrate);
+      this.toastQueue.splice(old === -1 ? 0 : old, 1);
+    }
     this.flushToasts();
   }
 
@@ -1052,7 +1068,7 @@ export class Hud {
     const next = this.toastQueue.shift();
     if (!next) return;
     this.showToast(next.message, next.celebrate, next.ms);
-    this.toastHeldUntil = next.celebrate ? performance.now() + Math.min(next.ms, TOAST_READ_MS) : 0;
+    this.toastHeldUntil = performance.now() + Math.min(next.ms, next.celebrate ? TOAST_READ_MS : TOAST_GLANCE_MS);
     if (this.toastQueue.length > 0) this.flushToasts();
   }
 

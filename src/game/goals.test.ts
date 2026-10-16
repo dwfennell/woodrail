@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef } from "../track";
 import { GOALS, GoalTracker } from "./goals";
-import { buildStarterWorld, type World } from "./world";
+import { buildStarterWorld, syncIndustries, type World } from "./world";
+import { CARGO } from "../economy/cargo";
 
 const goal = (id: string) => GOALS.find((g) => g.id === id)!;
 
@@ -124,21 +125,61 @@ describe("goal guides", () => {
 });
 
 describe("GoalTracker", () => {
-  it("records goals as they're done, keeps them done, and points at the first not done", () => {
+  it("ticks goals off in order, one a check; one met early waits for its turn", () => {
     const { w, straights } = joined();
     const tracker = new GoalTracker();
     expect(tracker.update(w).map((g) => g.id)).toEqual(["join-two"]);
     expect(tracker.current()?.id).toBe("place-train");
-    // Done out of order: a switch before any train.
+    // Met out of order: a switch before any train. It isn't ticked off ahead of the current goal.
     appendPiece(w.layout, "switch", true, connectorRef(straights[3], 0));
-    expect(tracker.update(w).map((g) => g.id)).toEqual(["lay-switch"]);
+    expect(tracker.update(w)).toEqual([]);
+    expect(tracker.waiting("lay-switch")).toBe(true);
+    expect(tracker.isDone("lay-switch")).toBe(false);
     expect(tracker.current()?.id).toBe("place-train");
     expect(tracker.next()?.id).toBe("get-moving");
     // Pulling the track up again doesn't undo a goal, nor announce it twice.
     for (const id of straights) w.layout.removePiece(id);
     expect(tracker.update(w)).toEqual([]);
     expect(tracker.isDone("join-two")).toBe(true);
-    expect(tracker.doneCount).toBe(2);
+    expect(tracker.doneCount).toBe(1);
+    // Saved, a goal met and waiting comes back done.
+    expect(new GoalTracker(tracker.ids()).isDone("lay-switch")).toBe(true);
+  });
+
+  it("several met at once are ticked off one a check, in order", () => {
+    const { w, straights } = joined();
+    trainOn(w, straights[1], ["engine", "timber"]);
+    const tracker = new GoalTracker();
+    const order: string[] = [];
+    for (let k = 0; k < 4; k++) {
+      const fresh = tracker.update(w);
+      expect(fresh.length).toBeLessThanOrEqual(1);
+      order.push(...fresh.map((g) => g.id));
+    }
+    expect(order).toEqual(["join-two", "place-train"]);
+    expect(tracker.current()?.id).toBe("get-moving");
+  });
+
+  it("the workshop comes before switches: place it, bring it planks, learn switches", () => {
+    const ids = GOALS.map((g) => g.id);
+    const at = (id: string) => ids.indexOf(id);
+    expect(at("place-workshop")).toBeLessThan(at("workshop-planks"));
+    expect(at("workshop-planks")).toBeLessThan(at("learn-switches"));
+    expect(at("learn-switches")).toBeLessThan(at("lay-switch"));
+    const w = buildStarterWorld();
+    expect(goal("learn-switches").check(w, { learned: new Set() }).done).toBe(false);
+    expect(goal("learn-switches").check(w, { learned: new Set(["switches"]) }).done).toBe(true);
+    expect(goal("place-workshop").check(w).done).toBe(false);
+    expect(goal("place-workshop").guide(w).tab).toBe("industries");
+    // A workshop placed, then planks in its yard.
+    const station = w.stations.get(w.landscape.towns[0].id)!;
+    const piece = appendPiece(w.layout, "depot-workshop", false, connectorRef(station, 0));
+    syncIndustries(w);
+    expect(goal("place-workshop").check(w).done).toBe(true);
+    expect(goal("workshop-planks").check(w).done).toBe(false);
+    w.economy.depotAtPiece(piece)!.piles[CARGO.planks.index] = 2;
+    expect(goal("workshop-planks").check(w).done).toBe(true);
+    expect(goal("workshop-planks").guide(w).marks).toEqual([w.layout.getPiece(piece)!.pose]);
   });
 
   it("restores from saved ids, ignoring ones it doesn't know", () => {

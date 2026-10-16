@@ -39,7 +39,7 @@ import { BOAT_SAIL, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
-import { aOrAn, covers, describe as describeGoods, minus, total } from "./economy/goods";
+import { aOrAn, describe as describeGoods, kindsOf, minus, total, type Bag } from "./economy/goods";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -729,16 +729,14 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       const level = aOrAn(status.name.toLowerCase());
       hud.toast(built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`, true, 3600);
       audio.chime();
-      // The first village, town and city each bring a present.
+      // The first village, town and city each bring a present; a town that grows offers two blueprints suited to its
+      // new size (one learned free), or a crate of things. Both in one short line after the growth.
       const gift = firstTimeGift(progress, status.level);
-      if (gift.length > 0) {
-        hud.toast(`Your first ${status.name.toLowerCase()}! A present for your toy box: ${describeThings(gift)}`, true, 5200);
-        hud.refreshTrayBadges();
-      }
-      // A town that grows offers two blueprints suited to its new size (one learned free), or a crate of things.
+      if (gift.length > 0) hud.refreshTrayBadges();
       const offered = progress.offers.length;
       offerOnGrowth(progress, town.name, Math.random, status.level);
-      if (progress.offers.length > offered) hud.toast(`${town.name} has a reward for you: open Blueprints to choose`, false, 4200);
+      const extras = [gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Reward in Blueprints" : ""].filter(Boolean);
+      if (extras.length > 0) hud.toast(extras.join(" · "), gift.length > 0, 4200);
       if (gift.length > 0 || progress.offers.length > offered) {
         refreshBoard();
         scheduleSave();
@@ -761,7 +759,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   let goalsCheckedAt = 0;
   function checkGoals(announce: boolean): void {
     if (mode !== "game" || !playing) return;
-    const fresh = goals.update(game.world);
+    const ctx = { learned: progress.learned };
+    const fresh = goals.update(game.world, ctx);
     if (fresh.length > 0) {
       saveGoals(goals.ids());
       if (announce) {
@@ -771,7 +770,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       }
     }
     const current = goals.current();
-    goalsPanel.show(goals.doneCount, current, current ? current.check(game.world) : null, goals.next());
+    goalsPanel.show(goals.doneCount, current, current ? current.check(game.world, ctx) : null, goals.next());
   }
 
   // Game mode's toy box and workshop: what you own (worked out against what's on the map), and what's being made.
@@ -871,7 +870,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     },
     learn: (id) => {
       if (learnWithGoods(game.world, progress, id)) learned(id);
-      else hud.toast(`${techOf(id)!.label} costs ${describePrice(techOf(id)!.price)}: planks from the workshop's yard, coins from deliveries`, false, 3600);
+      else {
+        const t = techOf(id)!;
+        const price = priceOf(progress, t);
+        hud.toast(learnWhy(goodsOf(t, price), price.coins ?? 0, workshopStock(game.world)) ?? `${t.label}: can't learn it yet`, false, 3200);
+      }
     },
     close: () => setBoardOpen(false),
   });
@@ -903,6 +906,23 @@ function boot(savedThumbnails: Map<string, string> | null): void {
 
   const PLAN_WORDS: Record<Plan, string> = { next: "Coming soon: next on the list", soon: "Coming soon", later: "Coming one day", ending: "The ending: coming one day" };
 
+  /**
+   * Why a blueprint can't be learned now, in one short line (null if it can): the goods it takes must be in the
+   * workshop's yard (planks at the sawmill, on a train or delivered to a town don't count), and the coins in hand.
+   */
+  function learnWhy(goods: Bag, coins: number, stock: Bag): string | null {
+    const kinds = kindsOf(goods);
+    if (kinds.length > 0 && workshops(game.world).length === 0) return "Place your workshop first";
+    for (const k of kinds) {
+      const have = stock[k] ?? 0;
+      if (have >= goods[k]!) continue;
+      if (have === 0 && k === "planks") return "Bring planks from the sawmill";
+      return `${describeGoods({ [k]: goods[k] })} needed at workshop (${have} there)`;
+    }
+    if (progress.coins < coins) return `${coins} coins needed (${progress.coins} now)`;
+    return null;
+  }
+
   function refreshBoard(): void {
     hud.setBoardButton(board.open, progress.offers.length > 0);
     if (!board.open) return;
@@ -920,7 +940,10 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       if (t.plan) return { ...base, state: "soon" as const, waits: PLAN_WORDS[t.plan] };
       const offer = offerOf(t.id);
       if (offer !== -1) return { ...base, state: "offered" as const, offer };
-      if (progress.board.has(t.id) && ready(progress, t.id)) return { ...base, state: "ready" as const, affordable: covers(stock, goodsOf(t, price)) && progress.coins >= (price.coins ?? 0) };
+      if (progress.board.has(t.id) && ready(progress, t.id)) {
+        const why = learnWhy(goodsOf(t, price), price.coins ?? 0, stock);
+        return { ...base, state: "ready" as const, affordable: why === null, ...(why ? { why } : {}) };
+      }
       const missing = t.needs.filter((n) => !progress.learned.has(n));
       const unmet = t.requires.filter((n) => !needMet(progress, n));
       const waits =
@@ -939,7 +962,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       branches: BRANCHES.map((b) => ({ id: b.id, label: b.label, color: b.color })),
       offers: progress.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: describeThings(o.crate) } : {}) })),
       planks: hasWorkshop ? stock.planks ?? 0 : null,
-      stock: hasWorkshop ? `The workshop's yard has ${describeGoods(stock)}` : "Place your workshop first (Industries tab)",
+      stock: hasWorkshop ? `The workshop's yard has ${describeGoods(stock)}` : "Place your workshop first",
     });
   }
 
