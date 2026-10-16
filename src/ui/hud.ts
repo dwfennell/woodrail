@@ -985,7 +985,7 @@ export class Hud {
    * where it doesn't apply (a depot that gives nothing).
    */
   updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = ""): void {
-    const text = piles.map((p) => `${p.label} ${p.count}/${p.cap}`).join("   ·   ") + (note ? `   ·   ${note}` : "");
+    const text = [...piles.map((p) => `${p.label} ${p.count}/${p.cap}`), ...(note ? [note] : [])].join("   ·   ");
     if (this.depotStock.textContent !== text) this.depotStock.textContent = text;
     this.depotAutoBtn.classList.toggle("active", auto);
     this.depotWaitBtn.hidden = waitFull === null;

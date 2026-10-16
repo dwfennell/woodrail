@@ -105,7 +105,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .chip.way .way-arrow { display: inline-block; line-height: 0; transform: rotate(var(--way, 0deg)); transition: transform 0.25s ease; }
 .engine-more { display: flex; gap: 8px; }
 .engine-more[hidden] { display: none; }
-.close { position: absolute; top: 6px; right: 8px; border: none; background: transparent; font-size: 16px; color: #8a6a4a; cursor: pointer; padding: 6px; }
+.close { position: absolute; top: 0; right: 0; width: 44px; height: 44px; border: none; background: transparent; font-size: 16px; color: #8a6a4a; cursor: pointer; padding: 0; }
+/* Titles of cards with a ✕ keep clear of it (padded both sides, so they stay centred). */
+.depot-card > .card-title, .piece-card > .card-title { padding: 0 34px; }
 
 /* Toasts: a little paper label that slides down and settles with a slight tilt. */
 .toast { position: absolute; left: 50%; top: calc(max(10px, env(safe-area-inset-top)) + 62px); transform: translate(-50%, -14px) rotate(0deg); background: #fbf5e8; color: #3a2a1c; padding: 9px 18px; border-radius: 6px; font-weight: 800; opacity: 0;
@@ -224,10 +226,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .goals.collapsed .goals-body { display: none; }
 .goals.collapsed .goals-head { padding: 9px 4px 9px 12px; }
 /* The round "show me" button: only while folded (unfolded, it's a chip under the hint). */
-.goals-show-icon { display: none; flex: none; width: 34px; height: 34px; border: 0; border-radius: 50%; place-items: center; cursor: pointer; color: #5a3f24; background: linear-gradient(180deg, #f6e3c1, #e8c992); box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.25); }
-.goals-show-icon:hover { filter: brightness(1.05); }
+.goals-show-icon { display: none; flex: none; width: 44px; height: 44px; margin: 0 -5px; border: 0; padding: 0; place-items: center; cursor: pointer; color: #5a3f24; background: transparent; isolation: isolate; }
+/* The drawn button (34 px) inside its 44 px hit area, which the panel's edge mustn't clip. */
+.goals-show-icon::before { content: ""; position: absolute; inset: 5px; z-index: -1; border-radius: 50%; background: linear-gradient(180deg, #f6e3c1, #e8c992); box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.25); }
+.goals-show-icon:hover::before { filter: brightness(1.05); }
 .goals.collapsed .goals-show-icon { display: grid; }
-.goals-show { margin-top: 8px; height: 32px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+.goals-show { margin-top: 6px; height: 40px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
 .goals-body { display: none; }
 .goals.collapsed .goals-head { padding-bottom: 10px; }
 .goals-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 6px; }
@@ -416,8 +420,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
 .route-stop .route-remove { padding-inline: 8px; }
 .route-add { align-self: flex-start; }
 
-/* "Show me": a goal town's name over it for a few seconds (positioned by the game each frame). */
-/* Goal labels' layer over the canvas: clips them, so one off screen never widens the page. */
+/* "Show me": a goal town's name over it for a few seconds (positioned by the game each frame), in a layer over the
+   canvas that clips them, so one off screen never widens the page. */
 .goal-labels { position: fixed; inset: 0; z-index: 5; overflow: hidden; pointer-events: none; }
 .goal-label {
   position: absolute;
@@ -434,3 +438,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; col
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(60, 40, 20, 0.25), inset 0 0 0 2px #ffcf6b;
 }
+
+/* "Show me" buttons: a hit area of at least 44 px (the round one is 44 px itself; the chip reaches past its edges). */
+.goals-show-icon,
+.goals-show { position: relative; }
+.goals-show::after { content: ""; position: absolute; inset: -2px; }

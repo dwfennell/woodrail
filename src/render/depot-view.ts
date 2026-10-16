@@ -145,6 +145,14 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     piles: { coal: { t: 60, l: 62, y: YARD, across: 3, rows: 2, axis: "t" } },
     trackT: 60,
   },
+  // A harbour (Phase D): a pile of each good along the quay, waiting for the boats; the water is past the yard's far
+  // side (l > 114), where the boats tie up.
+  harbour: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: Object.fromEntries(CARGO_KINDS.map((k, i) => [k, { t: 22 + i * 17.5, l: 62, y: YARD, across: 1, axis: "l", show: 4 }])),
+    trackT: 60,
+  },
   mill: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     // The gantry spans the piles at the near end; the windmill stands at the far end (t 160).
@@ -209,6 +217,7 @@ const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<s
   carpenter: { part: "industry-carpenter", slots: {} },
   smithy: { part: "industry-smithy", slots: {} },
   power: { part: "industry-power", slots: {} },
+  harbour: { part: "industry-harbour", slots: { roof: "#2f6fb0" } },
   foundry: { part: "industry-foundry", slots: {} },
 };
 
@@ -517,10 +526,21 @@ export class DepotView {
       const spot = UPGRADE_SPOTS[id];
       if (spot && hasPart(id)) addPart(b, mats, id, (g) => place(spot.turn ? g.rotateY(spot.turn) : g, spot.t, spot.l, PAD_H));
     }
+    // A harbour's dock sheds along its quay (Asset Gen's shed, or a stand-in).
+    for (let k = 0; k < (site.depot.role === "harbour" ? site.depot.sheds : 0); k++) {
+      const t = 55 + k * 50;
+      if (hasPart("industry-dock-shed")) addPart(b, mats, "industry-dock-shed", (g) => place(g, t, 100, PAD_H), { roof: "#7a5a3a", doors: "#2f6fb0" });
+      else {
+        b.add(mats.blockWood, place(new RoundedBoxGeometry(30, 18, 20, 2, 2), t, 100, PAD_H + 9));
+        b.add(mats.lacquer("#7a5a3a"), place(new RoundedBoxGeometry(34, 3, 24, 1, 1.2), t, 100, PAD_H + 19));
+      }
+    }
     const model = INDUSTRY_MODELS[site.depot.role];
     if (model && hasPart(model.part)) {
       // The industry's buildings, modelled in Blender in this depot frame (tools/blender/dressing.py, "Industries").
       addPart(b, mats, model.part, (g) => g.rotateY(-pose.heading).translate(pose.x, pose.y ?? 0, pose.z), model.slots);
+      // The harbour's derrick: its jib reaches out over the water (a part of its own, so it could swing one day).
+      if (site.depot.role === "harbour" && hasPart("industry-harbour-jib")) addPart(b, mats, "industry-harbour-jib", (g) => place(g, 199, 105, 62));
       return;
     }
     // Stand-ins drawn from code (unit tests, where the models aren't loaded).
@@ -614,6 +634,13 @@ export class DepotView {
       b.add(mats.lacquer("#5a524a"), place(new CylinderGeometry(4, 5, 34, 10), 174, 104, PAD_H + 40));
       b.add(mats.lacquer("#ffb347"), place(new RoundedBoxGeometry(12, 8, 2, 1, 0.8), 156, 80.5, PAD_H + 9));
       b.add(mats.lacquer("#3a3a3e"), place(new RoundedBoxGeometry(12, 8, 6, 1, 1), 124, 80, PAD_H + 4));
+    }
+    if (site.depot.role === "harbour") {
+      // Timber quay edging along the water side, a few bollards, and a little harbour office at the far end.
+      b.add(mats.naturalWood, place(new RoundedBoxGeometry(196, 6, 8, 1, 1.5), 108, 112, PAD_H - 1));
+      for (const t of [30, 80, 130, 180]) b.add(mats.lacquer("#3a3a3e"), place(new CylinderGeometry(2.5, 3, 7, 10), t, 110, PAD_H + 3.5));
+      b.add(mats.lacquer("#e9e1cf"), place(new RoundedBoxGeometry(26, 24, 22, 2, 2.5), 184, 92, PAD_H + 12));
+      b.add(mats.lacquer("#2f6fb0"), place(new RoundedBoxGeometry(30, 4, 26, 1, 1.5), 184, 92, PAD_H + 26));
     }
     if (site.depot.role === "power") {
       // A brick turbine hall with two tall chimneys.

@@ -26,6 +26,9 @@ export interface MakeNow {
  */
 export class WorkshopPanel {
   private shownKey = "";
+  /** The progress bar's fill now (and the % it shows), set in place as it fills: the card isn't made again. */
+  private bar: HTMLElement | null = null;
+  private barShown = -1;
 
   constructor(
     private readonly root: HTMLElement,
@@ -44,11 +47,20 @@ export class WorkshopPanel {
   hide(): void {
     this.root.hidden = true;
     this.shownKey = "";
+    this.bar = null;
   }
 
   show(now: MakeNow | null, rows: MakeRow[]): void {
-    const key = JSON.stringify([now && { ...now, fill: Math.round(now.fill * 20) }, rows]);
-    if (key === this.shownKey) return;
+    const fill = now ? Math.round(now.fill * 100) : -1;
+    // The card's made again only when what it says changes, not as the bar fills (a tap on a button mid-way
+    // would be lost).
+    const key = JSON.stringify([now && { ...now, fill: 0 }, rows]);
+    // (Still there: the card's box can be emptied by others, e.g. when another card opens.)
+    const intact = this.bar ? this.root.contains(this.bar) : this.root.firstElementChild !== null;
+    if (key === this.shownKey && intact) {
+      if (this.bar && fill !== this.barShown) this.bar.style.width = `${(this.barShown = fill)}%`;
+      return;
+    }
     this.shownKey = key;
     this.root.hidden = false;
     const head = now
@@ -61,5 +73,7 @@ export class WorkshopPanel {
       body += `<div class="make-row"><span><b>${r.label}</b> <span class="cost">${r.cost}</span></span><span class="box">${r.have} in box${r.queued ? ` · ${r.queued} to make` : ""}</span>${r.queued ? `<button class="chip text" data-make="${r.id}" data-less="1" title="Make one fewer">−</button>` : "<span></span>"}<button class="chip text primary" data-make="${r.id}" title="Make one more">+</button></div>`;
     }
     this.root.innerHTML = head + body;
+    this.bar = this.root.querySelector<HTMLElement>(".make-now .bar > i");
+    this.barShown = fill;
   }
 }
