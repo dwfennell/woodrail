@@ -55,9 +55,6 @@ export const TRACK_ITEMS: TrayItem[] = [
   { kind: "piece", type: "buffer", label: "Buffer" },
   { kind: "piece", type: "buffer-turnback", label: "Turnback" },
   { kind: "piece", type: "balloon-loop", label: "Balloon loop" },
-  { kind: "piece", type: "adapter-peg", label: "Peg–peg" },
-  { kind: "piece", type: "adapter-socket", label: "Hole–hole" },
-  { kind: "piece", type: "joiner", label: "Peg joiner" },
 ];
 
 export const TRAIN_ITEMS: TrayItem[] = [
@@ -95,7 +92,7 @@ export const TRACK_GROUPS: TrayGroup[] = [
   { label: "Switch", items: pieces("switch", "switch-y", "switch-3way", "crossover", "wye", "crossing", "crossing-45", "signal") },
   { label: "Ups & downs", items: pieces("ramp", "ramp-curve", "riser") },
   { label: "Ends", items: pieces("buffer", "buffer-turnback", "balloon-loop", "balloon-loop-small") },
-  { label: "Adapters", items: pieces("adapter-peg", "adapter-socket", "joiner") },
+  // (No adapters or dog-bone joiner: any two ends join now. Old maps' adapters and joiners still load.)
 ];
 
 export const TRAIN_GROUPS: TrayGroup[] = [

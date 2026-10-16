@@ -1,7 +1,7 @@
 import { JOINT_POS_TOLERANCE } from "./constants";
 import { createWorldConnector, pieceOfRef, type Layout } from "./layout";
 import { normalizeAngle, type Pose } from "./math";
-import { FIT_LENGTHS, fitType, JOIN_SIZES, joinType, type PieceTypeId } from "./pieces";
+import { FIT_LENGTHS, JOIN_SIZES, joinType, type PieceTypeId } from "./pieces";
 
 /** The auto straight's lengths (mm), every 18 mm from the tiny straight up to the long one, which it starts as. */
 export const AUTO_LENGTHS = FIT_LENGTHS;
@@ -62,12 +62,8 @@ export function fitAutoStraight(layout: Layout, pose: Pose, y: number, seated: 0
   }
   if (!found) return null;
   const { length, offset } = found;
-  // The seated end is a hole (seated 0) or a peg (seated 1); the far end is the opposite of the end it meets. Alike
-  // (two holes facing, or two pegs), it's a both-ends-alike shape.
-  const near0 = seated === 0 ? "socket" : "peg";
-  const far = found.kind === "peg" ? "socket" : "peg";
-  const alike = near0 === far ? (far === "peg" ? "pp" : "hh") : null;
-  const type: PieceTypeId = alike ? fitType(length, Math.abs(offset), alike) : offset === 0 ? (`straight-${length}` as PieceTypeId) : joinType(length, Math.abs(offset));
+  // Any two ends join (peg or hole alike), so a plain straight or join meets it.
+  const type: PieceTypeId = offset === 0 ? (`straight-${length}` as PieceTypeId) : joinType(length, Math.abs(offset));
   // Seated by its peg, the piece starts back along the line and over to the side, where the end it meets is.
   const at =
     seated === 0

@@ -89,15 +89,21 @@ const refusals = new Map<string, number>();
 /** What refused the last piece `addOn` tried (null: it went). */
 let lastRefusal: string | null = null;
 
+/** The end of `type` a player puts on a free end of kind `kind`: any end joins, but one of the other kind reads as usual. */
+function viaFor(type: PieceTypeId, flipped: boolean, kind: string): number {
+  const via = getPieceDef(type, flipped).connectors.findIndex((c) => c.kind !== kind);
+  return via === -1 ? 0 : via;
+}
+
 /**
- * Put `type` on the free end `ref` (seated by an end of the other kind), returning its other free end, or null (no
- * end of the other kind, or the placement rules refuse it there).
+ * Put `type` on the free end `ref` (seated by an end of the other kind where it has one, else its first: any two ends
+ * join), returning its other free end, or null (the placement rules refuse it there).
  */
 function addOn(layout: Layout, ref: number, type: PieceTypeId, flipped: boolean): { id: number; next: number } | null {
   const end = endOf(layout, ref);
   const def = getPieceDef(type, flipped);
-  const via = def.connectors.findIndex((c) => c.kind !== end.kind);
-  if (via === -1) return null;
+  if (def.connectors.length === 0) return null;
+  const via = viaFor(type, flipped, end.kind);
   const id = appendPiece(layout, type, flipped, ref, via);
   if (rules) {
     const p = layout.getPiece(id)!;
@@ -136,7 +142,7 @@ function autoFrom(layout: Layout, ref: number, to: number): { type: PieceTypeId;
   const auto = addOn(layout, ref, "straight-216", false);
   if (!auto) return null;
   const p = layout.getPiece(auto.id)!;
-  const seated = getPieceDef("straight-216", false).connectors.findIndex((c) => c.kind !== end.kind) as 0 | 1;
+  const seated = viaFor("straight-216", false, end.kind) as 0 | 1;
   layout.removePiece(auto.id);
   // Only a fit that meets the target end (Auto meets the nearest end it can; a player puts it where that's the target).
   const others = [...layout.pieceIds()].filter((id) => id !== pieceOfRef(to));
@@ -151,7 +157,7 @@ function finish(layout: Layout, ref: number, to: number, depth: number): { type:
   if (autoFrom(layout, ref, to)) return [];
   // A near miss the slack can pull closed counts too.
   const facing = Math.abs(normalizeAngle(end.heading - target.heading - Math.PI));
-  if (end.kind !== target.kind && Math.abs(end.y - target.y) < 1 && Math.hypot(end.x - target.x, end.z - target.z) < NEAR && facing < NEAR_TURN) return [];
+  if (Math.abs(end.y - target.y) < 1 && Math.hypot(end.x - target.x, end.z - target.z) < NEAR && facing < NEAR_TURN) return [];
   if (depth === 0) return null;
   for (const s of FINISH) {
     const next = addStep(layout, ref, s);
