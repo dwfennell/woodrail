@@ -268,4 +268,25 @@ describe("harbours", () => {
     for (let t = 0; t < 60 && !bought; t++) bought = trade.update(w, p).find((e) => e.kind === "bought");
     expect(bought).toMatchObject({ short: "room" });
   });
+
+  it("a car carrying bought goods still won't hand them back there after a save and load", () => {
+    const w = coastWorld();
+    const id = w.layout.addPiece("depot-harbour", harbourSite(w));
+    syncIndustries(w);
+    const d = w.economy.depotAtPiece(id)!;
+    w.economy.land(d, "planks", 3);
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: id, pathIndex: 0, reversed: false, s: 150 });
+    if (r.kind !== "placed") throw new Error("no room for the train");
+    const crane = w.economy as unknown as { loadOne(d: unknown, carId: number): void };
+    for (let k = 0; k < 3; k++) crane.loadOne(d, w.sim.getTrain(r.trainId)!.cars[1].id);
+    const back = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    const e = back.value.economy.depotAtPiece(id)!;
+    const wagon = back.value.sim.getTrain(back.value.sim.trainIds()[0])!.cars[1];
+    expect(back.value.economy.cargoOf(wagon.id)).toEqual({ kind: "planks", count: 3 });
+    expect(back.value.economy.landedFrom.get(wagon.id)).toBe(e.id);
+    // No planks landed there now, yet the wagon doesn't unload its bought ones back.
+    expect(back.value.economy.needsService(e, wagon.id)).toBe(false);
+  });
 });
