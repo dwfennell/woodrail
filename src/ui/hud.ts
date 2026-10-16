@@ -706,7 +706,9 @@ export class Hud {
   /** A newer build is out: a chip under the top bar offers it (once). */
   showUpdateChip(onTap: () => void): void {
     if (this.root.querySelector(".update-chip")) return;
-    this.root.appendChild(button("New version · Update", "A newer version of Woodrail is ready: saves, then reloads", onTap, "chip text update-chip"));
+    // Over the tray, in the middle: clear of the top bar, the goals and the nudges (and away with the tray while a
+    // card's up).
+    this.tray.appendChild(button("New version · Update", "A newer version of Woodrail is ready: saves, then reloads", onTap, "chip text update-chip"));
   }
 
   /** The map view is open: its button lit, the goals and tray put away. */

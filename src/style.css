@@ -39,7 +39,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .chip.primary { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
 .chip.attention { background: linear-gradient(180deg, #ffd88a, #f0ae3c); animation: nudge 1.6s ease-in-out infinite; }
 /* Under the top bar, on the right (the goals panel is on the left); the toast, which is centred, sits above it. */
-.update-chip { position: absolute; right: 12px; top: calc(max(10px, env(safe-area-inset-top)) + 62px); z-index: 20; height: 44px; white-space: nowrap; }
+.update-chip { position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%); z-index: 20; height: 44px; white-space: nowrap; }
 .chip .ui-icon { display: block; margin: 0 auto; }
 @keyframes nudge { 0%, 70%, 100% { transform: none; } 78% { transform: rotate(-4deg); } 86% { transform: rotate(4deg); } }
 
