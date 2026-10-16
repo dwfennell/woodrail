@@ -45,6 +45,23 @@ describe("Editor", () => {
     expect(layout.jointCount).toBe(1);
   });
 
+  it("an old map's dog-bone joiner between two holes still loads joined, and trains run across", () => {
+    const { layout, sim } = setup();
+    // As a save restores it: the two straights and the joiner that sat between their holes at x = 0.
+    layout.restorePiece(1, "straight-144", { x: 0, z: 0, heading: 0 }, 0, false);
+    layout.restorePiece(2, "joiner", { x: -0.5, z: 0, heading: Math.PI }, 0, false);
+    layout.restorePiece(3, "straight-144", { x: 0, z: 0, heading: Math.PI }, 0, false);
+    expect(layout.joinedConnector(connectorRef(1, 0))).not.toBe(-1);
+    expect(layout.joinedConnector(connectorRef(3, 0))).not.toBe(-1);
+    const placed = sim.addTrain(["engine"], { pieceId: 3, pathIndex: 0, s: 120, reversed: true });
+    expect(placed.kind).toBe("placed");
+    if (placed.kind === "placed") {
+      sim.setLever(sim.getTrain(placed.trainId)!.cars[0].id, 1);
+      for (let i = 0; i < 400; i++) sim.tick();
+      expect(sim.getTrain(placed.trainId)!.bogies[0].pieceId).toBe(1);
+    }
+  });
+
   it("trains run across a peg-to-peg joint too", () => {
     const { layout, sim, editor } = setup();
     // Two straights meeting peg to peg at x = 144.
