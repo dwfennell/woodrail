@@ -2002,10 +2002,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (now - mapRefreshedAt > 1000) refreshMap();
       else placeMap();
     }
-    if (now - goalsCheckedAt > 1000) {
-      goalsCheckedAt = now;
-      checkGoals(true);
-    }
     let hum = 0;
     for (const e of game.events) {
       const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);
@@ -2054,6 +2050,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showHarbour();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);
+    // Goals after the towns: a delivery that grows a town is announced (with its tick folded in) before the poll could
+    // see the new size and tick it on its own.
+    if (now - goalsCheckedAt > 1000) {
+      goalsCheckedAt = now;
+      checkGoals(true);
+    }
     showRoute();
     showEngineView();
     let derailed = false;
