@@ -253,8 +253,8 @@ export class Layout {
     for (let i = 0; i < n; i++) {
       const other = candidates[i];
       if (pieceOfRef(other) === self) continue;
+      // Peg or hole alike: any two ends that meet join (a joint is drawn as a peg in a hole whichever they are).
       const o = this.worldConnector(other, scratchB);
-      if (o.kind === w.kind) continue;
       const pos = Math.hypot(o.x - w.x, o.z - w.z);
       if (pos > JOINT_POS_TOLERANCE || Math.abs(o.y - w.y) > JOINT_POS_TOLERANCE) continue;
       const angle = angleDiff(w.heading, o.heading + Math.PI);

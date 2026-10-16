@@ -9,6 +9,8 @@
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+/* An icon standing in for a tray picture not drawn yet: laid out as the icon itself. */
+.thumb-icon { display: contents; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; color: var(--ink); font-family: "Nunito", system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
 /* A toy, not a page: nothing on screen is selected as text or brings up a long-press menu, and a quick second tap on
    a button is another tap, never a page zoom (iOS ignores user-scalable=no in the viewport; touch-action is what

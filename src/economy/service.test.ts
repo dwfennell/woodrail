@@ -269,6 +269,23 @@ describe("automatic servicing", () => {
     expect(left).toBe(true);
     void empty;
   });
+
+  it("wait-for-full still unloads the logs on the wagons behind an empty one, which then fills from them", () => {
+    const w = setup("sawmill", 1, ["engine", "timber", "timber", "timber"]);
+    w.economy.setWaitFull(w.depot.id, true);
+    const [front, ...rear] = w.wagons();
+    for (const car of rear) w.economy.setCargo(car.id, "log", 3);
+    w.depot.piles[CARGO.log.index] = 2;
+    let unloaded = 0;
+    for (let i = 0; i < 150 * SIM_HZ; i++) {
+      w.step();
+      for (const e of w.economy.drainEvents()) if (e.kind === "unloaded") unloaded++;
+    }
+    // The six logs came off the rear wagons, and the saw's eight became planks: the front wagon is full, no wagon holds logs.
+    expect(unloaded).toBe(6);
+    for (const car of rear) expect(w.economy.cargoOf(car.id).kind).not.toBe("log");
+    expect(w.economy.cargoOf(front.id)).toEqual({ kind: "planks", count: 3 });
+  });
 });
 
 describe("depots end to end", () => {

@@ -17,15 +17,17 @@ export function rulesFor(w: World): Blocked {
 }
 
 /**
- * Put `type` on free end `ref` (seated by an end of the other kind) through the Editor, if the rules allow. Returns the
- * new piece's id and its other free end (−1 for a buffer), or why it can't go.
+ * Put `type` on free end `ref` through the Editor, if the rules allow: seated by an end of the other kind where it has
+ * one, else its first (any two ends join). Returns the new piece's id and its other free end (−1 for a buffer), or why
+ * it can't go.
  */
 export function layOn(w: World, editor: Editor, ref: number, type: PieceTypeId, flipped = false): { id: number; next: number } | { why: string } {
   const layout: Layout = w.layout;
   const end = layout.worldConnector(ref, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
   const def = getPieceDef(type, flipped);
-  const via = def.connectors.findIndex((c) => c.kind !== end.kind);
-  if (via === -1) return { why: `no ${end.kind === "peg" ? "hole" : "peg"} end` };
+  if (def.connectors.length === 0) return { why: "no end to join by" };
+  const unlike = def.connectors.findIndex((c) => c.kind !== end.kind);
+  const via = unlike === -1 ? 0 : unlike;
   const tmp = appendPiece(layout, type, flipped, ref, via);
   const p = layout.getPiece(tmp)!;
   const pose = { ...p.pose };
@@ -38,7 +40,7 @@ export function layOn(w: World, editor: Editor, ref: number, type: PieceTypeId, 
   return { id, next: other === -1 ? -1 : connectorRef(id, other) };
 }
 
-/** Put a buffer (or turnback) on free end `ref`, flipped if that end is a hole: a player turns it over to fit. */
+/** Put a buffer (or turnback) on free end `ref` (flipped only if it won't go as it is). */
 export function endOn(w: World, editor: Editor, ref: number, type: PieceTypeId = "buffer-turnback"): { id: number; next: number } | { why: string } {
   const r = layOn(w, editor, ref, type);
   return "why" in r ? layOn(w, editor, ref, type, true) : r;

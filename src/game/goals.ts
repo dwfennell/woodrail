@@ -306,10 +306,13 @@ export const GOALS: readonly Goal[] = [
   },
 ];
 
+/** The first of the open goals (a bridge, three towns, ten deliveries...): from here on, done as soon as they're met. */
+const FIRST_OPEN_GOAL = "build-bridge";
+
 /**
- * Goals done, in order. A goal met early (a switch laid before any train runs) waits, met, until its turn: goals are
- * ticked off one at a time, in order, at most one a check, so a busy moment doesn't tick off several at once. A goal
- * once met stays met (some only hold for a moment, like a train moving).
+ * Goals done. A tutorial goal met early (a switch laid before any train runs) waits, met, until its turn; the open
+ * goals after the tutorial count as soon as they're met. One is ticked off a check, so a busy moment doesn't tick off
+ * several at once. A goal once met stays met (some only hold for a moment, like a train moving).
  */
 export class GoalTracker {
   private readonly done: Set<string>;
@@ -321,14 +324,20 @@ export class GoalTracker {
     this.done = new Set([...done].filter((id) => known.has(id)));
   }
 
-  /** Check every goal not yet done; returns the one ticked off now (the current goal, if it's met), or none. */
+  /**
+   * Check every goal not yet done; returns the one ticked off now, or none. The tutorial's goals wait their turn (the
+   * current one is ticked off when met); the open goals after it (from `FIRST_OPEN_GOAL`) are ticked off as soon as
+   * they're met, whatever the current goal. One a check either way.
+   */
   update(world: World, ctx: GoalContext = NO_CONTEXT): Goal[] {
     for (const g of GOALS) if (!this.done.has(g.id) && !this.met.has(g.id) && g.check(world, ctx).done) this.met.add(g.id);
     const now = this.current();
-    if (!now || !this.met.has(now.id)) return [];
-    this.met.delete(now.id);
-    this.done.add(now.id);
-    return [now];
+    const open = GOALS.findIndex((g) => g.id === FIRST_OPEN_GOAL);
+    const next = GOALS.find((g, i) => this.met.has(g.id) && (g === now || i >= open));
+    if (!next) return [];
+    this.met.delete(next.id);
+    this.done.add(next.id);
+    return [next];
   }
 
   /** Is this goal met, waiting for its turn? */

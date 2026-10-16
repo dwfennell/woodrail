@@ -65,6 +65,8 @@ const GIVE_TURN = (4 * Math.PI) / 180;
 
 /** Tray pictures drawn together, a batch a frame, after the title's up. */
 const THUMBNAIL_BATCH = 8;
+/** How long (ms) a batch of tray pictures waits for the scene to be still before it's drawn anyway. */
+const THUMBNAIL_STILL_WAIT_MS = 1500;
 
 /** How long (ms) an engine's status must hold before its card shows it (so it doesn't flicker between steps). */
 const STATUS_HOLD_MS = 600;
@@ -307,17 +309,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   async function drawTrayThumbnails(): Promise<void> {
     const items = [...TRACK_ITEMS, ...TRAIN_ITEMS].filter((item) => !thumbnails.has(trayKey(item)));
     if (items.length === 0) return;
-    // Once their pieces are carved, a few at a time in one studio, while the scene's still: each picture is read back
-    // from the graphics card, which waits for what it's drawing, so pictures go in batches (one wait each).
-    await Promise.all(items.map((item) => (item.kind === "piece" ? TrackView.whenBuilt(item.type) : null)));
+    // A few at a time in one studio, each batch once its pieces are carved: each picture is read back from the
+    // graphics card, which waits for what it's drawing, so pictures go in batches (one wait each). Preferably while
+    // nothing's moving on screen, but not waiting long for that (a train going round would hold them up for good).
     const studio = new ThumbnailStudio(game.renderer);
     for (let i = 0; i < items.length; i += THUMBNAIL_BATCH) {
-      // While nothing's moving on screen (never in the middle of a pan, a drag or a train going by).
-      await game.settled(10);
-      for (const key of drawThumbnails(items.slice(i, i + THUMBNAIL_BATCH), false, studio)) hud.setThumbnail(key, thumbnails.get(key)!);
+      const batch = items.slice(i, i + THUMBNAIL_BATCH);
+      await Promise.all(batch.map((item) => (item.kind === "piece" ? TrackView.whenBuilt(item.type) : null)));
+      await Promise.race([game.settled(10), sleep(THUMBNAIL_STILL_WAIT_MS)]);
+      for (const key of drawThumbnails(batch, false, studio)) hud.setThumbnail(key, thumbnails.get(key)!);
+      // Kept as they come (a visit cut short keeps what it drew).
+      saveThumbnailsSoon();
     }
     studio.dispose();
-    void saveCached("thumbnails", __BUILD_ID__, thumbnails);
   }
 
   // Catalogue models' tray pictures: drawn when their shelf is first shown, one a frame (each builds the model, if it
@@ -325,6 +329,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const thumbQueue: string[] = [];
   let studio: ThumbnailStudio | null = null;
   let thumbSaveTimer = 0;
+  /** Save the tray pictures drawn so far, once the drawing's paused a moment. */
+  function saveThumbnailsSoon(): void {
+    clearTimeout(thumbSaveTimer);
+    thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", __BUILD_ID__, thumbnails), 2000);
+  }
   function drawPropThumbnails(items: TrayItem[]): void {
     const idle = thumbQueue.length === 0;
     for (const item of items) if (item.kind === "prop" && !thumbQueue.includes(item.asset)) thumbQueue.push(item.asset);
@@ -344,8 +353,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const key = `prop:${asset}`;
         hud.setThumbnail(key, url);
         thumbnails.set(key, url);
-        clearTimeout(thumbSaveTimer);
-        thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", __BUILD_ID__, thumbnails), 2000);
+        saveThumbnailsSoon();
       }
       if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
     });
@@ -1226,6 +1234,30 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     box.append(line);
   }
 
+  // A sawmill's card (Game mode): a hint at the faster-sawmills blueprint until it's learned.
+  let sawmillShown = "";
+  function showSawmill(): void {
+    const id = mode === "game" ? interaction.openDepotId : -1;
+    const d = id === -1 ? undefined : game.economy.depot(id);
+    const tech = techOf("sawmills2");
+    if (!d || d.role !== "sawmill" || !tech || progress.learned.has(tech.id)) {
+      if (sawmillShown !== "") hud.depotExtra.hidden = true;
+      sawmillShown = "";
+      return;
+    }
+    const unmet = tech.requires.filter((n) => !needMet(progress, n));
+    const text = unmet.length > 0 ? `Faster sawmills: ${tech.label}, after ${unmet.map(describeNeed).join(" and ")}` : `Faster: ${tech.label} (blueprint)`;
+    if (text === sawmillShown) return;
+    sawmillShown = text;
+    const box = hud.depotExtra;
+    box.hidden = false;
+    box.innerHTML = "";
+    const line = document.createElement("div");
+    line.className = "station-waiting";
+    line.textContent = text;
+    box.append(line);
+  }
+
   let harbourShown = "";
   /** The open harbour card's line about its boats: kept and its text updated, so the countdown ticks without the card's button being made again (a tap mid-way would be lost). */
   let harbourLine: HTMLElement | null = null;
@@ -1878,6 +1910,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showWorkshop();
       showFarm();
       showStation();
+      showSawmill();
       showHarbour();
       showWaiting();
     } else game.economy.delivered.forEach(showDelivered);

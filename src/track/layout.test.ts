@@ -45,11 +45,15 @@ describe("Layout seating", () => {
     expect(bad.jointCount).toBe(0);
   });
 
-  it("never joins two pegs or two sockets", () => {
+  it("joins any two ends that meet, peg or hole alike (peg to peg, hole to hole)", () => {
     const l = new Layout();
     l.addPiece("straight-144", P(0, 0)); // peg at x=144
     l.addPiece("adapter-peg", P(144, 0)); // peg at x=144 facing back
-    expect(l.jointCount).toBe(0);
+    expect(l.jointCount).toBe(1);
+    const h = new Layout();
+    h.addPiece("straight-144", P(0, 0)); // hole at x=0, facing −x
+    h.addPiece("straight-144", P(0, 0, Math.PI)); // its hole at x=0 too, facing +x
+    expect(h.jointCount).toBe(1);
   });
 
   it("seats across the ±π heading wrap", () => {
