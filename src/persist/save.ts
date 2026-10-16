@@ -88,6 +88,8 @@ const saveSchema = z.object({
       waiting: z.number().int().min(0).max(MAX_RIDERS).optional(),
       /** A harbour's dock sheds. */
       sheds: z.number().int().min(0).max(MAX_SHEDS).optional(),
+      /** Of its piles, what's landed there for trains to take away (a harbour's bought goods), in cargo order. */
+      landed: z.array(z.number().int().min(0).max(MAX_PILE)).max(CARGO_KINDS.length).optional(),
     }),
   ),
   /** Plank bundles delivered, by town id. */
@@ -113,6 +115,12 @@ const saveSchema = z.object({
 });
 
 export type SaveData = z.infer<typeof saveSchema>;
+
+/** A depot's landed goods, for its save entry (none: nothing). */
+function landedOf(world: World, depotId: number): { landed?: number[] } {
+  const l = world.economy.landed.get(depotId);
+  return l && l.some((n) => n > 0) ? { landed: [...l] } : {};
+}
 
 export function serializeWorld(world: World): SaveData {
   const { layout, sim } = world;
@@ -157,7 +165,7 @@ export function serializeWorld(world: World): SaveData {
     pieces,
     switches,
     trains,
-    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}) })),
+    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}) })),
@@ -235,6 +243,14 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     for (const kind of CARGO_KINDS) state.piles[CARGO[kind].index] = kept.includes(kind) ? Math.min(capAt(state), d.piles[CARGO[kind].index] ?? 0) : 0;
     state.timer = d.timer;
     if (d.role === "town") state.waiting = d.waiting ?? 0;
+    // Bought goods on a harbour's quay stay landed (the next boat doesn't take them back).
+    if (d.landed) for (const kind of CARGO_KINDS) {
+      const n = Math.min(d.landed[CARGO[kind].index] ?? 0, state.piles[CARGO[kind].index]);
+      if (n > 0) {
+        state.piles[CARGO[kind].index] -= n;
+        economy.land(state, kind, n);
+      }
+    }
   }
   for (const [townId, n] of save.delivered) if (landscape.towns.some((t) => t.id === townId)) economy.delivered.set(townId, n);
   for (const [townId, bag] of save.deliveredGoods ?? []) {
