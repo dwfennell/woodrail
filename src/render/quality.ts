@@ -12,7 +12,7 @@ export interface QualitySettings {
 
 const TIERS: Record<QualityTier, QualitySettings> = {
   high: { tier: "high", shadowMapSize: 4096, maxPixelRatio: 2, minPixelRatio: 1.5, ambientOcclusion: true, depthOfField: true },
-  mobile: { tier: "mobile", shadowMapSize: 2048, maxPixelRatio: 3, minPixelRatio: 1.5, ambientOcclusion: false, depthOfField: false },
+  mobile: { tier: "mobile", shadowMapSize: 2048, maxPixelRatio: 2, minPixelRatio: 1.5, ambientOcclusion: false, depthOfField: false },
 };
 
 const STORAGE_KEY = "woodrail.quality";

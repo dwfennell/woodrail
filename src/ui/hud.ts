@@ -96,6 +96,16 @@ function button(label: string, title: string, onClick: () => void, cls = "chip")
   return b;
 }
 
+/** A little camera (Follow). */
+const CAMERA_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 8h3l1.6-2h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.4" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
+/** The way arrow, pointing right before it's turned. */
+const WAY_ARROW = `<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M4 12h13M12 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+/** `angle` (degrees), plus or minus whole turns, nearest `from`. */
+function nearestTurn(from: number, angle: number): number {
+  return from + ((((angle - from) % 360) + 540) % 360) - 180;
+}
+
 /** A celebration message shows at least this long (ms) before the next one replaces it. */
 const TOAST_READ_MS = 1800;
 
@@ -138,8 +148,20 @@ export class Hud {
   private depotAutoBtn!: HTMLButtonElement;
   private depotWaitBtn!: HTMLButtonElement;
   private readonly flipBtn: HTMLButtonElement;
-  private readonly leverBtns: HTMLButtonElement[] = [];
+  /** The engine card: Go/Stop, the way it goes (an arrow as on screen), what it's doing, and the rest tucked away. */
+  private readonly goBtn: HTMLButtonElement;
+  private readonly wayBtn: HTMLButtonElement;
+  private readonly engineStatus = el("div", "engine-status");
+  private readonly engineMore = el("div", "engine-more");
   private readonly followBtn: HTMLButtonElement;
+  /** The engine's lever as last shown, and the way Go will send it (+1: its own front first). */
+  private engineLever = 0;
+  private engineWay: 1 | -1 = 1;
+  /** Shown status and arrow angle (degrees), to touch the page only when they change. */
+  private shownStatus = "";
+  private shownAngle = NaN;
+  /** The arrow's angle as last set, unwrapped (it runs on past ±180°), kept when the shown one is forgotten. */
+  private wayAngle = 0;
   private readonly toastEl = el("div", "toast");
   private readonly menu = el("div", "menu");
   private readonly help = el("div", "help");
@@ -256,22 +278,34 @@ export class Hud {
     // Engine card
     this.engineCard.hidden = true;
     this.engineCard.appendChild(el("div", "card-title", "Engine"));
-    const levers = el("div", "lever-row");
-    for (const [v, label, title] of [
-      [-1, "◀", "Reverse"],
-      [0, "■", "Stop"],
-      [1, "▶", "Forward"],
-    ] as const) {
-      const b = button(label, title, () => h.lever(v), "chip lever");
-      b.dataset.value = String(v);
-      this.leverBtns.push(b);
-      levers.appendChild(b);
-    }
-    this.engineCard.appendChild(levers);
-    const row = el("div", "card-row");
-    this.followBtn = button("Follow", "Follow this train with the camera", h.follow, "chip text");
-    row.append(this.followBtn, button("Turn", "Turn this engine around", h.turnCar, "chip text"), button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"));
-    this.engineCard.appendChild(row);
+    // Follow (the camera rides along) in the top corner, and a ⋯ for swapping ends or putting the train away.
+    this.followBtn = button("", "Follow this train with the camera", h.follow, "corner follow");
+    this.followBtn.innerHTML = CAMERA_ICON;
+    const more = button("⋯", "More", () => (this.engineMore.hidden = !this.engineMore.hidden), "corner more");
+    this.engineCard.append(this.followBtn, more);
+    this.engineStatus.setAttribute("aria-live", "polite");
+    this.engineCard.appendChild(this.engineStatus);
+    const controls = el("div", "engine-controls");
+    // One big button: Go (the way the arrow shows) or Stop.
+    this.goBtn = button("", "Go", () => h.lever(this.engineLever !== 0 ? 0 : this.engineWay), "chip go");
+    // Which way: the arrow points where the train will go on screen; a tap turns it round (at once, if it's moving).
+    this.wayBtn = button("", "Which way it goes: tap to change", () => {
+      this.engineWay = this.engineWay === 1 ? -1 : 1;
+      if (this.engineLever !== 0) h.lever(this.engineWay);
+      else this.drawEngine();
+    }, "chip way");
+    this.wayBtn.innerHTML = `<span class="way-arrow">${WAY_ARROW}</span><span class="way-hint" aria-hidden="true">⇄</span>`;
+    controls.append(this.goBtn, this.wayBtn);
+    this.engineCard.appendChild(controls);
+    this.engineMore.hidden = true;
+    this.engineMore.append(
+      button("Swap ends", "Turn the engine round, end for end", () => {
+        this.engineMore.hidden = true;
+        h.turnCar();
+      }, "chip text"),
+      button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"),
+    );
+    this.engineCard.appendChild(this.engineMore);
     this.engineExtra.hidden = true;
     this.engineCard.appendChild(this.engineExtra);
     this.engineCard.appendChild(button("✕", "Close", h.closeCards, "close"));
@@ -373,6 +407,13 @@ export class Hud {
         const b = el("button", "tray-item tray-back");
         b.innerHTML = `<span class="icon">‹</span><span class="label">Back</span>`;
         b.title = "Back to all kinds";
+        // Handled as a press like the tray's other buttons: on touch, the tap that opened this shelf lifts with Back now
+        // under the finger, and the browser's click for that tap lands on it (the click shield drops that one).
+        b.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          this.trayPress(e, scroller, { tap: () => showGroups(groups) });
+        });
+        // And on click, for the keyboard (a tap's own click is dropped: Back has gone by then, see click-shield.ts).
         b.addEventListener("click", () => showGroups(groups));
         scroller.appendChild(b);
       }
@@ -689,14 +730,64 @@ export class Hud {
   showEngineCard(lever: number, following: boolean): void {
     this.hideCards();
     this.engineCard.hidden = false;
+    this.engineMore.hidden = true;
     this.root.classList.add("card-open");
+    this.shownStatus = "";
+    this.shownAngle = NaN;
+    this.engineLever = Number.NaN;
+    // A new card starts the engine's own front first (a way turned round on another engine's card isn't carried over).
+    this.engineWay = 1;
     this.updateEngineCard(lever, following);
   }
 
   updateEngineCard(lever: number, following: boolean): void {
-    for (const b of this.leverBtns) b.classList.toggle("active", Number(b.dataset.value) === lever);
+    // Moving: Go keeps going that way. Stopped: the way it last went (or forward).
+    if (lever !== 0) this.engineWay = lever > 0 ? 1 : -1;
+    this.engineLever = lever;
     this.followBtn.classList.toggle("active", following);
-    this.followBtn.textContent = following ? "Following" : "Follow";
+    this.followBtn.title = following ? "Following this train (tap to stop)" : "Follow this train with the camera";
+    this.drawEngine();
+  }
+
+  /** The engine's lever as the card shows it (to notice the train changing it by itself, turning back). */
+  get engineLeverShown(): number {
+    return this.engineLever;
+  }
+
+  /** Stopped: Go sends it this way (main picks the open way when one end is up against a buffer). */
+  setEngineWay(way: 1 | -1): void {
+    if (this.engineLever !== 0 || way === this.engineWay) return;
+    this.engineWay = way;
+    this.drawEngine();
+  }
+
+  /**
+   * What the engine's doing ("Waiting at a red signal"), and which way its own front points on screen (degrees,
+   * clockwise from screen right): the way arrow turns to match. Only what changed is redrawn.
+   */
+  setEngineView(status: string, frontAngle: number): void {
+    if (status !== this.shownStatus) {
+      this.shownStatus = status;
+      this.engineStatus.textContent = status;
+    }
+    const a = frontAngle + (this.engineWay === 1 ? 0 : 180);
+    // Turned the short way from the angle shown (not round the long way when it passes ±180°): the angle set is
+    // unwrapped, so the arrow's turn eases straight there.
+    const target = nearestTurn(this.wayAngle, a);
+    if (Number.isNaN(this.shownAngle) || Math.abs(target - this.shownAngle) >= 4) {
+      this.shownAngle = this.wayAngle = target;
+      this.wayBtn.style.setProperty("--way", `${target.toFixed(0)}deg`);
+    }
+  }
+
+  private drawEngine(): void {
+    const moving = this.engineLever !== 0;
+    this.goBtn.classList.toggle("stop", moving);
+    // Go goes the way the arrow beside it shows (no triangle of its own pointing elsewhere).
+    this.goBtn.innerHTML = moving ? `<span class="go-icon">■</span>Stop` : "Go";
+    this.goBtn.title = moving ? "Stop" : "Go";
+    // The arrow's angle depends on the way chosen: redrawn on the next view update.
+    this.shownAngle = NaN;
   }
 
   get engineCardOpen(): boolean {

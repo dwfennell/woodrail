@@ -14,7 +14,7 @@ import {
   Vector3,
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import polygonClipping, { type Polygon } from "polygon-clipping";
 import { ADDITION, Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
 import {
@@ -425,6 +425,17 @@ function slotGroups(result: Brush): BufferGeometry {
 }
 
 /** Geometry for a piece type in piece-local space (plan x/z → world x/z, y up, track base at y = 0). */
+/**
+ * A carved piece with its corners shared: the carving leaves every triangle its own three corners (about twice the
+ * corners it needs). Joining the identical ones keeps its look (and material groups) and halves its memory, on the
+ * graphics card and in the saved cache.
+ */
+export function compactPiece(g: BufferGeometry): BufferGeometry {
+  const merged = mergeVertices(g, 1e-4);
+  g.dispose();
+  return merged;
+}
+
 /** `levels`: for a bridge, how many riser heights its arches reach down below the deck. */
 export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
   if (def.paths.length === 0) return riserGeometry();
