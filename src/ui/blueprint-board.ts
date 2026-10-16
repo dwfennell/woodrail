@@ -142,6 +142,8 @@ const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 export class BlueprintBoard {
   readonly root = document.createElement("div");
   private readonly body = document.createElement("div");
+  /** The selected blueprint's ticket: a sheet under the web, always in full view (its Learn button with it). */
+  private readonly sheet = document.createElement("div");
   private shownKey = "";
   private view: BoardView | null = null;
   /** The tag whose ticket is showing. */
@@ -152,7 +154,7 @@ export class BlueprintBoard {
     this.root.hidden = true;
     const head = document.createElement("div");
     head.className = "board-head";
-    head.innerHTML = `<h2>Blueprints</h2><span class="board-sub">Learn a blueprint to make what it brings</span>`;
+    head.innerHTML = `<h2>Blueprints</h2><span class="board-sub">Learn one to make what it brings</span><details class="bp-legend-box"><summary aria-label="What the colours mean">ⓘ</summary><div class="bp-legend"><span class="bp-key learned"></span>Learned<span class="bp-key ready"></span>Can learn<span class="bp-key offered"></span>Free<span class="bp-key locked"></span>Later<span class="bp-key soon"></span>Soon<span class="bp-key hint">?</span>Not found yet</div></details>`;
     const close = document.createElement("button");
     close.className = "close";
     close.textContent = "✕";
@@ -163,8 +165,9 @@ export class BlueprintBoard {
     });
     head.appendChild(close);
     this.body.className = "board-body";
-    this.root.append(head, this.body);
-    this.body.addEventListener("click", (e) => {
+    this.sheet.className = "board-sheet";
+    this.root.append(head, this.body, this.sheet);
+    const onClick = (e: MouseEvent) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
       if (!b || (b as HTMLButtonElement).disabled) return;
       e.stopPropagation();
@@ -175,8 +178,23 @@ export class BlueprintBoard {
       } else if (act === "choose") handlers.choose(Number(b.dataset.offer), b.dataset.id!);
       else if (act === "crate") handlers.crate(Number(b.dataset.offer));
       else if (act === "learn") handlers.learn(b.dataset.id!);
-    });
+    };
+    this.body.addEventListener("click", onClick);
+    this.sheet.addEventListener("click", onClick);
     parent.appendChild(this.root);
+    // Turning a phone (or resizing a window) across the phone width switches between the web and the lists.
+    let wasNarrow = this.narrow();
+    window.addEventListener("resize", () => {
+      const now = this.narrow();
+      if (now === wasNarrow) return;
+      wasNarrow = now;
+      if (this.open) this.render();
+    });
+  }
+
+  /** A phone-width panel: the web is shown as lists. */
+  private narrow(): boolean {
+    return typeof window !== "undefined" && window.matchMedia?.("(max-width: 560px)").matches === true;
   }
 
   get open(): boolean {
@@ -235,7 +253,7 @@ export class BlueprintBoard {
       html += `<div class="bp-offer"><span>${esc(o.from)} ${said} ${ask}</span><span class="bp-offer-row">${buttons}</span></div>`;
     });
 
-    let svg = `<defs><marker id="bp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/></marker></defs>`;
+    let svg = `<defs><marker id="bp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/></marker></defs>`;
     for (const s of drawn) {
       const to = web.at.get(s.id)!;
       for (const n of s.needs) {
@@ -255,19 +273,26 @@ export class BlueprintBoard {
       const br = v.branches.find((x) => x.id === b.id)!;
       bands += `<div class="bp-band${i % 2 ? " alt" : ""}" style="top:${b.top}px;height:${b.height}px"><span class="bp-band-label" style="border-left-color:${br.color}">${esc(br.label)}</span></div>`;
     });
-    const tags = drawn
-      .map((s) => {
-        const p = web.at.get(s.id)!;
-        const hint = s.seen === "hint";
-        const tag = hint ? "" : s.state === "offered" ? `<span class="bp-tag free">Free</span>` : s.state === "ready" ? `<span class="bp-tag">${esc(s.price)}</span>` : s.state === "soon" ? `<span class="bp-tag soon">Soon</span>` : "";
-        const cls = `bp-node ${hint ? "hint" : s.state}${s.state === "ready" && s.affordable ? " can" : ""}${s.id === this.selected ? " selected" : ""}`;
-        return `<button class="${cls}" style="left:${p.x}px;top:${p.y}px;--c:${color.get(s.branch)}" data-act="select" data-id="${s.id}" aria-label="${hint ? "Not found yet" : esc(s.label)}"><span class="bp-dot">${s.state === "learned" && !hint ? "✓" : ""}</span><span class="bp-name">${hint ? "?" : esc(s.label)}</span>${tag}</button>`;
-      })
-      .join("");
-    html += `<div class="bp-web-scroll"><div class="bp-web" style="width:${web.width}px;height:${web.height}px">${bands}<svg class="bp-links" width="${web.width}" height="${web.height}" aria-hidden="true">${svg}</svg>${tags}</div></div>`;
-    html += `<div class="bp-legend"><span class="bp-key learned"></span>Learned<span class="bp-key ready"></span>Can learn<span class="bp-key offered"></span>Free choice<span class="bp-key locked"></span>Later<span class="bp-key soon"></span>Coming soon<span class="bp-key hint">?</span>Not found yet</div>`;
+    const node = (s: Station, p: { x: number; y: number } | null) => {
+      const hint = s.seen === "hint";
+      const tag = hint ? "" : s.state === "offered" ? `<span class="bp-tag free">Free</span>` : s.state === "ready" ? `<span class="bp-tag">${esc(s.price)}</span>` : s.state === "soon" ? `<span class="bp-tag soon">Soon</span>` : "";
+      const cls = `bp-node ${hint ? "hint" : s.state}${s.state === "ready" && s.affordable ? " can" : ""}${s.id === this.selected ? " selected" : ""}`;
+      const at = p ? `left:${p.x}px;top:${p.y}px;` : "";
+      return `<button class="${cls}" style="${at}--c:${color.get(s.branch)}" data-act="select" data-id="${s.id}" aria-label="${hint ? "Not found yet" : esc(s.label)}"><span class="bp-dot">${s.state === "learned" && !hint ? "✓" : ""}</span><span class="bp-name">${hint ? "?" : esc(s.label)}</span>${tag}</button>`;
+    };
+    const tags = drawn.map((s) => node(s, web.at.get(s.id)!)).join("");
+    if (this.narrow()) {
+      // A phone: each branch a list of its tags, earliest first, in columns that fit the width (no sideways
+      // scrolling, and only the panel scrolls). A tag's ticket names what it needs.
+      for (const b of web.bands) {
+        const br = v.branches.find((x) => x.id === b.id)!;
+        const mine = drawn.filter((s) => s.branch === b.id).sort((a, c) => web.at.get(a.id)!.x - web.at.get(c.id)!.x || web.at.get(a.id)!.y - web.at.get(c.id)!.y);
+        html += `<div class="bp-list-band"><span class="bp-band-label" style="border-left-color:${br.color}">${esc(br.label)}</span><div class="bp-list">${mine.map((s) => node(s, null)).join("")}</div></div>`;
+      }
+    } else html += `<div class="bp-web-scroll"><div class="bp-web" style="width:${web.width}px;height:${web.height}px">${bands}<svg class="bp-links" width="${web.width}" height="${web.height}" aria-hidden="true">${svg}</svg>${tags}</div></div>`;
     const s = byId.get(this.selected);
-    if (s) html += this.ticket(s, v, byId);
+    const sheet = s ? this.ticket(s, v, byId) : "";
+    if (this.sheet.innerHTML !== sheet) this.sheet.innerHTML = sheet;
     const scroll = this.body.querySelector(".bp-web-scroll");
     const kept = scroll ? { left: scroll.scrollLeft, top: scroll.scrollTop } : null;
     this.body.innerHTML = html;
@@ -290,7 +315,12 @@ export class BlueprintBoard {
       return `<div class="bp-ticket hint"><div class="bp-ticket-head"><b>Not found yet</b><span>Something new${known.length ? ` after ${esc(known.map((k) => k.label).join(" and "))}` : ""}. Learn what leads to it to see what it is.</span></div></div>`;
     }
     const makes = s.makes.map((m) => `<span class="bp-make">${m.icon}<span>${esc(m.label)}</span></span>`).join("");
-    const needs = s.needs.map((n) => byId.get(n)?.label ?? "something not found yet");
+    // What it needs and what it opens, in words (on a phone the list draws no links between them).
+    const needs = s.needs.map((n) => {
+      const x = byId.get(n);
+      return x ? `${x.label}${x.state === "learned" ? " ✓" : ""}` : "something not found yet";
+    });
+    const opens = [...byId.values()].filter((x) => x.needs.includes(s.id) && x.seen === "shown").map((x) => x.label);
     const reqs = s.requires.map((r) => `<span class="bp-req${r.met ? " met" : ""}">${r.met ? "✓ " : ""}${esc(r.text)}</span>`).join("");
     let foot = "";
     if (s.state === "learned") foot = `<span class="bp-done">Learned</span>`;
@@ -308,6 +338,6 @@ export class BlueprintBoard {
       const cost = s.why ? `<span class="bp-why">${esc(s.why)}</span>` : gauge;
       foot = `<span class="bp-cost">${cost}</span><button class="chip text${s.affordable ? " primary" : ""}" data-act="learn" data-id="${s.id}" ${s.affordable ? "" : `aria-disabled="true" title="${esc(s.why ?? "")}"`}>Learn · ${esc(s.price)}</button>`;
     } else foot = `<span class="bp-waits">${esc(s.waits ?? "Later")}</span>`;
-    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b><span>${esc(s.blurb)}</span></div>${makes ? `<div class="bp-makes">${makes}</div>` : ""}<div class="bp-ticket-needs">${needs.length ? `<span>Needs ${esc(needs.join(" + "))}</span>` : ""}${s.state !== "learned" && (s.price !== "free" || reqs) ? `<span>${s.price !== "free" ? `Price: ${esc(s.price)}` : ""}</span>${reqs}` : ""}</div><div class="bp-ticket-foot">${foot}</div></div>`;
+    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b><span>${esc(s.blurb)}</span></div>${makes ? `<div class="bp-makes">${makes}</div>` : ""}<div class="bp-ticket-needs">${needs.length ? `<span>Needs: ${esc(needs.join(" + "))}</span>` : ""}${opens.length ? `<span>Opens: ${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}</span>` : ""}${s.state !== "learned" && (s.price !== "free" || reqs) ? `<span>${s.price !== "free" ? `Price: ${esc(s.price)}` : ""}</span>${reqs}` : ""}</div><div class="bp-ticket-foot">${foot}</div></div>`;
   }
 }
