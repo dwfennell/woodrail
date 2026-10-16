@@ -43,7 +43,7 @@ import { aOrAn, covers, describe as describeGoods, minus, total } from "./econom
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
-import { TrackView } from "./render/track-view";
+import { onArchesBuilt, TrackView } from "./render/track-view";
 import { PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
 import type { CarKind, CarLook } from "./sim";
 import { Hud } from "./ui/hud";
@@ -1720,6 +1720,8 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     }
   };
 
+  // A bridge held still while its taller arches were being made: they come in without waiting for the finger to move.
+  onArchesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress });

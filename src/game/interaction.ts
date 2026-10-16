@@ -2585,6 +2585,11 @@ export class Interaction {
     this.editor().redo();
   }
 
+  /** A piece's geometry came in (a bridge's taller arches): the piece in hand is redrawn where it is, finger still. */
+  refreshHeld(): void {
+    if (this.mode.kind === "drag-piece") this.updateDrag(this.lastX, this.lastY);
+  }
+
   /** True while a press or drag is in progress (undo/redo must wait). */
   get busy(): boolean {
     return this.mode.kind !== "idle";
