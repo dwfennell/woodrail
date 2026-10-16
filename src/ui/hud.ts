@@ -703,6 +703,12 @@ export class Hud {
     this.boardBtn.classList.toggle("icon-btn-alert", alert);
   }
 
+  /** A newer build is out: a chip under the top bar offers it (once). */
+  showUpdateChip(onTap: () => void): void {
+    if (this.root.querySelector(".update-chip")) return;
+    this.root.appendChild(button("New version · Update", "A newer version of Woodrail is ready: saves, then reloads", onTap, "chip text update-chip"));
+  }
+
   /** The map view is open: its button lit, the goals and tray put away. */
   setMapOpen(open: boolean): void {
     this.mapBtn.classList.toggle("active", open);

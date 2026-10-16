@@ -10,7 +10,9 @@ import { join, relative } from "node:path";
 const OUT = "dist-artifact";
 rmSync(OUT, { recursive: true, force: true });
 // Relative base: the page is served from the artifact's own path, not a domain root.
-execFileSync("npx", ["vite", "build", "--base=./", "--outDir", OUT, "--emptyOutDir"], { stdio: "inherit" });
+// No update check: an artifact is republished by hand, so the build turns the check off and drops version.json.
+execFileSync("npx", ["vite", "build", "--base=./", "--outDir", OUT, "--emptyOutDir"], { stdio: "inherit", env: { ...process.env, WOODRAIL_NO_UPDATE_CHECK: "1" } });
+rmSync(join(OUT, "version.json"), { force: true });
 
 const files = (dir) => readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : [join(dir, f)]));
 

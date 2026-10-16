@@ -53,6 +53,7 @@ import { propsInRect } from "./props/placement";
 import { loadMuted, saveMuted } from "./ui/prefs";
 import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { installClickShield } from "./ui/click-shield";
+import { startUpdateCheck } from "./ui/update-check";
 import "./style.css";
 
 /** How far (mm) the opening view stands from where track was last built: the middle of the zoom range. */
@@ -1875,6 +1876,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // Opening in Game mode: start fetching its models now, ahead of play.
   if (mode === "game") ensureGameModels();
   loadBar.finish();
+  // A newer deploy: offer a chip. Tapping it saves, then reloads past any cached page (the hash, a map link, stays).
+  if (__UPDATE_CHECK__) {
+    startUpdateCheck({
+      currentBuild: __BUILD_ID__,
+      onNewVersion: (build) =>
+        hud.showUpdateChip(() => {
+          saveOnLeaving();
+          location.replace(`${location.pathname}?v=${encodeURIComponent(build)}${location.hash}`);
+        }),
+    });
+  }
   // The loading screen's toys play their entry in full before it moves on (it's short, and capped).
   void entryPlayed().then(() => {
     void drawTrayThumbnails();

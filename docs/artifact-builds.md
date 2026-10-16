@@ -25,6 +25,9 @@ apart by their label and description.
   fonts and media. `.glb` isn't one of them, and a publish with a `.glb` file in it is refused. The game only ever
   fetches its models as raw bytes, so the script publishes them as `models/<set>.glb.wasm` and points the built
   loader at those names. The repo's source and the normal `npm run build` are unchanged.
+- **No update check.** The normal build writes `version.json` and the game polls it for a newer deploy ("New version ·
+  Update" chip). The artifact build sets `WOODRAIL_NO_UPDATE_CHECK`, so `__UPDATE_CHECK__` is false (the check is
+  stripped from the bundle) and it deletes `version.json`.
 - **Size.** A build is about 17 files and 11 MB, well within an artifact's limits (64 MB and 255 files a publish).
 
 ## Checking a build before publishing
