@@ -686,7 +686,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const trainTop = span.top - glide.train;
         const trainH = span.bottom - span.top;
         const gap = Math.min(28, innerHeight * 0.03);
-        const total = n.height + gap + trainH + gap + cards.offsetHeight;
+        // On a short screen (a phone on its side) the train gives up its place, so the cards' buttons stay on screen.
+        const withTrain = n.height + gap + trainH + gap + cards.offsetHeight <= innerHeight - 12;
+        const trainSlot = withTrain ? trainH + gap : 0;
+        const total = n.height + gap + trainSlot + cards.offsetHeight;
         const top = Math.max(12, (innerHeight - total) / 2);
         glide.name = top - nameTop;
         glide.train = top + n.height + gap - trainTop;
@@ -694,10 +697,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           [name, glide.name],
           [canvas, glide.train],
         ] as const) {
-          el.style.transition = "transform 0.7s cubic-bezier(0.3, 0.7, 0.2, 1)";
+          el.style.transition = "transform 0.7s cubic-bezier(0.3, 0.7, 0.2, 1), opacity 0.4s";
           el.style.transform = `translateY(${Math.round(dy)}px)`;
         }
-        title.root.style.paddingTop = `${Math.round(top + n.height + gap + trainH + gap)}px`;
+        canvas.style.opacity = withTrain ? "" : "0";
+        title.root.style.paddingTop = `${Math.round(top + n.height + gap + trainSlot)}px`;
       }),
     );
   }
