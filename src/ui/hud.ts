@@ -119,6 +119,7 @@ export function toastMs(message: string, celebrate: boolean, ms = 0): number {
 /** Toasts waiting their turn at most (a busy moment drops the oldest plain ones). */
 const TOAST_QUEUE = 3;
 
+
 /** The HTML overlay: top bar, piece tray, context cards, menu, help, toasts and perf readout. */
 export class Hud {
   readonly root = el("div", "hud");
@@ -536,6 +537,7 @@ export class Hud {
       clearTimeout(this.toastTimer);
       this.toastEl.classList.remove("show");
       this.toastHeldUntil = 0;
+      this.heldRefusal = null;
       this.flushToasts();
     });
 
@@ -1086,6 +1088,32 @@ export class Hud {
     this.showToast(next.message, next.celebrate, next.ms);
     this.toastHeldUntil = performance.now() + toastMs(next.message, next.celebrate, next.ms);
     if (this.toastQueue.length > 0) this.flushToasts();
+  }
+
+  /** The refusal showing while a held piece is over where it can't go (kept up until it can, or it's put down). */
+  private heldRefusal: string | null = null;
+
+  /**
+   * Why the piece in hand can't go where it is (null: it can now). Stays on screen as long as that's so, rather than
+   * flashing by; once it can go, it goes after a short while (it may still be being read).
+   */
+  setRefusal(message: string | null): void {
+    if (message === this.heldRefusal) return;
+    this.heldRefusal = message;
+    if (message) {
+      this.toastQueue.length = 0;
+      this.showToast(message, false, 600000);
+      this.toastHeldUntil = performance.now() + toastMs(message, false);
+    } else if (this.toastEl.classList.contains("show")) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), 1500);
+    }
+  }
+
+  /** A refusal when something's put down where it can't go: up long enough to read (`toastMs`, as every toast). */
+  refuse(message: string): void {
+    this.heldRefusal = null;
+    this.toast(message);
   }
 
   private showToast(message: string, celebrate: boolean, ms: number): void {

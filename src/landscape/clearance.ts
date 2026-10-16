@@ -1,4 +1,4 @@
-import { createSample, getPieceDef, isBridge, pathLength, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
+import { createSample, getPieceDef, isBridge, pathLength, RISER_HEIGHT, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
 import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, isWater, SURF_RIVER, SURF_ROAD, SURF_SEA, SURF_TOWN, type LandscapeGrid } from "./grid";
 import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
@@ -212,6 +212,27 @@ function distanceToLoops(loops: readonly Loop[], x: number, z: number): number {
 }
 
 /** Can a piece be placed here? Called on every pointer move while dragging. */
+/**
+ * How many levels the ground under a piece rises above the track on it, at its highest (0 if it's nowhere higher): for
+ * saying how to get up a hill the piece runs into.
+ */
+export function levelsAbove(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): number {
+  const g = land.grid;
+  let most = 0;
+  forEachSample(type, flipped, pose, (x, z, trackY) => {
+    const i = g.cellAtWorld(x, z);
+    if (i !== -1) most = Math.max(most, Math.ceil((g.groundY(i) - (y + trackY)) / RISER_HEIGHT - 0.01));
+    return true;
+  });
+  return most;
+}
+
+/** What to say when a hill is in the way: how far up it is, and how to climb it. */
+export function hillMessage(levels: number): string {
+  if (levels <= 1) return "The hill is a level up here: add a ramp before it";
+  return `The hill is ${levels} levels up here: climb with ${levels === 2 ? "two" : levels} ramps in a row`;
+}
+
 export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): Clearance {
   const g = land.grid;
   const overRiver = isBridge(type);
