@@ -37,6 +37,8 @@ const PICK_TINTS: Record<OutlineTone, string> = { select: "#ffd36b", snap: "#9be
 const bufferBlockCache = new Map<string, BufferGeometry | null>();
 /** A piece worker that hasn't answered in this long (ms) is given up, and what it had left is carved here. */
 const WORKER_PATIENCE_MS = 20_000;
+/** Arches carved here (no worker any more) go one at a time, this far apart (ms): a frame or so for everything else. */
+const LOCAL_CARVE_GAP_MS = 20;
 
 /**
  * The taller arches (bridges lifted higher, ramps raised) are carved in a background worker: all of them after
@@ -49,8 +51,15 @@ const arches = {
   /** Asked for and not yet come (keys as in the cache). */
   pending: new Set<string>(),
   running: false,
-  /** No worker to be had: carve here. */
+  /** No worker to be had at all: carve when wanted, as before. */
   broken: typeof Worker === "undefined",
+  /**
+   * The worker gave up part way (it failed, or went silent): what's wanted is carved here instead, one a frame (so a
+   * bridge or two waiting at that moment don't make one long stall), stand-ins shown till each is done.
+   */
+  local: false,
+  localQueue: [] as PieceJob[],
+  localScheduled: false,
   /** Kinds of piece taken in hand: their arches were moved up the queue. */
   hurried: new Set<PieceTypeId>(),
   /** Everything carved this visit, kept for the next (see `warmBridges`). */
@@ -91,19 +100,45 @@ function runArches(): void {
     (job) => geometryCache.has(resultKey(job)),
   ).then(() => {
     arches.running = false;
-    // Stopped with work left (it failed, or went silent): carve here from now on.
-    if (arches.queue.length > 0 || arches.pending.size > 0) arches.broken = true;
-    archesSettled();
+    // Stopped with work left (it failed, or went silent): what's waited for, and what's wanted from now on, is
+    // carved here.
+    if (arches.queue.length > 0 || arches.pending.size > 0) {
+      arches.local = true;
+      arches.localQueue = arches.queue.filter((j) => arches.pending.has(resultKey(j)));
+      for (const key of arches.pending) if (!arches.localQueue.some((j) => resultKey(j) === key)) arches.localQueue.push(jobOfKey(key));
+      carveSoon();
+    } else void saveCached("arches", __BUILD_ID__, arches.results);
+    arches.queue.length = 0;
   });
 }
 
-/** The worker's done (or gone): keep what it made for next time; anything still waited for is carved when next asked. */
+/** No worker could be started: anything waited for is carved when next asked (as with no workers at all). */
 function archesSettled(): void {
-  if (!arches.broken) void saveCached("arches", __BUILD_ID__, arches.results);
   arches.queue.length = 0;
   if (arches.pending.size === 0) return;
   arches.pending.clear();
   for (const f of arches.listeners) f();
+}
+
+const jobOfKey = (key: string): PieceJob => {
+  const [type, side, levels] = key.split(":");
+  return side === "f" ? { type: type as PieceTypeId, levels: Number(levels), flipped: true } : { type: type as PieceTypeId, levels: Number(levels) };
+};
+
+/** Carve the next arches waited for, here, on a later frame; each swaps in as it's done. */
+function carveSoon(): void {
+  if (arches.localScheduled || arches.localQueue.length === 0) return;
+  arches.localScheduled = true;
+  setTimeout(() => {
+    arches.localScheduled = false;
+    let job = arches.localQueue.shift();
+    while (job && geometryCache.has(resultKey(job))) job = arches.localQueue.shift();
+    if (job) {
+      geometryCache.set(resultKey(job), compactPiece(buildPieceGeometry(getPieceDef(job.type, !!job.flipped), job.levels)));
+      if (arches.pending.delete(resultKey(job))) for (const f of arches.listeners) f();
+    }
+    carveSoon();
+  }, LOCAL_CARVE_GAP_MS);
 }
 
 /** Arches wanted now: first in the worker's queue (with the rest of that kind's, nearest heights first, after it). */
@@ -120,6 +155,16 @@ function hurryArches(job: PieceJob): void {
   runArches();
 }
 
+/** Arches wanted now, with no worker any more: first to be carved here. */
+function hurryLocal(job: PieceJob): void {
+  const key = resultKey(job);
+  const q = arches.localQueue;
+  const at = q.findIndex((j) => resultKey(j) === key);
+  if (at !== 0) q.unshift(at > 0 ? q.splice(at, 1)[0] : job);
+  arches.pending.add(key);
+  carveSoon();
+}
+
 /** A piece's geometry; `levels` is how many riser heights a bridge's arches reach below its deck. */
 export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0): BufferGeometry {
   const def = getPieceDef(type, flipped);
@@ -131,7 +176,8 @@ export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0): 
     // piece is made here from the plain one once that's come.)
     const job: PieceJob = !plain && flipSwapsEnds(type) ? { type, levels, flipped: true } : { type, levels };
     if (!geometryCache.has(resultKey(job))) {
-      hurryArches(job);
+      if (arches.local) hurryLocal(job);
+      else hurryArches(job);
       return pieceGeometry(type, flipped, baseLevels(type));
     }
   }

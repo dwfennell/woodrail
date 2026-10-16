@@ -38,13 +38,14 @@ describe("a worker's job queue", () => {
     expect(w.terminated).toBe(true);
   });
 
-  it("gives up on a worker that goes silent, leaving the job it had undone: loading never waits for ever", async () => {
+  it("gives up on a worker that goes silent (its first job three times as patiently), leaving the job undone: loading never waits for ever", async () => {
     vi.useFakeTimers();
     const w = fakeWorker({ silent: true });
     const jobs = [1, 2, 3];
     let settled = false;
     const done = drainQueue<number, number>(w, jobs, () => {}, 20_000).then(() => (settled = true));
-    await vi.advanceTimersByTimeAsync(19_999);
+    // (Its first job gets three times the patience: it starts up first.)
+    await vi.advanceTimersByTimeAsync(59_999);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     await done;
@@ -76,5 +77,22 @@ describe("a worker's job queue", () => {
     await Promise.all([a, b].map((w) => drainQueue<number, number>(w, jobs, (r) => got.push(r), 1000, (j) => j === 4)));
     expect(got.sort((x, y) => x - y)).toEqual([2, 4, 6, 10, 12]);
     expect(a.sent.length + b.sent.length).toBe(5);
+  });
+
+  it("after the first job, the usual patience", async () => {
+    vi.useFakeTimers();
+    // Answers job 1, then goes silent.
+    const w = fakeWorker();
+    const post = w.postMessage.bind(w);
+    w.postMessage = (job: unknown) => (job === 1 ? post(job) : w.sent.push(job as number));
+    let settled = false;
+    const done = drainQueue<number, number>(w, [1, 2, 3], () => {}, 20_000).then(() => (settled = true));
+    await vi.advanceTimersByTimeAsync(5);
+    await vi.advanceTimersByTimeAsync(19_990);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(20);
+    await done;
+    expect(settled).toBe(true);
+    expect(w.sent).toEqual([1, 2]);
   });
 });

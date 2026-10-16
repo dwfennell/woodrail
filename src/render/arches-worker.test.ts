@@ -68,7 +68,7 @@ describe("taller arches come from the worker, not the drag", () => {
     expect(jobs.length).toBe(asked);
   }, 30_000);
 
-  it("a worker that goes silent: the stand-ins are let go, and arches are carved here from then on", async () => {
+  it("a worker that goes silent: what's waited for is carved here, one a frame, and swapped in", async () => {
     vi.useFakeTimers();
     const { FakeWorker } = fakeWorkerClass({ silent: true });
     const tv = await trackViewWith(FakeWorker);
@@ -76,8 +76,10 @@ describe("taller arches come from the worker, not the drag", () => {
     tv.onArchesBuilt(() => told++);
     const low = tv.pieceGeometry("ramp", false, 0);
     expect(tv.pieceGeometry("ramp", false, 2)).toBe(low);
-    await vi.advanceTimersByTimeAsync(20_000);
-    // Told, so the stand-in is asked for again: carved here this time.
+    await vi.advanceTimersByTimeAsync(60_000);
+    // Given up: the ramp waited for is carved here instead, a moment later, and swapped in.
+    expect(told).toBe(0);
+    await vi.advanceTimersByTimeAsync(100);
     expect(told).toBe(1);
     const real = tv.pieceGeometry("ramp", false, 2);
     expect(real).not.toBe(low);
@@ -86,5 +88,25 @@ describe("taller arches come from the worker, not the drag", () => {
   it("with no workers at all, arches are carved when wanted (as before)", async () => {
     const tv = await trackViewWith(undefined);
     expect(tv.pieceGeometry("bridge", false, 2)).not.toBe(tv.pieceGeometry("bridge", false, 1));
+  }, 30_000);
+
+  it("given up with several bridges waiting, they're carved here one at a time, not all in one long stall", async () => {
+    vi.useFakeTimers();
+    const { FakeWorker } = fakeWorkerClass({ silent: true });
+    const tv = await trackViewWith(FakeWorker);
+    const swaps: number[] = [];
+    tv.onArchesBuilt(() => swaps.push(Date.now()));
+    for (const levels of [2, 3, 4]) tv.pieceGeometry("bridge", false, levels);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(swaps.length).toBe(0);
+    // One per timer tick: three ticks, three swaps, each its own task.
+    await vi.advanceTimersByTimeAsync(20);
+    expect(swaps.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(40);
+    expect(swaps.length).toBe(3);
+    // And one asked for from now on joins that queue too (no carving in the asking).
+    const low = tv.pieceGeometry("bridge", false, 1);
+    expect(tv.pieceGeometry("bridge", true, 2)).not.toBe(low);
+    expect(tv.pieceGeometry("ramp", false, 3)).toBe(tv.pieceGeometry("ramp", false, 0));
   }, 30_000);
 });
