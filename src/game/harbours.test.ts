@@ -3,7 +3,7 @@ import { capAt, capOf, CARGO, SHED_CAP } from "../economy";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { isWater, SURF_RIVER, SURF_SEA } from "../landscape";
 import { siteWhy } from "./industries";
-import { BOAT_DOCKED, BOAT_EVERY, BOAT_LOADS, BOAT_SAIL, boatPays, depotPoint, HarbourTrade, loadBoat, QUAY, waterWay, type HarbourEvent } from "./harbours";
+import { BOAT_DOCKED, BOAT_EVERY, BOAT_LOADS, BOAT_SAIL, boatPays, buyPrice, depotPoint, goodsForSale, HarbourTrade, loadBoat, QUAY, waterWay, type HarbourEvent } from "./harbours";
 import { Progress } from "./progress";
 import { buildStarterWorld, landForSale, plotsForSale, syncIndustries, unlockPlot, type World } from "./world";
 
@@ -150,5 +150,67 @@ describe("harbours", () => {
       expect(more.some((e) => e.kind === "leave" || e.kind === "gone")).toBe(false);
       expect(log.filter((e) => e.kind === "arrive")).toHaveLength(1);
     }
+  });
+
+  it("boats sell you goods you already make, at twice a town's price, brought by the next boat", () => {
+    const w = coastWorld();
+    const id = w.layout.addPiece("depot-harbour", harbourSite(w));
+    syncIndustries(w);
+    const d = w.economy.depotAtPiece(id)!;
+    // Only what your industries make: the starter map has a sawmill and a forest yard, no mine.
+    const sale = goodsForSale(w);
+    expect(sale).toContain("planks");
+    expect(sale).not.toContain("iron");
+    expect(buyPrice("planks")).toBe(8);
+    const p = Progress.fresh();
+    p.coins = 100;
+    const trade = new HarbourTrade();
+    expect(trade.order(d.id, "planks")).toBe(true);
+    expect(trade.order(d.id, "planks")).toBe(true);
+    // A boat takes 6 loads; no more can be ordered.
+    expect(trade.order(d.id, "log")).toBe(false);
+    d.piles[CARGO.stone.index] = 2;
+    const log: HarbourEvent[] = [];
+    for (let t = 0; t < 60 && !log.some((e) => e.kind === "bought"); t++) log.push(...trade.update(w, p));
+    // It loads first (the stone), then unloads the order: 6 planks for 48 coins.
+    expect(log.find((e) => e.kind === "sold")).toMatchObject({ goods: { stone: 2 } });
+    expect(log.find((e) => e.kind === "bought")).toMatchObject({ goods: { planks: 6 }, coins: 48, short: false });
+    expect(d.piles[CARGO.planks.index]).toBe(6);
+    expect(p.coins).toBe(100 + 5 - 48);
+    expect(trade.ordered(d.id)).toEqual({});
+    // The planks are landed: the next boat leaves them for trains.
+    expect(loadBoat(d, BOAT_LOADS, w.economy.landed.get(d.id))).toEqual({});
+  });
+
+  it("an order is paid for as it comes off: with too few coins, the rest goes back", () => {
+    const w = coastWorld();
+    const id = w.layout.addPiece("depot-harbour", harbourSite(w));
+    syncIndustries(w);
+    const d = w.economy.depotAtPiece(id)!;
+    const p = Progress.fresh();
+    p.coins = 20;
+    const trade = new HarbourTrade();
+    trade.order(d.id, "planks");
+    let bought: HarbourEvent | undefined;
+    for (let t = 0; t < 60 && !bought; t++) bought = trade.update(w, p).find((e) => e.kind === "bought");
+    expect(bought).toMatchObject({ goods: { planks: 2 }, coins: 16, short: true });
+    expect(p.coins).toBe(4);
+  });
+
+  it("trains take landed goods away from a harbour, and don't put them back", () => {
+    const w = coastWorld();
+    const id = w.layout.addPiece("depot-harbour", harbourSite(w));
+    syncIndustries(w);
+    const d = w.economy.depotAtPiece(id)!;
+    w.economy.land(d, "planks", 3);
+    const r = w.sim.addTrain(["engine", "timber"], { pieceId: id, pathIndex: 0, reversed: false, s: 150 });
+    if (r.kind !== "placed") throw new Error("no room for the train");
+    const wagon = w.sim.getTrain(r.trainId)!.cars[1];
+    expect(w.economy.needsService(d, wagon.id)).toBe(true);
+    // A wagon of planks here while planks are landed: not unloaded.
+    w.economy.setCargo(wagon.id, "planks", 2);
+    expect(w.economy.needsService(d, wagon.id)).toBe(true); // (it can still take more on)
+    w.economy.setCargo(wagon.id, "planks", w.economy.wagonCapacity);
+    expect(w.economy.needsService(d, wagon.id)).toBe(false);
   });
 });

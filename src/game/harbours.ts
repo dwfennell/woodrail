@@ -1,4 +1,4 @@
-import { CARGO, CARGO_KINDS, type CargoKind, type DepotState } from "../economy";
+import { CARGO, CARGO_KINDS, capAt, RECIPES, type CargoKind, type DepotState } from "../economy";
 import { CELL, isWater, shoreDistance, SURF_SEA, type Landscape } from "../landscape";
 import type { Pose } from "../track";
 import type { Bag } from "../economy/goods";
@@ -133,6 +133,28 @@ export function harbourWhy(land: Landscape, pose: Pose): string | null {
   return waterWay(land, pose) ? null : "Boats can't reach this water: it must lead off your land or out to sea";
 }
 
+/** Units bought at a time, and the most a harbour can have on order for its next boat. */
+export const BUY_LOT = 3;
+export const BUY_MAX = BOAT_LOADS;
+
+/** What a boat charges for a unit: twice a town's price. */
+export function buyPrice(kind: CargoKind): number {
+  return 2 * (PRICES[kind] ?? 0);
+}
+
+/**
+ * Goods a boat will sell you: only what you already make (what your industries on the map give), so buying fills a
+ * gap rather than replacing a supply chain. In cargo order.
+ */
+export function goodsForSale(world: World): CargoKind[] {
+  const made = new Set<CargoKind>();
+  for (const d of world.economy.allDepots()) {
+    if (d.role === "warehouse" || d.role === "harbour" || d.role === "town" || !world.layout.getPiece(d.pieceId)) continue;
+    for (const k of RECIPES[d.role].gives) made.add(k);
+  }
+  return CARGO_KINDS.filter((k) => made.has(k) && buyPrice(k) > 0);
+}
+
 /** What a boat pays for goods: half a town's price. */
 export function boatPays(goods: Bag): number {
   let n = 0;
@@ -140,16 +162,20 @@ export function boatPays(goods: Bag): number {
   return Math.round(n / 2);
 }
 
-/** Take up to `loads` from a harbour's quay, the biggest piles first (the dearest of equals); what was taken. */
-export function loadBoat(d: DepotState, loads = BOAT_LOADS): Bag {
+/**
+ * Take up to `loads` from a harbour's quay, the biggest piles first (the dearest of equals); what was taken. Goods
+ * `landed` there (bought, for trains to take away) aren't taken.
+ */
+export function loadBoat(d: DepotState, loads = BOAT_LOADS, landed?: Int32Array): Bag {
   const taken: Bag = {};
   let left = loads;
+  const spare = (k: CargoKind) => d.piles[CARGO[k].index] - (landed?.[CARGO[k].index] ?? 0);
   while (left > 0) {
     let best: CargoKind | null = null;
     for (const k of CARGO_KINDS) {
-      const n = d.piles[CARGO[k].index];
+      const n = spare(k);
       if (n <= 0) continue;
-      if (!best || n > d.piles[CARGO[best].index] || (n === d.piles[CARGO[best].index] && (PRICES[k] ?? 0) > (PRICES[best] ?? 0))) best = k;
+      if (!best || n > spare(best) || (n === spare(best) && (PRICES[k] ?? 0) > (PRICES[best] ?? 0))) best = k;
     }
     if (!best) break;
     d.piles[CARGO[best].index]--;
@@ -162,6 +188,8 @@ export function loadBoat(d: DepotState, loads = BOAT_LOADS): Bag {
 export type HarbourEvent =
   | { kind: "arrive" | "leave"; depotId: number; way: readonly { x: number; z: number }[] }
   | { kind: "sold"; depotId: number; goods: Bag; coins: number }
+  /** A boat unloaded goods you ordered (paid for as they came off: `short` were left aboard, not enough coins). */
+  | { kind: "bought"; depotId: number; goods: Bag; coins: number; short: boolean }
   /** The harbour went (taken up, or moved) while its boat was in: the boat's gone at once. */
   | { kind: "gone"; depotId: number };
 
@@ -181,6 +209,8 @@ interface Boat {
  */
 export class HarbourTrade {
   private readonly boats = new Map<number, Boat>();
+  /** Goods on order at each harbour, for its next boat (not saved: nothing is paid till they come). */
+  private readonly orders = new Map<number, Bag>();
   /** The way in for each harbour's piece, and the land's revision and pose it was found for. */
   private readonly ways = new Map<number, { key: string; way: { x: number; z: number }[] | null }>();
 
@@ -217,7 +247,7 @@ export class HarbourTrade {
         case "in": {
           boat.phase = "docked";
           boat.left = BOAT_DOCKED;
-          const goods = loadBoat(d);
+          const goods = loadBoat(d, BOAT_LOADS, world.economy.landed.get(d.id));
           const coins = boatPays(goods);
           let n = 0;
           for (const v of Object.values(goods)) n += v ?? 0;
@@ -226,6 +256,9 @@ export class HarbourTrade {
             p.counts.set("exported", (p.counts.get("exported") ?? 0) + n);
             events.push({ kind: "sold", depotId: d.id, goods, coins });
           }
+          // Then what you ordered comes off onto the quay (after loading, so the boat doesn't take it back).
+          const bought = this.unload(world, d, p);
+          if (bought) events.push(bought);
           break;
         }
         case "docked":
@@ -240,12 +273,61 @@ export class HarbourTrade {
           break;
       }
     }
+    for (const id of [...this.orders.keys()]) if (!seen.has(id)) this.orders.delete(id);
     for (const [id, boat] of [...this.boats]) {
       if (seen.has(id)) continue;
       if (boat.phase !== "away") events.push({ kind: "gone", depotId: id });
       this.boats.delete(id);
     }
     return events;
+  }
+
+  /** Order `BUY_LOT` more of `kind` for this harbour's next boat; false if its order is full. */
+  order(depotId: number, kind: CargoKind): boolean {
+    const o = this.orders.get(depotId) ?? {};
+    let n = 0;
+    for (const v of Object.values(o)) n += v ?? 0;
+    if (n + BUY_LOT > BUY_MAX) return false;
+    o[kind] = (o[kind] ?? 0) + BUY_LOT;
+    this.orders.set(depotId, o);
+    return true;
+  }
+
+  /** What's on order at this harbour (empty: nothing). */
+  ordered(depotId: number): Bag {
+    return this.orders.get(depotId) ?? {};
+  }
+
+  /** Cancel this harbour's order. */
+  cancel(depotId: number): void {
+    this.orders.delete(depotId);
+  }
+
+  /**
+   * A boat in: what was ordered goes onto the quay, paid for unit by unit while the coins last and there's room, for
+   * trains to take away (it's landed: the next boat won't take it back).
+   */
+  private unload(world: World, d: DepotState, p: Progress): HarbourEvent | null {
+    const o = this.orders.get(d.id);
+    if (!o) return null;
+    this.orders.delete(d.id);
+    const goods: Bag = {};
+    let coins = 0;
+    let short = false;
+    for (const k of CARGO_KINDS) {
+      for (let n = o[k] ?? 0; n > 0; n--) {
+        const price = buyPrice(k);
+        if (p.coins < price || d.piles[CARGO[k].index] >= capAt(d)) {
+          short = true;
+          break;
+        }
+        p.coins -= price;
+        coins += price;
+        world.economy.land(d, k, 1);
+        goods[k] = (goods[k] ?? 0) + 1;
+      }
+    }
+    return { kind: "bought", depotId: d.id, goods, coins, short };
   }
 
   /** Where this harbour's boat is (away, coming in, tied up, leaving) and the seconds left at that; null if none yet. */
@@ -273,6 +355,7 @@ export class HarbourTrade {
   /** Start again (a new world was loaded): every harbour's next boat comes soon. */
   reset(): void {
     this.boats.clear();
+    this.orders.clear();
     this.ways.clear();
   }
 

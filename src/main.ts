@@ -35,7 +35,7 @@ import { pieceIcon, trainIcon } from "./ui/icons";
 import { goodsOf, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, detachEngines, tooHeavy } from "./game/engines";
-import { BOAT_SAIL, HarbourTrade, SHED_PRICE } from "./game/harbours";
+import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
@@ -1105,6 +1105,12 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       if (e.kind === "arrive") game.boats.arrive(e.depotId, e.way, BOAT_SAIL);
       else if (e.kind === "leave") game.boats.leave(e.depotId, e.way, BOAT_SAIL);
       else if (e.kind === "gone") game.boats.remove(e.depotId);
+      else if (e.kind === "bought") {
+        hud.setCoins(progress.coins);
+        const got = total(e.goods) > 0 ? `A boat brought ${describeGoods(e.goods)}: −${e.coins} coins` : "A boat came, but you had too few coins for your order";
+        hud.toast(e.short && total(e.goods) > 0 ? `${got} (the rest went back)` : got, false, 3200);
+        scheduleSave();
+      }
       else if (e.kind === "sold") {
         hud.setCoins(progress.coins);
         hud.toast(`A boat took ${describeGoods(e.goods)}: +${e.coins} coins`, false, 3200);
@@ -1168,7 +1174,10 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     const canShed = progress.learned.has("dock-sheds") && d.sheds < MAX_SHEDS;
     const text = harbourTrade.describe(id);
     const line = d.sheds > 0 ? `${text} Dock sheds: ${d.sheds} of ${MAX_SHEDS} (each holds ${SHED_CAP} more of every good).` : text;
-    const key = `${id}|${d.sheds}|${canShed}`;
+    // Goods the boats sell you (what you already make), and what's on order for the next one.
+    const forSale = goodsForSale(game.world);
+    const ordered = harbourTrade.ordered(id);
+    const key = `${id}|${d.sheds}|${canShed}|${forSale.join()}|${JSON.stringify(ordered)}`;
     if (key === harbourShown && harbourLine?.isConnected) {
       if (harbourLine.textContent !== line) harbourLine.textContent = line;
       return;
@@ -1181,6 +1190,35 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     harbourLine.className = "station-waiting";
     harbourLine.textContent = line;
     box.append(harbourLine);
+    if (forSale.length > 0) {
+      const buy = document.createElement("div");
+      buy.className = "harbour-buy";
+      const on = total(ordered) > 0 ? `On order: ${describeGoods(ordered)} (paid when it comes)` : "Buy from the next boat (2× town price):";
+      buy.innerHTML = `<div class="harbour-buy-line">${on}</div>`;
+      for (const k of forSale) {
+        const b = document.createElement("button");
+        b.className = "chip text";
+        b.textContent = `+${describeGoods({ [k]: BUY_LOT })} · ${BUY_LOT * buyPrice(k)}`;
+        b.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (!harbourTrade.order(id, k)) hud.toast("A boat brings 6 loads at most", false);
+          showHarbour();
+        });
+        buy.append(b);
+      }
+      if (total(ordered) > 0) {
+        const cancel = document.createElement("button");
+        cancel.className = "chip text";
+        cancel.textContent = "Cancel order";
+        cancel.addEventListener("click", (e) => {
+          e.stopPropagation();
+          harbourTrade.cancel(id);
+          showHarbour();
+        });
+        buy.append(cancel);
+      }
+      box.append(buy);
+    }
     if (!canShed) return;
     const build = document.createElement("button");
     build.className = "chip text";
