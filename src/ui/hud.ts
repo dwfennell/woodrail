@@ -22,7 +22,10 @@ export interface HudHandlers {
   lever(value: -1 | 0 | 1): void;
   follow(): void;
   removeTrain(): void;
+  /** A wagon's card: turn it round where it stands (its other magnet leads). */
   turnCar(): void;
+  /** The engine card: the engine runs round to the other end of its train. */
+  swapEnds(): void;
   rotate(): void;
   flip(): void;
   deletePiece(): void;
@@ -314,9 +317,9 @@ export class Hud {
     this.engineCard.appendChild(controls);
     this.engineMore.hidden = true;
     this.engineMore.append(
-      button("Swap ends", "Turn the engine round, end for end", () => {
+      button("Swap ends", "Move the engine to the other end of its train", () => {
         this.engineMore.hidden = true;
-        h.turnCar();
+        h.swapEnds();
       }, "chip text"),
       button("Remove", "Put this train back in the box", h.removeTrain, "chip text danger"),
     );

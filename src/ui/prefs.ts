@@ -39,3 +39,25 @@ export function saveFavourites(keys: readonly string[]): void {
     // storage unavailable: the choice lasts for this session only
   }
 }
+
+const HINTS_KEY = "woodrail.hintsSeen";
+
+/** Has this one-time hint been shown on this device before? */
+export function hintSeen(id: string): boolean {
+  try {
+    return (localStorage.getItem(HINTS_KEY) ?? "").split(",").includes(id);
+  } catch {
+    return false;
+  }
+}
+
+/** Remember a one-time hint as shown (it won't show again on this device). */
+export function markHintSeen(id: string): void {
+  try {
+    const seen = new Set((localStorage.getItem(HINTS_KEY) ?? "").split(",").filter(Boolean));
+    seen.add(id);
+    localStorage.setItem(HINTS_KEY, [...seen].join(","));
+  } catch {
+    // storage unavailable: it shows once this session
+  }
+}

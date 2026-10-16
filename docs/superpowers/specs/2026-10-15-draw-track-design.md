@@ -52,8 +52,9 @@ and ramps are left to the tray.
 
 The line grows one piece at a time, from the end the line has reached so far:
 
-1. **Candidates.** Each piece above, mirrored or not, is seated on the end through whichever of its ends fits a peg or
-   a hole. A piece with a peg at both ends never comes up: only pieces from the list above are tried.
+1. **Candidates.** Each piece above, mirrored or not, is seated on the end. Any two ends join, but each of these
+   pieces has a peg end and a hole end, so it's seated through the end of the other kind: through the same kind would
+   be the same shape again. (A piece whose ends are both the same kind as the line's end would seat through either.)
 2. **Look ahead two pieces.** For each candidate, and each candidate after it, measure how far the second end lies
    from the stroke, and how far its heading differs from the stroke's heading there. Measure at the first end too.
    Each piece adds a small cost, so a long straight beats two short ones on a straight run. The best pair wins, and

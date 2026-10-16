@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { appendPiece, connectorRef } from "../track";
+import { appendPiece, connectorRef, Layout } from "../track";
+import { connectedPairs } from "../landscape";
 import { GOALS, GoalTracker } from "./goals";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
 import { CARGO } from "../economy/cargo";
@@ -192,5 +193,30 @@ describe("GoalTracker", () => {
     const tracker = new GoalTracker(GOALS.map((g) => g.id));
     expect(tracker.current()).toBeNull();
     expect(tracker.next()).toBeNull();
+  });
+
+  it("three towns joined through a depot and over a bridge count, and the goal is ticked off while the tutorial isn't done", () => {
+    const w = buildStarterWorld();
+    const [a, b, c] = w.landscape.towns;
+    const layout = new Layout();
+    // Three "stations" (any pieces) joined: a — depot — bridge — b, and a — straight — c.
+    const sa = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    const depot = appendPiece(layout, "depot-sawmill", false, connectorRef(sa, 1));
+    const bridge = appendPiece(layout, "bridge", false, connectorRef(depot, 1));
+    const sb = appendPiece(layout, "straight-216", false, connectorRef(bridge, 1));
+    const sc = appendPiece(layout, "straight-216", false, connectorRef(sa, 0), 1);
+    const stations = new Map([[a.id, sa], [b.id, sb], [c.id, sc]]);
+    expect(connectedPairs(layout, stations)).toHaveLength(3);
+    // In the game: the starter's first three towns joined, while the tutorial is still on laying a switch.
+    const { w: joinedWorld } = joined();
+    const tutorial = GOALS.slice(0, GOALS.findIndex((g) => g.id === "lay-switch")).map((g) => g.id);
+    const tracker = new GoalTracker(tutorial);
+    expect(tracker.current()?.id).toBe("lay-switch");
+    const three = { ...joinedWorld, stations } as unknown as typeof joinedWorld;
+    Object.assign(three, { layout });
+    // The bridge counts too (the user's case: a bridge on the way to the third town): one a check.
+    expect(tracker.update(three).map((g) => g.id)).toEqual(["build-bridge"]);
+    expect(tracker.update(three).map((g) => g.id)).toEqual(["join-three"]);
+    expect(tracker.current()?.id).toBe("lay-switch");
   });
 });

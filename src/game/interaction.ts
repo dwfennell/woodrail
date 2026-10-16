@@ -8,7 +8,7 @@ import { ghostMesh, pieceGeometry, type OutlineTone } from "../render/track-view
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, findLowCrossing, findOverlap, findSnap, flipSwapsEnds, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, findLowCrossing, findOverlap, findSnap, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
@@ -24,6 +24,8 @@ import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
+import { dragMoves } from "./drag-rule";
+import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 
@@ -86,7 +88,7 @@ type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; 
 type Mode =
   | { kind: "idle" }
   /** `add`: Shift was held (a tap picks the piece, along with any already picked). */
-  | { kind: "press"; press: Press; pointerId: number; x: number; y: number; ground: Vector3; add: boolean }
+  | { kind: "press"; press: Press; pointerId: number; pointerType: string; x: number; y: number; ground: Vector3; add: boolean }
   | {
       /** The picked pieces dragged together, rigidly (with the risers under them). */
       kind: "drag-group";
@@ -744,7 +746,29 @@ export class Interaction {
       return;
     }
     this.game.controls.enabled = false;
-    this.mode = { kind: "press", press: hit, pointerId: e.pointerId, x: e.clientX, y: e.clientY, ground, add: e.shiftKey };
+    this.mode = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey };
+  }
+
+  /**
+   * Does a drag that starts on `press` move it, rather than pan the view (see `dragMoves`: on touch, only what's
+   * selected)? Picking several, only a picked piece moves. Cargo is fetched from its pile with a drag either way.
+   */
+  private dragsWhatsPressed(press: Press, pointerType: string): boolean {
+    switch (press.kind) {
+      case "piece":
+        if (this.picking) return this.picked.has(press.pieceId);
+        return dragMoves("piece", press.pieceId === this.selectedPiece, pointerType);
+      case "car":
+        return dragMoves("car", this.selectedCar !== -1 && this.game.sim.findCar(press.carId)?.train === this.game.sim.findCar(this.selectedCar)?.train, pointerType);
+      case "depot":
+        return dragMoves("depot", press.depotId === this.selectedDepot, pointerType);
+      case "prop":
+        return dragMoves("prop", press.propId === this.selectedProp, pointerType);
+      case "road":
+        return dragMoves("road", press.cell === this.roads.selected, pointerType);
+      default:
+        return true;
+    }
   }
 
   private onMove(e: PointerEvent): void {
@@ -762,9 +786,10 @@ export class Interaction {
     }
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
-      if ((m.press.kind === "prop" && m.press.propId !== this.selectedProp) || (m.press.kind === "road" && m.press.cell !== this.roads.selected)) {
-        // Select first: a drag that starts on a prop not selected pans the view, like the floor (so panning over a
-        // busy town never moves a house by accident). The camera picks the gesture up from here.
+      if (!this.dragsWhatsPressed(m.press, m.pointerType)) {
+        // Select first: a drag that starts on anything placed that isn't selected (a piece, a train, an industry, a
+        // prop, a road) pans the view, like the floor, so panning over a busy map never moves something by accident.
+        // Tap it to select it, then drag it. The camera picks the gesture up from here.
         this.mode = { kind: "idle" };
         this.game.controls.enabled = true;
         return;
@@ -1001,6 +1026,7 @@ export class Interaction {
     const car = found.train.cars[found.index];
     if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === p.carId);
     else this.hud.showCarCard();
+    this.hintDrag();
   }
 
   private selectPiece(id: number): void {
@@ -1009,6 +1035,20 @@ export class Interaction {
     this.game.trackView.setHighlight(id);
     const p = this.game.layout.getPiece(id)!;
     this.hud.showPieceCard(getPieceDef(p.type, false).flippable, "Track piece", true, true, true);
+    if (!this.fixedLabel(id)) this.hintDrag();
+  }
+
+  private dragHinted = hintSeen("drag-selected");
+
+  /**
+   * The first time ever (on this device) something movable is selected: it moves with a drag now (and on touch only
+   * now: see `dragsWhatsPressed`).
+   */
+  private hintDrag(): void {
+    if (this.dragHinted) return;
+    this.dragHinted = true;
+    markHintSeen("drag-selected");
+    this.hud.toast("Drag it to move it · drag anywhere else to look around", false, 3600);
   }
 
   clearSelection(): void {
@@ -1060,6 +1100,8 @@ export class Interaction {
     this.shownDepot.id = -1;
     this.hud.showDepotCard(this.depotTitle(depotId));
     this.refreshDepotCard();
+    // An industry the player placed moves too (select first, as anything else).
+    if (this.movableIndustry(depotId) !== -1) this.hintDrag();
   }
 
   /** Keep the open depot card's pile counts current (call every frame). */
@@ -1855,18 +1897,16 @@ export class Interaction {
       const stack = getPieceDef(m.type, m.heldFlipped).connectors.length === 0 ? riserStackAt(this.game.layout, m.pose.x, m.pose.z, m.pieceId) : null;
       if (stack) m.pose = { ...stack.pose };
       const capture = this.captureRadius(x, y);
-      // Look for pegs on the floor, up to a few risers up, and on whatever the piece is over. Ends that don't match
-      // (peg to peg, hole to hole) turn the piece round, or for a new piece mirror it, so it fits.
-      // A moved piece keeps its hand (a curve stays a left or a right); a ramp may still swap its ends to fit.
-      const autoFit = m.pieceId === -1 || flipSwapsEnds(holdType) ? "turn-or-mirror" : "turn";
+      // Look for track ends on the floor, up to a few risers up, and on whatever the piece is over. Any end joins, peg or
+      // hole: the piece keeps the turn and the hand it's held with (it never turns or mirrors itself to fit).
       m.snap = { kind: "none" };
       // A free end under the finger wins: the piece goes where it's pointed. Else the nearest end to the held piece's.
       let atFinger = false;
       for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY, m.looseY + RISER_HEIGHT])) {
         const held = heldAt(level) ?? m.pose;
         const finger = this.planeAt(x, sy, level);
-        const f = finger ? findSnapAtPoint(this.game.layout, holdType, m.heldFlipped, held, level, finger, m.pieceId, Math.max(capture, m.tapReach ?? 0), autoFit) : null;
-        const s = f?.kind === "snapped" ? f : findSnap(this.game.layout, holdType, m.heldFlipped, held, level, m.pieceId, capture, autoFit);
+        const f = finger ? findSnapAtPoint(this.game.layout, holdType, m.heldFlipped, held, level, finger, m.pieceId, Math.max(capture, m.tapReach ?? 0)) : null;
+        const s = f?.kind === "snapped" ? f : findSnap(this.game.layout, holdType, m.heldFlipped, held, level, m.pieceId, capture);
         // A bridge only joins track it can stand at (raised track, another bridge): beside track on the ground it
         // keeps to its own height, a level up.
         if (s.kind === "snapped" && isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
@@ -2489,6 +2529,7 @@ export class Interaction {
     this.selectedProp = id;
     this.propOutline.show(g.propLibrary.footprint(p.asset) ?? null, p.x, p.y, p.z, p.heading);
     this.hud.showPieceCard(false, g.propLibrary.model(modelKey(p.asset, p.variant))?.name ?? "Model", false);
+    this.hintDrag();
   }
 
   /** Turn a placed prop an eighth, if it still fits. */
@@ -2642,10 +2683,23 @@ export class Interaction {
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
       if (pieceId !== -1) return { kind: "piece", pieceId };
     }
+    // Nothing solid under the tap, but it may be on a town's station (platform, canopy, house): the whole footprint
+    // opens the town, with a fingertip's slack. Trains and track were tried first above, so they win.
+    const town = g.depotView.stationUnder(this.raycaster.ray, this.fingerMm(x, y));
+    if (town !== -1) return { kind: "depot", depotId: town };
     // Nothing standing there: a road piece the player laid, on the square under the pointer.
     const cell = this.squareAt(x, y);
     if (this.roads.pickable(cell)) return { kind: "road", cell };
     return null;
+  }
+
+  /** About 22 screen pixels (half a 44 px phone target) as mm on the ground at the pointer, capped at 60. */
+  private fingerMm(x: number, y: number): number {
+    const a = this.groundAt(x, y);
+    const b = this.groundAt(x + 22, y);
+    this.setNdc(x, y); // groundAt moved the ray; put it back on the pointer
+    if (!a || !b) return 0;
+    return Math.min(60, a.distanceTo(b));
   }
 
   /** Snap capture in mm: about 28 screen pixels at the pointer, never less than the physical 30 mm. */

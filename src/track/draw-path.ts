@@ -110,7 +110,11 @@ const RESHAPE_COST = 0.3;
 /** A closing piece is laid when its far end is this close (mm) to the stroke drawn so far. */
 const MEET_REACH = 40;
 
-/** Every way each piece type can seat on `end`: through an end of the other kind, mirrored or not. */
+/**
+ * Every way each piece type can seat on `end`, mirrored or not. Any two ends join, but each drawn piece has a peg end
+ * and a hole end, so it's seated through the end of the other kind: through the same kind would be the same shape
+ * again (a straight or curve the other way round), only with its peg and hole swapped.
+ */
 export function candidatesFrom(end: DrawEnd, types: readonly PieceTypeId[] = DRAW_TYPES): DrawCandidate[] {
   const out: DrawCandidate[] = [];
   const seat: Pose = { x: end.x, z: end.z, heading: end.heading + Math.PI };
@@ -123,7 +127,7 @@ export function candidatesFrom(end: DrawEnd, types: readonly PieceTypeId[] = DRA
       const length = path.geom.kind === "line" ? path.geom.length : path.geom.kind === "arc" ? Math.abs(path.geom.radius * path.geom.sweep) : 0;
       for (let entry = 0; entry < 2; entry++) {
         const c = def.connectors[entry];
-        if (c.kind === end.kind) continue;
+        if (c.kind === end.kind && def.connectors[1 - entry].kind !== end.kind) continue;
         const exit = 1 - entry;
         const pose = solveParentPose(c.pose, seat, { x: 0, z: 0, heading: 0 });
         const y = end.y - c.y;

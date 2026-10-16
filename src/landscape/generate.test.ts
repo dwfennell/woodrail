@@ -116,24 +116,35 @@ describe("generateLandscape", () => {
     expect(b.station.z).toBeCloseTo(a.station.z);
     expect(b.centre.x - a.centre.x).toBeCloseTo(1080);
     const g = land.grid;
-    // The starter line: sawmill, first town, second town, forest yard, all on the stations' line.
+    // The starter line: first town, second town, forest yard on the stations' line; the sawmill off it, across the
+    // line after a quarter turn (so the way to it takes a curve), toward the middle of the map.
     const saw = land.depots.find((d) => d.kind === "sawmill")!;
     const forest = land.depots.find((d) => d.kind === "forest")!;
-    for (const d of [saw, forest]) {
-      expect(d.piece.heading).toBe(0);
-      expect(d.piece.z).toBeCloseTo(a.station.z);
-    }
-    expect(saw.centre.x).toBeLessThan(a.centre.x);
+    expect(forest.piece.heading).toBe(0);
+    expect(forest.piece.z).toBeCloseTo(a.station.z);
+    expect(Math.abs(saw.piece.heading)).toBeCloseTo(Math.PI / 2);
+    const side = a.centre.z > 0 ? -1 : 1;
+    expect(saw.piece.x).toBeCloseTo(a.station.x - 648 - 180);
+    // Its piece runs toward the line from its far end.
+    expect(saw.piece.z).toBeCloseTo(a.station.z + side * (180 + 216));
+    expect(Math.sign(saw.centre.z - a.centre.z)).toBe(side);
     expect(forest.centre.x).toBeGreaterThan(b.centre.x);
-    // Clear, flat and dry between each pair of neighbours on it.
-    for (const [x0, x1] of [[saw.centre.x, a.centre.x], [a.centre.x, b.centre.x], [b.centre.x, forest.centre.x]]) {
-      for (let x = x0 + 108; x < x1 - 108; x += CELL / 2) {
-        const cell = g.cellAtWorld(x, a.centre.z);
-        expect(g.height[cell], `x ${x}`).toBe(0);
-        expect(g.feature[cell], `x ${x}`).toBe(FEAT_NONE);
-        expect(g.surface[cell], `x ${x}`).not.toBe(SURF_RIVER);
-      }
+    // Clear, flat and dry along the line (from the turn to the forest yard) and round the turn.
+    const flatAt = (x: number, z: number) => {
+      const cell = g.cellAtWorld(x, z);
+      expect(g.height[cell], `${x},${z}`).toBe(0);
+      expect(g.feature[cell], `${x},${z}`).toBe(FEAT_NONE);
+      expect(g.surface[cell], `${x},${z}`).not.toBe(SURF_RIVER);
+    };
+    for (const [x0, x1] of [[a.station.x - 648, a.station.x], [a.centre.x + 108, b.centre.x - 108], [b.centre.x + 108, forest.centre.x - 108]]) {
+      for (let x = x0; x < x1; x += CELL / 2) flatAt(x, a.centre.z);
     }
+    for (let k = 1; k < 8; k++) {
+      const t = (k / 8) * (Math.PI / 2);
+      flatAt(a.station.x - 648 - 180 * Math.sin(t), a.centre.z + side * 180 * (1 - Math.cos(t)));
+    }
+    // Open ground between the first two towns: no hills near their line.
+    for (let x = a.centre.x + CELL; x < b.centre.x; x += CELL) for (let dz = -4; dz <= 4; dz++) expect(g.height[g.cellAtWorld(x, a.centre.z + dz * CELL)], `${x},${dz}`).toBe(0);
   });
 });
 

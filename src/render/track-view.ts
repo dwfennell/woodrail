@@ -18,11 +18,11 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { canStandOnArches, flipSwapsEnds, getPieceDef, isBridge, pathLength, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceTypeId, type PlacedPiece } from "../track";
+import { canStandOnArches, flipSwapsEnds, getPieceDef, isBridge, isJoin, pathLength, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceDef, type PieceTypeId, type PlacedPiece } from "../track";
 import { MAX_BRIDGE_LEVELS } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
-import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry, compactPiece } from "./track-geometry";
+import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry, buildPieceStandIn, buildScaffold, compactPiece, SLOT_CUT } from "./track-geometry";
 import type { PieceJob, PieceResult } from "./piece-worker";
 import { loadCached, saveCached } from "./piece-cache";
 import { drainQueue } from "./worker-queue";
@@ -37,87 +37,138 @@ const PICK_TINTS: Record<OutlineTone, string> = { select: "#ffd36b", snap: "#9be
 const bufferBlockCache = new Map<string, BufferGeometry | null>();
 /** A piece worker that hasn't answered in this long (ms) is given up, and what it had left is carved here. */
 const WORKER_PATIENCE_MS = 20_000;
-/** Arches carved here (no worker any more) go one at a time, this far apart (ms): a frame or so for everything else. */
+/** Pieces carved here (no worker any more) go one at a time, this far apart (ms): a frame or so for everything else. */
 const LOCAL_CARVE_GAP_MS = 20;
 
 /**
- * The taller arches (bridges lifted higher, ramps raised) are carved in a background worker: all of them after
- * loading (`warmBridges`), and any wanted before then at the front of its queue. Until one's ready, a piece shows its
- * lowest arches; when it comes, `onArchesBuilt` listeners swap it in. Where no worker can run (or one has gone
- * silent), they're carved here when wanted, as before.
+ * Track pieces are carved (CSG) in background workers: those the opening map needs while loading, the rest (every
+ * kind, then the taller arches bridges and raised ramps stand on) after the title's up. A piece wanted before its turn
+ * goes to the front of the queue and is drawn meanwhile as a stand-in (its plain body, or its lowest arches); when
+ * the real one comes, `onPiecesBuilt` listeners swap it in. If a worker gives up (fails, or goes silent), what's left
+ * is carved here, one a frame, stand-ins still shown till each is done. Where no worker can run at all, pieces are
+ * carved when first wanted, as before.
  */
-const arches = {
-  queue: [] as PieceJob[],
-  /** Asked for and not yet come (keys as in the cache). */
-  pending: new Set<string>(),
-  running: false,
-  /** No worker to be had at all: carve when wanted, as before. */
+const carving = {
+  /** Background carving under way (from loading on): pieces not carved yet get stand-ins. */
+  started: false,
+  /** No worker to be had: carve when wanted. */
   broken: typeof Worker === "undefined",
-  /**
-   * The worker gave up part way (it failed, or went silent): what's wanted is carved here instead, one a frame (so a
-   * bridge or two waiting at that moment don't make one long stall), stand-ins shown till each is done.
-   */
+  queue: [] as PieceJob[],
+  running: 0,
+  /** Workers gave up: carve here, one a frame. */
   local: false,
   localQueue: [] as PieceJob[],
   localScheduled: false,
-  /** Kinds of piece taken in hand: their arches were moved up the queue. */
+  /** Shown as stand-ins, or waited for (`whenBuilt`): keys as in the geometry cache. */
+  wanted: new Map<string, (() => void)[]>(),
+  /** Kinds of piece moved up the queue (with their other heights). */
   hurried: new Set<PieceTypeId>(),
-  /** Everything carved this visit, kept for the next (see `warmBridges`). */
-  results: [] as PieceResult[],
+  /** Carved in workers this visit (with those loaded from the last), kept for the next. */
+  pieces: [] as PieceResult[],
+  arches: [] as PieceResult[],
   listeners: new Set<() => void>(),
+  notifyScheduled: false,
 };
+const standIns = new Map<string, BufferGeometry>();
 
-/** Call `f` whenever arches asked for come from the worker (to swap them in for the stand-ins shown meanwhile). */
-export function onArchesBuilt(f: () => void): () => void {
-  arches.listeners.add(f);
-  return () => arches.listeners.delete(f);
+/** Call `f` whenever pieces shown as stand-ins have been carved (to swap them in). */
+export function onPiecesBuilt(f: () => void): () => void {
+  carving.listeners.add(f);
+  return () => carving.listeners.delete(f);
 }
 
-/** The arch heights every piece of this kind has from loading (a bridge's one level; none for a ramp). */
+/** The arch heights every piece of this kind has from the start (a bridge's one level; none for a ramp). */
 const baseLevels = (type: PieceTypeId) => (isBridge(type) ? 1 : 0);
+/** Kinds carved in the background (join pieces, dozens of sizes, are cheap enough to make when first used). */
+const carvedInBackground = (type: PieceTypeId) => !isJoin(type);
 
-function runArches(): void {
-  if (arches.running || arches.broken || arches.queue.length === 0) return;
-  let worker: Worker;
-  try {
-    worker = new Worker(new URL("./piece-worker.ts", import.meta.url), { type: "module" });
-  } catch {
-    arches.broken = true;
-    return archesSettled();
-  }
-  arches.running = true;
-  void drainQueue<PieceJob, PieceResult>(
-    worker,
-    arches.queue,
-    (r) => {
-      const key = resultKey(r);
-      if (!geometryCache.has(key)) takeResult(r);
-      arches.results.push(r);
-      if (arches.pending.delete(key)) for (const f of arches.listeners) f();
-    },
-    WORKER_PATIENCE_MS,
-    // Built here meanwhile: not needed.
-    (job) => geometryCache.has(resultKey(job)),
-  ).then(() => {
-    arches.running = false;
-    // Stopped with work left (it failed, or went silent): what's waited for, and what's wanted from now on, is
-    // carved here.
-    if (arches.queue.length > 0 || arches.pending.size > 0) {
-      arches.local = true;
-      arches.localQueue = arches.queue.filter((j) => arches.pending.has(resultKey(j)));
-      for (const key of arches.pending) if (!arches.localQueue.some((j) => resultKey(j) === key)) arches.localQueue.push(jobOfKey(key));
-      carveSoon();
-    } else void saveCached("arches", __BUILD_ID__, arches.results);
-    arches.queue.length = 0;
-  });
+/** The job that carves this piece (a mirrored piece is made here from the plain one; a flip that swaps ends is carved). */
+function jobFor(type: PieceTypeId, flipped: boolean, levels: number): PieceJob {
+  return flipped && getPieceDef(type, true) !== getPieceDef(type, false) && flipSwapsEnds(type) ? { type, levels, flipped: true } : { type, levels };
 }
 
-/** No worker could be started: anything waited for is carved when next asked (as with no workers at all). */
-function archesSettled(): void {
-  arches.queue.length = 0;
-  if (arches.pending.size === 0) return;
-  arches.pending.clear();
-  for (const f of arches.listeners) f();
+/** Carved (by a worker, or here): into the cache, anyone waiting told (swaps batched to once a tick). */
+function built(key: string, g: BufferGeometry): void {
+  if (!geometryCache.has(key)) geometryCache.set(key, g);
+  const waiting = carving.wanted.get(key);
+  if (!waiting) return;
+  carving.wanted.delete(key);
+  for (const f of waiting) f();
+  if (carving.notifyScheduled) return;
+  carving.notifyScheduled = true;
+  setTimeout(() => {
+    carving.notifyScheduled = false;
+    for (const f of carving.listeners) f();
+  }, 0);
+}
+
+function startWorkers(count: number): void {
+  for (let i = 0; i < count && !carving.local && carving.queue.length > 0; i++) {
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL("./piece-worker.ts", import.meta.url), { type: "module" });
+    } catch {
+      // No module workers here after all.
+      if (carving.running === 0) goLocal();
+      return;
+    }
+    carving.running++;
+    void drainQueue<PieceJob, PieceResult>(
+      worker,
+      carving.queue,
+      (r) => {
+        const key = resultKey(r);
+        (r.levels > baseLevels(r.type) ? carving.arches : carving.pieces).push(r);
+        if (!geometryCache.has(key)) built(key, geometryOf(r));
+      },
+      WORKER_PATIENCE_MS,
+      // Carved here meanwhile: not needed.
+      (job) => geometryCache.has(resultKey(job)),
+    ).then((finished) => {
+      carving.running--;
+      // Given up: the rest (and the job it had) is carved here.
+      if (!finished) goLocal();
+      if (carving.running > 0) return;
+      // All done: anything still waited for (a job lost with a worker) is carved here; what was made is kept.
+      for (const key of carving.wanted.keys()) if (!geometryCache.has(key)) localJob(jobOfKey(key), false);
+      if (!carving.local) {
+        void saveCached("pieces", __BUILD_ID__, carving.pieces);
+        void saveCached("arches", __BUILD_ID__, carving.arches);
+      }
+    });
+  }
+}
+
+/** Carve here from now on, one a frame: the queue moves over, what's waited for first. */
+function goLocal(): void {
+  carving.local = true;
+  const queue = carving.queue.splice(0);
+  for (const j of queue) if (carving.wanted.has(resultKey(j))) localJob(j, false);
+  for (const j of queue) if (!carving.wanted.has(resultKey(j))) localJob(j, false);
+  for (const key of carving.wanted.keys()) if (!geometryCache.has(key)) localJob(jobOfKey(key), false);
+}
+
+function localJob(job: PieceJob, first: boolean): void {
+  const key = resultKey(job);
+  const q = carving.localQueue;
+  const at = q.findIndex((j) => resultKey(j) === key);
+  if (at >= 0 && !first) return;
+  if (at >= 0) q.splice(at, 1);
+  if (first) q.unshift(job);
+  else q.push(job);
+  carveSoon();
+}
+
+function carveSoon(): void {
+  if (carving.localScheduled || carving.localQueue.length === 0) return;
+  carving.localScheduled = true;
+  setTimeout(() => {
+    carving.localScheduled = false;
+    let job = carving.localQueue.shift();
+    while (job && geometryCache.has(resultKey(job))) job = carving.localQueue.shift();
+    if (job) built(resultKey(job), compactPiece(buildPieceGeometry(getPieceDef(job.type, !!job.flipped), job.levels)));
+    carveSoon();
+  }, LOCAL_CARVE_GAP_MS);
 }
 
 const jobOfKey = (key: string): PieceJob => {
@@ -125,44 +176,56 @@ const jobOfKey = (key: string): PieceJob => {
   return side === "f" ? { type: type as PieceTypeId, levels: Number(levels), flipped: true } : { type: type as PieceTypeId, levels: Number(levels) };
 };
 
-/** Carve the next arches waited for, here, on a later frame; each swaps in as it's done. */
-function carveSoon(): void {
-  if (arches.localScheduled || arches.localQueue.length === 0) return;
-  arches.localScheduled = true;
-  setTimeout(() => {
-    arches.localScheduled = false;
-    let job = arches.localQueue.shift();
-    while (job && geometryCache.has(resultKey(job))) job = arches.localQueue.shift();
-    if (job) {
-      geometryCache.set(resultKey(job), compactPiece(buildPieceGeometry(getPieceDef(job.type, !!job.flipped), job.levels)));
-      if (arches.pending.delete(resultKey(job))) for (const f of arches.listeners) f();
-    }
-    carveSoon();
-  }, LOCAL_CARVE_GAP_MS);
-}
-
-/** Arches wanted now: first in the worker's queue (with the rest of that kind's, nearest heights first, after it). */
-function hurryArches(job: PieceJob): void {
+/** Wanted now: first in line (with that kind's other heights after it, nearest first, in case it's lifted). */
+function hurry(job: PieceJob, then?: () => void): void {
   const key = resultKey(job);
-  const q = arches.queue;
-  if (!arches.hurried.has(job.type)) {
-    arches.hurried.add(job.type);
+  const waiting = carving.wanted.get(key) ?? [];
+  if (then) waiting.push(then);
+  carving.wanted.set(key, waiting);
+  if (carving.local) return localJob(job, true);
+  const q = carving.queue;
+  if (!carving.hurried.has(job.type)) {
+    carving.hurried.add(job.type);
     q.sort((a, b) => Number(b.type === job.type) - Number(a.type === job.type) || (a.type === job.type ? Math.abs(a.levels - job.levels) - Math.abs(b.levels - job.levels) : 0));
   }
   const at = q.findIndex((j) => resultKey(j) === key);
   if (at !== 0) q.unshift(at > 0 ? q.splice(at, 1)[0] : job);
-  arches.pending.add(key);
-  runArches();
+  if (carving.running === 0) startWorkers(1);
 }
 
-/** Arches wanted now, with no worker any more: first to be carved here. */
-function hurryLocal(job: PieceJob): void {
-  const key = resultKey(job);
-  const q = arches.localQueue;
-  const at = q.findIndex((j) => resultKey(j) === key);
-  if (at !== 0) q.unshift(at > 0 ? q.splice(at, 1)[0] : job);
-  arches.pending.add(key);
-  carveSoon();
+/**
+ * Drawn while a piece is carved: its lowest arches if those are ready, else its plain body; standing on wooden
+ * scaffolding where it's lifted higher than that reaches.
+ */
+function standIn(type: PieceTypeId, levels: number, def: PieceDef): BufferGeometry {
+  const side = def === getPieceDef(type, false) ? "n" : "f";
+  const lowest = geometryCache.get(`${type}:${side}:${baseLevels(type)}`);
+  const plainKey = `${type}:${side}`;
+  let plain = standIns.get(plainKey);
+  if (!lowest && !plain) standIns.set(plainKey, (plain = buildPieceStandIn(def)));
+  const shown = lowest ?? plain!;
+  if (levels <= baseLevels(type)) return shown;
+  // Scaffolding from the ground up to where what's shown stops (the lowest arches' feet, or the deck).
+  const key = `${type}:${side}:${levels}:${lowest ? "arches" : "plain"}`;
+  let g = standIns.get(key);
+  if (!g) standIns.set(key, (g = onScaffolding(shown, def, -levels * RISER_HEIGHT, lowest ? -baseLevels(type) * RISER_HEIGHT : 0)));
+  return g;
+}
+
+/** `shown` with scaffolding under it, from `bottom` to `top`, in the darker wood. */
+function onScaffolding(shown: BufferGeometry, def: PieceDef, bottom: number, top: number): BufferGeometry {
+  const built = buildScaffold(def, bottom, top);
+  if (!built) return shown;
+  const scaffold = shown.index ? built : built.toNonIndexed();
+  const merged = mergeGeometries([shown, scaffold]);
+  if (!merged) return shown;
+  merged.clearGroups();
+  for (const gr of shown.groups) merged.addGroup(gr.start, gr.count, gr.materialIndex);
+  const count = (g: BufferGeometry) => (g.index ? g.index.count : g.attributes.position.count);
+  merged.addGroup(count(shown), count(scaffold), SLOT_CUT);
+  merged.computeBoundingBox();
+  merged.computeBoundingSphere();
+  return merged;
 }
 
 /** A piece's geometry; `levels` is how many riser heights a bridge's arches reach below its deck. */
@@ -171,20 +234,18 @@ export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0): 
   const plain = def === getPieceDef(type, false);
   const key = `${type}:${plain ? "n" : "f"}:${levels}`;
   let g = geometryCache.get(key);
-  if (!g && !arches.broken && levels > baseLevels(type) && canStandOnArches(type)) {
-    // Taller arches not carved yet: the worker does them (this one next) while the piece shows its lowest. (A mirrored
-    // piece is made here from the plain one once that's come.)
-    const job: PieceJob = !plain && flipSwapsEnds(type) ? { type, levels, flipped: true } : { type, levels };
+  if (!g && carving.started && !carving.broken && carvedInBackground(type)) {
+    // Not carved yet: next in line, and a stand-in meanwhile. (A mirrored piece is made here once the plain one's in.)
+    const job = jobFor(type, flipped, levels);
     if (!geometryCache.has(resultKey(job))) {
-      if (arches.local) hurryLocal(job);
-      else hurryArches(job);
-      return pieceGeometry(type, flipped, baseLevels(type));
+      hurry(job);
+      return standIn(type, levels, def);
     }
   }
   if (!g) {
     // A mirrored piece is its plain shape reflected across its centre line: no need to carve it again.
     // A piece whose flip swaps its ends' peg and hole is carved as it is.
-    g = def === getPieceDef(type, false) || flipSwapsEnds(type) ? compactPiece(buildPieceGeometry(def, levels)) : mirrored(pieceGeometry(type, false, levels));
+    g = plain || flipSwapsEnds(type) ? compactPiece(buildPieceGeometry(def, levels)) : mirrored(pieceGeometry(type, false, levels));
     geometryCache.set(key, g);
   }
   return g;
@@ -420,8 +481,8 @@ export class TrackView {
     this.syncOutline();
   }
 
-  /** Arches have come from the worker: pieces showing a stand-in take theirs (no rebuild of the rest). */
-  archesBuilt(): void {
+  /** Pieces carved in the background: those showing a stand-in take theirs (no rebuild of the rest). */
+  piecesBuilt(): void {
     for (const [key, { mesh }] of this.meshes) {
       const [type, flipped, levels] = key.split("|") as [PieceTypeId, string, string];
       const g = pieceGeometry(type, flipped === "1", Number(levels));
@@ -683,87 +744,62 @@ export class TrackView {
    * Build every piece type's geometry in background workers, several at once (call during loading, before
    * `prebuild`, which then finds them ready). Resolves when all are in, or straight away where workers can't run.
    */
-  static async prebuildInWorkers(types: readonly PieceTypeId[], onProgress?: (done: number, total: number) => void): Promise<void> {
-    if (typeof Worker === "undefined") return;
-    const results: PieceResult[] = [];
-    const take = (r: PieceResult) => {
-      takeResult(r);
-      results.push(r);
-    };
-    // Saved from an earlier visit to this same build: nothing to carve.
-    for (const r of (await loadCached<PieceResult[]>("pieces", __BUILD_ID__)) ?? []) take(r);
-    const jobs: PieceJob[] = types.filter((t) => !geometryCache.has(`${t}:n:${isBridge(t) ? 1 : 0}`)).map((t) => ({ type: t, levels: isBridge(t) ? 1 : 0 }));
-    if (jobs.length === 0) return;
-    const total = jobs.length;
-    let done = 0;
-    onProgress?.(0, total);
-    // Largest first, so the slow ones don't finish last on their own.
-    const cost = (t: PieceTypeId) => getPieceDef(t, false).paths.reduce((n, p) => n + pathLength(p.geom), 0) * getPieceDef(t, false).paths.length;
-    jobs.sort((a, b) => cost(b.type) - cost(a.type));
-    const count = Math.max(1, Math.min(jobs.length, (navigator.hardwareConcurrency || 4) - 1, 6));
-    // A worker that fails, or goes silent, leaves its pieces to be built on the main thread (`prebuild`): loading
-    // never waits on it for ever.
-    const run = (worker: Worker) =>
-      drainQueue<PieceJob, PieceResult>(worker, jobs, (r) => {
-        take(r);
-        onProgress?.(++done, total);
-      }, WORKER_PATIENCE_MS);
-    try {
-      await Promise.all(Array.from({ length: count }, () => run(new Worker(new URL("./piece-worker.ts", import.meta.url), { type: "module" }))));
-    } catch {
-      // No module workers here: `prebuild` does it all.
-      return;
+  /**
+   * Start carving every kind of piece in background workers, largest first, then the taller arches; pieces saved
+   * from an earlier visit to this build aren't carved again. Resolves once they're under way: `whenBuilt` waits for
+   * (and hurries) the ones wanted now.
+   */
+  static async carveInBackground(types: readonly PieceTypeId[]): Promise<void> {
+    for (const [store, list] of [["pieces", carving.pieces], ["arches", carving.arches]] as const) {
+      for (const r of (await loadCached<PieceResult[]>(store, __BUILD_ID__)) ?? []) {
+        if (!geometryCache.has(resultKey(r))) geometryCache.set(resultKey(r), geometryOf(r));
+        list.push(r);
+      }
     }
-    // Keep them for next time (in the background: the game needn't wait for the save).
-    if (results.length === types.length) void saveCached("pieces", __BUILD_ID__, results);
+    // No workers: pieces are carved when first wanted (as before).
+    if (carving.broken) return;
+    const kinds = types.filter(carvedInBackground);
+    const cost = (t: PieceTypeId) => getPieceDef(t, false).paths.reduce((n, p) => n + pathLength(p.geom), 0) * getPieceDef(t, false).paths.length;
+    const jobs: PieceJob[] = kinds.map((t) => ({ type: t, levels: baseLevels(t) })).sort((a, b) => cost(b.type) - cost(a.type));
+    for (const t of kinds) {
+      if (!canStandOnArches(t)) continue;
+      for (let levels = baseLevels(t) + 1; levels <= MAX_BRIDGE_LEVELS; levels++) {
+        jobs.push({ type: t, levels });
+        // Mirrored pieces are cheap to make from the plain one; a flip that swaps the ends is carved afresh.
+        if (flipSwapsEnds(t)) jobs.push({ type: t, levels, flipped: true });
+      }
+    }
+    carving.queue.push(...jobs.filter((j) => !geometryCache.has(resultKey(j))));
+    carving.started = true;
+    startWorkers(Math.max(1, Math.min((navigator.hardwareConcurrency || 4) - 1, 6)));
   }
 
-  /** Warm the CSG geometry cache for every piece type (call during loading). */
+  /** Resolves once this kind of piece is carved (not a stand-in): for pictures of it. */
+  static whenBuilt(type: PieceTypeId): Promise<void> {
+    const job = { type, levels: baseLevels(type) };
+    if (geometryCache.has(resultKey(job)) || !carving.started || carving.broken || !carvedInBackground(type)) return Promise.resolve();
+    return new Promise((resolve) => hurry(job, resolve));
+  }
+
+  /** Make sure these kinds of piece (both ways round) are ready, or waiting for their turn with a stand-in shown. */
   static prebuild(types: readonly PieceTypeId[]): void {
     for (const t of types) {
-      const levels = isBridge(t) ? 1 : 0;
+      const levels = baseLevels(t);
       pieceGeometry(t, false, levels);
       pieceGeometry(t, true, levels);
     }
   }
-
-  /**
-   * Build the taller bridges' (and raised ramps') arches after loading, so lifting a bridge higher never stalls: in one
-   * background worker (the carving would otherwise keep the main thread busy for seconds after start-up), kept for the
-   * next visit to this build. Where workers can't run, they're built when first wanted.
-   */
-  static async warmBridges(types: readonly PieceTypeId[]): Promise<void> {
-    if (arches.broken) return;
-    for (const r of (await loadCached<PieceResult[]>("arches", __BUILD_ID__)) ?? []) {
-      if (!geometryCache.has(resultKey(r))) takeResult(r);
-      arches.results.push(r);
-    }
-    const queued = new Set(arches.queue.map(resultKey));
-    const want = (job: PieceJob) => {
-      if (!geometryCache.has(resultKey(job)) && !queued.has(resultKey(job))) arches.queue.push(job);
-    };
-    for (const t of types) {
-      if (!canStandOnArches(t)) continue;
-      for (let levels = baseLevels(t) + 1; levels <= MAX_BRIDGE_LEVELS; levels++) {
-        want({ type: t, levels });
-        // Mirrored pieces are cheap to make from the plain one; a flip that swaps the ends is carved afresh.
-        if (flipSwapsEnds(t)) want({ type: t, levels, flipped: true });
-      }
-    }
-    runArches();
-  }
-
 }
 
-/** A piece's geometry built in a worker (or saved from an earlier visit), into the cache. */
-function takeResult(r: PieceResult): void {
+/** A piece's geometry built in a worker (or saved from an earlier visit). */
+function geometryOf(r: PieceResult): BufferGeometry {
   const g = new BufferGeometry();
   for (const a of r.attributes) g.setAttribute(a.name, new BufferAttribute(a.array, a.itemSize));
   if (r.index) g.setIndex(new BufferAttribute(r.index, 1));
   for (const gr of r.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
   g.computeBoundingBox();
   g.computeBoundingSphere();
-  geometryCache.set(resultKey(r), g);
+  return g;
 }
 
 const resultKey = (r: PieceJob): string => `${r.type}:${r.flipped ? "f" : "n"}:${r.levels}`;

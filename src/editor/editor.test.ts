@@ -23,16 +23,14 @@ describe("Editor", () => {
     expect(changes()).toBe(3);
   });
 
-  it("joins two track ends whose holes meet with a dog-bone joiner, in the same undo step; trains run across it", () => {
+  it("joins two track ends whose holes meet directly (any two ends join), in one undo step; trains run across", () => {
     const { layout, sim, editor } = setup();
     // Two straights end to end, their socket ends (holes) meeting at x = 0.
     const a = editor.place("straight-144", { x: 0, z: 0, heading: 0 }, 0, false);
     const b = editor.place("straight-144", { x: 0, z: 0, heading: Math.PI }, 0, false);
-    const joiners = () => [...layout.pieceIds()].filter((i) => layout.getPiece(i)!.type === "joiner");
-    expect(joiners()).toHaveLength(1);
-    const j = joiners()[0];
-    expect(new Set([layout.joinedConnector(connectorRef(j, 0)), layout.joinedConnector(connectorRef(j, 1))])).toEqual(new Set([connectorRef(a, 0), connectorRef(b, 0)]));
-    // A train set off along b runs through the joiner onto a.
+    expect([...layout.pieceIds()].filter((i) => layout.getPiece(i)!.type === "joiner")).toHaveLength(0);
+    expect(layout.joinedConnector(connectorRef(a, 0))).toBe(connectorRef(b, 0));
+    // A train set off along b runs across the hole-to-hole joint onto a.
     const placed = sim.addTrain(["engine"], { pieceId: b, pathIndex: 0, s: 120, reversed: true });
     expect(placed.kind).toBe("placed");
     if (placed.kind === "placed") {
@@ -41,10 +39,42 @@ describe("Editor", () => {
       expect(sim.getTrain(placed.trainId)!.bogies[0].pieceId).toBe(a);
     }
     editor.undo();
-    expect(joiners()).toHaveLength(0);
     expect(layout.getPiece(b)).toBeUndefined();
+    expect(layout.joinedConnector(connectorRef(a, 0))).toBe(-1);
     editor.redo();
-    expect(joiners()).toHaveLength(1);
+    expect(layout.jointCount).toBe(1);
+  });
+
+  it("an old map's dog-bone joiner between two holes still loads joined, and trains run across", () => {
+    const { layout, sim } = setup();
+    // As a save restores it: the two straights and the joiner that sat between their holes at x = 0.
+    layout.restorePiece(1, "straight-144", { x: 0, z: 0, heading: 0 }, 0, false);
+    layout.restorePiece(2, "joiner", { x: -0.5, z: 0, heading: Math.PI }, 0, false);
+    layout.restorePiece(3, "straight-144", { x: 0, z: 0, heading: Math.PI }, 0, false);
+    expect(layout.joinedConnector(connectorRef(1, 0))).not.toBe(-1);
+    expect(layout.joinedConnector(connectorRef(3, 0))).not.toBe(-1);
+    const placed = sim.addTrain(["engine"], { pieceId: 3, pathIndex: 0, s: 120, reversed: true });
+    expect(placed.kind).toBe("placed");
+    if (placed.kind === "placed") {
+      sim.setLever(sim.getTrain(placed.trainId)!.cars[0].id, 1);
+      for (let i = 0; i < 400; i++) sim.tick();
+      expect(sim.getTrain(placed.trainId)!.bogies[0].pieceId).toBe(1);
+    }
+  });
+
+  it("trains run across a peg-to-peg joint too", () => {
+    const { layout, sim, editor } = setup();
+    // Two straights meeting peg to peg at x = 144.
+    const a = editor.place("straight-144", { x: 0, z: 0, heading: 0 }, 0, false);
+    const b = editor.place("straight-144", { x: 288, z: 0, heading: Math.PI }, 0, false);
+    expect(layout.joinedConnector(connectorRef(a, 1))).toBe(connectorRef(b, 1));
+    const placed = sim.addTrain(["engine"], { pieceId: a, pathIndex: 0, s: 130, reversed: false });
+    expect(placed.kind).toBe("placed");
+    if (placed.kind === "placed") {
+      sim.setLever(sim.getTrain(placed.trainId)!.cars[0].id, 1);
+      for (let i = 0; i < 400; i++) sim.tick();
+      expect(sim.getTrain(placed.trainId)!.bogies[0].pieceId).toBe(b);
+    }
   });
 
   it("places a piece with the risers under it as one step", () => {

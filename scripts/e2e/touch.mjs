@@ -101,6 +101,86 @@ async function mapTaps(p) {
 }
 
 /**
+ * Panning over the map never moves things by accident: a one-finger drag that starts on a piece (or a train) that isn't
+ * selected pans the view and leaves it be; tap it first (selected), and then a drag moves it.
+ */
+async function selectThenDrag(ctx, p) {
+  const cdp = await ctx.newCDPSession(p);
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  /**
+   * A one-finger drag from (x, y), `dx` px across, in small steps; then the scene is let settle. Returns what the
+   * interaction was doing halfway (a drag of a piece or train, or "idle": the camera has the gesture).
+   */
+  const drag = async (x, y, dx) => {
+    await touch("touchStart", x, y);
+    let mid = "";
+    for (let k = 1; k <= 12; k++) {
+      await touch("touchMove", x + (dx * k) / 12, y);
+      if (k === 6) mid = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+    }
+    await touch("touchEnd", 0, 0);
+    await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+    return mid;
+  };
+  await p.keyboard.press("Escape");
+  // A long straight across the middle of the screen.
+  const id = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { poseForCentre } = await import("/src/editor/editor.ts");
+    const g = w.interaction.groundAt(195, 360);
+    return w.editor().place("straight-216", poseForCentre("straight-216", false, g.x, g.z, 0), 0, false);
+  });
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  const where = () =>
+    p.evaluate((id) => {
+      const w = window.woodrail;
+      const piece = w.layout.getPiece(id);
+      const t = w.controls.target;
+      return { piece: piece ? [Math.round(piece.pose.x), Math.round(piece.pose.z)] : null, view: [Math.round(t.x), Math.round(t.z)] };
+    }, id);
+  const onScreen = () =>
+    p.evaluate((id) => {
+      const w = window.woodrail;
+      const piece = w.layout.getPiece(id);
+      const { x, z } = piece.pose;
+      const c = new w.camera.position.constructor(x + Math.cos(piece.pose.heading) * 108, piece.y, z + Math.sin(piece.pose.heading) * 108).project(w.camera);
+      const r = w.canvas.getBoundingClientRect();
+      return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
+    }, id);
+  // 1. Not selected: the drag pans, the piece stays.
+  const a0 = await where();
+  let [sx, sy] = await onScreen();
+  const aMid = await drag(sx, sy, -120);
+  const a1 = await where();
+  check("a drag that starts on an unselected piece pans the view", aMid === "idle" && (a1.view[0] !== a0.view[0] || a1.view[1] !== a0.view[1]), `mid-drag ${aMid}, view ${a0.view} → ${a1.view}`);
+  check("…and leaves the piece where it was", JSON.stringify(a1.piece) === JSON.stringify(a0.piece), `piece ${a0.piece} → ${a1.piece}`);
+  // 2. Tapped (selected), then dragged: it moves.
+  [sx, sy] = await onScreen();
+  await p.touchscreen.tap(sx, sy);
+  await p.waitForFunction(() => !document.querySelector(".piece-card").hidden, null, { timeout: 60000 });
+  // (A short drag along the piece's own line, so it lands where it can go.)
+  const bMid = await drag(sx, sy, -40);
+  check("tap a piece to select it, then a drag picks it up and moves it", bMid === "drag-piece", `mid-drag ${bMid}`);
+  await p.keyboard.press("Escape");
+  // 3. A train, not selected: the drag pans, the train stays.
+  const placed = await p.evaluate(async (id) => {
+    const w = window.woodrail;
+    const { nearestCursor } = await import("/src/sim/nearest.ts");
+    const piece = w.layout.getPiece(id);
+    const near = nearestCursor(w.layout, piece.pose.x + Math.cos(piece.pose.heading) * 108, piece.pose.z + Math.sin(piece.pose.heading) * 108, 60, piece.pose.heading);
+    const r = near && w.sim.addTrainAround(["engine"], near.cursor);
+    w.invalidate();
+    return r?.kind === "placed";
+  }, id);
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  const trains = () => p.evaluate(() => JSON.stringify(window.woodrail.sim.trainIds().map((t) => window.woodrail.sim.getTrain(t).cars.map((c) => c.id))));
+  const t0 = await trains();
+  [sx, sy] = await onScreen();
+  const vMid = await drag(sx, sy, 120);
+  check("a drag that starts on an unselected engine pans (the camera has it) and leaves the train", placed && vMid === "idle" && (await trains()) === t0, `placed ${placed}, mid-drag ${vMid}`);
+}
+
+/**
  * A control drawn afresh while the finger is down (the workshop's + and −, redrawn as it crafts): the tap's click on
  * the new one counts. A different control drawn there instead: it doesn't.
  */
@@ -189,6 +269,7 @@ async function runMode(mode) {
   }
   if (mode === "sandbox") {
     await mapTaps(p);
+    await selectThenDrag(ctx, p);
     await redrawnControl(ctx, p);
   }
   await ctx.close();

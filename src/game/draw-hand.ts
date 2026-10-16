@@ -239,14 +239,14 @@ export class DrawHand {
     return { type: fit.type, flipped: fit.flipped, pose: fit.pose, y: e.y, entry: seated, exit, length: fit.length, end: { x: w.x, z: w.z, heading: w.heading, y: e.y, kind: def.connectors[exit].kind } };
   }
 
-  /** Does the line end seated on a free end of other track here? */
+  /** Does the line end seated on a free end of other track here (any kind: any two ends join)? */
   private closes(e: DrawEnd): boolean {
     const near: number[] = [];
     const w = createWorldConnector();
     const n = this.game.layout.queryFreeConnectors(e.x, e.z, JOINT_POS_TOLERANCE, near);
     for (let i = 0; i < n; i++) {
       this.game.layout.worldConnector(near[i], w);
-      if (w.kind === e.kind || Math.abs(w.y - e.y) > 2) continue;
+      if (Math.abs(w.y - e.y) > 2) continue;
       if (Math.hypot(w.x - e.x, w.z - e.z) > JOINT_POS_TOLERANCE) continue;
       if (Math.abs(normalizeAngle(w.heading - e.heading - Math.PI)) <= JOINT_ANGLE_TOLERANCE) return true;
     }
