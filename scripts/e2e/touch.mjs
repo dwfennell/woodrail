@@ -69,7 +69,8 @@ async function mapTaps(p) {
   check("…and its card is open", await visible(".piece-card"));
   await p.keyboard.press("Escape");
 
-  // 2. An engine: where does its card put Remove? Then an engine right there, tapped.
+  // 2. An engine: where does its card put Go (the button a stray click would press: it'd start the engine)? Then an
+  // engine right there, tapped.
   const addEngineAt = (sx, sy) =>
     p.evaluate(async ([sx, sy]) => {
       const w = window.woodrail;
@@ -84,16 +85,16 @@ async function mapTaps(p) {
   await settle();
   await tapped(p, () => p.touchscreen.tap(195, 300));
   await p.waitForFunction(() => !document.querySelector(".engine-card").hidden, null, { timeout: 60000 });
-  const [rx, ry] = await rectOf(".engine-card .danger");
+  const [rx, ry] = await rectOf(".engine-card .go");
   await p.keyboard.press("Escape");
   await placeAt(rx, ry);
-  check("a second engine goes under where Remove opens", (await addEngineAt(rx, ry)) === "placed");
+  check("a second engine goes under where Go opens", (await addEngineAt(rx, ry)) === "placed");
   await settle();
   const trains = () => p.evaluate(() => window.woodrail.sim.trainIds().map((id) => window.woodrail.sim.getTrain(id).cars.map((c) => c.lever).join("")).join("|"));
   const t0 = await trains();
   await tapped(p, () => p.touchscreen.tap(rx, ry));
   const t1 = await trains();
-  check("a tap on an engine where its card's Remove opens neither removes nor starts it", t1 === t0, `${t0} → ${t1}`);
+  check("a tap on an engine where its card's Go opens neither starts nor removes it", t1 === t0, `${t0} → ${t1}`);
   check("…and its card is open", await visible(".engine-card"));
 }
 
