@@ -807,9 +807,10 @@ export class Sim {
           ends = true;
           const closing = a.speed + (front ? b.speed : -b.speed);
           if (closing <= 0) continue;
-          if (front) {
-            // Head on: like the end of the line, each stops, waits, and turns back (coupled, their engines would
-            // only push against each other).
+          if (front && hasEngine(a) && hasEngine(b)) {
+            // Head on, engine against engine: like the end of the line, each stops, waits, and turns back (coupled,
+            // their engines would only push against each other). Wagons met end to end are coupled on (below), so an
+            // engine backing into the wagons it left picks them up again.
             this.meet(a);
             if (b.speed > 0) this.meet(b);
             continue;

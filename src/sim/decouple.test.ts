@@ -108,6 +108,22 @@ describe("decouple", () => {
     expect(sim.getTrain(sim.trainIds()[0])!.cars.length).toBe(3);
   });
 
+  it("an engine uncoupled at the front backs into its wagons and picks them up again (wagons met end to end couple on)", () => {
+    const { layout, ids } = line();
+    const sim = new Sim(layout);
+    const t = trainOn(sim, ids[4], 100, ["engine", "hopper", "timber"]);
+    const engine = t.cars[0].id;
+    const r = sim.decouple(engine);
+    expect(r.kind).toBe("decoupled");
+    // Pull away a little, then back up.
+    sim.setLever(engine, 1);
+    for (let k = 0; k < 0.5 / SIM_DT; k++) sim.tick();
+    sim.setLever(engine, -1);
+    for (let k = 0; k < 4 / SIM_DT && sim.trainCount > 1; k++) sim.tick();
+    expect(sim.trainCount).toBe(1);
+    expect(sim.findCar(engine)!.train.cars.length).toBe(3);
+  });
+
   it("saves keep both halves, their cars and positions", () => {
     const world = buildStarterWorld();
     const [a] = world.landscape.towns;
