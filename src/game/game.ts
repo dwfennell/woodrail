@@ -25,7 +25,7 @@ import { ResolutionGovernor } from "../render/resolution";
 import { detectQuality, type QualitySettings } from "../render/quality";
 import { createStage, type Stage } from "../render/stage";
 import { shadowRadiusForView, shouldRefit } from "../render/shadow-fit";
-import { TrackView } from "../render/track-view";
+import { onArchesBuilt, TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
 import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
@@ -191,6 +191,11 @@ export class Game {
     // Join pieces (dozens of S-bend sizes) are built when first used.
     TrackView.prebuild(PIECE_TYPES.filter((t) => !isJoin(t)));
     void TrackView.warmBridges(PIECE_TYPES);
+    // A bridge lifted higher than any built yet shows lower arches for a moment: its own swap in when they come.
+    onArchesBuilt(() => {
+      this.trackView.archesBuilt();
+      this.invalidate();
+    });
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
     this.scene.add(this.landscapeView.group);
     syncCuttings(this.landscape, this.layout);
