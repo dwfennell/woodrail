@@ -20,7 +20,8 @@ describe("buildPieceGeometry", () => {
       const covered = g.groups.reduce((n, gr) => n + Math.min(gr.count, count - gr.start), 0);
       expect(covered, type).toBe(count);
     }
-  });
+    // It builds each piece's real geometry (about 2 s alone): room for a full run on a loaded machine.
+  }, 20_000);
 
   it("a bridge's arches reach from its deck down as many levels as asked, curved ones along the curve", () => {
     for (const type of ["bridge", "bridge-curve"] as const) {
