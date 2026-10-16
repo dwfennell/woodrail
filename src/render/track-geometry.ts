@@ -424,7 +424,6 @@ function slotGroups(result: Brush): BufferGeometry {
   return g;
 }
 
-/** Geometry for a piece type in piece-local space (plan x/z → world x/z, y up, track base at y = 0). */
 /**
  * A carved piece with its corners shared: the carving leaves every triangle its own three corners (about twice the
  * corners it needs). Joining the identical ones keeps its look (and material groups) and halves its memory, on the
@@ -437,6 +436,21 @@ export function compactPiece(g: BufferGeometry): BufferGeometry {
 }
 
 /** `levels`: for a bridge, how many riser heights its arches reach down below the deck. */
+/**
+ * A piece's plain body, uncarved (no grooves, pegs or holes; a ramp or bridge without its supports): drawn for a moment
+ * while the real one is carved in the background. A few milliseconds, where carving takes tens to hundreds.
+ */
+export function buildPieceStandIn(def: PieceDef): BufferGeometry {
+  if (def.paths.length === 0) return riserGeometry();
+  const g = def.paths.length === 1 ? sweep(bodyProfile(), framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0)) : flatBlockBody(def);
+  g.clearGroups();
+  g.addGroup(0, g.index ? g.index.count : g.attributes.position.count, SLOT_BODY);
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
+  return g;
+}
+
+/** Geometry for a piece type in piece-local space (plan x/z → world x/z, y up, track base at y = 0). */
 export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
   if (def.paths.length === 0) return riserGeometry();
   if (def.type === "joiner") return joinerGeometry(def);

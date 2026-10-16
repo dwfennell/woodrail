@@ -17,23 +17,24 @@ export const FIRST_JOB_PATIENCE = 3;
  * Its first job gets three times that (it starts up first, and a queue's biggest jobs go first), so a slow phone's
  * worker isn't given up while it's still getting going.
  * Jobs `skip` says are no longer wanted are passed over. A result that can't be read is passed over too.
+ * Resolves true when it emptied the queue, false when the worker was given up (failed or silent).
  */
-export function drainQueue<J, R>(worker: QueueWorker, jobs: J[], take: (result: R) => void, patienceMs: number, skip?: (job: J) => boolean): Promise<void> {
+export function drainQueue<J, R>(worker: QueueWorker, jobs: J[], take: (result: R) => void, patienceMs: number, skip?: (job: J) => boolean): Promise<boolean> {
   return new Promise((resolve) => {
     let patience: ReturnType<typeof setTimeout> | undefined;
     let first = true;
-    const stop = () => {
+    const stop = (finished: boolean) => {
       clearTimeout(patience);
       worker.onmessage = worker.onmessageerror = worker.onerror = null;
       worker.terminate();
-      resolve();
+      resolve(finished);
     };
     const next = () => {
       clearTimeout(patience);
       let job = jobs.shift();
       while (job !== undefined && skip?.(job)) job = jobs.shift();
-      if (job === undefined) return stop();
-      patience = setTimeout(stop, first ? patienceMs * FIRST_JOB_PATIENCE : patienceMs);
+      if (job === undefined) return stop(true);
+      patience = setTimeout(() => stop(false), first ? patienceMs * FIRST_JOB_PATIENCE : patienceMs);
       first = false;
       worker.postMessage(job);
     };
@@ -42,7 +43,7 @@ export function drainQueue<J, R>(worker: QueueWorker, jobs: J[], take: (result: 
       next();
     };
     worker.onmessageerror = next;
-    worker.onerror = stop;
+    worker.onerror = () => stop(false);
     next();
   });
 }
