@@ -10,11 +10,26 @@ mkdirSync(OUT, { recursive: true });
 // Any free port (other dev servers may be running).
 const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
 await server.listen();
+// Have the dev server find and pre-bundle the game's dependencies now, so it doesn't reload the page mid-test.
+await server.warmupRequest("/src/main.ts");
 const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const T0 = Date.now();
 const step = (name) => console.log(`...   ${((Date.now() - T0) / 1000).toFixed(0)}s  ${name}`);
 const results = [];
+/** A screenshot for looking at afterwards: never fails the run (under load one can wait a long time on fonts). */
+const shot = async (page, path) => {
+  try {
+    await page.screenshot({ path, timeout: 60000 });
+  } catch (e) {
+    console.log(`(no screenshot ${path}: ${String(e?.message ?? e).split("\n")[0]})`);
+  }
+};
+/** Click by selector without Playwright's wait for the page to be "stable" (the game's view is never still while it animates). */
+const tapSel = async (page, sel) => {
+  await page.waitForSelector(sel, { state: "attached", timeout: 120000 });
+  await page.evaluate((sel) => document.querySelector(sel).click(), sel);
+};
 /** The scene has been still a few ticks (the game's own hook), within a generous cap: no fixed waits. */
 const settled = (page) =>
   page.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((_, no) => setTimeout(() => no(new Error("never settled")), 120000))]));
@@ -29,7 +44,17 @@ const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 
 /** Load the game and start playing (condition waits: software rendering under load can be slow). */
-const boot = async (page) => {
+const boot = async (page, tries = 3) => {
+  // (A start that stalls, or a page the dev server reloads while starting: start again.)
+  try {
+    await bootOnce(page);
+  } catch (e) {
+    if (tries <= 1) throw e;
+    console.log(`(boot again: ${String(e?.message ?? e).split("\n")[0]})`);
+    await boot(page, tries - 1);
+  }
+};
+const bootOnce = async (page) => {
   await page.goto(URL);
   await page.waitForFunction(() => !!window.woodrail && [...document.querySelectorAll("button")].some((b) => /let.s play/i.test(b.textContent ?? "")), null, { timeout: 180000 });
   await page.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
@@ -63,24 +88,24 @@ await p.evaluate(() => {
 // Favourites: first on the Track tab, a ★ on a shelf's piece adds it, and it's remembered.
 {
   await p.evaluate(() => localStorage.removeItem("woodrail.favourites"));
-  await p.click(".tabs [data-tab=track]");
+  await tapSel(p, ".tabs [data-tab=track]");
   const favs = await p.$$eval(".scroller > .tray-item:not(.tray-group)", (bs) => bs.map((b) => b.querySelector(".label")?.textContent));
   check("the Track tab shows favourites before its shelves", favs.length === 5, favs.join(", "));
-  await p.screenshot({ path: `${OUT}/fav-0-row.png` });
-  await p.click(".scroller .tray-group:has-text('Curve')");
-  await p.click(".scroller .tray-item:has-text('Wide curve') .fav");
-  await p.click(".tabs [data-tab=track]");
+  await shot(p, `${OUT}/fav-0-row.png`);
+  await p.click(".scroller .tray-group:has-text('Curve')", { timeout: 120000, force: true });
+  await p.click(".scroller .tray-item:has-text('Wide curve') .fav", { timeout: 120000, force: true });
+  await tapSel(p, ".tabs [data-tab=track]");
   const after = await p.$$eval(".scroller > .tray-item:not(.tray-group)", (bs) => bs.map((b) => b.querySelector(".label")?.textContent));
   const saved = await p.evaluate(() => localStorage.getItem("woodrail.favourites") ?? "");
   check("★ on a shelf's piece adds it to the favourites, and it's saved", after.at(-1) === "Wide curve" && saved.includes("curve-wide"), after.join(", "));
-  await p.click(".scroller > .tray-item:has-text('Wide curve') .fav");
+  await p.click(".scroller > .tray-item:has-text('Wide curve') .fav", { timeout: 120000, force: true });
   const removed = await p.$$eval(".scroller > .tray-item:not(.tray-group)", (bs) => bs.length);
   check("★ again on the favourites row takes it off", removed === 5, `${removed}`);
 }
 
 // A drag up on a shelf (not opened) takes out its first piece: the first thing a new player tries.
 {
-  await p.click(".tabs [data-tab=track]");
+  await tapSel(p, ".tabs [data-tab=track]");
   const shelf = await p.$(".scroller .tray-group:has-text('Curve')");
   const box = await shelf.boundingBox();
   await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -135,7 +160,7 @@ const focus = async (x, z, r = 320, page = p) => {
   await page.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
 };
 /** Drag the mouse through world points (x, z) on the ground, a few px a step. */
-const drawThrough = async (pts, { shotAt = -1, shot = "", stepPx = 14 } = {}) => {
+const drawThrough = async (pts, { shotAt = -1, shotName = "", stepPx = 14 } = {}) => {
   const screen = await p.evaluate((pts) => pts.map(([x, z]) => D.screen(x, 0, z)), pts);
   await p.mouse.move(screen[0][0], screen[0][1]);
   await p.mouse.down();
@@ -144,11 +169,14 @@ const drawThrough = async (pts, { shotAt = -1, shot = "", stepPx = 14 } = {}) =>
     const [bx, by] = screen[i];
     const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / stepPx));
     for (let k = 1; k <= n; k++) await p.mouse.move(ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
-    if (i === shotAt) await p.screenshot({ path: `${OUT}/${shot}` });
+    if (i === shotAt) await shot(p, `${OUT}/${shotName}`);
   }
+  // The ghosts showing just before the finger lifts: what goes down must be exactly these.
+  const shown = await p.evaluate(() => window.woodrail.interaction.draw.line?.pieces.length ?? 0);
   await p.mouse.up();
   // The line's pieces have settled (their flourishes done).
   await settled(p);
+  return shown;
 };
 
 if (site) {
@@ -160,7 +188,7 @@ if (site) {
   const lz = fx;
   await focus(x + fx * 250, z + fz * 250);
   // Switch drawing on with the chip.
-  await p.click(".tray-draw");
+  await tapSel(p, ".tray-draw");
   const on = await p.evaluate(() => window.woodrail.interaction.isDrawing);
   check("the Draw chip switches drawing on", on);
 
@@ -169,8 +197,8 @@ if (site) {
   step("1");
   const before = await p.evaluate(() => [D.pieces(), D.joints()]);
   const line = [0, 100, 200, 300, 400].map((d) => [x + fx * d, z + fz * d]);
-  await drawThrough(line, { shotAt: 3, shot: "draw-1-midway.png" });
-  await p.screenshot({ path: `${OUT}/draw-1-laid.png` });
+  await drawThrough(line, { shotAt: 3, shotName: "draw-1-midway.png" });
+  await shot(p, `${OUT}/draw-1-laid.png`);
   const after = await p.evaluate(() => [D.pieces(), D.joints()]);
   const added = after[0] - before[0];
   check("a straight stroke from a free end lays track", added >= 2, `${added} pieces`);
@@ -202,8 +230,8 @@ if (site) {
     }
     const n0 = await p.evaluate(() => D.pieces());
     await focus(x + fx * 250 + tx * 120, z + fz * 250 + tz * 120, 380);
-    await drawThrough(turn, { shotAt: turn.length - 2, shot: "draw-2-turn-midway.png" });
-    await p.screenshot({ path: `${OUT}/draw-2-turn.png` });
+    await drawThrough(turn, { shotAt: turn.length - 2, shotName: "draw-2-turn-midway.png" });
+    await shot(p, `${OUT}/draw-2-turn.png`);
     types = await p.evaluate((n0) => [...window.woodrail.layout.pieceIds()].slice(n0).map((id) => window.woodrail.layout.getPiece(id).type), n0);
     curves = types.filter((t) => t.startsWith("curve")).length;
     said = await p.evaluate(() => D.toasts());
@@ -223,12 +251,14 @@ if (site) {
   // The same with dense points (a finger's), stopping a little short of the start (the unit tests cover the other
   // stopping points: each mouse move is slow in software rendering).
   await focus(x + fx * 300, z + fz * 300, 700);
-  // QA's cases: back to 40 mm short of the start, 5 mm to one side; and lifted halfway back, 8 mm to one side.
+  // QA's cases: back to 40 mm short of the start, 5 mm to one side; and lifted halfway back, 8 mm to one side. Either
+  // way, what's laid is exactly the ghosts showing before the lift.
   for (const [stop, side] of [[40, 5], [200, 8]]) {
     const dense = [...[0, 150, 300, 450, 600].map((d) => [x + fx * d, z + fz * d]), ...[450, 300, 150, stop].map((d) => [x + fx * d + lx * side, z + fz * d + lz * side])];
-    await drawThrough(dense, { stepPx: 4 });
+    const shown = await drawThrough(dense, { stepPx: 4 });
     const n = await p.evaluate(() => D.pieces());
-    check(`dense out and back to ${stop} mm from the start, ${side} mm aside, lays nothing`, n === n0, `${n - n0} pieces`);
+    // Back to 40 mm short, nothing's left; halfway back, the piece before the finger may stay (shown as a ghost).
+    check(`dense out and back to ${stop} mm from the start, ${side} mm aside, lays just the ghosts shown`, n - n0 === shown && (stop > 100 || shown === 0), `${shown} shown, ${n - n0} laid`);
     if (n !== n0) await p.evaluate(() => window.woodrail.interaction.undo());
   }
 
@@ -241,7 +271,7 @@ if (site) {
   await drawThrough([0, 80, 160, 240, 320].map((d) => [gx + fx * d, gz + fz * d]));
   const n2 = await p.evaluate(() => D.pieces());
   check("a stroke on empty ground starts a new line", n2 - n1 >= 1, `${n2 - n1} pieces`);
-  await p.screenshot({ path: `${OUT}/draw-5-ground.png` });
+  await shot(p, `${OUT}/draw-5-ground.png`);
 
   // 6. Esc puts the pencil down; a drag then pans as usual.
 
@@ -304,11 +334,11 @@ if (site) {
     const [bx, by] = pts[i];
     const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
     for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
-    if (i === pts.length - 3) await q.screenshot({ path: `${OUT}/draw-7-phone-drawing.png` });
+    if (i === pts.length - 3) await shot(q, `${OUT}/draw-7-phone-drawing.png`);
   }
   await touch("touchEnd", 0, 0);
   await settled(q);
-  await q.screenshot({ path: `${OUT}/draw-7-phone-laid.png` });
+  await shot(q, `${OUT}/draw-7-phone-laid.png`);
   const added = await q.evaluate((n0) => {
     const w = window.woodrail;
     return [...w.layout.pieceIds()].slice(n0).map((id) => w.layout.getPiece(id).type);
