@@ -292,17 +292,18 @@ export class Sim {
     const found = this.findCar(engineCarId);
     if (!found || found.train.derailed) return "none";
     const t = found.train;
-    if (t.speed > 0) return "moving";
     const n = t.cars.length;
     const i = found.index;
     const engine = t.cars[i];
     const atFront = i === 0;
     const atRear = i === n - 1;
     if (n === 1 || !(atFront || atRear) || t.cars[atFront ? n - 1 : 0].kind === "engine") {
-      // Nothing to run round: turn it, and the train goes the other way (led by its other engine, if it has one).
+      // Nothing to run round: turn it (moving or not, as ever), and the train goes the other way (led by its other
+      // engine, if it has one).
       this.flipCar(engineCarId);
       return "turned";
     }
+    if (t.speed > 0) return "moving";
     const cars = atFront ? [...t.cars.slice(1), engine] : [engine, ...t.cars.slice(0, n - 1)];
     const offsets = bogieOffsets(cars.map((c) => c.kind));
     // The new front axle: the first wagon's (staying put) when the engine goes to the back; ahead of it by the

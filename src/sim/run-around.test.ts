@@ -71,6 +71,16 @@ describe("swap ends: the engine runs round its train", () => {
     expect(sim.runAround(t.cars[0].id)).toBe("moving");
   });
 
+  it("an engine on its own turns even while moving (as it always could)", () => {
+    const { layout, ids } = line();
+    const sim = new Sim(layout);
+    const solo = trainOn(sim, ids[2], 150, ["engine"]);
+    sim.setLever(solo.cars[0].id, 1);
+    for (let k = 0; k < 30; k++) sim.tick();
+    expect(sim.getTrain(solo.id)!.speed).toBeGreaterThan(0);
+    expect(sim.runAround(solo.cars[0].id)).toBe("turned");
+  });
+
   it("an engine on its own, or a train with an engine at each end, just turns", () => {
     const { layout, ids } = line();
     const sim = new Sim(layout);
