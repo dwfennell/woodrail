@@ -18,11 +18,11 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { canStandOnArches, connectorRef, flipSwapsEnds, getPieceDef, isBridge, isJoin, pathLength, pieceOfRef, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceDef, type PieceTypeId, type PlacedPiece } from "../track";
+import { canStandOnArches, connectorRef, flipSwapsEnds, getPieceDef, isBridge, indexOfRef, isJoin, pathLength, pieceOfRef, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceDef, type PieceTypeId, type PlacedPiece } from "../track";
 import { MAX_BRIDGE_LEVELS } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
-import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry, buildPieceStandIn, buildScaffold, compactPiece, SLOT_CUT } from "./track-geometry";
+import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry, buildPieceStandIn, buildPegGeometry, buildScaffold, compactPiece, pegMatrix, SLOT_CUT, withPegs } from "./track-geometry";
 import type { PieceJob, PieceResult } from "./piece-worker";
 import { loadCached, saveCached } from "./piece-cache";
 import { drainQueue } from "./worker-queue";
@@ -34,6 +34,8 @@ export type OutlineTone = keyof typeof OUTLINE_TONES;
 /** Picked pieces' tint (multiplies the wood): golden, green when they'll join track, red when they can't go there. */
 const PICK_TINTS: Record<OutlineTone, string> = { select: "#ffd36b", snap: "#9be38a", blocked: "#ff8f7d" };
 
+/** The one peg shape, shared by every TrackView. */
+let sharedPeg: BufferGeometry | null = null;
 const bufferBlockCache = new Map<string, BufferGeometry | null>();
 /** A piece worker that hasn't answered in this long (ms) is given up, and what it had left is carved here. */
 const WORKER_PATIENCE_MS = 20_000;
@@ -236,11 +238,24 @@ function onScaffolding(shown: BufferGeometry, def: PieceDef, bottom: number, top
   return merged;
 }
 
+/** Lone pieces' geometry with their own pegs on, by the carved geometry (or stand-in) they were made from. */
+const peggedCache = new WeakMap<BufferGeometry, BufferGeometry>();
+
 /**
- * A piece's geometry; `levels` is how many riser heights a bridge's arches reach below its deck, and `floors` how far
- * down each arch's opening reaches where that's less (a bridge over a hill's edge: see `archFloors`).
+ * A lone piece's geometry, as it comes, with a peg in each of its peg ends (a held piece, a piece settling, the tray's
+ * picture); `levels` is how many riser heights a bridge's arches reach below its deck, and `floors` how far down each
+ * arch's opening reaches where that's less (a bridge over a hill's edge: see `archFloors`). Track in a layout is drawn
+ * from `carvedGeometry`, with TrackView putting in the pegs where it's joined.
  */
 export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0, floors: readonly number[] | null = null): BufferGeometry {
+  const carved = carvedGeometry(type, flipped, levels, floors);
+  let g = peggedCache.get(carved);
+  if (!g) peggedCache.set(carved, (g = withPegs(carved, getPieceDef(type, flipped))));
+  return g;
+}
+
+/** A piece's geometry with a hole at every end (or its stand-in while it's carved). */
+function carvedGeometry(type: PieceTypeId, flipped: boolean, levels = 0, floors: readonly number[] | null = null): BufferGeometry {
   const def = getPieceDef(type, flipped);
   const plain = def === getPieceDef(type, false);
   const key = `${type}:${plain ? "n" : "f"}:${levels}${floorsKey(floors)}`;
@@ -251,13 +266,13 @@ export function pieceGeometry(type: PieceTypeId, flipped: boolean, levels = 0, f
     if (!geometryCache.has(resultKey(job))) {
       hurry(job);
       // Arches over a hill's edge: the bridge with its arches all the way down meanwhile (or its own stand-in).
-      return floors ? pieceGeometry(type, flipped, levels) : standIn(type, levels, def);
+      return floors ? carvedGeometry(type, flipped, levels) : standIn(type, levels, def);
     }
   }
   if (!g) {
     // A mirrored piece is its plain shape reflected across its centre line: no need to carve it again.
     // A piece whose flip swaps its ends' peg and hole is carved as it is.
-    g = plain || flipSwapsEnds(type) ? compactPiece(buildPieceGeometry(def, levels, floors)) : mirrored(pieceGeometry(type, false, levels, floors));
+    g = plain || flipSwapsEnds(type) ? compactPiece(buildPieceGeometry(def, levels, floors)) : mirrored(carvedGeometry(type, false, levels, floors));
     geometryCache.set(key, g);
   }
   return g;
@@ -360,6 +375,11 @@ export class TrackView {
   private bufferMesh: { mesh: InstancedMesh; ids: number[] } | null = null;
   private flagMeshes: InstancedMesh[] = [];
   private flagIds: number[] = [];
+  /** The pegs: one at each joint (in the hole of one of its two pieces) and in each free peg end. */
+  private pegMesh: InstancedMesh | null = null;
+  /** Each peg's piece and end, by instance. */
+  private pegOwners: number[] = [];
+  private pegEnds: number[] = [];
   /** Turnback flag: a pole standing on the buffer block and a pennant, in piece-local space. */
   private readonly flagParts = turnbackFlagParts();
   private levers = new Map<number, Mesh>();
@@ -419,6 +439,10 @@ export class TrackView {
         entry.mesh.setColorAt(i, this.colourOf(id));
         if (entry.mesh.instanceColor) entry.mesh.instanceColor.needsUpdate = true;
       }
+      const pegs = this.pegMesh;
+      if (!pegs) continue;
+      this.pegOwners.forEach((owner, i) => owner === id && pegs.setColorAt(i, this.colourOf(id)));
+      if (pegs.instanceColor) pegs.instanceColor.needsUpdate = true;
     }
   }
 
@@ -467,7 +491,7 @@ export class TrackView {
     const bufferIds: number[] = [];
     for (const [key, ids] of groups) {
       const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
-      const mesh = new InstancedMesh(pieceGeometry(type, flipped === "1", Number(levels), floorsOf(floors)), [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
+      const mesh = new InstancedMesh(carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors)), [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       ids.forEach((id, i) => {
@@ -520,6 +544,7 @@ export class TrackView {
       }
     }
 
+    this.syncPegs();
     this.syncLevers();
     this.syncEndBoards();
     this.syncOutline();
@@ -597,11 +622,75 @@ export class TrackView {
     }
   }
 
+  /**
+   * One peg at each joint, standing in the hole of the piece whose end is a peg end (where both ends are pegs or both
+   * holes, the first piece's), and one in each free peg end. A joiner brings its own. An end joined to a piece that
+   * isn't drawn (lifted, or a stand-in animating in its place) counts as free.
+   */
+  private syncPegs(): void {
+    if (this.pegMesh) {
+      this.group.remove(this.pegMesh);
+      this.pegMesh.dispose();
+      this.pegMesh = null;
+    }
+    const owners: number[] = [];
+    const ends: number[] = [];
+    const drawn = (id: number) => !this.layout.isLifted(id) && !this.hidden.has(id);
+    for (const id of this.layout.pieceIds()) {
+      if (!drawn(id)) continue;
+      const p = this.layout.getPiece(id)!;
+      if (p.type === "joiner") continue;
+      const def = getPieceDef(p.type, p.flipped);
+      def.connectors.forEach((c, i) => {
+        const ref = connectorRef(id, i);
+        const other = this.layout.joinedConnector(ref);
+        const op = other >= 0 && drawn(pieceOfRef(other)) ? this.layout.getPiece(pieceOfRef(other)) : undefined;
+        if (op?.type === "joiner") return;
+        const oc = op && getPieceDef(op.type, op.flipped).connectors[indexOfRef(other)];
+        const mine = !oc ? c.kind === "peg" : c.kind !== oc.kind ? c.kind === "peg" : ref < other;
+        if (!mine) return;
+        owners.push(id);
+        ends.push(i);
+      });
+    }
+    this.pegOwners = owners;
+    this.pegEnds = ends;
+    if (owners.length === 0) return;
+    const mesh = new InstancedMesh((sharedPeg ??= buildPegGeometry()), this.mats.track, owners.length);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.kind = "track";
+    this.pegMesh = mesh;
+    owners.forEach((id, i) => mesh.setColorAt(i, this.colourOf(id)));
+    this.placePegs(null);
+    this.group.add(mesh);
+  }
+
+  /** Put the pegs where their pieces are (only those of `ids`, or all). */
+  private placePegs(ids: ReadonlySet<number> | null): void {
+    const mesh = this.pegMesh;
+    if (!mesh) return;
+    const m = new Matrix4();
+    const local = new Matrix4();
+    let moved = false;
+    this.pegOwners.forEach((id, i) => {
+      if (ids && !ids.has(id)) return;
+      const p = this.layout.getPiece(id);
+      if (!p) return;
+      const c = getPieceDef(p.type, p.flipped).connectors[this.pegEnds[i]];
+      mesh.setMatrixAt(i, pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading, m).multiply(pegMatrix(c, local)));
+      moved = true;
+    });
+    if (!moved) return;
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }
+
   /** Pieces carved in the background: those showing a stand-in take theirs (no rebuild of the rest). */
   piecesBuilt(): void {
     for (const [key, { mesh }] of this.meshes) {
       const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
-      const g = pieceGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
+      const g = carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors));
       if (mesh.geometry !== g) {
         mesh.geometry = g;
         mesh.computeBoundingSphere();
@@ -623,7 +712,7 @@ export class TrackView {
       const p = this.hidden.has(id) ? undefined : this.layout.getPiece(id);
       if (!p || this.layout.isLifted(id)) continue;
       const levels = this.bridgeLevels(p);
-      const geometry = pieceGeometry(p.type, p.flipped, levels, this.archFloors(p, levels));
+      const geometry = carvedGeometry(p.type, p.flipped, levels, this.archFloors(p, levels));
       let outline = this.outlines[n];
       if (!outline) {
         outline = new Mesh(geometry, this.outlineMaterial);
@@ -812,6 +901,7 @@ export class TrackView {
         entry.mesh.computeBoundingSphere();
       }
     }
+    this.placePegs(moved);
     this.syncOutline();
   }
 
@@ -846,6 +936,7 @@ export class TrackView {
     for (const { mesh, ids } of this.meshes.values()) if (mesh === object && instanceId !== undefined) return ids[instanceId];
     if (this.bufferMesh && this.bufferMesh.mesh === object && instanceId !== undefined) return this.bufferMesh.ids[instanceId];
     if (this.flagMeshes.includes(object as InstancedMesh) && instanceId !== undefined) return this.flagIds[instanceId];
+    if (this.pegMesh && this.pegMesh === object && instanceId !== undefined) return this.pegOwners[instanceId];
     return -1;
   }
 
@@ -855,6 +946,8 @@ export class TrackView {
     this.meshes.clear();
     this.bufferMesh?.mesh.dispose();
     this.bufferMesh = null;
+    this.pegMesh?.dispose();
+    this.pegMesh = null;
     this.leverGeometry.dispose();
     this.outlineMaterial.dispose();
   }
@@ -904,8 +997,8 @@ export class TrackView {
   static prebuild(types: readonly PieceTypeId[]): void {
     for (const t of types) {
       const levels = baseLevels(t);
-      pieceGeometry(t, false, levels);
-      pieceGeometry(t, true, levels);
+      carvedGeometry(t, false, levels);
+      carvedGeometry(t, true, levels);
     }
   }
 }

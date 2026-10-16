@@ -29,6 +29,7 @@ import {
   samplePath,
   TRACK_THICKNESS,
   TRACK_WIDTH,
+  type ConnectorDef,
   type PathGeom,
   type PieceDef,
 } from "../track";
@@ -541,28 +542,9 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
     }
   }
 
-  for (const c of def.connectors) {
-    if (c.kind === "socket") {
-      const shape = keyholeShape(
-        1,
-        PEG_NECK_LENGTH + SOCKET_CLEARANCE,
-        PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE,
-        PEG_HEAD_RADIUS + SOCKET_CLEARANCE,
-        -1,
-      );
-      const g = extrudeUp(shape, TRACK_THICKNESS + 4, 0);
-      g.applyMatrix4(connectorBasis(c.pose.x, c.y - 2, c.pose.z, c.pose.heading));
-      result = evaluator.evaluate(result, brush(onlyCsgAttributes(g), CUT), SUBTRACTION);
-    }
-  }
-  for (const c of def.connectors) {
-    if (c.kind === "peg") {
-      const shape = keyholeShape(-2, PEG_NECK_LENGTH + 2, PEG_NECK_WIDTH / 2, PEG_HEAD_RADIUS, 1);
-      const g = extrudeUp(shape, PEG_HEIGHT, 0.6);
-      g.applyMatrix4(connectorBasis(c.pose.x, c.y, c.pose.z, c.pose.heading));
-      result = evaluator.evaluate(result, brush(onlyCsgAttributes(g)), ADDITION);
-    }
-  }
+  // Every end is carved as a hole: any two ends join, so which end of a joint shows the peg is the layout's to say.
+  // TrackView draws the pegs (`buildPegGeometry`), and `withPegs` adds a lone piece's own.
+  for (const c of def.connectors) result = evaluator.evaluate(result, brush(socketCutter(c), CUT), SUBTRACTION);
 
   const out = slotGroups(result);
   out.computeBoundingBox();
@@ -585,16 +567,81 @@ function loopGeometry(def: PieceDef): BufferGeometry {
   for (const run of [grooveFrames.slice(0, gm + 2), grooveFrames.slice(gm - 1)]) {
     for (const c of [-GROOVE_SPACING / 2, GROOVE_SPACING / 2]) result = evaluator.evaluate(result, brush(sweep(grooveProfile(c), run), CUT), SUBTRACTION);
   }
-  for (const c of def.connectors) {
-    const shape = keyholeShape(1, PEG_NECK_LENGTH + SOCKET_CLEARANCE, PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE, PEG_HEAD_RADIUS + SOCKET_CLEARANCE, -1);
-    const g = extrudeUp(shape, TRACK_THICKNESS + 4, 0);
-    g.applyMatrix4(connectorBasis(c.pose.x, c.y - 2, c.pose.z, c.pose.heading));
-    result = evaluator.evaluate(result, brush(onlyCsgAttributes(g), CUT), SUBTRACTION);
-  }
+  for (const c of def.connectors) result = evaluator.evaluate(result, brush(socketCutter(c), CUT), SUBTRACTION);
   const out = slotGroups(result);
   out.computeBoundingBox();
   out.computeBoundingSphere();
   return out;
+}
+
+/** The cutter for an end's hole (a keyhole through the piece, open at the end face). */
+function socketCutter(c: ConnectorDef): BufferGeometry {
+  const shape = keyholeShape(1, PEG_NECK_LENGTH + SOCKET_CLEARANCE, PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE, PEG_HEAD_RADIUS + SOCKET_CLEARANCE, -1);
+  const g = extrudeUp(shape, TRACK_THICKNESS + 4, 0);
+  g.applyMatrix4(connectorBasis(c.pose.x, c.y - 2, c.pose.z, c.pose.heading));
+  return onlyCsgAttributes(g);
+}
+
+/** The plug's top sits this far below the track surface: a faint seam where it fills its hole (and no flicker on a stand-in's uncarved body). */
+const PLUG_DROP = 0.1;
+
+/**
+ * A peg as it stands on the end of a piece: a plug filling that end's hole, and the peg reaching out of it (into the
+ * hole of the piece it joins, or out of a free end). In an end's frame: x outward from the end face, z across, y up
+ * from the track base. Plain extrusions, no carving. Indexed, with position, normal and uv.
+ */
+export function buildPegGeometry(): BufferGeometry {
+  const plug = extrudeUp(
+    keyholeShape(0, PEG_NECK_LENGTH + SOCKET_CLEARANCE - 1, PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE, PEG_HEAD_RADIUS + SOCKET_CLEARANCE, -1),
+    TRACK_THICKNESS - PLUG_DROP,
+    0,
+  );
+  const peg = extrudeUp(keyholeShape(-2, PEG_NECK_LENGTH + 2, PEG_NECK_WIDTH / 2, PEG_HEAD_RADIUS, 1), PEG_HEIGHT, 0.6);
+  const toEnd = connectorBasis(0, 0, 0, 0);
+  const parts = [plug, peg].map((g) => onlyCsgAttributes(g.applyMatrix4(toEnd)));
+  const g = mergeVertices(mergeGeometries(parts), 1e-4);
+  for (const part of parts) part.dispose();
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
+  return g;
+}
+
+/** Where a peg stands on this end of a piece, in piece space (for `buildPegGeometry`). */
+export function pegMatrix(c: ConnectorDef, out = new Matrix4()): Matrix4 {
+  return out.makeRotationY(-c.pose.heading).setPosition(c.pose.x, c.y, c.pose.z);
+}
+
+/**
+ * A lone piece as it comes, its own pegs on (a held piece, the tray's picture): `carved` (its holes at every end) with
+ * a peg in each end that's a peg end. A joiner's pegs are its own already.
+ */
+export function withPegs(carved: BufferGeometry, def: PieceDef): BufferGeometry {
+  const ends = def.type === "joiner" ? [] : def.connectors.filter((c) => c.kind === "peg");
+  if (ends.length === 0) return carved;
+  const source = buildPegGeometry();
+  const peg = carved.index ? source : source.toNonIndexed();
+  const pegs = ends.map((c) => peg.clone().applyMatrix4(pegMatrix(c)));
+  const attrs = Object.keys(carved.attributes);
+  for (const p of pegs) for (const name of Object.keys(p.attributes)) if (!attrs.includes(name)) p.deleteAttribute(name);
+  const shown = carved.clone();
+  shown.clearGroups();
+  const merged = mergeGeometries([shown, ...pegs]);
+  shown.dispose();
+  for (const p of pegs) p.dispose();
+  source.dispose();
+  if (!merged) return carved;
+  merged.clearGroups();
+  const count = (g: BufferGeometry) => (g.index ? g.index.count : g.attributes.position.count);
+  const groups = carved.groups.length > 0 ? carved.groups.map((gr) => ({ ...gr })) : [{ start: 0, count: count(carved), materialIndex: SLOT_BODY }];
+  // The pegs are plain wood: the last group's faces, if that's the body's, else a group of their own.
+  const last = groups[groups.length - 1];
+  const added = count(merged) - count(carved);
+  if (last.materialIndex === SLOT_BODY && last.start + last.count === count(carved)) last.count += added;
+  else groups.push({ start: count(carved), count: added, materialIndex: SLOT_BODY });
+  for (const gr of groups) merged.addGroup(gr.start, gr.count, gr.materialIndex);
+  merged.computeBoundingBox();
+  merged.computeBoundingSphere();
+  return merged;
 }
 
 /** A dog-bone joiner: just its two pegs, back to back (each reaching into a track end's hole). */
