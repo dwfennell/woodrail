@@ -23,6 +23,7 @@ import { dropOutcome } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { RoadHand, type RoadDrag } from "./road-hand";
+import { dragMoves } from "./drag-rule";
 import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 
@@ -85,7 +86,7 @@ type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; 
 type Mode =
   | { kind: "idle" }
   /** `add`: Shift was held (a tap picks the piece, along with any already picked). */
-  | { kind: "press"; press: Press; pointerId: number; x: number; y: number; ground: Vector3; add: boolean }
+  | { kind: "press"; press: Press; pointerId: number; pointerType: string; x: number; y: number; ground: Vector3; add: boolean }
   | {
       /** The picked pieces dragged together, rigidly (with the risers under them). */
       kind: "drag-group";
@@ -679,25 +680,26 @@ export class Interaction {
       return;
     }
     this.game.controls.enabled = false;
-    this.mode = { kind: "press", press: hit, pointerId: e.pointerId, x: e.clientX, y: e.clientY, ground, add: e.shiftKey };
+    this.mode = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey };
   }
 
   /**
-   * Does a drag that starts on `press` move it (it's selected, or being picked with others), rather than pan the view?
-   * Cargo is fetched from its pile with a drag, selected or not.
+   * Does a drag that starts on `press` move it, rather than pan the view (see `dragMoves`: on touch, only what's
+   * selected)? Picking several, only a picked piece moves. Cargo is fetched from its pile with a drag either way.
    */
-  private dragsWhatsPressed(press: Press): boolean {
+  private dragsWhatsPressed(press: Press, pointerType: string): boolean {
     switch (press.kind) {
       case "piece":
-        return this.picking ? this.picked.has(press.pieceId) : press.pieceId === this.selectedPiece;
+        if (this.picking) return this.picked.has(press.pieceId);
+        return dragMoves("piece", press.pieceId === this.selectedPiece, pointerType);
       case "car":
-        return this.selectedCar !== -1 && this.game.sim.findCar(press.carId)?.train === this.game.sim.findCar(this.selectedCar)?.train;
+        return dragMoves("car", this.selectedCar !== -1 && this.game.sim.findCar(press.carId)?.train === this.game.sim.findCar(this.selectedCar)?.train, pointerType);
       case "depot":
-        return press.depotId === this.selectedDepot;
+        return dragMoves("depot", press.depotId === this.selectedDepot, pointerType);
       case "prop":
-        return press.propId === this.selectedProp;
+        return dragMoves("prop", press.propId === this.selectedProp, pointerType);
       case "road":
-        return press.cell === this.roads.selected;
+        return dragMoves("road", press.cell === this.roads.selected, pointerType);
       default:
         return true;
     }
@@ -714,7 +716,7 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
-      if (!this.dragsWhatsPressed(m.press)) {
+      if (!this.dragsWhatsPressed(m.press, m.pointerType)) {
         // Select first: a drag that starts on anything placed that isn't selected (a piece, a train, an industry, a
         // prop, a road) pans the view, like the floor, so panning over a busy map never moves something by accident.
         // Tap it to select it, then drag it. The camera picks the gesture up from here.
