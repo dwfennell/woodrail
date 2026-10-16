@@ -708,10 +708,14 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   let goals = new GoalTracker(loadGoals());
   const goalsPanel = new GoalsPanel(hud.root, { newGame: () => newGame(), showMe: () => showGoal() });
 
+  /** When each town last had a delivery (performance.now): its school thinks only while it's supplied. */
+  const lastDelivered = new Map<number, number>();
+  const SCHOOL_SUPPLIED_MS = 180_000;
   // Game mode's towns: they want things, and grow when they get them.
   const townLife = new TownLife(game, {
     knows: (tech) => progress.learned.has(tech),
     received: (town, kind, n, before) => {
+      lastDelivered.set(town.id, performance.now());
       payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
     },
@@ -979,9 +983,11 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     // Schools have ideas while the game runs.
     if (mode === "game" && playing && !game.paused) {
       // A college: ideas twice as often.
-      const from = schoolIdeas(progress, game.landscape, schoolClock, CRAFT_STEP * (progress.learned.has("college") ? 2 : 1), Math.random);
-      if (from) {
-        hud.toast(`${from} has an idea: open Blueprints to choose`, true, 4200);
+      // A school thinks only while its town has had a delivery lately.
+      const supplied = (town: number) => performance.now() - (lastDelivered.get(town) ?? -Infinity) < SCHOOL_SUPPLIED_MS;
+      const idea = schoolIdeas(progress, game.landscape, schoolClock, CRAFT_STEP * (progress.learned.has("college") ? 2 : 1), Math.random, supplied);
+      if (idea) {
+        hud.toast(`${idea.from}: ${techOf(idea.id)!.label} is on the board`, true, 4200);
         refreshBoard();
         scheduleSave();
       }

@@ -2,7 +2,7 @@ import type { CargoKind } from "../economy/cargo";
 import type { Landscape, Town } from "../landscape";
 import { MARKET_BONUS, SCHOOL_IDEA_SECONDS, townLandmarks } from "./landmarks";
 import type { Progress } from "./progress";
-import { choose, offerFor, ready } from "./tech";
+import { choose, offerFor, ready, TECHS } from "./tech";
 import { ruleOf, THING_RULES, type ThingId } from "./things";
 import { payFor, type TownStatus } from "./towns";
 
@@ -20,23 +20,37 @@ export function payDelivery(p: Progress, kind: CargoKind, n: number, before: Tow
   return paid;
 }
 
+/** No school ideas while this many blueprints already wait on the board to be learned (there's plenty to do). */
+export const SCHOOL_BOARD_CAP = 3;
+
 /**
- * Schools have ideas: every `SCHOOL_IDEA_SECONDS` of play (sooner with more schools), a town with a school offers two
- * blueprints to choose from, unless one of its offers is still waiting. `clock` carries the time between calls.
- * Returns the town that offered, or null.
+ * Schools have ideas: every `SCHOOL_IDEA_SECONDS` of play, a school puts a blueprint on the board, to learn at its
+ * price (not free: delivering goods and paying planks stay the way forward). A school only thinks while its town is
+ * supplied (`supplied`: a delivery lately); two or more schools think half again as fast, no faster. No ideas while
+ * `SCHOOL_BOARD_CAP` blueprints wait on the board. `clock` carries the time between calls. Returns the school and the
+ * blueprint, or null.
  */
-export function schoolIdeas(p: Progress, land: Landscape, clock: { seconds: number }, seconds: number, random: () => number): string | null {
-  const schools = land.towns.filter((t) => townLandmarks(t).has("school"));
-  if (schools.length === 0 || p.offers.some((o) => o.from.endsWith(" school"))) return null;
-  clock.seconds += seconds * schools.length;
+export function schoolIdeas(
+  p: Progress,
+  land: Landscape,
+  clock: { seconds: number },
+  seconds: number,
+  random: () => number,
+  supplied: (townId: number) => boolean = () => true,
+): { from: string; id: string } | null {
+  const schools = land.towns.filter((t) => townLandmarks(t).has("school") && supplied(t.id));
+  if (schools.length === 0) return null;
+  const waiting = TECHS.filter((t) => p.board.has(t.id) && !p.learned.has(t.id) && ready(p, t.id)).length;
+  if (waiting >= SCHOOL_BOARD_CAP) return null;
+  clock.seconds += seconds * (schools.length > 1 ? 1.5 : 1);
   if (clock.seconds < SCHOOL_IDEA_SECONDS) return null;
+  // (offerFor gives only blueprints ready to learn.) Nothing new to put on the board: the idea keeps until there is.
+  const id = offerFor(p, random).find((x) => !p.board.has(x));
+  if (!id) return null;
   clock.seconds = 0;
+  p.board.add(id);
   const town = schools[Math.floor(random() * schools.length)];
-  const from = `${town.name} school`;
-  const offer = offerFor(p, random);
-  if (offer.length === 0) return null;
-  p.offers.push({ from, ids: offer });
-  return from;
+  return { from: `${town.name} school`, id };
 }
 
 /**

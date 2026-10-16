@@ -10,6 +10,13 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #cbbba3; color: var(--ink); font-family: "Nunito", system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+/* A toy, not a page: nothing on screen is selected as text or brings up a long-press menu, and a quick second tap on
+   a button is another tap, never a page zoom (iOS ignores user-scalable=no in the viewport; touch-action is what
+   stops it there). The game canvas takes all its own gestures (touch-action: none, below). Text typed in a box is
+   still text. */
+html, body, button, .hud, .card, .tray, .title-screen, #loading { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+html, body, button { touch-action: manipulation; }
+input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 /* The loading screen and the wooden block letters are styled in index.html, so they show before scripts load. */
 
