@@ -495,13 +495,16 @@ export class Economy {
   /**
    * With "wait for a full load", a wagon that could take more of the depot's goods waits for them, but only while
    * more are coming: goods on the pile, or the depot making them. (A sawmill out of logs isn't, so a train never waits
-   * there for planks that would need the logs on its own later wagons.)
+   * there for planks that would need the logs on its own later wagons.) Not while another wagon still has goods to
+   * unload here: that goes first (the wagon waits its turn again once the crane is done with the others).
    */
   private waitsForLoad(d: DepotState, carId: number): boolean {
     const c = this.cargoOf(carId);
     if (!d.waitFull || c.count >= this.wagonCapacity || this.canUnload(d, carId)) return false;
     const found = this.sim.findCar(carId);
     if (!found) return false;
+    const done = this.services.get(found.train.id)?.done;
+    if (found.train.cars.some((o) => o.id !== carId && !done?.has(o.id) && this.canUnload(d, o.id))) return false;
     const car = found.train.cars[found.index].kind;
     const kind = RECIPES[d.role].gives.find((k) => (c.kind === null || c.kind === k) && canCarry(car, k));
     if (kind === undefined) return false;
@@ -716,6 +719,8 @@ export class Economy {
       if (!this.canUnload(d, s.carId) && this.loadKind(d, s.carId) === null) {
         if (this.waitsForLoad(d, s.carId)) continue;
         s.done.add(s.carId);
+        // Unloading done: the wagons that stood aside for it can wait for their load now.
+        for (const car of train.cars) if (car.id !== s.carId && s.done.has(car.id) && this.waitsForLoad(d, car.id)) s.done.delete(car.id);
         s.phase = CRAWLING;
         s.ticks = 0;
         continue;
