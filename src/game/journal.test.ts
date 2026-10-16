@@ -98,3 +98,16 @@ describe("ago", () => {
     expect(ago(3 * 3_600_000)).toBe("3 h ago");
   });
 });
+
+describe("Journal.amend", () => {
+  it("changes the text, moves the entry to the top and counts it as news", () => {
+    const j = new Journal(() => 0);
+    const a = j.add({ kind: "milestone", text: "A grew" }).entry!;
+    j.add({ kind: "event", text: "B" });
+    j.markRead();
+    j.amend(a, "A grew · ✓ goal");
+    expect(j.entries[0]).toBe(a);
+    expect(a.text).toBe("A grew · ✓ goal");
+    expect(j.unread).toBe(1);
+  });
+});

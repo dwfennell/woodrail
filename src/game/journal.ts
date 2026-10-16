@@ -82,6 +82,16 @@ export class Journal {
     this.readSeq = this.seq;
   }
 
+  /** Change an entry's text (something joined it): it counts as news again and moves to the top, like a merge. */
+  amend(entry: JournalEntry, text: string): void {
+    const i = this.list.indexOf(entry);
+    if (i < 0) return;
+    entry.text = text;
+    entry.seq = ++this.seq;
+    this.list.splice(i, 1);
+    this.list.unshift(entry);
+  }
+
   clear(): void {
     this.list = [];
     this.seq = 0;

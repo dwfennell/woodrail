@@ -872,7 +872,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const tick = `✓ ${fresh.map((g) => g.title).join(" · ")}`;
         if (growth && (performance.now() - growth.at < GROWTH_JOIN_MS)) {
           // Right after a growth milestone: part of the same toast and entry.
-          growth.entry.text += ` · ${tick}`;
+          journal.amend(growth.entry, `${growth.entry.text} · ${tick}`);
           goalsPanel.newsChanged();
         } else {
           const where = fresh[0].guide(game.world).points[0];
