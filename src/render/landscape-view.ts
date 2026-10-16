@@ -657,10 +657,11 @@ export class LandscapeView {
   /** A bright pulse on these towns' signs (a celebration when they're connected). */
   flash(towns: readonly number[]): Flourish {
     const ids = towns.filter((id) => this.signs.has(id));
-    let t = 0;
+    // Timed by the clock, not the (capped) frame step, so a slow page doesn't hold it up.
+    const start = performance.now();
     return {
-      update: (dt) => {
-        t += dt;
+      update: () => {
+        const t = Math.min(1.2, (performance.now() - start) / 1000);
         const k = Math.max(0, Math.sin((t / 1.2) * Math.PI * 3)) * (1 - t / 1.2);
         for (const id of ids) {
           const m = this.signs.get(id)!;

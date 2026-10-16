@@ -68,6 +68,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item { flex: 0 0 auto; width: 84px; height: 90px; border: none; border-radius: 14px; background: radial-gradient(circle at 50% 38%, #fffaf0, #f6e8d0); box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.16), 0 2px 5px rgba(80, 50, 20, 0.14); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; cursor: grab; touch-action: none; font: inherit; color: #3a2a1c; user-select: none; -webkit-user-select: none; }
 .tray-item:hover { background: radial-gradient(circle at 50% 38%, #fffdf6, #f9ecd6); }
 .tray-item:active { cursor: grabbing; }
+/* A tray item with none left that the workshop can make on the spot: its badge shows the cost. */
+.tray-item.craft .have { background: #f6e3c1; color: #7a5532; }
 /* A tray item the player should reach for now (the workshop, until one is placed). */
 .tray-item.attention { position: relative; box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.16), 0 0 0 3px #f0ae3c, 0 3px 8px rgba(160, 100, 20, 0.3); }
 /* Ready to place with a tap on the floor: a green ring and a little "tap" tag. */
@@ -264,6 +266,34 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @keyframes goal-pop { 30% { transform: scale(1.35); background: #8fd08a; } }
 .goals-new { align-self: flex-start; }
 @media (prefers-reduced-motion: reduce) { .goal.arrive, .goals.ticked .goals-count { animation: none; } }
+/* The Journal: Goals and News tabs, the unread bell on the chip, and the news list. */
+.goals-pane { display: flex; flex-direction: column; gap: 6px; }
+.goals-pane[hidden], .news-pane[hidden], .goals-bell[hidden], .goals-tab-badge[hidden] { display: none; }
+.goals-bell { flex: none; white-space: nowrap; font-weight: 800; font-size: 12px; color: #8a4a12; background: #ffe2a8; border-radius: 999px; padding: 2px 8px; }
+.goals-tabs { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+/* The open Journal shows its count on the tab, not twice. */
+.goals:not(.collapsed) .goals-bell { display: none; }
+.goals-tab { flex: 1; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 10px; background: rgba(255, 250, 240, 0.6); box-shadow: inset 0 0 0 2px #d8c6a6; font: inherit; font-weight: 800; font-size: 14px; color: #6a5340; cursor: pointer; }
+.goals-tab.on { background: #fffaf0; box-shadow: inset 0 0 0 2px #c9a57a; color: #3a2a1c; }
+.goals-tab-badge { font-size: 12px; font-weight: 800; background: #e2a12b; color: #fff; border-radius: 999px; min-width: 20px; padding: 1px 6px; text-align: center; }
+.goals-close { display: none; flex: none; width: 44px; height: 44px; border: 0; background: transparent; font: inherit; font-size: 18px; color: #8a6440; cursor: pointer; }
+.news-pane { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; }
+.news-item { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border: 0; border-radius: 10px; background: #fffaf0; font: inherit; font-size: 13.5px; font-weight: 700; line-height: 1.3; color: #3a2a1c; text-align: left; box-shadow: 0 1px 0 rgba(120, 80, 40, 0.15); }
+.news-item.go { cursor: pointer; }
+.news-item.milestone { background: #fff1cf; }
+.news-item i { font-style: normal; color: #d9a441; }
+.news-text { flex: 1; min-width: 0; }
+.news-time { flex: none; font-size: 11.5px; font-weight: 700; color: #8a7660; white-space: nowrap; }
+.news-go { flex: none; font-size: 20px; line-height: 1; color: #b88a54; }
+.news-empty { margin: 8px 4px; font-size: 13px; color: #6a5340; }
+/* Phones: the open Journal is a bottom sheet, like the Blueprints ticket (the chip stays at the top). */
+@media (max-width: 560px), (max-height: 520px) {
+  .goals:not(.collapsed) .goals-body { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; max-height: min(62dvh, 520px); overflow-y: auto; padding: 0 12px calc(12px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 -8px 26px rgba(60, 40, 20, 0.28); }
+  .goals-close { display: block; }
+  /* The tabs and ✕ stay put while the list scrolls. */
+  .goals-tabs { position: sticky; top: 0; z-index: 1; padding: 8px 0 4px; margin-bottom: 0; background: var(--wood-panel); }
+  .news-pane { max-height: none; overflow: visible; }
+}
 
 /* ---- catalogue models in the tray ------------------------------------------------------------------------ */
 .tray.turn-only .tray-flip { display: none; }

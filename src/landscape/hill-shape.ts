@@ -34,11 +34,31 @@ interface PreparedCut {
   z1: number;
 }
 
-function prepare(cut: HillCut): PreparedCut {
+/** A cutting's bed is checked this often (mm), along and across, for whether it's let into the hill at all. */
+const BED_STEP = 8;
+
+/**
+ * A cut, ready for lookups; null if the ramp isn't let into the hill anywhere (`hill`, the blocks' height, is nowhere
+ * above its bed): a ramp out on the felt beside a hill leaves the hill whole, rather than scooping its banks out of it.
+ */
+function prepare(cut: HillCut, hill: (x: number, z: number) => number): PreparedCut | null {
   const geom = getPieceDef(cut.type, cut.flipped).paths[0].geom;
   const length = pathLength(geom);
   const cos = Math.cos(cut.pose.heading);
   const sin = Math.sin(cut.pose.heading);
+  let dug = false;
+  const n = Math.max(1, Math.ceil(length / BED_STEP));
+  const m = Math.ceil((2 * CUT_BED_HALF) / BED_STEP);
+  for (let i = 0; i <= n && !dug; i++) {
+    const s = (length * i) / n;
+    const t = s / length;
+    const bed = cut.y + geom.y0 + geom.rise * t * t * (3 - 2 * t);
+    for (let j = 0; j <= m && !dug; j++) {
+      const across = -CUT_BED_HALF + (2 * CUT_BED_HALF * j) / m;
+      if (hill(cut.pose.x + s * cos - across * sin, cut.pose.z + s * sin + across * cos) > bed + 0.3) dug = true;
+    }
+  }
+  if (!dug) return null;
   const ends = [0, length].map((s) => ({ x: cut.pose.x + s * cos, z: cut.pose.z + s * sin }));
   return {
     cut,
@@ -94,12 +114,25 @@ export const CORNERS = [
  */
 export class HillShape {
   private cuts: PreparedCut[] = [];
+  /** The blocks' height (for whether a cutting is let into the hill). */
+  private readonly hill = (x: number, z: number): number => this.blocksAt(x, z);
+
+  /** Extra cuts (a ramp being held) as last prepared, with the grid's revision then: asked of once per point checked. */
+  private readonly extras = new WeakMap<HillCut, { revision: number; prepared: PreparedCut | null }>();
 
   constructor(readonly grid: LandscapeGrid) {}
 
+  private prepared(extra: HillCut): PreparedCut | null {
+    const known = this.extras.get(extra);
+    if (known && known.revision === this.grid.revision) return known.prepared;
+    const prepared = prepare(extra, this.hill);
+    this.extras.set(extra, { revision: this.grid.revision, prepared });
+    return prepared;
+  }
+
   /** The ramps cut into the hills (from the layout: call when it changes). */
   setCuts(cuts: readonly HillCut[]): void {
-    this.cuts = cuts.map(prepare);
+    this.cuts = cuts.map((c) => prepare(c, this.hill)).filter((c): c is PreparedCut => c !== null);
   }
 
   /** Height of the ground at a plan point: the hill there (minding rounded corners and cuttings), or the felt (0). */
@@ -112,14 +145,16 @@ export class HillShape {
    * ground under other track.
    */
   groundWithCut(extra: HillCut, x: number, z: number): number {
-    return this.groundWith([...this.cuts, prepare(extra)], x, z);
+    const c = this.prepared(extra);
+    return this.groundWith(c ? [...this.cuts, c] : this.cuts, x, z);
   }
 
   /** Lowest cutting surface at a plan point (Infinity where no cutting reaches), from these cuts and an extra one. */
   cutSurfaceAt(x: number, z: number, extra?: HillCut): number {
     let surface = Infinity;
     for (const c of this.cuts) surface = Math.min(surface, cutSurface(c, x, z));
-    if (extra) surface = Math.min(surface, cutSurface(prepare(extra), x, z));
+    const c = extra && this.prepared(extra);
+    if (c) surface = Math.min(surface, cutSurface(c, x, z));
     return surface;
   }
 
@@ -128,7 +163,8 @@ export class HillShape {
    * the block's outline. With a key per block of what cuts it, so a renderer can tell which changed.
    */
   cutBlocks(extra?: HillCut): { col: number; row: number; level: number; key: string }[] {
-    const all = extra ? [...this.cuts, prepare(extra)] : this.cuts;
+    const more = extra && this.prepared(extra);
+    const all = more ? [...this.cuts, more] : this.cuts;
     const found = new Map<string, { col: number; row: number; level: number; key: string }>();
     const g = this.grid;
     all.forEach((c) => {
