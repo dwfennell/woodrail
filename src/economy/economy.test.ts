@@ -112,6 +112,30 @@ describe("cargo stays with its wagon", () => {
   });
 });
 
+describe("planks kept for the workshop", () => {
+  it("on a sawmill, town, workshop line, an unrouted train takes planks past the town while they're kept", () => {
+    const { layout, train, economy } = world();
+    const [a, b, c] = [...layout.pieceIds()];
+    const saw = economy.addDepot("sawmill", a);
+    const town = economy.addDepot("town", b, 0);
+    const shop = economy.addDepot("workshop", c);
+    const [engine, wagon] = train.cars;
+    economy.setCargo(wagon.id, "planks", 3);
+    expect(saw.role).toBe("sawmill");
+    let short = true;
+    economy.reserved = (kind) => kind === "planks" && short;
+    expect(economy.needsService(town, wagon.id)).toBe(false);
+    expect(economy.needsService(shop, wagon.id)).toBe(true);
+    // The workshop has enough: towns take planks as before.
+    short = false;
+    expect(economy.needsService(town, wagon.id)).toBe(true);
+    // A routed train goes by its route whatever is kept.
+    short = true;
+    economy.setRoute(engine.id, { stops: [{ depotId: town.id, action: "drop" }], next: 0 });
+    expect(economy.needsService(town, wagon.id)).toBe(true);
+  });
+});
+
 describe("routes", () => {
   it("a routed train is served only at the stop it's heading for, dropping or picking up as it says; with none, anywhere", () => {
     const { layout, train, economy } = world();
