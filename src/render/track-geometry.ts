@@ -424,7 +424,6 @@ function slotGroups(result: Brush): BufferGeometry {
   return g;
 }
 
-/** Geometry for a piece type in piece-local space (plan x/z → world x/z, y up, track base at y = 0). */
 /**
  * A carved piece with its corners shared: the carving leaves every triangle its own three corners (about twice the
  * corners it needs). Joining the identical ones keeps its look (and material groups) and halves its memory, on the
@@ -437,6 +436,77 @@ export function compactPiece(g: BufferGeometry): BufferGeometry {
 }
 
 /** `levels`: for a bridge, how many riser heights its arches reach down below the deck. */
+/**
+ * A piece's plain body, uncarved (no grooves, pegs or holes; a ramp or bridge without its supports): drawn for a moment
+ * while the real one is carved in the background. A few milliseconds, where carving takes tens to hundreds.
+ */
+export function buildPieceStandIn(def: PieceDef): BufferGeometry {
+  if (def.paths.length === 0) return riserGeometry();
+  const g = def.paths.length === 1 ? sweep(bodyProfile(), framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0)) : flatBlockBody(def);
+  g.clearGroups();
+  g.addGroup(0, g.index ? g.index.count : g.attributes.position.count, SLOT_BODY);
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
+  return g;
+}
+
+/** Scaffolding: posts this thick (mm), ledgers and braces a little thinner. */
+const SCAFFOLD_POST = 5;
+const SCAFFOLD_BAR = 3;
+
+/**
+ * Wooden scaffolding under a piece, from `bottom` up to `top` (piece-local y): a post each side at each end and the
+ * middle, a ledger along each side at every level, and a cross brace in each bay. Drawn under a bridge lifted higher
+ * than its arches are carved yet, in place of the arches still to come. Plain boxes, no carving.
+ */
+export function buildScaffold(def: PieceDef, bottom: number, top: number): BufferGeometry | null {
+  if (def.paths.length !== 1 || top - bottom < 2) return null;
+  const path = def.paths[0].geom;
+  const len = pathLength(path);
+  const side = TRACK_WIDTH / 2 - SCAFFOLD_POST;
+  const stations = [SCAFFOLD_POST, len / 2, len - SCAFFOLD_POST].map((at) => {
+    const p = samplePath(path, at, createSample());
+    return { x: p.x, z: p.z, heading: p.heading };
+  });
+  const parts: BufferGeometry[] = [];
+  const m = new Matrix4();
+  /** A bar from a to b (piece-local points), this thick. */
+  const bar = (a: Vector3, b: Vector3, thick: number) => {
+    const d = new Vector3().subVectors(b, a);
+    const length = d.length();
+    if (length < 1) return;
+    const g = new BoxGeometry(thick, length, thick);
+    // Box's y along a→b, centred between them.
+    const yAxis = d.clone().normalize();
+    const xAxis = new Vector3(0, 0, 1).cross(yAxis);
+    if (xAxis.lengthSq() < 1e-6) xAxis.set(1, 0, 0);
+    xAxis.normalize();
+    const zAxis = new Vector3().crossVectors(xAxis, yAxis);
+    m.makeBasis(xAxis, yAxis, zAxis).setPosition(a.clone().add(b).multiplyScalar(0.5));
+    g.applyMatrix4(m);
+    parts.push(g);
+  };
+  const at = (st: (typeof stations)[number], across: number, y: number) =>
+    new Vector3(st.x - Math.sin(st.heading) * across, y, st.z + Math.cos(st.heading) * across);
+  const levels = Math.max(1, Math.round((top - bottom) / RISER_HEIGHT));
+  const step = (top - bottom) / levels;
+  for (const across of [-side, side]) {
+    for (const st of stations) bar(at(st, across, bottom), at(st, across, top), SCAFFOLD_POST);
+    for (let k = 0; k <= levels; k++) {
+      const y = Math.min(top - SCAFFOLD_BAR / 2, bottom + k * step + (k === 0 ? SCAFFOLD_BAR / 2 : 0));
+      for (let i = 1; i < stations.length; i++) bar(at(stations[i - 1], across, y), at(stations[i], across, y), SCAFFOLD_BAR);
+    }
+    for (let k = 0; k < levels; k++) {
+      const y0 = bottom + k * step;
+      for (let i = 1; i < stations.length; i++) bar(at(stations[(i + k) % 2 ? i - 1 : i], across, y0), at(stations[(i + k) % 2 ? i : i - 1], across, y0 + step), SCAFFOLD_BAR);
+    }
+  }
+  const g = mergeGeometries(parts);
+  for (const part of parts) part.dispose();
+  return g;
+}
+
+/** Geometry for a piece type in piece-local space (plan x/z → world x/z, y up, track base at y = 0). */
 export function buildPieceGeometry(def: PieceDef, levels = 0): BufferGeometry {
   if (def.paths.length === 0) return riserGeometry();
   if (def.type === "joiner") return joinerGeometry(def);

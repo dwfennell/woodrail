@@ -26,7 +26,7 @@ import { ResolutionGovernor } from "../render/resolution";
 import { detectQuality, type QualitySettings } from "../render/quality";
 import { createStage, type Stage } from "../render/stage";
 import { shadowRadiusForView, shouldRefit } from "../render/shadow-fit";
-import { onArchesBuilt, TrackView } from "../render/track-view";
+import { onPiecesBuilt, TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
 import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
@@ -35,7 +35,7 @@ import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } fro
 import { bridgeLevels, findCrossings, SURF_LANE, syncCuttings, type HeldPiece, PLOT_DEPTH, type Landscape } from "../landscape";
 import { setHazeLand, setHazeReach } from "../render/haze";
 import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
-import { isJoin, PIECE_TYPES, type Layout, type PlacedPiece } from "../track";
+import type { Layout, PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
 import { hasLandForSale, landForSale, plotsAround, unlockPlot, type World } from "./world";
@@ -191,12 +191,12 @@ export class Game {
 
     this.mats = createMaterials(this.renderer.capabilities.getMaxAnisotropy());
     this.stage = createStage(this.scene, this.renderer, this.quality);
-    // Join pieces (dozens of S-bend sizes) are built when first used.
-    TrackView.prebuild(PIECE_TYPES.filter((t) => !isJoin(t)));
-    void TrackView.warmBridges(PIECE_TYPES);
-    // A bridge lifted higher than any built yet shows lower arches for a moment: its own swap in when they come.
-    onArchesBuilt(() => {
-      this.trackView.archesBuilt();
+    // The kinds of piece this railway has (carved while loading; any other kind is carved in the background, and shown
+    // as a stand-in for a moment if it's wanted before its turn).
+    TrackView.prebuild([...new Set([...this.layout.pieceIds()].map((id) => this.layout.getPiece(id)!.type))]);
+    // Pieces carved in the background swap in for their stand-ins.
+    onPiecesBuilt(() => {
+      this.trackView.piecesBuilt();
       this.invalidate();
     });
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);

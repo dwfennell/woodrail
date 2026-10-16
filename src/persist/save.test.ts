@@ -38,6 +38,22 @@ describe("save format", () => {
     expect(w.sim.getTrain(w.sim.trainIds()[0])!.cars[0].lever).toBe(1);
   });
 
+  it("keeps a train whose engine ran round to the other end: the order, the engine facing out, every car in place", () => {
+    const world = worldWithTrain();
+    const id = world.sim.trainIds()[0];
+    const engine = world.sim.getTrain(id)!.cars[0].id;
+    world.sim.setLever(engine, 0);
+    expect(world.sim.runAround(engine)).toBe("ran-round");
+    const before = world.sim.getTrain(id)!;
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const t = r.value.sim.getTrain(r.value.sim.trainIds()[0])!;
+    expect(t.cars.map((c) => c.kind)).toEqual(before.cars.map((c) => c.kind));
+    expect(t.cars.map((c) => c.facing)).toEqual(before.cars.map((c) => c.facing));
+    t.world.forEach((w, i) => expect(Math.hypot(w.x - before.world[i].x, w.z - before.world[i].z)).toBeLessThan(0.5));
+  });
+
   it("keeps a train saved lying across another (after a crash), putting it back beside it", () => {
     const world = worldWithTrain();
     const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;

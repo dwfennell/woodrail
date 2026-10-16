@@ -43,7 +43,7 @@ import { aOrAn, describe as describeGoods, kindsOf, minus, total, type Bag } fro
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
-import { onArchesBuilt, TrackView } from "./render/track-view";
+import { onPiecesBuilt, TrackView } from "./render/track-view";
 import { PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
 import type { CarKind, CarLook } from "./sim";
 import { Hud } from "./ui/hud";
@@ -51,7 +51,7 @@ import { INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { propsInRect } from "./props/placement";
 import { loadMuted, saveMuted } from "./ui/prefs";
-import { TitleScreen } from "./ui/title";
+import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { installClickShield } from "./ui/click-shield";
 import "./style.css";
 
@@ -62,6 +62,9 @@ const GOAL_MARGIN = 260;
 
 /** How far a station or depot may turn when it gives (radians). */
 const GIVE_TURN = (4 * Math.PI) / 180;
+
+/** Tray pictures drawn together, a batch a frame, after the title's up. */
+const THUMBNAIL_BATCH = 8;
 
 /** How long (ms) an engine's status must hold before its card shows it (so it doesn't flicker between steps). */
 const STATUS_HOLD_MS = 600;
@@ -95,8 +98,7 @@ startLog();
 /** Where "Send to Claude" reports go (the dev server, or the claude.ai page), or null: no menu item. */
 let reports: Reporter | null = null;
 
-function boot(savedThumbnails: Map<string, string> | null): void {
-  const opening = initialWorld();
+function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<typeof initialWorld>): void {
   const game = new Game(canvas, opening.world);
   let mode = opening.mode;
   // Stations and depots never shift to take up joint play.
@@ -163,7 +165,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   const industryItems = INDUSTRY_GROUPS.flatMap((g) => g.items);
   const thumbnails = new Map(savedThumbnails ?? []);
   /** Draw the tray pictures not drawn yet among `items`; returns the keys drawn. */
-  const drawThumbnails = (items: readonly TrayItem[]): string[] => {
+  const drawThumbnails = (items: readonly TrayItem[], save = true, studio?: ThumbnailStudio): string[] => {
     const unseen = items.filter((item) => !thumbnails.has(trayKey(item)));
     if (unseen.length === 0) return [];
     const drawn = renderThumbnails(
@@ -177,12 +179,16 @@ function boot(savedThumbnails: Map<string, string> | null): void {
             : [],
       ),
       (type) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : null),
+      studio,
     );
     for (const [k, v] of drawn) thumbnails.set(k, v);
-    void saveCached("thumbnails", __BUILD_ID__, thumbnails);
+    if (save) void saveCached("thumbnails", __BUILD_ID__, thumbnails);
     return [...drawn.keys()];
   };
-  drawThumbnails([...TRACK_ITEMS, ...TRAIN_ITEMS]);
+  // Only the title's pictures now; the tray's are drawn after the title's up (see drawTrayThumbnails), the tray
+  // showing each piece's drawn icon till then.
+  const isTitleArt = (item: TrayItem) => (item.kind === "piece" && item.type === TITLE_ART_PIECE) || (item.kind === "train" && trayKey(item) === `train:${TITLE_ART_TRAIN}`);
+  drawThumbnails([...TRACK_ITEMS, ...TRAIN_ITEMS].filter(isTitleArt));
 
   // A tap that opens a card (or a tray shelf) under the finger mustn't also press what opened there.
   installClickShield(canvas);
@@ -216,6 +222,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
       follow: () => interaction.toggleFollow(),
       removeTrain: () => interaction.removeSelectedTrain(),
       turnCar: () => interaction.turnSelectedCar(),
+      swapEnds: () => swapEnds(),
       rotate: () => interaction.rotateSelected(),
       flip: () => interaction.flipSelected(),
       deletePiece: () => interaction.deleteSelected(),
@@ -292,6 +299,26 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     reports = r;
     if (r) hud.enableReports();
   });
+
+  /**
+   * The track and train trays' pictures not saved from an earlier visit: drawn once the title's up, one a frame (each
+   * piece once it's carved), and saved together at the end.
+   */
+  async function drawTrayThumbnails(): Promise<void> {
+    const items = [...TRACK_ITEMS, ...TRAIN_ITEMS].filter((item) => !thumbnails.has(trayKey(item)));
+    if (items.length === 0) return;
+    // Once their pieces are carved, a few at a time in one studio, while the scene's still: each picture is read back
+    // from the graphics card, which waits for what it's drawing, so pictures go in batches (one wait each).
+    await Promise.all(items.map((item) => (item.kind === "piece" ? TrackView.whenBuilt(item.type) : null)));
+    const studio = new ThumbnailStudio(game.renderer);
+    for (let i = 0; i < items.length; i += THUMBNAIL_BATCH) {
+      // While nothing's moving on screen (never in the middle of a pan, a drag or a train going by).
+      await game.settled(10);
+      for (const key of drawThumbnails(items.slice(i, i + THUMBNAIL_BATCH), false, studio)) hud.setThumbnail(key, thumbnails.get(key)!);
+    }
+    studio.dispose();
+    void saveCached("thumbnails", __BUILD_ID__, thumbnails);
+  }
 
   // Catalogue models' tray pictures: drawn when their shelf is first shown, one a frame (each builds the model, if it
   // isn't yet), then kept with the start-up pictures for the next visit.
@@ -1291,6 +1318,23 @@ function boot(savedThumbnails: Map<string, string> | null): void {
    */
   const _a = new Vector3();
   const _b = new Vector3();
+  /** Swap ends (the engine card): the engine runs round to the other end of its train, or turns if it can't. */
+  function swapEnds(): void {
+    const carId = interaction.openEngineCarId;
+    if (carId === -1) return;
+    const r = game.sim.runAround(carId);
+    if (r === "moving") return hud.toast("Stop the train to swap ends", false, 2500);
+    if (r === "no-room") return hud.toast("No room for the engine at the other end", false, 2500);
+    if (r === "none") return;
+    audio.rotate();
+    const found = game.sim.findCar(carId);
+    if (found) hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
+    // It faces the open way now: Go sends it off engine first.
+    hud.setEngineWay(1);
+    game.invalidate();
+    onChange();
+  }
+
   /** The engine whose card the view was last shown for, and its status line as shown, and as it's been lately. */
   let viewCar = -1;
   let viewStanding = false;
@@ -1681,7 +1725,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   });
   /**
    * The opening view: a medium view of where track was last put down (else of the track built so far) or, on a bare
-   * map, the first two towns, with a hint to join them.
+   * map, the first two towns (in Game mode, with a hint to join them: Sandbox has no goals).
    */
   function openingView(): void {
     let at = loadLastBuilt(mode);
@@ -1714,6 +1758,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
     const top = up[0] > up[1] ? a.station : b.station;
     const lean = 0.15;
     game.lookAt(new Vector3(f.x + (top.x - f.x) * lean * 2, 0, f.z + (top.z - f.z) * lean * 2), f.distance * 1.3, 0.95, f.theta);
+    if (mode !== "game") return;
     // Their names over them for a while (as "Show me" does): the chip only says "Join two towns".
     if (game.layout.pieceCount === game.stations.size + game.depots.size) {
       const grid = game.landscape.grid;
@@ -1808,7 +1853,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   };
 
   // A bridge held still while its taller arches were being made: they come in without waiting for the finger to move.
-  onArchesBuilt(() => interaction.refreshHeld());
+  onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
   (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress });
@@ -1818,6 +1863,7 @@ function boot(savedThumbnails: Map<string, string> | null): void {
   loadBar.finish();
   // The loading screen's toys play their entry in full before it moves on (it's short, and capped).
   void entryPlayed().then(() => {
+    void drawTrayThumbnails();
     if (opening.linked) {
       enter(mode);
       openingView();
@@ -1965,12 +2011,18 @@ requestAnimationFrame(() =>
     void loadModelSet("trains").then(() => loadBar.set("trains", 1), () => {});
     void loadModelSet("dressing", true).then(() => loadBar.set("dressing", 1), () => {});
     void Promise.all([
-      TrackView.prebuildInWorkers(PIECE_TYPES, (n, total) => loadBar.set("pieces", n / total)).then(() => loadBar.set("pieces", 1)),
+      TrackView.carveInBackground(PIECE_TYPES),
       loadCached<Map<string, string>>("thumbnails", __BUILD_ID__).then((t) => (loadBar.set("thumbnails", 1), t)),
       models(),
-    ]).then(([, thumbs]) => {
-      console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms`);
-      boot(thumbs);
+    ]).then(async ([, thumbs]) => {
+      // Only the pieces the opening railway has (and the title's picture) are waited for: the rest carry on carving
+      // in the background, and any wanted before its turn shows as a stand-in for a moment.
+      const opening = initialWorld();
+      const wanted = [...new Set([TITLE_ART_PIECE, ...[...opening.world.layout.pieceIds()].map((id) => opening.world.layout.getPiece(id)!.type)])];
+      let ready = 0;
+      await Promise.all(wanted.map((t) => TrackView.whenBuilt(t).then(() => loadBar.set("pieces", ++ready / wanted.length))));
+      console.info(`Woodrail: track pieces ready in ${Math.round(performance.now() - t0)} ms (${wanted.length} kinds; the rest in the background)`);
+      boot(thumbs, opening);
     });
   }, 30),
 );

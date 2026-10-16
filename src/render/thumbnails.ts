@@ -106,9 +106,14 @@ export function renderThumbnails(
   subjects: readonly ThumbnailSubject[],
   /** What stands with a piece (an industry's yard and buildings, in the piece's frame), if anything. */
   withPiece: (type: PieceTypeId) => Object3D | null = () => null,
+  /**
+   * A studio to draw in, kept by the caller across calls (a new one each call sets its lights up afresh, and the
+   * shaders are compiled again for them). Without one, a studio for this call.
+   */
+  kept?: ThumbnailStudio,
 ): Map<string, string> {
   const out = new Map<string, string>();
-  const studio = new ThumbnailStudio(renderer);
+  const studio = kept ?? new ThumbnailStudio(renderer);
   for (const s of subjects) {
     let subject: Object3D;
     if (s.kind === "piece") {
@@ -126,6 +131,6 @@ export function renderThumbnails(
     if (s.kind === "train") disposeObject(subject);
     else for (const child of subject.children) disposeObject(child);
   }
-  studio.dispose();
+  if (!kept) studio.dispose();
   return out;
 }

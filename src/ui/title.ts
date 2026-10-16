@@ -1,4 +1,5 @@
 import type { GameMode } from "../game/modes";
+import type { PieceTypeId } from "../track";
 import { blockWord } from "./blocks";
 
 export interface TitleHandlers {
@@ -11,6 +12,10 @@ export interface TitleOptions {
   thumbnails?: ReadonlyMap<string, string> | null;
 }
 
+/** The pictures on the cards: a piece (carved before the title shows) and a train. */
+export const TITLE_ART_PIECE: PieceTypeId = "switch-3way";
+export const TITLE_ART_TRAIN = "Full train";
+
 const CARDS: { mode: GameMode; name: string; blurb: string; fresh: string; freshTitle: string; art: string; beta?: boolean }[] = [
   {
     mode: "sandbox",
@@ -18,7 +23,7 @@ const CARDS: { mode: GameMode; name: string; blurb: string; fresh: string; fresh
     blurb: "Build anything, anywhere. Every piece, every train, no rules.",
     fresh: "New map",
     freshTitle: "Start a new landscape of towns, hills and rivers",
-    art: "piece:switch-3way",
+    art: `piece:${TITLE_ART_PIECE}`,
   },
   {
     mode: "game",
@@ -26,7 +31,7 @@ const CARDS: { mode: GameMode; name: string; blurb: string; fresh: string; fresh
     blurb: "Connect the towns and keep them supplied, one goal at a time.",
     fresh: "New game",
     freshTitle: "Start the goals from the beginning on the starter map",
-    art: "train:Full train",
+    art: `train:${TITLE_ART_TRAIN}`,
     beta: true,
   },
 ];
