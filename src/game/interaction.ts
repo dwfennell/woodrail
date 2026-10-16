@@ -24,6 +24,7 @@ import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { dragMoves } from "./drag-rule";
+import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 
@@ -951,12 +952,16 @@ export class Interaction {
     if (!this.fixedLabel(id)) this.hintDrag();
   }
 
-  private dragHinted = false;
+  private dragHinted = hintSeen("drag-selected");
 
-  /** The first time something movable is selected: it moves with a drag now (and only now: see `dragsWhatsPressed`). */
+  /**
+   * The first time ever (on this device) something movable is selected: it moves with a drag now (and on touch only
+   * now: see `dragsWhatsPressed`).
+   */
   private hintDrag(): void {
     if (this.dragHinted) return;
     this.dragHinted = true;
+    markHintSeen("drag-selected");
     this.hud.toast("Drag it to move it · drag anywhere else to look around", false, 3600);
   }
 
@@ -1009,6 +1014,8 @@ export class Interaction {
     this.shownDepot.id = -1;
     this.hud.showDepotCard(this.depotTitle(depotId));
     this.refreshDepotCard();
+    // An industry the player placed moves too (select first, as anything else).
+    if (this.movableIndustry(depotId) !== -1) this.hintDrag();
   }
 
   /** Keep the open depot card's pile counts current (call every frame). */
