@@ -563,6 +563,36 @@ export class Economy {
     return s && s.phase !== NONE && s.depotId !== -1 ? this.depots[s.depotId] : undefined;
   }
 
+  /**
+   * What the crane is doing for this train at this depot, as far as its cars still need: unloading (goods it takes,
+   * riders getting off) and/or loading (goods it may pick up, riders getting on). With nothing left to do (a moment
+   * as it finishes), what the depot does that this train may have done: a Drop stop only unloads.
+   */
+  workFor(trainId: number, d: DepotState): { load: boolean; unload: boolean } | null {
+    const train = this.sim.getTrain(trainId);
+    if (!train) return null;
+    const done = this.services.get(trainId)?.done;
+    let load = false;
+    let unload = false;
+    for (const car of train.cars) {
+      if (done?.has(car.id)) continue;
+      if (car.kind === "passenger") {
+        unload ||= this.canAlight(d, car.id);
+        load ||= this.canBoard(d, car.id);
+      } else if (canCarry(car.kind)) {
+        unload ||= this.canUnload(d, car.id);
+        load ||= this.loadKind(d, car.id) !== null || this.waitsForLoad(d, car.id);
+      }
+    }
+    if (load || unload) return { load, unload };
+    const route = this.routeOfTrain(train);
+    const r = RECIPES[d.role];
+    return {
+      load: r.gives.length > 0 && (route ? stopAt(route, d.id, "pick") : !r.routedOnly),
+      unload: r.takes.length > 0 && (route ? stopAt(route, d.id, "drop") : true),
+    };
+  }
+
   private service(trainId: number): Service {
     let s = this.services.get(trainId);
     if (!s) this.services.set(trainId, (s = { trainId, phase: NONE, depotId: -1, carId: -1, ticks: 0, still: 0, done: new Set() }));
@@ -604,15 +634,19 @@ export class Economy {
       s.depotId = d.id;
       s.phase = CRAWLING;
     }
-    // Reversing the lever sends the train on: nothing more for it here this visit.
+    // Reversing the lever sends the train on: nothing more for it here this visit (and it isn't being worked).
     if (this.drive(train) < 0) {
       for (const car of train.cars) s.done.add(car.id);
-      s.phase = CRAWLING;
+      s.phase = NONE;
       return Infinity;
     }
     if (s.phase === HALTED) return 0;
-    // Nothing for the crane in this train (this visit): it won't stop, so it needn't slow.
-    if (!train.cars.some((car) => !s.done.has(car.id) && this.needsService(d, car.id))) return Infinity;
+    // Nothing for the crane in this train (this visit): it won't stop, so it needn't slow (nor is it being worked:
+    // `servingDepot`).
+    if (!train.cars.some((car) => !s.done.has(car.id) && this.needsService(d, car.id))) {
+      s.phase = NONE;
+      return Infinity;
+    }
     s.phase = CRAWLING;
     let cap = CRAWL_SPEED;
     const len = this.depotLength(d);

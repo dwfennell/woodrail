@@ -1705,7 +1705,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       viewStatus.next = latest;
       viewStatus.since = now;
     }
-    if (opened || now - viewStatus.since >= STATUS_HOLD_MS) viewStatus.shown = latest;
+    // ("Starting" shows at once: it answers the Go just pressed.)
+    if (opened || latest === "Starting" || now - viewStatus.since >= STATUS_HOLD_MS) viewStatus.shown = latest;
     const status = viewStatus.shown;
     // The engine's own front, as a screen direction (degrees clockwise from right).
     const snap = game.snapshot;
