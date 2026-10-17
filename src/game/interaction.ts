@@ -32,8 +32,12 @@ import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 import { carNearTap, nearCarWins, type CarOnScreen } from "./touch-pick";
 
-/** On touch, held things float this far (px) above the finger so it doesn't hide them. */
-const TOUCH_LIFT_PX = 60;
+/**
+ * On touch, held things float this far (px) straight above the finger so it doesn't hide them: the held thing's centre,
+ * the same for every piece and every zoom (QA I5: with the grab point kept, it floated 30–90 px off, by piece and zoom,
+ * and every snap took corrections). About a fingertip's height: just clear of the nail.
+ */
+const TOUCH_LIFT_PX = 56;
 /** A tap on touch takes a car this near it on screen (half a 44 px target): cars are small at the default zoom. */
 const TOUCH_SLACK_PX = 22;
 /** About the middle of a car's body above the rails (mm): where a finger aims at it. */
@@ -2435,9 +2439,12 @@ export class Interaction {
       // well in front of the ground under it).
       // The auto straight is held, and seeks a seat, as the long straight it starts as.
       const holdType: PieceTypeId = m.auto ? "straight-216" : m.type;
+      // On touch the piece's centre is held at the lifted point, as drawn (it hovers HOLD_LIFT over its seat): not where
+      // it was grabbed, which put it a varying distance from the finger. A mouse keeps the grab point.
+      const touch = this.lastPointerWasTouch;
       const heldAt = (height: number): Pose | null => {
-        const p = this.planeAt(x, sy, height);
-        return p && poseForCentre(holdType, m.heldFlipped, p.x + m.offset.x, p.z + m.offset.z, m.heading);
+        const p = this.planeAt(x, sy, height + (touch ? HOLD_LIFT : 0));
+        return p && poseForCentre(holdType, m.heldFlipped, p.x + (touch ? 0 : m.offset.x), p.z + (touch ? 0 : m.offset.z), m.heading);
       };
       // Loose, a piece's first end lands on a quarter-square grid, so square-laid track lines up with the squares and
       // with other track.
@@ -2446,7 +2453,7 @@ export class Interaction {
         pose.z = Math.round(pose.z / PLACE_GRID) * PLACE_GRID;
         return pose;
       };
-      m.pose = loose(heldAt(0) ?? poseForCentre(holdType, m.heldFlipped, ground.x + m.offset.x, ground.z + m.offset.z, m.heading));
+      m.pose = loose(heldAt(0) ?? poseForCentre(holdType, m.heldFlipped, ground.x + (touch ? 0 : m.offset.x), ground.z + (touch ? 0 : m.offset.z), m.heading));
       m.looseY = looseHeight(this.game.landscape, this.game.layout, holdType, m.heldFlipped, m.pose, m.pieceId);
       // Resting up off the ground (on a hill, a riser, as a bridge), it's held where the finger points at that height.
       if (m.looseY > 0) {
@@ -2625,14 +2632,16 @@ export class Interaction {
     }
     m.ghost.visible = !m.overTray && !!ground;
     if (!ground) return;
-    const near = nearestCursor(this.game.layout, ground.x, ground.z, TRAIN_DROP_RANGE, this.cameraHeading());
+    // On touch, a train is held (and seeks track) a little above the finger too, so it and where it'll go can be seen.
+    const at = (this.lastPointerWasTouch ? this.touchLift(x, y) : null) ?? ground;
+    const near = nearestCursor(this.game.layout, at.x, at.z, TRAIN_DROP_RANGE, this.cameraHeading());
     m.target = near?.cursor ?? null;
     if (near) {
       const w = cursorWorld(this.game.layout, near.cursor, createWorldSample());
       m.ghost.position.set(w.x, w.y + 4, w.z);
       m.ghost.rotation.set(0, -w.heading, 0);
     } else {
-      m.ghost.position.set(ground.x, 30, ground.z);
+      m.ghost.position.set(at.x, 30, at.z);
       m.ghost.rotation.set(0, -this.cameraHeading(), 0);
     }
   }
