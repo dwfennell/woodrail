@@ -146,8 +146,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .depot-card > .card-title, .piece-card > .card-title { padding: 0 34px; }
 
 /* Toasts: a little paper label that slides down and settles with a slight tilt. */
+/* (As wide as its words, up to the screen less a margin: from `left: 50%` it would otherwise shrink to half the screen
+   and wrap a short message onto three lines.) */
 .toast { position: fixed; left: 50%; top: calc(max(10px, env(safe-area-inset-top)) + 62px); transform: translate(-50%, -14px) rotate(0deg); background: #fbf5e8; color: #3a2a1c; padding: 9px 18px; border-radius: 6px; font-weight: 800; opacity: 0;
-  box-shadow: 0 1px 0 #fff inset, 0 6px 16px rgba(60, 40, 20, 0.25); border-left: 4px solid #e0bf8d; transition: opacity 0.18s, transform 0.32s cubic-bezier(0.2, 1.4, 0.4, 1); pointer-events: none; max-width: calc(100% - 32px); text-align: center; }
+  box-shadow: 0 1px 0 #fff inset, 0 6px 16px rgba(60, 40, 20, 0.25); border-left: 4px solid #e0bf8d; transition: opacity 0.18s, transform 0.32s cubic-bezier(0.2, 1.4, 0.4, 1); pointer-events: none; width: max-content; max-width: calc(100% - 32px); text-align: center; }
 .toast.show { opacity: 1; transform: translate(-50%, 0) rotate(-0.8deg); pointer-events: auto; cursor: pointer; }
 /* Toasts sit above every panel and card (the Blueprints board too), so a message is never hidden. */
 .toast { z-index: 35; }

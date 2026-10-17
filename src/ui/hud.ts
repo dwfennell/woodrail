@@ -682,7 +682,7 @@ export class Hud {
       <div class="help-card">
         <h2>Welcome to Woodrail</h2>
         <div class="tips">
-          <div class="tip"><span class="tip-art art-build"></span><b>Build</b><span>Drag track from the tray. Pegs click into holes when they're close.</span></div>
+          <div class="tip"><span class="tip-art art-build"></span><b>Build</b><span>Tap a shelf in the tray, then drag a piece out. Pegs click into holes when they're close.</span></div>
           <div class="tip"><span class="tip-art art-run"></span><b>Run</b><span>Drop a train on the track and tap the engine to set it going.</span></div>
           <div class="tip"><span class="tip-art art-look"></span><b>Look around</b><span>Drag to pan, pinch or scroll to zoom, double-tap to take a closer look.</span></div>
         </div>
