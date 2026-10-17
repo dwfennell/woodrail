@@ -291,4 +291,14 @@ describe("findSnapAtPoint", () => {
     expect(findSnapAtPoint(l, "straight-144", false, P(300, 0), 0, { x: 300, z: 0 }).kind).toBe("none");
     expect(findSnapAtPoint(l, "straight-144", false, P(0, 0), 0, { x: 144, z: 0 }, a).kind).toBe("none");
   });
+
+  it("pointed at an end, a curve held nearly backward still meets it (by the end that turns it least)", () => {
+    const layout = new Layout();
+    layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 }, 0);
+    // A curve's two ends seat it 135° apart: held about 247° round, each would turn it past a quarter turn.
+    for (const deg of [235, 247.5, 260]) {
+      const s = findSnapAtPoint(layout, "curve-large", false, { x: 230, z: 0, heading: (deg * Math.PI) / 180 }, 0, { x: 216, z: 0 });
+      expect(s.kind, `${deg}°`).toBe("snapped");
+    }
+  });
 });

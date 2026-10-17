@@ -8,7 +8,7 @@ import { ghostMesh, pieceGeometry, type OutlineTone } from "../render/track-view
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, findLowCrossing, findOverlap, findSnap, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, findLowCrossing, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
@@ -131,6 +131,8 @@ type Mode =
       tapReach?: number;
       /** The auto straight: held as a long straight, it takes the length that meets a free end along its line. */
       auto?: boolean;
+      /** Seated where it can't go, but turned or flipped it would: says so ("Turn it to fit"), not why it can't. */
+      hint?: string | null;
       from: { pose: Pose; y: number } | null;
       offset: { x: number; z: number };
       ghost: Mesh;
@@ -1276,6 +1278,30 @@ export class Interaction {
   /** The message for the last "site" refusal. */
   private siteWhy = "";
 
+  /**
+   * A piece seated on an end where it can't go: would it go there by another of its ends (turned), or the other hand
+   * (flipped)? Then that's what to say, not why it can't go as it is. Kept for the seat it was worked out for (a few
+   * placement checks, only while it's refused).
+   */
+  private fitHint(type: PieceTypeId, flipped: boolean, snap: Extract<SnapResult, { kind: "snapped" }>, pieceId: number): string | null {
+    const key = `${type}|${flipped}|${snap.target}|${snap.connector}|${pieceId}|${this.game.layout.pieceCount}`;
+    if (this.hintFor?.key === key) return this.hintFor.hint;
+    const t = this.game.layout.worldConnector(snap.target, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+    const seat = { x: t.x, z: t.z, heading: t.heading + Math.PI };
+    const fits = (hand: boolean, skip: number) =>
+      getPieceDef(type, hand).connectors.some((c, k) => {
+        if (k === skip || Math.abs(t.y - (snap.y + c.y)) > 2) return false;
+        const pose = solveParentPose(c.pose, seat, { x: 0, z: 0, heading: 0 });
+        return this.placement(type, hand, pose, t.y - c.y, pieceId).reason === null;
+      });
+    // (A ramp's or buffer's flip only swaps its ends' peg and hole: no other shape.)
+    const flippable = getPieceDef(type, false).flippable && getPieceDef(type, true) !== getPieceDef(type, false) && !flipSwapsEnds(type);
+    const hint = fits(flipped, snap.connector) ? "Turn it to fit (↻ Turn)" : flippable && fits(!flipped, -1) ? "Flip it to fit (⇋ Flip)" : null;
+    this.hintFor = { key, hint };
+    return hint;
+  }
+  private hintFor: { key: string; hint: string | null } | null = null;
+
   private blockMessage(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
     return reason === "site" ? this.siteWhy : BLOCK_MESSAGES[reason];
@@ -1881,7 +1907,8 @@ export class Interaction {
       const { reason, risers } = this.placement(m.type, m.flipped, pose, py, m.pieceId);
       // (A preview under the mouse just shows red: the reason comes if it's clicked.)
       // While it's held where it can't go, the reason stays up (and goes once it can, or it's over the tray).
-      if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? this.blockMessage(reason) : null);
+      m.hint = reason && m.snap.kind === "snapped" && !m.auto ? this.fitHint(m.type, m.flipped, m.snap, m.pieceId) : null;
+      if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? (m.hint ?? this.blockMessage(reason)) : null);
       m.blocked = reason;
       m.risers = risers;
       // Trees hop out of the way of where the piece would go (and back when it moves on); a ramp shows its cutting.
@@ -1949,7 +1976,7 @@ export class Interaction {
     const { reason: final, risers } = this.placement(m.type, m.flipped, pose, y, m.pieceId);
     // The reason it couldn't go (if it can't) stays up long enough to read; else the held one goes.
     this.hud.setRefusal(null);
-    if (final && !m.overTray) this.hud.refuse(this.blockMessage(final));
+    if (final && !m.overTray) this.hud.refuse(m.hint ?? this.blockMessage(final));
     const mesh = m.ghost;
     const shown: PiecePose = { x: m.shown.x, y: m.shown.y, z: m.shown.z, heading: m.shown.heading };
     const industry = !!INDUSTRY_ROLE[m.type];
