@@ -1,5 +1,5 @@
 import type { MapMarker } from "../game/map-markers";
-import { declutterLabels, type LabelBox } from "./label-declutter";
+import { declutterLabels, edgeNudge, type LabelBox } from "./label-declutter";
 
 export interface MapViewHandlers {
   /** A marker was tapped: go and look at it. */
@@ -100,12 +100,16 @@ export class MapView {
     const flips = pts.map((p, k) => !!p && p.x + sizes[k].w > window.innerWidth - 8 && p.x - sizes[k].w > 8);
     const idx: number[] = [];
     const boxes: LabelBox[] = [];
+    // One that fits neither side (zoomed right out, a town at the edge) slides in to stay on screen.
+    const nudges = pts.map(() => 0);
     pts.forEach((p, k) => {
       if (!p) return;
       // The label's box starts 14px up-left of the dot (its css margin); a flipped one sits to the left of it.
       const w = sizes[k].w;
+      const left = Math.round(p.x) + (flips[k] ? 14 - w : -14);
+      nudges[k] = edgeNudge(left, w, window.innerWidth);
       idx.push(k);
-      boxes.push({ x: Math.round(p.x) + (flips[k] ? 14 - w : -14), y: Math.round(p.y) - 14, w, h: sizes[k].h, priority: this.markers[k].kind === "town" ? 1 : 0 });
+      boxes.push({ x: left + nudges[k], y: Math.round(p.y) - 14, w, h: sizes[k].h, priority: this.markers[k].kind === "town" ? 1 : 0 });
     });
     const spots = declutterLabels(boxes);
     this.markers.forEach((m, k) => {
@@ -117,7 +121,7 @@ export class MapView {
       el.classList.toggle("off", off);
       if (off || !p) return;
       el.classList.toggle("flip", flips[k]);
-      el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y) + spots[at].dy}px)${flips[k] ? " translateX(-100%)" : ""}`;
+      el.style.transform = `translate(${Math.round(p.x) + nudges[k]}px, ${Math.round(p.y) + spots[at].dy}px)${flips[k] ? " translateX(-100%)" : ""}`;
     });
   }
 }
