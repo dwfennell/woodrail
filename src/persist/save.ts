@@ -12,17 +12,20 @@ import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, type StopAction, PILE_CAP
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
-import { getPieceDef, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
+import { getPieceDef, Layout, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
+import { joinSavedLine, LINE_COLOURS } from "../game/lines";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
 /**
- * Save format, version 9. Plain JSON validated with Zod; only this module (and `landscape-data`) knows its shape.
- * The landscape is saved square by square (see `landscape-data.ts`): loading never regenerates it. No backward
- * compatibility until the game reaches v1.
+ * Save format, version 10 (lines: routes with a colour and a name). Plain JSON validated with Zod; only this module
+ * (and `landscape-data`) knows its shape. The landscape is saved square by square (see `landscape-data.ts`): loading
+ * never regenerates it. No backward compatibility until the game reaches v1: an older save is turned away
+ * (`OLDER_SAVE`), and the game starts afresh.
  */
-export const SAVE_VERSION = 9;
-/** Version 8 saves (a level was 64 mm then) still load: their heights are scaled to today's level (see `fromV8`). */
-const OLD_LEVEL = 64;
+export const SAVE_VERSION = 10;
+
+/** The error an older save gets (the title says so kindly). */
+export const OLDER_SAVE = "older version";
 
 const pieceSchema = z.object({
   id: z.number().int().positive(),
@@ -47,15 +50,8 @@ const trainSchema = z.object({
         landedFrom: z.number().int().min(0).optional(),
         /** People riding a coach: how many, and the station they got on at (its index in `depots`). */
         riders: z.object({ count: z.number().int().min(1).max(MAX_RIDERS), from: z.number().int().min(0) }).optional(),
-        /** An engine's train delivers only to this depot (its index in `depots`). */
-        deliverTo: z.number().int().min(0).optional(),
-        /** An engine's route: its stops (depot indices in `depots`, and what it does there), and the one it heads for. */
-        route: z
-          .object({
-            stops: z.array(z.tuple([z.number().int().min(0), z.enum(["both", "drop", "pick"])])).min(1),
-            next: z.number().int().min(0),
-          })
-          .optional(),
+        /** The line an engine runs (its id in `lines`), and the stop it heads for. */
+        line: z.object({ id: z.number().int().min(1), next: z.number().int().min(0) }).optional(),
       }),
     )
     .min(1),
@@ -68,7 +64,7 @@ const trainSchema = z.object({
 });
 
 const saveSchema = z.object({
-  version: z.union([z.literal(8), z.literal(SAVE_VERSION)]),
+  version: z.literal(SAVE_VERSION),
   landscape: landscapeSchema,
   towns: z.array(z.object({ id: z.number().int().min(0), stationPieceId: z.number().int().positive() })),
   pieces: z.array(pieceSchema),
@@ -98,6 +94,17 @@ const saveSchema = z.object({
   delivered: z.array(z.tuple([z.number().int().min(0), z.number().int().min(0)])),
   /** Everything delivered to each town, by kind (Game mode's town baskets). Older saves: planks only, in `delivered`. */
   deliveredGoods: z.array(z.tuple([z.number().int().min(0), z.record(z.string(), z.number().int().min(0))])).optional(),
+  /** Lines: a colour, a name, and stops (depot indices in `depots`, what's done there, wait there to fill). */
+  lines: z
+    .array(
+      z.object({
+        id: z.number().int().min(1),
+        colour: z.string().max(16),
+        name: z.string().max(40),
+        stops: z.array(z.tuple([z.number().int().min(0), z.enum(["auto", "both", "drop", "pick"]), z.boolean()])).min(1),
+      }),
+    )
+    .optional(),
   /** Placed catalogue models (optional: saves from before props load with none). */
   props: z
     .array(
@@ -137,6 +144,31 @@ export function serializeWorld(world: World): SaveData {
   // Depots on the map now (one whose industry piece was taken up is left out), numbered afresh.
   const kept = world.economy.allDepots().filter((d) => world.layout.getPiece(d.pieceId));
   const renumbered = new Map(kept.map((d, i) => [d.id, i]));
+  // Lines, with their stops at depots still on the map (a line left with none isn't saved), and each engine's line and
+  // the stop it heads for (counted among the kept stops). An engine on a route but no line (made in code) is saved
+  // as a line of its own.
+  const lines: NonNullable<SaveData["lines"]> = [];
+  const lineSaved = new Map<number, { id: number; next: number }>();
+  const savedLine = new Map<object, number>();
+  let spareId = Math.max(0, ...world.economy.lines.keys()) + 1;
+  for (const id of sim.trainIds())
+    for (const car of sim.getTrain(id)!.cars) {
+      const r = world.economy.routeOf(car.id);
+      if (!r) continue;
+      const line = world.economy.lines.get(world.economy.lineIdOf.get(car.id) ?? -1);
+      let lineId = savedLine.get(r.stops);
+      if (lineId === undefined) {
+        const stops = r.stops.flatMap((s) => (renumbered.has(s.depotId) ? [[renumbered.get(s.depotId)!, s.action, !!s.waitFill] as [number, StopAction, boolean]] : []));
+        if (stops.length === 0) continue;
+        lineId = line?.id ?? spareId++;
+        savedLine.set(r.stops, lineId);
+        const look = line ?? LINE_COLOURS[(lineId - 1) % LINE_COLOURS.length];
+        lines.push({ id: lineId, colour: look.colour, name: line?.name ?? `${LINE_COLOURS[(lineId - 1) % LINE_COLOURS.length].name} line`, stops });
+      }
+      const kept = r.stops.slice(0, r.next).filter((s) => renumbered.has(s.depotId)).length;
+      const n = lines.find((l) => l.id === lineId)!.stops.length;
+      lineSaved.set(car.id, { id: lineId, next: Math.min(kept, n - 1) });
+    }
   const trains: SaveData["trains"] = sim.trainIds().map((id) => {
     const t = sim.getTrain(id)!;
     return {
@@ -144,9 +176,7 @@ export function serializeWorld(world: World): SaveData {
         const cargo = world.economy.cargoOf(c.id);
         const riders = world.economy.ridersOf(c.id);
         const look = sim.lookOf(c.id);
-        const r = world.economy.routeOf(c.id);
-        const stops = r ? r.stops.flatMap((s) => (renumbered.has(s.depotId) ? [[renumbered.get(s.depotId)!, s.action] as [number, StopAction]] : [])) : [];
-        const route = stops.length > 0 ? { stops, next: Math.min(r!.next, stops.length - 1) } : undefined;
+        const line = lineSaved.get(c.id);
         return {
           kind: c.kind,
           facing: c.facing,
@@ -154,7 +184,7 @@ export function serializeWorld(world: World): SaveData {
           ...(look !== "classic" ? { look } : {}),
           ...(cargo.kind && cargo.count > 0 ? { cargo: { kind: cargo.kind, count: cargo.count } } : {}),
           ...(cargo.count > 0 && renumbered.has(world.economy.landedFrom.get(c.id) ?? -1) ? { landedFrom: renumbered.get(world.economy.landedFrom.get(c.id)!)! } : {}),
-          ...(route ? { route } : {}),
+          ...(line ? { line } : {}),
           ...(riders.count > 0 && renumbered.has(riders.from) ? { riders: { count: Math.min(riders.count, MAX_RIDERS), from: renumbered.get(riders.from)! } } : {}),
         };
       }),
@@ -171,31 +201,22 @@ export function serializeWorld(world: World): SaveData {
     depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
+    ...(lines.length > 0 ? { lines } : {}),
     props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}) })),
-  };
-}
-
-/**
- * A version 8 save, brought up to date: a level was 64 mm, now `RISER_HEIGHT`, so heights (track, props) scale down
- * with it. (Ramps are shorter now too: track that ran on from a ramp's top end is left a gap short.)
- */
-function fromV8(save: z.infer<typeof saveSchema>): z.infer<typeof saveSchema> {
-  const k = RISER_HEIGHT / OLD_LEVEL;
-  return {
-    ...save,
-    pieces: save.pieces.map((p) => ({ ...p, y: Math.round(p.y * k * 1000) / 1000 })),
-    ...(save.props ? { props: save.props.map((p) => ({ ...p, y: Math.round(p.y * k * 1000) / 1000 })) } : {}),
   };
 }
 
 /** Rebuild a world from saved data. Never throws on bad input. */
 export function deserializeWorld(data: unknown): Result<World, string> {
+  // An older save: turned away (not migrated).
+  const version = (data as { version?: unknown } | null)?.version;
+  if (typeof version === "number" && version < SAVE_VERSION) return err(OLDER_SAVE);
   const parsed = saveSchema.safeParse(data);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     return err(`invalid save: ${issue.path.join(".")} — ${issue.message}`);
   }
-  const save = parsed.data.version === 8 ? fromV8(parsed.data) : parsed.data;
+  const save = parsed.data;
   const layout = new Layout();
   for (const p of [...save.pieces].sort((a, b) => a.id - b.id)) {
     if (!layout.restorePiece(p.id, p.type, { x: p.x, z: p.z, heading: p.heading }, p.y, p.flipped)) {
@@ -275,10 +296,8 @@ export function deserializeWorld(data: unknown): Result<World, string> {
       const look = t.cars[i].look;
       if (look && CAR_LOOKS[car.kind].includes(look)) sim.setLook(car.id, look);
       if (car.kind === "engine") sim.setLever(car.id, t.cars[i].lever);
-      // (A day's saves kept a single "deliver to" depot: routes took its place, so it's dropped.)
-      const route = t.cars[i].route;
-      const stops = route ? route.stops.filter(([d]) => economy.depot(d)).map(([depotId, action]) => ({ depotId, action })) : [];
-      if (car.kind === "engine" && stops.length > 0) economy.setRoute(car.id, { stops, next: Math.min(route!.next, stops.length - 1) });
+      const on = t.cars[i].line;
+      if (car.kind === "engine" && on) joinSavedLine(economy, save.lines ?? [], car.id, on.id, on.next);
       const cargo = t.cars[i].cargo;
       if (cargo && canCarry(car.kind, cargo.kind)) {
         economy.setCargo(car.id, cargo.kind, cargo.count);

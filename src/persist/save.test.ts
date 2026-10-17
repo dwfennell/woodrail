@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { RISER_HEIGHT } from "../track";
 import { buildStarterWorld, unlockPlot, type World } from "../game/world";
 import { appendPiece, connectorRef } from "../track";
 import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape";
 import { encodeRoad, pieceOf } from "../roads";
 import { SIM_DT } from "../sim";
-import { deserializeWorld, SAVE_VERSION, serializeWorld, type SaveData } from "./save";
+import { deserializeWorld, OLDER_SAVE, SAVE_VERSION, serializeWorld, type SaveData } from "./save";
+import { editLine, lineOf } from "../game/lines";
 import { CARGO_KINDS } from "../economy";
 
 /** The starter map with its first two towns joined by a line and a train running on it. */
@@ -79,20 +79,33 @@ describe("save format", () => {
     ]);
   });
 
-  it("is at version 9 (a level is RISER_HEIGHT, not 64 mm)", () => {
-    expect(SAVE_VERSION).toBe(9);
+  it("is at version 10 (lines), and turns older saves away, saying so", () => {
+    expect(SAVE_VERSION).toBe(10);
+    const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
+    data.version = 9;
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe(OLDER_SAVE);
   });
 
-  it("loads version 8 saves, their heights scaled from 64 mm levels to today's", () => {
+  it("keeps lines: their colour, name and stops (wait to fill too), shared by the trains that run them", () => {
     const world = worldWithTrain();
-    const data = serializeWorld(world) as unknown as { version: number; pieces: { y: number }[] };
-    data.version = 8;
-    data.pieces.forEach((p, k) => (p.y = k === 0 ? 128 : 0));
-    const r = deserializeWorld(data);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    const ys = [...r.value.layout.pieceIds()].map((id) => r.value.layout.getPiece(id)!.y);
-    expect(ys).toContain(2 * RISER_HEIGHT);
+    const engine = world.sim.getTrain(world.sim.trainIds()[0])!.cars[0];
+    const [town, other] = world.economy.allDepots().filter((d) => d.role === "town");
+    const line = editLine(world.economy, engine.id, (s) => s.push({ depotId: town.id, action: "auto", waitFill: true }, { depotId: other.id, action: "drop" }))!;
+    line.name = "Timber run";
+    world.economy.routeOf(engine.id)!.next = 1;
+    const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
+    if (!r.ok) throw new Error(r.error);
+    const loaded = r.value.sim.getTrain(r.value.sim.trainIds()[0])!.cars[0];
+    const back = lineOf(r.value.economy, loaded.id)!;
+    expect(back).toMatchObject({ colour: line.colour, name: "Timber run" });
+    expect(back.stops.map((s) => [r.value.economy.depot(s.depotId)!.pieceId, s.action, !!s.waitFill])).toEqual([
+      [town.pieceId, "auto", true],
+      [other.pieceId, "drop", false],
+    ]);
+    expect(r.value.economy.routeOf(loaded.id)!.stops).toBe(back.stops);
+    expect(r.value.economy.routeOf(loaded.id)!.next).toBe(1);
   });
 
   it("refuses version 7 saves (their landscape was only a seed)", () => {

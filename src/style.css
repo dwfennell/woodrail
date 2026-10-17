@@ -570,14 +570,22 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .engine-extra { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .engine-extra-label { font-weight: 700; opacity: 0.75; font-size: 0.9em; }
 .engine-extra.route { flex-direction: column; align-items: stretch; gap: 4px; }
-.route-head { display: flex; align-items: baseline; gap: 8px; }
-.route-none { font-size: 0.85em; opacity: 0.7; }
-.route-stop { display: flex; align-items: center; gap: 4px; }
-.route-stop .route-mark { width: 1.2em; text-align: center; font-weight: 800; opacity: 0.6; }
-.route-stop.next .route-mark { color: #c8442f; opacity: 1; }
-.route-stop .route-name { flex: 1; text-align: left; }
-.route-stop .route-remove { padding-inline: 8px; }
-.route-add { align-self: flex-start; }
+.route-head { display: flex; align-items: center; gap: 8px; }
+.route-head .engine-extra-label { display: inline-flex; align-items: center; gap: 6px; }
+.route-swatch { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.15); }
+.route-none { font-size: 0.85em; opacity: 0.7; flex: 1; }
+.route-head .route-plan { margin-left: auto; }
+.route-plan.on { background: #3c9a5f; color: #fff; }
+.route-hint { font-size: 0.85em; opacity: 0.75; }
+.route-stops { display: flex; flex-wrap: wrap; gap: 4px; }
+.route-chip { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
+.route-chip.next { font-weight: 800; }
+.route-chip.picked { outline: 2px solid #3a2a1c; outline-offset: 1px; }
+.route-chip[data-intent="drop"]::after { content: " ↓"; opacity: 0.7; }
+.route-chip[data-intent="pick"]::after { content: " ↑"; opacity: 0.7; }
+.route-tools { display: flex; gap: 4px; }
+.route-tools .route-action { flex: 1; }
+.route-warn { font-size: 0.85em; color: #b0391f; font-weight: 700; }
 
 /* "Show me": a goal town's name over it for a few seconds (positioned by the game each frame), in a layer over the
    canvas that clips them, so one off screen never widens the page. */

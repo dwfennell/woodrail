@@ -7,7 +7,7 @@ import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { CELL, connectedPairs, fixedHome, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
-import { hasSave, loadFromStorage, loadGoals, loadProgress, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
+import { hasSave, loadFromStorage, loadGoals, loadProgress, OLDER_SAVE, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
@@ -28,10 +28,11 @@ import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
-import { nextStop, routeStops } from "./game/route-stops";
+import { routeStops } from "./game/route-stops";
+import { editLine, lineOf, moveStop } from "./game/lines";
 import { decoupleWords } from "./game/decouple-words";
 import { engineStatus, trainsForReport, type CantMove } from "./game/engine-status";
-import { MAX_SHEDS, SHED_CAP, type StopAction } from "./economy";
+import { MAX_SHEDS, SHED_CAP, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { goodsOf, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
@@ -96,6 +97,9 @@ function linkedSeed(): number | null {
  * The world to open with. A linked map opens in Sandbox (fresh, unless the sandbox autosave is already that map, so
  * reloading keeps your track); otherwise the last mode's autosave, or the starter map.
  */
+/** The autosave was from an older version of the game (turned away: a fresh map instead). The game says so. */
+let olderSave = false;
+
 function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean } {
   const seed = linkedSeed();
   const mode = seed !== null ? "sandbox" : loadLastMode();
@@ -103,6 +107,7 @@ function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean } {
   const resumed = takeResume() === mode;
   const saved = loadFromStorage(mode);
   if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${mode} autosave (${saved.error})`);
+  if (saved && !saved.ok && saved.error === OLDER_SAVE) olderSave = true;
   if (seed !== null) {
     const same = saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter;
     return { world: same ? saved.value : createWorld(seed), mode, linked: true };
@@ -1579,14 +1584,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows);
   }
 
-  // The open engine's route (both modes; Game mode once Train routes is learned): its stops in order, what it does
-  // at each (drop goods, pick them up, both), and the one it's heading for. It sets the switches itself.
+  // The open engine's line (both modes; Game mode once Train routes is learned): a colour and a name, its stops in
+  // order (the one it's heading for marked), and, a stop tapped, what to do with it. Planning, a tap on a station or
+  // depot on the map adds it (see `interaction.onPickPlace`). The economy works out what's loaded and dropped where
+  // ("auto"); Drop and Pick up are kept as overrides.
   let routeShown = "";
-  const ACTIONS: Record<StopAction, { label: string; next: StopAction; tip: string }> = {
-    both: { label: "Both", next: "drop", tip: "Drops goods this stop takes, and picks up what it gives" },
-    drop: { label: "Drop", next: "pick", tip: "Only drops goods off here" },
-    pick: { label: "Pick up", next: "both", tip: "Only picks goods up here" },
+  /** Planning the open engine's line: taps on places add them as stops. */
+  let planning = false;
+  /** The stop whose chip was tapped (its actions shown), or −1. */
+  let stopPicked = -1;
+  const INTENTS: Record<StopAction, { label: string; tip: string }> = {
+    auto: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
+    both: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
+    drop: { label: "Only drop", tip: "Only drops goods off here" },
+    pick: { label: "Only pick up", tip: "Only picks goods up here" },
   };
+  const NEXT_INTENT: Record<StopAction, StopAction> = { auto: "drop", both: "drop", drop: "pick", pick: "auto" };
   /**
    * The open engine card's live parts: what the train's doing, and which way its engine's front points on screen (the
    * way arrow follows the camera and the track). Cheap: a few lookups a frame, and the card redraws only on change.
@@ -1732,11 +1745,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (carId === -1 || !allowed) {
       if (routeShown !== "") hud.engineExtra.hidden = true;
       routeShown = "";
+      setPlanning(false);
       return;
     }
     const stops = routeStops(game.world);
+    const line = lineOf(game.economy, carId);
     const r = game.economy.routeOf(carId);
-    const key = `${carId}:${stops.length}:${r ? `${r.next}|${r.stops.map((st) => `${st.depotId}${st.action}`).join(",")}` : "-"}`;
+    const key = `${carId}:${stops.length}:${planning}:${stopPicked}:${line ? `${line.id}|${line.colour}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}`).join(",")}` : "-"}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -1744,16 +1759,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     box.hidden = stops.length === 0;
     box.classList.add("route");
     const nameOf = (id: number) => stops.find((st) => st.depotId === id)?.name ?? "?";
-    // A warehouse takes and gives the same goods: a stop there either drops off or picks up (Both reads as Drop).
-    const atWarehouse = (st: { depotId: number }) => game.economy.depot(st.depotId)?.role === "warehouse";
-    const shown = (st: { depotId: number; action: StopAction }): StopAction => (atWarehouse(st) && st.action === "both" ? "drop" : st.action);
-    const stored = (st: { depotId: number; action: StopAction }): StopAction => (atWarehouse(st) ? (shown(st) === "drop" ? "pick" : "drop") : ACTIONS[st.action].next);
-    const set = (edit: (stops: { depotId: number; action: StopAction }[]) => void) => {
-      const cur = game.economy.routeOf(carId);
-      const list = cur ? cur.stops.map((st) => ({ ...st })) : [];
-      edit(list);
-      game.economy.setRoute(carId, list.length > 0 ? { stops: list, next: Math.min(cur?.next ?? 0, list.length - 1) } : null);
+    const edit = (change: (l: RouteStopDef[]) => void) => {
+      editLine(game.economy, carId, change);
       showRoute();
+      routeChanged();
       scheduleSave();
     };
     const button = (text: string, cls: string, tip: string, onClick: () => void) => {
@@ -1768,40 +1777,95 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     head.className = "route-head";
     const label = document.createElement("span");
     label.className = "engine-extra-label";
-    label.textContent = "Route";
+    if (line) {
+      const swatch = document.createElement("i");
+      swatch.className = "route-swatch";
+      swatch.style.background = line.colour;
+      label.append(swatch, line.name);
+    } else label.textContent = "Route";
     head.append(label);
-    if (!r) {
+    if (!line && !planning) {
       const any = document.createElement("span");
       any.className = "route-none";
       any.textContent = "Goes anywhere, works at every stop";
       head.append(any);
     }
-    box.append(head);
-    (r?.stops ?? []).forEach((st, k) => {
-      const row = document.createElement("div");
-      row.className = "route-stop";
-      row.classList.toggle("next", r!.next === k);
-      const mark = document.createElement("span");
-      mark.className = "route-mark";
-      mark.textContent = r!.next === k ? "▶" : `${k + 1}`;
-      row.append(
-        mark,
-        button(nameOf(st.depotId), "route-name", "Tap to choose another stop", () => set((l) => (l[k].depotId = nextStop(routeStops(game.world), l[k].depotId)))),
-        button(ACTIONS[shown(st)].label, "route-action", ACTIONS[shown(st)].tip, () => set((l) => (l[k].action = stored(l[k])))),
-        button("✕", "route-remove", "Take this stop off the route", () => set((l) => l.splice(k, 1))),
-      );
-      box.append(row);
-    });
-    box.append(
-      button("+ Stop", "route-add", "Add a stop: the train stops only at its stops, and sets the switches on its way", () =>
-        set((l) => {
-          const used = new Set(l.map((st) => st.depotId));
-          const pick = stops.find((st) => !used.has(st.depotId)) ?? stops[0];
-          l.push({ depotId: pick.depotId, action: "both" });
-        }),
-      ),
+    head.append(
+      planning
+        ? button("Done", "route-plan on", "Finish planning the route", () => setPlanning(false))
+        : button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots on the map to add them as stops, in order", () => setPlanning(true)),
     );
+    box.append(head);
+    if (planning) {
+      const hint = document.createElement("div");
+      hint.className = "route-hint";
+      hint.textContent = line ? "Tap places to add them · tap a stop below to change it" : "Tap stations and depots on the map, in order";
+      box.append(hint);
+    }
+    if (line) {
+      const strip = document.createElement("div");
+      strip.className = "route-stops";
+      line.stops.forEach((st, k) => {
+        const chip = button(`${r?.next === k ? "▶" : k + 1} ${nameOf(st.depotId)}`, "route-chip", "Tap for this stop's options", () => {
+          stopPicked = stopPicked === k ? -1 : k;
+          showRoute();
+        });
+        chip.classList.toggle("next", r?.next === k);
+        chip.classList.toggle("picked", stopPicked === k);
+        if (st.action === "drop" || st.action === "pick") chip.dataset.intent = st.action;
+        chip.style.setProperty("--line", line.colour);
+        strip.append(chip);
+      });
+      box.append(strip);
+      const k = stopPicked;
+      if (k >= 0 && k < line.stops.length) {
+        const st = line.stops[k];
+        const tools = document.createElement("div");
+        tools.className = "route-tools";
+        tools.append(
+          button("◀", "route-move", "Visit this stop earlier", () => edit((l) => (moveStop(l, k, k - 1), (stopPicked = Math.max(0, k - 1))))),
+          button("▶", "route-move", "Visit this stop later", () => edit((l) => (moveStop(l, k, k + 1), (stopPicked = Math.min(l.length - 1, k + 1))))),
+          button(INTENTS[st.action].label, "route-action", INTENTS[st.action].tip, () => edit((l) => (l[k].action = NEXT_INTENT[l[k].action]))),
+          button("✕", "route-remove", "Take this stop off the route", () => edit((l) => (l.splice(k, 1), (stopPicked = -1)))),
+        );
+        box.append(tools);
+      }
+      const why = cantReach?.(carId);
+      if (why) {
+        const warn = document.createElement("div");
+        warn.className = "route-warn";
+        warn.textContent = why;
+        box.append(warn);
+      }
+    }
   }
+
+  /** Plan the open engine's line by tapping places (on), or stop (off). */
+  function setPlanning(on: boolean): void {
+    if (planning === on) return;
+    planning = on;
+    stopPicked = -1;
+    interaction.onPickPlace = on
+      ? (depotId) => {
+          const carId = interaction.openEngineCarId;
+          if (carId === -1) return false;
+          editLine(game.economy, carId, (l) => {
+            // The same place twice in a row is one visit: not added again.
+            if (l.at(-1)?.depotId !== depotId) l.push({ depotId, action: "auto" });
+          });
+          showRoute();
+          routeChanged();
+          scheduleSave();
+          return true;
+        }
+      : null;
+    showRoute();
+  }
+
+  /** Why the open engine's line can't be run as it stands (a stop no track leads to), or null: see the route view. */
+  let cantReach: ((carId: number) => string | null) | null = null;
+  /** The open engine's line changed (its ribbon is redrawn). */
+  let routeChanged = (): void => {};
 
   // The map view (Game mode): the whole land from above, with what each town wants and each depot holds.
   const mapView = new MapView(hud.root, { go: (m) => goToMarker(m), close: () => closeMap(true) });
@@ -1943,6 +2007,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
+      if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game: here's a fresh one");
       setWorld(saved?.ok ? saved.value : buildStarterWorld());
     }
     enter(next);
@@ -1975,6 +2040,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     mode = next;
     saveLastMode(mode);
     title.hide();
+    if (olderSave) {
+      olderSave = false;
+      hud.toast("Your last map was saved by an older version of the game: here's a fresh one", false, 6000);
+    }
     leaveOpening();
     // The first frames after the map appears (or changes) are slow while it settles: not a reason to draw coarser.
     game.settleResolution();

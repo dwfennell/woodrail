@@ -98,8 +98,35 @@ export function pilesOf(role: DepotRole): CargoKind[] {
   return CARGO_KINDS.filter((k) => r.takes.includes(k) || r.gives.includes(k));
 }
 
-/** What a train does at a stop on its route: drop goods off, pick goods up, or both. */
-export type StopAction = "both" | "drop" | "pick";
+/**
+ * What a train does at a stop on its route: drop goods off, pick goods up, both, or ("auto", a line's default) what
+ * the line's stops call for. (Until the intent rules are in, "auto" works as "both".)
+ */
+export type StopAction = "auto" | "both" | "drop" | "pick";
+
+/** A stop on a route: the depot, what the train does there, and (lines) whether it waits there to fill. */
+export interface RouteStopDef {
+  depotId: number;
+  action: StopAction;
+  waitFill?: boolean;
+}
+
+/**
+ * A line: a route with a colour and a name, run by a train (Phase 2: several). Its `stops` are the very array its
+ * trains' routes hold, so an edit to the line is the trains' route at once. Kept by the economy (`lines`, and which
+ * engine runs which: `lineIdOf`); made and edited through src/game/lines.ts.
+ */
+export interface Line {
+  readonly id: number;
+  colour: string;
+  name: string;
+  readonly stops: RouteStopDef[];
+}
+
+/** What the economy's intent rules read of a car's line (see `lineOfCar`). */
+export interface LineView {
+  stops: { depot: number; intent: "auto" | "drop" | "pick"; waitFill: boolean }[];
+}
 
 /**
  * A train's route: the depots it stops at, in order, and what it does at each. A routed train is served only at the
@@ -107,7 +134,7 @@ export type StopAction = "both" | "drop" | "pick";
  * toward it (see `steer`); passing that stop moves `next` on.
  */
 export interface Route {
-  stops: { depotId: number; action: StopAction }[];
+  stops: RouteStopDef[];
   /** The stop it's heading for (an index into `stops`). */
   next: number;
   /** It's at its next stop now (it moves on to the one after when it leaves). */
@@ -183,6 +210,9 @@ export class Economy {
   private readonly riders = new Map<number, Riders>();
   /** Engine car id → its train's route (see `Route`). Trains with none are served at any depot they pass. */
   private readonly routes = new Map<number, Route>();
+  /** Lines by id (see `Line`), and the line each engine runs. */
+  readonly lines = new Map<number, Line>();
+  readonly lineIdOf = new Map<number, number>();
   /** Town id → plank bundles delivered there (by train or by hand). */
   readonly delivered = new Map<number, number>();
   /** Town id → everything delivered there, by kind (planks are counted in `delivered` too). */
@@ -443,6 +473,16 @@ export class Economy {
   setRoute(engineCarId: number, route: Route | null): void {
     if (!route || route.stops.length === 0) this.routes.delete(engineCarId);
     else this.routes.set(engineCarId, route);
+  }
+
+  /**
+   * The line the train with this car runs, as the intent rules read it: its stops, what to do at each, and whether to
+   * wait there to fill. Null if it runs none (or its route has no stops left on the map).
+   */
+  lineOfCar(carId: number): LineView | null {
+    const route = this.routeOfCar(carId);
+    if (!route) return null;
+    return { stops: route.stops.map((s) => ({ depot: s.depotId, intent: s.action === "both" ? "auto" : s.action, waitFill: !!s.waitFill })) };
   }
 
   /** This engine's route, if it has one. */
@@ -929,6 +969,10 @@ export class Economy {
     for (const id of this.cargo.keys()) if (!this.sim.findCar(id)) this.cargo.delete(id);
     for (const id of this.riders.keys()) if (!this.sim.findCar(id)) this.riders.delete(id);
     for (const id of this.routes.keys()) if (!this.sim.findCar(id)) this.routes.delete(id);
+    // An engine gone: off its line; a line no train runs is forgotten.
+    for (const id of this.lineIdOf.keys()) if (!this.routes.has(id)) this.lineIdOf.delete(id);
+    const run = new Set(this.lineIdOf.values());
+    for (const id of this.lines.keys()) if (!run.has(id)) this.lines.delete(id);
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);
   }
 }
@@ -944,7 +988,7 @@ function stopAt(route: Route, depotId: number, act: "drop" | "pick"): boolean {
   for (let k = 0; k < n; k++) {
     const s = route.stops[(route.next + k) % n];
     if (s.depotId !== depotId) return false;
-    if (s.action === "both" || s.action === act) return true;
+    if (s.action === "both" || s.action === "auto" || s.action === act) return true;
   }
   return false;
 }

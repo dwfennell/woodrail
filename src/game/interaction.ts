@@ -320,6 +320,8 @@ export class Interaction {
   onDepart: (() => void) | null = null;
   /** A switch was thrown (it's saved; nothing else changed). */
   onSwitched: (() => void) | null = null;
+  /** Planning a train's route: a tap on a station or depot is offered here (its economy depot); true if taken. */
+  onPickPlace: ((depotId: number) => boolean) | null = null;
   /**
    * A tap on empty ground (where it landed, and where on screen): true if it was taken (then it doesn't count toward
    * a double tap).
@@ -1304,6 +1306,11 @@ export class Interaction {
 
   private tap(p: Press, add = false): void {
     const g = this.game;
+    // Planning a train's route: a station or depot tapped is a stop (see `onPickPlace`).
+    if (this.onPickPlace) {
+      const depot = p.kind === "depot" ? g.economy.depot(p.depotId) : p.kind === "piece" ? g.economy.depotAtPiece(p.pieceId) : undefined;
+      if (depot && this.onPickPlace(depot.id)) return;
+    }
     if (p.kind === "lever") {
       // Only the points move: redrawn and saved, nothing else rebuilt (no geometry changed).
       g.sim.toggleSwitch(p.pieceId);
