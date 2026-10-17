@@ -266,16 +266,20 @@ export class DrawHand {
 
   /** The line's own pieces so far, in a scratch layout (for crossing itself, and closing a loop on its own start). */
   private syncOwn(line: readonly DrawnPiece[]): void {
-    if (this.ownCount === line.length) return;
+    if (this.ownCount === line.length && this.ownLast === line[line.length - 1]) return;
     for (const id of [...this.own.pieceIds()]) this.own.removePiece(id);
     for (const p of line) this.own.addPiece(p.type, p.pose, p.y, p.flipped);
     this.ownCount = line.length;
+    this.ownLast = line[line.length - 1];
   }
+  private ownLast: DrawnPiece | undefined;
 
   /** The layouts a line can close onto: the map's track, and its own (a loop back to where it started). */
-  private closable(): Layout[] {
+  private closable(last: "with" | "without"): Layout[] {
     if (!this.line) return [this.game.layout];
-    this.syncOwn(this.line.pieces);
+    // (Asked whether the piece just laid closes the line, the line's own track is what was there before it: else
+    // that piece would already be seated on the start it's meant to find free.)
+    this.syncOwn(last === "with" ? this.line.pieces : this.line.pieces.slice(0, -1));
     return [this.game.layout, this.own];
   }
 
@@ -288,7 +292,7 @@ export class DrawHand {
     const long = getPieceDef("straight-216", false);
     const pose = solveParentPose(long.connectors[seated].pose, { x: e.x, z: e.z, heading: e.heading + Math.PI }, { x: 0, z: 0, heading: 0 });
     let fit: ReturnType<typeof fitAutoStraight> = null;
-    for (const layout of this.closable()) {
+    for (const layout of this.closable("with")) {
       const f = fitAutoStraight(layout, pose, e.y, seated, []);
       if (f && !f.gap) {
         fit = f;
@@ -307,7 +311,7 @@ export class DrawHand {
   private closes(e: DrawEnd): boolean {
     const near: number[] = [];
     const w = createWorldConnector();
-    for (const layout of this.closable()) {
+    for (const layout of this.closable("without")) {
       const n = layout.queryFreeConnectors(e.x, e.z, JOINT_POS_TOLERANCE, near);
       for (let i = 0; i < n; i++) {
         layout.worldConnector(near[i], w);

@@ -315,7 +315,8 @@ if (site) {
     return null;
   });
   if (open) {
-    await focus(open.x, open.z, 520);
+    // Framed with room all round (near the edges the view pans, and the finger's points move under it).
+    await focus(open.x, open.z + 180, 900);
     await p.evaluate(() => window.__toasts.splice(0));
     const [n0, j0] = await p.evaluate(() => [D.pieces(), D.joints()]);
     const loop = [];
