@@ -313,6 +313,10 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
    - A deck: `gated: true` on its track. Only path `switchState % paths.length` joins its ends (`routeFrom`); the
      others are open ends, where trains turn back. `Sim.toggleSwitch` steps it, refuses while a train is on it, and
      keeps it closed for `DECK_GLIDE_S` while it moves. Up to `MAX_CONNECTORS` (8) ends.
+     A train standing still wholly on a deck rides it (`Sim.startRide`): its axles go to the new road at once (on a
+     turntable turned past half round, running the other way: an engine turned round), and it's drawn carried round
+     over the glide, held still, nothing coupling to it. A train partly on it or moving refuses the turn
+     (`deckRefusal`, with the toast).
 6. **Tests to copy:**
    - `src/track/kits.test.ts`: the registry;
    - `src/game/kit-footprint.test.ts`: the footprint and flip hint;

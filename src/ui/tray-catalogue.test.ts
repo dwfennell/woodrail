@@ -69,3 +69,16 @@ describe("kit pieces on the catalogue shelves (Sandbox)", () => {
     }
   });
 });
+
+describe("the track cleaner on the Trains tab", () => {
+  const cleanerIn = (mode: "sandbox" | "game") =>
+    trayTabs(mode)
+      .find((t) => t.id === "trains")!
+      .groups.some((g) => g.items.some((i) => i.kind === "train" && i.cars.includes("cleaner")));
+  it("is a wagon in Sandbox, and not on Game mode's tray", () => {
+    expect(cleanerIn("sandbox")).toBe(true);
+    expect(cleanerIn("game")).toBe(false);
+    expect(trayTabs("sandbox").some((t) => t.id === "industries")).toBe(false);
+    expect(trayTabs("game").some((t) => t.id === "industries")).toBe(true);
+  });
+});
