@@ -18,7 +18,7 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { canStandOnArches, flipSwapsEnds, getPieceDef, isBridge, isJoin, pathLength, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceDef, type PieceTypeId, type PlacedPiece } from "../track";
+import { canStandOnArches, connectorRef, flipSwapsEnds, getPieceDef, isBridge, isJoin, pathLength, pieceOfRef, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceDef, type PieceTypeId, type PlacedPiece } from "../track";
 import { MAX_BRIDGE_LEVELS } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
@@ -318,6 +318,19 @@ export function pieceMatrix(x: number, y: number, z: number, heading: number, ou
   return out.makeRotationY(-heading).setPosition(x, y, z);
 }
 
+/** How far past a free end (mm) its end board stands. */
+const END_BOARD_OUT = 8;
+
+/**
+ * An end board on its own (as TrackView stands past free ends), its own geometry: for a held piece's end that will be
+ * left open (a ghost showing the gap it leaves). In an end's frame: x outward.
+ */
+export function endBoardModel(mats: Materials): Group {
+  const board = new Mesh(new RoundedBoxGeometry(3, 14, 22, 1, 1).translate(END_BOARD_OUT, 9, 0), mats.lacquer("#c8442f"));
+  const stripe = new Mesh(new BoxGeometry(3.4, 3.5, 22.4).translate(END_BOARD_OUT, 9, 0), mats.lacquer("#f6f1e6"));
+  return new Group().add(board, stripe);
+}
+
 const SWITCH_LEVER_OFFSET = TRACK_WIDTH / 2 + 9;
 const SIGNAL_HEIGHT = 54;
 /** Arm angle above level when the switch is set to its branch. */
@@ -366,6 +379,18 @@ export class TrackView {
   /** Pieces drawn elsewhere for now (stand-in meshes animating in their place), with how many stand-ins each. */
   private readonly hidden = new Map<number, number>();
   private readonly leverGeometry = switchLeverGeometry();
+  /**
+   * Track that just stops: a little red end board stands past each end joined to nothing, so a gap (one hidden under a
+   * station, say) is plain to see. All of them while building (`showAllEnds`); else only where a train has turned back.
+   */
+  private endBoards: InstancedMesh[] = [];
+  private allEnds = false;
+  /** Ends (connector refs) a train has turned back at, still free. */
+  private readonly stuckEnds = new Set<number>();
+  private readonly endParts = {
+    board: new RoundedBoxGeometry(3, 14, 22, 1, 1).translate(END_BOARD_OUT, 9, 0),
+    stripe: new BoxGeometry(3.4, 3.5, 22.4).translate(END_BOARD_OUT, 9, 0),
+  };
 
   constructor(
     private readonly layout: Layout,
@@ -496,7 +521,80 @@ export class TrackView {
     }
 
     this.syncLevers();
+    this.syncEndBoards();
     this.syncOutline();
+  }
+
+  /** Show every free end's board (building), or only those where a train has turned back. */
+  showAllEnds(on: boolean): void {
+    if (on === this.allEnds) return;
+    this.allEnds = on;
+    this.syncEndBoards();
+  }
+
+  /** A train turned back at this end of track (a connector ref): its board shows from now on, while it's free. */
+  markTurnedBack(ref: number): boolean {
+    if (this.stuckEnds.has(ref) || this.layout.joinedConnector(ref) !== -1) return false;
+    this.stuckEnds.add(ref);
+    this.syncEndBoards();
+    return true;
+  }
+
+  private syncEndBoards(): void {
+    for (const b of this.endBoards) {
+      this.group.remove(b);
+      b.dispose();
+    }
+    this.endBoards = [];
+    const ends: { id: number; i: number }[] = [];
+    for (const ref of this.stuckEnds) if (this.layout.joinedConnector(ref) !== -1 || !this.layout.getPiece(pieceOfRef(ref))) this.stuckEnds.delete(ref);
+    for (const id of this.layout.pieceIds()) {
+      if (this.layout.isLifted(id) || this.hidden.has(id)) continue;
+      const p = this.layout.getPiece(id)!;
+      if (p.type === "joiner") continue;
+      getPieceDef(p.type, p.flipped).connectors.forEach((_, i) => {
+        const ref = connectorRef(id, i);
+        if (this.layout.joinedConnector(ref) !== -1) return;
+        if (this.allEnds || this.stuckEnds.has(ref)) ends.push({ id, i });
+      });
+    }
+    this.endList = ends;
+    if (ends.length === 0) return;
+    for (const [geometry, colour] of [[this.endParts.board, "#c8442f"], [this.endParts.stripe, "#f6f1e6"]] as const) {
+      const mesh = new InstancedMesh(geometry, this.mats.lacquer(colour), ends.length);
+      mesh.castShadow = true;
+      // Not something to pick: a tap there is a tap on the ground (or the track's end).
+      mesh.raycast = () => {};
+      mesh.computeBoundingSphere();
+      this.group.add(mesh);
+      this.endBoards.push(mesh);
+    }
+    this.placeEndBoards(null);
+  }
+
+  /** The free ends with boards (piece, end), in instance order. */
+  private endList: { id: number; i: number }[] = [];
+
+  /** Stand the end boards at their ends (only those of the pieces in `ids`, or all). */
+  private placeEndBoards(ids: ReadonlySet<number> | null): void {
+    if (this.endBoards.length === 0) return;
+    const m = new Matrix4();
+    const local = new Matrix4();
+    let moved = false;
+    this.endList.forEach(({ id, i }, k) => {
+      if (ids && !ids.has(id)) return;
+      const p = this.layout.getPiece(id);
+      if (!p) return;
+      const c = getPieceDef(p.type, p.flipped).connectors[i];
+      pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading, m).multiply(pieceMatrix(c.pose.x, c.y, c.pose.z, c.pose.heading, local));
+      for (const mesh of this.endBoards) mesh.setMatrixAt(k, m);
+      moved = true;
+    });
+    if (!moved) return;
+    for (const mesh of this.endBoards) {
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+    }
   }
 
   /** Pieces carved in the background: those showing a stand-in take theirs (no rebuild of the rest). */
@@ -701,7 +799,9 @@ export class TrackView {
    */
   moveInstances(ids: Iterable<number>): void {
     const m = new Matrix4();
-    for (const id of ids) {
+    const moved = new Set(ids);
+    this.placeEndBoards(moved);
+    for (const id of moved) {
       const p = this.layout.getPiece(id);
       if (!p) continue;
       for (const entry of [...this.meshes.values(), ...(this.bufferMesh ? [this.bufferMesh] : [])]) {

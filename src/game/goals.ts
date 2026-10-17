@@ -1,4 +1,4 @@
-import { connectedPairs } from "../landscape";
+import { connectedPairs, SURF_RIVER, type LandscapeGrid } from "../landscape";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
 import { workshops, workshopStock } from "./crafting";
 import { receivedBy } from "./town-life";
@@ -135,6 +135,42 @@ function guideDepot(w: World, kind: "forest" | "sawmill"): GoalGuide {
   return { points: [pair[0], pair[1]], towns: [town], marks: [pair[0]] };
 }
 
+/** River squares' centres by grid, rebuilt when the grid changes (a plot added or a square edited). */
+const riverCache = new WeakMap<LandscapeGrid, { revision: number; points: Point[] }>();
+
+function riverPoints(grid: LandscapeGrid): Point[] {
+  const hit = riverCache.get(grid);
+  if (hit && hit.revision === grid.revision) return hit.points;
+  const points: Point[] = [];
+  grid.forEachCell((i, col, row) => {
+    if (grid.surface[i] === SURF_RIVER) points.push({ x: grid.centreX(col), z: grid.centreZ(row) });
+  });
+  riverCache.set(grid, { revision: grid.revision, points });
+  return points;
+}
+
+/** Most anchors compared with the river squares on one tap (the track is thinned to this many points). */
+const MAX_ANCHORS = 80;
+
+/**
+ * Where a bridge is wanted: the river square nearest the player's line (their track and the towns on their railway,
+ * or else the next towns to join), framed with that bit of the line. With no river on the map: the line as it is.
+ */
+function guideBridge(w: World): GoalGuide {
+  const tab = "track";
+  const shelf = "Bridges";
+  const river = riverPoints(w.landscape.grid);
+  if (river.length === 0) return guideTrains(w, tab, shelf);
+  const joined = largestNetwork(w);
+  const track = trackPoints(w);
+  const step = Math.max(1, Math.ceil(track.length / MAX_ANCHORS));
+  const anchors: Point[] = [...track.filter((_, i) => i % step === 0), ...(joined.length > 0 ? joined : nextTowns(w)).map((id) => townAt(w, id))];
+  if (anchors.length === 0) anchors.push(...w.landscape.towns.map((t) => t.centre));
+  const pair = closest(anchors, river, (p) => p);
+  if (!pair) return guideTrains(w, tab, shelf);
+  return { points: [pair[1], pair[0]], towns: [], marks: [pair[1]], tab, shelf };
+}
+
 const deliveredTotal = (w: World) => {
   let n = 0;
   for (const v of w.economy.delivered.values()) n += v;
@@ -268,7 +304,7 @@ export const GOALS: readonly Goal[] = [
     title: "Build a bridge",
     hint: "Learn bridges on the blueprint board and make one at your workshop. Then take your track over a river.",
     check: (w) => ({ done: hasPiece(w, (type) => isBridge(type)) }),
-    guide: (w) => guideTrains(w, "track", "Bridges"),
+    guide: guideBridge,
   },
   {
     id: "join-three",

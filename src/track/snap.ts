@@ -21,7 +21,10 @@ export type SnapResult =
 const NONE: SnapResult = { kind: "none" };
 /** Seating an end that turns the piece from how it's held counts as this many mm further away per radian turned. */
 const TURN_COST = 200;
-/** A piece never seats turned further than this from how it's held (it's put down the way the player holds it). */
+/**
+ * A piece never seats turned further than this from how it's held (it's put down the way the player holds it), unless
+ * it's pointed right at an end it can only meet turned further (`findSnapAtPoint`).
+ */
 const MAX_TURN = Math.PI / 2 + 0.01;
 const local: Pose = { x: 0, z: 0, heading: 0 };
 const target = createWorldConnector();
@@ -114,21 +117,71 @@ export function findSnapAtPoint(
   if (ref === -1) return NONE;
   const t = layout.worldConnector(ref, target);
   // Which of the held piece's ends seats there (at a height that reaches it): the one that keeps the piece turned most
-  // as it's held, then the nearest. (Seating the other end of a straight would turn it right round.)
+  // as it's held, then the nearest. (Seating the other end of a straight would turn it right round.) Pointed at an end,
+  // a piece always meets it: if every way would turn it past a quarter turn (a curve held nearly backward), the least.
   const seat = { x: t.x, z: t.z, heading: t.heading + Math.PI };
   let best: SnapResult = NONE;
   let bestScore = Infinity;
+  let beyond: SnapResult = NONE;
+  let beyondTurn = Infinity;
   for (let k = 0; k < held.connectors.length; k++) {
     const c = held.connectors[k];
     if (Math.abs(t.y - (y + c.y)) > SNAP_HEIGHT_TOLERANCE) continue;
     const p = solveParentPose(c.pose, seat, { x: 0, z: 0, heading: 0 });
     const turn = angleDiff(p.heading, pose.heading);
-    if (turn > MAX_TURN) continue;
+    const result: SnapResult = { kind: "snapped", pose: p, y: t.y - c.y, connector: k, target: ref, distance, flipped };
+    if (turn > MAX_TURN) {
+      if (turn < beyondTurn) {
+        beyondTurn = turn;
+        beyond = result;
+      }
+      continue;
+    }
     transformPose(pose, c.pose, local);
     const score = turn * TURN_COST + Math.hypot(local.x - t.x, local.z - t.z);
     if (score >= bestScore) continue;
     bestScore = score;
-    best = { kind: "snapped", pose: p, y: t.y - c.y, connector: k, target: ref, distance, flipped };
+    best = result;
   }
-  return best;
+  return best.kind === "snapped" ? best : beyond;
+}
+
+/** How far ahead of a free end (mm) a finger still aims a piece onto it: about a long piece's length. */
+export const AHEAD_REACH = 230;
+/** ...and how far to one side of the end's line. */
+export const AHEAD_ACROSS = 45;
+
+/**
+ * Nothing seats by the held piece's ends or under the finger, but the finger is just ahead of a free end, on its line
+ * (out in a gap the piece is meant to fill, aimed with it held at an angle): seat it on that end, as if pointed at it.
+ * The nearest such end along its line wins.
+ */
+export function findSnapAhead(
+  layout: Layout,
+  type: PieceTypeId,
+  flipped: boolean,
+  pose: Pose,
+  y: number,
+  point: { x: number; z: number },
+  excludePieceId = -1,
+): SnapResult {
+  const n = layout.queryFreeConnectors(point.x, point.z, AHEAD_REACH, candidates);
+  let ref = -1;
+  let best = Infinity;
+  const held = getPieceDef(type, flipped);
+  for (let j = 0; j < n; j++) {
+    if (pieceOfRef(candidates[j]) === excludePieceId) continue;
+    const t = layout.worldConnector(candidates[j], target);
+    if (held.connectors.every((c) => Math.abs(t.y - (y + c.y)) > SNAP_HEIGHT_TOLERANCE)) continue;
+    const dx = point.x - t.x;
+    const dz = point.z - t.z;
+    const along = dx * Math.cos(t.heading) + dz * Math.sin(t.heading);
+    const across = Math.abs(-dx * Math.sin(t.heading) + dz * Math.cos(t.heading));
+    if (along <= 0 || along > AHEAD_REACH || across > AHEAD_ACROSS || along >= best) continue;
+    best = along;
+    ref = candidates[j];
+  }
+  if (ref === -1) return NONE;
+  const t = layout.worldConnector(ref, target);
+  return findSnapAtPoint(layout, type, flipped, pose, y, { x: t.x, z: t.z }, excludePieceId, 1);
 }

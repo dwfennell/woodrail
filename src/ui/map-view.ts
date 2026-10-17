@@ -1,4 +1,5 @@
 import type { MapMarker } from "../game/map-markers";
+import { declutterLabels, type LabelBox } from "./label-declutter";
 
 export interface MapViewHandlers {
   /** A marker was tapped: go and look at it. */
@@ -17,6 +18,8 @@ export class MapView {
   private readonly els = new Map<string, HTMLButtonElement>();
   /** What's shown now, so an unchanged refresh touches nothing. */
   private shownKey = "";
+  /** What the last placement was made from, so an unmoved map costs nothing. */
+  private placedKey = "";
 
   constructor(parent: HTMLElement, handlers: MapViewHandlers) {
     this.root.className = "map-view";
@@ -55,6 +58,7 @@ export class MapView {
       this.layer.innerHTML = "";
       this.els.clear();
       this.shownKey = "";
+      this.placedKey = "";
     }
   }
 
@@ -64,6 +68,7 @@ export class MapView {
     const key = markers.map((m) => `${m.key}|${m.title}|${m.detail}|${m.fill ?? ""}`).join(";");
     if (key === this.shownKey) return;
     this.shownKey = key;
+    this.placedKey = "";
     this.layer.innerHTML = "";
     this.els.clear();
     for (const m of markers) {
@@ -77,20 +82,42 @@ export class MapView {
     }
   }
 
-  /** Put each marker over its place: `project` gives screen px, or null when it's off screen. */
+  /**
+   * Put each marker over its place: `project` gives screen px, or null when it's off screen. Labels that would cover
+   * one another are nudged apart vertically (towns keep their spot over depots), and hidden if they still would.
+   */
   place(project: (x: number, z: number) => { x: number; y: number } | null): void {
-    // Read every label's width first, then move them (one layout, not one per marker).
-    const widths = this.markers.map((m) => this.els.get(m.key)?.offsetWidth ?? 0);
+    // Read every label's size first, then move them (one layout, not one per marker).
+    const sizes = this.markers.map((m) => {
+      const e = this.els.get(m.key);
+      return { w: e?.offsetWidth ?? 0, h: e?.offsetHeight ?? 0 };
+    });
+    const pts = this.markers.map((m) => project(m.x, m.z));
+    const key = pts.map((p, k) => (p ? `${Math.round(p.x)},${Math.round(p.y)},${sizes[k].w},${sizes[k].h}` : "-")).join(";") + `@${window.innerWidth}`;
+    if (key === this.placedKey) return;
+    this.placedKey = key;
+    // A label that would run off the right edge goes to the left of its dot instead.
+    const flips = pts.map((p, k) => !!p && p.x + sizes[k].w > window.innerWidth - 8 && p.x - sizes[k].w > 8);
+    const idx: number[] = [];
+    const boxes: LabelBox[] = [];
+    pts.forEach((p, k) => {
+      if (!p) return;
+      // The label's box starts 14px up-left of the dot (its css margin); a flipped one sits to the left of it.
+      const w = sizes[k].w;
+      idx.push(k);
+      boxes.push({ x: Math.round(p.x) + (flips[k] ? 14 - w : -14), y: Math.round(p.y) - 14, w, h: sizes[k].h, priority: this.markers[k].kind === "town" ? 1 : 0 });
+    });
+    const spots = declutterLabels(boxes);
     this.markers.forEach((m, k) => {
       const el = this.els.get(m.key);
+      const p = pts[k];
       if (!el) return;
-      const p = project(m.x, m.z);
-      el.hidden = !p;
-      if (!p) return;
-      // A label that would run off the right edge goes to the left of its dot instead.
-      const flip = p.x + widths[k] > window.innerWidth - 8 && p.x - widths[k] > 8;
-      el.classList.toggle("flip", flip);
-      el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)${flip ? " translateX(-100%)" : ""}`;
+      const at = idx.indexOf(k);
+      const off = !p || spots[at].hidden;
+      el.classList.toggle("off", off);
+      if (off || !p) return;
+      el.classList.toggle("flip", flips[k]);
+      el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y) + spots[at].dy}px)${flips[k] ? " translateX(-100%)" : ""}`;
     });
   }
 }

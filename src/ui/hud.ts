@@ -14,6 +14,8 @@ export interface HudHandlers {
   trayTap(item: TrayItem): void;
   /** Another tray tab opened (the ready piece is put away). */
   trayTabChanged(): void;
+  /** The Track tab opened or closed (building: free track ends show their end boards). */
+  trackTab?(open: boolean): void;
   undo(): void;
   redo(): void;
   rerailAll(): void;
@@ -99,6 +101,25 @@ function button(label: string, title: string, onClick: () => void, cls = "chip")
     onClick();
   });
   return b;
+}
+
+/** A switch: a label and a pill with a knob, on or off (role="switch"). Its name is its label; `title` is the tooltip. */
+function toggle(label: string, title: string, onClick: () => void): HTMLButtonElement {
+  const b = el("button", "chip text toggle");
+  b.title = title;
+  b.setAttribute("role", "switch");
+  b.setAttribute("aria-checked", "false");
+  b.append(el("span", "toggle-label", label), el("span", "toggle-pill"));
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+  return b;
+}
+
+function setToggle(b: HTMLButtonElement, on: boolean): void {
+  b.classList.toggle("active", on);
+  b.setAttribute("aria-checked", String(on));
 }
 
 /** A little camera (Follow). */
@@ -256,7 +277,10 @@ export class Hud {
     // A card that grows once it's open (a workshop's list fills in a frame later) may come up under a toast: it's put
     // clear again (only when a card's size changes, not per frame).
     if (typeof ResizeObserver !== "undefined") {
-      const refit = new ResizeObserver(() => this.refitToast());
+      const refit = new ResizeObserver(() => {
+        this.refitToast();
+        this.onCardResize?.();
+      });
       for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) refit.observe(c);
     }
 
@@ -377,8 +401,8 @@ export class Hud {
 
     // Depot card: what's on its piles, and how it treats trains.
     this.depotCard.hidden = true;
-    this.depotAutoBtn = button("Automatic", "The crane loads and unloads trains by itself", h.depotAuto, "chip text");
-    this.depotWaitBtn = button("Wait for a full load", "Trains wait under the crane until each wagon is full", h.depotWaitFull, "chip text");
+    this.depotAutoBtn = toggle("Automatic", "The crane loads and unloads trains by itself", h.depotAuto);
+    this.depotWaitBtn = toggle("Wait for a full load", "Trains wait under the crane until each wagon is full", h.depotWaitFull);
     const depotRow = el("div", "card-row");
     depotRow.append(this.depotAutoBtn, this.depotWaitBtn);
     this.depotExtra.hidden = true;
@@ -511,6 +535,7 @@ export class Hud {
       this.chooseLandTool(tab.land ? (this.landTool ?? "move") : null);
       tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));
       this.tray.classList.toggle("track-tab", !!tab.orient);
+      this.handlers.trackTab?.(tab.id === "track");
       this.tray.classList.toggle("turn-only", tab.orient === "turn");
       this.propsTab = tab.orient === "turn";
       let groups = tab.groups;
@@ -1067,9 +1092,9 @@ export class Hud {
   updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = ""): void {
     const text = [...piles.map((p) => `${p.label} ${p.count}/${p.cap}`), ...(note ? [note] : [])].join("   ·   ");
     if (this.depotStock.textContent !== text) this.depotStock.textContent = text;
-    this.depotAutoBtn.classList.toggle("active", auto);
+    setToggle(this.depotAutoBtn, auto);
     this.depotWaitBtn.hidden = waitFull === null;
-    this.depotWaitBtn.classList.toggle("active", !!waitFull);
+    setToggle(this.depotWaitBtn, !!waitFull);
     this.depotWaitBtn.disabled = !auto;
   }
 
@@ -1084,6 +1109,17 @@ export class Hud {
 
   get depotCardOpen(): boolean {
     return !this.depotCard.hidden;
+  }
+
+  /** Called when a card changes size (as it opens, as its rows fill in): the view may make room for what it's for. */
+  onCardResize: (() => void) | null = null;
+
+  /** Where the open card for one thing (an engine, a car, a piece, a depot) is on screen, or null. */
+  openCardRect(): DOMRect | null {
+    for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) {
+      if (!c.hidden && !c.classList.contains("group") && c.offsetParent !== null) return c.getBoundingClientRect();
+    }
+    return null;
   }
 
   hideCards(): void {

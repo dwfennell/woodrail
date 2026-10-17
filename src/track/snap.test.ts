@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { connectorRef, Layout } from "./layout";
 import { solveParentPose, transformPose, type Pose } from "./math";
 import { getPieceDef } from "./pieces";
-import { appendPiece, findSnap, findSnapAtPoint } from "./snap";
+import { appendPiece, findSnap, findSnapAhead, findSnapAtPoint } from "./snap";
 import { RAMP_LENGTH, RISER_HEIGHT } from "./constants";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
@@ -290,5 +290,30 @@ describe("findSnapAtPoint", () => {
     const a = l.addPiece("straight-144", P(0, 0));
     expect(findSnapAtPoint(l, "straight-144", false, P(300, 0), 0, { x: 300, z: 0 }).kind).toBe("none");
     expect(findSnapAtPoint(l, "straight-144", false, P(0, 0), 0, { x: 144, z: 0 }, a).kind).toBe("none");
+  });
+
+  it("pointed at an end, a curve held nearly backward still meets it (by the end that turns it least)", () => {
+    const layout = new Layout();
+    layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 }, 0);
+    // A curve's two ends seat it 135° apart: held about 247° round, each would turn it past a quarter turn.
+    for (const deg of [235, 247.5, 260]) {
+      const s = findSnapAtPoint(layout, "curve-large", false, { x: 230, z: 0, heading: (deg * Math.PI) / 180 }, 0, { x: 216, z: 0 });
+      expect(s.kind, `${deg}°`).toBe("snapped");
+    }
+  });
+
+  it("a finger out in front of a free end, on its line, seats the piece on that end, however it's turned", () => {
+    const layout = new Layout();
+    layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 }, 0); // free peg end at x = 216, facing +x
+    for (const deg of [0, 45, 135, 225, 315]) {
+      const held = { x: 300, z: 60, heading: (deg * Math.PI) / 180 };
+      const s = findSnapAhead(layout, "straight-216", false, held, 0, { x: 320, z: 10 });
+      expect(s.kind, `${deg}°`).toBe("snapped");
+      if (s.kind === "snapped") expect(Math.abs(Math.cos(s.pose.heading))).toBeCloseTo(1, 6);
+    }
+    // Not behind the end, nor well off its line, nor further than a piece ahead.
+    for (const point of [{ x: 150, z: 0 }, { x: 320, z: 80 }, { x: 216 + 260, z: 0 }]) {
+      expect(findSnapAhead(layout, "straight-216", false, { x: 0, z: 0, heading: 0 }, 0, point).kind, JSON.stringify(point)).toBe("none");
+    }
   });
 });
