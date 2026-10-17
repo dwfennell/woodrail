@@ -1,7 +1,7 @@
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre } from "./editor/editor";
-import { frameAlong, frameDistance } from "./game/camera-director";
+import { fitToRect, frameAlong, frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
@@ -48,7 +48,7 @@ import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
 import type { CarKind, CarLook } from "./sim";
 import { Hud } from "./ui/hud";
 import { INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
@@ -2070,16 +2070,43 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * towns), keeping the way the view faces.
    */
   function backToRailway(): void {
-    const points: { x: number; z: number }[] = [];
+    // The track, end to end (its pieces' ends and middles), or the first towns' stations if there's none yet.
+    const points: Vector3[] = [];
+    const end = createWorldConnector();
     for (const id of game.layout.pieceIds()) {
-      if (isFixedPiece(id) || game.layout.getPiece(id)!.type === "riser") continue;
-      points.push(pieceCentre(game.layout, id));
+      const piece = game.layout.getPiece(id)!;
+      if (isFixedPiece(id) || piece.type === "riser") continue;
+      const c = pieceCentre(game.layout, id);
+      points.push(new Vector3(c.x, piece.y, c.z));
+      const n = getPieceDef(piece.type, piece.flipped).connectors.length;
+      for (let i = 0; i < n; i++) {
+        game.layout.worldConnector(connectorRef(id, i), end);
+        points.push(new Vector3(end.x, end.y, end.z));
+      }
     }
-    if (points.length === 0) for (const t of game.landscape.towns.slice(0, 2)) points.push(t.station);
+    if (points.length === 0) for (const t of game.landscape.towns.slice(0, 2)) points.push(new Vector3(t.station.x, 0, t.station.z));
     if (points.length === 0) return;
+    // Facing along it (up a phone held upright), turned the shorter way round from where the view faces now.
     const f = frameAlong(points, game.camera.fov, game.camera.aspect, GOAL_MARGIN);
+    const now = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
+    let theta = f.theta ?? now.theta;
+    if (Math.abs(Math.atan2(Math.sin(theta - now.theta), Math.cos(theta - now.theta))) > Math.PI / 2) theta += Math.PI;
+    // In the room the HUD leaves: below the top bar (and the goals), above the tray.
+    const r = game.canvas.getBoundingClientRect();
+    let top = 0;
+    for (const e of document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")) {
+      const b = e.getBoundingClientRect();
+      if (b.height > 0 && b.top < r.height / 3) top = Math.max(top, b.bottom - r.top);
+    }
+    // (Above the tools floating over the tray too, Draw and Turn, where they float: not on a phone, where they're in its row.)
+    let bottom = r.height;
+    for (const e of [hud.tray, ...document.querySelectorAll(".tray-draw, .tray-orient")]) {
+      const b = e.getBoundingClientRect();
+      if (b.height > 0) bottom = Math.min(bottom, b.top - r.top);
+    }
+    const fit = fitToRect(points, game.camera, now.phi, theta, { left: 0, top, right: r.width, bottom }, r.width, r.height, 24);
     game.follow(-1);
-    game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 0.9 });
+    game.director.glideTo(fit.target, Math.min(fit.distance, game.controls.maxDistance), { theta, duration: 0.9 });
   }
 
   function openingView(): void {
