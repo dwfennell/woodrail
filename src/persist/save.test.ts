@@ -323,3 +323,23 @@ describe("props in saves", () => {
     expect(old.ok && [...old.value.props.all()].filter((p) => p.building === undefined).length).toBe(0);
   });
 });
+
+describe("kit pieces in saves", () => {
+  it("round-trip as pieces, and an old save's furnished platform prop stays a prop where it was", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const kit = appendPiece(world.layout, "kit-platform-furnished", false, connectorRef(station, 1));
+    world.props.add("bldg-platform-furnished", { x: 300, z: 120, heading: 1, y: 0 });
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const piece = r.value.layout.getPiece(kit)!;
+    expect(piece.type).toBe("kit-platform-furnished");
+    expect(r.value.layout.joinedConnector(connectorRef(kit, 0))).toBe(connectorRef(station, 1));
+    // The prop isn't turned into a kit: a plain prop, where it stood.
+    const prop = [...r.value.props.all()].find((p) => p.asset === "bldg-platform-furnished")!;
+    expect(prop).toMatchObject({ x: 300, z: 120, heading: 1 });
+  });
+});
