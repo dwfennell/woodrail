@@ -1528,6 +1528,8 @@ export class Interaction {
    * placement checks, only while it's refused).
    */
   private fitHint(type: PieceTypeId, flipped: boolean, snap: Extract<SnapResult, { kind: "snapped" }>, pieceId: number): string | null {
+    // (Seated on no end, e.g. taking straights' place: nothing to turn about.)
+    if (snap.target < 0) return null;
     const key = `${type}|${flipped}|${snap.target}|${snap.connector}|${pieceId}|${this.game.layout.pieceCount}`;
     if (this.hintFor?.key === key) return this.hintFor.hint;
     const t = this.game.layout.worldConnector(snap.target, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
