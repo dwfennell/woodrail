@@ -1,5 +1,5 @@
 import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, Mesh, type Object3D, type TOUCH } from "three";
-import { Editor, pieceCentre, poseCentre, poseForCentre, type RiserAt } from "../editor/editor";
+import { Editor, pieceCentre, poseCentre, poseForCentre, type Placement, type RiserAt } from "../editor/editor";
 import { buildCarModel, carVariant, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
@@ -8,7 +8,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, gapFill, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
@@ -19,10 +19,10 @@ import type { PropPose } from "../props/store";
 import { FootprintOutline } from "../render/props/outline";
 import { modelKey } from "../render/props/library";
 import { isDoubleTap, type TapRecord } from "./camera-director";
-import { dropOutcome } from "./drop";
+import { dropOutcome, heldReason } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
-import { checkYard, footprintInYards, inYardMessage, isYardBlock, placedYard, trackInYards, turnedRound, YARD_FLIP_HINT, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
+import { checkYard, flipHint, footprintInYards, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { dragMoves } from "./drag-rule";
@@ -183,6 +183,11 @@ type Mode =
       looseY: number;
       /** A depot held over a line: the straights it would take the place of (it's snapped where they are), or null. */
       covers: readonly number[] | null;
+      /**
+       * A depot picked up from inline (joined at both ends to plain track): the ends it was joined to, from its first
+       * end's to its second's, so straights can close the gap it leaves when it goes elsewhere. Else null or absent.
+       */
+      leaves?: readonly [number, number] | null;
       blocked: PlaceBlock | null;
       /** Risers to put under the piece's ends that are in the air (added with it). */
       risers: RiserAt[];
@@ -600,6 +605,8 @@ export class Interaction {
 
   /** May this tray item come out now (Game mode: in the toy box, or made on the spot)? Null: always. */
   trayAllowed: ((item: TrayItem) => boolean) | null = null;
+  /** Is there another of this tray item to put down (Game mode: in the toy box, not made on the spot)? Null: always. */
+  trayHas: ((item: TrayItem) => boolean) | null = null;
   /** A train taken from the tray was put down: on the track (`placed`), or not (off it, or back over the tray). */
   onTrayTrainDropped: ((placed: boolean) => void) | null = null;
 
@@ -1658,6 +1665,8 @@ export class Interaction {
     const reason = this.blockedBy(type, flipped, pose, y, ignoreId);
     // A hill in the way: say how far up it is, and how to get there (only worked out when it's so).
     if (reason === "hill") this.hillWhy = hillMessage(levelsAbove(this.game.landscape, type, flipped, pose, y));
+    // A depot is told it's the depot (its name, as its yard's messages say), not the track, that keeps out of town.
+    if (reason === "town") this.townWhy = townMessage(type);
     if (reason) return { reason, risers: [] };
     // A depot's yard and buildings beside its track need room too; other track keeps out of a player's depot's yard.
     const yard = this.yardBlock(type, pose, y, ignoreId) ?? this.inYard(type, flipped, pose, y, ignoreId);
@@ -1766,11 +1775,13 @@ export class Interaction {
    * of the line? Worked out only while it's refused, once per spot.
    */
   private yardHint(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): string | null {
-    const key = `yard|${type}|${flipped}|${pose.x}|${pose.z}|${pose.heading}|${y}|${this.game.layout.pieceCount}`;
+    const ignoreKey = typeof ignoreId === "number" ? ignoreId : [...ignoreId].join(",");
+    const key = `yard|${type}|${flipped}|${pose.x}|${pose.z}|${pose.heading}|${y}|${ignoreKey}|${this.game.layout.pieceCount}`;
     if (this.hintFor?.key === key) return this.hintFor.hint;
     const memo = this.yardMemo;
     const why = this.yardWhy;
-    const hint = this.splices(type) && this.placement(type, flipped, turnedRound(type, pose), y, ignoreId).reason === null ? YARD_FLIP_HINT : null;
+    // Turned right round on the same track (where the splice puts it held the other way), all of it checked.
+    const hint = this.splices(type) ? flipHint(type, pose, (turned) => this.placement(type, flipped, turned, y, ignoreId).reason) : null;
     // (The turned-round check mustn't take the place of what's said, or remembered, for where it's held.)
     this.yardMemo = memo;
     this.yardWhy = why;
@@ -1851,6 +1862,7 @@ export class Interaction {
 
   private blockMessage(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
+    if (reason === "town") return this.townWhy;
     if (reason === "splice-fit" || reason === "splice-busy" || reason === "splice-onto") return SPLICE_MESSAGES[reason];
     if (isYardBlock(reason)) return this.yardWhy;
     if (reason === "in-yard") return this.inYardWhy;
@@ -1859,6 +1871,8 @@ export class Interaction {
 
   /** The message for the last "hill" refusal (how many levels up, and how to climb it). */
   private hillWhy = BLOCK_MESSAGES.hill;
+  /** The message for the last "town" refusal (what keeps out of town: the track, or a depot by name). */
+  private townWhy = BLOCK_MESSAGES.town;
 
   /** Check a would-be position for piece `id` (turned or flipped in place: no risers are added), explaining a refusal. */
   private allowed(id: number, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): boolean {
@@ -1883,6 +1897,48 @@ export class Interaction {
   /** Is this a depot piece, which is dropped onto a straight of a line to take its place (and turns round to flip)? */
   private splices(type: PieceTypeId): boolean {
     return !!INDUSTRY_ROLE[type] && straightLength(type, false) > 0;
+  }
+
+  /**
+   * The track ends a placed piece is joined to, from its first end's to its second's, if it's joined at both ends
+   * and only to plain track (not a station or a depot); else null.
+   */
+  private inlineEnds(pieceId: number): [number, number] | null {
+    const layout = this.game.layout;
+    const ends: number[] = [];
+    for (const i of [0, 1]) {
+      const partner = layout.joinedConnector(connectorRef(pieceId, i));
+      const q = partner === -1 ? undefined : layout.getPiece(pieceOfRef(partner));
+      if (!q || q.type === "station" || INDUSTRY_ROLE[q.type] || q.type.startsWith("depot-") || getPieceDef(q.type, q.flipped).paths.length === 0) return null;
+      ends.push(partner);
+    }
+    return [ends[0], ends[1]];
+  }
+
+  /**
+   * Straights to close the gap a depot moved off a line leaves (see `gapFill`), or none: none unless it was inline,
+   * the ends it was joined to are still free (it wasn't put back between them, nor onto them), and straights there
+   * would be clear of everything, the depot where it's going and its yard included.
+   */
+  private fillFor(m: Extract<Mode, { kind: "drag-piece" }>, pose: Pose, y: number): Placement[] {
+    if (!m.leaves || m.pieceId === -1) return [];
+    const g = this.game;
+    const [from, to] = m.leaves;
+    if (m.covers?.some((id) => id === pieceOfRef(from) || id === pieceOfRef(to))) return [];
+    const fill = gapFill(g.layout, from, to);
+    if (!fill) return [];
+    // The depot where it's going, by itself: the fill mustn't run into it or its yard.
+    const alone = new Layout();
+    alone.addPiece(m.type, pose, y, m.flipped);
+    const yard = placedYard(m.pieceId, m.type, pose, y);
+    const ignore = new Set([m.pieceId, ...(m.covers ?? [])]);
+    for (const f of fill) {
+      if (findOverlap(alone, f.type, false, f.pose, f.y, -1) !== -1) return [];
+      if (yard && trackInYards([yard], f.type, false, f.pose, f.y, -1)) return [];
+      const p = this.placement(f.type, false, f.pose, f.y, ignore);
+      if (p.reason !== null || p.risers.length > 0) return [];
+    }
+    return fill.map((f) => ({ type: f.type, pose: f.pose, y: f.y }));
   }
 
   /** What a held piece's placement checks leave out: itself, and the straights it would take the place of. */
@@ -2303,6 +2359,7 @@ export class Interaction {
     this.clearSelection();
     this.hud.hideCards();
     const from = { pose: { ...p.pose }, y: p.y };
+    const leaves = this.splices(p.type) ? this.inlineEnds(pieceId) : null;
     layout.liftPiece(pieceId);
     // An industry's yard goes up with it (drawn in the hand, not where it stood).
     if (INDUSTRY_ROLE[p.type]) this.game.depotView.setWorld(this.game.economy, layout);
@@ -2322,6 +2379,7 @@ export class Interaction {
       heading: p.pose.heading,
       pieceId,
       from,
+      leaves,
       offset: { x: cx - ground.x, z: cz - ground.z },
       ghost,
       snap: { kind: "none" },
@@ -2525,24 +2583,8 @@ export class Interaction {
         const sim = this.game.sim;
         const free = (id: number) => !sim.pieceOccupied(id);
         const reach = Math.max(capture, TRACK_WIDTH);
-        let s = findSplice(this.game.layout, m.type, m.heldFlipped, centre, m.heading, reach, free);
-        if (s.kind === "none") {
-          // Its middle is off the line, but held across it its track may cross it: try points along its own track.
-          const half = straightLength(m.type, false) / 2;
-          const ax = Math.cos(m.heading);
-          const az = Math.sin(m.heading);
-          for (const f of [-0.5, 0.5, -1, 1]) {
-            const along = (h: number) => {
-              const c = centre(h);
-              return c && { x: c.x + ax * half * f, z: c.z + az * half * f };
-            };
-            const t = findSplice(this.game.layout, m.type, m.heldFlipped, along, m.heading, reach, free);
-            if (t.kind !== "none") {
-              s = t;
-              break;
-            }
-          }
-        }
+        // (Its whole track is looked along: held across a line with its middle off it, it still meets it.)
+        const s = findSplice(this.game.layout, m.type, m.heldFlipped, centre, m.heading, reach, free);
         if (s.kind === "splice") {
           m.snap = { kind: "snapped", pose: s.pose, y: s.y, connector: 0, target: -1, distance: 0, flipped: m.heldFlipped };
           m.covers = s.covers;
@@ -2573,8 +2615,9 @@ export class Interaction {
           placed = this.placement(m.type, m.flipped, pose, py, this.ignoreFor(m));
         }
       }
-      // On other track but not where it can take a straight's place: say what would work.
-      const reason = placed.reason === "piece" && spliceWhy ? spliceWhy : placed.reason;
+      // On other track but not where it can take a straight's place: say what would work. Over a straight a train
+      // stands on, that's what to say, whatever else is in the way where it's held (a house it's slanting across).
+      const reason = heldReason(placed.reason, spliceWhy);
       const risers = placed.risers;
       // (A preview under the mouse just shows red: the reason comes if it's clicked.)
       // While it's held where it can't go, the reason stays up (and goes once it can, or it's over the tray).
@@ -2681,12 +2724,15 @@ export class Interaction {
         const covers = m.covers;
         // A depot dropped onto a line: the straights it takes the place of lift and shrink away (back in the box).
         if (covers) for (const c of covers) this.shrinkStandIn(c);
+        // A depot moved off a line: straights close the gap it leaves (in the same undo step).
+        const fill = this.fillFor(m, pose, y);
         const id = covers
-          ? ed.replace(covers, m.type, pose, y, m.flipped, isNew ? undefined : { id: m.pieceId, from: m.from! })
+          ? ed.replace(covers, m.type, pose, y, m.flipped, isNew ? undefined : { id: m.pieceId, from: m.from! }, fill)
           : isNew
             ? ed.place(m.type, pose, y, m.flipped, risers)
-            : (ed.move(m.pieceId, pose, y, m.from!, risers, m.flipped), m.pieceId);
+            : (ed.move(m.pieceId, pose, y, m.from!, risers, m.flipped, fill), m.pieceId);
         if (covers) this.hud.toast(covers.length === 1 ? "Straight back in the box" : `${covers.length} straights back in the box`);
+        else if (fill.length > 0) this.hud.toast(fill.length === 1 ? "A straight closes the gap" : "Straights close the gap");
         g.trackView.setHidden(id, true);
         setRim(g.mats.held, "#ffffff", 0);
         g.flourishes.add(
@@ -2704,10 +2750,11 @@ export class Interaction {
         this.onPlaced?.(snapped);
         // The next is likely the same kind: it stays ready, waiting at this one's free end for a tap. (Not while
         // drawing: a press there draws.)
-        if (m.tray && !this.drawing) {
+        // (Game mode: not when that was the last of it in the toy box.)
+        if (m.tray && !this.drawing && (this.trayHas?.(m.tray) ?? true)) {
           this.arm(m.tray);
           this.previewNextAt(id);
-        }
+        } else if (m.tray && !this.drawing) this.arm(null);
         return;
       }
       case "return": {

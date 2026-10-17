@@ -956,6 +956,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * missing is made on the spot, unless `make` is false (only asking).
    */
   interaction.trayAllowed = (item) => trayAllowed(item);
+  // After the last of something in the toy box goes down, no next one waits at its end.
+  interaction.trayHas = (item) => mode !== "game" || item.kind !== "piece" || progress.hasAnother(game.world, item);
   function trayAllowed(item: Parameters<typeof thingsFor>[0] | { kind: string }, make = true): boolean {
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train")) return true;
     // (A new take: whatever an earlier one made is settled, or never was.)

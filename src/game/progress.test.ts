@@ -16,6 +16,17 @@ describe("the toy box", () => {
     expect(p.available(w, "piece:switch")).toBe(0);
   });
 
+  it("has no other workshop once the one in the box is placed (no ready-next piece then); plain straights never run out", () => {
+    const w = buildStarterWorld();
+    const p = Progress.fresh();
+    const shop = { kind: "piece" as const, type: "depot-workshop" as const };
+    expect(p.hasAnother(w, shop)).toBe(true);
+    const station = w.stations.get(w.landscape.towns[0].id)!;
+    appendPiece(w.layout, "depot-workshop", false, connectorRef(station, 1));
+    expect(p.hasAnother(w, shop)).toBe(false);
+    expect(p.hasAnother(w, { kind: "piece", type: "straight-216" })).toBe(true);
+  });
+
   it("counts what's on the map, so taking a piece up gives it back", () => {
     const w = buildStarterWorld();
     const p = Progress.fresh();

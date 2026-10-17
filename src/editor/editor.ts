@@ -42,6 +42,14 @@ const HISTORY_LIMIT = 100;
 const NEAR_MISS_REACH = 45;
 const NEAR_MISS_ANGLE = (12 * Math.PI) / 180;
 
+/** A piece to put down along with an edit. */
+export interface Placement {
+  type: PieceTypeId;
+  pose: Pose;
+  y: number;
+  flipped?: boolean;
+}
+
 /** A riser to put down under a piece. */
 export interface RiserAt {
   pose: Pose;
@@ -250,49 +258,67 @@ export class Editor {
   /**
    * Put a piece down in place of others (a depot dropped onto the straights of a line): they're taken up and it goes
    * down where they were, joined to the track either side. With `move`, it's that piece moved there (it may be lifted
-   * for dragging; `move.from` is where it was picked up), else a new one. One undo step: undo puts the straights back.
+   * for dragging; `move.from` is where it was picked up), else a new one. `fill`: pieces put down where a moved piece
+   * was (straights closing the gap a depot leaves in a line). One undo step: undo puts the straights back.
    * Returns the piece's id.
    */
-  replace(covers: readonly number[], type: PieceTypeId, pose: Pose, y: number, flipped: boolean, move?: { id: number; from: { pose: Pose; y: number } }): number {
+  replace(
+    covers: readonly number[],
+    type: PieceTypeId,
+    pose: Pose,
+    y: number,
+    flipped: boolean,
+    move?: { id: number; from: { pose: Pose; y: number } },
+    fill: readonly Placement[] = [],
+  ): number {
     const recs = covers.map((id) => this.record(id)).filter((r): r is PieceRecord => r !== null);
     const was = move ? this.record(move.id) : null;
     let id = move?.id ?? -1;
+    const filler = this.filler(fill);
     this.run({
       do: () => {
         for (const r of recs) this.layout.removePiece(r.id);
         if (move) this.layout.dropPiece(id, pose, y, flipped);
         else if (id === -1) id = this.layout.addPiece(type, pose, y, flipped);
         else this.layout.restorePiece(id, type, pose, y, flipped);
+        filler.add();
       },
       undo: () => {
+        filler.remove();
         if (move) this.layout.dropPiece(id, move.from.pose, move.from.y, was?.flipped);
         else this.layout.removePiece(id);
         for (const r of recs) this.layout.restorePiece(r.id, r.type, r.pose, r.y, r.flipped);
       },
       moves: move ? [move.id] : [],
-      seats: () => [id],
+      seats: () => [id, ...filler.ids],
     });
     return id;
   }
 
-  /** Move a piece; `flipped`, when given, is how it lands (a ramp may swap its ends to fit where it's put). */
-  move(id: number, pose: Pose, y: number, from?: { pose: Pose; y: number }, risers: readonly RiserAt[] = [], flipped?: boolean): boolean {
+  /**
+   * Move a piece; `flipped`, when given, is how it lands (a ramp may swap its ends to fit where it's put). `fill`:
+   * pieces put down where it was, in the same undo step (straights closing the gap a depot leaves in a line).
+   */
+  move(id: number, pose: Pose, y: number, from?: { pose: Pose; y: number }, risers: readonly RiserAt[] = [], flipped?: boolean, fill: readonly Placement[] = []): boolean {
     const rec = this.record(id);
     if (!rec) return false;
     const start = from ?? { pose: rec.pose, y: rec.y };
     const wasFlipped = rec.flipped;
     const supports = this.supports(risers);
+    const filler = this.filler(fill);
     this.run({
       do: () => {
         supports.add();
         this.layout.dropPiece(id, pose, y, flipped);
+        filler.add();
       },
       undo: () => {
+        filler.remove();
         this.layout.dropPiece(id, start.pose, start.y, wasFlipped);
         supports.remove();
       },
       moves: [id],
-      seats: () => [id],
+      seats: () => [id, ...filler.ids],
     });
     return true;
   }
@@ -468,6 +494,23 @@ export class Editor {
       }
     }
     return out;
+  }
+
+  /** Pieces to put down with an edit (a fill): added the first time, restored with the same ids on redo. */
+  private filler(fill: readonly Placement[]): { add(): void; remove(): void; ids: number[] } {
+    const ids: number[] = [];
+    return {
+      ids,
+      add: () => {
+        fill.forEach((p, i) => {
+          if (ids[i] === undefined) ids[i] = this.layout.addPiece(p.type, p.pose, p.y, p.flipped ?? false);
+          else this.layout.restorePiece(ids[i], p.type, p.pose, p.y, p.flipped ?? false);
+        });
+      },
+      remove: () => {
+        for (let i = ids.length - 1; i >= 0; i--) this.layout.removePiece(ids[i]);
+      },
+    };
   }
 
   /** Risers to put down with a piece: added the first time, restored with the same ids on redo. */
