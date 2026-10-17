@@ -172,6 +172,61 @@ export class ToyAudio {
     }
   }
 
+  private lastWhistle = 0;
+
+  /**
+   * A toy engine's whistle: two reedy notes a third apart, a breath of air under them, a short pip then a longer
+   * toot (an engine passing a whistle post). Rate-limited, so trains passing posts together don't blare.
+   */
+  whistle(volume: number, pan: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master || !this.noise || this.muted || volume <= 0.02) return;
+    const now = performance.now();
+    if (now - this.lastWhistle < 600) return;
+    this.lastWhistle = now;
+    const t = ctx.currentTime;
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    panner.connect(this.master);
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 2600;
+    lp.connect(panner);
+    for (const [start, length] of [
+      [0, 0.12],
+      [0.18, 0.55],
+    ] as const) {
+      for (const f of [880, 1109]) {
+        const osc = ctx.createOscillator();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(f * 0.97, t + start);
+        osc.frequency.linearRampToValueAtTime(f, t + start + 0.05);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, t + start);
+        g.gain.linearRampToValueAtTime(0.07 * volume, t + start + 0.03);
+        g.gain.setValueAtTime(0.07 * volume, t + start + length - 0.06);
+        g.gain.linearRampToValueAtTime(0.0001, t + start + length);
+        osc.connect(g).connect(lp);
+        osc.start(t + start);
+        osc.stop(t + start + length + 0.02);
+      }
+    }
+    // Breath: a little filtered noise under the notes.
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const band = ctx.createBiquadFilter();
+    band.type = "bandpass";
+    band.frequency.value = 1800;
+    band.Q.value = 1.2;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.025 * volume, t);
+    ng.gain.linearRampToValueAtTime(0.0001, t + 0.75);
+    src.connect(band).connect(ng).connect(panner);
+    src.loop = true;
+    src.start(t);
+    src.stop(t + 0.78);
+  }
+
   snap(): void {
     this.knock(0.55, 520, 0.08, 0);
   }

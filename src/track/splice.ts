@@ -8,7 +8,7 @@ import { getPieceDef, PIECE_TYPES, type PieceTypeId } from "./pieces";
  * its length; `busy`: a train stands on that straight.
  */
 export type Splice =
-  | { readonly kind: "splice"; readonly covers: readonly number[]; readonly pose: Pose; readonly y: number }
+  | { readonly kind: "splice"; readonly covers: readonly number[]; readonly pose: Pose; readonly y: number; readonly rest?: readonly FillPiece[] }
   | { readonly kind: "misfit" | "busy"; readonly onto: number }
   | { readonly kind: "none" };
 
@@ -175,7 +175,7 @@ export function findSplice(
       if (!pick || off < pick.off) pick = { from: i, to: j, off };
     }
   }
-  if (!pick) return { kind: "misfit", onto };
+  if (!pick) return halfOf(layout, onto, here.y, own, length, held, heading) ?? { kind: "misfit", onto };
   layout.worldConnector(back.ends[pick.from], a);
   layout.worldConnector(ahead.ends[pick.to], b);
   const covers = [...back.ids.slice(0, pick.from).reverse(), onto, ...ahead.ids.slice(0, pick.to)];
@@ -185,6 +185,36 @@ export function findSplice(
   const h = Math.atan2(b.z - a.z, b.x - a.x);
   const pose = angleDiff(h, heading - TIE_TURN) < Math.PI / 2 ? { x: a.x, z: a.z, heading: normalizeAngle(h) } : { x: b.x, z: b.z, heading: normalizeAngle(h + Math.PI) };
   return { kind: "splice", covers, pose, y: here.y };
+}
+
+/**
+ * No run of straights its length, but the straight it's over is longer (a 108 kit on a line of 216s): it takes that
+ * straight's place on the half nearer where it's held, and a shorter straight fills the rest. Null if no straight
+ * fills what's left.
+ */
+function halfOf(layout: Layout, onto: number, y: number, own: number, length: number, held: { x: number; z: number }, heading: number): Splice | null {
+  if (own <= length + LENGTH_SLACK) return null;
+  const restTypes = straightsFor(own - length);
+  if (!restTypes) return null;
+  layout.worldConnector(connectorRef(onto, 0), a);
+  layout.worldConnector(connectorRef(onto, 1), b);
+  const dx = (b.x - a.x) / own;
+  const dz = (b.z - a.z) / own;
+  // The kit at the start (connector 0's end) or the end of the straight, whichever is nearer where it's held.
+  const t = (held.x - a.x) * dx + (held.z - a.z) * dz;
+  const kitFrom = t < own / 2 ? 0 : own - length;
+  const restFrom = kitFrom === 0 ? length : 0;
+  const ka = { x: a.x + dx * kitFrom, z: a.z + dz * kitFrom };
+  const kb = { x: a.x + dx * (kitFrom + length), z: a.z + dz * (kitFrom + length) };
+  const h = Math.atan2(kb.z - ka.z, kb.x - ka.x);
+  const pose = angleDiff(h, heading - TIE_TURN) < Math.PI / 2 ? { x: ka.x, z: ka.z, heading: normalizeAngle(h) } : { x: kb.x, z: kb.z, heading: normalizeAngle(h + Math.PI) };
+  const rest: FillPiece[] = [];
+  let at = restFrom;
+  for (const type of restTypes) {
+    rest.push({ type, pose: { x: a.x + dx * at, z: a.z + dz * at, heading: normalizeAngle(h) }, y });
+    at += plainLength(type);
+  }
+  return { kind: "splice", covers: [onto], pose, y, rest };
 }
 
 /** A plain straight to put down: one piece of a gap's fill. */

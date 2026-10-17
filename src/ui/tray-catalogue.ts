@@ -1,6 +1,6 @@
 import type { GameMode } from "../game/modes";
 import type { CarKind, CarLook } from "../sim";
-import type { PieceTypeId } from "../track";
+import { kitForAsset, type PieceTypeId } from "../track";
 import { fileOf, loadFile } from "../catalogue/registry";
 import type { RoadPieceId } from "../roads";
 import { BRIDGE_PROP_SHELVES, PROP_TABS, type PropShelf } from "../catalogue/shelves";
@@ -11,7 +11,8 @@ import { BRIDGE_PROP_SHELVES, PROP_TABS, type PropShelf } from "../catalogue/she
  */
 export type TrayItem =
   | { kind: "piece"; type: PieceTypeId; label: string; auto?: boolean }
-  | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string }
+  /** `sandbox`: on Sandbox's tray only (a car Game mode doesn't make: the track cleaner). */
+  | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string; sandbox?: true }
   /** A catalogue model, placed as a decorative prop. */
   | { kind: "prop"; asset: string; label: string }
   /** A road piece (the Roads tab): fills one square, snaps to the roads beside it. */
@@ -69,6 +70,7 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["hopper"], label: "Hopper" },
   { kind: "train", cars: ["timber"], label: "Flatbed wagon" },
   { kind: "train", cars: ["van"], label: "Goods van" },
+  { kind: "train", cars: ["cleaner"], label: "Track cleaner", sandbox: true },
   { kind: "train", cars: ["passenger"], label: "Coach" },
   { kind: "train", cars: ["passenger"], looks: ["dining"], label: "Dining car" },
   { kind: "train", cars: ["passenger"], looks: ["sleeper"], label: "Sleeper" },
@@ -98,7 +100,7 @@ export const TRACK_GROUPS: TrayGroup[] = [
 export const TRAIN_GROUPS: TrayGroup[] = [
   { label: "Trains", items: TRAIN_ITEMS.slice(0, 2) },
   { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
-  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van")) },
+  { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "cleaner")) },
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },
 ];
 
@@ -197,7 +199,15 @@ export const TRAY_TABS: TrayTab[] = [
 
 /** The tabs a mode shows, in order (outside Sandbox, without catalogue models). */
 export function trayTabs(mode: GameMode): TrayTab[] {
-  return TRAY_TABS.filter((t) => t.modes.includes(mode)).map((t) => (mode === "sandbox" || !t.props ? t : { ...t, props: undefined }));
+  const tabs = TRAY_TABS.filter((t) => t.modes.includes(mode));
+  if (mode === "sandbox") return tabs;
+  // Outside Sandbox: no catalogue models, and no Sandbox-only items (the track cleaner).
+  const sandboxOnly = (i: TrayItem) => i.kind === "train" && !!i.sandbox;
+  return tabs.map((t) => ({
+    ...t,
+    props: undefined,
+    groups: t.groups.map((g) => ({ ...g, items: g.items.filter((i) => !sandboxOnly(i)) })).filter((g) => g.items.length > 0),
+  }));
 }
 
 /** Shelves of catalogue models as tray groups, named from the catalogue (loads the files they're in). */
@@ -209,7 +219,16 @@ export async function propGroups(shelves: readonly PropShelf[]): Promise<TrayGro
       for (const [id, asset] of await loadFile(file)) names.set(id, asset.name);
     }),
   );
-  return shelves.map((s) => ({ label: s.label, items: s.assets.filter((id) => names.has(id)).map((asset): TrayItem => ({ kind: "prop", asset, label: names.get(asset)! })) }));
+  return shelves.map((s) => ({ label: s.label, items: s.assets.filter((id) => names.has(id)).map((asset) => shelfItem(asset, names.get(asset)!)) }));
+}
+
+/**
+ * What a shelf offers for a catalogue model: the kit piece that draws it, where there is one (taking it out holds a
+ * piece, which trains use: see src/track/kits.ts), else the model as a prop. (Shelves are Sandbox's only.)
+ */
+export function shelfItem(asset: string, label: string): TrayItem {
+  const kit = kitForAsset(asset);
+  return kit ? { kind: "piece", type: kit, label } : { kind: "prop", asset, label };
 }
 
 /** Tray thumbnail key for an item. */

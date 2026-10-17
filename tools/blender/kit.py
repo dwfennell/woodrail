@@ -357,7 +357,9 @@ class Kit:
         return self.at(g, x, y, z)
 
     def trackSlab(self, length, x=0, y=0, z=0):
-        g = Node()
+        # A pivot named "slab" (exported as its own node, `<model>|slab|<n>`): a kit piece drawing the model over real
+        # track leaves it out (src/render/props/library.ts, isSlab).
+        g = Node("slab")
         g.add(self.box(self.wood, length, 12, 40, 1.5))
         for gz in (-13, 13):
             g.add(self.box(self.cut, length - 0.2, 0.6, 6, 0, 0, 11.6, gz))

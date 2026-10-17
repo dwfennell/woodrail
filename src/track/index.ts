@@ -6,6 +6,7 @@ export * from "./overlap";
 export * from "./path";
 export * from "./relax";
 export * from "./pieces";
+export * from "./kits";
 export * from "./routing";
 export * from "./snap";
 export * from "./splice";

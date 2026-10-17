@@ -1,13 +1,33 @@
 import { adoptRegion, generateLandscape, generatePlot, plotKey, seaPlot, type DepotKind, type Landscape, type PlotCoord } from "../landscape";
 import { Economy, type DepotRole } from "../economy";
 import { Sim } from "../sim";
-import { Layout, type PieceTypeId } from "../track";
+import { kitOf, Layout, type PieceTypeId } from "../track";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 
 export const depotPieceType = (kind: DepotKind): PieceTypeId => (kind === "forest" ? "depot-forest" : "depot-sawmill");
 
-export const DEPOT_NAMES: Record<Exclude<DepotRole, "town">, string> = { forest: "Forest yard", sawmill: "Sawmill", workshop: "Workshop", farm: "Farm yard", mill: "Mill", quarry: "Quarry", warehouse: "Warehouse", mine: "Mine", foundry: "Foundry", carpenter: "Carpenter's yard", smithy: "Smithy", power: "Power station", harbour: "Harbour" };
+export const DEPOT_NAMES: Record<Exclude<DepotRole, "town">, string> = {
+  forest: "Forest yard",
+  sawmill: "Sawmill",
+  workshop: "Workshop",
+  farm: "Farm yard",
+  mill: "Mill",
+  quarry: "Quarry",
+  warehouse: "Warehouse",
+  mine: "Mine",
+  foundry: "Foundry",
+  carpenter: "Carpenter's yard",
+  smithy: "Smithy",
+  power: "Power station",
+  harbour: "Harbour",
+  // Sandbox's cargo machines (kit pieces): their own names are their kits' (`KitDef.name`).
+  "loader-log": "Log loader",
+  "loader-grain": "Grain loader",
+  "loader-coal": "Coal loader",
+  "loader-planks": "Crane",
+  unloader: "Unloader",
+};
 
 /** Depot pieces and the work their economy depot does (the map's own, and industries the player places). */
 export const INDUSTRY_ROLE: Partial<Record<PieceTypeId, DepotRole>> = {
@@ -34,7 +54,9 @@ export const INDUSTRY_ROLE: Partial<Record<PieceTypeId, DepotRole>> = {
 export function syncIndustries(world: World): boolean {
   let added = false;
   for (const id of world.layout.pieceIds()) {
-    const role = INDUSTRY_ROLE[world.layout.getPiece(id)!.type];
+    const type = world.layout.getPiece(id)!.type;
+    // An industry's piece, or a kit piece that's a cargo stop (Sandbox's loaders and unloaders).
+    const role = INDUSTRY_ROLE[type] ?? kitOf(type)?.depot;
     if (!role || world.economy.depotAtPiece(id)) continue;
     world.economy.addDepot(role, id);
     added = true;
