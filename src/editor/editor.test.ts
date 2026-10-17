@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Sim } from "../sim";
-import { connectorRef, findSplice, fitAutoStraight, getPieceDef, Layout, solveParentPose } from "../track";
+import { connectorRef, findSplice, fitAutoStraight, gapFill, getPieceDef, Layout, solveParentPose } from "../track";
 import { Editor, pieceCentre } from "./editor";
 
 function setup() {
@@ -496,5 +496,62 @@ describe("Editor.replace (a depot dropped onto a line)", () => {
     expect(layout.joinedConnector(connectorRef(b, 0))).toBe(connectorRef(a, 1));
     expect(layout.joinedConnector(connectorRef(c, 1))).toBe(connectorRef(d, 0));
     expect(layout.joinedConnector(connectorRef(b, 1))).toBe(connectorRef(c, 0));
+  });
+});
+
+describe("a depot moved off a line, the gap it leaves filled", () => {
+  /** Straight, workshop, straight along +x, joined. */
+  function inline() {
+    const s = setup();
+    const a = s.editor.place("straight-216", { x: 0, z: 0, heading: 0 }, 0, false);
+    const depot = s.editor.place("depot-workshop", { x: 216, z: 0, heading: 0 }, 0, false);
+    const b = s.editor.place("straight-216", { x: 432, z: 0, heading: 0 }, 0, false);
+    s.editor.clearHistory();
+    const ends = [s.layout.joinedConnector(connectorRef(depot, 0)), s.layout.joinedConnector(connectorRef(depot, 1))] as const;
+    return { ...s, a, b, depot, ends };
+  }
+
+  it("moved onto the ground: a straight closes the gap, in the same undo step; undo puts the depot back joined", () => {
+    const { layout, editor, a, b, depot, ends } = inline();
+    const from = { pose: { ...layout.getPiece(depot)!.pose }, y: 0 };
+    layout.liftPiece(depot);
+    const fill = gapFill(layout, ends[0], ends[1])!;
+    const away = { x: 0, z: 900, heading: 0 };
+    editor.move(depot, away, 0, from, [], false, fill.map((f) => ({ ...f })));
+    const straights = () => [...layout.pieceIds()].filter((id) => layout.getPiece(id)!.type === "straight-216" && id !== a && id !== b);
+    const [filled] = straights();
+    expect(straights()).toHaveLength(1);
+    expect(layout.joinedConnector(connectorRef(filled, 0))).toBe(connectorRef(a, 1));
+    expect(layout.joinedConnector(connectorRef(filled, 1))).toBe(connectorRef(b, 0));
+    expect(layout.getPiece(depot)!.pose).toEqual(away);
+    editor.undo();
+    expect(editor.canUndo).toBe(false);
+    expect(straights()).toHaveLength(0);
+    expect(layout.getPiece(depot)!.pose).toEqual(from.pose);
+    expect(layout.joinedConnector(connectorRef(depot, 0))).toBe(connectorRef(a, 1));
+    expect(layout.joinedConnector(connectorRef(depot, 1))).toBe(connectorRef(b, 0));
+    editor.redo();
+    expect(straights()).toEqual([filled]);
+    expect(layout.joinedConnector(connectorRef(filled, 1))).toBe(connectorRef(b, 0));
+  });
+
+  it("moved onto another line (taking a straight's place there): the gap filled in the same undo step", () => {
+    const { layout, editor, a, b, depot, ends } = inline();
+    const other = editor.place("straight-216", { x: 0, z: 900, heading: 0 }, 0, false);
+    editor.clearHistory();
+    const from = { pose: { ...layout.getPiece(depot)!.pose }, y: 0 };
+    layout.liftPiece(depot);
+    const s = findSplice(layout, "depot-workshop", false, { x: 108, z: 900 }, 0, 40);
+    if (s.kind !== "splice") throw new Error(s.kind);
+    const fill = gapFill(layout, ends[0], ends[1])!;
+    editor.replace(s.covers, "depot-workshop", s.pose, s.y, false, { id: depot, from }, fill.map((f) => ({ ...f })));
+    expect(layout.getPiece(other)).toBeUndefined();
+    const filled = [...layout.pieceIds()].find((id) => layout.getPiece(id)!.type === "straight-216" && id !== a && id !== b)!;
+    expect(layout.joinedConnector(connectorRef(filled, 0))).toBe(connectorRef(a, 1));
+    editor.undo();
+    expect(editor.canUndo).toBe(false);
+    expect(layout.getPiece(filled)).toBeUndefined();
+    expect(layout.getPiece(other)!.type).toBe("straight-216");
+    expect(layout.joinedConnector(connectorRef(depot, 1))).toBe(connectorRef(b, 0));
   });
 });
