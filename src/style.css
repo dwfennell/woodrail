@@ -29,6 +29,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .topbar > * { pointer-events: auto; }
 .brand { font-weight: 800; font-size: 20px; letter-spacing: 0.02em; color: #3a2a1c; background: rgba(250, 243, 230, 0.82); backdrop-filter: blur(8px); padding: 8px 14px 8px 10px; border-radius: 14px; box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); display: flex; align-items: center; gap: 8px; }
 .brand-block { font-size: 26px; }
+/* The brand is the way home (back to my railway): a finger's height, and a ⌖ while it's pressed. */
+.brand { position: relative; min-height: 44px; min-width: 44px; cursor: pointer; transition: transform 0.12s; }
+.brand:active { transform: scale(0.96); }
+.brand::after { content: "⌖"; position: absolute; right: 2px; bottom: 2px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; line-height: 1; background: #fbf3e4; color: #6a4a2c; box-shadow: 0 1px 4px rgba(60, 40, 20, 0.3); opacity: 0; transition: opacity 0.12s; pointer-events: none; }
+.brand:active::after, .brand:focus-visible::after { opacity: 1; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .chip { min-width: 44px; height: 44px; padding: 0 12px; border: none; border-radius: 13px; font: inherit; font-weight: 800; font-size: 17px; color: #3a2a1c; cursor: pointer;
   background: linear-gradient(180deg, #f3dcb6, #dcb682); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.25), 0 4px 14px rgba(60, 40, 20, 0.22); transition: transform 0.08s ease, filter 0.15s; }
