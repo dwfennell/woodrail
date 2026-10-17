@@ -25,7 +25,6 @@ const m = new Matrix4();
 const q = new Quaternion();
 const up = new Vector3(0, 1, 0);
 const pos = new Vector3();
-const one = new Vector3(1, 1, 1);
 
 const START_INSTANCES = 64;
 const START_VERTICES = 1 << 16;
@@ -36,6 +35,10 @@ const START_VERTICES = 1 << 16;
  * frustum-culled on its own. `sync` updates only the props that changed (keyed by the store's version); nothing runs
  * per frame.
  */
+/** Scale study (scratch): models drawn at this scale, by asset id. */
+export const ASSET_SCALE = new Map<string, number>();
+const scaled = new Vector3();
+
 export class PropsView {
   readonly group = new Group();
   private readonly batches = new Map<Material, Batch>();
@@ -109,11 +112,12 @@ export class PropsView {
         }
         this.drawn.set(p.id, d);
       }
-      const poseKey = `${p.x}|${p.z}|${p.heading}|${p.y}`;
+      const k = ASSET_SCALE.get(p.asset) ?? 1;
+      const poseKey = `${p.x}|${p.z}|${p.heading}|${p.y}|${k}`;
       if (poseKey !== d.key) {
         d.key = poseKey;
         q.setFromAxisAngle(up, -p.heading);
-        m.compose(pos.set(p.x, p.y, p.z), q, one);
+        m.compose(pos.set(p.x, p.y, p.z), q, scaled.set(k, k, k));
         for (const inst of d.instances) {
           inst.batch.mesh.setMatrixAt(inst.id, m);
           touched.add(inst.batch);

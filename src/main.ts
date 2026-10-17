@@ -1,3 +1,4 @@
+import { ASSET_SCALE } from "./render/props/props-view";
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre } from "./editor/editor";
@@ -2234,7 +2235,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, trayThumbnailsSaved: () => trayThumbnailsSaved });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, trayThumbnailsSaved: () => trayThumbnailsSaved, assetScale: ASSET_SCALE });
   game.start();
   // Opening in Game mode: start fetching its models now, ahead of play.
   if (mode === "game") ensureGameModels();
