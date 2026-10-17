@@ -8,5 +8,6 @@ export * from "./relax";
 export * from "./pieces";
 export * from "./routing";
 export * from "./snap";
+export * from "./splice";
 export * from "./spatial-hash";
 export * from "./stress-layout";

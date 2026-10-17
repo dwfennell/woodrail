@@ -8,7 +8,7 @@ import { ghostMesh, pieceGeometry, type OutlineTone } from "../render/track-view
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, findLowCrossing, findOverlap, findSnap, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, findLowCrossing, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
@@ -70,8 +70,18 @@ const NO_MOUSE = -1 as unknown as MOUSE;
 const MAX_TILT = (2 * Math.PI) / 180;
 const TRAIN_DROP_RANGE = 70;
 
-/** Why a piece can't go somewhere: the track's own reasons, or a mode's rule ("site", with its own message). */
-type PlaceBlock = BlockReason | "site";
+/**
+ * Why a piece can't go somewhere: the track's own reasons, a mode's rule ("site", with its own message), or a depot
+ * held over a line where it can't take a straight's place ("splice-fit": no straight there its length; "splice-busy":
+ * a train on it; "splice-onto": over other track, not a straight).
+ */
+type PlaceBlock = BlockReason | "site" | "splice-fit" | "splice-busy" | "splice-onto";
+
+const SPLICE_MESSAGES = {
+  "splice-fit": "Drop it onto a long straight",
+  "splice-busy": "A train is on that straight",
+  "splice-onto": "Drop it onto a straight",
+} as const;
 
 type Press =
   | { kind: "car"; carId: number }
@@ -138,6 +148,8 @@ type Mode =
       pose: Pose;
       /** Base height for a loose (unsnapped) drop: high enough to rest on what's under its ends. */
       looseY: number;
+      /** A depot held over a line: the straights it would take the place of (it's snapped where they are), or null. */
+      covers: readonly number[] | null;
       blocked: PlaceBlock | null;
       /** Risers to put under the piece's ends that are in the air (added with it). */
       risers: RiserAt[];
@@ -377,7 +389,8 @@ export class Interaction {
         type: item.type,
         flipped,
         heldFlipped: flipped,
-        heading: this.cameraHeading() + (this.trayTurns * Math.PI) / 4,
+        // A depot can't mirror: Flip turns it right round instead, so its building is on the other side of the line.
+        heading: this.cameraHeading() + (this.trayTurns * Math.PI) / 4 + (this.trayFlipped && this.splices(item.type) ? Math.PI : 0),
         pieceId: -1,
         tray: item,
         auto: item.auto,
@@ -387,6 +400,7 @@ export class Interaction {
         snap: { kind: "none" },
         pose: { x: 0, z: 0, heading: 0 },
         looseY: 0,
+        covers: null,
         blocked: null,
         risers: [],
         overTray: true,
@@ -1232,7 +1246,7 @@ export class Interaction {
   }
 
   /** Why a piece can't go here (the landscape, or another piece in the way), or null when it can. */
-  private blockedBy(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): BlockReason | null {
+  private blockedBy(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): BlockReason | null {
     const c = checkPlacement(this.game.landscape, type, flipped, pose, y);
     if (c.kind === "blocked") return c.reason;
     // Bridges' and raised ramps' arches are solid down to the ground (but for their openings).
@@ -1249,7 +1263,7 @@ export class Interaction {
    * Can a piece go here, and what holds it up: null and the risers to add under ends in the air, or why not (the
    * landscape, another piece, nothing under an end, or no room for its risers).
    */
-  private placement(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): { reason: PlaceBlock | null; risers: RiserAt[] } {
+  private placement(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): { reason: PlaceBlock | null; risers: RiserAt[] } {
     const reason = this.blockedBy(type, flipped, pose, y, ignoreId);
     // A hill in the way: say how far up it is, and how to get there (only worked out when it's so).
     if (reason === "hill") this.hillWhy = hillMessage(levelsAbove(this.game.landscape, type, flipped, pose, y));
@@ -1278,6 +1292,7 @@ export class Interaction {
 
   private blockMessage(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
+    if (reason === "splice-fit" || reason === "splice-busy" || reason === "splice-onto") return SPLICE_MESSAGES[reason];
     return reason === "site" ? this.siteWhy : BLOCK_MESSAGES[reason];
   }
 
@@ -1302,6 +1317,16 @@ export class Interaction {
     // Screen pixels per mm at that distance.
     const pxPerMm = g.canvas.clientHeight / (2 * distance * Math.tan((g.camera.fov * Math.PI) / 360));
     return GRAB_PIECE_MM * pxPerMm >= GRAB_MIN_PX;
+  }
+
+  /** Is this a depot piece, which is dropped onto a straight of a line to take its place (and turns round to flip)? */
+  private splices(type: PieceTypeId): boolean {
+    return !!INDUSTRY_ROLE[type] && straightLength(type, false) > 0;
+  }
+
+  /** What a held piece's placement checks leave out: itself, and the straights it would take the place of. */
+  private ignoreFor(m: Extract<Mode, { kind: "drag-piece" }>): Ignore {
+    return m.covers ? new Set([m.pieceId, ...m.covers]) : m.pieceId;
   }
 
   /** The piece of an industry you placed (a drag on its yard or buildings moves it), or −1 (a map's own depot). */
@@ -1332,7 +1357,14 @@ export class Interaction {
   flipSelected(): void {
     if (this.mode.kind === "drag-piece") {
       const m = this.mode;
-      if (!getPieceDef(m.type, false).flippable) return;
+      if (!getPieceDef(m.type, false).flippable) {
+        // A depot turns right round: the same track, its building on the other side of the line.
+        if (this.splices(m.type)) {
+          m.heading += Math.PI;
+          this.updateDrag(this.lastX, this.lastY);
+        }
+        return;
+      }
       m.heldFlipped = !m.heldFlipped;
       m.flipped = m.heldFlipped;
       const visible = m.ghost.visible;
@@ -1381,9 +1413,16 @@ export class Interaction {
     this.clearSelection();
     this.hud.hideCards();
     const p = this.game.layout.getPiece(id);
-    if (!this.editor().remove(id) || !p) return;
-    // A stand-in lifts and shrinks away where the piece was.
+    if (!p) return;
+    this.shrinkStandIn(id);
+    this.editor().remove(id);
+  }
+
+  /** A stand-in for a piece about to be taken up: it lifts and shrinks away where the piece was. */
+  private shrinkStandIn(id: number): void {
     const g = this.game;
+    const p = g.layout.getPiece(id);
+    if (!p) return;
     const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
     mesh.castShadow = true;
     mesh.position.set(p.pose.x, p.y, p.pose.z);
@@ -1723,6 +1762,7 @@ export class Interaction {
       snap: { kind: "none" },
       pose: { ...p.pose },
       looseY: p.y,
+      covers: null,
       blocked: null,
       risers: [],
       overTray: false,
@@ -1867,6 +1907,29 @@ export class Interaction {
           m.ghost.geometry = pieceGeometry(type, m.flipped);
         }
       }
+      // A depot held over a straight of a line takes its place (or a run of straights its length), turned along it.
+      m.covers = null;
+      let spliceWhy: PlaceBlock | null = null;
+      if (this.splices(m.type)) {
+        // Its centre as held under the finger, seen at the height of each straight it may be over (a few heights).
+        const seen = new Map<number, { x: number; z: number } | null>();
+        const centre = (h: number) => {
+          let c = seen.get(h);
+          if (c === undefined) {
+            const p = this.planeAt(x, sy, h);
+            c = p && { x: p.x + m.offset.x, z: p.z + m.offset.z };
+            seen.set(h, c);
+          }
+          return c;
+        };
+        const sim = this.game.sim;
+        const s = findSplice(this.game.layout, m.type, m.heldFlipped, centre, m.heading, Math.max(capture, TRACK_WIDTH), (id) => !sim.pieceOccupied(id));
+        if (s.kind === "splice") {
+          m.snap = { kind: "snapped", pose: s.pose, y: s.y, connector: 0, target: -1, distance: 0, flipped: m.heldFlipped };
+          m.covers = s.covers;
+        } else if (s.kind !== "none") spliceWhy = s.kind === "busy" ? "splice-busy" : "splice-fit";
+        else spliceWhy = "splice-onto";
+      }
       const fitFlipped = m.snap.kind === "snapped" ? m.snap.flipped : m.heldFlipped;
       if (fitFlipped !== m.flipped) {
         // Show it mirrored (or back as held) while it fits that way.
@@ -1878,7 +1941,10 @@ export class Interaction {
       }
       const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
       const py = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
-      const { reason, risers } = this.placement(m.type, m.flipped, pose, py, m.pieceId);
+      const placed = this.placement(m.type, m.flipped, pose, py, this.ignoreFor(m));
+      // On other track but not where it can take a straight's place: say what would work.
+      const reason = placed.reason === "piece" && spliceWhy ? spliceWhy : placed.reason;
+      const risers = placed.risers;
       // (A preview under the mouse just shows red: the reason comes if it's clicked.)
       // While it's held where it can't go, the reason stays up (and goes once it can, or it's over the tray).
       if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? this.blockMessage(reason) : null);
@@ -1946,10 +2012,10 @@ export class Interaction {
     const ed = this.editor();
     const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
     const y = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
-    const { reason: final, risers } = this.placement(m.type, m.flipped, pose, y, m.pieceId);
+    const { reason: final, risers } = this.placement(m.type, m.flipped, pose, y, this.ignoreFor(m));
     // The reason it couldn't go (if it can't) stays up long enough to read; else the held one goes.
     this.hud.setRefusal(null);
-    if (final && !m.overTray) this.hud.refuse(this.blockMessage(final));
+    if (final && !m.overTray) this.hud.refuse(this.blockMessage(final === "piece" ? m.blocked ?? final : final));
     const mesh = m.ghost;
     const shown: PiecePose = { x: m.shown.x, y: m.shown.y, z: m.shown.z, heading: m.shown.heading };
     const industry = !!INDUSTRY_ROLE[m.type];
@@ -1966,7 +2032,15 @@ export class Interaction {
     switch (dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew })) {
       case "place": {
         const snapped = m.snap.kind === "snapped";
-        const id = isNew ? ed.place(m.type, pose, y, m.flipped, risers) : (ed.move(m.pieceId, pose, y, m.from!, risers, m.flipped), m.pieceId);
+        const covers = m.covers;
+        // A depot dropped onto a line: the straights it takes the place of lift and shrink away (back in the box).
+        if (covers) for (const c of covers) this.shrinkStandIn(c);
+        const id = covers
+          ? ed.replace(covers, m.type, pose, y, m.flipped, isNew ? undefined : { id: m.pieceId, from: m.from! })
+          : isNew
+            ? ed.place(m.type, pose, y, m.flipped, risers)
+            : (ed.move(m.pieceId, pose, y, m.from!, risers, m.flipped), m.pieceId);
+        if (covers) this.hud.toast(covers.length === 1 ? "Straight back in the box" : `${covers.length} straights back in the box`);
         g.trackView.setHidden(id, true);
         setRim(g.mats.held, "#ffffff", 0);
         g.flourishes.add(

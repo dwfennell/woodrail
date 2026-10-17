@@ -232,7 +232,7 @@ export const GOALS: readonly Goal[] = [
   {
     id: "place-workshop",
     title: "Place your workshop",
-    hint: "Drag it from the Industries tab onto your line.",
+    hint: "Drop it from the Industries tab onto a straight on your line.",
     check: (w, ctx = NO_CONTEXT) => ({ done: workshops(w).length > 0 || ctx.learned.has("switches") }),
     guide: (w) => ({ ...guideTrains(w), tab: "industries", shelf: "Industries" }),
   },

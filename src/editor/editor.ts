@@ -221,6 +221,34 @@ export class Editor {
     return true;
   }
 
+  /**
+   * Put a piece down in place of others (a depot dropped onto the straights of a line): they're taken up and it goes
+   * down where they were, joined to the track either side. With `move`, it's that piece moved there (it may be lifted
+   * for dragging; `move.from` is where it was picked up), else a new one. One undo step: undo puts the straights back.
+   * Returns the piece's id.
+   */
+  replace(covers: readonly number[], type: PieceTypeId, pose: Pose, y: number, flipped: boolean, move?: { id: number; from: { pose: Pose; y: number } }): number {
+    const recs = covers.map((id) => this.record(id)).filter((r): r is PieceRecord => r !== null);
+    const was = move ? this.record(move.id) : null;
+    let id = move?.id ?? -1;
+    this.run({
+      do: () => {
+        for (const r of recs) this.layout.removePiece(r.id);
+        if (move) this.layout.dropPiece(id, pose, y, flipped);
+        else if (id === -1) id = this.layout.addPiece(type, pose, y, flipped);
+        else this.layout.restorePiece(id, type, pose, y, flipped);
+      },
+      undo: () => {
+        if (move) this.layout.dropPiece(id, move.from.pose, move.from.y, was?.flipped);
+        else this.layout.removePiece(id);
+        for (const r of recs) this.layout.restorePiece(r.id, r.type, r.pose, r.y, r.flipped);
+      },
+      moves: move ? [move.id] : [],
+      seats: () => [id],
+    });
+    return id;
+  }
+
   /** Move a piece; `flipped`, when given, is how it lands (a ramp may swap its ends to fit where it's put). */
   move(id: number, pose: Pose, y: number, from?: { pose: Pose; y: number }, risers: readonly RiserAt[] = [], flipped?: boolean): boolean {
     const rec = this.record(id);
