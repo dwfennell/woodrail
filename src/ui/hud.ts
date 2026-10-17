@@ -14,6 +14,8 @@ export interface HudHandlers {
   trayTap(item: TrayItem): void;
   /** Another tray tab opened (the ready piece is put away). */
   trayTabChanged(): void;
+  /** The Track tab opened or closed (building: free track ends show their end boards). */
+  trackTab?(open: boolean): void;
   undo(): void;
   redo(): void;
   rerailAll(): void;
@@ -530,6 +532,7 @@ export class Hud {
       this.chooseLandTool(tab.land ? (this.landTool ?? "move") : null);
       tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));
       this.tray.classList.toggle("track-tab", !!tab.orient);
+      this.handlers.trackTab?.(tab.id === "track");
       this.tray.classList.toggle("turn-only", tab.orient === "turn");
       this.propsTab = tab.orient === "turn";
       let groups = tab.groups;

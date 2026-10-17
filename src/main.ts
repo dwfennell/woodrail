@@ -234,6 +234,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         if (trayAllowed(item)) interaction.tapTrayPiece(item);
       },
       trayTabChanged: () => interaction.arm(null),
+      trackTab: (open) => game.showAllEnds(open),
       undo: () => {
         interaction.undo();
       },
