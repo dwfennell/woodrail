@@ -1,0 +1,95 @@
+{
+  "at": "2026-10-17T16:27:34.587Z",
+  "log": [
+    {
+      "kind": "warn",
+      "t": 254,
+      "text": "THREE.Clock: This module has been deprecated. Please use THREE.Timer instead."
+    },
+    {
+      "kind": "warn",
+      "t": 357,
+      "text": "BVH: \"maxLeafSize\" option has been deprecated. Use \"targetLeafSize\", instead."
+    },
+    {
+      "kind": "warn",
+      "t": 368,
+      "text": "THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed."
+    },
+    {
+      "kind": "toast",
+      "t": 34683,
+      "text": "Needs a bridge over the river"
+    }
+  ],
+  "note": "cut incorrect here, notice how it's over the train, it'd be over the track too",
+  "picture": "66a40c70d96ce63f0dd5aca22a386513",
+  "save": "9cf1c2092c6f35ea07b0025400964c4d",
+  "state": {
+    "counts": {
+      "pieces": 61,
+      "props": 56,
+      "trains": 1
+    },
+    "hand": {
+      "blocked": null,
+      "mode": "idle",
+      "propHeading": null,
+      "selectedCar": -1,
+      "selectedPiece": -1,
+      "selectedProp": -1,
+      "selectedScenery": null,
+      "trayFlipped": false,
+      "trayTurns": 0
+    },
+    "mode": "game",
+    "quality": "high",
+    "screen": {
+      "dpr": 2,
+      "height": 1034,
+      "pixelRatio": 2,
+      "touch": false,
+      "width": 1236
+    },
+    "seed": 7,
+    "trains": [
+      {
+        "cars": [
+          "1:engine",
+          "2:timber",
+          "3:timber",
+          "4:timber",
+          "5:timber"
+        ],
+        "id": 1,
+        "lastTurn": null,
+        "levers": [
+          0
+        ],
+        "piece": {
+          "id": 53,
+          "s": 115,
+          "type": "ramp"
+        },
+        "speed": 0,
+        "state": {
+          "kind": "stopped"
+        },
+        "topSpeed": 120
+      }
+    ],
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.31226.1 Chrome/152.0.7977.130 Electron/44.4.3 Safari/537.36",
+    "view": {
+      "camera": [
+        393,
+        943,
+        -1718
+      ],
+      "target": [
+        1037,
+        0,
+        -399
+      ]
+    }
+  }
+}
