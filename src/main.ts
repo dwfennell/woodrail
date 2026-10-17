@@ -376,6 +376,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     studio.dispose();
     // All drawn: saved now rather than once the pause is up.
     clearTimeout(thumbSaveTimer);
+    thumbSaveTimer = 0;
     await saveCached("thumbnails", __BUILD_ID__, thumbnails);
   }
   /** Start-up's tray pictures, all drawn and saved (the e2e tests wait on it before reloading). */
@@ -386,10 +387,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const thumbQueue: string[] = [];
   let studio: ThumbnailStudio | null = null;
   let thumbSaveTimer = 0;
-  /** Save the tray pictures drawn so far, once the drawing's paused a moment. */
+  /**
+   * Save the tray pictures drawn so far, 2 s after the first not yet saved (not put off by more coming: a batch every
+   * second or so would put it off till the last, and a visit cut short would keep none).
+   */
   function saveThumbnailsSoon(): void {
-    clearTimeout(thumbSaveTimer);
-    thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", __BUILD_ID__, thumbnails), 2000);
+    if (thumbSaveTimer) return;
+    thumbSaveTimer = window.setTimeout(() => {
+      thumbSaveTimer = 0;
+      void saveCached("thumbnails", __BUILD_ID__, thumbnails);
+    }, 2000);
   }
   function drawPropThumbnails(items: TrayItem[]): void {
     const idle = thumbQueue.length === 0;
