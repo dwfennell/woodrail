@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { declutterLabels, type LabelBox } from "./label-declutter";
+import { declutterLabels, edgeNudge, type LabelBox } from "./label-declutter";
 
 const box = (x: number, y: number, priority = 0, w = 100, h = 40): LabelBox => ({ x, y, w, h, priority });
 
@@ -39,4 +39,11 @@ describe("declutterLabels", () => {
       }
   });
   it("handles none", () => expect(declutterLabels([])).toEqual([]));
+});
+
+describe("edgeNudge", () => {
+  it("leaves a label on screen alone", () => expect(edgeNudge(100, 80, 390)).toBe(0));
+  it("slides one off the right edge back in", () => expect(edgeNudge(350, 80, 390)).toBe(-48));
+  it("slides one off the left edge back in", () => expect(edgeNudge(-20, 80, 390)).toBe(28));
+  it("keeps the left edge when it's wider than the screen", () => expect(edgeNudge(0, 400, 390)).toBe(8));
 });
