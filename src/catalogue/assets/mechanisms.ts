@@ -538,7 +538,8 @@ const mechanisms: Asset[] = [
     tags: ["wash", "brushes", "clean", "depot", "water"],
     notes: "A drive-through wash with spinning brushes and sprays. Engines could get grubby on coal runs and come out shining, with a little sparkle, after a pass through.",
     build: (k) => {
-      const g = k.group(k.trackSlab(140));
+      // Its track a 108 straight (the kit's: src/track/kits.ts).
+      const g = k.group(k.trackSlab(108));
       const frame = k.paint(TOY.teal);
       for (const x of [-34, 34]) {
         for (const z of [-36, 36]) g.add(k.box(frame, 7, 74, 7, 2, x, 0, z));
@@ -557,6 +558,8 @@ const mechanisms: Asset[] = [
       g.add(top);
       const drops = pivot("drops", 0, 0, 0);
       for (let i = 0; i < 8; i++) drops.add(k.ball(k.paint(TOY.sky), 1.4, -30 + (i % 4) * 2, 30 + i * 4, i % 2 ? 30 : -30));
+      // Dripping only while it's washing (the kit's motion and `animate` show them).
+      drops.visible = false;
       g.add(drops);
       return g;
     },

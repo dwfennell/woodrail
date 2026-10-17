@@ -140,6 +140,20 @@ export const KIT_MOTIONS: Readonly<Record<string, KitMotion>> = {
       each(p, "jib", (o) => (o.rotation.y = on * 1.4 * swing(t, 12)));
     },
   },
+  // The train wash: its brushes spin and its sprays drip while a train goes through (at rest: still, and dry).
+  "mech-train-wash": {
+    parts: ["brushL", "brushR", "brushTop", "drops"],
+    pose: (p, on, t) => {
+      // The brushes turn once a second (a round ends where it started, so let go they stop at rest); water drips on.
+      const turn = on > 0 ? (t % 1) * Math.PI * 2 : 0;
+      each(p, "brushL", (o) => (o.rotation.y = turn));
+      each(p, "brushR", (o) => (o.rotation.y = -turn));
+      each(p, "brushTop", (o) => (o.rotation.z = turn));
+      each(p, "drops", (o) => (o.visible = on > 0.5 && Math.floor(t * 4) % 2 === 0));
+    },
+    period: 1,
+    ease: 0.4,
+  },
   // The weighbridge's dial swings round while a train crawls over it.
   "mech-weighbridge": {
     parts: ["needle"],

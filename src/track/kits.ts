@@ -442,6 +442,21 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     crawl: 30,
     moves: "occupied",
   },
+  // A drive-through wash on a 108 straight: trains crawl through while its brushes spin and its sprays drip.
+  "kit-train-wash": {
+    asset: "mech-train-wash",
+    name: "train wash",
+    track: straight("kit-train-wash", 108),
+    rails: "track",
+    // Its frame's posts either side of the line.
+    footprint: [
+      { t: 54, l: 36, w: 76, d: 10 },
+      { t: 54, l: -36, w: 76, d: 10 },
+    ],
+    splices: true,
+    crawl: 40,
+    moves: "occupied",
+  },
   // The line runs through the arch on a 108 straight; the portcullis rises as a train comes and drops behind it.
   "kit-castle-gate": {
     asset: "bldg-castle-gate",
