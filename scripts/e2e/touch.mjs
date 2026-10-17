@@ -70,6 +70,11 @@ async function mapTaps(p) {
   check("a tap on a piece where its card's Delete opens doesn't delete it", after === before, `${before} → ${after} pieces`);
   check("…and its card is open", await visible(".piece-card"));
   await p.keyboard.press("Escape");
+  // (That card opened over the piece, so the view may have glided to keep it clear (Interaction.keepClearOfCard), after
+  // a pause that a loaded machine stretches: let it finish, then lay track where the engine goes, wherever it is now.)
+  await new Promise((r) => setTimeout(r, 300));
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  await placeAt(195, 300);
 
   // 2. An engine: where does its card put Go (the button a stray click would press: it'd start the engine)? Then an
   // engine right there, tapped.
