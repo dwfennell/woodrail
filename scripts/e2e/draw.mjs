@@ -294,6 +294,39 @@ if (site) {
 
   // 6. Esc puts the pencil down; a drag then pans as usual.
 
+  // 5b. A loop drawn on open ground, back round to where it started: it closes on its own start (no "would cross
+  // itself"), every piece joined.
+  step("5b");
+  const open = await p.evaluate(() => {
+    const w = window.woodrail;
+    const G = w.landscape.grid;
+    const B = w.director.bounds;
+    const free = (px, pz) => {
+      const cell = G.cellAtWorld(px, pz);
+      return cell !== -1 && G.height[cell] === 0 && G.surface[cell] === 0 && G.feature[cell] <= 1 && G.road[cell] === 0;
+    };
+    for (let pz = B.z0 + 600; pz < B.z1 - 600; pz += 72) {
+      for (let px = B.x0 + 600; px < B.x1 - 600; px += 72) {
+        let ok = true;
+        for (let dz = -288; dz <= 288 && ok; dz += 72) for (let dx = -288; dx <= 288 && ok; dx += 72) ok = free(px + dx, pz + dz) && w.layout.queryFreeConnectors(px + dx, pz + dz, 72, []) === 0;
+        if (ok) return { x: px, z: pz };
+      }
+    }
+    return null;
+  });
+  if (open) {
+    await focus(open.x, open.z, 520);
+    await p.evaluate(() => window.__toasts.splice(0));
+    const [n0, j0] = await p.evaluate(() => [D.pieces(), D.joints()]);
+    const loop = [];
+    for (let a = -Math.PI / 2; a <= -Math.PI / 2 + 2 * Math.PI + 0.35; a += Math.PI / 24) loop.push([open.x + 180 * Math.cos(a), open.z + 180 + 180 * Math.sin(a)]);
+    await drawThrough(loop, { shotAt: loop.length - 2, shotName: "draw-5b-loop.png" });
+    const [n1, j1] = await p.evaluate(() => [D.pieces(), D.joints()]);
+    const toasts = await p.evaluate(() => window.__toasts.splice(0));
+    check("a loop back to its start closes there (no 'cross itself')", !toasts.some((t) => /cross itself/.test(t)), JSON.stringify(toasts));
+    check("…every piece of the loop joined, the last to the first", n1 - n0 >= 6 && j1 - j0 === n1 - n0, `${n1 - n0} pieces, ${j1 - j0} joints`);
+  } else check("found open ground for a loop", false);
+
   step("6");
   await p.keyboard.press("Escape");
   const off = await p.evaluate(() => !window.woodrail.interaction.isDrawing && !document.querySelector(".tray-draw").classList.contains("active"));
