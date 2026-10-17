@@ -292,15 +292,25 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
    - two-way blocking ("That's the platform");
    - splicing onto straights with gap fill, for `splices` kits;
    - stops (`KitStops`, through the economy's speed cap, in Sandbox and Game alike).
-5. **What's still a hook (Phase 1):**
-   - `moves`: animation while occupied, stopped or on a state change. `KitView` is static so far.
-   - `depot`: a kit as a cargo stop.
-   - `rails: "model"`: the model drawing its own rails, for bridges and tunnels.
-
-   Whoever needs one first builds it in `kits.ts` and `KitView`, and tells the others.
+5. **Built in Phase 1 (Game Mode's share):**
+   - `moves: "occupied" | "stopped"`: add the asset to `KIT_MOTIONS` (`src/render/kit-motions.ts`): the names of its
+     moving nodes (as its catalogue `animate` finds them) and `pose(parts, on, t)`, which must leave them at rest when
+     `on` is 0. `holds: true` for a motion that holds still once fully engaged (doors open), `period` for one that
+     cycles back to rest (crates on a belt). The library bakes the model whole and bare of those parts; `KitView`
+     draws the bare one plus a live copy of the parts only while the kit moves. The game asks `KitView.update` only on
+     frames where trains moved, one halted (`Economy.halts`), or a kit is still moving. `"state"` is still to build
+     (the turntable): a trigger in `Game.kitTriggered`.
+   - `depot`: a `DepotRole` (Sandbox's: `KitDepotRole`, loaders with an endless heap and an unloader that swallows
+     goods). `syncIndustries` registers it; `DepotView` leaves it to the kit's model.
+   - `stop.cooldown` (seconds: an engine service's), and `crawl` (mm/s: a weighbridge).
+   - A kit of several roads: build its track with `roads(type, starts, length, buffered)` in `kits.ts`. Buffer-ended
+     roads stop trains coming in only, and the model draws the buffer stops (`TrackView` leaves its block off kits).
+   - Still a hook: `rails: "model"`, the model drawing its own rails, for bridges and tunnels.
 6. **Tests to copy:**
    - `src/track/kits.test.ts`: the registry;
    - `src/game/kit-footprint.test.ts`: the footprint and flip hint;
-   - `src/economy/kit-stops.test.ts`: stops;
+   - `src/economy/kit-stops.test.ts`: stops (several roads, buffer-ended roads, services' cool-down);
+   - `src/economy/kit-depots.test.ts`: cargo stops and the crawl;
+   - `src/render/kit-motions.test.ts`, `src/render/kit-view.test.ts`: moving parts;
    - `src/editor/editor.test.ts`: the kit block, splice and undo;
    - `src/persist/save.test.ts`: kit pieces in saves.
