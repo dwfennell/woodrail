@@ -242,7 +242,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-orient .chip { padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 /* Draw: above the tray, at the left, while the Track tab is open. */
 /* (A flex box, so its pencil and word are centred as a plain button's text is: Turn's and Flip's, beside it.) */
-.tray-draw { position: absolute; left: 12px; top: -52px; display: none; align-items: center; justify-content: center; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+.tray-draw { position: absolute; left: 12px; top: -52px; display: none; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 .tray.draw-tab .tray-draw { display: inline-flex; }
 .card-open .tray.draw-tab .tray-draw { display: none; }
 /* Turn and Flip do nothing for a drawn line: away while drawing. */
