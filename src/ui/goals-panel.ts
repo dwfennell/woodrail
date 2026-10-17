@@ -215,10 +215,10 @@ export class GoalsPanel {
 
   /**
    * Bring the list up to date without redrawing it (rows shift under a finger): a new entry is put in at the top, a
-   * merged one is updated where it stands, and the first showing draws everything.
+   * merged one moves up to the top, and the first showing draws everything.
    */
   private updateNews(): void {
-    const now = performance.now();
+    const now = this.journal.now();
     if (this.pressed && this.drawnSeq !== 0) return;
     const entries = this.journal.entries;
     const pane = this.newsPane;
@@ -243,13 +243,14 @@ export class GoalsPanel {
       if (e.seq <= this.drawnSeq) break;
       fresh.push(e);
     }
-    const added: HTMLElement[] = [];
+    // New and merged entries go to the top, newest first (a merged one moves up from where it was).
+    const top: HTMLElement[] = [];
     for (const e of fresh) {
       const el = have.get(e);
       if (el) this.fillRow(el, e, now);
-      else added.push(this.row(e, now));
+      top.push(el ?? this.row(e, now));
     }
-    if (added.length > 0) pane.prepend(...added);
+    if (top.length > 0) pane.prepend(...top);
     // Entries that fell off the end of the journal.
     const keep = new Set<JournalEntry>(entries);
     for (const [e, el] of have) if (!keep.has(e)) el.remove();
@@ -258,7 +259,7 @@ export class GoalsPanel {
 
   /** Only the "2 min ago" texts change on the timer. */
   private refreshTimes(): void {
-    const now = performance.now();
+    const now = this.journal.now();
     for (const el of Array.from(this.newsPane.children) as HTMLElement[]) {
       const e = this.rowEntry.get(el);
       const t = el.querySelector(".news-time");
