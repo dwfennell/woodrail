@@ -99,7 +99,9 @@ export class DrawHand {
   private readonly trailPoints: number[] = [];
   /** The line's own pieces, as a layout, so it can't cross itself. */
   private readonly own = new Layout();
-  private ownCount = -1;
+  /** The pieces in `own` (the line's, as it was last asked about) and their ids there. */
+  private readonly ownPieces: DrawnPiece[] = [];
+  private readonly ownIds: number[] = [];
   /** Ghosts are a little bolder than a held piece's preview: a line is several of them, seen from further out. */
   private readonly okMat: Material;
   private readonly blockedMat: Material;
@@ -238,7 +240,6 @@ export class DrawHand {
   }
 
   private start(end: DrawEnd): void {
-    this.ownCount = -1;
     this.toldStalled = false;
     this.sinceGrown = 0;
     this.last = null;
@@ -264,15 +265,25 @@ export class DrawHand {
     return null;
   }
 
-  /** The line's own pieces so far, in a scratch layout (for crossing itself, and closing a loop on its own start). */
+  /**
+   * The line's own pieces so far, in a scratch layout (for crossing itself, and closing a loop on its own start). Kept
+   * in step piece by piece: only those after the part it already holds come off and go on (it's asked about the line
+   * with and without its last piece in turn, a few times for each piece laid).
+   */
   private syncOwn(line: readonly DrawnPiece[]): void {
-    if (this.ownCount === line.length && this.ownLast === line[line.length - 1]) return;
-    for (const id of [...this.own.pieceIds()]) this.own.removePiece(id);
-    for (const p of line) this.own.addPiece(p.type, p.pose, p.y, p.flipped);
-    this.ownCount = line.length;
-    this.ownLast = line[line.length - 1];
+    const held = this.ownPieces;
+    let k = 0;
+    while (k < held.length && k < line.length && held[k] === line[k]) k++;
+    while (held.length > k) {
+      this.own.removePiece(this.ownIds.pop()!);
+      held.pop();
+    }
+    for (let i = k; i < line.length; i++) {
+      const p = line[i];
+      this.ownIds.push(this.own.addPiece(p.type, p.pose, p.y, p.flipped));
+      held.push(p);
+    }
   }
-  private ownLast: DrawnPiece | undefined;
 
   /** The layouts a line can close onto: the map's track, and its own (a loop back to where it started). */
   private closable(last: "with" | "without"): Layout[] {

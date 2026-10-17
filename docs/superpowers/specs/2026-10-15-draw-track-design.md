@@ -91,15 +91,22 @@ The line grows one piece at a time, from the end the line has reached so far:
    line's heading within 25°; QA rejected it: the line drifted up to 586 mm off the finger, a wobble broke it, a
    deliberate slant was forced onto the grid, and the ghosts came late.) Now:
    - **Is the stroke straight?** From where the straight run began (or 6 cm behind where the line has got to on the
-     stroke) to the stroke's end, at most 70 cm of it and at least 20 cm: no point more than 16 mm (or 3% of its length)
-     off the chord between the mean points of its first and last quarters. The means average out a hand's wobble.
+     stroke) to the stroke's end, at most 70 cm of it and at least 20 cm: the mean points of its first and last quarters
+     at least half its length apart, and no point more than 16 mm (or 3% of its length) off the line that fits its
+     points best (least squares). That line is the stroke's chord: the fit averages out a hand's wobble, which tilted
+     a chord between the two quarters' means enough to take the line a few mm further out of the band.
    - **A line already on the stroke and running its way** (within 0.06 rad of the chord and 15 mm of it) is left to the
      scoring above, which keeps it on and sees a bend coming soonest. So straight strokes along the grid, lead-ins and
      bends behave as before.
    - **Otherwise the line keeps to a band.** It runs on one of the two eighths either side of the stroke's way, anywhere
-     within 50 mm of the stroke (each 5 mm further costs one unit). It steps onto the other eighth with a curve, or two
-     curves turning opposite ways (an S-step), when going on straight would take it out of the band. So a 23° swipe is
-     a staircase of straights along 0° and 45°, never more than about 60 mm from the finger, however long.
+     within 50 mm of the stroke (each 5 mm further costs one unit), measured at each piece's end and where a curve lies
+     furthest off (where it runs the stroke's way, not at its middle). It steps onto the other eighth with a curve, or
+     two curves turning opposite ways (an S-step), when going on straight would take it out of the band. So a 23° swipe
+     is a staircase of straights along 0° and 45°, never more than about 55 mm from the finger, however long. (Over 300
+     to 1500 mm at 0 to 40°: the track at most 55 mm off the swipe, 64 mm with a ±8 mm wobble; it was 60 and 71 with a
+     curve checked at its middle and the chord between quarters' means. A steeper band, each 3 mm costing one unit,
+     took 2 mm more off, but laid more S-steps straight from a new line's start, which looked like a snake. A ±20 mm
+     wobble isn't a straight stroke, and is scored as usual.)
    - Plans of up to three pieces are scored: each piece's cost, plus 1 for a curve, 2 more for the tight curve (a kink
      in a straight line), 1.5 more for a curve straight after another (a run of them is the snake), 1 more for a mini;
      the band; less 1/120 per mm of stroke covered (up to its end). While drawing, a plan is taken as far as the
@@ -107,7 +114,9 @@ The line grows one piece at a time, from the end the line has reached so far:
      straight another 100 mm in the band. Finishing, a plan may stop anywhere: short of the stroke's end costs
      (mm/20)², past it (mm/30)², and more than 25 mm to its side ((mm − 25)/25)². The best plan's first piece is laid.
      Each plan is worked out from the pieces' shapes against the chord (no stroke search), so a step is cheaper than
-     the usual scoring.
+     the usual scoring. The search is depth first, and a branch is cut once what it has cost, less all the stroke it
+     could still cover, can't beat the best plan found; it looks at no more than 400 pieces (three deep with every
+     type is 399), keeping the best plan found by then.
    - The ghosts come at the usual look-ahead (250 mm behind the finger); the band doesn't wait for more stroke.
    - Pieces laid on the band may lie to the side of the finger, so going back over the stroke they were laid for takes
      them off too (retracing).
@@ -128,8 +137,24 @@ The line grows one piece at a time, from the end the line has reached so far:
    curve's circle about 0.9. A straight swipe never stalls (drift isn't a reason).
 
 The stroke near the line's end is found with a windowed nearest-point search, so each step costs the same however
-long the stroke is. A step tries 14 candidates × 14 pairs. That's fast enough for every pointer move on a phone
-(target: under 2 ms a step; it is timed in the tests).
+long the stroke is. A step tries 14 candidates × 14 pairs, the cheapest first pieces first; a pair is only looked for
+on the stroke if what it costs before that (its first piece's score, its second piece's own cost, less all the
+stroke left to cover) could still beat the best pair so far, which leaves about one in five of the pairs that were
+looked for before. With the nearest-point search comparing squared distances, and the way the finger was going at the
+stroke's end worked out once a move rather than once a piece, a step makes the same choice in about 0.03 ms instead
+of 0.2 ms in Node.
+
+A pointer move lays at most one piece. Normally a move lays one at most anyway; but where the line waits (a bend
+too sharp to follow, the finger going on) the stroke can come back within its reach a metre or more on, and laying
+all of that at once took one move 4 to 6 ms in Node (20 pieces, each scored and checked against the map). The rest
+now go down on the moves after, a piece a move (the ghosts run up to the finger), or when the finger lifts. That's
+fast enough for every pointer move on a phone (target: well under 1 ms a move in Node, a few ms on a phone; the
+tests time it, and check that no move lays more than one piece). The JS engine compiles the drawing code as it first
+runs, which cost a player's first stroke 3 to 4 ms in Node on its first piece: so when the Draw chip is switched on,
+two made-up strokes are drawn and thrown away when the browser is idle (once, about 10 ms in Node), and the first
+real one costs about 0.5 ms at worst. DrawHand's scratch layout of the line's own
+pieces is kept in step piece by piece (it's asked about the line with and without its last piece in turn), not
+built again from nothing each time.
 
 ### Checks for each ghost
 

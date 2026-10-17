@@ -25,6 +25,7 @@ import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { checkYard, flipHint, footprintInYards, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
+import { warmDrawing } from "../track/draw-path";
 import { dragMoves } from "./drag-rule";
 import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
@@ -506,6 +507,9 @@ export class Interaction {
     if (on === this.drawing) return;
     this.drawing = on;
     if (on) {
+      // The first stroke shouldn't be the one the drawing code is compiled on (see `warmDrawing`): when idle, once.
+      const idle = (globalThis as { requestIdleCallback?: (f: () => void) => number }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 50));
+      idle(() => warmDrawing());
       this.arm(null);
       this.clearSelection();
       this.hud.hideCards();
