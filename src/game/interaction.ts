@@ -8,7 +8,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
+import { connectorRef, gapFill, isPlainStraight, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, propsInRect, PROP_MESSAGES, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
@@ -139,6 +139,11 @@ type Mode =
       add: boolean;
       /** Drawing, on something near a free end: a drag draws from that end, a tap is a tap on what's there. */
       draws?: boolean;
+      /**
+       * Drawing, on a line's body (this plain straight): a drag draws a branch off it (a switch goes in), a long press
+       * picks the piece up, a tap is a tap on it.
+       */
+      branch?: number;
       /** On touch, a press on something not selected that a long press would pick up (see touch-hold.ts). */
       hold?: {
         timer: number;
@@ -345,7 +350,8 @@ export class Interaction {
     game.scene.add(this.propOutline.line, this.squareOutline.line, this.sceneryOutline.line);
     this.roads = new RoadHand(game, hud, editor, () => this.onRefused?.(), () => this.onPlaced?.(false));
     this.draw = new DrawHand(game, editor, {
-      placement: (type, flipped, pose, y) => this.placement(type, flipped, pose, y, -1),
+      placement: (type, flipped, pose, y, ignore) => this.placement(type, flipped, pose, y, ignore ?? -1),
+      occupied: (id) => this.game.sim.pieceOccupied(id),
       message: (reason) => this.blockMessage(reason as PlaceBlock) ?? reason,
       planeAt: (x, y, h) => this.planeAt(x, y, h),
       toScreen: (v) => {
@@ -908,6 +914,11 @@ export class Interaction {
     }
     this.game.controls.enabled = false;
     const press: Extract<Mode, { kind: "press" }> = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey, draws: drawsFromEnd };
+    // Drawing, on a line's body (a plain straight, not one of the map's own): a drag branches off it.
+    if (this.drawing && !drawsFromEnd && !this.picking && hit.kind === "piece" && this.fixedLabel(hit.pieceId) === null) {
+      const p = this.game.layout.getPiece(hit.pieceId);
+      if (p && isPlainStraight(p.type)) press.branch = hit.pieceId;
+    }
     this.mode = press;
     this.armHold(press, e.timeStamp);
   }
@@ -974,6 +985,19 @@ export class Interaction {
           return;
         }
       } else if (travel < DRAG_THRESHOLD) return;
+      // Drawing, and it moved off a line's body: a branch off it (a long press, above, picked the piece up instead).
+      if (m.branch !== undefined && this.drawing && this.touches.size <= 1) {
+        if (this.draw.beginBranch(m.x, m.y, m.branch)) {
+          this.clearSelection();
+          this.game.controls.enabled = false;
+          this.mode = { kind: "draw-track", pointerId: m.pointerId };
+          this.updateDraw(e.clientX, e.clientY);
+        } else {
+          this.mode = { kind: "idle" };
+          this.game.controls.enabled = true;
+        }
+        return;
+      }
       // Drawing, and it moved: a line from the free end it started by, not a drag of what's there.
       if (m.draws && this.drawing && this.draw.begin(m.x, m.y)) {
         this.game.controls.enabled = false;
@@ -1034,9 +1058,11 @@ export class Interaction {
    */
   private armHold(m: Extract<Mode, { kind: "press" }>, t: number): void {
     const target = m.press.kind === "piece" ? "piece" : m.press.kind === "car" ? "car" : m.press.kind === "depot" ? "depot" : null;
-    if (!target || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType)) return;
+    // Drawing, on a line's body: a drag draws a branch, so a long press (a mouse's too) is how the piece is picked up.
+    const branch = this.drawing && m.branch !== undefined;
+    if (!branch && (!target || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType))) return;
     // Drawing is its own tool: a finger resting there neither picks anything up nor starts a line (Rail and road's).
-    if (this.drawing) return;
+    if (this.drawing && !branch) return;
     if (m.press.kind === "piece" && (this.picking || this.fixedLabel(m.press.pieceId))) return;
     if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) === -1) return;
     m.hold = { timer: window.setTimeout(() => this.holdFired(m), HOLD_MS), t, strayedAt: null };

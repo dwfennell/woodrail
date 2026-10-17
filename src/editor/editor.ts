@@ -187,6 +187,31 @@ export class Editor {
     return ids;
   }
 
+  /**
+   * Take up `covers` and put `pieces` down, in one undo step: a drawn line with the switch it swaps into the line it
+   * leaves or meets (and the plain straights either side of it). Undone, the covers go back as they were. The ids
+   * of the pieces put down, in order.
+   */
+  replaceRun(covers: readonly number[], pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean }[]): number[] {
+    const recs = covers.map((id) => this.record(id)).filter((r): r is PieceRecord => r !== null);
+    const ids: number[] = [];
+    this.run({
+      do: () => {
+        for (const r of recs) this.layout.removePiece(r.id);
+        pieces.forEach((p, i) => {
+          if (ids[i] === undefined) ids[i] = this.layout.addPiece(p.type, p.pose, p.y, p.flipped);
+          else this.layout.restorePiece(ids[i], p.type, p.pose, p.y, p.flipped);
+        });
+      },
+      undo: () => {
+        for (let i = ids.length - 1; i >= 0; i--) this.layout.removePiece(ids[i]);
+        for (const r of recs) this.layout.restorePiece(r.id, r.type, r.pose, r.y, r.flipped);
+      },
+      seats: () => [...ids],
+    });
+    return ids;
+  }
+
   remove(id: number): boolean {
     const rec = this.record(id);
     if (!rec) return false;

@@ -1,6 +1,7 @@
 import { connectorRef, createWorldConnector, indexOfRef, pieceOfRef, type Layout } from "./layout";
-import { angleDiff, normalizeAngle, type Pose } from "./math";
-import { getPieceDef, PIECE_TYPES, type PieceTypeId } from "./pieces";
+import { JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, SWITCH_LENGTH } from "./constants";
+import { angleDiff, normalizeAngle, transformPose, type Pose } from "./math";
+import { FIT_LENGTHS, getPieceDef, PIECE_TYPES, type ConnectorKind, type PieceTypeId } from "./pieces";
 
 /**
  * A straight-shaped piece (a depot, a station) dropped onto a line: the plain straights it takes the place of, and
@@ -250,4 +251,314 @@ export function gapFill(layout: Layout, from: number, to: number): FillPiece[] |
     z += Math.sin(h) * plainLength(type);
   }
   return out;
+}
+
+/*
+ * Swapping a piece into a line (Draw N2 phase 2: docs/superpowers/specs/2026-10-17-draw-junctions-ramps-bridges-design.md
+ * §3). A switch takes the place of part of a run of plain straights, as a depot does (`findSplice`), but needn't be
+ * their length: what's left over either side is filled with plain straights (`straightsFor`: none, or at least 36 mm,
+ * in 18 mm steps). Nothing here changes the layout: the caller takes up `covers` and puts down `pieces`.
+ */
+
+/** A piece to put down in a swap. */
+export interface SwapPiece {
+  readonly type: PieceTypeId;
+  readonly pose: Pose;
+  readonly y: number;
+  readonly flipped: boolean;
+}
+
+/** A switch swapped into a line: the straights it takes up, what goes down instead (the switch first), and its branch end. */
+export interface PieceSwap {
+  readonly kind: "swap";
+  readonly covers: readonly number[];
+  readonly pieces: readonly SwapPiece[];
+  /** The switch's branch end, facing out (where a drawn line goes on from, or comes in to). */
+  readonly end: { x: number; z: number; heading: number; y: number; kind: ConnectorKind };
+}
+
+/** A swap, or why there's none: `busy`, a train is on the straights it would take up; `none`, nowhere it fits. */
+export type SwapResult = PieceSwap | { readonly kind: "busy"; readonly onto: number } | { readonly kind: "none" };
+
+const NO_SWAP: SwapResult = { kind: "none" };
+
+/** A run of plain straights joined in line: their ids, where each starts along it (mm), and its frame. */
+interface Run {
+  ids: number[];
+  starts: number[];
+  lengths: number[];
+  /** Where it starts (the far end of its first straight), the way it runs, its length, and its height. */
+  x: number;
+  z: number;
+  h: number;
+  length: number;
+  y: number;
+}
+
+/** How many straights either side of the one pressed a swap looks along (enough for a switch and what's left over). */
+const RUN_REACH = 4;
+/** Swap positions are this far apart along a run (mm): the plain straights' lengths are all multiples of it. */
+const SWAP_STEP = 18;
+/** Leaving a line, the switch's branch end is looked for this far back and on from where it's pressed (mm). */
+const BRANCH_BACK = 180;
+const BRANCH_ON = 40;
+/** Scoring a branch: each radian its leg leaves off the stroke's way costs as much as this many mm off the stroke. */
+const BRANCH_TURN = 60;
+/** Facings scoring within this (mm) are a tie: the switch faces the line's nearer end. */
+const BRANCH_TIE = 3;
+/** A swap that covers whole straights (nothing left over) is taken over one up to this much better (mm) that doesn't. */
+const WHOLE_SLACK = 36;
+/** Merging: the finger must have been let go this close (mm) to the line's centre line. */
+export const MERGE_REACH = 50;
+/** Walking a line to its nearer free end looks at no more than this many pieces each way. */
+const END_WALK = 40;
+
+/** The run of plain straights through `onto`, in line and at its height, up to `RUN_REACH` either side. */
+function runThrough(layout: Layout, onto: number): Run | null {
+  const here = layout.getPiece(onto);
+  const own = here ? plainLength(here.type) : 0;
+  if (!here || own === 0 || layout.isLifted(onto)) return null;
+  const side = (end: 0 | 1) => {
+    const ids: number[] = [];
+    const lengths: number[] = [];
+    let ref = connectorRef(onto, end);
+    for (let k = 0; k < RUN_REACH; k++) {
+      const partner = layout.joinedConnector(ref);
+      if (partner === -1) break;
+      const id = pieceOfRef(partner);
+      const p = layout.getPiece(id);
+      const l = p ? plainLength(p.type) : 0;
+      if (!p || l === 0 || id === onto || ids.includes(id) || layout.isLifted(id)) break;
+      if (Math.abs(p.y - here.y) > SAME_HEIGHT || angleDiff(2 * p.pose.heading, 2 * here.pose.heading) > 2 * LINE_ANGLE) break;
+      ids.push(id);
+      lengths.push(l);
+      ref = connectorRef(id, 1 - indexOfRef(partner));
+    }
+    return { ids, lengths, far: ref };
+  };
+  const back = side(0);
+  const ahead = side(1);
+  layout.worldConnector(back.ids.length ? back.far : connectorRef(onto, 0), a);
+  layout.worldConnector(ahead.ids.length ? ahead.far : connectorRef(onto, 1), b);
+  const ids = [...back.ids.reverse(), onto, ...ahead.ids];
+  const lengths = [...back.lengths.reverse(), own, ...ahead.lengths];
+  const starts: number[] = [];
+  let u = 0;
+  for (const l of lengths) {
+    starts.push(u);
+    u += l;
+  }
+  return { ids, starts, lengths, x: a.x, z: a.z, h: Math.atan2(b.z - a.z, b.x - a.x), length: u, y: here.y };
+}
+
+const swapEnd: Pose = { x: 0, z: 0, heading: 0 };
+
+/**
+ * A switch at `s` mm along a run (its 144 mm from there), facing on along the run (`facing` 1: trunk at `s`) or back
+ * (−1: trunk at `s` + 144), mirrored or not: what it covers, the straights either side, and its branch end. Null if
+ * what's left over can't be made of plain straights, or a train is on what it covers (`busy` is told).
+ */
+function switchAt(run: Run, s: number, facing: 1 | -1, flipped: boolean, canTake: (id: number) => boolean, busy: { onto: number }): PieceSwap | null {
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < run.ids.length; i++) {
+    if (run.starts[i] + run.lengths[i] <= s + LENGTH_SLACK || run.starts[i] >= s + SWITCH_LENGTH - LENGTH_SLACK) continue;
+    if (first === -1) first = i;
+    last = i;
+  }
+  if (first === -1) return null;
+  const u0 = run.starts[first];
+  const u1 = run.starts[last] + run.lengths[last];
+  const left = s - u0;
+  const right = u1 - s - SWITCH_LENGTH;
+  const fillLeft = left < LENGTH_SLACK ? [] : straightsFor(left);
+  const fillRight = right < LENGTH_SLACK ? [] : straightsFor(right);
+  if (!fillLeft || !fillRight) return null;
+  const covers = run.ids.slice(first, last + 1);
+  for (const id of covers)
+    if (!canTake(id)) {
+      busy.onto = id;
+      return null;
+    }
+  const ch = Math.cos(run.h);
+  const sh = Math.sin(run.h);
+  const at = (u: number): Pose => ({ x: run.x + ch * u, z: run.z + sh * u, heading: run.h });
+  const pose = facing === 1 ? at(s) : { ...at(s + SWITCH_LENGTH), heading: normalizeAngle(run.h + Math.PI) };
+  const def = getPieceDef("switch", flipped);
+  const c = def.connectors[2];
+  transformPose(pose, c.pose, swapEnd);
+  const pieces: SwapPiece[] = [{ type: "switch", pose, y: run.y, flipped }];
+  let u = u0;
+  for (const type of fillLeft) {
+    pieces.push({ type, pose: at(u), y: run.y, flipped: false });
+    u += plainLength(type);
+  }
+  u = s + SWITCH_LENGTH;
+  for (const type of fillRight) {
+    pieces.push({ type, pose: at(u), y: run.y, flipped: false });
+    u += plainLength(type);
+  }
+  return { kind: "swap", covers, pieces, end: { x: swapEnd.x, z: swapEnd.z, heading: normalizeAngle(swapEnd.heading), y: run.y + c.y, kind: c.kind } };
+}
+
+/** Is a swap a whole-straights one (nothing left over: the switch is all it puts down)? */
+const whole = (w: PieceSwap): boolean => w.pieces.length === 1;
+
+/**
+ * Which way along a run (1: on, the way it runs; −1: back) its line reaches a free end sooner, in pieces (0 if it's
+ * a tie, or neither does within `END_WALK`).
+ */
+function nearerEnd(layout: Layout, run: Run): 1 | -1 | 0 {
+  const walk = (id: number, end: number): number => {
+    let ref = connectorRef(id, end);
+    for (let k = 0; k < END_WALK; k++) {
+      const partner = layout.joinedConnector(ref);
+      if (partner === -1) return k;
+      const next = pieceOfRef(partner);
+      const p = layout.getPiece(next);
+      if (!p) return k;
+      const def = getPieceDef(p.type, p.flipped);
+      if (def.connectors.length !== 2) return Infinity;
+      ref = connectorRef(next, 1 - indexOfRef(partner));
+    }
+    return Infinity;
+  };
+  // Each end of the run: whichever of the first and last straights' ends faces out of the run.
+  const outOf = (id: number, toward: number): number => {
+    const p = layout.getPiece(id)!;
+    const def = getPieceDef(p.type, p.flipped);
+    const w = transformPose(p.pose, def.connectors[1].pose, swapEnd);
+    const out1 = Math.cos(w.heading) * Math.cos(run.h) + Math.sin(w.heading) * Math.sin(run.h);
+    return toward * out1 > 0 ? 1 : 0;
+  };
+  const first = run.ids[0];
+  const last = run.ids[run.ids.length - 1];
+  const back = walk(first, outOf(first, -1));
+  const on = walk(last, outOf(last, 1));
+  return on < back ? 1 : back < on ? -1 : 0;
+}
+
+/**
+ * A stroke starting on plain straight `onto` at (px, pz) and leaving it along `heading` (its first few centimetres):
+ * the switch that takes the place of part of its run, its branch leaving to the side the stroke does, placed so the
+ * branch's end lies nearest the stroke and its leg runs nearest the stroke's way (the facing whose leg is nearer the
+ * stroke's way; level, the one facing the line's nearer free end). A position covering whole straights is preferred
+ * within `WHOLE_SLACK`. About a dozen positions 18 mm apart, both facings: each a pose's arithmetic, no placement checks
+ * (the caller checks the one it gets). `canTake`: straights that may be taken up (no train on them).
+ */
+export function findBranch(layout: Layout, onto: number, px: number, pz: number, heading: number, canTake: (id: number) => boolean = () => true): SwapResult {
+  const run = runThrough(layout, onto);
+  if (!run) return NO_SWAP;
+  // (A train on the straight pressed: refused, not a switch somewhere else along the line.)
+  if (!canTake(onto)) return { kind: "busy", onto };
+  const ch = Math.cos(run.h);
+  const sh = Math.sin(run.h);
+  const up = (px - run.x) * ch + (pz - run.z) * sh;
+  const dx = Math.cos(heading);
+  const dz = Math.sin(heading);
+  // Which side of the line the stroke leaves to.
+  const side = ch * dz - sh * dx > 0 ? 1 : -1;
+  const busy = { onto: -1 };
+  type Scored = { w: PieceSwap; score: number; facing: 1 | -1 };
+  const found: Scored[] = [];
+  const lo = Math.max(0, Math.ceil((up - BRANCH_BACK) / SWAP_STEP) * SWAP_STEP);
+  for (let s = lo; s <= up + BRANCH_ON && s + SWITCH_LENGTH <= run.length + LENGTH_SLACK; s += SWAP_STEP) {
+    for (const facing of [1, -1] as const) {
+      for (const flipped of [false, true]) {
+        const w = switchAt(run, s, facing, flipped, canTake, busy);
+        if (!w) continue;
+        // The branch must leave to the stroke's side.
+        const ex = w.end.x - run.x;
+        const ez = w.end.z - run.z;
+        if ((ch * ez - sh * ex) * side <= 0) continue;
+        // How far its end is from the stroke (a ray from the press, its way), and how far its leg turns off it.
+        const rx = w.end.x - px;
+        const rz = w.end.z - pz;
+        const along = rx * dx + rz * dz;
+        const off = along > 0 ? Math.abs(-rx * dz + rz * dx) : Math.hypot(rx, rz);
+        found.push({ w, facing, score: off + BRANCH_TURN * angleDiff(w.end.heading, heading) });
+      }
+    }
+  }
+  if (found.length === 0) return busy.onto !== -1 ? { kind: "busy", onto: busy.onto } : NO_SWAP;
+  found.sort((p, q) => p.score - q.score);
+  let pick = found[0];
+  // Level between the two facings: toward the line's nearer free end.
+  const other = found.find((f) => f.facing !== pick.facing);
+  if (other && other.score - pick.score <= BRANCH_TIE) {
+    const toward = nearerEnd(layout, run);
+    if (toward !== 0 && pick.facing !== toward) pick = other;
+  }
+  // Whole straights, if one is nearly as good (and faces the same way).
+  if (!whole(pick.w)) {
+    const w = found.find((f) => f.facing === pick.facing && whole(f.w) && f.score <= pick.score + WHOLE_SLACK);
+    if (w) pick = w;
+  }
+  return pick.w;
+}
+
+/** A merge: the switch swap, and the straight (if any) from the line's end to its branch end. */
+export interface MergeSwap {
+  readonly swap: PieceSwap;
+  readonly link: SwapPiece | null;
+}
+
+/**
+ * A drawn line ending at `end` (heading the way it goes on), its finger let go at (fx, fz) on or close to a plain
+ * straight: a switch swapped into that straight's run whose branch end meets the line, arriving at 45° to it, either
+ * straight away or through one plain straight on along the line's heading (as the Auto piece fits: 36 to 216 mm in
+ * 18 mm steps, to within the joints' play). Null if none does. One pass over the pieces for straights near the finger,
+ * then for each run two facings, two hands and the two positions either side of where the branch would line up.
+ */
+export function findMerge(layout: Layout, end: { x: number; z: number; heading: number; y: number }, fx: number, fz: number, canTake: (id: number) => boolean = () => true): MergeSwap | null {
+  const seen = new Set<number>();
+  const busy = { onto: -1 };
+  const ex = Math.cos(end.heading);
+  const ez = Math.sin(end.heading);
+  let best: { m: MergeSwap; err: number } | null = null;
+  for (const id of layout.pieceIds()) {
+    const p = layout.getPiece(id)!;
+    const l = plainLength(p.type);
+    if (l === 0 || seen.has(id) || Math.abs(p.y - end.y) > SAME_HEIGHT) continue;
+    if (Math.abs(p.pose.x - fx) > l + MERGE_REACH || Math.abs(p.pose.z - fz) > l + MERGE_REACH) continue;
+    const run = runThrough(layout, id);
+    if (!run) continue;
+    for (const r of run.ids) seen.add(r);
+    const ch = Math.cos(run.h);
+    const sh = Math.sin(run.h);
+    // The finger let go on or close to the run.
+    const fu = (fx - run.x) * ch + (fz - run.z) * sh;
+    const fv = -(fx - run.x) * sh + (fz - run.z) * ch;
+    if (Math.abs(fv) > MERGE_REACH || fu < -MERGE_REACH || fu > run.length + MERGE_REACH) continue;
+    for (const facing of [1, -1] as const) {
+      for (const flipped of [false, true]) {
+        // Where the branch end is with the switch at 0, and the way it faces: the line must come in facing it.
+        const def = getPieceDef("switch", flipped);
+        const c = def.connectors[2].pose;
+        const base: Pose = facing === 1 ? { x: run.x, z: run.z, heading: run.h } : { x: run.x + ch * SWITCH_LENGTH, z: run.z + sh * SWITCH_LENGTH, heading: normalizeAngle(run.h + Math.PI) };
+        transformPose(base, c, swapEnd);
+        if (Math.abs(normalizeAngle(end.heading - swapEnd.heading - Math.PI)) > JOINT_ANGLE_TOLERANCE) continue;
+        // The branch end moves along the run with the switch: where it's straight ahead of the line's end.
+        const bx = swapEnd.x - end.x;
+        const bz = swapEnd.z - end.z;
+        const across0 = -bx * ez + bz * ex;
+        const rate = -ch * ez + sh * ex;
+        if (Math.abs(rate) < 1e-6) continue;
+        const sStar = -across0 / rate;
+        for (const s of [Math.floor(sStar / SWAP_STEP) * SWAP_STEP, Math.ceil(sStar / SWAP_STEP) * SWAP_STEP]) {
+          if (s < 0 || s + SWITCH_LENGTH > run.length + LENGTH_SLACK) continue;
+          const along = (bx + ch * s) * ex + (bz + sh * s) * ez;
+          const across = across0 + rate * s;
+          const link = Math.abs(along) <= JOINT_POS_TOLERANCE ? 0 : FIT_LENGTHS.reduce((q, t) => (Math.abs(t - along) < Math.abs(q - along) ? t : q), FIT_LENGTHS[0] as number);
+          const err = Math.hypot(along - link, across);
+          if (err > JOINT_POS_TOLERANCE || (best && err >= best.err)) continue;
+          const w = switchAt(run, s, facing, flipped, canTake, busy);
+          if (!w) continue;
+          const linkPiece: SwapPiece | null = link === 0 ? null : { type: `straight-${link}` as PieceTypeId, pose: { x: end.x, z: end.z, heading: normalizeAngle(end.heading) }, y: end.y, flipped: false };
+          best = { m: { swap: w, link: linkPiece }, err };
+        }
+      }
+    }
+  }
+  return best?.m ?? null;
 }
