@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
 import { appendPiece, connectorRef } from "../track";
-import { costOf, craftNow, Crafting, CRAFT_SECONDS, lacking, workshopStock } from "./crafting";
+import { costOf, craftNow, craftShort, Crafting, CRAFT_SECONDS, lacking, workshopStock } from "./crafting";
 import type { ThingId } from "./things";
 import { Progress } from "./progress";
 import { buildStarterWorld, syncIndustries } from "./world";
@@ -107,6 +107,18 @@ describe("coins as well as goods", () => {
     p.learned.add("switches");
     expect(craftNow(w, p, new Map([["piece:switch", 1]]))).toEqual({ goods: { planks: 2 }, coins: 0 });
     expect(workshopStock(w).planks).toBe(1);
+  });
+
+  it("only asking (a tap on the tray): says whether it could be made, and takes nothing", () => {
+    const p = Progress.fresh();
+    p.learned.add("switches");
+    const one = new Map<ThingId, number>([["piece:switch", 1]]);
+    const { w } = withWorkshop(3);
+    expect(craftShort(w, p, one)).toBeNull();
+    expect(craftShort(withWorkshop(1).w, p, one)).toEqual({ goods: { planks: 2 }, coins: 0 });
+    expect(craftShort(buildStarterWorld(), p, one)).toBe("no-workshop");
+    expect(workshopStock(w).planks).toBe(3);
+    expect(p.owned.get("piece:switch") ?? 0).toBe(0);
   });
 
   it("from the tray, with no workshop: nothing made", () => {

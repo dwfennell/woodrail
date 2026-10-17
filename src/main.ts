@@ -17,25 +17,26 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
-import { describeThings, firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas, takeBlueprint, takeCrate } from "./game/rewards";
+import { describeThings, firstTimeGift, offerOnGrowth, payDelivery, refreshOffers, schoolIdeas, takeBlueprint, takeCrate } from "./game/rewards";
 import { landmarkOf, landmarksOf } from "./game/landmarks";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { costOf, craftNow, Crafting, lacking, workshops, workshopStock } from "./game/crafting";
+import { costOf, craftNow, craftShort, Crafting, lacking, workshops, workshopStock } from "./game/crafting";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { nextStop, routeStops } from "./game/route-stops";
-import { engineStatus } from "./game/engine-status";
+import { decoupleWords } from "./game/decouple-words";
+import { engineStatus, trainsForReport, type CantMove } from "./game/engine-status";
 import { MAX_SHEDS, SHED_CAP, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { goodsOf, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
-import { attachEngines, detachEngines, tooHeavy } from "./game/engines";
+import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
@@ -91,13 +92,39 @@ function linkedSeed(): number | null {
 function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean } {
   const seed = linkedSeed();
   const mode = seed !== null ? "sandbox" : loadLastMode();
+  // Reloaded from play (graphics switched, an update taken): straight back into the game, past the title.
+  const resumed = takeResume() === mode;
   const saved = loadFromStorage(mode);
   if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${mode} autosave (${saved.error})`);
   if (seed !== null) {
     const same = saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter;
     return { world: same ? saved.value : createWorld(seed), mode, linked: true };
   }
-  return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: false };
+  return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: resumed };
+}
+
+const RESUME_KEY = "woodrail.resume";
+
+/** Reload the page, then go straight back into this mode (saved first) rather than to the title. */
+function reloadInto(mode: GameMode, url?: string): void {
+  try {
+    sessionStorage.setItem(RESUME_KEY, mode);
+  } catch {
+    // No session storage: the title, as before.
+  }
+  if (url) location.replace(url);
+  else location.reload();
+}
+
+/** The mode a reload from play asked to go straight back into (once), or null. */
+function takeResume(): string | null {
+  try {
+    const m = sessionStorage.getItem(RESUME_KEY);
+    sessionStorage.removeItem(RESUME_KEY);
+    return m;
+  } catch {
+    return null;
+  }
 }
 
 startLog();
@@ -205,10 +232,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         if (trayAllowed(item)) interaction.startTrayDrag(item, e);
       },
       trayTap: (item) => {
-        if (trayAllowed(item)) interaction.tapTrayPiece(item);
+        // A tap on a piece only puts the ready one away (or says why it can't come out): it never makes one.
+        if (item.kind === "piece") {
+          if (!interaction.isArmed(item)) trayAllowed(item, false);
+          interaction.tapTrayPiece(item);
+        } else if (trayAllowed(item)) interaction.tapTrayPiece(item);
       },
       trayTabChanged: () => interaction.arm(null),
       trayDraw: (on) => interaction.setDrawing(on),
+      trackTab: (open) => game.showAllEnds(open),
       undo: () => {
         interaction.undo();
       },
@@ -254,9 +286,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       buyLand: () => buyLand(),
       newGame: () => newGame(),
       titleScreen: () => showTitle(),
+      home: () => backToRailway(),
       toggleQuality: () => {
         saveQualityOverride(game.quality.tier === "high" ? "mobile" : "high");
-        location.reload();
+        // Back into the game after the reload, not the title (saved on the way out).
+        if (playing) {
+          saveOnLeaving();
+          reloadInto(mode);
+        } else location.reload();
       },
       closeCards: () => {
         hud.hideCards();
@@ -294,6 +331,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           quality: game.quality.tier,
           counts: { pieces: game.layout.pieceCount, trains: game.sim.trainIds().length, props: game.props.size },
           hand: interaction.debugState(),
+          trains: trainsForReport(game.sim, game.economy, game.layout, whyCantMove()),
           userAgent: navigator.userAgent,
         };
         await reports.send(text, state, serializeWorld(game.world), picture);
@@ -693,7 +731,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const trainTop = span.top - glide.train;
         const trainH = span.bottom - span.top;
         const gap = Math.min(28, innerHeight * 0.03);
-        const total = n.height + gap + trainH + gap + cards.offsetHeight;
+        // On a short screen (a phone on its side) the train gives up its place, so the cards' buttons stay on screen.
+        const withTrain = n.height + gap + trainH + gap + cards.offsetHeight <= innerHeight - 12;
+        const trainSlot = withTrain ? trainH + gap : 0;
+        const total = n.height + gap + trainSlot + cards.offsetHeight;
         const top = Math.max(12, (innerHeight - total) / 2);
         glide.name = top - nameTop;
         glide.train = top + n.height + gap - trainTop;
@@ -701,10 +742,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           [name, glide.name],
           [canvas, glide.train],
         ] as const) {
-          el.style.transition = "transform 0.7s cubic-bezier(0.3, 0.7, 0.2, 1)";
+          el.style.transition = "transform 0.7s cubic-bezier(0.3, 0.7, 0.2, 1), opacity 0.4s";
           el.style.transform = `translateY(${Math.round(dy)}px)`;
         }
-        title.root.style.paddingTop = `${Math.round(top + n.height + gap + trainH + gap)}px`;
+        canvas.style.opacity = withTrain ? "" : "0";
+        title.root.style.paddingTop = `${Math.round(top + n.height + gap + trainSlot)}px`;
       }),
     );
   }
@@ -835,7 +877,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (gift.length > 0) hud.refreshTrayBadges();
       const offered = progress.offers.length;
       offerOnGrowth(progress, town.name, Math.random, status.level);
-      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Reward in Blueprints" : ""].filter(Boolean);
+      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Claim your reward in Blueprints" : ""].filter(Boolean);
       const grew = built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`;
       const where = built.length > 0 ? placeOf(built) : here;
       if (extras.length > 0) {
@@ -900,9 +942,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   crafting.setProgress(progress);
   const thingLabel = (id: ThingId) => ruleOf(id)?.label ?? id;
 
-  /** Game mode: can this tray item come out (known, and enough of it in the toy box)? Says why not if not. */
+  /**
+   * Game mode: can this tray item come out (known, and enough of it in the toy box)? Says why not if not. What's
+   * missing is made on the spot, unless `make` is false (only asking).
+   */
   interaction.trayAllowed = (item) => trayAllowed(item);
-  function trayAllowed(item: Parameters<typeof thingsFor>[0] | { kind: string }): boolean {
+  function trayAllowed(item: Parameters<typeof thingsFor>[0] | { kind: string }, make = true): boolean {
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train")) return true;
     const look = lockedLook(item);
     if (look) {
@@ -919,8 +964,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // None left of something it takes: all of what's missing is made on the spot from the workshop's yard, or none.
     const lack = lacking(game.world, progress, needs);
     if (lack.size === 0) return true;
-    const label = lack.size === 1 ? ruleOf([...lack.keys()][0])!.label : "label" in item && typeof item.label === "string" ? item.label : "That";
-    const why = craftNow(game.world, progress, lack);
+    // One thing short: by its own name; more (a train's wagons): by the tray item's.
+    const one = lack.size === 1 ? [...lack.values()][0] : 0;
+    const label = one === 1 ? ruleOf([...lack.keys()][0])!.label : "label" in item && typeof item.label === "string" ? item.label : "That";
+    const why = make ? craftNow(game.world, progress, lack) : craftShort(game.world, progress, lack);
     if (why === "no-workshop") {
       hud.toast(`No ${label.toLowerCase()} left. Place your workshop (Industries tab) to make more`, false, 3600);
       return false;
@@ -930,8 +977,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.toast(`${label}: needs ${short}`, false, 3600);
       return false;
     }
+    if (!make) return true;
     const cost = costOf(lack);
-    hud.toast(`Made ${lack.size === 1 && [...lack.values()][0] === 1 ? aOrAn(label.toLowerCase()) : label.toLowerCase()}: ${[total(cost.goods) > 0 ? `${describeGoods(cost.goods)} from the workshop` : "", cost.coins > 0 ? `${cost.coins} coins` : ""].filter(Boolean).join(" and ")}`, false, 2600);
+    // "a switch", "3 flatbed wagons", or a whole train by its name.
+    const made = one === 1 ? aOrAn(label.toLowerCase()) : one > 1 ? describeThings([...lack]).toLowerCase() : label.toLowerCase();
+    hud.toast(`Made ${made}: ${[total(cost.goods) > 0 ? `${describeGoods(cost.goods)} from the workshop` : "", cost.coins > 0 ? `${cost.coins} coins` : ""].filter(Boolean).join(" and ")}`, false, 2600);
     afterCraft();
     return true;
   }
@@ -1033,6 +1083,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const board = new BlueprintBoard(document.body, {
     choose: (k, id) => {
       if (takeBlueprint(progress, k, id)) learned(id);
+      else {
+        // Learned meanwhile: the card was stale. Say so, and show the refreshed offers.
+        hud.toast(`${techOf(id)?.label ?? "That"} is already learned`);
+        refreshBoard();
+        scheduleSave();
+      }
     },
     crate: (k) => {
       const crate = progress.offers[k]?.crate;
@@ -1095,6 +1151,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   function refreshBoard(): void {
+    // A blueprint another card taught may still sit on a pending offer: swap it out before anything is shown.
+    if (refreshOffers(progress, Math.random)) scheduleSave();
     hud.setBoardButton(board.open, progress.offers.length > 0);
     if (!board.open) return;
     const stock = workshopStock(game.world);
@@ -1506,6 +1564,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     onChange();
   }
 
+  /** Why a train can't move at all, where engines have their limits (Game mode); in Sandbox any train can go. */
+  const whyCantMove = (): CantMove | null => (game.sim.topSpeed ? (t) => cantMove(game.world, t) : null);
+
   /** Decouple (a card): split the train there, the part that goes standing a little apart. */
   function decouple(): void {
     const carId = interaction.selectedCarId;
@@ -1516,14 +1577,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (r.kind === "alone") return hud.toast("Nothing coupled to uncouple there", false, 2500);
     if (r.kind !== "decoupled") return;
     audio.magnet(0.6, 0);
-    // The gap is only a few mm: say what came away. With an engine on this side, the cars that came away from it;
-    // otherwise both parts, this car's first.
+    // The gap is only a few mm: say which part keeps the engine.
     const mine = game.sim.findCar(carId)?.train.cars ?? [];
     const away = game.sim.getTrain(r.trainId === (game.sim.findCar(carId)?.train.id ?? -1) ? before : r.trainId)?.cars ?? [];
-    const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
-    const engineHere = mine.some((c) => c.kind === "engine");
-    const engineThere = away.some((c) => c.kind === "engine");
-    hud.toast(engineHere && !engineThere ? `Uncoupled ${plural(away.length, "wagon")}` : `Split into ${mine.length} + ${away.length}`, false, 2500);
+    hud.toast(decoupleWords(mine.map((c) => c.kind), away.map((c) => c.kind)), false, 2500);
     const found = game.sim.findCar(carId);
     if (found?.train.cars[found.index].kind === "engine") hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
     game.invalidate();
@@ -1596,7 +1653,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     };
     // A status shows once it's held a moment (a train being worked at the end of the line passes through several).
     const now = performance.now();
-    const latest = engineStatus(game.sim, game.economy, carId, nameOf);
+    const latest = engineStatus(game.sim, game.economy, carId, nameOf, whyCantMove());
     if (latest !== viewStatus.next) {
       viewStatus.next = latest;
       viewStatus.since = now;
@@ -1961,6 +2018,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * The opening view: a medium view of where track was last put down (else of the track built so far) or, on a bare
    * map, the first two towns (in Game mode, with a hint to join them: Sandbox has no goals).
    */
+  /**
+   * Back to the player's railway (the brand tapped): all the track they've laid, framed (or, before any, the first two
+   * towns), keeping the way the view faces.
+   */
+  function backToRailway(): void {
+    const points: { x: number; z: number }[] = [];
+    for (const id of game.layout.pieceIds()) {
+      if (isFixedPiece(id) || game.layout.getPiece(id)!.type === "riser") continue;
+      points.push(pieceCentre(game.layout, id));
+    }
+    if (points.length === 0) for (const t of game.landscape.towns.slice(0, 2)) points.push(t.station);
+    if (points.length === 0) return;
+    const f = frameAlong(points, game.camera.fov, game.camera.aspect, GOAL_MARGIN);
+    game.follow(-1);
+    game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 0.9 });
+  }
+
   function openingView(): void {
     let at = loadLastBuilt(mode);
     if (!at) {
@@ -2105,7 +2179,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       onNewVersion: (build) =>
         hud.showUpdate(() => {
           saveOnLeaving();
-          location.replace(`${location.pathname}?v=${encodeURIComponent(build)}${location.hash}`);
+          const url = `${location.pathname}?v=${encodeURIComponent(build)}${location.hash}`;
+          if (playing) reloadInto(mode, url);
+          else location.replace(url);
         }),
     });
   }

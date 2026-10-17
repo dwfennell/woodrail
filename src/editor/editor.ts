@@ -70,6 +70,14 @@ export function pieceCentre(layout: Layout, id: number): { x: number; z: number 
   return { x: p.pose.x + c.x * ch - c.z * sh, z: p.pose.z + c.x * sh + c.z * ch };
 }
 
+/** World (plan) centre of a piece at `pose`. */
+export function poseCentre(type: PieceTypeId, flipped: boolean, pose: Pose): { x: number; z: number } {
+  const c = localCentre(type, flipped);
+  const ch = Math.cos(pose.heading);
+  const sh = Math.sin(pose.heading);
+  return { x: pose.x + c.x * ch - c.z * sh, z: pose.z + c.x * sh + c.z * ch };
+}
+
 /** The pose that puts a piece's centre at (x, z) with the given heading. */
 export function poseForCentre(type: PieceTypeId, flipped: boolean, x: number, z: number, heading: number): Pose {
   const c = localCentre(type, flipped);

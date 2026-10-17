@@ -1,7 +1,7 @@
 import { Box3, Raycaster, Mesh, MeshBasicMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { BRIDGE_LENGTH, createSample, getPieceDef, pathLength, RAMP_LENGTH, RISER_HEIGHT, samplePath, TRACK_THICKNESS, TRACK_WIDTH } from "../track";
-import { buildPieceGeometry, GROOVE_DEPTH, PEG_HEIGHT } from "./track-geometry";
+import { buildPegGeometry, buildPieceGeometry, GROOVE_DEPTH, PEG_HEIGHT, withPegs } from "./track-geometry";
 
 function topHeightAt(geomMesh: Mesh, x: number, z: number): number | null {
   const ray = new Raycaster(new Vector3(x, 500, z), new Vector3(0, -1, 0));
@@ -73,7 +73,8 @@ describe("buildPieceGeometry", () => {
   });
 
   it("straight spans its length plus the peg, full width and thickness", () => {
-    const m = meshOf("straight-144");
+    const def = getPieceDef("straight-144", false);
+    const m = new Mesh(withPegs(buildPieceGeometry(def), def), new MeshBasicMaterial());
     const box = new Box3().setFromObject(m);
     expect(box.min.x).toBeCloseTo(0, 0);
     expect(box.max.x).toBeGreaterThan(144 + 15);
@@ -89,11 +90,33 @@ describe("buildPieceGeometry", () => {
     expect(topHeightAt(m, 70, -13)).toBeCloseTo(TRACK_THICKNESS - GROOVE_DEPTH, 1);
   });
 
-  it("cuts a keyhole socket at the socket end and adds a lower peg at the peg end", () => {
+  it("carves a keyhole at every end, peg or hole: which end of a joint holds the peg is the layout's to say", () => {
     const m = meshOf("straight-144");
+    for (const x of [14, 144 - 14]) {
+      const inHole = topHeightAt(m, x, 0);
+      expect(inHole === null || inHole < 1, `x ${x}`).toBe(true);
+    }
+    expect(new Box3().setFromObject(m).max.x).toBeCloseTo(144, 0);
+  });
+
+  it("a lone piece has its pegs on: the peg end's hole plugged just below the surface, a lower peg reaching out", () => {
+    const def = getPieceDef("straight-144", false);
+    const m = new Mesh(withPegs(buildPieceGeometry(def), def), new MeshBasicMaterial());
     const inSocket = topHeightAt(m, 14, 0);
     expect(inSocket === null || inSocket < 1).toBe(true);
+    const plug = topHeightAt(m, 144 - 14, 0)!;
+    expect(plug).toBeLessThan(TRACK_THICKNESS);
+    expect(plug).toBeGreaterThan(TRACK_THICKNESS - 1);
     expect(topHeightAt(m, 144 + 14, 0)).toBeCloseTo(PEG_HEIGHT, 1);
+  });
+
+  it("a peg, in its end's frame: the plug back into the piece, the peg out past the end face, centred across", () => {
+    const box = new Box3().setFromObject(new Mesh(buildPegGeometry(), new MeshBasicMaterial()));
+    expect(box.min.x).toBeLessThan(-20);
+    expect(box.max.x).toBeGreaterThan(15);
+    expect(box.min.z).toBeCloseTo(-box.max.z, 1);
+    expect(box.min.y).toBeCloseTo(0, 1);
+    expect(box.max.y).toBeLessThan(TRACK_THICKNESS);
   });
 
   it("switch carries grooves for both routes", () => {
@@ -102,7 +125,7 @@ describe("buildPieceGeometry", () => {
     // on the curved route, well past the split, its own centre line is solid and its grooves are cut
     const def = getPieceDef("switch", false);
     const end = def.connectors[2].pose;
-    expect(topHeightAt(m, end.x - 20 * Math.cos(end.heading), end.z - 20 * Math.sin(end.heading))).toBeCloseTo(TRACK_THICKNESS, 1);
+    expect(topHeightAt(m, end.x - 30 * Math.cos(end.heading), end.z - 30 * Math.sin(end.heading))).toBeCloseTo(TRACK_THICKNESS, 1);
   });
 
   it("ramp rises to riser height", () => {
