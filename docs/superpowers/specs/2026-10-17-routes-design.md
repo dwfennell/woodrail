@@ -189,7 +189,19 @@ lovely version:
 - **Steering respects pinned switches** (the switch-clarity pin) and won't throw a switch that a train is on or about
   to cross.
 - These are pathing and signal behaviours, Rail and road's area. This design only asks for them; they can follow the
-  line work.
+  line work. Rail and road will write the Phase 3 detail as its own note. Their points to settle first:
+  - **No deadlock.** A train claims the section ahead before it enters, first come first served. A timeout turns the
+    newest waiter back (as trains turn back today), so nothing ever freezes.
+  - **What a section is.**
+    - Between two switches, for plain lines.
+    - A dead-end stub or siding blocks entry while it's occupied, but a train inside can always come out.
+    - A waiting train stands short of the switch, never on it, so it doesn't foul the other leg.
+    - Turntables, depots and stations inside a section need a rule of their own.
+  - **Pinned switches against passing loops.** A pinned loop switch makes trains wait rather than pass. That's
+    correct, and the card says so: *"Waiting: the switch is pinned"*.
+  - **Cost.** Claims are checked when a train enters a section, not every tick. The shared path search behind the
+    ribbon is cached per layout revision.
+  - **The card's waiting state** comes from the sim, hooked into the engine card's existing status words.
 
 ### 3.6 Game mode and Sandbox
 
@@ -204,16 +216,11 @@ lovely version:
 
 ### 3.7 Saves and existing trains
 
-- **Old routes still load.** Each existing route becomes a line of its own (one train), with colours assigned in turn.
-- **Actions:**
-  - *Both* becomes automatic intent. That is nearly the same and fixes the foundry trap; existing chains keep working
-    because *both* only ever moved what depots take or give.
-  - *Drop* and *Pick* are kept as overrides, so nothing changes for players who used them.
-- **Depot "Wait for a full load"** becomes "wait to fill" on every line that stops there, and stays per depot for
-  unrouted trains.
+- **Old saves are not kept** (the user's call, 2026-10-17: "we can discard old saves"). A save from before lines is
+  turned away with a friendly *"This save is from an older version"*, and no migration is written.
 - **Save format.** It gains `lines: [{id, colour, name, stops: [[depot, intent, waitFill?]]}]` and `line` on engine
   cars (keyed by engine car id, as routes are today, since a train's id changes when it turns back). The version is
-  bumped; version 9 loads by migration.
+  bumped.
 
 ## 4. Phasing
 
@@ -226,7 +233,7 @@ economy part:
 2. **Edit it on the map:** tap places to add, tap discs to remove, chips to reorder. The chip-cycling editor goes.
 3. **Automatic intent** replaces Both/Drop/Pick by default, with Drop/Pick kept as overrides. The bug where a train
    waits under a crane it may not load from is fixed.
-4. **Saves migrate** (each route becomes a one-train line).
+4. **The new save format,** with old saves turned away (no migration).
 
 **Phase 2: lines.**
 - Colours and names.
@@ -257,8 +264,9 @@ requirements.
 
 ## Coordination
 
-- **Game Mode** owns the economy. The intent rules, per-stop wait, skip-if-nothing and the save migration change
-  `economy.ts`, so Phase 1 needs their sign-off. They also own the Telegraph.
+- **Game Mode** owns the economy. The intent rules, per-stop wait, skip-if-nothing and the new save format change
+  `economy.ts`, so Phase 1 needs their sign-off. (Bug 7, "wait for a full load" ignoring the route, is already fixed
+  on main: 0c07401.) They also own the Telegraph.
 - **Rail and road** own signals and pathing: Phase 3, the switch-clarity pin, and the path search shared by the ribbon
   and `steer`.
 - **Scenery** (this author): the ribbon and discs, edit mode, the engine and line cards, and the map view's Lines.
