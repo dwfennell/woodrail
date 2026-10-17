@@ -466,13 +466,21 @@ export class Economy {
     return null;
   }
 
+  /**
+   * May this car's train pick up goods at this depot? A routed train only at its stops that say so (at a warehouse,
+   * only where it says Pick up); an unrouted one anywhere but a warehouse.
+   */
+  private picksUpAt(d: DepotState, carId: number): boolean {
+    const route = this.routeOfCar(carId);
+    if (!route) return !RECIPES[d.role].routedOnly;
+    return stopAt(route, d.id, "pick") && !(RECIPES[d.role].routedOnly && stopAt(route, d.id, "drop"));
+  }
+
   /** What the crane would load onto this car here: goods the depot gives, the car carries and has room for, or null. */
   private loadKind(d: DepotState, carId: number): CargoKind | null {
     const c = this.cargoOf(carId);
     if (c.count >= this.wagonCapacity) return null;
-    // A routed train picks up goods only at its stops that say so (at a warehouse, only where it says Pick up).
-    const route = this.routeOfCar(carId);
-    if (route ? !stopAt(route, d.id, "pick") || (RECIPES[d.role].routedOnly && stopAt(route, d.id, "drop")) : RECIPES[d.role].routedOnly) return null;
+    if (!this.picksUpAt(d, carId)) return null;
     const found = this.sim.findCar(carId);
     if (!found) return null;
     const car = found.train.cars[found.index].kind;
@@ -496,11 +504,12 @@ export class Economy {
    * With "wait for a full load", a wagon that could take more of the depot's goods waits for them, but only while
    * more are coming: goods on the pile, or the depot making them. (A sawmill out of logs isn't, so a train never waits
    * there for planks that would need the logs on its own later wagons.) Not while another wagon still has goods to
-   * unload here: that goes first (the wagon waits its turn again once the crane is done with the others).
+   * unload here: that goes first (the wagon waits its turn again once the crane is done with the others). Nor where
+   * its train may not pick up (a routed train's Drop stop, or a depot that isn't one of its stops).
    */
   private waitsForLoad(d: DepotState, carId: number): boolean {
     const c = this.cargoOf(carId);
-    if (!d.waitFull || c.count >= this.wagonCapacity || this.canUnload(d, carId)) return false;
+    if (!d.waitFull || c.count >= this.wagonCapacity || this.canUnload(d, carId) || !this.picksUpAt(d, carId)) return false;
     const found = this.sim.findCar(carId);
     if (!found) return false;
     const done = this.services.get(found.train.id)?.done;
