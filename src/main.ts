@@ -1051,7 +1051,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (takeBlueprint(progress, k, id)) learned(id);
       else {
         // Learned meanwhile: the card was stale. Say so, and show the refreshed offers.
-        note({ kind: "event", text: `${techOf(id)?.label ?? "That"} is already learned` }, 3000);
+        hud.toast(`${techOf(id)?.label ?? "That"} is already learned`);
         refreshBoard();
         scheduleSave();
       }
