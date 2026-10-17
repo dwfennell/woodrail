@@ -1,4 +1,4 @@
-import { connectorRef, DECK_GLIDE_S, getPieceDef, indexOfRef, pieceOfRef, type Layout } from "../track";
+import { connectorRef, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, MAX_CONNECTORS, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -631,8 +631,9 @@ export class Sim {
       for (const key of this.aspects.keys()) if (!this.signals.includes(key)) this.aspects.delete(key);
     }
     if (this.signals.length === 0) return;
-    const occupied = new Set<number>();
-    for (const t of this.trains.values()) for (const b of t.bogies) occupied.add(b.pieceId);
+    // Pieces with a train on them: which of their paths (a bit each).
+    const occupied = new Map<number, number>();
+    for (const t of this.trains.values()) for (const b of t.bogies) occupied.set(b.pieceId, (occupied.get(b.pieceId) ?? 0) | (1 << b.pathIndex));
     for (const key of this.signals) {
       const id = signalPiece(key);
       const road = signalRoad(key);
@@ -646,7 +647,7 @@ export class Sim {
   }
 
   /** Is any train on the block beyond this signal (a signal piece's road: see `updateSignals`)? */
-  private blockOccupied(signalId: number, road: number, occupied: ReadonlySet<number>): boolean {
+  private blockOccupied(signalId: number, road: number, occupied: ReadonlyMap<number, number>): boolean {
     const p0 = this.layout.getPiece(signalId)!;
     const far = getPieceDef(p0.type, p0.flipped).paths[road]?.to;
     // A road that ends at a buffer in the piece has no block beyond it.
@@ -657,10 +658,13 @@ export class Sim {
       if (next === -1) return false;
       const id = pieceOfRef(next);
       if (id === signalId) return false;
-      if (occupied.has(id)) return true;
       const p = this.layout.getPiece(id);
       if (!p) return false;
       const def = getPieceDef(p.type, p.flipped);
+      const on = occupied.get(id);
+      // A train on the piece the block runs into holds it; on double track (roads side by side that never meet), only
+      // one on the road the block runs onto does: a train on the other line is on another block.
+      if (on !== undefined && (!pathsApart(def) || (on & pathsAt(def, indexOfRef(next))) !== 0)) return true;
       // The block ends here: at the next signal, or at a switch or crossing (where lines meet).
       if (def.signal || def.connectors.length !== 2) return false;
       ref = connectorRef(id, 1 - indexOfRef(next));
@@ -969,7 +973,48 @@ export class Sim {
   }
 }
 
-/** A signal's key: its piece and which of the piece's paths (roads) it guards (a piece has at most 4 connectors). */
-export const signalKey = (pieceId: number, road: number): number => pieceId * 4 + road;
-const signalPiece = (key: number): number => Math.floor(key / 4);
-const signalRoad = (key: number): number => key % 4;
+/** A signal's key: its piece and which of the piece's paths (roads) it guards (as many as it has connectors, at most). */
+export const signalKey = (pieceId: number, road: number): number => pieceId * MAX_CONNECTORS + road;
+const signalPiece = (key: number): number => Math.floor(key / MAX_CONNECTORS);
+const signalRoad = (key: number): number => key % MAX_CONNECTORS;
+
+/** The paths (a bit each) that end at a piece's connector. */
+function pathsAt(def: PieceDef, connector: number): number {
+  let bits = 0;
+  def.paths.forEach((p, i) => {
+    if (p.from === connector || p.to === connector) bits |= 1 << i;
+  });
+  return bits;
+}
+
+const apartCache = new WeakMap<PieceDef, boolean>();
+const apartA = createSample();
+const apartB = createSample();
+
+/**
+ * Is a piece double track (or more): not a switch, with several paths that stay at least a track's width apart all
+ * along (a double straight, a gantry's roads; not a crossing, whose lines meet)? Worked out once per piece def.
+ */
+function pathsApart(def: PieceDef): boolean {
+  if (def.isSwitch || def.paths.length < 2) return false;
+  let apart = apartCache.get(def);
+  if (apart !== undefined) return apart;
+  apart = true;
+  const step = 8;
+  for (let i = 0; i < def.paths.length && apart; i++)
+    for (let j = i + 1; j < def.paths.length && apart; j++) {
+      const a = def.paths[i].geom;
+      const b = def.paths[j].geom;
+      const la = pathLength(a);
+      const lb = pathLength(b);
+      for (let s = 0; s <= la && apart; s += step) {
+        samplePath(a, Math.min(s, la), apartA);
+        for (let t = 0; t <= lb && apart; t += step) {
+          samplePath(b, Math.min(t, lb), apartB);
+          if (Math.hypot(apartA.x - apartB.x, apartA.z - apartB.z) < TRACK_WIDTH) apart = false;
+        }
+      }
+    }
+  apartCache.set(def, apart);
+  return apart;
+}

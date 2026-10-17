@@ -182,6 +182,9 @@ same `capFor` treatment with a cap, not a stop.
 - **Level crossing and gated crossing** stay derived, as crossings are now (`findCrossings`). These two become
   crossing styles: dropping one on an existing crossing sets its style, stored with the prop, so the barriers or gates
   drawn there are its own. Gates swing instead of lowering.
+- *Built (kit-signals):* `kit-semaphore-signal`, `kit-colour-light-signal`, `kit-signal-gantry` (both its signals
+  guard the same way, from its first ends, as its heads face), `kit-buffer-stop-lamp` (lit while a train is on it:
+  `moves: "occupied"`), and the two crossing styles. See "How to add a kit", 5.
 
 ### Bridges (Rail and road)
 
@@ -303,6 +306,26 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
      `round` for a deck that keeps turning one way). `KitView` draws its parts live always, glides them over
      `DECK_GLIDE_S` when the state changes (the game asks it when `Layout.switchesVersion` moves), and makes them the
      tap target that turns it.
+   - **A state from the signals** (the signal skins): `state.source: "signals"` makes the state the piece's signals'
+     aspects instead of its switch state: `Sim.redSignals(id)`, a bit for each of its roads at red (road 0's is 1), so
+     state 0 (the rest pose, baked) is all clear. `KitView.signalState` reads it (the game sets it), and the game asks
+     `KitView.update` when `Sim.signalsVersion` moves as well as `Layout.switchesVersion`. `state.glide` sets the glide
+     time (default `DECK_GLIDE_S`; 0 switches at once: a lamp, with `value(k) = k` carrying the bits). Its live parts
+     aren't a deck's lever: tapped, `KitView.pieceAt` gives its piece, and the pick holds or lets go the signal over
+     the road nearest the tap (`signalRoadAt`, `Sim.toggleSignal(id, road)`).
+   - **Signal skins**: `track: signalTrack(type)` (the signal piece's 144 straight, `signal: { stopAt: 100 }`), or for
+     several roads `{ ...roads(...), signal }`: the sim's block working gives every path of a signal piece its own
+     signal (from → to), its own block, and its own hold bit in the switch state. `TrackView` draws no semaphore on a
+     kit. **Buffer skins**: `bufferTrack(type)`, flipping as a buffer does (`SWAPS_ENDS` takes any one-ended flippable
+     kit); `TrackView` draws no buffer block on a kit, so the model draws it, its buffers' faces 76 along the piece.
+   - **Crossing styles** stay props, not kits: `CROSSING_STYLES` (`src/landscape/crossing-styles.ts`) maps a crossing
+     prop's asset to a style. `styleCrossings` links each to the crossing nearest it within `STYLE_REACH`, worked out
+     when props, track or roads change (`Game.crossingsChanged`, `Game.propsChanged`, keyed by the props' version). A
+     linked prop isn't drawn as a prop; `CrossingsView` draws its style at that crossing's gates (and taps there pick
+     the prop). Crossing props block nothing and nothing blocks them (`standsAside`); dropped, one snaps onto the
+     nearest crossing, or is refused ("Drop it where the track crosses a road"). To add a style: an entry in
+     `CROSSING_STYLES`, and a branch in `CrossingsView.buildPost` (a barrier's open and shut angles, about z to lower,
+     or y to swing).
    - `depot`: a `DepotRole` (Sandbox's: `KitDepotRole`, loaders with an endless heap and an unloader that swallows
      goods). `syncIndustries` registers it; `DepotView` leaves it to the kit's model.
    - `stop.cooldown` (seconds: an engine service's), and `crawl` (mm/s: a weighbridge).
@@ -321,3 +344,6 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
    - `src/render/kit-motions.test.ts`, `src/render/kit-view.test.ts`: moving parts;
    - `src/editor/editor.test.ts`: the kit block, splice and undo;
    - `src/persist/save.test.ts`: kit pieces in saves.
+   - `src/sim/signal-skins.test.ts`: skinned signals hold trains as the plain one does; the gantry's two signals;
+   - `src/render/kit-skins.test.ts`: signal skins' aspects drawn, the buffer-stop lamp;
+   - `src/landscape/crossing-styles.test.ts`: crossing styles, resolved and drawn.

@@ -201,6 +201,31 @@ describe("the signal gantry: a signal on each of its two roads", () => {
     expect(roads[1]).toContain(sim.getTrain(on1)!.bogies[0].pieceId);
   });
 
+  it("on double track, a train on the other line of the double straight ahead doesn't hold a road's signal", () => {
+    const layout = new Layout();
+    const a = layout.addPiece("double-straight", { x: 0, z: 0, heading: 0 }, 0, false);
+    const g = appendPiece(layout, "kit-signal-gantry", false, connectorRef(a, 1));
+    const b = appendPiece(layout, "double-straight", false, connectorRef(g, 1));
+    const sim = new Sim(layout);
+    // On road 1 of the double straight just beyond the gantry.
+    const r = sim.addTrain(["engine"], { pieceId: b, pathIndex: 1, reversed: false, s: 150 });
+    if (r.kind !== "placed") throw new Error();
+    run(sim, 0.1);
+    expect([sim.signalClear(g, 0), sim.signalClear(g, 1)]).toEqual([true, false]);
+  });
+
+  it("but where lines meet (a crossing), a train on the other line holds it", () => {
+    const { layout, ids } = chain(["straight-216", "signal", "crossing", "straight-216"]);
+    // The other line through the crossing, with room for a train on it.
+    appendPiece(layout, "straight-216", false, connectorRef(ids[2], 2));
+    appendPiece(layout, "straight-216", false, connectorRef(ids[2], 3));
+    const sim = new Sim(layout);
+    const r = sim.addTrain(["engine"], { pieceId: ids[2], pathIndex: 1, reversed: false, s: 60 });
+    if (r.kind !== "placed") throw new Error(r.kind);
+    run(sim, 0.1);
+    expect(sim.signalClear(ids[1])).toBe(false);
+  });
+
   it("a block running into the gantry ends there, as at any signal; a train on the gantry holds neither of its own", () => {
     // signal, straight, GANTRY (its road 0), straight, buffer.
     const { layout, ids } = chain(["signal", "straight-216", "kit-signal-gantry", "straight-216", "buffer"]);
