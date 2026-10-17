@@ -627,17 +627,76 @@ export class Interaction {
       else this.propHeading = this.nextPropHeading() + Math.PI / 4;
       return;
     }
-    if (this.mode.kind === "drag-piece") this.rotateSelected();
+    const holding = this.mode.kind === "drag-piece";
+    if (holding) this.rotateSelected();
     if (this.mode.kind === "drag-road") this.roads.turnHeld(this.mode.drag);
     else if (this.roadReady) this.roads.turnHeld(this.roadReady.drag);
+    const was = this.cameraHeading() + (this.trayTurns * Math.PI) / 4;
     this.trayTurns = (this.trayTurns + 1) % 8;
+    // Nothing in hand: the next piece shows for a moment, turning, so you see which way it'll come out.
+    if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(was);
     this.onTurned?.();
+  }
+
+  /** The next piece shown turning (Turn pressed with nothing in hand), and how long it has left. */
+  private nextShown: { mesh: Mesh; heading: number } | null = null;
+
+  /**
+   * Show the piece the tray will give next (the ready one, else a long straight) floating in the middle of the view,
+   * turning from `from` to the way it'll come out now (mirrored as it'll come out), for a second, then away.
+   */
+  private showNextPiece(from: number): void {
+    const g = this.game;
+    const r = g.canvas.getBoundingClientRect();
+    const ground = this.groundAt(r.left + r.width / 2, r.top + r.height * 0.42);
+    if (!ground) return;
+    const item = this.armed?.kind === "piece" ? this.armed : null;
+    const type: PieceTypeId = item && !item.auto ? item.type : "straight-216";
+    const flipped = this.trayFlipped && getPieceDef(type, false).flippable;
+    const to = this.cameraHeading() + (this.trayTurns * Math.PI) / 4;
+    const old = this.nextShown;
+    if (old) {
+      from = old.heading;
+      this.dropHeld(old.mesh);
+    }
+    const mesh = this.heldMesh(type, flipped);
+    g.scene.add(mesh);
+    const shown = { mesh, heading: to };
+    this.nextShown = shown;
+    // Its middle over the spot, as it's turned.
+    const at = (heading: number): PiecePose => {
+      const p = poseForCentre(type, flipped, ground.x, ground.z, heading);
+      return { x: p.x, y: ground.y + HOLD_LIFT * 3, z: p.z, heading };
+    };
+    let held = 0;
+    g.flourishes.add(
+      turn(mesh, at(from), at(to), () => {
+        if (this.nextShown !== shown) return;
+        // A moment to see it, then away.
+        g.flourishes.add({
+          update: (dt) => (held += dt) < 1,
+          dispose: () => {
+            if (this.nextShown !== shown) return;
+            g.flourishes.add(
+              shrinkAway(mesh, () => {
+                this.dropHeld(mesh);
+                if (this.nextShown === shown) this.nextShown = null;
+              }),
+            );
+          },
+        });
+      }),
+    );
+    g.invalidate();
   }
 
   /** Tray "Flip": mirrors the piece in hand (if any) and every piece taken out after it. */
   flipTrayPiece(): void {
-    if (this.mode.kind === "drag-piece") this.flipSelected();
+    const holding = this.mode.kind === "drag-piece";
+    if (holding) this.flipSelected();
     this.trayFlipped = !this.trayFlipped;
+    // Nothing in hand: the next piece shows for a moment, mirrored as it'll come out.
+    if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(this.nextShown?.heading ?? this.cameraHeading() + (this.trayTurns * Math.PI) / 4);
     this.onTurned?.();
   }
 
