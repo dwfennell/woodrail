@@ -106,8 +106,15 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return "Waiting: something's in the way";
     case "running": {
       const route = economy.routeOf(engineCarId);
-      const next = route?.stops[route.next];
-      return next ? `On its way to ${nameOf(next.depotId)}` : "Running";
+      if (!route || route.stops.length === 0) return "Running";
+      // Still on the stop it's leaving, done with (`next` moves on once it's clear): on its way to the one after.
+      let i = route.next % route.stops.length;
+      const at = economy.depot(route.stops[i].depotId);
+      if (route.at && (!at || !economy.hasWorkAt(found.train.id, at))) {
+        const here = route.stops[i].depotId;
+        for (let k = 0; k < route.stops.length && route.stops[i].depotId === here; k++) i = (i + 1) % route.stops.length;
+      }
+      return `On its way to ${nameOf(route.stops[i].depotId)}`;
     }
   }
 }

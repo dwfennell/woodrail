@@ -571,7 +571,27 @@ export class Economy {
   workFor(trainId: number, d: DepotState): { load: boolean; unload: boolean } | null {
     const train = this.sim.getTrain(trainId);
     if (!train) return null;
-    const done = this.services.get(trainId)?.done;
+    const left = this.workLeft(train, d);
+    if (left.load || left.unload) return left;
+    const route = this.routeOfTrain(train);
+    const r = RECIPES[d.role];
+    return {
+      load: r.gives.length > 0 && (route ? stopAt(route, d.id, "pick") : !r.routedOnly),
+      unload: r.takes.length > 0 && (route ? stopAt(route, d.id, "drop") : true),
+    };
+  }
+
+  /** Has the crane anything left to do for this train at this depot (this visit)? */
+  hasWorkAt(trainId: number, d: DepotState): boolean {
+    const train = this.sim.getTrain(trainId);
+    if (!train) return false;
+    const left = this.workLeft(train, d);
+    return left.load || left.unload;
+  }
+
+  /** What the crane has left to do for this train's cars at this depot (this visit). */
+  private workLeft(train: Train, d: DepotState): { load: boolean; unload: boolean } {
+    const done = this.services.get(train.id)?.done;
     let load = false;
     let unload = false;
     for (const car of train.cars) {
@@ -584,13 +604,7 @@ export class Economy {
         load ||= this.loadKind(d, car.id) !== null || this.waitsForLoad(d, car.id);
       }
     }
-    if (load || unload) return { load, unload };
-    const route = this.routeOfTrain(train);
-    const r = RECIPES[d.role];
-    return {
-      load: r.gives.length > 0 && (route ? stopAt(route, d.id, "pick") : !r.routedOnly),
-      unload: r.takes.length > 0 && (route ? stopAt(route, d.id, "drop") : true),
-    };
+    return { load, unload };
   }
 
   private service(trainId: number): Service {
