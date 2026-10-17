@@ -106,7 +106,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item.tray-back { width: 56px; background: rgba(120, 80, 40, 0.1); box-shadow: none; }
 .tray-item.tray-back .icon { font-size: 34px; font-weight: 800; color: #7a5a3a; height: 52px; width: auto; }
 
-.card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 130px); background: rgba(250, 243, 230, 0.95); backdrop-filter: blur(10px); border-radius: 18px; box-shadow: 0 10px 34px rgba(60, 40, 20, 0.3); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
+/* A card sits just clear of the tray (138 px with its tabs): over it, it would cover the tabs. */
+.card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 146px); background: rgba(250, 243, 230, 0.95); backdrop-filter: blur(10px); border-radius: 18px; box-shadow: 0 10px 34px rgba(60, 40, 20, 0.3); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
 .card-title { font-weight: 800; font-size: 15px; color: #6a4a2c; }
 .card-row, .lever-row { display: flex; gap: 8px; }
 .card-hint { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; margin-top: -6px; max-width: 300px; }
@@ -120,7 +121,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .piece-card.group .card-title::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: #ffe07a; box-shadow: 0 0 0 2px #e0a93a; margin-right: 8px; vertical-align: 1px; }
 .depot-stock { font-size: 14px; font-weight: 700; color: #7a5532; font-variant-numeric: tabular-nums; text-align: center; }
 .depot-card .card-row { flex-wrap: wrap; justify-content: center; }
-.piece-card .lever-list { flex-wrap: wrap; justify-content: center; max-width: 320px; }
+/* A signal box's or lever frame's points and signals: chips a finger wide (44 px tall, two to a row where they fit,
+   a long label wrapping inside its chip), the list scrolling past six or so (on phones the card scrolls as one). */
+.piece-card .lever-list { flex-wrap: wrap; justify-content: center; width: 340px; max-width: 100%; max-height: min(42vh, 260px); overflow-y: auto; overscroll-behavior: contain; }
+.piece-card .lever-list .lever-chip { flex: 1 1 140px; height: auto; min-height: 44px; padding: 6px 10px; line-height: 1.2; white-space: normal; }
 .piece-card .lever-list .card-hint { margin-top: 0; }
 .land-text { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 320px; }
 .lever { width: 60px; height: 50px; font-size: 20px; }
@@ -205,7 +209,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* A tall card (a workshop's list) stops under the goals chip, and scrolls as one: no list scrolling inside it. */
   .card { max-height: calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 146px - max(10px, env(safe-area-inset-top)) - 116px); overflow-y: auto; overscroll-behavior: contain; }
   .card > * { flex-shrink: 0; }
-  .card .depot-extra { max-height: none; overflow: visible; }
+  .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
 }
 @media (max-width: 400px) {
   .brand:has(.coins:not([hidden])) .brand-block { display: none; }
@@ -221,7 +225,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
      a second tap on it (a car, for its own card) would land on the card's Go instead. */
   .card, .card.piece-card.group { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; top: calc(max(10px, env(safe-area-inset-top)) + 56px); bottom: auto; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 140px); overflow-y: auto; overscroll-behavior: contain; }
   .card > * { flex-shrink: 0; }
-  .card .depot-extra { max-height: none; overflow: visible; }
+  .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
 }
 
