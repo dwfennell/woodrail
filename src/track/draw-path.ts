@@ -1,5 +1,6 @@
 import { normalizeAngle, solveParentPose, transformPose, type Pose } from "./math";
 import { createSample, pathLength, samplePath } from "./path";
+import { SMALL_CURVE_RADIUS, WIDE_CURVE_RADIUS } from "./constants";
 import { getPieceDef, type ConnectorKind, type PieceTypeId } from "./pieces";
 
 /**
@@ -107,6 +108,20 @@ const pieceCost = (t: PieceTypeId): number => BASE_PIECE_COST + (PIECE_COST[t] ?
  */
 const REBEND_COST = 0.4;
 const RESHAPE_COST = 0.3;
+/**
+ * A mini straight next to a curve (in the pair scored) costs this much less: it's how a lead-in that isn't a sum of
+ * the long pieces is made to fit before a bend, where a curve starting early would take the bend's radius wrong.
+ */
+const FIT_REBATE = 0.3;
+/**
+ * A curve's radius against the stroke's (see `radiusCost`): this far off (a log ratio, about 10%) costs nothing, and
+ * each this much more costs one unit, so the curve a radius step off (the curve on a wide arc, or the wide curve on
+ * the curve's arc, about 0.4) costs about 4.
+ */
+const DEAD_R = 0.1;
+const SIGMA_R = 0.15;
+/** The stroke bending less than this (curvature, 1/mm) over a curve's stretch is a straight run: its radius isn't asked. */
+const FLAT_CURVATURE = 1 / (2 * WIDE_CURVE_RADIUS);
 /** A closing piece is laid when its far end is this close (mm) to the stroke drawn so far. */
 const MEET_REACH = 40;
 
@@ -162,6 +177,8 @@ export class DrawLine {
    * finger has gone forward past the line's end again; the stroke then carries on from there.
    */
   private retreating = false;
+  /** Set by `headingAt`: where along the stroke the heading it gave is true. */
+  private headingTrueAt = 0;
 
   constructor(
     readonly start: DrawEnd,
@@ -349,7 +366,8 @@ export class DrawLine {
       const ea = this.endCost(a.end, this.progress, a.length, finishing);
       if (ea.back) continue;
       const bendA = bendOf(a.type, a.end.heading - end.heading);
-      const costA = ea.cost + (finishing ? 0 : turnCost(a.end.heading - end.heading, ea.h - h0)) + pieceCost(a.type) + (k ? rebendCost(before, bendA) : 0);
+      const costA =
+        ea.cost + (finishing ? 0 : turnCost(a.end.heading - end.heading, ea.h - h0)) + this.radiusCost(bendA, this.progress, ea.s) + pieceCost(a.type) + (k ? rebendCost(before, bendA) : 0);
       // Finishing, a piece may end the line on its own.
       if (finishing) {
         const cost = costA - (Math.min(ea.s, this.strokeLength) - this.progress) * ADVANCE;
@@ -367,8 +385,11 @@ export class DrawLine {
         if (eb.back) continue;
         const share = cut ? Math.max(0, room) / b.length : 1;
         const turnB = (cut ? SCRATCH.heading : b.end.heading) - a.end.heading;
-        const costB = eb.cost + (finishing ? 0 : turnCost(turnB, eb.h - ea.h)) + pieceCost(b.type) + rebendCost(bendA, bendOf(b.type, b.end.heading - a.end.heading));
-        const cost = costA + costB * share - (Math.min(eb.s, this.strokeLength) - this.progress) * ADVANCE;
+        const bendB = bendOf(b.type, b.end.heading - a.end.heading);
+        const costB = eb.cost + (finishing ? 0 : turnCost(turnB, eb.h - ea.h)) + this.radiusCost(bendB, ea.s, eb.s) + pieceCost(b.type) + rebendCost(bendA, bendB);
+        // A mini straight fitting the line up to a bend, or on out of it.
+        const fit = (a.type === "straight-54" && bendB !== 0) || (bendA !== 0 && b.type === "straight-54") ? FIT_REBATE : 0;
+        const cost = costA + costB * share - fit - (Math.min(eb.s, this.strokeLength) - this.progress) * ADVANCE;
         if (cost < bestCost) {
           bestCost = cost;
           best = { candidate: a, s: ea.s };
@@ -377,6 +398,34 @@ export class DrawLine {
     }
     if (best && best.s <= this.progress + 1) return null;
     return best;
+  }
+
+  /**
+   * A curve (signed radius `bend`) against how tightly the stroke bends over the stretch it covers (s0 to s1, up to the
+   * stroke's end). The stroke's curvature is measured over each half of the stretch (how far it turns along it), and the
+   * tighter half counts: a curve starting early, on the straight before a bend, is held to the bend's radius, not to the
+   * average of the straight and the bend (which a wider curve would fit, its ends on the stroke all the same). The
+   * curvature is taken within the curves there are: tighter than the tight curve (a corner) asks for the tight curve,
+   * gentler than the wide one for the wide one.
+   */
+  private radiusCost(bend: number, s0: number, s1: number): number {
+    if (bend === 0) return 0;
+    s1 = Math.min(s1, this.strokeLength);
+    if (s1 - s0 < 20) return 0;
+    const sign = bend > 0 ? 1 : -1;
+    const h0 = this.headingAt(s0);
+    const at0 = this.headingTrueAt;
+    const hm = this.headingAt((s0 + s1) / 2);
+    const atm = this.headingTrueAt;
+    const h1 = this.headingAt(s1);
+    const at1 = this.headingTrueAt;
+    const k1 = atm - at0 > 5 ? (sign * normalizeAngle(hm - h0)) / (atm - at0) : 0;
+    const k2 = at1 - atm > 5 ? (sign * normalizeAngle(h1 - hm)) / (at1 - atm) : 0;
+    const k = Math.max(k1, k2);
+    if (k < FLAT_CURVATURE) return 0;
+    const ratio = Math.min(1 / SMALL_CURVE_RADIUS, Math.max(1 / WIDE_CURVE_RADIUS, k)) * Math.abs(bend);
+    const err = Math.max(0, Math.abs(Math.log(ratio)) - DEAD_R);
+    return (err / SIGMA_R) ** 2;
   }
 
   /** Finishing: what it costs to end the line at `e`, short of the stroke's end. */
@@ -454,9 +503,14 @@ export class DrawLine {
     return Math.atan2(this.zs[n] - a.z, this.xs[n] - a.x);
   }
 
-  /** The stroke's heading at distance s: smoothed over a few centimetres either side. */
+  /**
+   * The stroke's heading at distance s: smoothed over a few centimetres either side. Where along the stroke that heading
+   * is true of a circle goes in `headingTrueAt`: near the stroke's ends the window is lopsided, and its chord runs the
+   * way a circle does halfway along it, not at s.
+   */
   private headingAt(s: number): number {
     const len = this.strokeLength;
+    this.headingTrueAt = s;
     if (len < 1) return this.start.heading;
     // Across a long stretch either side, so a hand's wobble averages out: the same either side where it can (on a
     // circle, that chord runs the way the circle does at s). Near the stroke's ends, one side reaches up to twice as far
@@ -464,6 +518,7 @@ export class DrawLine {
     const c = Math.max(0, Math.min(len, s));
     const back = Math.min(c, HEADING_HALF, Math.max(HEADING_MIN, 2 * (len - c)));
     const on = Math.min(len - c, HEADING_HALF, Math.max(HEADING_MIN, 2 * c));
+    this.headingTrueAt = c + (on - back) / 2;
     const a = this.pointAt(c - back);
     const b = this.pointAt(c + on);
     if (Math.hypot(b.x - a.x, b.z - a.z) < 4) return this.start.heading;

@@ -67,6 +67,19 @@ The line grows one piece at a time, from the end the line has reached so far:
      made up for by a tighter curve, can have both its ends on the stroke, but it doesn't turn the way the stroke does.
    - A piece bending another way from the one before costs a little (another radius or the other hand more, straight
      to curve or back less), so a steady arc stays one radius.
+   - Each curve's radius is compared with how tightly the stroke bends over the stretch it covers. The stroke's
+     curvature is measured over each half of that stretch (how far its smoothed heading turns along it), and the
+     tighter half counts. So a curve that starts early, on the straight before a bend, is held to the bend's radius
+     rather than to the average of the straight and the bend (a wider curve would fit that average with its ends on
+     the stroke, and a tighter curve would then have to make up for it). The cost is the log of the ratio of the two radii:
+     the first 0.1 (about 10%) is free, and one radius step off (the curve on a wide arc, or the wide curve on the
+     curve's arc) costs about 4. A stroke bending tighter than the tight curve, such as a corner, asks for the tight curve,
+     and one gentler than the wide curve asks for the wide curve. Where the stroke hardly bends at all (gentler than
+     twice the wide curve's radius), no radius is asked, so curves can still steer the line back onto a straight run.
+   - A mini straight next to a curve costs a little less (0.3 of its 0.9 extra). A lead-in that isn't a sum of the
+     straights' lengths (300 mm, say) is then fitted with the straights: the line ends the lead-in a few cm short or
+     long and the bend's curves keep their radius, instead of the bend starting early with a wider curve and a tighter
+     one making up for it. The line ends within about 25 mm of the stroke's end.
    - While drawing, a second piece that runs on past the stroke drawn so far is scored only up to the stroke's end, and
      costs only the share of it used there. Gaining stroke counts only up to its end. (Beyond the end, nobody knows yet
      where the finger goes; scoring a straight carried on there used to favour straights on a curve.)

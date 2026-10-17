@@ -113,6 +113,39 @@ describe("draw path", () => {
     }
   });
 
+  it("a lead-in that isn't a sum of straights is fitted with the straights, and the bend keeps the stroke's radius", () => {
+    const cases: [number, number, string][] = [
+      [250, 180, "curve-large"],
+      [300, 180, "curve-large"],
+      [350, 180, "curve-large"],
+      [250, 270, "curve-wide"],
+      [300, 270, "curve-wide"],
+    ];
+    for (const [lead, r, curve] of cases)
+      for (const sign of [1, -1] as const) {
+        const name = `lead ${lead}, r${r}, sign ${sign}`;
+        const at = leadThenArc(lead, r, sign);
+        const length = lead + (r * Math.PI) / 2;
+        const line = draw(new DrawLine(START), length, at);
+        const types = line.pieces.map((p) => p.type);
+        // One radius all through the bend: the stroke's.
+        const curves = types.filter((t) => t.startsWith("curve"));
+        expect(curves.length, `${name}: ${types}`).toBeGreaterThan(0);
+        expect(new Set(curves), `${name}: ${types}`).toEqual(new Set([curve]));
+        // At most one (short) straight among the curves.
+        const first = types.findIndex((t) => t.startsWith("curve"));
+        const last = types.length - 1 - [...types].reverse().findIndex((t) => t.startsWith("curve"));
+        const among = types.slice(first, last + 1).filter((t) => t.startsWith("straight"));
+        expect(among.length, `${name}: ${types}`).toBeLessThanOrEqual(1);
+        expect(among.every((t) => t === "straight-54" || t === "straight-108"), `${name}: ${types}`).toBe(true);
+        // Ending within about 25 mm of the stroke's end (the lead-in's error, taken up by the straights), heading its way.
+        const end = at(length);
+        expect(Math.hypot(line.end.x - end.x, line.end.z - end.z), `${name}: ${types}`).toBeLessThan(26);
+        expect(angleDiff(line.end.heading, (sign * Math.PI) / 2), name).toBeLessThan(0.01);
+        expectJoined(line);
+      }
+  });
+
   it("a 200 mm straight is one long piece (ending within joint play of the stroke's end), not a long one and minis (QA N3)", () => {
     const line = draw(new DrawLine(START), 200, (s) => ({ x: s, z: 0 }));
     const types = line.pieces.map((p) => p.type);
