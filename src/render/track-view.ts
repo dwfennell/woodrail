@@ -795,6 +795,8 @@ export class TrackView {
       const def = getPieceDef(p.type, p.flipped);
       if (this.layout.isLifted(id) || this.hidden.has(id)) continue;
       if (def.signal) {
+        // (A signal skin's post is its kit's model, drawn by `KitView`, its aspect shown by its moving parts.)
+        if (kitOf(p.type)) continue;
         live.add(id);
         // A signal piece: its post beside the far end on the right of the way it guards (clear of a road where
         // there's room), the arm up at clear and level at red.

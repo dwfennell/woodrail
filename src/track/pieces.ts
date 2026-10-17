@@ -527,7 +527,13 @@ function swapEnds(def: PieceDef): PieceDef {
 }
 
 /** Pieces whose flip swaps their ends' peg and hole, rather than mirroring them. */
-const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["ramp", "buffer", "buffer-turnback"]);
+const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
+  "ramp",
+  "buffer",
+  "buffer-turnback",
+  // Kits flipping (a buffer's skin): a single end, so a flip can only swap its peg and hole.
+  ...(Object.keys(KITS) as KitTypeId[]).filter((t) => KITS[t].track.flippable && KITS[t].track.connectors.length === 1),
+]);
 
 /** Does flipping this piece swap its ends' peg and hole (so a moved one may flip to fit, as a new one does)? */
 export const flipSwapsEnds = (type: PieceTypeId): boolean => SWAPS_ENDS.has(type);

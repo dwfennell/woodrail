@@ -240,6 +240,14 @@ export const PROP_TABS: readonly PropTab[] = [
           "mech-coaling-crane",
           "mech-fuel-station",
           "mech-weighbridge",
+          // Signal skins and the buffer stop (kit pieces: the signal's and buffer's track, the model drawn on it), and
+          // crossing styles (props dropped on a level crossing: src/landscape/crossing-styles.ts).
+          "mech-semaphore-signal",
+          "mech-colour-light-signal",
+          "mech-signal-gantry",
+          "mech-buffer-stop-lamp",
+          "mech-level-crossing",
+          "mech-gated-crossing",
         ],
       },
     ],
@@ -262,12 +270,7 @@ export const BRIDGE_PROP_SHELVES: readonly PropShelf[] = [];
 export const RAIL_HELD_BACK: readonly string[] = [
   // (The stations, sheds, castle gate, cargo machines, engine services and weighbridge are kit pieces now, on their
   // shelves: src/track/kits.ts.)
-  "mech-semaphore-signal",
-  "mech-colour-light-signal",
-  "mech-signal-gantry",
-  "mech-level-crossing",
-  "mech-gated-crossing",
-  "mech-buffer-stop-lamp",
+  // (So are the signals and buffer stop, as skins; the level and gated crossings are crossing styles.)
   "mech-turntable",
   "mech-transfer-table",
   "mech-train-lift",

@@ -72,7 +72,7 @@ const saveSchema = z.object({
   landscape: landscapeSchema,
   towns: z.array(z.object({ id: z.number().int().min(0), stationPieceId: z.number().int().positive() })),
   pieces: z.array(pieceSchema),
-  switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(2)])),
+  switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(3)])),
   trains: z.array(trainSchema),
   /** Economy depots, in id order: the piece each works on and what it does. */
   depots: z.array(

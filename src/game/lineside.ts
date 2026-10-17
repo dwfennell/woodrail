@@ -101,6 +101,8 @@ export class WhistlePosts {
 export interface Lever {
   readonly pieceId: number;
   readonly kind: "points" | "signal";
+  /** Which of a signal piece's signals (a gantry has one on each road); 0 for points. */
+  readonly road: number;
   /** How far from the prop (mm). */
   readonly distance: number;
 }
@@ -116,9 +118,31 @@ export function leversNear(layout: Layout, x: number, z: number): Lever[] {
     if (!kind) continue;
     if (Math.hypot(p.pose.x - x, p.pose.z - z) > roughReach(layout, id) + LEVER_REACH) continue;
     const distance = trackDistance(layout, id, x, z);
-    if (distance <= LEVER_REACH) out.push({ pieceId: id, kind, distance });
+    if (distance > LEVER_REACH) continue;
+    // A signal on each of a signal piece's roads.
+    const roads = kind === "signal" ? def.paths.length : 1;
+    for (let road = 0; road < roads; road++) out.push({ pieceId: id, kind, road, distance });
   }
   return out.sort((a, b) => a.distance - b.distance);
+}
+
+/**
+ * Which of a signal piece's signals a tap at world (x, z) is for: the road (path) whose line is nearest across the
+ * piece (a gantry's two roads), 0 for a plain signal; −1 if the piece isn't a signal.
+ */
+export function signalRoadAt(layout: Layout, pieceId: number, x: number, z: number): number {
+  const p = layout.getPiece(pieceId);
+  if (!p) return -1;
+  const def = getPieceDef(p.type, p.flipped);
+  if (!def.signal) return -1;
+  // Across the piece, in its own frame.
+  const dx = x - p.pose.x;
+  const dz = z - p.pose.z;
+  const across = -dx * Math.sin(p.pose.heading) + dz * Math.cos(p.pose.heading);
+  let best = 0;
+  for (let road = 1; road < def.paths.length; road++)
+    if (Math.abs(def.paths[road].geom.start.z - across) < Math.abs(def.paths[best].geom.start.z - across)) best = road;
+  return best;
 }
 
 /** Which way a switch is set, in words ("straight", "left", "right"), from the route its state picks. */

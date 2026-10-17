@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getPieceDef, isPlainStraight, KIT_TYPES, kitForAsset, kitOf, kitPlace, KITS, MAX_CONNECTORS, pathLength, PIECE_TYPES, straightLength, type PieceTypeId } from ".";
+import { flipSwapsEnds, getPieceDef, isPlainStraight, KIT_TYPES, kitForAsset, kitOf, kitPlace, KITS, MAX_CONNECTORS, pathLength, PIECE_TYPES, straightLength, type PieceTypeId } from ".";
 
 describe("kit pieces", () => {
   it("are piece types, generated from the kits", () => {
@@ -130,5 +130,48 @@ describe("kit pieces", () => {
       expect(kit.moves, type).toBe("stopped");
       for (const r of kit.footprint) expect(r.l - r.d / 2, type).toBeGreaterThanOrEqual(20);
     }
+  });
+
+  it("signal skins: the signal piece's track and stop, drawn with their own model, which follows the aspect", () => {
+    const plain = getPieceDef("signal", false);
+    const skins = { "kit-semaphore-signal": "mech-semaphore-signal", "kit-colour-light-signal": "mech-colour-light-signal", "kit-signal-gantry": "mech-signal-gantry" } as const;
+    for (const [type, asset] of Object.entries(skins) as [keyof typeof skins, string][]) {
+      const kit = KITS[type];
+      expect(kit.asset, type).toBe(asset);
+      expect(kitForAsset(asset), type).toBe(type);
+      expect(kit.track.signal, type).toEqual(plain.signal);
+      expect(kit.moves, type).toBe("state");
+      expect(kit.state, type).toBe("signal");
+      expect(kit.splices, type).toBeFalsy();
+      expect(kit.track.isSwitch, type).toBe(false);
+      // Every road is the plain signal's length.
+      for (const p of kit.track.paths) expect(pathLength(p.geom), type).toBe(pathLength(plain.paths[0].geom));
+    }
+    for (const type of ["kit-semaphore-signal", "kit-colour-light-signal"] as const) {
+      expect(KITS[type].track.connectors.map((c) => c.pose)).toEqual(plain.connectors.map((c) => c.pose));
+      // Its post clear of the track's edge.
+      for (const r of KITS[type].footprint) expect(r.l - r.d / 2, type).toBeGreaterThanOrEqual(20);
+    }
+    // The gantry: two roads a double track apart, as the double straight's, both guarded; its legs outside them.
+    const gantry = KITS["kit-signal-gantry"].track;
+    const double = getPieceDef("double-straight", false);
+    expect(gantry.connectors.map((c) => [c.kind, c.pose.z])).toEqual(double.connectors.map((c) => [c.kind, c.pose.z]));
+    expect(gantry.paths.map((p) => [p.from, p.to])).toEqual([
+      [0, 1],
+      [2, 3],
+    ]);
+    for (const r of KITS["kit-signal-gantry"].footprint) expect(r.l - r.d / 2 >= 92 || r.l + r.d / 2 <= -20).toBe(true);
+  });
+
+  it("the buffer-stop lamp: a skin of the buffer, flipping as a buffer does, its lamp lit while a train's on it", () => {
+    const kit = KITS["kit-buffer-stop-lamp"];
+    const buffer = getPieceDef("buffer", false);
+    expect(kit.asset).toBe("mech-buffer-stop-lamp");
+    expect(kit.track.connectors.map((c) => [c.kind, c.pose])).toEqual(buffer.connectors.map((c) => [c.kind, c.pose]));
+    expect(kit.track.paths.map((p) => [p.from, p.to, p.geom])).toEqual(buffer.paths.map((p) => [p.from, p.to, p.geom]));
+    expect(flipSwapsEnds("kit-buffer-stop-lamp")).toBe(true);
+    expect(getPieceDef("kit-buffer-stop-lamp", true).connectors[0].kind).toBe("peg");
+    expect(kit.moves).toBe("occupied");
+    expect(kit.footprint).toEqual([]);
   });
 });

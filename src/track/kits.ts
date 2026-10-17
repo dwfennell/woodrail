@@ -1,6 +1,7 @@
 import type { DepotRole } from "../economy";
 import { normalizeAngle, type Pose } from "./math";
 import type { PieceDef, PieceTypeId } from "./pieces";
+import { BUFFER_LENGTH } from "./constants";
 import { pose, straight } from "./shapes";
 
 /**
@@ -72,7 +73,15 @@ export interface KitDef {
    * a kit that moves needs an entry there. See `KitView` for how it's drawn (live only while moving).
    */
   readonly moves?: "occupied" | "stopped" | "state";
+  /**
+   * For `moves: "state"`: which state its moving parts show (`KIT_STATES` in src/game/kit-states.ts says how it's read
+   * from the world, and when it may have changed). "signal": a signal piece's aspects.
+   */
+  readonly state?: KitStateKind;
 }
+
+/** The states a "state" kit's moving parts can show (see `KitDef.state`, and `KIT_STATES` for how each is read). */
+export type KitStateKind = "signal";
 
 /** Kit piece types: `kit-` and the asset's name without its catalogue prefix. */
 export type KitTypeId = `kit-${string}`;
@@ -84,6 +93,8 @@ const PLATFORM_GAP = 1;
 const TRACK_HALF = 20;
 /** Roads side by side in a station or shed: a double track apart, so a ladder of switches and curves meets them. */
 const ROADS = 72;
+/** How far each leg of the signal gantry stands from its middle (mm): clear of both roads. */
+const GANTRY_LEG = 70;
 /** Where a platform `depth` deep stands beside a track, its edge just off the track's (l of its middle, mm). */
 const beside = (depth: number) => TRACK_HALF + PLATFORM_GAP + depth / 2;
 
@@ -116,6 +127,29 @@ function roads(type: PieceTypeId, starts: readonly Pose[], length: number, buffe
   }
   return { type, connectors, paths, flippable: false, isSwitch: false, supportHeight: 0 };
 }
+
+/**
+ * A signal skin's track: the signal piece's own (a 144 straight, trains stopping at 100 at red), or a gantry's roads
+ * with a signal on each. The sim's block working reads only `signal`, so a skin holds trains exactly as the plain one.
+ */
+const SIGNAL_LENGTH = 144;
+const SIGNAL_STOP = { stopAt: 100 } as const;
+/** Where a signal skin's post stands along its piece (the plain signal's: just past its stop point). */
+const SIGNAL_POST = 124;
+const signalTrack = (type: PieceTypeId): PieceDef => ({ ...straight(type, SIGNAL_LENGTH), signal: SIGNAL_STOP });
+
+/**
+ * A buffer skin's track: the buffer piece's own (one end, a path ending in the piece), flipping as a buffer does (its
+ * end's peg and hole swap: see `SWAPS_ENDS` in pieces.ts). The model draws the buffer stop.
+ */
+const bufferTrack = (type: PieceTypeId): PieceDef => ({
+  type,
+  connectors: [{ kind: "socket", pose: pose(0, 0, Math.PI), y: 0 }],
+  paths: [{ from: 0, to: null, geom: { kind: "line", start: pose(0, 0, 0), length: BUFFER_LENGTH, y0: 0, rise: 0 } }],
+  flippable: true,
+  isSwitch: false,
+  supportHeight: 0,
+});
 
 /** Roads side by side along +t, `ROADS` apart, the first on the piece's own line (l 0), the rest to its left. */
 const sideBySide = (n: number): Pose[] => Array.from({ length: n }, (_, i) => pose(0, i * ROADS, 0));
@@ -444,6 +478,59 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     moves: "occupied",
   },
   // The line runs through the arch on a 108 straight; the portcullis rises as a train comes and drops behind it.
+  // Signal skins: the signal piece with a catalogue model for its post. The same block working (red while the line
+  // ahead is occupied, or while it's held by a tap), shown by the model, whose moving parts follow the aspect
+  // ("state"). Each model faces its own +x: turned round, it faces trains coming in from connector 0, its post on the
+  // piece's +l side (where the plain signal's post stands), just past the stop point.
+  "kit-semaphore-signal": {
+    asset: "mech-semaphore-signal",
+    name: "signal",
+    track: signalTrack("kit-semaphore-signal"),
+    rails: "track",
+    // The model's own slab of track is 36 off its post.
+    place: { t: SIGNAL_POST, l: 36, turn: Math.PI },
+    footprint: [{ t: SIGNAL_POST, l: 36, w: 14, d: 14 }],
+    moves: "state",
+    state: "signal",
+  },
+  "kit-colour-light-signal": {
+    asset: "mech-colour-light-signal",
+    name: "signal",
+    track: signalTrack("kit-colour-light-signal"),
+    rails: "track",
+    // The model's own slab of track is 30 off its post.
+    place: { t: SIGNAL_POST, l: 30, turn: Math.PI },
+    footprint: [{ t: SIGNAL_POST, l: 30, w: 12, d: 12 }],
+    moves: "state",
+    state: "signal",
+  },
+  // A gantry over two roads a double track apart (as the double straight's), a signal head over each, both guarding
+  // trains running from the roads' first ends: each road's signal works its own block.
+  "kit-signal-gantry": {
+    asset: "mech-signal-gantry",
+    name: "signal gantry",
+    track: { ...roads("kit-signal-gantry", sideBySide(2), SIGNAL_LENGTH, false), signal: SIGNAL_STOP },
+    rails: "track",
+    // Its middle between the roads, its legs outside them.
+    place: { t: SIGNAL_POST, l: ROADS / 2, turn: Math.PI },
+    footprint: [
+      { t: SIGNAL_POST, l: ROADS / 2 - GANTRY_LEG, w: 14, d: 14 },
+      { t: SIGNAL_POST, l: ROADS / 2 + GANTRY_LEG, w: 14, d: 14 },
+    ],
+    moves: "state",
+    state: "signal",
+  },
+  // A skin of the buffer: a timber buffer stop whose lamp lights while a train stands against it (on its piece).
+  "kit-buffer-stop-lamp": {
+    asset: "mech-buffer-stop-lamp",
+    name: "buffer stop",
+    track: bufferTrack("kit-buffer-stop-lamp"),
+    rails: "track",
+    // Its sprung buffers' faces (the model's x 16) where a plain buffer block's are, 76 along the piece.
+    place: { t: 60, l: 0 },
+    footprint: [],
+    moves: "occupied",
+  },
   "kit-castle-gate": {
     asset: "bldg-castle-gate",
     name: "castle gate",

@@ -11,13 +11,18 @@ import type { Object3D } from "three";
  * agree, and `KitView` can drop the live parts once a kit is back at rest.
  *
  * A kit whose asset has `moves` but no entry here doesn't move (it's drawn static).
+ *
+ * A "state" kit (`KitDef.state`) is posed for its state's level (`KIT_STATES`, src/game/kit-states.ts): `on` eases
+ * toward the level, which may be any number from 0 (at rest) up (a bit for each of a gantry's signals; a turntable's
+ * road), and holds still once it's there (`holds` is implied). With `ease: 0` it's there at once, so a level can carry
+ * several flags (`Math.round(on)`).
  */
 export interface KitMotion {
   /** The moving nodes, by name (several nodes may share one: every "leafL"). Nested ones are listed too. */
   readonly parts: readonly string[];
   /** Pose them (see above). */
   pose(parts: MotionParts, on: number, t: number): void;
-  /** Seconds to ease `on` from 0 to 1 or back (default 0.8). */
+  /** Seconds to ease `on` from 0 to 1 or back (default 0.8); 0 for at once (a lamp switched on or off). */
   readonly ease?: number;
   /**
    * A motion that cycles round to its rest pose every `period` seconds (crates on a belt): let go, it runs on at full
@@ -42,6 +47,15 @@ const each = (parts: MotionParts, name: string, f: (o: Object3D) => void) => {
 
 /** 0 → 1 → 0 smoothly every `period` seconds. */
 const wave = (t: number, period: number) => 0.5 - 0.5 * Math.cos((t / period) * Math.PI * 2);
+
+/** How far a semaphore's arm is raised at clear (radians, as the catalogue model's arm rises). */
+const SEMAPHORE_CLEAR = 0.7;
+
+/** The signal gantry's heads (as the model names them) and the roads they stand over, once it's on its piece. */
+const GANTRY_HEADS = [
+  [1, 0],
+  [0, 1],
+] as const;
 
 /** A clamshell crane's or a slewing crane's swing: out and back, `period` seconds round. */
 const swing = (t: number, period: number) => Math.sin((t / period) * Math.PI * 2);
@@ -149,6 +163,39 @@ export const KIT_MOTIONS: Readonly<Record<string, KitMotion>> = {
       each(p, "jib", (o) => (o.rotation.y = on * 1.4 * swing(t, 12)));
     },
   },
+  // Signal skins ("state": the signal's aspect, see `KIT_STATES.signal`; at rest, clear). The semaphore's arm drops
+  // level at red and rises to clear.
+  "mech-semaphore-signal": {
+    parts: ["arm"],
+    ease: 0.5,
+    pose: (p, on) => each(p, "arm", (o) => (o.rotation.x = SEMAPHORE_CLEAR * (1 - Math.min(1, on)))),
+  },
+  // The colour light shows green at clear and red at red, switched at once (a lamp, not a motion: ease 0).
+  "mech-colour-light-signal": {
+    parts: ["red", "amber", "green"],
+    ease: 0,
+    pose: (p, on) => {
+      each(p, "red", (o) => (o.visible = on >= 0.5));
+      each(p, "amber", (o) => (o.visible = false));
+      each(p, "green", (o) => (o.visible = on < 0.5));
+    },
+  },
+  // The gantry's two heads, one over each road: its level has a bit for each road at red (road 0's is 1). Turned round
+  // onto its piece, the model's head 1 is over road 0, and its head 0 over road 1.
+  "mech-signal-gantry": {
+    parts: ["r0", "g0", "r1", "g1"],
+    ease: 0,
+    pose: (p, on) => {
+      const red = Math.round(on);
+      for (const [head, road] of GANTRY_HEADS) {
+        const atRed = Math.floor(red / 2 ** road) % 2 === 1;
+        each(p, `r${head}`, (o) => (o.visible = atRed));
+        each(p, `g${head}`, (o) => (o.visible = !atRed));
+      }
+    },
+  },
+  // The buffer stop's lamp lights while a train stands against it.
+  "mech-buffer-stop-lamp": { parts: ["lamp"], holds: true, ease: 0.3, pose: (p, on) => each(p, "lamp", (o) => (o.visible = on > 0.5)) },
   // The weighbridge's dial swings round while a train crawls over it.
   "mech-weighbridge": {
     parts: ["needle"],

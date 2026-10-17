@@ -303,7 +303,8 @@ export function bakeMovers(root: Object3D, names: ReadonlySet<string>, mats: Mat
     const b = new Batcher(mats.paint);
     const visit = (o: Object3D) => {
       const mesh = o as Mesh;
-      if (mesh.isMesh && mesh.visible && !isSlab(mesh)) {
+      // (A moving part that's hidden at rest, a lamp, keeps its geometry: its visibility is the part's, set above.)
+      if (mesh.isMesh && (mesh.visible || o === node) && !isSlab(mesh)) {
         const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
         b.add(material, mesh.geometry.clone().applyMatrix4(tmp.multiplyMatrices(toLocal, mesh.matrixWorld)));
       }

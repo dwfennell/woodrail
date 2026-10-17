@@ -148,9 +148,12 @@ export class Sim {
   /** Optional: how quickly a powered train gets up to speed and stops, against the usual (2: twice as quick). */
   quickness: ((train: Train) => number) | null = null;
 
-  /** The signal pieces on the layout (found again after the track changes: see `trackChanged`). */
+  /**
+   * The signals on the layout, as keys (`signalKey`: a signal piece and one of its roads), found again after the track
+   * changes (see `trackChanged`).
+   */
   private signals: number[] | null = null;
-  /** Each signal's aspect as of this tick: true at clear (its block's free), false at red. */
+  /** Each signal's aspect as of this tick, by key (`signalKey`): true at clear (its block's free), false at red. */
   private readonly aspects = new Map<number, boolean>();
   /** Goes up whenever a signal's aspect changes, so the view redraws only then. */
   signalsVersion = 0;
@@ -491,6 +494,11 @@ export class Sim {
   /** Step a switch to its next route (two-way switches flip; a three-way steps round its three). */
   toggleSwitch(pieceId: number): void {
     const piece = this.layout.getPiece(pieceId);
+    // A signal piece's lever holds its (first) signal at red, or lets it go.
+    if (piece && getPieceDef(piece.type, piece.flipped).signal) {
+      this.toggleSignal(pieceId, 0);
+      return;
+    }
     const routes = piece ? getPieceDef(piece.type, piece.flipped).paths.filter((p) => p.from === 0).length : 2;
     this.layout.setSwitchState(pieceId, (this.layout.switchState(pieceId) + 1) % Math.max(2, routes));
     // A signal held or let go shows it at once (even paused).
@@ -529,9 +537,19 @@ export class Sim {
 
   // ---- signals: block working -----------------------------------------------------------------------------
 
-  /** Is this signal at clear (true), or red (false)? A signal not yet worked out shows clear. */
-  signalClear(pieceId: number): boolean {
-    return this.aspects.get(pieceId) ?? true;
+  /**
+   * Is this signal at clear (true), or red (false)? `road`: which of a signal piece's paths it guards (a gantry has one
+   * on each of its roads; a plain signal just the one). A signal not yet worked out shows clear.
+   */
+  signalClear(pieceId: number, road = 0): boolean {
+    return this.aspects.get(signalKey(pieceId, road)) ?? true;
+  }
+
+  /** Hold one of a signal piece's signals at red by hand, or let it go (each road's hold is a bit of its state). */
+  toggleSignal(pieceId: number, road = 0): void {
+    this.layout.setSwitchState(pieceId, this.layout.switchState(pieceId) ^ (1 << road));
+    // Shown at once (even paused).
+    this.updateSignals();
   }
 
   /**
@@ -556,40 +574,50 @@ export class Sim {
     return !!t && !t.derailed && t.speed < 1 && this.signalCap(t) === 0;
   }
 
-  /** Held at red by hand (a tap; saved with the switch states), whatever the line ahead. */
-  signalHeld(pieceId: number): boolean {
-    return this.layout.switchState(pieceId) % 2 === 1;
+  /** Held at red by hand (a tap; saved with the switch states: a bit for each road), whatever the line ahead. */
+  signalHeld(pieceId: number, road = 0): boolean {
+    return ((this.layout.switchState(pieceId) >> road) & 1) === 1;
   }
 
   /**
    * Each signal's aspect: red while it's held, or while any train stands on its block, the track from its far end up
    * to and including the next signal, switch or crossing (or to the end of the line). Worked out once a tick.
+   *
+   * A signal piece has a signal on each of its paths (`PieceDef.signal`): a plain signal one, a gantry over two roads
+   * two, each guarding its own road from the path's `from` end to its `to` end, with a block of its own beyond.
    */
   private updateSignals(): void {
     if (this.signals === null) {
       this.signals = [];
       for (const id of this.layout.pieceIds()) {
         const p = this.layout.getPiece(id)!;
-        if (getPieceDef(p.type, p.flipped).signal) this.signals.push(id);
+        const def = getPieceDef(p.type, p.flipped);
+        if (def.signal) for (let road = 0; road < def.paths.length; road++) this.signals.push(signalKey(id, road));
       }
-      for (const id of this.aspects.keys()) if (!this.layout.getPiece(id)) this.aspects.delete(id);
+      for (const key of this.aspects.keys()) if (!this.signals.includes(key)) this.aspects.delete(key);
     }
     if (this.signals.length === 0) return;
     const occupied = new Set<number>();
     for (const t of this.trains.values()) for (const b of t.bogies) occupied.add(b.pieceId);
-    for (const id of this.signals) {
+    for (const key of this.signals) {
+      const id = signalPiece(key);
+      const road = signalRoad(key);
       if (!this.layout.getPiece(id) || this.layout.isLifted(id)) continue;
-      const clear = !this.signalHeld(id) && !this.blockOccupied(id, occupied);
-      if (this.aspects.get(id) !== clear) {
-        this.aspects.set(id, clear);
+      const clear = !this.signalHeld(id, road) && !this.blockOccupied(id, road, occupied);
+      if (this.aspects.get(key) !== clear) {
+        this.aspects.set(key, clear);
         this.signalsVersion++;
       }
     }
   }
 
-  /** Is any train on the block beyond this signal (see `updateSignals`)? */
-  private blockOccupied(signalId: number, occupied: ReadonlySet<number>): boolean {
-    let ref = connectorRef(signalId, 1);
+  /** Is any train on the block beyond this signal (a signal piece's road: see `updateSignals`)? */
+  private blockOccupied(signalId: number, road: number, occupied: ReadonlySet<number>): boolean {
+    const p0 = this.layout.getPiece(signalId)!;
+    const far = getPieceDef(p0.type, p0.flipped).paths[road]?.to;
+    // A road that ends at a buffer in the piece has no block beyond it.
+    if (far === null || far === undefined) return false;
+    let ref = connectorRef(signalId, far);
     for (let n = 0; n < MAX_BLOCK; n++) {
       const next = this.layout.joinedConnector(ref);
       if (next === -1) return false;
@@ -638,7 +666,7 @@ export class Sim {
       }
       const p = this.layout.getPiece(c.pieceId);
       const stopAt = p ? getPieceDef(p.type, p.flipped).signal?.stopAt : undefined;
-      if (stopAt !== undefined && !c.reversed && this.aspects.get(c.pieceId) === false) {
+      if (stopAt !== undefined && !c.reversed && this.aspects.get(signalKey(c.pieceId, c.pathIndex)) === false) {
         // Short of the stop point: brake to it. Stepped onto the piece already past it: it was within this step.
         // (Already past it where the axle stands: that signal's behind; look on.)
         let dist = -1;
@@ -906,3 +934,8 @@ export class Sim {
     this.events.push({ kind: "coupled", trainId: b.id, absorbedTrainId: a.id });
   }
 }
+
+/** A signal's key: its piece and which of the piece's paths (roads) it guards (a piece has at most 4 connectors). */
+export const signalKey = (pieceId: number, road: number): number => pieceId * 4 + road;
+const signalPiece = (key: number): number => Math.floor(key / 4);
+const signalRoad = (key: number): number => key % 4;

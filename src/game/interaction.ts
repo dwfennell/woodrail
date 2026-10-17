@@ -7,11 +7,11 @@ import { setRim } from "../render/materials";
 import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
-import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
+import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
 import { connectorRef, gapFill, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
-import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
+import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
@@ -22,7 +22,7 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
-import { LEVER_PROPS, leversNear, pointsWay } from "./lineside";
+import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
@@ -103,6 +103,9 @@ const TRAIN_DROP_RANGE = 70;
  */
 type PlaceBlock = BlockReason | YardBlock | "in-yard" | "site" | "splice-fit" | "splice-busy" | "splice-onto";
 
+/** A crossing prop dropped this near a level crossing's middle (mm) goes onto it (see `styleCrossings`). */
+const CROSSING_DROP_REACH = 2 * STYLE_REACH;
+
 const SPLICE_MESSAGES = {
   "splice-fit": "Drop it onto a long straight",
   "splice-busy": "A train is on that straight",
@@ -111,7 +114,8 @@ const SPLICE_MESSAGES = {
 
 type Press =
   | { kind: "car"; carId: number }
-  | { kind: "lever"; pieceId: number }
+  /** A switch's lever or a signal (`road`: which of a signal piece's signals, a gantry's road; else 0). */
+  | { kind: "lever"; pieceId: number; road?: number }
   | { kind: "piece"; pieceId: number }
   /** A depot's yard, building or crane (economy depot id). */
   | { kind: "depot"; depotId: number }
@@ -1276,7 +1280,7 @@ export class Interaction {
   private tap(p: Press, add = false): void {
     const g = this.game;
     if (p.kind === "lever") {
-      this.throwLever(p.pieceId);
+      this.throwLever(p.pieceId, p.road);
       return;
     }
     if (p.kind === "piece") {
@@ -3227,7 +3231,22 @@ export class Interaction {
     const fp = g.propLibrary.footprint(m.asset);
     let ground = hills.groundAt(pose.x, pose.z);
     let blocked: PropBlock | null = null;
-    if (fp) {
+    if (standsAside(m.asset)) {
+      // A crossing prop goes onto a level crossing, as its style: it snaps to the nearest one in reach (`styleCrossings`
+      // links it by where it stands), and goes nowhere else.
+      const crossings = g.levelCrossings;
+      const i = nearestCrossing(crossings, pose.x, pose.z, CROSSING_DROP_REACH);
+      const c = i === -1 ? undefined : crossings[i];
+      if (!c || c.gates.length === 0) blocked = "no-crossing";
+      else {
+        pose.x = Math.round(c.x / 2) * 2;
+        pose.z = Math.round(c.z / 2) * 2;
+        ground = c.y;
+        // One style to a crossing.
+        for (const other of g.props.all())
+          if (other.id !== m.propId && standsAside(other.asset) && nearestCrossing(crossings, other.x, other.z) === i) blocked = "prop";
+      }
+    } else if (fp) {
       const own = new Set(buildingCells(g.landscape, m.propId === -1 ? undefined : g.props.get(m.propId)?.building));
       const c = checkProp({ land: g.landscape, track: m.track, props: g.props, footprint: g.propLibrary.footprint }, fp, pose, placeOn(m.asset), m.propId, own);
       if (c.kind === "clear") ground = c.y;
@@ -3304,10 +3323,15 @@ export class Interaction {
     this.hintDrag();
   }
 
-  /** Throw a switch's points, or hold or let go a signal: redrawn and saved, nothing else rebuilt. */
-  private throwLever(pieceId: number): void {
+  /**
+   * Throw a switch's points, or hold or let go a signal (`road`: which of a signal piece's, a gantry's road): redrawn
+   * and saved, nothing else rebuilt (a signal skin's model follows its aspect: see `KIT_STATES`).
+   */
+  private throwLever(pieceId: number, road = 0): void {
     const g = this.game;
-    g.sim.toggleSwitch(pieceId);
+    const piece = g.layout.getPiece(pieceId);
+    if (piece && getPieceDef(piece.type, piece.flipped).signal) g.sim.toggleSignal(pieceId, road);
+    else g.sim.toggleSwitch(pieceId);
     g.trackView.syncSwitches();
     g.invalidate();
     this.onSwitched?.();
@@ -3327,12 +3351,12 @@ export class Interaction {
       const n = ++counts[l.kind];
       return l.kind === "points"
         ? { label: `Points ${n}: ${pointsWay(g.layout, l.pieceId)}`, title: "Throw these points" }
-        : { label: `Signal ${n}: ${g.sim.signalHeld(l.pieceId) ? "held at red" : "free"}`, title: "Hold this signal at red, or let it go" };
+        : { label: `Signal ${n}: ${g.sim.signalHeld(l.pieceId, l.road) ? "held at red" : "free"}`, title: "Hold this signal at red, or let it go" };
     });
     this.hud.showLevers(items, (i) => {
       const l = levers[i];
       if (!g.layout.getPiece(l.pieceId) || this.selectedProp !== propId) return;
-      this.throwLever(l.pieceId);
+      this.throwLever(l.pieceId, l.road);
       this.showLevers(propId);
     });
   }
@@ -3345,8 +3369,10 @@ export class Interaction {
     if (!p || !fp) return;
     const from: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
     const to = { x: p.x, z: p.z, heading: p.heading + Math.PI / 4 };
-    const c = checkProp({ land: g.landscape, track: new TrackIndex(g.layout), props: g.props, footprint: g.propLibrary.footprint }, fp, to, placeOn(p.asset), id);
-    const why = c.kind === "blocked" ? c.reason : this.propInYard(fp, to);
+    // (A crossing prop turns where it stands, on its crossing.)
+    const aside = standsAside(p.asset);
+    const c: ReturnType<typeof checkProp> = aside ? { kind: "clear", y: p.y } : checkProp({ land: g.landscape, track: new TrackIndex(g.layout), props: g.props, footprint: g.propLibrary.footprint }, fp, to, placeOn(p.asset), id);
+    const why = c.kind === "blocked" ? c.reason : aside ? null : this.propInYard(fp, to);
     if (c.kind === "blocked" || why) {
       this.hud.toast(this.propMessage(why!));
       this.onRefused?.();
@@ -3480,7 +3506,7 @@ export class Interaction {
   private pickExact(x: number, y: number): (Press & { footprint?: boolean }) | null {
     this.setNdc(x, y);
     const g = this.game;
-    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group], true);
+    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group], true);
     for (const h of hits) {
       const slot = g.depotView.cargoAt(h.object, h.instanceId);
       if (slot) {
@@ -3495,6 +3521,17 @@ export class Interaction {
       const carId = g.trainView.carAt(h.object as Object3D);
       if (carId !== -1) return { kind: "car", carId };
       if (h.object.userData.kind === "switch-lever") return { kind: "lever", pieceId: h.object.userData.pieceId as number };
+      // A signal skin's model is its lever (a tap holds it at red, or lets it go: a gantry's, the road it's over). Any
+      // other kit's model is passed through, to the track or ground behind it.
+      const kitPiece = g.kitView.pieceAt(h.object, h.batchId);
+      if (kitPiece !== -1) {
+        const road = signalRoadAt(g.layout, kitPiece, h.point.x, h.point.z);
+        if (road !== -1) return { kind: "lever", pieceId: kitPiece, road };
+        continue;
+      }
+      // A level crossing's style (its barriers or gates) is its prop's.
+      const stylePropId = g.crossingsView.propAt(h.object);
+      if (stylePropId !== -1 && g.props.get(stylePropId)) return { kind: "prop", propId: stylePropId };
       const propId = g.propsView.propAt(h.object, h.batchId);
       if (propId !== -1) return { kind: "prop", propId };
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);

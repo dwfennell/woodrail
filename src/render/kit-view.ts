@@ -1,4 +1,4 @@
-import { Group, Mesh } from "three";
+import { Group, Mesh, type Object3D } from "three";
 import type { Prop } from "../props/store";
 import { kitOf, type KitDef, type Layout, type PieceTypeId } from "../track";
 import { motionOf, type KitMotion, type MotionParts } from "./kit-motions";
@@ -151,15 +151,21 @@ export class KitView {
   /**
    * Move the kits' moving parts on by `dt` seconds: each eases toward full engagement while `triggered` says its
    * trigger holds, and back to rest after. Looks only at the movers (a short list); called by the game only on frames
-   * already running for trains (see the class note). "moving" while any part moved (draw, and redraw shadows);
-   * "changed" when something was swapped back to its still drawing (draw once); "still" otherwise.
+   * already running for trains, or when a kit's state may have changed (see the class note). "moving" while any part
+   * moved (draw, and redraw shadows); "changed" when something was swapped back to its still drawing (draw once);
+   * "still" otherwise.
+   *
+   * `triggered` gives a "state" kit's level (`KitDef.state`: a number, 0 at rest), toward which its parts ease and
+   * where they then hold still; for other kits, whether their trigger holds.
    */
-  update(triggered: (pieceId: number, kit: KitDef) => boolean, dt: number): "moving" | "changed" | "still" {
+  update(triggered: (pieceId: number, kit: KitDef) => boolean | number, dt: number): "moving" | "changed" | "still" {
     let moved = false;
     let changed = false;
     let swapped = false;
     for (const m of this.movers.values()) {
-      const want = triggered(m.id, m.kit);
+      const asked = triggered(m.id, m.kit);
+      const level = typeof asked === "number" ? asked : asked ? 1 : 0;
+      const want = level !== 0;
       if (!want && m.on === 0 && !m.live) continue;
       if (!m.live) {
         if (!this.wake(m)) continue;
@@ -168,6 +174,24 @@ export class KitView {
       const ease = m.motion.ease ?? 0.8;
       const wasOn = m.on;
       const period = m.motion.period;
+      if (typeof asked === "number") {
+        // A state's level: eased toward (at once with ease 0), then held there.
+        const step = ease > 0 ? dt / ease : Infinity;
+        m.on = m.on < level ? Math.min(level, m.on + step) : Math.max(level, m.on - step);
+        if (m.on > 0) m.t += dt;
+        const holding = m.on === level && wasOn === level;
+        if (!holding) m.motion.pose(m.parts!, m.on, m.t);
+        if (m.on === 0) {
+          this.rest(m);
+          swapped = true;
+          changed = true;
+          m.still = true;
+          continue;
+        }
+        m.still = holding;
+        if (!holding) moved = true;
+        continue;
+      }
       if (!want && period && m.on === 1) {
         // A cycling motion runs on to the end of its round, then stops there, at rest.
         const end = Math.ceil(m.t / period - 1e-6) * period;
@@ -203,6 +227,8 @@ export class KitView {
     const template = this.library.moversOf(m.type);
     if (!template || !this.library.model(kitModelKey(m.type, true))) return false;
     m.live = template.clone(true);
+    // (Tapped, it's its piece's: see `pieceAt`.)
+    m.live.userData.kitPiece = m.id;
     m.parts = partsOf(m.live);
     m.t = 0;
     this.group.add(m.live);
@@ -229,6 +255,14 @@ export class KitView {
     if (!d || !m.live) return;
     m.live.position.set(d.x, d.y, d.z);
     m.live.rotation.set(0, -d.heading, 0);
+  }
+
+  /** The kit piece whose model a raycast hit (its drawing's instance, or its live parts), or −1. */
+  pieceAt(object: Object3D, batchId: number | undefined): number {
+    const id = this.view.propAt(object, batchId);
+    if (id !== -1) return id;
+    for (let o: Object3D | null = object; o; o = o.parent) if (typeof o.userData.kitPiece === "number") return o.userData.kitPiece as number;
+    return -1;
   }
 
   /** The kit pieces on the layout as of the last `sync` (in the hand too). */

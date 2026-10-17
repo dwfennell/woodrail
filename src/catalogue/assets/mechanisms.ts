@@ -709,18 +709,19 @@ const mechanisms: Asset[] = [
     tags: ["signal", "gantry", "double track", "lights", "bridge"],
     notes: "A lattice bridge spanning two tracks with a signal head over each line. A natural piece for a double-track main line, each head showing whether its own line is clear.",
     build: (k) => {
-      const g = k.group(k.trackSlab(100, 0, 0, -24), k.trackSlab(100, 0, 0, 24));
+      // Over double track (its lines 72 apart), its legs clear of both.
+      const g = k.group(k.trackSlab(144, 0, 0, -36), k.trackSlab(144, 0, 0, 36));
       const grey = k.paint(TOY.grey);
-      for (const z of [-62, 62]) {
+      for (const z of [-70, 70]) {
         g.add(k.box(grey, 12, 4, 12, 1.5, 0, 0, z), k.box(grey, 7, 104, 7, 2, 0, 4, z));
       }
-      for (const y of [96, 108]) g.add(k.box(grey, 6, 4, 132, 1.5, 0, y, 0));
-      for (let i = 0; i < 8; i++) g.add(strutZ(k, grey, -56 + i * 14, 98, -49 + i * 14, 108, 0, 2));
-      for (let i = 0; i < 9; i++) g.add(k.box(k.paint(TOY.yellow), 2, 10, 2, 0.5, -8, 112, -56 + i * 14));
-      g.add(k.box(k.paint(TOY.yellow), 2, 2, 116, 0.5, -8, 122, 0), k.box(k.paint(TOY.white), 14, 2, 120, 0.5, -3, 112, 0));
+      for (const y of [96, 108]) g.add(k.box(grey, 6, 4, 148, 1.5, 0, y, 0));
+      for (let i = 0; i < 10; i++) g.add(strutZ(k, grey, -63 + i * 14, 98, -56 + i * 14, 108, 0, 2));
+      for (let i = 0; i < 11; i++) g.add(k.box(k.paint(TOY.yellow), 2, 10, 2, 0.5, -8, 112, -63 + i * 12.6));
+      g.add(k.box(k.paint(TOY.yellow), 2, 2, 130, 0.5, -8, 122, 0), k.box(k.paint(TOY.white), 14, 2, 134, 0.5, -3, 112, 0));
       for (const [z, i] of [
-        [-24, 0],
-        [24, 1],
+        [-36, 0],
+        [36, 1],
       ] as const) {
         g.add(k.box(grey, 3, 10, 3, 1, 0, 86, z), k.box(k.paint(TOY.black), 8, 22, 12, 3, 2, 66, z));
         g.add(lens(k, LIT_RED, `r${i}`, 5.6, 82, z), lens(k, LIT_GREEN, `g${i}`, 5.6, 72, z));
