@@ -71,8 +71,8 @@ check("fresh, a train running: every Track-tray item ends up its real picture", 
 const moving = await p.evaluate(() => window.woodrail.sim.trainIds().some((id) => window.woodrail.sim.getTrain(id).speed > 0));
 check("…and the train was still running", moving);
 
-// Saved as they're drawn (debounced 2 s): reloaded, they're all there on entering.
-await p.waitForTimeout(3000);
+// Saved once they're all drawn (the trains' too, drawn after the Track tray's): reloaded, they're all there on entering.
+await p.evaluate(() => window.woodrail.trayThumbnailsSaved());
 await p.reload();
 await enter("Continue");
 await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
