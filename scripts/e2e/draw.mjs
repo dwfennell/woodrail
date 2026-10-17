@@ -581,8 +581,8 @@ async function specials() {
     for (const id of w.layout.pieceIds()) track.push(w.layout.getPiece(id).pose);
     const clear = (x, z) => track.every((q) => Math.hypot(q.x - x, q.z - z) > 400);
     /** From the middle of square (x, z), along (dx, dz): `lead` squares of `first`, then `mid` of `then`, then `tail` of `last`, on three rows side by side. */
-    const run = (x, z, dx, dz, lead, first, mid, then, tail, last) => {
-      for (let side = -1; side <= 1; side++) {
+    const run = (x, z, dx, dz, lead, first, mid, then, tail, last, sides = 1) => {
+      for (let side = -sides; side <= sides; side++) {
         const sx = x - dz * side * C;
         const sz = z + dx * side * C;
         let k = 0;
@@ -595,24 +595,31 @@ async function specials() {
     const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
     let river = null;
     let up = null;
-    for (let z = B.z0 + 400; z < B.z1 - 400 && !(river && up); z += C) {
-      for (let x = B.x0 + 400; x < B.x1 - 400 && !(river && up); x += C) {
-        const cx = (Math.floor(x / C) + 0.5) * C;
-        const cz = (Math.floor(z / C) + 0.5) * C;
-        for (const [dx, dz] of dirs) {
-          if (!river)
-            for (const width of [1, 2, 3, 4])
-              if (run(cx, cz, dx, dz, 5, grass, width, water, 6, grass)) {
-                river = { x: cx, z: cz, dx, dz, squares: 5 + width + 5 };
-                break;
-              }
-          if (!up && run(cx, cz, dx, dz, 5, grass, 6, hill, 0, hill)) up = { x: cx, z: cz, dx, dz, squares: 10 };
+    // (Hills on the map are smaller than rivers are long: the best way up there is, roomiest first.)
+    for (const [lead, len, sides] of [[5, 6, 1], [5, 4, 1], [4, 4, 0], [4, 3, 0]]) {
+      for (let z = B.z0 + 400; z < B.z1 - 400 && !(river && up); z += C) {
+        for (let x = B.x0 + 400; x < B.x1 - 400 && !(river && up); x += C) {
+          const cx = (Math.floor(x / C) + 0.5) * C;
+          const cz = (Math.floor(z / C) + 0.5) * C;
+          for (const [dx, dz] of dirs) {
+            if (!river)
+              for (const width of [1, 2, 3, 4])
+                if (run(cx, cz, dx, dz, 5, grass, width, water, 6, grass)) {
+                  river = { x: cx, z: cz, dx, dz, squares: 5 + width + 5 };
+                  break;
+                }
+            if (!up && run(cx, cz, dx, dz, lead, grass, len, hill, 0, hill, sides)) up = { x: cx, z: cz, dx, dz, squares: lead + len - 1, lead };
+          }
         }
       }
+      if (up) break;
     }
     return { river, up, mode: w.mode() };
   });
   check("found a straight way across the river, and one up onto a hill, from open ground", !!found.river && !!found.up, JSON.stringify(found));
+  // Drawing on (it's off after Esc, above).
+  if (!(await p.evaluate(() => window.woodrail.interaction.isDrawing))) await tapSel(p, ".tray-draw");
+  check("…with drawing on", await p.evaluate(() => window.woodrail.interaction.isDrawing));
   // Draw it, and read back the new line's pieces (types and heights), its joints and what it said.
   const drawAcross = async (way, height, name) => {
     const len = way.squares * 72;
@@ -653,8 +660,9 @@ async function specials() {
     if (got.pieces.length) await p.evaluate(() => window.woodrail.interaction.undo());
   }
   if (found.up) {
-    // The hill starts 5 squares on: past there the finger is over the hilltop.
-    const got = await drawAcross(found.up, (d) => (d > 5 * 72 + 36 ? 48 : 0), "hill");
+    // The hill starts `lead` squares on (from the start square's middle, half a square less): past there the finger is
+    // over the hilltop.
+    const got = await drawAcross(found.up, (d) => (d > (found.up.lead - 0.5) * 72 ? 48 : 0), "hill");
     const ramps = got.pieces.filter((q) => q.type === "ramp");
     check("a stroke up onto a hill a level up lays a ramp, and runs on on the hilltop", ramps.length === 1 && got.pieces.at(-1)?.y === 48 && got.joints === got.pieces.length - 1, show(got));
     // The ramp is let into the hill: a cutting in its blocks.

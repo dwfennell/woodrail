@@ -571,8 +571,8 @@ export class DrawLine {
    * The piece the line chose (`c`, reaching `s` along the stroke) was refused: the special piece a player would reach
    * for there instead, if there is one (N2 phase 1, see docs/superpowers/specs/2026-10-17-draw-junctions-ramps-bridges-design.md).
    * A hill one level up: a ramp. The river: a bridge, from a level up (a hilltop, raised track), or from the ground a
-   * ramp up first. Nothing underneath (off a hilltop, a bridge, raised track): a ramp down, or just after climbing (or
-   * where a ramp down would stand in the river) a bridge on over. Each is laid only where its far end is on the stroke,
+   * ramp up first. Nothing underneath (off a hilltop, a bridge, raised track): a ramp down, or just after climbing for
+   * the river (or where a ramp down would stand in it) a bridge on over. Each is laid only where its far end is on the stroke,
    * and only if the player has one (else `wanted` says which); at most two more placements are checked for it. True if
    * a piece was laid (or the last one replaced); false leaves the chosen piece to show why it can't go.
    */
@@ -581,9 +581,11 @@ export class DrawLine {
     if (why.reason === "hill") return levels === 1 && this.rampUp(false);
     if (why.reason === "river") return levels >= 1 ? this.bridge(c, s, finishing) : this.rampUp(true);
     if (why.reason !== "unsupported" || levels < 1) return false;
-    // Just climbed (to cross the river, or onto a hill too short to run on): on over it, not straight back down.
+    // Just climbed to cross the river (the ramp's top end in the air, short of the water): on over it, not straight
+    // back down. (Up on a hill too short to run on, it comes down again.)
     const last = this.pieces[this.pieces.length - 1];
-    if (last && climbs(last)) return this.bridge(c, s, finishing);
+    const groundAt = this.options.groundAt;
+    if (last && climbs(last) && !(groundAt && groundAt(last.end.x, last.end.z) >= last.end.y - 1)) return this.bridge(c, s, finishing);
     const down = this.rampDown();
     return down === "river" ? this.bridge(c, s, finishing) : down === "laid";
   }

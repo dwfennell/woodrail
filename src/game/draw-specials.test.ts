@@ -162,6 +162,19 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
     }
   });
 
+  it("over a hill only a few squares across: up a ramp and straight down another (no bridge)", () => {
+    for (const [x0, x1] of [[504, 720], [504, 864], [432, 720]]) {
+      const land = paint(flat(), x0, x1, -400, 400, 1);
+      const line = stroke(at(0), options(land), 1400);
+      const why = `hill ${x0}..${x1}: ${name(line)}`;
+      expect(line.pieces.some((p) => p.blocked), why).toBe(false);
+      expect(ramps(line, true), why).toBe(1);
+      expect(ramps(line, false), why).toBe(1);
+      expect(line.pieces.some((p) => isBridge(p.type)), why).toBe(false);
+      expect(line.end.y, why).toBe(0);
+    }
+  });
+
   it("two levels down off raised track: a ramp on arches, then a ramp to the ground", () => {
     const line = stroke(at(0, 2 * RISER_HEIGHT), options(flat()), 1200);
     expect(ramps(line, false), name(line)).toBe(2);
