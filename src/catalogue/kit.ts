@@ -201,9 +201,14 @@ export class Kit {
     return this.at(g, x, y, z);
   }
 
-  /** A piece of straight track, `length` long along x, centred, with its two grooves (no connectors). */
+  /**
+   * A piece of straight track, `length` long along x, centred, with its two grooves (no connectors). Marked as a slab
+   * (`userData.slab`, named "slab"), so a kit piece drawing this model over real track can leave it out (`isSlab`).
+   */
   trackSlab(length: number, x = 0, y = 0, z = 0): Group {
     const g = new Group();
+    g.name = "slab";
+    g.userData.slab = true;
     g.add(this.box(this.wood, length, 12, 40, 1.5));
     for (const gz of [-13, 13]) g.add(this.box(this.cut, length - 0.2, 0.6, 6, 0, 0, 11.6, gz));
     return this.at(g, x, y, z);

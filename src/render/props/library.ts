@@ -1,7 +1,8 @@
-import { Box3, BufferAttribute, Color, SRGBColorSpace, type BufferGeometry, type Material, type Mesh, type Object3D } from "three";
+import { Box3, BufferAttribute, Color, Group, SRGBColorSpace, type BufferGeometry, type Material, type Mesh, type Object3D } from "three";
 import { Kit } from "../../catalogue/kit";
 import { loadAsset } from "../../catalogue/registry";
 import type { Footprint } from "../../props/placement";
+import { kitOf, kitPlace, type PieceTypeId } from "../../track";
 import { Batcher } from "../dressing/batcher";
 import type { Materials } from "../materials";
 
@@ -46,12 +47,15 @@ export class PropLibrary {
     if (done !== undefined) return Promise.resolve(done);
     let p = this.pending.get(key);
     if (!p) {
-      const [assetId, v] = key.split("#");
+      const kit = key.startsWith(KIT_KEY) ? kitOf(key.slice(KIT_KEY.length) as PieceTypeId) : undefined;
+      const [assetId, v] = kit ? [kit.asset] : key.split("#");
       const variant = Number(v ?? 0);
       p = loadAsset(assetId).then((asset) => {
-        const model = asset ? { name: asset.name, ...bake(asset.build(this.kitFor(variant)), this.mats) } : null;
+        // A kit piece's model: in its piece's own frame (see `KitDef.place`), its own slabs of track left out.
+        const built = asset && (kit ? placedForKit(asset.build(this.kitFor(0)), kitPlace(kit)) : asset.build(this.kitFor(variant)));
+        const model = asset && built ? { name: asset.name, ...bake(built, this.mats, { slabs: !kit }) } : null;
         this.models.set(key, model);
-        if (model) this.footprints.set(assetId, model.footprint);
+        if (model && !kit) this.footprints.set(assetId, model.footprint);
         this.pending.delete(key);
         this.onLoaded?.(key);
         return model;
@@ -69,6 +73,26 @@ export class PropLibrary {
     if (!kit) this.kits.set(variant, (kit = new Kit(this.mats, PROP_DETAIL, variant === 0 ? undefined : (c) => shiftHue(c, variant))));
     return kit;
   }
+}
+
+/** A kit piece's model's key in the library (see `kitModelKey`). */
+const KIT_KEY = "kit:";
+
+/**
+ * A kit piece's model's key: its asset baked without its slabs of track, in the piece's own frame (so it's drawn at
+ * the piece's pose).
+ */
+export const kitModelKey = (type: PieceTypeId): string => `${KIT_KEY}${type}`;
+
+/** A model stood where a kit's place says (turned about its own origin, then set at t, l), in the piece's frame. */
+function placedForKit(model: Object3D, at: { t: number; l: number; turn: number }): Object3D {
+  const placed = new Group();
+  placed.add(model);
+  placed.rotation.y = at.turn;
+  placed.position.set(at.t, 0, at.l);
+  const root = new Group();
+  root.add(placed);
+  return root;
 }
 
 /** A model's key in the library: its asset, and its colour variant if not the model's own colours. */
@@ -110,13 +134,27 @@ function isUnderlay(o: Object3D): boolean {
   return false;
 }
 
-/** Merge a built model's meshes by material (transforms applied), and measure it. */
-export function bake(root: Object3D, mats: Materials): Omit<PropModel, "name"> {
+/**
+ * A slab of track in a model (`kit.trackSlab`, which marks it `userData.slab`; or in a Blender model, a node named
+ * `slab…`, as tools/blender/kit.py names its `trackSlab`s), or part of one: left out of a kit piece's model, whose real
+ * track is drawn under it.
+ */
+export function isSlab(o: Object3D): boolean {
+  for (let p: Object3D | null = o; p; p = p.parent) if (p.userData.slab || p.name.startsWith("slab")) return true;
+  return false;
+}
+
+/**
+ * Merge a built model's meshes by material (transforms applied), and measure it. `slabs: false` leaves out its slabs
+ * of track (see `isSlab`).
+ */
+export function bake(root: Object3D, mats: Materials, opts: { slabs?: boolean } = {}): Omit<PropModel, "name"> {
   root.updateMatrixWorld(true);
   const b = new Batcher(mats.paint);
+  const slabs = opts.slabs ?? true;
   root.traverse((o) => {
     const mesh = o as Mesh;
-    if (!mesh.isMesh || !mesh.visible || isUnderlay(mesh)) return;
+    if (!mesh.isMesh || !mesh.visible || isUnderlay(mesh) || (!slabs && isSlab(mesh))) return;
     const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
     b.add(material, mesh.geometry.clone().applyMatrix4(mesh.matrixWorld));
   });

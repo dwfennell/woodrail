@@ -230,15 +230,17 @@ def waiting_shelter(k):
 
 
 def platform_furnished(k):
-    g = platform(k, 140, 26, 0, 0)
-    for x in (-55, 0, 55):
+    # 216 long, a long straight's length: the game's kit piece (src/track/kits.ts, kit-platform-furnished) stands it
+    # beside its track, edge line (+z) to the track.
+    g = platform(k, 216, 26, 0, 0)
+    for x in (-90, -30, 30, 90):
         g.add(lamp(k, x, -6, 32, 13))
-    g.add(bench(k, -28, -6, 0, 13), bench(k, 28, -6, 0, 13))
+    g.add(bench(k, -60, -6, 0, 13), bench(k, 60, -6, 0, 13))
     # Hanging clock on a bracket.
     g.add(k.cyl(k.paint(TOY.black), 1.2, 40, 0, 13, -9, 1.2, 8))
     g.add(k.box(k.paint(TOY.black), 2, 2, 10, 0.4, 0, 52, -5))
     g.add(clock(k, 5, 1.2, 46, 0), clock(k, 5, -1.2, 46, 0, math.pi))
-    g.add(k.cyl(k.paint(TOY.green), 3, 7, 62, 13, -6, 3.4, 14))
+    g.add(k.cyl(k.paint(TOY.green), 3, 7, 41, 13, -6, 3.4, 14))
     g.add(peg(k, TOY.yellow, None, -10, 13, 2), peg(k, TOY.green, TOY.brown, 14, 13, -2))
     return g
 
