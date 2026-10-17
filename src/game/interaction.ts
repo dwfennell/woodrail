@@ -900,7 +900,7 @@ export class Interaction {
         // last (the browser may have run several into this event).
         const h = m.hold;
         let at = e.timeStamp - h.t;
-        for (const c of e.getCoalescedEvents?.() ?? [e]) {
+        for (const c of coalesced(e)) {
           at = c.timeStamp - h.t;
           if (h.strayedAt === null && Math.hypot(c.clientX - m.x, c.clientY - m.y) >= HOLD_SLOP) h.strayedAt = at;
         }
@@ -1025,7 +1025,7 @@ export class Interaction {
   private vetoHold(e: PointerEvent): boolean {
     const u = this.heldUnsure;
     if (!u || u.pointerId !== e.pointerId) return false;
-    for (const c of e.getCoalescedEvents?.() ?? [e]) {
+    for (const c of coalesced(e)) {
       const at = c.timeStamp - u.t;
       if (at >= HOLD_MS) break;
       if (undoesHold(at, Math.hypot(c.clientX - u.x, c.clientY - u.y), false)) {
@@ -3181,4 +3181,10 @@ export class Interaction {
 /** The plots a town building's squares are in (to redraw when it leaves them). */
 function townSlots(land: Landscape, building: number): number[] {
   return [...new Set((findBuilding(land, building)?.building.cells ?? []).map(plotSlotOf))];
+}
+
+/** The moves the browser ran into this event, or the event itself (an empty list would hide a pan's moves). */
+function coalesced(e: PointerEvent): readonly PointerEvent[] {
+  const list = e.getCoalescedEvents?.();
+  return list?.length ? list : [e];
 }
