@@ -83,7 +83,13 @@ export function onPiecesBuilt(f: () => void): () => void {
 /** The arch heights every piece of this kind has from the start (a bridge's one level; none for a ramp). */
 const baseLevels = (type: PieceTypeId) => (isBridge(type) ? 1 : 0);
 /** Kinds carved in the background (join pieces, dozens of sizes, are cheap enough to make when first used). */
-const carvedInBackground = (type: PieceTypeId) => !isJoin(type);
+const carvedInBackground = (type: PieceTypeId) => !isJoin(type) && !modelRails(type);
+
+/**
+ * A kit whose model draws its own rails (a turntable's deck, `KitDef.rails`): its track is only picked, never drawn, so
+ * it's a plain body (no carving) drawn with an invisible material.
+ */
+const modelRails = (type: PieceTypeId) => kitOf(type)?.rails === "model";
 
 /** The job that carves this piece (a mirrored piece is made here from the plain one; a flip that swaps ends is carved). */
 function jobFor(type: PieceTypeId, flipped: boolean, levels: number, floors: readonly number[] | null = null): PieceJob {
@@ -261,6 +267,7 @@ function carvedGeometry(type: PieceTypeId, flipped: boolean, levels = 0, floors:
   const plain = def === getPieceDef(type, false);
   const key = `${type}:${plain ? "n" : "f"}:${levels}${floorsKey(floors)}`;
   let g = geometryCache.get(key);
+  if (!g && modelRails(type)) geometryCache.set(key, (g = buildPieceStandIn(def)));
   if (!g && carving.started && !carving.broken && carvedInBackground(type)) {
     // Not carved yet: next in line, and a stand-in meanwhile. (A mirrored piece is made here once the plain one's in.)
     const job = jobFor(type, flipped, levels, floors);
@@ -391,6 +398,8 @@ export class TrackView {
   private meshes = new Map<string, { mesh: InstancedMesh; ids: number[] }>();
   /** The shadow casters' material (never drawn to the screen: the shadow map draws depth only). */
   private readonly casterMaterial = new MeshBasicMaterial();
+  /** For track that's picked but not drawn (`modelRails`): raycasts still hit it. */
+  private readonly unseenMaterial = new MeshBasicMaterial({ visible: false });
   private bufferMesh: { mesh: InstancedMesh; ids: number[] } | null = null;
   private flagMeshes: InstancedMesh[] = [];
   private flagIds: number[] = [];
@@ -510,9 +519,10 @@ export class TrackView {
     const bufferIds: number[] = [];
     for (const [key, ids] of groups) {
       const [type, flipped, levels, floors] = key.split("|") as [PieceTypeId, string, string, string];
-      const mesh = new InstancedMesh(carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors)), [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
+      const unseen = modelRails(type);
+      const mesh = new InstancedMesh(carvedGeometry(type, flipped === "1", Number(levels), floorsOf(floors)), unseen ? this.unseenMaterial : [this.mats.track, this.mats.trackCut, this.mats.bridgePaint], ids.length);
+      mesh.castShadow = !unseen;
+      mesh.receiveShadow = !unseen;
       ids.forEach((id, i) => {
         const p = this.layout.getPiece(id)!;
         mesh.setMatrixAt(i, pieceMatrix(p.pose.x, p.y, p.pose.z, p.pose.heading, m));
@@ -524,7 +534,7 @@ export class TrackView {
       mesh.userData.kind = "track";
       // Shadows from a plain block in each piece's place (half or less of its triangles; the shadow map draws every
       // piece again): the same instances, seen by the shadow camera only.
-      const caster = Number(levels) === 0 ? casterGeometry(type, flipped === "1") : null;
+      const caster = Number(levels) === 0 && !unseen ? casterGeometry(type, flipped === "1") : null;
       if (caster) {
         mesh.castShadow = false;
         const shadow = new InstancedMesh(caster, this.casterMaterial, ids.length);

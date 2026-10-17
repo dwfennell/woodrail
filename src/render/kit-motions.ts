@@ -29,6 +29,23 @@ export interface KitMotion {
    * keeps working (a crane's round) while its trigger holds.
    */
   readonly holds?: boolean;
+  /**
+   * A kit that moves with its state (`moves: "state"`: a turntable's deck, a transfer table's): its parts stand as its
+   * piece's switch state says, gliding from one to the next when it changes. Its `pose` is the rest pose (state 0).
+   */
+  readonly state?: KitStateMotion;
+}
+
+/** How a kit's parts follow its piece's state (see `KitMotion.state`). */
+export interface KitStateMotion {
+  /** Where its parts stand for state `k` (an angle, a distance: what `pose` takes). */
+  value(k: number): number;
+  /**
+   * Values this far apart look the same (a turntable's deck turned half round lies along the same road): it keeps
+   * turning the same way, round and round, rather than back. Omit for a deck that slides back and forth.
+   */
+  readonly round?: number;
+  pose(parts: MotionParts, value: number): void;
 }
 
 /** A moving model's parts by name. */
@@ -39,6 +56,9 @@ export interface MotionParts {
 const each = (parts: MotionParts, name: string, f: (o: Object3D) => void) => {
   for (const o of parts.get(name)) f(o);
 };
+
+/** A motion that follows a kit's state, its rest pose that of state 0. */
+const stateMotion = (parts: readonly string[], state: KitStateMotion): KitMotion => ({ parts, state, pose: (p) => state.pose(p, state.value(0)) });
 
 /** 0 → 1 → 0 smoothly every `period` seconds. */
 const wave = (t: number, period: number) => 0.5 - 0.5 * Math.cos((t / period) * Math.PI * 2);
@@ -141,6 +161,18 @@ export const KIT_MOTIONS: Readonly<Record<string, KitMotion>> = {
     },
   },
   // The train wash: its brushes spin and its sprays drip while a train goes through (at rest: still, and dry).
+  // The deck turns to the road its state picks (an eighth of a turn apart), always the same way round.
+  "mech-turntable": stateMotion(["deck"], {
+    value: (k) => (k * Math.PI) / 4,
+    round: Math.PI,
+    // (A model's turn is the other way to a piece's heading.)
+    pose: (p, a) => each(p, "deck", (o) => (o.rotation.y = -a)),
+  }),
+  // The deck slides across to the road its state picks: the middle, the left, the right (60 apart).
+  "mech-transfer-table": stateMotion(["deck"], {
+    value: (k) => [0, 60, -60][k] ?? 0,
+    pose: (p, l) => each(p, "deck", (o) => (o.position.z = l)),
+  }),
   "mech-train-wash": {
     parts: ["brushL", "brushR", "brushTop", "drops"],
     pose: (p, on, t) => {

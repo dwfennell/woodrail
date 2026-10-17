@@ -121,9 +121,21 @@ export interface PieceDef {
    * line ahead is occupied or it's held at red (see the sim's block working).
    */
   readonly signal?: { readonly stopAt: number };
+  /**
+   * Its paths are the ways a moving deck can lie (a turntable's): only the one its state picks (`switchState` mod the
+   * number of paths) joins its ends; every other end is open while the deck lies elsewhere (a train turns back there).
+   */
+  readonly gated?: boolean;
 }
 
-export const MAX_CONNECTORS = 4;
+/**
+ * How long a deck takes to turn or slide to its next road (s): it joins nothing till it's there (the sim's
+ * `toggleSwitch`, `Layout.deckTurning`), and `KitView` glides it over the same time.
+ */
+export const DECK_GLIDE_S = 1;
+
+/** The most ends a piece has (a turntable's eight roads). */
+export const MAX_CONNECTORS = 8;
 
 const offsetPose = (p: Pose, dx: number, dz: number): Pose => ({ x: p.x + dx, z: p.z + dz, heading: p.heading });
 

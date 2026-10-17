@@ -241,6 +241,8 @@ export const PROP_TABS: readonly PropTab[] = [
           "mech-fuel-station",
           "mech-weighbridge",
           "mech-train-wash",
+          "mech-turntable",
+          "mech-transfer-table",
         ],
       },
     ],
@@ -261,16 +263,14 @@ export const BRIDGE_PROP_SHELVES: readonly PropShelf[] = [];
  * viewer) to be reworked, and any already placed in a saved map still load.
  */
 export const RAIL_HELD_BACK: readonly string[] = [
-  // (The stations, sheds, castle gate, cargo machines, engine services and weighbridge are kit pieces now, on their
-  // shelves: src/track/kits.ts.)
+  // (The stations, sheds, castle gate, cargo machines, engine services, weighbridge, wash, turntable and transfer
+  // table are kit pieces now, on their shelves: src/track/kits.ts.)
   "mech-semaphore-signal",
   "mech-colour-light-signal",
   "mech-signal-gantry",
   "mech-level-crossing",
   "mech-gated-crossing",
   "mech-buffer-stop-lamp",
-  "mech-turntable",
-  "mech-transfer-table",
   "mech-train-lift",
   "mech-track-cleaner",
   "mech-loop-the-loop",

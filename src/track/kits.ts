@@ -124,6 +124,22 @@ const sideBySide = (n: number): Pose[] => Array.from({ length: n }, (_, i) => po
 const PIT = 92;
 const stalls = (angles: readonly number[]): Pose[] => angles.map((a) => pose(-PIT + PIT * Math.cos(a), PIT * Math.sin(a), a));
 
+/**
+ * A turntable's track: eight ends round a pit `PIT` in radius, centred `PIT` along from the first (connector k an
+ * eighth of a turn on from the one before, all pegs, as a roundhouse's stalls are holes), and four ways the deck can
+ * lie, path k from end k across to end k + 4 (`gated`: only the one the deck lies along is open).
+ */
+function turntable(type: PieceTypeId): PieceDef {
+  const at = (k: number) => Math.PI + (k * Math.PI) / 4;
+  const connectors = Array.from({ length: 8 }, (_, k) => ({ kind: "peg" as const, pose: pose(PIT + PIT * Math.cos(at(k)), PIT * Math.sin(at(k)), normalizeAngle(at(k))), y: 0 }));
+  const paths = Array.from({ length: 4 }, (_, k) => ({
+    from: k,
+    to: k + 4,
+    geom: { kind: "line" as const, start: pose(connectors[k].pose.x, connectors[k].pose.z, normalizeAngle(at(k) + Math.PI)), length: 2 * PIT, y0: 0, rise: 0 },
+  }));
+  return { type, connectors, paths, flippable: false, isSwitch: false, supportHeight: 0, gated: true };
+}
+
 /** Every kit, by piece type. */
 export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
   // A 216 straight with the furnished platform along its left (+l) side: passenger trains stop at it for 4 s.
@@ -441,6 +457,32 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     splices: true,
     crawl: 30,
     moves: "occupied",
+  },
+  // A turntable: eight roads round a pit (radius 92), an eighth of a turn apart, and a deck across it that joins two
+  // opposite ones. A tap turns the deck to the next road (not with a train on it); trains run on to a road the deck
+  // doesn't lie along as to the end of the line (they turn back). Its model draws the deck's rails.
+  "kit-turntable": {
+    asset: "mech-turntable",
+    name: "turntable",
+    track: turntable("kit-turntable"),
+    rails: "model",
+    // The model's origin is the pit's centre.
+    place: { t: PIT, l: 0 },
+    // The pit, inside the roads that leave its rim.
+    footprint: [{ t: PIT, l: 0, w: 124, d: 124 }],
+    moves: "state",
+  },
+  // A transfer table: three roads side by side (60 apart) each side of a pit, and a deck that slides across to join
+  // one pair. A tap moves it to the next (not with a train on it).
+  "kit-transfer-table": {
+    asset: "mech-transfer-table",
+    name: "transfer table",
+    track: { ...roads("kit-transfer-table", [0, 60, -60].map((l) => pose(0, l, 0)), 120, false), gated: true },
+    rails: "model",
+    // The model's origin is the pit's middle.
+    place: { t: 60, l: 0 },
+    footprint: [{ t: 60, l: 0, w: 116, d: 196 }],
+    moves: "state",
   },
   // A drive-through wash on a 108 straight: trains crawl through while its brushes spin and its sprays drip.
   "kit-train-wash": {

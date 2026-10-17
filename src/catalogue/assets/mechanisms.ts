@@ -29,6 +29,16 @@ function pivot(name: string, x: number, y: number, z: number, ...parts: Object3D
   return g;
 }
 
+/**
+ * A deck's slab of track (a turntable's, a transfer table's): part of the model, kept when a kit leaves out its slabs
+ * (the game draws no track there: the deck carries the rails, `rails: "model"` in src/track/kits.ts).
+ */
+function deckTrack(slab: Group): Group {
+  slab.userData.slab = false;
+  slab.name = "deckTrack";
+  return slab;
+}
+
 /** Find a named part once, then remember it on the root (animate runs every frame). */
 function part(root: Object3D, name: string): Object3D {
   const cache = (root.userData.parts ??= {}) as Record<string, Object3D>;
@@ -298,7 +308,7 @@ const mechanisms: Asset[] = [
           0,
           0,
           0,
-          k.trackSlab(174, 0, 4, 0),
+          deckTrack(k.trackSlab(174, 0, 4, 0)),
           k.cyl(k.paint(TOY.red), 8, 18, 0, 0, 0, 8, 20),
           k.many(2, (i) => k.cylZ(k.paint(TOY.black), 4, 44, i ? 84 : -84, 5, 0, 14)),
           k.many(2, (i) => k.box(k.paint(TOY.red), 3, 14, 3, 1, i ? 70 : -70, 16, i ? 22 : -22)),
@@ -335,7 +345,7 @@ const mechanisms: Asset[] = [
           0,
           0,
           k.box(k.paint(TOY.blue), 112, 6, 48, 2, 0, 0, 0),
-          k.trackSlab(118, 0, 5, 0),
+          deckTrack(k.trackSlab(118, 0, 5, 0)),
           k.many(4, (i) => k.cylX(k.paint(TOY.red), 4, 6, i < 2 ? -40 : 40, 4, i % 2 ? 18 : -18, 14)),
           k.box(k.paint(TOY.yellow), 14, 18, 12, 2, 50, 17, 26),
           k.peg(TOY.orange, TOY.yellow, 36, 17, 30),

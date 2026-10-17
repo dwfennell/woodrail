@@ -623,10 +623,11 @@ export class Game {
     else if (depots === "changed") this.invalidate();
     const trainsMoved = this.trainsChanged();
     if (trainsMoved || tipping || this.flourishes.count > 0) active = true;
-    // Kits' moving parts (doors, cranes, spouts): looked at only on frames where trains moved or one halted, or while
-    // one is still moving. Idle, this is a couple of comparisons.
-    if (this.kitView.hasMovers && (trainsMoved || this.kitView.animating || this.economy.halts !== this.haltsSeen)) {
+    // Kits' moving parts (doors, cranes, spouts, a turntable's deck): looked at only on frames where trains moved, one
+    // halted or a switch was thrown (a deck turns), or while one is still moving. Idle, this is a few comparisons.
+    if (this.kitView.hasMovers && (trainsMoved || this.kitView.animating || this.economy.halts !== this.haltsSeen || this.layout.switchesVersion !== this.switchesSeen)) {
       this.haltsSeen = this.economy.halts;
+      this.switchesSeen = this.layout.switchesVersion;
       const kits = this.kitView.update(this.kitTriggered, dt);
       if (kits === "moving") active = true;
       else if (kits === "changed") this.invalidate();
@@ -926,8 +927,13 @@ export class Game {
   /** Has any car moved, a lever changed or a train come off since the last frame? */
   /** `Economy.halts` as last seen (a train halting at a kit starts its moving parts). */
   private haltsSeen = 0;
+  /** `Layout.switchesVersion` as last seen (a switch thrown turns a turntable's deck: `moves: "state"`). */
+  private switchesSeen = 0;
 
-  /** Does a kit's trigger for its moving parts hold (`KitDef.moves`): a train on it, or one standing at it? */
+  /**
+   * Does a kit's trigger for its moving parts hold (`KitDef.moves`): a train on it, or one standing at it? (A kit that
+   * moves with its state, a turntable, follows its piece's switch state instead: `KitView` reads it from the layout.)
+   */
   private readonly kitTriggered = (pieceId: number, kit: KitDef): boolean =>
     kit.moves === "occupied" ? this.sim.pieceOccupied(pieceId) : kit.moves === "stopped" ? this.economy.standingAt(pieceId) : false;
 

@@ -298,14 +298,21 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
      `on` is 0. `holds: true` for a motion that holds still once fully engaged (doors open), `period` for one that
      cycles back to rest (crates on a belt). The library bakes the model whole and bare of those parts; `KitView`
      draws the bare one plus a live copy of the parts only while the kit moves. The game asks `KitView.update` only on
-     frames where trains moved, one halted (`Economy.halts`), or a kit is still moving. `"state"` is still to build
-     (the turntable): a trigger in `Game.kitTriggered`.
+     frames where trains moved, one halted (`Economy.halts`), or a kit is still moving. `"state"` (built in Phase 2: the
+     turntable, the transfer table) follows the piece's switch state: give the motion a `state` (`value(k)`, `pose`,
+     `round` for a deck that keeps turning one way). `KitView` draws its parts live always, glides them over
+     `DECK_GLIDE_S` when the state changes (the game asks it when `Layout.switchesVersion` moves), and makes them the
+     tap target that turns it.
    - `depot`: a `DepotRole` (Sandbox's: `KitDepotRole`, loaders with an endless heap and an unloader that swallows
      goods). `syncIndustries` registers it; `DepotView` leaves it to the kit's model.
    - `stop.cooldown` (seconds: an engine service's), and `crawl` (mm/s: a weighbridge).
    - A kit of several roads: build its track with `roads(type, starts, length, buffered)` in `kits.ts`. Buffer-ended
      roads stop trains coming in only, and the model draws the buffer stops (`TrackView` leaves its block off kits).
-   - Still a hook: `rails: "model"`, the model drawing its own rails, for bridges and tunnels.
+   - `rails: "model"`: the model draws its own rails (a deck's: keep its slab with `deckTrack` in the asset, so it isn't
+     stripped). `TrackView` gives the piece an invisible plain body, only for picking.
+   - A deck: `gated: true` on its track. Only path `switchState % paths.length` joins its ends (`routeFrom`); the
+     others are open ends, where trains turn back. `Sim.toggleSwitch` steps it, refuses while a train is on it, and
+     keeps it closed for `DECK_GLIDE_S` while it moves. Up to `MAX_CONNECTORS` (8) ends.
 6. **Tests to copy:**
    - `src/track/kits.test.ts`: the registry;
    - `src/game/kit-footprint.test.ts`: the footprint and flip hint;

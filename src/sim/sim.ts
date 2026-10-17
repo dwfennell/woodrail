@@ -1,4 +1,4 @@
-import { connectorRef, getPieceDef, indexOfRef, pieceOfRef, type Layout } from "../track";
+import { connectorRef, DECK_GLIDE_S, getPieceDef, indexOfRef, pieceOfRef, type Layout } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -488,20 +488,41 @@ export class Sim {
     return -1;
   }
 
-  /** Step a switch to its next route (two-way switches flip; a three-way steps round its three). */
-  toggleSwitch(pieceId: number): void {
+  /**
+   * Step a switch to its next route (two-way switches flip; a three-way steps round its three; a turntable's deck turns
+   * to its next road). False if it can't: a deck doesn't turn with a train on it.
+   */
+  toggleSwitch(pieceId: number): boolean {
     const piece = this.layout.getPiece(pieceId);
-    const routes = piece ? getPieceDef(piece.type, piece.flipped).paths.filter((p) => p.from === 0).length : 2;
+    const def = piece ? getPieceDef(piece.type, piece.flipped) : null;
+    if (def?.gated && this.pieceOccupied(pieceId)) return false;
+    const routes = !def ? 2 : def.gated ? def.paths.length : def.paths.filter((p) => p.from === 0).length;
     this.layout.setSwitchState(pieceId, (this.layout.switchState(pieceId) + 1) % Math.max(2, routes));
+    // A deck joins nothing till it's turned to its next road.
+    if (def?.gated) {
+      this.layout.setDeckTurning(pieceId, true);
+      this.decksTurning.set(pieceId, this.ticks + Math.round(DECK_GLIDE_S * SIM_HZ));
+    }
     // A signal held or let go shows it at once (even paused).
     this.updateSignals();
+    return true;
   }
 
   /** Ticks run so far (for how long ago something happened). */
   ticks = 0;
 
+  /** Decks turning (see `toggleSwitch`): the tick each is at its next road. */
+  private readonly decksTurning = new Map<number, number>();
+
   tick(): void {
     this.ticks++;
+    if (this.decksTurning.size > 0) {
+      for (const [id, done] of this.decksTurning)
+        if (done <= this.ticks) {
+          this.layout.setDeckTurning(id, false);
+          this.decksTurning.delete(id);
+        }
+    }
     this.updateSignals();
     for (const train of this.trains.values()) {
       if (train.derailed) continue;

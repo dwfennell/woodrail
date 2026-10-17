@@ -1,6 +1,6 @@
 import { Group, Mesh } from "three";
 import type { Prop } from "../props/store";
-import { kitOf, type KitDef, type Layout, type PieceTypeId } from "../track";
+import { DECK_GLIDE_S, kitOf, type KitDef, type Layout, type PieceTypeId } from "../track";
 import { motionOf, type KitMotion, type MotionParts } from "./kit-motions";
 import { kitModelKey, partsOf, type PropLibrary, type PropModel } from "./props/library";
 import { PropsView } from "./props/props-view";
@@ -20,6 +20,15 @@ interface Mover {
   parts: MotionParts | null;
   /** Was it still on the last update (at rest, or holding at full engagement)? */
   still: boolean;
+  /**
+   * A kit that moves with its state (`KitMotion.state`): the state its parts are going to, where they stand (the
+   * motion's value), and the glide there (from, to, and how far along, 0 to 1).
+   */
+  state: number;
+  value: number;
+  from: number;
+  to: number;
+  u: number;
 }
 
 /** Smoothstep, for easing a motion in and out. */
@@ -39,6 +48,10 @@ const smooth = (u: number) => u * u * (3 - 2 * u);
  * moving), its instance is swapped for its model bare of its moving parts, and those are drawn live beside it, a small
  * group of its own (a clone of the library's, sharing its geometry). Back at rest, the live parts go and the whole model
  * is drawn again. An idle railway costs nothing: no kit is looked at, and nothing is drawn.
+ *
+ * A kit that moves with its state (`moves: "state"`, a turntable) has its moving parts (the deck) drawn live always,
+ * standing as its piece's switch state says, and gliding to the next when that changes (the game asks `update` when a
+ * switch is thrown, then every frame till the glide's done). Its deck is what a tap turns: picked as a switch's lever.
  */
 export class KitView {
   readonly group = new Group();
@@ -54,6 +67,8 @@ export class KitView {
   private readonly movers = new Map<number, Mover>();
   /** Is any mover away from rest and not holding still (so it wants updating every frame)? */
   private moving = false;
+  /** The layout drawn (as of the last `sync`): its switch states set the kits that move with their state. */
+  private layout: Layout | null = null;
   /** The source the view draws from: the kit pieces shown. */
   private readonly source = {
     version: 0,
@@ -83,6 +98,7 @@ export class KitView {
       key += `${id}:${p.type}:${p.pose.x}:${p.pose.z}:${p.pose.heading}:${p.y}:${shown ? 1 : 0};`;
     }
     this.ids = ids;
+    this.layout = layout;
     if (key === this.key && !force) return false;
     this.key = key;
     const seen = new Set<number>();
@@ -98,7 +114,9 @@ export class KitView {
         m = undefined;
       }
       const motion = kit.moves ? motionOf(kit.asset) : undefined;
-      if (!m && motion) this.movers.set(id, (m = { id, type: p.type, kit, motion, on: 0, t: 0, live: null, parts: null, still: true }));
+      if (!m && motion) this.movers.set(id, (m = { id, type: p.type, kit, motion, on: 0, t: 0, live: null, parts: null, still: true, state: 0, value: 0, from: 0, to: 0, u: 1 }));
+      // A deck stands as its state says from the start (drawn live always, once its model's in).
+      if (m?.motion.state && !m.live && this.wake(m)) this.settle(m);
       const asset = kitModelKey(p.type, !!m?.live);
       const d = this.drawn.get(id);
       if (d && d.asset === asset) {
@@ -159,6 +177,12 @@ export class KitView {
     let changed = false;
     let swapped = false;
     for (const m of this.movers.values()) {
+      if (m.motion.state) {
+        const r = this.follow(m, dt);
+        if (r === "woke") swapped = true;
+        else if (r === "moved") moved = true;
+        continue;
+      }
       const want = triggered(m.id, m.kit);
       if (!want && m.on === 0 && !m.live) continue;
       if (!m.live) {
@@ -196,6 +220,61 @@ export class KitView {
       this.view.sync(this.source);
     }
     return moved ? "moving" : changed || swapped ? "changed" : "still";
+  }
+
+  /**
+   * A kit that moves with its state: its parts glide toward where its piece's state says (a turntable's deck turning
+   * the same way round). "woke" if its live parts were only now drawn (stood straight where they belong), "moved" while
+   * gliding, "still" otherwise (a comparison).
+   */
+  private follow(m: Mover, dt: number): "woke" | "moved" | "still" {
+    const motion = m.motion.state!;
+    if (!m.live) {
+      if (!this.wake(m)) return "still";
+      this.settle(m);
+      return "woke";
+    }
+    const want = this.stateOf(m);
+    if (want !== m.state) {
+      m.state = want;
+      m.from = m.value;
+      m.to = this.valueFor(m, want);
+      m.u = 0;
+    }
+    if (m.u >= 1) {
+      m.still = true;
+      return "still";
+    }
+    // Over the time the sim keeps the deck closed: it opens as it gets there.
+    m.u = m.to === m.from ? 1 : Math.min(1, m.u + dt / DECK_GLIDE_S);
+    m.value = m.from + (m.to - m.from) * smooth(m.u);
+    motion.pose(m.parts!, m.value);
+    m.still = m.u >= 1;
+    return "moved";
+  }
+
+  /** A kit that moves with its state, its parts stood where its state says (no glide: on being drawn, or loaded). */
+  private settle(m: Mover): void {
+    m.state = this.stateOf(m);
+    m.value = m.from = m.to = m.motion.state!.value(m.state);
+    m.u = 1;
+    m.still = true;
+    m.motion.state!.pose(m.parts!, m.value);
+    // Its deck is what a tap turns (`Interaction`'s pick takes it for a switch's lever).
+    m.live!.traverse((o) => Object.assign(o.userData, { kind: "switch-lever", pieceId: m.id, deck: true }));
+  }
+
+  /** A kit's state, as its piece's switch state says. */
+  private stateOf(m: Mover): number {
+    return (this.layout?.switchState(m.id) ?? 0) % Math.max(1, m.kit.track.paths.length);
+  }
+
+  /** Where a kit's parts go for state `k`: on round from where they are (the same way round) if they turn round. */
+  private valueFor(m: Mover, k: number): number {
+    const s = m.motion.state!;
+    const v = s.value(k);
+    if (!s.round) return v;
+    return v + Math.ceil((m.value - v) / s.round - 1e-9) * s.round;
   }
 
   /** Start a mover from rest: its moving parts drawn live, its instance the model bare of them. False if not loaded. */
