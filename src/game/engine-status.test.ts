@@ -153,7 +153,7 @@ describe("why a train with its lever on isn't moving", () => {
 });
 
 describe("turning back where the track just stops", () => {
-  it("says the track ends here while it waits, and for a while as it runs back; then just running", () => {
+  it("says the track ends here while it waits (turning back), for a while as it runs back (turned back); then just running", () => {
     // No buffer: the line just stops (a gap the player can't see).
     // A long way back: it runs back a good while before the far end.
     const { layout, ids } = chain(Array<PieceTypeId>(16).fill("straight-216"));
@@ -177,7 +177,7 @@ describe("turning back where the track just stops", () => {
     const t = sim.findCar(engine)!.train;
     expect(t.turnback).toBe(-1);
     expect(t.speed).toBeGreaterThan(1);
-    expect(status()).toBe("Turning back: the track ends here");
+    expect(status()).toBe("Turned back: the track ends here");
     run(sim, 6);
     expect(sim.findCar(engine)!.train.speed).toBeGreaterThan(1);
     expect(status()).toBe("Running");

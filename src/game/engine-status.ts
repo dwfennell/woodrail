@@ -9,7 +9,7 @@ export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
 export type TrainState =
   | { kind: "derailed" }
   | { kind: "worked"; depotId: number; work: "Loading" | "Unloading" | "Loading and unloading" }
-  | { kind: "turning-back"; cause: TurnCause; pieceId: number }
+  | { kind: "turning-back"; cause: TurnCause; pieceId: number; done?: boolean }
   | { kind: "red-signal"; signalId: number }
   | { kind: "too-heavy" }
   | { kind: "no-power" }
@@ -33,7 +33,8 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   const turn = train.lastTurn;
   const turning = train.turnback >= 0 && turn !== undefined;
   if (turn?.cause === "open-end" && (turning || (sim.ticks - turn.tick) * SIM_DT < TURNED_SHOWN_S)) {
-    return { kind: "turning-back", cause: "open-end", pieceId: turn.pieceId };
+    // `done`: already running back the way it came.
+    return { kind: "turning-back", cause: "open-end", pieceId: turn.pieceId, done: !turning };
   }
   // Being worked by a crane comes next: at a depot at the end of the line the train also waits to turn back.
   const depot = economy.servingDepot(train.id);
@@ -67,7 +68,8 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
     case "worked":
       return `${s.work} at ${nameOf(s.depotId)}`;
     case "turning-back":
-      return s.cause === "open-end" ? "Turning back: the track ends here" : s.cause === "train" ? "Turning back: another train's in the way" : "Turning back at the end of the line";
+      if (s.cause === "open-end") return s.done ? "Turned back: the track ends here" : "Turning back: the track ends here";
+      return s.cause === "train" ? "Turning back: another train's in the way" : "Turning back at the end of the line";
     case "red-signal":
       return "Waiting at a red signal";
     case "too-heavy":
