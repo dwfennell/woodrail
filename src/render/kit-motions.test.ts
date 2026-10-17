@@ -2,6 +2,7 @@ import { Color, MeshStandardMaterial, Vector3, type Mesh, type Object3D } from "
 import { describe, expect, it } from "vitest";
 import { Kit } from "../catalogue/kit";
 import { loadAsset } from "../catalogue/registry";
+import { KIT_TYPES, KITS } from "../track";
 import { KIT_MOTIONS } from "./kit-motions";
 import type { Materials } from "./materials";
 import { bake, bakeMovers, partsOf } from "./props/library";
@@ -25,6 +26,10 @@ const meshVertices = (root: Object3D) => {
 describe("kit motions", () => {
   const mats = stubMaterials();
   const kit = new Kit(mats);
+
+  it("every kit that moves has a motion for its asset", () => {
+    for (const type of KIT_TYPES) if (KITS[type].moves) expect(KIT_MOTIONS[KITS[type].asset], type).toBeDefined();
+  });
 
   it("every motion's rest pose holds still: pose(on 0) is the same whatever the time", async () => {
     for (const [asset, motion] of Object.entries(KIT_MOTIONS)) {

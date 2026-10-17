@@ -6,13 +6,13 @@ import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ADV_OK, advanceCursor, ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, createAdvance, flipCursor, Sim, type AddTrainResult, type CarKind, type CarLook, type Cursor } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, type StopAction, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, type StopAction, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
 
 /** The biggest pile any depot keeps (a warehouse's). */
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
-import { getPieceDef, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
+import { getPieceDef, kitOf, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
 /**
@@ -79,7 +79,7 @@ const saveSchema = z.object({
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour"]),
+      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", ...KIT_DEPOT_ROLES]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
@@ -230,7 +230,9 @@ export function deserializeWorld(data: unknown): Result<World, string> {
   // Besides the map's own: industries the player placed (Game mode), each on a piece of its kind.
   for (const d of save.depots) {
     const piece = layout.getPiece(d.pieceId);
-    if (!expected.has(d.pieceId) && piece && INDUSTRY_ROLE[piece.type] === d.role && ![...depots.values()].includes(d.pieceId)) expected.set(d.pieceId, { role: d.role, townId: -1 });
+    // (Or a kit piece that's a cargo stop: Sandbox's loaders and unloaders.)
+    const role = piece ? (INDUSTRY_ROLE[piece.type] ?? kitOf(piece.type)?.depot) : undefined;
+    if (!expected.has(d.pieceId) && role === d.role && ![...depots.values()].includes(d.pieceId)) expected.set(d.pieceId, { role: d.role, townId: -1 });
   }
   if (save.depots.length !== expected.size) return err("invalid save: wrong number of economy depots");
   for (const [i, d] of save.depots.entries()) {

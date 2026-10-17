@@ -1783,7 +1783,8 @@ export class Interaction {
     const yards: PlacedYard[] = [];
     for (const d of g.economy.allDepots()) {
       const p = layout.getPiece(d.pieceId);
-      if (!p || fixed.has(d.pieceId) || layout.isLifted(d.pieceId)) continue;
+      // (A kit piece that's a cargo stop has its ground with the kits, below.)
+      if (!p || fixed.has(d.pieceId) || layout.isLifted(d.pieceId) || kitOf(p.type)) continue;
       const yard = placedYard(d.pieceId, p.type, p.pose, p.y);
       if (yard) yards.push(yard);
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RISER_HEIGHT } from "../track";
-import { buildStarterWorld, unlockPlot, type World } from "../game/world";
+import { buildStarterWorld, syncIndustries, unlockPlot, type World } from "../game/world";
 import { appendPiece, connectorRef } from "../track";
 import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape";
 import { encodeRoad, pieceOf } from "../roads";
@@ -341,5 +341,40 @@ describe("kit pieces in saves", () => {
     // The prop isn't turned into a kit: a plain prop, where it stood.
     const prop = [...r.value.props.all()].find((p) => p.asset === "bldg-platform-furnished")!;
     expect(prop).toMatchObject({ x: 300, z: 120, heading: 1 });
+  });
+
+  it("cargo kits round-trip with their depots (a loader and an unloader), and a train's route stops at them", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const loader = appendPiece(world.layout, "kit-log-loader", false, connectorRef(station, 1));
+    const shed = appendPiece(world.layout, "kit-goods-shed", false, connectorRef(loader, 1));
+    expect(syncIndustries(world)).toBe(true);
+    const before = world.economy.allDepots().map((d) => ({ pieceId: d.pieceId, role: d.role }));
+    expect(before).toContainEqual({ pieceId: loader, role: "loader-log" });
+    expect(before).toContainEqual({ pieceId: shed, role: "unloader" });
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.economy.allDepots().map((d) => ({ pieceId: d.pieceId, role: d.role }))).toEqual(before);
+    // The loader's heap is as full as ever; nothing new to add.
+    expect(r.value.economy.depotAtPiece(loader)!.piles[CARGO_KINDS.indexOf("log")]).toBeGreaterThan(0);
+    expect(syncIndustries(r.value)).toBe(false);
+  });
+
+  it("an old save's held-back props (now kits) load unchanged, as props where they were", () => {
+    const world = buildStarterWorld();
+    const old = ["bldg-engine-shed", "bldg-castle-gate", "mech-log-loader", "mech-water-crane", "mech-weighbridge", "bldg-grand-terminus"];
+    old.forEach((asset, i) => world.props.add(asset, { x: 200 + i * 150, z: 600, heading: 0.5, y: 0 }));
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const props = [...r.value.props.all()].filter((p) => old.includes(p.asset));
+    expect(props.map((p) => p.asset).sort()).toEqual([...old].sort());
+    for (const p of props) expect(p).toMatchObject({ x: 200 + old.indexOf(p.asset) * 150, z: 600, heading: 0.5 });
+    // No kit pieces made of them.
+    expect([...r.value.layout.pieceIds()].some((id) => r.value.layout.getPiece(id)!.type.startsWith("kit-"))).toBe(false);
   });
 });

@@ -34,7 +34,16 @@ interface Service {
   readonly done: Set<number>;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour";
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | KitDepotRole;
+
+/**
+ * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
+ * and an unloader whose goods vanish into it. Sandbox has no industries to feed, so one of each makes a goods line.
+ */
+export type KitDepotRole = "loader-log" | "loader-grain" | "loader-coal" | "loader-planks" | "unloader";
+
+/** The kit depot roles (for saves, and to tell them from industries'). */
+export const KIT_DEPOT_ROLES: readonly KitDepotRole[] = ["loader-log", "loader-grain", "loader-coal", "loader-planks", "unloader"];
 
 /**
  * What a kind of depot does: the goods trains bring it (unloaded onto its piles), the goods it gives them, and what it
@@ -52,6 +61,10 @@ export interface Recipe {
   readonly cap?: number;
   /** Serves only routed trains, at their stops (it takes and gives the same goods: a train must say which). */
   readonly routedOnly?: boolean;
+  /** Its piles of what it gives never run down (a Sandbox loader's endless heap): kept full. */
+  readonly endless?: boolean;
+  /** What it takes vanishes into it (a Sandbox unloader): its piles stay empty, so it always has room. */
+  readonly sink?: boolean;
 }
 
 export const RECIPES: Record<DepotRole, Recipe> = {
@@ -77,6 +90,12 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   harbour: { takes: [...CARGO_KINDS], gives: [] },
   // Keeps goods for later: everything, more of it. Routed trains drop or pick up there as their stops say.
   warehouse: { takes: [...CARGO_KINDS], gives: [...CARGO_KINDS], cap: 24, routedOnly: true },
+  // Sandbox's cargo machines: an endless heap of one good, and somewhere goods vanish.
+  "loader-log": { takes: [], gives: ["log"], endless: true },
+  "loader-grain": { takes: [], gives: ["grain"], endless: true },
+  "loader-coal": { takes: [], gives: ["coal"], endless: true },
+  "loader-planks": { takes: [], gives: ["planks"], endless: true },
+  unloader: { takes: [...CARGO_KINDS], gives: [], sink: true },
 };
 
 /** The piles a kind of depot keeps: what it takes and what it gives. */
@@ -208,6 +227,8 @@ export class Economy {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
     const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0 };
+    // An endless heap is full from the start.
+    if (RECIPES[role].endless) for (const k of RECIPES[role].gives) d.piles[CARGO[k].index] = capAt(d);
     this.depots.push(d);
     this.byPiece.set(pieceId, d);
     return d;
@@ -366,13 +387,16 @@ export class Economy {
   }
 
   private take(slot: CargoSlot, kind: CargoKind): void {
-    if (slot.kind === "pile") this.depots[slot.depotId].piles[CARGO[kind].index]--;
-    else this.setCargo(slot.carId, kind, this.cargoOf(slot.carId).count - 1);
+    if (slot.kind === "pile") {
+      const d = this.depots[slot.depotId];
+      if (!RECIPES[d.role].endless) d.piles[CARGO[kind].index]--;
+    } else this.setCargo(slot.carId, kind, this.cargoOf(slot.carId).count - 1);
   }
 
   private put(slot: CargoSlot, kind: CargoKind): void {
     if (slot.kind === "pile") {
       const d = this.depots[slot.depotId];
+      if (RECIPES[d.role].sink) return;
       d.piles[CARGO[kind].index] = Math.min(capAt(d), d.piles[CARGO[kind].index] + 1);
       if (d.role === "town" && kind === "planks") this.delivered.set(d.townId, (this.delivered.get(d.townId) ?? 0) + 1);
       if (d.role === "town") {

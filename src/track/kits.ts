@@ -59,11 +59,17 @@ export interface KitDef {
   };
   /** Trains crawl over it at this speed (mm/s) while any of their axles is on it (a weighbridge). */
   readonly crawl?: number;
-  /** It's a cargo stop: registered as an economy depot of this role, so cranes load and unload as at a depot. (Phase 1.) */
+  /**
+   * It's a cargo stop: registered as an economy depot of this role (`syncIndustries`, as industries' pieces are), so
+   * trains stop to load and unload as at an industry. Sandbox's roles: an endless loader of one good, or an unloader
+   * whose goods vanish (`KitDepotRole`). Its depot isn't drawn by `DepotView`: the kit's model is, its crane moving.
+   */
   readonly depot?: DepotRole;
   /**
-   * When its model moves: while a train is on it, while one is stopped at it, or when its state changes. (Phase 1:
-   * see `KitView.moving`, the hook for it.)
+   * When its model moves: while a train is on it ("occupied": any axle on the piece), while one is standing at it
+   * ("stopped": halted at its stop, or its depot's crane working on it), or when its state changes ("state": to come,
+   * for the turntable). Which parts move, and how, is `KIT_MOTIONS` (src/render/kit-motions.ts), by the kit's asset:
+   * a kit that moves needs an entry there. See `KitView` for how it's drawn (live only while moving).
    */
   readonly moves?: "occupied" | "stopped" | "state";
 }
@@ -292,6 +298,149 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     splices: true,
     stop: { ...STEAM_SERVICE, who: "any" },
     moves: "stopped",
+  },
+  // Cargo machines: straights that splice, each an economy depot (Sandbox's loaders and unloaders), so trains stop
+  // for loading and unloading as at an industry, the machine's own crane working while they stand there.
+  // Loaders: an endless heap of one good.
+  "kit-log-loader": {
+    asset: "mech-log-loader",
+    name: "log loader",
+    track: straight("kit-log-loader", 162),
+    rails: "track",
+    // The log pile and post crane behind the track (the model's −z side), turned to the left.
+    place: { t: 81, l: 0, turn: Math.PI },
+    footprint: [{ t: 81, l: 48, w: 110, d: 36 }],
+    splices: true,
+    depot: "loader-log",
+    moves: "stopped",
+  },
+  "kit-grain-elevator": {
+    asset: "mech-grain-elevator",
+    name: "grain elevator",
+    track: straight("kit-grain-elevator", 162),
+    rails: "track",
+    place: { t: 81, l: 0, turn: Math.PI },
+    footprint: [{ t: 56, l: 60, w: 130, d: 48 }],
+    splices: true,
+    depot: "loader-grain",
+    moves: "stopped",
+  },
+  "kit-cargo-conveyor": {
+    asset: "mech-cargo-conveyor",
+    name: "conveyor",
+    track: straight("kit-cargo-conveyor", 216),
+    rails: "track",
+    // The model's track runs along its z at x 86: turned a quarter, the belt climbs to it from the left.
+    place: { t: 108, l: 86, turn: Math.PI / 2 },
+    footprint: [{ t: 115, l: 106, w: 56, d: 170 }],
+    splices: true,
+    depot: "loader-grain",
+    moves: "stopped",
+  },
+  // The coal chute is a loader of coal (not a service): hoppers fill under it.
+  "kit-coal-chute": {
+    asset: "mech-coal-chute",
+    name: "coal chute",
+    track: straight("kit-coal-chute", 108),
+    rails: "track",
+    place: { t: 54, l: 0, turn: Math.PI },
+    footprint: [{ t: 54, l: 52, w: 68, d: 48 }],
+    splices: true,
+    depot: "loader-coal",
+    moves: "stopped",
+  },
+  // Cranes load crates (planks) onto timber wagons.
+  "kit-gantry-crane": {
+    asset: "mech-gantry-crane",
+    name: "gantry crane",
+    track: straight("kit-gantry-crane", 216),
+    rails: "track",
+    // Its rails either side of the line.
+    footprint: [
+      { t: 108, l: 61, w: 80, d: 20 },
+      { t: 108, l: -61, w: 80, d: 20 },
+    ],
+    splices: true,
+    depot: "loader-planks",
+    moves: "stopped",
+  },
+  "kit-harbour-crane": {
+    asset: "mech-harbour-crane",
+    name: "harbour crane",
+    track: straight("kit-harbour-crane", 162),
+    rails: "track",
+    // Its four legs straddle the line.
+    footprint: [
+      { t: 81, l: 27, w: 60, d: 10 },
+      { t: 81, l: -27, w: 60, d: 10 },
+    ],
+    splices: true,
+    depot: "loader-planks",
+    moves: "stopped",
+  },
+  "kit-magnet-crane": {
+    asset: "mech-magnet-crane",
+    name: "magnet crane",
+    track: straight("kit-magnet-crane", 216),
+    rails: "track",
+    // On its yard disc beside the line, its jib (the model's +x) reaching over the track.
+    place: { t: 108, l: 82, turn: Math.PI / 2 },
+    footprint: [{ t: 108, l: 82, w: 120, d: 120 }],
+    splices: true,
+    depot: "loader-planks",
+    moves: "stopped",
+  },
+  // Unloaders: any goods, which vanish into them.
+  "kit-tipping-dump": {
+    asset: "mech-tipping-dump",
+    name: "wagon tipper",
+    track: straight("kit-tipping-dump", 216),
+    rails: "track",
+    // Its pit on the left (the model's +z).
+    place: { t: 108, l: 0 },
+    footprint: [{ t: 108, l: 52, w: 104, d: 68 }],
+    splices: true,
+    depot: "unloader",
+    moves: "stopped",
+  },
+  "kit-drop-hopper": {
+    asset: "mech-drop-hopper",
+    name: "drop hopper",
+    track: straight("kit-drop-hopper", 162),
+    rails: "track",
+    // Its bin on four legs over the line.
+    footprint: [
+      { t: 81, l: 32, w: 68, d: 8 },
+      { t: 81, l: -32, w: 68, d: 8 },
+    ],
+    splices: true,
+    depot: "unloader",
+    moves: "stopped",
+  },
+  "kit-goods-shed": {
+    asset: "bldg-goods-shed",
+    name: "goods shed",
+    track: straight("kit-goods-shed", 108),
+    rails: "track",
+    // Its loading dock (the model's +z side, its edge at z 39) to the track.
+    place: { t: 54, l: TRACK_HALF + PLATFORM_GAP + 39, turn: Math.PI },
+    footprint: [{ t: 54, l: 50, w: 104, d: 60 }],
+    splices: true,
+    depot: "unloader",
+    moves: "stopped",
+  },
+  // The weighbridge: trains crawl over it while its dial swings.
+  "kit-weighbridge": {
+    asset: "mech-weighbridge",
+    name: "weighbridge",
+    track: straight("kit-weighbridge", 108),
+    rails: "track",
+    // Its hut on the left (the model's −z).
+    place: { t: 54, l: 0, turn: Math.PI },
+    footprint: [{ t: 54, l: 50, w: 40, d: 34 }],
+    splices: true,
+    crawl: 30,
+    moves: "occupied",
   },
   // The line runs through the arch on a 108 straight; the portcullis rises as a train comes and drops behind it.
   "kit-castle-gate": {
