@@ -1,0 +1,130 @@
+{
+  "at": "2026-10-17T16:39:02.058Z",
+  "log": [
+    {
+      "kind": "warn",
+      "t": 254,
+      "text": "THREE.Clock: This module has been deprecated. Please use THREE.Timer instead."
+    },
+    {
+      "kind": "warn",
+      "t": 357,
+      "text": "BVH: \"maxLeafSize\" option has been deprecated. Use \"targetLeafSize\", instead."
+    },
+    {
+      "kind": "warn",
+      "t": 368,
+      "text": "THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed."
+    },
+    {
+      "kind": "toast",
+      "t": 34683,
+      "text": "Needs a bridge over the river"
+    },
+    {
+      "kind": "toast",
+      "t": 87861,
+      "text": "Sent to Claude, with a picture of this view"
+    },
+    {
+      "kind": "toast",
+      "t": 417062,
+      "text": "Draw from a track end · two fingers to pan"
+    },
+    {
+      "kind": "toast",
+      "t": 423800,
+      "text": "Another piece is in the way"
+    },
+    {
+      "kind": "toast",
+      "t": 427064,
+      "text": "Too sharp: draw a wider bend"
+    },
+    {
+      "kind": "toast",
+      "t": 428940,
+      "text": "Another piece is in the way"
+    },
+    {
+      "kind": "toast",
+      "t": 430882,
+      "text": "Another piece is in the way"
+    },
+    {
+      "kind": "toast",
+      "t": 467999,
+      "text": "Too low — the hill is in the way"
+    }
+  ],
+  "note": "here's an example of the grate pattern I saw before",
+  "picture": "1789490cfd0d3aab923d25d3f72b5849",
+  "save": "ef393d6f8a10c46f97d908ba1850ebde",
+  "state": {
+    "counts": {
+      "pieces": 72,
+      "props": 56,
+      "trains": 1
+    },
+    "hand": {
+      "blocked": null,
+      "mode": "idle",
+      "propHeading": null,
+      "selectedCar": -1,
+      "selectedPiece": -1,
+      "selectedProp": -1,
+      "selectedScenery": null,
+      "trayFlipped": false,
+      "trayTurns": 0
+    },
+    "mode": "game",
+    "quality": "high",
+    "screen": {
+      "dpr": 2,
+      "height": 1034,
+      "pixelRatio": 2,
+      "touch": false,
+      "width": 1236
+    },
+    "seed": 7,
+    "trains": [
+      {
+        "cars": [
+          "1:engine",
+          "2:timber",
+          "3:timber",
+          "4:timber",
+          "5:timber"
+        ],
+        "id": 1,
+        "lastTurn": null,
+        "levers": [
+          0
+        ],
+        "piece": {
+          "id": 53,
+          "s": 115,
+          "type": "ramp"
+        },
+        "speed": 0,
+        "state": {
+          "kind": "stopped"
+        },
+        "topSpeed": 120
+      }
+    ],
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.31226.1 Chrome/152.0.7977.130 Electron/44.4.3 Safari/537.36",
+    "view": {
+      "camera": [
+        2281,
+        2376,
+        -3146
+      ],
+      "target": [
+        336,
+        0,
+        2
+      ]
+    }
+  }
+}
