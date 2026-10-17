@@ -80,6 +80,18 @@ export function createStage(scene: Scene, renderer: WebGLRenderer, quality: Qual
   sun.shadow.blurSamples = 12;
   // The shadow camera also sees the shadow-only stand-ins (see SHADOW_PROXY_LAYER).
   sun.shadow.camera.layers.enable(SHADOW_PROXY_LAYER);
+  // three tests a caster's layers against the view's camera, not the shadow camera: during the shadow pass only, the
+  // view's camera sees the stand-ins too. (They still never reach the screen: its list is made before the shadow pass.)
+  const renderShadows = renderer.shadowMap.render.bind(renderer.shadowMap);
+  renderer.shadowMap.render = (lights, scene, camera) => {
+    const had = camera.layers.isEnabled(SHADOW_PROXY_LAYER);
+    camera.layers.enable(SHADOW_PROXY_LAYER);
+    try {
+      renderShadows(lights, scene, camera);
+    } finally {
+      if (!had) camera.layers.disable(SHADOW_PROXY_LAYER);
+    }
+  };
   scene.add(sun);
   scene.add(sun.target);
   scene.add(new HemisphereLight(new Color("#ffeedd"), new Color("#6b4a30"), 0.12));

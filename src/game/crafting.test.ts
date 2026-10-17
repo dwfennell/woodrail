@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
 import { appendPiece, connectorRef } from "../track";
-import { costOf, craftNow, craftShort, Crafting, CRAFT_SECONDS, lacking, workshopStock } from "./crafting";
+import { costOf, craftNow, craftShort, Crafting, CRAFT_SECONDS, lacking, uncraft, workshopStock } from "./crafting";
 import type { ThingId } from "./things";
 import { Progress } from "./progress";
 import { buildStarterWorld, syncIndustries } from "./world";
@@ -148,5 +148,20 @@ describe("coins as well as goods", () => {
     expect(craftNow(rich, p, lack)).toBeNull();
     expect(workshopStock(rich).planks).toBe(0);
     expect([p.owned.get("car:engine"), p.owned.get("car:timber")]).toEqual([1, 2]);
+  });
+});
+
+describe("uncraft", () => {
+  it("gives back what craftNow took: the planks to the yard, the coins, and the things out of the toy box", () => {
+    const { w } = withWorkshop(10);
+    const p = Progress.fresh();
+    const wants = new Map<ThingId, number>([["car:timber", 3]]);
+    const before = { planks: workshopStock(w).planks, coins: p.coins, owned: p.owned.get("car:timber") ?? 0 };
+    expect(craftNow(w, p, wants)).toBeNull();
+    expect(workshopStock(w).planks ?? 0).toBeLessThan(before.planks ?? 0);
+    uncraft(w, p, wants);
+    expect(workshopStock(w).planks).toBe(before.planks);
+    expect(p.coins).toBe(before.coins);
+    expect(p.owned.get("car:timber") ?? 0).toBe(before.owned);
   });
 });

@@ -574,6 +574,8 @@ export class Interaction {
 
   /** May this tray item come out now (Game mode: in the toy box, or made on the spot)? Null: always. */
   trayAllowed: ((item: TrayItem) => boolean) | null = null;
+  /** A train taken from the tray was put down: on the track (`placed`), or not (off it, or back over the tray). */
+  onTrayTrainDropped: ((placed: boolean) => void) | null = null;
 
   /** The ready piece shown where it would go (as if held there): waiting at the free end of the piece just put down. */
   private preview: Extract<Mode, { kind: "drag-piece" }> | null = null;
@@ -1087,6 +1089,7 @@ export class Interaction {
       this.game.scene.remove(m.ghost);
       disposeObject(m.ghost);
       if (m.origin) this.placeTrain(m.cars, m.origin);
+      else this.onTrayTrainDropped?.(false);
     } else if (m.kind === "drag-cargo") {
       this.game.scene.remove(m.ghost);
       this.game.depotView.dragging = null;
@@ -2431,21 +2434,21 @@ export class Interaction {
     this.game.scene.remove(m.ghost);
     disposeObject(m.ghost);
     this.mode = { kind: "idle" };
+    const fresh = !m.origin;
     if (m.overTray) {
       if (m.origin) this.hud.toast("Back in the box");
+      if (fresh) this.onTrayTrainDropped?.(false);
       this.changed();
       return;
     }
     // Dropped onto or by another train: couple on to its nearer end.
-    if (m.target && this.joinTrain(m.cars, m.target)) {
-      this.changed();
-      return;
-    }
-    if (m.target && this.placeTrain(m.cars, m.target, true)) {
+    if (m.target && (this.joinTrain(m.cars, m.target) || this.placeTrain(m.cars, m.target, true))) {
+      if (fresh) this.onTrayTrainDropped?.(true);
       this.changed();
       return;
     }
     if (m.origin) this.placeTrain(m.cars, m.origin);
+    if (fresh) this.onTrayTrainDropped?.(false);
     this.hud.toast(m.target ? "Not enough track there" : "Drop trains onto the track");
     this.changed();
   }
