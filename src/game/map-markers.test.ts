@@ -11,11 +11,11 @@ describe("map markers", () => {
     const markers = mapMarkers(w, (id) => townStatus(receivedBy(w, id)));
     const towns = markers.filter((m) => m.kind === "town");
     expect(towns).toHaveLength(w.landscape.towns.length);
-    expect(towns[0]).toMatchObject({ title: w.landscape.towns[0].name, detail: "Village · wants planks 2/8", fill: 0.25 });
-    expect(towns[1].detail).toBe("Hamlet · wants planks 0/4");
+    expect(towns[0]).toMatchObject({ title: w.landscape.towns[0].name, detail: "Village · wants 🪵 planks 2/8", fill: 0.25 });
+    expect(towns[1].detail).toBe("Hamlet · wants 🪵 planks 0/4");
     const forest = markers.find((m) => m.kind === "forest")!;
-    expect(forest).toMatchObject({ title: "Forest yard", detail: "Logs 0" });
-    expect(markers.find((m) => m.kind === "sawmill")!.detail).toBe("Logs 0 · Planks 0");
+    expect(forest).toMatchObject({ title: "Forest yard", detail: "🌲 Logs 0" });
+    expect(markers.find((m) => m.kind === "sawmill")!.detail).toBe("🌲 Logs 0 · 🪵 Planks 0");
     expect(new Set(markers.map((m) => m.key)).size).toBe(markers.length);
   });
 });
