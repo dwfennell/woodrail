@@ -144,6 +144,27 @@ interface Shot {
 }
 
 const EDGE_PAN_SPEED = 0.9; // view distances per second at full push
+
+/**
+ * On touch, panning while placing waits and creeps (QA: the view ran off with the target mid-drag): the finger must stay
+ * in a narrow band at the edge for EDGE_TOUCH_DWELL seconds before the view moves, then it eases in over
+ * EDGE_TOUCH_RAMP seconds to EDGE_TOUCH_SPEED of the mouse's speed. A finger passing through the band, or resting
+ * near the edge to place something there, leaves the view be.
+ */
+export const EDGE_TOUCH_ZONE = 36;
+export const EDGE_TOUCH_DWELL = 0.5;
+export const EDGE_TOUCH_RAMP = 0.3;
+export const EDGE_TOUCH_SPEED = 0.5;
+
+/**
+ * How much of its speed an edge pan has, `held` seconds after the pointer came into the band (0 while waiting). A mouse
+ * pans at once and in full; a finger waits, then eases in, and goes at most half as fast.
+ */
+export function edgeDwell(held: number, touch: boolean): number {
+  if (!touch) return 1;
+  if (held < EDGE_TOUCH_DWELL) return 0;
+  return EDGE_TOUCH_SPEED * Math.min(1, (held - EDGE_TOUCH_DWELL) / EDGE_TOUCH_RAMP);
+}
 const ZOOM_RATE = 0.0026;
 const ZOOM_LAMBDA = 22;
 const FOLLOW_LAMBDA = 5;
@@ -158,9 +179,11 @@ export class CameraDirector {
   private readonly zoomAnchor = new Vector3();
   private followed: (() => Vector3 | null) | null = null;
   private readonly edge = { dx: 0, dy: 0 };
-  private edgePointer: { x: number; y: number; zone: number; bottom?: number } | null = null;
+  private edgePointer: { x: number; y: number; zone: number; bottom?: number; touch: boolean } | null = null;
   /** A drag that asked to wait hasn't yet left the edge band: no panning until it does. */
   private edgeWaiting = false;
+  /** How long (s) the pointer has been in the edge band (see `edgeDwell`). */
+  private edgeHeld = 0;
   private readonly tmp = new Vector3();
   private readonly tmp2 = new Vector3();
   private readonly right = new Vector3();
@@ -246,7 +269,8 @@ export class CameraDirector {
    */
   setEdgePointer(p: { x: number; y: number; touch: boolean; bottom?: number; waitForExit?: boolean; zone?: number } | null): void {
     if (p && !this.edgePointer) this.edgeWaiting = !!p.waitForExit;
-    this.edgePointer = p ? { x: p.x, y: p.y, zone: p.zone ?? (p.touch ? 72 : 48), bottom: p.bottom } : null;
+    if (!p) this.edgeHeld = 0;
+    this.edgePointer = p ? { x: p.x, y: p.y, zone: p.zone ?? (p.touch ? EDGE_TOUCH_ZONE : 48), bottom: p.bottom, touch: p.touch } : null;
   }
 
   /** True when the last update panned the view (dragged things under the pointer need re-placing). */
@@ -300,13 +324,15 @@ export class CameraDirector {
       edgePan(this.edgePointer.x, this.edgePointer.y, viewW, this.edgePointer.bottom ?? viewH, this.edgePointer.zone, this.edge);
       const inBand = this.edge.dx !== 0 || this.edge.dy !== 0;
       if (!inBand) this.edgeWaiting = false;
-      if (inBand && !this.edgeWaiting) {
+      this.edgeHeld = inBand && !this.edgeWaiting ? this.edgeHeld + dt : 0;
+      const push = edgeDwell(this.edgeHeld, this.edgePointer.touch);
+      if (inBand && !this.edgeWaiting && push > 0) {
         const dist = cam.position.distanceTo(c.target);
         cam.getWorldDirection(this.forward);
         this.forward.y = 0;
         this.forward.normalize();
         this.right.set(-this.forward.z, 0, this.forward.x);
-        const step = EDGE_PAN_SPEED * dist * dt;
+        const step = EDGE_PAN_SPEED * push * dist * dt;
         this.tmp.copy(this.right).multiplyScalar(this.edge.dx * step).addScaledVector(this.forward, -this.edge.dy * step);
         c.target.add(this.tmp);
         cam.position.add(this.tmp);
