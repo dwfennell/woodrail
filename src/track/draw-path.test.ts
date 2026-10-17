@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { candidatesFrom, DrawLine, type DrawEnd } from "./draw-path";
+import { candidatesFrom, DRAW_LOOKAHEAD, DrawLine, type DrawEnd } from "./draw-path";
 import { Layout } from "./layout";
-import { getPieceDef } from "./pieces";
-import { angleDiff } from "./math";
+import { findOverlap } from "./overlap";
+import type { Pose } from "./math";
+import { getPieceDef, type PieceTypeId } from "./pieces";
+import { angleDiff, normalizeAngle } from "./math";
 
 const START: DrawEnd = { x: 0, z: 0, heading: 0, y: 0, kind: "peg" };
 
@@ -24,6 +26,82 @@ function expectJoined(line: DrawLine): void {
   const l = new Layout();
   for (const p of line.pieces) l.addPiece(p.type, p.pose, p.y, p.flipped);
   expect(l.jointCount).toBe(line.pieces.length - 1);
+}
+
+
+/** A straight stroke from `from` at `deg` degrees, with a sideways wobble of ±`wobble` mm (a wave `wave` mm long). */
+const swipe = (from: { x: number; z: number }, deg: number, wobble = 0, phase = 0, wave = 150) => {
+  const a = (deg * Math.PI) / 180;
+  return (s: number) => {
+    const w = wobble * (Math.sin((2 * Math.PI * s) / wave + phase) - Math.sin(phase));
+    return { x: from.x + s * Math.cos(a) - w * Math.sin(a), z: from.z + s * Math.sin(a) + w * Math.cos(a) };
+  };
+};
+
+/** Draw a stroke (4 mm a point) and lift: how the line came out against the finger. */
+function follow(start: DrawEnd, length: number, at: (s: number) => { x: number; z: number }, deg: number) {
+  const line = new DrawLine(start);
+  const pts: { x: number; z: number }[] = [];
+  let stalled = false;
+  let lag = 0;
+  for (let s = 4; s <= length; s += 4) {
+    const p = at(s);
+    pts.push(p);
+    line.addPoint(p.x, p.z);
+    stalled ||= line.stalled;
+    lag = Math.max(lag, Math.hypot(p.x - line.end.x, p.z - line.end.z));
+  }
+  line.finish();
+  stalled ||= line.stalled;
+  const a = (deg * Math.PI) / 180;
+  const e = at(length);
+  const dx = line.end.x - e.x;
+  const dz = line.end.z - e.z;
+  // The finger's furthest from the line laid (its pieces' tracks, as a polyline).
+  const track: number[] = [start.x, start.z];
+  for (const p of line.pieces) for (let i = 0; i < p.track.length; i += 3) track.push(p.track[i], p.track[i + 1]);
+  let off = 0;
+  for (const p of pts) {
+    let d = Infinity;
+    for (let i = 0; i + 3 < track.length; i += 2) {
+      const sx = track[i + 2] - track[i];
+      const sz = track[i + 3] - track[i + 1];
+      const l2 = sx * sx + sz * sz;
+      const t = l2 > 0 ? Math.max(0, Math.min(1, ((p.x - track[i]) * sx + (p.z - track[i + 1]) * sz) / l2)) : 0;
+      d = Math.min(d, Math.hypot(track[i] + sx * t - p.x, track[i + 1] + sz * t - p.z));
+    }
+    off = Math.max(off, d);
+  }
+  // Each curve's turn (+1 or −1; 0 for a straight).
+  const turns: number[] = [];
+  let h = start.heading;
+  for (const p of line.pieces) {
+    turns.push(p.type.startsWith("curve") ? Math.sign(normalizeAngle(p.end.heading - h)) : 0);
+    h = p.end.heading;
+  }
+  const name = line.pieces.map((p, i) => p.type.replace("straight-", "s").replace("curve-", "") + (turns[i] > 0 ? "+" : turns[i] < 0 ? "−" : "")).join(" ");
+  return { line, along: dx * Math.cos(a) + dz * Math.sin(a), side: -dx * Math.sin(a) + dz * Math.cos(a), off, turns, stalled, lag, name };
+}
+
+/**
+ * A staircase, not a snake: curves come one at a time, or two turning opposite ways (a step), with a straight run
+ * between one step and the next.
+ */
+function expectStaircase(r: ReturnType<typeof follow>, name: string): void {
+  const why = `${name}: ${r.name}`;
+  // (The last piece, laid as the finger lifts, may round off a step.)
+  const turns = r.turns.slice(0, -1);
+  let steps = 0;
+  for (let i = 0; i < turns.length; i++) {
+    if (!turns[i]) continue;
+    let j = i;
+    while (j + 1 < turns.length && turns[j + 1]) j++;
+    expect(j - i + 1, why).toBeLessThanOrEqual(2);
+    if (j > i) expect(turns[j], why).toBe(-turns[i]);
+    steps++;
+    i = j;
+  }
+  expect(steps, why).toBeLessThanOrEqual(turns.filter((t) => t === 0).length + 1);
 }
 
 describe("draw path", () => {
@@ -346,6 +424,147 @@ describe("draw path", () => {
     const line = draw(new DrawLine(START, { allow: (t, l) => t === "straight-144" && l.length < 3 }), 1000, (s) => ({ x: s, z: 0 }));
     expect(line.pieces.map((p) => p.type)).toEqual(["straight-144", "straight-144", "straight-144"]);
     expect(line.refused).not.toBeNull();
+  });
+
+  it("a straight swipe off the grid stays under the finger: a staircase of straights, not a snake of curves (QA N1)", () => {
+    for (const length of [300, 600, 900, 1500])
+      for (const deg of [0, 5, 10, 15, 20, 23, 30, 35, 40, -10, -23, -35]) {
+        const name = `${deg}°, ${length} mm`;
+        const r = follow(START, length, swipe(START, deg), deg);
+        // The line ends near the finger (along the swipe and to its side), and the finger was never far from it.
+        expect(Math.hypot(r.along, r.side), `${name}: ${r.name}`).toBeLessThan(70);
+        expect(r.off, `${name}: ${r.name}`).toBeLessThan(70);
+        expect(r.stalled, name).toBe(false);
+        expectStaircase(r, name);
+        // The ghosts keep up: a piece or so behind the look-ahead, all the way.
+        expect(r.lag, name).toBeLessThan(DRAW_LOOKAHEAD + 260);
+        expectJoined(r.line);
+      }
+  });
+
+  it("a hand's wobble (±8 mm) on a straight swipe off the grid doesn't bring the snake back (QA N1)", () => {
+    for (const length of [600, 900, 1500])
+      for (const deg of [5, 10, 15, 20, 23, 30, 35, 40])
+        for (const phase of [0, 1.5, 3, 4.5])
+          for (const wave of [100, 150, 250]) {
+            const name = `${deg}°, ${length} mm, phase ${phase}, wave ${wave}`;
+            const r = follow(START, length, swipe(START, deg, 8, phase, wave), deg);
+            expect(Math.hypot(r.along, r.side), `${name}: ${r.name}`).toBeLessThan(70);
+            expect(r.off, `${name}: ${r.name}`).toBeLessThan(75);
+            expect(r.stalled, name).toBe(false);
+            expectStaircase(r, name);
+          }
+  });
+
+  it("a 23° swipe of 600 mm: straights along the grid with one step, not three curves (QA N1)", () => {
+    const r = follow(START, 600, swipe(START, 23), 23);
+    const types = r.line.pieces.map((p) => p.type);
+    expect(types.filter((t) => t.startsWith("straight")).length, r.name).toBeGreaterThanOrEqual(2);
+    expect(types.filter((t) => t.startsWith("curve")).length, r.name).toBeLessThanOrEqual(2);
+    // Every piece runs along the grid's eighths either side of the swipe (0° and 45°).
+    for (const p of r.line.pieces) expect([0, Math.PI / 4].some((h) => angleDiff(p.end.heading, h) < 0.01), r.name).toBe(true);
+  });
+
+  it("from open ground, a straight swipe at 23° or 35° stays under the finger (QA N1)", () => {
+    for (const deg of [23, 35, -23, -35, 113]) {
+      const origin = { x: 7, z: -5 };
+      const a = (deg * Math.PI) / 180;
+      // As DrawHand starts a line: its first end on the grid, pointing the way the finger set off, in eighths.
+      const start: DrawEnd = { x: 0, z: 0, heading: Math.round(a / (Math.PI / 4)) * (Math.PI / 4), y: 0, kind: "peg" };
+      for (const length of [600, 1200]) {
+        const at = swipe(origin, deg);
+        const r = follow(start, length, at, deg);
+        const name = `${deg}°, ${length} mm`;
+        expect(Math.hypot(r.along, r.side), `${name}: ${r.name}`).toBeLessThan(70);
+        expect(r.off, `${name}: ${r.name}`).toBeLessThan(70);
+        expect(r.stalled, name).toBe(false);
+        expectStaircase(r, name);
+      }
+    }
+  });
+
+  it("going back over a staircase takes its pieces off, though they lie to the side of the finger", () => {
+    const at = swipe(START, 23);
+    const line = new DrawLine(START);
+    for (let s = 4; s <= 1100; s += 4) line.addPoint(at(s).x, at(s).z);
+    const before = line.pieces.length;
+    expect(before).toBeGreaterThan(3);
+    for (let s = 1100; s >= 300; s -= 4) line.addPoint(at(s).x, at(s).z);
+    line.finish();
+    expect(line.pieces.length).toBeLessThan(before);
+    // Nothing reaches far past where the finger came back to.
+    const back = at(300);
+    for (const p of line.pieces) expect((p.end.x - back.x) * Math.cos(0.4) + (p.end.z - back.z) * Math.sin(0.4)).toBeLessThan(60);
+  });
+
+  it("a straight swipe off the grid that then bends still bends", () => {
+    // 23° for 500 mm, then a quarter circle of the curve's radius.
+    const a = (23 * Math.PI) / 180;
+    const at = (s: number) => {
+      if (s < 500) return { x: s * Math.cos(a), z: s * Math.sin(a) };
+      const t = (s - 500) / 180;
+      const cx = 500 * Math.cos(a) - 180 * Math.sin(a);
+      const cz = 500 * Math.sin(a) + 180 * Math.cos(a);
+      return { x: cx + 180 * Math.sin(a + t), z: cz - 180 * Math.cos(a + t) };
+    };
+    const length = 500 + (180 * Math.PI) / 2;
+    const r = follow(START, length, at, 23 + 90);
+    expect(Math.hypot(r.along, r.side), r.name).toBeLessThan(70);
+    expect(r.off, r.name).toBeLessThan(70);
+    // It ends heading round the way the finger went (113°: the eighth at 90° or 135°).
+    expect(Math.min(angleDiff(r.line.end.heading, Math.PI / 2), angleDiff(r.line.end.heading, (3 * Math.PI) / 4)), r.name).toBeLessThan(0.01);
+    expect(r.stalled).toBe(false);
+  });
+
+  it("going round in a circle tighter than any curve (r50 to r80) leaves the line stalled, so it says so", () => {
+    for (const r of [50, 65, 80]) {
+      const line = new DrawLine(START);
+      let stalled = false;
+      for (let s = 4; s <= 2 * Math.PI * r; s += 4) {
+        line.addPoint(r * Math.sin(s / r), r * (1 - Math.cos(s / r)));
+        stalled ||= line.stalled;
+      }
+      expect(stalled, `r${r}`).toBe(true);
+    }
+    // The curves' own circles don't (nor a quarter of the tight curve's).
+    for (const r of [180, 270]) {
+      const line = new DrawLine(START);
+      for (let s = 4; s <= 2 * Math.PI * r; s += 4) {
+        line.addPoint(r * Math.sin(s / r), r * (1 - Math.cos(s / r)));
+        expect(line.stalled, `r${r}`).toBe(false);
+      }
+    }
+    const tight = new DrawLine(START);
+    for (let s = 4; s <= (90 * Math.PI) / 2; s += 4) {
+      tight.addPoint(90 * Math.sin(s / 90), 90 * (1 - Math.cos(s / 90)));
+      expect(tight.stalled).toBe(false);
+    }
+  });
+
+  it("a loop drawn a little past its start closes there, and isn't taken on across its first piece", () => {
+    for (const [r, over, step] of [[200, 60, 15], [200, 30, 15], [200, 60, 4], [180, 60, 4], [180, 90, 30]]) {
+      const own = new Layout();
+      const sync = (pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean }[]) => {
+        for (const id of [...own.pieceIds()]) own.removePiece(id);
+        for (const p of pieces) own.addPiece(p.type, p.pose, p.y, p.flipped);
+      };
+      const line: DrawLine = new DrawLine(START, {
+        check: (c, l) => {
+          sync(l);
+          return findOverlap(own, c.type, c.flipped, c.pose, c.y, -1) !== -1 ? "The line would cross itself" : null;
+        },
+        // Closing on its own start (as DrawHand asks it: the line as it was before the piece just laid).
+        closes: (e) => {
+          sync(line.pieces.slice(0, -1));
+          return line.pieces.length > 2 && Math.hypot(e.x - START.x, e.z - START.z) <= 9 && angleDiff(e.heading, START.heading) < 0.07;
+        },
+      });
+      for (let s = step; s <= 2 * Math.PI * r + over; s += step) line.addPoint(r * Math.sin(s / r), r * (1 - Math.cos(s / r)));
+      line.finish();
+      const name = `r${r}, ${over} mm past, ${step} mm a point`;
+      expect(line.pieces.some((p) => p.blocked), name).toBe(false);
+      expect(Math.hypot(line.end.x, line.end.z), name).toBeLessThan(40);
+    }
   });
 
   it("a pointer move costs well under a millisecond", () => {
