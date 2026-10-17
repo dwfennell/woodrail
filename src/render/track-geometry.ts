@@ -99,12 +99,22 @@ interface Frame {
   s: number;
 }
 
+/** The turn between samples along an arc (radians). */
+const ARC_STEP = (3 * Math.PI) / 180;
+
 /** Samples along a path, optionally extended straight past either end. */
 function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number, lineStep = 0): Frame[] {
   const len = pathLength(geom);
   const curved = geom.kind !== "line" || geom.rise !== 0;
-  // Curves every 3 mm (a balloon loop's big gentle curves every 6).
-  const steps = curved ? Math.max(8, Math.ceil(len / (geom.kind === "loop" ? 6 : 3))) : lineStep > 0 ? Math.ceil(len / lineStep) : 1;
+  // An arc every 3° of turn (within 0.07 mm of true at the outer edge of a large curve: more only costs triangles, a
+  // large curve's were a third of a busy map's), a balloon loop's big gentle curves every 6 mm, a slope every 3 mm.
+  const steps = curved
+    ? geom.kind === "arc"
+      ? Math.max(8, Math.ceil(Math.abs(geom.sweep) / ARC_STEP))
+      : Math.max(8, Math.ceil(len / (geom.kind === "loop" ? 6 : 3)))
+    : lineStep > 0
+      ? Math.ceil(len / lineStep)
+      : 1;
   const out: Frame[] = [];
   const p = createSample();
   const push = (s: number) => {
@@ -310,7 +320,7 @@ function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[]
   // The viaduct body: a softly rounded block swept along the deck, from just below the ground to just under the track.
   const inset = 3;
   const frames: Frame[] = [];
-  const steps = path.kind !== "line" ? Math.max(8, Math.ceil(len / 4)) : 1;
+  const steps = path.kind === "arc" ? Math.max(8, Math.ceil(Math.abs(path.sweep) / ARC_STEP)) : path.kind !== "line" ? Math.max(8, Math.ceil(len / 4)) : 1;
   const p = createSample();
   for (let i = 0; i <= steps; i++) {
     const at = inset + ((len - 2 * inset) * i) / steps;
