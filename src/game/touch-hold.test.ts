@@ -1,25 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { HOLD_MS, HOLD_SLOP, holdOutcome, holdPicksUp } from "./touch-hold";
+import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp } from "./touch-hold";
 
 describe("long-press to pick up", () => {
   it("a finger that rests long enough picks it up", () => {
-    expect(holdOutcome(HOLD_MS - 1, 0, 1)).toBe("wait");
-    expect(holdOutcome(HOLD_MS, 0, 1)).toBe("hold");
-    expect(holdOutcome(HOLD_MS + 500, 0, 1)).toBe("hold");
+    expect(decideHold(null, HOLD_MS - 1, 1)).toBe("wait");
+    expect(decideHold(null, HOLD_MS, 1)).toBe("hold");
+    expect(decideHold(null, HOLD_MS + 500, 1)).toBe("hold");
   });
 
-  it("a little wobble while resting doesn't spoil it", () => {
-    expect(holdOutcome(HOLD_MS, HOLD_SLOP - 1, 1)).toBe("hold");
+  it("a finger that strays before the hold is up pans, even if it then rests", () => {
+    expect(decideHold(50, 60, 1)).toBe("pan");
+    expect(decideHold(HOLD_MS - 1, HOLD_MS + 500, 1)).toBe("pan");
   });
 
-  it("a finger that moves past the slop pans, even if it then rests", () => {
-    expect(holdOutcome(50, HOLD_SLOP, 1)).toBe("pan");
-    expect(holdOutcome(HOLD_MS + 500, HOLD_SLOP + 20, 1)).toBe("pan");
+  it("rested, then moved: a hold (picked up, then dragged)", () => {
+    expect(decideHold(HOLD_MS, HOLD_MS, 1)).toBe("hold");
+    expect(decideHold(HOLD_MS + 70, HOLD_MS + 70, 1)).toBe("hold");
+  });
+
+  it("decided by the events' times, not by which arrives first: a pan's moves delivered after the timer", () => {
+    // The timer fires at 400 ms with no move seen yet: still waiting is wrong only if nothing moved; it waits a frame
+    // for queued moves (see Interaction.holdFired). Those moves, stamped 120 ms, then make it a pan.
+    expect(decideHold(120, 420, 1)).toBe("pan");
+  });
+
+  it("…and a real hold whose timer fires late: the first move, stamped after the hold was up, picks it up", () => {
+    // Rested 450 ms, then dragged; the timer ran 200 ms late, so the drag's first move is the first thing seen.
+    expect(decideHold(450, 450, 1)).toBe("hold");
   });
 
   it("a second finger cancels it (two fingers move the view)", () => {
-    expect(holdOutcome(100, 0, 2)).toBe("cancel");
-    expect(holdOutcome(HOLD_MS, 0, 2)).toBe("cancel");
+    expect(decideHold(null, 100, 2)).toBe("cancel");
+    expect(decideHold(null, HOLD_MS, 2)).toBe("cancel");
+    expect(decideHold(500, 500, 2)).toBe("cancel");
   });
 
   it("the timing feels deliberate, not sluggish: past a tap, short of the phone's own long-press", () => {

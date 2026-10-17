@@ -11,6 +11,9 @@ import type { DragTarget } from "./drag-rule";
  *
  * HOLD_SLOP: 10 px. A finger held still wobbles a few pixels; 10 is what a tap allows here (and about what iOS allows a
  * long press), so a deliberate hold isn't spoilt by a tremble, while a pan has left it within its first frames.
+ *
+ * It's decided by when things happened (the events' own timestamps), not by which arrives first: on a slow phone the
+ * moves of a pan can be delivered after the hold's timer, and the timer can fire late after a real hold.
  */
 export const HOLD_MS = 380;
 export const HOLD_SLOP = 10;
@@ -25,14 +28,15 @@ export function holdPicksUp(target: DragTarget, pointerType: string): boolean {
 export type HoldOutcome = "wait" | "hold" | "pan" | "cancel";
 
 /**
- * A press that may become a hold, after `elapsed` ms, having strayed at most `travel` px from where it came down, with
- * `touches` fingers on the screen: a second finger cancels it (two fingers move the view); straying past the slop
- * makes it a pan; resting long enough makes it a hold. Straying is checked first: a finger that moved and then stopped
- * is still a pan.
+ * A press that may become a hold: `strayedAt` is when (ms after it came down, by the events' timestamps) the finger
+ * first went `HOLD_SLOP` or more from where it came down, or null if it hasn't; `elapsed` is how long it's been down as
+ * of the latest event seen (or now); `touches` the fingers on the screen. A second finger cancels it (two fingers move
+ * the view). If it strayed before `HOLD_MS` it's a pan, whenever that move is delivered; if it rested `HOLD_MS` first
+ * it's a hold, even if it has moved since (it was picked up, then dragged) or the timer that checks it ran late.
  */
-export function holdOutcome(elapsed: number, travel: number, touches: number): HoldOutcome {
+export function decideHold(strayedAt: number | null, elapsed: number, touches: number): HoldOutcome {
   if (touches > 1) return "cancel";
-  if (travel >= HOLD_SLOP) return "pan";
-  if (elapsed >= HOLD_MS) return "hold";
+  if (strayedAt !== null && strayedAt < HOLD_MS) return "pan";
+  if (elapsed >= HOLD_MS || strayedAt !== null) return "hold";
   return "wait";
 }

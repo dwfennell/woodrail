@@ -209,6 +209,37 @@ async function selectThenDrag(ctx, p) {
   await lift();
   check("held, then dragged: it moves with the finger", hMid === "drag-piece", `mid-drag ${hMid}`);
   await p.keyboard.press("Escape");
+  // 2b'. A slow phone (QA): the hold is decided by when things happened, not by which arrives first. The page is kept
+  // busy so moves and the hold's timer queue up together.
+  const busy = (ms) => p.evaluate((ms) => { const t = performance.now(); while (performance.now() - t < ms); }, ms);
+  // A pan whose moves are delivered after the hold's time is up: still a pan, nothing picked up.
+  await p.keyboard.press("Escape");
+  [sx, sy] = await onScreen();
+  const before = await where();
+  await touch("touchStart", sx, sy);
+  const blocked = busy(650);
+  await new Promise((r) => setTimeout(r, 30));
+  await Promise.all([1, 2, 3, 4, 5, 6].map((k) => touch("touchMove", sx + 6 * k, sy)));
+  await blocked;
+  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const lateMoves = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+  await lift();
+  const after = await where();
+  check("slow phone: a pan's moves delivered after the hold's time is up stay a pan", lateMoves !== "drag-piece" && JSON.stringify(after.piece) === JSON.stringify(before.piece), `mode ${lateMoves}; piece ${before.piece} → ${after.piece}`);
+  // A real hold whose timer runs late: rested past the hold's time, then dragged: picked up.
+  await p.keyboard.press("Escape");
+  [sx, sy] = await onScreen();
+  await touch("touchStart", sx, sy);
+  await new Promise((r) => setTimeout(r, 250));
+  const late = busy(500);
+  await new Promise((r) => setTimeout(r, 200));
+  await Promise.all([1, 2, 3, 4].map((k) => touch("touchMove", sx - 8 * k, sy)));
+  await late;
+  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const lateTimer = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+  await lift();
+  check("slow phone: a real hold whose timer runs late still picks it up", lateTimer === "drag-piece", `mode ${lateTimer}`);
+  await p.keyboard.press("Escape");
   // 2c. Drawing on: a finger resting on a piece neither picks it up nor starts a line.
   await p.evaluate(() => window.woodrail.interaction.setDrawing(true));
   [sx, sy] = await onScreen();
@@ -260,6 +291,31 @@ async function selectThenDrag(ctx, p) {
   [sx, sy] = await onScreen();
   const vMid = await drag(sx, sy, 120);
   check("a drag that starts on an unselected engine pans (the camera has it) and leaves the train", placed && vMid === "idle" && (await trains()) === t0, `placed ${placed}, mid-drag ${vMid}`);
+  // Held and let go without moving, a running train stays the same train at the same speed (QA): it's only selected.
+  await p.keyboard.press("Escape");
+  const run0 = await p.evaluate(() => {
+    const w = window.woodrail;
+    const id = w.sim.trainIds().at(-1);
+    const engine = w.sim.getTrain(id).cars.find((c) => c.kind === "engine");
+    engine.lever = 1;
+    return id;
+  });
+  await new Promise((r) => setTimeout(r, 1500));
+  const speedBefore = await p.evaluate((id) => window.woodrail.sim.getTrain(id)?.speed ?? -1, run0);
+  [sx, sy] = await p.evaluate((id) => {
+    const w = window.woodrail;
+    const car = w.sim.getTrain(id).cars[0];
+    const v = new w.camera.position.constructor();
+    w.trainView.carObject(car.id).getWorldPosition(v);
+    v.y += 10;
+    v.project(w.camera);
+    return [((v.x + 1) / 2) * innerWidth, ((1 - v.y) / 2) * innerHeight];
+  }, run0);
+  const trainHold = await holdAt(sx, sy, 520);
+  await lift();
+  const after2 = await p.evaluate((id) => { const t = window.woodrail.sim.getTrain(id); return t ? t.speed : -1; }, run0);
+  check("held and let go, a running train stays the same train, still running", after2 > 0 && speedBefore > 0, `train ${run0}: speed ${Math.round(speedBefore)} → ${Math.round(after2)} (hold mode ${trainHold})`);
+  await p.evaluate((id) => { const t = window.woodrail.sim.getTrain(id); if (t) for (const c of t.cars) c.lever = 0; }, run0);
 }
 
 /**
