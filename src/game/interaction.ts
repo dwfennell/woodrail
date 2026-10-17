@@ -1408,10 +1408,12 @@ export class Interaction {
   /** Counts the cards opened: a check for one that's been replaced since does nothing. */
   private cardNudge = 0;
 
-  /** A piece's place (its pose, at its height), or null if it's gone. */
+  /** A piece's middle as it looks (not its pose, which is one of its ends: QA), at its height, or null if it's gone. */
   private pieceCentre(id: number): Vector3 | null {
     const p = this.game.layout.getPiece(id);
-    return p ? new Vector3(p.pose.x, p.y, p.pose.z) : null;
+    if (!p) return null;
+    const c = visualCentre(p.type, p.flipped, p.pose);
+    return new Vector3(c.x, p.y, c.z);
   }
 
   /**
