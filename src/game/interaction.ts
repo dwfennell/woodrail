@@ -32,6 +32,18 @@ import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 import { carNearTap, nearCarWins, type CarOnScreen } from "./touch-pick";
 
+/** Where a piece at `pose` looks to be: the middle of its drawn shape (as `pieceMatrix` places it). */
+function visualCentre(type: PieceTypeId, flipped: boolean, pose: Pose): { x: number; z: number } {
+  const g = pieceGeometry(type, flipped);
+  if (!g.boundingBox) g.computeBoundingBox();
+  const b = g.boundingBox!;
+  const lx = (b.min.x + b.max.x) / 2;
+  const lz = (b.min.z + b.max.z) / 2;
+  const c = Math.cos(pose.heading);
+  const s = Math.sin(pose.heading);
+  return { x: pose.x + lx * c - lz * s, z: pose.z + lx * s + lz * c };
+}
+
 /**
  * On touch, held things float this far (px) straight above the finger so it doesn't hide them: the held thing's centre,
  * the same for every piece and every zoom (QA I5: with the grab point kept, it floated 30–90 px off, by piece and zoom,
@@ -2444,7 +2456,14 @@ export class Interaction {
       const touch = this.lastPointerWasTouch;
       const heldAt = (height: number): Pose | null => {
         const p = this.planeAt(x, sy, height + (touch ? HOLD_LIFT : 0));
-        return p && poseForCentre(holdType, m.heldFlipped, p.x + (touch ? 0 : m.offset.x), p.z + (touch ? 0 : m.offset.z), m.heading);
+        if (!p) return null;
+        const pose = poseForCentre(holdType, m.heldFlipped, p.x + (touch ? 0 : m.offset.x), p.z + (touch ? 0 : m.offset.z), m.heading);
+        if (!touch) return pose;
+        // By the piece as it looks (its middle, not the middle of its ends: a buffer's or a switch's are well apart).
+        const v = visualCentre(holdType, m.heldFlipped, pose);
+        pose.x += p.x - v.x;
+        pose.z += p.z - v.z;
+        return pose;
       };
       // Loose, a piece's first end lands on a quarter-square grid, so square-laid track lines up with the squares and
       // with other track.

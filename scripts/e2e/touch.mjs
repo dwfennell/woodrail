@@ -219,8 +219,21 @@ async function selectThenDrag(ctx, p) {
     await touch("touchMove", sx - (40 * k) / 12, sy);
     if (k === 6) hMid = await p.evaluate(() => window.woodrail.interaction.mode.kind);
   }
+  // Where it's held (QA I5): its middle just above the fingertip, by a set amount, however it was taken hold of.
+  await new Promise((r) => setTimeout(r, 800));
+  const off = await p.evaluate(([fx, fy]) => {
+    const w = window.woodrail;
+    const m = w.interaction.mode;
+    if (m.kind !== "drag-piece") return null;
+    m.ghost.geometry.computeBoundingBox();
+    const c = m.ghost.geometry.boundingBox.getCenter(new w.camera.position.constructor());
+    m.ghost.updateMatrixWorld();
+    m.ghost.localToWorld(c).project(w.camera);
+    return [Math.round(((c.x + 1) / 2) * innerWidth - fx), Math.round(((1 - c.y) / 2) * innerHeight - fy), m.snap.kind];
+  }, [sx - 40, sy]);
   await lift();
   check("held, then dragged: it moves with the finger", hMid === "drag-piece", `mid-drag ${hMid}`);
+  check("…its middle held just above the fingertip (QA I5)", !!off && (off[2] === "snapped" || (Math.abs(off[0]) <= 20 && off[1] <= -40 && off[1] >= -80)), off ? `dx ${off[0]}, dy ${off[1]} (${off[2]})` : "not held");
   await p.keyboard.press("Escape");
   // 2b'. A slow phone (QA): the hold is decided by when things happened (the events' own times), not by which arrives
   // first. The touches are stamped with the times they happened at, then delivered late.
