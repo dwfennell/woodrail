@@ -164,6 +164,17 @@ player grows.
   carries nothing it takes, the train runs through at speed, and the stop disc shows a little "nothing to do" puff.
   Lines don't crawl into empty depots.
 - **Unrouted trains are unchanged.** They are served everywhere, as now. Lines are an option, never a requirement.
+- **The intent rules, as Game Mode signed them off** (they own them in `economy.ts`):
+  - **Later stops** are the line's other stops in cyclic order from this one, excluding this one. A loop doesn't
+    pick up at A what only A takes.
+  - **At a warehouse** (or any stop that takes everything), drop only what *no later stop* takes, and pick up what a
+    later stop takes. Without this, logs bound for the sawmill would sit in the warehouse.
+  - **The workshop's first claim on planks holds:** a train doesn't drop planks at a town while a workshop later on
+    its line is short (`reserved`). With no workshop on the line, towns get them as usual.
+  - **Wait to fill** is read per stop for trains on a line; the depot's own setting stays for unrouted trains.
+  - **Skip-if-nothing never skips a wait-to-fill stop.** Passengers count as something to do. It's decided as the
+    train comes up to the stop (a loader's pile fills over time), not once a lap.
+  - **Drop and Pick override intent** per stop.
 
 ### 3.4 Lines: many trains, one route
 
@@ -269,4 +280,8 @@ requirements.
   on main: 0c07401.) They also own the Telegraph.
 - **Rail and road** own signals and pathing: Phase 3, the switch-clarity pin, and the path search shared by the ribbon
   and `steer`.
-- **Scenery** (this author): the ribbon and discs, edit mode, the engine and line cards, and the map view's Lines.
+- **Scenery** (this author): lines, the ribbon and discs, edit mode, the engine and line cards, the save format, and
+  the Lines view.
+- **The interface between the two:** Scenery provides
+  `lineOfCar(carId) → { stops: [{ depot, intent: "auto" | "drop" | "pick", waitFill }] } | null`. Game Mode builds
+  the economy's side behind it, stacked on Scenery's Phase 1 branch.
