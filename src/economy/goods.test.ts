@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { covers, describe as describeBag, minus, plus, times, total } from "./goods";
+import { covers, describe as describeBag, iconCounts, minus, plus, times, total } from "./goods";
 
 describe("bags of goods", () => {
   it("add, take away (never below zero), scale (rounding up) and count", () => {
@@ -15,9 +15,11 @@ describe("bags of goods", () => {
     expect(covers({}, {})).toBe(true);
   });
 
-  it("read as words", () => {
-    expect(describeBag({ planks: 1 })).toBe("1 plank");
-    expect(describeBag({ log: 2, planks: 12 })).toBe("2 logs + 12 planks");
+  it("read as words, each count with its icon", () => {
+    expect(describeBag({ planks: 1 })).toBe("1🪵 plank");
+    expect(describeBag({ log: 2, planks: 12 })).toBe("2🌲 logs + 12🪵 planks");
     expect(describeBag({})).toBe("nothing");
+    expect(iconCounts({ stone: 10, planks: 30 })).toBe("30🪵 10🪨");
+    expect(iconCounts({})).toBe("");
   });
 });

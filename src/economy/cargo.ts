@@ -20,6 +20,27 @@ export const CARGO: Record<CargoKind, { readonly index: number; readonly label: 
   tools: { index: 9, label: "Tools" },
 };
 
+/**
+ * One icon per kind of goods, used wherever goods are counted (tray costs, cards, needs, the journal): "30🪵 10🪨".
+ * Each is one glyph (a single code point, at most with a variation selector; no joined sequences that older phones
+ * draw as two), and no two kinds share one. Planks are 🪵 (as they always were); logs are a tree.
+ */
+export const GOODS_ICON: Record<CargoKind, string> = {
+  log: "🌲",
+  planks: "🪵",
+  grain: "🌾",
+  flour: "🍞",
+  stone: "🪨",
+  coal: "⚫",
+  ore: "⛏️",
+  iron: "🔩",
+  furniture: "🪑",
+  tools: "🧰",
+};
+
+/** Coins, beside goods in a cost. */
+export const COIN_ICON = "🪙";
+
 /** What each kind of wagon carries: a kind of wagon per kind of goods (timber wagons take logs and planks). */
 export const CARRIES: Partial<Record<CarKind, readonly CargoKind[]>> = {
   // Timber wagons are flatbeds: logs, planks and iron bars.

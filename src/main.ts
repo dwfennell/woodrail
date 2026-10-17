@@ -39,9 +39,11 @@ import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/
 import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
-import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
+import { BRANCHES, describeNeed as describeNeedWords, type Need, type Plan, type Price } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { aOrAn, describe as describeGoods, kindsOf, minus, total, type Bag } from "./economy/goods";
+import { costTag } from "./ui/cost-tag";
+import { GOODS_ICON, type CargoKind } from "./economy/cargo";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
@@ -57,6 +59,11 @@ import { TITLE_ART_PIECE, TITLE_ART_TRAIN, TitleScreen } from "./ui/title";
 import { installClickShield } from "./ui/click-shield";
 import { startUpdateCheck } from "./ui/update-check";
 import "./style.css";
+
+/** A blueprint's requirement in words, a count of goods with its icon: "20🪨 stone delivered". */
+function describeNeed(n: Need): string {
+  return n.kind === "delivered" ? `${n.n}${GOODS_ICON[n.good as CargoKind] ?? ""} ${n.good} delivered` : describeNeedWords(n);
+}
 
 /** How far (mm) the opening view stands from where track was last built: the middle of the zoom range. */
 const OPENING_DISTANCE = 1000;
@@ -979,12 +986,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return true;
   }
 
-  /** A short cost for a tray badge: "3🪵" for planks, else "2 iron"; coins "50🪙". */
-  function costTag(cost: Bag, coins = 0): string {
-    const goods = kindsOf(cost).map((k) => (k === "planks" ? `${cost[k]}🪵` : `${cost[k]} ${k}`));
-    return [...goods, ...(coins > 0 ? [`${coins}🪙`] : [])].join(" ");
-  }
-
   /** Something was made from the tray: the toy box's counts and the coins change. */
   function afterCraft(): void {
     hud.setCoins(progress.coins);
@@ -1112,6 +1113,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     refreshBoard();
   }
 
+  /** A blueprint's price as the tray shows costs: "16🪵 40🪙" ("free" for nothing). */
+  function priceTag(p: Price): string {
+    return costTag({ planks: p.planks, ...(p.goods as Bag | undefined) }, p.coins) || "free";
+  }
+
   const PLAN_WORDS: Record<Plan, string> = { next: "Coming soon: next on the list", soon: "Coming soon", later: "Coming one day", ending: "The ending: coming one day" };
 
   /**
@@ -1145,7 +1151,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (makes.length === 0) makes.push({ label: t.brings, icon: `<span class="bp-feature">✨</span>` });
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
       const price = priceOf(progress, t);
-      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price: describePrice(price), planks: price.planks ?? 0, requires };
+      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price: priceTag(price), planks: price.planks ?? 0, requires };
       if (progress.learned.has(t.id)) return { ...base, state: "learned" as const };
       if (t.plan) return { ...base, state: "soon" as const, waits: PLAN_WORDS[t.plan] };
       const offer = offerOf(t.id);

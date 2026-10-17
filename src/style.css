@@ -383,7 +383,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 
 /* Game mode's toy box: how many of a piece are left, on its tray item; faded when there are none. */
 .tray-item { position: relative; }
-.tray-item .have { position: absolute; top: 5px; right: 6px; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: #3f8f4a; color: #fff; font-size: 12px; font-weight: 800; line-height: 1.4; text-align: center; }
+.tray-item .have { position: absolute; top: 5px; right: 6px; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: #3f8f4a; color: #fff; font-size: 12px; font-weight: 800; line-height: 1.4; text-align: center;
+  /* One line, never wider than the item: it may cover the top of the picture, never more. */
+  white-space: nowrap; max-width: calc(100% - 12px); overflow: hidden; box-sizing: border-box; }
+/* A long cost ("30🪵 10🪨 100🪙") spans the item's top, its type as small as its length needs (`costTagSize`, 11 to
+   7 px, set inline). */
+.tray-item .have.long { left: 2px; right: 2px; max-width: none; padding: 1px 3px; letter-spacing: -0.01em; }
 .tray-item.empty .have { background: #b9a487; }
 .tray-item.empty .icon { opacity: 0.45; filter: grayscale(0.6); }
 
