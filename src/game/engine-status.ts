@@ -1,5 +1,5 @@
 import { RECIPES, type Economy } from "../economy";
-import type { Sim, Train } from "../sim";
+import { SIM_DT, type Sim, type Train, type TurnCause } from "../sim";
 import type { Layout } from "../track";
 
 /** Why a train can't move at all: too heavy for its engines, or electric with no power (see `cantMove`). */
@@ -9,7 +9,7 @@ export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
 export type TrainState =
   | { kind: "derailed" }
   | { kind: "worked"; depotId: number; work: "Loading" | "Unloading" | "Loading and unloading" }
-  | { kind: "turning-back" }
+  | { kind: "turning-back"; cause: TurnCause; pieceId: number }
   | { kind: "red-signal"; signalId: number }
   | { kind: "too-heavy" }
   | { kind: "no-power" }
@@ -18,6 +18,9 @@ export type TrainState =
   | { kind: "held-up" }
   | { kind: "running" };
 
+/** How long after turning back at an open end a train's card still says so (s): it's running back the way it came. */
+export const TURNED_SHOWN_S = 8;
+
 /**
  * What a train is doing, and if it's standing with its lever on, why: being worked at a depot, turning back at the end
  * of the line, a red signal, too heavy for its engines or no power (`cantMove`), or held up by something else.
@@ -25,13 +28,20 @@ export type TrainState =
  */
 export function trainState(sim: Sim, economy: Economy, train: Train, lever: number, cantMove: CantMove | null = null): TrainState {
   if (train.derailed) return { kind: "derailed" };
-  // Being worked by a crane comes first: at a depot at the end of the line the train also waits to turn back.
+  // Turned back where the track just stops (a gap the player can't see): said first, over a depot's work there, and
+  // while it runs back the way it came, so the card doesn't just read "Running".
+  const turn = train.lastTurn;
+  const turning = train.turnback >= 0 && turn !== undefined;
+  if (turn?.cause === "open-end" && (turning || (sim.ticks - turn.tick) * SIM_DT < TURNED_SHOWN_S)) {
+    return { kind: "turning-back", cause: "open-end", pieceId: turn.pieceId };
+  }
+  // Being worked by a crane comes next: at a depot at the end of the line the train also waits to turn back.
   const depot = economy.servingDepot(train.id);
   if (depot) {
     const r = RECIPES[depot.role];
     return { kind: "worked", depotId: depot.id, work: r.takes.length === 0 ? "Loading" : r.gives.length === 0 ? "Unloading" : "Loading and unloading" };
   }
-  if (train.turnback >= 0) return { kind: "turning-back" };
+  if (train.turnback >= 0) return { kind: "turning-back", cause: turn?.cause ?? "buffer", pieceId: turn?.pieceId ?? -1 };
   if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id) };
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
   if (train.speed < 1) {
@@ -57,7 +67,7 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
     case "worked":
       return `${s.work} at ${nameOf(s.depotId)}`;
     case "turning-back":
-      return "Turning back at the end of the line";
+      return s.cause === "open-end" ? "Turning back: the track ends here" : s.cause === "train" ? "Turning back: another train's in the way" : "Turning back at the end of the line";
     case "red-signal":
       return "Waiting at a red signal";
     case "too-heavy":
@@ -97,6 +107,7 @@ export function trainsForReport(sim: Sim, economy: Economy, layout: Layout, cant
       topSpeed: sim.topSpeed ? Math.round(sim.topSpeed(t)) : null,
       piece: piece ? { id: front.pieceId, type: piece.type, s: Math.round(front.s) } : null,
       state: trainState(sim, economy, t, lever, cantMove),
+      lastTurn: t.lastTurn ? { ...t.lastTurn, secondsAgo: Math.round((sim.ticks - t.lastTurn.tick) * SIM_DT) } : null,
     };
   });
 }

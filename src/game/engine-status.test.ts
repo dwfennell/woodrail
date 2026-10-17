@@ -151,3 +151,54 @@ describe("why a train with its lever on isn't moving", () => {
     expect(JSON.parse(JSON.stringify(t))).toEqual(t);
   });
 });
+
+describe("turning back where the track just stops", () => {
+  it("says the track ends here while it waits, and for a while as it runs back; then just running", () => {
+    // No buffer: the line just stops (a gap the player can't see).
+    // A long way back: it runs back a good while before the far end.
+    const { layout, ids } = chain(Array<PieceTypeId>(16).fill("straight-216"));
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const r = sim.addTrain(["engine"], { pieceId: ids[14], pathIndex: 0, reversed: false, s: 120 });
+    if (r.kind !== "placed") throw new Error();
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    sim.setLever(engine, 1);
+    const status = () => engineStatus(sim, economy, engine, () => "?");
+    let waiting = false;
+    for (let k = 0; k < 120 * 10 && !waiting; k++) {
+      sim.tick();
+      waiting = (sim.findCar(engine)?.train.turnback ?? -1) >= 0;
+    }
+    expect(waiting).toBe(true);
+    expect(status()).toBe("Turning back: the track ends here");
+    expect(sim.findCar(engine)!.train.lastTurn).toMatchObject({ cause: "open-end", pieceId: ids[15] });
+    // Turned round and running back (the cars keep their ids): still says why for a few seconds.
+    run(sim, 3);
+    const t = sim.findCar(engine)!.train;
+    expect(t.turnback).toBe(-1);
+    expect(t.speed).toBeGreaterThan(1);
+    expect(status()).toBe("Turning back: the track ends here");
+    run(sim, 6);
+    expect(sim.findCar(engine)!.train.speed).toBeGreaterThan(1);
+    expect(status()).toBe("Running");
+  });
+
+  it("a buffer at the end of the line is the plain end of the line (the player's own choice)", () => {
+    const { layout, ids } = chain(["straight-216", "straight-216", "straight-216", "buffer"]);
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const r = sim.addTrain(["engine"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 120 });
+    if (r.kind !== "placed") throw new Error();
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    sim.setLever(engine, 1);
+    let said = "";
+    for (let k = 0; k < 120 * 10 && !said; k++) {
+      sim.tick();
+      if ((sim.findCar(engine)?.train.turnback ?? -1) >= 0) said = engineStatus(sim, economy, engine, () => "?");
+    }
+    expect(said).toBe("Turning back at the end of the line");
+    // Once it's running back from a buffer: just running.
+    run(sim, 4);
+    expect(engineStatus(sim, economy, engine, () => "?")).toBe("Running");
+  });
+});
