@@ -125,6 +125,49 @@ describe("goal guides", () => {
   });
 });
 
+describe("build-bridge guide", () => {
+  it("points at the river square nearest the player's line", () => {
+    const { w, straights } = joined();
+    const g = w.landscape.grid;
+    const end = w.layout.getPiece(straights[3])!.pose;
+    const rivers = () => {
+      const out: { x: number; z: number }[] = [];
+      g.forEachCell((i, c, r) => {
+        if (g.surface[i] === 1) out.push({ x: g.centreX(c), z: g.centreZ(r) });
+      });
+      return out;
+    };
+    // A single river square beside the end of the track.
+    for (const p of rivers()) g.surface[g.cellAtWorld(p.x, p.z)] = 0;
+    const i = g.cellAtWorld(end.x + 150, end.z + 150);
+    expect(i).not.toBe(-1);
+    g.surface[i] = 1;
+    g.touch();
+    const spot = { x: g.centreX(g.colOf(i)), z: g.centreZ(g.rowOf(i)) };
+    const guide = goal("build-bridge").guide(w);
+    expect(guide.points[0]).toEqual(spot);
+    expect(guide.marks).toEqual([spot]);
+    expect(guide).toMatchObject({ tab: "track", shelf: "Bridges" });
+    // A nearer river square wins (and the cache follows the grid).
+    const j = g.cellAtWorld(end.x + 80, end.z);
+    g.surface[j] = 1;
+    g.touch();
+    expect(goal("build-bridge").guide(w).points[0]).toEqual({ x: g.centreX(g.colOf(j)), z: g.centreZ(g.rowOf(j)) });
+  });
+
+  it("falls back to the line when the map has no river", () => {
+    const { w } = joined();
+    const g = w.landscape.grid;
+    g.forEachCell((i) => {
+      if (g.surface[i] === 1) g.surface[i] = 0;
+    });
+    g.touch();
+    const guide = goal("build-bridge").guide(w);
+    expect(guide.points.length).toBeGreaterThan(0);
+    expect(guide.marks).toEqual([]);
+  });
+});
+
 describe("GoalTracker", () => {
   it("ticks goals off in order, one a check; one met early waits for its turn", () => {
     const { w, straights } = joined();
