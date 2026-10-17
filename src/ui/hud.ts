@@ -1210,6 +1210,15 @@ export class Hud {
   }
 
   /** Point the Turn arrow (degrees clockwise on screen from straight up). Cheap to call every frame. */
+  private holdingKit = false;
+
+  /** A kit piece is in hand: on a models tab (Turn only) Flip shows too, to turn its building to the other side. */
+  setHoldingKit(on: boolean): void {
+    if (on === this.holdingKit) return;
+    this.holdingKit = on;
+    this.tray.classList.toggle("holding-kit", on);
+  }
+
   setTrayArrow(deg: number): void {
     const d = Math.round(deg);
     if (d === this.trayArrowWanted) return;

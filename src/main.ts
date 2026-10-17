@@ -2172,7 +2172,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   game.onFrame = (dt) => {
     interaction.refreshDepotCard();
     // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.
-    hud.setTrayArrow(interaction.trayArrow(hud.propsTab));
+    hud.setTrayArrow(interaction.trayArrow(hud.propsTab && !interaction.holdingKit));
+    hud.setHoldingKit(interaction.holdingKit);
     interaction.tick(dt);
     const now = performance.now();
     if (mapView.open) {

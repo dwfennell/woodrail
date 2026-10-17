@@ -1,4 +1,4 @@
-import { kitOf, pathLength, getPieceDef, type KitStopWho, type Layout } from "../track";
+import { kitOf, getPieceDef, type KitStopWho, type Layout } from "../track";
 import { SIM_DT, type Sim, type Train } from "../sim";
 import { ticks } from "./constants";
 
@@ -110,9 +110,9 @@ export class KitStops {
       return Infinity;
     }
     if (v.phase === HALTED) return 0;
-    const len = pathLength(getPieceDef(piece!.type, piece!.flipped).paths[lead.pathIndex].geom);
-    const along = lead.reversed ? len - lead.s : lead.s;
-    const ahead = stop.at - along;
+    // How far the front has come onto the kit from the end it came in by: a cursor's `s` counts the way it travels
+    // (from the path's `to` end when reversed), as the stop point `at` does.
+    const ahead = stop.at - lead.s;
     if (ahead < -AT_STOP) {
       // Already past the stop point (put down beyond it): no stop this time.
       v.phase = DONE;

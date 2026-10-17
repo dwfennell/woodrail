@@ -279,3 +279,62 @@ describe("engine services (water, coal, fuel)", () => {
     expect(halted).toEqual([v.ids[0], v.ids[2]]);
   });
 });
+
+/**
+ * Every kit with a stop, on an oval of straights, driven round it both ways: a train coming in by the kit's far end
+ * (connector 1: its cursor reversed on the kit) stops there just as one coming in by its first end does.
+ */
+function ovalWith(kit: PieceTypeId, cars: CarKind[], backward: boolean) {
+  const layout = new Layout();
+  const types: PieceTypeId[] = ["straight-216", "straight-216", kit, "straight-216", "straight-216", ...Array<PieceTypeId>(4).fill("curve-large"), ...Array<PieceTypeId>(5).fill("straight-216"), ...Array<PieceTypeId>(4).fill("curve-large")];
+  const c = createWorldConnector();
+  let at = { x: 0, z: 0, heading: 0 };
+  const ids: number[] = [];
+  for (const type of types) {
+    const id = layout.addPiece(type, at);
+    ids.push(id);
+    layout.worldConnector(connectorRef(id, 1), c);
+    at = { x: c.x, z: c.z, heading: c.heading };
+  }
+  const sim = new Sim(layout);
+  const economy = new Economy(layout, sim);
+  // Forward: the front on the straight before the kit. Backward: on the one after it, heading back toward it.
+  const placed = backward
+    ? sim.addTrain(cars, { pieceId: ids[3], pathIndex: 0, reversed: true, s: 200 })
+    : sim.addTrain(cars, { pieceId: ids[1], pathIndex: 0, reversed: false, s: 200 });
+  if (placed.kind !== "placed") throw new Error("no room");
+  const train = () => sim.getTrain(sim.trainIds()[0])! as Train;
+  sim.setLever(train().cars.find((x) => x.kind === "engine")!.id, 1);
+  return { layout, sim, economy, train, kit: ids[2], step: () => (sim.tick(), economy.tick()) };
+}
+
+describe("kit stops work both ways through a kit", () => {
+  // Kits a train runs through (not the buffer-ended roads of a terminus or shed: those are entered one way only).
+  const through = (Object.keys(KITS) as PieceTypeId[]).filter((t) => {
+    const k = KITS[t as keyof typeof KITS];
+    return k.stop && k.track.paths.every((p) => p.to !== null);
+  });
+  it("there are stop kits to check", () => expect(through.length).toBeGreaterThan(3));
+  for (const type of through) {
+    const who = KITS[type as keyof typeof KITS].stop!.who;
+    const cars: CarKind[] = who === "passengers" ? ["engine", "passenger"] : ["engine", "hopper"];
+    for (const backward of [false, true]) {
+      it(`${type}: a ${who === "passengers" ? "passenger" : "steam"} train coming in ${backward ? "by its far end" : "by its first end"} stops`, () => {
+        const w = ovalWith(type, cars, backward);
+        let halted = false;
+        let haltedS = -1;
+        for (let i = 0; i < 6 * SIM_HZ && !halted; i++) {
+          w.step();
+          const t = w.train();
+          if (t.speed === 0 && t.bogies[0].pieceId === w.kit && w.economy.kitStops.dwelling(t.id)) {
+            halted = true;
+            haltedS = t.bogies[0].s;
+          }
+        }
+        expect(halted).toBe(true);
+        // Its front stands at the stop point, counted from the end it came in by.
+        expect(Math.abs(haltedS - KITS[type as keyof typeof KITS].stop!.at)).toBeLessThan(1);
+      });
+    }
+  }
+});

@@ -8,7 +8,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
@@ -742,6 +742,15 @@ export class Interaction {
    * The tray's Turn arrow, as seen on screen (degrees clockwise from straight up = away from the camera): which way
    * the next model faces (`props`), or the next piece runs.
    */
+  /**
+   * Is a kit piece in hand, or ready to put down with a tap (from a models shelf, whose tray shows only Turn: Flip
+   * shows too, and Turn and Flip act on the kit)?
+   */
+  get holdingKit(): boolean {
+    if (this.mode.kind === "drag-piece") return isKit(this.mode.type);
+    return this.armed?.kind === "piece" && isKit(this.armed.type);
+  }
+
   trayArrow(props: boolean): number {
     const d = new Vector3();
     this.game.camera.getWorldDirection(d);
@@ -752,7 +761,8 @@ export class Interaction {
 
   /** Tray "Turn": turns the piece in hand (if any) and every piece taken out after it (`props`: every model). */
   turnTrayPiece(props = false): void {
-    if (props || this.mode.kind === "drag-prop") {
+    // (A kit piece from a models shelf, in hand or ready, turns as a piece: the shelf's own Turn is for models.)
+    if ((props && !this.holdingKit) || this.mode.kind === "drag-prop") {
       if (this.mode.kind === "drag-prop") this.rotateSelected();
       else this.propHeading = this.nextPropHeading() + Math.PI / 4;
       return;
