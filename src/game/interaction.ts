@@ -1528,6 +1528,32 @@ export class Interaction {
   private hintFor: { key: string; hint: string | null } | null = null;
 
   /**
+   * The same end, seated by another of the piece's ends, as held otherwise (not mirrored), where it can go: the one
+   * turning it least from how it's held. Null if none. Worked out once per seat while it's refused.
+   */
+  private turnedSeat(type: PieceTypeId, flipped: boolean, snap: Extract<SnapResult, { kind: "snapped" }>, pieceId: number): Extract<SnapResult, { kind: "snapped" }> | null {
+    const key = `${type}|${flipped}|${snap.target}|${snap.connector}|${pieceId}|${this.game.layout.pieceCount}`;
+    if (this.turnedFor?.key === key) return this.turnedFor.seat;
+    const t = this.game.layout.worldConnector(snap.target, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+    const at = { x: t.x, z: t.z, heading: t.heading + Math.PI };
+    let best: Extract<SnapResult, { kind: "snapped" }> | null = null;
+    let bestTurn = Infinity;
+    getPieceDef(type, flipped).connectors.forEach((c, k) => {
+      if (k === snap.connector || Math.abs(t.y - (snap.y + c.y)) > 2) return;
+      const pose = solveParentPose(c.pose, at, { x: 0, z: 0, heading: 0 });
+      const y = t.y - c.y;
+      if (this.placement(type, flipped, pose, y, pieceId).reason !== null) return;
+      const turn = Math.abs(normalizeAngle(pose.heading - snap.pose.heading));
+      if (turn >= bestTurn) return;
+      bestTurn = turn;
+      best = { ...snap, pose, y, connector: k };
+    });
+    this.turnedFor = { key, seat: best };
+    return best;
+  }
+  private turnedFor: { key: string; seat: Extract<SnapResult, { kind: "snapped" }> | null } | null = null;
+
+  /**
    * A piece held loose where it can't go: would it seat clear on an end there, turned another way (an eighth of a turn
    * at a time)? Then say "Turn it to fit". Worked out once per spot (to the nearest 12 mm) while it's refused.
    */
@@ -2184,9 +2210,20 @@ export class Interaction {
         m.ghost = this.heldMesh(m.type, m.flipped);
         m.ghost.visible = visible;
       }
-      const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
-      const py = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
-      const { reason, risers } = this.placement(m.type, m.flipped, pose, py, m.pieceId);
+      let pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
+      let py = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
+      let { reason, risers } = this.placement(m.type, m.flipped, pose, py, m.pieceId);
+      // Seated on an end where it can't go, but seated by another of its ends there it can (a curve bending the other
+      // way, clear of a house): it goes that way. (Never mirrored: that's the player's Flip.) Turn still turns it.
+      if (reason && m.snap.kind === "snapped" && !m.auto) {
+        const turned = this.turnedSeat(m.type, m.flipped, m.snap, m.pieceId);
+        if (turned) {
+          m.snap = turned;
+          pose = turned.pose;
+          py = turned.y;
+          ({ reason, risers } = this.placement(m.type, m.flipped, pose, py, m.pieceId));
+        }
+      }
       // (A preview under the mouse just shows red: the reason comes if it's clicked.)
       // While it's held where it can't go, the reason stays up (and goes once it can, or it's over the tray).
       m.hint = !reason ? null : m.snap.kind === "snapped" ? this.fitHint(m.type, m.flipped, m.snap, m.pieceId) : this.turnHint(holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId);
