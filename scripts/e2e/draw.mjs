@@ -646,9 +646,9 @@ async function specials() {
   };
   const show = (got) => `${got.pieces.map((q) => `${q.type}@${q.y}`).join(" ")}${got.toasts.length ? ` · toasts: ${got.toasts.join(" | ")}` : ""}`;
   if (found.river) {
-    // Over the water the line is up a level, and the finger follows it there (seen at that height).
-    const w = found.river.width;
-    const got = await drawAcross(found.river, (d) => (d > 3.5 * 72 && d < (5 + w + 0.5) * 72 ? 48 : 0), "river");
+    // A straight line on the screen, as over the ground (once the line is up a level, the finger is seen at that
+    // height: the line drifts a little to one side of where it would be on the ground, and follows that).
+    const got = await drawAcross(found.river, () => 0, "river");
     const types = got.pieces.map((q) => q.type);
     const firstRamp = types.indexOf("ramp");
     const lastRamp = types.lastIndexOf("ramp");
