@@ -24,6 +24,7 @@ import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { dragMoves } from "./drag-rule";
+import { HOLD_MS, holdOutcome, holdPicksUp } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
@@ -96,7 +97,18 @@ type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; 
 type Mode =
   | { kind: "idle" }
   /** `add`: Shift was held (a tap picks the piece, along with any already picked). */
-  | { kind: "press"; press: Press; pointerId: number; pointerType: string; x: number; y: number; ground: Vector3; add: boolean }
+  | {
+      kind: "press";
+      press: Press;
+      pointerId: number;
+      pointerType: string;
+      x: number;
+      y: number;
+      ground: Vector3;
+      add: boolean;
+      /** On touch, a press on something not selected that a long press would pick up (see touch-hold.ts). */
+      hold?: { timer: number; travel: number };
+    }
   | {
       /** The picked pieces dragged together, rigidly (with the risers under them). */
       kind: "drag-group";
@@ -763,7 +775,9 @@ export class Interaction {
       return;
     }
     this.game.controls.enabled = false;
-    this.mode = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey };
+    const press: Extract<Mode, { kind: "press" }> = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey };
+    this.mode = press;
+    this.armHold(press);
   }
 
   /**
@@ -798,54 +812,84 @@ export class Interaction {
     }
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (m.kind === "press") {
-      if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
+      const travel = Math.hypot(e.clientX - m.x, e.clientY - m.y);
+      if (m.hold) {
+        // Waiting to see if it's a hold: a wobble within the slop keeps waiting; past it, it's a pan after all.
+        m.hold.travel = Math.max(m.hold.travel, travel);
+        if (holdOutcome(0, m.hold.travel, this.touches.size) === "wait") return;
+        clearTimeout(m.hold.timer);
+        m.hold = undefined;
+      } else if (travel < DRAG_THRESHOLD) return;
       if (!this.dragsWhatsPressed(m.press, m.pointerType)) {
         // Select first: a drag that starts on anything placed that isn't selected (a piece, a train, an industry, a
         // prop, a road) pans the view, like the floor, so panning over a busy map never moves something by accident.
-        // Tap it to select it, then drag it. The camera picks the gesture up from here.
+        // Tap it to select it, then drag it (or, on touch, rest a finger on it: see armHold). The camera picks the
+        // gesture up from here.
         this.mode = { kind: "idle" };
         this.game.controls.enabled = true;
         return;
       }
-      if (m.press.kind === "piece" && this.fixedLabel(m.press.pieceId)) {
-        // Stations and depots are part of the map and stay put.
-        this.mode = { kind: "idle" };
-        this.game.controls.enabled = true;
-        return;
-      }
-      if (m.press.kind === "piece" && this.picking) {
-        // Picking: a drag on a picked piece moves them all; anywhere else it pans (so a pan never breaks the group).
-        if (this.picked.has(m.press.pieceId)) this.beginGroupMove(m.press.pieceId, m.pointerId, m.x, m.y);
-        else {
-          this.mode = { kind: "idle" };
-          this.game.controls.enabled = true;
-          return;
-        }
-      } else if (m.press.kind === "piece") this.beginPieceMove(m.press.pieceId, m.pointerId, m.ground);
-      else if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) !== -1) this.beginPieceMove(this.movableIndustry(m.press.depotId), m.pointerId, m.ground);
-      else if (m.press.kind === "cargo") this.beginCargoDrag(m.press.slot, m.press.cargo, m.pointerId);
-      else if (m.press.kind === "prop") this.beginPropMove(m.press.propId, m.pointerId, m.ground);
-      else if (m.press.kind === "road") {
-        const drag = this.roads.pickUp(m.press.cell);
-        if (!drag) {
-          this.mode = { kind: "idle" };
-          this.game.controls.enabled = true;
-          return;
-        }
-        this.mode = { kind: "drag-road", pointerId: m.pointerId, drag, overTray: false };
-        this.onPickup?.();
-      }
-      else if (m.press.kind === "car") {
-        this.beginTrainPickup(m.press.carId, m.pointerId);
-        if (this.mode.kind === "idle") return;
-      }
-      else {
-        this.mode = { kind: "idle" };
-        this.game.controls.enabled = true;
-        return;
-      }
+      if (!this.startDrag(m)) return;
     }
     this.updateDrag(e.clientX, e.clientY);
+  }
+
+  /**
+   * A press becomes a drag of what's pressed (a piece, the industry, a train, cargo, a prop, a road). False, and back to
+   * idle with the camera free, if what's pressed doesn't move (a station, a lever, a road that won't come up).
+   */
+  private startDrag(m: Extract<Mode, { kind: "press" }>): boolean {
+    const idle = () => {
+      this.mode = { kind: "idle" };
+      this.game.controls.enabled = true;
+      return false;
+    };
+    // Stations and depots are part of the map and stay put.
+    if (m.press.kind === "piece" && this.fixedLabel(m.press.pieceId)) return idle();
+    if (m.press.kind === "piece" && this.picking) {
+      // Picking: a drag on a picked piece moves them all; anywhere else it pans (so a pan never breaks the group).
+      if (!this.picked.has(m.press.pieceId)) return idle();
+      this.beginGroupMove(m.press.pieceId, m.pointerId, m.x, m.y);
+    } else if (m.press.kind === "piece") this.beginPieceMove(m.press.pieceId, m.pointerId, m.ground);
+    else if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) !== -1) this.beginPieceMove(this.movableIndustry(m.press.depotId), m.pointerId, m.ground);
+    else if (m.press.kind === "cargo") this.beginCargoDrag(m.press.slot, m.press.cargo, m.pointerId);
+    else if (m.press.kind === "prop") this.beginPropMove(m.press.propId, m.pointerId, m.ground);
+    else if (m.press.kind === "road") {
+      const drag = this.roads.pickUp(m.press.cell);
+      if (!drag) return idle();
+      this.mode = { kind: "drag-road", pointerId: m.pointerId, drag, overTray: false };
+      this.onPickup?.();
+    } else if (m.press.kind === "car") {
+      this.beginTrainPickup(m.press.carId, m.pointerId);
+      if (this.mode.kind === "idle") return false;
+    } else return idle();
+    return true;
+  }
+
+  /**
+   * On touch, a press on something that isn't selected but a long press would pick up: wait to see whether the finger
+   * rests (a hold) or moves (a pan). The cue that it's been picked up is the thing lifting under the finger, and a short
+   * buzz where the phone has one.
+   */
+  private armHold(m: Extract<Mode, { kind: "press" }>): void {
+    const target = m.press.kind === "piece" ? "piece" : m.press.kind === "car" ? "car" : m.press.kind === "depot" ? "depot" : null;
+    if (!target || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType)) return;
+    if (m.press.kind === "piece" && (this.picking || this.fixedLabel(m.press.pieceId))) return;
+    if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) === -1) return;
+    m.hold = { timer: window.setTimeout(() => this.holdFired(m), HOLD_MS), travel: 0 };
+  }
+
+  private holdFired(m: Extract<Mode, { kind: "press" }>): void {
+    if (this.mode !== m || !m.hold) return;
+    m.hold = undefined;
+    if (holdOutcome(HOLD_MS, 0, this.touches.size) !== "hold") return;
+    if (!this.startDrag(m)) return;
+    try {
+      navigator.vibrate?.(15);
+    } catch {
+      // (Some browsers refuse it without a gesture of their own: the lift is cue enough.)
+    }
+    this.updateDrag(m.x, m.y);
   }
 
   private onUp(e: PointerEvent): void {
@@ -886,6 +930,7 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     this.game.controls.enabled = true;
     if (m.kind === "press") {
+      if (m.hold) clearTimeout(m.hold.timer);
       this.mode = { kind: "idle" };
       // (Cargo is tapped again and again, a unit a tap: never a double tap.)
       if (m.press.kind !== "lever" && m.press.kind !== "cargo" && this.noteTap(e)) this.focusOn(m.press);
@@ -939,6 +984,7 @@ export class Interaction {
     this.game.director.setEdgePointer(null);
     this.hud.setRefusal(null);
     const m = this.mode;
+    if (m.kind === "press" && m.hold) clearTimeout(m.hold.timer);
     this.game.controls.enabled = true;
     if (m.kind === "drag-piece") {
       this.dropHeld(m.ghost);

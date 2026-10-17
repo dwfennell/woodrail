@@ -160,6 +160,52 @@ async function selectThenDrag(ctx, p) {
   const bMid = await drag(sx, sy, -40);
   check("tap a piece to select it, then a drag picks it up and moves it", bMid === "drag-piece", `mid-drag ${bMid}`);
   await p.keyboard.press("Escape");
+  // 2b. Long-press to pick up: let go of it first (nothing selected), then a finger resting on it picks it up into a drag.
+  await p.keyboard.press("Escape");
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  /** Touch down at (x, y), rest `ms` (with a 3 px wobble), maybe put a second finger down, then report the mode. */
+  const holdAt = async (x, y, ms, second = false) => {
+    await touch("touchStart", x, y);
+    await new Promise((r) => setTimeout(r, ms / 2));
+    await touch("touchMove", x + 3, y + 2);
+    if (second) await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x + 3, y: y + 2, id: 1 }, { x: x + 80, y: y + 40, id: 2 }] });
+    await new Promise((r) => setTimeout(r, ms / 2));
+    return p.evaluate(() => window.woodrail.interaction.mode.kind);
+  };
+  const lift = async () => {
+    await touch("touchEnd", 0, 0);
+    await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  };
+  const c0 = await where();
+  [sx, sy] = await onScreen();
+  const held = await holdAt(sx, sy, 520);
+  await lift();
+  const c1 = await where();
+  check("a long press on an unselected piece picks it up", held === "drag-piece", `after 520 ms: ${held}`);
+  check("…and letting go without moving puts it back where it was", JSON.stringify(c1.piece) === JSON.stringify(c0.piece), `${c0.piece} → ${c1.piece}`);
+  await p.keyboard.press("Escape");
+  [sx, sy] = await onScreen();
+  const short = await holdAt(sx, sy, 200);
+  check("a short press (200 ms) doesn't pick it up", short === "press", `after 200 ms: ${short}`);
+  await lift();
+  await p.keyboard.press("Escape");
+  [sx, sy] = await onScreen();
+  const two = await holdAt(sx, sy, 520, true);
+  check("a second finger during the hold cancels it (two fingers move the view)", two === "idle", `after 520 ms with two fingers: ${two}`);
+  await lift();
+  await p.keyboard.press("Escape");
+  // Held, then dragged: it moves.
+  [sx, sy] = await onScreen();
+  await touch("touchStart", sx, sy);
+  await new Promise((r) => setTimeout(r, 520));
+  let hMid = "";
+  for (let k = 1; k <= 12; k++) {
+    await touch("touchMove", sx - (40 * k) / 12, sy);
+    if (k === 6) hMid = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+  }
+  await lift();
+  check("held, then dragged: it moves with the finger", hMid === "drag-piece", `mid-drag ${hMid}`);
+  await p.keyboard.press("Escape");
   // 3. A train, not selected: the drag pans, the train stays.
   const placed = await p.evaluate(async (id) => {
     const w = window.woodrail;
