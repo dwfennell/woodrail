@@ -22,7 +22,7 @@ import { landmarkOf, landmarksOf } from "./game/landmarks";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { costOf, craftNow, craftShort, Crafting, lacking, workshops, workshopStock } from "./game/crafting";
+import { costOf, craftNow, craftShort, Crafting, lacking, uncraft, workshops, workshopStock } from "./game/crafting";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
@@ -239,11 +239,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         if (trayAllowed(item)) interaction.startTrayDrag(item, e);
       },
       trayTap: (item) => {
-        // A tap on a piece only puts the ready one away (or says why it can't come out): it never makes one.
+        // A tap on a piece only puts the ready one away (or says why it can't come out); on a train, only says why. It
+        // never makes anything: that's for a drag out of the tray.
         if (item.kind === "piece") {
           if (!interaction.isArmed(item)) trayAllowed(item, false);
           interaction.tapTrayPiece(item);
-        } else if (trayAllowed(item)) interaction.tapTrayPiece(item);
+        } else if (trayAllowed(item, item.kind !== "train")) interaction.tapTrayPiece(item);
       },
       trayTabChanged: () => interaction.arm(null),
       trayDraw: (on) => interaction.setDrawing(on),
@@ -956,6 +957,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   interaction.trayAllowed = (item) => trayAllowed(item);
   function trayAllowed(item: Parameters<typeof thingsFor>[0] | { kind: string }, make = true): boolean {
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train")) return true;
+    // (A new take: whatever an earlier one made is settled, or never was.)
+    if (make) trainMade = null;
     const look = lockedLook(item);
     if (look) {
       const t = techOf(look)!;
@@ -985,13 +988,36 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return false;
     }
     if (!make) return true;
+    // A train's cars are made as it's taken out: kept to be given back if it's dropped off the track.
+    trainMade = item.kind === "train" ? lack : null;
     const cost = costOf(lack);
     // "a switch", "3 flatbed wagons", or a whole train by its name.
     const made = one === 1 ? aOrAn(label.toLowerCase()) : one > 1 ? describeThings([...lack]).toLowerCase() : label.toLowerCase();
-    hud.toast(`Made ${made}: ${[total(cost.goods) > 0 ? `${describeGoods(cost.goods)} from the workshop` : "", cost.coins > 0 ? `${cost.coins} coins` : ""].filter(Boolean).join(" and ")}`, false, 2600);
+    const said = `Made ${made}: ${[total(cost.goods) > 0 ? `${describeGoods(cost.goods)} from the workshop` : "", cost.coins > 0 ? `${cost.coins} coins` : ""].filter(Boolean).join(" and ")}`;
+    // A train's is said once it's on the track (dropped off it, nothing's made after all).
+    if (trainMade) trainSaid = said;
+    else hud.toast(said, false, 2600);
     afterCraft();
     return true;
   }
+
+  /** The cars made for the train in hand (taken from the tray), until it's put down. */
+  let trainMade: Map<ThingId, number> | null = null;
+  let trainSaid = "";
+  interaction.onTrayTrainDropped = (placed) => {
+    const made = trainMade;
+    const said = trainSaid;
+    trainMade = null;
+    trainSaid = "";
+    if (!made || mode !== "game") return;
+    if (placed) {
+      hud.toast(said, false, 2600);
+      return;
+    }
+    // Missed the track (or back over the tray): nothing was used, so nothing's spent.
+    uncraft(game.world, progress, made);
+    afterCraft();
+  };
 
   /** Something was made from the tray: the toy box's counts and the coins change. */
   function afterCraft(): void {
