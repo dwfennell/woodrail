@@ -466,8 +466,26 @@ export class Hud {
       missing.push(item);
       return `<span class="thumb-pending" data-thumb="${key}"></span>`;
     };
+    /** A label whose one long word doesn't fit its tile ("Warehouse" at 70 px) is set smaller rather than broken. */
+    const fitLabels = () => {
+      const labels = [...scroller.querySelectorAll<HTMLElement>(".label")];
+      // (Not while the tray isn't laid out: behind the title screen everything measures 0.)
+      if (labels.length === 0 || scroller.clientWidth === 0) return;
+      for (const l of labels) l.classList.remove("squeeze");
+      for (const l of labels.filter((l) => l.scrollWidth > l.clientWidth + 1)) l.classList.add("squeeze");
+    };
+    this.fitTrayLabels = fitLabels;
+    // Again when the tiles change size (the phone turns) and when the type's font has come (it's wider than the one
+    // standing in for it).
+    let refit = 0;
+    addEventListener("resize", () => {
+      clearTimeout(refit);
+      refit = window.setTimeout(fitLabels, 200);
+    });
+    document.fonts?.addEventListener("loadingdone", () => requestAnimationFrame(fitLabels));
     const show = () => {
       requestAnimationFrame(edges);
+      requestAnimationFrame(fitLabels);
       if (missing.length > 0) this.handlers.needThumbnails(missing.splice(0));
     };
     // Top level: one button per group; open one to see its items, with a way back first in the row.
@@ -871,7 +889,11 @@ export class Hud {
     this.root.hidden = !visible;
     this.toastEl.hidden = !visible;
     if (!visible) this.menu.hidden = true;
+    else requestAnimationFrame(() => this.fitTrayLabels());
   }
+
+  /** Mark the tray's labels too long for their tiles (see the tray's `fitLabels`). */
+  private fitTrayLabels: () => void = () => {};
 
   showHelp(): void {
     this.help.hidden = false;
