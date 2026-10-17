@@ -9,6 +9,7 @@ import {
   Float32BufferAttribute,
   Matrix4,
   Shape,
+  ShapeGeometry,
   ShapeUtils,
   Vector2,
   Vector3,
@@ -591,20 +592,43 @@ const PLUG_DROP = 0.1;
  * from the track base. Plain extrusions, no carving. Indexed, with position, normal and uv.
  */
 export function buildPegGeometry(): BufferGeometry {
-  const plug = extrudeUp(
-    keyholeShape(0, PEG_NECK_LENGTH + SOCKET_CLEARANCE - 1, PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE, PEG_HEAD_RADIUS + SOCKET_CLEARANCE, -1),
-    TRACK_THICKNESS - PLUG_DROP,
-    0,
-  );
-  const peg = extrudeUp(keyholeShape(-2, PEG_NECK_LENGTH + 2, PEG_NECK_WIDTH / 2, PEG_HEAD_RADIUS, 1), PEG_HEIGHT, 0.6);
+  // Only what can be seen: the plug's top (its walls stand against the hole's, its bottom on the piece's floor), its
+  // face on the end of the piece, and the peg's top and walls out past it (its bottom sits on whatever's below). A
+  // seat for every joint on the map, so kept to a few dozen triangles: coarse curves, no bevel.
+  const plugShape = keyholeShape(0, PEG_NECK_LENGTH + SOCKET_CLEARANCE - 1, PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE, PEG_HEAD_RADIUS + SOCKET_CLEARANCE, -1);
+  const pegShape = keyholeShape(0, PEG_NECK_LENGTH, PEG_NECK_WIDTH / 2, PEG_HEAD_RADIUS, 1);
+  const top = (shape: Shape, height: number) => new ShapeGeometry(shape, PEG_CURVE_SEGMENTS).translate(0, 0, height).toNonIndexed();
+  const plugTop = top(plugShape, TRACK_THICKNESS - PLUG_DROP);
+  const pegTop = top(pegShape, PEG_HEIGHT);
+  // The peg's walls: an extrusion's sides only (its caps are the first group).
+  const extruded = new ExtrudeGeometry(pegShape, { depth: PEG_HEIGHT, bevelEnabled: false, curveSegments: PEG_CURVE_SEGMENTS });
+  const capCount = extruded.groups[0].count;
+  const walls = extruded.toNonIndexed();
+  const wallPositions = walls.getAttribute("position").array.slice(capCount * 3);
+  const wallUvs = walls.getAttribute("uv").array.slice(capCount * 2);
+  const pegWalls = new BufferGeometry();
+  pegWalls.setAttribute("position", new Float32BufferAttribute(wallPositions, 3));
+  pegWalls.setAttribute("uv", new Float32BufferAttribute(wallUvs, 2));
+  pegWalls.computeVertexNormals();
+  // The plug's face on the end of the piece (across its neck, base to top), facing out.
+  const half = PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE;
+  const h = TRACK_THICKNESS - PLUG_DROP;
+  const face = new BufferGeometry();
+  face.setAttribute("position", new Float32BufferAttribute([0, -half, 0, 0, half, 0, 0, half, h, 0, -half, 0, 0, half, h, 0, -half, h], 3));
+  face.setAttribute("uv", new Float32BufferAttribute([-half, 0, half, 0, half, h, -half, 0, half, h, -half, h], 2));
+  face.computeVertexNormals();
   const toEnd = connectorBasis(0, 0, 0, 0);
-  const parts = [plug, peg].map((g) => onlyCsgAttributes(g.applyMatrix4(toEnd)));
+  const parts = [plugTop, pegTop, pegWalls, face].map((g) => onlyCsgAttributes(g.applyMatrix4(toEnd)));
+  for (const part of parts) if (!part.getAttribute("normal")) part.computeVertexNormals();
   const g = mergeVertices(mergeGeometries(parts), 1e-4);
-  for (const part of parts) part.dispose();
+  for (const part of [...parts, extruded, walls]) part.dispose();
   g.computeBoundingBox();
   g.computeBoundingSphere();
   return g;
 }
+
+/** A peg's curves: round enough at the size it's seen. */
+const PEG_CURVE_SEGMENTS = 8;
 
 /** Where a peg stands on this end of a piece, in piece space (for `buildPegGeometry`). */
 export function pegMatrix(c: ConnectorDef, out = new Matrix4()): Matrix4 {

@@ -65,4 +65,35 @@ describe("TrackView pegs", () => {
     view.moveInstances([a]);
     expect(pegsOf(view)).toEqual([{ x: 154, z: 20, piece: a }]);
   });
+
+  it("a group parted from the track (taken up to drag) gives its joints' pegs back to their own ends", () => {
+    const layout = new Layout();
+    const a = layout.addPiece("straight-144", P(0, 0));
+    const b = layout.addPiece("straight-144", P(144, 0));
+    const view = new TrackView(layout, mats);
+    view.sync();
+    // a's peg end holds the peg in b's hole.
+    expect(pegsOf(view)).toEqual([
+      { x: 144, z: 0, piece: a },
+      { x: 288, z: 0, piece: b },
+    ]);
+    layout.partFrom(new Set([a]));
+    view.jointsChanged();
+    // Parted: a's peg end is free (its peg stays), b's hole is empty; b's own peg end as before.
+    expect(pegsOf(view)).toEqual([
+      { x: 144, z: 0, piece: a },
+      { x: 288, z: 0, piece: b },
+    ]);
+    // The other way round: b parted keeps its peg at 288, and a's peg is now in no hole but still its own.
+    const l2 = new Layout();
+    const c = l2.addPiece("straight-144", P(144, 0, Math.PI)); // its peg end at x = 0, its hole at 144
+    const d = l2.addPiece("straight-144", P(144, 0)); // its hole at 144: two holes meet, one peg (c's, the first)
+    const v2 = new TrackView(l2, mats);
+    v2.sync();
+    expect(pegsOf(v2).filter((p) => p.x === 144)).toEqual([{ x: 144, z: 0, piece: c }]);
+    l2.partFrom(new Set([d]));
+    v2.jointsChanged();
+    // Two free holes: no peg between them.
+    expect(pegsOf(v2).filter((p) => p.x === 144)).toEqual([]);
+  });
 });

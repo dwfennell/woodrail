@@ -333,8 +333,8 @@ export function pieceMatrix(x: number, y: number, z: number, heading: number, ou
   return out.makeRotationY(-heading).setPosition(x, y, z);
 }
 
-/** How far past a free end (mm) its end board stands. */
-const END_BOARD_OUT = 8;
+/** How far past a free end (mm) its end board stands: clear of a peg standing out of it. */
+const END_BOARD_OUT = 24;
 
 /**
  * An end board on its own (as TrackView stands past free ends), its own geometry: for a held piece's end that will be
@@ -550,6 +550,12 @@ export class TrackView {
     this.syncOutline();
   }
 
+  /** Joints were made or parted without the pieces changing (a group taken up to drag): redo the pegs and end boards. */
+  jointsChanged(): void {
+    this.syncPegs();
+    this.syncEndBoards();
+  }
+
   /** Show every free end's board (building), or only those where a train has turned back. */
   showAllEnds(on: boolean): void {
     if (on === this.allEnds) return;
@@ -628,11 +634,6 @@ export class TrackView {
    * isn't drawn (lifted, or a stand-in animating in its place) counts as free.
    */
   private syncPegs(): void {
-    if (this.pegMesh) {
-      this.group.remove(this.pegMesh);
-      this.pegMesh.dispose();
-      this.pegMesh = null;
-    }
     const owners: number[] = [];
     const ends: number[] = [];
     const drawn = (id: number) => !this.layout.isLifted(id) && !this.hidden.has(id);
@@ -655,15 +656,25 @@ export class TrackView {
     }
     this.pegOwners = owners;
     this.pegEnds = ends;
-    if (owners.length === 0) return;
-    const mesh = new InstancedMesh((sharedPeg ??= buildPegGeometry()), this.mats.track, owners.length);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.userData.kind = "track";
-    this.pegMesh = mesh;
+    // The mesh is kept while it has room (a sync on every edit needn't make a new one), with some to spare when it grows.
+    let mesh = this.pegMesh;
+    if (!mesh || mesh.instanceMatrix.count < owners.length) {
+      if (mesh) {
+        this.group.remove(mesh);
+        mesh.dispose();
+      }
+      mesh = new InstancedMesh((sharedPeg ??= buildPegGeometry()), this.mats.track, Math.max(16, Math.ceil(owners.length * 1.5)));
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData.kind = "track";
+      this.pegMesh = mesh;
+      this.group.add(mesh);
+    }
+    mesh.count = owners.length;
+    mesh.visible = owners.length > 0;
     owners.forEach((id, i) => mesh.setColorAt(i, this.colourOf(id)));
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     this.placePegs(null);
-    this.group.add(mesh);
   }
 
   /** Put the pegs where their pieces are (only those of `ids`, or all). */

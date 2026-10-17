@@ -1772,6 +1772,8 @@ export class Interaction {
     const before = new Map(ids.map((id) => [id, { ...g.layout.getPiece(id)!.pose }]));
     const parted = g.layout.partFrom(members);
     g.sim.trackChanged();
+    // Parted from the track around it: the pegs at those joints go back to their own ends (and the ends show free).
+    g.trackView.jointsChanged();
     const ends: WorldConnector[] = [];
     for (const id of ids) {
       const p = g.layout.getPiece(id)!;
@@ -1840,6 +1842,7 @@ export class Interaction {
     g.layout.nudgePieces(m.before);
     for (const ref of m.parted) g.layout.seatFree(ref);
     g.trackView.moveInstances(m.ids);
+    g.trackView.jointsChanged();
     g.trackView.setHighlights(this.picked);
     g.sim.trackChanged();
     g.moveShadows();
