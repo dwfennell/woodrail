@@ -1,4 +1,4 @@
-import { BoxGeometry, Color, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, type BufferGeometry, type Material } from "three";
+import { BoxGeometry, BufferAttribute, Color, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, type BufferGeometry, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, CORNER_RADIUS, forEachInPlot, hillPieces, hillSlabs, hillsOf, type LandscapeGrid, type RoundBlock, type Slab } from "../../landscape";
 import { RISER_HEIGHT } from "../../track";
@@ -10,6 +10,11 @@ export const BLOCK_TONES = ["#ffffff", "#f4e4cc", "#ead3b0", "#fbefdc", "#e2c7a0
 const GRASS_TONES = ["#ffffff", "#f1f7ea", "#e6f0dc"];
 const GAP = 0.8;
 const PAINT = 4;
+/**
+ * The green tops' edge bevel (mm). Narrow: the bevel turned from the sun shades dark, and a wide one at every seam drew
+ * a dark grate across a big hill seen from afar.
+ */
+const PAINT_CHAMFER = 0.6;
 
 export interface BlockInstance {
   x: number;
@@ -177,7 +182,7 @@ export function blockMeshes(
     const body = uv(rounded ? roundedChamferedBox(w, h, w, 2.5 * k, corners, round) : new BoxGeometry(w, h, w), h);
     // The green paint is a layer of its own on top of a shorter block (same width, nothing overlapping), so no faces
     // lie close enough together to flicker.
-    const paint = uv(roundedPaint ? roundedChamferedBox(w, paintH, w, 1.6 * k, corners, round) : new BoxGeometry(w, paintH, w), w);
+    const paint = uv(roundedPaint ? roundedChamferedBox(w, paintH, w, PAINT_CHAMFER * k, corners, round) : new BoxGeometry(w, paintH, w), w);
     const wood = instanced(body, materials.wood, list.length);
     const grass = instanced(paint, materials.top, tops.length);
     wood.castShadow = false;
@@ -223,11 +228,19 @@ export function hillCore(slabs: readonly Slab[]): Mesh | null {
   if (boxes.length === 0) return null;
   const merged = mergeGeometries(boxes);
   for (const b of boxes) b.dispose();
-  const mesh = new Mesh(merged, new MeshBasicMaterial({ color: CORE_COLOUR }));
+  // Its top shaded grass, its sides dark wood: down a seam between two grass tops shows a soft dark green, not a dark
+  // brown line (across a big hill, those lines read as a grate); down a seam in a hill's side, wood in shadow.
+  const normal = merged.getAttribute("normal");
+  const colours = new Float32Array(normal.count * 3);
+  for (let i = 0; i < normal.count; i++) (normal.getY(i) > 0.5 ? CORE_TOP_COLOUR : CORE_COLOUR).toArray(colours, i * 3);
+  merged.setAttribute("color", new BufferAttribute(colours, 3));
+  const mesh = new Mesh(merged, new MeshBasicMaterial({ vertexColors: true }));
   mesh.userData.ownsMaterial = true;
   return mesh;
 }
 export const CORE_COLOUR = new Color("#3a2716");
+/** The core's top, seen down the seams between grass tops: the grass in shade. */
+const CORE_TOP_COLOUR = new Color("#4a6a2a");
 
 /**
  * Hills as individual rounded beech blocks, the top of each stack painted grass green, around a dark core. Without
