@@ -22,7 +22,8 @@ import { canStandOnArches, connectorRef, flipSwapsEnds, getPieceDef, isBridge, i
 import { MAX_BRIDGE_LEVELS } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
-import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry, buildPieceStandIn, buildPegGeometry, buildScaffold, compactPiece, pegMatrix, SLOT_CUT, withPegs } from "./track-geometry";
+import { SHADOW_PROXY_LAYER } from "./dressing/blocks";
+import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry, buildPieceShadowCaster, buildPieceStandIn, buildPegGeometry, buildScaffold, compactPiece, pegMatrix, SLOT_CUT, withPegs } from "./track-geometry";
 import type { PieceJob, PieceResult } from "./piece-worker";
 import { loadCached, saveCached } from "./piece-cache";
 import { drainQueue } from "./worker-queue";
@@ -365,6 +366,22 @@ function switchLeverGeometry(): BufferGeometry {
   }));
 }
 
+/** Shadow casters, one for each kind of piece, shared by every piece of that kind (see `buildPieceShadowCaster`). */
+const casters = new Map<string, BufferGeometry>();
+
+/**
+ * What a kind of piece casts its shadow with, or null to cast with the piece itself: bridges and ramps do (their
+ * arches' and supports' shadows are their own), and risers.
+ */
+function casterGeometry(type: PieceTypeId, flipped: boolean): BufferGeometry | null {
+  const def = getPieceDef(type, flipped);
+  if (def.supportHeight > 0 || def.paths.length === 0) return null;
+  const key = `${type}|${flipped ? 1 : 0}`;
+  let g = casters.get(key);
+  if (!g) casters.set(key, (g = buildPieceShadowCaster(def)));
+  return g;
+}
+
 /**
  * Draws a Layout with one InstancedMesh per piece variant. Call `sync()` after the layout changes.
  * Picking: `pieceAt(object, instanceId)` maps a raycast hit back to a piece id.
@@ -372,6 +389,8 @@ function switchLeverGeometry(): BufferGeometry {
 export class TrackView {
   readonly group = new Group();
   private meshes = new Map<string, { mesh: InstancedMesh; ids: number[] }>();
+  /** The shadow casters' material (never drawn to the screen: the shadow map draws depth only). */
+  private readonly casterMaterial = new MeshBasicMaterial();
   private bufferMesh: { mesh: InstancedMesh; ids: number[] } | null = null;
   private flagMeshes: InstancedMesh[] = [];
   private flagIds: number[] = [];
@@ -503,6 +522,19 @@ export class TrackView {
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       mesh.computeBoundingSphere();
       mesh.userData.kind = "track";
+      // Shadows from a plain block in each piece's place (half or less of its triangles; the shadow map draws every
+      // piece again): the same instances, seen by the shadow camera only.
+      const caster = Number(levels) === 0 ? casterGeometry(type, flipped === "1") : null;
+      if (caster) {
+        mesh.castShadow = false;
+        const shadow = new InstancedMesh(caster, this.casterMaterial, ids.length);
+        shadow.instanceMatrix = mesh.instanceMatrix;
+        shadow.boundingSphere = mesh.boundingSphere;
+        shadow.castShadow = true;
+        shadow.layers.set(SHADOW_PROXY_LAYER);
+        shadow.raycast = () => {};
+        mesh.add(shadow);
+      }
       this.group.add(mesh);
       this.meshes.set(key, { mesh, ids });
       if (bufferBlock(type)) bufferIds.push(...ids);

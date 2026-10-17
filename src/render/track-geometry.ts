@@ -466,6 +466,32 @@ export function buildPieceStandIn(def: PieceDef): BufferGeometry {
   return g;
 }
 
+/**
+ * What a piece casts its shadow with (drawn into the shadow map only, in its place: see TrackView): its body as a plain
+ * block, no bevels, no grooves, no pegs, a few triangles a step. Its top is at the groove floor, so the grooves are lit
+ * as before (a block up to the top would shade them); the shadow on the ground is the body's, 3 mm shorter.
+ */
+export function buildPieceShadowCaster(def: PieceDef): BufferGeometry {
+  const h = TRACK_THICKNESS - GROOVE_DEPTH;
+  let g: BufferGeometry;
+  if (def.paths.length === 1) {
+    const w = TRACK_WIDTH / 2;
+    const block: ProfilePoint[] = [
+      { u: -w, v: 0, smooth: false },
+      { u: w, v: 0, smooth: false },
+      { u: w, v: h, smooth: false },
+      { u: -w, v: h, smooth: false },
+    ];
+    g = sweep(block, framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0));
+  } else {
+    g = flatBlockBody(def).scale(1, h / TRACK_THICKNESS, 1);
+  }
+  g.clearGroups();
+  g.deleteAttribute("uv");
+  g.computeBoundingSphere();
+  return g;
+}
+
 /** Scaffolding: posts this thick (mm), ledgers and braces a little thinner. */
 const SCAFFOLD_POST = 5;
 const SCAFFOLD_BAR = 3;
