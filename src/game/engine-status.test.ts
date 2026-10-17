@@ -202,3 +202,39 @@ describe("turning back where the track just stops", () => {
     expect(engineStatus(sim, economy, engine, () => "?")).toBe("Running");
   });
 });
+
+describe("a train just told to go", () => {
+  it("says Starting while it gets going (not Waiting), then Running", () => {
+    const { layout, ids } = chain(["straight-216", "straight-216", "straight-216", "straight-216"]);
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const r = sim.addTrain(["engine", "hopper"], { pieceId: ids[2], pathIndex: 0, reversed: false, s: 100 });
+    if (r.kind !== "placed") throw new Error();
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    const status = () => engineStatus(sim, economy, engine, () => "?");
+    sim.setLever(engine, 1);
+    // Before the sim has moved it at all, and through its first ticks while it creeps up past 1 mm/s.
+    const seen = new Set<string>([status()]);
+    for (let k = 0; k < 120 && sim.findCar(engine)!.train.speed < 1; k++) {
+      sim.tick();
+      seen.add(status());
+    }
+    expect([...seen].filter((s) => s !== "Running")).toEqual(["Starting"]);
+    run(sim, 0.3);
+    expect(status()).toBe("Running");
+  });
+
+  it("one that can't move says why once the moment's past, not Starting", () => {
+    const { layout, ids } = chain(["straight-216", "straight-216", "straight-216"]);
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const r = sim.addTrain(["engine"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 120 });
+    if (r.kind !== "placed") throw new Error();
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    sim.topSpeed = () => 0;
+    sim.setLever(engine, 1);
+    expect(engineStatus(sim, economy, engine, () => "?")).toBe("Starting");
+    run(sim, 1);
+    expect(engineStatus(sim, economy, engine, () => "?")).toBe("Waiting: something's in the way");
+  });
+});

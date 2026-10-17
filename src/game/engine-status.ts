@@ -16,10 +16,14 @@ export type TrainState =
   | { kind: "slowing" }
   | { kind: "stopped" }
   | { kind: "held-up" }
+  | { kind: "starting" }
   | { kind: "running" };
 
 /** How long after turning back at an open end a train's card still says so (s): it's running back the way it came. */
 export const TURNED_SHOWN_S = 8;
+
+/** A train told to go this recently (s) and not moving yet is just starting (the sim hasn't moved it yet). */
+const STARTING_S = 0.5;
 
 /**
  * What a train is doing, and if it's standing with its lever on, why: being worked at a depot, turning back at the end
@@ -48,6 +52,9 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   if (train.speed < 1) {
     const why = cantMove?.(train) ?? null;
     if (why) return { kind: why };
+    // Getting going (moving, but under 1 mm/s yet), or told to go a moment ago: not held up.
+    const justSet = train.leverTick !== undefined && (sim.ticks - train.leverTick) * SIM_DT < STARTING_S;
+    if (train.speed > 0 || justSet) return { kind: "starting" };
     return { kind: "held-up" };
   }
   return { kind: "running" };
@@ -78,6 +85,8 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return "No power: a power station needs coal";
     case "slowing":
       return "Slowing to a stop";
+    case "starting":
+      return "Starting";
     case "stopped":
       return "Stopped";
     case "held-up":
