@@ -443,13 +443,7 @@ step("7b");
   const ctx = await b.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
   q.on("pageerror", (e) => errors.push(e.message));
-  // As QA started it: from the title, Sandbox's New map (no help card).
-  await q.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
-  await q.goto(URL);
-  await q.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await q.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => b.textContent.includes("New map")).click());
-  await q.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && document.querySelector(".tray-draw") !== null, null, { timeout: 120000 });
-  await q.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  await boot(q);
   await q.evaluate(() => {
     const w = window.woodrail;
     window.__toasts = [];
@@ -829,7 +823,8 @@ async function qaReplay() {
     const run = await q.evaluate(([segName, slantDeg]) => {
       const segs = segName === "river" ? [["g0", 200, 450], ["river", 72, 450], ["g0", 220, 450]] : [["g0", 250, 450], ["h1", 36, 200], ["h2", 72, 400]];
       const slant = (slantDeg * Math.PI) / 180;
-      const lanes = [-25, 0, 25];
+      // (One lane: these are the runs QA's table lists, headings and bounds alike.)
+      const lanes = [0];
       const w = window.woodrail;
       const G = w.landscape.grid;
       const kindAt = (x, z) => {
