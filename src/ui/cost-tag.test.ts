@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { badgeEms, costTag, costTagSize } from "./cost-tag";
+import { badgeEms, costTag, costTagSize, trayCostTag } from "./cost-tag";
 
 describe("tray cost badges", () => {
   it("are counts and icons only, goods in cargo order, then coins", () => {
@@ -22,9 +22,21 @@ describe("tray cost badges", () => {
     // Across the item, as large as fits.
     expect(costTagSize("12🪵 30🪙")).toBe(11);
     expect(costTagSize("30🪵 100🪙")).toBe(10);
-    expect(costTagSize("16🪵 4🔩 60🪙")).toBe(8);
-    expect(costTagSize("30🪵 10🪨 100🪙")).toBe(7);
-    // Every one fits its 60 px of text, even the longest cost the game has (the harbour's).
-    for (const t of ["12🪵 30🪙", "30🪵 100🪙", "16🪵 4🔩 60🪙", "30🪵 10🪨 100🪙"]) expect(badgeEms(t) * costTagSize(t)!).toBeLessThanOrEqual(60);
+    // Never under 9 px.
+    expect(costTagSize("16🪵 4🔩 60🪙")).toBe(9);
+  });
+
+  it("drop the coins, then all but the first goods, rather than go under 9 px (the card shows the full price)", () => {
+    expect(trayCostTag({ planks: 3 })).toBe("3🪵");
+    expect(trayCostTag({ planks: 30 }, 100)).toBe("30🪵 100🪙");
+    expect(trayCostTag({ planks: 30, stone: 10 }, 100)).toBe("30🪵 10🪨");
+    expect(trayCostTag({ planks: 30, stone: 10, iron: 4, coal: 6 }, 100)).toBe("30🪵 …");
+    // Whatever's shown fits its 60 px at the size it's set.
+    for (const [c, k] of [[{ planks: 12 }, 30], [{ planks: 30 }, 100], [{ planks: 16, iron: 4 }, 60], [{ planks: 30, stone: 10 }, 100]] as const) {
+      const t = trayCostTag(c, k);
+      const px = costTagSize(t) ?? 12;
+      expect(px).toBeGreaterThanOrEqual(9);
+      if (costTagSize(t) !== null) expect(badgeEms(t) * px).toBeLessThanOrEqual(60);
+    }
   });
 });

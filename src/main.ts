@@ -42,7 +42,7 @@ import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed as describeNeedWords, type Need, type Plan, type Price } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
 import { aOrAn, describe as describeGoods, kindsOf, minus, total, type Bag } from "./economy/goods";
-import { costTag } from "./ui/cost-tag";
+import { costTag, trayCostTag } from "./ui/cost-tag";
 import { GOODS_ICON, type CargoKind } from "./economy/cargo";
 import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
@@ -1019,7 +1019,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const lack = lacking(game.world, progress, needs);
       if (lack.size > 0) {
         const cost = costOf(lack);
-        return { text: costTag(cost.goods, cost.coins), empty: false, craft: true };
+        return { text: trayCostTag(cost.goods, cost.coins), empty: false, craft: true };
       }
     }
     return { text: String(n), empty: n === 0, ...(attention ? { attention } : {}) };
