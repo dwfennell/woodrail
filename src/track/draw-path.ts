@@ -83,6 +83,11 @@ export interface DrawOptions {
   closes?: (end: DrawEnd) => boolean;
   /** The ground's height (mm) at a plan point: where a ramp's far end will land (see `DrawLine.lands`). */
   groundAt?: (x: number, z: number) => number;
+  /**
+   * Is a plan point over the river (where track needs a bridge)? Lets a line on the ground see the water coming and
+   * ramp up in time (see `DrawLine.waterAhead`).
+   */
+  wet?: (x: number, z: number) => boolean;
   /** What to say when the line needed a special piece (a ramp, a bridge) it may not use: "Out of ramp pieces". */
   outOf?: (type: PieceTypeId) => string;
 }
@@ -213,6 +218,18 @@ const SPECIAL_REACH = 45;
  * way is a red ghost, or bridges on over dry land); the stroke's taken up again after it.
  */
 const DOWN_REACH = 70;
+/**
+ * Going up for the river, likewise: the line on a staircase of straights along a slanted stroke (the usual swipe up the
+ * screen is about 23° off the grid) can be this far off the finger where the ramp goes, and the bridges after it bring
+ * it back.
+ */
+const RIVER_REACH = 90;
+/**
+ * On the ground, the stroke ahead is looked at this far (mm) past where the piece chosen would end, plus a ramp's
+ * length, for water: if it's there, a ramp goes up now, while there's room for it before the bank. Every this many mm.
+ */
+const APPROACH_SLACK = 30;
+const APPROACH_STEP = 24;
 /** The bridge of the same shape as a drawn piece. */
 const TWIN: Partial<Record<PieceTypeId, PieceTypeId>> = { "straight-216": "bridge", "curve-large": "bridge-curve" };
 /** The drawn pieces that have a bridge twin: the only ones the line chooses from where the next piece would reach water. */
@@ -594,6 +611,9 @@ export class DrawLine {
     this.wanted = null;
     const why = this.options.check?.(c, this.pieces) ?? null;
     if (why && this.special(c, s, why, finishing)) return;
+    // The river just ahead, with no room for a ramp after this piece: up now (the bank won't come square-on, or with
+    // room to spare, on a slanted stroke). Only near water: elsewhere a line costs what it did.
+    if (!why && this.waterAhead(c) && this.may("ramp") && this.rampUp(true)) return;
     // Refused, and the piece that would have done (a ramp, a bridge) is one the player has none of: say that.
     const outOf = this.wanted && this.options.outOf ? this.options.outOf(this.wanted) : null;
     this.lay(c, s, aside, why && outOf ? { ...why, message: outOf } : why);
@@ -672,8 +692,9 @@ export class DrawLine {
    */
   private rampUp(river: boolean): boolean {
     if (!this.may("ramp")) return this.want("ramp");
+    const reach = river ? RIVER_REACH : SPECIAL_REACH;
     const r = rampFrom(this.end, true);
-    const s = r && this.onStroke(r, this.progress);
+    const s = r && this.onStroke(r, this.progress, reach);
     if (r && s !== null) {
       if (!river && !this.lands(r, true)) return this.fill(true);
       const why = this.options.check?.(r, this.pieces) ?? null;
@@ -682,13 +703,14 @@ export class DrawLine {
         return true;
       }
     }
-    // One piece back: that straight comes off and the ramp goes in its place (this move's one change).
+    // One piece back: that straight (or, for the river, curve) comes off and the ramp goes in its place (this move's
+    // one change).
     const k = this.pieces.length;
     const last = this.pieces[k - 1];
-    if (!last || last.blocked || !last.type.startsWith("straight-")) return false;
+    if (!last || last.blocked || !(last.type.startsWith("straight-") || (river && DRAW_TYPES.includes(last.type)))) return false;
     const before = this.pieces.slice(0, -1);
     const b = rampFrom(k > 1 ? before[k - 2].end : this.start, true);
-    const sb = b && this.onStroke(b, last.from);
+    const sb = b && this.onStroke(b, last.from, reach);
     if (!b || sb === null || (!river && !this.lands(b, true))) return false;
     const why = this.options.check?.(b, before) ?? null;
     if (why && why.reason !== "undercut") return false;
@@ -696,6 +718,24 @@ export class DrawLine {
     this.progress = last.from;
     this.lay(b, sb, false, why);
     return true;
+  }
+
+  /**
+   * On the ground, laying `c`: is there water on the stroke ahead within `c`'s length and a ramp's (and a little)? Then
+   * after `c` there'd be no room to ramp up before the bank. A few ground lookups along the stroke drawn so far; none
+   * if the map has no water to tell (`wet`).
+   */
+  private waterAhead(c: DrawCandidate): boolean {
+    const { wet, groundAt } = this.options;
+    if (!wet || !groundAt) return false;
+    const e = this.end;
+    if (Math.abs(groundAt(e.x, e.z) - e.y) > 1) return false;
+    const to = Math.min(this.strokeLength, this.progress + c.length + RAMP_LENGTH + APPROACH_SLACK);
+    for (let at = this.progress + APPROACH_STEP; at <= to; at += APPROACH_STEP) {
+      const p = this.pointAt(at);
+      if (wet(p.x, p.z)) return true;
+    }
+    return false;
   }
 
   /** A ramp down from the line's end, landing on the ground (else a straight first, see `fill`). "river" if it would stand in the water. */

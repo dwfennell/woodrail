@@ -3,7 +3,7 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Editor } from "../editor/editor";
-import { archFloors, bridgeLevels, CELL, cutsHills, hillsOf, looseHeight, type HillCut } from "../landscape";
+import { archFloors, bridgeLevels, CELL, cutsHills, hillsOf, inRiver, looseHeight, type HillCut } from "../landscape";
 import { dustPuff } from "../render/dust";
 import { delayed, settle } from "../render/flourishes";
 import { ghostMesh } from "../render/track-view";
@@ -258,6 +258,7 @@ export class DrawHand {
       meet: (e) => this.meet(e),
       closes: (e) => this.closes(e),
       groundAt: (x, z) => hills.groundAt(x, z),
+      wet: (x, z) => inRiver(this.game.landscape.grid, x, z),
       outOf: (type) => this.outOf(type),
     });
   }

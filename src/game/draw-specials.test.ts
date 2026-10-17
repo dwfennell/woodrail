@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gridWithPlots, hillMessage, hillsOf, SURF_RIVER, syncCuttings, type BlockReason, type Landscape } from "../landscape";
+import { gridWithPlots, hillMessage, hillsOf, inRiver, SURF_RIVER, syncCuttings, type BlockReason, type Landscape } from "../landscape";
 import { DrawLine, isBridge, Layout, RISER_HEIGHT, type DrawEnd, type DrawOptions, type PieceTypeId } from "../track";
 import { drawMessage, drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
 
@@ -36,6 +36,7 @@ function options(land: Landscape, layout = new Layout(), extra: Partial<DrawOpti
       return why ? { reason: why.reason, message: drawMessage(why.reason, why.levels, (r) => trackMessage(r as BlockReason, why.levels)), levels: why.levels } : null;
     },
     groundAt: (x, z) => hills.groundAt(x, z),
+    wet: (x, z) => inRiver(land.grid, x, z),
     outOf: (t) => `Out of ${t}`,
     ...extra,
   };
@@ -154,6 +155,40 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
         expect(line.end.y, why).toBe(0);
       }
     }
+  });
+
+  it("a swipe straight up (or down) the screen at the default camera, about 23° off the grid, crosses the river", () => {
+    // The default view: a swipe up the screen runs about 23° off the grid on the map, and a point on the screen is seen
+    // about 2 mm nearer the camera for each mm higher (looking down at about 26°).
+    const K = 2;
+    let crossed = 0;
+    let all = 0;
+    const fails: string[] = [];
+    for (const deg of [23, -23, 157, -157, 20, 30]) {
+      const a = (deg * Math.PI) / 180;
+      const dx = Math.cos(a);
+      const dz = Math.sin(a);
+      for (const up of [1, -1]) {
+        for (const [ox, oz] of [[0, 0], [30, 50], [-40, 20], [60, -70], [10, 130]]) {
+          // A river band across x (both ways across it), the stroke from 500 mm before it.
+          const land = paint(flat(), 576, 720, -2000, 2000, "river");
+          const x0 = dx > 0 ? 576 - 500 * dx + ox : 720 - 500 * dx + ox;
+          const z0 = Z + oz;
+          const start: DrawEnd = { x: Math.round(x0 / 18) * 18, z: Math.round(z0 / 18) * 18, heading: Math.round(a / (Math.PI / 4)) * (Math.PI / 4), y: 0, kind: "peg" };
+          const line = new DrawLine(start, options(land));
+          // Up the screen: away from the camera (seen higher, a point is nearer it: back along the swipe); down: toward it.
+          for (let d = 4; d <= 1300; d += 4) line.addSeen((h) => ({ x: start.x + d * dx - up * K * h * dx, z: start.z + d * dz - up * K * h * dz }));
+          line.finish();
+          all++;
+          const why = `${deg}° ${up > 0 ? "up" : "down"} from (${start.x}, ${start.z}): ${name(line)}`;
+          const ok = !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => isBridge(p.type)) && line.end.y === 0;
+          if (ok) crossed++;
+          else fails.push(why);
+        }
+      }
+    }
+    expect(fails, fails.join("\n")).toEqual([]);
+    expect(crossed).toBe(all);
   });
 
   it("up on a hill, the finger is read at the hilltop's height: the stroke moves once, as the ramp's top end lands", () => {
