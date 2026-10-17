@@ -164,13 +164,14 @@ async function selectThenDrag(ctx, p) {
   await p.keyboard.press("Escape");
   await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   /** Touch down at (x, y), rest `ms` (with a 3 px wobble), maybe put a second finger down, then report the mode. */
+  // (The mode is read in the page, `ms` after the finger came down by the page's own clock: a slow machine's round
+  // trips mustn't stretch a short press into a long one.)
   const holdAt = async (x, y, ms, second = false) => {
+    await p.evaluate(() => window.addEventListener("pointerdown", () => (window.__downAt = performance.now()), { capture: true, once: true }));
     await touch("touchStart", x, y);
-    await new Promise((r) => setTimeout(r, ms / 2));
     await touch("touchMove", x + 3, y + 2);
     if (second) await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x + 3, y: y + 2, id: 1 }, { x: x + 80, y: y + 40, id: 2 }] });
-    await new Promise((r) => setTimeout(r, ms / 2));
-    return p.evaluate(() => window.woodrail.interaction.mode.kind);
+    return p.evaluate((ms) => new Promise((r) => setTimeout(() => r(window.woodrail.interaction.mode.kind), Math.max(0, window.__downAt + ms - performance.now()))), ms);
   };
   const lift = async () => {
     await touch("touchEnd", 0, 0);
