@@ -351,3 +351,55 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
    - `src/sim/signal-skins.test.ts`: skinned signals hold trains as the plain one does; the gantry's two signals;
    - `src/render/kit-skins.test.ts`: signal skins' aspects drawn, the buffer-stop lamp;
    - `src/landscape/crossing-styles.test.ts`: crossing styles, resolved and drawn.
+
+## Phase 3 plan (2026-10-17, after P0 to P2 and the signals)
+
+P0 to P2 and the signal and crossing skins are built: kit-signals plus p1-polish. Two items from the original Phase 3
+fall away: old saves are no longer kept (the user's call), so there's no "make it work" tap for old props; and the
+roundhouse doors are done. That leaves three mechanisms and Game mode.
+
+### Mechanisms (Sandbox)
+
+| Kit | Approach | Owner |
+|---|---|---|
+| Train lift | Two rim ends, a level or more apart. A train halts on the platform: a stop at the platform's middle, cap 0. It is carried up as a ride, the way the turntable carries trains (`Sim.startRide`): bogies held still while the platform's motion (`moves: "state"`) lifts them, then moved onto the upper path with the lever left on. One new sim move, "carry a train from end A to end B over T seconds", built on the turntable's ride. | Sandbox |
+| Moving bridges (bascule, swing, lift) | A bridge style (Rail and road's bridge styles) with a state: open blocks the track, so the bridge acts as a held signal on both paths (`signal` plus a hold bit, which already exists) while it's raised. It opens for a few seconds every so often, or when tapped, and only when no train is on it or within braking distance. Boats under it are optional (the harbour boats already exist). | Rail and road |
+| Loop-the-loop | A show, not track: a 216 straight kit. A train on it slows to a crawl while a toy copy of its engine runs the loop (a `moves: "occupied"` animation on a spline), and the copy meets the real train at the far end. Nothing in the sim changes. | Sandbox |
+
+All three use the hooks already built (`moves`, `rails: "model"`, the turntable's ride, signal holds). None needs a
+new per-frame cost.
+
+### Game mode availability (Game Mode, design for the user)
+
+The kits stay Sandbox-only until this is agreed. My proposal is to tie them to blueprints that are already on the
+board, so there are no new branches:
+
+| Blueprint (already on the board) | Unlocks in Game mode | Notes |
+|---|---|---|
+| Signals (tier 1, built) | semaphore skin as the signal's look | The colour light needs Electricity. |
+| Junctions and loops | signal gantry | |
+| Engine shed (now "soon") | engine shed, water tower, coal stage, water crane, coaling crane | Engine services are a short visual stop with no resource. The engine shed parks engines. |
+| Turntable and roundhouse (now "later") | turntable, roundhouse segment, transfer table | Turns engines round. |
+| Tunnels (now "soon") | tunnel portals, rock cutting | Rail and road's Phase 2. |
+| Stone viaduct, Lift bridge (now "later") | bridge styles, moving bridges | |
+| Scenery kit (now "later", crafting) | castle gate, station clock, whistle post, signal box and lever frame card, train wash, track cleaner, weighbridge | The "makes it alive" set: decoration with small behaviours. |
+
+Each kit is made at the workshop like any piece (a `THING_RULES` entry with a plank cost), so it goes through the
+tray, crafting and the toy box as today. Old blueprints marked "soon" or "later" become real when their kits land.
+
+Three questions for the user before Game mode gets any of this:
+
+1. **Halts and stations in Game mode.** Should a country halt, or the mountain or harbour station, placed near a town
+   act as an extra passenger stop for that town, with boarding and alighting counting for it? I propose yes, under a
+   "Halts" blueprint in Passengers. It gives a reason to build branch lines.
+2. **Cargo machines in Game mode.** Sandbox's endless loader and vanishing unloader don't belong in Game's economy. I
+   propose they stay Sandbox-only. In Game mode the goods shed could be a small warehouse's look instead.
+3. **Crossing styles in Game mode:** cosmetic, so free once Scenery kit is learned? I propose yes.
+
+### Order
+
+1. Land kit-signals (in QA) and then p1-polish.
+2. Rail and road: bridge styles and tunnels (their P1 and P2), then moving bridges.
+3. Sandbox: the train lift and the loop show, on the turntable's ride.
+4. Game Mode: Game availability once the user answers the three questions. Then the routes intent rules, once
+   Scenery's `lineOfCar` is ready; that's a separate design.
