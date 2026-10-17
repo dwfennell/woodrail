@@ -97,6 +97,46 @@ export class WhistlePosts {
   }
 }
 
+/** How long (ms) before a train that whistled may whistle again: once as it passes a post, not at every piece near it. */
+export const WHISTLE_EVERY = 4000;
+
+/**
+ * Which engines whistle, and how loud. Engines coming onto whistle-post track in a frame are `offer`ed with their
+ * volume and pan as heard from the camera (the frame loop's `listen`, as for clacks); `flush` at the frame's end plays
+ * the loudest, the train nearest the camera, so a far train never takes the whistle from a near one. A train whose
+ * whistle wasn't heard (a louder one won, or the audio turned it down) isn't held back: it may whistle at its next
+ * joint by the post.
+ */
+export class WhistleCalls {
+  /** When each train last whistled (ms). */
+  private readonly last = new Map<number, number>();
+  private best = -1;
+  private volume = 0;
+  private pan = 0;
+
+  /** An engine came onto whistle-post track, heard at `volume` and `pan` (ignored if it whistled under 4 s ago). */
+  offer(trainId: number, volume: number, pan: number, now: number): void {
+    if (now - (this.last.get(trainId) ?? -Infinity) < WHISTLE_EVERY) return;
+    if (this.best !== -1 && volume <= this.volume) return;
+    this.best = trainId;
+    this.volume = volume;
+    this.pan = pan;
+  }
+
+  /**
+   * The frame's offers are in: the loudest whistles (`play` returns whether it was heard). `alive` says whether a train
+   * still exists, to forget ones gone. A frame with no offers costs one compare.
+   */
+  flush(now: number, play: (volume: number, pan: number) => boolean, alive: (trainId: number) => boolean): void {
+    if (this.best === -1) return;
+    const id = this.best;
+    this.best = -1;
+    if (!play(this.volume, this.pan)) return;
+    this.last.set(id, now);
+    if (this.last.size > 64) for (const t of this.last.keys()) if (!alive(t)) this.last.delete(t);
+  }
+}
+
 /** A switch or signal near a signal box or lever frame. */
 export interface Lever {
   readonly pieceId: number;

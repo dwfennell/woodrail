@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PropStore } from "../props/store";
 import { Layout } from "../track";
-import { leversNear, pointsWay, trackDistance, WHISTLE_POST, WHISTLE_REACH, whistlePieces, WhistlePosts } from "./lineside";
+import { leversNear, pointsWay, trackDistance, WHISTLE_EVERY, WHISTLE_POST, WHISTLE_REACH, WhistleCalls, whistlePieces, WhistlePosts } from "./lineside";
 
 /** Three straights end to end along +x from the origin (0–216, 216–432, 432–648), and a fourth far off. */
 function track() {
@@ -45,6 +45,49 @@ describe("whistle posts", () => {
     expect(posts.has(ids[0])).toBe(true);
     posts.sync(layout, props, 2);
     expect(posts.has(ids[0])).toBe(false);
+  });
+});
+
+describe("whistle calls", () => {
+  const alive = () => true;
+
+  it("in a frame, the loudest engine (nearest the camera) whistles, at its own volume and pan", () => {
+    const calls = new WhistleCalls();
+    const heard: [number, number][] = [];
+    const play = (v: number, pan: number) => (heard.push([v, pan]), true);
+    calls.offer(1, 0.2, -0.5, 0); // far, to the left
+    calls.offer(2, 0.9, 0.1, 0); // near
+    calls.offer(3, 0.4, 0.3, 0);
+    calls.flush(0, play, alive);
+    expect(heard).toEqual([[0.9, 0.1]]);
+    // Nothing offered: nothing played.
+    calls.flush(16, play, alive);
+    expect(heard.length).toBe(1);
+  });
+
+  it("a train whistles once as it passes; one not heard may whistle at its next joint", () => {
+    const calls = new WhistleCalls();
+    let heard = 0;
+    const play = () => (heard++, true);
+    calls.offer(2, 0.9, 0, 0);
+    calls.offer(1, 0.2, 0, 0);
+    calls.flush(0, play, alive);
+    // Train 2 just whistled: its next joint by the post is quiet; train 1 (drowned out) whistles now.
+    const vols: number[] = [];
+    calls.offer(2, 0.95, 0, 300);
+    calls.offer(1, 0.25, 0, 300);
+    calls.flush(300, (v) => (vols.push(v), true), alive);
+    expect(vols).toEqual([0.25]);
+    // After 4 s, train 2 may whistle again (at the next post).
+    calls.offer(2, 0.5, 0, WHISTLE_EVERY + 1);
+    calls.flush(WHISTLE_EVERY + 1, play, alive);
+    expect(heard).toBe(2);
+    // The audio turned one down (another louder whistle just played): not held back.
+    calls.offer(3, 0.3, 0, 5000);
+    calls.flush(5000, () => false, alive);
+    calls.offer(3, 0.3, 0, 5100);
+    calls.flush(5100, play, alive);
+    expect(heard).toBe(3);
   });
 });
 

@@ -1,4 +1,4 @@
-import { Color, MeshStandardMaterial, PerspectiveCamera } from "three";
+import { Color, type Mesh, MeshStandardMaterial, PerspectiveCamera } from "three";
 import { describe, expect, it } from "vitest";
 import { PropStore } from "../props/store";
 import { CLOCK_ASSET, ClockView, handAngles } from "./clock-view";
@@ -35,6 +35,11 @@ describe("station clocks", () => {
     const view = new ClockView(lib);
     view.sync(props);
     expect(view.count).toBe(1);
+    // Its hands are drawn, and cast no shadow onto the face.
+    const meshes: Mesh[] = [];
+    view.group.traverse((o) => (o as Mesh).isMesh && meshes.push(o as Mesh));
+    expect(meshes.length).toBeGreaterThan(0);
+    expect(meshes.every((m) => !m.castShadow)).toBe(true);
     const camera = new PerspectiveCamera(50, 1, 1, 5000);
     camera.position.set(0, 300, 400);
     camera.lookAt(0, 0, 0);
