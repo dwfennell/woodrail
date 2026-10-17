@@ -2120,6 +2120,25 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   window.addEventListener("pointerdown", skipGlide, { capture: true });
   window.addEventListener("keydown", skipGlide, { capture: true });
 
+  /** Two trains met head on (a single line, both ways): once, say how they could pass. */
+  let loopTipShown = (() => {
+    try {
+      return localStorage.getItem("woodrail.loopTip") === "1";
+    } catch {
+      return false;
+    }
+  })();
+  function showLoopTip(): void {
+    loopTipShown = true;
+    try {
+      localStorage.setItem("woodrail.loopTip", "1");
+    } catch {
+      // storage unavailable: it may show again next visit
+    }
+    const canSwitch = mode !== "game" || progress.learned.has("switches");
+    hud.toast(canSwitch ? "Trains met head on. Add a passing loop (two switches) so they can pass" : "Trains met head on. Learn Switches to build a passing loop", false, 6000);
+  }
+
   game.onFrame = (dt) => {
     interaction.refreshDepotCard();
     // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.
@@ -2132,6 +2151,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     let hum = 0;
     for (const e of game.events) {
+      if (e.kind === "buffer" && !loopTipShown && game.sim.getTrain(e.trainId)?.lastTurn?.cause === "train") showLoopTip();
       const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);
       if (!p) continue;
       if (e.kind === "turned") {
