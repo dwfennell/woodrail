@@ -25,7 +25,7 @@ import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, lacking, uncraft, workshops, workshopStock } from "./game/crafting";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
-import { WhistlePosts } from "./game/lineside";
+import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
@@ -2034,19 +2034,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return [volume, pan];
   };
   const carPoint = (trainId: number, bogie = 0) => game.sim.getTrain(trainId)?.world[bogie];
-  /** Where a depot's crane works (world plan point). */
   const whistles = new WhistlePosts();
-  /** When each train last whistled (ms), so a train passing a post whistles once, not at every piece near it. */
-  const whistled = new Map<number, number>();
+  /**
+   * Which engine by a whistle post whistles in a frame, and how loud: heard from the camera as `listen` hears its
+   * clacks (louder and more central the nearer it is), the nearest train's whistle winning over a far one's.
+   */
+  const whistleCalls = new WhistleCalls();
+  const playWhistle = (v: number, pan: number) => audio.whistle(v, pan);
+  const trainAlive = (id: number) => !!game.sim.getTrain(id);
   const whistleFor = (trainId: number, v: number, pan: number) => {
     const t = game.sim.getTrain(trainId);
     if (!t || !whistles.has(t.bogies[0].pieceId) || !t.cars.some((c) => c.kind === "engine")) return;
-    const now = performance.now();
-    if (now - (whistled.get(trainId) ?? -Infinity) < 4000) return;
-    whistled.set(trainId, now);
-    if (whistled.size > 64) for (const id of whistled.keys()) if (!game.sim.getTrain(id)) whistled.delete(id);
-    audio.whistle(v, pan);
+    whistleCalls.offer(trainId, v, pan, performance.now());
   };
+  /** Where a depot's crane works (world plan point). */
   const depotPoint = (depotId: number) => {
     const d = game.economy.depot(depotId);
     const p = d && game.layout.getPiece(d.pieceId);
@@ -2199,6 +2200,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else if (e.kind === "derailed") audio.crash(v, pan);
       else if (e.kind === "buffer") audio.magnet(v * 0.6, pan);
     }
+    whistleCalls.flush(now, playWhistle, trainAlive);
     for (const id of game.sim.trainIds()) {
       const t = game.sim.getTrain(id)!;
       if (t.derailed || t.speed < 5 || !t.cars.some((c) => c.kind === "engine" && c.lever !== 0)) continue;
