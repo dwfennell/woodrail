@@ -1,6 +1,9 @@
 import { BatchedMesh, Group, Matrix4, Quaternion, Vector3, type Material, type Object3D } from "three";
-import type { PropStore } from "../../props/store";
-import { modelKey, type PropLibrary } from "./library";
+import type { Prop, PropStore } from "../../props/store";
+import { drawnKey, type PropLibrary } from "./library";
+
+/** What the view draws: the store, or anything shaped like it (the kit pieces, see `KitView`). */
+export type PropSource = Pick<PropStore, "version" | "get"> & { all(): Iterable<Prop> };
 
 /** Every prop part in one material: each model's geometry stored once, each prop an instance of it. */
 interface Batch {
@@ -52,14 +55,14 @@ export class PropsView {
    * Bring the instances up to date with the store. `hidden` is a prop being moved (drawn by the hand instead). `force`
    * after a model has loaded, to draw the props that were waiting for it. Returns true if anything changed.
    */
-  sync(store: PropStore, hidden = -1, force = false): boolean {
+  sync(store: PropSource, hidden = -1, force = false): boolean {
     const key = `${store.version}|${hidden}`;
     if (key === this.syncedFor && !force) return false;
     this.syncedFor = key;
     const touched = new Set<Batch>();
     for (const [id, d] of this.drawn) {
       const p = store.get(id);
-      if (p && modelKey(p.asset, p.variant) === d.asset) continue;
+      if (p && drawnKey(p.asset, p.variant) === d.asset) continue;
       for (const inst of d.instances) {
         inst.batch.mesh.deleteInstance(inst.id);
         inst.batch.propOf.delete(inst.id);
@@ -70,7 +73,7 @@ export class PropsView {
     for (const p of store.all()) {
       let d = this.drawn.get(p.id);
       if (!d) {
-        const key = modelKey(p.asset, p.variant);
+        const key = drawnKey(p.asset, p.variant);
         const model = this.library.model(key);
         if (model === undefined) {
           if (!this.waiting.has(key)) {

@@ -25,6 +25,7 @@ import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, lacking, uncraft, workshops, workshopStock } from "./game/crafting";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
@@ -48,7 +49,7 @@ import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { connectorRef, createWorldConnector, getPieceDef, PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, kitOf, PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
 import type { CarKind, CarLook } from "./sim";
 import { Hud } from "./ui/hud";
 import { INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
@@ -218,7 +219,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             ? [{ key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks }]
             : [],
       ),
-      (type) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : null),
+      (type) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : kitOf(type) ? game.kitView.model(type) : null),
       studio,
     );
     for (const [k, v] of drawn) thumbnails.set(k, v);
@@ -400,12 +401,27 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
   function drawPropThumbnails(items: TrayItem[]): void {
     const idle = thumbQueue.length === 0;
-    for (const item of items) if (item.kind === "prop" && !thumbQueue.includes(item.asset)) thumbQueue.push(item.asset);
+    for (const item of items) {
+      // A kit piece on a catalogue shelf: its track and model, once the model's built.
+      const key = item.kind === "prop" ? item.asset : item.kind === "piece" && kitOf(item.type) ? trayKey(item) : null;
+      if (key && !thumbQueue.includes(key)) thumbQueue.push(key);
+    }
     if (idle && thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
   }
   function nextThumbnail(): void {
     const asset = thumbQueue[0];
     if (asset === undefined) return;
+    if (asset.startsWith("piece:")) {
+      const type = asset.slice("piece:".length) as PieceTypeId;
+      void Promise.all([game.kitView.load(type), TrackView.whenBuilt(type)]).then(() => {
+        thumbQueue.shift();
+        studio ??= new ThumbnailStudio(game.renderer);
+        for (const key of drawThumbnails([{ kind: "piece", type, label: "" }], false, studio)) hud.setThumbnail(key, thumbnails.get(key)!);
+        saveThumbnailsSoon();
+        if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
+      });
+      return;
+    }
     void game.propLibrary.load(asset).then((model) => {
       thumbQueue.shift();
       if (model) {
@@ -1705,7 +1721,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       viewStatus.next = latest;
       viewStatus.since = now;
     }
-    if (opened || now - viewStatus.since >= STATUS_HOLD_MS) viewStatus.shown = latest;
+    // ("Starting" shows at once: it answers the Go just pressed.)
+    if (opened || latest === "Starting" || now - viewStatus.since >= STATUS_HOLD_MS) viewStatus.shown = latest;
     const status = viewStatus.shown;
     // The engine's own front, as a screen direction (degrees clockwise from right).
     const snap = game.snapshot;
@@ -2030,6 +2047,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return [volume, pan];
   };
   const carPoint = (trainId: number, bogie = 0) => game.sim.getTrain(trainId)?.world[bogie];
+  const whistles = new WhistlePosts();
+  /**
+   * Which engine by a whistle post whistles in a frame, and how loud: heard from the camera as `listen` hears its
+   * clacks (louder and more central the nearer it is), the nearest train's whistle winning over a far one's.
+   */
+  const whistleCalls = new WhistleCalls();
+  const playWhistle = (v: number, pan: number) => audio.whistle(v, pan);
+  const trainAlive = (id: number) => !!game.sim.getTrain(id);
+  const whistleFor = (trainId: number, v: number, pan: number) => {
+    const t = game.sim.getTrain(trainId);
+    if (!t || !whistles.has(t.bogies[0].pieceId) || !t.cars.some((c) => c.kind === "engine")) return;
+    whistleCalls.offer(trainId, v, pan, performance.now());
+  };
   /** Where a depot's crane works (world plan point). */
   const depotPoint = (depotId: number) => {
     const d = game.economy.depot(depotId);
@@ -2183,7 +2213,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   game.onFrame = (dt) => {
     interaction.refreshDepotCard();
     // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.
-    hud.setTrayArrow(interaction.trayArrow(hud.propsTab));
+    hud.setTrayArrow(interaction.trayArrow(hud.propsTab && !interaction.holdingKit));
+    hud.setHoldingKit(interaction.holdingKit);
     interaction.tick(dt);
     const now = performance.now();
     if (mapView.open) {
@@ -2191,6 +2222,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else placeMap();
     }
     let hum = 0;
+    // Whistle posts' near track: worked out again only when the props or the track change.
+    whistles.sync(game.layout, game.props, game.trackVersion);
     for (const e of game.events) {
       if (e.kind === "buffer" && !loopTipShown && game.sim.getTrain(e.trainId)?.lastTurn?.cause === "train") showLoopTip();
       const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);
@@ -2200,11 +2233,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         continue;
       }
       const [v, pan] = listen(p.x, p.z);
-      if (e.kind === "joint") audio.clack(v, pan);
-      else if (e.kind === "coupled") audio.magnet(v, pan);
+      if (e.kind === "joint") {
+        audio.clack(v, pan);
+        // An engine coming onto track near a whistle post whistles (once as it passes).
+        if (e.bogie === 0 && whistles.size > 0) whistleFor(e.trainId, v, pan);
+      } else if (e.kind === "coupled") audio.magnet(v, pan);
       else if (e.kind === "derailed") audio.crash(v, pan);
       else if (e.kind === "buffer") audio.magnet(v * 0.6, pan);
     }
+    whistleCalls.flush(now, playWhistle, trainAlive);
     for (const id of game.sim.trainIds()) {
       const t = game.sim.getTrain(id)!;
       if (t.derailed || t.speed < 5 || !t.cars.some((c) => c.kind === "engine" && c.lever !== 0)) continue;
@@ -2261,7 +2298,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, trayThumbnailsSaved: () => trayThumbnailsSaved });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, trayThumbnailsSaved: () => trayThumbnailsSaved });
   game.start();
   // Opening in Game mode: start fetching its models now, ahead of play.
   if (mode === "game") ensureGameModels();

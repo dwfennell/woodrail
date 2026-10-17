@@ -233,12 +233,16 @@ async function selectThenDrag(ctx, p) {
     m.ghost.geometry.computeBoundingBox();
     const c = m.ghost.geometry.boundingBox.getCenter(new w.camera.position.constructor());
     m.ghost.updateMatrixWorld();
-    m.ghost.localToWorld(c).project(w.camera);
-    return [Math.round(((c.x + 1) / 2) * innerWidth - fx), Math.round(((1 - c.y) / 2) * innerHeight - fy), m.snap.kind];
+    m.ghost.localToWorld(c);
+    // (Loose, a piece steps on an 18 mm grid: it can be up to half a step off where it's aimed, on screen this much.)
+    const px = (v) => { const q = v.clone().project(w.camera); return [((q.x + 1) / 2) * innerWidth, ((1 - q.y) / 2) * innerHeight]; };
+    const [cx, cy] = px(c);
+    const step = Math.max(...[[18, 0], [0, 18]].map(([dx, dz]) => { const [x, y] = px(c.clone().add(new c.constructor(dx, 0, dz))); return Math.hypot(x - cx, y - cy); }));
+    return [Math.round(cx - fx), Math.round(cy - fy), m.snap.kind, Math.round(step / 2)];
   }, [sx - 40, sy]);
   await lift();
   check("held, then dragged: it moves with the finger", hMid === "drag-piece", `mid-drag ${hMid}`);
-  check("…its middle held just above the fingertip (QA I5)", !!off && (off[2] === "snapped" || (Math.abs(off[0]) <= 20 && off[1] <= -40 && off[1] >= -80)), off ? `dx ${off[0]}, dy ${off[1]} (${off[2]})` : "not held");
+  check("…its middle held just above the fingertip (QA I5)", !!off && (off[2] === "snapped" || (Math.abs(off[0]) <= 20 + off[3] && off[1] <= -40 + off[3] && off[1] >= -80 - off[3])), off ? `dx ${off[0]}, dy ${off[1]} (${off[2]}; grid ±${off[3]} px)` : "not held");
   await p.keyboard.press("Escape");
   // 2b'. A slow phone (QA): the hold is decided by when things happened (the events' own times), not by which arrives
   // first. The touches are stamped with the times they happened at, then delivered late.

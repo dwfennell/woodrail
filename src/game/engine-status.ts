@@ -1,6 +1,6 @@
 import { RECIPES, type Economy } from "../economy";
 import { SIM_DT, type Sim, type Train, type TurnCause } from "../sim";
-import type { Layout } from "../track";
+import { kitOf, type Layout } from "../track";
 
 /** Why a train can't move at all: too heavy for its engines, or electric with no power (see `cantMove`). */
 export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
@@ -11,6 +11,8 @@ export type TrainState =
   | { kind: "worked"; depotId: number; work: "Loading" | "Unloading" | "Loading and unloading" }
   | { kind: "turning-back"; cause: TurnCause; pieceId: number; done?: boolean }
   | { kind: "red-signal"; signalId: number }
+  /** Standing at a kit's stop (a platform) for its dwell. */
+  | { kind: "at-stop"; pieceId: number }
   | { kind: "too-heavy" }
   | { kind: "no-power" }
   | { kind: "slowing" }
@@ -24,6 +26,13 @@ export const TURNED_SHOWN_S = 8;
 
 /** A train told to go this recently (s) and not moving yet is just starting (the sim hasn't moved it yet). */
 const STARTING_S = 0.5;
+
+/**
+ * A train told to go is "Starting" till it's up to this speed (mm/s), as long as it was told in the last few seconds
+ * (`STARTING_FOR_S`; braking for a red signal later isn't starting).
+ */
+const STARTING_SPEED = 40;
+const STARTING_FOR_S = 4;
 
 /**
  * What a train is doing, and if it's standing with its lever on, why: being worked at a depot, turning back at the end
@@ -43,10 +52,16 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   // Being worked by a crane comes next: at a depot at the end of the line the train also waits to turn back.
   const depot = economy.servingDepot(train.id);
   if (depot) {
+    // What's being done for this train here (a Drop stop only unloads), or else what the depot does.
+    const w = economy.workFor(train.id, depot);
     const r = RECIPES[depot.role];
-    return { kind: "worked", depotId: depot.id, work: r.takes.length === 0 ? "Loading" : r.gives.length === 0 ? "Unloading" : "Loading and unloading" };
+    const loads = w ? w.load : r.gives.length > 0;
+    const unloads = w ? w.unload : r.takes.length > 0;
+    return { kind: "worked", depotId: depot.id, work: loads && unloads ? "Loading and unloading" : unloads ? "Unloading" : "Loading" };
   }
   if (train.turnback >= 0) return { kind: "turning-back", cause: turn?.cause ?? "buffer", pieceId: turn?.pieceId ?? -1 };
+  const stopAt = economy.kitStops.dwellingAt(train.id);
+  if (stopAt !== -1) return { kind: "at-stop", pieceId: stopAt };
   if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id) };
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
   if (train.speed < 1) {
@@ -57,6 +72,8 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     if (train.speed > 0 || justSet) return { kind: "starting" };
     return { kind: "held-up" };
   }
+  // Gathering speed after Go.
+  if (train.speed < STARTING_SPEED && train.leverTick !== undefined && (sim.ticks - train.leverTick) * SIM_DT < STARTING_FOR_S) return { kind: "starting" };
   return { kind: "running" };
 }
 
@@ -79,6 +96,10 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return s.cause === "train" ? "Turning back: another train's in the way" : "Turning back at the end of the line";
     case "red-signal":
       return "Waiting at a red signal";
+    case "at-stop": {
+      const type = economy.layout.getPiece(s.pieceId)?.type;
+      return `Calling at the ${(type && kitOf(type)?.name) ?? "stop"}`;
+    }
     case "too-heavy":
       return "Too heavy for its engine: take a car off, or add an engine";
     case "no-power":
@@ -93,8 +114,15 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return "Waiting: something's in the way";
     case "running": {
       const route = economy.routeOf(engineCarId);
-      const next = route?.stops[route.next];
-      return next ? `On its way to ${nameOf(next.depotId)}` : "Running";
+      if (!route || route.stops.length === 0) return "Running";
+      // Still on the stop it's leaving, done with (`next` moves on once it's clear): on its way to the one after.
+      let i = route.next % route.stops.length;
+      const at = economy.depot(route.stops[i].depotId);
+      if (route.at && (!at || !economy.hasWorkAt(found.train.id, at))) {
+        const here = route.stops[i].depotId;
+        for (let k = 0; k < route.stops.length && route.stops[i].depotId === here; k++) i = (i + 1) % route.stops.length;
+      }
+      return `On its way to ${nameOf(route.stops[i].depotId)}`;
     }
   }
 }

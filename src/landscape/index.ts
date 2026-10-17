@@ -6,6 +6,7 @@ export * from "./slabs";
 export * from "./surroundings";
 export * from "./support";
 export * from "./crossings";
+export * from "./crossing-styles";
 export * from "./trees-aside";
 export * from "./hill-shape";
 export * from "./cuttings";

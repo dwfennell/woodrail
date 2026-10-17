@@ -37,10 +37,11 @@ def water_tower(k):
         g.add(k.box(k.paint(TOY.black), 24, 1.6, 1.6, 0.4, 0, 20, z))
     for x in (-12, 12):
         g.add(k.box(k.paint(TOY.black), 1.6, 1.6, 24, 0.4, x, 20, 0))
-    # Swinging spout.
+    # Swinging spout: it rests along the track, and swings a quarter turn out over it (the game's kit piece,
+    # kit-water-tower, stands the tower beside its track, +x along it).
     spout = named(Node(), "spout")
-    spout.add(k.cylX(k.paint(TOY.black), 2.4, 26, 13, 0, 0, 12), k.cyl(k.paint(TOY.black), 2.6, 8, 26, -8, 0, 2.6, 12))
-    g.add(k.at(spout, 14, 50, 0))
+    spout.add(k.cylX(k.paint(TOY.black), 2.4, 40, 20, 0, 0, 12), k.cyl(k.paint(TOY.black), 2.6, 8, 40, -8, 0, 2.6, 12))
+    g.add(k.at(spout, 14, 64, 0))
     return g
 
 
@@ -69,58 +70,75 @@ def coal_stage(k):
 
 
 def engine_shed(k):
+    # Two roads a double track apart (72), each 162 from the doorway's approach to its end, a buffer just past that:
+    # the game's kit piece (kit-engine-shed) puts its track under them, the doors 54 in from where its roads start.
     g = Node()
     brick = k.paint(BRICK)
-    for z in (-26, 26):
-        g.add(k.trackSlab(140, 12, 0, z))
-    for z in (-54, 54):
-        g.add(k.box(brick, 106, 60, 4, 1, 0, 0, z))
-    g.add(k.box(brick, 4, 60, 112, 1, -51, 0, 0))
+    for z in (-36, 36):
+        g.add(k.trackSlab(184, 32, 0, z))
+        # The buffer stop at the road's end (its face 22 past the end, where an engine's front comes to rest).
+        g.add(k.box(k.paint(TOY.red), 6, 12, 30, 1.5, -63, 12, z))
+        for s in (-10, 10):
+            g.add(k.cylX(k.paint(TOY.black), 2.5, 4, -59, 18, z + s, 12))
+    for z in (-70, 70):
+        g.add(k.box(brick, 140, 60, 4, 1, 0, 0, z))
+    g.add(k.box(brick, 4, 60, 144, 1, -68, 0, 0))
     # Front wall with two arched openings.
-    s = [(-56, 0), (-48, 0), (-48, 32)]
-    s += _arc(-26, 32, 22, math.pi, 0)[1:]
-    s += [(-4, 0), (4, 0), (4, 32)]
-    s += _arc(26, 32, 22, math.pi, 0)[1:]
-    s += [(48, 0), (56, 0), (56, 60), (-56, 60)]
-    g.add(k.at(k.extrude(brick, s, 4, 0, 0, 0, 0.6), 51, 0, 0, math.pi / 2))
-    g.add(gable(k, brick, 104, 112, 26, 0, 60, 0))
-    drop = (2 * 5 * 26) / 112
-    g.add(k.roof(k.paint(SLATE), 114, 122, 26 + drop, 0, 60 - drop + 1.4, 0))
-    g.add(k.box(k.paint(SLATE), 70, 6, 12, 1, 0, 86, 0))
-    g.add(k.box(k.paint(SLATE), 76, 2, 18, 0.6, 0, 92, 0))
-    for x in (-30, 0, 30):
-        g.add(winZ(k, x, 30, 56, 10, 12), winZ(k, x, 30, -56, 10, 12))
+    s = [(-72, 0), (-58, 0), (-58, 32)]
+    s += _arc(-36, 32, 22, math.pi, 0)[1:]
+    s += [(-14, 0), (14, 0), (14, 32)]
+    s += _arc(36, 32, 22, math.pi, 0)[1:]
+    s += [(58, 0), (72, 0), (72, 60), (-72, 60)]
+    g.add(k.at(k.extrude(brick, s, 4, 0, 0, 0, 0.6), 68, 0, 0, math.pi / 2))
+    g.add(gable(k, brick, 138, 144, 26, 0, 60, 0))
+    drop = (2 * 5 * 26) / 144
+    g.add(k.roof(k.paint(SLATE), 148, 154, 26 + drop, 0, 60 - drop + 1.4, 0))
+    g.add(k.box(k.paint(SLATE), 96, 6, 12, 1, 0, 86, 0))
+    g.add(k.box(k.paint(SLATE), 102, 2, 18, 0.6, 0, 92, 0))
+    for x in (-40, 0, 40):
+        g.add(winZ(k, x, 30, 72, 10, 12), winZ(k, x, 30, -72, 10, 12))
     # Doors: two leaves per road, hinged at the opening's sides, swinging out.
-    for zc in (-26, 26):
+    for zc in (-36, 36):
         left = named(Node(), "leafL")
         left.add(k.box(k.paint(TOY.green), 2, 44, 22, 0.6, 0, 0, 11))
-        g.add(k.at(left, 55, 0, zc - 22))
+        g.add(k.at(left, 71, 0, zc - 22))
         right = named(Node(), "leafR")
         right.add(k.box(k.paint(TOY.green), 2, 44, 22, 0.6, 0, 0, -11))
-        g.add(k.at(right, 55, 0, zc + 22))
+        g.add(k.at(right, 71, 0, zc + 22))
     return g
 
 
 def roundhouse_segment(k):
+    # Three stalls fanned an eighth of a turn apart round a turntable's centre (the origin), each road 108 long from the
+    # pit's rim (radius 92) out to its end, a buffer just past that: the game's kit piece (kit-roundhouse-segment).
     g = Node()
     brick = k.paint(BRICK)
-    pivot_x = 150
-    for a in (-0.42, 0, 0.42):
+    rim = 92
+    for a in (-math.pi / 4, 0, math.pi / 4):
         stall = Node()
-        stall.add(k.trackSlab(100, -150, 0, 0))
+        stall.add(k.trackSlab(130, rim + 65, 0, 0))
+        stall.add(k.box(k.paint(TOY.red), 6, 12, 30, 1.5, rim + 133, 12, 0))
+        for s in (-10, 10):
+            stall.add(k.cylX(k.paint(TOY.black), 2.5, 4, rim + 129, 18, s, 12))
         # Side walls and back, open front.
-        for z in (-24, 24):
-            stall.add(k.box(brick, 80, 46, 3, 1, -150, 0, z))
-        stall.add(k.box(brick, 3, 46, 51, 1, -189, 0, 0))
-        stall.add(k.box(brick, 3, 12, 51, 1, -111, 34, 0))
-        roof = k.box(k.paint(SLATE), 88, 3, 56, 1, -150, 46, 0)
-        roof.rotation.z = -0.08
+        for z in (-26, 26):
+            stall.add(k.box(brick, 120, 46, 3, 1, rim + 82, 0, z))
+        stall.add(k.box(brick, 3, 46, 55, 1, rim + 143.5, 0, 0))
+        stall.add(k.box(brick, 3, 12, 55, 1, rim + 22.5, 34, 0))
+        roof = k.box(k.paint(SLATE), 128, 3, 60, 1, rim + 82, 46, 0)
+        roof.rotation.z = 0.06
         stall.add(roof)
-        stall.add(k.cyl(k.paint(TOY.black), 3, 14, -158, 49, 0, 2.4, 12), k.box(k.paint(TOY.black), 9, 1.5, 9, 0.4, -158, 63, 0))
+        stall.add(k.cyl(k.paint(TOY.black), 3, 14, rim + 90, 50, 0, 2.4, 12), k.box(k.paint(TOY.black), 9, 1.5, 9, 0.4, rim + 90, 64, 0))
+        # Doors across the open front (facing the turntable), two leaves hinged at the walls, swinging out toward it.
+        left = named(Node(), "stallL")
+        left.add(k.box(k.paint(TOY.green), 2, 34, 24, 0.6, 0, 0, 12))
+        stall.add(k.at(left, rim + 21, 0, -24.5))
+        right = named(Node(), "stallR")
+        right.add(k.box(k.paint(TOY.green), 2, 34, 24, 0.6, 0, 0, -12))
+        stall.add(k.at(right, rim + 21, 0, 24.5))
         stall.rotation.y = a
-        stall.position.x = pivot_x
         g.add(stall)
-    return k.at(g, -60, 0, 0)
+    return g
 
 
 def goods_shed(k):

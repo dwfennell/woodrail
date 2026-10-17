@@ -1,4 +1,4 @@
-export type CarKind = "engine" | "hopper" | "passenger" | "caboose" | "timber" | "van";
+export type CarKind = "engine" | "hopper" | "passenger" | "caboose" | "timber" | "van" | "cleaner";
 export type Pole = "N" | "S";
 
 export interface CarSpec {
@@ -22,6 +22,8 @@ export const CAR_SPECS: Record<CarKind, CarSpec> = {
   timber: { kind: "timber", index: 4, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
   // A closed goods van (flour): the timber wagon's length and running gear.
   van: { kind: "van", index: 5, length: 84, bogieInset: 18, width: 32, mass: 1, powered: false },
+  // The track cleaning wagon (Sandbox): brushes underneath that turn as it runs. Carries nothing.
+  cleaner: { kind: "cleaner", index: 6, length: 80, bogieInset: 18, width: 32, mass: 1, powered: false },
 };
 
 /**
@@ -36,11 +38,12 @@ export const CAR_LOOKS: Record<CarKind, readonly CarLook[]> = {
   caboose: ["classic", "bay-window"],
   timber: ["classic"],
   van: ["classic"],
+  cleaner: ["classic"],
 };
 export const ALL_CAR_LOOKS: readonly CarLook[] = ["classic", "tank", "diesel", "electric", "dining", "sleeper", "double-decker", "bay-window", "express", "first-class", "goods"];
 
 /** In snapshot-index order. */
-export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van"];
+export const CAR_KINDS: readonly CarKind[] = ["engine", "hopper", "passenger", "caboose", "timber", "van", "cleaner"];
 
 /** Gap between two coupled cars' end faces (mm). */
 export const COUPLER_GAP = 2;

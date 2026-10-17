@@ -1,4 +1,4 @@
-import { addTrackPoints, BUCKET, bucketKey, FEAT_BUILDING, FEAT_DEPOT, FEAT_SHED, FEAT_STATION, hillsOf, isWater, trackPoints, type Landscape } from "../landscape";
+import { addTrackPoints, BUCKET, bucketKey, crossingStyleOf, FEAT_BUILDING, FEAT_DEPOT, FEAT_SHED, FEAT_STATION, hillsOf, isWater, trackPoints, type Landscape } from "../landscape";
 import { TRACK_WIDTH, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { PlaceOn } from "./kinds";
 import type { PropStore } from "./store";
@@ -12,7 +12,7 @@ export interface Footprint {
 }
 
 /** Why a prop can't stand somewhere. */
-export type PropBlock = "off-land" | "river" | "dry" | "building" | "station" | "depot" | "track" | "prop" | "uneven" | "yard";
+export type PropBlock = "off-land" | "river" | "dry" | "building" | "station" | "depot" | "track" | "prop" | "uneven" | "yard" | "no-crossing";
 
 export const PROP_MESSAGES: Record<PropBlock, string> = {
   "off-land": "That's past the edge of your land",
@@ -25,7 +25,14 @@ export const PROP_MESSAGES: Record<PropBlock, string> = {
   prop: "Something's already there",
   uneven: "Needs level ground — not over a hill's edge",
   yard: "That's a depot's yard",
+  "no-crossing": "Drop it where the track crosses a road",
 };
+
+/**
+ * A crossing prop (the level crossing, the gated crossing: `crossingStyleOf`) stands on a crossing's track and road,
+ * as its style: it neither blocks anything nor is blocked (see `styleCrossings`).
+ */
+export const standsAside = (asset: string): boolean => crossingStyleOf(asset) !== undefined;
 
 export type PropClearance = { readonly kind: "clear"; readonly y: number } | { readonly kind: "blocked"; readonly reason: PropBlock };
 
@@ -176,7 +183,7 @@ export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | 
   }
   if (ctx.track.hits(fp, pose)) return { kind: "blocked", reason: "track" };
   for (const other of ctx.props.all()) {
-    if (other.id === ignoreId) continue;
+    if (other.id === ignoreId || standsAside(other.asset)) continue;
     const ofp = ctx.footprint(other.asset);
     if (ofp && footprintsOverlap(fp, pose, ofp, other)) return { kind: "blocked", reason: "prop" };
   }
@@ -190,7 +197,7 @@ export function pieceHitsProp(props: PropStore, footprint: (asset: string) => Fo
   addTrackPoints(buckets, type, flipped, pose);
   const margin = TRACK_WIDTH / 2;
   for (const prop of props.all()) {
-    const fp = footprint(prop.asset);
+    const fp = standsAside(prop.asset) ? undefined : footprint(prop.asset);
     if (!fp) continue;
     for (const list of buckets.values()) for (let i = 0; i < list.length; i += 2) if (inFootprint(fp, prop, list[i], list[i + 1], margin)) return true;
   }
@@ -200,7 +207,7 @@ export function pieceHitsProp(props: PropStore, footprint: (asset: string) => Fo
 /** Does any prop's footprint reach into the world rectangle (x0, z0)–(x1, z1)? (Bounding boxes of the footprints.) */
 export function propsInRect(props: PropStore, footprint: (asset: string) => Footprint | undefined, x0: number, z0: number, x1: number, z1: number): boolean {
   for (const p of props.all()) {
-    const fp = footprint(p.asset);
+    const fp = standsAside(p.asset) ? undefined : footprint(p.asset);
     if (!fp) continue;
     const c = footprintCorners(fp, p);
     const minX = Math.min(c[0], c[2], c[4], c[6]);
