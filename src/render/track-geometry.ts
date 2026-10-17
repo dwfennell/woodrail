@@ -99,12 +99,22 @@ interface Frame {
   s: number;
 }
 
+/** The turn between samples along an arc (radians). */
+const ARC_STEP = (3 * Math.PI) / 180;
+
 /** Samples along a path, optionally extended straight past either end. */
 function framesAlong(geom: PathGeom, extendStart: number, extendEnd: number, lineStep = 0): Frame[] {
   const len = pathLength(geom);
   const curved = geom.kind !== "line" || geom.rise !== 0;
-  // Curves every 3 mm (a balloon loop's big gentle curves every 6).
-  const steps = curved ? Math.max(8, Math.ceil(len / (geom.kind === "loop" ? 6 : 3))) : lineStep > 0 ? Math.ceil(len / lineStep) : 1;
+  // An arc every 3° of turn (within 0.07 mm of true at the outer edge of a large curve: more only costs triangles, a
+  // large curve's were a third of a busy map's), a balloon loop's big gentle curves every 6 mm, a slope every 3 mm.
+  const steps = curved
+    ? geom.kind === "arc"
+      ? Math.max(8, Math.ceil(Math.abs(geom.sweep) / ARC_STEP))
+      : Math.max(8, Math.ceil(len / (geom.kind === "loop" ? 6 : 3)))
+    : lineStep > 0
+      ? Math.ceil(len / lineStep)
+      : 1;
   const out: Frame[] = [];
   const p = createSample();
   const push = (s: number) => {
@@ -310,7 +320,7 @@ function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[]
   // The viaduct body: a softly rounded block swept along the deck, from just below the ground to just under the track.
   const inset = 3;
   const frames: Frame[] = [];
-  const steps = path.kind !== "line" ? Math.max(8, Math.ceil(len / 4)) : 1;
+  const steps = path.kind === "arc" ? Math.max(8, Math.ceil(Math.abs(path.sweep) / ARC_STEP)) : path.kind !== "line" ? Math.max(8, Math.ceil(len / 4)) : 1;
   const p = createSample();
   for (let i = 0; i <= steps; i++) {
     const at = inset + ((len - 2 * inset) * i) / steps;
@@ -452,6 +462,32 @@ export function buildPieceStandIn(def: PieceDef): BufferGeometry {
   g.clearGroups();
   g.addGroup(0, g.index ? g.index.count : g.attributes.position.count, SLOT_BODY);
   g.computeBoundingBox();
+  g.computeBoundingSphere();
+  return g;
+}
+
+/**
+ * What a piece casts its shadow with (drawn into the shadow map only, in its place: see TrackView): its body as a plain
+ * block, no bevels, no grooves, no pegs, a few triangles a step. Its top is at the groove floor, so the grooves are lit
+ * as before (a block up to the top would shade them); the shadow on the ground is the body's, 3 mm shorter.
+ */
+export function buildPieceShadowCaster(def: PieceDef): BufferGeometry {
+  const h = TRACK_THICKNESS - GROOVE_DEPTH;
+  let g: BufferGeometry;
+  if (def.paths.length === 1) {
+    const w = TRACK_WIDTH / 2;
+    const block: ProfilePoint[] = [
+      { u: -w, v: 0, smooth: false },
+      { u: w, v: 0, smooth: false },
+      { u: w, v: h, smooth: false },
+      { u: -w, v: h, smooth: false },
+    ];
+    g = sweep(block, framesAlong(def.paths[0].geom, 0, def.paths[0].to === null ? BUFFER_EXTRA : 0));
+  } else {
+    g = flatBlockBody(def).scale(1, h / TRACK_THICKNESS, 1);
+  }
+  g.clearGroups();
+  g.deleteAttribute("uv");
   g.computeBoundingSphere();
   return g;
 }
