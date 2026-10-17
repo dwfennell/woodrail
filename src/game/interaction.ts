@@ -1194,10 +1194,10 @@ export class Interaction {
 
   /**
    * The first time ever (on this device) something movable is selected: it moves with a drag now (and on touch only
-   * now: see `dragsWhatsPressed`).
+   * now: see `dragsWhatsPressed`). Not while drawing: a drag draws then (it's said the next time, with drawing off).
    */
   private hintDrag(): void {
-    if (this.dragHinted) return;
+    if (this.dragHinted || this.drawing) return;
     this.dragHinted = true;
     markHintSeen("drag-selected");
     this.hud.toast("Drag to move · drag elsewhere to look", false, 3600);

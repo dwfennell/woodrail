@@ -196,7 +196,8 @@ export class DrawHand {
     const pieces = line.placeable();
     const g = this.game;
     const ghosts = this.ghosts.splice(0, pieces.length);
-    const blocked = line.pieces.find((p) => p.blocked)?.blocked;
+    // (A closed line has nothing past where it closed: nothing to say.)
+    const blocked = line.stopped === "closed" ? null : line.pieces.find((p) => p.blocked)?.blocked;
     if (blocked) this.hooks.toast(blocked);
     else if (line.refused) this.hooks.toast(`No ${pieceName(line.refused)} left${pieces.length > 0 ? ": the line used other pieces" : ""}`);
     this.clear();
