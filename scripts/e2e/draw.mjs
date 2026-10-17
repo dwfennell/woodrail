@@ -89,7 +89,7 @@ await p.evaluate(() => {
 const ONLY_SPECIALS = process.env.E2E_ONLY === "specials";
 
 // Favourites: first on the Track tab, a ★ on a shelf's piece adds it, and it's remembered.
-if (!ONLY_SPECIALS) {
+if (!process.env.E2E_ONLY) {
   await p.evaluate(() => localStorage.removeItem("woodrail.favourites"));
   await tapSel(p, ".tabs [data-tab=track]");
   const favs = await p.$$eval(".scroller > .tray-item:not(.tray-group)", (bs) => bs.map((b) => b.querySelector(".label")?.textContent));
@@ -107,7 +107,7 @@ if (!ONLY_SPECIALS) {
 }
 
 // A drag up on a shelf (not opened) takes out its first piece: the first thing a new player tries.
-if (!ONLY_SPECIALS) {
+if (!process.env.E2E_ONLY) {
   await tapSel(p, ".tabs [data-tab=track]");
   const shelf = await p.$(".scroller .tray-group:has-text('Curve')");
   const box = await shelf.boundingBox();
@@ -443,7 +443,13 @@ step("7b");
   const ctx = await b.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
   q.on("pageerror", (e) => errors.push(e.message));
-  await boot(q);
+  // As QA started it: from the title, Sandbox's New map (no help card).
+  await q.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  await q.goto(URL);
+  await q.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+  await q.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => b.textContent.includes("New map")).click());
+  await q.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && document.querySelector(".tray-draw") !== null, null, { timeout: 120000 });
+  await q.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   await q.evaluate(() => {
     const w = window.woodrail;
     window.__toasts = [];
@@ -782,7 +788,13 @@ async function qaReplay() {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
   q.on("pageerror", (e) => errors.push(e.message));
-  await boot(q);
+  // As QA started it: from the title, Sandbox's New map (no help card).
+  await q.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  await q.goto(URL);
+  await q.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+  await q.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => b.textContent.includes("New map")).click());
+  await q.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && document.querySelector(".tray-draw") !== null, null, { timeout: 120000 });
+  await q.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   await q.evaluate(() => {
     const w = window.woodrail;
     window.__toasts = [];
@@ -930,7 +942,7 @@ async function qaReplay() {
       return { types: ids.map((id) => w.layout.getPiece(id).type), ends, toasts: window.__toasts.splice(0), worst: moves[moves.length - 1] ?? 0, p95: moves[Math.floor(moves.length * 0.95)] ?? 0 };
     }, [ids0]);
     void n0;
-    const what = `${got.types.join(" ")}${got.toasts.length ? ` · toasts: ${got.toasts.join(" | ")}` : ""} · move worst ${got.worst.toFixed(1)} ms, p95 ${got.p95.toFixed(1)} ms`;
+    const what = `heading ${((run.h * 180) / Math.PI).toFixed(0)}°, bounds ${JSON.stringify(run.bounds)}: ${got.types.join(" ")}${got.toasts.length ? ` · toasts: ${got.toasts.join(" | ")}` : ""} · move worst ${got.worst.toFixed(1)} ms, p95 ${got.p95.toFixed(1)} ms`;
     if (c.segs === "river") {
       const ok = got.types.includes("bridge") && !got.types.includes("bridge-curve") && got.ends.length === 2 && got.ends.every((y) => y <= 1);
       check(`QA replay, ${c.name}: crosses, no curved bridge, both ends on the ground`, ok, what);
