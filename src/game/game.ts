@@ -36,7 +36,7 @@ import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } fro
 import { archFloors, bridgeLevels, findCrossings, SURF_LANE, syncCuttings, type HeldPiece, PLOT_DEPTH, type Landscape } from "../landscape";
 import { setHazeLand, setHazeReach } from "../render/haze";
 import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
-import { connectorRef, getPieceDef, pathLength, type Layout, type PlacedPiece } from "../track";
+import { connectorRef, getPieceDef, pathLength, type KitDef, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
 import { hasLandForSale, landForSale, plotsAround, unlockPlot, type World } from "./world";
@@ -604,7 +604,16 @@ export class Game {
     const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), dt);
     if (depots === "moving") active = true;
     else if (depots === "changed") this.invalidate();
-    if (this.trainsChanged() || tipping || this.flourishes.count > 0) active = true;
+    const trainsMoved = this.trainsChanged();
+    if (trainsMoved || tipping || this.flourishes.count > 0) active = true;
+    // Kits' moving parts (doors, cranes, spouts): looked at only on frames where trains moved or one halted, or while
+    // one is still moving. Idle, this is a couple of comparisons.
+    if (this.kitView.hasMovers && (trainsMoved || this.kitView.animating || this.economy.halts !== this.haltsSeen)) {
+      this.haltsSeen = this.economy.halts;
+      const kits = this.kitView.update(this.kitTriggered, dt);
+      if (kits === "moving") active = true;
+      else if (kits === "changed") this.invalidate();
+    }
     // Boats sailing in view (one out of view moves on unseen, drawing nothing).
     if (this.boats.update(this.camera)) active = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
@@ -897,6 +906,13 @@ export class Game {
   private lastTrainCount = -1;
 
   /** Has any car moved, a lever changed or a train come off since the last frame? */
+  /** `Economy.halts` as last seen (a train halting at a kit starts its moving parts). */
+  private haltsSeen = 0;
+
+  /** Does a kit's trigger for its moving parts hold (`KitDef.moves`): a train on it, or one standing at it? */
+  private readonly kitTriggered = (pieceId: number, kit: KitDef): boolean =>
+    kit.moves === "occupied" ? this.sim.pieceOccupied(pieceId) : kit.moves === "stopped" ? this.economy.standingAt(pieceId) : false;
+
   private trainsChanged(): boolean {
     const snap = this.snapshot;
     const n = snap.count * 6;

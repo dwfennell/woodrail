@@ -40,6 +40,8 @@ interface Visit {
  */
 export class KitStops {
   private readonly visits = new Map<number, Visit>();
+  /** Counts trains halting at stops (for whatever wants to see one halt: a kit's moving parts, see `Economy.halts`). */
+  halts = 0;
 
   constructor(
     private readonly layout: Layout,
@@ -88,6 +90,7 @@ export class KitStops {
     if (ahead <= AT_STOP) {
       v.phase = HALTED;
       v.ticks = 0;
+      this.halts++;
       return 0;
     }
     return Math.min(Math.max(Math.sqrt(2 * BRAKING * ahead), CREEP), ahead / SIM_DT);
@@ -118,6 +121,12 @@ export class KitStops {
   dwellingAt(trainId: number): number {
     const v = this.visits.get(trainId);
     return v?.phase === HALTED ? v.pieceId : -1;
+  }
+
+  /** Is a train standing at this kit piece's stop now? */
+  haltedAt(pieceId: number): boolean {
+    for (const v of this.visits.values()) if (v.phase === HALTED && v.pieceId === pieceId) return true;
+    return false;
   }
 
   /** Forget visits of trains that no longer exist (coupled into another, removed, lifted and turned round). */

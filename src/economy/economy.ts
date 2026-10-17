@@ -552,6 +552,22 @@ export class Economy {
     return false;
   }
 
+  /**
+   * Counts trains halting, at a depot's crane or a kit's stop: it changes when one halts (a train standing still
+   * changes nothing the frame loop sees otherwise; a kit's moving parts start then).
+   */
+  get halts(): number {
+    return this.depotHalts + this.kitStops.halts;
+  }
+  private depotHalts = 0;
+
+  /** Is a train standing at this piece now: at its depot's crane (working on it), or at its kit's stop? */
+  standingAt(pieceId: number): boolean {
+    if (this.kitStops.haltedAt(pieceId)) return true;
+    const d = this.byPiece.get(pieceId);
+    return !!d && this.cranePhase(d.id) >= 0;
+  }
+
   /** The depot whose crane is working this train now (it's crawling to, or halted at, the crane), if any. */
   servingDepot(trainId: number): DepotState | undefined {
     const s = this.services.get(trainId);
@@ -665,6 +681,7 @@ export class Economy {
 
   /** Stop the train for the crane to work on this car. */
   private halt(s: Service, carId: number): number {
+    if (s.phase !== HALTED) this.depotHalts++;
     s.phase = HALTED;
     s.carId = carId;
     s.ticks = 0;

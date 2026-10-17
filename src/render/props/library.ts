@@ -1,9 +1,10 @@
-import { Box3, BufferAttribute, Color, Group, SRGBColorSpace, type BufferGeometry, type Material, type Mesh, type Object3D } from "three";
+import { Box3, BufferAttribute, Color, Group, Matrix4, Mesh, Quaternion, SRGBColorSpace, Vector3, type BufferGeometry, type Material, type Object3D } from "three";
 import { Kit } from "../../catalogue/kit";
 import { loadAsset } from "../../catalogue/registry";
 import type { Footprint } from "../../props/placement";
 import { kitOf, kitPlace, type PieceTypeId } from "../../track";
 import { Batcher } from "../dressing/batcher";
+import { motionOf, type MotionParts } from "../kit-motions";
 import type { Materials } from "../materials";
 
 /** A catalogue model baked for drawing many copies: a few merged parts, and its size on the ground. */
@@ -27,6 +28,8 @@ export class PropLibrary {
   /** Footprints by asset (the same for all its colour variants). */
   private readonly footprints = new Map<string, Footprint>();
   private readonly pending = new Map<string, Promise<PropModel | null>>();
+  /** A moving kit's moving parts, by kit type: the template its live copies are cloned from (see `bakeMovers`). */
+  private readonly movers = new Map<PieceTypeId, Group>();
   /** Called when a model finishes loading (to draw props that were waiting for it). */
   onLoaded: ((assetId: string) => void) | null = null;
 
@@ -45,17 +48,22 @@ export class PropLibrary {
   load(key: string): Promise<PropModel | null> {
     const done = this.models.get(key);
     if (done !== undefined) return Promise.resolve(done);
+    // A kit's models (whole, and bare of its moving parts) are built together: wait for the whole one's.
+    const kitType = key.startsWith(KIT_KEY) ? kitTypeOfKey(key) : undefined;
+    if (kitType && key !== kitModelKey(kitType)) return this.load(kitModelKey(kitType)).then(() => this.models.get(key) ?? null);
     let p = this.pending.get(key);
     if (!p) {
-      const kit = key.startsWith(KIT_KEY) ? kitOf(key.slice(KIT_KEY.length) as PieceTypeId) : undefined;
+      const kit = kitType ? kitOf(kitType) : undefined;
       const [assetId, v] = kit ? [kit.asset] : key.split("#");
       const variant = Number(v ?? 0);
       p = loadAsset(assetId).then((asset) => {
-        // A kit piece's model: in its piece's own frame (see `KitDef.place`), its own slabs of track left out.
-        const built = asset && (kit ? placedForKit(asset.build(this.kitFor(0)), kitPlace(kit)) : asset.build(this.kitFor(variant)));
-        const model = asset && built ? { name: asset.name, ...bake(built, this.mats, { slabs: !kit }) } : null;
+        let model: PropModel | null = null;
+        if (kit && asset) model = this.loadKit(kitType!, asset.name, placedForKit(asset.build(this.kitFor(0)), kitPlace(kit)));
+        else if (asset) {
+          model = { name: asset.name, ...bake(asset.build(this.kitFor(variant)), this.mats) };
+          this.footprints.set(assetId, model.footprint);
+        }
         this.models.set(key, model);
-        if (model && !kit) this.footprints.set(assetId, model.footprint);
         this.pending.delete(key);
         this.onLoaded?.(key);
         return model;
@@ -65,6 +73,32 @@ export class PropLibrary {
       this.pending.set(key, p);
     }
     return p;
+  }
+
+  /**
+   * A kit piece's model, in its piece's own frame (see `KitDef.place`), its own slabs of track left out. One that moves
+   * (`KIT_MOTIONS`) is posed at rest first, and baked twice: whole (drawn while it's still), and bare of its moving
+   * parts (drawn under them while they move: see `moversOf`).
+   */
+  private loadKit(type: PieceTypeId, name: string, built: Object3D): PropModel {
+    const motion = motionOf(kitOf(type)!.asset);
+    if (motion) motion.pose(partsOf(built), 0, 0);
+    const whole = { name, ...bake(built, this.mats, { slabs: false }) };
+    if (!motion) return whole;
+    const names = new Set(motion.parts);
+    const movers = bakeMovers(built, names, this.mats);
+    if (!movers) return whole;
+    this.movers.set(type, movers);
+    this.models.set(kitModelKey(type, true), { name, ...bake(built, this.mats, { slabs: false, without: names }) });
+    return whole;
+  }
+
+  /**
+   * A moving kit's moving parts at rest, in its piece's frame, to be cloned for each kit piece of it that moves (the
+   * clones share its geometry). Undefined if it has none, or its model isn't loaded yet.
+   */
+  moversOf(type: PieceTypeId): Group | undefined {
+    return this.movers.get(type);
   }
 
   private kitFor(variant: number): Kit {
@@ -82,7 +116,26 @@ const KIT_KEY = "kit:";
  * A kit piece's model's key: its asset baked without its slabs of track, in the piece's own frame (so it's drawn at
  * the piece's pose).
  */
-export const kitModelKey = (type: PieceTypeId): string => `${KIT_KEY}${type}`;
+export const kitModelKey = (type: PieceTypeId, bare = false): string => `${KIT_KEY}${type}${bare ? BARE : ""}`;
+
+/** The key's suffix for a moving kit's model bare of its moving parts (drawn under them while they're live). */
+const BARE = "~bare";
+
+/** The kit type a kit model's key is for. */
+const kitTypeOfKey = (key: string): PieceTypeId => key.slice(KIT_KEY.length).replace(BARE, "") as PieceTypeId;
+
+/** A model's nodes by name (found once). */
+export function partsOf(root: Object3D): MotionParts {
+  const byName = new Map<string, Object3D[]>();
+  root.traverse((o) => {
+    if (!o.name) return;
+    let list = byName.get(o.name);
+    if (!list) byName.set(o.name, (list = []));
+    list.push(o);
+  });
+  return { get: (name) => byName.get(name) ?? NO_PARTS };
+}
+const NO_PARTS: readonly Object3D[] = [];
 
 /** A model stood where a kit's place says (turned about its own origin, then set at t, l), in the piece's frame. */
 function placedForKit(model: Object3D, at: { t: number; l: number; turn: number }): Object3D {
@@ -144,17 +197,24 @@ export function isSlab(o: Object3D): boolean {
   return false;
 }
 
+/** Is this node, or one it's in, named in `names`? */
+function within(o: Object3D, names: ReadonlySet<string>): boolean {
+  for (let p: Object3D | null = o; p; p = p.parent) if (names.has(p.name)) return true;
+  return false;
+}
+
 /**
  * Merge a built model's meshes by material (transforms applied), and measure it. `slabs: false` leaves out its slabs
- * of track (see `isSlab`).
+ * of track (see `isSlab`); `without`, the parts with those names (a kit's moving parts, drawn live instead).
  */
-export function bake(root: Object3D, mats: Materials, opts: { slabs?: boolean } = {}): Omit<PropModel, "name"> {
+export function bake(root: Object3D, mats: Materials, opts: { slabs?: boolean; without?: ReadonlySet<string> } = {}): Omit<PropModel, "name"> {
   root.updateMatrixWorld(true);
   const b = new Batcher(mats.paint);
   const slabs = opts.slabs ?? true;
+  const without = opts.without;
   root.traverse((o) => {
     const mesh = o as Mesh;
-    if (!mesh.isMesh || !mesh.visible || isUnderlay(mesh) || (!slabs && isSlab(mesh))) return;
+    if (!mesh.isMesh || !mesh.visible || isUnderlay(mesh) || (!slabs && isSlab(mesh)) || (without && within(mesh, without))) return;
     const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
     b.add(material, mesh.geometry.clone().applyMatrix4(mesh.matrixWorld));
   });
@@ -172,4 +232,72 @@ export function bake(root: Object3D, mats: Materials, opts: { slabs?: boolean } 
     ? { cx: 0, cz: 0, hw: 4, hd: 4 }
     : { cx: (box.min.x + box.max.x) / 2, cz: (box.min.z + box.max.z) / 2, hw: Math.max(2, (box.max.x - box.min.x) / 2), hd: Math.max(2, (box.max.z - box.min.z) / 2) };
   return { parts, footprint, height: box.isEmpty() ? 0 : box.max.y };
+}
+
+const tmp = new Matrix4();
+const holderPos = new Vector3();
+const holderQuat = new Quaternion();
+const holderScale = new Vector3();
+
+/**
+ * A model's moving parts (the nodes named in `names`) as a tree of their own, in the root's frame: each part a group
+ * with its node's own position, rotation, scale and visibility (so a motion poses it just as it would the node),
+ * holding its meshes merged by material in its own frame, and the moving parts inside it in turn. Each stands in a
+ * fixed holder giving the frame it moves in (whatever lies between it and the part it's in, or the root). Slabs of
+ * track are left out. Null if there are none.
+ */
+export function bakeMovers(root: Object3D, names: ReadonlySet<string>, mats: Materials): Group | null {
+  root.updateMatrixWorld(true);
+  const out = new Group();
+  out.name = "movers";
+  /** A holder for a part built from `node`: the frame `node`'s parent gives it, relative to `outer`'s (or the root's). */
+  const holdIn = (outer: Object3D | null, node: Object3D, part: Group): Group => {
+    const holder = new Group();
+    tmp.copy(node.parent!.matrixWorld);
+    if (outer) tmp.premultiply(outer.matrixWorld.clone().invert());
+    tmp.decompose(holderPos, holderQuat, holderScale);
+    holder.position.copy(holderPos);
+    holder.quaternion.copy(holderQuat);
+    holder.scale.copy(holderScale);
+    holder.add(part);
+    return holder;
+  };
+  const build = (node: Object3D): Group => {
+    const g = new Group();
+    g.name = node.name;
+    g.position.copy(node.position);
+    g.rotation.copy(node.rotation);
+    g.scale.copy(node.scale);
+    g.visible = node.visible;
+    const toLocal = node.matrixWorld.clone().invert();
+    const b = new Batcher(mats.paint);
+    const visit = (o: Object3D) => {
+      const mesh = o as Mesh;
+      if (mesh.isMesh && mesh.visible && !isSlab(mesh)) {
+        const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+        b.add(material, mesh.geometry.clone().applyMatrix4(tmp.multiplyMatrices(toLocal, mesh.matrixWorld)));
+      }
+      for (const c of o.children) {
+        if (names.has(c.name)) g.add(holdIn(node, c, build(c)));
+        else visit(c);
+      }
+    };
+    visit(node);
+    for (const [material, geometry] of b.merged()) {
+      const mesh = new Mesh(geometry, material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData.sharedGeometry = true;
+      g.add(mesh);
+    }
+    return g;
+  };
+  const top = (o: Object3D) => {
+    for (const c of o.children) {
+      if (names.has(c.name)) out.add(holdIn(null, c, build(c)));
+      else top(c);
+    }
+  };
+  top(root);
+  return out.children.length > 0 ? out : null;
 }
