@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Sim } from "../sim";
-import { connectorRef, fitAutoStraight, getPieceDef, Layout, solveParentPose } from "../track";
+import { connectorRef, findSplice, fitAutoStraight, getPieceDef, Layout, solveParentPose } from "../track";
 import { Editor, pieceCentre } from "./editor";
 
 function setup() {
@@ -423,5 +423,78 @@ describe("the auto piece meeting an end a few degrees off", () => {
     const id = editor.place(fit.type, fit.pose, 0, fit.flipped);
     const ends = getPieceDef(fit.type, fit.flipped).connectors.map((_, i) => layout.joinedConnector(connectorRef(id, i)));
     expect(ends).toEqual(expect.arrayContaining([connectorRef(start, 0), connectorRef(far, 0)]));
+  });
+});
+
+describe("Editor.replace (a depot dropped onto a line)", () => {
+  /** Three long straights end to end along +x. */
+  function threeStraights() {
+    const s = setup();
+    const ids = [0, 1, 2].map((i) => s.editor.place("straight-216", { x: 216 * i, z: 0, heading: 0 }, 0, false));
+    s.editor.clearHistory();
+    return { ...s, ids };
+  }
+
+  it("takes the straight's place, joined both ends, in one undo step; undo puts the straight back joined", () => {
+    const { layout, sim, editor, ids } = threeStraights();
+    const s = findSplice(layout, "depot-workshop", false, { x: 324, z: 6 }, 0.2, 40);
+    expect(s.kind).toBe("splice");
+    if (s.kind !== "splice") return;
+    const depot = editor.replace(s.covers, "depot-workshop", s.pose, s.y, false);
+    expect(layout.getPiece(ids[1])).toBeUndefined();
+    expect(layout.joinedConnector(connectorRef(depot, 0))).toBe(connectorRef(ids[0], 1));
+    expect(layout.joinedConnector(connectorRef(depot, 1))).toBe(connectorRef(ids[2], 0));
+    // A train runs from the first straight through the depot onto the last.
+    const placed = sim.addTrain(["engine"], { pieceId: ids[0], pathIndex: 0, s: 150, reversed: false });
+    expect(placed.kind).toBe("placed");
+    if (placed.kind === "placed") {
+      sim.setLever(sim.getTrain(placed.trainId)!.cars[0].id, 1);
+      for (let i = 0; i < 2000 && sim.getTrain(placed.trainId)!.bogies[0].pieceId !== ids[2]; i++) sim.tick();
+      expect(sim.getTrain(placed.trainId)!.bogies[0].pieceId).toBe(ids[2]);
+      sim.removeTrain(placed.trainId);
+    }
+    editor.undo();
+    expect(layout.getPiece(depot)).toBeUndefined();
+    expect(layout.getPiece(ids[1])!.type).toBe("straight-216");
+    expect(layout.joinedConnector(connectorRef(ids[1], 0))).toBe(connectorRef(ids[0], 1));
+    expect(layout.joinedConnector(connectorRef(ids[1], 1))).toBe(connectorRef(ids[2], 0));
+    expect(editor.canUndo).toBe(false);
+    editor.redo();
+    expect(layout.getPiece(depot)!.type).toBe("depot-workshop");
+    expect(layout.getPiece(ids[1])).toBeUndefined();
+    expect(layout.jointCount).toBe(2);
+  });
+
+  it("turned right round (Flip), it still joins both ends", () => {
+    const { layout, editor, ids } = threeStraights();
+    const s = findSplice(layout, "depot-workshop", false, { x: 324, z: 0 }, Math.PI, 40);
+    if (s.kind !== "splice") throw new Error(s.kind);
+    const depot = editor.replace(s.covers, "depot-workshop", s.pose, s.y, false);
+    expect(layout.joinedConnector(connectorRef(depot, 0))).toBe(connectorRef(ids[2], 0));
+    expect(layout.joinedConnector(connectorRef(depot, 1))).toBe(connectorRef(ids[0], 1));
+  });
+
+  it("a depot moved onto a run of two straights: undo puts both back and the depot where it was", () => {
+    const { layout, editor } = setup();
+    const a = editor.place("straight-216", { x: 0, z: 0, heading: 0 }, 0, false);
+    const b = editor.place("straight-108", { x: 216, z: 0, heading: 0 }, 0, false);
+    const c = editor.place("straight-108", { x: 324, z: 0, heading: 0 }, 0, false);
+    const d = editor.place("straight-216", { x: 432, z: 0, heading: 0 }, 0, false);
+    const home = { x: 0, z: 600, heading: 0 };
+    const depot = editor.place("depot-workshop", home, 0, false);
+    layout.liftPiece(depot);
+    const s = findSplice(layout, "depot-workshop", false, { x: 300, z: 0 }, 0, 40);
+    expect(s.kind === "splice" && s.covers).toEqual([b, c]);
+    if (s.kind !== "splice") return;
+    editor.replace(s.covers, "depot-workshop", s.pose, s.y, false, { id: depot, from: { pose: home, y: 0 } });
+    expect(layout.getPiece(depot)!.pose.x).toBeCloseTo(216);
+    expect(layout.joinedConnector(connectorRef(depot, 0))).toBe(connectorRef(a, 1));
+    expect(layout.joinedConnector(connectorRef(depot, 1))).toBe(connectorRef(d, 0));
+    editor.undo();
+    expect(layout.getPiece(depot)!.pose).toEqual(home);
+    expect(layout.isLifted(depot)).toBe(false);
+    expect(layout.joinedConnector(connectorRef(b, 0))).toBe(connectorRef(a, 1));
+    expect(layout.joinedConnector(connectorRef(c, 1))).toBe(connectorRef(d, 0));
+    expect(layout.joinedConnector(connectorRef(b, 1))).toBe(connectorRef(c, 0));
   });
 });

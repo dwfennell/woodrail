@@ -1,4 +1,4 @@
-import { ARCH_CENTRES, ARCH_RADIUS, canStandOnArches, createSample, getPieceDef, isBridge, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, TRACK_WIDTH, type Layout, type PieceTypeId, type Pose } from "../track";
+import { ARCH_CENTRES, ARCH_RADIUS, canStandOnArches, createSample, getPieceDef, ignores, isBridge, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, TRACK_WIDTH, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
 import { hillsOf } from "./hill-shape";
 
@@ -126,11 +126,11 @@ const holders: Holder[] = [];
 /** A piece's ends are at most this far from its pose origin (the longest pieces are 216 mm). */
 const PIECE_REACH = 240;
 
-function gatherHolders(layout: Layout, x: number, z: number, ignoreId: number): Holder[] {
+function gatherHolders(layout: Layout, x: number, z: number, ignoreId: Ignore): Holder[] {
   holders.length = 0;
   const r = PIECE_REACH + RISER_REACH + JOINT_POS_TOLERANCE;
   for (const id of layout.pieceIds()) {
-    if (id === ignoreId) continue;
+    if (ignores(ignoreId, id)) continue;
     const p = layout.getPiece(id)!;
     if (p.type !== "riser" && !canStandOnArches(p.type)) continue;
     if (Math.abs(p.pose.x - x) > r || Math.abs(p.pose.z - z) > r || layout.isLifted(id)) continue;
@@ -206,7 +206,7 @@ export function checkSupport(
   flipped: boolean,
   pose: Pose,
   y: number,
-  ignoreId: number,
+  ignoreId: Ignore,
 ): Support {
   const risers: RiserPlacement[] = [];
   if (getPieceDef(type, flipped).connectors.length === 0) {

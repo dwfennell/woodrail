@@ -12,7 +12,7 @@ export interface Footprint {
 }
 
 /** Why a prop can't stand somewhere. */
-export type PropBlock = "off-land" | "river" | "dry" | "building" | "station" | "depot" | "track" | "prop" | "uneven";
+export type PropBlock = "off-land" | "river" | "dry" | "building" | "station" | "depot" | "track" | "prop" | "uneven" | "yard";
 
 export const PROP_MESSAGES: Record<PropBlock, string> = {
   "off-land": "That's past the edge of your land",
@@ -24,6 +24,7 @@ export const PROP_MESSAGES: Record<PropBlock, string> = {
   track: "That's on the track",
   prop: "Something's already there",
   uneven: "Needs level ground — not over a hill's edge",
+  yard: "That's a depot's yard",
 };
 
 export type PropClearance = { readonly kind: "clear"; readonly y: number } | { readonly kind: "blocked"; readonly reason: PropBlock };

@@ -8,10 +8,10 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
-import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
+import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
@@ -22,6 +22,7 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
+import { checkYard, footprintInYards, inYardMessage, isYardBlock, placedYard, trackInYards, turnedRound, YARD_FLIP_HINT, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { dragMoves } from "./drag-rule";
@@ -75,8 +76,19 @@ const NO_MOUSE = -1 as unknown as MOUSE;
 const MAX_TILT = (2 * Math.PI) / 180;
 const TRAIN_DROP_RANGE = 70;
 
-/** Why a piece can't go somewhere: the track's own reasons, or a mode's rule ("site", with its own message). */
-type PlaceBlock = BlockReason | "site";
+/**
+ * Why a piece can't go somewhere: the track's own reasons, a mode's rule ("site", with its own message), a depot
+ * held over a line where it can't take a straight's place ("splice-fit": no straight there its length; "splice-busy":
+ * a train on it; "splice-onto": over other track, not a straight), or no room for a depot's yard beside its track
+ * (`YardBlock`: something on the ground there, a hill, or water), or track run into a player's depot's yard ("in-yard").
+ */
+type PlaceBlock = BlockReason | YardBlock | "in-yard" | "site" | "splice-fit" | "splice-busy" | "splice-onto";
+
+const SPLICE_MESSAGES = {
+  "splice-fit": "Drop it onto a long straight",
+  "splice-busy": "A train is on that straight",
+  "splice-onto": "Drop it onto a straight",
+} as const;
 
 type Press =
   | { kind: "car"; carId: number }
@@ -158,6 +170,8 @@ type Mode =
       pose: Pose;
       /** Base height for a loose (unsnapped) drop: high enough to rest on what's under its ends. */
       looseY: number;
+      /** A depot held over a line: the straights it would take the place of (it's snapped where they are), or null. */
+      covers: readonly number[] | null;
       blocked: PlaceBlock | null;
       /** Risers to put under the piece's ends that are in the air (added with it). */
       risers: RiserAt[];
@@ -424,7 +438,8 @@ export class Interaction {
         type: item.type,
         flipped,
         heldFlipped: flipped,
-        heading: this.cameraHeading() + (this.trayTurns * Math.PI) / 4,
+        // A depot can't mirror: Flip turns it right round instead, so its building is on the other side of the line.
+        heading: this.cameraHeading() + (this.trayTurns * Math.PI) / 4 + (this.trayFlipped && this.splices(item.type) ? Math.PI : 0),
         pieceId: -1,
         tray: item,
         auto: item.auto,
@@ -434,6 +449,7 @@ export class Interaction {
         snap: { kind: "none" },
         pose: { x: 0, z: 0, heading: 0 },
         looseY: 0,
+        covers: null,
         blocked: null,
         risers: [],
         overTray: true,
@@ -1437,6 +1453,8 @@ export class Interaction {
     }
     if (this.mode.kind === "drag-piece") {
       this.mode.heading += Math.PI / 4;
+      // Seen at once, finger still (it snaps, or is refused, turned).
+      this.updateDrag(this.lastX, this.lastY);
       return;
     }
     if (this.mode.kind === "drag-prop") {
@@ -1488,7 +1506,7 @@ export class Interaction {
   }
 
   /** Why a piece can't go here (the landscape, or another piece in the way), or null when it can. */
-  private blockedBy(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): BlockReason | null {
+  private blockedBy(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): BlockReason | null {
     const c = checkPlacement(this.game.landscape, type, flipped, pose, y);
     if (c.kind === "blocked") return c.reason;
     // Bridges' and raised ramps' arches are solid down to the ground (but for their openings).
@@ -1505,11 +1523,14 @@ export class Interaction {
    * Can a piece go here, and what holds it up: null and the risers to add under ends in the air, or why not (the
    * landscape, another piece, nothing under an end, or no room for its risers).
    */
-  private placement(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): { reason: PlaceBlock | null; risers: RiserAt[] } {
+  private placement(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): { reason: PlaceBlock | null; risers: RiserAt[] } {
     const reason = this.blockedBy(type, flipped, pose, y, ignoreId);
     // A hill in the way: say how far up it is, and how to get there (only worked out when it's so).
     if (reason === "hill") this.hillWhy = hillMessage(levelsAbove(this.game.landscape, type, flipped, pose, y));
     if (reason) return { reason, risers: [] };
+    // A depot's yard and buildings beside its track need room too; other track keeps out of a player's depot's yard.
+    const yard = this.yardBlock(type, pose, y, ignoreId) ?? this.inYard(type, flipped, pose, y, ignoreId);
+    if (yard) return { reason: yard, risers: [] };
     const s = checkSupport(this.game.landscape, this.game.layout, type, flipped, pose, y, ignoreId);
     if (s.kind === "unsupported") return { reason: "unsupported", risers: [] };
     for (const r of s.risers) {
@@ -1533,11 +1554,107 @@ export class Interaction {
   private siteWhy = "";
 
   /**
+   * Is there room beside a depot piece's track for its yard (see `checkYard`)? Null for other pieces, and for a map's
+   * own depots (they stand where the map put them). While a depot is held, the last answer is kept for its pose.
+   */
+  private yardBlock(type: PieceTypeId, pose: Pose, y: number, ignoreId: Ignore): YardBlock | null {
+    if (!INDUSTRY_ROLE[type]) return null;
+    const own = typeof ignoreId === "number" ? ignoreId : (ignoreId.values().next().value ?? -1);
+    if (own !== -1 && this.fixedLabel(own) !== null) return null;
+    const g = this.game;
+    const ignoreKey = typeof ignoreId === "number" ? ignoreId : [...ignoreId].join(",");
+    const key = `${type}|${pose.x}|${pose.z}|${pose.heading}|${y}|${ignoreKey}|${g.layout.pieceCount}|${g.landscape.grid.revision}|${g.props.version}`;
+    if (this.mode.kind === "drag-piece" && this.yardMemo?.key === key) {
+      this.yardWhy = this.yardMemo.message;
+      return this.yardMemo.why;
+    }
+    const why = checkYard({ land: g.landscape, layout: g.layout, props: g.props, footprint: g.propLibrary.footprint }, type, pose, y, ignoreId);
+    if (why) this.yardWhy = yardMessage(type, why);
+    this.yardMemo = this.mode.kind === "drag-piece" ? { key, why, message: this.yardWhy } : null;
+    return why;
+  }
+  /**
+   * Does a piece (not a depot: those check their own yard against others') run into a player's depot's yard? Then
+   * "in-yard", saying whose. Bounding boxes first, against the few player depots.
+   */
+  private inYard(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): "in-yard" | null {
+    if (INDUSTRY_ROLE[type]) return null;
+    const yard = trackInYards(this.playerYards(), type, flipped, pose, y, ignoreId);
+    if (yard) this.inYardWhy = inYardMessage(yard.type);
+    return yard ? "in-yard" : null;
+  }
+  /** The message for the last "in-yard" refusal ("That's the workshop's yard"). */
+  private inYardWhy = "";
+
+  /**
+   * The yards of the depots the player placed (not the map's own, nor one in the hand), with their bounding boxes:
+   * built again only when one of them is placed, moved or taken up (a key of their poses: a few numbers each).
+   */
+  private playerYards(): readonly PlacedYard[] {
+    const g = this.game;
+    const layout = g.layout;
+    let key = "";
+    for (const d of g.economy.allDepots()) {
+      const p = layout.getPiece(d.pieceId);
+      if (!p || !INDUSTRY_ROLE[p.type] || layout.isLifted(d.pieceId)) continue;
+      key += `${d.pieceId}:${p.pose.x}:${p.pose.z}:${p.pose.heading}:${p.y};`;
+    }
+    if (this.yardsFor?.key === key) return this.yardsFor.yards;
+    const fixed = new Set(g.depots.values());
+    const yards: PlacedYard[] = [];
+    for (const d of g.economy.allDepots()) {
+      const p = layout.getPiece(d.pieceId);
+      if (!p || fixed.has(d.pieceId) || layout.isLifted(d.pieceId)) continue;
+      const yard = placedYard(d.pieceId, p.type, p.pose, p.y);
+      if (yard) yards.push(yard);
+    }
+    this.yardsFor = { key, yards };
+    return yards;
+  }
+  private yardsFor: { key: string; yards: PlacedYard[] } | null = null;
+
+  /** A prop's footprint in a player's depot's yard: "yard", the message saying whose. */
+  private propInYard(fp: Footprint, pose: Pick<Pose, "x" | "z" | "heading">): PropBlock | null {
+    const yard = footprintInYards(this.playerYards(), fp, pose);
+    if (yard) this.inYardWhy = inYardMessage(yard.type);
+    return yard ? "yard" : null;
+  }
+
+  /** What to say for a prop that can't go somewhere. */
+  private propMessage(reason: PropBlock): string {
+    return reason === "yard" ? this.inYardWhy : PROP_MESSAGES[reason];
+  }
+
+  /** The last yard check while a depot was held, for its inputs (cleared when it's put down). */
+  private yardMemo: { key: string; why: YardBlock | null; message: string } | null = null;
+  /** The message for the last yard refusal ("The workshop's yard is on a hill"). */
+  private yardWhy = "";
+
+  /**
+   * A depot refused for want of room for its yard: would it go turned right round (Flip), its yard on the other side
+   * of the line? Worked out only while it's refused, once per spot.
+   */
+  private yardHint(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): string | null {
+    const key = `yard|${type}|${flipped}|${pose.x}|${pose.z}|${pose.heading}|${y}|${this.game.layout.pieceCount}`;
+    if (this.hintFor?.key === key) return this.hintFor.hint;
+    const memo = this.yardMemo;
+    const why = this.yardWhy;
+    const hint = this.splices(type) && this.placement(type, flipped, turnedRound(type, pose), y, ignoreId).reason === null ? YARD_FLIP_HINT : null;
+    // (The turned-round check mustn't take the place of what's said, or remembered, for where it's held.)
+    this.yardMemo = memo;
+    this.yardWhy = why;
+    this.hintFor = { key, hint };
+    return hint;
+  }
+
+  /**
    * A piece seated on an end where it can't go: would it go there by another of its ends (turned), or the other hand
    * (flipped)? Then that's what to say, not why it can't go as it is. Kept for the seat it was worked out for (a few
    * placement checks, only while it's refused).
    */
   private fitHint(type: PieceTypeId, flipped: boolean, snap: Extract<SnapResult, { kind: "snapped" }>, pieceId: number): string | null {
+    // (Seated on no end, e.g. taking straights' place: nothing to turn about.)
+    if (snap.target < 0) return null;
     const key = `${type}|${flipped}|${snap.target}|${snap.connector}|${pieceId}|${this.game.layout.pieceCount}`;
     if (this.hintFor?.key === key) return this.hintFor.hint;
     const t = this.game.layout.worldConnector(snap.target, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
@@ -1603,6 +1720,9 @@ export class Interaction {
 
   private blockMessage(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
+    if (reason === "splice-fit" || reason === "splice-busy" || reason === "splice-onto") return SPLICE_MESSAGES[reason];
+    if (isYardBlock(reason)) return this.yardWhy;
+    if (reason === "in-yard") return this.inYardWhy;
     return reason === "site" ? this.siteWhy : BLOCK_MESSAGES[reason];
   }
 
@@ -1627,6 +1747,16 @@ export class Interaction {
     // Screen pixels per mm at that distance.
     const pxPerMm = g.canvas.clientHeight / (2 * distance * Math.tan((g.camera.fov * Math.PI) / 360));
     return GRAB_PIECE_MM * pxPerMm >= GRAB_MIN_PX;
+  }
+
+  /** Is this a depot piece, which is dropped onto a straight of a line to take its place (and turns round to flip)? */
+  private splices(type: PieceTypeId): boolean {
+    return !!INDUSTRY_ROLE[type] && straightLength(type, false) > 0;
+  }
+
+  /** What a held piece's placement checks leave out: itself, and the straights it would take the place of. */
+  private ignoreFor(m: Extract<Mode, { kind: "drag-piece" }>): Ignore {
+    return m.covers ? new Set([m.pieceId, ...m.covers]) : m.pieceId;
   }
 
   /** The piece of an industry you placed (a drag on its yard or buildings moves it), or −1 (a map's own depot). */
@@ -1657,13 +1787,21 @@ export class Interaction {
   flipSelected(): void {
     if (this.mode.kind === "drag-piece") {
       const m = this.mode;
-      if (!getPieceDef(m.type, false).flippable) return;
+      if (!getPieceDef(m.type, false).flippable) {
+        // A depot turns right round: the same track, its building on the other side of the line.
+        if (this.splices(m.type)) {
+          m.heading += Math.PI;
+          this.updateDrag(this.lastX, this.lastY);
+        }
+        return;
+      }
       m.heldFlipped = !m.heldFlipped;
       m.flipped = m.heldFlipped;
       const visible = m.ghost.visible;
       this.dropHeld(m.ghost);
       m.ghost = this.heldMesh(m.type, m.flipped);
       m.ghost.visible = visible;
+      this.updateDrag(this.lastX, this.lastY);
       return;
     }
     const id = this.selectedPiece;
@@ -1706,9 +1844,16 @@ export class Interaction {
     this.clearSelection();
     this.hud.hideCards();
     const p = this.game.layout.getPiece(id);
-    if (!this.editor().remove(id) || !p) return;
-    // A stand-in lifts and shrinks away where the piece was.
+    if (!p) return;
+    this.shrinkStandIn(id);
+    this.editor().remove(id);
+  }
+
+  /** A stand-in for a piece about to be taken up: it lifts and shrinks away where the piece was. */
+  private shrinkStandIn(id: number): void {
     const g = this.game;
+    const p = g.layout.getPiece(id);
+    if (!p) return;
     const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
     mesh.castShadow = true;
     mesh.position.set(p.pose.x, p.y, p.pose.z);
@@ -1822,12 +1967,12 @@ export class Interaction {
   }
 
   /** Why the group can't stand where it now is in the layout (each piece, and what holds it up), or null. */
-  private groupBlocked(ids: readonly number[], members: ReadonlySet<number>): BlockReason | null {
+  private groupBlocked(ids: readonly number[], members: ReadonlySet<number>): PlaceBlock | null {
     const g = this.game;
     const hills = hillsOf(g.landscape.grid);
     for (const id of ids) {
       const p = g.layout.getPiece(id)!;
-      const why = this.blockedBy(p.type, p.flipped, p.pose, p.y, id);
+      const why = this.blockedBy(p.type, p.flipped, p.pose, p.y, id) ?? this.yardBlock(p.type, p.pose, p.y, id) ?? this.inYard(p.type, p.flipped, p.pose, p.y, id);
       if (why) return why;
       if (p.type === "riser") {
         // A stand rests on the ground, or on another stand that came along.
@@ -2051,6 +2196,7 @@ export class Interaction {
       snap: { kind: "none" },
       pose: { ...p.pose },
       looseY: p.y,
+      covers: null,
       blocked: null,
       risers: [],
       overTray: false,
@@ -2230,6 +2376,48 @@ export class Interaction {
         }
         m.gap = fit?.gap ?? 0;
       }
+      // A depot held over a straight of a line takes its place (or a run of straights its length), turned along it.
+      m.covers = null;
+      let spliceWhy: PlaceBlock | null = null;
+      if (this.splices(m.type)) {
+        // Its centre as held under the finger, seen at the height of each straight it may be over (a few heights).
+        const seen = new Map<number, { x: number; z: number } | null>();
+        const centre = (h: number) => {
+          let c = seen.get(h);
+          if (c === undefined) {
+            const p = this.planeAt(x, sy, h);
+            c = p && { x: p.x + m.offset.x, z: p.z + m.offset.z };
+            seen.set(h, c);
+          }
+          return c;
+        };
+        const sim = this.game.sim;
+        const free = (id: number) => !sim.pieceOccupied(id);
+        const reach = Math.max(capture, TRACK_WIDTH);
+        let s = findSplice(this.game.layout, m.type, m.heldFlipped, centre, m.heading, reach, free);
+        if (s.kind === "none") {
+          // Its middle is off the line, but held across it its track may cross it: try points along its own track.
+          const half = straightLength(m.type, false) / 2;
+          const ax = Math.cos(m.heading);
+          const az = Math.sin(m.heading);
+          for (const f of [-0.5, 0.5, -1, 1]) {
+            const along = (h: number) => {
+              const c = centre(h);
+              return c && { x: c.x + ax * half * f, z: c.z + az * half * f };
+            };
+            const t = findSplice(this.game.layout, m.type, m.heldFlipped, along, m.heading, reach, free);
+            if (t.kind !== "none") {
+              s = t;
+              break;
+            }
+          }
+        }
+        if (s.kind === "splice") {
+          m.snap = { kind: "snapped", pose: s.pose, y: s.y, connector: 0, target: -1, distance: 0, flipped: m.heldFlipped };
+          m.covers = s.covers;
+        } else if (s.kind !== "none") spliceWhy = s.kind === "busy" ? "splice-busy" : "splice-fit";
+        else spliceWhy = "splice-onto";
+      }
       const fitFlipped = m.snap.kind === "snapped" ? m.snap.flipped : m.heldFlipped;
       if (fitFlipped !== m.flipped) {
         // Show it mirrored (or back as held) while it fits that way.
@@ -2241,21 +2429,35 @@ export class Interaction {
       }
       let pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
       let py = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
-      let { reason, risers } = this.placement(m.type, m.flipped, pose, py, m.pieceId);
+      let placed = this.placement(m.type, m.flipped, pose, py, this.ignoreFor(m));
       // Seated on an end where it can't go, but seated by another of its ends there it can (a curve bending the other
       // way, clear of a house): it goes that way. (Never mirrored: that's the player's Flip.) Turn still turns it.
-      if (reason && m.snap.kind === "snapped" && !m.auto) {
+      // (Not a depot spliced into a straight: that snap has no end of its own.)
+      if (placed.reason && m.snap.kind === "snapped" && m.snap.target >= 0 && !m.auto) {
         const turned = this.turnedSeat(m.type, m.flipped, m.snap, m.pieceId);
         if (turned) {
           m.snap = turned;
           pose = turned.pose;
           py = turned.y;
-          ({ reason, risers } = this.placement(m.type, m.flipped, pose, py, m.pieceId));
+          placed = this.placement(m.type, m.flipped, pose, py, this.ignoreFor(m));
         }
       }
+      // On other track but not where it can take a straight's place: say what would work.
+      const reason = placed.reason === "piece" && spliceWhy ? spliceWhy : placed.reason;
+      const risers = placed.risers;
       // (A preview under the mouse just shows red: the reason comes if it's clicked.)
       // While it's held where it can't go, the reason stays up (and goes once it can, or it's over the tray).
-      m.hint = !reason ? null : m.snap.kind === "snapped" ? this.fitHint(m.type, m.flipped, m.snap, m.pieceId) : this.turnHint(holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId);
+      // (Over a line, a depot's own message says what works: not the turn-to-fit hints.)
+      m.hint =
+        !reason || reason === spliceWhy
+          ? null
+          : isYardBlock(reason)
+            ? this.yardHint(m.type, m.flipped, pose, py, this.ignoreFor(m))
+            : m.snap.kind === "snapped"
+              ? m.covers
+                ? null // (taking straights' place: there's no end it's seated on to turn about)
+                : this.fitHint(m.type, m.flipped, m.snap, m.pieceId)
+              : this.turnHint(holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId);
       if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? (m.hint ?? this.blockMessage(reason)) : null);
       m.blocked = reason;
       m.risers = risers;
@@ -2324,10 +2526,11 @@ export class Interaction {
     const ed = this.editor();
     const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
     const y = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
-    const { reason: final, risers } = this.placement(m.type, m.flipped, pose, y, m.pieceId);
+    const { reason: final, risers } = this.placement(m.type, m.flipped, pose, y, this.ignoreFor(m));
+    this.yardMemo = null;
     // The reason it couldn't go (if it can't) stays up long enough to read; else the held one goes.
     this.hud.setRefusal(null);
-    if (final && !m.overTray) this.hud.refuse(m.hint ?? this.blockMessage(final));
+    if (final && !m.overTray) this.hud.refuse(m.hint ?? this.blockMessage(final === "piece" ? m.blocked ?? final : final));
     const mesh = m.ghost;
     const shown: PiecePose = { x: m.shown.x, y: m.shown.y, z: m.shown.z, heading: m.shown.heading };
     const industry = !!INDUSTRY_ROLE[m.type];
@@ -2344,7 +2547,15 @@ export class Interaction {
     switch (dropOutcome({ blocked: final !== null, overTray: m.overTray, isNew })) {
       case "place": {
         const snapped = m.snap.kind === "snapped";
-        const id = isNew ? ed.place(m.type, pose, y, m.flipped, risers) : (ed.move(m.pieceId, pose, y, m.from!, risers, m.flipped), m.pieceId);
+        const covers = m.covers;
+        // A depot dropped onto a line: the straights it takes the place of lift and shrink away (back in the box).
+        if (covers) for (const c of covers) this.shrinkStandIn(c);
+        const id = covers
+          ? ed.replace(covers, m.type, pose, y, m.flipped, isNew ? undefined : { id: m.pieceId, from: m.from! })
+          : isNew
+            ? ed.place(m.type, pose, y, m.flipped, risers)
+            : (ed.move(m.pieceId, pose, y, m.from!, risers, m.flipped), m.pieceId);
+        if (covers) this.hud.toast(covers.length === 1 ? "Straight back in the box" : `${covers.length} straights back in the box`);
         g.trackView.setHidden(id, true);
         setRim(g.mats.held, "#ffffff", 0);
         g.flourishes.add(
@@ -2779,8 +2990,9 @@ export class Interaction {
       const c = checkProp({ land: g.landscape, track: m.track, props: g.props, footprint: g.propLibrary.footprint }, fp, pose, placeOn(m.asset), m.propId, own);
       if (c.kind === "clear") ground = c.y;
       else blocked = c.reason;
+      blocked ??= this.propInYard(fp, pose);
     }
-    if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(PROP_MESSAGES[blocked]);
+    if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(this.propMessage(blocked));
     m.blocked = blocked;
     m.pose = { ...pose, y: ground };
     m.ghost.visible = !m.overTray;
@@ -2858,8 +3070,9 @@ export class Interaction {
     const from: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
     const to = { x: p.x, z: p.z, heading: p.heading + Math.PI / 4 };
     const c = checkProp({ land: g.landscape, track: new TrackIndex(g.layout), props: g.props, footprint: g.propLibrary.footprint }, fp, to, placeOn(p.asset), id);
-    if (c.kind === "blocked") {
-      this.hud.toast(PROP_MESSAGES[c.reason]);
+    const why = c.kind === "blocked" ? c.reason : this.propInYard(fp, to);
+    if (c.kind === "blocked" || why) {
+      this.hud.toast(this.propMessage(why!));
       this.onRefused?.();
       return;
     }

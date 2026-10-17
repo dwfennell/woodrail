@@ -138,20 +138,26 @@ function anyTouch(a: readonly Disc[], b: readonly Disc[], limit: number): boolea
   return false;
 }
 
+/** Pieces a placement check leaves out: the piece being moved, or a set (also the straights a depot drops onto). */
+export type Ignore = number | ReadonlySet<number>;
+
+/** Does `ignore` leave out piece `id`? */
+export const ignores = (ignore: Ignore, id: number): boolean => (typeof ignore === "number" ? id === ignore : ignore.has(id));
+
 /**
  * Would a piece at this pose collide with a piece already on the layout? Returns the first piece in the way, or −1.
- * `ignoreId` skips the piece being moved. With `arches`, the viaduct under a bridge (or raised ramp) is solid from
+ * `ignoreId` skips the piece being moved (or the pieces, given a set). With `arches`, the viaduct under a bridge (or raised ramp) is solid from
  * the ground to its deck, except under its arch openings: other track can't run through it, and it can't stand on
  * track. Called on every pointer move while dragging.
  */
-export function findOverlap(layout: Layout, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number, arches?: ArchReach): number {
+export function findOverlap(layout: Layout, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore, arches?: ArchReach): number {
   const mine = footprint(type, flipped);
   toWorld(mine.discs, pose, y, placed);
   wallToWorld(mine.arches, pose, y, arches?.mine ?? 0, myWall);
   const limit = (2 * RADIUS) ** 2;
   const isRiser = getPieceDef(type, flipped).paths.length === 0;
   for (const id of layout.pieceIds()) {
-    if (id === ignoreId || layout.isLifted(id)) continue;
+    if (ignores(ignoreId, id) || layout.isLifted(id)) continue;
     const other = layout.getPiece(id)!;
     const theirs = footprint(other.type, other.flipped);
     // Broad phase: footprint circles.
@@ -174,13 +180,13 @@ export function findOverlap(layout: Layout, type: PieceTypeId, flipped: boolean,
  * first such piece, or −1. Track over track needs `TRAIN_CLEARANCE` between their bases (two levels); track at the
  * same height is `findOverlap`'s. Risers and joiners carry no trains. Called on every pointer move while dragging.
  */
-export function findLowCrossing(layout: Layout, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): number {
+export function findLowCrossing(layout: Layout, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): number {
   if (getPieceDef(type, flipped).paths.length === 0 || type === "joiner") return -1;
   const mine = footprint(type, flipped);
   toWorld(mine.discs, pose, y, placed);
   const limit = (2 * RADIUS) ** 2;
   for (const id of layout.pieceIds()) {
-    if (id === ignoreId || layout.isLifted(id)) continue;
+    if (ignores(ignoreId, id) || layout.isLifted(id)) continue;
     const other = layout.getPiece(id)!;
     if (getPieceDef(other.type, other.flipped).paths.length === 0 || other.type === "joiner") continue;
     const theirs = footprint(other.type, other.flipped);

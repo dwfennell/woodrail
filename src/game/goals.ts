@@ -1,6 +1,7 @@
 import { connectedPairs, SURF_RIVER, type LandscapeGrid } from "../landscape";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
 import { workshops, workshopStock } from "./crafting";
+import { depotSpot } from "./depot-footprint";
 import { receivedBy } from "./town-life";
 import { townStatus } from "./towns";
 import type { World } from "./world";
@@ -268,9 +269,15 @@ export const GOALS: readonly Goal[] = [
   {
     id: "place-workshop",
     title: "Place your workshop",
-    hint: "Drag it from the Industries tab onto your line.",
+    hint: "Drop it from the Industries tab onto a straight on your line.",
     check: (w, ctx = NO_CONTEXT) => ({ done: workshops(w).length > 0 || ctx.learned.has("switches") }),
-    guide: (w) => ({ ...guideTrains(w), tab: "industries", shelf: "Industries" }),
+    guide: (w) => {
+      const guide: GoalGuide = { ...guideTrains(w), tab: "industries", shelf: "Industries" };
+      // A straight of the line where the workshop fits, yard and all: nearest the map's stations and depots.
+      const near = [...w.depots.values(), ...w.stations.values()].map((id) => piecePoint(w, id));
+      const spot = depotSpot(w, "depot-workshop", near);
+      return spot ? { ...guide, points: [{ x: spot.x, z: spot.z }], towns: [], marks: [{ x: spot.x, z: spot.z }] } : guide;
+    },
   },
   {
     id: "workshop-planks",

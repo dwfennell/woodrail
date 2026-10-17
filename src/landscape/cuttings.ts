@@ -1,4 +1,4 @@
-import { createSample, getPieceDef, pathLength, samplePath, TRACK_WIDTH, type Layout, type PieceTypeId, type Pose } from "../track";
+import { createSample, getPieceDef, ignores, pathLength, samplePath, TRACK_WIDTH, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
 import { cutsHills, hillsOf, type HillCut } from "./hill-shape";
 import { bridgeLevels } from "./support";
@@ -35,13 +35,13 @@ const STEP = 8;
  * Would a ramp put down here cut away the ground under track already resting on it (beside the cutting, or past its
  * ends)? Returns the first such piece, or −1. `ignoreId` is the piece being moved.
  */
-export function cutUndermines(land: Landscape, layout: Layout, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: number): number {
+export function cutUndermines(land: Landscape, layout: Layout, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): number {
   if (!cutsHills(type) || bridgeLevels(land, type, flipped, pose, y) > 0) return -1;
   const hills = hillsOf(land.grid);
   const cut: HillCut = { pose, y, type, flipped };
   const reach = 400;
   for (const id of layout.pieceIds()) {
-    if (id === ignoreId || layout.isLifted(id)) continue;
+    if (ignores(ignoreId, id) || layout.isLifted(id)) continue;
     const p = layout.getPiece(id)!;
     if (Math.abs(p.pose.x - pose.x) > reach || Math.abs(p.pose.z - pose.z) > reach) continue;
     const def = getPieceDef(p.type, p.flipped);
