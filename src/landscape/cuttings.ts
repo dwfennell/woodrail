@@ -1,29 +1,27 @@
 import { createSample, getPieceDef, ignores, pathLength, samplePath, TRACK_WIDTH, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
 import { cutsHills, hillsOf, type HillCut } from "./hill-shape";
-import { bridgeLevels } from "./support";
 
 /**
- * The cuttings the ramps on a layout make in the hills: one for each plain ramp (not one up on arches). Sets them on
- * the map's `HillShape`; call whenever the layout changes.
+ * The cuttings the ramps on a layout make in the hills: one for each ramp. Sets them on the map's `HillShape`; call
+ * whenever the layout changes. A ramp cuts only where its bed is under the hill (`HillShape` leaves the hill whole
+ * otherwise), so one up on arches over lower ground cuts nothing, but one on arches whose side or top end runs into
+ * a higher block beside it cuts that block, as placement let it (up to its top end; see `checkPlacement`).
  */
 export function syncCuttings(land: Landscape, layout: Layout): void {
-  const hills = hillsOf(land.grid);
-  // Whether a ramp stands on arches is judged on the uncut hills.
-  hills.setCuts([]);
   const cuts: HillCut[] = [];
   for (const id of layout.pieceIds()) {
     if (layout.isLifted(id)) continue;
     const p = layout.getPiece(id)!;
-    if (!cutsHills(p.type) || bridgeLevels(land, p.type, p.flipped, p.pose, p.y) > 0) continue;
+    if (!cutsHills(p.type)) continue;
     cuts.push({ pose: { ...p.pose }, y: p.y, type: p.type, flipped: p.flipped });
   }
-  hills.setCuts(cuts);
+  hillsOf(land.grid).setCuts(cuts);
 }
 
 /** The cutting a ramp held over the mat would make, were it put down there (none for other pieces). */
-export function heldCut(land: Landscape, held: { type: PieceTypeId; flipped: boolean; pose: Pose; y: number } | null): HillCut | undefined {
-  if (!held || !cutsHills(held.type) || bridgeLevels(land, held.type, held.flipped, held.pose, held.y) > 0) return undefined;
+export function heldCut(_land: Landscape, held: { type: PieceTypeId; flipped: boolean; pose: Pose; y: number } | null): HillCut | undefined {
+  if (!held || !cutsHills(held.type)) return undefined;
   return { pose: { ...held.pose }, y: held.y, type: held.type, flipped: held.flipped };
 }
 
@@ -36,7 +34,7 @@ const STEP = 8;
  * ends)? Returns the first such piece, or −1. `ignoreId` is the piece being moved.
  */
 export function cutUndermines(land: Landscape, layout: Layout, type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): number {
-  if (!cutsHills(type) || bridgeLevels(land, type, flipped, pose, y) > 0) return -1;
+  if (!cutsHills(type)) return -1;
   const hills = hillsOf(land.grid);
   const cut: HillCut = { pose, y, type, flipped };
   const reach = 400;
