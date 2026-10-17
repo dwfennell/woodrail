@@ -91,13 +91,39 @@ function linkedSeed(): number | null {
 function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean } {
   const seed = linkedSeed();
   const mode = seed !== null ? "sandbox" : loadLastMode();
+  // Reloaded from play (graphics switched, an update taken): straight back into the game, past the title.
+  const resumed = takeResume() === mode;
   const saved = loadFromStorage(mode);
   if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${mode} autosave (${saved.error})`);
   if (seed !== null) {
     const same = saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter;
     return { world: same ? saved.value : createWorld(seed), mode, linked: true };
   }
-  return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: false };
+  return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: resumed };
+}
+
+const RESUME_KEY = "woodrail.resume";
+
+/** Reload the page, then go straight back into this mode (saved first) rather than to the title. */
+function reloadInto(mode: GameMode, url?: string): void {
+  try {
+    sessionStorage.setItem(RESUME_KEY, mode);
+  } catch {
+    // No session storage: the title, as before.
+  }
+  if (url) location.replace(url);
+  else location.reload();
+}
+
+/** The mode a reload from play asked to go straight back into (once), or null. */
+function takeResume(): string | null {
+  try {
+    const m = sessionStorage.getItem(RESUME_KEY);
+    sessionStorage.removeItem(RESUME_KEY);
+    return m;
+  } catch {
+    return null;
+  }
 }
 
 startLog();
@@ -255,7 +281,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       titleScreen: () => showTitle(),
       toggleQuality: () => {
         saveQualityOverride(game.quality.tier === "high" ? "mobile" : "high");
-        location.reload();
+        // Back into the game after the reload, not the title (saved on the way out).
+        if (playing) {
+          saveOnLeaving();
+          reloadInto(mode);
+        } else location.reload();
       },
       closeCards: () => {
         hud.hideCards();
@@ -2092,7 +2122,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       onNewVersion: (build) =>
         hud.showUpdate(() => {
           saveOnLeaving();
-          location.replace(`${location.pathname}?v=${encodeURIComponent(build)}${location.hash}`);
+          const url = `${location.pathname}?v=${encodeURIComponent(build)}${location.hash}`;
+          if (playing) reloadInto(mode, url);
+          else location.replace(url);
         }),
     });
   }
