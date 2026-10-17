@@ -676,6 +676,76 @@ async function specials() {
     check("…in a cutting", cut > 0, `${cut} blocks cut`);
     if (got.pieces.length) await p.evaluate(() => window.woodrail.interaction.undo());
   }
+  await slantedRiver();
+}
+
+/**
+ * QA: a swipe straight up the screen at the default camera (about 23° off the grid on the map) across the river crosses
+ * it (a ramp up in time, bridges, a ramp down), rather than stopping red at the bank. Looked for over the river's
+ * squares: framed from the default camera's side and tilt, a vertical swipe through the water that starts and ends on
+ * open grass with nothing else in the way.
+ */
+async function slantedRiver() {
+  const cands = await p.evaluate(() => {
+    const w = window.woodrail;
+    const G = w.landscape.grid;
+    const out = [];
+    for (let i = 0; i < G.cellCount && out.length < 40; i += 7) if (G.surface[i] === 1 && G.road[i] === 0) out.push({ x: G.centreX(G.colOf(i)), z: G.centreZ(G.rowOf(i)) });
+    return out;
+  });
+  for (const c of cands) {
+    for (const dir of [1, -1]) {
+      // The default view: from (700, 620, 1050) off the target, looking down at it.
+      const pts = await p.evaluate(async ([cx, cz, dir]) => {
+        const w = window.woodrail;
+        const V = w.camera.position.constructor;
+        w.lookAt(new V(cx, 0, cz), 900, Math.atan2(Math.hypot(700, 1050), 620), Math.atan2(700, 1050));
+        await new Promise((r) => requestAnimationFrame(() => r()));
+        const r = w.canvas.getBoundingClientRect();
+        const [sx, sy] = D.screen(cx, 0, cz);
+        if (sx < r.left + 100 || sx > r.right - 100) return null;
+        const G = w.landscape.grid;
+        const kind = (g) => {
+          if (!g) return "x";
+          const i = G.cellAtWorld(g.x, g.z);
+          if (i === -1 || G.road[i] !== 0 || G.feature[i] > 1) return "x";
+          if (G.surface[i] === 1) return "w";
+          if (G.surface[i] !== 0 || G.height[i] !== 0 || w.layout.queryFreeConnectors(g.x, g.z, 250, []) > 0) return "x";
+          return "g";
+        };
+        const pts = [];
+        let seq = "";
+        for (let k = -60; k <= 60; k++) {
+          const y = sy - dir * k * 6;
+          if (y < r.top + 60 || y > r.bottom - 200) return null;
+          seq += kind(w.interaction.groundAt(sx, y));
+          pts.push([sx, y]);
+        }
+        // Grass, then the water, then grass: a clear crossing, with room either side.
+        return /^g{20,}w+g{20,}$/.test(seq) ? pts : null;
+      }, [c.x, c.z, dir]);
+      if (!pts) continue;
+      await p.evaluate(() => window.__toasts.splice(0));
+      const n0 = await p.evaluate(() => D.pieces());
+      await p.mouse.move(pts[0][0], pts[0][1]);
+      await p.mouse.down();
+      for (const [x, y] of pts.slice(1)) await p.mouse.move(x, y);
+      await p.mouse.up();
+      await settled(p);
+      await shot(p, `${OUT}/draw-8-slanted-river.png`);
+      const got = await p.evaluate((n0) => {
+        const w = window.woodrail;
+        const pieces = [...w.layout.pieceIds()].slice(n0).map((id) => ({ type: w.layout.getPiece(id).type, y: w.layout.getPiece(id).y }));
+        return { pieces, toasts: D.toasts() };
+      }, n0);
+      const types = got.pieces.map((q) => q.type);
+      const what = `${got.pieces.map((q) => `${q.type}@${q.y}`).join(" ")}${got.toasts.length ? ` · toasts: ${got.toasts.join(" | ")}` : ""} (swipe ${dir > 0 ? "up" : "down"} the screen)`;
+      check("a swipe straight up the screen at the default camera crosses the river: ramp up, bridges, ramp down", types.filter((t) => t === "ramp").length >= 2 && types.some((t) => t.startsWith("bridge")) && got.pieces.at(-1)?.y === 0 && !got.toasts.some((t) => /bridge over the river/.test(t)), what);
+      if (got.pieces.length) await p.evaluate(() => window.woodrail.interaction.undo());
+      return;
+    }
+  }
+  check("found a river to swipe across at the default camera", false);
 }
 
 async function finishRun() {
