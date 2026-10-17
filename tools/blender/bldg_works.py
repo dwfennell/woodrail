@@ -37,10 +37,11 @@ def water_tower(k):
         g.add(k.box(k.paint(TOY.black), 24, 1.6, 1.6, 0.4, 0, 20, z))
     for x in (-12, 12):
         g.add(k.box(k.paint(TOY.black), 1.6, 1.6, 24, 0.4, x, 20, 0))
-    # Swinging spout.
+    # Swinging spout: it rests along the track, and swings a quarter turn out over it (the game's kit piece,
+    # kit-water-tower, stands the tower beside its track, +x along it).
     spout = named(Node(), "spout")
-    spout.add(k.cylX(k.paint(TOY.black), 2.4, 26, 13, 0, 0, 12), k.cyl(k.paint(TOY.black), 2.6, 8, 26, -8, 0, 2.6, 12))
-    g.add(k.at(spout, 14, 50, 0))
+    spout.add(k.cylX(k.paint(TOY.black), 2.4, 40, 20, 0, 0, 12), k.cyl(k.paint(TOY.black), 2.6, 8, 40, -8, 0, 2.6, 12))
+    g.add(k.at(spout, 14, 64, 0))
     return g
 
 

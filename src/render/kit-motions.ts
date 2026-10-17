@@ -65,7 +65,7 @@ export const KIT_MOTIONS: Readonly<Record<string, KitMotion>> = {
     ease: 0.7,
   },
   // Engine services: the spout or chute swings over the engine while it stands there.
-  "bldg-water-tower": { parts: ["spout"], holds: true, pose: (p, on) => each(p, "spout", (o) => (o.rotation.y = on * 0.9)) },
+  "bldg-water-tower": { parts: ["spout"], holds: true, pose: (p, on) => each(p, "spout", (o) => (o.rotation.y = on * (Math.PI / 2))) },
   "bldg-coal-stage": { parts: ["chute"], holds: true, pose: (p, on) => each(p, "chute", (o) => (o.rotation.x = 0.2 + on * 0.5)) },
   "mech-water-crane": { parts: ["arm"], holds: true, pose: (p, on) => each(p, "arm", (o) => (o.rotation.y = (-Math.PI / 2) * on)) },
   "mech-coaling-crane": {

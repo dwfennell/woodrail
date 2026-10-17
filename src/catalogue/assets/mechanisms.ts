@@ -780,7 +780,7 @@ const mechanisms: Asset[] = [
     tags: ["water", "steam", "column", "refill", "tank"],
     notes: "A turned iron water column whose arm swings out over the track to fill a steam engine's tank. Steam engines could need water every so many laps, so routes have to pass one.",
     build: (k) => {
-      const g = k.group(k.trackSlab(100, 0, 0, 38), k.cyl(k.paint(DARK_STONE), 12, 4, 0, 0, 0, 12, 20));
+      const g = k.group(k.trackSlab(108, 0, 0, 38), k.cyl(k.paint(DARK_STONE), 12, 4, 0, 0, 0, 12, 20));
       g.add(
         k.lathe(
           k.paint(TOY.black),
@@ -829,7 +829,7 @@ const mechanisms: Asset[] = [
     tags: ["coal", "crane", "grab", "depot", "steam"],
     notes: "A raised coaling stage with a small crane and a clamshell grab that opens over an engine's tender. Steam engines could need both coal and water to keep running, giving depots a purpose.",
     build: (k) => {
-      const g = k.group(k.trackSlab(120, 0, 0, 40));
+      const g = k.group(k.trackSlab(108, 0, 0, 40));
       g.add(k.box(k.paint("#a85d3a"), 80, 40, 40, 2, 0, 0, -20), k.box(k.paint(DARK_STONE), 84, 4, 44, 1, 0, 40, -20));
       for (let i = 0; i < 4; i++) g.add(k.box(k.cut, 10, 14, 1, 0.5, -30 + i * 20, 14, 0.2));
       g.add(coalHeap(k, 16, -20, 44, -24), coalHeap(k, 12, 22, 44, -30));
@@ -898,7 +898,7 @@ const mechanisms: Asset[] = [
     tags: ["fuel", "diesel", "tank", "pump", "depot"],
     notes: "A big yellow tank on a cradle with a pump and a swinging hose arm. Diesel engines could visit to fill up, the gauge needle rising as the player holds the pump.",
     build: (k) => {
-      const g = k.group(k.trackSlab(120, 0, 0, 36));
+      const g = k.group(k.trackSlab(108, 0, 0, 36));
       for (const x of [-30, 30]) g.add(k.box(k.paint(TOY.grey), 8, 16, 32, 2, x, 0, -30));
       g.add(k.cylX(k.paint(TOY.yellow), 18, 90, 0, 32, -30, 24));
       for (const s of [-1, 1]) {

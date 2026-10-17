@@ -195,3 +195,87 @@ describe("kit stops on kits of several roads", () => {
     expect(turned).toBe(true);
   });
 });
+
+/**
+ * A straight line along +x: a turnback buffer, a straight (the train starts on it), then `types` end to end, then a
+ * straight and a turnback buffer. Its engine set going toward them.
+ */
+function line(types: PieceTypeId[], cars: CarKind[], look: CarLook = "classic") {
+  const layout = new Layout();
+  const c = createWorldConnector();
+  layout.addPiece("buffer-turnback", { x: 0, z: 0, heading: Math.PI });
+  let at = { x: 0, z: 0, heading: 0 };
+  const ids: number[] = [];
+  for (const type of ["straight-216", ...types, "straight-216"] as PieceTypeId[]) {
+    const id = layout.addPiece(type, at);
+    ids.push(id);
+    layout.worldConnector(connectorRef(id, 1), c);
+    at = { x: c.x, z: c.z, heading: c.heading };
+  }
+  layout.addPiece("buffer-turnback", at);
+  const sim = new Sim(layout);
+  const economy = new Economy(layout, sim);
+  const placed = sim.addTrain(cars, { pieceId: ids[0], pathIndex: 0, reversed: false, s: 200 });
+  if (placed.kind !== "placed") throw new Error("no room");
+  const train = () => sim.getTrain(sim.trainIds()[0])! as Train;
+  for (const car of train().cars) if (car.kind === "engine") sim.setLook(car.id, look);
+  sim.setLever(train().cars.find((x) => x.kind === "engine")!.id, 1);
+  const step = () => {
+    sim.tick();
+    economy.tick();
+  };
+  /** Run until the train's front has passed the piece at `index` of `types` (or `seconds` are up): the kits it halted at. */
+  const runPast = (index: number, seconds = 20, each?: () => void) => {
+    const halted: number[] = [];
+    const target = ids[index + 1];
+    for (let i = 0; i < seconds * SIM_HZ; i++) {
+      step();
+      each?.();
+      const at = economy.kitStops.dwellingAt(train().id);
+      if (at !== -1 && !halted.includes(at)) halted.push(at);
+      if (train().bogies.every((b) => b.pieceId !== target) && ids.indexOf(train().bogies.at(-1)!.pieceId) > index + 1) break;
+    }
+    return halted;
+  };
+  return { layout, sim, economy, train, ids: ids.slice(1, -1), step, runPast };
+}
+
+describe("engine services (water, coal, fuel)", () => {
+  it("a steam engine stops for 3 s at a water tower, the spout working while it stands there", () => {
+    const w = line(["kit-water-tower"], ["engine", "hopper"]);
+    let dwelt = 0;
+    let standing = 0;
+    const halted = w.runPast(0, 20, () => {
+      if (w.economy.kitStops.dwelling(w.train().id)) dwelt++;
+      if (w.economy.standingAt(w.ids[0])) standing++;
+    });
+    expect(halted).toEqual([w.ids[0]]);
+    expect(Math.abs(dwelt - ticks(3))).toBeLessThanOrEqual(2);
+    expect(standing).toBe(dwelt);
+  });
+
+  it("a diesel runs through a water tower and coal stage, but stops at the fuel station", () => {
+    const w = line(["kit-water-tower", "kit-coal-stage", "kit-fuel-station"], ["engine"], "diesel");
+    expect(w.runPast(2, 30)).toEqual([w.ids[2]]);
+  });
+
+  it("an engine that took a service in the last minute runs through the next; after a minute it stops again", () => {
+    const w = line(["kit-water-tower", "straight-216", "kit-coal-stage"], ["engine", "passenger"]);
+    // Water, then straight on through the coal stage (served under a minute ago).
+    expect(w.runPast(2, 30)).toEqual([w.ids[0]]);
+    const engine = w.train().cars.find((c) => c.kind === "engine")!.id;
+    expect(w.economy.kitStops.servedAt(engine)).toBeDefined();
+
+    // Again, but with more than a minute gone by between them: it stops at both.
+    const v = line(["kit-water-tower", "straight-216", "kit-coal-stage"], ["engine", "passenger"]);
+    let skipped = false;
+    const halted = v.runPast(2, 30, () => {
+      // Once it's off the water tower, a minute and a bit of game time passes.
+      if (!skipped && v.economy.kitStops.servedAt(v.train().cars[0].id) !== undefined && v.train().bogies.every((b) => b.pieceId !== v.ids[0])) {
+        v.sim.ticks += ticks(61);
+        skipped = true;
+      }
+    });
+    expect(halted).toEqual([v.ids[0], v.ids[2]]);
+  });
+});

@@ -40,6 +40,11 @@ interface Visit {
  */
 export class KitStops {
   private readonly visits = new Map<number, Visit>();
+  /**
+   * When each engine last took a service (a stop with a `cooldown`: water, coal, fuel), in sim ticks, by engine car id
+   * (cars keep their ids when a train turns round or couples up).
+   */
+  private readonly served = new Map<number, number>();
   /** Counts trains halting at stops (for whatever wants to see one halt: a kit's moving parts, see `Economy.halts`). */
   halts = 0;
 
@@ -48,8 +53,30 @@ export class KitStops {
     private readonly sim: Sim,
   ) {}
 
-  /** The speed limit (mm/s) a kit's stop puts on a powered train this tick: Infinity, or less coming in, 0 halted. */
+  /**
+   * The speed limit (mm/s) kits put on a powered train this tick: a stop's (Infinity, or less coming in, 0 halted),
+   * and a crawl's while any of its axles is on a kit that has one (a weighbridge).
+   */
   cap(train: Train): number {
+    const stop = this.stopCap(train);
+    return stop === 0 ? 0 : Math.min(stop, this.crawlCap(train));
+  }
+
+  /** A crawl's speed limit: the slowest crawl of the kits under the train's axles (Infinity: none). */
+  private crawlCap(train: Train): number {
+    let cap = Infinity;
+    let last = -1;
+    for (const b of train.bogies) {
+      if (b.pieceId === last) continue;
+      last = b.pieceId;
+      const piece = this.layout.getPiece(b.pieceId);
+      const crawl = piece ? kitOf(piece.type)?.crawl : undefined;
+      if (crawl !== undefined && crawl < cap) cap = crawl;
+    }
+    return cap;
+  }
+
+  private stopCap(train: Train): number {
     const lead = train.bogies[0];
     const piece = this.layout.getPiece(lead.pieceId);
     const kitStop = piece ? kitOf(piece.type)?.stop : undefined;
@@ -72,7 +99,8 @@ export class KitStops {
     }
     if (!stop) return Infinity;
     if (!v) {
-      v = { pieceId: lead.pieceId, phase: COMING, ticks: 0, reversed: lead.reversed };
+      // An engine that took this kind of service a little while ago runs through (keeps a busy line moving).
+      v = { pieceId: lead.pieceId, phase: stop.cooldown && this.servedWithin(train, stop.cooldown) ? DONE : COMING, ticks: 0, reversed: lead.reversed };
       this.visits.set(train.id, v);
     }
     if (v.phase === DONE) return Infinity;
@@ -111,8 +139,26 @@ export class KitStops {
         continue;
       }
       if (train.speed !== 0 || !this.driven(train)) continue;
-      if (++v.ticks >= ticks(stop.seconds)) v.phase = DONE;
+      if (++v.ticks < ticks(stop.seconds)) continue;
+      v.phase = DONE;
+      // A service taken: its engines run through services for a while.
+      if (stop.cooldown) for (const car of train.cars) if (car.kind === "engine") this.served.set(car.id, this.sim.ticks);
     }
+  }
+
+  /** Did any of this train's engines take a service in the last `seconds` (game time)? */
+  private servedWithin(train: Train, seconds: number): boolean {
+    for (const car of train.cars) {
+      if (car.kind !== "engine") continue;
+      const at = this.served.get(car.id);
+      if (at !== undefined && this.sim.ticks - at < ticks(seconds)) return true;
+    }
+    return false;
+  }
+
+  /** When this engine last took a service (sim ticks), if it has (for tests, the engine card). */
+  servedAt(engineCarId: number): number | undefined {
+    return this.served.get(engineCarId);
   }
 
   /** Is this train standing at a kit's stop (for the engine card, the debug report)? */
@@ -135,6 +181,7 @@ export class KitStops {
   /** Forget visits of trains that no longer exist (coupled into another, removed, lifted and turned round). */
   prune(): void {
     for (const id of this.visits.keys()) if (!this.sim.getTrain(id)) this.visits.delete(id);
+    for (const id of this.served.keys()) if (!this.sim.findCar(id)) this.served.delete(id);
   }
 
   /** Is the stop for this train? */

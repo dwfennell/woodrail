@@ -47,7 +47,18 @@ export interface KitDef {
    * Trains stop here: `at` mm along its path from the end the train comes in by (where the train's front halts), for
    * `seconds` (game time), and which trains. Put `at` past a train's braking distance (about 30 mm at full speed).
    */
-  readonly stop?: { readonly at: number; readonly seconds: number; readonly who: KitStopWho };
+  readonly stop?: {
+    readonly at: number;
+    readonly seconds: number;
+    readonly who: KitStopWho;
+    /**
+     * A service (water, coal, fuel): an engine that took one in the last `cooldown` seconds (game time) runs through
+     * any kit's stop with a cooldown, so a busy line keeps moving.
+     */
+    readonly cooldown?: number;
+  };
+  /** Trains crawl over it at this speed (mm/s) while any of their axles is on it (a weighbridge). */
+  readonly crawl?: number;
   /** It's a cargo stop: registered as an economy depot of this role, so cranes load and unload as at a depot. (Phase 1.) */
   readonly depot?: DepotRole;
   /**
@@ -72,6 +83,12 @@ const beside = (depth: number) => TRACK_HALF + PLATFORM_GAP + depth / 2;
 
 /** A station's stop: a train with coaches halts with its front near the far end of the platform, for 4 s. */
 const PASSENGERS = { at: 196, seconds: 4, who: "passengers" } as const;
+
+/**
+ * An engine service's stop (water, coal): a steam engine halts for 3 s while the spout or chute swings over it, and
+ * one that took a service in the last minute runs through.
+ */
+const STEAM_SERVICE = { at: 90, seconds: 3, who: "steam", cooldown: 60 } as const;
 
 /**
  * Track for a kit of several roads: each starts at a connector (`starts`: the pose it runs on from, into the piece) and
@@ -213,6 +230,68 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
       { t: 31, l: 123, w: 128, d: 128 },
       { t: 31, l: -123, w: 128, d: 128 },
     ],
+  },
+  // Engine services: 108 straights with the service beside them (left), splicing onto a line. A steam engine stops
+  // for 3 s while the spout or chute swings over it (the fuel station: any engine); not again for a minute.
+  "kit-water-tower": {
+    asset: "bldg-water-tower",
+    name: "water tower",
+    track: straight("kit-water-tower", 108),
+    rails: "track",
+    // The tank (radius 18) just off the track's edge; its spout rests along the track (+x), and swings out over it.
+    place: { t: 40, l: TRACK_HALF + PLATFORM_GAP + 18 },
+    footprint: [{ t: 39, l: 39, w: 42, d: 38 }],
+    splices: true,
+    stop: STEAM_SERVICE,
+    moves: "stopped",
+  },
+  "kit-coal-stage": {
+    asset: "bldg-coal-stage",
+    name: "coal stage",
+    track: straight("kit-coal-stage", 108),
+    rails: "track",
+    // Its chute side (+z) to the track.
+    place: { t: 54, l: TRACK_HALF + PLATFORM_GAP + 20, turn: Math.PI },
+    footprint: [{ t: 70, l: 41, w: 96, d: 40 }],
+    splices: true,
+    stop: STEAM_SERVICE,
+    moves: "stopped",
+  },
+  "kit-water-crane": {
+    asset: "mech-water-crane",
+    name: "water crane",
+    track: straight("kit-water-crane", 108),
+    rails: "track",
+    // The model's own slab of track runs along x at z 38, the column at its origin: turned so the column's on the left.
+    place: { t: 54, l: 38, turn: Math.PI },
+    footprint: [{ t: 54, l: 38, w: 26, d: 26 }],
+    splices: true,
+    stop: STEAM_SERVICE,
+    moves: "stopped",
+  },
+  "kit-coaling-crane": {
+    asset: "mech-coaling-crane",
+    name: "coaling crane",
+    track: straight("kit-coaling-crane", 108),
+    rails: "track",
+    // Its track at the model's z 40, the stage behind it.
+    place: { t: 54, l: 40, turn: Math.PI },
+    footprint: [{ t: 54, l: 60, w: 86, d: 42 }],
+    splices: true,
+    stop: STEAM_SERVICE,
+    moves: "stopped",
+  },
+  "kit-fuel-station": {
+    asset: "mech-fuel-station",
+    name: "fuel station",
+    track: straight("kit-fuel-station", 108),
+    rails: "track",
+    // Its track at the model's z 36, the tank and pump behind it.
+    place: { t: 54, l: 36, turn: Math.PI },
+    footprint: [{ t: 54, l: 55, w: 108, d: 62 }],
+    splices: true,
+    stop: { ...STEAM_SERVICE, who: "any" },
+    moves: "stopped",
   },
   // The line runs through the arch on a 108 straight; the portcullis rises as a train comes and drops behind it.
   "kit-castle-gate": {
