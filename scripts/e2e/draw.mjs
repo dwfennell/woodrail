@@ -693,38 +693,44 @@ async function slantedRiver() {
     for (let i = 0; i < G.cellCount && out.length < 40; i += 7) if (G.surface[i] === 1 && G.road[i] === 0) out.push({ x: G.centreX(G.colOf(i)), z: G.centreZ(G.rowOf(i)) });
     return out;
   });
+  const seqs = [];
   for (const c of cands) {
     for (const dir of [1, -1]) {
       // The default view: from (700, 620, 1050) off the target, looking down at it.
-      const pts = await p.evaluate(async ([cx, cz, dir]) => {
+      const got0 = await p.evaluate(async ([cx, cz, dir]) => {
         const w = window.woodrail;
         const V = w.camera.position.constructor;
         w.lookAt(new V(cx, 0, cz), 900, Math.atan2(Math.hypot(700, 1050), 620), Math.atan2(700, 1050));
         await new Promise((r) => requestAnimationFrame(() => r()));
         const r = w.canvas.getBoundingClientRect();
         const [sx, sy] = D.screen(cx, 0, cz);
-        if (sx < r.left + 100 || sx > r.right - 100) return null;
+        if (sx < r.left + 100 || sx > r.right - 100) return { seq: "off side" };
         const G = w.landscape.grid;
         const kind = (g) => {
           if (!g) return "x";
           const i = G.cellAtWorld(g.x, g.z);
           if (i === -1 || G.road[i] !== 0 || G.feature[i] > 1) return "x";
           if (G.surface[i] === 1) return "w";
-          if (G.surface[i] !== 0 || G.height[i] !== 0 || w.layout.queryFreeConnectors(g.x, g.z, 250, []) > 0) return "x";
+          // (Sand on a bank is ground as grass is.)
+          if ((G.surface[i] !== 0 && G.surface[i] !== 6) || G.height[i] !== 0 || w.layout.queryFreeConnectors(g.x, g.z, 250, []) > 0) return "x";
           return "g";
         };
         const pts = [];
         let seq = "";
-        for (let k = -60; k <= 60; k++) {
-          const y = sy - dir * k * 6;
-          if (y < r.top + 60 || y > r.bottom - 200) return null;
+        for (let k = -44; k <= 44; k++) {
+          const y = sy - dir * k * 5;
+          if (y < r.top + 60 || y > r.bottom - 170) return { seq: "off screen" };
           seq += kind(w.interaction.groundAt(sx, y));
           pts.push([sx, y]);
         }
         // Grass, then the water, then grass: a clear crossing, with room either side.
-        return /^g{20,}w+g{20,}$/.test(seq) ? pts : null;
+        return /^g{12,}w+g{12,}$/.test(seq) ? { pts } : { seq };
       }, [c.x, c.z, dir]);
-      if (!pts) continue;
+      if (!got0?.pts) {
+        seqs.push(got0?.seq ?? "none");
+        continue;
+      }
+      const pts = got0.pts;
       await p.evaluate(() => window.__toasts.splice(0));
       const n0 = await p.evaluate(() => D.pieces());
       await p.mouse.move(pts[0][0], pts[0][1]);
@@ -745,7 +751,7 @@ async function slantedRiver() {
       return;
     }
   }
-  check("found a river to swipe across at the default camera", false);
+  check("found a river to swipe across at the default camera", false, seqs.slice(0, 6).join(" / "));
 }
 
 async function finishRun() {
