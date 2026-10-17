@@ -647,7 +647,8 @@ export class Game {
   }
 
   private frame(): void {
-    const dt = Math.min(this.clock.getDelta(), 0.1);
+    const elapsed = this.clock.getDelta();
+    const dt = Math.min(elapsed, 0.1);
     const t0 = performance.now();
     if (!this.paused) {
       this.accumulator += dt;
@@ -706,7 +707,7 @@ export class Game {
     if (this.director.busy) this.touchCamera.gestures.stop();
     else if (!this.touchCamera.touching) this.touchCamera.gestures.glide(dt);
     this.keyPan(dt);
-    this.director.update(dt, this.canvas.clientWidth, this.canvas.clientHeight);
+    this.director.update(dt, this.canvas.clientWidth, this.canvas.clientHeight, elapsed);
     this.controls.update(dt);
     // After the controls' own pan, so the view never renders past the mat's edge.
     this.director.constrain();

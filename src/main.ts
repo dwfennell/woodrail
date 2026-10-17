@@ -375,17 +375,29 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       saveThumbnailsSoon();
     }
     studio.dispose();
+    // All drawn: saved now rather than once the pause is up.
+    clearTimeout(thumbSaveTimer);
+    thumbSaveTimer = 0;
+    await saveCached("thumbnails", __BUILD_ID__, thumbnails);
   }
+  /** Start-up's tray pictures, all drawn and saved (the e2e tests wait on it before reloading). */
+  let trayThumbnailsSaved: Promise<void> = Promise.resolve();
 
   // Catalogue models' tray pictures: drawn when their shelf is first shown, one a frame (each builds the model, if it
   // isn't yet), then kept with the start-up pictures for the next visit.
   const thumbQueue: string[] = [];
   let studio: ThumbnailStudio | null = null;
   let thumbSaveTimer = 0;
-  /** Save the tray pictures drawn so far, once the drawing's paused a moment. */
+  /**
+   * Save the tray pictures drawn so far, 2 s after the first not yet saved (not put off by more coming: a batch every
+   * second or so would put it off till the last, and a visit cut short would keep none).
+   */
   function saveThumbnailsSoon(): void {
-    clearTimeout(thumbSaveTimer);
-    thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", __BUILD_ID__, thumbnails), 2000);
+    if (thumbSaveTimer) return;
+    thumbSaveTimer = window.setTimeout(() => {
+      thumbSaveTimer = 0;
+      void saveCached("thumbnails", __BUILD_ID__, thumbnails);
+    }, 2000);
   }
   function drawPropThumbnails(items: TrayItem[]): void {
     const idle = thumbQueue.length === 0;
@@ -1709,7 +1721,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       viewStatus.next = latest;
       viewStatus.since = now;
     }
-    if (opened || now - viewStatus.since >= STATUS_HOLD_MS) viewStatus.shown = latest;
+    // ("Starting" shows at once: it answers the Go just pressed.)
+    if (opened || latest === "Starting" || now - viewStatus.since >= STATUS_HOLD_MS) viewStatus.shown = latest;
     const status = viewStatus.shown;
     // The engine's own front, as a screen direction (degrees clockwise from right).
     const snap = game.snapshot;
@@ -2256,7 +2269,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, trayThumbnailsSaved: () => trayThumbnailsSaved });
   game.start();
   // Opening in Game mode: start fetching its models now, ahead of play.
   if (mode === "game") ensureGameModels();
@@ -2276,7 +2289,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
   // The loading screen's toys play their entry in full before it moves on (it's short, and capped).
   void entryPlayed().then(() => {
-    void drawTrayThumbnails();
+    trayThumbnailsSaved = drawTrayThumbnails();
     if (opening.linked) {
       enter(mode);
       openingView();

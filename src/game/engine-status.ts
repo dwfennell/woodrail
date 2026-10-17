@@ -28,6 +28,13 @@ export const TURNED_SHOWN_S = 8;
 const STARTING_S = 0.5;
 
 /**
+ * A train told to go is "Starting" till it's up to this speed (mm/s), as long as it was told in the last few seconds
+ * (`STARTING_FOR_S`; braking for a red signal later isn't starting).
+ */
+const STARTING_SPEED = 40;
+const STARTING_FOR_S = 4;
+
+/**
  * What a train is doing, and if it's standing with its lever on, why: being worked at a depot, turning back at the end
  * of the line, a red signal, too heavy for its engines or no power (`cantMove`), or held up by something else.
  * Worked out when asked (the card, a report), never per frame.
@@ -45,8 +52,12 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   // Being worked by a crane comes next: at a depot at the end of the line the train also waits to turn back.
   const depot = economy.servingDepot(train.id);
   if (depot) {
+    // What's being done for this train here (a Drop stop only unloads), or else what the depot does.
+    const w = economy.workFor(train.id, depot);
     const r = RECIPES[depot.role];
-    return { kind: "worked", depotId: depot.id, work: r.takes.length === 0 ? "Loading" : r.gives.length === 0 ? "Unloading" : "Loading and unloading" };
+    const loads = w ? w.load : r.gives.length > 0;
+    const unloads = w ? w.unload : r.takes.length > 0;
+    return { kind: "worked", depotId: depot.id, work: loads && unloads ? "Loading and unloading" : unloads ? "Unloading" : "Loading" };
   }
   if (train.turnback >= 0) return { kind: "turning-back", cause: turn?.cause ?? "buffer", pieceId: turn?.pieceId ?? -1 };
   const stopAt = economy.kitStops.dwellingAt(train.id);
@@ -61,6 +72,8 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     if (train.speed > 0 || justSet) return { kind: "starting" };
     return { kind: "held-up" };
   }
+  // Gathering speed after Go.
+  if (train.speed < STARTING_SPEED && train.leverTick !== undefined && (sim.ticks - train.leverTick) * SIM_DT < STARTING_FOR_S) return { kind: "starting" };
   return { kind: "running" };
 }
 

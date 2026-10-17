@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Economy } from "../economy";
+import { CARGO, Economy } from "../economy";
 import { Sim, SIM_DT } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { engineStatus, trainState, trainsForReport } from "./engine-status";
@@ -63,6 +63,8 @@ describe("the engine card's status line", () => {
     const sim = new Sim(layout);
     const economy = new Economy(layout, sim);
     const d = economy.addDepot("forest", ids[2], 0);
+    // Logs waiting on its pile.
+    d.piles[CARGO.log.index] = 4;
     const r = sim.addTrain(["engine", "timber", "timber"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 150 });
     if (r.kind !== "placed") throw new Error();
     const engine = sim.getTrain(r.trainId)!.cars[0].id;
@@ -75,6 +77,40 @@ describe("the engine card's status line", () => {
     }
     expect(seen).toContain("Loading at the forest yard");
     expect([...seen].some((st) => st.startsWith("Loading and unloading"))).toBe(false);
+  });
+
+  /** A train of an engine and two timber wagons (logs on the first) running through a sawmill and on. */
+  function sawmillRun(route: "none" | "drop" | "elsewhere") {
+    const layout = new Layout();
+    const ids = (["straight-216", "straight-216", "depot-sawmill", "straight-216", "depot-forest", "straight-216"] as const).map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const mill = economy.addDepot("sawmill", ids[2], 0);
+    const forest = economy.addDepot("forest", ids[4], 0);
+    // Planks on the mill's pile, logs on the first wagon.
+    mill.piles[CARGO.planks.index] = 6;
+    const r = sim.addTrain(["engine", "timber", "timber"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 200 });
+    if (r.kind !== "placed") throw new Error();
+    const train = sim.getTrain(r.trainId)!;
+    economy.setCargo(train.cars[1].id, "log", 3);
+    const engine = train.cars[0].id;
+    if (route === "drop") economy.setRoute(engine, { stops: [{ depotId: mill.id, action: "drop" }], next: 0 });
+    if (route === "elsewhere") economy.setRoute(engine, { stops: [{ depotId: forest.id, action: "both" }], next: 0 });
+    sim.setLever(engine, 1);
+    const seen = new Set<string>();
+    for (let k = 0; k < 120 * 12; k++) {
+      sim.tick();
+      economy.tick();
+      seen.add(engineStatus(sim, economy, engine, (id) => (id === mill.id ? "the sawmill" : "the forest")));
+    }
+    return [...seen].filter((s) => /^(Loading|Unloading)/.test(s) && s.endsWith("the sawmill"));
+  }
+
+  it("says what's being done for this train: just Unloading at a Drop stop, nothing at a depot not on its route", () => {
+    expect(sawmillRun("none")).toContain("Loading and unloading at the sawmill");
+    expect(sawmillRun("drop")).toEqual(["Unloading at the sawmill"]);
+    // Passing a depot that isn't one of its stops: never "Loading" there.
+    expect(sawmillRun("elsewhere")).toEqual([]);
   });
 });
 

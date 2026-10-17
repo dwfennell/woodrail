@@ -150,6 +150,21 @@ describe("CameraDirector edge pan", () => {
     d.update(1 / 30, 1000, 800);
     expect(controls.target.z).toBe(z);
   });
+
+  it("on a slow phone the wait before an edge pan is still half a second, not stretched by the capped frame step", () => {
+    const camera = new PerspectiveCamera(30, 1000 / 800, 5, 40000);
+    camera.position.set(0, 600, 600);
+    const controls = { target: new Vector3(), minDistance: 100, maxDistance: 9000, maxPolarAngle: 1.42, addEventListener: () => {} } as unknown as OrbitControls;
+    camera.lookAt(controls.target);
+    const d = new CameraDirector(camera, controls);
+    d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600 });
+    // 4 fps: each frame's step is capped at 0.1 s, but 0.25 s really passed.
+    d.update(0.1, 1000, 800, 0.25);
+    expect(controls.target.z).toBe(0);
+    d.update(0.1, 1000, 800, 0.25);
+    d.update(0.1, 1000, 800, 0.25);
+    expect(controls.target.z).toBeGreaterThan(0);
+  });
 });
 
 describe("CameraDirector over the scenery around the mat", () => {

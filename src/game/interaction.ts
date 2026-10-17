@@ -1,4 +1,4 @@
-import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, Mesh, type Object3D, type TOUCH } from "three";
+import { Box3, Euler, Group, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, Mesh, type BufferGeometry, type Object3D, type TOUCH } from "three";
 import { Editor, pieceCentre, poseCentre, poseForCentre, type Placement, type RiserAt } from "../editor/editor";
 import { buildCarModel, carVariant, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
@@ -34,22 +34,52 @@ import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 import { carNearTap, nearCarWins, type CarOnScreen } from "./touch-pick";
 
-/** Where a piece at `pose` looks to be: the middle of its drawn shape (as `pieceMatrix` places it). */
-function visualCentre(type: PieceTypeId, flipped: boolean, pose: Pose): { x: number; z: number } {
-  const g = pieceGeometry(type, flipped);
+/** The middle of a drawn shape, in its own frame (before it's turned to a heading or moved). */
+function geometryMiddle(g: BufferGeometry): Vector3 {
   if (!g.boundingBox) g.computeBoundingBox();
-  const b = g.boundingBox!;
-  const lx = (b.min.x + b.max.x) / 2;
-  const lz = (b.min.z + b.max.z) / 2;
-  const c = Math.cos(pose.heading);
-  const s = Math.sin(pose.heading);
-  return { x: pose.x + lx * c - lz * s, z: pose.z + lx * s + lz * c };
+  return g.boundingBox!.getCenter(new Vector3());
+}
+
+const middles = new WeakMap<Object3D, Vector3>();
+/** The middle of a ghost (a train, a prop, a load) in its own frame, measured once: it's built at the origin, unturned. */
+function objectMiddle(o: Object3D): Vector3 {
+  let m = middles.get(o);
+  if (!m) {
+    const { position, rotation } = o;
+    const p = position.clone();
+    const r = rotation.clone();
+    position.set(0, 0, 0);
+    rotation.set(0, 0, 0);
+    o.updateMatrixWorld(true);
+    m = new Box3().setFromObject(o).getCenter(new Vector3());
+    position.copy(p);
+    rotation.copy(r);
+    o.updateMatrixWorld(true);
+    middles.set(o, m);
+  }
+  return m;
+}
+
+/** A point `(x, z)` in a shape's own frame, turned to `heading` (as `pieceMatrix` turns it). */
+function turned(x: number, z: number, heading: number): { x: number; z: number } {
+  const c = Math.cos(heading);
+  const s = Math.sin(heading);
+  return { x: x * c - z * s, z: x * s + z * c };
+}
+
+/** Where a piece at `pose` looks to be: the middle of its drawn shape (as `pieceMatrix` places it). */
+function visualCentre(type: PieceTypeId, flipped: boolean, pose: Pose, geometry = pieceGeometry(type, flipped)): { x: number; z: number } {
+  const b = geometryMiddle(geometry);
+  const t = turned(b.x, b.z, pose.heading);
+  return { x: pose.x + t.x, z: pose.z + t.z };
 }
 
 /**
  * On touch, held things float this far (px) straight above the finger so it doesn't hide them: the held thing's centre,
  * the same for every piece and every zoom (QA I5: with the grab point kept, it floated 30–90 px off, by piece and zoom,
- * and every snap took corrections). About a fingertip's height: just clear of the nail.
+ * and every snap took corrections). About a fingertip's height: just clear of the nail. The centre is the middle of
+ * the thing as drawn, height and all (a bridge's arches reach down, an engine stands tall): aiming its foot at the
+ * lifted point put a tall thing far above it close up, and a bridge under the thumb.
  */
 const TOUCH_LIFT_PX = 56;
 /** A tap on touch takes a car this near it on screen (half a 44 px target): cars are small at the default zoom. */
@@ -2555,8 +2585,9 @@ export class Interaction {
       m.ghost.visible = !m.overTray && !!ground;
       if (!ground) return;
       // Held above the ground (and, on touch, a little ahead of the finger so it can be seen).
-      const at = (this.lastPointerWasTouch ? this.touchLift(x, y) : null) ?? ground;
-      m.ghost.position.set(at.x, 34, at.z);
+      const mid = objectMiddle(m.ghost);
+      const at = (this.lastPointerWasTouch ? this.planeAt(x, y - TOUCH_LIFT_PX, 34 + mid.y) : null) ?? ground;
+      m.ghost.position.set(at.x - mid.x, 34, at.z - mid.z);
       return;
     }
     if (m.kind === "drag-piece") {
@@ -2571,13 +2602,15 @@ export class Interaction {
       // On touch the piece's centre is held at the lifted point, as drawn (it hovers HOLD_LIFT over its seat): not where
       // it was grabbed, which put it a varying distance from the finger. A mouse keeps the grab point.
       const touch = this.lastPointerWasTouch;
+      // (The shape as last drawn: a bridge's arches, down to the ground, are part of how it looks.)
+      const shape = m.auto ? pieceGeometry(holdType, m.heldFlipped) : m.ghost.geometry;
       const heldAt = (height: number): Pose | null => {
-        const p = this.planeAt(x, sy, height + (touch ? HOLD_LIFT : 0));
+        const p = this.planeAt(x, sy, height + (touch ? HOLD_LIFT + geometryMiddle(shape).y : 0));
         if (!p) return null;
         const pose = poseForCentre(holdType, m.heldFlipped, p.x + (touch ? 0 : m.offset.x), p.z + (touch ? 0 : m.offset.z), m.heading);
         if (!touch) return pose;
         // By the piece as it looks (its middle, not the middle of its ends: a buffer's or a switch's are well apart).
-        const v = visualCentre(holdType, m.heldFlipped, pose);
+        const v = visualCentre(holdType, m.heldFlipped, pose, shape);
         pose.x += p.x - v.x;
         pose.z += p.z - v.z;
         return pose;
@@ -2763,8 +2796,19 @@ export class Interaction {
     m.ghost.visible = !m.overTray && !!ground;
     if (!ground) return;
     // On touch, a train is held (and seeks track) a little above the finger too, so it and where it'll go can be seen.
-    const at = (this.lastPointerWasTouch ? this.touchLift(x, y) : null) ?? ground;
-    const near = nearestCursor(this.game.layout, at.x, at.z, TRAIN_DROP_RANGE, this.cameraHeading());
+    // Its middle as drawn (an engine stands tall) at the lifted point: on the track it'd stand on, or held up loose.
+    const mid = objectMiddle(m.ghost).y;
+    const sy = y - TOUCH_LIFT_PX;
+    let at = (this.lastPointerWasTouch ? this.planeAt(x, sy, 30 + mid) : null) ?? ground;
+    let near = nearestCursor(this.game.layout, at.x, at.z, TRAIN_DROP_RANGE, this.cameraHeading());
+    if (near && this.lastPointerWasTouch) {
+      const h = cursorWorld(this.game.layout, near.cursor, createWorldSample()).y + 4 + mid;
+      const onTrack = this.planeAt(x, sy, h);
+      if (onTrack) {
+        at = onTrack;
+        near = nearestCursor(this.game.layout, at.x, at.z, TRAIN_DROP_RANGE, this.cameraHeading());
+      }
+    }
     m.target = near?.cursor ?? null;
     if (near) {
       const w = cursorWorld(this.game.layout, near.cursor, createWorldSample());
@@ -3244,18 +3288,24 @@ export class Interaction {
 
   private updatePropDrag(m: Extract<Mode, { kind: "drag-prop" }>, x: number, y: number): void {
     const g = this.game;
-    const sy = this.lastPointerWasTouch ? y - TOUCH_LIFT_PX : y;
+    const touch = this.lastPointerWasTouch;
+    const sy = touch ? y - TOUCH_LIFT_PX : y;
     const hills = hillsOf(g.landscape.grid);
+    // On touch, by its middle as drawn (a barn stands tall), as a held piece is; a mouse keeps the grab point.
+    const mid = objectMiddle(m.ghost);
+    const t = turned(mid.x, mid.z, m.heading);
+    const offset = touch ? { x: -t.x, z: -t.z } : m.offset;
+    const rise = touch ? 6 + mid.y : 0;
     // Held over the ground under the finger: on a hill, where the finger points at the hill's height.
-    let at = this.planeAt(x, sy, 0);
+    let at = this.planeAt(x, sy, rise);
     if (!at) {
       m.ghost.visible = false;
       this.propOutline.hide();
       return;
     }
-    const h = hills.groundAt(at.x + m.offset.x, at.z + m.offset.z);
-    if (h > 0) at = this.planeAt(x, sy, h) ?? at;
-    const pose = { x: Math.round((at.x + m.offset.x) / 2) * 2, z: Math.round((at.z + m.offset.z) / 2) * 2, heading: m.heading };
+    const h = hills.groundAt(at.x + offset.x, at.z + offset.z);
+    if (h > 0) at = this.planeAt(x, sy, h + rise) ?? at;
+    const pose = { x: Math.round((at.x + offset.x) / 2) * 2, z: Math.round((at.z + offset.z) / 2) * 2, heading: m.heading };
     const fp = g.propLibrary.footprint(m.asset);
     let ground = hills.groundAt(pose.x, pose.z);
     let blocked: PropBlock | null = null;
@@ -3511,11 +3561,6 @@ export class Interaction {
   // ---- helpers ----------------------------------------------------------------------------------------------
 
   private lastPointerWasTouch = false;
-
-  /** For touch drags: the ground point a little above the finger on screen. */
-  private touchLift(x: number, y: number): Vector3 | null {
-    return this.groundAt(x, y - TOUCH_LIFT_PX);
-  }
 
   /** Where the pointer's ray meets the level plane at `height` (mm). */
   private planeAt(x: number, y: number, height: number): Vector3 | null {
