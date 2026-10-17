@@ -101,6 +101,25 @@ function button(label: string, title: string, onClick: () => void, cls = "chip")
   return b;
 }
 
+/** A switch: a label and a pill with a knob, on or off (role="switch"). Its name is its label; `title` is the tooltip. */
+function toggle(label: string, title: string, onClick: () => void): HTMLButtonElement {
+  const b = el("button", "chip text toggle");
+  b.title = title;
+  b.setAttribute("role", "switch");
+  b.setAttribute("aria-checked", "false");
+  b.append(el("span", "toggle-label", label), el("span", "toggle-pill"));
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+  return b;
+}
+
+function setToggle(b: HTMLButtonElement, on: boolean): void {
+  b.classList.toggle("active", on);
+  b.setAttribute("aria-checked", String(on));
+}
+
 /** A little camera (Follow). */
 const CAMERA_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 8h3l1.6-2h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.4" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
 /** The way arrow, pointing right before it's turned. */
@@ -377,8 +396,8 @@ export class Hud {
 
     // Depot card: what's on its piles, and how it treats trains.
     this.depotCard.hidden = true;
-    this.depotAutoBtn = button("Automatic", "The crane loads and unloads trains by itself", h.depotAuto, "chip text");
-    this.depotWaitBtn = button("Wait for a full load", "Trains wait under the crane until each wagon is full", h.depotWaitFull, "chip text");
+    this.depotAutoBtn = toggle("Automatic", "The crane loads and unloads trains by itself", h.depotAuto);
+    this.depotWaitBtn = toggle("Wait for a full load", "Trains wait under the crane until each wagon is full", h.depotWaitFull);
     const depotRow = el("div", "card-row");
     depotRow.append(this.depotAutoBtn, this.depotWaitBtn);
     this.depotExtra.hidden = true;
@@ -1067,9 +1086,9 @@ export class Hud {
   updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = ""): void {
     const text = [...piles.map((p) => `${p.label} ${p.count}/${p.cap}`), ...(note ? [note] : [])].join("   ·   ");
     if (this.depotStock.textContent !== text) this.depotStock.textContent = text;
-    this.depotAutoBtn.classList.toggle("active", auto);
+    setToggle(this.depotAutoBtn, auto);
     this.depotWaitBtn.hidden = waitFull === null;
-    this.depotWaitBtn.classList.toggle("active", !!waitFull);
+    setToggle(this.depotWaitBtn, !!waitFull);
     this.depotWaitBtn.disabled = !auto;
   }
 
