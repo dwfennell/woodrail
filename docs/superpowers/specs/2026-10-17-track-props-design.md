@@ -266,3 +266,41 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
    train? I propose not yet.
 3. **Sandbox cargo roles** (an endless loader and a vanishing unloader) are a new idea for Sandbox. They're small,
    but they're a product call.
+
+## How to add a kit (Phase 0 is built: read this before Phase 1)
+
+1. **The model.** The asset's built-in track must be drawn with `kit.trackSlab` (TS assets), or `k.trackSlab` in
+   `tools/blender` (Blender assets, re-exported with the pipeline; it runs here, with pip bpy plus gltfpack). Slabs
+   are then tagged (`userData.slab`, or a node named `slab`), so the kit's model is baked without them and real track
+   is drawn instead. Lengths along the track must be the kit track's: multiples of 54 for a splicing straight.
+2. **The kit.** Add an entry to `KITS` in `src/track/kits.ts`:
+   - `asset`, `name` (lower case, used in messages);
+   - `track`, built with the piece helpers (`straight(type, len)`, curves, buffer ends);
+   - `rails`;
+   - `place`, where the model stands in the piece's frame. t runs along the track from connector 0, +l is to the
+     left; `turn` rotates it;
+   - `footprint` rects (t, l, w, d) for the ground it needs clear;
+   - optionally `splices` and `stop`.
+
+   The type is `kit-<name>`. It becomes a `PieceTypeId` automatically, so it saves, undoes and snaps like any piece.
+3. **The tray.** Put the asset id on its Sandbox shelf in `src/catalogue/shelves.ts`, and take it out of
+   `RAIL_HELD_BACK`. `shelfItem` offers the kit (a piece) wherever a shelf lists an asset that has one. Game mode
+   trays are untouched.
+4. **What you get for free:**
+   - drawing (`KitView`, which updates on layout changes only), the held ghost and the tray thumbnail;
+   - the footprint check, with refusals named after the kit and the flip hint;
+   - two-way blocking ("That's the platform");
+   - splicing onto straights with gap fill, for `splices` kits;
+   - stops (`KitStops`, through the economy's speed cap, in Sandbox and Game alike).
+5. **What's still a hook (Phase 1):**
+   - `moves`: animation while occupied, stopped or on a state change. `KitView` is static so far.
+   - `depot`: a kit as a cargo stop.
+   - `rails: "model"`: the model drawing its own rails, for bridges and tunnels.
+
+   Whoever needs one first builds it in `kits.ts` and `KitView`, and tells the others.
+6. **Tests to copy:**
+   - `src/track/kits.test.ts`: the registry;
+   - `src/game/kit-footprint.test.ts`: the footprint and flip hint;
+   - `src/economy/kit-stops.test.ts`: stops;
+   - `src/editor/editor.test.ts`: the kit block, splice and undo;
+   - `src/persist/save.test.ts`: kit pieces in saves.
