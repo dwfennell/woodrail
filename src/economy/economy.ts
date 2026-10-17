@@ -99,9 +99,9 @@ export function pilesOf(role: DepotRole): CargoKind[] {
 }
 
 /**
- * What a train does at a stop on its route: drop goods off, pick goods up, both (everything it can), or ("auto", a
- * line's default) what the line's stops call for: it drops what this stop takes and picks up what a later stop takes
- * (the intent rules: `Economy.dropsAt`, `picksAt`).
+ * What a train does at a stop on its route: only drop goods off, only pick goods up, or ("auto", a line's default)
+ * what the line's stops call for: it drops what this stop takes and picks up what a later stop takes (the intent
+ * rules: `Economy.dropsAt`, `picksAt`). "both" (older routes) is "auto", as the engine card shows it.
  */
 export type StopAction = "auto" | "both" | "drop" | "pick";
 
@@ -554,8 +554,10 @@ export class Economy {
   /**
    * The intent rules: does a routed train drop `kind` (null: riders getting off) at depot `d` now? Only at the stop
    * it's heading for, with any stops right after it at the same depot (one visit), so goods for a later stop aren't
-   * dropped at another on the way. "drop" and "both" drop everything; "pick" nothing. "auto" (see `Later`):
-   * - at a warehouse (`routedOnly`), only goods no later stop uses (the rest ride on to where they're wanted);
+   * dropped at another on the way. "drop" drops everything; "pick" nothing. "auto" (and "both", which the engine card
+   * shows as Automatic; see `Later`):
+   * - at a warehouse (`routedOnly`) or a harbour (they take everything), only goods no later stop other than a
+   *   warehouse uses (the rest ride on to where they're wanted: planks for a later town aren't sold at the quay);
    * - elsewhere, whatever the depot takes (`canUnload` has checked), but not, at a town, goods a later workshop takes
    *   while they're `reserved` (the workshop's first claim);
    * - riders get off at any town's station.
@@ -566,12 +568,12 @@ export class Economy {
       const i = (route.next + k) % n;
       const s = route.stops[i];
       if (s.depotId !== d.id) return false;
-      if (s.action === "both" || s.action === "drop") return true;
-      if (s.action !== "auto") continue;
+      if (s.action === "drop") return true;
+      if (s.action === "pick") continue;
       if (kind === null) return true;
       const bit = 1 << CARGO[kind].index;
       const later = this.laterOf(route.stops, i);
-      if (RECIPES[d.role].routedOnly) {
+      if (RECIPES[d.role].routedOnly || d.role === "harbour") {
         if (!(later.uses & bit)) return true;
       } else if (!(d.role === "town" && later.shop & bit && this.reserved?.(kind))) return true;
     }
@@ -580,10 +582,10 @@ export class Economy {
 
   /**
    * The intent rules: does a routed train pick up `kind` (null: riders getting on) at depot `d` now? As `dropsAt`,
-   * only on its visit to the stop it's heading for. "pick" and "both" pick up everything (but at a warehouse, not
-   * where it drops too: it would take back what it left); "drop" nothing. "auto": only what a later stop takes (at a
-   * warehouse, what a later stop other than a warehouse uses, so two warehouses don't hand goods back and forth);
-   * riders only with a town's station later on.
+   * only on its visit to the stop it's heading for. "pick" picks up everything (but at a warehouse, not where it
+   * drops too: it would take back what it left); "drop" nothing. "auto" (and "both"): only what a later stop takes (at
+   * a warehouse, what a later stop other than a warehouse uses, so two warehouses don't hand goods back and forth; a
+   * harbour's landed goods by the normal rule); riders only with a town's station later on.
    */
   private picksAt(route: Route, d: DepotState, kind: CargoKind | null): boolean {
     const routedOnly = RECIPES[d.role].routedOnly;
@@ -594,9 +596,9 @@ export class Economy {
       const i = (route.next + k) % n;
       const s = route.stops[i];
       if (s.depotId !== d.id) break;
-      if (s.action === "both" || s.action === "pick") pick = true;
-      if (s.action === "both" || s.action === "drop") drop = true;
-      if (s.action !== "auto") continue;
+      if (s.action === "pick") pick = true;
+      if (s.action === "drop") drop = true;
+      if (s.action === "pick" || s.action === "drop") continue;
       const later = this.laterOf(route.stops, i);
       if (kind === null ? later.town : (routedOnly ? later.uses : later.takes) & (1 << CARGO[kind].index)) return true;
     }

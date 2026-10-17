@@ -371,6 +371,51 @@ describe("explicit stops override intent", () => {
   });
 });
 
+describe("\"both\" on a line is automatic (as the engine card shows it)", () => {
+  it("picks up only what a later stop takes, and keeps at a warehouse what a later stop uses", () => {
+    const w = line(["forest", "town", "warehouse", "sawmill"]);
+    const [forest, town, store, saw] = w.depots;
+    const [wagon] = w.wagons();
+    forest.piles[CARGO.log.index] = 6;
+    w.route([{ depotId: forest.id, action: "both" }, ...w.auto(town)]);
+    expect(w.economy.needsService(forest, wagon)).toBe(false);
+    w.economy.setCargo(wagon, "log", 3);
+    w.route([{ depotId: store.id, action: "both" }, ...w.auto(saw)]);
+    expect(w.economy.needsService(store, wagon)).toBe(false);
+    w.route([{ depotId: store.id, action: "both" }, ...w.auto(town)]);
+    expect(w.economy.needsService(store, wagon)).toBe(true);
+  });
+});
+
+describe("harbours on a line", () => {
+  it("drop only what no later stop uses (planks for a later town aren't sold at the quay); landed goods are picked up as usual", () => {
+    const w = line(["harbour", "town", "forest", "smithy", "warehouse"]);
+    const [harbour, town, forest, smithy, store] = w.depots;
+    const [wagon] = w.wagons();
+    w.economy.setCargo(wagon, "planks", 3);
+    w.route(w.auto(harbour, town));
+    expect(w.economy.needsService(harbour, wagon)).toBe(false);
+    // A warehouse later doesn't count: it would only keep them.
+    w.route(w.auto(harbour, store));
+    expect(w.economy.needsService(harbour, wagon)).toBe(true);
+    w.route(w.auto(harbour, forest));
+    expect(w.economy.needsService(harbour, wagon)).toBe(true);
+    // Iron a boat landed: picked up for a later stop that takes it (a warehouse too), not otherwise.
+    w.economy.setCargo(wagon, null, 0);
+    w.economy.land(harbour, "iron", 3);
+    w.route(w.auto(harbour, smithy));
+    expect(w.economy.needsService(harbour, wagon)).toBe(true);
+    w.route(w.auto(harbour, store));
+    expect(w.economy.needsService(harbour, wagon)).toBe(true);
+    w.route(w.auto(harbour, forest));
+    expect(w.economy.needsService(harbour, wagon)).toBe(false);
+    // Unrouted trains: the quay takes what it's given, as before.
+    w.route([]);
+    w.economy.setCargo(wagon, "planks", 3);
+    expect(w.economy.needsService(harbour, wagon)).toBe(true);
+  });
+});
+
 describe("what later stops take is kept, and worked out again when it changes", () => {
   it("a line edited (stops changed in place), a depot's Automatic, and what a town wants", () => {
     const w = line(["sawmill", "town", "forest"]);
