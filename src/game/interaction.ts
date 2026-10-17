@@ -1328,6 +1328,8 @@ export class Interaction {
     }
     if (this.mode.kind === "drag-piece") {
       this.mode.heading += Math.PI / 4;
+      // Seen at once, finger still (it snaps, or is refused, turned).
+      this.updateDrag(this.lastX, this.lastY);
       return;
     }
     if (this.mode.kind === "drag-prop") {
@@ -1646,6 +1648,7 @@ export class Interaction {
       this.dropHeld(m.ghost);
       m.ghost = this.heldMesh(m.type, m.flipped);
       m.ghost.visible = visible;
+      this.updateDrag(this.lastX, this.lastY);
       return;
     }
     const id = this.selectedPiece;
@@ -2233,7 +2236,26 @@ export class Interaction {
           return c;
         };
         const sim = this.game.sim;
-        const s = findSplice(this.game.layout, m.type, m.heldFlipped, centre, m.heading, Math.max(capture, TRACK_WIDTH), (id) => !sim.pieceOccupied(id));
+        const free = (id: number) => !sim.pieceOccupied(id);
+        const reach = Math.max(capture, TRACK_WIDTH);
+        let s = findSplice(this.game.layout, m.type, m.heldFlipped, centre, m.heading, reach, free);
+        if (s.kind === "none") {
+          // Its middle is off the line, but held across it its track may cross it: try points along its own track.
+          const half = straightLength(m.type, false) / 2;
+          const ax = Math.cos(m.heading);
+          const az = Math.sin(m.heading);
+          for (const f of [-0.5, 0.5, -1, 1]) {
+            const along = (h: number) => {
+              const c = centre(h);
+              return c && { x: c.x + ax * half * f, z: c.z + az * half * f };
+            };
+            const t = findSplice(this.game.layout, m.type, m.heldFlipped, along, m.heading, reach, free);
+            if (t.kind !== "none") {
+              s = t;
+              break;
+            }
+          }
+        }
         if (s.kind === "splice") {
           m.snap = { kind: "snapped", pose: s.pose, y: s.y, connector: 0, target: -1, distance: 0, flipped: m.heldFlipped };
           m.covers = s.covers;
@@ -2264,7 +2286,9 @@ export class Interaction {
           : isYardBlock(reason)
             ? this.yardHint(m.type, m.flipped, pose, py, this.ignoreFor(m))
             : m.snap.kind === "snapped"
-              ? this.fitHint(m.type, m.flipped, m.snap, m.pieceId)
+              ? m.covers
+                ? null // (taking straights' place: there's no end it's seated on to turn about)
+                : this.fitHint(m.type, m.flipped, m.snap, m.pieceId)
               : this.turnHint(holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId);
       if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? (m.hint ?? this.blockMessage(reason)) : null);
       m.blocked = reason;
