@@ -22,7 +22,7 @@ import { landmarkOf, landmarksOf } from "./game/landmarks";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { costOf, craftNow, Crafting, lacking, workshops, workshopStock } from "./game/crafting";
+import { costOf, craftNow, craftShort, Crafting, lacking, workshops, workshopStock } from "./game/crafting";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
@@ -205,7 +205,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         if (trayAllowed(item)) interaction.startTrayDrag(item, e);
       },
       trayTap: (item) => {
-        if (trayAllowed(item)) interaction.tapTrayPiece(item);
+        // A tap on a piece only puts the ready one away (or says why it can't come out): it never makes one.
+        if (item.kind === "piece") {
+          if (!interaction.isArmed(item)) trayAllowed(item, false);
+          interaction.tapTrayPiece(item);
+        } else if (trayAllowed(item)) interaction.tapTrayPiece(item);
       },
       trayTabChanged: () => interaction.arm(null),
       undo: () => {
@@ -897,9 +901,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   crafting.setProgress(progress);
   const thingLabel = (id: ThingId) => ruleOf(id)?.label ?? id;
 
-  /** Game mode: can this tray item come out (known, and enough of it in the toy box)? Says why not if not. */
+  /**
+   * Game mode: can this tray item come out (known, and enough of it in the toy box)? Says why not if not. What's
+   * missing is made on the spot, unless `make` is false (only asking).
+   */
   interaction.trayAllowed = (item) => trayAllowed(item);
-  function trayAllowed(item: Parameters<typeof thingsFor>[0] | { kind: string }): boolean {
+  function trayAllowed(item: Parameters<typeof thingsFor>[0] | { kind: string }, make = true): boolean {
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train")) return true;
     const look = lockedLook(item);
     if (look) {
@@ -916,8 +923,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // None left of something it takes: all of what's missing is made on the spot from the workshop's yard, or none.
     const lack = lacking(game.world, progress, needs);
     if (lack.size === 0) return true;
-    const label = lack.size === 1 ? ruleOf([...lack.keys()][0])!.label : "label" in item && typeof item.label === "string" ? item.label : "That";
-    const why = craftNow(game.world, progress, lack);
+    // One thing short: by its own name; more (a train's wagons): by the tray item's.
+    const one = lack.size === 1 ? [...lack.values()][0] : 0;
+    const label = one === 1 ? ruleOf([...lack.keys()][0])!.label : "label" in item && typeof item.label === "string" ? item.label : "That";
+    const why = make ? craftNow(game.world, progress, lack) : craftShort(game.world, progress, lack);
     if (why === "no-workshop") {
       hud.toast(`No ${label.toLowerCase()} left. Place your workshop (Industries tab) to make more`, false, 3600);
       return false;
@@ -927,8 +936,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.toast(`${label}: needs ${short}`, false, 3600);
       return false;
     }
+    if (!make) return true;
     const cost = costOf(lack);
-    hud.toast(`Made ${lack.size === 1 && [...lack.values()][0] === 1 ? aOrAn(label.toLowerCase()) : label.toLowerCase()}: ${[total(cost.goods) > 0 ? `${describeGoods(cost.goods)} from the workshop` : "", cost.coins > 0 ? `${cost.coins} coins` : ""].filter(Boolean).join(" and ")}`, false, 2600);
+    // "a switch", "3 flatbed wagons", or a whole train by its name.
+    const made = one === 1 ? aOrAn(label.toLowerCase()) : one > 1 ? describeThings([...lack]).toLowerCase() : label.toLowerCase();
+    hud.toast(`Made ${made}: ${[total(cost.goods) > 0 ? `${describeGoods(cost.goods)} from the workshop` : "", cost.coins > 0 ? `${cost.coins} coins` : ""].filter(Boolean).join(" and ")}`, false, 2600);
     afterCraft();
     return true;
   }

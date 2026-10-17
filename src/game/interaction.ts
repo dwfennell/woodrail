@@ -462,7 +462,12 @@ export class Interaction {
       this.arm(this.roadReady && trayKey(this.roadReady.item) === trayKey(item) ? null : item);
       return;
     }
-    if (this.armed && trayKey(this.armed) === trayKey(item)) this.arm(null);
+    if (this.isArmed(item)) this.arm(null);
+  }
+
+  /** Is this tray item the ready piece (waiting to be added with a tap)? */
+  isArmed(item: TrayItem): boolean {
+    return this.armed !== null && trayKey(this.armed) === trayKey(item);
   }
 
   /** Quarter turns a road comes out of the tray at: as set in the tray, from facing away from the camera. */

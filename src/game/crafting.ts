@@ -56,15 +56,22 @@ export function costOf(wants: ReadonlyMap<ThingId, number>): { goods: Bag; coins
  * what's missing for the lot (goods still needed in the yards, and coins), having taken nothing.
  */
 export function craftNow(world: World, p: Progress, wants: ReadonlyMap<ThingId, number>): null | "no-workshop" | { goods: Bag; coins: number } {
-  if (workshops(world).length === 0) return "no-workshop";
+  const short = craftShort(world, p, wants);
+  if (short) return short;
   const cost = costOf(wants);
-  const goods = minus(cost.goods, workshopStock(world));
-  const coins = Math.max(0, cost.coins - p.coins);
-  if (total(goods) > 0 || coins > 0) return { goods, coins };
   takeFromWorkshops(world, cost.goods);
   p.coins -= cost.coins;
   for (const [id, n] of wants) p.add(id, n);
   return null;
+}
+
+/** Could `wants` be made now, from the tray (as `craftNow`, taking nothing)? Null if so, else why not. */
+export function craftShort(world: World, p: Progress, wants: ReadonlyMap<ThingId, number>): null | "no-workshop" | { goods: Bag; coins: number } {
+  if (workshops(world).length === 0) return "no-workshop";
+  const cost = costOf(wants);
+  const goods = minus(cost.goods, workshopStock(world));
+  const coins = Math.max(0, cost.coins - p.coins);
+  return total(goods) > 0 || coins > 0 ? { goods, coins } : null;
 }
 
 /** What `needs` lacks in the toy box: how many more of each thing (none: empty). */
