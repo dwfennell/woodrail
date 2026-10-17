@@ -26,7 +26,7 @@ import { RoadHand, type RoadDrag } from "./road-hand";
 import { dragMoves } from "./drag-rule";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget } from "./cargo-drop";
-import { capAt, CARGO, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
+import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 import { carNearTap, nearCarWins, type CarOnScreen } from "./touch-pick";
 
 /** On touch, held things float this far (px) above the finger so it doesn't hide them. */
@@ -1198,7 +1198,7 @@ export class Interaction {
     shown.auto = d.auto;
     shown.wait = d.waitFull;
     shown.delivered = delivered0;
-    let piles = pilesOf(d.role).map((kind) => ({ label: CARGO[kind].label, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
+    let piles = pilesOf(d.role).map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
     // A harbour's quay takes any good: it lists only what's there.
     if (d.role === "harbour") piles = piles.filter((p) => p.count > 0);
     const delivered = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : 0;

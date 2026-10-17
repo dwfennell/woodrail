@@ -332,7 +332,7 @@ export class BlueprintBoard {
         v.planks === null
           ? `<span class="bp-gauge-text">${esc(v.stock)}</span>`
           : need > 0
-            ? `<span class="bp-gauge"><span class="bp-gauge-fill" style="width:${Math.min(100, (have / need) * 100)}%"></span></span><span class="bp-gauge-text">${Math.min(have, need)} of ${need} planks in the yard</span>`
+            ? `<span class="bp-gauge"><span class="bp-gauge-fill" style="width:${Math.min(100, (have / need) * 100)}%"></span></span><span class="bp-gauge-text">${Math.min(have, need)} of ${need}🪵 planks in the yard</span>`
             : "";
       // Not yet: why, in place of the count (so a greyed Learn always says why).
       const cost = s.why ? `<span class="bp-why">${esc(s.why)}</span>` : gauge;

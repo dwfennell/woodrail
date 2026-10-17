@@ -2,6 +2,7 @@ import { installTooltips } from "./tooltip";
 import type { GameMode } from "../game/modes";
 import { note } from "../debug/report";
 import { blockWord } from "./blocks";
+import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 import { roadIcon } from "./road-icons";
 import { propGroups, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
@@ -145,6 +146,8 @@ export function toastMs(message: string, celebrate: boolean, ms = 0): number {
 const TOAST_QUEUE = 3;
 /** A toast this soon after a HUD button is pressed answers it (ms). */
 const TOAST_ANSWER_MS = 600;
+/** A toast that came on less than this before a refusal pushed it off (ms) shows again after the refusal. */
+const REFUSAL_BUMP_MS = 1000;
 /** The help card's tips drawn with tray pictures: the picture's key, and the tip's art. */
 const HELP_ART: Record<string, string> = { "piece:curve-large": ".art-build", "train:Full train": ".art-run" };
 
@@ -229,6 +232,8 @@ export class Hud {
   private toastShowing: { message: string; celebrate: boolean; ms: number; urgent: boolean } | null = null;
   /** Until when (performance.now) the message showing may not be replaced. */
   private toastHeldUntil = 0;
+  /** When (performance.now) the toast showing came on. */
+  private toastShownAt = 0;
   private toastFlushTimer = 0;
 
   private readonly handlers: HudHandlers;
@@ -738,7 +743,13 @@ export class Hud {
       return;
     }
     if (!tag) b.appendChild((tag = el("span", "have")));
-    if (tag.textContent !== badge.text) tag.textContent = badge.text;
+    if (tag.textContent !== badge.text) {
+      tag.textContent = badge.text;
+      // One line always: a long cost ("30🪵 10🪨 100🪙") in smaller type.
+      const size = costTagSize(badge.text);
+      tag.classList.toggle("long", size !== null);
+      tag.style.fontSize = size === null ? "" : `${size}px`;
+    }
     b.classList.toggle("empty", badge.empty);
   }
 
@@ -1201,7 +1212,8 @@ export class Hud {
     const showing = this.toastHeldUntil > performance.now() && this.toastEl.textContent === message;
     if (showing || this.toastQueue.some((t) => t.message === message)) return;
     const t = { message, celebrate, ms, urgent };
-    const plain = celebrate ? this.toastQueue.findIndex((q) => !q.celebrate) : -1;
+    // (Never ahead of a refusal: that answers what was just done.)
+    const plain = celebrate ? this.toastQueue.findIndex((q) => !q.celebrate && !q.urgent) : -1;
     if (plain !== -1) this.toastQueue.splice(plain, 0, t);
     else this.toastQueue.push(t);
     while (this.toastQueue.length > TOAST_QUEUE) {
@@ -1238,7 +1250,8 @@ export class Hud {
     const [next] = this.toastQueue.splice(i, 1);
     this.showToast(next.message, next.celebrate, next.ms);
     this.toastShowing = next;
-    this.toastHeldUntil = performance.now() + toastMs(next.message, next.celebrate, next.ms);
+    this.toastShownAt = performance.now();
+    this.toastHeldUntil = this.toastShownAt + toastMs(next.message, next.celebrate, next.ms);
     if (this.toastQueue.length > 0) this.flushToasts();
   }
 
@@ -1276,13 +1289,39 @@ export class Hud {
     } else if (this.toastEl.classList.contains("show")) {
       clearTimeout(this.toastTimer);
       this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), 1500);
+      // It no longer holds the toast: what comes next (the drop's "Joined", a hint) may show at once.
+      this.toastHeldUntil = 0;
     }
   }
 
-  /** A refusal when something's put down where it can't go: up long enough to read (`toastMs`, as every toast). */
+  /**
+   * A refusal when something's put down where it can't go: up long enough to read (`toastMs`, as every toast). It
+   * answers what was just done, so it goes first, never waiting behind another toast (the "Made a switch" of the same
+   * drop). One that had only just come on (or a celebration) shows again after it.
+   */
   refuse(message: string): void {
     this.heldRefusal = null;
-    this.queueToast(message, false, 2200, true);
+    note("toast", message);
+    const now = performance.now();
+    const ms = 2200;
+    const up = this.toastEl.classList.contains("show") && this.toastEl.textContent === message;
+    if (up) {
+      // Already showing (it was the held refusal): it stays up long enough to read from now.
+      this.toastQueue.splice(0, this.toastQueue.length, ...this.toastQueue.filter((q) => q.message !== message));
+      clearTimeout(this.toastTimer);
+      this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), toastMs(message, false, ms));
+      this.toastShowing = { message, celebrate: false, ms, urgent: true };
+      this.toastShownAt = now;
+      this.toastHeldUntil = now + toastMs(message, false, ms);
+      return;
+    }
+    const queue = this.toastQueue.filter((q) => q.message !== message);
+    const was = this.toastShowing;
+    if (was && this.toastHeldUntil > now && this.toastEl.textContent === was.message && (was.celebrate || now - this.toastShownAt < REFUSAL_BUMP_MS)) queue.unshift(was);
+    this.toastQueue.splice(0, this.toastQueue.length, { message, celebrate: false, ms, urgent: true }, ...queue.slice(0, TOAST_QUEUE));
+    this.toastShowing = null;
+    this.toastHeldUntil = 0;
+    this.flushToasts();
   }
 
   private showToast(message: string, celebrate: boolean, ms: number): void {
