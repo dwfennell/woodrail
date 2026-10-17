@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { checkPlacement, FEAT_BUILDING, FEAT_FIELD, gridWithPlots, SURF_RIVER, SURF_SEA, type Landscape } from "../landscape";
 import { PropStore } from "../props/store";
 import { appendPiece, connectorRef, findSplice, Layout, type PieceTypeId, type Pose } from "../track";
-import { checkYard, turnedRound, YARD_FLIP_HINT, yardMessage, yardParts, type YardCheck } from "./depot-footprint";
+import { checkYard, footprintInYards, inYardMessage, placedYard, trackInYards, turnedRound, YARD_FLIP_HINT, yardMessage, yardParts, type PlacedYard, type YardCheck } from "./depot-footprint";
 
 function flat(): Landscape {
   return { seed: 0, starter: false, grid: gridWithPlots(-1, -1, 2, 2), towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
@@ -151,5 +151,77 @@ describe("a depot dropped onto a line", () => {
     const ignore = new Set(s.covers);
     expect(checkYard(ctx, "depot-workshop", s.pose, s.y, ignore)).toBe("yard-hill");
     expect(checkYard(ctx, "depot-workshop", turnedRound("depot-workshop", s.pose), s.y, ignore)).toBe("yard-water");
+  });
+});
+
+describe("a gantry crane's legs", () => {
+  // A sawmill's gantry stands at t 108, its legs at l −25 (across the line) and l 115 (past the yard's far edge).
+  it("are refused on their own when only they clash, the yard being clear", () => {
+    // At z 31, the yard's samples reach z 143 and the far leg's z 145–147: a hill from z 144 is under the leg only.
+    const at = P(0, 31);
+    const hill = setup();
+    setCells(hill.land, 100, 116, 150, 160, (i) => (hill.land.grid.height[i] = 1));
+    expect(checkYard(hill, "depot-workshop", at, 0, -1)).toBeNull();
+    expect(checkYard(hill, "depot-sawmill", at, 0, -1)).toBe("crane-hill");
+    expect(yardMessage("depot-sawmill", "crane-hill")).toBe("The crane's legs are on a hill");
+
+    const water = setup();
+    setCells(water.land, 100, 116, 150, 160, (i) => (water.land.grid.surface[i] = SURF_RIVER));
+    expect(checkYard(water, "depot-sawmill", at, 0, -1)).toBe("crane-water");
+    expect(yardMessage("depot-sawmill", "crane-water")).toBe("The crane's legs are in the water");
+
+    // The leg across the line: at z 21 the track's samples (z 3–39) stay in row 0, the leg (z −7 to −1) is in row −1.
+    const across = setup();
+    setCells(across.land, 100, 116, -60, -4, (i) => (across.land.grid.height[i] = 1));
+    expect(checkPlacement(across.land, "depot-sawmill", false, P(0, 21), 0)).toEqual({ kind: "clear" });
+    expect(checkYard(across, "depot-sawmill", P(0, 21), 0, -1)).toBe("crane-hill");
+
+    const prop = setup();
+    // (On the leg across the line: the far one stands just past the pad's edge.)
+    prop.props.add("rock", { x: 108, z: 31 - 25, heading: 0, y: 0 });
+    prop.footprint = () => ({ cx: 0, cz: 0, hw: 2, hd: 2 });
+    expect(checkYard(prop, "depot-sawmill", at, 0, -1)).toBe("crane-ground");
+    expect(yardMessage("depot-sawmill", "crane-ground")).toBe("The crane's legs need open ground");
+  });
+
+  it("the yard's own trouble is said first", () => {
+    const ctx = setup();
+    const at = P(0, 31);
+    setCells(ctx.land, 100, 116, 150, 160, (i) => (ctx.land.grid.height[i] = 1));
+    setCells(ctx.land, 150, 160, 100, 104, (i) => (ctx.land.grid.feature[i] = FEAT_BUILDING));
+    expect(checkYard(ctx, "depot-sawmill", at, 0, -1)).toBe("yard-ground");
+  });
+});
+
+describe("a player's depot's yard keeps other things out", () => {
+  const yards = (): PlacedYard[] => [placedYard(7, "depot-workshop", AT, 0)!];
+
+  it("knows its yard's bounding box", () => {
+    const [y] = yards();
+    expect(y).toMatchObject({ pieceId: 7, x0: 10, x1: 206, z0: 30, z1: 114 });
+    expect(placedYard(1, "straight-216", AT, 0)).toBeNull();
+  });
+
+  it("refuses track through it, says whose it is, and lets it by alongside, over it, or when it's the depot itself", () => {
+    expect(trackInYards(yards(), "straight-216", false, P(0, 80), 0, -1)?.pieceId).toBe(7);
+    expect(inYardMessage("depot-workshop")).toBe("That's the workshop's yard");
+    expect(inYardMessage("depot-forest")).toBe("That's the forest yard");
+    // Its own line, end on, and a line beyond its far side.
+    expect(trackInYards(yards(), "straight-216", false, P(216, 0), 0, -1)).toBeNull();
+    expect(trackInYards(yards(), "straight-216", false, P(0, 140), 0, -1)).toBeNull();
+    // Two levels up: a bridge over it.
+    expect(trackInYards(yards(), "straight-216", false, P(0, 80), 96, -1)).toBeNull();
+    // The depot being moved leaves its own yard.
+    expect(trackInYards(yards(), "straight-216", false, P(0, 80), 0, 7)).toBeNull();
+    // Across it, from far off.
+    expect(trackInYards(yards(), "straight-216", false, P(100, -100, Math.PI / 2), 0, -1)?.pieceId).toBe(7);
+    expect(trackInYards([], "straight-216", false, P(0, 80), 0, -1)).toBeNull();
+  });
+
+  it("refuses a prop standing in it", () => {
+    const fp = { cx: 0, cz: 0, hw: 10, hd: 10 };
+    expect(footprintInYards(yards(), fp, P(100, 70))?.pieceId).toBe(7);
+    expect(footprintInYards(yards(), fp, P(100, 130))).toBeNull();
+    expect(footprintInYards(yards(), fp, P(100, -40))).toBeNull();
   });
 });

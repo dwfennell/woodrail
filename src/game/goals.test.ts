@@ -263,3 +263,52 @@ describe("GoalTracker", () => {
     expect(tracker.current()?.id).toBe("lay-switch");
   });
 });
+
+describe("place-workshop guide", () => {
+  /** The middle of a straight. */
+  const middle = (w: World, id: number) => {
+    const p = w.layout.getPiece(id)!.pose;
+    return { x: p.x + 108 * Math.cos(p.heading), z: p.z + 108 * Math.sin(p.heading) };
+  };
+  /** Raise every square within `r` of a straight's middle, but the ones its track runs over: both its sides. */
+  function hillsBeside(w: World, id: number): void {
+    const g = w.landscape.grid;
+    const m = middle(w, id);
+    const p = w.layout.getPiece(id)!.pose;
+    g.forEachCell((i, col, row) => {
+      const dx = g.centreX(col) - m.x;
+      const dz = g.centreZ(row) - m.z;
+      const across = Math.abs(-Math.sin(p.heading) * dx + Math.cos(p.heading) * dz);
+      const along = Math.abs(Math.cos(p.heading) * dx + Math.sin(p.heading) * dz);
+      if (along < 150 && across > 50 && across < 160) g.height[i] = 1;
+    });
+    g.revision++;
+  }
+
+  it("points at a straight of the line where the workshop fits, past ones where its yard wouldn't", () => {
+    const { w, straights } = joined();
+    const first = goal("place-workshop").guide(w);
+    expect(first).toMatchObject({ tab: "industries", shelf: "Industries" });
+    expect(first.marks).toHaveLength(1);
+    const at = straights.find((id) => {
+      const m = middle(w, id);
+      return Math.hypot(m.x - first.points[0].x, m.z - first.points[0].z) < 1;
+    });
+    expect(at, "a straight's middle").toBeDefined();
+    // Hills both sides of that straight: the guide moves on to another.
+    hillsBeside(w, at!);
+    const next = goal("place-workshop").guide(w);
+    expect(next.marks).toHaveLength(1);
+    expect(Math.hypot(next.points[0].x - first.points[0].x, next.points[0].z - first.points[0].z)).toBeGreaterThan(100);
+    // Nowhere it fits: as before, the line itself.
+    for (const id of straights) hillsBeside(w, id);
+    const none = goal("place-workshop").guide(w);
+    expect(none.points.length).toBe(straights.length);
+    expect(none.marks).toEqual([]);
+  });
+
+  it("with no track laid yet, shows the next towns to join, as before", () => {
+    const fresh = buildStarterWorld();
+    expect(goal("place-workshop").guide(fresh).towns.length).toBe(2);
+  });
+});

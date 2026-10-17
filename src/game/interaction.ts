@@ -11,7 +11,7 @@ import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGH
 import { connectorRef, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
-import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
+import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
@@ -22,7 +22,7 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
-import { checkYard, turnedRound, YARD_FLIP_HINT, yardMessage, type YardBlock } from "./depot-footprint";
+import { checkYard, footprintInYards, inYardMessage, isYardBlock, placedYard, trackInYards, turnedRound, YARD_FLIP_HINT, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { dragMoves } from "./drag-rule";
 import { hintSeen, markHintSeen } from "../ui/prefs";
@@ -79,9 +79,9 @@ const TRAIN_DROP_RANGE = 70;
  * Why a piece can't go somewhere: the track's own reasons, a mode's rule ("site", with its own message), a depot
  * held over a line where it can't take a straight's place ("splice-fit": no straight there its length; "splice-busy":
  * a train on it; "splice-onto": over other track, not a straight), or no room for a depot's yard beside its track
- * (`YardBlock`: something on the ground there, a hill, or water).
+ * (`YardBlock`: something on the ground there, a hill, or water), or track run into a player's depot's yard ("in-yard").
  */
-type PlaceBlock = BlockReason | YardBlock | "site" | "splice-fit" | "splice-busy" | "splice-onto";
+type PlaceBlock = BlockReason | YardBlock | "in-yard" | "site" | "splice-fit" | "splice-busy" | "splice-onto";
 
 const SPLICE_MESSAGES = {
   "splice-fit": "Drop it onto a long straight",
@@ -1401,8 +1401,8 @@ export class Interaction {
     // A hill in the way: say how far up it is, and how to get there (only worked out when it's so).
     if (reason === "hill") this.hillWhy = hillMessage(levelsAbove(this.game.landscape, type, flipped, pose, y));
     if (reason) return { reason, risers: [] };
-    // A depot's yard and buildings beside its track need room too.
-    const yard = this.yardBlock(type, pose, y, ignoreId);
+    // A depot's yard and buildings beside its track need room too; other track keeps out of a player's depot's yard.
+    const yard = this.yardBlock(type, pose, y, ignoreId) ?? this.inYard(type, flipped, pose, y, ignoreId);
     if (yard) return { reason: yard, risers: [] };
     const s = checkSupport(this.game.landscape, this.game.layout, type, flipped, pose, y, ignoreId);
     if (s.kind === "unsupported") return { reason: "unsupported", risers: [] };
@@ -1446,6 +1446,58 @@ export class Interaction {
     this.yardMemo = this.mode.kind === "drag-piece" ? { key, why, message: this.yardWhy } : null;
     return why;
   }
+  /**
+   * Does a piece (not a depot: those check their own yard against others') run into a player's depot's yard? Then
+   * "in-yard", saying whose. Bounding boxes first, against the few player depots.
+   */
+  private inYard(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): "in-yard" | null {
+    if (INDUSTRY_ROLE[type]) return null;
+    const yard = trackInYards(this.playerYards(), type, flipped, pose, y, ignoreId);
+    if (yard) this.inYardWhy = inYardMessage(yard.type);
+    return yard ? "in-yard" : null;
+  }
+  /** The message for the last "in-yard" refusal ("That's the workshop's yard"). */
+  private inYardWhy = "";
+
+  /**
+   * The yards of the depots the player placed (not the map's own, nor one in the hand), with their bounding boxes:
+   * built again only when one of them is placed, moved or taken up (a key of their poses: a few numbers each).
+   */
+  private playerYards(): readonly PlacedYard[] {
+    const g = this.game;
+    const layout = g.layout;
+    let key = "";
+    for (const d of g.economy.allDepots()) {
+      const p = layout.getPiece(d.pieceId);
+      if (!p || !INDUSTRY_ROLE[p.type] || layout.isLifted(d.pieceId)) continue;
+      key += `${d.pieceId}:${p.pose.x}:${p.pose.z}:${p.pose.heading}:${p.y};`;
+    }
+    if (this.yardsFor?.key === key) return this.yardsFor.yards;
+    const fixed = new Set(g.depots.values());
+    const yards: PlacedYard[] = [];
+    for (const d of g.economy.allDepots()) {
+      const p = layout.getPiece(d.pieceId);
+      if (!p || fixed.has(d.pieceId) || layout.isLifted(d.pieceId)) continue;
+      const yard = placedYard(d.pieceId, p.type, p.pose, p.y);
+      if (yard) yards.push(yard);
+    }
+    this.yardsFor = { key, yards };
+    return yards;
+  }
+  private yardsFor: { key: string; yards: PlacedYard[] } | null = null;
+
+  /** A prop's footprint in a player's depot's yard: "yard", the message saying whose. */
+  private propInYard(fp: Footprint, pose: Pick<Pose, "x" | "z" | "heading">): PropBlock | null {
+    const yard = footprintInYards(this.playerYards(), fp, pose);
+    if (yard) this.inYardWhy = inYardMessage(yard.type);
+    return yard ? "yard" : null;
+  }
+
+  /** What to say for a prop that can't go somewhere. */
+  private propMessage(reason: PropBlock): string {
+    return reason === "yard" ? this.inYardWhy : PROP_MESSAGES[reason];
+  }
+
   /** The last yard check while a depot was held, for its inputs (cleared when it's put down). */
   private yardMemo: { key: string; why: YardBlock | null; message: string } | null = null;
   /** The message for the last yard refusal ("The workshop's yard is on a hill"). */
@@ -1514,7 +1566,8 @@ export class Interaction {
   private blockMessage(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
     if (reason === "splice-fit" || reason === "splice-busy" || reason === "splice-onto") return SPLICE_MESSAGES[reason];
-    if (reason === "yard-ground" || reason === "yard-hill" || reason === "yard-water") return this.yardWhy;
+    if (isYardBlock(reason)) return this.yardWhy;
+    if (reason === "in-yard") return this.inYardWhy;
     return reason === "site" ? this.siteWhy : BLOCK_MESSAGES[reason];
   }
 
@@ -1763,7 +1816,7 @@ export class Interaction {
     const hills = hillsOf(g.landscape.grid);
     for (const id of ids) {
       const p = g.layout.getPiece(id)!;
-      const why = this.blockedBy(p.type, p.flipped, p.pose, p.y, id) ?? this.yardBlock(p.type, p.pose, p.y, id);
+      const why = this.blockedBy(p.type, p.flipped, p.pose, p.y, id) ?? this.yardBlock(p.type, p.pose, p.y, id) ?? this.inYard(p.type, p.flipped, p.pose, p.y, id);
       if (why) return why;
       if (p.type === "riser") {
         // A stand rests on the ground, or on another stand that came along.
@@ -2208,7 +2261,7 @@ export class Interaction {
       m.hint =
         !reason || reason === spliceWhy
           ? null
-          : reason === "yard-ground" || reason === "yard-hill" || reason === "yard-water"
+          : isYardBlock(reason)
             ? this.yardHint(m.type, m.flipped, pose, py, this.ignoreFor(m))
             : m.snap.kind === "snapped"
               ? this.fitHint(m.type, m.flipped, m.snap, m.pieceId)
@@ -2743,8 +2796,9 @@ export class Interaction {
       const c = checkProp({ land: g.landscape, track: m.track, props: g.props, footprint: g.propLibrary.footprint }, fp, pose, placeOn(m.asset), m.propId, own);
       if (c.kind === "clear") ground = c.y;
       else blocked = c.reason;
+      blocked ??= this.propInYard(fp, pose);
     }
-    if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(PROP_MESSAGES[blocked]);
+    if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(this.propMessage(blocked));
     m.blocked = blocked;
     m.pose = { ...pose, y: ground };
     m.ghost.visible = !m.overTray;
@@ -2822,8 +2876,9 @@ export class Interaction {
     const from: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
     const to = { x: p.x, z: p.z, heading: p.heading + Math.PI / 4 };
     const c = checkProp({ land: g.landscape, track: new TrackIndex(g.layout), props: g.props, footprint: g.propLibrary.footprint }, fp, to, placeOn(p.asset), id);
-    if (c.kind === "blocked") {
-      this.hud.toast(PROP_MESSAGES[c.reason]);
+    const why = c.kind === "blocked" ? c.reason : this.propInYard(fp, to);
+    if (c.kind === "blocked" || why) {
+      this.hud.toast(this.propMessage(why!));
       this.onRefused?.();
       return;
     }
