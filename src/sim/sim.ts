@@ -57,6 +57,11 @@ export interface Train {
   readonly id: number;
   /** Ticks left before a train resting on a turnback buffer reverses; −1 when not waiting. */
   turnback: number;
+  /**
+   * Why it last turned back (a buffer, track that just stops, a train met head on), the piece its front was on, and
+   * when (`Sim.ticks`): the engine card says so while it waits and a while after.
+   */
+  lastTurn?: { cause: TurnCause; pieceId: number; tick: number };
   cars: Car[];
   /** Two per car in train order: car0 front, car0 rear, car1 front, … */
   bogies: Cursor[];
@@ -67,6 +72,9 @@ export interface Train {
   /** World samples of each bogie, refreshed every tick. */
   world: WorldSample[];
 }
+
+/** What turned a train back: a buffer, track that just stops (an open end), or a train met head on. */
+export type TurnCause = "buffer" | "open-end" | "train";
 
 export type SimEvent =
   | { readonly kind: "derailed"; readonly trainId: number }
@@ -486,7 +494,11 @@ export class Sim {
     this.updateSignals();
   }
 
+  /** Ticks run so far (for how long ago something happened). */
+  ticks = 0;
+
   tick(): void {
+    this.ticks++;
     this.updateSignals();
     for (const train of this.trains.values()) {
       if (train.derailed) continue;
@@ -498,6 +510,7 @@ export class Sim {
         // it came, its engine leading as before.
         const turned = this.turnAround(train);
         if (turned) {
+          turned.lastTurn = train.lastTurn;
           this.events.push({ kind: "turned", trainId: train.id, newTrainId: turned.id });
           continue; // moves from next tick, as a new train
         }
@@ -595,10 +608,22 @@ export class Sim {
    * braking as it does at the end of the line: Infinity when there's none within sight.
    */
   private signalCap(train: Train): number {
-    if (!this.signals || this.signals.length === 0) return Infinity;
+    const red = this.redAhead(train);
+    return red === null ? Infinity : red.dist < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (red.dist - 0.5));
+  }
+
+  /** The red signal (its piece) a train is held by or braking for, or −1 (for the engine card and reports). */
+  redSignalAhead(trainId: number): number {
+    const t = this.trains.get(trainId);
+    return t ? (this.redAhead(t)?.pieceId ?? -1) : -1;
+  }
+
+  /** The red signal a train is running toward, and how far its stop point is ahead of the front axle; or null. */
+  private redAhead(train: Train): { pieceId: number; dist: number } | null {
+    if (!this.signals || this.signals.length === 0) return null;
     let anyRed = false;
     for (const clear of this.aspects.values()) if (!clear) anyRed = true;
-    if (!anyRed) return Infinity;
+    if (!anyRed) return null;
     // Walk ahead of the front axle a step at a time, looking for the stop point of a red signal it's running toward.
     const c: Cursor = { ...train.bogies[0] };
     let walked = 0;
@@ -616,11 +641,11 @@ export class Sim {
         let dist = -1;
         if (c.s <= stopAt) dist = walked + stopAt - c.s;
         else if (k > 0 && c.pieceId !== piece) dist = walked - (c.s - stopAt);
-        if (dist >= 0) return dist < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (dist - 0.5));
+        if (dist >= 0) return { pieceId: c.pieceId, dist };
       }
-      if (k > 0 && (lookAdv.status !== ADV_OK || lookAdv.moved === 0)) return Infinity;
+      if (k > 0 && (lookAdv.status !== ADV_OK || lookAdv.moved === 0)) return null;
     }
-    return Infinity;
+    return null;
   }
 
   writeSnapshot(snap: SimSnapshot): SimSnapshot {
@@ -691,7 +716,10 @@ export class Sim {
     if (status === ADV_BUFFER || status === ADV_OPEN_END) {
       // The end of the line (a buffer, or track that just stops): the train stops there, waits, and turns back.
       train.speed = 0;
-      if (train.turnback < 0) train.turnback = TURNBACK_TICKS;
+      if (train.turnback < 0) {
+        train.turnback = TURNBACK_TICKS;
+        train.lastTurn = { cause: status === ADV_BUFFER ? "buffer" : "open-end", pieceId: train.bogies[0].pieceId, tick: this.ticks };
+      }
       this.events.push({ kind: "buffer", trainId: train.id });
     }
     this.refreshWorld(train);
@@ -837,6 +865,7 @@ export class Sim {
     t.speed = 0;
     if (t.turnback < 0) {
       t.turnback = TURNBACK_TICKS;
+      t.lastTurn = { cause: "train", pieceId: t.bogies[0].pieceId, tick: this.ticks };
       this.events.push({ kind: "buffer", trainId: t.id });
     }
   }
