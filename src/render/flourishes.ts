@@ -149,3 +149,19 @@ export function shrinkAway(obj: Object3D, done: () => void): Flourish {
     dispose: finish,
   };
 }
+
+/** A flourish that starts after a pause (a run of pieces settling one after another). Cleared early, it runs to its end at once. */
+export function delayed(seconds: number, start: () => Flourish): Flourish {
+  let t = 0;
+  let inner: Flourish | null = null;
+  return {
+    update(dt) {
+      t += dt;
+      if (!inner && t >= seconds) inner = start();
+      return inner ? inner.update(dt) : true;
+    },
+    dispose() {
+      (inner ??= start()).dispose();
+    },
+  };
+}

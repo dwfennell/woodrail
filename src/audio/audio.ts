@@ -194,6 +194,18 @@ export class ToyAudio {
     } else this.knock(0.3, this.vary(340), 0.07, 0);
   }
 
+  /** Drawing track: a ghost piece joins the line (a soft pencil tick). */
+  drawTick(): void {
+    this.knock(0.08, this.vary(1250), 0.02, 0);
+  }
+
+  /** A drawn line going down: each piece clicks in, a little higher along the line (`i` from its start). */
+  lay(i: number): void {
+    const f = 520 * Math.min(1.6, 1 + i * 0.04);
+    this.knock(0.42, this.vary(f), 0.06, 0);
+    setTimeout(() => this.knock(0.18, this.vary(f * 1.5), 0.035, 0), 24);
+  }
+
   /** Turning a piece in place: two quick wooden ticks. */
   rotate(): void {
     this.knock(0.2, this.vary(860), 0.03, 0);

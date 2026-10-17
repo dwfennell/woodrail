@@ -5,7 +5,8 @@ import { blockWord } from "./blocks";
 import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 import { roadIcon } from "./road-icons";
-import { propGroups, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
+import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
+import { loadFavourites, saveFavourites } from "./prefs";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
 
@@ -61,6 +62,8 @@ export interface HudHandlers {
   trayTurn(): void;
   /** Tray: mirror the piece in hand and the ones taken out next. */
   trayFlip(): void;
+  /** Tray: drawing track switched on or off (the Draw chip). */
+  trayDraw(on: boolean): void;
   /** Depot card: turn automatic loading on or off. */
   depotAuto(): void;
   /** Depot card: trains wait for a full load, or not. */
@@ -242,6 +245,10 @@ export class Hud {
   /** Tray pictures by key: those drawn at start-up, and catalogue models' as they're drawn. */
   private readonly thumbs: Map<string, string>;
   private flipTrayBtn!: HTMLButtonElement;
+  private drawBtn!: HTMLButtonElement;
+  /** The tray favourites (tray keys, in order): first on the Track and Trains tabs. */
+  private favourites: string[] = loadFavourites() ?? [...DEFAULT_FAVOURITES];
+  private drawing = false;
 
   constructor(parent: HTMLElement, h: HudHandlers, qualityLabel: () => string, opts: HudOptions) {
     this.handlers = h;
@@ -487,13 +494,22 @@ export class Hud {
       scroller.innerHTML = "";
       scroller.scrollLeft = 0;
       this.tray.classList.remove("in-group");
+      // Favourites first: pieces to drag straight out, without opening a shelf.
+      this.trayButtons = [];
+      const favs = openDef?.favourites ? favouriteItems(this.favourites, groups) : [];
+      this.tray.classList.toggle("has-favourites", favs.length > 0);
+      for (const item of favs) scroller.appendChild(itemButton(item, () => showGroups(groups)));
+      if (favs.length > 0) scroller.appendChild(el("span", "tray-divider"));
       for (const group of groups) {
         const b = el("button", "tray-item tray-group");
         b.innerHTML = `<span class="icon">${picture(group.items[0])}</span><span class="label">${group.label}</span><span class="count">${group.items.length}</span>`;
         b.title = `${group.label}: ${group.items.map((i) => i.label).join(", ")}`;
+        // A tap opens the shelf; a drag up takes out its first item (the first thing a new player tries).
+        const first = group.items[0];
+        const pick = first.kind === "tool" ? undefined : (move: PointerEvent) => this.handlers.trayPointerDown(first, move);
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(e, scroller, { tap: () => showItems(groups, group) });
+          this.trayPress(e, scroller, { pick, tap: () => showItems(groups, group) });
         });
         scroller.appendChild(b);
       }
@@ -519,58 +535,88 @@ export class Hud {
         scroller.appendChild(b);
       }
       this.trayButtons = [];
-      for (const item of group.items) {
-        const b = el("button", "tray-item");
-        b.innerHTML = `<span class="icon">${picture(item)}</span><span class="label">${item.label}</span>`;
-        if (item.kind !== "tool") {
-          this.trayButtons.push([b, item]);
-          this.decorate(b, item);
-        }
-        if (item.kind === "tool") {
-          // A tool is chosen with a tap, then used on the land.
-          const tool = item.tool;
-          b.classList.add("tray-tool");
-          b.dataset.tool = tool;
-          b.classList.toggle("active", this.landTool === tool);
-          b.title = `${item.label}: tap the land`;
-          b.addEventListener("pointerdown", (e) => {
-            e.preventDefault();
-            this.trayPress(e, scroller, { tap: () => this.chooseLandTool(tool) });
-          });
-        } else if (item.kind === "piece" || item.kind === "road") {
-          // A piece is dragged out; once placed it stays ready (the next waits at the end it left: tap it to add it).
-          // A road is dragged out, or tapped to make it ready (then each click on the map lays one). A tap on the
-          // ready one here puts it away.
-          const key = trayKey(item);
-          b.dataset.key = key;
-          b.classList.toggle("armed", this.armedKey === key);
-          b.title = item.kind === "road" ? `Drag onto the map, or tap then click the map: ${item.label}` : `Drag onto the floor: ${item.label}`;
-          b.addEventListener("pointerdown", (e) => {
-            e.preventDefault();
-            this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: () => this.handlers.trayTap(item) });
-          });
-        } else {
-          b.title = `Drag onto the floor: ${item.label}`;
-          b.addEventListener("pointerdown", (e) => {
-            e.preventDefault();
-            this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move) });
-          });
-        }
-        scroller.appendChild(b);
-      }
+      this.tray.classList.remove("has-favourites");
+      for (const item of group.items) scroller.appendChild(itemButton(item, null));
       show();
+    };
+    /** A tray item's button. `unpinned` redraws the row when its ★ is taken off (the favourites row). */
+    const itemButton = (item: TrayItem, unpinned: (() => void) | null): HTMLElement => {
+      const b = el("button", "tray-item");
+      b.innerHTML = `<span class="icon">${picture(item)}</span><span class="label">${item.label}</span>`;
+      if (item.kind !== "tool") {
+        this.trayButtons.push([b, item]);
+        this.decorate(b, item);
+      }
+      if (item.kind === "tool") {
+        // A tool is chosen with a tap, then used on the land.
+        const tool = item.tool;
+        b.classList.add("tray-tool");
+        b.dataset.tool = tool;
+        b.classList.toggle("active", this.landTool === tool);
+        b.title = `${item.label}: tap the land`;
+        b.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          this.trayPress(e, scroller, { tap: () => this.chooseLandTool(tool) });
+        });
+      } else if (item.kind === "piece" || item.kind === "road") {
+        // A piece is dragged out; once placed it stays ready (the next waits at the end it left: tap it to add it).
+        // A road is dragged out, or tapped to make it ready (then each click on the map lays one). A tap on the
+        // ready one here puts it away.
+        const key = trayKey(item);
+        b.dataset.key = key;
+        b.classList.toggle("armed", this.armedKey === key);
+        b.title = item.kind === "road" ? `Drag onto the map, or tap then click the map: ${item.label}` : `Drag onto the floor: ${item.label}`;
+        b.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: () => this.handlers.trayTap(item) });
+        });
+      } else {
+        b.title = `Drag onto the floor: ${item.label}`;
+        b.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move) });
+        });
+      }
+      if (openDef?.favourites && canFavourite(item)) {
+        // ★: a favourite (shown first on the tab). Tapped, it's added or taken off.
+        const key = trayKey(item);
+        const star = el("span", "fav");
+        const mark = () => {
+          const on = this.favourites.includes(key);
+          star.textContent = on ? "★" : "☆";
+          star.classList.toggle("on", on);
+          star.title = on ? "Take off favourites" : "Add to favourites";
+        };
+        mark();
+        star.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.favourites = toggleFavourite(this.favourites, key);
+          saveFavourites(this.favourites);
+          this.handlers.buttonTap();
+          mark();
+          if (unpinned) unpinned();
+        });
+        b.appendChild(star);
+      }
+      return b;
     };
     // The tabs for the mode; a tab with a single shelf opens straight onto its items.
     // A tab's catalogue shelves, once loaded (their code is fetched the first time the tab opens).
     const loadedGroups = new Map<string, TrayGroup[]>();
     let openId = "";
+    let openDef: TrayTab | null = null;
     const openTab = (tab: TrayTab, shelf?: string) => {
       if (openId !== "" && openId !== tab.id) this.handlers.trayTabChanged();
       openId = tab.id;
+      openDef = tab;
       // The Land tab switches land editing on (with its first tool), any other tab off.
       this.chooseLandTool(tab.land ? (this.landTool ?? "move") : null);
       tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));
       this.tray.classList.toggle("track-tab", !!tab.orient);
+      // Drawing track is on the Track tab only: another tab puts the pencil down.
+      this.tray.classList.toggle("draw-tab", tab.id === "track");
+      if (tab.id !== "track" && this.drawing) this.handlers.trayDraw(false);
       this.handlers.trackTab?.(tab.id === "track");
       this.tray.classList.toggle("turn-only", tab.orient === "turn");
       this.propsTab = tab.orient === "turn";
@@ -618,7 +664,9 @@ export class Hud {
       button(`↻ Turn<span class="turn-arrow">↑</span>`, "Turn the next piece (or the one you're holding) an eighth of a turn", () => this.handlers.trayTurn(), "chip text"),
       this.flipTrayBtn,
     );
-    this.tray.append(orient, tabs, scroller);
+    // Draw: a drag on the map lays a line of track behind the finger (see DrawHand).
+    this.drawBtn = button("✎ Draw", "Draw track: drag from the end of a track, or across the ground", () => this.handlers.trayDraw(!this.drawing), "chip text tray-draw");
+    this.tray.append(orient, this.drawBtn, tabs, scroller);
     this.root.appendChild(this.tray);
 
     // Beside the HUD, not in it, so a toast shows over the panels opened over the HUD too (the Blueprints board).
@@ -673,6 +721,23 @@ export class Hud {
     this.setMode("sandbox");
   }
 
+  /** Where the tray's chips start (Draw, Turn and Flip above it), or the tray where none show: in client pixels. */
+  chipsTop(): number {
+    let top = this.tray.getBoundingClientRect().top;
+    for (const chip of [this.drawBtn, this.tray.querySelector<HTMLElement>(".tray-orient")]) {
+      const r = chip?.getBoundingClientRect();
+      if (r && r.height > 0) top = Math.min(top, r.top);
+    }
+    return top;
+  }
+
+  /** Show whether drawing track is on (the Draw chip lit). */
+  setDrawing(on: boolean): void {
+    this.drawing = on;
+    this.drawBtn.classList.toggle("active", on);
+    this.tray.classList.toggle("drawing", on);
+  }
+
   /** The land tool in use (the Land tab open), or null. */
   private landTool: LandTool | null = null;
 
@@ -724,7 +789,7 @@ export class Hud {
    * What a tray item's corner says (Game mode's toy box: how many are left, or that it's locked), or null for nothing.
    * Set by the game; `refreshTrayBadges` applies it to the items showing.
    */
-  trayBadge: ((item: TrayItem) => { text: string; empty: boolean; attention?: boolean; craft?: boolean } | null) | null = null;
+  trayBadge: ((item: TrayItem) => { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null) | null = null;
   private trayButtons: [HTMLElement, TrayItem][] = [];
 
   refreshTrayBadges(): void {
@@ -737,6 +802,8 @@ export class Hud {
     b.classList.toggle("attention", badge?.attention === true);
     // None left, but it can be made on the spot: its cost shows instead of a dead zero.
     b.classList.toggle("craft", badge?.craft === true);
+    // Not learned yet: says so in its corner (and no ★ to make it a favourite).
+    b.classList.toggle("locked", badge?.locked === true);
     if (!badge) {
       tag?.remove();
       b.classList.remove("empty");

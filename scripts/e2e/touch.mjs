@@ -7,6 +7,8 @@ import { createServer } from "vite";
 
 const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
 await server.listen();
+// Have the dev server find and pre-bundle the game's dependencies now, so it doesn't reload the page mid-test.
+await server.warmupRequest("/src/main.ts");
 const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const results = [];
@@ -206,6 +208,41 @@ async function selectThenDrag(ctx, p) {
   }
   await lift();
   check("held, then dragged: it moves with the finger", hMid === "drag-piece", `mid-drag ${hMid}`);
+  await p.keyboard.press("Escape");
+  // 2c. Drawing on: a finger resting on a piece neither picks it up nor starts a line.
+  await p.evaluate(() => window.woodrail.interaction.setDrawing(true));
+  [sx, sy] = await onScreen();
+  const pieces0 = await p.evaluate(() => window.woodrail.layout.pieceCount);
+  const drawHold = await holdAt(sx, sy, 520);
+  await lift();
+  const pieces1 = await p.evaluate(() => window.woodrail.layout.pieceCount);
+  check("drawing on: a long press on a piece doesn't pick it up or draw", drawHold === "press" && pieces1 === pieces0, `after 520 ms: ${drawHold}; pieces ${pieces0} → ${pieces1}`);
+  await p.evaluate(() => window.woodrail.interaction.setDrawing(false));
+  await p.keyboard.press("Escape");
+  // 2d. A placed industry (one the player may move: the playthrough's workshop) is picked up with a hold too.
+  const shop = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { poseForCentre } = await import("/src/editor/editor.ts");
+    const { syncIndustries } = await import("/src/game/world.ts");
+    for (const [fx, fy] of [[0.5, 0.3], [0.3, 0.25], [0.7, 0.25], [0.5, 0.2]]) {
+      const g = w.interaction.groundAt(innerWidth * fx, innerHeight * fy);
+      const r = w.editor().place("depot-workshop", poseForCentre("depot-workshop", false, g.x, g.z, 0), 0, false);
+      const id = typeof r === "number" ? r : r?.id ?? -1;
+      if (id < 0) continue;
+      syncIndustries(w);
+      w.invalidate();
+      const piece = w.layout.getPiece(id);
+      const v = new w.camera.position.constructor(piece.pose.x, piece.y + 10, piece.pose.z).project(w.camera);
+      return { id, x: ((v.x + 1) / 2) * innerWidth, y: ((1 - v.y) / 2) * innerHeight };
+    }
+    return null;
+  });
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  if (shop) {
+    const shopHold = await holdAt(shop.x, shop.y, 520);
+    await lift();
+    check("a long press on a placed workshop picks it up", shopHold === "drag-piece", `after 520 ms: ${shopHold}`);
+  } else check("a workshop goes down for the hold check", false, "nowhere to put it");
   await p.keyboard.press("Escape");
   // 3. A train, not selected: the drag pans, the train stays.
   const placed = await p.evaluate(async (id) => {
