@@ -134,6 +134,8 @@ export class Game {
   /** A prop being moved by hand: not drawn where it stood. */
   private hiddenProp = -1;
   paused = false;
+  /** Seconds the world has run (it stops while paused): game time, for "2 min ago". */
+  simSeconds = 0;
   /** Called once per frame after the simulation steps, before rendering. */
   onFrame: ((dt: number) => void) | null = null;
   /** Milliseconds spent simulating in the last frame (for the perf overlay). */
@@ -559,6 +561,7 @@ export class Game {
       while (this.accumulator >= SIM_DT && steps < MAX_STEPS_PER_FRAME) {
         this.sim.tick();
         this.economy.tick();
+        this.simSeconds += SIM_DT;
         this.accumulator -= SIM_DT;
         steps++;
       }

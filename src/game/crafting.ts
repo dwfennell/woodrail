@@ -65,6 +65,18 @@ export function craftNow(world: World, p: Progress, wants: ReadonlyMap<ThingId, 
   return null;
 }
 
+/**
+ * Undo a `craftNow` of `wants` that came to nothing (a train taken from the tray and dropped off the track): its goods
+ * go back to the (first) workshop's yard, its coins back, and the things out of the toy box.
+ */
+export function uncraft(world: World, p: Progress, wants: ReadonlyMap<ThingId, number>): void {
+  const cost = costOf(wants);
+  const d = workshops(world)[0];
+  if (d) for (const k of kindsOf(cost.goods)) d.piles[CARGO[k].index] += cost.goods[k]!;
+  p.coins += cost.coins;
+  for (const [id, n] of wants) p.add(id, -n);
+}
+
 /** Could `wants` be made now, from the tray (as `craftNow`, taking nothing)? Null if so, else why not. */
 export function craftShort(world: World, p: Progress, wants: ReadonlyMap<ThingId, number>): null | "no-workshop" | { goods: Bag; coins: number } {
   if (workshops(world).length === 0) return "no-workshop";

@@ -66,6 +66,11 @@ export class Journal {
     private readonly windowMs = MERGE_WINDOW_MS,
   ) {}
 
+  /** Now, on the journal's clock (what entries' `time`s are measured against). */
+  now(): number {
+    return this.clock();
+  }
+
   /** The entries, newest first. */
   get entries(): readonly JournalEntry[] {
     return this.list;

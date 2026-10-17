@@ -45,3 +45,19 @@ export function declutterLabels(boxes: readonly LabelBox[]): LabelSpot[] {
   }
   return out;
 }
+
+/**
+ * How far to slide a label sideways to keep it on screen (px): a label `w` wide whose box starts at `left`, on a screen
+ * `screenW` wide, kept `margin` in from both edges (the left edge wins if it's wider than the room).
+ */
+export function edgeNudge(left: number, w: number, screenW: number, margin = 8): number {
+  return rangeNudge(left, w, margin, screenW - margin);
+}
+
+/** How far to slide something `size` long that starts at `start` to keep it within `lo`..`hi` (`lo` wins if too long). */
+export function rangeNudge(start: number, size: number, lo: number, hi: number): number {
+  let d = 0;
+  if (start + size > hi) d = hi - (start + size);
+  if (start + d < lo) d = lo - start;
+  return d;
+}
