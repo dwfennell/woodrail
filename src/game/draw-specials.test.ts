@@ -133,6 +133,24 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
     }
   });
 
+  it("with the stroke drifting off to a side over the water, the line still crosses and comes down", () => {
+    const land = paint(flat(), 576, 720, -1500, 1500, "river");
+    for (const [deg, drift] of [[0, 40], [0, -40], [0, 60], [45, 0], [45, 40]]) {
+      const a = (deg * Math.PI) / 180;
+      const line = new DrawLine(at(0), options(land));
+      for (let d = 4; d <= 1500; d += 4) {
+        // (Past the river's near bank, the finger drifts aside: as when seen at another height.)
+        const side = d * Math.sin(a) + (d > 500 ? drift * Math.min(1, (d - 500) / 100) : 0);
+        line.addPoint(d * Math.cos(a) - (d > 500 && deg ? drift * Math.sin(a) : 0), Z + side);
+      }
+      line.finish();
+      const why = `${deg}° drift ${drift}: ${name(line)}`;
+      expect(line.pieces.some((p) => p.blocked), why).toBe(false);
+      expect(line.pieces.some((p) => isBridge(p.type)), why).toBe(true);
+      expect(line.end.y, why).toBe(0);
+    }
+  });
+
   it("across the river from a hilltop: bridges straight over, no ramps", () => {
     const land = paint(paint(flat(), -800, 2000, -900, 900, 1), 576, 792, -900, 900, 0);
     paint(land, 576, 792, -900, 900, "river");

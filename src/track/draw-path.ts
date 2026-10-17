@@ -1,7 +1,7 @@
 import { normalizeAngle, solveParentPose, transformPose, type Pose } from "./math";
 import { createSample, pathLength, samplePath } from "./path";
 import { JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, RAMP_LENGTH, RISER_HEIGHT, SMALL_CURVE_RADIUS, WIDE_CURVE_RADIUS } from "./constants";
-import { getPieceDef, type ConnectorKind, type PieceTypeId } from "./pieces";
+import { getPieceDef, isBridge, type ConnectorKind, type PieceTypeId } from "./pieces";
 
 /**
  * Drawing track: a stroke drawn with a finger (ground points) turned into a run of pieces, one at a time, from a free
@@ -208,6 +208,11 @@ const FLAT_RUN = 100;
  * line has got to.
  */
 const SPECIAL_REACH = 45;
+/**
+ * Coming down, further off is fine (coming down is never pointless: with no risers in a drawn line, the only other
+ * way is a red ghost, or bridges on over dry land); the stroke's taken up again after it.
+ */
+const DOWN_REACH = 70;
 /** The bridge of the same shape as a drawn piece. */
 const TWIN: Partial<Record<PieceTypeId, PieceTypeId>> = { "straight-216": "bridge", "curve-large": "bridge-curve" };
 /** The drawn pieces that have a bridge twin: the only ones the line chooses from where the next piece would reach water. */
@@ -587,7 +592,9 @@ export class DrawLine {
     const groundAt = this.options.groundAt;
     if (last && climbs(last) && !(groundAt && groundAt(last.end.x, last.end.z) >= last.end.y - 1)) return this.bridge(c, s, finishing);
     const down = this.rampDown();
-    return down === "river" ? this.bridge(c, s, finishing) : down === "laid";
+    if (down === "laid") return true;
+    // Where a ramp down would stand in the river, or (just off a bridge) isn't on the stroke yet: a bridge on, till it is.
+    return (down === "river" || (!!last && isBridge(last.type))) && this.bridge(c, s, finishing);
   }
 
   /** May the line use a piece of this type now (Game mode: has the player one left)? */
@@ -603,9 +610,9 @@ export class DrawLine {
   }
 
   /** Where along the stroke a special piece's far end comes (seated on the line where it had got to `from`), or null if that's off the stroke. */
-  private onStroke(c: DrawCandidate, from: number): number | null {
+  private onStroke(c: DrawCandidate, from: number, reach = SPECIAL_REACH): number | null {
     const near = this.nearest(c.end.x, c.end.z, from - 10, from + c.length * 1.6 + 40);
-    return near.d <= SPECIAL_REACH && near.s > from + 1 ? near.s : null;
+    return near.d <= reach && near.s > from + 1 ? near.s : null;
   }
 
   /**
@@ -658,7 +665,7 @@ export class DrawLine {
   private rampDown(): "laid" | "river" | "no" {
     if (!this.may("ramp")) return this.want("ramp") || "no";
     const r = rampFrom(this.end, false);
-    const s = r && this.onStroke(r, this.progress);
+    const s = r && this.onStroke(r, this.progress, DOWN_REACH);
     if (!r || s === null) return "no";
     if (!this.lands(r, false)) return this.fill(false) ? "laid" : "no";
     const why = this.options.check?.(r, this.pieces) ?? null;

@@ -605,7 +605,7 @@ async function specials() {
             if (!river)
               for (const width of [1, 2, 3, 4])
                 if (run(cx, cz, dx, dz, 5, grass, width, water, 6, grass)) {
-                  river = { x: cx, z: cz, dx, dz, squares: 5 + width + 5 };
+                  river = { x: cx, z: cz, dx, dz, squares: 5 + width + 5, width };
                   break;
                 }
             if (!up && run(cx, cz, dx, dz, lead, grass, len, hill, 0, hill, sides)) up = { x: cx, z: cz, dx, dz, squares: lead + len - 1, lead };
@@ -646,7 +646,9 @@ async function specials() {
   };
   const show = (got) => `${got.pieces.map((q) => `${q.type}@${q.y}`).join(" ")}${got.toasts.length ? ` · toasts: ${got.toasts.join(" | ")}` : ""}`;
   if (found.river) {
-    const got = await drawAcross(found.river, () => 0, "river");
+    // Over the water the line is up a level, and the finger follows it there (seen at that height).
+    const w = found.river.width;
+    const got = await drawAcross(found.river, (d) => (d > 3.5 * 72 && d < (5 + w + 0.5) * 72 ? 48 : 0), "river");
     const types = got.pieces.map((q) => q.type);
     const firstRamp = types.indexOf("ramp");
     const lastRamp = types.lastIndexOf("ramp");
