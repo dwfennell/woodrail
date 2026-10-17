@@ -598,7 +598,8 @@ export class Hud {
     this.tray.append(orient, tabs, scroller);
     this.root.appendChild(this.tray);
 
-    this.root.appendChild(this.toastEl);
+    // Beside the HUD, not in it, so a toast shows over the panels opened over the HUD too (the Blueprints board).
+    this.root.after(this.toastEl);
     // A tap dismisses a toast early (and the next waiting comes on).
     this.toastEl.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -790,6 +791,7 @@ export class Hud {
   /** Hide or show the whole play overlay (the title screen covers the game). */
   setVisible(visible: boolean): void {
     this.root.hidden = !visible;
+    this.toastEl.hidden = !visible;
     if (!visible) this.menu.hidden = true;
   }
 
