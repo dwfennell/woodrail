@@ -4,30 +4,34 @@ import { flipCursor, type Cursor, type Train } from "../sim";
 /** How far ahead of a train (pieces) a switch is set for it: the next one it will choose at, within this many. */
 const LOOK_AHEAD = 6;
 /** The most track pieces a search for the way to a stop goes through. */
-const SEARCH = 4000;
+export const SEARCH = 4000;
 
-/** The way out of a piece entered through `entry`: each path from that end, and where it leaves (−1: a buffer). */
-function waysFrom(layout: Layout, pieceId: number, entry: number): { option: number; exit: number }[] {
+/**
+ * The way out of a piece entered through `entry`: each path from that end (`option` counts them, as switch states do;
+ * `path` is its index in the piece's paths), and where it leaves (−1: a buffer).
+ */
+export function waysFrom(layout: Layout, pieceId: number, entry: number): { option: number; path: number; exit: number }[] {
   const piece = layout.getPiece(pieceId);
   if (!piece) return [];
   const paths = getPieceDef(piece.type, piece.flipped).paths;
-  const out: { option: number; exit: number }[] = [];
-  for (const p of paths) {
+  const out: { option: number; path: number; exit: number }[] = [];
+  for (let i = 0; i < paths.length; i++) {
+    const p = paths[i];
     if (p.from !== entry && p.to !== entry) continue;
-    out.push({ option: out.length, exit: p.from === entry ? (p.to ?? -1) : p.from });
+    out.push({ option: out.length, path: i, exit: p.from === entry ? (p.to ?? -1) : p.from });
   }
   return out;
 }
 
 /** Where track leaving `pieceId` through connector `exit` goes on: the next piece and the end it's entered by. */
-function next(layout: Layout, pieceId: number, exit: number): { pieceId: number; entry: number } | null {
+export function next(layout: Layout, pieceId: number, exit: number): { pieceId: number; entry: number } | null {
   if (exit < 0) return null;
   const joined = layout.joinedConnector(connectorRef(pieceId, exit));
   return joined === -1 ? null : { pieceId: pieceOfRef(joined), entry: indexOfRef(joined) };
 }
 
 /** What turning back at the end of a line costs a way to a stop, in pieces: a way straight on is better. */
-const TURN_COST = 12;
+export const TURN_COST = 12;
 
 /**
  * How many pieces from (piece, entry) to `target` along the track; −1 if it can't be reached. A train turns back at
@@ -62,6 +66,30 @@ export function distanceTo(layout: Layout, start: { pieceId: number; entry: numb
 }
 
 /**
+ * At a choice (`ways` out of `pieceId`, from `waysFrom`), the option that reaches `target` soonest (as `steer` chooses);
+ * −1 if none does. `dist` is the search (`distanceTo` by default; a caller may pass a memo of it).
+ */
+export function wayToward(
+  layout: Layout,
+  pieceId: number,
+  ways: readonly { option: number; exit: number }[],
+  target: number,
+  dist: (at: { pieceId: number; entry: number }) => number = (at) => distanceTo(layout, at, target),
+): number {
+  let best = -1;
+  let bestD = Infinity;
+  for (const w of ways) {
+    const after = next(layout, pieceId, w.exit);
+    const d = after ? (after.pieceId === target ? 0 : dist(after)) : -1;
+    if (d >= 0 && d < bestD) {
+      bestD = d;
+      best = w.option;
+    }
+  }
+  return best;
+}
+
+/**
  * Set the next switch ahead of a train (the next piece it enters where it has a choice) toward the piece `target`,
  * the shortest way on. Leaves it as it is if no way leads there. Returns true if a switch was changed.
  */
@@ -81,17 +109,7 @@ export function steer(layout: Layout, train: Train, forward: boolean, target: nu
     if (!n || n.pieceId === target) return false;
     const ways = waysFrom(layout, n.pieceId, n.entry);
     if (ways.length > 1) {
-      // A choice: the way that reaches the stop soonest.
-      let best = -1;
-      let bestD = Infinity;
-      for (const w of ways) {
-        const after = next(layout, n.pieceId, w.exit);
-        const d = after ? (after.pieceId === target ? 0 : distanceTo(layout, after, target)) : -1;
-        if (d >= 0 && d < bestD) {
-          bestD = d;
-          best = w.option;
-        }
-      }
+      const best = wayToward(layout, n.pieceId, ways, target);
       if (best === -1 || layout.switchState(n.pieceId) % ways.length === best) return false;
       layout.setSwitchState(n.pieceId, best);
       return true;
