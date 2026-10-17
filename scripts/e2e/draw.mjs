@@ -658,6 +658,7 @@ async function specials() {
       firstRamp !== -1 && lastRamp > firstRamp && bridges.length >= 1 && types.indexOf("bridge") > firstRamp && types.lastIndexOf("bridge") < lastRamp,
       show(got),
     );
+    check("…straight bridges under a straight stroke (no curved bridges: no S over the water)", !types.includes("bridge-curve"), show(got));
     check("…every piece joined, the bridges a level up, and back on the ground at the far end", got.joints === got.pieces.length - 1 && bridges.every((q) => q.y === 48) && got.pieces.at(-1)?.y === 0, show(got));
     if (got.pieces.length) await p.evaluate(() => window.woodrail.interaction.undo());
   }

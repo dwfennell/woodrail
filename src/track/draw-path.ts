@@ -279,6 +279,8 @@ export class DrawLine {
   /** The special piece the piece being placed needed but may not use (see `want`), or null. */
   private wanted: PieceTypeId | null = null;
 
+  /** The height (mm) the finger is read at (see `addSeen`). */
+  private seen: number;
   /** Where the finger last was (for the way it's moving), whether or not that went into the stroke. */
   private fx: number;
   private fz: number;
@@ -303,6 +305,7 @@ export class DrawLine {
     readonly start: DrawEnd,
     private readonly options: DrawOptions = {},
   ) {
+    this.seen = start.y;
     this.push(start.x, start.z);
     this.fx = start.x;
     this.fz = start.z;
@@ -396,6 +399,40 @@ export class DrawLine {
     out.push(e.x, e.z);
     for (let i = 0; i < this.xs.length; i++) if (this.ss[i] > this.progress) out.push(this.xs[i], this.zs[i]);
     return out.length / 2;
+  }
+
+  /** The height (mm) the finger is read at (see `addSeen`). */
+  get seenAt(): number {
+    return this.seen;
+  }
+
+  /**
+   * The finger moved, read on a level plane at a height (`read`: the screen point seen at that height on the map, or
+   * null). It's read at the height of the ground the line has got to: up on a hilltop, the finger is over the hilltop.
+   * When the line comes to rest on the ground at another height (up a ramp onto a hill, or down off raised track), the
+   * stroke still ahead is moved to where it's seen at the new height (`shiftAhead`), once, so it runs on without a jump.
+   * Up in the air (on a ramp up for the river, on bridges) it's read as it was: a straight stroke on the screen stays
+   * straight on the map, and the bridges straight under it (re-read a level up and moved, the stroke ran a little to
+   * one side of the line, which turned back to it over the water). The point read and whether the pieces changed.
+   */
+  addSeen(read: (height: number) => { x: number; z: number } | null): { p: { x: number; z: number } | null; changed: boolean } {
+    const e = this.end;
+    if (e.y !== this.seen && this.resting(e)) {
+      const was = read(this.seen);
+      const now = read(e.y);
+      if (was && now) this.shiftAhead(now.x - was.x, now.z - was.z);
+      this.seen = e.y;
+    }
+    const p = read(this.seen);
+    return { p, changed: p ? this.addPoint(p.x, p.z) : false };
+  }
+
+  /** Does the line's end rest on the ground (not up on arches, a ramp's own support, or risers)? Yes if the ground isn't known. */
+  private resting(e: DrawEnd): boolean {
+    const groundAt = this.options.groundAt;
+    if (!groundAt) return true;
+    // (Just past the end: at a ramp's top end, the ground it runs onto.)
+    return Math.abs(groundAt(e.x + Math.cos(e.heading) * LAND_PROBE, e.z + Math.sin(e.heading) * LAND_PROBE) - e.y) <= 1;
   }
 
   /**

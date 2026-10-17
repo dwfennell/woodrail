@@ -30,7 +30,7 @@ import {
   type Pose,
 } from "../track";
 import type { Game } from "./game";
-import { drawRefusal } from "./track-rules";
+import { drawMessage, drawRefusal } from "./track-rules";
 import { TRACK_ITEMS } from "../ui/tray-catalogue";
 
 /** A piece's name as the tray shows it, in lower case ("long", "curve"). */
@@ -87,8 +87,6 @@ export class DrawHand {
   unlearned: ((type: PieceTypeId) => string | null) | null = null;
   /** The ramp whose cutting shows while drawing (the line's last), as a key, or "" for none. */
   private cutKey = "";
-  /** The height (mm) the finger is seen at, on the plane the stroke is drawn on: the line's end's, as of the last move. */
-  private seenAt = 0;
   private line: DrawLine | null = null;
   /** This stroke's "too sharp" (or "out of") said already. */
   private toldStalled = false;
@@ -177,20 +175,13 @@ export class DrawHand {
     }
     const line = this.line;
     if (!line) return;
-    // Seen at the height the line has got to: up on a hill, the finger is over the hilltop. (The line went up or down
-    // a level: the stroke still ahead moves to where it's seen at the new height, so it runs on without a jump.)
-    if (line.end.y !== this.seenAt) {
-      const was = this.hooks.planeAt(x, y, this.seenAt);
-      const now = this.hooks.planeAt(x, y, line.end.y);
-      if (was && now) line.shiftAhead(now.x - was.x, now.z - was.z);
-      this.seenAt = line.end.y;
-    }
-    const p = this.hooks.planeAt(x, y, this.seenAt);
-    if (!p) return;
+    // (Read at the height the line has got to: see `DrawLine.addSeen`.)
     const before = line.pieces.length;
+    const { p, changed } = line.addSeen((h) => this.hooks.planeAt(x, y, h));
+    if (!p) return;
     if (this.last) this.sinceGrown += Math.hypot(p.x - this.last.x, p.z - this.last.z);
     this.last = { x: p.x, z: p.z };
-    if (line.addPoint(p.x, p.z)) this.sync(line.pieces.length > before);
+    if (changed) this.sync(line.pieces.length > before);
     // (Grown or taken back: not stuck. Nor while going back over the line.)
     if (line.pieces.length !== before || line.goingBack) this.sinceGrown = 0;
     // Stuck behind the finger (a corner no piece can turn, a circle too tight, or no piece left that fits): say why,
@@ -259,7 +250,6 @@ export class DrawHand {
   private start(end: DrawEnd): void {
     this.toldStalled = false;
     this.sinceGrown = 0;
-    this.seenAt = end.y;
     this.last = null;
     const hills = hillsOf(this.game.landscape.grid);
     this.line = new DrawLine(end, {
@@ -286,7 +276,7 @@ export class DrawHand {
     const { reason, risers } = this.hooks.placement(c.type, c.flipped, c.pose, c.y);
     // A drawn line puts in no risers under it: needing them is "unsupported".
     const why = drawRefusal(this.game.landscape, c.type, c.flipped, c.pose, c.y, reason, risers);
-    if (why) return { reason: why.reason, message: this.hooks.message(why.reason), levels: why.levels };
+    if (why) return { reason: why.reason, message: drawMessage(why.reason, why.levels, this.hooks.message), levels: why.levels };
     this.syncOwn(line);
     if (findOverlap(this.own, c.type, c.flipped, c.pose, c.y, -1) !== -1) return { reason: "self", message: "The line would cross itself" };
     return null;
@@ -439,7 +429,7 @@ export class DrawHand {
     const n = Math.min(TRAIL_POINTS, line.ahead(this.trailPoints));
     this.trail.visible = n > 1;
     if (n > 1) {
-      const y = line.end.y + 3;
+      const y = line.seenAt + 3;
       const a = this.trailSegments.array as Float32Array;
       const pts = this.trailPoints;
       for (let i = 0; i + 1 < n; i++) {

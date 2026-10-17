@@ -64,6 +64,21 @@ export function trackMessage(reason: BlockReason, levels = 1): string {
   return reason === "hill" ? hillMessage(levels) : BLOCK_MESSAGES[reason];
 }
 
+/**
+ * What a drawn line says at a hill two or more levels up: a drawn line climbs one level at a time (a ramp, then on
+ * along the hilltop), so it can't go up there itself. (A piece in the hand is told to climb with ramps in a row:
+ * see `hillMessage`.)
+ */
+export function drawHillMessage(levels: number): string {
+  const words = ["", "one", "two", "three", "four"];
+  return `Too steep to draw: ${words[levels] ?? levels} levels up. Lay a ramp first, then draw on`;
+}
+
+/** The message for a drawn piece's refusal: as a held piece's (`message`), but for a hill too high for the line to climb. */
+export function drawMessage(reason: string, levels: number, message: (reason: string) => string): string {
+  return reason === "hill" && levels >= 2 ? drawHillMessage(levels) : message(reason);
+}
+
 /** A drawn piece's refusal as the line reads it: the reason code, and how many levels it's about (see `drawRefusal`). */
 export interface DrawRefusal {
   readonly reason: string;

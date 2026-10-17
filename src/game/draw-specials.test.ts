@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { gridWithPlots, hillsOf, SURF_RIVER, syncCuttings, type Landscape } from "../landscape";
+import { gridWithPlots, hillMessage, hillsOf, SURF_RIVER, syncCuttings, type BlockReason, type Landscape } from "../landscape";
 import { DrawLine, isBridge, Layout, RISER_HEIGHT, type DrawEnd, type DrawOptions, type PieceTypeId } from "../track";
-import { drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
+import { drawMessage, drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
 
 /**
  * Drawn lines meeting hills, the river and raised track (N2 phase 1: ramps and bridges), checked by the game's own
@@ -33,7 +33,7 @@ function options(land: Landscape, layout = new Layout(), extra: Partial<DrawOpti
     check: (c) => {
       const p = trackPlacement(rules, c.type, c.flipped, c.pose, c.y, -1);
       const why = drawRefusal(land, c.type, c.flipped, c.pose, c.y, p.reason, p.risers);
-      return why ? { reason: why.reason, message: why.reason === "self" ? why.reason : trackMessage(why.reason as never, why.levels), levels: why.levels } : null;
+      return why ? { reason: why.reason, message: drawMessage(why.reason, why.levels, (r) => trackMessage(r as BlockReason, why.levels)), levels: why.levels } : null;
     },
     groundAt: (x, z) => hills.groundAt(x, z),
     outOf: (t) => `Out of ${t}`,
@@ -98,7 +98,13 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
     expect(line.stopped).toBe("blocked");
     const last = line.pieces[line.pieces.length - 1];
     expect(last.blockedBy).toBe("hill");
-    expect(last.blocked).toMatch(/2 levels up/);
+    // Said as it is for drawing (the line climbs one level at a time), not as for a piece in the hand.
+    expect(last.blocked).toBe("Too steep to draw: two levels up. Lay a ramp first, then draw on");
+    expect(hillMessage(2)).toBe("The hill is 2 levels up here: climb with two ramps in a row");
+    // Three levels up likewise; one level up, the line lays a ramp (above), so the hand's message stands if it can't.
+    const three = stroke(at(0), options(paint(flat(), 504, 2000, -400, 400, 3)), 1300);
+    expect(three.pieces[three.pieces.length - 1].blocked).toBe("Too steep to draw: three levels up. Lay a ramp first, then draw on");
+    expect(drawMessage("hill", 1, () => hillMessage(1))).toBe(hillMessage(1));
     expect(line.pieces.some((p) => p.type === "ramp")).toBe(false);
   });
 
@@ -131,6 +137,37 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
       expect(line.end.x, why).toBeGreaterThan(1400);
       expectJoined(line);
     }
+  });
+
+  it("a stroke straight on the screen across the river lays straight bridges (read as it was while the line is up in the air)", () => {
+    // A view from off to one side: a point on the screen is seen this much further along x and z (mm) for each mm higher.
+    for (const [vx, vz] of [[0.3, 0.9], [0.2, -0.9], [-0.5, 0.6], [0, 1.5], [0.8, -1.4], [1.7, 0]]) {
+      for (const [x0, w] of [[576, 72], [576, 216], [612, 288]]) {
+        const land = paint(flat(), x0, x0 + w, -1500, 1500, "river");
+        const line = new DrawLine(at(0), options(land));
+        for (let d = 4; d <= 1500; d += 4) line.addSeen((h) => ({ x: d + h * vx, z: Z + h * vz }));
+        line.finish();
+        const why = `river ${x0}..${x0 + w}, view (${vx}, ${vz}): ${name(line)}`;
+        expect(line.pieces.some((p) => p.blocked), why).toBe(false);
+        expect(line.pieces.some((p) => p.type === "bridge"), why).toBe(true);
+        expect(line.pieces.some((p) => p.type.startsWith("curve") || p.type === "bridge-curve"), why).toBe(false);
+        expect(line.end.y, why).toBe(0);
+      }
+    }
+  });
+
+  it("up on a hill, the finger is read at the hilltop's height: the stroke moves once, as the ramp's top end lands", () => {
+    const land = paint(flat(), 504, 2000, -400, 400, 1);
+    const line = new DrawLine(at(0), options(land));
+    const seen: number[] = [];
+    for (let d = 4; d <= 1300; d += 4) {
+      line.addSeen((h) => ({ x: d + h * 0.3, z: Z + h * 0.5 }));
+      if (seen[seen.length - 1] !== line.seenAt) seen.push(line.seenAt);
+    }
+    line.finish();
+    expect(seen).toEqual([0, RISER_HEIGHT]);
+    expect(line.pieces.some((p) => p.blocked), name(line)).toBe(false);
+    expect(line.end.y).toBe(RISER_HEIGHT);
   });
 
   it("with the stroke drifting off to a side over the water, the line still crosses and comes down", () => {
