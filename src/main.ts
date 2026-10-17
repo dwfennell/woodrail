@@ -23,8 +23,8 @@ import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, lacking, uncraft, workshops, workshopStock } from "./game/crafting";
-import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
-import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
+import { DEPOT_NAMES, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
@@ -52,7 +52,7 @@ import { onPiecesBuilt, TrackView } from "./render/track-view";
 import { kitOf, PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
 import type { CarKind, CarLook } from "./sim";
 import { Hud } from "./ui/hud";
-import { INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
+import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { propsInRect } from "./props/placement";
 import { loadMuted, saveMuted } from "./ui/prefs";
@@ -978,6 +978,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const crafting = new Crafting(progress);
   crafting.setProgress(progress);
   const thingLabel = (id: ThingId) => ruleOf(id)?.label ?? id;
+  /** The kits and furniture on the Industries tab's railway shelves: the workshop's card lists them as "Railway". */
+  const RAILWAY_THINGS = new Set(GAME_KIT_GROUPS.flatMap((g) => g.items.flatMap((i) => (i.kind === "piece" || i.kind === "prop" ? [...thingsFor(i).keys()] : []))));
 
   /**
    * Game mode: can this tray item come out (known, and enough of it in the toy box)? Says why not if not. What's
@@ -986,8 +988,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   interaction.trayAllowed = (item) => trayAllowed(item);
   // After the last of something in the toy box goes down, no next one waits at its end.
   interaction.trayHas = (item) => mode !== "game" || item.kind !== "piece" || progress.hasAnother(game.world, item);
-  function trayAllowed(item: Parameters<typeof thingsFor>[0] | { kind: string }, make = true): boolean {
-    if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train")) return true;
+  function trayAllowed(item: ThingItem | { kind: string }, make = true): boolean {
+    if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return true;
     // (A new take: whatever an earlier one made is settled, or never was.)
     if (make) trainMade = null;
     const look = lockedLook(item);
@@ -996,9 +998,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.toast(t.plan ? `${t.label}: coming soon` : `${t.label}: learn its blueprint first${t.requires.length ? ` (${t.requires.map(describeNeed).join(", ")})` : ""}`, false, 3600);
       return false;
     }
-    const needs = thingsFor(item as Parameters<typeof thingsFor>[0]);
+    const needs = thingsFor(item as ThingItem);
     for (const id of needs.keys()) {
-      if (isFree(id) || progress.knows(id)) continue;
+      if (progress.knows(id)) continue;
       hud.toast(`${ruleOf(id)!.label}: not learned yet`);
       return false;
     }
@@ -1073,19 +1075,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const needs = thingsFor({ kind: "piece", type });
     let n = Infinity;
     for (const [id, k] of needs) {
-      if (isFree(id)) continue;
       if (!progress.knows(id)) return 0;
+      if (isFree(id)) continue;
       n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
     }
     return n;
   }
 
   /** The toy box on the tray (Game mode): how many of each are left. */
-  function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null {
-    if (item.kind !== "piece" && item.kind !== "train") return null;
-    const needs = thingsFor(item as Parameters<typeof thingsFor>[0]);
-    if ([...needs.keys()].every(isFree)) return null;
+  function trayBadge(item: ThingItem | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null {
+    if (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop") return null;
+    const needs = thingsFor(item as ThingItem);
     if ([...needs.keys()].some((id) => !progress.knows(id)) || lockedLook(item)) return { text: "Locked", empty: true, locked: true };
+    // (Free things, a crossing style among them once it's learned: no count.)
+    if ([...needs.keys()].every(isFree)) return null;
     let n = Infinity;
     for (const [id, k] of needs) n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
     // The workshop, while there's none on the map: it's where planks go to learn blueprints.
@@ -1104,7 +1107,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Industries placed or moved: give new ones their depots, and redraw the yards where they stand. */
   let industryKey = "";
   function industriesChanged(): void {
-    const added = syncIndustries(game.world);
+    const added = syncIndustries(game.world, mode === "game");
     let key = "";
     for (const id of game.layout.pieceIds()) {
       const p = game.layout.getPiece(id)!;
@@ -1173,6 +1176,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     industriesChanged();
     audio.chime();
     hud.refreshTrayBadges();
+    hud.trayLearned();
     game.invalidate();
     refreshBoard();
     save();
@@ -1222,7 +1226,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const offerOf = (id: string) => progress.offers.findIndex((o) => o.ids.includes(id));
     const seen = seenOf(progress, new Set(progress.offers.flatMap((o) => o.ids)));
     const stations: Station[] = TECHS.map((t) => {
-      const makes = unlocksOf(t.id).map((x) => ({ label: ruleOf(x)!.label, icon: x.startsWith("piece:") ? pieceIcon(x.slice(6) as PieceTypeId) : trainIcon([x.slice(4) as CarKind]) }));
+      const makes = unlocksOf(t.id).map((x) => ({ label: ruleOf(x)!.label, icon: x.startsWith("piece:") ? pieceIcon(x.slice(6) as PieceTypeId) : x.startsWith("prop:") ? `<span class="bp-feature">🪧</span>` : trainIcon([x.slice(4) as CarKind]) }));
       if (t.feature) makes.push({ label: t.feature.label, icon: `<span class="bp-feature">${t.feature.icon}</span>` });
       if (makes.length === 0) makes.push({ label: t.brings, icon: `<span class="bp-feature">✨</span>` });
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
@@ -1428,7 +1432,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The peg dolls on each platform are the people waiting (Game mode, once coaches are known; else the usual few). */
   function showWaiting(): void {
     const live = mode === "game" && progress.learned.has("passengers");
-    for (const d of game.economy.allDepots()) if (d.role === "town") game.setWaiting(d.townId, live ? d.waiting : null);
+    // (At its station: a halt's people aren't drawn.)
+    for (const d of game.economy.allDepots()) if (d.role === "town" && game.world.stations.get(d.townId) === d.pieceId) game.setWaiting(d.townId, live ? d.waiting : null);
   }
 
   // A town station's card (Game mode): who is waiting for a coach.
@@ -1573,8 +1578,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (workshopShown !== id || force) workshopPanel.hide();
     workshopShown = id;
     const rows: MakeRow[] = [];
+    const SHELVES = ["Track", "Trains", "Industries", "Railway"];
     for (const tid of Object.keys(THING_RULES) as ThingId[]) {
-      if (!progress.knows(tid)) continue;
+      if (!progress.knows(tid) || isFree(tid)) continue;
       const rule = ruleOf(tid)!;
       rows.push({
         id: tid,
@@ -1582,10 +1588,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         cost: costText(rule),
         have: progress.available(game.world, tid),
         queued: progress.orders.filter((o) => o === tid).length,
-        shelf: tid.startsWith("car:") ? "Trains" : tid.includes("depot-") ? "Industries" : "Track",
+        shelf: tid.startsWith("car:") ? "Trains" : tid.includes("depot-") ? "Industries" : RAILWAY_THINGS.has(tid) ? "Railway" : "Track",
       });
     }
-    rows.sort((a, b) => ["Track", "Trains", "Industries"].indexOf(a.shelf) - ["Track", "Trains", "Industries"].indexOf(b.shelf));
+    rows.sort((a, b) => SHELVES.indexOf(a.shelf) - SHELVES.indexOf(b.shelf));
     const now = crafting.now;
     // What it's waiting for: goods in the workshop's yard, and coins.
     const nowRule = now ? ruleOf(now.id)! : null;
@@ -2005,7 +2011,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     save();
     goalsPanel.setVisible(mode === "game");
     // An industry you place must stand near what it works with (trees, fields): Game mode's rule.
-    interaction.siteRule = mode === "game" ? (type, pose) => siteWhy(game.landscape, type, pose) : null;
+    interaction.siteRule = mode === "game" ? (type, pose) => siteWhy(game.landscape, type, pose) ?? haltWhy(game.landscape, type, pose) : null;
     // A drawn line uses only the pieces in the toy box (Game mode).
     interaction.draw.stock = mode === "game" ? pieceStock : null;
     if (mode === "game") {
@@ -2017,6 +2023,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       for (const t of game.landscape.towns) progress.bestLevel = Math.max(progress.bestLevel, townLife.status(t.id).level);
       syncLandmarks();
       hud.trayBadge = trayBadge;
+      hud.trayKnown = (item) => item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id));
       hud.setCoins(progress.coins);
       refreshBoard();
     } else {
@@ -2029,6 +2036,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showWaiting();
       shownDelivered = new Map();
       hud.trayBadge = null;
+      hud.trayKnown = null;
       hud.setCoins(null);
     }
     industriesChanged();
