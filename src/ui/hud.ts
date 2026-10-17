@@ -454,8 +454,21 @@ export class Hud {
       missing.push(item);
       return `<span class="thumb-pending" data-thumb="${key}"></span>`;
     };
+    /** A label whose one long word doesn't fit its tile ("Warehouse" at 70 px) is set smaller rather than broken. */
+    const fitLabels = () => {
+      const labels = [...scroller.querySelectorAll<HTMLElement>(".label")];
+      for (const l of labels) l.classList.remove("squeeze");
+      for (const l of labels.filter((l) => l.scrollWidth > l.clientWidth + 1)) l.classList.add("squeeze");
+    };
+    // (The tiles change size when the phone turns.)
+    let refit = 0;
+    addEventListener("resize", () => {
+      clearTimeout(refit);
+      refit = window.setTimeout(fitLabels, 200);
+    });
     const show = () => {
       requestAnimationFrame(edges);
+      requestAnimationFrame(fitLabels);
       if (missing.length > 0) this.handlers.needThumbnails(missing.splice(0));
     };
     // Top level: one button per group; open one to see its items, with a way back first in the row.
