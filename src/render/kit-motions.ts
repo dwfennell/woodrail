@@ -11,18 +11,13 @@ import type { Object3D } from "three";
  * agree, and `KitView` can drop the live parts once a kit is back at rest.
  *
  * A kit whose asset has `moves` but no entry here doesn't move (it's drawn static).
- *
- * A "state" kit (`KitDef.state`) is posed for its state's level (`KIT_STATES`, src/game/kit-states.ts): `on` eases
- * toward the level, which may be any number from 0 (at rest) up (a bit for each of a gantry's signals; a turntable's
- * road), and holds still once it's there (`holds` is implied). With `ease: 0` it's there at once, so a level can carry
- * several flags (`Math.round(on)`).
  */
 export interface KitMotion {
   /** The moving nodes, by name (several nodes may share one: every "leafL"). Nested ones are listed too. */
   readonly parts: readonly string[];
   /** Pose them (see above). */
   pose(parts: MotionParts, on: number, t: number): void;
-  /** Seconds to ease `on` from 0 to 1 or back (default 0.8); 0 for at once (a lamp switched on or off). */
+  /** Seconds to ease `on` from 0 to 1 or back (default 0.8). */
   readonly ease?: number;
   /**
    * A motion that cycles round to its rest pose every `period` seconds (crates on a belt): let go, it runs on at full
@@ -34,6 +29,31 @@ export interface KitMotion {
    * keeps working (a crane's round) while its trigger holds.
    */
   readonly holds?: boolean;
+  /**
+   * A kit that moves with its state (`moves: "state"`: a turntable's deck, a transfer table's): its parts stand as its
+   * piece's switch state says, gliding from one to the next when it changes. Its `pose` is the rest pose (state 0).
+   */
+  readonly state?: KitStateMotion;
+}
+
+/** How a kit's parts follow its piece's state (see `KitMotion.state`). */
+export interface KitStateMotion {
+  /** Where its parts stand for state `k` (an angle, a distance: what `pose` takes). */
+  value(k: number): number;
+  /**
+   * Values this far apart look the same (a turntable's deck turned half round lies along the same road): it keeps
+   * turning the same way, round and round, rather than back. Omit for a deck that slides back and forth.
+   */
+  readonly round?: number;
+  pose(parts: MotionParts, value: number): void;
+  /**
+   * What the state is: the piece's switch state ("switches", the default: a deck's road, changing with
+   * `Layout.switchesVersion`), or its signals' aspects ("signals": a signal skin's, `Sim.redSignals`, a bit for each
+   * road at red, changing with `Sim.signalsVersion`).
+   */
+  readonly source?: "switches" | "signals";
+  /** Seconds to glide from one state's value to the next (default `DECK_GLIDE_S`, the deck's); 0: at once (a lamp). */
+  readonly glide?: number;
 }
 
 /** A moving model's parts by name. */
@@ -45,8 +65,8 @@ const each = (parts: MotionParts, name: string, f: (o: Object3D) => void) => {
   for (const o of parts.get(name)) f(o);
 };
 
-/** 0 → 1 → 0 smoothly every `period` seconds. */
-const wave = (t: number, period: number) => 0.5 - 0.5 * Math.cos((t / period) * Math.PI * 2);
+/** A motion that follows a kit's state, its rest pose that of state 0. */
+const stateMotion = (parts: readonly string[], state: KitStateMotion): KitMotion => ({ parts, state, pose: (p) => state.pose(p, state.value(0)) });
 
 /** How far a semaphore's arm is raised at clear (radians, as the catalogue model's arm rises). */
 const SEMAPHORE_CLEAR = 0.7;
@@ -56,6 +76,9 @@ const GANTRY_HEADS = [
   [1, 0],
   [0, 1],
 ] as const;
+
+/** 0 → 1 → 0 smoothly every `period` seconds. */
+const wave = (t: number, period: number) => 0.5 - 0.5 * Math.cos((t / period) * Math.PI * 2);
 
 /** A clamshell crane's or a slewing crane's swing: out and back, `period` seconds round. */
 const swing = (t: number, period: number) => Math.sin((t / period) * Math.PI * 2);
@@ -163,38 +186,67 @@ export const KIT_MOTIONS: Readonly<Record<string, KitMotion>> = {
       each(p, "jib", (o) => (o.rotation.y = on * 1.4 * swing(t, 12)));
     },
   },
-  // Signal skins ("state": the signal's aspect, see `KIT_STATES.signal`; at rest, clear). The semaphore's arm drops
-  // level at red and rises to clear.
-  "mech-semaphore-signal": {
-    parts: ["arm"],
-    ease: 0.5,
-    pose: (p, on) => each(p, "arm", (o) => (o.rotation.x = SEMAPHORE_CLEAR * (1 - Math.min(1, on)))),
-  },
-  // The colour light shows green at clear and red at red, switched at once (a lamp, not a motion: ease 0).
-  "mech-colour-light-signal": {
-    parts: ["red", "amber", "green"],
-    ease: 0,
-    pose: (p, on) => {
-      each(p, "red", (o) => (o.visible = on >= 0.5));
-      each(p, "amber", (o) => (o.visible = false));
-      each(p, "green", (o) => (o.visible = on < 0.5));
+  // The train wash: its brushes spin and its sprays drip while a train goes through (at rest: still, and dry).
+  // The deck turns to the road its state picks (an eighth of a turn apart), always the same way round.
+  "mech-turntable": stateMotion(["deck"], {
+    value: (k) => (k * Math.PI) / 4,
+    round: Math.PI,
+    // (A model's turn is the other way to a piece's heading.)
+    pose: (p, a) => each(p, "deck", (o) => (o.rotation.y = -a)),
+  }),
+  // The deck slides across to the road its state picks: the middle, the left, the right (60 apart).
+  "mech-transfer-table": stateMotion(["deck"], {
+    value: (k) => [0, 60, -60][k] ?? 0,
+    pose: (p, l) => each(p, "deck", (o) => (o.position.z = l)),
+  }),
+  "mech-train-wash": {
+    parts: ["brushL", "brushR", "brushTop", "drops"],
+    pose: (p, on, t) => {
+      // The brushes turn once a second (a round ends where it started, so let go they stop at rest); water drips on.
+      const turn = on > 0 ? (t % 1) * Math.PI * 2 : 0;
+      each(p, "brushL", (o) => (o.rotation.y = turn));
+      each(p, "brushR", (o) => (o.rotation.y = -turn));
+      each(p, "brushTop", (o) => (o.rotation.z = turn));
+      each(p, "drops", (o) => (o.visible = on > 0.5 && Math.floor(t * 4) % 2 === 0));
     },
+    period: 1,
+    ease: 0.4,
   },
-  // The gantry's two heads, one over each road: its level has a bit for each road at red (road 0's is 1). Turned round
+  // Signal skins: their parts show their signals' aspects (state 0, at rest, is all clear). The semaphore's arm rises
+  // to clear and drops level at red.
+  "mech-semaphore-signal": stateMotion(["arm"], {
+    source: "signals",
+    glide: 0.5,
+    value: (k) => (k % 2 === 1 ? 0 : SEMAPHORE_CLEAR),
+    pose: (p, a) => each(p, "arm", (o) => (o.rotation.x = a)),
+  }),
+  // The colour light shows green at clear and red at red, switched at once.
+  "mech-colour-light-signal": stateMotion(["red", "amber", "green"], {
+    source: "signals",
+    glide: 0,
+    value: (k) => k % 2,
+    pose: (p, red) => {
+      each(p, "red", (o) => (o.visible = red >= 0.5));
+      each(p, "amber", (o) => (o.visible = false));
+      each(p, "green", (o) => (o.visible = red < 0.5));
+    },
+  }),
+  // The gantry's two heads, one over each road, each showing its road's aspect (the state's bit for it). Turned round
   // onto its piece, the model's head 1 is over road 0, and its head 0 over road 1.
-  "mech-signal-gantry": {
-    parts: ["r0", "g0", "r1", "g1"],
-    ease: 0,
-    pose: (p, on) => {
-      const red = Math.round(on);
+  "mech-signal-gantry": stateMotion(["r0", "g0", "r1", "g1"], {
+    source: "signals",
+    glide: 0,
+    value: (k) => k,
+    pose: (p, bits) => {
+      const red = Math.round(bits);
       for (const [head, road] of GANTRY_HEADS) {
         const atRed = Math.floor(red / 2 ** road) % 2 === 1;
         each(p, `r${head}`, (o) => (o.visible = atRed));
         each(p, `g${head}`, (o) => (o.visible = !atRed));
       }
     },
-  },
-  // The buffer stop's lamp lights while a train stands against it.
+  }),
+  // The buffer stop's lamp lights while a train stands against it (on its piece).
   "mech-buffer-stop-lamp": { parts: ["lamp"], holds: true, ease: 0.3, pose: (p, on) => each(p, "lamp", (o) => (o.visible = on > 0.5)) },
   // The weighbridge's dial swings round while a train crawls over it.
   "mech-weighbridge": {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { flipSwapsEnds, getPieceDef, isPlainStraight, KIT_TYPES, kitForAsset, kitOf, kitPlace, KITS, MAX_CONNECTORS, pathLength, PIECE_TYPES, straightLength, type PieceTypeId } from ".";
+import { KIT_MOTIONS } from "../render/kit-motions";
 
 describe("kit pieces", () => {
   it("are piece types, generated from the kits", () => {
@@ -141,7 +142,7 @@ describe("kit pieces", () => {
       expect(kitForAsset(asset), type).toBe(type);
       expect(kit.track.signal, type).toEqual(plain.signal);
       expect(kit.moves, type).toBe("state");
-      expect(kit.state, type).toBe("signal");
+      expect(KIT_MOTIONS[asset]?.state?.source, type).toBe("signals");
       expect(kit.splices, type).toBeFalsy();
       expect(kit.track.isSwitch, type).toBe(false);
       // Every road is the plain signal's length.

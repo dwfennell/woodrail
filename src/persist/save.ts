@@ -12,7 +12,7 @@ import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, type Sto
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
-import { getPieceDef, kitOf, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
+import { getPieceDef, kitOf, Layout, MAX_CONNECTORS, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
 /**
@@ -72,7 +72,7 @@ const saveSchema = z.object({
   landscape: landscapeSchema,
   towns: z.array(z.object({ id: z.number().int().min(0), stationPieceId: z.number().int().positive() })),
   pieces: z.array(pieceSchema),
-  switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(3)])),
+  switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])),
   trains: z.array(trainSchema),
   /** Economy depots, in id order: the piece each works on and what it does. */
   depots: z.array(

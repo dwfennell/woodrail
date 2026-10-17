@@ -59,3 +59,60 @@ describe("KitView's moving parts", () => {
     expect(view.animating).toBe(false);
   });
 });
+
+describe("KitView's decks (kits that move with their state)", () => {
+  it("a turntable's deck is drawn live from the start, stands as its state says, and glides the same way round", async () => {
+    const lib = new PropLibrary(stubMaterials());
+    await lib.load(kitModelKey("kit-turntable"));
+    const layout = new Layout();
+    const id = layout.addPiece("kit-turntable", { x: 0, z: 0, heading: 0 });
+    // Loaded turned three roads round: it stands there at once (no glide).
+    layout.setSwitchState(id, 3);
+    const view = new KitView(lib);
+    view.sync(layout);
+    const live = view.group.children.find((c) => c.name === "movers")!;
+    expect(live).toBeDefined();
+    const deck = live.getObjectByName("deck")!;
+    expect(deck.rotation.y).toBeCloseTo((-3 * Math.PI) / 4);
+    expect(view.animating).toBe(false);
+    // Tapped (as a switch's lever), it turns to the next: the same way round, half a turn on from the first.
+    deck.traverse((o) => expect(o.userData).toMatchObject({ kind: "switch-lever", pieceId: id, deck: true }));
+    expect(view.update(() => false, 1 / 60)).toBe("still");
+    layout.setSwitchState(id, 0);
+    expect(view.update(() => false, 1 / 60)).toBe("moving");
+    expect(view.animating).toBe(true);
+    let last = "";
+    let prev = deck.rotation.y;
+    for (let i = 0; i < 240 && view.animating; i++) {
+      last = view.update(() => false, 1 / 60);
+      // Always the same way round (a model's turn is the other way to a heading).
+      expect(deck.rotation.y).toBeLessThanOrEqual(prev + 1e-9);
+      prev = deck.rotation.y;
+    }
+    expect(last).toBe("moving");
+    expect(view.animating).toBe(false);
+    expect(deck.rotation.y).toBeCloseTo(-Math.PI);
+    // Done: nothing more to do till it's tapped again.
+    expect(view.update(() => false, 1 / 60)).toBe("still");
+  });
+
+  it("a transfer table's deck slides back and forth across its roads", async () => {
+    const lib = new PropLibrary(stubMaterials());
+    await lib.load(kitModelKey("kit-transfer-table"));
+    const layout = new Layout();
+    const id = layout.addPiece("kit-transfer-table", { x: 0, z: 0, heading: 0 });
+    const view = new KitView(lib);
+    view.sync(layout);
+    const deck = view.group.children.find((c) => c.name === "movers")!.getObjectByName("deck")!;
+    for (const [state, l] of [
+      [1, 60],
+      [2, -60],
+      [0, 0],
+    ]) {
+      layout.setSwitchState(id, state);
+      for (let i = 0; i < 300; i++) view.update(() => false, 1 / 60);
+      expect(view.animating).toBe(false);
+      expect(deck.position.z).toBeCloseTo(l);
+    }
+  });
+});

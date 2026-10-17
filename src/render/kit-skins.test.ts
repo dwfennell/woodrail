@@ -1,8 +1,8 @@
 import { Color, MeshStandardMaterial, type Object3D } from "three";
 import { describe, expect, it } from "vitest";
-import { KIT_STATES, kitStateLevel, kitStatesVersion } from "../game/kit-states";
 import { Sim, SIM_DT } from "../sim";
-import { appendPiece, connectorRef, kitOf, Layout, type PieceTypeId } from "../track";
+import { appendPiece, connectorRef, kitForAsset, kitOf, Layout, type PieceTypeId } from "../track";
+import { KIT_MOTIONS } from "./kit-motions";
 import { KitView } from "./kit-view";
 import type { Materials } from "./materials";
 import { kitModelKey, PropLibrary } from "./props/library";
@@ -29,115 +29,114 @@ const live = (view: KitView) => view.group.children.filter((c) => c.name === "mo
 const part = (o: Object3D, name: string) => o.getObjectByName(name)!;
 
 /** A view of `layout`'s kits, their models loaded. */
-async function viewOf(layout: Layout, types: PieceTypeId[]): Promise<KitView> {
+async function viewOf(layout: Layout, types: PieceTypeId[], signals?: (id: number) => number): Promise<KitView> {
   const lib = new PropLibrary(stubMaterials());
   for (const t of types) await lib.load(kitModelKey(t));
   const view = new KitView(lib);
+  if (signals) view.signalState = signals;
   view.sync(layout);
   return view;
 }
 
-describe("the \"state\" trigger: signals' aspects", () => {
-  it("a signal skin's level is 0 at clear and 1 at red; the version follows the sim's aspects", () => {
+describe("signal skins' state: their signals' aspects", () => {
+  it("Sim.redSignals: 0 at clear, a bit for each road at red; it changes only with signalsVersion", () => {
     const { layout, ids } = chain(["straight-216", "kit-colour-light-signal", "straight-216", "buffer"]);
     const sim = new Sim(layout);
-    const world = { sim, layout };
-    const kit = kitOf("kit-colour-light-signal")!;
     sim.tick();
-    expect(kitStateLevel(world, ids[1], kit)).toBe(0);
-    const v = kitStatesVersion(world);
-    expect(v).toBe(KIT_STATES.signal.version(world));
+    expect(sim.redSignals(ids[1])).toBe(0);
+    const v = sim.signalsVersion;
     sim.toggleSwitch(ids[1]);
-    expect(kitStateLevel(world, ids[1], kit)).toBe(1);
-    expect(kitStatesVersion(world)).toBeGreaterThan(v);
+    expect(sim.redSignals(ids[1])).toBe(1);
+    expect(sim.signalsVersion).toBeGreaterThan(v);
     // Nothing changes: the version stays (so the game looks at no kit).
-    const w = kitStatesVersion(world);
+    const w = sim.signalsVersion;
     run(sim, 1);
-    expect(kitStatesVersion(world)).toBe(w);
+    expect(sim.signalsVersion).toBe(w);
+    // Not a signal: 0.
+    expect(sim.redSignals(ids[0])).toBe(0);
   });
 
-  it("the gantry's level has a bit for each road at red", () => {
+  it("the gantry's: a bit for each road at red", () => {
     const { layout, ids } = chain(["straight-216", "kit-signal-gantry", "straight-216", "buffer"]);
     const sim = new Sim(layout);
-    const world = { sim, layout };
-    const kit = kitOf("kit-signal-gantry")!;
     sim.tick();
-    // Road 0 runs on to the buffer (a clear block); road 1 ends at the gantry (no block: clear).
-    expect(kitStateLevel(world, ids[1], kit)).toBe(0);
+    expect(sim.redSignals(ids[1])).toBe(0);
     sim.toggleSignal(ids[1], 1);
-    expect(kitStateLevel(world, ids[1], kit)).toBe(2);
+    expect(sim.redSignals(ids[1])).toBe(2);
     sim.addTrain(["engine"], { pieceId: ids[2], pathIndex: 0, reversed: false, s: 100 });
     sim.tick();
-    expect(kitStateLevel(world, ids[1], kit)).toBe(3);
+    expect(sim.redSignals(ids[1])).toBe(3);
+  });
+
+  it("the signal skins' motions follow the signals (not the switch states), the lamps at once", () => {
+    for (const asset of ["mech-semaphore-signal", "mech-colour-light-signal", "mech-signal-gantry"]) {
+      expect(KIT_MOTIONS[asset].state?.source, asset).toBe("signals");
+      expect(kitOf(kitForAsset(asset)!)!.moves, asset).toBe("state");
+    }
+    expect(KIT_MOTIONS["mech-colour-light-signal"].state!.glide).toBe(0);
+    expect(KIT_MOTIONS["mech-signal-gantry"].state!.glide).toBe(0);
+    // The turntable's still follows its switch state.
+    expect(KIT_MOTIONS["mech-turntable"].state?.source ?? "switches").toBe("switches");
   });
 });
 
 describe("signal skins drawn", () => {
-  it("the colour light: green at clear (its model as baked), red at red, switched at once and then still", async () => {
-    const { layout } = chain(["straight-216", "kit-colour-light-signal"]);
-    const view = await viewOf(layout, ["kit-colour-light-signal"]);
-    expect(view.hasMovers).toBe(true);
-    // Clear: nothing live, nothing to do.
-    expect(view.update(() => 0, 1 / 60)).toBe("still");
-    expect(live(view)).toHaveLength(0);
-    // Red: its lamps drawn live, red lit and green dark, at once.
-    let level = 1;
-    expect(view.update(() => level, 1 / 60)).toBe("moving");
-    const lamps = live(view)[0];
-    expect(lamps).toBeDefined();
-    expect([part(lamps, "red").visible, part(lamps, "green").visible, part(lamps, "amber").visible]).toEqual([true, false, false]);
-    // And held there: the next look is still, and nothing animates (no frame wanted).
-    expect(view.update(() => level, 1 / 60)).toBe("still");
-    expect(view.animating).toBe(false);
-    for (let i = 0; i < 10; i++) expect(view.update(() => level, 1 / 60)).toBe("still");
-    // Clear again: back to its whole model at once, the live lamps gone.
-    level = 0;
-    expect(view.update(() => level, 1 / 60)).toBe("changed");
-    expect(live(view)).toHaveLength(0);
-  });
-
-  it("the semaphore: its arm drops level at red, easing, and rises again to clear", async () => {
-    const { layout } = chain(["straight-216", "kit-semaphore-signal"]);
-    const view = await viewOf(layout, ["kit-semaphore-signal"]);
-    let level = 1;
-    const steps: string[] = [];
-    for (let i = 0; i < 60; i++) steps.push(view.update(() => level, 1 / 60));
-    const arm = part(live(view)[0], "arm");
-    expect(arm.rotation.x).toBeCloseTo(0, 6);
-    expect(steps[0]).toBe("moving");
-    expect(steps.at(-1)).toBe("still");
-    level = 0;
-    steps.length = 0;
-    for (let i = 0; i < 60; i++) steps.push(view.update(() => level, 1 / 60));
-    expect(steps).toContain("changed");
-    expect(steps.at(-1)).toBe("still");
-    expect(live(view)).toHaveLength(0);
-  });
-
-  it("the gantry: each head over its own road shows that road's aspect", async () => {
-    const { layout } = chain(["straight-216", "kit-signal-gantry"]);
-    const view = await viewOf(layout, ["kit-signal-gantry"]);
-    // Road 1 at red only (level 2).
-    view.update(() => 2, 1 / 60);
-    const heads = live(view)[0];
-    // Turned onto its piece, the model's head 0 is over road 1, its head 1 over road 0.
-    expect([part(heads, "r0").visible, part(heads, "g0").visible]).toEqual([true, false]);
-    expect([part(heads, "r1").visible, part(heads, "g1").visible]).toEqual([false, true]);
-    view.update(() => 1, 1 / 60);
-    expect([part(heads, "r0").visible, part(heads, "g0").visible]).toEqual([false, true]);
-    expect([part(heads, "r1").visible, part(heads, "g1").visible]).toEqual([true, false]);
-  });
-
-  it("a skin's model is tapped as its piece: its drawing's instance, or its live parts", async () => {
+  it("the colour light: green at clear, red at red, switched at once, then still", async () => {
     const { layout, ids } = chain(["straight-216", "kit-colour-light-signal"]);
-    const view = await viewOf(layout, ["kit-colour-light-signal"]);
-    view.update(() => 1, 1 / 60);
+    let red = 0;
+    const view = await viewOf(layout, ["kit-colour-light-signal"], () => red);
     const lamps = live(view)[0];
+    expect([part(lamps, "red").visible, part(lamps, "green").visible, part(lamps, "amber").visible]).toEqual([false, true, false]);
+    // Nothing changed: still.
+    expect(view.update(() => false, 1 / 60)).toBe("still");
+    // Red: red lit and green dark, in the one update.
+    red = 1;
+    expect(view.update(() => false, 1 / 60)).toBe("moving");
+    expect([part(lamps, "red").visible, part(lamps, "green").visible, part(lamps, "amber").visible]).toEqual([true, false, false]);
+    // And held there: nothing animates (no frame wanted).
+    expect(view.animating).toBe(false);
+    for (let i = 0; i < 10; i++) expect(view.update(() => false, 1 / 60)).toBe("still");
+    red = 0;
+    view.update(() => false, 1 / 60);
+    expect([part(lamps, "red").visible, part(lamps, "green").visible]).toEqual([false, true]);
+    // Tapped, its parts are its signal's (not a deck's lever).
     let mesh: Object3D | null = null;
     lamps.traverse((o) => {
       if ((o as { isMesh?: boolean }).isMesh) mesh ??= o;
     });
     expect(view.pieceAt(mesh!, undefined)).toBe(ids[1]);
+    expect((mesh as unknown as Object3D).userData.deck).toBeUndefined();
+  });
+
+  it("the semaphore: its arm drops level at red, gliding, and rises again to clear", async () => {
+    const { layout } = chain(["straight-216", "kit-semaphore-signal"]);
+    let red = 0;
+    const view = await viewOf(layout, ["kit-semaphore-signal"], () => red);
+    const arm = part(live(view)[0], "arm");
+    expect(arm.rotation.x).toBeCloseTo(0.7, 6);
+    red = 1;
+    const steps: string[] = [];
+    for (let i = 0; i < 60; i++) steps.push(view.update(() => false, 1 / 60));
+    expect(arm.rotation.x).toBeCloseTo(0, 6);
+    expect(steps[0]).toBe("moving");
+    expect(steps.at(-1)).toBe("still");
+    red = 0;
+    for (let i = 0; i < 60; i++) view.update(() => false, 1 / 60);
+    expect(arm.rotation.x).toBeCloseTo(0.7, 6);
+  });
+
+  it("the gantry: each head over its own road shows that road's aspect", async () => {
+    const { layout } = chain(["straight-216", "kit-signal-gantry"]);
+    let red = 2;
+    const view = await viewOf(layout, ["kit-signal-gantry"], () => red);
+    const heads = live(view)[0];
+    // Road 1 at red only. Turned onto its piece, the model's head 0 is over road 1, its head 1 over road 0.
+    expect([part(heads, "r0").visible, part(heads, "g0").visible]).toEqual([true, false]);
+    expect([part(heads, "r1").visible, part(heads, "g1").visible]).toEqual([false, true]);
+    red = 1;
+    view.update(() => false, 1 / 60);
+    expect([part(heads, "r0").visible, part(heads, "g0").visible]).toEqual([false, true]);
+    expect([part(heads, "r1").visible, part(heads, "g1").visible]).toEqual([true, false]);
   });
 });
 

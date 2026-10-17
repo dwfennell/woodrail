@@ -240,6 +240,9 @@ export const PROP_TABS: readonly PropTab[] = [
           "mech-coaling-crane",
           "mech-fuel-station",
           "mech-weighbridge",
+          "mech-train-wash",
+          "mech-turntable",
+          "mech-transfer-table",
           // Signal skins and the buffer stop (kit pieces: the signal's and buffer's track, the model drawn on it), and
           // crossing styles (props dropped on a level crossing: src/landscape/crossing-styles.ts).
           "mech-semaphore-signal",
@@ -268,13 +271,10 @@ export const BRIDGE_PROP_SHELVES: readonly PropShelf[] = [];
  * viewer) to be reworked, and any already placed in a saved map still load.
  */
 export const RAIL_HELD_BACK: readonly string[] = [
-  // (The stations, sheds, castle gate, cargo machines, engine services and weighbridge are kit pieces now, on their
-  // shelves: src/track/kits.ts.)
-  // (So are the signals and buffer stop, as skins; the level and gated crossings are crossing styles.)
-  "mech-turntable",
-  "mech-transfer-table",
+  // (The stations, sheds, castle gate, cargo machines, engine services, weighbridge, wash, turntable, transfer table,
+  // signals and buffer stop are kit pieces now, on their shelves: src/track/kits.ts; the level and gated crossings
+  // are crossing styles: src/landscape/crossing-styles.ts.)
   "mech-train-lift",
-  "mech-train-wash",
   "mech-track-cleaner",
   "mech-loop-the-loop",
   "mech-stone-arch-bridge",

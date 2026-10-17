@@ -41,7 +41,6 @@ import { setHazeLand, setHazeReach } from "../render/haze";
 import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
 import { connectorRef, getPieceDef, pathLength, type KitDef, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
-import { kitStateLevel, kitStatesVersion } from "./kit-states";
 import { TouchCamera } from "./touch-camera";
 import { hasLandForSale, landForSale, plotsAround, unlockPlot, type World } from "./world";
 
@@ -232,6 +231,8 @@ export class Game {
     this.propsView = new PropsView(this.propLibrary);
     this.scene.add(this.propsView.group);
     this.kitView = new KitView(this.propLibrary);
+    // Signal skins show their signals' aspects (a bit for each road at red).
+    this.kitView.signalState = (id) => this.sim.redSignals(id);
     this.scene.add(this.kitView.group);
     this.clockView = new ClockView(this.propLibrary);
     this.scene.add(this.clockView.group);
@@ -519,11 +520,7 @@ export class Game {
 
   /** The kits' models follow the layout (a diff: only kits added, moved, taken up or put down are touched). */
   syncKits(force = false): void {
-    if (this.kitView.sync(this.layout, (id) => this.trackView.isHidden(id), force)) {
-      this.invalidate();
-      // Kits come and go, or their models loaded: the next frame looks at their states (a signal put down at red).
-      this.kitStatesSeen = NaN;
-    }
+    if (this.kitView.sync(this.layout, (id) => this.trackView.isHidden(id), force)) this.invalidate();
   }
 
   /** A piece hidden while its stand-in settles hides its kit model too. */
@@ -684,13 +681,16 @@ export class Game {
     else if (depots === "changed") this.invalidate();
     const trainsMoved = this.trainsChanged();
     if (trainsMoved || tipping || this.flourishes.count > 0) active = true;
-    // Kits' moving parts (doors, cranes, spouts, signals' arms and lamps): looked at only on frames where trains moved
-    // or one halted, a kit's state may have changed (a signal's aspect: `KIT_STATES`), or while one is still moving.
-    // Idle, this is a few comparisons.
-    const states = kitStatesVersion(this);
-    if (this.kitView.hasMovers && (trainsMoved || this.kitView.animating || this.economy.halts !== this.haltsSeen || states !== this.kitStatesSeen)) {
+    // Kits' moving parts (doors, cranes, spouts, a turntable's deck, a signal's arm or lamps): looked at only on frames
+    // where trains moved, one halted, a switch was thrown (a deck turns) or a signal changed aspect, or while one is
+    // still moving. Idle, this is a few comparisons.
+    if (
+      this.kitView.hasMovers &&
+      (trainsMoved || this.kitView.animating || this.economy.halts !== this.haltsSeen || this.layout.switchesVersion !== this.switchesSeen || this.sim.signalsVersion !== this.kitSignalsSeen)
+    ) {
       this.haltsSeen = this.economy.halts;
-      this.kitStatesSeen = states;
+      this.switchesSeen = this.layout.switchesVersion;
+      this.kitSignalsSeen = this.sim.signalsVersion;
       const kits = this.kitView.update(this.kitTriggered, dt);
       if (kits === "moving") active = true;
       else if (kits === "changed") this.invalidate();
@@ -997,22 +997,17 @@ export class Game {
   /** Has any car moved, a lever changed or a train come off since the last frame? */
   /** `Economy.halts` as last seen (a train halting at a kit starts its moving parts). */
   private haltsSeen = 0;
-
-  /** The kits' states as last looked at (`kitStatesVersion`; NaN: look again). */
-  private kitStatesSeen = NaN;
+  /** `Layout.switchesVersion` as last seen (a switch thrown turns a turntable's deck: `moves: "state"`). */
+  private switchesSeen = 0;
+  /** `Sim.signalsVersion` as last seen by the kits (a signal skin's parts show its aspect: `KitStateMotion.source`). */
+  private kitSignalsSeen = -1;
 
   /**
-   * Does a kit's trigger for its moving parts hold (`KitDef.moves`): a train on it, or one standing at it? For a
-   * "state" kit, the level its state shows (`KIT_STATES`).
+   * Does a kit's trigger for its moving parts hold (`KitDef.moves`): a train on it, or one standing at it? (A kit that
+   * moves with its state, a turntable, follows its piece's switch state instead: `KitView` reads it from the layout.)
    */
-  private readonly kitTriggered = (pieceId: number, kit: KitDef): boolean | number =>
-    kit.moves === "occupied"
-      ? this.sim.pieceOccupied(pieceId)
-      : kit.moves === "stopped"
-        ? this.economy.standingAt(pieceId)
-        : kit.moves === "state"
-          ? kitStateLevel(this, pieceId, kit)
-          : false;
+  private readonly kitTriggered = (pieceId: number, kit: KitDef): boolean =>
+    kit.moves === "occupied" ? this.sim.pieceOccupied(pieceId) : kit.moves === "stopped" ? this.economy.standingAt(pieceId) : false;
 
   private trainsChanged(): boolean {
     const snap = this.snapshot;

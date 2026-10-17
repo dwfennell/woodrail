@@ -93,10 +93,13 @@ describe("Sandbox's cargo machines (kit pieces as depots)", () => {
     expect(slowest).toBe(ENGINE_SPEED);
   });
 
-  it("the weighbridge: a train crawls over it (30 mm/s) while any axle is on it, then speeds up again", () => {
-    const w = line(["straight-216", "kit-weighbridge", "straight-216"], ["engine", "hopper"]);
-    const crawl = KITS["kit-weighbridge"].crawl!;
-    expect(crawl).toBe(30);
+  it.each([
+    ["kit-weighbridge", 30],
+    ["kit-train-wash", 40],
+  ] as const)("%s: a train crawls through (%i mm/s) while any axle is on it, then speeds up again", (kit, speed) => {
+    const w = line(["straight-216", kit, "straight-216"], ["engine", "hopper"]);
+    const crawl = KITS[kit].crawl!;
+    expect(crawl).toBe(speed);
     let fastestOn = 0;
     let sawOn = false;
     let after = 0;

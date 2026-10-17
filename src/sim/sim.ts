@@ -1,4 +1,4 @@
-import { connectorRef, getPieceDef, indexOfRef, pieceOfRef, type Layout } from "../track";
+import { connectorRef, DECK_GLIDE_S, getPieceDef, indexOfRef, pieceOfRef, type Layout } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -491,25 +491,46 @@ export class Sim {
     return -1;
   }
 
-  /** Step a switch to its next route (two-way switches flip; a three-way steps round its three). */
-  toggleSwitch(pieceId: number): void {
+  /**
+   * Step a switch to its next route (two-way switches flip; a three-way steps round its three; a turntable's deck turns
+   * to its next road). False if it can't: a deck doesn't turn with a train on it.
+   */
+  toggleSwitch(pieceId: number): boolean {
     const piece = this.layout.getPiece(pieceId);
+    const def = piece ? getPieceDef(piece.type, piece.flipped) : null;
     // A signal piece's lever holds its (first) signal at red, or lets it go.
-    if (piece && getPieceDef(piece.type, piece.flipped).signal) {
+    if (def?.signal) {
       this.toggleSignal(pieceId, 0);
-      return;
+      return true;
     }
-    const routes = piece ? getPieceDef(piece.type, piece.flipped).paths.filter((p) => p.from === 0).length : 2;
+    if (def?.gated && this.pieceOccupied(pieceId)) return false;
+    const routes = !def ? 2 : def.gated ? def.paths.length : def.paths.filter((p) => p.from === 0).length;
     this.layout.setSwitchState(pieceId, (this.layout.switchState(pieceId) + 1) % Math.max(2, routes));
+    // A deck joins nothing till it's turned to its next road.
+    if (def?.gated) {
+      this.layout.setDeckTurning(pieceId, true);
+      this.decksTurning.set(pieceId, this.ticks + Math.round(DECK_GLIDE_S * SIM_HZ));
+    }
     // A signal held or let go shows it at once (even paused).
     this.updateSignals();
+    return true;
   }
 
   /** Ticks run so far (for how long ago something happened). */
   ticks = 0;
 
+  /** Decks turning (see `toggleSwitch`): the tick each is at its next road. */
+  private readonly decksTurning = new Map<number, number>();
+
   tick(): void {
     this.ticks++;
+    if (this.decksTurning.size > 0) {
+      for (const [id, done] of this.decksTurning)
+        if (done <= this.ticks) {
+          this.layout.setDeckTurning(id, false);
+          this.decksTurning.delete(id);
+        }
+    }
     this.updateSignals();
     for (const train of this.trains.values()) {
       if (train.derailed) continue;
@@ -543,6 +564,19 @@ export class Sim {
    */
   signalClear(pieceId: number, road = 0): boolean {
     return this.aspects.get(signalKey(pieceId, road)) ?? true;
+  }
+
+  /**
+   * A signal piece's aspects as one number: a bit for each of its roads at red (road 0's is 1), so 0 when all are clear
+   * (a signal skin's model shows it: `KitStateMotion.source`). 0 for any other piece.
+   */
+  redSignals(pieceId: number): number {
+    const p = this.layout.getPiece(pieceId);
+    const def = p && getPieceDef(p.type, p.flipped);
+    if (!def?.signal) return 0;
+    let red = 0;
+    for (let road = 0; road < def.paths.length; road++) if (!this.signalClear(pieceId, road)) red += 1 << road;
+    return red;
   }
 
   /** Hold one of a signal piece's signals at red by hand, or let it go (each road's hold is a bit of its state). */

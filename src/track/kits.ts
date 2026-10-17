@@ -68,20 +68,13 @@ export interface KitDef {
   readonly depot?: DepotRole;
   /**
    * When its model moves: while a train is on it ("occupied": any axle on the piece), while one is standing at it
-   * ("stopped": halted at its stop, or its depot's crane working on it), or when its state changes ("state": to come,
-   * for the turntable). Which parts move, and how, is `KIT_MOTIONS` (src/render/kit-motions.ts), by the kit's asset:
-   * a kit that moves needs an entry there. See `KitView` for how it's drawn (live only while moving).
+   * ("stopped": halted at its stop, or its depot's crane working on it), or with its state ("state": its piece's switch
+   * state, a turntable's deck; or its signals' aspects, a signal skin's: see `KitStateMotion`). Which parts move, and
+   * how, is `KIT_MOTIONS` (src/render/kit-motions.ts), by the kit's asset: a kit that moves needs an entry there. See
+   * `KitView` for how it's drawn (live only while moving).
    */
   readonly moves?: "occupied" | "stopped" | "state";
-  /**
-   * For `moves: "state"`: which state its moving parts show (`KIT_STATES` in src/game/kit-states.ts says how it's read
-   * from the world, and when it may have changed). "signal": a signal piece's aspects.
-   */
-  readonly state?: KitStateKind;
 }
-
-/** The states a "state" kit's moving parts can show (see `KitDef.state`, and `KIT_STATES` for how each is read). */
-export type KitStateKind = "signal";
 
 /** Kit piece types: `kit-` and the asset's name without its catalogue prefix. */
 export type KitTypeId = `kit-${string}`;
@@ -157,6 +150,22 @@ const sideBySide = (n: number): Pose[] => Array.from({ length: n }, (_, i) => po
 /** A roundhouse's stall roads: from the rim of a turntable's pit (radius 92), fanned an eighth of a turn apart. */
 const PIT = 92;
 const stalls = (angles: readonly number[]): Pose[] => angles.map((a) => pose(-PIT + PIT * Math.cos(a), PIT * Math.sin(a), a));
+
+/**
+ * A turntable's track: eight ends round a pit `PIT` in radius, centred `PIT` along from the first (connector k an
+ * eighth of a turn on from the one before, all pegs, as a roundhouse's stalls are holes), and four ways the deck can
+ * lie, path k from end k across to end k + 4 (`gated`: only the one the deck lies along is open).
+ */
+function turntable(type: PieceTypeId): PieceDef {
+  const at = (k: number) => Math.PI + (k * Math.PI) / 4;
+  const connectors = Array.from({ length: 8 }, (_, k) => ({ kind: "peg" as const, pose: pose(PIT + PIT * Math.cos(at(k)), PIT * Math.sin(at(k)), normalizeAngle(at(k))), y: 0 }));
+  const paths = Array.from({ length: 4 }, (_, k) => ({
+    from: k,
+    to: k + 4,
+    geom: { kind: "line" as const, start: pose(connectors[k].pose.x, connectors[k].pose.z, normalizeAngle(at(k) + Math.PI)), length: 2 * PIT, y0: 0, rise: 0 },
+  }));
+  return { type, connectors, paths, flippable: false, isSwitch: false, supportHeight: 0, gated: true };
+}
 
 /** Every kit, by piece type. */
 export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
@@ -477,6 +486,47 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     crawl: 30,
     moves: "occupied",
   },
+  // A turntable: eight roads round a pit (radius 92), an eighth of a turn apart, and a deck across it that joins two
+  // opposite ones. A tap turns the deck to the next road (not with a train on it); trains run on to a road the deck
+  // doesn't lie along as to the end of the line (they turn back). Its model draws the deck's rails.
+  "kit-turntable": {
+    asset: "mech-turntable",
+    name: "turntable",
+    track: turntable("kit-turntable"),
+    rails: "model",
+    // The model's origin is the pit's centre.
+    place: { t: PIT, l: 0 },
+    // The pit, inside the roads that leave its rim.
+    footprint: [{ t: PIT, l: 0, w: 124, d: 124 }],
+    moves: "state",
+  },
+  // A transfer table: three roads side by side (60 apart) each side of a pit, and a deck that slides across to join
+  // one pair. A tap moves it to the next (not with a train on it).
+  "kit-transfer-table": {
+    asset: "mech-transfer-table",
+    name: "transfer table",
+    track: { ...roads("kit-transfer-table", [0, 60, -60].map((l) => pose(0, l, 0)), 120, false), gated: true },
+    rails: "model",
+    // The model's origin is the pit's middle.
+    place: { t: 60, l: 0 },
+    footprint: [{ t: 60, l: 0, w: 116, d: 196 }],
+    moves: "state",
+  },
+  // A drive-through wash on a 108 straight: trains crawl through while its brushes spin and its sprays drip.
+  "kit-train-wash": {
+    asset: "mech-train-wash",
+    name: "train wash",
+    track: straight("kit-train-wash", 108),
+    rails: "track",
+    // Its frame's posts either side of the line.
+    footprint: [
+      { t: 54, l: 36, w: 76, d: 10 },
+      { t: 54, l: -36, w: 76, d: 10 },
+    ],
+    splices: true,
+    crawl: 40,
+    moves: "occupied",
+  },
   // The line runs through the arch on a 108 straight; the portcullis rises as a train comes and drops behind it.
   // Signal skins: the signal piece with a catalogue model for its post. The same block working (red while the line
   // ahead is occupied, or while it's held by a tap), shown by the model, whose moving parts follow the aspect
@@ -491,7 +541,6 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     place: { t: SIGNAL_POST, l: 36, turn: Math.PI },
     footprint: [{ t: SIGNAL_POST, l: 36, w: 14, d: 14 }],
     moves: "state",
-    state: "signal",
   },
   "kit-colour-light-signal": {
     asset: "mech-colour-light-signal",
@@ -502,7 +551,6 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     place: { t: SIGNAL_POST, l: 30, turn: Math.PI },
     footprint: [{ t: SIGNAL_POST, l: 30, w: 12, d: 12 }],
     moves: "state",
-    state: "signal",
   },
   // A gantry over two roads a double track apart (as the double straight's), a signal head over each, both guarding
   // trains running from the roads' first ends: each road's signal works its own block.
@@ -518,7 +566,6 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
       { t: SIGNAL_POST, l: ROADS / 2 + GANTRY_LEG, w: 14, d: 14 },
     ],
     moves: "state",
-    state: "signal",
   },
   // A skin of the buffer: a timber buffer stop whose lamp lights while a train stands against it (on its piece).
   "kit-buffer-stop-lamp": {

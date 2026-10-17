@@ -116,7 +116,8 @@ type Press =
   | { kind: "car"; carId: number }
   /** A switch's lever or a signal (`road`: which of a signal piece's signals, a gantry's road; else 0). */
   | { kind: "lever"; pieceId: number; road?: number }
-  | { kind: "piece"; pieceId: number }
+  /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
+  | { kind: "piece"; pieceId: number; deck?: boolean }
   /** A depot's yard, building or crane (economy depot id). */
   | { kind: "depot"; depotId: number }
   /** A log or plank bundle on a pile or wagon. */
@@ -1281,6 +1282,10 @@ export class Interaction {
     const g = this.game;
     if (p.kind === "lever") {
       this.throwLever(p.pieceId, p.road);
+      return;
+    }
+    if (p.kind === "piece" && p.deck && !this.picking && !add) {
+      this.throwLever(p.pieceId);
       return;
     }
     if (p.kind === "piece") {
@@ -3325,13 +3330,18 @@ export class Interaction {
 
   /**
    * Throw a switch's points, or hold or let go a signal (`road`: which of a signal piece's, a gantry's road): redrawn
-   * and saved, nothing else rebuilt (a signal skin's model follows its aspect: see `KIT_STATES`).
+   * and saved, nothing else rebuilt (a signal skin's model follows its aspect: `KitStateMotion.source`).
    */
   private throwLever(pieceId: number, road = 0): void {
     const g = this.game;
     const piece = g.layout.getPiece(pieceId);
     if (piece && getPieceDef(piece.type, piece.flipped).signal) g.sim.toggleSignal(pieceId, road);
-    else g.sim.toggleSwitch(pieceId);
+    else if (!g.sim.toggleSwitch(pieceId)) {
+      // A turntable's deck doesn't turn with a train on it.
+      const kit = kitOf(g.layout.getPiece(pieceId)!.type);
+      this.hud.toast(`The ${kit?.name ?? "deck"} won't turn with a train on it`);
+      return;
+    }
     g.trackView.syncSwitches();
     g.invalidate();
     this.onSwitched?.();
@@ -3506,6 +3516,8 @@ export class Interaction {
   private pickExact(x: number, y: number): (Press & { footprint?: boolean }) | null {
     this.setNdc(x, y);
     const g = this.game;
+    // (The kits' group: a turntable's deck is tapped to turn it, picked as a switch's lever; a signal skin's model to
+    // hold its signal. The crossings': a crossing style is its prop's.)
     const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group], true);
     for (const h of hits) {
       const slot = g.depotView.cargoAt(h.object, h.instanceId);
@@ -3520,7 +3532,10 @@ export class Interaction {
       }
       const carId = g.trainView.carAt(h.object as Object3D);
       if (carId !== -1) return { kind: "car", carId };
-      if (h.object.userData.kind === "switch-lever") return { kind: "lever", pieceId: h.object.userData.pieceId as number };
+      if (h.object.userData.kind === "switch-lever") {
+        const pieceId = h.object.userData.pieceId as number;
+        return h.object.userData.deck ? { kind: "piece", pieceId, deck: true } : { kind: "lever", pieceId };
+      }
       // A signal skin's model is its lever (a tap holds it at red, or lets it go: a gantry's, the road it's over). Any
       // other kit's model is passed through, to the track or ground behind it.
       const kitPiece = g.kitView.pieceAt(h.object, h.batchId);

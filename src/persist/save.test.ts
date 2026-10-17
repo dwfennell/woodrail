@@ -363,9 +363,23 @@ describe("kit pieces in saves", () => {
     expect(syncIndustries(r.value)).toBe(false);
   });
 
+  it("a turntable round-trips with its deck turned (a switch state past a three-way's)", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const table = appendPiece(world.layout, "kit-turntable", false, connectorRef(station, 1));
+    world.layout.setSwitchState(table, 3);
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.layout.getPiece(table)!.type).toBe("kit-turntable");
+    expect(r.value.layout.switchState(table)).toBe(3);
+  });
+
   it("an old save's held-back props (now kits) load unchanged, as props where they were", () => {
     const world = buildStarterWorld();
-    const old = ["bldg-engine-shed", "bldg-castle-gate", "mech-log-loader", "mech-water-crane", "mech-weighbridge", "bldg-grand-terminus"];
+    const old = ["bldg-engine-shed", "bldg-castle-gate", "mech-log-loader", "mech-water-crane", "mech-weighbridge", "bldg-grand-terminus", "mech-turntable", "mech-transfer-table", "mech-train-wash"];
     old.forEach((asset, i) => world.props.add(asset, { x: 200 + i * 150, z: 600, heading: 0.5, y: 0 }));
     const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
     const r = deserializeWorld(data);
