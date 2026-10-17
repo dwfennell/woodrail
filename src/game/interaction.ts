@@ -22,6 +22,7 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
+import { LEVER_PROPS, leversNear, pointsWay } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
@@ -1275,16 +1276,14 @@ export class Interaction {
   private tap(p: Press, add = false): void {
     const g = this.game;
     if (p.kind === "lever") {
-      // Only the points move: redrawn and saved, nothing else rebuilt (no geometry changed).
-      g.sim.toggleSwitch(p.pieceId);
-      g.trackView.syncSwitches();
-      g.invalidate();
-      this.onSwitched?.();
+      this.throwLever(p.pieceId);
       return;
     }
     if (p.kind === "piece") {
       const depot = g.economy.depotAtPiece(p.pieceId);
-      if (depot) this.openDepot(depot.id);
+      // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
+      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type);
+      if (depot && !kitDepot) this.openDepot(depot.id);
       else if (this.fixedLabel(p.pieceId)) this.hud.toast(this.fixedLabel(p.pieceId)!);
       else if (this.picking || add) this.togglePick(p.pieceId);
       else this.selectPiece(p.pieceId);
@@ -3301,7 +3300,41 @@ export class Interaction {
     this.selectedProp = id;
     this.propOutline.show(g.propLibrary.footprint(p.asset) ?? null, p.x, p.y, p.z, p.heading);
     this.hud.showPieceCard(false, g.propLibrary.model(modelKey(p.asset, p.variant))?.name ?? "Model", false);
+    if (LEVER_PROPS.has(p.asset)) this.showLevers(id);
     this.hintDrag();
+  }
+
+  /** Throw a switch's points, or hold or let go a signal: redrawn and saved, nothing else rebuilt. */
+  private throwLever(pieceId: number): void {
+    const g = this.game;
+    g.sim.toggleSwitch(pieceId);
+    g.trackView.syncSwitches();
+    g.invalidate();
+    this.onSwitched?.();
+  }
+
+  /**
+   * A signal box's or lever frame's card lists the points and signals near it (worked out on the tap), each a chip
+   * saying how it's set: a tap throws it, and the list says so.
+   */
+  private showLevers(propId: number): void {
+    const g = this.game;
+    const p = g.props.get(propId);
+    if (!p) return;
+    const levers = leversNear(g.layout, p.x, p.z);
+    const counts = { points: 0, signal: 0 };
+    const items = levers.map((l) => {
+      const n = ++counts[l.kind];
+      return l.kind === "points"
+        ? { label: `Points ${n}: ${pointsWay(g.layout, l.pieceId)}`, title: "Throw these points" }
+        : { label: `Signal ${n}: ${g.sim.signalHeld(l.pieceId) ? "held at red" : "free"}`, title: "Hold this signal at red, or let it go" };
+    });
+    this.hud.showLevers(items, (i) => {
+      const l = levers[i];
+      if (!g.layout.getPiece(l.pieceId) || this.selectedProp !== propId) return;
+      this.throwLever(l.pieceId);
+      this.showLevers(propId);
+    });
   }
 
   /** Turn a placed prop an eighth, if it still fits. */

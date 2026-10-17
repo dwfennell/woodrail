@@ -120,6 +120,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .piece-card.group .card-title::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: #ffe07a; box-shadow: 0 0 0 2px #e0a93a; margin-right: 8px; vertical-align: 1px; }
 .depot-stock { font-size: 14px; font-weight: 700; color: #7a5532; font-variant-numeric: tabular-nums; text-align: center; }
 .depot-card .card-row { flex-wrap: wrap; justify-content: center; }
+.piece-card .lever-list { flex-wrap: wrap; justify-content: center; max-width: 320px; }
+.piece-card .lever-list .card-hint { margin-top: 0; }
 .land-text { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 320px; }
 .lever { width: 60px; height: 50px; font-size: 20px; }
 /* The engine card: what it's doing, a big Go/Stop and the way it goes; Follow and ⋯ in the top corners. */

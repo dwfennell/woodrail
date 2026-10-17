@@ -28,6 +28,8 @@ export class PropLibrary {
   /** Footprints by asset (the same for all its colour variants). */
   private readonly footprints = new Map<string, Footprint>();
   private readonly pending = new Map<string, Promise<PropModel | null>>();
+  /** A prop's live parts (a clock's hands), by model key: the template each prop's copy is cloned from. */
+  private readonly propParts = new Map<string, Group>();
   /** A moving kit's moving parts, by kit type: the template its live copies are cloned from (see `bakeMovers`). */
   private readonly movers = new Map<PieceTypeId, Group>();
   /** Called when a model finishes loading (to draw props that were waiting for it). */
@@ -48,9 +50,11 @@ export class PropLibrary {
   load(key: string): Promise<PropModel | null> {
     const done = this.models.get(key);
     if (done !== undefined) return Promise.resolve(done);
-    // A kit's models (whole, and bare of its moving parts) are built together: wait for the whole one's.
+    // A kit's models (whole, and bare of its moving parts) are built together: wait for the whole one's. So are a
+    // prop's with live parts (a clock's hands: see `PROP_LIVE_PARTS`).
     const kitType = key.startsWith(KIT_KEY) ? kitTypeOfKey(key) : undefined;
     if (kitType && key !== kitModelKey(kitType)) return this.load(kitModelKey(kitType)).then(() => this.models.get(key) ?? null);
+    if (!kitType && key.endsWith(BARE)) return this.load(key.slice(0, -BARE.length)).then(() => this.models.get(key) ?? null);
     let p = this.pending.get(key);
     if (!p) {
       const kit = kitType ? kitOf(kitType) : undefined;
@@ -60,8 +64,16 @@ export class PropLibrary {
         let model: PropModel | null = null;
         if (kit && asset) model = this.loadKit(kitType!, asset.name, placedForKit(asset.build(this.kitFor(0)), kitPlace(kit)));
         else if (asset) {
-          model = { name: asset.name, ...bake(asset.build(this.kitFor(variant)), this.mats) };
+          const built = asset.build(this.kitFor(variant));
+          model = { name: asset.name, ...bake(built, this.mats) };
           this.footprints.set(assetId, model.footprint);
+          // A prop with live parts: also baked bare of them (what's drawn under them), and the parts on their own.
+          const live = PROP_LIVE_PARTS[assetId];
+          const parts = live && bakeMovers(built, live, this.mats);
+          if (parts) {
+            this.models.set(key + BARE, { name: asset.name, ...bake(built, this.mats, { without: live }) });
+            this.propParts.set(key, parts);
+          }
         }
         this.models.set(key, model);
         this.pending.delete(key);
@@ -99,6 +111,11 @@ export class PropLibrary {
    */
   moversOf(type: PieceTypeId): Group | undefined {
     return this.movers.get(type);
+  }
+
+  /** A prop's live parts (see `PROP_LIVE_PARTS`) at rest, by model key; undefined if none or not loaded yet. */
+  livePartsOf(key: string): Group | undefined {
+    return this.propParts.get(key);
   }
 
   private kitFor(variant: number): Kit {
@@ -151,6 +168,19 @@ function placedForKit(model: Object3D, at: { t: number; l: number; turn: number 
 /** A model's key in the library: its asset, and its colour variant if not the model's own colours. */
 export function modelKey(asset: string, variant?: number): string {
   return variant ? `${asset}#${variant}` : asset;
+}
+
+/**
+ * Props drawn with parts of their own, live (`ClockView`): the station clock's hands, which show the game's time. The
+ * prop itself is drawn bare of them (`drawnKey`).
+ */
+export const PROP_LIVE_PARTS: Readonly<Record<string, ReadonlySet<string>>> = {
+  "bldg-station-clock": new Set(["hour", "minute"]),
+};
+
+/** The model a placed prop is drawn with: its own, or for a prop with live parts, its model bare of them. */
+export function drawnKey(asset: string, variant?: number): string {
+  return PROP_LIVE_PARTS[asset] ? modelKey(asset, variant) + BARE : modelKey(asset, variant);
 }
 
 /** How many colour variants there are (besides the model's own colours): towns pick among them. */

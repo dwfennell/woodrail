@@ -5,6 +5,7 @@ import { PropLibrary } from "../render/props/library";
 import { BoatsView } from "../render/boats-view";
 import { PropsView } from "../render/props/props-view";
 import { KitView } from "../render/kit-view";
+import { ClockView } from "../render/clock-view";
 import {
   ACESFilmicToneMapping,
   Clock,
@@ -134,6 +135,8 @@ export class Game {
   readonly propsView: PropsView;
   /** The kit pieces' models, drawn where their pieces stand (see `KitView`). */
   readonly kitView: KitView;
+  /** Station clocks' hands, showing the game's time (see `ClockView`). */
+  readonly clockView: ClockView;
   /** A prop being moved by hand: not drawn where it stood. */
   private hiddenProp = -1;
   paused = false;
@@ -227,13 +230,19 @@ export class Game {
     this.scene.add(this.propsView.group);
     this.kitView = new KitView(this.propLibrary);
     this.scene.add(this.kitView.group);
+    this.clockView = new ClockView(this.propLibrary);
+    this.scene.add(this.clockView.group);
     // A model arriving (its code fetched and built) draws the props (and kits) that were waiting for it.
     this.propLibrary.onLoaded = (key) => {
       if (key.startsWith("kit:")) this.syncKits(true);
-      else this.propsView.sync(this.props, this.hiddenProp, true);
+      else {
+        this.propsView.sync(this.props, this.hiddenProp, true);
+        this.clockView.sync(this.props, this.hiddenProp, true);
+      }
       this.invalidate();
     };
     this.propsView.sync(this.props);
+    this.clockView.sync(this.props);
     this.watchHidden();
     this.syncKits();
     this.boats = new BoatsView(this.propLibrary, () => this.invalidate());
@@ -278,7 +287,9 @@ export class Game {
     this.watchSwitches();
     this.props = world.props;
     this.hiddenProp = -1;
+    this.trackVersion++;
     this.propsView.sync(this.props, -1, true);
+    this.clockView.sync(this.props, -1, true);
     this.scene.remove(this.landscapeView.group);
     this.landscapeView.dispose();
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
@@ -419,7 +430,11 @@ export class Game {
   }
 
   /** Call after any layout edit. */
+  /** Goes up whenever the track changes (or a new world is shown), for caches keyed by it (the whistle posts' near track). */
+  trackVersion = 0;
+
   trackChanged(): void {
+    this.trackVersion++;
     this.invalidate();
     // Ramps cut into the hills, before anything asks the ground: the track's arches (how far down a bridge reaches),
     // trees.
@@ -588,6 +603,8 @@ export class Game {
       }
       if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
     }
+    // Station clocks show the game's time: their hands are set when its minute changes (drawn if one's in view).
+    if (this.clockView.count > 0 && this.clockView.tick(this.simSeconds, this.camera)) this.invalidate();
     // A signal changed aspect: its arm moves (nothing else is redrawn).
     if (this.sim.signalsVersion !== this.signalsShown) {
       this.signalsShown = this.sim.signalsVersion;
@@ -845,6 +862,7 @@ export class Game {
   /** Props were added, moved or removed (or one is being held: `hidden`, −1 for none): redraw them. */
   propsChanged(hidden = this.hiddenProp): void {
     this.hiddenProp = hidden;
+    this.clockView.sync(this.props, hidden);
     if (this.propsView.sync(this.props, hidden)) this.invalidate();
   }
 
