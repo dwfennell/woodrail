@@ -29,13 +29,13 @@ import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } fro
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { nextStop, routeStops } from "./game/route-stops";
-import { engineStatus } from "./game/engine-status";
+import { engineStatus, trainsForReport, type CantMove } from "./game/engine-status";
 import { MAX_SHEDS, SHED_CAP, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { goodsOf, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
-import { attachEngines, detachEngines, tooHeavy } from "./game/engines";
+import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed, describePrice, type Plan } from "./game/blueprints";
@@ -293,6 +293,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           quality: game.quality.tier,
           counts: { pieces: game.layout.pieceCount, trains: game.sim.trainIds().length, props: game.props.size },
           hand: interaction.debugState(),
+          trains: trainsForReport(game.sim, game.economy, game.layout, whyCantMove()),
           userAgent: navigator.userAgent,
         };
         await reports.send(text, state, serializeWorld(game.world), picture);
@@ -1491,6 +1492,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     onChange();
   }
 
+  /** Why a train can't move at all, where engines have their limits (Game mode); in Sandbox any train can go. */
+  const whyCantMove = (): CantMove | null => (game.sim.topSpeed ? (t) => cantMove(game.world, t) : null);
+
   /** Decouple (a card): split the train there, the part that goes standing a little apart. */
   function decouple(): void {
     const carId = interaction.selectedCarId;
@@ -1581,7 +1585,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     };
     // A status shows once it's held a moment (a train being worked at the end of the line passes through several).
     const now = performance.now();
-    const latest = engineStatus(game.sim, game.economy, carId, nameOf);
+    const latest = engineStatus(game.sim, game.economy, carId, nameOf, whyCantMove());
     if (latest !== viewStatus.next) {
       viewStatus.next = latest;
       viewStatus.since = now;

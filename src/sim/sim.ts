@@ -595,10 +595,22 @@ export class Sim {
    * braking as it does at the end of the line: Infinity when there's none within sight.
    */
   private signalCap(train: Train): number {
-    if (!this.signals || this.signals.length === 0) return Infinity;
+    const red = this.redAhead(train);
+    return red === null ? Infinity : red.dist < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (red.dist - 0.5));
+  }
+
+  /** The red signal (its piece) a train is held by or braking for, or −1 (for the engine card and reports). */
+  redSignalAhead(trainId: number): number {
+    const t = this.trains.get(trainId);
+    return t ? (this.redAhead(t)?.pieceId ?? -1) : -1;
+  }
+
+  /** The red signal a train is running toward, and how far its stop point is ahead of the front axle; or null. */
+  private redAhead(train: Train): { pieceId: number; dist: number } | null {
+    if (!this.signals || this.signals.length === 0) return null;
     let anyRed = false;
     for (const clear of this.aspects.values()) if (!clear) anyRed = true;
-    if (!anyRed) return Infinity;
+    if (!anyRed) return null;
     // Walk ahead of the front axle a step at a time, looking for the stop point of a red signal it's running toward.
     const c: Cursor = { ...train.bogies[0] };
     let walked = 0;
@@ -616,11 +628,11 @@ export class Sim {
         let dist = -1;
         if (c.s <= stopAt) dist = walked + stopAt - c.s;
         else if (k > 0 && c.pieceId !== piece) dist = walked - (c.s - stopAt);
-        if (dist >= 0) return dist < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (dist - 0.5));
+        if (dist >= 0) return { pieceId: c.pieceId, dist };
       }
-      if (k > 0 && (lookAdv.status !== ADV_OK || lookAdv.moved === 0)) return Infinity;
+      if (k > 0 && (lookAdv.status !== ADV_OK || lookAdv.moved === 0)) return null;
     }
-    return Infinity;
+    return null;
   }
 
   writeSnapshot(snap: SimSnapshot): SimSnapshot {

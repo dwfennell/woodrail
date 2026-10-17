@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Economy } from "../economy";
 import { Sim, SIM_DT } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
-import { engineStatus } from "./engine-status";
+import { engineStatus, trainState, trainsForReport } from "./engine-status";
 
 function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] } {
   const layout = new Layout();
@@ -96,5 +96,58 @@ describe("which way a stopped engine can go", () => {
     sim.flipCar(engine);
     expect(sim.engineBlocked(engine, -1)).toBe(true);
     expect(sim.engineBlocked(engine, 1)).toBe(false);
+  });
+});
+
+describe("why a train with its lever on isn't moving", () => {
+  const line = () => {
+    const { layout, ids } = chain(["straight-216", "straight-216", "signal", "straight-216", "straight-216", "straight-216"]);
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const r = sim.addTrain(["engine", "hopper"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 200 });
+    if (r.kind !== "placed") throw new Error();
+    const train = sim.getTrain(r.trainId)!;
+    return { layout, ids, sim, economy, train, engine: train.cars[0].id };
+  };
+
+  it("too heavy for its engine, or no power: says so, not just that something's in the way", () => {
+    const { sim, economy, engine } = line();
+    sim.setLever(engine, 1);
+    // Game mode's engine rules: this one can't move at all.
+    sim.topSpeed = () => 0;
+    run(sim, 0.5);
+    expect(engineStatus(sim, economy, engine, () => "?", () => "too-heavy")).toBe("Too heavy for its engine: take a car off, or add an engine");
+    expect(engineStatus(sim, economy, engine, () => "?", () => "no-power")).toBe("No power: a power station needs coal");
+    // Without the rules to ask (Sandbox), the plain reason.
+    expect(engineStatus(sim, economy, engine, () => "?")).toBe("Waiting: something's in the way");
+    // Lever off: just stopped, heavy or not.
+    sim.setLever(engine, 0);
+    expect(engineStatus(sim, economy, engine, () => "?", () => "too-heavy")).toBe("Stopped");
+  });
+
+  it("names the red signal it's held at", () => {
+    const { ids, sim, economy, train, engine } = line();
+    sim.toggleSwitch(ids[2]);
+    sim.setLever(engine, 1);
+    run(sim, 5);
+    expect(trainState(sim, economy, train, 1)).toEqual({ kind: "red-signal", signalId: ids[2] });
+    expect(sim.redSignalAhead(train.id)).toBe(ids[2]);
+    sim.toggleSwitch(ids[2]);
+    run(sim, 1);
+    expect(trainState(sim, economy, train, 1).kind).toBe("running");
+    expect(sim.redSignalAhead(train.id)).toBe(-1);
+  });
+
+  it("a report has each train: cars, levers, speed, top speed, the piece its front is on, and why it stands", () => {
+    const { layout, ids, sim, economy, train, engine } = line();
+    sim.toggleSwitch(ids[2]);
+    sim.setLever(engine, 1);
+    run(sim, 5);
+    const [t] = trainsForReport(sim, economy, layout);
+    expect(t).toMatchObject({ id: train.id, levers: [1], speed: 0, topSpeed: null, state: { kind: "red-signal", signalId: ids[2] } });
+    expect(t.cars).toEqual([`${engine}:engine`, `${train.cars[1].id}:hopper`]);
+    expect(t.piece).toMatchObject({ id: train.bogies[0].pieceId, type: layout.getPiece(train.bogies[0].pieceId)!.type });
+    // JSON-able, as the report stores it.
+    expect(JSON.parse(JSON.stringify(t))).toEqual(t);
   });
 });
