@@ -264,6 +264,25 @@ async function selectThenDrag(ctx, p) {
   await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   check("slow phone: a real hold whose timer runs late still picks it up", lateTimer === "drag-piece", `mode ${lateTimer}`);
   await p.keyboard.press("Escape");
+  // 2b''. Turn with a second finger while the first holds the piece (QA): it turns, still held (a browser sends no click
+  // for a second finger). (Turn and Flip show while a shelf is open: shown here for the test.)
+  await p.keyboard.press("Escape");
+  await p.evaluate(() => (document.querySelector(".tray-orient").style.display = "flex"));
+  [sx, sy] = await onScreen();
+  await touch("touchStart", sx, sy);
+  await new Promise((r) => setTimeout(r, 520));
+  for (let k = 1; k <= 4; k++) await touch("touchMove", sx - 6 * k, sy);
+  const turn = await p.evaluate(() => { const b = [...document.querySelectorAll(".tray-orient .chip")].find((e) => /Turn/.test(e.textContent)); const r = b.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+  const h0 = await p.evaluate(() => window.woodrail.interaction.mode.heading);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: sx - 24, y: sy, id: 1 }, { x: turn[0], y: turn[1], id: 2 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [{ x: turn[0], y: turn[1], id: 2 }] });
+  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const [kind2, h1] = await p.evaluate(() => [window.woodrail.interaction.mode.kind, window.woodrail.interaction.mode.heading]);
+  await lift();
+  await p.evaluate(() => (document.querySelector(".tray-orient").style.display = ""));
+  const turned = typeof h0 === "number" && typeof h1 === "number" && Math.abs(Math.abs(h1 - h0) - Math.PI / 4) < 0.01;
+  check("a second finger on Turn turns the piece in hand, still held (QA)", kind2 === "drag-piece" && turned, `mode ${kind2}; heading ${h0?.toFixed?.(2)} → ${h1?.toFixed?.(2)}`);
+  await p.keyboard.press("Escape");
   // 2c. Drawing on: a finger resting on a piece neither picks it up nor starts a line.
   await p.evaluate(() => window.woodrail.interaction.setDrawing(true));
   [sx, sy] = await onScreen();

@@ -660,10 +660,16 @@ export class Hud {
     // Turn and flip, for track pieces: set how the next piece comes out, or turn the one in hand (with another finger).
     const orient = el("div", "tray-orient");
     this.flipTrayBtn = button("⇋ Flip", "Mirror the next piece (or the one you're holding)", () => this.handlers.trayFlip(), "chip text tray-flip");
-    orient.append(
-      button(`↻ Turn<span class="turn-arrow">↑</span>`, "Turn the next piece (or the one you're holding) an eighth of a turn", () => this.handlers.trayTurn(), "chip text"),
-      this.flipTrayBtn,
-    );
+    const turnBtn = button(`↻ Turn<span class="turn-arrow">↑</span>`, "Turn the next piece (or the one you're holding) an eighth of a turn", () => this.handlers.trayTurn(), "chip text");
+    // Tapped with a second finger while the first holds a piece (QA): a browser sends no click for a finger that isn't
+    // the first, so these act on that finger's lift over them (the first finger's tap still clicks, once).
+    const secondFinger = (b: HTMLButtonElement, act: () => void) =>
+      b.addEventListener("pointerup", (e) => {
+        if (e.pointerType === "touch" && !e.isPrimary && b.contains(document.elementFromPoint(e.clientX, e.clientY))) act();
+      });
+    secondFinger(turnBtn, () => this.handlers.trayTurn());
+    secondFinger(this.flipTrayBtn, () => this.handlers.trayFlip());
+    orient.append(turnBtn, this.flipTrayBtn);
     // Draw: a drag on the map lays a line of track behind the finger (see DrawHand).
     this.drawBtn = button("✎ Draw", "Draw track: drag from the end of a track, or across the ground", () => this.handlers.trayDraw(!this.drawing), "chip text tray-draw");
     this.tray.append(orient, this.drawBtn, tabs, scroller);
