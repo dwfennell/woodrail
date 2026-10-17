@@ -79,8 +79,13 @@ function follow(start: DrawEnd, length: number, at: (s: number) => { x: number; 
     turns.push(p.type.startsWith("curve") ? Math.sign(normalizeAngle(p.end.heading - h)) : 0);
     h = p.end.heading;
   }
+  // The furthest the line lies to the side of the swipe (its pieces' tracks, all but the last: laid as the finger
+  // lifts, it may round off a step toward the finger).
+  let band = 0;
+  for (const p of line.pieces.slice(0, -1))
+    for (let i = 0; i < p.track.length; i += 3) band = Math.max(band, Math.abs(-(p.track[i] - start.x) * Math.sin(a) + (p.track[i + 1] - start.z) * Math.cos(a)));
   const name = line.pieces.map((p, i) => p.type.replace("straight-", "s").replace("curve-", "") + (turns[i] > 0 ? "+" : turns[i] < 0 ? "−" : "")).join(" ");
-  return { line, along: dx * Math.cos(a) + dz * Math.sin(a), side: -dx * Math.sin(a) + dz * Math.cos(a), off, turns, stalled, lag, name };
+  return { line, along: dx * Math.cos(a) + dz * Math.sin(a), side: -dx * Math.sin(a) + dz * Math.cos(a), off, band, turns, stalled, lag, name };
 }
 
 /**
@@ -434,6 +439,8 @@ describe("draw path", () => {
         // The line ends near the finger (along the swipe and to its side), and the finger was never far from it.
         expect(Math.hypot(r.along, r.side), `${name}: ${r.name}`).toBeLessThan(70);
         expect(r.off, `${name}: ${r.name}`).toBeLessThan(70);
+        // The line keeps to the band either side of the swipe (50 mm), a few mm over at most.
+        expect(r.band, `${name}: ${r.name}`).toBeLessThan(55);
         expect(r.stalled, name).toBe(false);
         expectStaircase(r, name);
         // The ghosts keep up: a piece or so behind the look-ahead, all the way.
@@ -451,6 +458,8 @@ describe("draw path", () => {
             const r = follow(START, length, swipe(START, deg, 8, phase, wave), deg);
             expect(Math.hypot(r.along, r.side), `${name}: ${r.name}`).toBeLessThan(70);
             expect(r.off, `${name}: ${r.name}`).toBeLessThan(75);
+            // The band is kept about the swipe drawn, not the wobble: the wobble may take the line up to 8 mm further.
+            expect(r.band, `${name}: ${r.name}`).toBeLessThan(64);
             expect(r.stalled, name).toBe(false);
             expectStaircase(r, name);
           }
@@ -576,6 +585,73 @@ describe("draw path", () => {
     const per = (performance.now() - t0) / (2400 / 4);
     expect(line.pieces.length).toBeGreaterThan(10);
     expect(per).toBeLessThan(0.5);
+  });
+
+  it("no one pointer move is slow: straight, wobbly, slow and wandering strokes, and bends too sharp to follow", () => {
+    // A seeded random walk, and strokes as a hand draws them (`step` mm a point, give or take).
+    let seed = 7;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const strokes: { x: number; z: number }[][] = [];
+    const sample = (length: number, at: (s: number) => { x: number; z: number }, step: () => number = () => 4) => {
+      const pts = [];
+      for (let s = step(); s <= length; s += step()) pts.push(at(s));
+      strokes.push(pts);
+    };
+    sample(2400, (s) => ({ x: s, z: 300 * Math.sin((s / 1200) * 2 * Math.PI) }));
+    for (const length of [300, 900, 1500]) for (let deg = 0; deg <= 40; deg += 5) sample(length, swipe(START, deg));
+    for (const wobble of [8, 20]) for (const deg of [10, 23, 35]) for (const phase of [0, 3]) for (const wave of [100, 250]) sample(900, swipe(START, deg, wobble, phase, wave));
+    // Slow: 2 to 4 mm a point.
+    for (const deg of [8, 23, -15]) sample(1200, swipe(START, deg, 4, 1, 200), () => 2 + 2 * rnd());
+    for (let k = 0; k < 8; k++) {
+      let x = 0;
+      let z = 0;
+      let h = (rnd() - 0.5) * 1.2;
+      let turn = 0;
+      const pts = [];
+      for (let i = 0; i < 400; i++) {
+        turn = turn * 0.9 + (rnd() - 0.5) * 0.02;
+        h += turn;
+        const st = 2 + 3 * rnd();
+        x += st * Math.cos(h);
+        z += st * Math.sin(h);
+        pts.push({ x, z });
+      }
+      strokes.push(pts);
+    }
+    // Waves too sharp at their crests: the line waits there, then the stroke comes back within its reach a metre or
+    // more on (this used to lay 20 pieces on one move).
+    for (const [amp, wave, deg] of [[300, 600, 0], [400, 1200, 10], [300, 900, 10], [300, 1200, 0]]) {
+      const a = (deg * Math.PI) / 180;
+      sample(5000, (s) => {
+        const v = amp * Math.sin((2 * Math.PI * s) / wave);
+        return { x: s * Math.cos(a) - v * Math.sin(a), z: s * Math.sin(a) + v * Math.cos(a) };
+      });
+    }
+    const run = () => {
+      let worst = 0;
+      let most = 0;
+      let moves = 0;
+      for (const pts of strokes) {
+        const line = new DrawLine(START);
+        for (const p of pts) {
+          const n = line.pieces.length;
+          const t0 = performance.now();
+          line.addPoint(p.x, p.z);
+          worst = Math.max(worst, performance.now() - t0);
+          most = Math.max(most, line.pieces.length - n);
+          moves++;
+        }
+        line.finish();
+      }
+      return { worst, most, moves };
+    };
+    run(); // warm up
+    const { worst, most, moves } = run();
+    expect(moves).toBeGreaterThan(20000);
+    // At most a piece a move (the rest come on the moves after) ...
+    expect(most).toBe(1);
+    // ... and no move slow: about 0.3 ms at worst in Node, 4 to 5 ms when one laid 20 pieces (generous, for a slow CI).
+    expect(worst).toBeLessThan(8);
   });
 
   it("a corner sharper than any piece turns leaves the line stalled (so the player can be told), not a straight on", () => {
