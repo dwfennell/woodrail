@@ -10,3 +10,4 @@ export * from "./routing";
 export * from "./snap";
 export * from "./spatial-hash";
 export * from "./stress-layout";
+export * from "./draw-path";

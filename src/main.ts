@@ -246,6 +246,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         } else if (trayAllowed(item)) interaction.tapTrayPiece(item);
       },
       trayTabChanged: () => interaction.arm(null),
+      trayDraw: (on) => interaction.setDrawing(on),
       trackTab: (open) => game.showAllEnds(open),
       undo: () => {
         interaction.undo();
@@ -417,6 +418,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (snapped) hud.haptic("snap");
   };
   interaction.onPickup = () => audio.pickup();
+  interaction.onDrawGrow = () => audio.drawTick();
+  interaction.onDrawLaid = (i) => {
+    audio.lay(i);
+    if (i === 0) hud.haptic("snap");
+  };
+  interaction.onDrawing = (on) => hud.setDrawing(on);
   interaction.onRefused = () => {
     audio.refuse();
     hud.haptic("refuse");
@@ -1004,12 +1011,24 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return null;
   }
 
+  /** Game mode: how many of a track piece the player could put down now (0 if not learned). */
+  function pieceStock(type: PieceTypeId): number {
+    const needs = thingsFor({ kind: "piece", type });
+    let n = Infinity;
+    for (const [id, k] of needs) {
+      if (isFree(id)) continue;
+      if (!progress.knows(id)) return 0;
+      n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
+    }
+    return n;
+  }
+
   /** The toy box on the tray (Game mode): how many of each are left. */
-  function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean } | null {
+  function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null {
     if (item.kind !== "piece" && item.kind !== "train") return null;
     const needs = thingsFor(item as Parameters<typeof thingsFor>[0]);
     if ([...needs.keys()].every(isFree)) return null;
-    if ([...needs.keys()].some((id) => !progress.knows(id)) || lockedLook(item)) return { text: "Locked", empty: true };
+    if ([...needs.keys()].some((id) => !progress.knows(id)) || lockedLook(item)) return { text: "Locked", empty: true, locked: true };
     let n = Infinity;
     for (const [id, k] of needs) n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
     // The workshop, while there's none on the map: it's where planks go to learn blueprints.
@@ -1929,6 +1948,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     goalsPanel.setVisible(mode === "game");
     // An industry you place must stand near what it works with (trees, fields): Game mode's rule.
     interaction.siteRule = mode === "game" ? (type, pose) => siteWhy(game.landscape, type, pose) : null;
+    // A drawn line uses only the pieces in the toy box (Game mode).
+    interaction.draw.stock = mode === "game" ? pieceStock : null;
     if (mode === "game") {
       ensureGameModels();
       townLife.reset();

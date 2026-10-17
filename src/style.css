@@ -229,10 +229,25 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 
 /* Turn / Flip: above the tray while a group of track pieces is open. */
 .tray-orient { position: absolute; right: 12px; top: -52px; display: none; gap: 6px; }
-.tray.track-tab.in-group .tray-orient { display: flex; }
+.tray.track-tab.in-group .tray-orient, .tray.track-tab.has-favourites .tray-orient { display: flex; }
 /* A card for a selected piece, car or depot has its own buttons there: the tray's Turn/Flip steps aside. */
-.card-open .tray.track-tab.in-group .tray-orient { display: none; }
+.card-open .tray.track-tab.in-group .tray-orient, .card-open .tray.track-tab.has-favourites .tray-orient { display: none; }
 .tray-orient .chip { padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+/* Draw: above the tray, at the left, while the Track tab is open. */
+.tray-draw { position: absolute; left: 12px; top: -52px; display: none; padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+.tray.draw-tab .tray-draw { display: inline-flex; }
+.card-open .tray.draw-tab .tray-draw { display: none; }
+/* Turn and Flip do nothing for a drawn line: away while drawing. */
+.tray.drawing .tray-orient { display: none !important; }
+/* A phone on its side: the map's strip is short. Turn and Flip only while a shelf is open (as before favourites), and
+   Draw sits in the tab row, at its right (the tabs scroll clear of it). */
+@media (max-height: 520px) {
+  .tray.track-tab.has-favourites:not(.in-group) .tray-orient { display: none; }
+  .tray-draw { top: 2px; left: auto; right: 8px; height: 34px; padding: 0 10px; font-size: 12px; z-index: 2; }
+  /* Drawn smaller to fit the tab row, but a finger's 44 px to tap. */
+  .tray-draw::after { content: ""; position: absolute; inset: -5px; }
+  .tray.draw-tab .tabs { padding-right: 92px; }
+}
 /* The Turn button's arrow points the way the next piece will face. */
 .tray-orient .turn-arrow { display: inline-block; transform: rotate(var(--tray-turn, 0deg)); transition: transform 0.2s ease; margin-left: 4px; }
 
@@ -383,12 +398,25 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 
 /* Game mode's toy box: how many of a piece are left, on its tray item; faded when there are none. */
 .tray-item { position: relative; }
+/* ★ in a tray item's corner: tap to make it a favourite (shown first on the tab). Big enough for a finger. */
+.tray-item .fav { position: absolute; top: 0; left: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; color: rgba(120, 85, 45, 0.45); cursor: pointer; border-radius: 14px 0 10px 0; }
+/* A finger's room round it (44 px), though it's drawn smaller. */
+.tray-item .fav::after { content: ""; position: absolute; inset: -8px; }
+/* Over the item's picture (drawn after it), so the pad round it takes the taps. */
+.tray-item .fav { z-index: 2; }
+/* Game mode: a locked item says so in that corner; no ★ over it. */
+.tray-item.locked .fav { display: none; }
+.tray-item .fav.on { color: #e0a21c; text-shadow: 0 1px 0 rgba(120, 70, 10, 0.35); }
+/* Between the favourites and the shelves. */
+.tray-divider { flex: 0 0 auto; width: 2px; align-self: stretch; margin: 10px 4px; border-radius: 1px; background: rgba(120, 85, 45, 0.18); }
 .tray-item .have { position: absolute; top: 5px; right: 6px; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: #3f8f4a; color: #fff; font-size: 12px; font-weight: 800; line-height: 1.4; text-align: center;
   /* One line, never wider than the item: it may cover the top of the picture, never more. */
   white-space: nowrap; max-width: calc(100% - 12px); overflow: hidden; box-sizing: border-box; }
 /* A long cost ("30🪵 10🪨 100🪙") spans the item's top, its type as small as its length needs (`costTagSize`, 11 to
    7 px, set inline). */
 .tray-item .have.long { left: 2px; right: 2px; max-width: none; padding: 1px 3px; letter-spacing: -0.01em; }
+/* A long cost spans the item's top: no ★ over it. */
+.tray-item:has(.have.long) .fav { display: none; }
 .tray-item.empty .have { background: #b9a487; }
 .tray-item.empty .icon { opacity: 0.45; filter: grayscale(0.6); }
 

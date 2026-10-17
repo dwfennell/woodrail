@@ -7,6 +7,8 @@ import { createServer } from "vite";
 
 const server = await createServer({ server: { port: 0, strictPort: false }, logLevel: "warn" });
 await server.listen();
+// Have the dev server find and pre-bundle the game's dependencies now, so it doesn't reload the page mid-test.
+await server.warmupRequest("/src/main.ts");
 const URL = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const results = [];

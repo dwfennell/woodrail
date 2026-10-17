@@ -23,6 +23,7 @@ import { dropOutcome } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { RoadHand, type RoadDrag } from "./road-hand";
+import { DrawHand } from "./draw-hand";
 import { dragMoves } from "./drag-rule";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget } from "./cargo-drop";
@@ -184,6 +185,8 @@ type Mode =
       track: TrackIndex;
     }
   | { kind: "drag-road"; pointerId: number; drag: RoadDrag; overTray: boolean }
+  /** Drawing a line of track (the Draw chip on): see `DrawHand`. */
+  | { kind: "draw-track"; pointerId: number }
   | {
       kind: "drag-scenery";
       pointerId: number;
@@ -256,6 +259,16 @@ export class Interaction {
   private selectedCar = -1;
   /** Laying road pieces, and the selected one. */
   private readonly roads: RoadHand;
+  /** Drawing lines of track. */
+  readonly draw: DrawHand;
+  /** The Draw chip is on: a drag on the ground, or from a free end of track, draws track. */
+  private drawing = false;
+  /** Called when drawing is switched on or off (Esc, another tab). */
+  onDrawing: ((on: boolean) => void) | null = null;
+  /** A new ghost joined the line being drawn. */
+  onDrawGrow: (() => void) | null = null;
+  /** A drawn line's piece went down (`i` from the line's start). */
+  onDrawLaid: ((i: number) => void) | null = null;
   private readonly raycaster = new Raycaster();
   private readonly ndc = new Vector2();
   private readonly floor = new Plane(new Vector3(0, 1, 0), 0);
@@ -272,6 +285,20 @@ export class Interaction {
     const c = game.controls;
     game.scene.add(this.propOutline.line, this.squareOutline.line, this.sceneryOutline.line);
     this.roads = new RoadHand(game, hud, editor, () => this.onRefused?.(), () => this.onPlaced?.(false));
+    this.draw = new DrawHand(game, editor, {
+      placement: (type, flipped, pose, y) => this.placement(type, flipped, pose, y, -1),
+      message: (reason) => (reason === "site" ? this.siteWhy : (BLOCK_MESSAGES[reason as BlockReason] ?? reason)),
+      planeAt: (x, y, h) => this.planeAt(x, y, h),
+      toScreen: (v) => {
+        const p = v.clone().project(game.camera);
+        if (p.z > 1) return null;
+        const r = game.canvas.getBoundingClientRect();
+        return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height };
+      },
+      toast: (text) => hud.toast(text),
+      onGrow: () => this.onDrawGrow?.(),
+      onPlaced: (i) => this.onDrawLaid?.(i),
+    });
     // A left drag pans through TouchCamera, like one finger (the ground stays under the pointer); OrbitControls keeps
     // the right button (turn and tilt) and the middle (zoom).
     c.mouseButtons = { LEFT: NO_MOUSE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE };
@@ -319,6 +346,7 @@ export class Interaction {
     // Held things cast shadows.
     if (m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-cargo" || m.kind === "drag-prop") this.game.moveShadows();
     if ((m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-prop" || m.kind === "drag-group") && this.game.director.edgePanning) this.updateDrag(this.lastX, this.lastY);
+    if (m.kind === "draw-track" && this.game.director.edgePanning) this.updateDraw(this.lastX, this.lastY);
     if (m.kind === "drag-piece" && dt > 0) {
       const s = m.shown;
       const px = s.x;
@@ -413,6 +441,28 @@ export class Interaction {
   private armed: TrayItem | null = null;
   /** Called when the ready tray piece changes. */
   onArmed: ((item: TrayItem | null) => void) | null = null;
+
+  /** Switch drawing track on or off (the tray's Draw chip). */
+  setDrawing(on: boolean): void {
+    if (on === this.drawing) return;
+    this.drawing = on;
+    if (on) {
+      this.arm(null);
+      this.clearSelection();
+      this.hud.hideCards();
+      if (!this.drawHinted) {
+        this.drawHinted = true;
+        this.hud.toast("Draw from a track end · two fingers to pan", false, 3600);
+      }
+    } else if (this.mode.kind === "draw-track") this.cancel();
+    this.onDrawing?.(on);
+  }
+
+  get isDrawing(): boolean {
+    return this.drawing;
+  }
+
+  private drawHinted = false;
 
   arm(item: TrayItem | null): void {
     // A road is laid where the map is clicked (see `readyRoad`); anything else puts a ready road away.
@@ -743,6 +793,21 @@ export class Interaction {
       this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, ghost: true };
       return;
     }
+    // Drawing: from a free end, or on empty ground, a drag draws track (two fingers still move the view).
+    if (this.drawing && this.touches.size <= 1) {
+      const atEnd = this.draw.nearFreeEnd(e.clientX, e.clientY);
+      if ((atEnd || !this.pick(e.clientX, e.clientY, e.pointerType === "touch")) && this.draw.begin(e.clientX, e.clientY)) {
+        this.game.controls.enabled = false;
+        this.mode = { kind: "draw-track", pointerId: e.pointerId };
+        // On the ground, a tap (no line drawn) still does what a tap there does: deselect, or a double tap focuses.
+        if (!atEnd) {
+          this.hud.hideCards();
+          this.clearSelection();
+          this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp };
+        }
+        return;
+      }
+    }
     let hit = this.pick(e.clientX, e.clientY, e.pointerType === "touch");
     // Pressing on anything else puts the ready piece away.
     if (hit && this.armed) this.arm(null);
@@ -797,6 +862,10 @@ export class Interaction {
       this.roads.update(this.roadReady.drag, off ? -1 : this.squareAt(e.clientX, e.clientY), off);
     }
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
+    if (m.kind === "draw-track") {
+      this.updateDraw(e.clientX, e.clientY);
+      return;
+    }
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
       if (!this.dragsWhatsPressed(m.press, m.pointerType)) {
@@ -892,7 +961,11 @@ export class Interaction {
       else this.tap(m.press, m.add);
       return;
     }
-    if (m.kind === "drag-piece") this.dropPiece(m);
+    if (m.kind === "draw-track") {
+      this.game.director.setEdgePointer(null);
+      this.mode = { kind: "idle" };
+      this.draw.end();
+    } else if (m.kind === "drag-piece") this.dropPiece(m);
     else if (m.kind === "drag-group") this.dropGroup(m);
     else if (m.kind === "drag-prop") this.dropProp(m);
     else if (m.kind === "drag-road") {
@@ -963,7 +1036,22 @@ export class Interaction {
     } else if (m.kind === "drag-group") {
       this.putGroupBack(m);
     } else if (m.kind === "drag-road") this.roads.cancel(m.drag);
+    else if (m.kind === "draw-track") this.draw.cancel();
     this.mode = { kind: "idle" };
+  }
+
+  /** Drawing: the finger moved (or the view edge-panned under it). */
+  private updateDraw(x: number, y: number): void {
+    this.lastX = x;
+    this.lastY = y;
+    const r = this.game.canvas.getBoundingClientRect();
+    // The bottom edge is the chips above the tray (Draw), not the tray: a line pulled down that far pans the view on
+    // rather than ending hidden under the chips and the finger.
+    const chipsTop = this.hud.chipsTop() - r.top;
+    // A line started near the screen's edge doesn't pan the view until the finger has been clear of the edge once. The
+    // edge band is narrower than for a held piece (a phone is narrow, and a line wants room to bend).
+    this.game.director.setEdgePointer({ x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: chipsTop, waitForExit: true, zone: this.lastPointerWasTouch ? 36 : 40 });
+    this.draw.move(x, y);
   }
 
   // ---- taps -------------------------------------------------------------------------------------------------
@@ -2203,8 +2291,9 @@ export class Interaction {
           g.flourishes.add(dustPuff(g.scene, pose.x + c.x * ch - c.z * sh, y, pose.z + c.x * sh + c.z * ch));
         }
         this.onPlaced?.(snapped);
-        // The next is likely the same kind: it stays ready, waiting at this one's free end for a tap.
-        if (m.tray) {
+        // The next is likely the same kind: it stays ready, waiting at this one's free end for a tap. (Not while
+        // drawing: a press there draws.)
+        if (m.tray && !this.drawing) {
           this.arm(m.tray);
           this.previewNextAt(id);
         }
@@ -2429,6 +2518,7 @@ export class Interaction {
     else if (e.key === "Delete" || e.key === "Backspace") this.deleteSelected();
     else if (e.key === "Escape") {
       this.arm(null);
+      if (this.mode.kind !== "draw-track") this.setDrawing(false);
       this.cancel();
       this.clearSelection();
       this.hud.hideCards();
