@@ -52,6 +52,8 @@ export interface HudHandlers {
   newGame(): void;
   /** Back to the title screen. */
   titleScreen(): void;
+  /** The brand tapped: back to the player's railway (the view frames their track). */
+  home(): void;
   toggleQuality(): void;
   closeCards(): void;
   /** Tray: turn the piece in hand and the ones taken out next (an eighth turn). */
@@ -253,6 +255,17 @@ export class Hud {
     this.coinTag.hidden = true;
     this.coinTag.title = "Coins: towns pay them for deliveries; they buy land";
     brand.appendChild(this.coinTag);
+    // Tapped: back to my railway (after a pinch or a pan out over empty land, the way home).
+    brand.setAttribute("role", "button");
+    brand.tabIndex = 0;
+    brand.title = "Back to my railway";
+    brand.addEventListener("click", () => h.home());
+    brand.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        h.home();
+      }
+    });
     top.appendChild(brand);
     const actions = el("div", "actions");
     this.undoBtn = button(uiIcon("undo"), "Undo (Ctrl+Z)", h.undo);

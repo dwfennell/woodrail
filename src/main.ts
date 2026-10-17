@@ -281,6 +281,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       buyLand: () => buyLand(),
       newGame: () => newGame(),
       titleScreen: () => showTitle(),
+      home: () => backToRailway(),
       toggleQuality: () => {
         saveQualityOverride(game.quality.tier === "high" ? "mobile" : "high");
         // Back into the game after the reload, not the title (saved on the way out).
@@ -1984,6 +1985,23 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * The opening view: a medium view of where track was last put down (else of the track built so far) or, on a bare
    * map, the first two towns (in Game mode, with a hint to join them: Sandbox has no goals).
    */
+  /**
+   * Back to the player's railway (the brand tapped): all the track they've laid, framed (or, before any, the first two
+   * towns), keeping the way the view faces.
+   */
+  function backToRailway(): void {
+    const points: { x: number; z: number }[] = [];
+    for (const id of game.layout.pieceIds()) {
+      if (isFixedPiece(id) || game.layout.getPiece(id)!.type === "riser") continue;
+      points.push(pieceCentre(game.layout, id));
+    }
+    if (points.length === 0) for (const t of game.landscape.towns.slice(0, 2)) points.push(t.station);
+    if (points.length === 0) return;
+    const f = frameAlong(points, game.camera.fov, game.camera.aspect, GOAL_MARGIN);
+    game.follow(-1);
+    game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 0.9 });
+  }
+
   function openingView(): void {
     let at = loadLastBuilt(mode);
     if (!at) {
