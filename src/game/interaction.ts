@@ -206,6 +206,8 @@ type Mode =
       looseY: number;
       /** A depot held over a line: the straights it would take the place of (it's snapped where they are), or null. */
       covers: readonly number[] | null;
+      /** Straights put down with it beside it, in the rest of a longer straight it takes half of (a 108 kit on a 216). */
+      rest: readonly Placement[] | null;
       /**
        * A depot picked up from inline (joined at both ends to plain track): the ends it was joined to, from its first
        * end's to its second's, so straights can close the gap it leaves when it goes elsewhere. Else null or absent.
@@ -489,6 +491,7 @@ export class Interaction {
         pose: { x: 0, z: 0, heading: 0 },
         looseY: 0,
         covers: null,
+        rest: null,
         blocked: null,
         risers: [],
         overTray: true,
@@ -2456,6 +2459,7 @@ export class Interaction {
       pose: { ...p.pose },
       looseY: p.y,
       covers: null,
+      rest: null,
       blocked: null,
       risers: [],
       overTray: false,
@@ -2648,6 +2652,7 @@ export class Interaction {
       }
       // A depot held over a straight of a line takes its place (or a run of straights its length), turned along it.
       m.covers = null;
+      m.rest = null;
       let spliceWhy: PlaceBlock | null = null;
       if (this.splices(m.type)) {
         // Its centre as held under the finger, seen at the height of each straight it may be over (a few heights).
@@ -2676,6 +2681,7 @@ export class Interaction {
         if (s.kind === "splice") {
           m.snap = { kind: "snapped", pose: s.pose, y: s.y, connector: 0, target: -1, distance: 0, flipped: m.heldFlipped };
           m.covers = s.covers;
+          m.rest = s.rest ? s.rest.map((f) => ({ type: f.type, pose: f.pose, y: f.y })) : null;
         } else if (s.kind !== "none") spliceWhy = s.kind === "busy" ? "splice-busy" : "splice-fit";
         else spliceWhy = "splice-onto";
       }
@@ -2815,7 +2821,7 @@ export class Interaction {
         // A depot dropped onto a line: the straights it takes the place of lift and shrink away (back in the box).
         if (covers) for (const c of covers) this.shrinkStandIn(c);
         // A depot moved off a line: straights close the gap it leaves (in the same undo step).
-        const fill = this.fillFor(m, pose, y);
+        const fill = [...this.fillFor(m, pose, y), ...(m.rest ?? [])];
         const id = covers
           ? ed.replace(covers, m.type, pose, y, m.flipped, isNew ? undefined : { id: m.pieceId, from: m.from! }, fill)
           : isNew
