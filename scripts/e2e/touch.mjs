@@ -173,7 +173,12 @@ async function selectThenDrag(ctx, p) {
     await touch("touchStart", x, y);
     await touch("touchMove", x + 3, y + 2);
     if (second) await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x + 3, y: y + 2, id: 1 }, { x: x + 80, y: y + 40, id: 2 }] });
-    return p.evaluate((ms) => new Promise((r) => setTimeout(() => r(window.woodrail.interaction.mode.kind), Math.max(0, window.__downAt + ms - performance.now()))), ms);
+    // (A hold is taken up a frame after its time: let a frame or two by, unless checking that a short press isn't one.)
+    return p.evaluate(([ms, frames]) => new Promise((r) => setTimeout(() => {
+      const read = () => r(window.woodrail.interaction.mode.kind);
+      if (!frames) return read();
+      requestAnimationFrame(() => requestAnimationFrame(read));
+    }, Math.max(0, window.__downAt + ms - performance.now()))), [ms, ms >= 380]);
   };
   const lift = async () => {
     await touch("touchEnd", 0, 0);
@@ -209,35 +214,33 @@ async function selectThenDrag(ctx, p) {
   await lift();
   check("held, then dragged: it moves with the finger", hMid === "drag-piece", `mid-drag ${hMid}`);
   await p.keyboard.press("Escape");
-  // 2b'. A slow phone (QA): the hold is decided by when things happened, not by which arrives first. The page is kept
-  // busy so moves and the hold's timer queue up together.
-  const busy = (ms) => p.evaluate((ms) => { const t = performance.now(); while (performance.now() - t < ms); }, ms);
-  // A pan whose moves are delivered after the hold's time is up: still a pan, nothing picked up.
+  // 2b'. A slow phone (QA): the hold is decided by when things happened (the events' own times), not by which arrives
+  // first. The touches are stamped with the times they happened at, then delivered late.
+  const stamped = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  // A pan whose moves (stamped 30–80 ms in) are only delivered after the hold's time is up: still a pan, put back.
   await p.keyboard.press("Escape");
   [sx, sy] = await onScreen();
   const before = await where();
-  await touch("touchStart", sx, sy);
-  const blocked = busy(650);
-  await new Promise((r) => setTimeout(r, 30));
-  await Promise.all([1, 2, 3, 4, 5, 6].map((k) => touch("touchMove", sx + 6 * k, sy)));
-  await blocked;
+  let t0 = Date.now() / 1000;
+  await stamped("touchStart", sx, sy, t0);
+  await new Promise((r) => setTimeout(r, 900));
+  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  for (let k = 1; k <= 6; k++) await stamped("touchMove", sx + 6 * k, sy, t0 + 0.03 + 0.01 * k);
   await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   const lateMoves = await p.evaluate(() => window.woodrail.interaction.mode.kind);
-  await lift();
+  await stamped("touchEnd", 0, 0, Date.now() / 1000);
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   const after = await where();
-  check("slow phone: a pan's moves delivered after the hold's time is up stay a pan", lateMoves !== "drag-piece" && JSON.stringify(after.piece) === JSON.stringify(before.piece), `mode ${lateMoves}; piece ${before.piece} → ${after.piece}`);
-  // A real hold whose timer runs late: rested past the hold's time, then dragged: picked up.
+  check("slow phone: a pan's moves delivered after the hold's time is up stay a pan (put back)", lateMoves !== "drag-piece" && JSON.stringify(after.piece) === JSON.stringify(before.piece), `mode ${lateMoves}; piece ${before.piece} → ${after.piece}`);
+  // A real hold whose timer is late: the drag's first moves, stamped 450 ms in, arrive first: picked up.
   await p.keyboard.press("Escape");
   [sx, sy] = await onScreen();
-  await touch("touchStart", sx, sy);
-  await new Promise((r) => setTimeout(r, 250));
-  const late = busy(500);
-  await new Promise((r) => setTimeout(r, 200));
-  await Promise.all([1, 2, 3, 4].map((k) => touch("touchMove", sx - 8 * k, sy)));
-  await late;
-  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  t0 = Date.now() / 1000;
+  await stamped("touchStart", sx, sy, t0);
+  for (let k = 1; k <= 4; k++) await stamped("touchMove", sx - 8 * k, sy, t0 + 0.45 + 0.01 * k);
   const lateTimer = await p.evaluate(() => window.woodrail.interaction.mode.kind);
-  await lift();
+  await stamped("touchEnd", 0, 0, Date.now() / 1000);
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   check("slow phone: a real hold whose timer runs late still picks it up", lateTimer === "drag-piece", `mode ${lateTimer}`);
   await p.keyboard.press("Escape");
   // 2c. Drawing on: a finger resting on a piece neither picks it up nor starts a line.

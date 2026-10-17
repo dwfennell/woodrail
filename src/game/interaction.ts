@@ -886,6 +886,7 @@ export class Interaction {
       this.roads.update(this.roadReady.drag, off ? -1 : this.squareAt(e.clientX, e.clientY), off);
     }
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
+    if (this.vetoHold(e)) return;
     if (m.kind === "draw-track") {
       this.updateDraw(e.clientX, e.clientY);
       return;
@@ -1008,8 +1009,34 @@ export class Interaction {
       m.hold = undefined;
       if (!this.startDrag(m)) return;
       this.heldStill = { pointerId: m.pointerId, x: m.x, y: m.y, press: m.press };
+      this.heldUnsure = { pointerId: m.pointerId, x: m.x, y: m.y, t: h.t };
       this.updateDrag(m.x, m.y);
     });
+  }
+
+  /**
+   * Picked up by the hold's timer, before any move had been seen: a slow phone may deliver the moves of a pan only now.
+   * If the first moves to come say the finger had strayed before the hold's time was up, it was a pan: put it back.
+   * Settled (null) by the first move from after that time.
+   */
+  private heldUnsure: { pointerId: number; x: number; y: number; t: number } | null = null;
+
+  /** True if the late moves undid a pickup that was really a pan (the view takes the gesture from here). */
+  private vetoHold(e: PointerEvent): boolean {
+    const u = this.heldUnsure;
+    if (!u || u.pointerId !== e.pointerId) return false;
+    for (const c of e.getCoalescedEvents?.() ?? [e]) {
+      const at = c.timeStamp - u.t;
+      if (at >= HOLD_MS) break;
+      if (Math.hypot(c.clientX - u.x, c.clientY - u.y) >= HOLD_SLOP) {
+        this.heldUnsure = null;
+        this.heldStill = null;
+        this.cancel();
+        return true;
+      }
+    }
+    if (e.timeStamp - u.t >= HOLD_MS) this.heldUnsure = null;
+    return false;
   }
 
   private onUp(e: PointerEvent): void {
@@ -1051,6 +1078,7 @@ export class Interaction {
     this.game.controls.enabled = true;
     const still = this.heldStill;
     this.heldStill = null;
+    this.heldUnsure = null;
     if (still && still.pointerId === e.pointerId && m.kind !== "press") {
       // Held and let go without moving: back where it was (a drop would snap it to the nearest free end), and selected.
       this.cancel();
@@ -1118,6 +1146,7 @@ export class Interaction {
     const m = this.mode;
     if (m.kind === "press" && m.hold) clearTimeout(m.hold.timer);
     this.heldStill = null;
+    this.heldUnsure = null;
     this.game.controls.enabled = true;
     if (m.kind === "drag-piece") {
       this.dropHeld(m.ghost);
