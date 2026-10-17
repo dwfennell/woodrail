@@ -1355,7 +1355,8 @@ export class Hud {
       this.toastHeldUntil = performance.now() + toastMs(message, false);
     } else if (this.toastEl.classList.contains("show")) {
       clearTimeout(this.toastTimer);
-      this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), 1500);
+      // (Quickly: the piece in hand now shows it can go, so the old reason reads as stale if it lingers.)
+      this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), 400);
       // It no longer holds the toast: what comes next (the drop's "Joined", a hint) may show at once.
       this.toastHeldUntil = 0;
     }

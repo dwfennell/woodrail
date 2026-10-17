@@ -1928,7 +1928,8 @@ export class Interaction {
     if (!m.leaves || m.pieceId === -1) return [];
     const g = this.game;
     const [from, to] = m.leaves;
-    if (m.covers?.some((id) => id === pieceOfRef(from) || id === pieceOfRef(to))) return [];
+    // (Moved onto the straight next to where it was: that straight goes, but the depot takes its place end for end,
+    // so the gap it leaves is the same, filled between the same ends.)
     const fill = gapFill(g.layout, from, to);
     if (!fill) return [];
     // The depot where it's going, by itself: the fill mustn't run into it or its yard.
