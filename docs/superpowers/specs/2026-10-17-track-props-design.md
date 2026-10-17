@@ -396,6 +396,24 @@ Three questions for the user before Game mode gets any of this:
    propose they stay Sandbox-only. In Game mode the goods shed could be a small warehouse's look instead.
 3. **Crossing styles in Game mode:** cosmetic, so free once Scenery kit is learned? I propose yes.
 
+**Decided and built (kits-game):** yes to all three. The table is `THING_RULES` (src/game/things.ts), one row per kit
+or piece of furniture naming its blueprint and plank cost; tests: `src/game/kit-unlocks.test.ts`, `halts.test.ts`.
+
+- Engine shed, Turntable and roundhouse, and Scenery kit lost their `plan`; Halts is a new board blueprint in
+  Passengers (tier 1, needs Passengers, 12 planks + 20 coins). Tunnels, the viaduct and the lift bridge still wait.
+- The track cleaner is the wagon (`car:cleaner`); lineside furniture are props (`prop:<asset>` things), counted on
+  the map like pieces. The crossing styles' rules are `free`.
+- **Halts** (`HALT_KITS`, src/game/world.ts): placed in Game mode within `HALT_REACH` (a plot's depth) of a town's
+  middle, a halt is an economy depot of role "town" for the nearest town (re-linked if moved). People wait there at
+  the town's rate, board, and alight from other towns as at its station (`canAlight`/`canBoard` compare towns, not
+  depots); it takes no goods (`Economy.isHalt`). Its kit dwell gives way to the depot's service (`KitStops`
+  `hasDepot`), so a train stops once, and only when someone gets on or off. Elsewhere: "Build halts near a town".
+- **Tray:** Game mode's "Railway kit" shelf on the Track tab (signal skins, turntable, transfer table) and "Railway",
+  "Halts" and "Lineside" shelves on the Industries tab. Their items are hidden (not shown Locked) until learned, so a
+  new player's tray is as before.
+- Cargo machines stay Sandbox's; the goods shed as the warehouse's look was not done (the warehouse is a Blender
+  part of DepotView's yard, not a kit model, so swapping it isn't a small change).
+
 ### Order
 
 1. Land kit-signals (in QA) and then p1-polish.
