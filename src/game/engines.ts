@@ -49,6 +49,15 @@ export function topSpeed(world: World, train: Train): number {
   return ENGINE_SPEED * Math.min(...l.engines.map((e) => e.speed));
 }
 
+/** Why a train can't move at all (its top speed is 0): too heavy for its engines, or electric with no power; or null. */
+export function cantMove(world: World, train: Train): "too-heavy" | "no-power" | null {
+  const l = load(world, train);
+  if (l.engines.length === 0) return null;
+  if (l.cars > l.pulls) return "too-heavy";
+  if (l.engines.some((e) => e.electric) && !powered(world)) return "no-power";
+  return null;
+}
+
 /** How quickly a train gets going: its slowest engine's. */
 export function quickness(world: World, train: Train): number {
   const l = load(world, train);
