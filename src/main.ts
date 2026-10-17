@@ -17,7 +17,7 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
-import { describeThings, firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas, takeBlueprint, takeCrate } from "./game/rewards";
+import { describeThings, firstTimeGift, offerOnGrowth, payDelivery, refreshOffers, schoolIdeas, takeBlueprint, takeCrate } from "./game/rewards";
 import { landmarkOf, landmarksOf } from "./game/landmarks";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
@@ -863,7 +863,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (gift.length > 0) hud.refreshTrayBadges();
       const offered = progress.offers.length;
       offerOnGrowth(progress, town.name, Math.random, status.level);
-      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Reward in Blueprints" : ""].filter(Boolean);
+      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Claim your reward in Blueprints" : ""].filter(Boolean);
       const grew = built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`;
       const where = built.length > 0 ? placeOf(built) : here;
       if (extras.length > 0) {
@@ -1049,6 +1049,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const board = new BlueprintBoard(document.body, {
     choose: (k, id) => {
       if (takeBlueprint(progress, k, id)) learned(id);
+      else {
+        // Learned meanwhile: the card was stale. Say so, and show the refreshed offers.
+        hud.toast(`${techOf(id)?.label ?? "That"} is already learned`);
+        refreshBoard();
+        scheduleSave();
+      }
     },
     crate: (k) => {
       const crate = progress.offers[k]?.crate;
@@ -1111,6 +1117,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   function refreshBoard(): void {
+    // A blueprint another card taught may still sit on a pending offer: swap it out before anything is shown.
+    if (refreshOffers(progress, Math.random)) scheduleSave();
     hud.setBoardButton(board.open, progress.offers.length > 0);
     if (!board.open) return;
     const stock = workshopStock(game.world);
