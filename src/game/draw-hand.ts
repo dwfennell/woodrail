@@ -3,12 +3,13 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Editor } from "../editor/editor";
-import { CELL, looseHeight } from "../landscape";
+import { archFloors, bridgeLevels, CELL, cutsHills, hillsOf, looseHeight, type HillCut } from "../landscape";
 import { dustPuff } from "../render/dust";
 import { delayed, settle } from "../render/flourishes";
 import { ghostMesh } from "../render/track-view";
 import {
   candidatesFrom,
+  canStandOnArches,
   createWorldConnector,
   DRAW_LOOKAHEAD,
   DrawLine,
@@ -22,12 +23,14 @@ import {
   solveParentPose,
   transformPose,
   type DrawCandidate,
+  type DrawCheck,
   type DrawEnd,
   type DrawnPiece,
   type PieceTypeId,
   type Pose,
 } from "../track";
 import type { Game } from "./game";
+import { drawRefusal } from "./track-rules";
 import { TRACK_ITEMS } from "../ui/tray-catalogue";
 
 /** A piece's name as the tray shows it, in lower case ("long", "curve"). */
@@ -80,6 +83,12 @@ export interface DrawHooks {
 export class DrawHand {
   /** How many of each piece the line may use (Game mode: the player's stock), or null for no limit. */
   stock: ((type: PieceTypeId) => number) | null = null;
+  /** Game mode: what to say of a piece the player hasn't learned yet ("Ramp: not learned yet"), or null if they have. */
+  unlearned: ((type: PieceTypeId) => string | null) | null = null;
+  /** The ramp whose cutting shows while drawing (the line's last), as a key, or "" for none. */
+  private cutKey = "";
+  /** The height (mm) the finger is seen at, on the plane the stroke is drawn on: the line's end's, as of the last move. */
+  private seenAt = 0;
   private line: DrawLine | null = null;
   /** This stroke's "too sharp" (or "out of") said already. */
   private toldStalled = false;
@@ -168,7 +177,15 @@ export class DrawHand {
     }
     const line = this.line;
     if (!line) return;
-    const p = this.hooks.planeAt(x, y, line.start.y);
+    // Seen at the height the line has got to: up on a hill, the finger is over the hilltop. (The line went up or down
+    // a level: the stroke still ahead moves to where it's seen at the new height, so it runs on without a jump.)
+    if (line.end.y !== this.seenAt) {
+      const was = this.hooks.planeAt(x, y, this.seenAt);
+      const now = this.hooks.planeAt(x, y, line.end.y);
+      if (was && now) line.shiftAhead(now.x - was.x, now.z - was.z);
+      this.seenAt = line.end.y;
+    }
+    const p = this.hooks.planeAt(x, y, this.seenAt);
     if (!p) return;
     const before = line.pieces.length;
     if (this.last) this.sinceGrown += Math.hypot(p.x - this.last.x, p.z - this.last.z);
@@ -181,7 +198,7 @@ export class DrawHand {
     const stuck = line.stalled || (this.sinceGrown > STALL_MM && !line.stopped && !line.pieces.some((q) => q.blocked));
     if (stuck && !this.toldStalled) {
       this.toldStalled = true;
-      this.hooks.toast(line.refused ? `Out of ${pieceName(line.refused)}` : "Too sharp: draw a wider bend");
+      this.hooks.toast(line.refused ? this.outOf(line.refused) : "Too sharp: draw a wider bend");
     }
     this.drawTrail();
   }
@@ -242,26 +259,36 @@ export class DrawHand {
   private start(end: DrawEnd): void {
     this.toldStalled = false;
     this.sinceGrown = 0;
+    this.seenAt = end.y;
     this.last = null;
+    const hills = hillsOf(this.game.landscape.grid);
     this.line = new DrawLine(end, {
       check: (c, line) => this.check(c, line),
       allow: this.stock ? (type, line) => line.filter((p) => p.type === type).length < this.stock!(type) : undefined,
       meet: (e) => this.meet(e),
       closes: (e) => this.closes(e),
+      groundAt: (x, z) => hills.groundAt(x, z),
+      outOf: (type) => this.outOf(type),
     });
+  }
+
+  /** What to say of a piece the line needed and the player has none of: not learned yet, or none left in the box. */
+  private outOf(type: PieceTypeId): string {
+    return this.unlearned?.(type) ?? `Out of ${pieceName(type)}`;
   }
 
   /**
    * May a drawn piece go here: on the land and clear of other track (the line's own pieces too), resting on what's
-   * under it? Null, or why not (as the toast says it).
+   * under it? Null, or why not: the reason code (so the line can tell a hill from a river, see `drawRefusal`) and the
+   * message, as the toast says it.
    */
-  private check(c: DrawCandidate, line: readonly DrawnPiece[]): string | null {
+  private check(c: DrawCandidate, line: readonly DrawnPiece[]): DrawCheck | null {
     const { reason, risers } = this.hooks.placement(c.type, c.flipped, c.pose, c.y);
-    // A drawn line stays at its height: no risers are put in under it.
-    const why = reason ?? (risers.length > 0 ? "unsupported" : null);
-    if (why) return this.hooks.message(why);
+    // A drawn line puts in no risers under it: needing them is "unsupported".
+    const why = drawRefusal(this.game.landscape, c.type, c.flipped, c.pose, c.y, reason, risers);
+    if (why) return { reason: why.reason, message: this.hooks.message(why.reason), levels: why.levels };
     this.syncOwn(line);
-    if (findOverlap(this.own, c.type, c.flipped, c.pose, c.y, -1) !== -1) return "The line would cross itself";
+    if (findOverlap(this.own, c.type, c.flipped, c.pose, c.y, -1) !== -1) return { reason: "self", message: "The line would cross itself" };
     return null;
   }
 
@@ -368,10 +395,13 @@ export class DrawHand {
     let i = 0;
     for (; i < pieces.length; i++) {
       const p = pieces[i];
-      const key = `${p.type}|${p.flipped}|${p.pose.x.toFixed(1)}|${p.pose.z.toFixed(1)}|${p.pose.heading.toFixed(3)}|${p.blocked}`;
+      const key = `${p.type}|${p.flipped}|${p.pose.x.toFixed(1)}|${p.pose.z.toFixed(1)}|${p.pose.heading.toFixed(3)}|${p.y}|${p.blocked}`;
       if (this.ghosts[i]?.key === key) continue;
       if (this.ghosts[i]) g.scene.remove(this.ghosts[i].mesh);
-      const mesh = ghostMesh(p.type, p.flipped, p.blocked ? this.blockedMat : this.okMat);
+      // A bridge (or a ramp up off the ground) on its arches, as it will stand.
+      const levels = canStandOnArches(p.type) ? bridgeLevels(g.landscape, p.type, p.flipped, p.pose, p.y) : 0;
+      const floors = levels > 0 ? archFloors(g.landscape, p.type, p.flipped, p.pose, p.y, levels) : null;
+      const mesh = ghostMesh(p.type, p.flipped, p.blocked ? this.blockedMat : this.okMat, levels, floors);
       mesh.matrixAutoUpdate = false;
       mesh.matrix.makeRotationY(-p.pose.heading);
       mesh.matrix.setPosition(p.pose.x, p.y + 1, p.pose.z);
@@ -379,8 +409,25 @@ export class DrawHand {
       this.ghosts[i] = { mesh, key };
     }
     for (const gh of this.ghosts.splice(i)) g.scene.remove(gh.mesh);
+    this.showCut(pieces);
     if (grew) this.hooks.onGrow();
     g.invalidate();
+  }
+
+  /**
+   * The cutting the line's last ramp makes, shown in the hill while drawing (as a held ramp's is), so its ghost isn't
+   * hidden inside the hill. Only when that ramp changes (the hill's cut blocks are rebuilt for it).
+   */
+  private showCut(pieces: readonly DrawnPiece[]): void {
+    let cut: HillCut | undefined;
+    for (let i = pieces.length - 1; i >= 0 && !cut; i--) {
+      const p = pieces[i];
+      if (!p.blocked && cutsHills(p.type)) cut = { pose: { ...p.pose }, y: p.y, type: p.type, flipped: p.flipped };
+    }
+    const key = cut ? `${cut.pose.x}|${cut.pose.z}|${cut.pose.heading}|${cut.y}|${cut.flipped}` : "";
+    if (key === this.cutKey) return;
+    this.cutKey = key;
+    this.game.landscapeView.previewCut(cut);
   }
 
   private drawTrail(): void {
@@ -392,7 +439,7 @@ export class DrawHand {
     const n = Math.min(TRAIL_POINTS, line.ahead(this.trailPoints));
     this.trail.visible = n > 1;
     if (n > 1) {
-      const y = line.start.y + 3;
+      const y = line.end.y + 3;
       const a = this.trailSegments.array as Float32Array;
       const pts = this.trailPoints;
       for (let i = 0; i + 1 < n; i++) {
@@ -414,6 +461,10 @@ export class DrawHand {
 
   private clear(): void {
     for (const gh of this.ghosts) this.game.scene.remove(gh.mesh);
+    if (this.cutKey) {
+      this.cutKey = "";
+      this.game.landscapeView.previewCut(undefined);
+    }
     this.ghosts = [];
     this.line = null;
     this.origin = null;

@@ -1,6 +1,6 @@
 import { normalizeAngle, solveParentPose, transformPose, type Pose } from "./math";
 import { createSample, pathLength, samplePath } from "./path";
-import { JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, SMALL_CURVE_RADIUS, WIDE_CURVE_RADIUS } from "./constants";
+import { JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, RAMP_LENGTH, RISER_HEIGHT, SMALL_CURVE_RADIUS, WIDE_CURVE_RADIUS } from "./constants";
 import { getPieceDef, type ConnectorKind, type PieceTypeId } from "./pieces";
 
 /**
@@ -33,6 +33,8 @@ export interface DrawnPiece {
   readonly points: number;
   /** Why it may not go there (the line stops at it), or null. */
   readonly blocked: string | null;
+  /** The reason code for that (see `DrawCheck`), or null. */
+  readonly blockedBy: string | null;
   /** Points along its track, from where it joins the line to its free end: x, z and the heading the line runs, in threes. */
   readonly track: readonly number[];
   /** Laid along a straight stroke, where the line may lie off to its side (see `DrawLine.chooseFlat`). */
@@ -52,12 +54,24 @@ export interface DrawCandidate {
   readonly length: number;
 }
 
+/**
+ * Why a piece may not go somewhere, as the line's `check` says it: a reason code (a `BlockReason`, or "self" where the
+ * line would cross itself), the message to show, and for some reasons how many levels it's about: for "hill" how far
+ * up the hill is, for "river" and "unsupported" how many whole levels the piece stands above the ground under it (see
+ * `drawRefusal` in src/game/track-rules.ts).
+ */
+export interface DrawCheck {
+  readonly reason: string;
+  readonly message: string;
+  readonly levels?: number;
+}
+
 /** The pieces a drawn line is made of: straights, and curves either way. */
 export const DRAW_TYPES: readonly PieceTypeId[] = ["straight-216", "straight-144", "straight-108", "straight-54", "curve-large", "curve-wide", "curve-small"];
 
 export interface DrawOptions {
   /** May this piece go here (the landscape, other track, the line's own pieces)? Null, or why not. */
-  check?: (c: DrawCandidate, line: readonly DrawnPiece[]) => string | null;
+  check?: (c: DrawCandidate, line: readonly DrawnPiece[]) => DrawCheck | null;
   /** Which types it may use now (Game mode: only those the player has left). */
   allow?: (type: PieceTypeId, line: readonly DrawnPiece[]) => boolean;
   /**
@@ -67,6 +81,10 @@ export interface DrawOptions {
   meet?: (end: DrawEnd, line: readonly DrawnPiece[]) => DrawCandidate | null;
   /** Does the line end on other track here (seated, so it's finished)? */
   closes?: (end: DrawEnd) => boolean;
+  /** The ground's height (mm) at a plan point: where a ramp's far end will land (see `DrawLine.lands`). */
+  groundAt?: (x: number, z: number) => number;
+  /** What to say when the line needed a special piece (a ramp, a bridge) it may not use: "Out of ramp pieces". */
+  outOf?: (type: PieceTypeId) => string;
 }
 
 /** Stroke points closer than this (mm) to the last are skipped. */
@@ -184,6 +202,22 @@ const FLAT_DEPTH = 3;
 const FLAT_NODES = 400;
 /** While drawing, a plan should leave the line able to run on straight this far (mm) in the band. */
 const FLAT_RUN = 100;
+/**
+ * Special pieces (see `DrawLine.special`): one comes in only where the plain piece chosen is refused for its reason (a
+ * hill, the river, nothing underneath), and only if its far end is this close (mm) to the stroke, ahead of where the
+ * line has got to.
+ */
+const SPECIAL_REACH = 45;
+/** The bridge of the same shape as a drawn piece. */
+const TWIN: Partial<Record<PieceTypeId, PieceTypeId>> = { "straight-216": "bridge", "curve-large": "bridge-curve" };
+/** The drawn pieces that have a bridge twin: the only ones the line chooses from where the next piece would reach water. */
+const TWINNED: readonly PieceTypeId[] = ["straight-216", "curve-large"];
+/** Straights that may go first, so that a ramp after them lands where it should (see `DrawLine.fill`), shortest first. */
+const FILLERS: readonly PieceTypeId[] = ["straight-54", "straight-108", "straight-144", "straight-216"];
+/** A ramp's far end is looked at for the ground this far (mm) on past it. */
+const LAND_PROBE = 8;
+/** Is a laid piece a ramp going up the way the line runs? */
+const climbs = (p: DrawnPiece): boolean => p.type === "ramp" && p.end.y > p.y + 1;
 const EIGHTH = Math.PI / 4;
 const SIN_EIGHTH = Math.sin(EIGHTH);
 const COS_EIGHTH = Math.cos(EIGHTH);
@@ -218,6 +252,12 @@ export function candidatesFrom(end: DrawEnd, types: readonly PieceTypeId[] = DRA
   return out;
 }
 
+/** A ramp seated on `end`, going up (its foot on it) or down (its top on it), or null. */
+function rampFrom(end: DrawEnd, up: boolean): DrawCandidate | null {
+  for (const c of candidatesFrom(end, ["ramp"])) if (up ? c.end.y > end.y + 1 : c.end.y < end.y - 1) return c;
+  return null;
+}
+
 /** A run of track following a stroke: points go in as the finger moves; pieces come out behind it. */
 export class DrawLine {
   readonly pieces: DrawnPiece[] = [];
@@ -231,6 +271,8 @@ export class DrawLine {
   stopped: "blocked" | "closed" | null = null;
   /** A piece the line would have used but the player has none of left (Game mode), or null. */
   refused: PieceTypeId | null = null;
+  /** The special piece the piece being placed needed but may not use (see `want`), or null. */
+  private wanted: PieceTypeId | null = null;
 
   /** Where the finger last was (for the way it's moving), whether or not that went into the stroke. */
   private fx: number;
@@ -351,6 +393,26 @@ export class DrawLine {
     return out.length / 2;
   }
 
+  /**
+   * The stroke ahead of the line's end (not yet laid), and where the finger is, moved by (dx, dz). The finger is seen
+   * on the plane at the height the line has got to (up on a hilltop, it's over the hilltop); when the line climbs or
+   * comes down a level, the points still ahead, seen at the old height, move to where they'd be seen at the new one,
+   * so the stroke runs on without a jump in it.
+   */
+  shiftAhead(dx: number, dz: number): void {
+    const n = this.xs.length;
+    let k = n;
+    while (k > 1 && this.ss[k - 1] > this.progress) k--;
+    for (let i = k; i < n; i++) {
+      this.xs[i] += dx;
+      this.zs[i] += dz;
+      this.ss[i] = this.ss[i - 1] + Math.hypot(this.xs[i] - this.xs[i - 1], this.zs[i] - this.zs[i - 1]);
+    }
+    this.fx += dx;
+    this.fz += dz;
+    this.tailAt = -1;
+  }
+
   private push(x: number, z: number): void {
     this.tailAt = -1;
     const n = this.xs.length;
@@ -430,8 +492,8 @@ export class DrawLine {
       const flat = this.flatStroke() ? this.chooseFlat(end, finishing) : undefined;
       const best = flat === undefined ? this.choose(end, finishing) : flat;
       if (!best) return;
-      this.lay(best.candidate, best.s, flat !== undefined);
-      if (!this.stopped && this.options.closes?.(best.candidate.end)) this.stopped = "closed";
+      this.place(best.candidate, best.s, flat !== undefined, finishing);
+      if (!this.stopped && this.options.closes?.(this.end)) this.stopped = "closed";
     }
   }
 
@@ -485,13 +547,172 @@ export class DrawLine {
     return mx * ax + mz * az > 0;
   }
 
-  private lay(c: DrawCandidate, s: number, aside = false): void {
-    const blocked = this.options.check?.(c, this.pieces) ?? null;
+  /** Lay a piece the line chose, or the special piece it needs there instead (see `special`), or show it can't go. */
+  private place(c: DrawCandidate, s: number, aside: boolean, finishing: boolean): void {
+    this.wanted = null;
+    const why = this.options.check?.(c, this.pieces) ?? null;
+    if (why && this.special(c, s, why, finishing)) return;
+    // Refused, and the piece that would have done (a ramp, a bridge) is one the player has none of: say that.
+    const outOf = this.wanted && this.options.outOf ? this.options.outOf(this.wanted) : null;
+    this.lay(c, s, aside, why && outOf ? { ...why, message: outOf } : why);
+  }
+
+  /** Lay a piece (checked here unless `why`, its check, is given). */
+  private lay(c: DrawCandidate, s: number, aside = false, why: DrawCheck | null = this.options.check?.(c, this.pieces) ?? null): void {
     let points = 1;
     while (points < this.ss.length && this.ss[points] <= this.progress) points++;
-    this.pieces.push({ type: c.type, flipped: c.flipped, pose: c.pose, y: c.y, entry: c.entry, exit: c.exit, end: c.end, from: this.progress, points, blocked, track: trackOf(c), aside });
+    const blocked = why?.message ?? null;
+    this.pieces.push({ type: c.type, flipped: c.flipped, pose: c.pose, y: c.y, entry: c.entry, exit: c.exit, end: c.end, from: this.progress, points, blocked, blockedBy: why?.reason ?? null, track: trackOf(c), aside });
     this.progress = Math.max(this.progress, s);
     if (blocked) this.stopped = "blocked";
+  }
+
+  /**
+   * The piece the line chose (`c`, reaching `s` along the stroke) was refused: the special piece a player would reach
+   * for there instead, if there is one (N2 phase 1, see docs/superpowers/specs/2026-10-17-draw-junctions-ramps-bridges-design.md).
+   * A hill one level up: a ramp. The river: a bridge, from a level up (a hilltop, raised track), or from the ground a
+   * ramp up first. Nothing underneath (off a hilltop, a bridge, raised track): a ramp down, or just after climbing (or
+   * where a ramp down would stand in the river) a bridge on over. Each is laid only where its far end is on the stroke,
+   * and only if the player has one (else `wanted` says which); at most two more placements are checked for it. True if
+   * a piece was laid (or the last one replaced); false leaves the chosen piece to show why it can't go.
+   */
+  private special(c: DrawCandidate, s: number, why: DrawCheck, finishing: boolean): boolean {
+    const levels = why.levels ?? 0;
+    if (why.reason === "hill") return levels === 1 && this.rampUp(false);
+    if (why.reason === "river") return levels >= 1 ? this.bridge(c, s, finishing) : this.rampUp(true);
+    if (why.reason !== "unsupported" || levels < 1) return false;
+    // Just climbed (to cross the river, or onto a hill too short to run on): on over it, not straight back down.
+    const last = this.pieces[this.pieces.length - 1];
+    if (last && climbs(last)) return this.bridge(c, s, finishing);
+    const down = this.rampDown();
+    return down === "river" ? this.bridge(c, s, finishing) : down === "laid";
+  }
+
+  /** May the line use a piece of this type now (Game mode: has the player one left)? */
+  private may(type: PieceTypeId, line: readonly DrawnPiece[] = this.pieces): boolean {
+    return !this.options.allow || this.options.allow(type, line);
+  }
+
+  /** The line needed this piece and may not use it: said when it goes down. (False, for returning.) */
+  private want(type: PieceTypeId): false {
+    this.refused ??= type;
+    this.wanted = type;
+    return false;
+  }
+
+  /** Where along the stroke a special piece's far end comes (seated on the line where it had got to `from`), or null if that's off the stroke. */
+  private onStroke(c: DrawCandidate, from: number): number | null {
+    const near = this.nearest(c.end.x, c.end.z, from - 10, from + c.length * 1.6 + 40);
+    return near.d <= SPECIAL_REACH && near.s > from + 1 ? near.s : null;
+  }
+
+  /**
+   * Does a ramp's far end land where the line can go on from it: going up, on the hill (else the next piece is left in
+   * the air short of it); going down, on ground no higher than its foot (else it's dug into the hilltop, and the next
+   * piece runs into the hill). Yes if the ground isn't known.
+   */
+  private lands(r: DrawCandidate, up: boolean): boolean {
+    const groundAt = this.options.groundAt;
+    if (!groundAt) return true;
+    const e = r.end;
+    const g = groundAt(e.x + Math.cos(e.heading) * LAND_PROBE, e.z + Math.sin(e.heading) * LAND_PROBE);
+    return up ? g >= e.y - 1 : g <= e.y + 1;
+  }
+
+  /**
+   * A ramp up from the line's end, or else from one piece back in place of that piece (a plain straight): onto the hill
+   * (its far end on it: else a straight first, see `fill`), or for the river, anywhere short of the water (a ramp
+   * can't stand in it). A ramp cutting the ground from under other track shows red, and says so.
+   */
+  private rampUp(river: boolean): boolean {
+    if (!this.may("ramp")) return this.want("ramp");
+    const r = rampFrom(this.end, true);
+    const s = r && this.onStroke(r, this.progress);
+    if (r && s !== null) {
+      if (!river && !this.lands(r, true)) return this.fill(true);
+      const why = this.options.check?.(r, this.pieces) ?? null;
+      if (!why || why.reason === "undercut") {
+        this.lay(r, s, false, why);
+        return true;
+      }
+    }
+    // One piece back: that straight comes off and the ramp goes in its place (this move's one change).
+    const k = this.pieces.length;
+    const last = this.pieces[k - 1];
+    if (!last || last.blocked || !last.type.startsWith("straight-")) return false;
+    const before = this.pieces.slice(0, -1);
+    const b = rampFrom(k > 1 ? before[k - 2].end : this.start, true);
+    const sb = b && this.onStroke(b, last.from);
+    if (!b || sb === null || (!river && !this.lands(b, true))) return false;
+    const why = this.options.check?.(b, before) ?? null;
+    if (why && why.reason !== "undercut") return false;
+    this.pieces.pop();
+    this.progress = last.from;
+    this.lay(b, sb, false, why);
+    return true;
+  }
+
+  /** A ramp down from the line's end, landing on the ground (else a straight first, see `fill`). "river" if it would stand in the water. */
+  private rampDown(): "laid" | "river" | "no" {
+    if (!this.may("ramp")) return this.want("ramp") || "no";
+    const r = rampFrom(this.end, false);
+    const s = r && this.onStroke(r, this.progress);
+    if (!r || s === null) return "no";
+    if (!this.lands(r, false)) return this.fill(false) ? "laid" : "no";
+    const why = this.options.check?.(r, this.pieces) ?? null;
+    if (why && why.reason !== "undercut") return why.reason === "river" ? "river" : "no";
+    this.lay(r, s, false, why);
+    return "laid";
+  }
+
+  /**
+   * A ramp from the line's end would land short of the hill (or, coming down, still on the hilltop): the shortest
+   * straight on from the end after which it would land, if that may go. The ramp follows on the next move.
+   */
+  private fill(up: boolean): boolean {
+    const groundAt = this.options.groundAt;
+    if (!groundAt) return false;
+    const end = this.end;
+    const want = end.y + (up ? RISER_HEIGHT : -RISER_HEIGHT);
+    const cos = Math.cos(end.heading);
+    const sin = Math.sin(end.heading);
+    for (const type of FILLERS) {
+      if (!this.may(type)) continue;
+      const f = candidatesFrom(end, [type])[0];
+      const reach = f.length + RAMP_LENGTH + LAND_PROBE;
+      const g = groundAt(end.x + cos * reach, end.z + sin * reach);
+      if (up ? g < want - 1 : g > want + 1) continue;
+      const s = this.onStroke(f, this.progress);
+      if (s === null || this.options.check?.(f, this.pieces)) return false;
+      this.lay(f, s, false, null);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * A bridge in place of the piece chosen (`c`, reaching `s`): its twin, the same shape; or, for a piece with none,
+   * the best of the two pieces that have one, as the line would choose between them. False if the bridge can't stand
+   * there (not a whole level up), or the player has none.
+   */
+  private bridge(c: DrawCandidate, s: number, finishing: boolean): boolean {
+    let base = c;
+    let at = s;
+    if (!TWIN[c.type]) {
+      const types = TWINNED.filter((t) => this.may(TWIN[t]!));
+      if (types.length === 0) return this.want("bridge");
+      const b = this.best(this.end, finishing, types);
+      if (!b) return false;
+      base = b.candidate;
+      at = b.s;
+    }
+    const type = TWIN[base.type]!;
+    if (!this.may(type)) return this.want(type);
+    const t: DrawCandidate = { ...base, type };
+    const why = this.options.check?.(t, this.pieces) ?? null;
+    if (why && (why.reason === "unsupported" || why.reason === "river")) return false;
+    this.lay(t, at, false, why);
+    return true;
   }
 
   /** The best next piece: scored with the one after it (or alone, finishing near the stroke's end). */

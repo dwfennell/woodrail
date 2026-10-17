@@ -1052,6 +1052,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return n;
   }
 
+  /** Game mode: a track piece not learned yet, as the tray says it ("Ramp: not learned yet"), or null. */
+  function pieceUnlearned(type: PieceTypeId): string | null {
+    for (const id of thingsFor({ kind: "piece", type }).keys()) if (!isFree(id) && !progress.knows(id)) return `${ruleOf(id)!.label}: not learned yet`;
+    return null;
+  }
+
   /** The toy box on the tray (Game mode): how many of each are left. */
   function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null {
     if (item.kind !== "piece" && item.kind !== "train") return null;
@@ -1979,6 +1985,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     interaction.siteRule = mode === "game" ? (type, pose) => siteWhy(game.landscape, type, pose) : null;
     // A drawn line uses only the pieces in the toy box (Game mode).
     interaction.draw.stock = mode === "game" ? pieceStock : null;
+    interaction.draw.unlearned = mode === "game" ? pieceUnlearned : null;
     if (mode === "game") {
       ensureGameModels();
       townLife.reset();
