@@ -1,6 +1,6 @@
 import { RENAMED } from "./blueprints";
 import { STARTING_BOARD, techOf } from "./tech";
-import { isFree, ruleOf, STARTING_BOX, THING_RULES, type ThingId } from "./things";
+import { isFree, ruleOf, STARTING_BOX, THING_RULES, thingsFor, type ThingId } from "./things";
 import type { World } from "./world";
 
 /**
@@ -50,6 +50,14 @@ export class Progress {
   available(world: World, id: ThingId): number {
     if (isFree(id)) return Infinity;
     return Math.max(0, (this.owned.get(id) ?? 0) - inUse(world, id));
+  }
+
+  /**
+   * Is there another of this tray piece or train in the toy box (all it takes, free things aside)? Not counting what
+   * the workshop could make on the spot.
+   */
+  hasAnother(world: World, item: Parameters<typeof thingsFor>[0]): boolean {
+    return this.short(world, thingsFor(item)) === null;
   }
 
   /** Can all of these go on the map now? Returns the first thing short, or null. */
