@@ -2,7 +2,7 @@ import type { CargoKind } from "../economy/cargo";
 import type { Landscape, Town } from "../landscape";
 import { MARKET_BONUS, SCHOOL_IDEA_SECONDS, townLandmarks } from "./landmarks";
 import type { Progress } from "./progress";
-import { choose, offerFor, ready, TECHS } from "./tech";
+import { choose, offerFor, ready, techOf, TECHS } from "./tech";
 import { ruleOf, THING_RULES, type ThingId } from "./things";
 import { payFor, type TownStatus } from "./towns";
 
@@ -105,11 +105,40 @@ export function takeCrate(p: Progress, k: number): boolean {
   return true;
 }
 
-/** Choose a blueprint from an offer: learned free; the other goes on the board. False if it can't be. */
-export function takeBlueprint(p: Progress, k: number, id: string): boolean {
+/**
+ * Pending offers can go stale: another card (or the board) taught a blueprint they still list. Take every blueprint
+ * you can no longer learn off the offers and re-roll a replacement (not one the offer already lists); if none is left
+ * the choice is dropped, and a whole offer with nothing in it (no crate either) goes. True if anything changed.
+ */
+export function refreshOffers(p: Progress, random: () => number): boolean {
+  let changed = false;
+  for (let k = p.offers.length - 1; k >= 0; k--) {
+    const o = p.offers[k];
+    const stale = o.ids.filter((id) => !ready(p, id));
+    if (stale.length === 0) continue;
+    changed = true;
+    const keep = o.ids.filter((id) => ready(p, id));
+    const tier = techOf(stale[0])?.tier ?? 1;
+    const fresh = offerFor(p, random, tier).filter((id) => !keep.includes(id));
+    o.ids = [...keep, ...fresh.slice(0, stale.length)];
+    if (o.ids.length === 0 && !o.crate) p.offers.splice(k, 1);
+  }
+  return changed;
+}
+
+/**
+ * Choose a blueprint from an offer: learned free; the other goes on the board. False if it can't be; an offer gone
+ * stale (the blueprint was learned meanwhile) is refreshed then, so no card lists it any more.
+ */
+export function takeBlueprint(p: Progress, k: number, id: string, random: () => number = Math.random): boolean {
   const o = p.offers[k];
-  if (!o || !o.ids.includes(id) || !choose(p, id, o.ids)) return false;
+  if (!o || !o.ids.includes(id)) return false;
+  if (!choose(p, id, o.ids)) {
+    refreshOffers(p, random);
+    return false;
+  }
   p.offers.splice(k, 1);
+  refreshOffers(p, random);
   return true;
 }
 

@@ -35,7 +35,7 @@ import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } fro
 import { archFloors, bridgeLevels, findCrossings, SURF_LANE, syncCuttings, type HeldPiece, PLOT_DEPTH, type Landscape } from "../landscape";
 import { setHazeLand, setHazeReach } from "../render/haze";
 import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
-import type { Layout, PlacedPiece } from "../track";
+import { connectorRef, getPieceDef, pathLength, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
 import { hasLandForSale, landForSale, plotsAround, unlockPlot, type World } from "./world";
@@ -280,6 +280,7 @@ export class Game {
     (this as { trackView: TrackView }).trackView = new TrackView(this.layout, this.mats, this.bridgeLevelsOf, this.archFloorsOf);
     this.trackView.onRoad = this.onRoad;
     this.trackView.signalClear = (id) => this.sim.signalClear(id);
+    this.trackView.showAllEnds(this.allEnds);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
@@ -381,6 +382,28 @@ export class Game {
 
   get world(): World {
     return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy, props: this.props };
+  }
+
+  private allEnds = false;
+  /** Building (the Track tab open): every free end of track shows its end board, not just those trains turn back at. */
+  showAllEnds(on: boolean): void {
+    this.allEnds = on;
+    this.trackView.showAllEnds(on);
+    this.invalidate();
+  }
+
+  /** The free end of track a train's front stands at, marked as one trains turn back at. True if newly marked. */
+  private markOpenEnd(trainId: number): boolean {
+    const front = this.sim.getTrain(trainId)?.bogies[0];
+    const piece = front && this.layout.getPiece(front.pieceId);
+    if (!front || !piece) return false;
+    const path = getPieceDef(piece.type, piece.flipped).paths[front.pathIndex];
+    const end = front.reversed ? path?.from : path?.to;
+    // A buffer's end, or a train met head on in the middle of a piece: not open track.
+    if (end === null || end === undefined) return false;
+    const toEnd = front.reversed ? front.s : pathLength(path.geom) - front.s;
+    if (toEnd > 60) return false;
+    return this.trackView.markTurnedBack(connectorRef(front.pieceId, end));
   }
 
   /** Call after any layout edit. */
@@ -548,6 +571,8 @@ export class Game {
       this.invalidate();
     }
     this.events = this.sim.drainEvents();
+    // A train turned back where the track just stops: that end's board shows (a gap is plain to see).
+    for (const e of this.events) if (e.kind === "buffer" && this.markOpenEnd(e.trainId)) this.invalidate();
     this.sim.writeSnapshot(this.snapshot);
     this.simMs = performance.now() - t0;
     const tipping = this.trainView.update(this.snapshot, dt);
