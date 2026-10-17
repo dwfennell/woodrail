@@ -57,6 +57,10 @@ function trainSpan(cars: readonly { kind: CarKind }[], index: number): number {
 const GRAB_MIN_PX = 54;
 const GRAB_PIECE_MM = 144;
 const DRAG_THRESHOLD = 6;
+/** A finger's tap on the ground may move this far (px) and still be a tap. */
+const TOUCH_TAP_SLOP = 10;
+/** A press on the ground let go within this (ms) is a tap (a long one counts: a slow phone delays the lift). */
+const FLOOR_TAP_MS = 1200;
 /** How far (mm) a picked group's free end reaches for a free end of other track to click onto, and how far off facing. */
 const GROUP_SNAP_REACH = 30;
 const GROUP_SNAP_ANGLE = (8 * Math.PI) / 180;
@@ -782,7 +786,10 @@ export class Interaction {
     const f = this.floorDown;
     if (f && f.id === e.pointerId) {
       this.floorDown = null;
-      if (Math.hypot(e.clientX - f.x, e.clientY - f.y) < DRAG_THRESHOLD && e.timeStamp - f.t < 300 && this.touches.size <= 1) {
+      // A tap is a press that stays put (a finger wobbles more than a mouse), let go within FLOOR_TAP_MS: a slow phone,
+      // or a careful child, takes its time.
+      const still = Math.hypot(e.clientX - f.x, e.clientY - f.y) < (e.pointerType === "mouse" ? DRAG_THRESHOLD : TOUCH_TAP_SLOP);
+      if (still && e.timeStamp - f.t < FLOOR_TAP_MS && this.touches.size <= 1) {
         const ground = this.groundAt(e.clientX, e.clientY);
         if (f.road && this.roadReady) {
           const r = this.roadReady;
