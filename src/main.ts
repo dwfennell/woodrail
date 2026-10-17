@@ -810,7 +810,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let goals = new GoalTracker(loadGoals());
   // The Journal: what happened (events: quiet, with an unread bell) and what was achieved (milestones: also toasted).
   // Refusals aren't logged: they stay plain `hud.toast`s.
-  const journal = new Journal();
+  // On game time: "2 min ago" means two minutes of play (it stands still while paused).
+  const journal = new Journal(() => game.simSeconds * 1000);
   const goalsPanel = new GoalsPanel(
     hud.root,
     {
