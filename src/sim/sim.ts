@@ -62,6 +62,8 @@ export interface Train {
    * when (`Sim.ticks`): the engine card says so while it waits and a while after.
    */
   lastTurn?: { cause: TurnCause; pieceId: number; tick: number };
+  /** When an engine's lever was last set (`Sim.ticks`): a train just told to go isn't "waiting" yet. */
+  leverTick?: number;
   cars: Car[];
   /** Two per car in train order: car0 front, car0 rear, car1 front, … */
   bogies: Cursor[];
@@ -276,6 +278,7 @@ export class Sim {
     const found = this.findCar(carId);
     if (!found || !CAR_SPECS[found.train.cars[found.index].kind].powered) return false;
     found.train.cars[found.index].lever = lever;
+    found.train.leverTick = this.ticks;
     // Whoever set the lever has decided where the train goes: a pending turnback no longer applies.
     found.train.turnback = -1;
     return true;
