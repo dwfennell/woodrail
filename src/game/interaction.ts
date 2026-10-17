@@ -2613,12 +2613,19 @@ export class Interaction {
       let spliceWhy: PlaceBlock | null = null;
       if (this.splices(m.type)) {
         // Its centre as held under the finger, seen at the height of each straight it may be over (a few heights).
+        // On touch, where it's drawn (held by its middle, not where it was taken hold of: QA N1).
         const seen = new Map<number, { x: number; z: number } | null>();
+        const o = poseForCentre(holdType, m.heldFlipped, 0, 0, m.heading);
         const centre = (h: number) => {
           let c = seen.get(h);
           if (c === undefined) {
-            const p = this.planeAt(x, sy, h);
-            c = p && { x: p.x + m.offset.x, z: p.z + m.offset.z };
+            if (touch) {
+              const q = heldAt(h);
+              c = q && { x: q.x - o.x, z: q.z - o.z };
+            } else {
+              const p = this.planeAt(x, sy, h);
+              c = p && { x: p.x + m.offset.x, z: p.z + m.offset.z };
+            }
             seen.set(h, c);
           }
           return c;

@@ -95,9 +95,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item .icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 3px 2px rgba(80, 50, 20, 0.22)); pointer-events: none; }
 /* Labels wrap to two lines at most within their item (long catalogue names), cut short with an ellipsis after that. */
 .tray-item .label { font-size: 11.5px; font-weight: 700; line-height: 1.12; max-width: calc(100% - 6px); text-align: center; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: normal; word-break: normal; hyphens: manual; }
-/* Lines break between words only (no "Warehous/e"): a single word too long for its tile is set smaller instead (the
-   HUD marks it when the tray is drawn), and only a word too long even then ("transporter") breaks inside. */
-.tray-item .label.squeeze { font-size: 9.5px; letter-spacing: -0.03em; overflow-wrap: anywhere; }
+/* Lines break between words only (no "Warehous/e", no "Grandparen/t"): a label too long for its tile (a long word, or
+   more than two lines) is set smaller instead, with room for a third line (the HUD marks it when the tray is drawn),
+   and smaller still if it doesn't fit even then. */
+.tray-item .label.squeeze { font-size: 9.5px; letter-spacing: -0.03em; -webkit-line-clamp: 3; line-clamp: 3; }
+.tray-item .label.squeeze.tight { font-size: 8.5px; letter-spacing: -0.05em; }
 .tray-item .icon { flex: 1 1 auto; min-height: 0; }
 /* A group: a little tab in the corner says how many pieces are inside. */
 .tray-group { position: relative; }

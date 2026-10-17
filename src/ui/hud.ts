@@ -466,13 +466,18 @@ export class Hud {
       missing.push(item);
       return `<span class="thumb-pending" data-thumb="${key}"></span>`;
     };
-    /** A label whose one long word doesn't fit its tile ("Warehouse" at 70 px) is set smaller rather than broken. */
+    /** A label that doesn't fit its tile, a long word ("Warehouse" at 70 px) or more lines than it has ("Farmer with
+     * pitchfork"), is set smaller with a third line rather than broken or cut (and smaller again if it still doesn't). */
     const fitLabels = () => {
       const labels = [...scroller.querySelectorAll<HTMLElement>(".label")];
       // (Not while the tray isn't laid out: behind the title screen everything measures 0.)
       if (labels.length === 0 || scroller.clientWidth === 0) return;
-      for (const l of labels) l.classList.remove("squeeze");
-      for (const l of labels.filter((l) => l.scrollWidth > l.clientWidth + 1)) l.classList.add("squeeze");
+      // (A line cut off is a whole line taller, ~13 px; a pixel or two is just how the lines round.)
+      const wide = (l: HTMLElement) => l.scrollWidth > l.clientWidth + 1 || l.scrollHeight > l.clientHeight + 4;
+      for (const l of labels) l.classList.remove("squeeze", "tight");
+      const squeezed = labels.filter(wide);
+      for (const l of squeezed) l.classList.add("squeeze");
+      for (const l of squeezed.filter(wide)) l.classList.add("tight");
     };
     this.fitTrayLabels = fitLabels;
     // Again when the tiles change size (the phone turns) and when the type's font has come (it's wider than the one
