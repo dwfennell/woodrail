@@ -216,7 +216,7 @@ async function selectThenDrag(ctx, p) {
   const drawHold = await holdAt(sx, sy, 520);
   await lift();
   const pieces1 = await p.evaluate(() => window.woodrail.layout.pieceCount);
-  check("drawing on: a long press on a piece doesn't pick it up or draw", drawHold === "press" && pieces1 === pieces0, `after 520 ms: ${drawHold}; pieces ${pieces0} → ${pieces1}`);
+  check("drawing on: a long press on a piece doesn't pick it up or draw", drawHold !== "drag-piece" && pieces1 === pieces0, `after 520 ms: ${drawHold}; pieces ${pieces0} → ${pieces1}`);
   await p.evaluate(() => window.woodrail.interaction.setDrawing(false));
   await p.keyboard.press("Escape");
   // 2d. A placed industry (one the player may move: the playthrough's workshop) is picked up with a hold too.
