@@ -25,7 +25,7 @@ import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { dragMoves } from "./drag-rule";
-import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp } from "./touch-hold";
+import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
@@ -1028,7 +1028,7 @@ export class Interaction {
     for (const c of e.getCoalescedEvents?.() ?? [e]) {
       const at = c.timeStamp - u.t;
       if (at >= HOLD_MS) break;
-      if (Math.hypot(c.clientX - u.x, c.clientY - u.y) >= HOLD_SLOP) {
+      if (undoesHold(at, Math.hypot(c.clientX - u.x, c.clientY - u.y), false)) {
         this.heldUnsure = null;
         this.heldStill = null;
         this.cancel();
@@ -1077,8 +1077,15 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     this.game.controls.enabled = true;
     const still = this.heldStill;
+    const unsure = this.heldUnsure;
     this.heldStill = null;
     this.heldUnsure = null;
+    if (still && unsure && unsure.pointerId === e.pointerId && undoesHold(e.timeStamp - unsure.t, 0, true) && m.kind !== "press") {
+      // Picked up by the timer, but the finger was lifted before the hold's time (its lift delivered late): a tap.
+      this.cancel();
+      this.tap(still.press);
+      return;
+    }
     if (still && still.pointerId === e.pointerId && m.kind !== "press") {
       // Held and let go without moving: back where it was (a drop would snap it to the nearest free end), and selected.
       this.cancel();

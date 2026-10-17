@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp } from "./touch-hold";
+import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch-hold";
 
 describe("long-press to pick up", () => {
   it("a finger that rests long enough picks it up", () => {
@@ -48,5 +48,14 @@ describe("long-press to pick up", () => {
       for (const target of ["prop", "road"] as const) expect(holdPicksUp(target, pointer), `${pointer} ${target}`).toBe(false);
     }
     for (const target of ["piece", "car", "depot", "prop", "road"] as const) expect(holdPicksUp(target, "mouse"), target).toBe(false);
+  });
+
+  it("a pickup by the timer is undone by late events that happened in time: a stray (a pan) or a lift (a tap)", () => {
+    expect(undoesHold(40, HOLD_SLOP + 5, false)).toBe(true);
+    expect(undoesHold(200, 0, true)).toBe(true);
+    // A wobble in time, or anything after the hold's time, leaves it held.
+    expect(undoesHold(40, HOLD_SLOP - 1, false)).toBe(false);
+    expect(undoesHold(HOLD_MS, HOLD_SLOP + 5, false)).toBe(false);
+    expect(undoesHold(HOLD_MS + 100, 0, true)).toBe(false);
   });
 });

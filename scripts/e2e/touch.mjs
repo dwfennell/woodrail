@@ -192,10 +192,18 @@ async function selectThenDrag(ctx, p) {
   check("a long press on an unselected piece picks it up", held === "drag-piece", `after 520 ms: ${held}`);
   check("…and letting go without moving puts it back where it was (and selects it)", JSON.stringify(c1.piece) === JSON.stringify(c0.piece) && (await p.evaluate(() => !document.querySelector(".piece-card").hidden)), `${c0.piece} → ${c1.piece}`);
   await p.keyboard.press("Escape");
+  // (Stamped with when it happened, as the slow-phone cases below: a busy machine delivers the lift late.)
   [sx, sy] = await onScreen();
-  const short = await holdAt(sx, sy, 200);
-  check("a short press (200 ms) doesn't pick it up", short === "press", `after 200 ms: ${short}`);
-  await lift();
+  {
+    const c = Date.now() / 1000;
+    const before = await where();
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: c, touchPoints: [{ x: sx, y: sy, id: 1 }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", timestamp: c + 0.2, touchPoints: [] });
+    await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+    const short = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+    const after = await where();
+    check("a short press (200 ms) doesn't pick it up (it's a tap: selected)", short === "idle" && JSON.stringify(after.piece) === JSON.stringify(before.piece) && (await p.evaluate(() => !document.querySelector(".piece-card").hidden)), `mode ${short}; piece ${before.piece} → ${after.piece}`);
+  }
   await p.keyboard.press("Escape");
   [sx, sy] = await onScreen();
   const two = await holdAt(sx, sy, 520, true);
@@ -316,8 +324,8 @@ async function selectThenDrag(ctx, p) {
   }, run0);
   const trainHold = await holdAt(sx, sy, 520);
   await lift();
-  const after2 = await p.evaluate((id) => { const t = window.woodrail.sim.getTrain(id); return t ? t.speed : -1; }, run0);
-  check("held and let go, a running train stays the same train, still running", after2 > 0 && speedBefore > 0, `train ${run0}: speed ${Math.round(speedBefore)} → ${Math.round(after2)} (hold mode ${trainHold})`);
+  const after2 = await p.evaluate((id) => { const t = window.woodrail.sim.getTrain(id); return t ? t.cars.find((c) => c.kind === "engine").lever : null; }, run0);
+  check("held and let go, a running train stays the same train, still running", after2 === 1, `train ${run0}: lever after ${after2} (it was 1; speed then ${Math.round(speedBefore)}; hold mode ${trainHold})`);
   await p.evaluate((id) => { const t = window.woodrail.sim.getTrain(id); if (t) for (const c of t.cars) c.lever = 0; }, run0);
 }
 

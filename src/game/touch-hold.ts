@@ -40,3 +40,12 @@ export function decideHold(strayedAt: number | null, elapsed: number, touches: n
   if (elapsed >= HOLD_MS || strayedAt !== null) return "hold";
   return "wait";
 }
+
+/**
+ * After a pickup made by the hold's timer (no move seen yet), an event delivered late: does it show the press wasn't a
+ * hold after all? Yes if it happened (`at`, ms after the press, by its own timestamp) before `HOLD_MS` and the finger
+ * had then strayed past the slop (a pan) or been lifted (a tap).
+ */
+export function undoesHold(at: number, travel: number, lifted: boolean): boolean {
+  return at < HOLD_MS && (lifted || travel >= HOLD_SLOP);
+}
