@@ -446,7 +446,9 @@ export class LandscapeView {
 
     // Towns with their stations and signs, fenced paddocks of toy animals, and the shed.
     const things = new Group();
-    const b = new Batcher(this.mats.paint);
+    // Towns, stations, fields and the shed cast with stand-ins (a box a part): their full detail was a busy map's
+    // biggest shadow cost.
+    const b = new Batcher(this.mats.paint, true);
     const here = (x: number, z: number) => tileAt(x, z) === key;
     const prints: Footprint[] = [];
     for (const town of land.towns) {
