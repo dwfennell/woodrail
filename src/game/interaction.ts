@@ -1,14 +1,14 @@
 import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, Mesh, type Object3D, type TOUCH } from "three";
-import { Editor, pieceCentre, poseForCentre, type RiserAt } from "../editor/editor";
+import { Editor, pieceCentre, poseCentre, poseForCentre, type RiserAt } from "../editor/editor";
 import { buildCarModel, carVariant, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
 import { setRim } from "../render/materials";
-import { ghostMesh, pieceGeometry, type OutlineTone } from "../render/track-view";
+import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, findLowCrossing, findOverlap, findSnap, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
@@ -57,6 +57,10 @@ function trainSpan(cars: readonly { kind: CarKind }[], index: number): number {
 const GRAB_MIN_PX = 54;
 const GRAB_PIECE_MM = 144;
 const DRAG_THRESHOLD = 6;
+/** A finger's tap on the ground may move this far (px) and still be a tap. */
+const TOUCH_TAP_SLOP = 10;
+/** A press on the ground let go within this (ms) is a tap (a long one counts: a slow phone delays the lift). */
+const FLOOR_TAP_MS = 1200;
 /** How far (mm) a picked group's free end reaches for a free end of other track to click onto, and how far off facing. */
 const GROUP_SNAP_REACH = 30;
 const GROUP_SNAP_ANGLE = (8 * Math.PI) / 180;
@@ -131,6 +135,10 @@ type Mode =
       tapReach?: number;
       /** The auto straight: held as a long straight, it takes the length that meets a free end along its line. */
       auto?: boolean;
+      /** Seated where it can't go, but turned or flipped it would: says so ("Turn it to fit"), not why it can't. */
+      hint?: string | null;
+      /** The auto straight meets an end two pieces off: the gap this one leaves (shown amber, its far end marked). */
+      gap?: number;
       from: { pose: Pose; y: number } | null;
       offset: { x: number; z: number };
       ghost: Mesh;
@@ -626,17 +634,76 @@ export class Interaction {
       else this.propHeading = this.nextPropHeading() + Math.PI / 4;
       return;
     }
-    if (this.mode.kind === "drag-piece") this.rotateSelected();
+    const holding = this.mode.kind === "drag-piece";
+    if (holding) this.rotateSelected();
     if (this.mode.kind === "drag-road") this.roads.turnHeld(this.mode.drag);
     else if (this.roadReady) this.roads.turnHeld(this.roadReady.drag);
+    const was = this.cameraHeading() + (this.trayTurns * Math.PI) / 4;
     this.trayTurns = (this.trayTurns + 1) % 8;
+    // Nothing in hand: the next piece shows for a moment, turning, so you see which way it'll come out.
+    if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(was);
     this.onTurned?.();
+  }
+
+  /** The next piece shown turning (Turn pressed with nothing in hand), and how long it has left. */
+  private nextShown: { mesh: Mesh; heading: number } | null = null;
+
+  /**
+   * Show the piece the tray will give next (the ready one, else a long straight) floating in the middle of the view,
+   * turning from `from` to the way it'll come out now (mirrored as it'll come out), for a second, then away.
+   */
+  private showNextPiece(from: number): void {
+    const g = this.game;
+    const r = g.canvas.getBoundingClientRect();
+    const ground = this.groundAt(r.left + r.width / 2, r.top + r.height * 0.42);
+    if (!ground) return;
+    const item = this.armed?.kind === "piece" ? this.armed : null;
+    const type: PieceTypeId = item && !item.auto ? item.type : "straight-216";
+    const flipped = this.trayFlipped && getPieceDef(type, false).flippable;
+    const to = this.cameraHeading() + (this.trayTurns * Math.PI) / 4;
+    const old = this.nextShown;
+    if (old) {
+      from = old.heading;
+      this.dropHeld(old.mesh);
+    }
+    const mesh = this.heldMesh(type, flipped);
+    g.scene.add(mesh);
+    const shown = { mesh, heading: to };
+    this.nextShown = shown;
+    // Its middle over the spot, as it's turned.
+    const at = (heading: number): PiecePose => {
+      const p = poseForCentre(type, flipped, ground.x, ground.z, heading);
+      return { x: p.x, y: ground.y + HOLD_LIFT * 3, z: p.z, heading };
+    };
+    let held = 0;
+    g.flourishes.add(
+      turn(mesh, at(from), at(to), () => {
+        if (this.nextShown !== shown) return;
+        // A moment to see it, then away.
+        g.flourishes.add({
+          update: (dt) => (held += dt) < 1,
+          dispose: () => {
+            if (this.nextShown !== shown) return;
+            g.flourishes.add(
+              shrinkAway(mesh, () => {
+                this.dropHeld(mesh);
+                if (this.nextShown === shown) this.nextShown = null;
+              }),
+            );
+          },
+        });
+      }),
+    );
+    g.invalidate();
   }
 
   /** Tray "Flip": mirrors the piece in hand (if any) and every piece taken out after it. */
   flipTrayPiece(): void {
-    if (this.mode.kind === "drag-piece") this.flipSelected();
+    const holding = this.mode.kind === "drag-piece";
+    if (holding) this.flipSelected();
     this.trayFlipped = !this.trayFlipped;
+    // Nothing in hand: the next piece shows for a moment, mirrored as it'll come out.
+    if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(this.nextShown?.heading ?? this.cameraHeading() + (this.trayTurns * Math.PI) / 4);
     this.onTurned?.();
   }
 
@@ -785,7 +852,10 @@ export class Interaction {
     const f = this.floorDown;
     if (f && f.id === e.pointerId) {
       this.floorDown = null;
-      if (Math.hypot(e.clientX - f.x, e.clientY - f.y) < DRAG_THRESHOLD && e.timeStamp - f.t < 300 && this.touches.size <= 1) {
+      // A tap is a press that stays put (a finger wobbles more than a mouse), let go within FLOOR_TAP_MS: a slow phone,
+      // or a careful child, takes its time.
+      const still = Math.hypot(e.clientX - f.x, e.clientY - f.y) < (e.pointerType === "mouse" ? DRAG_THRESHOLD : TOUCH_TAP_SLOP);
+      if (still && e.timeStamp - f.t < FLOOR_TAP_MS && this.touches.size <= 1) {
         const ground = this.groundAt(e.clientX, e.clientY);
         if (f.road && this.roadReady) {
           const r = this.roadReady;
@@ -961,6 +1031,9 @@ export class Interaction {
     g.invalidate();
     if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === car.id);
     else this.hud.showCarCard();
+    // (The car tapped, kept in view: its engine's card may be what opens.)
+    const tapped = found.train.cars[found.index].id;
+    this.keepClearOfCard(() => g.trainView.carObject(tapped)?.getWorldPosition(new Vector3()) ?? null);
     this.hintDrag();
   }
 
@@ -970,6 +1043,7 @@ export class Interaction {
     this.game.trackView.setHighlight(id);
     const p = this.game.layout.getPiece(id)!;
     this.hud.showPieceCard(getPieceDef(p.type, false).flippable, "Track piece", true, true, true);
+    this.keepClearOfCard(() => this.pieceCentre(id));
     if (!this.fixedLabel(id)) this.hintDrag();
   }
 
@@ -1038,12 +1112,69 @@ export class Interaction {
     return DEPOT_NAMES[d.role];
   }
 
+  /** Counts the cards opened: a check for one that's been replaced since does nothing. */
+  private cardNudge = 0;
+
+  /** A piece's place (its pose, at its height), or null if it's gone. */
+  private pieceCentre(id: number): Vector3 | null {
+    const p = this.game.layout.getPiece(id);
+    return p ? new Vector3(p.pose.x, p.y, p.pose.z) : null;
+  }
+
+  /**
+   * A card just opened over the thing it's for (on a phone a card covers much of the map, and the thing tapped is often
+   * in the middle of it): glide the view just enough that `at` sits in the open map, above the card (or to its left, on
+   * a phone on its side, where cards dock at the right). As the card settles, not per frame; nothing if it's clear
+   * already, the camera is busy or following a train.
+   */
+  private keepClearOfCard(at: () => Vector3 | null): void {
+    const token = ++this.cardNudge;
+    const check = () => {
+      const g = this.game;
+      // (Not for a card opened since, nor under a finger that's moving the view.)
+      if (token !== this.cardNudge || this.mode.kind !== "idle") return;
+      const card = this.hud.openCardRect();
+      const p = at();
+      if (!card || !p || g.following !== -1 || g.director.busy) return;
+      const r = g.canvas.getBoundingClientRect();
+      const v = p.clone().project(g.camera);
+      const sx = r.left + ((v.x + 1) / 2) * r.width;
+      const sy = r.top + ((1 - v.y) / 2) * r.height;
+      const pad = 28;
+      if (sx < card.left - pad || sx > card.right + pad || sy < card.top - pad || sy > card.bottom + pad) return;
+      // Docked at the right: to the middle of the room on its left. Otherwise between the top bar (and goals) and it.
+      const side = card.left >= 200;
+      const top = r.top + 124;
+      if (!side && card.top - top < 80) return;
+      // Where the screen points fall at the thing's own height (it may stand on a hill).
+      const level = new Plane(new Vector3(0, 1, 0), -p.y);
+      const onLevel = (x: number, y: number) => {
+        this.setNdc(x, y);
+        return this.raycaster.ray.intersectPlane(level, new Vector3());
+      };
+      const from = onLevel(sx, sy);
+      const to = onLevel(side ? card.left / 2 : sx, side ? sy : (top + card.top) / 2);
+      if (!from || !to) return;
+      g.director.glideTo(g.controls.target.clone().add(from.sub(to)), g.camera.position.distanceTo(g.controls.target), { duration: 0.4 });
+    };
+    // Once the card has settled (it grows as its rows fill in, the engine card from 140 px to 225): when its size
+    // stops changing for a moment.
+    let settle = 0;
+    const later = () => {
+      clearTimeout(settle);
+      settle = window.setTimeout(check, 150);
+    };
+    this.hud.onCardResize = later;
+    later();
+  }
+
   private openDepot(depotId: number): void {
     this.clearSelection();
     this.selectedDepot = depotId;
     this.shownDepot.id = -1;
     this.hud.showDepotCard(this.depotTitle(depotId));
     this.refreshDepotCard();
+    this.keepClearOfCard(() => this.pieceCentre(this.game.economy.depot(depotId)?.pieceId ?? -1));
     // An industry the player placed moves too (select first, as anything else).
     if (this.movableIndustry(depotId) !== -1) this.hintDrag();
   }
@@ -1280,6 +1411,49 @@ export class Interaction {
   siteRule: ((type: PieceTypeId, pose: Pose) => string | null) | null = null;
   /** The message for the last "site" refusal. */
   private siteWhy = "";
+
+  /**
+   * A piece seated on an end where it can't go: would it go there by another of its ends (turned), or the other hand
+   * (flipped)? Then that's what to say, not why it can't go as it is. Kept for the seat it was worked out for (a few
+   * placement checks, only while it's refused).
+   */
+  private fitHint(type: PieceTypeId, flipped: boolean, snap: Extract<SnapResult, { kind: "snapped" }>, pieceId: number): string | null {
+    const key = `${type}|${flipped}|${snap.target}|${snap.connector}|${pieceId}|${this.game.layout.pieceCount}`;
+    if (this.hintFor?.key === key) return this.hintFor.hint;
+    const t = this.game.layout.worldConnector(snap.target, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+    const seat = { x: t.x, z: t.z, heading: t.heading + Math.PI };
+    const fits = (hand: boolean, skip: number) =>
+      getPieceDef(type, hand).connectors.some((c, k) => {
+        if (k === skip || Math.abs(t.y - (snap.y + c.y)) > 2) return false;
+        const pose = solveParentPose(c.pose, seat, { x: 0, z: 0, heading: 0 });
+        return this.placement(type, hand, pose, t.y - c.y, pieceId).reason === null;
+      });
+    // (A ramp's or buffer's flip only swaps its ends' peg and hole: no other shape.)
+    const flippable = getPieceDef(type, false).flippable && getPieceDef(type, true) !== getPieceDef(type, false) && !flipSwapsEnds(type);
+    const hint = fits(flipped, snap.connector) ? "Turn it to fit (↻\u00a0Turn)" : flippable && fits(!flipped, -1) ? "Flip it to fit (⇋\u00a0Flip)" : null;
+    this.hintFor = { key, hint };
+    return hint;
+  }
+  private hintFor: { key: string; hint: string | null } | null = null;
+
+  /**
+   * A piece held loose where it can't go: would it seat clear on an end there, turned another way (an eighth of a turn
+   * at a time)? Then say "Turn it to fit". Worked out once per spot (to the nearest 12 mm) while it's refused.
+   */
+  private turnHint(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, pieceId: number): string | null {
+    const key = `loose|${type}|${flipped}|${Math.round(pose.x / 12)}|${Math.round(pose.z / 12)}|${pose.heading.toFixed(2)}|${y}|${this.game.layout.pieceCount}`;
+    if (this.hintFor?.key === key) return this.hintFor.hint;
+    let hint: string | null = null;
+    for (let k = 1; k < 8 && !hint; k++) {
+      // Turned about its middle, as Turn turns a held piece.
+      const centre = poseCentre(type, flipped, pose);
+      const at = poseForCentre(type, flipped, centre.x, centre.z, pose.heading + (k * Math.PI) / 4);
+      const s = findSnap(this.game.layout, type, flipped, at, y, pieceId, SNAP_CAPTURE_RADIUS);
+      if (s.kind === "snapped" && this.placement(type, s.flipped, s.pose, s.y, pieceId).reason === null) hint = "Turn it to fit (↻\u00a0Turn)";
+    }
+    this.hintFor = { key, hint };
+    return hint;
+  }
 
   private blockMessage(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
@@ -1603,6 +1777,8 @@ export class Interaction {
     const before = new Map(ids.map((id) => [id, { ...g.layout.getPiece(id)!.pose }]));
     const parted = g.layout.partFrom(members);
     g.sim.trackChanged();
+    // Parted from the track around it: the pegs at those joints go back to their own ends (and the ends show free).
+    g.trackView.jointsChanged();
     const ends: WorldConnector[] = [];
     for (const id of ids) {
       const p = g.layout.getPiece(id)!;
@@ -1671,6 +1847,7 @@ export class Interaction {
     g.layout.nudgePieces(m.before);
     for (const ref of m.parted) g.layout.seatFree(ref);
     g.trackView.moveInstances(m.ids);
+    g.trackView.jointsChanged();
     g.trackView.setHighlights(this.picked);
     g.sim.trackChanged();
     g.moveShadows();
@@ -1740,6 +1917,28 @@ export class Interaction {
   }
 
   /** A held piece: the real wooden piece (not a see-through ghost), with a rim glow for snap / blocked. */
+  /** A held auto straight that leaves a gap: an end board on its far end (the end that stays open), else none. */
+  private markGap(m: Extract<Mode, { kind: "drag-piece" }>): void {
+    let board = m.ghost.getObjectByName("gap-board");
+    if (!m.gap || m.snap.kind !== "snapped") {
+      if (board) {
+        m.ghost.remove(board);
+        disposeObject(board);
+      }
+      return;
+    }
+    if (!board) {
+      board = endBoardModel(this.game.mats);
+      // Bigger than a placed end's, to be seen past the finger.
+      board.scale.setScalar(1.6);
+      board.name = "gap-board";
+      board.matrixAutoUpdate = false;
+      m.ghost.add(board);
+    }
+    const c = getPieceDef(m.type, m.flipped).connectors[m.snap.connector === 0 ? 1 : 0];
+    board.matrix.copy(pieceMatrix(c.pose.x, c.y, c.pose.z, c.pose.heading)).scale(board.scale);
+  }
+
   private heldMesh(type: PieceTypeId, flipped: boolean): Mesh {
     const mats = this.game.mats;
     setRim(mats.held, "#ffffff", 0);
@@ -1862,6 +2061,18 @@ export class Interaction {
           atFinger = fingered;
         }
       }
+      // Nothing in reach of its ends or under the finger, but the finger is out in front of a free end, on its line
+      // (aiming into a gap, the piece held at an angle): it goes on that end.
+      if (m.snap.kind !== "snapped" && getPieceDef(holdType, m.heldFlipped).connectors.length > 0) {
+        for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY])) {
+          const finger = this.planeAt(x, sy, level);
+          const s = finger ? findSnapAhead(this.game.layout, holdType, m.heldFlipped, heldAt(level) ?? m.pose, level, finger, m.pieceId) : null;
+          if (s?.kind !== "snapped") continue;
+          if (isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
+          m.snap = s;
+          break;
+        }
+      }
       if (m.auto) {
         const fit = m.snap.kind === "snapped" && m.snap.connector <= 1 ? fitAutoStraight(this.game.layout, m.snap.pose, m.snap.y, m.snap.connector as 0 | 1, [m.pieceId]) : null;
         // Shrink to meet a free end along its line, or bend (a join) to meet one a little to one side.
@@ -1871,6 +2082,7 @@ export class Interaction {
           m.type = type;
           m.ghost.geometry = pieceGeometry(type, m.flipped);
         }
+        m.gap = fit?.gap ?? 0;
       }
       const fitFlipped = m.snap.kind === "snapped" ? m.snap.flipped : m.heldFlipped;
       if (fitFlipped !== m.flipped) {
@@ -1886,7 +2098,8 @@ export class Interaction {
       const { reason, risers } = this.placement(m.type, m.flipped, pose, py, m.pieceId);
       // (A preview under the mouse just shows red: the reason comes if it's clicked.)
       // While it's held where it can't go, the reason stays up (and goes once it can, or it's over the tray).
-      if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? this.blockMessage(reason) : null);
+      m.hint = !reason ? null : m.snap.kind === "snapped" ? this.fitHint(m.type, m.flipped, m.snap, m.pieceId) : this.turnHint(holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId);
+      if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? (m.hint ?? this.blockMessage(reason)) : null);
       m.blocked = reason;
       m.risers = risers;
       // Trees hop out of the way of where the piece would go (and back when it moves on); a ramp shows its cutting.
@@ -1905,8 +2118,11 @@ export class Interaction {
       }
       const held = this.game.mats.held;
       if (reason) setRim(held, "#ff4a3a", 1.2);
+      // Joined at one end, but leaving a gap to an end ahead (another one closes it): amber, not "joined".
+      else if (m.snap.kind === "snapped" && m.gap) setRim(held, "#ff9d00", 1.8);
       else if (m.snap.kind === "snapped") setRim(held, "#7ddc58", 0.9);
       else setRim(held, "#fff2d8", 0.12);
+      this.markGap(m);
       m.goal.x = pose.x;
       m.goal.y = py + HOLD_LIFT;
       m.goal.z = pose.z;
@@ -1954,7 +2170,7 @@ export class Interaction {
     const { reason: final, risers } = this.placement(m.type, m.flipped, pose, y, m.pieceId);
     // The reason it couldn't go (if it can't) stays up long enough to read; else the held one goes.
     this.hud.setRefusal(null);
-    if (final && !m.overTray) this.hud.refuse(this.blockMessage(final));
+    if (final && !m.overTray) this.hud.refuse(m.hint ?? this.blockMessage(final));
     const mesh = m.ghost;
     const shown: PiecePose = { x: m.shown.x, y: m.shown.y, z: m.shown.z, heading: m.shown.heading };
     const industry = !!INDUSTRY_ROLE[m.type];

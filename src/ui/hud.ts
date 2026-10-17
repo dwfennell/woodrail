@@ -14,6 +14,8 @@ export interface HudHandlers {
   trayTap(item: TrayItem): void;
   /** Another tray tab opened (the ready piece is put away). */
   trayTabChanged(): void;
+  /** The Track tab opened or closed (building: free track ends show their end boards). */
+  trackTab?(open: boolean): void;
   undo(): void;
   redo(): void;
   rerailAll(): void;
@@ -50,6 +52,8 @@ export interface HudHandlers {
   newGame(): void;
   /** Back to the title screen. */
   titleScreen(): void;
+  /** The brand tapped: back to the player's railway (the view frames their track). */
+  home(): void;
   toggleQuality(): void;
   closeCards(): void;
   /** Tray: turn the piece in hand and the ones taken out next (an eighth turn). */
@@ -101,6 +105,25 @@ function button(label: string, title: string, onClick: () => void, cls = "chip")
   return b;
 }
 
+/** A switch: a label and a pill with a knob, on or off (role="switch"). Its name is its label; `title` is the tooltip. */
+function toggle(label: string, title: string, onClick: () => void): HTMLButtonElement {
+  const b = el("button", "chip text toggle");
+  b.title = title;
+  b.setAttribute("role", "switch");
+  b.setAttribute("aria-checked", "false");
+  b.append(el("span", "toggle-label", label), el("span", "toggle-pill"));
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+  return b;
+}
+
+function setToggle(b: HTMLButtonElement, on: boolean): void {
+  b.classList.toggle("active", on);
+  b.setAttribute("aria-checked", String(on));
+}
+
 /** A little camera (Follow). */
 const CAMERA_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 8h3l1.6-2h6.8L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.4" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
 /** The way arrow, pointing right before it's turned. */
@@ -120,6 +143,8 @@ export function toastMs(message: string, celebrate: boolean, ms = 0): number {
 }
 /** Toasts waiting their turn at most (a busy moment drops the oldest plain ones). */
 const TOAST_QUEUE = 3;
+/** A toast this soon after a HUD button is pressed answers it (ms). */
+const TOAST_ANSWER_MS = 600;
 /** The help card's tips drawn with tray pictures: the picture's key, and the tip's art. */
 const HELP_ART: Record<string, string> = { "piece:curve-large": ".art-build", "train:Full train": ".art-run" };
 
@@ -195,7 +220,13 @@ export class Hud {
   private readonly gameItems: HTMLButtonElement[];
   readonly perf = el("div", "perf");
   private toastTimer = 0;
-  private readonly toastQueue: { message: string; celebrate: boolean; ms: number }[] = [];
+  private readonly toastQueue: { message: string; celebrate: boolean; ms: number; urgent: boolean }[] = [];
+  /** When a button of the HUD was last pressed: a toast soon after answers it (it shows even over a card). */
+  private lastButtonAt = -Infinity;
+  /** A toast waits for an open card to close (there was no room for it above the card). */
+  private toastWaitsForCard = false;
+  /** The toast on screen, from the queue (null: none, or a held piece's refusal). */
+  private toastShowing: { message: string; celebrate: boolean; ms: number; urgent: boolean } | null = null;
   /** Until when (performance.now) the message showing may not be replaced. */
   private toastHeldUntil = 0;
   private toastFlushTimer = 0;
@@ -214,6 +245,7 @@ export class Hud {
     this.root.addEventListener("pointerdown", (e) => {
       const t = e.target as HTMLElement;
       if (t.closest("button") && !t.closest(".tray-item")) h.buttonTap();
+      if (t.closest("button")) this.lastButtonAt = performance.now();
     });
 
     const top = el("header", "topbar");
@@ -223,6 +255,17 @@ export class Hud {
     this.coinTag.hidden = true;
     this.coinTag.title = "Coins: towns pay them for deliveries; they buy land";
     brand.appendChild(this.coinTag);
+    // Tapped: back to my railway (after a pinch or a pan out over empty land, the way home).
+    brand.setAttribute("role", "button");
+    brand.tabIndex = 0;
+    brand.title = "Back to my railway";
+    brand.addEventListener("click", () => h.home());
+    brand.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        h.home();
+      }
+    });
     top.appendChild(brand);
     const actions = el("div", "actions");
     this.undoBtn = button(uiIcon("undo"), "Undo (Ctrl+Z)", h.undo);
@@ -244,6 +287,15 @@ export class Hud {
     top.appendChild(actions);
     this.root.appendChild(top);
     installTooltips(this.root);
+    // A card that grows once it's open (a workshop's list fills in a frame later) may come up under a toast: it's put
+    // clear again (only when a card's size changes, not per frame).
+    if (typeof ResizeObserver !== "undefined") {
+      const refit = new ResizeObserver(() => {
+        this.refitToast();
+        this.onCardResize?.();
+      });
+      for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) refit.observe(c);
+    }
 
     // Menu
     this.menu.hidden = true;
@@ -362,8 +414,8 @@ export class Hud {
 
     // Depot card: what's on its piles, and how it treats trains.
     this.depotCard.hidden = true;
-    this.depotAutoBtn = button("Automatic", "The crane loads and unloads trains by itself", h.depotAuto, "chip text");
-    this.depotWaitBtn = button("Wait for a full load", "Trains wait under the crane until each wagon is full", h.depotWaitFull, "chip text");
+    this.depotAutoBtn = toggle("Automatic", "The crane loads and unloads trains by itself", h.depotAuto);
+    this.depotWaitBtn = toggle("Wait for a full load", "Trains wait under the crane until each wagon is full", h.depotWaitFull);
     const depotRow = el("div", "card-row");
     depotRow.append(this.depotAutoBtn, this.depotWaitBtn);
     this.depotExtra.hidden = true;
@@ -496,6 +548,7 @@ export class Hud {
       this.chooseLandTool(tab.land ? (this.landTool ?? "move") : null);
       tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", (x as HTMLElement).dataset.tab === tab.id));
       this.tray.classList.toggle("track-tab", !!tab.orient);
+      this.handlers.trackTab?.(tab.id === "track");
       this.tray.classList.toggle("turn-only", tab.orient === "turn");
       this.propsTab = tab.orient === "turn";
       let groups = tab.groups;
@@ -1052,9 +1105,9 @@ export class Hud {
   updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = ""): void {
     const text = [...piles.map((p) => `${p.label} ${p.count}/${p.cap}`), ...(note ? [note] : [])].join("   ·   ");
     if (this.depotStock.textContent !== text) this.depotStock.textContent = text;
-    this.depotAutoBtn.classList.toggle("active", auto);
+    setToggle(this.depotAutoBtn, auto);
     this.depotWaitBtn.hidden = waitFull === null;
-    this.depotWaitBtn.classList.toggle("active", !!waitFull);
+    setToggle(this.depotWaitBtn, !!waitFull);
     this.depotWaitBtn.disabled = !auto;
   }
 
@@ -1071,7 +1124,20 @@ export class Hud {
     return !this.depotCard.hidden;
   }
 
+  /** Called when a card changes size (as it opens, as its rows fill in): the view may make room for what it's for. */
+  onCardResize: (() => void) | null = null;
+
+  /** Where the open card for one thing (an engine, a car, a piece, a depot) is on screen, or null. */
+  openCardRect(): DOMRect | null {
+    for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) {
+      if (!c.hidden && !c.classList.contains("group") && c.offsetParent !== null) return c.getBoundingClientRect();
+    }
+    return null;
+  }
+
   hideCards(): void {
+    // A toast waiting for room: once the cards are put away (and any card opening in their place is up), it comes on.
+    if (this.toastWaitsForCard) requestAnimationFrame(() => this.flushToasts());
     this.root.classList.remove("card-open");
     this.depotCard.hidden = true;
     this.engineCard.hidden = true;
@@ -1099,10 +1165,18 @@ export class Hud {
    * waiting, a few wait at most, and the same message isn't queued twice.
    */
   toast(message: string, celebrate = false, ms = 2200): void {
+    this.queueToast(message, celebrate, ms, performance.now() - this.lastButtonAt < TOAST_ANSWER_MS);
+  }
+
+  /**
+   * `urgent`: it answers what the player just did (a refusal, a button's "can't"): it shows at once, even over an open
+   * card. Anything else (a hint, news of the world) waits while an open card leaves it no room (see `placeToast`).
+   */
+  private queueToast(message: string, celebrate: boolean, ms: number, urgent: boolean): void {
     note("toast", message);
     const showing = this.toastHeldUntil > performance.now() && this.toastEl.textContent === message;
     if (showing || this.toastQueue.some((t) => t.message === message)) return;
-    const t = { message, celebrate, ms };
+    const t = { message, celebrate, ms, urgent };
     const plain = celebrate ? this.toastQueue.findIndex((q) => !q.celebrate) : -1;
     if (plain !== -1) this.toastQueue.splice(plain, 0, t);
     else this.toastQueue.push(t);
@@ -1131,11 +1205,33 @@ export class Hud {
       this.toastFlushTimer = window.setTimeout(() => this.flushToasts(), wait);
       return;
     }
-    const next = this.toastQueue.shift();
-    if (!next) return;
+    if (this.toastQueue.length === 0) return;
+    // The first that may show: one with no room (a card open) waits till the cards close (`hideCards`), and lets one
+    // that answers the player go ahead of it.
+    const i = this.toastQueue.findIndex((q) => q.urgent || this.placeToast(q.message));
+    this.toastWaitsForCard = i === -1;
+    if (i === -1) return;
+    const [next] = this.toastQueue.splice(i, 1);
     this.showToast(next.message, next.celebrate, next.ms);
+    this.toastShowing = next;
     this.toastHeldUntil = performance.now() + toastMs(next.message, next.celebrate, next.ms);
     if (this.toastQueue.length > 0) this.flushToasts();
+  }
+
+  /**
+   * A card changed size under the toast showing: move it clear, or (a hint, with no room left) put it back to wait for
+   * the cards to close.
+   */
+  private refitToast(): void {
+    const t = this.toastShowing;
+    if (!t || !this.toastEl.classList.contains("show") || this.toastEl.textContent !== t.message) return;
+    if (this.placeToast(t.message) || t.urgent) return;
+    clearTimeout(this.toastTimer);
+    this.toastEl.classList.remove("show");
+    this.toastShowing = null;
+    this.toastHeldUntil = 0;
+    this.toastQueue.unshift(t);
+    this.toastWaitsForCard = true;
   }
 
   /** The refusal showing while a held piece is over where it can't go (kept up until it can, or it's put down). */
@@ -1150,6 +1246,7 @@ export class Hud {
     this.heldRefusal = message;
     if (message) {
       this.toastQueue.length = 0;
+      this.toastShowing = null;
       this.showToast(message, false, 600000);
       this.toastHeldUntil = performance.now() + toastMs(message, false);
     } else if (this.toastEl.classList.contains("show")) {
@@ -1161,14 +1258,14 @@ export class Hud {
   /** A refusal when something's put down where it can't go: up long enough to read (`toastMs`, as every toast). */
   refuse(message: string): void {
     this.heldRefusal = null;
-    this.toast(message);
+    this.queueToast(message, false, 2200, true);
   }
 
   private showToast(message: string, celebrate: boolean, ms: number): void {
     this.toastEl.textContent = message;
     this.toastEl.classList.toggle("celebrate", celebrate);
     this.toastEl.classList.remove("show");
-    this.clearOfPanels();
+    this.placeToast(message);
     // Restart the slide-in even when a toast is already showing.
     void this.toastEl.offsetWidth;
     this.toastEl.classList.add("show");
@@ -1177,23 +1274,24 @@ export class Hud {
   }
 
   /**
-   * Keep a toast clear of what's pinned under the top bar (the goals; the picking card): below it if they'd overlap
-   * (on a phone they always do), else where it goes. Measured when a toast shows, not per frame.
+   * Put the toast (with `message`) clear of what's pinned under the top bar (the goals; the picking card): below it if
+   * they'd overlap (on a phone they always do). Clear of an open card too: beside it if there's room (a phone on its
+   * side), else just above it. False if a card leaves it no room (it'd cover the card's top rows). Measured when a toast
+   * shows, not per frame.
    */
-  private clearOfPanels(): void {
+  private placeToast(message: string): boolean {
     const t = this.toastEl;
+    t.textContent = message;
     t.style.top = t.style.left = t.style.maxWidth = "";
     let r = t.getBoundingClientRect();
-    // A card open beside it (on a phone on its side, cards dock at the right, under the top bar): the toast goes in the
-    // room to the card's left rather than over the card's top row (its close).
-    for (const c of this.root.querySelectorAll<HTMLElement>(".card")) {
-      if (c.hidden || c.offsetParent === null) continue;
-      const q = c.getBoundingClientRect();
-      if (q.right < r.left || q.left > r.right || q.bottom < r.top || q.top > r.bottom || q.left < 200) continue;
-      t.style.left = `${Math.round(q.left / 2)}px`;
-      t.style.maxWidth = `${Math.round(q.left - 24)}px`;
+    const cards = [...this.root.querySelectorAll<HTMLElement>(".card")].filter((c) => !c.hidden && c.offsetParent !== null && !c.classList.contains("group")).map((c) => c.getBoundingClientRect());
+    const over = (q: DOMRect) => !(q.right < r.left || q.left > r.right || q.bottom < r.top || q.top > r.bottom);
+    // Beside a card (on a phone on its side, cards dock at the right, under the top bar): in the room to its left.
+    const beside = cards.find((q) => over(q) && q.left >= 200);
+    if (beside) {
+      t.style.left = `${Math.round(beside.left / 2)}px`;
+      t.style.maxWidth = `${Math.round(beside.left - 24)}px`;
       r = t.getBoundingClientRect();
-      break;
     }
     let below = 0;
     for (const p of this.root.querySelectorAll<HTMLElement>(".goals, .piece-card.group")) {
@@ -1202,7 +1300,18 @@ export class Hud {
       if (q.width === 0 || q.right < r.left || q.left > r.right || q.bottom < r.top) continue;
       below = Math.max(below, q.bottom);
     }
-    if (below > 0) t.style.top = `${Math.round(below + 22)}px`;
+    if (below > 0) {
+      t.style.top = `${Math.round(below + 22)}px`;
+      r = t.getBoundingClientRect();
+    }
+    if (beside) return true;
+    // Over a card (a tall one, on a phone held upright): just above its top edge if it fits there, else no room.
+    const card = cards.find(over);
+    if (!card) return true;
+    const h = t.offsetHeight;
+    if (card.top - t.offsetTop < h + 8) return false;
+    t.style.top = `${Math.round(card.top - h - 8)}px`;
+    return true;
   }
 
   /** Is the screen point over the tray (dropping there cancels / deletes)? */

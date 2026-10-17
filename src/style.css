@@ -29,6 +29,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .topbar > * { pointer-events: auto; }
 .brand { font-weight: 800; font-size: 20px; letter-spacing: 0.02em; color: #3a2a1c; background: rgba(250, 243, 230, 0.82); backdrop-filter: blur(8px); padding: 8px 14px 8px 10px; border-radius: 14px; box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); display: flex; align-items: center; gap: 8px; }
 .brand-block { font-size: 26px; }
+/* The brand is the way home (back to my railway): a finger's height, and a ⌖ while it's pressed. */
+.brand { position: relative; min-height: 44px; min-width: 44px; cursor: pointer; transition: transform 0.12s; }
+.brand:active { transform: scale(0.96); }
+.brand::after { content: "⌖"; position: absolute; right: 2px; bottom: 2px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; line-height: 1; background: #fbf3e4; color: #6a4a2c; box-shadow: 0 1px 4px rgba(60, 40, 20, 0.3); opacity: 0; transition: opacity 0.12s; pointer-events: none; }
+.brand:active::after, .brand:focus-visible::after { opacity: 1; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .chip { min-width: 44px; height: 44px; padding: 0 12px; border: none; border-radius: 13px; font: inherit; font-weight: 800; font-size: 17px; color: #3a2a1c; cursor: pointer;
   background: linear-gradient(180deg, #f3dcb6, #dcb682); box-shadow: inset 0 1px 0 #fff8, inset 0 -3px 0 rgba(120, 80, 40, 0.25), 0 4px 14px rgba(60, 40, 20, 0.22); transition: transform 0.08s ease, filter 0.15s; }
@@ -37,6 +42,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .chip:disabled { opacity: 0.45; cursor: default; }
 .chip.text { font-size: 15px; }
 .chip.active { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
+/* A switch: label, then a pill with a knob. Off = outline and knob left; on = filled green and knob right. */
+.chip.toggle { display: inline-flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; background: transparent; box-shadow: inset 0 0 0 2px #b58f62; }
+.chip.toggle.active { background: linear-gradient(180deg, #8fd08a, #5aa35a); box-shadow: inset 0 0 0 2px #3f7f3f; }
+.toggle-pill { position: relative; flex: none; width: 38px; height: 22px; border-radius: 11px; background: #d9c3a0; box-shadow: inset 0 1px 3px rgba(60, 40, 20, 0.4); transition: background-color 0.15s; }
+.toggle-pill::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fbf3e4; box-shadow: 0 1px 3px rgba(60, 40, 20, 0.5); transition: transform 0.15s; }
+.chip.toggle.active .toggle-pill { background: #2f7a38; }
+.chip.toggle.active .toggle-pill::after { transform: translateX(16px); }
+.chip.toggle:disabled { opacity: 0.45; }
 .chip.danger { background: linear-gradient(180deg, #f2b3a3, #d9785f); }
 .chip.primary { background: linear-gradient(180deg, #8fd08a, #5aa35a); color: #13310f; }
 .chip.attention { background: linear-gradient(180deg, #ffd88a, #f0ae3c); animation: nudge 1.6s ease-in-out infinite; }
@@ -352,6 +365,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .map-view > * { pointer-events: auto; }
 .map-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .map-marker { position: absolute; left: 0; top: 0; pointer-events: auto; display: flex; align-items: center; gap: 6px; margin: -14px 0 0 -14px; padding: 5px 10px 5px 6px; border: 0; border-radius: 12px; background: rgba(251, 243, 228, 0.94); box-shadow: 0 3px 12px rgba(40, 25, 10, 0.25); font: inherit; color: #3a2a1c; text-align: left; cursor: pointer; max-width: 210px; }
+.map-marker.off { visibility: hidden; pointer-events: none; }
 .map-marker:hover { filter: brightness(1.04); }
 .map-marker.flip { flex-direction: row-reverse; margin-left: 14px; padding: 5px 6px 5px 10px; text-align: right; }
 .map-dot { flex: none; width: 16px; height: 16px; border-radius: 50%; background: #c8442f; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.2); }
@@ -385,6 +399,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .make-row .cost { font-size: 12px; font-weight: 700; color: #7a5532; }
 .make-row .box { font-size: 12px; font-weight: 800; color: #3f8f4a; font-variant-numeric: tabular-nums; }
 .make-row .chip { height: 34px; min-width: 34px; padding: 0 10px; font-size: 14px; }
+/* On a touch screen the + and − are a finger's size (QA U7: 34 px was). */
+@media (pointer: coarse) { .make-row .chip { height: 44px; min-width: 44px; } }
 .make-head { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #8a6440; margin-top: 4px; }
 
 /* ---- Blueprint board (Game mode) ---------------------------------------------------------------------------- */

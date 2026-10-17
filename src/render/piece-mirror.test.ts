@@ -1,7 +1,7 @@
 import { Box3, Mesh, MeshBasicMaterial, Vector3, type BufferGeometry } from "three";
 import { describe, expect, it } from "vitest";
 import { getPieceDef } from "../track";
-import { buildPieceGeometry } from "./track-geometry";
+import { buildPieceGeometry, withPegs } from "./track-geometry";
 import { pieceGeometry } from "./track-view";
 
 const box = (g: BufferGeometry) => new Box3().setFromObject(new Mesh(g, new MeshBasicMaterial()));
@@ -21,7 +21,7 @@ describe("mirrored pieces", () => {
   it("are their plain shape reflected, the same shape the carving would make, still facing outward", () => {
     for (const type of ["curve-large", "switch", "s-curve"] as const) {
       const fromMirror = pieceGeometry(type, true);
-      const carved = buildPieceGeometry(getPieceDef(type, true));
+      const carved = withPegs(buildPieceGeometry(getPieceDef(type, true)), getPieceDef(type, true));
       const a = box(fromMirror);
       const b = box(carved);
       for (const k of ["min", "max"] as const) for (const axis of ["x", "y", "z"] as const) expect(a[k][axis], `${type} ${k}.${axis}`).toBeCloseTo(b[k][axis], 1);

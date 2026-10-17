@@ -16,7 +16,9 @@ interface CarEntry {
 }
 
 /** How far a selection shell stands proud of a car's parts (mm). */
-const SHELL_GROW = 2.2;
+const SHELL_GROW = 2.6;
+/** The dark ring just inside it (mm): the light rim alone is lost against pale wood (a timber wagon's deck). */
+const SHELL_INNER = 1.1;
 /** A part gets a shell if it's at least this share of the car's longest part. */
 const SHELL_PART = 0.4;
 
@@ -40,6 +42,9 @@ export class TrainView {
   private readonly shellTrain = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.select), side: BackSide, transparent: true, opacity: 0.7, depthWrite: false });
   // The car whose card is open: the same colour, lighter and solid.
   private readonly shellCar = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.select).lerp(new Color("#ffffff"), 0.55), side: BackSide, transparent: true, opacity: 1, depthWrite: false });
+  // The dark inner ring, drawn over the light rim's inside edge.
+  private readonly ringTrain = new MeshBasicMaterial({ color: new Color("#4a3214"), side: BackSide, transparent: true, opacity: 0.85, depthWrite: false });
+  private readonly ringCar = new MeshBasicMaterial({ color: new Color("#4a3214"), side: BackSide, transparent: true, opacity: 1, depthWrite: false });
 
   constructor(private readonly mats: Materials) {}
 
@@ -137,7 +142,7 @@ export class TrainView {
     entry.shells ??= this.makeShells(entry.model.root);
     for (const shell of entry.shells) {
       shell.visible = level !== 0;
-      shell.material = level === 2 ? this.shellCar : this.shellTrain;
+      shell.material = shell.userData.ring ? (level === 2 ? this.ringCar : this.ringTrain) : level === 2 ? this.shellCar : this.shellTrain;
     }
   }
 
@@ -165,23 +170,27 @@ export class TrainView {
     const longest = Math.max(0, ...parts.map(span));
     return parts
       .filter((q) => span(q) >= SHELL_PART * longest)
-      .map(({ part, size, centre, scale }) => {
-        const grow = (n: number, s: number) => (n > 1e-6 ? (n + (2 * SHELL_GROW) / Math.abs(s || 1)) / n : 1);
-        const shell = new Mesh(part.geometry, this.shellTrain);
-        shell.matrixAutoUpdate = false;
-        shell.matrix
-          .makeTranslation(centre.x, centre.y, centre.z)
-          .multiply(new Matrix4().makeScale(grow(size.x, scale.x), grow(size.y, scale.y), grow(size.z, scale.z)))
-          .multiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z));
-        shell.renderOrder = 2;
-        shell.castShadow = false;
-        shell.receiveShadow = false;
-        shell.raycast = () => {};
-        // The part owns the geometry (disposeObject frees it once); the materials are this view's.
-        shell.userData.sharedGeometry = true;
-        part.add(shell);
-        return shell;
-      });
+      .flatMap(({ part, size, centre, scale }) =>
+        // The light rim, and the dark ring inside it (drawn after, over the rim's inside edge).
+        [SHELL_GROW, SHELL_INNER].map((by, i) => {
+          const grow = (n: number, s: number) => (n > 1e-6 ? (n + (2 * by) / Math.abs(s || 1)) / n : 1);
+          const shell = new Mesh(part.geometry, this.shellTrain);
+          shell.matrixAutoUpdate = false;
+          shell.matrix
+            .makeTranslation(centre.x, centre.y, centre.z)
+            .multiply(new Matrix4().makeScale(grow(size.x, scale.x), grow(size.y, scale.y), grow(size.z, scale.z)))
+            .multiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z));
+          shell.renderOrder = 2 + i;
+          shell.userData.ring = i === 1;
+          shell.castShadow = false;
+          shell.receiveShadow = false;
+          shell.raycast = () => {};
+          // The part owns the geometry (disposeObject frees it once); the materials are this view's.
+          shell.userData.sharedGeometry = true;
+          part.add(shell);
+          return shell;
+        }),
+      );
   }
 
   carAt(object: Object3D): number {
