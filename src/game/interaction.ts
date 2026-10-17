@@ -22,7 +22,7 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
-import { checkYard, footprintInYards, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, turnedRound, YARD_FLIP_HINT, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
+import { checkYard, flipHint, footprintInYards, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { dragMoves } from "./drag-rule";
@@ -1644,11 +1644,13 @@ export class Interaction {
    * of the line? Worked out only while it's refused, once per spot.
    */
   private yardHint(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): string | null {
-    const key = `yard|${type}|${flipped}|${pose.x}|${pose.z}|${pose.heading}|${y}|${this.game.layout.pieceCount}`;
+    const ignoreKey = typeof ignoreId === "number" ? ignoreId : [...ignoreId].join(",");
+    const key = `yard|${type}|${flipped}|${pose.x}|${pose.z}|${pose.heading}|${y}|${ignoreKey}|${this.game.layout.pieceCount}`;
     if (this.hintFor?.key === key) return this.hintFor.hint;
     const memo = this.yardMemo;
     const why = this.yardWhy;
-    const hint = this.splices(type) && this.placement(type, flipped, turnedRound(type, pose), y, ignoreId).reason === null ? YARD_FLIP_HINT : null;
+    // Turned right round on the same track (where the splice puts it held the other way), all of it checked.
+    const hint = this.splices(type) ? flipHint(type, pose, (turned) => this.placement(type, flipped, turned, y, ignoreId).reason) : null;
     // (The turned-round check mustn't take the place of what's said, or remembered, for where it's held.)
     this.yardMemo = memo;
     this.yardWhy = why;

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { checkPlacement, FEAT_BUILDING, FEAT_FIELD, gridWithPlots, SURF_RIVER, SURF_SEA, type Landscape } from "../landscape";
 import { PropStore } from "../props/store";
 import { appendPiece, connectorRef, findSplice, Layout, type PieceTypeId, type Pose } from "../track";
-import { checkYard, footprintInYards, inYardMessage, placedYard, trackInYards, townMessage, turnedRound, YARD_FLIP_HINT, yardMessage, yardParts, type PlacedYard, type YardCheck } from "./depot-footprint";
+import { checkYard, flipHint, footprintInYards, inYardMessage, placedYard, trackInYards, townMessage, turnedRound, YARD_FLIP_HINT, YARD_NO_ROOM, yardMessage, yardParts, type PlacedYard, type YardCheck } from "./depot-footprint";
 
 function flat(): Landscape {
   return { seed: 0, starter: false, grid: gridWithPlots(-1, -1, 2, 2), towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
@@ -227,5 +227,36 @@ describe("a player's depot's yard keeps other things out", () => {
     expect(footprintInYards(yards(), fp, P(100, 70))?.pieceId).toBe(7);
     expect(footprintInYards(yards(), fp, P(100, 130))).toBeNull();
     expect(footprintInYards(yards(), fp, P(100, -40))).toBeNull();
+  });
+});
+
+describe("the flip hint (yard the other side of the line)", () => {
+  /** The full check of a workshop at a pose: its track's own, then its yard's. */
+  const why = (ctx: ReturnType<typeof setup>) => (pose: Pose) => {
+    const track = checkPlacement(ctx.land, "depot-workshop", false, pose, 0);
+    return track.kind !== "clear" ? track.reason : checkYard(ctx, "depot-workshop", pose, 0, -1);
+  };
+
+  it("with water one side of a straight and a hill the other, there's no flip hint either way: no room for the yard", () => {
+    const ctx = setup();
+    // A hill on the yard's side (row 1: z 72–144), the river on the other (row −2: z −144 to −72).
+    setCells(ctx.land, 80, 130, 80, 130, (i) => (ctx.land.grid.height[i] = 1));
+    setCells(ctx.land, 80, 130, -130, -80, (i) => (ctx.land.grid.surface[i] = SURF_RIVER));
+    const turned = turnedRound("depot-workshop", AT);
+    expect(why(ctx)(AT)).toBe("yard-hill");
+    expect(why(ctx)(turned)).toBe("yard-water");
+    expect(flipHint("depot-workshop", AT, why(ctx))).toBe(YARD_NO_ROOM);
+    expect(flipHint("depot-workshop", turned, why(ctx))).toBe(YARD_NO_ROOM);
+  });
+
+  it("with only the hill, held with its yard on the hill it says Flip; turned round it fits (and needs no hint)", () => {
+    const ctx = setup();
+    setCells(ctx.land, 80, 130, 80, 130, (i) => (ctx.land.grid.height[i] = 1));
+    expect(flipHint("depot-workshop", AT, why(ctx))).toBe(YARD_FLIP_HINT);
+    expect(why(ctx)(turnedRound("depot-workshop", AT))).toBeNull();
+  });
+
+  it("turned round, its track refused for something else (not its yard): no hint", () => {
+    expect(flipHint("depot-workshop", AT, () => "building")).toBeNull();
   });
 });

@@ -407,6 +407,19 @@ export function depotSpot(w: World, type: PieceTypeId, near: readonly { x: numbe
 /** What to say when the yard would fit on the other side of the line (the depot turned right round). */
 export const YARD_FLIP_HINT = "Flip it to put the yard on the other side";
 
+/** What to say when the yard fits neither side of the line. */
+export const YARD_NO_ROOM = "No room for the yard here";
+
+/**
+ * A depot at `pose` refused for its yard: what to say about turning it right round (Flip), given `why`, the full
+ * placement check (its track's and its yard's) of a pose. The flip hint only if turned round it passes it all; "No
+ * room for the yard here" if its yard is refused that way too; else nothing (what's said for where it's held stands).
+ */
+export function flipHint(type: PieceTypeId, pose: Pose, why: (pose: Pose) => string | null): string | null {
+  const turned = why(turnedRound(type, pose));
+  return turned === null ? YARD_FLIP_HINT : isYardBlock(turned) ? YARD_NO_ROOM : null;
+}
+
 /** A straight depot at `pose` turned right round on the same track: the same ends, its yard on the other side. */
 export function turnedRound(type: PieceTypeId, pose: Pose): Pose {
   const end = getPieceDef(type, false).connectors[1].pose;
