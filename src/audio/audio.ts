@@ -173,21 +173,33 @@ export class ToyAudio {
   }
 
   private lastWhistle = 0;
+  private lastWhistleVolume = 0;
+  /** The last whistle's output, to fade when a nearer engine's cuts in over it. */
+  private whistleOut: GainNode | null = null;
 
   /**
    * A toy engine's whistle: two reedy notes a third apart, a breath of air under them, a short pip then a longer
-   * toot (an engine passing a whistle post). Rate-limited, so trains passing posts together don't blare.
+   * toot (an engine passing a whistle post). `volume` and `pan` as `listen` hears the engine: nearer the camera,
+   * louder. Rate-limited, so trains passing posts together don't blare: within 0.6 s of one only a clearly louder
+   * (nearer) whistle is heard, and the one before it fades out under it. Returns whether it was heard.
    */
-  whistle(volume: number, pan: number): void {
+  whistle(volume: number, pan: number): boolean {
     const ctx = this.ctx;
-    if (!ctx || !this.master || !this.noise || this.muted || volume <= 0.02) return;
+    if (!ctx || !this.master || !this.noise || this.muted || volume <= 0.02) return false;
     const now = performance.now();
-    if (now - this.lastWhistle < 600) return;
+    if (now - this.lastWhistle < 600) {
+      if (volume < this.lastWhistleVolume * 1.4) return false;
+      this.whistleOut?.gain.setTargetAtTime(0, ctx.currentTime, 0.03);
+    }
     this.lastWhistle = now;
+    this.lastWhistleVolume = volume;
     const t = ctx.currentTime;
+    const out = ctx.createGain();
+    out.connect(this.master);
+    this.whistleOut = out;
     const panner = ctx.createStereoPanner();
     panner.pan.value = Math.max(-1, Math.min(1, pan));
-    panner.connect(this.master);
+    panner.connect(out);
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
     lp.frequency.value = 2600;
@@ -225,6 +237,7 @@ export class ToyAudio {
     src.loop = true;
     src.start(t);
     src.stop(t + 0.78);
+    return true;
   }
 
   snap(): void {

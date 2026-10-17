@@ -71,6 +71,9 @@ export class ClockView {
           continue;
         }
         const group = template.clone(true);
+        // The hands cast no shadow: a millimetre off the face, theirs is only a grey smudge beside each hand that
+        // blurs the time at the usual zoom (and two fewer casters for the shadow map).
+        group.traverse((o) => (o.castShadow = false));
         c = { group, parts: partsOf(group) };
         this.clocks.set(p.id, c);
         this.group.add(group);
