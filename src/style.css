@@ -244,14 +244,23 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .card-open .tray.draw-tab .tray-draw { display: none; }
 /* Turn and Flip do nothing for a drawn line: away while drawing. */
 .tray.drawing .tray-orient { display: none !important; }
-/* A phone on its side: the map's strip is short. Turn and Flip only while a shelf is open (as before favourites), and
-   Draw sits in the tab row, at its right (the tabs scroll clear of it). */
-@media (max-height: 520px) {
+/* The tray's head: the tabs, and the tools (Draw, Turn, Flip). On a big screen the tools float above the tray, as
+   placed above; on a phone (QA U3, N6) they share the tab row at its right, as icons, and the tabs scroll in the room
+   left: nothing floats over the map where the track is being laid, and the tools never cover a tab. */
+.tray-head, .tray-tools { display: contents; }
+@media (max-width: 640px), (max-height: 520px) {
+  .tray-head { display: flex; align-items: flex-start; gap: 6px; }
+  .tray-head .tabs { flex: 1 1 auto; min-width: 0; }
+  .tray-tools { display: flex; flex: none; gap: 4px; align-items: center; padding: 3px 2px 0 0; }
+  .tray-tools .tray-draw, .tray-tools .tray-orient { position: static; top: auto; left: auto; right: auto; }
+  .tray-tools .chip { display: inline-flex; align-items: center; justify-content: center; height: 34px; min-width: 40px; padding: 0 9px; font-size: 12px; line-height: 1; box-shadow: 0 2px 6px rgba(60, 40, 20, 0.18); position: relative; }
+  /* Drawn small to fit the row, but a finger's 44 px to tap. */
+  .tray-tools .chip::after { content: ""; position: absolute; inset: -5px -2px; }
+  .tray-tools .chip-word { display: none; }
+  .tray-tools .turn-arrow { margin-left: 2px; }
+  /* Turn and Flip only while a shelf is open (as before favourites): at the top the row keeps its room for the tabs.
+     (They're still only for track, and step aside for a card's own buttons, as above.) */
   .tray.track-tab.has-favourites:not(.in-group) .tray-orient { display: none; }
-  .tray-draw { top: 2px; left: auto; right: 8px; height: 34px; padding: 0 10px; font-size: 12px; z-index: 2; }
-  /* Drawn smaller to fit the tab row, but a finger's 44 px to tap. */
-  .tray-draw::after { content: ""; position: absolute; inset: -5px; }
-  .tray.draw-tab .tabs { padding-right: 92px; }
 }
 /* The Turn button's arrow points the way the next piece will face. */
 .tray-orient .turn-arrow { display: inline-block; transform: rotate(var(--tray-turn, 0deg)); transition: transform 0.2s ease; margin-left: 4px; }
