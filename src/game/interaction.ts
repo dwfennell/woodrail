@@ -511,6 +511,7 @@ export class Interaction {
       // The first stroke shouldn't be the one the drawing code is compiled on (see `warmDrawing`): when idle, once.
       const idle = (globalThis as { requestIdleCallback?: (f: () => void) => number }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 50));
       idle(() => warmDrawing());
+      this.draw.warm(idle);
       this.arm(null);
       this.clearSelection();
       this.hud.hideCards();

@@ -3,10 +3,10 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Editor } from "../editor/editor";
-import { archFloors, bridgeLevels, CELL, cutsHills, hillsOf, inRiver, looseHeight, type HillCut } from "../landscape";
+import { archFloors, bridgeLevels, CELL, cutsHills, hillsOf, inRiver, isWater, looseHeight, type HillCut } from "../landscape";
 import { dustPuff } from "../render/dust";
 import { delayed, settle } from "../render/flourishes";
-import { ghostMesh } from "../render/track-view";
+import { ghostMesh, pieceGeometry } from "../render/track-view";
 import {
   candidatesFrom,
   canStandOnArches,
@@ -235,6 +235,45 @@ export class DrawHand {
       );
     });
     g.invalidate();
+  }
+
+  private warmed = false;
+
+  /**
+   * Get ready for a line meeting the river or a hill, once, a job at a time when idle (`idle`): the river's outline
+   * index (`inRiver`), and the geometry of the bridges and ramps on arches a level up. Otherwise the first stroke over
+   * the water built them on one pointer move (2 to 7 ms each in the browser, and the move that met the river 10 ms).
+   */
+  warm(idle: (f: () => void) => unknown): void {
+    if (this.warmed) return;
+    this.warmed = true;
+    const g = this.game;
+    const jobs: (() => void)[] = [
+      () => {
+        const grid = g.landscape.grid;
+        for (let i = 0; i < grid.cellCount; i++)
+          if (isWater(grid.surface[i])) {
+            inRiver(grid, grid.centreX(grid.colOf(i)), grid.centreZ(grid.rowOf(i)));
+            return;
+          }
+      },
+      ...(
+        [
+          ["bridge", false],
+          ["bridge-curve", false],
+          ["bridge-curve", true],
+          ["ramp", false],
+          ["ramp", true],
+        ] as const
+      ).map(([type, flipped]) => () => void pieceGeometry(type, flipped, 1)),
+    ];
+    const next = () => {
+      const job = jobs.shift();
+      if (!job) return;
+      job();
+      idle(next);
+    };
+    idle(next);
   }
 
   /** Is there a free end of track near screen point (x, y) to draw on from? */
