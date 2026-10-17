@@ -5,6 +5,7 @@ import { blockWord } from "./blocks";
 import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 import { roadIcon } from "./road-icons";
+import { isKit } from "../track";
 import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 import { loadFavourites, saveFavourites } from "./prefs";
 
@@ -458,7 +459,9 @@ export class Hud {
       const key = trayKey(item);
       const thumb = this.thumbs.get(key);
       if (thumb) return `<img src="${thumb}" alt="" draggable="false">`;
-      // A piece or train not drawn yet shows its icon till its picture comes (`setThumbnail` swaps it in).
+      // A piece or train not drawn yet shows its icon till its picture comes (`setThumbnail` swaps it in). A kit piece
+      // (on a catalogue shelf) is drawn when its shelf is first shown, with its model.
+      if (item.kind === "piece" && isKit(item.type)) missing.push(item);
       if (item.kind === "piece") return `<span class="thumb-icon" data-thumb="${key}">${pieceIcon(item.type)}</span>`;
       if (item.kind === "tool") return uiIcon(item.tool);
       if (item.kind === "road") return roadIcon(item.auto ? "auto" : item.piece);

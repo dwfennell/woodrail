@@ -4,6 +4,7 @@ import type { PropStore } from "../props/store";
 import { PropLibrary } from "../render/props/library";
 import { BoatsView } from "../render/boats-view";
 import { PropsView } from "../render/props/props-view";
+import { KitView } from "../render/kit-view";
 import {
   ACESFilmicToneMapping,
   Clock,
@@ -131,6 +132,8 @@ export class Game {
   /** Boats calling at harbours (Game mode). */
   readonly boats: BoatsView;
   readonly propsView: PropsView;
+  /** The kit pieces' models, drawn where their pieces stand (see `KitView`). */
+  readonly kitView: KitView;
   /** A prop being moved by hand: not drawn where it stood. */
   private hiddenProp = -1;
   paused = false;
@@ -222,12 +225,17 @@ export class Game {
     this.propLibrary = new PropLibrary(this.mats);
     this.propsView = new PropsView(this.propLibrary);
     this.scene.add(this.propsView.group);
-    // A model arriving (its code fetched and built) draws the props that were waiting for it.
-    this.propLibrary.onLoaded = () => {
-      this.propsView.sync(this.props, this.hiddenProp, true);
+    this.kitView = new KitView(this.propLibrary);
+    this.scene.add(this.kitView.group);
+    // A model arriving (its code fetched and built) draws the props (and kits) that were waiting for it.
+    this.propLibrary.onLoaded = (key) => {
+      if (key.startsWith("kit:")) this.syncKits(true);
+      else this.propsView.sync(this.props, this.hiddenProp, true);
       this.invalidate();
     };
     this.propsView.sync(this.props);
+    this.watchHidden();
+    this.syncKits();
     this.boats = new BoatsView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.boats.group);
     this.post = createPost(this.renderer, this.scene, this.camera, this.quality);
@@ -285,6 +293,8 @@ export class Game {
     this.trackView.showAllEnds(this.allEnds);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
+    this.watchHidden();
+    this.syncKits(true);
     this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
     this.depotView.setWorld(this.economy, this.layout);
     this.landChanged();
@@ -415,6 +425,7 @@ export class Game {
     // trees.
     syncCuttings(this.landscape, this.layout);
     this.trackView.sync();
+    this.syncKits();
     const hop = this.landscapeView.syncTrees(this.layout, true);
     if (hop) this.flourishes.add(hop);
     this.economy.prune();
@@ -432,6 +443,16 @@ export class Game {
     }
     const hop = this.landscapeView.previewTrees(held);
     if (hop) this.flourishes.add(hop);
+  }
+
+  /** The kits' models follow the layout (a diff: only kits added, moved, taken up or put down are touched). */
+  syncKits(force = false): void {
+    if (this.kitView.sync(this.layout, (id) => this.trackView.isHidden(id), force)) this.invalidate();
+  }
+
+  /** A piece hidden while its stand-in settles hides its kit model too. */
+  private watchHidden(): void {
+    this.trackView.onHidden = () => this.syncKits();
   }
 
   /** Re-rail a derailed train near where its lead car came to rest. Returns the new train id or -1. */

@@ -8,7 +8,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, gapFill, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
@@ -22,7 +22,7 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
-import { checkYard, flipHint, footprintInYards, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
+import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { warmDrawing } from "../track/draw-path";
@@ -1702,7 +1702,7 @@ export class Interaction {
    * own depots (they stand where the map put them). While a depot is held, the last answer is kept for its pose.
    */
   private yardBlock(type: PieceTypeId, pose: Pose, y: number, ignoreId: Ignore): YardBlock | null {
-    if (!INDUSTRY_ROLE[type]) return null;
+    if (!hasFootprint(type)) return null;
     const own = typeof ignoreId === "number" ? ignoreId : (ignoreId.values().next().value ?? -1);
     if (own !== -1 && this.fixedLabel(own) !== null) return null;
     const g = this.game;
@@ -1722,7 +1722,7 @@ export class Interaction {
    * "in-yard", saying whose. Bounding boxes first, against the few player depots.
    */
   private inYard(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): "in-yard" | null {
-    if (INDUSTRY_ROLE[type]) return null;
+    if (INDUSTRY_ROLE[type] || hasFootprint(type)) return null;
     const yard = trackInYards(this.playerYards(), type, flipped, pose, y, ignoreId);
     if (yard) this.inYardWhy = inYardMessage(yard.type);
     return yard ? "in-yard" : null;
@@ -1731,8 +1731,9 @@ export class Interaction {
   private inYardWhy = "";
 
   /**
-   * The yards of the depots the player placed (not the map's own, nor one in the hand), with their bounding boxes:
-   * built again only when one of them is placed, moved or taken up (a key of their poses: a few numbers each).
+   * The yards of the depots the player placed (not the map's own, nor one in the hand), and the ground of the kit
+   * pieces on the map (also not one in the hand), with their bounding boxes: built again only when one of them is
+   * placed, moved or taken up (a key of their poses: a few numbers each).
    */
   private playerYards(): readonly PlacedYard[] {
     const g = this.game;
@@ -1743,6 +1744,12 @@ export class Interaction {
       if (!p || !INDUSTRY_ROLE[p.type] || layout.isLifted(d.pieceId)) continue;
       key += `${d.pieceId}:${p.pose.x}:${p.pose.z}:${p.pose.heading}:${p.y};`;
     }
+    const kits = g.kitView.pieceIds();
+    for (const id of kits) {
+      const p = layout.getPiece(id);
+      if (!p || layout.isLifted(id)) continue;
+      key += `k${id}:${p.pose.x}:${p.pose.z}:${p.pose.heading}:${p.y};`;
+    }
     if (this.yardsFor?.key === key) return this.yardsFor.yards;
     const fixed = new Set(g.depots.values());
     const yards: PlacedYard[] = [];
@@ -1750,6 +1757,12 @@ export class Interaction {
       const p = layout.getPiece(d.pieceId);
       if (!p || fixed.has(d.pieceId) || layout.isLifted(d.pieceId)) continue;
       const yard = placedYard(d.pieceId, p.type, p.pose, p.y);
+      if (yard) yards.push(yard);
+    }
+    for (const id of kits) {
+      const p = layout.getPiece(id);
+      if (!p || layout.isLifted(id)) continue;
+      const yard = placedYard(id, p.type, p.pose, p.y);
       if (yard) yards.push(yard);
     }
     this.yardsFor = { key, yards };
@@ -1898,9 +1911,12 @@ export class Interaction {
     return GRAB_PIECE_MM * pxPerMm >= GRAB_MIN_PX;
   }
 
-  /** Is this a depot piece, which is dropped onto a straight of a line to take its place (and turns round to flip)? */
+  /**
+   * Is this a depot piece, or a kit that splices (`KitDef.splices`), which is dropped onto a straight of a line to take
+   * its place (and turns round to flip)?
+   */
   private splices(type: PieceTypeId): boolean {
-    return !!INDUSTRY_ROLE[type] && straightLength(type, false) > 0;
+    return (!!INDUSTRY_ROLE[type] || !!kitOf(type)?.splices) && straightLength(type, false) > 0;
   }
 
   /**
@@ -1913,7 +1929,7 @@ export class Interaction {
     for (const i of [0, 1]) {
       const partner = layout.joinedConnector(connectorRef(pieceId, i));
       const q = partner === -1 ? undefined : layout.getPiece(pieceOfRef(partner));
-      if (!q || q.type === "station" || INDUSTRY_ROLE[q.type] || q.type.startsWith("depot-") || getPieceDef(q.type, q.flipped).paths.length === 0) return null;
+      if (!q || q.type === "station" || INDUSTRY_ROLE[q.type] || q.type.startsWith("depot-") || kitOf(q.type) || getPieceDef(q.type, q.flipped).paths.length === 0) return null;
       ends.push(partner);
     }
     return [ends[0], ends[1]];
@@ -2315,6 +2331,7 @@ export class Interaction {
     for (const [id, p] of m.before) poses.set(id, { x: p.x + dx, z: p.z + dz, heading: p.heading });
     g.layout.nudgePieces(poses);
     g.trackView.moveInstances(m.ids);
+    g.kitView.moveInstances(g.layout, m.ids);
     const blocked = this.groupBlocked(m.ids, m.members);
     this.hud.setRefusal(blocked ? this.blockMessage(blocked) : null);
     m.blocked = blocked;
@@ -2329,6 +2346,7 @@ export class Interaction {
     g.layout.nudgePieces(m.before);
     for (const ref of m.parted) g.layout.seatFree(ref);
     g.trackView.moveInstances(m.ids);
+    g.kitView.moveInstances(g.layout, m.ids);
     g.trackView.jointsChanged();
     g.trackView.setHighlights(this.picked);
     g.sim.trackChanged();
@@ -2431,9 +2449,10 @@ export class Interaction {
     mesh.castShadow = true;
     mesh.renderOrder = 0;
     mesh.matrixAutoUpdate = false;
-    // An industry comes with its yard and buildings.
+    // An industry comes with its yard and buildings; a kit with its model.
     const role = INDUSTRY_ROLE[type];
     if (role) mesh.add(this.game.depotView.model(role));
+    else if (kitOf(type)) mesh.add(this.game.kitView.model(type));
     this.game.scene.add(mesh);
     return mesh;
   }

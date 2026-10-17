@@ -48,7 +48,7 @@ import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
+import { kitOf, PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
 import type { CarKind, CarLook } from "./sim";
 import { Hud } from "./ui/hud";
 import { INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
@@ -218,7 +218,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             ? [{ key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks }]
             : [],
       ),
-      (type) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : null),
+      (type) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : kitOf(type) ? game.kitView.model(type) : null),
       studio,
     );
     for (const [k, v] of drawn) thumbnails.set(k, v);
@@ -388,12 +388,27 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
   function drawPropThumbnails(items: TrayItem[]): void {
     const idle = thumbQueue.length === 0;
-    for (const item of items) if (item.kind === "prop" && !thumbQueue.includes(item.asset)) thumbQueue.push(item.asset);
+    for (const item of items) {
+      // A kit piece on a catalogue shelf: its track and model, once the model's built.
+      const key = item.kind === "prop" ? item.asset : item.kind === "piece" && kitOf(item.type) ? trayKey(item) : null;
+      if (key && !thumbQueue.includes(key)) thumbQueue.push(key);
+    }
     if (idle && thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
   }
   function nextThumbnail(): void {
     const asset = thumbQueue[0];
     if (asset === undefined) return;
+    if (asset.startsWith("piece:")) {
+      const type = asset.slice("piece:".length) as PieceTypeId;
+      void Promise.all([game.kitView.load(type), TrackView.whenBuilt(type)]).then(() => {
+        thumbQueue.shift();
+        studio ??= new ThumbnailStudio(game.renderer);
+        for (const key of drawThumbnails([{ kind: "piece", type, label: "" }], false, studio)) hud.setThumbnail(key, thumbnails.get(key)!);
+        saveThumbnailsSoon();
+        if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
+      });
+      return;
+    }
     void game.propLibrary.load(asset).then((model) => {
       thumbQueue.shift();
       if (model) {

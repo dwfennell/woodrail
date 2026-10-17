@@ -3,6 +3,7 @@ import { SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
 import type { Bag } from "./goods";
+import { KitStops } from "./kit-stops";
 import { steer } from "./steer";
 
 /** How often (sim ticks) the switches ahead of routed trains are set. */
@@ -191,11 +192,14 @@ export class Economy {
   private events: EconomyEvent[] = [];
   /** The other half of the event double buffer (no new array each drain). */
   private drained: EconomyEvent[] = [];
+  /** Trains stopping at kit pieces' stops (a platform's dwell: see `KitStops`). */
+  readonly kitStops: KitStops;
 
   constructor(
     readonly layout: Layout,
     readonly sim: Sim,
   ) {
+    this.kitStops = new KitStops(layout, sim);
     sim.speedCap = (train) => this.capFor(train);
   }
 
@@ -579,11 +583,20 @@ export class Economy {
   }
 
   /**
-   * The sim's speed limit for a powered train: on an automatic depot where one of its wagons has work, crawl, and slow
-   * so the next wagon needing the crane stops exactly under it, then hold it there (0) while the crane works. A train
-   * with nothing to do there runs through at full speed.
+   * The sim's speed limit for a powered train: a depot's (see `depotCap`), and a kit's stop's (a platform: see
+   * `KitStops`), whichever is lower.
    */
   private capFor(train: Train): number {
+    const depot = this.depotCap(train);
+    return depot === 0 ? 0 : Math.min(depot, this.kitStops.cap(train));
+  }
+
+  /**
+   * The speed limit a depot puts on a powered train: on an automatic depot where one of its wagons has work, crawl,
+   * and slow so the next wagon needing the crane stops exactly under it, then hold it there (0) while the crane works.
+   * A train with nothing to do there runs through at full speed.
+   */
+  private depotCap(train: Train): number {
     const d = this.depotUnder(train);
     const s = this.service(train.id);
     if (!d) {
@@ -741,9 +754,10 @@ export class Economy {
     }
   }
 
-  /** One sim tick of production, use and crane work. */
+  /** One sim tick of production, use and crane work (and trains' dwells at kits' stops). */
   tick(): void {
     this.work();
+    this.kitStops.tick();
     if (this.routes.size > 0) {
       this.advanceRoutes();
       // Switches ahead of routed trains, a few times a second (a train covers a few mm a tick).
@@ -873,6 +887,7 @@ export class Economy {
     for (const id of this.riders.keys()) if (!this.sim.findCar(id)) this.riders.delete(id);
     for (const id of this.routes.keys()) if (!this.sim.findCar(id)) this.routes.delete(id);
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);
+    this.kitStops.prune();
   }
 }
 

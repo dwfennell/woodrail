@@ -1,0 +1,150 @@
+import { kitOf, pathLength, getPieceDef, type KitStopWho, type Layout } from "../track";
+import { SIM_DT, type Sim, type Train } from "../sim";
+import { ticks } from "./constants";
+
+/** Coming up to the stop point. */
+const COMING = 0;
+/** Standing at it, dwelling. */
+const HALTED = 1;
+/** Dwelt (or ran past it): runs on, and doesn't stop again until it has left that kit. */
+const DONE = 2;
+
+/** The train's front this close to the stop point (mm) counts as there (so the last step to a stand is a creep). */
+const AT_STOP = 0.05;
+/**
+ * How hard a train brakes for a stop (mm/s²): the speed limit coming up to the stop point is what it can still stop
+ * from there, so it eases in rather than halting dead. (The sim's own easing is twice the top speed a second.)
+ */
+const BRAKING = 240;
+/** Slowest it creeps the last little way (mm/s), so it doesn't take for ever over the last millimetre. */
+const CREEP = 6;
+
+/** A train's visit to a kit with a stop (`KitDef.stop`). One per train at most. */
+interface Visit {
+  /** The kit piece. */
+  pieceId: number;
+  phase: number;
+  /** Sim ticks it has stood at the stop point. */
+  ticks: number;
+  /** Which way along the kit's path the train came in (its front's cursor's `reversed` then). */
+  reversed: boolean;
+}
+
+/**
+ * Stops at kit pieces (src/track/kits.ts `stop`): a train they're for eases in and halts with its front at the stop
+ * point, waits there for the kit's dwell (counted in sim ticks), then runs on; other trains run through. Read by the
+ * economy's speed limit for trains (`Economy.capFor`, as `sim.speedCap`), as a depot's crane halts a train, and
+ * ticked with the economy: so it works wherever the economy runs (Sandbox and Game mode alike).
+ *
+ * Cheap for trains that aren't at a kit: one piece lookup and one map lookup per powered train per tick.
+ */
+export class KitStops {
+  private readonly visits = new Map<number, Visit>();
+
+  constructor(
+    private readonly layout: Layout,
+    private readonly sim: Sim,
+  ) {}
+
+  /** The speed limit (mm/s) a kit's stop puts on a powered train this tick: Infinity, or less coming in, 0 halted. */
+  cap(train: Train): number {
+    const lead = train.bogies[0];
+    const piece = this.layout.getPiece(lead.pieceId);
+    const kitStop = piece ? kitOf(piece.type)?.stop : undefined;
+    const stop = kitStop && this.stopsFor(kitStop.who, train) ? kitStop : undefined;
+    let v = this.visits.get(train.id);
+    if (v && v.pieceId !== lead.pieceId) {
+      // Its front is off the kit it visited. Turned round while standing there (the lever reversed: a new front): the
+      // stop's over.
+      if (v.phase === HALTED) v.phase = DONE;
+      if (!this.on(train, v.pieceId)) {
+        // Left it: it may stop there again next time.
+        this.visits.delete(train.id);
+        v = undefined;
+      } else if (!stop) return Infinity;
+      // (Still partly on it, and its front onto another kit's stop: a visit to that one.)
+      else v = undefined;
+    }
+    if (!stop) return Infinity;
+    if (!v) {
+      v = { pieceId: lead.pieceId, phase: COMING, ticks: 0, reversed: lead.reversed };
+      this.visits.set(train.id, v);
+    }
+    if (v.phase === DONE) return Infinity;
+    // Turned round on the kit (its lever reversed): it runs on, the other way.
+    if (lead.reversed !== v.reversed) {
+      v.phase = DONE;
+      return Infinity;
+    }
+    if (v.phase === HALTED) return 0;
+    const len = pathLength(getPieceDef(piece!.type, piece!.flipped).paths[lead.pathIndex].geom);
+    const along = lead.reversed ? len - lead.s : lead.s;
+    const ahead = stop.at - along;
+    if (ahead < -AT_STOP) {
+      // Already past the stop point (put down beyond it): no stop this time.
+      v.phase = DONE;
+      return Infinity;
+    }
+    if (ahead <= AT_STOP) {
+      v.phase = HALTED;
+      v.ticks = 0;
+      return 0;
+    }
+    return Math.min(Math.max(Math.sqrt(2 * BRAKING * ahead), CREEP), ahead / SIM_DT);
+  }
+
+  /** One sim tick: trains halted at a stop dwell (only while they stand there with their lever on). */
+  tick(): void {
+    for (const [trainId, v] of this.visits) {
+      if (v.phase !== HALTED) continue;
+      const train = this.sim.getTrain(trainId);
+      const piece = this.layout.getPiece(v.pieceId);
+      const stop = piece ? kitOf(piece.type)?.stop : undefined;
+      if (!train || train.derailed || !stop) {
+        this.visits.delete(trainId);
+        continue;
+      }
+      if (train.speed !== 0 || !this.driven(train)) continue;
+      if (++v.ticks >= ticks(stop.seconds)) v.phase = DONE;
+    }
+  }
+
+  /** Is this train standing at a kit's stop (for the engine card, the debug report)? */
+  dwelling(trainId: number): boolean {
+    return this.dwellingAt(trainId) !== -1;
+  }
+
+  /** The kit piece this train is standing at for its stop, or −1. */
+  dwellingAt(trainId: number): number {
+    const v = this.visits.get(trainId);
+    return v?.phase === HALTED ? v.pieceId : -1;
+  }
+
+  /** Forget visits of trains that no longer exist (coupled into another, removed, lifted and turned round). */
+  prune(): void {
+    for (const id of this.visits.keys()) if (!this.sim.getTrain(id)) this.visits.delete(id);
+  }
+
+  /** Is the stop for this train? */
+  private stopsFor(who: KitStopWho, train: Train): boolean {
+    if (who === "any") return true;
+    if (who === "passengers") return train.cars.some((c) => c.kind === "passenger");
+    return train.cars.some((c) => c.kind === "engine" && STEAM.has(this.sim.lookOf(c.id)));
+  }
+
+  /** Is any of the train's axles on this piece? */
+  private on(train: Train, pieceId: number): boolean {
+    for (const b of train.bogies) if (b.pieceId === pieceId) return true;
+    return false;
+  }
+
+  /** Is the train's lever on (its engines driving it one way or the other)? */
+  private driven(train: Train): boolean {
+    let net = 0;
+    for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
+    return net !== 0;
+  }
+}
+
+/** Engine looks that are steam engines (for `who: "steam"`). */
+const STEAM: ReadonlySet<string> = new Set(["classic", "tank", "express", "goods"]);

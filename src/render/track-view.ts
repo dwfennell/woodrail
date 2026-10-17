@@ -922,8 +922,19 @@ export class TrackView {
     const n = (this.hidden.get(id) ?? 0) + (hidden ? 1 : -1);
     if (n > 0) this.hidden.set(id, n);
     else this.hidden.delete(id);
-    if ((n > 0) !== (n - (hidden ? 1 : -1) > 0)) this.sync();
+    if ((n > 0) !== (n - (hidden ? 1 : -1) > 0)) {
+      this.sync();
+      this.onHidden?.();
+    }
   }
+
+  /** Is this piece hidden for now (a stand-in animating in its place)? */
+  isHidden(id: number): boolean {
+    return this.hidden.has(id);
+  }
+
+  /** Called when a piece is hidden or shown again (what's drawn with pieces follows: the kits' models). */
+  onHidden: (() => void) | null = null;
 
   /**
    * Redraw pieces where they now are, their instances only (a run of track being pulled along: called on pointer

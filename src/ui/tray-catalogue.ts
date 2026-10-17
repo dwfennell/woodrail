@@ -1,6 +1,6 @@
 import type { GameMode } from "../game/modes";
 import type { CarKind, CarLook } from "../sim";
-import type { PieceTypeId } from "../track";
+import { kitForAsset, type PieceTypeId } from "../track";
 import { fileOf, loadFile } from "../catalogue/registry";
 import type { RoadPieceId } from "../roads";
 import { BRIDGE_PROP_SHELVES, PROP_TABS, type PropShelf } from "../catalogue/shelves";
@@ -209,7 +209,16 @@ export async function propGroups(shelves: readonly PropShelf[]): Promise<TrayGro
       for (const [id, asset] of await loadFile(file)) names.set(id, asset.name);
     }),
   );
-  return shelves.map((s) => ({ label: s.label, items: s.assets.filter((id) => names.has(id)).map((asset): TrayItem => ({ kind: "prop", asset, label: names.get(asset)! })) }));
+  return shelves.map((s) => ({ label: s.label, items: s.assets.filter((id) => names.has(id)).map((asset) => shelfItem(asset, names.get(asset)!)) }));
+}
+
+/**
+ * What a shelf offers for a catalogue model: the kit piece that draws it, where there is one (taking it out holds a
+ * piece, which trains use: see src/track/kits.ts), else the model as a prop. (Shelves are Sandbox's only.)
+ */
+export function shelfItem(asset: string, label: string): TrayItem {
+  const kit = kitForAsset(asset);
+  return kit ? { kind: "piece", type: kit, label } : { kind: "prop", asset, label };
 }
 
 /** Tray thumbnail key for an item. */

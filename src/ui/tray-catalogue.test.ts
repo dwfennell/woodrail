@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_FAVOURITES, favouriteItems, toggleFavourite, TRAY_TABS, trayKey, trayTabs } from "./tray-catalogue";
+import { KITS } from "../track";
+import { DEFAULT_FAVOURITES, favouriteItems, propGroups, shelfItem, toggleFavourite, TRAY_TABS, trayKey, trayTabs } from "./tray-catalogue";
 
 describe("tray tabs", () => {
   it("Game mode shows the railway: track (bridges included), trains, industries and roads", () => {
@@ -40,5 +41,31 @@ describe("tray favourites", () => {
   it("toggling adds at the end, or takes off", () => {
     expect(toggleFavourite(["a", "b"], "c")).toEqual(["a", "b", "c"]);
     expect(toggleFavourite(["a", "b", "c"], "b")).toEqual(["a", "c"]);
+  });
+});
+
+describe("kit pieces on the catalogue shelves (Sandbox)", () => {
+  it("the furnished platform on Buildings → Railway comes out as a piece (the kit), where the prop was", async () => {
+    const buildings = TRAY_TABS.find((t) => t.id === "buildings")!;
+    expect(buildings.modes).toEqual(["sandbox"]);
+    const railway = buildings.props!.find((s) => s.label === "Railway")!;
+    const groups = await propGroups([railway]);
+    const items = groups[0].items;
+    const kit = items.find((x) => x.kind === "piece")!;
+    expect(kit).toEqual({ kind: "piece", type: "kit-platform-furnished", label: "Platform with benches and lamps" });
+    expect(trayKey(kit)).toBe("piece:kit-platform-furnished");
+    // In the prop's place on the shelf.
+    expect(items.length).toBe(railway.assets.length);
+    expect(items.indexOf(kit)).toBe(railway.assets.indexOf(KITS["kit-platform-furnished"].asset));
+    // The rest of the shelf is still props.
+    expect(items.filter((x) => x.kind === "piece")).toHaveLength(1);
+    expect(shelfItem("bldg-signal-box", "Signal box")).toEqual({ kind: "prop", asset: "bldg-signal-box", label: "Signal box" });
+  });
+
+  it("Game mode's trays are as they were: no catalogue shelves, no kits", () => {
+    for (const tab of trayTabs("game")) {
+      expect(tab.props).toBeUndefined();
+      for (const g of tab.groups) for (const item of g.items) expect(item.kind === "piece" && item.type.startsWith("kit-")).toBe(false);
+    }
   });
 });
