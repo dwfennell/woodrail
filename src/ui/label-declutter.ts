@@ -51,8 +51,13 @@ export function declutterLabels(boxes: readonly LabelBox[]): LabelSpot[] {
  * `screenW` wide, kept `margin` in from both edges (the left edge wins if it's wider than the room).
  */
 export function edgeNudge(left: number, w: number, screenW: number, margin = 8): number {
-  let dx = 0;
-  if (left + w > screenW - margin) dx = screenW - margin - (left + w);
-  if (left + dx < margin) dx = margin - left;
-  return dx;
+  return rangeNudge(left, w, margin, screenW - margin);
+}
+
+/** How far to slide something `size` long that starts at `start` to keep it within `lo`..`hi` (`lo` wins if too long). */
+export function rangeNudge(start: number, size: number, lo: number, hi: number): number {
+  let d = 0;
+  if (start + size > hi) d = hi - (start + size);
+  if (start + d < lo) d = lo - start;
+  return d;
 }

@@ -1,5 +1,5 @@
 import type { MapMarker } from "../game/map-markers";
-import { declutterLabels, edgeNudge, type LabelBox } from "./label-declutter";
+import { declutterLabels, edgeNudge, rangeNudge, type LabelBox } from "./label-declutter";
 
 export interface MapViewHandlers {
   /** A marker was tapped: go and look at it. */
@@ -14,6 +14,7 @@ export interface MapViewHandlers {
 export class MapView {
   readonly root = document.createElement("div");
   private readonly layer = document.createElement("div");
+  private readonly bar = document.createElement("div");
   private markers: MapMarker[] = [];
   private readonly els = new Map<string, HTMLButtonElement>();
   /** What's shown now, so an unchanged refresh touches nothing. */
@@ -25,7 +26,7 @@ export class MapView {
     this.root.className = "map-view";
     this.root.hidden = true;
     this.layer.className = "map-layer";
-    const bar = document.createElement("div");
+    const bar = this.bar;
     bar.className = "map-bar";
     bar.innerHTML = `<b>Map</b><span>Tap a place to go there</span>`;
     const back = document.createElement("button");
@@ -92,8 +93,11 @@ export class MapView {
       const e = this.els.get(m.key);
       return { w: e?.offsetWidth ?? 0, h: e?.offsetHeight ?? 0 };
     });
+    // Labels stay between the top bar and the Map / Back bar (one under either can't be tapped).
+    const lo = Math.round(document.querySelector(".topbar")?.getBoundingClientRect().bottom ?? 0) + 8;
+    const hi = Math.round(this.bar.getBoundingClientRect().top || window.innerHeight) - 8;
     const pts = this.markers.map((m) => project(m.x, m.z));
-    const key = pts.map((p, k) => (p ? `${Math.round(p.x)},${Math.round(p.y)},${sizes[k].w},${sizes[k].h}` : "-")).join(";") + `@${window.innerWidth}`;
+    const key = pts.map((p, k) => (p ? `${Math.round(p.x)},${Math.round(p.y)},${sizes[k].w},${sizes[k].h}` : "-")).join(";") + `@${window.innerWidth},${lo},${hi}`;
     if (key === this.placedKey) return;
     this.placedKey = key;
     // A label that would run off the right edge goes to the left of its dot instead.
@@ -102,14 +106,16 @@ export class MapView {
     const boxes: LabelBox[] = [];
     // One that fits neither side (zoomed right out, a town at the edge) slides in to stay on screen.
     const nudges = pts.map(() => 0);
+    const lifts = pts.map(() => 0);
     pts.forEach((p, k) => {
       if (!p) return;
       // The label's box starts 14px up-left of the dot (its css margin); a flipped one sits to the left of it.
       const w = sizes[k].w;
       const left = Math.round(p.x) + (flips[k] ? 14 - w : -14);
       nudges[k] = edgeNudge(left, w, window.innerWidth);
+      lifts[k] = rangeNudge(Math.round(p.y) - 14, sizes[k].h, lo, hi);
       idx.push(k);
-      boxes.push({ x: left + nudges[k], y: Math.round(p.y) - 14, w, h: sizes[k].h, priority: this.markers[k].kind === "town" ? 1 : 0 });
+      boxes.push({ x: left + nudges[k], y: Math.round(p.y) - 14 + lifts[k], w, h: sizes[k].h, priority: this.markers[k].kind === "town" ? 1 : 0 });
     });
     const spots = declutterLabels(boxes);
     this.markers.forEach((m, k) => {
@@ -121,7 +127,10 @@ export class MapView {
       el.classList.toggle("off", off);
       if (off || !p) return;
       el.classList.toggle("flip", flips[k]);
-      el.style.transform = `translate(${Math.round(p.x) + nudges[k]}px, ${Math.round(p.y) + spots[at].dy}px)${flips[k] ? " translateX(-100%)" : ""}`;
+      // (A nudge apart can't take it back under a bar either.)
+      const y = Math.round(p.y) + lifts[k] + spots[at].dy;
+      const dy = rangeNudge(y - 14, sizes[k].h, lo, hi);
+      el.style.transform = `translate(${Math.round(p.x) + nudges[k]}px, ${y + dy}px)${flips[k] ? " translateX(-100%)" : ""}`;
     });
   }
 }
