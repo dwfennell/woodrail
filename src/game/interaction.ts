@@ -1026,7 +1026,9 @@ export class Interaction {
     g.invalidate();
     if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === car.id);
     else this.hud.showCarCard();
-    this.keepClearOfCard(() => g.trainView.carObject(car.id)?.getWorldPosition(new Vector3()) ?? null);
+    // (The car tapped, kept in view: its engine's card may be what opens.)
+    const tapped = found.train.cars[found.index].id;
+    this.keepClearOfCard(() => g.trainView.carObject(tapped)?.getWorldPosition(new Vector3()) ?? null);
     this.hintDrag();
   }
 
