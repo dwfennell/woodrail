@@ -17,6 +17,8 @@ import {
 } from "./constants";
 import { normalizeAngle, type Pose } from "./math";
 import type { PathGeom } from "./path";
+import { KITS, type KitTypeId } from "./kits";
+import { pose, straight } from "./shapes";
 
 export type ConnectorKind = "peg" | "socket";
 
@@ -89,7 +91,8 @@ export type PieceTypeId =
   | "depot-harbour"
   | "depot-warehouse"
   | JoinTypeId
-  | FitTypeId;
+  | FitTypeId
+  | KitTypeId;
 
 /**
  * Join pieces: S-bends `length` long shifting the line `offset` to the left (flipped: right), on the 18 mm track
@@ -122,7 +125,6 @@ export interface PieceDef {
 
 export const MAX_CONNECTORS = 4;
 
-const pose = (x: number, z: number, heading: number): Pose => ({ x, z, heading });
 const offsetPose = (p: Pose, dx: number, dz: number): Pose => ({ x: p.x + dx, z: p.z + dz, heading: p.heading });
 
 function arcEnd(radius: number, sweep: number): Pose {
@@ -131,25 +133,6 @@ function arcEnd(radius: number, sweep: number): Pose {
   return pose(radius * Math.sin(a), sign * radius * (1 - Math.cos(a)), sweep);
 }
 
-function straight(
-  type: PieceTypeId,
-  length: number,
-  a: ConnectorKind = "socket",
-  b: ConnectorKind = "peg",
-  y = 0,
-): PieceDef {
-  return {
-    type,
-    connectors: [
-      { kind: a, pose: pose(0, 0, Math.PI), y },
-      { kind: b, pose: pose(length, 0, 0), y },
-    ],
-    paths: [{ from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length, y0: y, rise: 0 } }],
-    flippable: false,
-    isSwitch: false,
-    supportHeight: 0,
-  };
-}
 
 function curve(type: PieceTypeId, radius: number): PieceDef {
   return {
@@ -511,6 +494,9 @@ for (const ends of ["pp", "hh"] as const) {
   for (const length of FIT_LENGTHS) CATALOG[fitType(length, 0, ends)] = bothEnds(straight(fitType(length, 0, ends), length), kind);
   for (const [length, offset] of JOIN_SIZES) CATALOG[fitType(length, offset, ends)] = bothEnds(sCurve(fitType(length, offset, ends), length, offset), kind);
 }
+
+// Kit pieces (see kits.ts): their track is a piece like any other, saved as one.
+for (const [type, kit] of Object.entries(KITS) as [KitTypeId, (typeof KITS)[KitTypeId]][]) CATALOG[type] = kit.track;
 
 export const PIECE_TYPES = Object.keys(CATALOG) as readonly PieceTypeId[];
 
