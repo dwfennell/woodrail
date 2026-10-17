@@ -253,16 +253,31 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @media (max-width: 640px), (max-height: 520px) {
   .tray-head { display: flex; align-items: flex-start; gap: 6px; }
   .tray-head .tabs { flex: 1 1 auto; min-width: 0; }
-  .tray-tools { display: flex; flex: none; gap: 4px; align-items: center; padding: 3px 2px 0 0; }
+  /* (Over the shelf below, so the chips' taps reach just past them, not through to a tile's favourite star.) */
+  .tray-tools { display: flex; flex: none; order: 1; gap: 6px; align-items: center; padding: 3px 2px 0 0; position: relative; z-index: 1; }
+  .tray-tools .tray-orient { gap: 6px; }
   .tray-tools .tray-draw, .tray-tools .tray-orient { position: static; top: auto; left: auto; right: auto; }
   .tray-tools .chip { display: inline-flex; align-items: center; justify-content: center; height: 34px; min-width: 40px; padding: 0 9px; font-size: 12px; line-height: 1; box-shadow: 0 2px 6px rgba(60, 40, 20, 0.18); position: relative; }
   /* Drawn small to fit the row, but a finger's 44 px to tap. */
-  .tray-tools .chip::after { content: ""; position: absolute; inset: -5px -2px; }
+  /* (Sideways, half the gap between chips, so neighbours' reach meets but doesn't overlap; more at the row's ends.) */
+  .tray-tools .chip::after { content: ""; position: absolute; inset: -5px -3px; }
+  .tray-tools .tray-draw::after { left: -4px; }
+  .tray-tools .tray-flip::after { right: -4px; }
   .tray-tools .chip-word { display: none; }
   .tray-tools .turn-arrow { margin-left: 2px; }
   /* Turn and Flip only while a shelf is open (as before favourites): at the top the row keeps its room for the tabs.
      (They're still only for track, and step aside for a card's own buttons, as above.) */
   .tray.track-tab.has-favourites:not(.in-group) .tray-orient { display: none; }
+}
+/* A narrow phone: Draw as its pencil (Turn and Flip are icons already) and the tabs a little tighter, so every tab
+   still shows beside the tools (Game's Industries, where a goal sends you). */
+@media (max-width: 400px) {
+  .tray-tools .draw-word { display: none; }
+  .tray-head { gap: 4px; }
+  .tray-head .tabs { padding: 0 4px; }
+  .tray-head .tab { padding-left: 8px; padding-right: 8px; font-size: 13px; }
+  /* (36 px drawn; with their reach either side still 42 px to tap, and 44 tall.) */
+  .tray-tools .chip { min-width: 36px; padding: 0 6px; }
 }
 /* The Turn button's arrow points the way the next piece will face. */
 .tray-orient .turn-arrow { display: inline-block; transform: rotate(var(--tray-turn, 0deg)); transition: transform 0.2s ease; margin-left: 4px; }

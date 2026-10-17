@@ -677,14 +677,15 @@ export class Hud {
     secondFinger(this.flipTrayBtn, () => this.handlers.trayFlip());
     orient.append(turnBtn, this.flipTrayBtn);
     // Draw: a drag on the map lays a line of track behind the finger (see DrawHand).
-    this.drawBtn = button("✎ Draw", "Draw track: drag from the end of a track, or across the ground", () => this.handlers.trayDraw(!this.drawing), "chip text tray-draw");
+    this.drawBtn = button(`✎<span class="draw-word"> Draw</span>`, "Draw track: drag from the end of a track, or across the ground", () => this.handlers.trayDraw(!this.drawing), "chip text tray-draw");
     // The tab row and the tools (Draw, Turn, Flip): on a big screen the tools float above the tray (the row is just the
     // tabs); on a phone they share the tab row, at its right, the tabs scrolling in what's left (they never cover a tab,
-    // nor the track being laid).
+    // nor the track being laid). First in the page, as they were, for a keyboard and a screen reader; on a phone the
+    // row shows them after the tabs.
     const tools = el("div", "tray-tools");
     tools.append(this.drawBtn, orient);
     const head = el("div", "tray-head");
-    head.append(tabs, tools);
+    head.append(tools, tabs);
     this.tray.append(head, scroller);
     this.root.appendChild(this.tray);
 
