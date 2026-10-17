@@ -189,6 +189,33 @@ describe("automatic servicing", () => {
     expect(w.economy.cargoOf(first)).toEqual({ kind: "log", count: 3 });
   });
 
+  it("wait-for-full holds a routed train only where it may pick up: not at a Drop stop, nor a depot not on its route", () => {
+    const lastPiece = (w: ReturnType<typeof setup>) => [...w.layout.pieceIds()].at(-1)!;
+    for (const action of ["drop", "elsewhere", "pick"] as const) {
+      const w = setup("forest");
+      w.economy.setWaitFull(w.depot.id, true);
+      // "elsewhere": its only stop is another depot, past this one.
+      const other = action === "elsewhere" ? w.economy.addDepot("sawmill", lastPiece(w), 0).id : -1;
+      const stop = action === "elsewhere" ? { depotId: other, action: "both" as const } : { depotId: w.depot.id, action };
+      w.economy.setRoute(w.engine().id, { stops: [stop], next: 0 });
+      const first = w.wagons()[0].id;
+      let held = 0;
+      for (let i = 0; i < 40 * SIM_HZ; i++) {
+        w.step();
+        if (w.economy.servicedCar(w.depot.id) === first) held++;
+      }
+      if (action === "pick") {
+        // Its Pick-up stop: it waits there to fill, as an unrouted train does.
+        expect(held / SIM_HZ, action).toBeGreaterThan(20);
+      } else {
+        // Nothing to load here: never held under the crane, and it's gone on past.
+        expect(held, action).toBe(0);
+        expect(w.economy.cargoOf(first).count, action).toBe(0);
+        expect(w.train().bogies.some((b) => b.pieceId === w.depot.pieceId), action).toBe(false);
+      }
+    }
+  });
+
   it("lever off holds the train and pauses the crane; lever on carries on", () => {
     const w = setup("forest");
     w.depot.piles[CARGO.log.index] = PILE_CAP;
