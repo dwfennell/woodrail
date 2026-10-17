@@ -4,7 +4,7 @@ import { buildCarModel, carVariant, disposeObject } from "../render/train-models
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
 import { setRim } from "../render/materials";
-import { ghostMesh, pieceGeometry, type OutlineTone } from "../render/track-view";
+import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
@@ -137,6 +137,8 @@ type Mode =
       auto?: boolean;
       /** Seated where it can't go, but turned or flipped it would: says so ("Turn it to fit"), not why it can't. */
       hint?: string | null;
+      /** The auto straight meets an end two pieces off: the gap this one leaves (shown amber, its far end marked). */
+      gap?: number;
       from: { pose: Pose; y: number } | null;
       offset: { x: number; z: number };
       ghost: Mesh;
@@ -1827,6 +1829,26 @@ export class Interaction {
   }
 
   /** A held piece: the real wooden piece (not a see-through ghost), with a rim glow for snap / blocked. */
+  /** A held auto straight that leaves a gap: an end board on its far end (the end that stays open), else none. */
+  private markGap(m: Extract<Mode, { kind: "drag-piece" }>): void {
+    let board = m.ghost.getObjectByName("gap-board");
+    if (!m.gap || m.snap.kind !== "snapped") {
+      if (board) {
+        m.ghost.remove(board);
+        disposeObject(board);
+      }
+      return;
+    }
+    if (!board) {
+      board = endBoardModel(this.game.mats);
+      board.name = "gap-board";
+      board.matrixAutoUpdate = false;
+      m.ghost.add(board);
+    }
+    const c = getPieceDef(m.type, m.flipped).connectors[m.snap.connector === 0 ? 1 : 0];
+    board.matrix.copy(pieceMatrix(c.pose.x, c.y, c.pose.z, c.pose.heading));
+  }
+
   private heldMesh(type: PieceTypeId, flipped: boolean): Mesh {
     const mats = this.game.mats;
     setRim(mats.held, "#ffffff", 0);
@@ -1958,6 +1980,7 @@ export class Interaction {
           m.type = type;
           m.ghost.geometry = pieceGeometry(type, m.flipped);
         }
+        m.gap = fit?.gap ?? 0;
       }
       const fitFlipped = m.snap.kind === "snapped" ? m.snap.flipped : m.heldFlipped;
       if (fitFlipped !== m.flipped) {
@@ -1993,8 +2016,11 @@ export class Interaction {
       }
       const held = this.game.mats.held;
       if (reason) setRim(held, "#ff4a3a", 1.2);
+      // Joined at one end, but leaving a gap to an end ahead (another one closes it): amber, not "joined".
+      else if (m.snap.kind === "snapped" && m.gap) setRim(held, "#f2a531", 1.1);
       else if (m.snap.kind === "snapped") setRim(held, "#7ddc58", 0.9);
       else setRim(held, "#fff2d8", 0.12);
+      this.markGap(m);
       m.goal.x = pose.x;
       m.goal.y = py + HOLD_LIFT;
       m.goal.z = pose.z;

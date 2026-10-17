@@ -30,8 +30,9 @@ describe("auto straight", () => {
     const off = new Layout();
     off.addPiece("straight-144", P(126, 120));
     expect(fitAutoStraight(off, P(0, 0), 0, 0, [])).toBeNull();
+    // Beyond two pieces' reach.
     const away = new Layout();
-    away.addPiece("straight-144", P(270, 0, 0)); // its hole end faces away from us
+    away.addPiece("straight-144", P(450, 0, 0));
     expect(fitAutoStraight(away, P(0, 0), 0, 0, [])).toBeNull();
     const high = new Layout();
     high.addPiece("straight-144", P(126, 0), 64);
@@ -104,5 +105,37 @@ describe("auto straight", () => {
     };
     expect(turned(8)).toMatchObject({ type: "join-126-18" });
     expect(turned(25)).toBeNull();
+  });
+
+  it("an end further off than one piece reaches (226–441 mm) is met in two: the first leaves exactly what one more closes", () => {
+    for (const gap of [226, 270, 300, 432]) {
+      const l = new Layout();
+      // The line's end (a peg, at x = 0) and a hole facing it `gap` along.
+      l.addPiece("straight-144", P(-144, 0));
+      l.addPiece("straight-144", P(gap, 0));
+      const first = fitAutoStraight(l, P(0, 0), 0, 0, []);
+      expect(first, `${gap}`).not.toBeNull();
+      expect(first!.gap, `${gap}`).toBeGreaterThan(0);
+      // As even as can be, the longer first.
+      expect(first!.length).toBeGreaterThanOrEqual(first!.gap!);
+      expect(first!.length - first!.gap!).toBeLessThanOrEqual(36);
+      l.addPiece(first!.type, first!.pose, 0, first!.flipped);
+      // The next one, from where that one ends, closes it exactly (within the joint play).
+      const second = fitAutoStraight(l, P(first!.length, 0), 0, 0, []);
+      expect(second, `${gap} second`).not.toBeNull();
+      expect(second!.gap).toBeUndefined();
+      expect(Math.abs(first!.length + second!.length - gap)).toBeLessThanOrEqual(9);
+    }
+    // QA's case: 270 mm, as 144 + 126 (not a 216 that leaves 54 under a station's roof).
+    const qa = new Layout();
+    qa.addPiece("straight-144", P(-144, 0));
+    qa.addPiece("straight-144", P(270, 0));
+    expect(fitAutoStraight(qa, P(0, 0), 0, 0, [])).toMatchObject({ length: 144, gap: 126 });
+    // One piece's length (or within the joint play of it): one piece, no gap.
+    for (const at of [216, 217]) {
+      const one = new Layout();
+      one.addPiece("straight-144", P(at, 0));
+      expect(fitAutoStraight(one, P(0, 0), 0, 0, []), `${at}`).toEqual({ length: 216, type: "straight-216", pose: P(0, 0), flipped: false });
+    }
   });
 });

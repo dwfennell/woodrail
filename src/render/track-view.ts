@@ -321,6 +321,16 @@ export function pieceMatrix(x: number, y: number, z: number, heading: number, ou
 /** How far past a free end (mm) its end board stands. */
 const END_BOARD_OUT = 8;
 
+/**
+ * An end board on its own (as TrackView stands past free ends), its own geometry: for a held piece's end that will be
+ * left open (a ghost showing the gap it leaves). In an end's frame: x outward.
+ */
+export function endBoardModel(mats: Materials): Group {
+  const board = new Mesh(new RoundedBoxGeometry(3, 14, 22, 1, 1).translate(END_BOARD_OUT, 9, 0), mats.lacquer("#c8442f"));
+  const stripe = new Mesh(new BoxGeometry(3.4, 3.5, 22.4).translate(END_BOARD_OUT, 9, 0), mats.lacquer("#f6f1e6"));
+  return new Group().add(board, stripe);
+}
+
 const SWITCH_LEVER_OFFSET = TRACK_WIDTH / 2 + 9;
 const SIGNAL_HEIGHT = 54;
 /** Arm angle above level when the switch is set to its branch. */
