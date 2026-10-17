@@ -34,6 +34,12 @@ export const PROP_TABS: readonly PropTab[] = [
           "bldg-water-tower",
           "bldg-coal-stage",
           "bldg-goods-shed",
+          // Kit pieces (src/track/kits.ts): they carry real track trains use.
+          "bldg-two-platform-station",
+          "bldg-grand-terminus",
+          "bldg-engine-shed",
+          "bldg-roundhouse-segment",
+          "bldg-castle-gate",
         ],
       },
       {
@@ -212,8 +218,30 @@ export const PROP_TABS: readonly PropTab[] = [
     id: "machines",
     label: "Machines",
     shelves: [
-      // What's left of the machines once those that carry their own track are held back (see RAIL_HELD_BACK).
-      { label: "Railway & yard", assets: ["mech-magnet-crane", "mech-lever-frame", "mech-whistle-post", "mech-ticket-barrier", "mech-lighthouse-beacon"] },
+      // The machines that carry their own track are kit pieces (src/track/kits.ts), real track trains use; those still
+      // to be made into kits are held back (see RAIL_HELD_BACK).
+      {
+        label: "Railway & yard",
+        assets: [
+          "mech-magnet-crane",
+          "mech-lever-frame",
+          "mech-whistle-post",
+          "mech-ticket-barrier",
+          "mech-lighthouse-beacon",
+          "mech-gantry-crane",
+          "mech-harbour-crane",
+          "mech-log-loader",
+          "mech-grain-elevator",
+          "mech-cargo-conveyor",
+          "mech-coal-chute",
+          "mech-tipping-dump",
+          "mech-drop-hopper",
+          "mech-water-crane",
+          "mech-coaling-crane",
+          "mech-fuel-station",
+          "mech-weighbridge",
+        ],
+      },
     ],
   },
 ];
@@ -232,23 +260,8 @@ export const BRIDGE_PROP_SHELVES: readonly PropShelf[] = [];
  * viewer) to be reworked, and any already placed in a saved map still load.
  */
 export const RAIL_HELD_BACK: readonly string[] = [
-  "bldg-two-platform-station",
-  "bldg-grand-terminus",
-  "bldg-engine-shed",
-  "bldg-roundhouse-segment",
-  "bldg-castle-gate",
-  "mech-gantry-crane",
-  "mech-harbour-crane",
-  "mech-log-loader",
-  "mech-coal-chute",
-  "mech-coaling-crane",
-  "mech-water-crane",
-  "mech-grain-elevator",
-  "mech-cargo-conveyor",
-  "mech-tipping-dump",
-  "mech-drop-hopper",
-  "mech-fuel-station",
-  "mech-weighbridge",
+  // (The stations, sheds, castle gate, cargo machines, engine services and weighbridge are kit pieces now, on their
+  // shelves: src/track/kits.ts.)
   "mech-semaphore-signal",
   "mech-colour-light-signal",
   "mech-signal-gantry",
