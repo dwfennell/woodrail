@@ -96,8 +96,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* Labels wrap to two lines at most within their item (long catalogue names), cut short with an ellipsis after that. */
 .tray-item .label { font-size: 11.5px; font-weight: 700; line-height: 1.12; max-width: calc(100% - 6px); text-align: center; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: normal; word-break: normal; hyphens: manual; }
 /* Lines break between words only (no "Warehous/e"): a single word too long for its tile is set smaller instead (the
-   HUD marks it when the tray is drawn). */
-.tray-item .label.squeeze { font-size: 9.5px; letter-spacing: -0.03em; }
+   HUD marks it when the tray is drawn), and only a word too long even then ("transporter") breaks inside. */
+.tray-item .label.squeeze { font-size: 9.5px; letter-spacing: -0.03em; overflow-wrap: anywhere; }
 .tray-item .icon { flex: 1 1 auto; min-height: 0; }
 /* A group: a little tab in the corner says how many pieces are inside. */
 .tray-group { position: relative; }

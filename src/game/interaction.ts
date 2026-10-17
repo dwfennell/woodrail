@@ -1030,6 +1030,13 @@ export class Interaction {
     m.hold = { timer: window.setTimeout(() => this.holdFired(m), HOLD_MS), t, strayedAt: null };
   }
 
+  /** The hold's buzz a frame on, if `still()` says the pickup still stands then. */
+  private holdCueIf(still: () => boolean): void {
+    requestAnimationFrame(() => {
+      if (still()) this.holdCue();
+    });
+  }
+
   /** The cue that something's been taken hold of: a short buzz where the phone has one (the lift is the rest). */
   private holdCue(): void {
     try {
@@ -1052,10 +1059,10 @@ export class Interaction {
       if (this.mode !== m || !h || h.armed) return;
       const outcome = decideHold(h.strayedAt, performance.now() - h.t, this.touches.size);
       if (outcome !== "hold") return;
-      this.holdCue();
       // A train is picked up once the finger moves: let go here and it's selected, still running, as it was.
       if (m.press.kind === "car") {
         h.armed = true;
+        this.holdCueIf(() => this.mode === m && !!m.hold?.armed);
         return;
       }
       m.hold = undefined;
@@ -1063,6 +1070,9 @@ export class Interaction {
       this.heldStill = { pointerId: m.pointerId, x: m.x, y: m.y, press: m.press };
       this.heldUnsure = { pointerId: m.pointerId, x: m.x, y: m.y, t: h.t };
       this.updateDrag(m.x, m.y);
+      // (The buzz waits a frame: moves a slow phone delivers late may yet undo the pickup, and it shouldn't buzz then.)
+      const drag = this.mode;
+      this.holdCueIf(() => this.mode === drag);
     });
   }
 
