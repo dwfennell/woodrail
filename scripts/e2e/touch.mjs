@@ -70,6 +70,11 @@ async function mapTaps(p) {
   check("a tap on a piece where its card's Delete opens doesn't delete it", after === before, `${before} → ${after} pieces`);
   check("…and its card is open", await visible(".piece-card"));
   await p.keyboard.press("Escape");
+  // (That card opened over the piece, so the view may have glided to keep it clear (Interaction.keepClearOfCard), after
+  // a pause that a loaded machine stretches: let it finish, then lay track where the engine goes, wherever it is now.)
+  await new Promise((r) => setTimeout(r, 300));
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  await placeAt(195, 300);
 
   // 2. An engine: where does its card put Go (the button a stray click would press: it'd start the engine)? Then an
   // engine right there, tapped.
@@ -219,8 +224,21 @@ async function selectThenDrag(ctx, p) {
     await touch("touchMove", sx - (40 * k) / 12, sy);
     if (k === 6) hMid = await p.evaluate(() => window.woodrail.interaction.mode.kind);
   }
+  // Where it's held (QA I5): its middle just above the fingertip, by a set amount, however it was taken hold of.
+  await new Promise((r) => setTimeout(r, 800));
+  const off = await p.evaluate(([fx, fy]) => {
+    const w = window.woodrail;
+    const m = w.interaction.mode;
+    if (m.kind !== "drag-piece") return null;
+    m.ghost.geometry.computeBoundingBox();
+    const c = m.ghost.geometry.boundingBox.getCenter(new w.camera.position.constructor());
+    m.ghost.updateMatrixWorld();
+    m.ghost.localToWorld(c).project(w.camera);
+    return [Math.round(((c.x + 1) / 2) * innerWidth - fx), Math.round(((1 - c.y) / 2) * innerHeight - fy), m.snap.kind];
+  }, [sx - 40, sy]);
   await lift();
   check("held, then dragged: it moves with the finger", hMid === "drag-piece", `mid-drag ${hMid}`);
+  check("…its middle held just above the fingertip (QA I5)", !!off && (off[2] === "snapped" || (Math.abs(off[0]) <= 20 && off[1] <= -40 && off[1] >= -80)), off ? `dx ${off[0]}, dy ${off[1]} (${off[2]})` : "not held");
   await p.keyboard.press("Escape");
   // 2b'. A slow phone (QA): the hold is decided by when things happened (the events' own times), not by which arrives
   // first. The touches are stamped with the times they happened at, then delivered late.
@@ -250,6 +268,25 @@ async function selectThenDrag(ctx, p) {
   await stamped("touchEnd", 0, 0, Date.now() / 1000);
   await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   check("slow phone: a real hold whose timer runs late still picks it up", lateTimer === "drag-piece", `mode ${lateTimer}`);
+  await p.keyboard.press("Escape");
+  // 2b''. Turn with a second finger while the first holds the piece (QA): it turns, still held (a browser sends no click
+  // for a second finger). (Turn and Flip show while a shelf is open: shown here for the test.)
+  await p.keyboard.press("Escape");
+  await p.evaluate(() => (document.querySelector(".tray-orient").style.display = "flex"));
+  [sx, sy] = await onScreen();
+  await touch("touchStart", sx, sy);
+  await new Promise((r) => setTimeout(r, 520));
+  for (let k = 1; k <= 4; k++) await touch("touchMove", sx - 6 * k, sy);
+  const turn = await p.evaluate(() => { const b = [...document.querySelectorAll(".tray-orient .chip")].find((e) => /Turn/.test(e.textContent)); const r = b.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+  const h0 = await p.evaluate(() => window.woodrail.interaction.mode.heading);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: sx - 24, y: sy, id: 1 }, { x: turn[0], y: turn[1], id: 2 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [{ x: turn[0], y: turn[1], id: 2 }] });
+  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const [kind2, h1] = await p.evaluate(() => [window.woodrail.interaction.mode.kind, window.woodrail.interaction.mode.heading]);
+  await lift();
+  await p.evaluate(() => (document.querySelector(".tray-orient").style.display = ""));
+  const turned = typeof h0 === "number" && typeof h1 === "number" && Math.abs(Math.abs(h1 - h0) - Math.PI / 4) < 0.01;
+  check("a second finger on Turn turns the piece in hand, still held (QA)", kind2 === "drag-piece" && turned, `mode ${kind2}; heading ${h0?.toFixed?.(2)} → ${h1?.toFixed?.(2)}`);
   await p.keyboard.press("Escape");
   // 2c. Drawing on: a finger resting on a piece neither picks it up nor starts a line.
   await p.evaluate(() => window.woodrail.interaction.setDrawing(true));

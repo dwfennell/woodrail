@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Vector3 } from "three";
-import { clampTarget, clampView, edgePan, frameAlong, frameDistance, isDoubleTap, lerpAngle, nearPlaneFor } from "./camera-director";
+import { clampTarget, clampView, EDGE_TOUCH_DWELL, EDGE_TOUCH_RAMP, EDGE_TOUCH_SPEED, EDGE_TOUCH_ZONE, edgeDwell, edgePan, frameAlong, frameDistance, isDoubleTap, lerpAngle, nearPlaneFor } from "./camera-director";
 
 describe("frameDistance", () => {
   it("fits a sphere to the narrower side of the frustum", () => {
@@ -139,6 +139,9 @@ describe("CameraDirector edge pan", () => {
     d.update(1 / 30, 1000, 800);
     d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600, waitForExit: true });
     d.update(1 / 30, 1000, 800);
+    // (On touch it waits in the band a moment before it moves: see edgeDwell.)
+    expect(controls.target.z).toBe(0);
+    for (let k = 0; k < 30; k++) d.update(1 / 30, 1000, 800);
     expect(controls.target.z).toBeGreaterThan(0);
     // Back over the tray (no pointer) and out again: waits again.
     const z = controls.target.z;
@@ -198,5 +201,24 @@ describe("frameAlong", () => {
     expect(tall.distance).toBeLessThan(frameDistance(700, 45, 390 / 844) * 0.55);
     expect(wide.distance).toBeLessThan(tall.distance);
     expect(frameAlong([{ x: 5, z: 5 }], 45, 1, 200).theta).toBeNull();
+  });
+});
+
+describe("edge pan while placing, on touch (QA: the view ran off with the target)", () => {
+  it("a mouse pans at once, in full", () => {
+    expect(edgeDwell(0, false)).toBe(1);
+  });
+  it("a finger waits in the band before the view moves", () => {
+    expect(edgeDwell(0, true)).toBe(0);
+    expect(edgeDwell(EDGE_TOUCH_DWELL - 0.01, true)).toBe(0);
+  });
+  it("…then eases in, to at most half the mouse's speed", () => {
+    expect(edgeDwell(EDGE_TOUCH_DWELL + EDGE_TOUCH_RAMP / 2, true)).toBeCloseTo(EDGE_TOUCH_SPEED / 2);
+    expect(edgeDwell(EDGE_TOUCH_DWELL + EDGE_TOUCH_RAMP, true)).toBeCloseTo(EDGE_TOUCH_SPEED);
+    expect(edgeDwell(10, true)).toBeCloseTo(EDGE_TOUCH_SPEED);
+    expect(EDGE_TOUCH_SPEED).toBeLessThanOrEqual(0.5);
+  });
+  it("the band on touch is narrow (it was 72 px)", () => {
+    expect(EDGE_TOUCH_ZONE).toBeLessThanOrEqual(40);
   });
 });

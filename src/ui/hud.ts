@@ -660,10 +660,16 @@ export class Hud {
     // Turn and flip, for track pieces: set how the next piece comes out, or turn the one in hand (with another finger).
     const orient = el("div", "tray-orient");
     this.flipTrayBtn = button("⇋ Flip", "Mirror the next piece (or the one you're holding)", () => this.handlers.trayFlip(), "chip text tray-flip");
-    orient.append(
-      button(`↻ Turn<span class="turn-arrow">↑</span>`, "Turn the next piece (or the one you're holding) an eighth of a turn", () => this.handlers.trayTurn(), "chip text"),
-      this.flipTrayBtn,
-    );
+    const turnBtn = button(`↻ Turn<span class="turn-arrow">↑</span>`, "Turn the next piece (or the one you're holding) an eighth of a turn", () => this.handlers.trayTurn(), "chip text");
+    // Tapped with a second finger while the first holds a piece (QA): a browser sends no click for a finger that isn't
+    // the first, so these act on that finger's lift over them (the first finger's tap still clicks, once).
+    const secondFinger = (b: HTMLButtonElement, act: () => void) =>
+      b.addEventListener("pointerup", (e) => {
+        if (e.pointerType === "touch" && !e.isPrimary && b.contains(document.elementFromPoint(e.clientX, e.clientY))) act();
+      });
+    secondFinger(turnBtn, () => this.handlers.trayTurn());
+    secondFinger(this.flipTrayBtn, () => this.handlers.trayFlip());
+    orient.append(turnBtn, this.flipTrayBtn);
     // Draw: a drag on the map lays a line of track behind the finger (see DrawHand).
     this.drawBtn = button("✎ Draw", "Draw track: drag from the end of a track, or across the ground", () => this.handlers.trayDraw(!this.drawing), "chip text tray-draw");
     this.tray.append(orient, this.drawBtn, tabs, scroller);
@@ -682,7 +688,7 @@ export class Hud {
       <div class="help-card">
         <h2>Welcome to Woodrail</h2>
         <div class="tips">
-          <div class="tip"><span class="tip-art art-build"></span><b>Build</b><span>Drag track from the tray. Pegs click into holes when they're close.</span></div>
+          <div class="tip"><span class="tip-art art-build"></span><b>Build</b><span>Tap a shelf in the tray, then drag a piece out. Pegs click into holes when they're close.</span></div>
           <div class="tip"><span class="tip-art art-run"></span><b>Run</b><span>Drop a train on the track and tap the engine to set it going.</span></div>
           <div class="tip"><span class="tip-art art-look"></span><b>Look around</b><span>Drag to pan, pinch or scroll to zoom, double-tap to take a closer look.</span></div>
         </div>
@@ -1355,7 +1361,8 @@ export class Hud {
       this.toastHeldUntil = performance.now() + toastMs(message, false);
     } else if (this.toastEl.classList.contains("show")) {
       clearTimeout(this.toastTimer);
-      this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), 1500);
+      // (Quickly: the piece in hand now shows it can go, so the old reason reads as stale if it lingers.)
+      this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("show"), 400);
       // It no longer holds the toast: what comes next (the drop's "Joined", a hint) may show at once.
       this.toastHeldUntil = 0;
     }
