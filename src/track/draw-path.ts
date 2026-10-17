@@ -1,6 +1,6 @@
 import { normalizeAngle, solveParentPose, transformPose, type Pose } from "./math";
 import { createSample, pathLength, samplePath } from "./path";
-import { JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, RAMP_LENGTH, RISER_HEIGHT, SMALL_CURVE_RADIUS, WIDE_CURVE_RADIUS } from "./constants";
+import { JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, LARGE_CURVE_RADIUS, RAMP_LENGTH, RISER_HEIGHT, SMALL_CURVE_RADIUS, WIDE_CURVE_RADIUS } from "./constants";
 import { getPieceDef, isBridge, type ConnectorKind, type PieceTypeId } from "./pieces";
 
 /**
@@ -229,11 +229,12 @@ const RIVER_REACH = 90;
  * length, for water: if it's there, a ramp goes up now, while there's room for it before the bank. Every this many mm.
  */
 const APPROACH_SLACK = 30;
+/** Crossing the river: how far (mm) along each eighth the water is looked for, and the most bridges laid in one crossing. */
+const CROSS_LOOK = 2000;
+/** A large curve's chord (mm): about what turning onto a crossing's eighth takes. */
+const LARGE_CURVE_CHORD = 2 * LARGE_CURVE_RADIUS * Math.sin(Math.PI / 8);
+const MAX_CROSSING = 12;
 const APPROACH_STEP = 24;
-/** The bridge of the same shape as a drawn piece. */
-const TWIN: Partial<Record<PieceTypeId, PieceTypeId>> = { "straight-216": "bridge", "curve-large": "bridge-curve" };
-/** The drawn pieces that have a bridge twin: the only ones the line chooses from where the next piece would reach water. */
-const TWINNED: readonly PieceTypeId[] = ["straight-216", "curve-large"];
 /** Straights that may go first, so that a ramp after them lands where it should (see `DrawLine.fill`), shortest first. */
 const FILLERS: readonly PieceTypeId[] = ["straight-54", "straight-108", "straight-144", "straight-216"];
 /** A ramp's far end is looked at for the ground this far (mm) on past it. */
@@ -293,6 +294,12 @@ export class DrawLine {
   stopped: "blocked" | "closed" | null = null;
   /** A piece the line would have used but the player has none of left (Game mode), or null. */
   refused: PieceTypeId | null = null;
+  /**
+   * Crossing the river from the ground (see `cross`): the eighth it crosses on, square to the water as near as the stroke
+   * lets it, and how far it's got: turning onto that eighth on dry land, running up to the bank, over (a ramp up, then
+   * bridges), then a ramp down; and how many bridges are down.
+   */
+  private crossing: { heading: number; phase: "turn" | "run" | "over"; bridges: number } | null = null;
   /** The special piece the piece being placed needed but may not use (see `want`), or null. */
   private wanted: PieceTypeId | null = null;
 
@@ -513,6 +520,7 @@ export class DrawLine {
       this.stopped = null;
       this.refused = null;
       this.retreating = true;
+      this.crossing = null;
       this.backlog = false;
       this.runFrom = null;
       return true;
@@ -526,12 +534,22 @@ export class DrawLine {
     if (this.retreating) return;
     for (let guard = 0; guard < MAX_PIECES && !this.stopped && this.pieces.length < MAX_PIECES; guard++) {
       const left = this.strokeLength - this.progress;
-      if (left < (finishing ? STEP : DRAW_LOOKAHEAD)) return;
+      // Over the water when the finger lifts: the crossing is finished (the line comes down on the far bank).
+      const over = this.crossing?.phase === "over";
+      if (left < (finishing ? (over ? -Infinity : STEP) : DRAW_LOOKAHEAD)) return;
       if (guard >= budget) {
         this.backlog = true;
         return;
       }
       const end = this.end;
+      if (this.crossing) {
+        if (finishing && !over) {
+          this.crossing = null;
+          continue;
+        }
+        if (!this.cross()) return;
+        continue;
+      }
       // Finishing: only if the finger was let go a little way from the line's end, moving away from it (not coming back
       // to it, retracing, or round the tip of a hairpin).
       if (finishing && !this.leavingEnd(end)) return;
@@ -551,7 +569,7 @@ export class DrawLine {
       const flat = this.flatStroke() ? this.chooseFlat(end, finishing) : undefined;
       const best = flat === undefined ? this.choose(end, finishing) : flat;
       if (!best) return;
-      this.place(best.candidate, best.s, flat !== undefined, finishing);
+      this.place(best.candidate, best.s, flat !== undefined);
       if (!this.stopped && this.options.closes?.(this.end)) this.stopped = "closed";
     }
   }
@@ -607,13 +625,13 @@ export class DrawLine {
   }
 
   /** Lay a piece the line chose, or the special piece it needs there instead (see `special`), or show it can't go. */
-  private place(c: DrawCandidate, s: number, aside: boolean, finishing: boolean): void {
+  private place(c: DrawCandidate, s: number, aside: boolean): void {
     this.wanted = null;
     const why = this.options.check?.(c, this.pieces) ?? null;
-    if (why && this.special(c, s, why, finishing)) return;
-    // The river just ahead, with no room for a ramp after this piece: up now (the bank won't come square-on, or with
-    // room to spare, on a slanted stroke). Only near water: elsewhere a line costs what it did.
-    if (!why && this.waterAhead(c) && this.may("ramp") && this.rampUp(true)) return;
+    if (why && this.special(why)) return;
+    // The river just ahead on the ground: cross it square (see `cross`), rather than meeting the bank wherever the
+    // stroke's staircase brings the line to it. Only near water: elsewhere a line costs what it did.
+    if (!why && this.waterAhead(c) && this.startCrossing() && this.cross()) return;
     // Refused, and the piece that would have done (a ramp, a bridge) is one the player has none of: say that.
     const outOf = this.wanted && this.options.outOf ? this.options.outOf(this.wanted) : null;
     this.lay(c, s, aside, why && outOf ? { ...why, message: outOf } : why);
@@ -630,28 +648,28 @@ export class DrawLine {
   }
 
   /**
-   * The piece the line chose (`c`, reaching `s` along the stroke) was refused: the special piece a player would reach
-   * for there instead, if there is one (N2 phase 1, see docs/superpowers/specs/2026-10-17-draw-junctions-ramps-bridges-design.md).
-   * A hill one level up: a ramp. The river: a bridge, from a level up (a hilltop, raised track), or from the ground a
-   * ramp up first. Nothing underneath (off a hilltop, a bridge, raised track): a ramp down, or just after climbing for
+   * The piece the line chose was refused (`why`): the special piece a player would reach for there instead, if there
+   * is one (N2 phase 1, see docs/superpowers/specs/2026-10-17-draw-junctions-ramps-bridges-design.md). A hill one level
+   * up: a ramp. The river: a straight bridge, from a level up (a hilltop, raised track), or from the ground a crossing
+   * (see `startCrossing`). Nothing underneath (off a hilltop, a bridge, raised track): a ramp down, or just after climbing for
    * the river (or where a ramp down would stand in it) a bridge on over. Each is laid only where its far end is on the stroke,
    * and only if the player has one (else `wanted` says which); at most two more placements are checked for it. True if
    * a piece was laid (or the last one replaced); false leaves the chosen piece to show why it can't go.
    */
-  private special(c: DrawCandidate, s: number, why: DrawCheck, finishing: boolean): boolean {
+  private special(why: DrawCheck): boolean {
     const levels = why.levels ?? 0;
     if (why.reason === "hill") return levels === 1 && this.rampUp(false);
-    if (why.reason === "river") return levels >= 1 ? this.bridge(c, s, finishing) : this.rampUp(true);
+    if (why.reason === "river") return levels >= 1 ? this.bridge() : (this.startCrossing() && this.cross()) || this.rampUp(true);
     if (why.reason !== "unsupported" || levels < 1) return false;
     // Just climbed to cross the river (the ramp's top end in the air, short of the water): on over it, not straight
     // back down. (Up on a hill too short to run on, it comes down again.)
     const last = this.pieces[this.pieces.length - 1];
     const groundAt = this.options.groundAt;
-    if (last && climbs(last) && !(groundAt && groundAt(last.end.x, last.end.z) >= last.end.y - 1)) return this.bridge(c, s, finishing);
+    if (last && climbs(last) && !(groundAt && groundAt(last.end.x, last.end.z) >= last.end.y - 1)) return this.bridge();
     const down = this.rampDown();
     if (down === "laid") return true;
     // Where a ramp down would stand in the river, or (just off a bridge) isn't on the stroke yet: a bridge on, till it is.
-    return (down === "river" || (!!last && isBridge(last.type))) && this.bridge(c, s, finishing);
+    return (down === "river" || (!!last && isBridge(last.type))) && this.bridge();
   }
 
   /** May the line use a piece of this type now (Game mode: has the player one left)? */
@@ -700,6 +718,7 @@ export class DrawLine {
       const why = this.options.check?.(r, this.pieces) ?? null;
       if (!why || why.reason === "undercut") {
         this.lay(r, s, false, why);
+        if (river) this.overRiver();
         return true;
       }
     }
@@ -717,7 +736,141 @@ export class DrawLine {
     this.pieces.pop();
     this.progress = last.from;
     this.lay(b, sb, false, why);
+    if (river) this.overRiver();
     return true;
+  }
+
+  /** Up a ramp for the river: straight bridges on, the way it points, then a ramp down (see `cross`). */
+  private overRiver(): void {
+    if (!this.stopped) this.crossing = { heading: this.end.heading, phase: "over", bridges: 0 };
+  }
+
+  /**
+   * Begin crossing the river from the ground (QA N2: a slanted stroke met the bank on its staircase's curves, with no
+   * room for a ramp, and curved bridges made an S over the water): of the two eighths either side of the stroke's way
+   * on from the line's end, the one that crosses the least water (looked along from the end, every `APPROACH_STEP`
+   * mm), the nearer the stroke's on a tie. False if neither meets water within `CROSS_LOOK`, or the line may have no
+   * ramp or bridge (`want` says which).
+   */
+  private startCrossing(): boolean {
+    const wet = this.options.wet;
+    if (!wet) return false;
+    if (!this.may("ramp")) return this.want("ramp");
+    if (!this.may("bridge")) return this.want("bridge");
+    const e = this.end;
+    // The stroke's way on: from the line's end to where the stroke has got (or the tail's heading, close in).
+    const n = this.xs.length - 1;
+    const far = Math.hypot(this.xs[n] - e.x, this.zs[n] - e.z) > 60;
+    const way = far ? Math.atan2(this.zs[n] - e.z, this.xs[n] - e.x) : this.tailHeading();
+    const lo = Math.floor(way / EIGHTH) * EIGHTH;
+    let best: { heading: number; cost: number } | null = null;
+    for (const heading of [lo, lo + EIGHTH]) {
+      const cx = Math.cos(heading);
+      const cz = Math.sin(heading);
+      let from = -1;
+      let to = -1;
+      for (let d = APPROACH_STEP; d <= CROSS_LOOK; d += APPROACH_STEP) {
+        const w = wet(e.x + cx * d, e.z + cz * d);
+        if (w && from === -1) from = d;
+        if (!w && from !== -1) {
+          to = d;
+          break;
+        }
+      }
+      if (from === -1 || to === -1) continue;
+      // Less water, nearer the stroke's way, and fewer curves to turn onto it (each needs room before the bank).
+      const cost = to - from + 40 * Math.abs(normalizeAngle(heading - way)) + 100 * Math.round(Math.abs(normalizeAngle(heading - e.heading)) / EIGHTH);
+      if (!best || cost < best.cost) best = { heading: normalizeAngle(heading), cost };
+    }
+    if (!best) return false;
+    this.crossing = { heading: best.heading, phase: "turn", bridges: 0 };
+    return true;
+  }
+
+  /**
+   * The next piece of a crossing (see `startCrossing`), laid whatever the stroke does meanwhile: a curve onto its
+   * eighth (on dry land), plain straights on along it while a ramp still fits before the water after them, a ramp up,
+   * straight bridges, and a ramp down once one stands clear of the water with dry land after it. A piece that can't go
+   * ends the crossing: it shows red (a curve or bridge), or the line goes back to choosing (no room for the ramp: it
+   * says so as before). False if nothing was laid.
+   */
+  private cross(): boolean {
+    const c = this.crossing!;
+    const e = this.end;
+    const check = (q: DrawCandidate) => this.options.check?.(q, this.pieces) ?? null;
+    if (c.phase === "turn") {
+      const d = normalizeAngle(c.heading - e.heading);
+      if (Math.abs(d) < 0.01) c.phase = "run";
+      else {
+        const want = e.heading + Math.sign(d) * EIGHTH;
+        const curve = (["curve-large", "curve-wide", "curve-small"] as const)
+          .filter((t) => this.may(t))
+          .map((t) => candidatesFrom(e, [t]).find((q) => Math.abs(normalizeAngle(q.end.heading - want)) < 0.01))
+          .find((q) => q && !check(q));
+        if (!curve) {
+          this.crossing = null;
+          return false;
+        }
+        this.lay(curve, this.alongStroke(curve), false, null);
+        return true;
+      }
+    }
+    const cx = Math.cos(c.heading);
+    const cz = Math.sin(c.heading);
+    // Dry along the eighth from the end for `len` mm (then at least the ramp's length more)?
+    // (Across the track's width too: a slantwise bank meets its edge first.)
+    const wet = this.options.wet;
+    const dry = (len: number) => {
+      if (!wet) return true;
+      for (let d = APPROACH_STEP; d <= len; d += APPROACH_STEP)
+        for (const side of [-20, 0, 20]) if (wet(e.x + cx * d - cz * side, e.z + cz * d + cx * side)) return false;
+      return true;
+    };
+    if (c.phase === "run") {
+      // On along the eighth to the bank: the longest straight after which a ramp still fits before the water.
+      for (const type of ["straight-216", "straight-144", "straight-108", "straight-54"] as const) {
+        if (!this.may(type)) continue;
+        const q = candidatesFrom(e, [type])[0];
+        if (!dry(q.length + RAMP_LENGTH + APPROACH_SLACK)) continue;
+        if (check(q)) break;
+        this.lay(q, this.alongStroke(q), false, null);
+        return true;
+      }
+      const r = rampFrom(e, true);
+      if (!r || check(r)) {
+        // No room on this eighth: a ramp from the end as it is, or one piece back in that piece's place (see
+        // `rampUp`, which goes on over from there).
+        this.crossing = null;
+        return this.rampUp(true);
+      }
+      this.lay(r, this.alongStroke(r), false, null);
+      c.phase = "over";
+      return true;
+    }
+    // Over: down as soon as a ramp clears the water, with dry land past its foot; else a bridge on.
+    const down = rampFrom(e, false);
+    if (c.bridges > 0 && down && dry(RAMP_LENGTH + APPROACH_SLACK + 48) && !check(down)) {
+      this.lay(down, this.alongStroke(down), false, null);
+      this.crossing = null;
+      return true;
+    }
+    const b = candidatesFrom(e, ["bridge"])[0];
+    if (!this.may("bridge") || c.bridges >= MAX_CROSSING) {
+      if (!this.may("bridge")) this.want("bridge");
+      this.crossing = null;
+      return false;
+    }
+    const why = check(b);
+    this.lay(b, this.alongStroke(b), false, why && this.wanted && this.options.outOf ? { ...why, message: this.options.outOf(this.wanted) } : why);
+    if (why) this.crossing = null;
+    else c.bridges++;
+    return !why;
+  }
+
+  /** How far along the stroke a piece laid on a crossing gets (it needn't lie on the stroke: it goes on, past where the line had got). */
+  private alongStroke(q: DrawCandidate): number {
+    const near = this.nearest(q.end.x, q.end.z, this.progress - 10, this.progress + q.length * 1.6 + 40);
+    return Math.max(near.s, this.progress + 1);
   }
 
   /**
@@ -730,10 +883,16 @@ export class DrawLine {
     if (!wet || !groundAt) return false;
     const e = this.end;
     if (Math.abs(groundAt(e.x, e.z) - e.y) > 1) return false;
-    const to = Math.min(this.strokeLength, this.progress + c.length + RAMP_LENGTH + APPROACH_SLACK);
+    // (Room for a curve onto the crossing's eighth too.)
+    const to = this.progress + c.length + RAMP_LENGTH + 2 * APPROACH_SLACK + LARGE_CURVE_CHORD;
+    // (Past the stroke drawn so far, on the way the finger was going: the stroke runs only the look-ahead past the line.)
+    const n = this.xs.length - 1;
+    const h = this.tailHeading();
     for (let at = this.progress + APPROACH_STEP; at <= to; at += APPROACH_STEP) {
-      const p = this.pointAt(at);
-      if (wet(p.x, p.z)) return true;
+      const past = at - this.strokeLength;
+      const p = past > 0 ? { x: this.xs[n] + Math.cos(h) * past, z: this.zs[n] + Math.sin(h) * past } : this.pointAt(at);
+      // (Water level with the line: from a hilltop over it, a bridge goes straight on.)
+      if (wet(p.x, p.z)) return groundAt(p.x, p.z) >= e.y - 1;
     }
     return false;
   }
@@ -777,27 +936,16 @@ export class DrawLine {
   }
 
   /**
-   * A bridge in place of the piece chosen (`c`, reaching `s`): its twin, the same shape; or, for a piece with none,
-   * the best of the two pieces that have one, as the line would choose between them. False if the bridge can't stand
+   * A straight bridge on from the line's end, in place of the piece chosen: on the eighth the line is on (curved
+   * bridges made an S over the water: QA N2), the stroke taken up again on dry land after. False if it can't stand
    * there (not a whole level up), or the player has none.
    */
-  private bridge(c: DrawCandidate, s: number, finishing: boolean): boolean {
-    let base = c;
-    let at = s;
-    if (!TWIN[c.type]) {
-      const types = TWINNED.filter((t) => this.may(TWIN[t]!));
-      if (types.length === 0) return this.want("bridge");
-      const b = this.best(this.end, finishing, types);
-      if (!b) return false;
-      base = b.candidate;
-      at = b.s;
-    }
-    const type = TWIN[base.type]!;
-    if (!this.may(type)) return this.want(type);
-    const t: DrawCandidate = { ...base, type };
+  private bridge(): boolean {
+    if (!this.may("bridge")) return this.want("bridge");
+    const t = candidatesFrom(this.end, ["bridge"])[0];
     const why = this.options.check?.(t, this.pieces) ?? null;
     if (why && (why.reason === "unsupported" || why.reason === "river")) return false;
-    this.lay(t, at, false, why);
+    this.lay(t, this.alongStroke(t), false, why);
     return true;
   }
 

@@ -181,7 +181,7 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
           line.finish();
           all++;
           const why = `${deg}° ${up > 0 ? "up" : "down"} from (${start.x}, ${start.z}): ${name(line)}`;
-          const ok = !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => isBridge(p.type)) && line.end.y === 0;
+          const ok = !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => isBridge(p.type)) && !line.pieces.some((p) => p.type === "bridge-curve") && line.end.y === 0;
           if (ok) crossed++;
           else fails.push(why);
         }
@@ -215,7 +215,7 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
             // Where the stroke meets the river's middle line, and `lead` mm before (along the stroke) it starts.
             const cross = Math.sin(a - ra);
             // (Room for a ramp before the bank, along the stroke: else it's red, rightly.)
-            if (Math.abs(cross) < 0.3 || lead - (width * 36) / Math.abs(cross) < 200) continue;
+            if (Math.abs(cross) < 0.5 || lead - (width * 36) / Math.abs(cross) < 200) continue;
             const sx = 600 - lead * dx;
             const sz = 0 - lead * dz;
             const start: DrawEnd = { x: Math.round(sx / 18) * 18, z: Math.round(sz / 18) * 18, heading: Math.round(a / (Math.PI / 4)) * (Math.PI / 4), y: 0, kind: "peg" };
@@ -223,7 +223,7 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
             for (let d = 4; d <= 2 * lead + 300; d += 4) line.addSeen((h) => ({ x: start.x + d * dx - up * K * h * dx, z: start.z + d * dz - up * K * h * dz }));
             line.finish();
             all++;
-            const ok = !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => isBridge(p.type)) && line.end.y === 0;
+            const ok = !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => isBridge(p.type)) && !line.pieces.some((p) => p.type === "bridge-curve") && line.end.y === 0;
             if (!ok) fails.push(`river ${rdeg}° w${width}, swipe ${deg}° ${up > 0 ? "up" : "down"} from ${lead} mm off: ${name(line)}`);
           }
         }

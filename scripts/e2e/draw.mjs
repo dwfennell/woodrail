@@ -187,6 +187,12 @@ if (ONLY_SPECIALS) {
   await finishRun();
 }
 
+/** Only QA's replay of the slanted river crossings and the terrace climb (E2E_ONLY=qa-slant). */
+if (process.env.E2E_ONLY === "qa-slant") {
+  await qaReplay();
+  await finishRun();
+}
+
 if (site) {
   const { x, z, heading: h } = site;
   const fx = Math.cos(h);
@@ -545,10 +551,12 @@ step("7b");
   await ctx.close();
 }
 
-// 8. Ramps and bridges (N2 phase 1).
+// 8. Ramps and bridges (N2 phase 1), and QA's replay.
 
 step("8");
 await specials();
+step("9");
+await qaReplay();
 await finishRun();
 
 /**
@@ -760,6 +768,178 @@ async function slantedRiver() {
     }
   }
   check("found a river to swipe across at the default camera", false, seqs.slice(0, 6).join(" / "));
+}
+
+/**
+ * QA's replay (N2 phase 1, on 32891ec): seed 7, a phone (390×844, touch), Draw on, strokes from open ground found by
+ * QA's own search (`findRun`): straight world lines across the river at a slant to the grid, framed as QA framed them
+ * (the smallest view, 450 mm × 1.3ⁿ, with every point clear of the screen's edges and the tray), each point seen at the
+ * ground's height, touch moves every 10 px. Each must cross (a bridge), with no curved bridge, both its ends on the
+ * ground; the clean case (40°, back) stays clean. And a terrace climb (a level, then another) where one move took
+ * 118.6 ms (the second ramp's cutting preview): DrawHand.move under 16 ms at worst.
+ */
+async function qaReplay() {
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const q = await ctx.newPage();
+  q.on("pageerror", (e) => errors.push(e.message));
+  await boot(q);
+  await q.evaluate(() => {
+    const w = window.woodrail;
+    window.__toasts = [];
+    const orig = w.hud.toast.bind(w.hud);
+    w.hud.toast = (m, ...a) => {
+      window.__toasts.push(m);
+      return orig(m, ...a);
+    };
+    // DrawHand.move's times, for the hitch.
+    const d = w.interaction.draw;
+    const move = d.move.bind(d);
+    window.__moves = [];
+    d.move = (x, y) => {
+      const t0 = performance.now();
+      move(x, y);
+      window.__moves.push(performance.now() - t0);
+    };
+  });
+  await q.tap(".tray-draw");
+  const cdp = await ctx.newCDPSession(q);
+  const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
+  const cases = [
+    { name: "slant 23 there", segs: "river", slant: 23, back: false },
+    { name: "slant 30 back", segs: "river", slant: 30, back: true },
+    { name: "slant 10 back", segs: "river", slant: 10, back: true },
+    { name: "slant -23 back", segs: "river", slant: -23, back: true },
+    { name: "slant 10 there", segs: "river", slant: 10, back: false },
+    { name: "slant 40 back (the clean case)", segs: "river", slant: 40, back: true },
+    { name: "terrace: a level up, then another", segs: "terrace", slant: 0, back: false },
+  ];
+  for (const c of cases) {
+    const run = await q.evaluate(([segName, slantDeg]) => {
+      const segs = segName === "river" ? [["g0", 200, 450], ["river", 72, 450], ["g0", 220, 450]] : [["g0", 250, 450], ["h1", 36, 200], ["h2", 72, 400]];
+      const slant = (slantDeg * Math.PI) / 180;
+      const lanes = [-25, 0, 25];
+      const w = window.woodrail;
+      const G = w.landscape.grid;
+      const kindAt = (x, z) => {
+        const c = G.cellAtWorld(x, z);
+        if (c === -1) return "off";
+        if (G.road[c] || G.feature[c] > 1) return "x";
+        if (G.surface[c] === 1) return "river";
+        if (G.surface[c] === 5) return "x";
+        const h = G.height[c];
+        return h === 0 ? (G.surface[c] === 0 || G.surface[c] === 6 ? "g0" : "x") : "h" + h;
+      };
+      const pcs = [...w.layout.pieceIds()].map((id) => w.layout.getPiece(id).pose);
+      for (let i = 0; i < G.cellCount; i++)
+        for (let k = 0; k < 8; k++) {
+          const h = (k * Math.PI) / 4 + slant;
+          const fx = Math.cos(h);
+          const fz = Math.sin(h);
+          const ox = G.centreX(G.colOf(i));
+          const oz = G.centreZ(G.rowOf(i));
+          let d = 0;
+          let ok = true;
+          const bounds = [];
+          for (const [kind, mn, mx] of segs) {
+            let len = 0;
+            while (len < mx) {
+              const x = ox + fx * (d + len);
+              const z = oz + fz * (d + len);
+              let all = true;
+              for (const sd of lanes) {
+                const kk = kindAt(x - fz * sd, z + fx * sd);
+                if (kk !== kind || pcs.some((p) => Math.hypot(p.x - x, p.z - z) < 140)) all = false;
+              }
+              if (!all) break;
+              len += 12;
+            }
+            if (len < mn) {
+              ok = false;
+              break;
+            }
+            bounds.push(d + len);
+            d += len;
+          }
+          if (ok) return { x: ox, z: oz, h, total: d, bounds };
+        }
+      return null;
+    }, [c.segs, c.slant]);
+    if (!run) {
+      check(`QA replay, ${c.name}: found its run`, false);
+      continue;
+    }
+    // The finger's path: every 15 mm along the run (the other way, going back), and where each point shows on the screen.
+    const screen = await q.evaluate(([run, back]) => {
+      const w = window.woodrail;
+      const G = w.landscape.grid;
+      const pts = [];
+      for (let d = 0; d <= run.total; d += 15) pts.push([run.x + Math.cos(run.h) * d, run.z + Math.sin(run.h) * d]);
+      if (back) pts.reverse();
+      const V = w.camera.position.constructor;
+      const cx = pts.reduce((t, p) => t + p[0], 0) / pts.length;
+      const cz = pts.reduce((t, p) => t + p[1], 0) / pts.length;
+      const off = w.camera.position.clone().sub(w.controls.target);
+      const phi = Math.acos(off.y / off.length());
+      const trayTop = document.querySelector(".tray")?.getBoundingClientRect().top ?? 644;
+      const project = () =>
+        pts.map(([x, z]) => {
+          const i = G.cellAtWorld(x, z);
+          const v = new V(x, i === -1 ? 0 : G.groundY(i), z).project(w.camera);
+          const r = w.canvas.getBoundingClientRect();
+          return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+        });
+      let dist = 450;
+      for (let n = 0; n < 12; n++, dist *= 1.3) {
+        w.lookAt(new V(cx, 0, cz), dist, phi);
+        const sp = project();
+        if (sp.every(([x, y]) => x >= 60 && x <= 330 && y >= 110 && y <= trayTop - 50)) return sp;
+      }
+      return project();
+    }, [run, c.back]);
+    await q.evaluate(() => {
+      window.__toasts.splice(0);
+      window.__moves.splice(0);
+    });
+    const n0 = await q.evaluate(() => window.woodrail.layout.pieceCount);
+    const ids0 = await q.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+    await touch("touchStart", screen[0][0], screen[0][1]);
+    for (let i = 1; i < screen.length; i++) {
+      const [ax, ay] = screen[i - 1];
+      const [bx, by] = screen[i];
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
+      for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+    }
+    await touch("touchEnd", 0, 0);
+    await settled(q);
+    await shot(q, `${OUT}/draw-9-qa-${c.name.replace(/[^a-z0-9]+/gi, "-")}.png`);
+    const got = await q.evaluate(async ([ids0]) => {
+      const w = window.woodrail;
+      const { createWorldConnector } = await import("/src/track/layout.ts");
+      const was = new Set(ids0);
+      const ids = [...w.layout.pieceIds()].filter((id) => !was.has(id));
+      const cn = createWorldConnector();
+      const ends = [];
+      for (const id of ids)
+        for (let k = 0; k < 2; k++) {
+          const ref = id * 4 + k;
+          if (w.layout.joinedConnector(ref) !== -1) continue;
+          w.layout.worldConnector(ref, cn);
+          ends.push(cn.y);
+        }
+      const moves = window.__moves.slice().sort((a, b) => a - b);
+      return { types: ids.map((id) => w.layout.getPiece(id).type), ends, toasts: window.__toasts.splice(0), worst: moves[moves.length - 1] ?? 0, p95: moves[Math.floor(moves.length * 0.95)] ?? 0 };
+    }, [ids0]);
+    void n0;
+    const what = `${got.types.join(" ")}${got.toasts.length ? ` · toasts: ${got.toasts.join(" | ")}` : ""} · move worst ${got.worst.toFixed(1)} ms, p95 ${got.p95.toFixed(1)} ms`;
+    if (c.segs === "river") {
+      const ok = got.types.includes("bridge") && !got.types.includes("bridge-curve") && got.ends.length === 2 && got.ends.every((y) => y <= 1);
+      check(`QA replay, ${c.name}: crosses, no curved bridge, both ends on the ground`, ok, what);
+    } else {
+      check(`QA replay, ${c.name}: climbs (ramps), and no move over 16 ms`, got.types.filter((t) => t === "ramp").length >= 1 && got.worst < 16, what);
+    }
+    if (got.types.length) await q.evaluate(() => window.woodrail.interaction.undo());
+  }
+  await ctx.close();
 }
 
 async function finishRun() {
