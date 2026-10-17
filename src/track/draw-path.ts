@@ -1,5 +1,6 @@
 import { normalizeAngle, solveParentPose, transformPose, type Pose } from "./math";
 import { createSample, pathLength, samplePath } from "./path";
+import { SMALL_CURVE_RADIUS, WIDE_CURVE_RADIUS } from "./constants";
 import { getPieceDef, type ConnectorKind, type PieceTypeId } from "./pieces";
 
 /**
@@ -34,6 +35,8 @@ export interface DrawnPiece {
   readonly blocked: string | null;
   /** Points along its track, from where it joins the line to its free end: x, z and the heading the line runs, in threes. */
   readonly track: readonly number[];
+  /** Laid on a straight run, where the line may lie off to the side of the stroke (see `DrawLine.straightRun`). */
+  readonly aside: boolean;
 }
 
 /** A piece the line could take next, before it's checked. */
@@ -107,6 +110,39 @@ const pieceCost = (t: PieceTypeId): number => BASE_PIECE_COST + (PIECE_COST[t] ?
  */
 const REBEND_COST = 0.4;
 const RESHAPE_COST = 0.3;
+/**
+ * A mini straight next to a curve (in the pair scored) costs this much less: it's how a lead-in that isn't a sum of
+ * the long pieces is made to fit before a bend, where a curve starting early would take the bend's radius wrong.
+ */
+const FIT_REBATE = 0.3;
+/**
+ * A curve's radius against the stroke's (see `radiusCost`): this far off (a log ratio, about 10%) costs nothing, and
+ * each this much more costs one unit, so the curve a radius step off (the curve on a wide arc, or the wide curve on
+ * the curve's arc, about 0.4) costs about 4.
+ */
+const DEAD_R = 0.1;
+const SIGMA_R = 0.15;
+/** The stroke bending less than this (curvature, 1/mm) over a curve's stretch is a straight run: its radius isn't asked. */
+const FLAT_CURVATURE = 1 / (2 * WIDE_CURVE_RADIUS);
+/**
+ * A straight run (see `DrawLine.straightRun`): the stroke's chord this close (radians, a little over half an eighth of
+ * a turn) to the way the line's end points; its thirds' chords this close (radians) to each other; and no point
+ * further off the chord than this (mm), or this share of its length. A line on the stroke, its chord this close
+ * (radians) to the line's heading, is left to the usual scoring. Taken over at least `STRAIGHT_MIN` mm of the stroke,
+ * and not at all over less than `STRAIGHT_SHORTEST`.
+ */
+const SNAP_H = (25 * Math.PI) / 180;
+const STRAIGHT_H = 0.12;
+const STRAIGHT_D = 12;
+const STRAIGHT_SAG = 0.03;
+const STRAIGHT_ON = 0.1;
+/** On a straight run, the next piece is chosen once the stroke reaches this far (mm) along the line's heading. */
+const STRAIGHT_LOOKAHEAD = 400;
+/** A straight run starts only with the line's end this close (mm) to where it's got to on the stroke. */
+const STRAIGHT_ENTER = 40;
+const STRAIGHT_MIN = 250;
+const STRAIGHT_SHORTEST = 120;
+const STRAIGHTS: readonly PieceTypeId[] = DRAW_TYPES.filter((t) => t.startsWith("straight"));
 /** A closing piece is laid when its far end is this close (mm) to the stroke drawn so far. */
 const MEET_REACH = 40;
 
@@ -140,6 +176,11 @@ export function candidatesFrom(end: DrawEnd, types: readonly PieceTypeId[] = DRA
   return out;
 }
 
+/** A new line's first heading: the way the finger set off (dx, dz), rounded to an eighth of a turn. */
+export function startHeading(dx: number, dz: number): number {
+  return Math.round(Math.atan2(dz, dx) / (Math.PI / 4)) * (Math.PI / 4);
+}
+
 /** A run of track following a stroke: points go in as the finger moves; pieces come out behind it. */
 export class DrawLine {
   readonly pieces: DrawnPiece[] = [];
@@ -162,6 +203,10 @@ export class DrawLine {
    * finger has gone forward past the line's end again; the stroke then carries on from there.
    */
   private retreating = false;
+  /** Where along the stroke the straight run the line is on began (see `straightRun`), or null. */
+  private runFrom: number | null = null;
+  /** Set by `headingAt`: where along the stroke the heading it gave is true. */
+  private headingTrueAt = 0;
 
   constructor(
     readonly start: DrawEnd,
@@ -276,14 +321,21 @@ export class DrawLine {
         // Heading back along the line (against the way it runs here).
         over = (dx * Math.cos(t[i + 2]) + dz * Math.sin(t[i + 2])) / len < -0.3;
       }
-      if (!over) continue;
+      // Laid on a straight run, off to the side of the stroke: going back over the stroke it was laid for counts too.
       const p = this.pieces[k];
+      if (!over && p.aside && (dx * Math.cos(t[2]) + dz * Math.sin(t[2])) / len < -0.3) {
+        const to = k + 1 < this.pieces.length ? this.pieces[k + 1].points : this.xs.length;
+        const last = to - Math.ceil(TRIM_REACH / STEP);
+        for (let i = p.points; i < last && !over; i++) over = Math.hypot(x - this.xs[i], z - this.zs[i]) <= TRIM_REACH;
+      }
+      if (!over) continue;
       this.pieces.length = k;
       this.xs.length = this.zs.length = this.ss.length = p.points;
       this.progress = Math.min(p.from, this.strokeLength);
       this.stopped = null;
       this.refused = null;
       this.retreating = true;
+      this.runFrom = null;
       return true;
     }
     return false;
@@ -305,9 +357,12 @@ export class DrawLine {
         if (!this.stopped) this.stopped = "closed";
         return;
       }
-      const best = this.choose(end, finishing);
+      const straight = this.straightRun(end);
+      if (straight) this.runFrom ??= this.progress;
+      else this.runFrom = null;
+      const best = straight ? this.chooseStraight(end, finishing) : this.choose(end, finishing);
       if (!best) return;
-      this.lay(best.candidate, best.s);
+      this.lay(best.candidate, best.s, straight);
       if (!this.stopped && this.options.closes?.(best.candidate.end)) this.stopped = "closed";
     }
   }
@@ -327,24 +382,156 @@ export class DrawLine {
     return mx * ax + mz * az > 0;
   }
 
-  private lay(c: DrawCandidate, s: number): void {
+  private lay(c: DrawCandidate, s: number, aside = false): void {
     const blocked = this.options.check?.(c, this.pieces) ?? null;
     let points = 1;
     while (points < this.ss.length && this.ss[points] <= this.progress) points++;
-    this.pieces.push({ type: c.type, flipped: c.flipped, pose: c.pose, y: c.y, entry: c.entry, exit: c.exit, end: c.end, from: this.progress, points, blocked, track: trackOf(c) });
+    this.pieces.push({ type: c.type, flipped: c.flipped, pose: c.pose, y: c.y, entry: c.entry, exit: c.exit, end: c.end, from: this.progress, points, blocked, track: trackOf(c), aside });
     this.progress = Math.max(this.progress, s);
     if (blocked) this.stopped = "blocked";
   }
 
   /** The best next piece: scored with the one after it (or alone, finishing near the stroke's end). */
-  private choose(end: DrawEnd, finishing: boolean): { candidate: DrawCandidate; s: number } | null {
+  private choose(end: DrawEnd, finishing: boolean, from: readonly PieceTypeId[] = DRAW_TYPES): { candidate: DrawCandidate; s: number } | null {
     const allow = this.options.allow;
-    if (!allow) return this.best(end, finishing, DRAW_TYPES);
-    const types = DRAW_TYPES.filter((t) => allow(t, this.pieces));
+    if (!allow) return this.best(end, finishing, from);
+    const types = from.filter((t) => allow(t, this.pieces));
     // The piece it would have used, if it's one the player has run out of (Game mode): said when the line goes down.
-    const ideal = types.length < DRAW_TYPES.length ? this.best(end, finishing, DRAW_TYPES) : null;
+    const ideal = types.length < from.length ? this.best(end, finishing, from) : null;
     if (ideal && !types.includes(ideal.candidate.type)) this.refused ??= ideal.candidate.type;
     return types.length === 0 ? null : this.best(end, finishing, types);
+  }
+
+  /**
+   * Is the stroke ahead of the line's end a straight run within an eighth of a turn's half of the way the end points
+   * (itself an eighth)? Then the line goes on straight that way, however the finger drifts off to the side: a straight
+   * swipe on a screen turned to the grid lays straights, not curves chasing the finger back and forth (QA N1). Taken
+   * over the stroke from where the run began, or the line's end (at least the last `STRAIGHT_MIN` mm of it, behind the
+   * end too, so the last bit of a bend isn't taken for a straight): its thirds run the same way, and no point strays
+   * far off its chord.
+   */
+  private straightRun(end: DrawEnd): boolean {
+    const eighth = Math.PI / 4;
+    if (Math.abs(normalizeAngle(end.heading - Math.round(end.heading / eighth) * eighth)) > 0.01) return false;
+    const len = this.strokeLength;
+    // The whole run so far: a long gentle bend is no straight run, even if the last bit of it is.
+    const s0 = Math.max(0, Math.min(this.runFrom ?? this.progress, len - STRAIGHT_MIN));
+    if (len - s0 < STRAIGHT_SHORTEST) return false;
+    // Where the stroke is at its start, a third and two thirds of the way, and its end: each the mean of the stroke's
+    // points a third of it around there (past a hand's jitter).
+    const span = len - s0;
+    const px = SCRATCH_RUN;
+    for (let k = 0; k <= 3; k++) {
+      const c = s0 + (span * k) / 3;
+      this.meanPoint(Math.max(s0, c - span / 6), Math.min(len, c + span / 6), px, k);
+    }
+    const a = { x: px[0], z: px[1] };
+    const z = { x: px[6], z: px[7] };
+    const cx = z.x - a.x;
+    const cz = z.z - a.z;
+    const cl = Math.hypot(cx, cz);
+    if (cl < (len - s0) * 0.5) return false;
+    const chord = Math.atan2(cz, cx);
+    const off = Math.abs(normalizeAngle(chord - end.heading));
+    if (off > SNAP_H) return false;
+    const ux = cx / cl;
+    const uz = cz / cl;
+    // The line already on the stroke and running its way: the usual scoring keeps it there (and sees a bend coming). A
+    // run starts only with the line on the stroke: one already off it (behind a bend) is brought back by the usual scoring.
+    const aside = Math.abs((end.x - a.x) * uz - (end.z - a.z) * ux);
+    if (off < STRAIGHT_ON && aside < STRAIGHT_D) return false;
+    if (this.runFrom === null) {
+      const p = this.pointAt(this.progress);
+      if (Math.hypot(end.x - p.x, end.z - p.z) > STRAIGHT_ENTER) return false;
+    }
+    // Each third runs the same way (a bend, or an S, turns them apart).
+    let lo = 0;
+    let hi = 0;
+    for (let k = 0; k < 3; k++) {
+      const d = normalizeAngle(Math.atan2(px[2 * k + 3] - px[2 * k + 1], px[2 * k + 2] - px[2 * k]) - chord);
+      lo = Math.min(lo, d);
+      hi = Math.max(hi, d);
+    }
+    if (hi - lo > STRAIGHT_H) return false;
+    // And no point strays far off it.
+    const reach = Math.max(STRAIGHT_D, STRAIGHT_SAG * (len - s0));
+    for (let i = this.xs.length - 1; i >= 0 && this.ss[i] >= s0; i--) if (Math.abs((this.xs[i] - a.x) * uz - (this.zs[i] - a.z) * ux) > reach) return false;
+    return true;
+  }
+
+  /** The mean of the stroke's points from s0 to s1 (or the point at s0, if none), into out[2k] and out[2k + 1]. */
+  private meanPoint(s0: number, s1: number, out: number[], k: number): void {
+    let lo = 0;
+    let hi = this.ss.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.ss[mid] < s0) lo = mid + 1;
+      else hi = mid;
+    }
+    let x = 0;
+    let z = 0;
+    let n = 0;
+    for (let i = lo; i < this.ss.length && this.ss[i] <= s1; i++, n++) {
+      x += this.xs[i];
+      z += this.zs[i];
+    }
+    if (n === 0) {
+      const p = this.pointAt(s0);
+      x = p.x;
+      z = p.z;
+      n = 1;
+    }
+    out[2 * k] = x / n;
+    out[2 * k + 1] = z / n;
+  }
+
+  /**
+   * A straight run (see `straightRun`): straights only, scored as usual but against the stroke laid onto the line's
+   * heading (from the line's end, as far as the stroke reaches that way), so the finger drifting off to the side costs
+   * nothing. The line's progress is then where the real stroke reaches as far along that heading.
+   */
+  private chooseStraight(end: DrawEnd, finishing: boolean): { candidate: DrawCandidate; s: number } | null {
+    const allow = this.options.allow;
+    const straights = STRAIGHTS;
+    if (allow && !straights.some((t) => allow(t, this.pieces))) return this.choose(end, finishing);
+    const n = this.xs.length - 1;
+    const ux = Math.cos(end.heading);
+    const uz = Math.sin(end.heading);
+    const reach = (this.xs[n] - end.x) * ux + (this.zs[n] - end.z) * uz;
+    if (reach < STEP) return this.choose(end, finishing);
+    // While drawing, the pieces wait behind the finger (as far along the line's heading as it's got), further than
+    // usual: a bend just after is seen before a straight runs on into it.
+    if (!finishing && reach < STRAIGHT_LOOKAHEAD) return null;
+    const { xs, zs, ss, progress } = this;
+    // Score against a stroke straight along the line's heading, `reach` long.
+    this.xs = [end.x, end.x + reach * ux];
+    this.zs = [end.z, end.z + reach * uz];
+    this.ss = [0, reach];
+    this.progress = 0;
+    let best: { candidate: DrawCandidate; s: number } | null;
+    try {
+      best = allow ? this.choose(end, finishing, straights) : this.best(end, finishing, straights);
+    } finally {
+      this.xs = xs;
+      this.zs = zs;
+      this.ss = ss;
+      this.progress = progress;
+    }
+    if (!best) return null;
+    // Where the real stroke gets that far along the line's heading (or its end).
+    const along = Math.min(best.s, reach);
+    let i = 0;
+    while (i < n && ss[i + 1] <= progress) i++;
+    let prev = (xs[i] - end.x) * ux + (zs[i] - end.z) * uz;
+    for (; i < n; i++) {
+      const next = (xs[i + 1] - end.x) * ux + (zs[i + 1] - end.z) * uz;
+      if (next >= along) {
+        const t = next > prev ? Math.max(0, Math.min(1, (along - prev) / (next - prev))) : 1;
+        return { candidate: best.candidate, s: Math.max(progress, ss[i] + (ss[i + 1] - ss[i]) * t) };
+      }
+      prev = next;
+    }
+    return { candidate: best.candidate, s: ss[n] };
   }
 
   /**
@@ -364,7 +551,8 @@ export class DrawLine {
       const ea = this.endCost(a.end, this.progress, a.length, finishing);
       if (ea.back) continue;
       const bendA = bendOf(a.type, a.end.heading - end.heading);
-      const costA = ea.cost + (finishing ? 0 : turnCost(a.end.heading - end.heading, ea.h - h0)) + pieceCost(a.type) + (k ? rebendCost(before, bendA) : 0);
+      const costA =
+        ea.cost + (finishing ? 0 : turnCost(a.end.heading - end.heading, ea.h - h0)) + this.radiusCost(bendA, this.progress, ea.s) + pieceCost(a.type) + (k ? rebendCost(before, bendA) : 0);
       // Finishing, a piece may end the line on its own.
       if (finishing) {
         const cost = costA - (Math.min(ea.s, this.strokeLength) - this.progress) * ADVANCE;
@@ -382,8 +570,11 @@ export class DrawLine {
         if (eb.back) continue;
         const share = cut ? Math.max(0, room) / b.length : 1;
         const turnB = (cut ? SCRATCH.heading : b.end.heading) - a.end.heading;
-        const costB = eb.cost + (finishing ? 0 : turnCost(turnB, eb.h - ea.h)) + pieceCost(b.type) + rebendCost(bendA, bendOf(b.type, b.end.heading - a.end.heading));
-        const cost = costA + costB * share - (Math.min(eb.s, this.strokeLength) - this.progress) * ADVANCE;
+        const bendB = bendOf(b.type, b.end.heading - a.end.heading);
+        const costB = eb.cost + (finishing ? 0 : turnCost(turnB, eb.h - ea.h)) + this.radiusCost(bendB, ea.s, eb.s) + pieceCost(b.type) + rebendCost(bendA, bendB);
+        // A mini straight fitting the line up to a bend, or on out of it.
+        const fit = (a.type === "straight-54" && bendB !== 0) || (bendA !== 0 && b.type === "straight-54") ? FIT_REBATE : 0;
+        const cost = costA + costB * share - fit - (Math.min(eb.s, this.strokeLength) - this.progress) * ADVANCE;
         if (cost < bestCost) {
           bestCost = cost;
           best = { candidate: a, s: ea.s };
@@ -392,6 +583,34 @@ export class DrawLine {
     }
     if (best && best.s <= this.progress + 1) return null;
     return best;
+  }
+
+  /**
+   * A curve (signed radius `bend`) against how tightly the stroke bends over the stretch it covers (s0 to s1, up to the
+   * stroke's end). The stroke's curvature is measured over each half of the stretch (how far it turns along it), and the
+   * tighter half counts: a curve starting early, on the straight before a bend, is held to the bend's radius, not to the
+   * average of the straight and the bend (which a wider curve would fit, its ends on the stroke all the same). The
+   * curvature is taken within the curves there are: tighter than the tight curve (a corner) asks for the tight curve,
+   * gentler than the wide one for the wide one.
+   */
+  private radiusCost(bend: number, s0: number, s1: number): number {
+    if (bend === 0) return 0;
+    s1 = Math.min(s1, this.strokeLength);
+    if (s1 - s0 < 20) return 0;
+    const sign = bend > 0 ? 1 : -1;
+    const h0 = this.headingAt(s0);
+    const at0 = this.headingTrueAt;
+    const hm = this.headingAt((s0 + s1) / 2);
+    const atm = this.headingTrueAt;
+    const h1 = this.headingAt(s1);
+    const at1 = this.headingTrueAt;
+    const k1 = atm - at0 > 5 ? (sign * normalizeAngle(hm - h0)) / (atm - at0) : 0;
+    const k2 = at1 - atm > 5 ? (sign * normalizeAngle(h1 - hm)) / (at1 - atm) : 0;
+    const k = Math.max(k1, k2);
+    if (k < FLAT_CURVATURE) return 0;
+    const ratio = Math.min(1 / SMALL_CURVE_RADIUS, Math.max(1 / WIDE_CURVE_RADIUS, k)) * Math.abs(bend);
+    const err = Math.max(0, Math.abs(Math.log(ratio)) - DEAD_R);
+    return (err / SIGMA_R) ** 2;
   }
 
   /** Finishing: what it costs to end the line at `e`, short of the stroke's end. */
@@ -469,9 +688,14 @@ export class DrawLine {
     return Math.atan2(this.zs[n] - a.z, this.xs[n] - a.x);
   }
 
-  /** The stroke's heading at distance s: smoothed over a few centimetres either side. */
+  /**
+   * The stroke's heading at distance s: smoothed over a few centimetres either side. Where along the stroke that heading
+   * is true of a circle goes in `headingTrueAt`: near the stroke's ends the window is lopsided, and its chord runs the
+   * way a circle does halfway along it, not at s.
+   */
   private headingAt(s: number): number {
     const len = this.strokeLength;
+    this.headingTrueAt = s;
     if (len < 1) return this.start.heading;
     // Across a long stretch either side, so a hand's wobble averages out: the same either side where it can (on a
     // circle, that chord runs the way the circle does at s). Near the stroke's ends, one side reaches up to twice as far
@@ -479,6 +703,7 @@ export class DrawLine {
     const c = Math.max(0, Math.min(len, s));
     const back = Math.min(c, HEADING_HALF, Math.max(HEADING_MIN, 2 * (len - c)));
     const on = Math.min(len - c, HEADING_HALF, Math.max(HEADING_MIN, 2 * c));
+    this.headingTrueAt = c + (on - back) / 2;
     const a = this.pointAt(c - back);
     const b = this.pointAt(c + on);
     if (Math.hypot(b.x - a.x, b.z - a.z) < 4) return this.start.heading;
@@ -542,6 +767,7 @@ function rebendCost(p: number, q: number): number {
   return p === 0 || q === 0 ? RESHAPE_COST : REBEND_COST;
 }
 
+const SCRATCH_RUN: number[] = new Array(8).fill(0);
 const SCRATCH: Pose = { x: 0, z: 0, heading: 0 };
 const SAMPLE = createSample();
 

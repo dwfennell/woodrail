@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { candidatesFrom, DrawLine, type DrawEnd } from "./draw-path";
+import { candidatesFrom, DrawLine, startHeading, type DrawEnd } from "./draw-path";
 import { Layout } from "./layout";
 import { getPieceDef } from "./pieces";
 import { angleDiff } from "./math";
@@ -113,6 +113,39 @@ describe("draw path", () => {
     }
   });
 
+  it("a lead-in that isn't a sum of straights is fitted with the straights, and the bend keeps the stroke's radius", () => {
+    const cases: [number, number, string][] = [
+      [250, 180, "curve-large"],
+      [300, 180, "curve-large"],
+      [350, 180, "curve-large"],
+      [250, 270, "curve-wide"],
+      [300, 270, "curve-wide"],
+    ];
+    for (const [lead, r, curve] of cases)
+      for (const sign of [1, -1] as const) {
+        const name = `lead ${lead}, r${r}, sign ${sign}`;
+        const at = leadThenArc(lead, r, sign);
+        const length = lead + (r * Math.PI) / 2;
+        const line = draw(new DrawLine(START), length, at);
+        const types = line.pieces.map((p) => p.type);
+        // One radius all through the bend: the stroke's.
+        const curves = types.filter((t) => t.startsWith("curve"));
+        expect(curves.length, `${name}: ${types}`).toBeGreaterThan(0);
+        expect(new Set(curves), `${name}: ${types}`).toEqual(new Set([curve]));
+        // At most one (short) straight among the curves.
+        const first = types.findIndex((t) => t.startsWith("curve"));
+        const last = types.length - 1 - [...types].reverse().findIndex((t) => t.startsWith("curve"));
+        const among = types.slice(first, last + 1).filter((t) => t.startsWith("straight"));
+        expect(among.length, `${name}: ${types}`).toBeLessThanOrEqual(1);
+        expect(among.every((t) => t === "straight-54" || t === "straight-108"), `${name}: ${types}`).toBe(true);
+        // Ending within about 25 mm of the stroke's end (the lead-in's error, taken up by the straights), heading its way.
+        const end = at(length);
+        expect(Math.hypot(line.end.x - end.x, line.end.z - end.z), `${name}: ${types}`).toBeLessThan(26);
+        expect(angleDiff(line.end.heading, (sign * Math.PI) / 2), name).toBeLessThan(0.01);
+        expectJoined(line);
+      }
+  });
+
   it("a 200 mm straight is one long piece (ending within joint play of the stroke's end), not a long one and minis (QA N3)", () => {
     const line = draw(new DrawLine(START), 200, (s) => ({ x: s, z: 0 }));
     const types = line.pieces.map((p) => p.type);
@@ -133,6 +166,85 @@ describe("draw path", () => {
         expect(types[types.length - 1].startsWith("straight"), `${name}: ${types}`).toBe(true);
         expect(Math.abs(line.end.x - 900), name).toBeLessThan(30);
       }
+  });
+
+  /** A straight stroke from the origin at `deg` degrees, `noise` mm of jitter to either side (the same each run). */
+  const slanted = (deg: number, noise = 0) => {
+    const a = (deg * Math.PI) / 180;
+    let seed = 12345;
+    return (s: number) => {
+      seed = (seed * 16807) % 2147483647;
+      const n = noise * ((2 * seed) / 2147483647 - 1);
+      return { x: s * Math.cos(a) - n * Math.sin(a), z: s * Math.sin(a) + n * Math.cos(a) };
+    };
+  };
+  const eighth = Math.PI / 4;
+
+  it("a straight swipe slanted off the line's heading lays straights along an eighth heading, not curves chasing it (QA N1)", () => {
+    for (const deg of [0, 10, 20, 23, 30, 40])
+      for (const length of [600, 750, 900]) {
+        const name = `${deg}°, ${length} mm`;
+        const line = draw(new DrawLine(START), length, slanted(deg));
+        const types = line.pieces.map((p) => p.type);
+        // Up to 22.5° and a little over: straights all along the end's heading.
+        if (deg <= 23) {
+          expect(types.every((t) => t.startsWith("straight")), `${name}: ${types}`).toBe(true);
+          for (const p of line.pieces) expect(angleDiff(p.end.heading, 0), name).toBeLessThan(1e-6);
+        } else {
+          // Further off: one eighth-turn curve first, then straights along the next eighth.
+          expect(types[0].startsWith("curve"), `${name}: ${types}`).toBe(true);
+          expect(types.slice(1).every((t) => t.startsWith("straight")), `${name}: ${types}`).toBe(true);
+          for (const p of line.pieces) expect(angleDiff(p.end.heading, eighth), name).toBeLessThan(1e-6);
+        }
+        // As far along that heading as the stroke reaches.
+        const h = line.end.heading;
+        const reach = length * Math.cos((deg * Math.PI) / 180 - h);
+        expect(Math.abs(line.end.x * Math.cos(h) + line.end.z * Math.sin(h) - reach), `${name}: ${types}`).toBeLessThan(50);
+        expectJoined(line);
+      }
+  });
+
+  it("a straight swipe from open ground lays straights along the nearest eighth heading (QA N1)", () => {
+    for (const deg of [0, 10, 20, 23, 30, 40, 60, 80])
+      for (const length of [600, 900]) {
+        // A new line starts heading the way the finger set off, rounded to an eighth (as DrawHand starts it).
+        const heading = startHeading(Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180));
+        const line = draw(new DrawLine({ ...START, heading }), length, slanted(deg));
+        const types = line.pieces.map((p) => p.type);
+        expect(types.every((t) => t.startsWith("straight")), `${deg}°: ${types}`).toBe(true);
+        expect(angleDiff(line.end.heading, Math.round(deg / 45) * eighth), `${deg}°`).toBeLessThan(1e-6);
+      }
+  });
+
+  it("a wobbly straight swipe (±6 mm jitter) at 20° still lays only straights (QA N1)", () => {
+    for (const length of [600, 900]) {
+      const line = draw(new DrawLine(START), length, slanted(20, 6));
+      const types = line.pieces.map((p) => p.type);
+      expect(types.every((t) => t.startsWith("straight")), `${length}: ${types}`).toBe(true);
+      expect(angleDiff(line.end.heading, 0)).toBeLessThan(1e-6);
+    }
+  });
+
+  it("a straight lead-in then a real quarter turn still lays the bend", () => {
+    for (const sign of [1, -1] as const) {
+      const lead = 300;
+      const r = 180;
+      const at = (s: number) => (s < lead ? { x: s, z: 0 } : { x: lead + r * Math.sin((s - lead) / r), z: sign * r * (1 - Math.cos((s - lead) / r)) });
+      const line = draw(new DrawLine(START), lead + (r * Math.PI) / 2, at);
+      const types = line.pieces.map((p) => p.type);
+      expect(types.filter((t) => t.startsWith("curve")), `${types}`).toEqual(["curve-large", "curve-large"]);
+      expect(angleDiff(line.end.heading, (sign * Math.PI) / 2)).toBeLessThan(0.01);
+    }
+  });
+
+  it("going back over a slanted swipe takes off the straights laid for it, though they lie off to its side", () => {
+    const at = slanted(23);
+    const line = new DrawLine(START);
+    for (let s = 4; s <= 900; s += 4) line.addPoint(at(s).x, at(s).z);
+    expect(line.pieces.length).toBeGreaterThan(1);
+    for (let s = 900; s >= 0; s -= 4) line.addPoint(at(s).x, at(s).z);
+    line.finish();
+    expect(line.pieces).toHaveLength(0);
   });
 
   it("an L with a rounded corner: straights, two curves, straights", () => {

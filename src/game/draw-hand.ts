@@ -20,6 +20,7 @@ import {
   Layout,
   normalizeAngle,
   solveParentPose,
+  startHeading,
   transformPose,
   type DrawCandidate,
   type DrawEnd,
@@ -157,7 +158,7 @@ export class DrawHand {
       const dz = p.z - this.origin.z;
       if (Math.hypot(dx, dz) < START_MOVE) return;
       // A new line: its first end on the grid, pointing the way the finger set off (in eighths of a turn).
-      const heading = Math.round(Math.atan2(dz, dx) / (Math.PI / 4)) * (Math.PI / 4);
+      const heading = startHeading(dx, dz);
       const sx = Math.round(this.origin.x / START_GRID) * START_GRID;
       const sz = Math.round(this.origin.z / START_GRID) * START_GRID;
       const y0 = looseHeight(this.game.landscape, this.game.layout, "straight-54", false, { x: sx, z: sz, heading }, -1);

@@ -67,6 +67,34 @@ The line grows one piece at a time, from the end the line has reached so far:
      made up for by a tighter curve, can have both its ends on the stroke, but it doesn't turn the way the stroke does.
    - A piece bending another way from the one before costs a little (another radius or the other hand more, straight
      to curve or back less), so a steady arc stays one radius.
+   - Each curve's radius is compared with how tightly the stroke bends over the stretch it covers. The stroke's
+     curvature is measured over each half of that stretch (how far its smoothed heading turns along it), and the
+     tighter half counts. So a curve that starts early, on the straight before a bend, is held to the bend's radius
+     rather than to the average of the straight and the bend (a wider curve would fit that average with its ends on
+     the stroke, and a tighter curve would then have to make up for it). The cost is the log of the ratio of the two radii:
+     the first 0.1 (about 10%) is free, and one radius step off (the curve on a wide arc, or the wide curve on the
+     curve's arc) costs about 4. A stroke bending tighter than the tight curve, such as a corner, asks for the tight curve,
+     and one gentler than the wide curve asks for the wide curve. Where the stroke hardly bends at all (gentler than
+     twice the wide curve's radius), no radius is asked, so curves can still steer the line back onto a straight run.
+   - A mini straight next to a curve costs a little less (0.3 of its 0.9 extra). A lead-in that isn't a sum of the
+     straights' lengths (300 mm, say) is then fitted with the straights: the line ends the lead-in a few cm short or
+     long and the bend's curves keep their radius, instead of the bend starting early with a wider curve and a tighter
+     one making up for it. The line ends within about 25 mm of the stroke's end.
+   - **Straight runs snap to an eighth (QA N1).** The view is turned about 23° off the grid, so a straight swipe on
+     screen is a straight line up to 22.5° off every eighth heading, and following it laid curves one way and the
+     other. So a near-straight stroke lays straights along the heading the line's end already has. The stroke from
+     the line's end on (at least its last 25 cm, and from where a straight run began) is a straight run when: its chord
+     is within 25° of the end's heading (an eighth); the chords of its thirds (each third's end the mean of the
+     stroke's points around there, so a hand's jitter averages out) turn no more than 0.12 rad from each other (a
+     bend, or an S, turns them apart); and no point of it is more than 12 mm, or 3% of its length, off the chord. A
+     run starts only with the line's end within 4 cm of the stroke; a line already on the stroke and within 0.1 rad of
+     it is left to the usual scoring (which keeps it there and sees a bend coming). On a run only straights are
+     tried, scored as above but against the stroke laid onto the end's heading (from the end, as far as the stroke
+     reaches along it), so the finger drifting off to the side costs nothing; the line's progress along the stroke is
+     where the stroke reaches as far along that heading. While drawing, a piece waits until the stroke reaches 40 cm
+     along the heading (not 25 cm), so a bend just after is seen before a straight runs on into it. A stroke more
+     than 25° off turns the line onto the next eighth with one curve, then runs straight along it. Going back over the
+     stroke a run was drawn for takes its straights off, though they lie off to its side.
    - While drawing, a second piece that runs on past the stroke drawn so far is scored only up to the stroke's end, and
      costs only the share of it used there. Gaining stroke counts only up to its end. (Beyond the end, nobody knows yet
      where the finger goes; scoring a straight carried on there used to favour straights on a curve.)
