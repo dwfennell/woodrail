@@ -276,7 +276,11 @@ export class CameraDirector {
   /** True when the last update panned the view (dragged things under the pointer need re-placing). */
   edgePanning = false;
 
-  update(dt: number, viewW: number, viewH: number): void {
+  /**
+   * `elapsed` is the real time since the last update, where `dt` is capped (a slow frame doesn't jump the view): the
+   * wait before an edge pan is in real time, so it doesn't stretch on a phone running slowly.
+   */
+  update(dt: number, viewW: number, viewH: number, elapsed = dt): void {
     const c = this.controls;
     const cam = this.camera;
     this.edgePanning = false;
@@ -324,7 +328,7 @@ export class CameraDirector {
       edgePan(this.edgePointer.x, this.edgePointer.y, viewW, this.edgePointer.bottom ?? viewH, this.edgePointer.zone, this.edge);
       const inBand = this.edge.dx !== 0 || this.edge.dy !== 0;
       if (!inBand) this.edgeWaiting = false;
-      this.edgeHeld = inBand && !this.edgeWaiting ? this.edgeHeld + dt : 0;
+      this.edgeHeld = inBand && !this.edgeWaiting ? this.edgeHeld + elapsed : 0;
       const push = edgeDwell(this.edgeHeld, this.edgePointer.touch);
       if (inBand && !this.edgeWaiting && push > 0) {
         const dist = cam.position.distanceTo(c.target);
