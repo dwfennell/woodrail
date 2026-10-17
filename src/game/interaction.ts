@@ -1,5 +1,5 @@
 import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, Mesh, type Object3D, type TOUCH } from "three";
-import { Editor, pieceCentre, poseForCentre, type RiserAt } from "../editor/editor";
+import { Editor, pieceCentre, poseCentre, poseForCentre, type RiserAt } from "../editor/editor";
 import { buildCarModel, carVariant, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
@@ -8,7 +8,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, findLowCrossing, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, normalizeAngle, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type PropBlock } from "../props/placement";
@@ -1431,6 +1431,25 @@ export class Interaction {
   }
   private hintFor: { key: string; hint: string | null } | null = null;
 
+  /**
+   * A piece held loose where it can't go: would it seat clear on an end there, turned another way (an eighth of a turn
+   * at a time)? Then say "Turn it to fit". Worked out once per spot (to the nearest 12 mm) while it's refused.
+   */
+  private turnHint(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, pieceId: number): string | null {
+    const key = `loose|${type}|${flipped}|${Math.round(pose.x / 12)}|${Math.round(pose.z / 12)}|${pose.heading.toFixed(2)}|${y}|${this.game.layout.pieceCount}`;
+    if (this.hintFor?.key === key) return this.hintFor.hint;
+    let hint: string | null = null;
+    for (let k = 1; k < 8 && !hint; k++) {
+      // Turned about its middle, as Turn turns a held piece.
+      const centre = poseCentre(type, flipped, pose);
+      const at = poseForCentre(type, flipped, centre.x, centre.z, pose.heading + (k * Math.PI) / 4);
+      const s = findSnap(this.game.layout, type, flipped, at, y, pieceId, SNAP_CAPTURE_RADIUS);
+      if (s.kind === "snapped" && this.placement(type, s.flipped, s.pose, s.y, pieceId).reason === null) hint = "Turn it to fit (↻ Turn)";
+    }
+    this.hintFor = { key, hint };
+    return hint;
+  }
+
   private blockMessage(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
     return reason === "site" ? this.siteWhy : BLOCK_MESSAGES[reason];
@@ -1902,12 +1921,14 @@ export class Interaction {
     }
     if (!board) {
       board = endBoardModel(this.game.mats);
+      // Bigger than a placed end's, to be seen past the finger.
+      board.scale.setScalar(1.6);
       board.name = "gap-board";
       board.matrixAutoUpdate = false;
       m.ghost.add(board);
     }
     const c = getPieceDef(m.type, m.flipped).connectors[m.snap.connector === 0 ? 1 : 0];
-    board.matrix.copy(pieceMatrix(c.pose.x, c.y, c.pose.z, c.pose.heading));
+    board.matrix.copy(pieceMatrix(c.pose.x, c.y, c.pose.z, c.pose.heading)).scale(board.scale);
   }
 
   private heldMesh(type: PieceTypeId, flipped: boolean): Mesh {
@@ -2032,6 +2053,18 @@ export class Interaction {
           atFinger = fingered;
         }
       }
+      // Nothing in reach of its ends or under the finger, but the finger is out in front of a free end, on its line
+      // (aiming into a gap, the piece held at an angle): it goes on that end.
+      if (m.snap.kind !== "snapped" && getPieceDef(holdType, m.heldFlipped).connectors.length > 0) {
+        for (const level of new Set([0, RISER_HEIGHT, 2 * RISER_HEIGHT, 3 * RISER_HEIGHT, 4 * RISER_HEIGHT, m.looseY])) {
+          const finger = this.planeAt(x, sy, level);
+          const s = finger ? findSnapAhead(this.game.layout, holdType, m.heldFlipped, heldAt(level) ?? m.pose, level, finger, m.pieceId) : null;
+          if (s?.kind !== "snapped") continue;
+          if (isBridge(holdType) && bridgeLevels(this.game.landscape, m.type, s.flipped, s.pose, s.y) === 0) continue;
+          m.snap = s;
+          break;
+        }
+      }
       if (m.auto) {
         const fit = m.snap.kind === "snapped" && m.snap.connector <= 1 ? fitAutoStraight(this.game.layout, m.snap.pose, m.snap.y, m.snap.connector as 0 | 1, [m.pieceId]) : null;
         // Shrink to meet a free end along its line, or bend (a join) to meet one a little to one side.
@@ -2057,7 +2090,7 @@ export class Interaction {
       const { reason, risers } = this.placement(m.type, m.flipped, pose, py, m.pieceId);
       // (A preview under the mouse just shows red: the reason comes if it's clicked.)
       // While it's held where it can't go, the reason stays up (and goes once it can, or it's over the tray).
-      m.hint = reason && m.snap.kind === "snapped" && !m.auto ? this.fitHint(m.type, m.flipped, m.snap, m.pieceId) : null;
+      m.hint = !reason ? null : m.snap.kind === "snapped" ? this.fitHint(m.type, m.flipped, m.snap, m.pieceId) : this.turnHint(holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId);
       if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? (m.hint ?? this.blockMessage(reason)) : null);
       m.blocked = reason;
       m.risers = risers;
@@ -2078,7 +2111,7 @@ export class Interaction {
       const held = this.game.mats.held;
       if (reason) setRim(held, "#ff4a3a", 1.2);
       // Joined at one end, but leaving a gap to an end ahead (another one closes it): amber, not "joined".
-      else if (m.snap.kind === "snapped" && m.gap) setRim(held, "#f2a531", 1.1);
+      else if (m.snap.kind === "snapped" && m.gap) setRim(held, "#ff9d00", 1.8);
       else if (m.snap.kind === "snapped") setRim(held, "#7ddc58", 0.9);
       else setRim(held, "#fff2d8", 0.12);
       this.markGap(m);
