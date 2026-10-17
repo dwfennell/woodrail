@@ -277,7 +277,10 @@ export class Hud {
     // A card that grows once it's open (a workshop's list fills in a frame later) may come up under a toast: it's put
     // clear again (only when a card's size changes, not per frame).
     if (typeof ResizeObserver !== "undefined") {
-      const refit = new ResizeObserver(() => this.refitToast());
+      const refit = new ResizeObserver(() => {
+        this.refitToast();
+        this.onCardResize?.();
+      });
       for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) refit.observe(c);
     }
 
@@ -1106,6 +1109,17 @@ export class Hud {
 
   get depotCardOpen(): boolean {
     return !this.depotCard.hidden;
+  }
+
+  /** Called when a card changes size (as it opens, as its rows fill in): the view may make room for what it's for. */
+  onCardResize: (() => void) | null = null;
+
+  /** Where the open card for one thing (an engine, a car, a piece, a depot) is on screen, or null. */
+  openCardRect(): DOMRect | null {
+    for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) {
+      if (!c.hidden && !c.classList.contains("group") && c.offsetParent !== null) return c.getBoundingClientRect();
+    }
+    return null;
   }
 
   hideCards(): void {
