@@ -260,9 +260,10 @@ def platform_furnished(k):
 def station_clock(k):
     g = Node()
     g.add(k.lathe(k.paint(TOY.green), [(0, 0), (5, 0), (5, 2), (2.5, 4), (1.8, 10), (1.8, 40), (3, 42), (0, 42)], 0, 0, 0, 20))
-    g.add(k.cylZ(k.paint(TOY.green), 8, 6, 0, 50, 0, 24))
-    g.add(clock(k, 6.5, 0, 50, 3.2, -math.pi / 2), clock(k, 6.5, 0, 50, -3.2, math.pi / 2))
-    g.add(k.ball(k.paint(TOY.yellow), 2, 0, 59.5, 0))
+    # A big two-faced head, its faces bold (see `clock`): read from across the layout at the usual zoom.
+    g.add(k.cylZ(k.paint(TOY.green), 10.6, 6, 0, 52, 0, 28))
+    g.add(clock(k, 8.6, 0, 52, 3.2, -math.pi / 2, bold=True), clock(k, 8.6, 0, 52, -3.2, math.pi / 2, bold=True))
+    g.add(k.ball(k.paint(TOY.yellow), 2.2, 0, 64.2, 0))
     return g
 
 
