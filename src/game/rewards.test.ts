@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Progress } from "./progress";
-import { crateFor, firstTimeGift, offerOnGrowth, takeBlueprint, takeCrate } from "./rewards";
+import { crateFor, firstTimeGift, offerOnGrowth, refreshOffers, takeBlueprint, takeCrate } from "./rewards";
 import { techOf } from "./tech";
 import { rng } from "../lib/rng";
 
@@ -78,5 +78,51 @@ describe("town rewards", () => {
     const back = Progress.fromJSON(JSON.parse(JSON.stringify(p.toJSON())));
     expect(back.offers).toEqual(p.offers);
     expect(back.bestLevel).toBe(2);
+  });
+});
+
+describe("stale offers", () => {
+  const stale = () => {
+    const p = Progress.fresh();
+    p.board.clear();
+    p.offers.push({ from: "Larkfield", ids: ["farming", "switches"] }, { from: "Elderwick", ids: ["farming", "switches"] });
+    return p;
+  };
+
+  it("choosing a blueprint swaps it out of other pending offers", () => {
+    const p = stale();
+    expect(takeBlueprint(p, 0, "farming", rng(1))).toBe(true);
+    expect(p.learned.has("farming")).toBe(true);
+    for (const o of p.offers) expect(o.ids).not.toContain("farming");
+  });
+
+  it("re-rolls a replacement that is neither learned nor a repeat", () => {
+    const p = stale();
+    p.learned.add("farming");
+    expect(refreshOffers(p, rng(2))).toBe(true);
+    for (const o of p.offers) {
+      expect(new Set(o.ids).size).toBe(o.ids.length);
+      for (const id of o.ids) expect(p.learned.has(id), id).toBe(false);
+    }
+  });
+
+  it("drops the choice when nothing is left, keeping a crate", () => {
+    const p = Progress.fresh();
+    p.offers.push({ from: "A", ids: ["farming"] }, { from: "B", ids: ["farming"], crate: [["piece:buffer-turnback", 2]] });
+    p.learned.add("farming");
+    refreshOffers(p, () => 0);
+    for (const o of p.offers) expect(o.ids).not.toContain("farming");
+    expect(p.offers.some((o) => o.from === "B" && o.crate)).toBe(true);
+  });
+
+  it("tapping a learned blueprint fails and leaves no stale card behind", () => {
+    const p = stale();
+    p.learned.add("farming");
+    expect(takeBlueprint(p, 1, "farming", rng(3))).toBe(false);
+    for (const o of p.offers) expect(o.ids).not.toContain("farming");
+  });
+
+  it("changes nothing when no offer is stale", () => {
+    expect(refreshOffers(stale(), rng(4))).toBe(false);
   });
 });
