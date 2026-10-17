@@ -1,6 +1,7 @@
 import { Group, Shape, type Material, type Mesh, type Object3D } from "three";
 import { TOY, type Kit } from "../kit";
 import type { Asset } from "../types";
+import { buildTrackCleaner } from "./track-cleaner";
 
 /** Working mechanisms (cranes, signals, crossings, turntables) and bridges & tunnels. */
 
@@ -1085,20 +1086,8 @@ const mechanisms: Asset[] = [
     category: "Mechanisms",
     tags: ["cleaning", "brush", "maintenance", "wagon", "depot"],
     notes: "A short maintenance wagon with spinning brushes underneath and a little cab. Running it round could sweep away leaves or snow that slow other trains down.",
-    build: (k) => {
-      const len = 80;
-      const g = k.group(k.bogies(len), k.coupler(len, 1), k.coupler(len, -1));
-      g.add(k.box(k.paint(TOY.yellow), len - 6, 8, 30, 2, 0, 12, 0));
-      g.add(k.box(k.paint(TOY.yellow), 28, 22, 28, 3, -18, 20, 0), k.box(k.glass, 29, 8, 20, 1, -18, 30, 0), k.box(k.paint(TOY.black), 30, 3, 30, 1, -18, 42, 0));
-      g.add(k.cyl(k.paint(TOY.orange), 3, 3, -18, 45, 0, 3, 12), named(k.ball(k.paint(LIT_AMBER), 2.4, -18, 50, 0), "beacon"));
-      g.add(k.cylX(k.paint(TOY.teal), 9, 28, 16, 29, 0, 20), k.box(k.paint(TOY.grey), 30, 3, 22, 1, 16, 20, 0));
-      for (const x of [-4, 4]) {
-        const b = pivot(x < 0 ? "brushA" : "brushB", x, 9, 0, k.cylZ(k.paint(TOY.red), 3, 26, 0, 0, 0, 12));
-        for (let i = 0; i < 6; i++) b.add(k.box(k.paint(TOY.black), 1, 3, 24, 0.3, Math.cos(i) * 3.5, Math.sin(i) * 3.5 - 1.5, 0).rotateZ(i));
-        g.add(b);
-      }
-      return g;
-    },
+    // (Shared with the game's track cleaner car.)
+    build: (k) => buildTrackCleaner(k),
     animate: (root, t) => {
       part(root, "brushA").rotation.z = t * 10;
       part(root, "brushB").rotation.z = t * 10;

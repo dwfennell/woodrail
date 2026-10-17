@@ -1,4 +1,4 @@
-import { connectorRef, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, MAX_CONNECTORS, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
+import { connectorRef, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, MAX_CONNECTORS, normalizeAngle, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -308,6 +308,8 @@ export class Sim {
     const found = this.findCar(engineCarId);
     if (!found || found.train.derailed) return "none";
     const t = found.train;
+    // Riding a turning deck: it's moving.
+    if (this.rides.size > 0 && this.riding(t)) return "moving";
     const n = t.cars.length;
     const i = found.index;
     const engine = t.cars[i];
@@ -365,6 +367,8 @@ export class Sim {
     const found = this.findCar(carId);
     if (!found || found.train.derailed) return { kind: "none" };
     const t = found.train;
+    // Riding a turning deck: it's moving.
+    if (this.rides.size > 0 && this.riding(t)) return { kind: "moving" };
     const n = t.cars.length;
     const i = found.index;
     let k: number;
@@ -503,17 +507,41 @@ export class Sim {
       this.toggleSignal(pieceId, 0);
       return true;
     }
-    if (def?.gated && this.pieceOccupied(pieceId)) return false;
+    if (def?.gated && this.deckRefusal(pieceId)) return false;
     const routes = !def ? 2 : def.gated ? def.paths.length : def.paths.filter((p) => p.from === 0).length;
-    this.layout.setSwitchState(pieceId, (this.layout.switchState(pieceId) + 1) % Math.max(2, routes));
-    // A deck joins nothing till it's turned to its next road.
+    const was = this.layout.switchState(pieceId);
+    this.layout.setSwitchState(pieceId, (was + 1) % Math.max(2, routes));
+    // A deck joins nothing till it's turned to its next road, and carries round any train standing on it.
     if (def?.gated) {
       this.layout.setDeckTurning(pieceId, true);
-      this.decksTurning.set(pieceId, this.ticks + Math.round(DECK_GLIDE_S * SIM_HZ));
+      const done = this.ticks + Math.round(DECK_GLIDE_S * SIM_HZ);
+      this.decksTurning.set(pieceId, done);
+      this.startRide(pieceId, was % def.paths.length, this.layout.switchState(pieceId), done);
     }
     // A signal held or let go shows it at once (even paused).
     this.updateSignals();
     return true;
+  }
+
+  /**
+   * Why a deck (a turntable's) can't turn now: a train partly on it (it would be torn apart), or one on it that's
+   * moving or waiting to turn back, or it's still carrying one round. Null if it can: empty, or carrying trains
+   * standing wholly on it (they turn with it: an engine turned round).
+   */
+  deckRefusal(pieceId: number): "partly" | "moving" | "turning" | null {
+    // (Points and signals are thrown whatever stands on them.)
+    const piece = this.layout.getPiece(pieceId);
+    if (!piece || !getPieceDef(piece.type, piece.flipped).gated) return null;
+    if (this.rides.has(pieceId)) return "turning";
+    for (const t of this.trains.values()) {
+      if (t.derailed) continue;
+      let on = 0;
+      for (const b of t.bogies) if (b.pieceId === pieceId) on++;
+      if (on === 0) continue;
+      if (on < t.bogies.length) return "partly";
+      if (t.speed > 0 || t.turnback >= 0) return "moving";
+    }
+    return null;
   }
 
   /** Ticks run so far (for how long ago something happened). */
@@ -522,8 +550,122 @@ export class Sim {
   /** Decks turning (see `toggleSwitch`): the tick each is at its next road. */
   private readonly decksTurning = new Map<number, number>();
 
+  /**
+   * Trains riding a turning deck, by deck: held still, set on the deck's new road at once (their axles), but drawn
+   * carried round from where they stood (`world`), over the deck's glide: a turn by `angle` about (cx, cz), or a slide
+   * by (dx, dz) where the deck slides.
+   */
+  private readonly rides = new Map<
+    number,
+    { trainIds: number[]; from: WorldSample[][]; angle: number; cx: number; cz: number; dx: number; dz: number; start: number; done: number }
+  >();
+
+  /**
+   * A deck turned from road `from` to `to`: the trains standing on it go with it. Each axle goes to the same place on
+   * the new road (its start is the old one's turned or slid there); on a turntable turned past half round the new road
+   * points the other way, so the train runs along it the other way.
+   */
+  private startRide(pieceId: number, from: number, to: number, done: number): void {
+    const piece = this.layout.getPiece(pieceId)!;
+    const def = getPieceDef(piece.type, piece.flipped);
+    const riders = [...this.trains.values()].filter((t) => !t.derailed && t.bogies.length > 0 && t.bogies.every((b) => b.pieceId === pieceId));
+    if (riders.length === 0 || from === to) return;
+    const a = def.paths[from].geom;
+    const b = def.paths[to].geom;
+    if (a.kind !== "line" || b.kind !== "line") return;
+    // The old road's start, turned onto the new road's: by the angle between them, or half round more if that's
+    // nearer (then the new road runs the other way).
+    let angle = normalizeAngle(b.start.heading - a.start.heading);
+    const flip = Math.abs(angle) > Math.PI / 2;
+    if (flip) angle = normalizeAngle(angle + Math.PI);
+    const from0 = riders.map((t) => t.world.map((w) => ({ ...w })));
+    for (const t of riders) {
+      for (const c of t.bogies) {
+        c.pathIndex = to;
+        // (A cursor's `s` is from where it starts travelling: the same distance from the turned start, on the new
+        // road run the other way.)
+        if (flip) c.reversed = !c.reversed;
+      }
+      t.memory.clear();
+      this.refreshWorld(t);
+    }
+    // The move as the world sees it: one axle from where it stood to where it is now gives the turn's centre (or, no
+    // turn, the slide).
+    const p = from0[0][0];
+    const q = riders[0].world[0];
+    const ch = Math.cos(angle);
+    const sh = Math.sin(angle);
+    let cx = 0;
+    let cz = 0;
+    if (Math.abs(angle) > 1e-9) {
+      // q − c = R(p − c): c = (I − R)⁻¹ (q − R p).
+      const rx = q.x - (ch * p.x - sh * p.z);
+      const rz = q.z - (sh * p.x + ch * p.z);
+      const m00 = 1 - ch;
+      const m01 = sh;
+      const m10 = -sh;
+      const m11 = 1 - ch;
+      const det = m00 * m11 - m01 * m10;
+      cx = (m11 * rx - m01 * rz) / det;
+      cz = (-m10 * rx + m00 * rz) / det;
+    }
+    this.rides.set(pieceId, { trainIds: riders.map((t) => t.id), from: from0, angle, cx, cz, dx: q.x - p.x, dz: q.z - p.z, start: this.ticks, done });
+    for (let i = 0; i < riders.length; i++) this.carry(riders[i], from0[i], 0, angle, cx, cz, q.x - p.x, q.z - p.z);
+  }
+
+  /** A riding train drawn `e` (0 to 1) of the way round (or across) from where it stood. */
+  private carry(t: Train, from: readonly WorldSample[], e: number, angle: number, cx: number, cz: number, dx: number, dz: number): void {
+    const turn = Math.abs(angle) > 1e-9;
+    const ch = Math.cos(angle * e);
+    const sh = Math.sin(angle * e);
+    for (let i = 0; i < t.world.length && i < from.length; i++) {
+      const f = from[i];
+      const w = t.world[i];
+      if (turn) {
+        w.x = cx + ch * (f.x - cx) - sh * (f.z - cz);
+        w.z = cz + sh * (f.x - cx) + ch * (f.z - cz);
+        w.heading = normalizeAngle(f.heading + angle * e);
+      } else {
+        w.x = f.x + dx * e;
+        w.z = f.z + dz * e;
+        w.heading = f.heading;
+      }
+      w.y = f.y;
+      w.slope = f.slope;
+    }
+  }
+
+  /** Riding trains carried on with their decks; a ride over, they're drawn where they now stand. */
+  private updateRides(): void {
+    for (const [id, r] of this.rides) {
+      const over = this.ticks >= r.done;
+      const u = over ? 1 : (this.ticks - r.start) / (r.done - r.start);
+      const e = u * u * (3 - 2 * u);
+      r.trainIds.forEach((tid, i) => {
+        const t = this.trains.get(tid);
+        if (!t) return;
+        if (over) this.refreshWorld(t);
+        else this.carry(t, r.from[i], e, r.angle, r.cx, r.cz, r.dx, r.dz);
+      });
+      if (over) this.rides.delete(id);
+    }
+  }
+
+  /** Is a train standing on this deck (one it would carry round if it turned)? */
+  deckCarries(pieceId: number): boolean {
+    for (const t of this.trains.values()) if (!t.derailed && t.bogies.some((b) => b.pieceId === pieceId)) return true;
+    return false;
+  }
+
+  /** Is this train riding a turning deck (held still)? */
+  private riding(train: Train): boolean {
+    for (const r of this.rides.values()) if (r.trainIds.includes(train.id)) return true;
+    return false;
+  }
+
   tick(): void {
     this.ticks++;
+    if (this.rides.size > 0) this.updateRides();
     if (this.decksTurning.size > 0) {
       for (const [id, done] of this.decksTurning)
         if (done <= this.ticks) {
@@ -534,6 +676,8 @@ export class Sim {
     this.updateSignals();
     for (const train of this.trains.values()) {
       if (train.derailed) continue;
+      // Riding a turning deck: held where it stands till the deck's there.
+      if (this.rides.size > 0 && this.riding(train)) continue;
       // Waiting at the end of the line beside a crane with work for it (a depot at the line's end): the wait holds
       // until the crane's done (it's asked each tick, as when moving, so it can see the train has stopped).
       const craneHolds = train.turnback >= 0 && this.speedCap !== null && this.speedCap(train) === 0;
@@ -886,11 +1030,13 @@ export class Sim {
   }
 
   private resolveContacts(): void {
+    const riding = this.rides.size > 0;
     for (const a of this.trains.values()) {
       if (a.derailed || a.speed <= 0) continue;
       this.endFace(a, true, face);
       for (const b of this.trains.values()) {
-        if (b === a || b.derailed || !this.trains.has(a.id)) continue;
+        // (A train riding a turning deck is swept round past the roads' ends: nothing couples to it till it's there.)
+        if (b === a || b.derailed || !this.trains.has(a.id) || (riding && this.riding(b))) continue;
         const reach = Math.max(4, a.speed * SIM_DT + 2);
         // End to end (meeting, or touching as they part): not a blow to b's side.
         let ends = false;

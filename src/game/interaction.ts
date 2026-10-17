@@ -3343,11 +3343,22 @@ export class Interaction {
     const g = this.game;
     const piece = g.layout.getPiece(pieceId);
     if (piece && getPieceDef(piece.type, piece.flipped).signal) g.sim.toggleSignal(pieceId, road);
-    else if (!g.sim.toggleSwitch(pieceId)) {
-      // A turntable's deck doesn't turn with a train on it.
+    else {
+      // A turntable's deck turns a train standing still wholly on it, not one partly on it or moving.
+      const refused = g.sim.deckRefusal(pieceId);
       const kit = kitOf(g.layout.getPiece(pieceId)!.type);
-      this.hud.toast(`The ${kit?.name ?? "deck"} won't turn with a train on it`);
-      return;
+      const name = `The ${kit?.name ?? "deck"}`;
+      // (Paused, the train wouldn't go round with the deck.)
+      if (!refused && g.paused && kit && g.sim.deckCarries(pieceId)) {
+        this.hud.toast(`${name} turns a train while the game's running`);
+        return;
+      }
+      if (refused || !g.sim.toggleSwitch(pieceId)) {
+        this.hud.toast(
+          refused === "turning" ? `${name} is still turning` : refused === "moving" ? `${name} turns a train once it has stopped` : `${name} won't turn with a train partly on it`,
+        );
+        return;
+      }
     }
     g.trackView.syncSwitches();
     g.invalidate();

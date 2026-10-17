@@ -131,6 +131,71 @@ describe("the turntable", () => {
     expect(there?.cursor).toMatchObject({ pieceId: w.id, pathIndex: 2 });
   });
 
+  /** The yard with its train taken off, and an engine (and `cars`) standing still on the deck, across its middle. */
+  function onDeck(kit: PieceTypeId, outs: number[], cars: ("engine" | "hopper")[] = ["engine"]) {
+    const w = yard(kit, outs);
+    w.sim.removeTrain(w.sim.trainIds()[0]);
+    const len = getPieceDef(kit, false).paths[0].geom.kind === "line" ? 2 * 92 : 0;
+    const placed = w.sim.addTrain(cars, { pieceId: w.id, pathIndex: 0, reversed: false, s: kit === "kit-turntable" ? len / 2 + 30 : 90 });
+    if (placed.kind !== "placed") throw new Error("no room on the deck");
+    return w;
+  }
+
+  it("turns an engine standing wholly on it round with it, and it runs off the far side the other way", () => {
+    const w = onDeck("kit-turntable", [4]);
+    const before = { ...w.train().world[0] };
+    const t = w.layout.getPiece(w.id)!.pose;
+    const centre = { x: t.x + 92, z: t.z };
+    expect(w.sim.deckRefusal(w.id)).toBe(null);
+    // Half a turn, an eighth at a time: carried round the pit's centre all the while.
+    for (let k = 0; k < 4; k++) {
+      expect(w.sim.toggleSwitch(w.id)).toBe(true);
+      // Carried round, it can't be split or run round meanwhile.
+      expect(w.sim.runAround(w.train().cars[0].id)).toBe("moving");
+      // A second tap while it turns is refused (the train is being carried).
+      expect(w.sim.deckRefusal(w.id)).toBe("turning");
+      for (let i = 0; i < DECK_GLIDE_S * SIM_HZ; i++) {
+        w.sim.tick();
+        const a = w.train().world[0];
+        expect(Math.hypot(a.x - centre.x, a.z - centre.z)).toBeCloseTo(Math.hypot(before.x - centre.x, before.z - centre.z), 6);
+      }
+    }
+    expect(w.layout.switchState(w.id)).toBe(0);
+    // Turned right round: its front axle now where its mirror was, facing the other way.
+    const after = w.train().world[0];
+    expect(after.x).toBeCloseTo(2 * centre.x - before.x, 6);
+    expect(after.z).toBeCloseTo(2 * centre.z - before.z, 6);
+    expect(Math.abs(Math.cos(after.heading - before.heading) + 1)).toBeLessThan(1e-6);
+    // Driven on, it goes off along the line the way it came in: onto the straight it would have come from.
+    w.sim.setLever(w.train().cars[0].id, 1);
+    const reached = run(w, 8);
+    expect(reached.has(w.start)).toBe(true);
+    expect(reached.has(w.out.get(4)!)).toBe(false);
+    expect(w.train().derailed).toBe(false);
+  });
+
+  it("carries an engine round a quarter onto a side road, and it runs off along it", () => {
+    const w = onDeck("kit-turntable", [4, 6]);
+    turn(w, 2);
+    expect(w.train().bogies.every((b) => b.pathIndex === 2)).toBe(true);
+    w.sim.setLever(w.train().cars[0].id, 1);
+    const reached = run(w, 8);
+    expect(reached.has(w.out.get(6)!)).toBe(true);
+    expect(w.train().derailed).toBe(false);
+  });
+
+  it("won't turn with a train partly on it, or moving on it (points and signals are thrown whatever's on them)", () => {
+    const w = yard("kit-turntable", [4]);
+    expect(w.train().bogies.some((b) => b.pieceId === w.start)).toBe(true);
+    expect(w.sim.deckRefusal(w.start)).toBe(null);
+    for (let i = 0; i < 20 * SIM_HZ && !w.train().bogies.some((b) => b.pieceId === w.id); i++) w.sim.tick();
+    expect(w.sim.deckRefusal(w.id)).toBe("partly");
+    for (let i = 0; i < 20 * SIM_HZ && !w.train().bogies.every((b) => b.pieceId === w.id); i++) w.sim.tick();
+    expect(w.train().speed).toBeGreaterThan(0);
+    expect(w.sim.deckRefusal(w.id)).toBe("moving");
+    expect(w.sim.toggleSwitch(w.id)).toBe(false);
+  });
+
   it("won't turn with a train on it", () => {
     const w = yard("kit-turntable", [4]);
     for (let i = 0; i < 20 * SIM_HZ && !w.train().bogies.some((b) => b.pieceId === w.id); i++) w.sim.tick();
@@ -148,6 +213,23 @@ describe("the transfer table", () => {
     expect(def.paths).toHaveLength(3);
     expect(def.gated).toBe(true);
     expect(def.paths.map((p) => p.geom.kind === "line" && p.geom.start.z)).toEqual([0, 60, -60]);
+  });
+
+  it("carries a wagon standing on its deck across to the next road", () => {
+    const w = yard("kit-transfer-table", [3]);
+    w.sim.removeTrain(w.sim.trainIds()[0]);
+    const placed = w.sim.addTrain(["engine"], { pieceId: w.id, pathIndex: 0, reversed: false, s: 60 });
+    expect(placed.kind).toBe("placed");
+    const before = { ...w.train().world[0] };
+    turn(w);
+    const after = w.train().world[0];
+    const t = w.layout.getPiece(w.id)!.pose;
+    // 60 to the left (across the piece), the same way on.
+    expect(after.x - before.x).toBeCloseTo(-60 * Math.sin(t.heading), 6);
+    expect(after.z - before.z).toBeCloseTo(60 * Math.cos(t.heading), 6);
+    expect(after.heading).toBeCloseTo(before.heading, 9);
+    w.sim.setLever(w.train().cars[0].id, 1);
+    expect(run(w, 8).has(w.out.get(3)!)).toBe(true);
   });
 
   it("a train runs across to the road the deck lies on, and turns back at the pit when it's elsewhere", () => {
