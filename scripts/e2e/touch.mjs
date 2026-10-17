@@ -221,11 +221,11 @@ async function selectThenDrag(ctx, p) {
   await p.keyboard.press("Escape");
   [sx, sy] = await onScreen();
   const before = await where();
-  let t0 = Date.now() / 1000;
-  await stamped("touchStart", sx, sy, t0);
+  let s0 = Date.now() / 1000;
+  await stamped("touchStart", sx, sy, s0);
   await new Promise((r) => setTimeout(r, 900));
   await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-  for (let k = 1; k <= 6; k++) await stamped("touchMove", sx + 6 * k, sy, t0 + 0.03 + 0.01 * k);
+  for (let k = 1; k <= 6; k++) await stamped("touchMove", sx + 6 * k, sy, s0 + 0.03 + 0.01 * k);
   await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   const lateMoves = await p.evaluate(() => window.woodrail.interaction.mode.kind);
   await stamped("touchEnd", 0, 0, Date.now() / 1000);
@@ -235,9 +235,9 @@ async function selectThenDrag(ctx, p) {
   // A real hold whose timer is late: the drag's first moves, stamped 450 ms in, arrive first: picked up.
   await p.keyboard.press("Escape");
   [sx, sy] = await onScreen();
-  t0 = Date.now() / 1000;
-  await stamped("touchStart", sx, sy, t0);
-  for (let k = 1; k <= 4; k++) await stamped("touchMove", sx - 8 * k, sy, t0 + 0.45 + 0.01 * k);
+  s0 = Date.now() / 1000;
+  await stamped("touchStart", sx, sy, s0);
+  for (let k = 1; k <= 4; k++) await stamped("touchMove", sx - 8 * k, sy, s0 + 0.45 + 0.01 * k);
   const lateTimer = await p.evaluate(() => window.woodrail.interaction.mode.kind);
   await stamped("touchEnd", 0, 0, Date.now() / 1000);
   await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
