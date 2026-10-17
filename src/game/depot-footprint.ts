@@ -3,7 +3,7 @@ import { checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_
 import { footprintCorners, footprintsOverlap, inFootprint, type Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
 import { DEPOT_LAYOUT } from "../render/depot-view";
-import { createSample, findOverlap, findSplice, getPieceDef, ignores, isPlainStraight, straightLength, normalizeAngle, pathLength, samplePath, TRAIN_CLEARANCE, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
+import { createSample, findOverlap, findSplice, getPieceDef, ignores, isPlainStraight, kitOf, straightLength, normalizeAngle, pathLength, samplePath, TRAIN_CLEARANCE, type Ignore, type KitDef, type Layout, type PieceTypeId, type Pose } from "../track";
 import { DEPOT_NAMES, INDUSTRY_ROLE, type World } from "./world";
 
 /**
@@ -14,6 +14,10 @@ import { DEPOT_NAMES, INDUSTRY_ROLE, type World } from "./world";
  * other depots' yards.
  *
  * A depot can't mirror (Flip turns it right round), so its yard is on the +l side however it's placed.
+ *
+ * Kit pieces (src/track/kits.ts) have a footprint too, their `footprint` rectangles in the same frame: the same checks,
+ * the refusals named after the kit ("The platform needs open ground", "That's the platform"). Everything here takes a
+ * piece type and finds its footprint source (a depot's role, or a kit) once per type: see `shapeFor`.
  */
 
 /**
@@ -73,10 +77,39 @@ function shapeOf(role: DepotRole): YardShape | null {
   if (layout.crane.kind === "gantry") {
     for (const l of [layout.crane.l - GANTRY_HALF, layout.crane.l + GANTRY_HALF]) parts.push({ cx: layout.crane.t, cz: l, hw: LEG, hd: LEG, crane: true, post: l < 0 });
   }
-  if (parts.length === 0) {
-    shapes.set(role, null);
-    return null;
-  }
+  s = shapeFrom(parts, role === "harbour" ? HARBOUR_DRY : Infinity);
+  shapes.set(role, s);
+  return s;
+}
+
+/** A kit's footprint beside its track: its rectangles, all of them pad (checked against everything). */
+function kitShape(kit: KitDef): YardShape | null {
+  return shapeFrom(
+    kit.footprint.map((r) => ({ cx: r.t, cz: r.l, hw: r.w / 2, hd: r.d / 2, crane: false, post: false })),
+    Infinity,
+  );
+}
+
+/** Footprints by piece type: a depot's yard, a kit's ground, or null (read on every move: one map lookup). */
+const typeShapes = new Map<PieceTypeId, YardShape | null>();
+
+/** The footprint source of a piece type (a depot's role, or a kit), worked out once per type. */
+function shapeFor(type: PieceTypeId): YardShape | null {
+  let s = typeShapes.get(type);
+  if (s !== undefined) return s;
+  const role = INDUSTRY_ROLE[type];
+  const kit = role ? undefined : kitOf(type);
+  s = role ? shapeOf(role) : kit ? kitShape(kit) : null;
+  typeShapes.set(type, s);
+  return s;
+}
+
+/** Does this piece type have a footprint beside its track (a depot's yard, a kit's ground)? */
+export const hasFootprint = (type: PieceTypeId): boolean => shapeFor(type) !== null;
+
+/** Sample points over a footprint's parts, and how far it reaches; null for no parts. */
+function shapeFrom(parts: YardPart[], wetFrom: number): YardShape | null {
+  if (parts.length === 0) return null;
   const pts: number[] = [];
   const legs: number[] = [];
   let reach = 0;
@@ -95,15 +128,12 @@ function shapeOf(role: DepotRole): YardShape | null {
     }
     reach = Math.max(reach, Math.hypot(Math.abs(p.cx) + p.hw, Math.abs(p.cz) + p.hd));
   }
-  s = { parts, samples: Float64Array.from(pts), legs: Uint8Array.from(legs), wetFrom: role === "harbour" ? HARBOUR_DRY : Infinity, reach };
-  shapes.set(role, s);
-  return s;
+  return { parts, samples: Float64Array.from(pts), legs: Uint8Array.from(legs), wetFrom, reach };
 }
 
-/** A depot piece's footprint beside its track (depot frame), or null if it's not a depot piece with a yard. */
+/** A depot or kit piece's footprint beside its track (its own frame), or null if it has none. */
 export function yardParts(type: PieceTypeId): readonly Footprint[] | null {
-  const role = INDUSTRY_ROLE[type];
-  return (role && shapeOf(role)?.parts) || null;
+  return shapeFor(type)?.parts ?? null;
 }
 
 /** What the yard check reads of a piece type, in its own frame: its track's sample points, how far they reach, and its yard. */
@@ -136,8 +166,7 @@ function pieceShape(type: PieceTypeId, flipped: boolean): PieceShape {
       pts.push(sample.x, sample.z, sample.y);
     }
   }
-  const role = INDUSTRY_ROLE[type];
-  const yard = role ? shapeOf(role) : null;
+  const yard = shapeFor(type);
   let reach = yard?.reach ?? 0;
   for (let i = 0; i < pts.length; i += 3) reach = Math.max(reach, Math.hypot(pts[i], pts[i + 1]));
   const shape: PieceShape = { track: Float64Array.from(pts), reach, yard };
@@ -159,8 +188,7 @@ export interface YardCheck {
  * every pointer move while a depot is held: about a hundred squares looked up, and a pass over the pieces nearby.
  */
 export function checkYard(ctx: YardCheck, type: PieceTypeId, pose: Pose, y: number, ignore: Ignore): YardBlock | null {
-  const role = INDUSTRY_ROLE[type];
-  const shape = role ? shapeOf(role) : null;
+  const shape = shapeFor(type);
   if (!shape) return null;
   const hills = hillsOf(ctx.land.grid);
   const c = Math.cos(pose.heading);
@@ -258,7 +286,7 @@ function yardName(role: DepotRole): string {
 /** What a refused piece in town is told: "Keep the track out of town", or for a depot "Keep the workshop out of town". */
 export function townMessage(type: PieceTypeId): string {
   const role = INDUSTRY_ROLE[type];
-  const name = !role ? "track" : role === "town" ? "station" : DEPOT_NAMES[role].toLowerCase();
+  const name = role ? (role === "town" ? "station" : DEPOT_NAMES[role].toLowerCase()) : (kitOf(type)?.name ?? "track");
   return `Keep the ${name} out of town`;
 }
 
@@ -268,7 +296,8 @@ export function yardMessage(type: PieceTypeId, why: YardBlock): string {
   if (why === "crane-water") return "The crane's legs are in the water";
   if (why === "crane-ground") return "The crane's legs need open ground";
   const role = INDUSTRY_ROLE[type];
-  const yard = role ? yardName(role) : "The yard";
+  const kit = role ? undefined : kitOf(type);
+  const yard = role ? yardName(role) : kit ? `The ${kit.name}` : "The yard";
   if (why === "yard-hill") return `${yard} is on a hill`;
   if (why === "yard-water") return `${yard} is in the water`;
   return `${yard} needs open ground`;
@@ -289,8 +318,7 @@ export interface PlacedYard {
 
 /** A depot piece's yard where it stands (null if it isn't a depot piece with one). */
 export function placedYard(pieceId: number, type: PieceTypeId, pose: Pose, y: number): PlacedYard | null {
-  const role = INDUSTRY_ROLE[type];
-  const shape = role ? shapeOf(role) : null;
+  const shape = shapeFor(type);
   if (!shape) return null;
   let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity];
   for (const part of shape.parts) {
@@ -352,7 +380,8 @@ export function footprintInYards(yards: readonly PlacedYard[], fp: Footprint, po
 /** What to say when something would go in a player depot's yard ("That's the workshop's yard"). */
 export function inYardMessage(type: PieceTypeId): string {
   const role = INDUSTRY_ROLE[type];
-  return role ? `That's ${yardName(role).replace(/^The /, "the ")}` : "That's a depot's yard";
+  const kit = role ? undefined : kitOf(type);
+  return role ? `That's ${yardName(role).replace(/^The /, "the ")}` : kit ? `That's the ${kit.name}` : "That's a depot's yard";
 }
 
 /** Most of the player's straights tried for a spot a depot fits (it runs on a tap: bounded). */
@@ -410,6 +439,18 @@ export const YARD_FLIP_HINT = "Flip it to put the yard on the other side";
 /** What to say when the yard fits neither side of the line. */
 export const YARD_NO_ROOM = "No room for the yard here";
 
+/** The flip hint for a piece type: a depot's yard, or the kit by name ("Flip it to put the platform on the other side"). */
+export function flipHintMessage(type: PieceTypeId): string {
+  const kit = INDUSTRY_ROLE[type] ? undefined : kitOf(type);
+  return kit ? `Flip it to put the ${kit.name} on the other side` : YARD_FLIP_HINT;
+}
+
+/** No room either side, for a piece type: "No room for the yard here", or for a kit "No room for the platform here". */
+export function noRoomMessage(type: PieceTypeId): string {
+  const kit = INDUSTRY_ROLE[type] ? undefined : kitOf(type);
+  return kit ? `No room for the ${kit.name} here` : YARD_NO_ROOM;
+}
+
 /**
  * A depot at `pose` refused for its yard: what to say about turning it right round (Flip), given `why`, the full
  * placement check (its track's and its yard's) of a pose. The flip hint only if turned round it passes it all; "No
@@ -417,7 +458,7 @@ export const YARD_NO_ROOM = "No room for the yard here";
  */
 export function flipHint(type: PieceTypeId, pose: Pose, why: (pose: Pose) => string | null): string | null {
   const turned = why(turnedRound(type, pose));
-  return turned === null ? YARD_FLIP_HINT : isYardBlock(turned) ? YARD_NO_ROOM : null;
+  return turned === null ? flipHintMessage(type) : isYardBlock(turned) ? noRoomMessage(type) : null;
 }
 
 /** A straight depot at `pose` turned right round on the same track: the same ends, its yard on the other side. */
