@@ -100,10 +100,20 @@ const SIGMA_OVER = 40;
 /** Finishing: stopping this many mm short of the stroke's end costs one unit (so the line ends a little short, or a little past, whichever fits). */
 const SIGMA_SHORT = 20;
 const MAX_PIECES = 200;
+/**
+ * While drawing, at most this many pieces are laid on one pointer move. Normally a move lays one at most; after a stall
+ * (a bend too sharp, the line waiting while the finger goes on) the stroke can come back within reach of the line a
+ * metre or more past its end, and laying all of that at once took one move 4 to 6 ms in Node (20 pieces, each scored
+ * and checked). The rest go down on the moves after, a piece a move (the ghosts run up to the finger), or when the
+ * finger lifts.
+ */
+const GROW_PER_MOVE = 1;
 /** What each piece costs on its own: fewer pieces look calmer, and the tight curve and the mini are for when they're needed. */
 const PIECE_COST: Partial<Record<PieceTypeId, number>> = { "straight-54": 0.9, "straight-108": 0.4, "curve-small": 1.5 };
 const BASE_PIECE_COST = 0.3;
 const pieceCost = (t: PieceTypeId): number => BASE_PIECE_COST + (PIECE_COST[t] ?? 0);
+/** The least any piece costs. */
+const MIN_PIECE_COST = BASE_PIECE_COST;
 /**
  * A piece bending another way from the one before it (another radius, or the other hand) costs this much, and going
  * from straight to curve or back this much: a steady curve stays one radius, and a straight run doesn't kink.
@@ -149,8 +159,9 @@ const FLAT_ON_H = 0.06;
 const FLAT_ON_D = 15;
 /**
  * Along a straight stroke the line may lie this far (mm) to either side of it for nothing; each `BAND_SIGMA` mm further
- * costs one unit. A curve there costs `BAND_CURVE` more than its piece does (it steps the line back toward the finger,
- * so fewer is calmer). Plans are looked at this many pieces ahead.
+ * costs one unit (at each piece's end, and where a curve lies furthest off). A curve there costs `BAND_CURVE` more
+ * than its piece does (it steps the line back toward the finger, so fewer is calmer). Plans are looked at this many
+ * pieces ahead.
  */
 const BAND = 50;
 const BAND_SIGMA = 5;
@@ -166,9 +177,16 @@ const BAND_STOP = 25;
 /** Finishing, each this much (mm) past the stroke's end costs one unit. */
 const BAND_OVER = 30;
 const FLAT_DEPTH = 3;
+/**
+ * At most this many pieces are looked at in one plan search (with 7 types, three deep is 399 at most; cutting branches
+ * that can't win leaves far fewer). Past it the best plan found so far is laid.
+ */
+const FLAT_NODES = 400;
 /** While drawing, a plan should leave the line able to run on straight this far (mm) in the band. */
 const FLAT_RUN = 100;
 const EIGHTH = Math.PI / 4;
+const SIN_EIGHTH = Math.sin(EIGHTH);
+const COS_EIGHTH = Math.cos(EIGHTH);
 
 /**
  * Every way each piece type can seat on `end`, mirrored or not. Any two ends join, but each drawn piece has a peg end
@@ -224,8 +242,13 @@ export class DrawLine {
   private retreating = false;
   /** Set by `headingAt`: where along the stroke the heading it gave is true. */
   private headingTrueAt = 0;
+  /** A move's piece budget (`GROW_PER_MOVE`) ran out with the stroke still reaching past the look-ahead: more to lay. */
+  private backlog = false;
   /** Where along the stroke the straight run the line is on began (see `flatStroke`), or null. */
   private runFrom: number | null = null;
+  /** `tailHeading` as it was when the stroke had `tailAt` points (-1: not yet worked out). */
+  private tailAt = -1;
+  private tail = 0;
   /** The straight stroke's chord (set by `flatStroke`): a point on it and the way it runs. */
   private readonly chord = { x: 0, z: 0, ux: 1, uz: 0 };
 
@@ -271,14 +294,17 @@ export class DrawLine {
       this.retreating = false;
     }
     this.push(x, z);
-    // Coming back toward the end (turning round to retrace, the tip of a hairpin): no new ghost meanwhile.
-    if (away) this.grow(false);
+    // Coming back toward the end (turning round to retrace, the tip of a hairpin): no new ghost meanwhile (but pieces
+    // already due, a move's budget having run out, still come).
+    if (away || this.backlog) this.grow(false, GROW_PER_MOVE);
     return trimmed || this.pieces.length !== before;
   }
 
   /** The finger has lifted: grow the line to the end of the stroke. True if the pieces changed. */
   finish(): boolean {
     const before = this.pieces.length;
+    // Pieces already due while drawing go down as they would have then, and then the line grows to the stroke's end.
+    if (this.backlog) this.grow(false, Infinity);
     this.grow(true);
     return this.pieces.length !== before;
   }
@@ -326,6 +352,7 @@ export class DrawLine {
   }
 
   private push(x: number, z: number): void {
+    this.tailAt = -1;
     const n = this.xs.length;
     this.ss.push(n === 0 ? 0 : this.ss[n - 1] + Math.hypot(x - this.xs[n - 1], z - this.zs[n - 1]));
     this.xs.push(x);
@@ -360,21 +387,29 @@ export class DrawLine {
       if (!over) continue;
       this.pieces.length = k;
       this.xs.length = this.zs.length = this.ss.length = p.points;
+      this.tailAt = -1;
       this.progress = Math.min(p.from, this.strokeLength);
       this.stopped = null;
       this.refused = null;
       this.retreating = true;
+      this.backlog = false;
       this.runFrom = null;
       return true;
     }
     return false;
   }
 
-  private grow(finishing: boolean): void {
+  /** Lay pieces along the stroke, up to `budget` of them (while drawing: see `GROW_PER_MOVE`). */
+  private grow(finishing: boolean, budget = Infinity): void {
+    this.backlog = false;
     if (this.retreating) return;
     for (let guard = 0; guard < MAX_PIECES && !this.stopped && this.pieces.length < MAX_PIECES; guard++) {
       const left = this.strokeLength - this.progress;
       if (left < (finishing ? STEP : DRAW_LOOKAHEAD)) return;
+      if (guard >= budget) {
+        this.backlog = true;
+        return;
+      }
       const end = this.end;
       // Finishing: only if the finger was let go a little way from the line's end, moving away from it (not coming back
       // to it, retracing, or round the tip of a hairpin).
@@ -473,7 +508,9 @@ export class DrawLine {
   /**
    * Each first piece is scored with the best second piece after it: how near their ends lie to the stroke and its
    * heading, how much each turns against how much the stroke does along it, what each costs, and whether it bends
-   * another way from the piece before; less the stroke the pair covers.
+   * another way from the piece before; less the stroke the pair covers. Pairs that can't beat the best found so far,
+   * by what they cost before their ends are looked for on the stroke, aren't scored further: the same choice, at a
+   * fraction of the cost.
    */
   private best(end: DrawEnd, finishing: boolean, types: readonly PieceTypeId[]): { candidate: DrawCandidate; s: number } | null {
     const firsts = candidatesFrom(end, types);
@@ -483,22 +520,43 @@ export class DrawLine {
     const before = k ? bendOf(this.pieces[k - 1].type, this.pieces[k - 1].end.heading - (k > 1 ? this.pieces[k - 2].end.heading : this.start.heading)) : 0;
     // Finishing, laying nothing more is a choice too: it costs how far the line's end is from the stroke's, and off its heading.
     let bestCost = finishing ? this.stopCost(end) : Infinity;
-    for (const a of firsts) {
+    // Each first piece on its own, then with each second piece: the cheapest first pieces first, so the pairs that
+    // can't win are seen to sooner (see below). A tie goes to the pair that comes first in the candidates' order
+    // (`rank`), as when they were taken in that order.
+    let bestRank = -1;
+    const scored: { a: DrawCandidate; ea: ReturnType<DrawLine["endCost"]>; bendA: number; costA: number; i: number }[] = [];
+    for (let i = 0; i < firsts.length; i++) {
+      const a = firsts[i];
       const ea = this.endCost(a.end, this.progress, a.length, finishing);
       if (ea.back) continue;
       const bendA = bendOf(a.type, a.end.heading - end.heading);
       const costA =
         ea.cost + (finishing ? 0 : turnCost(a.end.heading - end.heading, ea.h - h0)) + this.radiusCost(bendA, this.progress, ea.s) + pieceCost(a.type) + (k ? rebendCost(before, bendA) : 0);
+      scored.push({ a, ea, bendA, costA, i });
+    }
+    scored.sort((p, q) => p.costA - q.costA);
+    const wins = (cost: number, rank: number) => cost < bestCost || (cost === bestCost && rank < bestRank);
+    for (const { a, ea, bendA, costA, i } of scored) {
       // Finishing, a piece may end the line on its own.
       if (finishing) {
         const cost = costA - (Math.min(ea.s, this.strokeLength) - this.progress) * ADVANCE;
-        if (cost < bestCost) {
+        if (wins(cost, i * 64)) {
           bestCost = cost;
+          bestRank = i * 64;
           best = { candidate: a, s: ea.s };
         }
       }
       const room = this.strokeLength - ea.s;
-      for (const b of candidatesFrom(a.end, types)) {
+      // No pair from here can beat the best so far, even with no cost of its own but its pieces' and covering all the
+      // stroke there is: skip the second pieces (most of the cost of a step is finding their ends on the stroke).
+      const gain = (this.strokeLength - this.progress) * ADVANCE + FIT_REBATE;
+      if (costA - gain > bestCost + 1e-9) continue;
+      const seconds = candidatesFrom(a.end, types);
+      for (let j = 0; j < seconds.length; j++) {
+        const b = seconds[j];
+        // (Likewise each second piece, by what it costs before its end is found.)
+        const lower = costA + (pieceCost(b.type) + rebendCost(bendA, bendOf(b.type, b.end.heading - a.end.heading))) * (!finishing && room < b.length ? Math.max(0, room) / b.length : 1) - gain;
+        if (lower > bestCost + 1e-9) continue;
         // While drawing, a second piece running on past the stroke drawn so far is scored where it reaches the stroke's
         // end: past there nobody knows yet where the finger goes.
         const cut = !finishing && room < b.length;
@@ -511,8 +569,9 @@ export class DrawLine {
         // A mini straight fitting the line up to a bend, or on out of it.
         const fit = (a.type === "straight-54" && bendB !== 0) || (bendA !== 0 && b.type === "straight-54") ? FIT_REBATE : 0;
         const cost = costA + costB * share - fit - (Math.min(eb.s, this.strokeLength) - this.progress) * ADVANCE;
-        if (cost < bestCost) {
+        if (wins(cost, i * 64 + 1 + j)) {
           bestCost = cost;
+          bestRank = i * 64 + 1 + j;
           best = { candidate: a, s: ea.s };
         }
       }
@@ -523,8 +582,9 @@ export class DrawLine {
 
   /**
    * Is the stroke ahead of the line's end straight (QA N1)? Its chord goes in `chord`. Straight: from where the run
-   * began (or a little behind where the line has got to on the stroke) to its end, no point strays far off the chord
-   * between the means of its first and last quarters (the means, so a hand's wobble averages out).
+   * began (or a little behind where the line has got to on the stroke) to its end, its first and last quarters' means
+   * are well apart, and no point strays far off the line that fits its points best (least squares, so a hand's wobble
+   * averages out).
    */
   private flatStroke(): boolean {
     const len = this.strokeLength;
@@ -540,10 +600,33 @@ export class DrawLine {
       if (cl < span / 2) flat = false;
       else {
         const c = this.chord;
-        c.x = MEAN[0];
-        c.z = MEAN[1];
-        c.ux = cx / cl;
-        c.uz = cz / cl;
+        // The line that fits the points best (least squares: through their mean, along their spread's main axis), run
+        // the stroke's way. (A hand's wobble tilts it less than it does the chord between two stretches' means.)
+        let n = 0;
+        let mx = 0;
+        let mz = 0;
+        for (let i = this.xs.length - 1; i >= 0 && this.ss[i] >= s0; i--, n++) {
+          mx += this.xs[i];
+          mz += this.zs[i];
+        }
+        mx /= n;
+        mz /= n;
+        let sxx = 0;
+        let sxz = 0;
+        let szz = 0;
+        for (let i = this.xs.length - 1; i >= 0 && this.ss[i] >= s0; i--) {
+          const dx = this.xs[i] - mx;
+          const dz = this.zs[i] - mz;
+          sxx += dx * dx;
+          sxz += dx * dz;
+          szz += dz * dz;
+        }
+        const axis = 0.5 * Math.atan2(2 * sxz, sxx - szz);
+        const way = Math.cos(axis) * cx + Math.sin(axis) * cz < 0 ? -1 : 1;
+        c.x = mx;
+        c.z = mz;
+        c.ux = way * Math.cos(axis);
+        c.uz = way * Math.sin(axis);
         const reach = Math.max(FLAT_DEV, FLAT_SAG * span);
         for (let i = this.xs.length - 1; i >= 0 && this.ss[i] >= s0 && flat; i--) if (Math.abs((this.zs[i] - c.z) * c.ux - (this.xs[i] - c.x) * c.uz) > reach) flat = false;
       }
@@ -586,8 +669,9 @@ export class DrawLine {
    * stroke's way, anywhere within `BAND` mm of it, and turns onto the other eighth (a curve, or a pair of curves either
    * way: a step) when going on would take it further off. Plans of up to `FLAT_DEPTH` pieces are scored (the band,
    * each piece's cost and its curves', less the stroke they cover; finishing, how far short of or past the stroke's end
-   * they stop) and the best plan's first piece is laid. Undefined (score as usual) if the line isn't on one of those
-   * eighths, or is on the stroke and running its way.
+   * they stop) and the best plan's first piece is laid (see `flatSearch`: branches that can't win are cut, and it looks
+   * at no more than `FLAT_NODES` pieces). Undefined (score as usual) if the line isn't on one of those eighths, or is on
+   * the stroke and running its way.
    */
   private chooseFlat(end: DrawEnd, finishing: boolean): { candidate: DrawCandidate; s: number } | null | undefined {
     const c = this.chord;
@@ -608,67 +692,29 @@ export class DrawLine {
     const along0 = (end.x - c.x) * c.ux + (end.z - c.z) * c.uz;
     const k = this.pieces.length;
     const before = k ? bendOf(this.pieces[k - 1].type, this.pieces[k - 1].end.heading - (k > 1 ? this.pieces[k - 2].end.heading : this.start.heading)) : 0;
-    const band = (y: number) => (Math.max(0, Math.abs(y) - BAND) / BAND_SIGMA) ** 2;
-    // Finishing: how far short of, or past, the stroke's end the line stops, and how far to its side (anywhere in the
-    // band will do, but nearer the finger is better at the very end).
-    const stop = (along: number, y: number) => {
-      const short = alongEnd - along;
-      return (short > 0 ? (short / SIGMA_SHORT) ** 2 : (short / BAND_OVER) ** 2) + (Math.max(0, Math.abs(y) - BAND / 2) / BAND_STOP) ** 2;
-    };
-    let bestCost = finishing ? stop(along0, y0) : Infinity;
-    let bestType: PieceTypeId | null = null;
-    let bestTurn = 0;
-    // Depth first, from the line's end: x, z, heading (the low eighth or the high), the bend before, the cost so far.
-    const search = (depth: number, x: number, z: number, low: boolean, prev: number, cost: number, first: PieceTypeId | null, firstTurn: number): void => {
-      const h = low ? lo : lo + EIGHTH;
-      const fx = Math.cos(h);
-      const fz = Math.sin(h);
-      const along = (x - c.x) * c.ux + (z - c.z) * c.uz;
-      for (const type of types) {
-        const g = FLAT_GEOM[type];
-        let ex: number;
-        let ez: number;
-        let mid = 0;
-        let bend = 0;
-        let turn = 0;
-        if (g.radius === 0) {
-          ex = x + fx * g.length;
-          ez = z + fz * g.length;
-        } else {
-          // Onto the other eighth: up from the low one, down from the high.
-          turn = low ? 1 : -1;
-          bend = turn * g.radius;
-          const a = g.radius * Math.sin(EIGHTH);
-          const b = turn * g.radius * (1 - Math.cos(EIGHTH));
-          ex = x + fx * a - fz * b;
-          ez = z + fz * a + fx * b;
-          const am = g.radius * Math.sin(EIGHTH / 2);
-          const bm = turn * g.radius * (1 - Math.cos(EIGHTH / 2));
-          mid = band((z + fz * am + fx * bm - c.z) * c.ux - (x + fx * am - fz * bm - c.x) * c.uz);
-        }
-        const y = (ez - c.z) * c.ux - (ex - c.x) * c.uz;
-        const a1 = (ex - c.x) * c.ux + (ez - c.z) * c.uz;
-        let next = cost + pieceCost(type) + (type === "straight-54" ? BAND_MINI : 0) + (bend ? BAND_CURVE + (g.radius === SMALL_CURVE_RADIUS ? BAND_TIGHT : 0) + (prev ? BAND_PAIR : 0) : 0) + rebendCost(prev, bend) + band(y) + mid;
-        if (!finishing) next -= (Math.min(a1, alongEnd) - Math.min(along, alongEnd)) * ADVANCE;
-        const f = first ?? type;
-        const ft = first ? firstTurn : turn;
-        // While drawing, where a plan leaves the line counts too: running on straight from there a little way, the
-        // finger going on as it was, it should still be in the band (else the next piece has to turn straight away).
-        const h1 = bend ? (low ? lo + EIGHTH : lo) : h;
-        const total = finishing ? next + stop(a1, y) : next + band(y + Math.sin(h1 - theta) * FLAT_RUN);
-        // While drawing, a plan is taken as far as the stroke goes (or as many pieces as are looked at): stopping short
-        // would hide where going on from there leads.
-        const ends = finishing || depth === 1 || a1 >= alongEnd;
-        if (ends && total < bestCost) {
-          bestCost = total;
-          bestType = f;
-          bestTurn = ft;
-        }
-        // Nothing more to gain past the stroke's end while drawing (nobody knows yet where the finger goes).
-        if (depth > 1 && (finishing || a1 < alongEnd)) search(depth - 1, ex, ez, bend ? !low : low, bend, next, f, ft);
-      }
-    };
-    search(FLAT_DEPTH, end.x, end.z, atLo, before, 0, null, 0);
+    const f = FLAT;
+    f.cx = c.x;
+    f.cz = c.z;
+    f.ux = c.ux;
+    f.uz = c.uz;
+    f.theta = theta;
+    f.lo = lo;
+    const off = Math.min(EIGHTH, Math.max(0, normalizeAngle(theta - lo)));
+    f.sinOff[0] = Math.sin(off);
+    f.cosOff[0] = Math.cos(off);
+    f.sinOff[1] = Math.sin(EIGHTH - off);
+    f.cosOff[1] = Math.cos(EIGHTH - off);
+    f.alongEnd = alongEnd;
+    f.finishing = finishing;
+    f.types = types;
+    f.budget = FLAT_NODES;
+    f.bestCost = finishing ? flatStop(along0, y0) : Infinity;
+    f.bestType = null;
+    f.bestTurn = 0;
+    flatSearch(FLAT_DEPTH, end.x, end.z, atLo, before, 0, null, 0);
+    const bestType = f.bestType as PieceTypeId | null;
+    const bestTurn = f.bestTurn;
+    f.types = DRAW_TYPES;
     if (bestType === null) return finishing ? null : undefined;
     const want = end.heading + bestTurn * EIGHTH;
     const candidate = candidatesFrom(end, [bestType]).find((q) => Math.abs(normalizeAngle(q.end.heading - want)) < 0.01);
@@ -744,19 +790,27 @@ export class DrawLine {
       if (this.ss[mid + 1] !== undefined && this.ss[mid + 1] < s0) lo = mid + 1;
       else hi = mid;
     }
-    for (let i = Math.max(0, lo); i < n - 1 && this.ss[i] <= s1; i++) {
-      const ax = this.xs[i];
-      const az = this.zs[i];
-      const sx = this.xs[i + 1] - ax;
-      const sz = this.zs[i + 1] - az;
+    // (Squared distances, the root taken once: this is most of what scoring a piece costs.)
+    const xs = this.xs;
+    const zs = this.zs;
+    const ss = this.ss;
+    let bestD2 = Infinity;
+    for (let i = Math.max(0, lo); i < n - 1 && ss[i] <= s1; i++) {
+      const ax = xs[i];
+      const az = zs[i];
+      const sx = xs[i + 1] - ax;
+      const sz = zs[i + 1] - az;
       const l2 = sx * sx + sz * sz;
       const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * sx + (z - az) * sz) / l2)) : 0;
-      const d = Math.hypot(ax + sx * t - x, az + sz * t - z);
-      if (d < bestD) {
-        bestD = d;
-        bestS = this.ss[i] + Math.sqrt(l2) * t;
+      const dx = ax + sx * t - x;
+      const dz = az + sz * t - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        bestS = ss[i] + (ss[i + 1] - ss[i]) * t;
       }
     }
+    bestD = Math.sqrt(bestD2);
     // Past the end: carry the stroke on straight, the way the finger was going over its last few centimetres.
     const h = this.tailHeading();
     const ex = this.xs[n - 1];
@@ -774,6 +828,13 @@ export class DrawLine {
 
   /** The way the finger was going at the end of the stroke: across its last few centimetres (past a hand's wobble). */
   private tailHeading(): number {
+    // (Asked for every piece scored: worked out once for each length of the stroke.)
+    if (this.tailAt === this.ss.length) return this.tail;
+    this.tailAt = this.ss.length;
+    return (this.tail = this.tailHeadingOf());
+  }
+
+  private tailHeadingOf(): number {
     const len = this.strokeLength;
     const a = this.pointAt(Math.max(0, len - HEADING_HALF));
     const n = this.xs.length - 1;
@@ -819,6 +880,26 @@ export class DrawLine {
   }
 }
 
+let warmed = false;
+
+/**
+ * Draw two made-up strokes (a gentle wave, and a straight swipe off the grid) and throw them away, once: the JS engine
+ * compiles the drawing code as it first runs, and a player's first stroke paid for that on its first piece (3 to 4 ms
+ * in Node, against 0.5 ms after this; several times that on a phone). About 10 ms in Node, best run when idle (as the
+ * Draw chip is switched on).
+ */
+export function warmDrawing(): void {
+  if (warmed) return;
+  warmed = true;
+  const start: DrawEnd = { x: 0, z: 0, heading: 0, y: 0, kind: "peg" };
+  const wave = new DrawLine(start);
+  for (let s = 6; s <= 600; s += 6) wave.addPoint(s, 200 * Math.sin(s / 300));
+  wave.finish();
+  const swipe = new DrawLine(start);
+  for (let s = 6; s <= 600; s += 6) swipe.addPoint(s * 0.92, s * 0.39);
+  swipe.finish();
+}
+
 /** A piece's track as points (x, z, heading the line runs), from where it joins the line to its free end. */
 function trackOf(c: DrawCandidate): number[] {
   const def = getPieceDef(c.type, c.flipped);
@@ -861,6 +942,109 @@ function rebendCost(p: number, q: number): number {
 }
 
 const SCRATCH: Pose = { x: 0, z: 0, heading: 0 };
+
+/**
+ * The plan search along a straight stroke (`DrawLine.chooseFlat`): its inputs and the best plan so far. One shared
+ * scratch, so a search allocates nothing.
+ */
+const FLAT = {
+  /** The chord: a point on it, and the way it runs (and its angle); the low eighth of the two either side of it. */
+  cx: 0,
+  cz: 0,
+  ux: 1,
+  uz: 0,
+  theta: 0,
+  lo: 0,
+  /** How far the chord's way is round from the low eighth, and back from the high one: sine and cosine. */
+  sinOff: [0, 0],
+  cosOff: [1, 1],
+  /** How far along the chord the stroke's end is. */
+  alongEnd: 0,
+  finishing: false,
+  types: DRAW_TYPES as readonly PieceTypeId[],
+  /** Pieces it may still look at (see `FLAT_NODES`). */
+  budget: 0,
+  bestCost: Infinity,
+  bestType: null as PieceTypeId | null,
+  bestTurn: 0,
+};
+
+/** The band's cost `y` mm to the side of the chord. */
+const flatBand = (y: number): number => (Math.max(0, Math.abs(y) - BAND) / BAND_SIGMA) ** 2;
+
+/**
+ * Finishing: how far short of, or past, the stroke's end the line stops, and how far to its side (anywhere in the band
+ * will do, but nearer the finger is better at the very end).
+ */
+function flatStop(along: number, y: number): number {
+  const short = FLAT.alongEnd - along;
+  return (short > 0 ? (short / SIGMA_SHORT) ** 2 : (short / BAND_OVER) ** 2) + (Math.max(0, Math.abs(y) - BAND / 2) / BAND_STOP) ** 2;
+}
+
+/**
+ * Depth first, from (x, z) heading along the low eighth or the high, the bend before and the cost so far; the plan's
+ * first piece and its turn. A branch is cut once what it has cost, less all the stroke it could still cover, is no
+ * better than the best plan found (every piece costs something, and covering stroke is the only gain); and the search
+ * stops after `FLAT_NODES` pieces, keeping the best plan found by then.
+ */
+function flatSearch(depth: number, x: number, z: number, low: boolean, prev: number, cost: number, first: PieceTypeId | null, firstTurn: number): void {
+  const f = FLAT;
+  const h = low ? f.lo : f.lo + EIGHTH;
+  const fx = Math.cos(h);
+  const fz = Math.sin(h);
+  const along = (x - f.cx) * f.ux + (z - f.cz) * f.uz;
+  const types = f.types;
+  for (let t = 0; t < types.length; t++) {
+    if (f.budget-- <= 0) return;
+    const type = types[t];
+    const g = FLAT_GEOM[type];
+    let ex: number;
+    let ez: number;
+    let mid = 0;
+    let bend = 0;
+    let turn = 0;
+    if (g.radius === 0) {
+      ex = x + fx * g.length;
+      ez = z + fz * g.length;
+    } else {
+      // Onto the other eighth: up from the low one, down from the high.
+      turn = low ? 1 : -1;
+      bend = turn * g.radius;
+      const a = g.radius * SIN_EIGHTH;
+      const b = turn * g.radius * (1 - COS_EIGHTH);
+      ex = x + fx * a - fz * b;
+      ez = z + fz * a + fx * b;
+      // The curve's furthest from the chord, where it runs the chord's way (the stroke's way lies between the eighths).
+      const am = g.radius * f.sinOff[low ? 0 : 1];
+      const bm = turn * g.radius * (1 - f.cosOff[low ? 0 : 1]);
+      mid = flatBand((z + fz * am + fx * bm - f.cz) * f.ux - (x + fx * am - fz * bm - f.cx) * f.uz);
+    }
+    const y = (ez - f.cz) * f.ux - (ex - f.cx) * f.uz;
+    const a1 = (ex - f.cx) * f.ux + (ez - f.cz) * f.uz;
+    let next = cost + pieceCost(type) + (type === "straight-54" ? BAND_MINI : 0) + (bend ? BAND_CURVE + (g.radius === SMALL_CURVE_RADIUS ? BAND_TIGHT : 0) + (prev ? BAND_PAIR : 0) : 0) + rebendCost(prev, bend) + flatBand(y) + mid;
+    if (!f.finishing) next -= (Math.min(a1, f.alongEnd) - Math.min(along, f.alongEnd)) * ADVANCE;
+    const ff = first ?? type;
+    const ft = first ? firstTurn : turn;
+    // While drawing, where a plan leaves the line counts too: running on straight from there a little way, the finger
+    // going on as it was, it should still be in the band (else the next piece has to turn straight away).
+    const h1 = bend ? (low ? f.lo + EIGHTH : f.lo) : h;
+    const total = f.finishing ? next + flatStop(a1, y) : next + flatBand(y + Math.sin(h1 - f.theta) * FLAT_RUN);
+    // While drawing, a plan is taken as far as the stroke goes (or as many pieces as are looked at): stopping short
+    // would hide where going on from there leads.
+    const ends = f.finishing || depth === 1 || a1 >= f.alongEnd;
+    if (ends && total < f.bestCost) {
+      f.bestCost = total;
+      f.bestType = ff;
+      f.bestTurn = ft;
+    }
+    // Nothing more to gain past the stroke's end while drawing (nobody knows yet where the finger goes); nor down a
+    // branch that can't beat the best plan even covering all the stroke left.
+    if (depth > 1 && (f.finishing || a1 < f.alongEnd)) {
+      const gain = f.finishing ? 0 : Math.max(0, f.alongEnd - a1) * ADVANCE;
+      if (next + MIN_PIECE_COST - gain < f.bestCost) flatSearch(depth - 1, ex, ez, bend ? !low : low, bend, next, ff, ft);
+    }
+  }
+}
 const MEAN = [0, 0, 0, 0];
 
 /** Each drawn piece's shape, for planning along a straight stroke: a straight's length, or a curve's radius (an eighth of a turn). */

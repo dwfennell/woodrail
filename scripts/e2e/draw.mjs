@@ -417,6 +417,124 @@ if (site) {
     return [idle, sailing];
   });
   check("idle after drawing: no frames drawn", idle === 0, `${idle} frames in 2 s (${sailing} with boats sailing)`);
+  await ctx.close();
+}
+
+// 7b. A phone on its side: a straight one-finger swipe across the screen over open ground. The view is turned off the
+// grid, so on the ground it's a straight line off the eighths the track runs on: a staircase of straights under the
+// finger (QA N1), not a snake of curves, and never "too sharp".
+
+step("7b");
+{
+  const ctx = await b.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const q = await ctx.newPage();
+  q.on("pageerror", (e) => errors.push(e.message));
+  await boot(q);
+  await q.evaluate(() => {
+    const w = window.woodrail;
+    window.__toasts = [];
+    const orig = w.hud.toast.bind(w.hud);
+    w.hud.toast = (m, ...a) => {
+      window.__toasts.push(m);
+      return orig(m, ...a);
+    };
+  });
+  // Open, level ground round the middle of the map, plenty of it: the swipe is drawn across the middle of the screen.
+  const patches = await q.evaluate(() => {
+    const w = window.woodrail;
+    const G = w.landscape.grid;
+    const B = w.director.bounds;
+    const open = (px, pz) => {
+      const cell = G.cellAtWorld(px, pz);
+      return cell !== -1 && G.height[cell] === 0 && G.surface[cell] === 0 && G.feature[cell] <= 1 && G.road[cell] === 0;
+    };
+    const out = [];
+    for (let pz = B.z0 + 700; pz < B.z1 - 700 && out.length < 6; pz += 144) {
+      for (let px = B.x0 + 700; px < B.x1 - 700 && out.length < 6; px += 144) {
+        let ok = true;
+        for (let dz = -432; dz <= 432 && ok; dz += 72) for (let dx = -432; dx <= 432 && ok; dx += 72) ok = open(px + dx, pz + dz) && w.layout.queryFreeConnectors(px + dx, pz + dz, 72, []) === 0;
+        if (ok) out.push({ x: px, z: pz });
+      }
+    }
+    return out;
+  });
+  check("on a phone on its side, found open ground to draw on", patches.length > 0, JSON.stringify(patches[0]));
+  // Left to right across the middle of the screen, clear of its edges (the view pans there) and of the tray.
+  const pts = [];
+  for (let x = 250; x <= 600; x += 7) pts.push([x, 170]);
+  // Framed on a patch where all the swipe lies on open ground (the view may not go quite where it's asked).
+  let ground = null;
+  for (const patch of patches) {
+    // (A glide may stop short of where it's asked: again, till the swipe's middle is over the patch.)
+    for (let k = 0; k < 4; k++) {
+      await focus(patch.x, patch.z, 360, q);
+      const off = await q.evaluate(([px, pz]) => {
+        const g = window.woodrail.interaction.groundAt(425, 170);
+        return g ? Math.hypot(g.x - px, g.z - pz) : Infinity;
+      }, [patch.x, patch.z]);
+      if (off < 120) break;
+    }
+    ground = await q.evaluate((pts) => {
+      const w = window.woodrail;
+      const G = w.landscape.grid;
+      const gs = pts.map(([sx, sy]) => w.interaction.groundAt(sx, sy));
+      const ok = gs.every((g) => {
+        if (!g) return false;
+        const cell = G.cellAtWorld(g.x, g.z);
+        return cell !== -1 && G.height[cell] === 0 && G.surface[cell] === 0 && G.feature[cell] <= 1 && G.road[cell] === 0 && w.layout.queryFreeConnectors(g.x, g.z, 144, []) === 0;
+      });
+      return ok ? gs.map((g) => ({ x: g.x, z: g.z })) : null;
+    }, pts);
+    if (ground) break;
+  }
+  check("…the swipe framed over open ground", !!ground);
+  if (ground) {
+    const first = ground[0];
+    const last = ground[ground.length - 1];
+    const deg = (Math.atan2(last.z - first.z, last.x - first.x) * 180) / Math.PI;
+    const length = Math.hypot(last.x - first.x, last.z - first.z);
+    await q.tap(".tray-draw");
+    await q.evaluate(() => window.__toasts.splice(0));
+    const cdp = await ctx.newCDPSession(q);
+    const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
+    const n0 = await q.evaluate(() => window.woodrail.layout.pieceCount);
+    await touch("touchStart", pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) {
+      await touch("touchMove", pts[i][0], pts[i][1]);
+      if (i === pts.length - 4) await shot(q, `${OUT}/draw-7b-landscape-drawing.png`);
+    }
+    await touch("touchEnd", 0, 0);
+    await settled(q);
+    await shot(q, `${OUT}/draw-7b-landscape-laid.png`);
+    // The new line's pieces, and how near its far end comes to where the finger lifted.
+    const got = await q.evaluate(
+      async ([n0, last]) => {
+        const w = window.woodrail;
+        const { createWorldConnector } = await import("/src/track/layout.ts");
+        const c = createWorldConnector();
+        const ids = [...w.layout.pieceIds()].slice(n0);
+        let near = Infinity;
+        for (const id of ids)
+          for (let i = 0; i < 2; i++) {
+            try {
+              w.layout.worldConnector(id * 4 + i, c);
+            } catch {
+              continue;
+            }
+            if (w.layout.joinedConnector(id * 4 + i) === -1) near = Math.min(near, Math.hypot(c.x - last.x, c.z - last.z));
+          }
+        return { types: ids.map((id) => w.layout.getPiece(id).type), near, toasts: window.__toasts.splice(0) };
+      },
+      [n0, last],
+    );
+    const straights = got.types.filter((t) => t.startsWith("straight")).length;
+    const what = `${got.types.join(" ")} (${length.toFixed(0)} mm at ${deg.toFixed(0)}°)`;
+    check("on a phone on its side, a straight swipe lays a line", got.types.length >= 3, what);
+    check("…mostly straights (a staircase, not a snake of curves)", straights >= got.types.length / 2, what);
+    check("…ending near the finger", got.near < 90, `${got.near.toFixed(0)} mm`);
+    check("…and never 'too sharp'", !got.toasts.some((t) => /too sharp/i.test(t)), JSON.stringify(got.toasts));
+  }
+  await ctx.close();
 }
 
 check("no page errors", errors.length === 0, errors.join(" | "));
