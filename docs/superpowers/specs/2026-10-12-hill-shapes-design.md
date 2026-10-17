@@ -79,7 +79,7 @@ All readers in §2 move to these queries in one step (§8 S1), with **no visual 
 
 ### 5.1 Rules
 
-- Only plain ramps cut. Ramps up on arches, and all other pieces, never cut.
+- Only ramps cut, and only where their bed is under the hill. A ramp up on arches over lower ground cuts nothing; one on arches whose side or top end runs into a higher block (as placement allows, up to its top end) cuts that block like a plain ramp. Other pieces never cut.
 - A ramp may run into blocks whose top is no higher than the ramp's top end. A higher hill is still "a hill in the way" (no tunnels).
 - **Shape of a cutting** (like a real railway cutting):
   - a **bed** as wide as the track plus 4 mm each side, along the ramp's length, its floor at the ramp's underside, sloping with it;

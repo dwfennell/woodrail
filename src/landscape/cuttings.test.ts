@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Layout, RAMP_LENGTH, RISER_HEIGHT } from "../track";
 import { checkPlacement } from "./clearance";
-import { cutUndermines, syncCuttings } from "./cuttings";
+import { cutUndermines, heldCut, syncCuttings } from "./cuttings";
+import { bridgeLevels } from "./support";
 import type { Landscape } from "./generate";
 import { gridWithPlots } from "./grid";
 import { CUT_BANK_ANGLE, CUT_BED_HALF, hillsOf } from "./hill-shape";
@@ -83,7 +84,30 @@ describe("ramp cuttings", () => {
     expect(hills.cutBlocks().length).toBeGreaterThan(0);
   });
 
-  it("only plain ramps cut: not ones up on arches, and not other track", () => {
+  it("a ramp up on arches whose top runs into a higher block cuts it, as placement let it (the hill not over the train)", () => {
+    // Felt to x = HILL, then a hill two levels high: a ramp a level up on arches (its low end over the felt) rising to
+    // two levels, its last square run into the higher hill. Placement lets it (up to its top end, a ramp cuts its way
+    // in), so the hill must be cut back to its bed there, not left standing through the ramp and a train on it.
+    const l = land(2);
+    const pose = P(0, Z);
+    expect(bridgeLevels(l, "ramp", false, pose, RISER_HEIGHT)).toBe(1);
+    expect(checkPlacement(l, "ramp", false, pose, RISER_HEIGHT)).toEqual({ kind: "clear" });
+    const layout = new Layout();
+    layout.addPiece("ramp", pose, RISER_HEIGHT);
+    syncCuttings(l, layout);
+    const hills = hillsOf(l.grid);
+    // Inside the hill, under the ramp: down to its bed (well under the hilltop), and a cut block to draw.
+    expect(hills.groundAt(HILL + 6, Z)).toBeLessThan(2 * RISER_HEIGHT - 16);
+    expect(hills.groundAt(HILL + 6, Z)).toBeGreaterThan(RISER_HEIGHT);
+    expect(hills.cutBlocks().length).toBeGreaterThan(0);
+    // The same while it's held there, before it's put down.
+    syncCuttings(l, new Layout());
+    const held = heldCut(l, { type: "ramp", flipped: false, pose, y: RISER_HEIGHT });
+    expect(held).toBeDefined();
+    expect(hills.groundWithCut(held!, HILL + 6, Z)).toBeLessThan(2 * RISER_HEIGHT - 16);
+  });
+
+  it("only ramps cut where let into the hill: not ones up on arches above it, and not other track", () => {
     const l = land();
     const layout = new Layout();
     // A ramp a level up on arches, over the felt beside the hill's west edge, rising to two levels.
