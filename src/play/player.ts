@@ -147,7 +147,8 @@ function autoFrom(layout: Layout, ref: number, to: number): { type: PieceTypeId;
   // Only a fit that meets the target end (Auto meets the nearest end it can; a player puts it where that's the target).
   const others = [...layout.pieceIds()].filter((id) => id !== pieceOfRef(to));
   const fit = fitAutoStraight(layout, p.pose, p.y, seated, others);
-  return fit && { type: fit.type, pose: fit.pose, y: p.y, flipped: fit.flipped };
+  // One that closes it (not the first of two, which leaves a gap for another).
+  return fit && !fit.gap ? { type: fit.type, pose: fit.pose, y: p.y, flipped: fit.flipped } : null;
 }
 
 /** Near the end, a player tries pieces in hand: up to `depth` of them, after which Auto (or the slack) closes it. */
