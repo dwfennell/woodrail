@@ -97,7 +97,18 @@ type HeldCar = { kind: CarKind; facing: 1 | -1; lever: -1 | 0 | 1; id?: number; 
 type Mode =
   | { kind: "idle" }
   /** `add`: Shift was held (a tap picks the piece, along with any already picked). */
-  | { kind: "press"; press: Press; pointerId: number; pointerType: string; x: number; y: number; ground: Vector3; add: boolean }
+  | {
+      kind: "press";
+      press: Press;
+      pointerId: number;
+      pointerType: string;
+      x: number;
+      y: number;
+      ground: Vector3;
+      add: boolean;
+      /** Drawing, on something near a free end: a drag draws from that end, a tap is a tap on what's there. */
+      draws?: boolean;
+    }
   | {
       /** The picked pieces dragged together, rigidly (with the risers under them). */
       kind: "drag-group";
@@ -794,9 +805,14 @@ export class Interaction {
       return;
     }
     // Drawing: from a free end, or on empty ground, a drag draws track (two fingers still move the view).
+    let drawsFromEnd = false;
     if (this.drawing && this.touches.size <= 1) {
       const atEnd = this.draw.nearFreeEnd(e.clientX, e.clientY);
-      if ((atEnd || !this.pick(e.clientX, e.clientY, e.pointerType === "touch")) && this.draw.begin(e.clientX, e.clientY)) {
+      const over = this.pick(e.clientX, e.clientY, e.pointerType === "touch");
+      // Near a free end but on something (a car, the line's last piece): a press there, as ever, unless it moves
+      // (then it draws from the end: see the press's `draws`).
+      if (atEnd && over) drawsFromEnd = true;
+      else if ((atEnd || !over) && this.draw.begin(e.clientX, e.clientY)) {
         this.game.controls.enabled = false;
         this.mode = { kind: "draw-track", pointerId: e.pointerId };
         // On the ground, a tap (no line drawn) still does what a tap there does: deselect, or a double tap focuses.
@@ -817,6 +833,12 @@ export class Interaction {
     if (hit?.kind === "prop" && (!this.propsEditable || !this.propWithinReach(hit.propId))) hit = null;
     if (hit?.kind === "road" && !this.roadWithinReach(hit.cell)) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
+    // By a free end, on nothing that can be taken hold of from here after all: it draws straight away.
+    if (!hit && drawsFromEnd && this.draw.begin(e.clientX, e.clientY)) {
+      this.game.controls.enabled = false;
+      this.mode = { kind: "draw-track", pointerId: e.pointerId };
+      return;
+    }
     if (!hit) {
       // Empty floor: the camera pans; a tap here deselects (but not the pieces being picked: Done lets them go), and a
       // double tap focuses on that spot.
@@ -828,7 +850,7 @@ export class Interaction {
       return;
     }
     this.game.controls.enabled = false;
-    this.mode = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey };
+    this.mode = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey, draws: drawsFromEnd };
   }
 
   /**
@@ -868,6 +890,13 @@ export class Interaction {
     }
     if (m.kind === "press") {
       if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
+      // Drawing, and it moved: a line from the free end it started by, not a drag of what's there.
+      if (m.draws && this.drawing && this.draw.begin(m.x, m.y)) {
+        this.game.controls.enabled = false;
+        this.mode = { kind: "draw-track", pointerId: m.pointerId };
+        this.updateDraw(e.clientX, e.clientY);
+        return;
+      }
       if (!this.dragsWhatsPressed(m.press, m.pointerType)) {
         // Select first: a drag that starts on anything placed that isn't selected (a piece, a train, an industry, a
         // prop, a road) pans the view, like the floor, so panning over a busy map never moves something by accident.

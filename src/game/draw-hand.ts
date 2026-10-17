@@ -1,4 +1,4 @@
-import { Group, Vector3, type Material, type Mesh } from "three";
+import { Group, Vector3, type InterleavedBuffer, type InterleavedBufferAttribute, type Material, type Mesh } from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
@@ -10,6 +10,7 @@ import { ghostMesh } from "../render/track-view";
 import {
   candidatesFrom,
   createWorldConnector,
+  DRAW_LOOKAHEAD,
   DrawLine,
   findOverlap,
   fitAutoStraight,
@@ -32,8 +33,15 @@ import { TRACK_ITEMS } from "../ui/tray-catalogue";
 /** A piece's name as the tray shows it, in lower case ("long", "curve"). */
 function pieceName(type: PieceTypeId): string {
   const item = TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === type && !i.auto);
-  return (item?.label ?? type).toLowerCase() + (item && item.label.includes("curve") ? "s" : " pieces");
+  const name = (item?.label ?? type).toLowerCase();
+  return name + (name.includes("curve") ? "s" : " pieces");
 }
+
+/** The most points the pencil line ahead of the track shows. */
+const TRAIL_POINTS = 1024;
+
+/** The finger this far (mm) on with the line not growing (and nothing in its way): it's stuck, and says why. */
+const STALL_MM = 2 * DRAW_LOOKAHEAD + 100;
 
 /** A press this close (screen px) to a free end of track continues the line from it. */
 const END_REACH_PX = 44;
@@ -73,8 +81,11 @@ export class DrawHand {
   /** How many of each piece the line may use (Game mode: the player's stock), or null for no limit. */
   stock: ((type: PieceTypeId) => number) | null = null;
   private line: DrawLine | null = null;
-  /** This stroke's "too sharp" said already. */
+  /** This stroke's "too sharp" (or "out of") said already. */
   private toldStalled = false;
+  /** How far the finger has gone (mm) since the line last grew, and where it was. */
+  private sinceGrown = 0;
+  private last: { x: number; z: number } | null = null;
   /** A new line on empty ground, before the finger has moved far enough to know which way it goes. */
   private origin: Vector3 | null = null;
   private ghosts: { mesh: Mesh; key: string }[] = [];
@@ -82,6 +93,9 @@ export class DrawHand {
    * enough to see beside a finger (pixels on screen, however far off the view is). */
   private readonly trail = new Group();
   private readonly trailLines: { line: Line2; material: LineMaterial }[] = [];
+  private readonly trailGeometry = new LineGeometry();
+  /** The trail's segments (start and end point each), written in place. */
+  private readonly trailSegments: InterleavedBuffer;
   private readonly trailPoints: number[] = [];
   /** The line's own pieces, as a layout, so it can't cross itself. */
   private readonly own = new Layout();
@@ -97,10 +111,13 @@ export class DrawHand {
   ) {
     this.okMat = Object.assign(game.mats.trackGhostSnap.clone(), { opacity: 0.85 });
     this.blockedMat = Object.assign(game.mats.trackGhostBlocked.clone(), { opacity: 0.85 });
-    // The dark edge under, then the light line.
+    // The dark edge under, then the light line: one geometry, made once for as many points as the trail can have, and
+    // filled in place as the finger moves (nothing made anew on a pointer move).
+    this.trailGeometry.setPositions(new Float32Array(3 * TRAIL_POINTS));
+    this.trailSegments = (this.trailGeometry.getAttribute("instanceStart") as InterleavedBufferAttribute).data;
     for (const [color, width, order] of [["#3a2614", 5, 20], ["#fff6e0", 3, 21]] as const) {
       const material = new LineMaterial({ color, linewidth: width, transparent: true, opacity: 0.9, depthTest: false });
-      const line = new Line2(new LineGeometry(), material);
+      const line = new Line2(this.trailGeometry, material);
       line.renderOrder = order;
       line.frustumCulled = false;
       this.trail.add(line);
@@ -152,11 +169,17 @@ export class DrawHand {
     const p = this.hooks.planeAt(x, y, line.start.y);
     if (!p) return;
     const before = line.pieces.length;
+    if (this.last) this.sinceGrown += Math.hypot(p.x - this.last.x, p.z - this.last.z);
+    this.last = { x: p.x, z: p.z };
     if (line.addPoint(p.x, p.z)) this.sync(line.pieces.length > before);
-    // Stuck behind a corner no piece can turn: say so (once a stroke), rather than the line just stopping.
-    if (line.stalled && !this.toldStalled) {
+    // (Grown or taken back: not stuck. Nor while going back over the line.)
+    if (line.pieces.length !== before || line.goingBack) this.sinceGrown = 0;
+    // Stuck behind the finger (a corner no piece can turn, a circle too tight, or no piece left that fits): say why,
+    // once a stroke, rather than the line just stopping. (Not where it's blocked: that ghost shows red.)
+    const stuck = line.stalled || (this.sinceGrown > STALL_MM && !line.stopped && !line.pieces.some((q) => q.blocked));
+    if (stuck && !this.toldStalled) {
       this.toldStalled = true;
-      this.hooks.toast("Too sharp: draw a wider bend");
+      this.hooks.toast(line.refused ? `Out of ${pieceName(line.refused)}` : "Too sharp: draw a wider bend");
     }
     this.drawTrail();
   }
@@ -175,7 +198,7 @@ export class DrawHand {
     const ghosts = this.ghosts.splice(0, pieces.length);
     const blocked = line.pieces.find((p) => p.blocked)?.blocked;
     if (blocked) this.hooks.toast(blocked);
-    else if (line.refused) this.hooks.toast(`No ${pieceName(line.refused)} left: the line used other pieces`);
+    else if (line.refused) this.hooks.toast(`No ${pieceName(line.refused)} left${pieces.length > 0 ? ": the line used other pieces" : ""}`);
     this.clear();
     if (pieces.length === 0) return;
     const ids = this.editor().placeRun(pieces.map((p) => ({ type: p.type, pose: p.pose, y: p.y, flipped: p.flipped })));
@@ -216,6 +239,8 @@ export class DrawHand {
   private start(end: DrawEnd): void {
     this.ownCount = -1;
     this.toldStalled = false;
+    this.sinceGrown = 0;
+    this.last = null;
     this.line = new DrawLine(end, {
       check: (c, line) => this.check(c, line),
       allow: this.stock ? (type, line) => line.filter((p) => p.type === type).length < this.stock!(type) : undefined,
@@ -233,21 +258,42 @@ export class DrawHand {
     // A drawn line stays at its height: no risers are put in under it.
     const why = reason ?? (risers.length > 0 ? "unsupported" : null);
     if (why) return this.hooks.message(why);
-    if (this.ownCount !== line.length) {
-      for (const id of [...this.own.pieceIds()]) this.own.removePiece(id);
-      for (const p of line) this.own.addPiece(p.type, p.pose, p.y, p.flipped);
-      this.ownCount = line.length;
-    }
+    this.syncOwn(line);
     if (findOverlap(this.own, c.type, c.flipped, c.pose, c.y, -1) !== -1) return "The line would cross itself";
     return null;
   }
 
-  /** The Auto piece's fit from the line's end onto a free end of track just ahead of it (or a little to one side). */
+  /** The line's own pieces so far, in a scratch layout (for crossing itself, and closing a loop on its own start). */
+  private syncOwn(line: readonly DrawnPiece[]): void {
+    if (this.ownCount === line.length) return;
+    for (const id of [...this.own.pieceIds()]) this.own.removePiece(id);
+    for (const p of line) this.own.addPiece(p.type, p.pose, p.y, p.flipped);
+    this.ownCount = line.length;
+  }
+
+  /** The layouts a line can close onto: the map's track, and its own (a loop back to where it started). */
+  private closable(): Layout[] {
+    if (!this.line) return [this.game.layout];
+    this.syncOwn(this.line.pieces);
+    return [this.game.layout, this.own];
+  }
+
+  /**
+   * The Auto piece's fit from the line's end onto a free end of track just ahead of it (or a little to one side): one
+   * that closes it (not the first of two, which would leave a gap).
+   */
   private meet(e: DrawEnd): DrawCandidate | null {
     const seated = e.kind === "peg" ? 0 : 1;
     const long = getPieceDef("straight-216", false);
     const pose = solveParentPose(long.connectors[seated].pose, { x: e.x, z: e.z, heading: e.heading + Math.PI }, { x: 0, z: 0, heading: 0 });
-    const fit = fitAutoStraight(this.game.layout, pose, e.y, seated, []);
+    let fit: ReturnType<typeof fitAutoStraight> = null;
+    for (const layout of this.closable()) {
+      const f = fitAutoStraight(layout, pose, e.y, seated, []);
+      if (f && !f.gap) {
+        fit = f;
+        break;
+      }
+    }
     if (!fit) return null;
     const def = getPieceDef(fit.type, fit.flipped);
     if (def.connectors.length !== 2) return null;
@@ -260,12 +306,15 @@ export class DrawHand {
   private closes(e: DrawEnd): boolean {
     const near: number[] = [];
     const w = createWorldConnector();
-    const n = this.game.layout.queryFreeConnectors(e.x, e.z, JOINT_POS_TOLERANCE, near);
-    for (let i = 0; i < n; i++) {
-      this.game.layout.worldConnector(near[i], w);
-      if (Math.abs(w.y - e.y) > 2) continue;
-      if (Math.hypot(w.x - e.x, w.z - e.z) > JOINT_POS_TOLERANCE) continue;
-      if (Math.abs(normalizeAngle(w.heading - e.heading - Math.PI)) <= JOINT_ANGLE_TOLERANCE) return true;
+    for (const layout of this.closable()) {
+      const n = layout.queryFreeConnectors(e.x, e.z, JOINT_POS_TOLERANCE, near);
+      for (let i = 0; i < n; i++) {
+        layout.worldConnector(near[i], w);
+        if (Math.abs(w.y - e.y) > 2) continue;
+        if (Math.hypot(w.x - e.x, w.z - e.z) > JOINT_POS_TOLERANCE) continue;
+        // Facing it (the line's own end, where it is now, faces the same way: not that).
+        if (Math.abs(normalizeAngle(w.heading - e.heading - Math.PI)) <= JOINT_ANGLE_TOLERANCE) return true;
+      }
     }
     return false;
   }
@@ -324,21 +373,25 @@ export class DrawHand {
       this.trail.visible = false;
       return;
     }
-    const n = Math.min(1024, line.ahead(this.trailPoints));
+    const n = Math.min(TRAIL_POINTS, line.ahead(this.trailPoints));
     this.trail.visible = n > 1;
     if (n > 1) {
       const y = line.start.y + 3;
-      const positions = new Float32Array(3 * n);
-      for (let i = 0; i < n; i++) positions.set([this.trailPoints[2 * i], y, this.trailPoints[2 * i + 1]], 3 * i);
-      const canvas = this.game.canvas;
-      for (const { line: l, material } of this.trailLines) {
-        // A new geometry each time (a LineGeometry's buffers are sized to its points); the old one freed.
-        const geometry = new LineGeometry();
-        geometry.setPositions(positions);
-        l.geometry.dispose();
-        l.geometry = geometry;
-        material.resolution.set(canvas.clientWidth, canvas.clientHeight);
+      const a = this.trailSegments.array as Float32Array;
+      const pts = this.trailPoints;
+      for (let i = 0; i + 1 < n; i++) {
+        const k = 6 * i;
+        a[k] = pts[2 * i];
+        a[k + 1] = y;
+        a[k + 2] = pts[2 * i + 1];
+        a[k + 3] = pts[2 * i + 2];
+        a[k + 4] = y;
+        a[k + 5] = pts[2 * i + 3];
       }
+      this.trailSegments.needsUpdate = true;
+      this.trailGeometry.instanceCount = n - 1;
+      const canvas = this.game.canvas;
+      for (const { material } of this.trailLines) material.resolution.set(canvas.clientWidth, canvas.clientHeight);
     }
     this.game.invalidate();
   }

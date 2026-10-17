@@ -231,6 +231,11 @@ export class DrawLine {
    * Is the line stuck behind the finger: the stroke has gone well on past its end (twice the look-ahead) and nothing
    * fits it there, though nothing's in the way (a corner sharper than any piece can turn)? Not while going back over it.
    */
+  /** Is the finger going back over the line (taking pieces off, the line not growing till it heads on again)? */
+  get goingBack(): boolean {
+    return this.retreating;
+  }
+
   get stalled(): boolean {
     const n = this.ss.length;
     if (this.stopped || this.retreating || n === 0) return false;
