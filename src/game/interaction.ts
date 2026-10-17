@@ -1105,6 +1105,9 @@ export class Interaction {
     return DEPOT_NAMES[d.role];
   }
 
+  /** Counts the cards opened: a check for one that's been replaced since does nothing. */
+  private cardNudge = 0;
+
   /** A piece's place (its pose, at its height), or null if it's gone. */
   private pieceCentre(id: number): Vector3 | null {
     const p = this.game.layout.getPiece(id);
@@ -1118,8 +1121,11 @@ export class Interaction {
    * camera is busy or following a train.
    */
   private keepClearOfCard(at: () => Vector3 | null): void {
-    requestAnimationFrame(() => {
+    const token = ++this.cardNudge;
+    const check = () => {
       const g = this.game;
+      // (Not for a card opened since, nor under a finger that's moving the view.)
+      if (token !== this.cardNudge || this.mode.kind !== "idle") return;
       const card = this.hud.openCardRect();
       const p = at();
       if (!card || !p || g.following !== -1 || g.director.busy) return;
@@ -1133,11 +1139,20 @@ export class Interaction {
       const side = card.left >= 200;
       const top = r.top + 124;
       if (!side && card.top - top < 80) return;
-      const from = this.groundAt(sx, sy);
-      const to = this.groundAt(side ? card.left / 2 : sx, side ? sy : (top + card.top) / 2);
+      // Where the screen points fall at the thing's own height (it may stand on a hill).
+      const level = new Plane(new Vector3(0, 1, 0), -p.y);
+      const onLevel = (x: number, y: number) => {
+        this.setNdc(x, y);
+        return this.raycaster.ray.intersectPlane(level, new Vector3());
+      };
+      const from = onLevel(sx, sy);
+      const to = onLevel(side ? card.left / 2 : sx, side ? sy : (top + card.top) / 2);
       if (!from || !to) return;
-      g.director.glideTo(g.controls.target.clone().add(from.sub(to)), g.camera.position.distanceTo(g.controls.target), { duration: 0.45 });
-    });
+      g.director.glideTo(g.controls.target.clone().add(from.sub(to)), g.camera.position.distanceTo(g.controls.target), { duration: 0.4 });
+    };
+    // As it opens, and again once it's filled in (a card grows as its rows come) and that glide is done.
+    requestAnimationFrame(check);
+    setTimeout(check, 500);
   }
 
   private openDepot(depotId: number): void {
