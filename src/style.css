@@ -392,6 +392,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .make-row .cost { font-size: 12px; font-weight: 700; color: #7a5532; }
 .make-row .box { font-size: 12px; font-weight: 800; color: #3f8f4a; font-variant-numeric: tabular-nums; }
 .make-row .chip { height: 34px; min-width: 34px; padding: 0 10px; font-size: 14px; }
+/* On a touch screen the + and − are a finger's size (QA U7: 34 px was). */
+@media (pointer: coarse) { .make-row .chip { height: 44px; min-width: 44px; } }
 .make-head { font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #8a6440; margin-top: 4px; }
 
 /* ---- Blueprint board (Game mode) ---------------------------------------------------------------------------- */
