@@ -93,7 +93,8 @@ def grand_terminus(k):
     # The code's open half cylinder (r 100, axis along x, arching over the top): a 1.5 mm band across z/y, extruded
     # along local z and turned so that runs along x.
     band = _arc(100.75, 0, math.pi) + _arc(99.25, math.pi, 0)
-    g.add(k.at(k.extrude(k.glass, band, 226, 0, 0, 0, 0.5), -90, 30, 0, math.pi / 2))
+    # Pale glazing: a whole roof of the dark window glass reads as black from above.
+    g.add(k.at(k.extrude(k.fixed("#cfe2ea"), band, 226, 0, 0, 0, 0.5), -90, 30, 0, math.pi / 2))
     for x in (-195, -150, -105, -60, -15, 22):
         g.add(k.at(k.ring(k.paint(TOY.green), 101, 1.6, 0, 0, 0, True, math.pi), x, 30, 0, math.pi / 2))
     g.add(k.box(k.paint(TOY.green), 226, 3, 4, 1, -90, 129, 0))

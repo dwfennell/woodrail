@@ -56,6 +56,15 @@ export const KIT_MOTIONS: Readonly<Record<string, KitMotion>> = {
       each(p, "leafR", (o) => (o.rotation.y = -on * 1.5));
     },
   },
+  // The roundhouse's stall doors open (out toward the turntable) while an engine is on its roads.
+  "bldg-roundhouse-segment": {
+    parts: ["stallL", "stallR"],
+    holds: true,
+    pose: (p, on) => {
+      each(p, "stallL", (o) => (o.rotation.y = -on * 1.5));
+      each(p, "stallR", (o) => (o.rotation.y = on * 1.5));
+    },
+  },
   // The portcullis rises as a train comes, and drops behind it.
   "bldg-castle-gate": {
     parts: ["portcullis"],

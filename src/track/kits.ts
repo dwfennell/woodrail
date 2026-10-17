@@ -229,6 +229,7 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     name: "roundhouse",
     track: roads("kit-roundhouse-segment", stalls([-Math.PI / 4, 0, Math.PI / 4]), 108, true),
     rails: "track",
+    moves: "occupied",
     // The model's origin is the turntable's centre.
     place: { t: -PIT, l: 0 },
     footprint: [

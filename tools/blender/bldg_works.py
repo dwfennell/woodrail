@@ -129,6 +129,13 @@ def roundhouse_segment(k):
         roof.rotation.z = 0.06
         stall.add(roof)
         stall.add(k.cyl(k.paint(TOY.black), 3, 14, rim + 90, 50, 0, 2.4, 12), k.box(k.paint(TOY.black), 9, 1.5, 9, 0.4, rim + 90, 64, 0))
+        # Doors across the open front (facing the turntable), two leaves hinged at the walls, swinging out toward it.
+        left = named(Node(), "stallL")
+        left.add(k.box(k.paint(TOY.green), 2, 34, 24, 0.6, 0, 0, 12))
+        stall.add(k.at(left, rim + 21, 0, -24.5))
+        right = named(Node(), "stallR")
+        right.add(k.box(k.paint(TOY.green), 2, 34, 24, 0.6, 0, 0, -12))
+        stall.add(k.at(right, rim + 21, 0, 24.5))
         stall.rotation.y = a
         g.add(stall)
     return g
