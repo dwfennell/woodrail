@@ -1425,7 +1425,7 @@ export class Interaction {
       });
     // (A ramp's or buffer's flip only swaps its ends' peg and hole: no other shape.)
     const flippable = getPieceDef(type, false).flippable && getPieceDef(type, true) !== getPieceDef(type, false) && !flipSwapsEnds(type);
-    const hint = fits(flipped, snap.connector) ? "Turn it to fit (↻ Turn)" : flippable && fits(!flipped, -1) ? "Flip it to fit (⇋ Flip)" : null;
+    const hint = fits(flipped, snap.connector) ? "Turn it to fit (↻\u00a0Turn)" : flippable && fits(!flipped, -1) ? "Flip it to fit (⇋\u00a0Flip)" : null;
     this.hintFor = { key, hint };
     return hint;
   }
@@ -1444,7 +1444,7 @@ export class Interaction {
       const centre = poseCentre(type, flipped, pose);
       const at = poseForCentre(type, flipped, centre.x, centre.z, pose.heading + (k * Math.PI) / 4);
       const s = findSnap(this.game.layout, type, flipped, at, y, pieceId, SNAP_CAPTURE_RADIUS);
-      if (s.kind === "snapped" && this.placement(type, s.flipped, s.pose, s.y, pieceId).reason === null) hint = "Turn it to fit (↻ Turn)";
+      if (s.kind === "snapped" && this.placement(type, s.flipped, s.pose, s.y, pieceId).reason === null) hint = "Turn it to fit (↻\u00a0Turn)";
     }
     this.hintFor = { key, hint };
     return hint;
