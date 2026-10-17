@@ -1,5 +1,5 @@
 import { Euler, Group, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, Mesh, type Object3D, type TOUCH } from "three";
-import { Editor, pieceCentre, poseCentre, poseForCentre, type RiserAt } from "../editor/editor";
+import { Editor, pieceCentre, poseCentre, poseForCentre, type Placement, type RiserAt } from "../editor/editor";
 import { buildCarModel, carVariant, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
@@ -8,7 +8,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { connectorRef, gapFill, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
@@ -19,14 +19,15 @@ import type { PropPose } from "../props/store";
 import { FootprintOutline } from "../render/props/outline";
 import { modelKey } from "../render/props/library";
 import { isDoubleTap, type TapRecord } from "./camera-director";
-import { dropOutcome } from "./drop";
+import { dropOutcome, heldReason } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
-import { checkYard, footprintInYards, inYardMessage, isYardBlock, placedYard, trackInYards, turnedRound, YARD_FLIP_HINT, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
+import { checkYard, flipHint, footprintInYards, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves } from "./drag-rule";
+import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
@@ -121,6 +122,16 @@ type Mode =
       add: boolean;
       /** Drawing, on something near a free end: a drag draws from that end, a tap is a tap on what's there. */
       draws?: boolean;
+      /** On touch, a press on something not selected that a long press would pick up (see touch-hold.ts). */
+      hold?: {
+        timer: number;
+        /** The press's timestamp (the events' clock): the hold is decided by when things happened. */
+        t: number;
+        /** When (ms after `t`) the finger first went past the slop, or null. */
+        strayedAt: number | null;
+        /** A train held: it's picked up only once the finger moves (let go, and it's just selected, still running). */
+        armed?: boolean;
+      };
     }
   | {
       /** The picked pieces dragged together, rigidly (with the risers under them). */
@@ -173,6 +184,11 @@ type Mode =
       looseY: number;
       /** A depot held over a line: the straights it would take the place of (it's snapped where they are), or null. */
       covers: readonly number[] | null;
+      /**
+       * A depot picked up from inline (joined at both ends to plain track): the ends it was joined to, from its first
+       * end's to its second's, so straights can close the gap it leaves when it goes elsewhere. Else null or absent.
+       */
+      leaves?: readonly [number, number] | null;
       blocked: PlaceBlock | null;
       /** Risers to put under the piece's ends that are in the air (added with it). */
       risers: RiserAt[];
@@ -593,6 +609,8 @@ export class Interaction {
 
   /** May this tray item come out now (Game mode: in the toy box, or made on the spot)? Null: always. */
   trayAllowed: ((item: TrayItem) => boolean) | null = null;
+  /** Is there another of this tray item to put down (Game mode: in the toy box, not made on the spot)? Null: always. */
+  trayHas: ((item: TrayItem) => boolean) | null = null;
   /** A train taken from the tray was put down: on the track (`placed`), or not (off it, or back over the tray). */
   onTrayTrainDropped: ((placed: boolean) => void) | null = null;
 
@@ -872,7 +890,9 @@ export class Interaction {
       return;
     }
     this.game.controls.enabled = false;
-    this.mode = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey, draws: drawsFromEnd };
+    const press: Extract<Mode, { kind: "press" }> = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey, draws: drawsFromEnd };
+    this.mode = press;
+    this.armHold(press, e.timeStamp);
   }
 
   /**
@@ -906,12 +926,37 @@ export class Interaction {
       this.roads.update(this.roadReady.drag, off ? -1 : this.squareAt(e.clientX, e.clientY), off);
     }
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
+    if (this.vetoHold(e)) return;
     if (m.kind === "draw-track") {
       this.updateDraw(e.clientX, e.clientY);
       return;
     }
+    const still = this.heldStill;
+    if (still && still.pointerId === e.pointerId && Math.hypot(e.clientX - still.x, e.clientY - still.y) >= HOLD_SLOP) this.heldStill = null;
     if (m.kind === "press") {
-      if (Math.hypot(e.clientX - m.x, e.clientY - m.y) < DRAG_THRESHOLD) return;
+      const travel = Math.hypot(e.clientX - m.x, e.clientY - m.y);
+      if (m.hold) {
+        // Waiting to see if it's a hold: by the moves' own times (a slow phone delivers them late), each one since the
+        // last (the browser may have run several into this event).
+        const h = m.hold;
+        let at = e.timeStamp - h.t;
+        for (const c of coalesced(e)) {
+          at = c.timeStamp - h.t;
+          if (h.strayedAt === null && Math.hypot(c.clientX - m.x, c.clientY - m.y) >= HOLD_SLOP) h.strayedAt = at;
+        }
+        const outcome = decideHold(h.strayedAt, at, this.touches.size);
+        // Still waiting, or held and not moved yet (the timer's frame picks it up; a held train waits for a move).
+        if (outcome === "wait" || (outcome === "hold" && h.strayedAt === null)) return;
+        clearTimeout(h.timer);
+        m.hold = undefined;
+        if (outcome === "hold") {
+          // Rested long enough before it moved (the timer ran late, or a held train starts moving): picked up now.
+          if (!h.armed) this.holdCue();
+          if (!this.startDrag(m)) return;
+          this.updateDrag(e.clientX, e.clientY);
+          return;
+        }
+      } else if (travel < DRAG_THRESHOLD) return;
       // Drawing, and it moved: a line from the free end it started by, not a drag of what's there.
       if (m.draws && this.drawing && this.draw.begin(m.x, m.y)) {
         this.game.controls.enabled = false;
@@ -922,50 +967,123 @@ export class Interaction {
       if (!this.dragsWhatsPressed(m.press, m.pointerType)) {
         // Select first: a drag that starts on anything placed that isn't selected (a piece, a train, an industry, a
         // prop, a road) pans the view, like the floor, so panning over a busy map never moves something by accident.
-        // Tap it to select it, then drag it. The camera picks the gesture up from here.
+        // Tap it to select it, then drag it (or, on touch, rest a finger on it: see armHold). The camera picks the
+        // gesture up from here.
         this.mode = { kind: "idle" };
         this.game.controls.enabled = true;
         return;
       }
-      if (m.press.kind === "piece" && this.fixedLabel(m.press.pieceId)) {
-        // Stations and depots are part of the map and stay put.
-        this.mode = { kind: "idle" };
-        this.game.controls.enabled = true;
-        return;
-      }
-      if (m.press.kind === "piece" && this.picking) {
-        // Picking: a drag on a picked piece moves them all; anywhere else it pans (so a pan never breaks the group).
-        if (this.picked.has(m.press.pieceId)) this.beginGroupMove(m.press.pieceId, m.pointerId, m.x, m.y);
-        else {
-          this.mode = { kind: "idle" };
-          this.game.controls.enabled = true;
-          return;
-        }
-      } else if (m.press.kind === "piece") this.beginPieceMove(m.press.pieceId, m.pointerId, m.ground);
-      else if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) !== -1) this.beginPieceMove(this.movableIndustry(m.press.depotId), m.pointerId, m.ground);
-      else if (m.press.kind === "cargo") this.beginCargoDrag(m.press.slot, m.press.cargo, m.pointerId);
-      else if (m.press.kind === "prop") this.beginPropMove(m.press.propId, m.pointerId, m.ground);
-      else if (m.press.kind === "road") {
-        const drag = this.roads.pickUp(m.press.cell);
-        if (!drag) {
-          this.mode = { kind: "idle" };
-          this.game.controls.enabled = true;
-          return;
-        }
-        this.mode = { kind: "drag-road", pointerId: m.pointerId, drag, overTray: false };
-        this.onPickup?.();
-      }
-      else if (m.press.kind === "car") {
-        this.beginTrainPickup(m.press.carId, m.pointerId);
-        if (this.mode.kind === "idle") return;
-      }
-      else {
-        this.mode = { kind: "idle" };
-        this.game.controls.enabled = true;
-        return;
-      }
+      if (!this.startDrag(m)) return;
     }
     this.updateDrag(e.clientX, e.clientY);
+  }
+
+  /**
+   * A press becomes a drag of what's pressed (a piece, the industry, a train, cargo, a prop, a road). False, and back to
+   * idle with the camera free, if what's pressed doesn't move (a station, a lever, a road that won't come up).
+   */
+  private startDrag(m: Extract<Mode, { kind: "press" }>): boolean {
+    const idle = () => {
+      this.mode = { kind: "idle" };
+      this.game.controls.enabled = true;
+      return false;
+    };
+    // Stations and depots are part of the map and stay put.
+    if (m.press.kind === "piece" && this.fixedLabel(m.press.pieceId)) return idle();
+    if (m.press.kind === "piece" && this.picking) {
+      // Picking: a drag on a picked piece moves them all; anywhere else it pans (so a pan never breaks the group).
+      if (!this.picked.has(m.press.pieceId)) return idle();
+      this.beginGroupMove(m.press.pieceId, m.pointerId, m.x, m.y);
+    } else if (m.press.kind === "piece") this.beginPieceMove(m.press.pieceId, m.pointerId, m.ground);
+    else if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) !== -1) this.beginPieceMove(this.movableIndustry(m.press.depotId), m.pointerId, m.ground);
+    else if (m.press.kind === "cargo") this.beginCargoDrag(m.press.slot, m.press.cargo, m.pointerId);
+    else if (m.press.kind === "prop") this.beginPropMove(m.press.propId, m.pointerId, m.ground);
+    else if (m.press.kind === "road") {
+      const drag = this.roads.pickUp(m.press.cell);
+      if (!drag) return idle();
+      this.mode = { kind: "drag-road", pointerId: m.pointerId, drag, overTray: false };
+      this.onPickup?.();
+    } else if (m.press.kind === "car") {
+      this.beginTrainPickup(m.press.carId, m.pointerId);
+      if (this.mode.kind === "idle") return false;
+    } else return idle();
+    return true;
+  }
+
+  /**
+   * On touch, a press on something that isn't selected but a long press would pick up: wait to see whether the finger
+   * rests (a hold) or moves (a pan). The cue that it's been picked up is the thing lifting under the finger, and a short
+   * buzz where the phone has one.
+   */
+  private armHold(m: Extract<Mode, { kind: "press" }>, t: number): void {
+    const target = m.press.kind === "piece" ? "piece" : m.press.kind === "car" ? "car" : m.press.kind === "depot" ? "depot" : null;
+    if (!target || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType)) return;
+    // Drawing is its own tool: a finger resting there neither picks anything up nor starts a line (Rail and road's).
+    if (this.drawing) return;
+    if (m.press.kind === "piece" && (this.picking || this.fixedLabel(m.press.pieceId))) return;
+    if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) === -1) return;
+    m.hold = { timer: window.setTimeout(() => this.holdFired(m), HOLD_MS), t, strayedAt: null };
+  }
+
+  /** The cue that something's been taken hold of: a short buzz where the phone has one (the lift is the rest). */
+  private holdCue(): void {
+    try {
+      navigator.vibrate?.(15);
+    } catch {
+      // (Some browsers refuse it without a gesture of their own: the lift is cue enough.)
+    }
+  }
+
+  /** Picked up with a hold and not moved since: letting go puts it back as it was (and selects it, as a tap would). */
+  private heldStill: { pointerId: number; x: number; y: number; press: Press } | null = null;
+
+  /**
+   * The hold's time is up. Not decided here and now: moves the browser has queued (a slow phone) are seen first, a
+   * frame on, and they say whether the finger had already strayed (a pan) before the time was up.
+   */
+  private holdFired(m: Extract<Mode, { kind: "press" }>): void {
+    requestAnimationFrame(() => {
+      const h = m.hold;
+      if (this.mode !== m || !h || h.armed) return;
+      const outcome = decideHold(h.strayedAt, performance.now() - h.t, this.touches.size);
+      if (outcome !== "hold") return;
+      this.holdCue();
+      // A train is picked up once the finger moves: let go here and it's selected, still running, as it was.
+      if (m.press.kind === "car") {
+        h.armed = true;
+        return;
+      }
+      m.hold = undefined;
+      if (!this.startDrag(m)) return;
+      this.heldStill = { pointerId: m.pointerId, x: m.x, y: m.y, press: m.press };
+      this.heldUnsure = { pointerId: m.pointerId, x: m.x, y: m.y, t: h.t };
+      this.updateDrag(m.x, m.y);
+    });
+  }
+
+  /**
+   * Picked up by the hold's timer, before any move had been seen: a slow phone may deliver the moves of a pan only now.
+   * If the first moves to come say the finger had strayed before the hold's time was up, it was a pan: put it back.
+   * Settled (null) by the first move from after that time.
+   */
+  private heldUnsure: { pointerId: number; x: number; y: number; t: number } | null = null;
+
+  /** True if the late moves undid a pickup that was really a pan (the view takes the gesture from here). */
+  private vetoHold(e: PointerEvent): boolean {
+    const u = this.heldUnsure;
+    if (!u || u.pointerId !== e.pointerId) return false;
+    for (const c of coalesced(e)) {
+      const at = c.timeStamp - u.t;
+      if (at >= HOLD_MS) break;
+      if (undoesHold(at, Math.hypot(c.clientX - u.x, c.clientY - u.y), false)) {
+        this.heldUnsure = null;
+        this.heldStill = null;
+        this.cancel();
+        return true;
+      }
+    }
+    if (e.timeStamp - u.t >= HOLD_MS) this.heldUnsure = null;
+    return false;
   }
 
   private onUp(e: PointerEvent): void {
@@ -1005,7 +1123,24 @@ export class Interaction {
     const m = this.mode;
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     this.game.controls.enabled = true;
+    const still = this.heldStill;
+    const unsure = this.heldUnsure;
+    this.heldStill = null;
+    this.heldUnsure = null;
+    if (still && unsure && unsure.pointerId === e.pointerId && undoesHold(e.timeStamp - unsure.t, 0, true) && m.kind !== "press") {
+      // Picked up by the timer, but the finger was lifted before the hold's time (its lift delivered late): a tap.
+      this.cancel();
+      this.tap(still.press);
+      return;
+    }
+    if (still && still.pointerId === e.pointerId && m.kind !== "press") {
+      // Held and let go without moving: back where it was (a drop would snap it to the nearest free end), and selected.
+      this.cancel();
+      this.tap(still.press);
+      return;
+    }
     if (m.kind === "press") {
+      if (m.hold) clearTimeout(m.hold.timer);
       this.mode = { kind: "idle" };
       // (Cargo is tapped again and again, a unit a tap: never a double tap.)
       if (m.press.kind !== "lever" && m.press.kind !== "cargo" && this.noteTap(e)) this.focusOn(m.press);
@@ -1063,6 +1198,9 @@ export class Interaction {
     this.game.director.setEdgePointer(null);
     this.hud.setRefusal(null);
     const m = this.mode;
+    if (m.kind === "press" && m.hold) clearTimeout(m.hold.timer);
+    this.heldStill = null;
+    this.heldUnsure = null;
     this.game.controls.enabled = true;
     if (m.kind === "drag-piece") {
       this.dropHeld(m.ghost);
@@ -1531,6 +1669,8 @@ export class Interaction {
     const reason = this.blockedBy(type, flipped, pose, y, ignoreId);
     // A hill in the way: say how far up it is, and how to get there (only worked out when it's so).
     if (reason === "hill") this.hillWhy = hillMessage(levelsAbove(this.game.landscape, type, flipped, pose, y));
+    // A depot is told it's the depot (its name, as its yard's messages say), not the track, that keeps out of town.
+    if (reason === "town") this.townWhy = townMessage(type);
     if (reason) return { reason, risers: [] };
     // A depot's yard and buildings beside its track need room too; other track keeps out of a player's depot's yard.
     const yard = this.yardBlock(type, pose, y, ignoreId) ?? this.inYard(type, flipped, pose, y, ignoreId);
@@ -1639,11 +1779,13 @@ export class Interaction {
    * of the line? Worked out only while it's refused, once per spot.
    */
   private yardHint(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): string | null {
-    const key = `yard|${type}|${flipped}|${pose.x}|${pose.z}|${pose.heading}|${y}|${this.game.layout.pieceCount}`;
+    const ignoreKey = typeof ignoreId === "number" ? ignoreId : [...ignoreId].join(",");
+    const key = `yard|${type}|${flipped}|${pose.x}|${pose.z}|${pose.heading}|${y}|${ignoreKey}|${this.game.layout.pieceCount}`;
     if (this.hintFor?.key === key) return this.hintFor.hint;
     const memo = this.yardMemo;
     const why = this.yardWhy;
-    const hint = this.splices(type) && this.placement(type, flipped, turnedRound(type, pose), y, ignoreId).reason === null ? YARD_FLIP_HINT : null;
+    // Turned right round on the same track (where the splice puts it held the other way), all of it checked.
+    const hint = this.splices(type) ? flipHint(type, pose, (turned) => this.placement(type, flipped, turned, y, ignoreId).reason) : null;
     // (The turned-round check mustn't take the place of what's said, or remembered, for where it's held.)
     this.yardMemo = memo;
     this.yardWhy = why;
@@ -1724,6 +1866,7 @@ export class Interaction {
 
   private blockMessage(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
+    if (reason === "town") return this.townWhy;
     if (reason === "splice-fit" || reason === "splice-busy" || reason === "splice-onto") return SPLICE_MESSAGES[reason];
     if (isYardBlock(reason)) return this.yardWhy;
     if (reason === "in-yard") return this.inYardWhy;
@@ -1732,6 +1875,8 @@ export class Interaction {
 
   /** The message for the last "hill" refusal (how many levels up, and how to climb it). */
   private hillWhy = BLOCK_MESSAGES.hill;
+  /** The message for the last "town" refusal (what keeps out of town: the track, or a depot by name). */
+  private townWhy = BLOCK_MESSAGES.town;
 
   /** Check a would-be position for piece `id` (turned or flipped in place: no risers are added), explaining a refusal. */
   private allowed(id: number, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): boolean {
@@ -1756,6 +1901,48 @@ export class Interaction {
   /** Is this a depot piece, which is dropped onto a straight of a line to take its place (and turns round to flip)? */
   private splices(type: PieceTypeId): boolean {
     return !!INDUSTRY_ROLE[type] && straightLength(type, false) > 0;
+  }
+
+  /**
+   * The track ends a placed piece is joined to, from its first end's to its second's, if it's joined at both ends
+   * and only to plain track (not a station or a depot); else null.
+   */
+  private inlineEnds(pieceId: number): [number, number] | null {
+    const layout = this.game.layout;
+    const ends: number[] = [];
+    for (const i of [0, 1]) {
+      const partner = layout.joinedConnector(connectorRef(pieceId, i));
+      const q = partner === -1 ? undefined : layout.getPiece(pieceOfRef(partner));
+      if (!q || q.type === "station" || INDUSTRY_ROLE[q.type] || q.type.startsWith("depot-") || getPieceDef(q.type, q.flipped).paths.length === 0) return null;
+      ends.push(partner);
+    }
+    return [ends[0], ends[1]];
+  }
+
+  /**
+   * Straights to close the gap a depot moved off a line leaves (see `gapFill`), or none: none unless it was inline,
+   * the ends it was joined to are still free (it wasn't put back between them, nor onto them), and straights there
+   * would be clear of everything, the depot where it's going and its yard included.
+   */
+  private fillFor(m: Extract<Mode, { kind: "drag-piece" }>, pose: Pose, y: number): Placement[] {
+    if (!m.leaves || m.pieceId === -1) return [];
+    const g = this.game;
+    const [from, to] = m.leaves;
+    if (m.covers?.some((id) => id === pieceOfRef(from) || id === pieceOfRef(to))) return [];
+    const fill = gapFill(g.layout, from, to);
+    if (!fill) return [];
+    // The depot where it's going, by itself: the fill mustn't run into it or its yard.
+    const alone = new Layout();
+    alone.addPiece(m.type, pose, y, m.flipped);
+    const yard = placedYard(m.pieceId, m.type, pose, y);
+    const ignore = new Set([m.pieceId, ...(m.covers ?? [])]);
+    for (const f of fill) {
+      if (findOverlap(alone, f.type, false, f.pose, f.y, -1) !== -1) return [];
+      if (yard && trackInYards([yard], f.type, false, f.pose, f.y, -1)) return [];
+      const p = this.placement(f.type, false, f.pose, f.y, ignore);
+      if (p.reason !== null || p.risers.length > 0) return [];
+    }
+    return fill.map((f) => ({ type: f.type, pose: f.pose, y: f.y }));
   }
 
   /** What a held piece's placement checks leave out: itself, and the straights it would take the place of. */
@@ -2176,6 +2363,7 @@ export class Interaction {
     this.clearSelection();
     this.hud.hideCards();
     const from = { pose: { ...p.pose }, y: p.y };
+    const leaves = this.splices(p.type) ? this.inlineEnds(pieceId) : null;
     layout.liftPiece(pieceId);
     // An industry's yard goes up with it (drawn in the hand, not where it stood).
     if (INDUSTRY_ROLE[p.type]) this.game.depotView.setWorld(this.game.economy, layout);
@@ -2195,6 +2383,7 @@ export class Interaction {
       heading: p.pose.heading,
       pieceId,
       from,
+      leaves,
       offset: { x: cx - ground.x, z: cz - ground.z },
       ghost,
       snap: { kind: "none" },
@@ -2398,24 +2587,8 @@ export class Interaction {
         const sim = this.game.sim;
         const free = (id: number) => !sim.pieceOccupied(id);
         const reach = Math.max(capture, TRACK_WIDTH);
-        let s = findSplice(this.game.layout, m.type, m.heldFlipped, centre, m.heading, reach, free);
-        if (s.kind === "none") {
-          // Its middle is off the line, but held across it its track may cross it: try points along its own track.
-          const half = straightLength(m.type, false) / 2;
-          const ax = Math.cos(m.heading);
-          const az = Math.sin(m.heading);
-          for (const f of [-0.5, 0.5, -1, 1]) {
-            const along = (h: number) => {
-              const c = centre(h);
-              return c && { x: c.x + ax * half * f, z: c.z + az * half * f };
-            };
-            const t = findSplice(this.game.layout, m.type, m.heldFlipped, along, m.heading, reach, free);
-            if (t.kind !== "none") {
-              s = t;
-              break;
-            }
-          }
-        }
+        // (Its whole track is looked along: held across a line with its middle off it, it still meets it.)
+        const s = findSplice(this.game.layout, m.type, m.heldFlipped, centre, m.heading, reach, free);
         if (s.kind === "splice") {
           m.snap = { kind: "snapped", pose: s.pose, y: s.y, connector: 0, target: -1, distance: 0, flipped: m.heldFlipped };
           m.covers = s.covers;
@@ -2446,8 +2619,9 @@ export class Interaction {
           placed = this.placement(m.type, m.flipped, pose, py, this.ignoreFor(m));
         }
       }
-      // On other track but not where it can take a straight's place: say what would work.
-      const reason = placed.reason === "piece" && spliceWhy ? spliceWhy : placed.reason;
+      // On other track but not where it can take a straight's place: say what would work. Over a straight a train
+      // stands on, that's what to say, whatever else is in the way where it's held (a house it's slanting across).
+      const reason = heldReason(placed.reason, spliceWhy);
       const risers = placed.risers;
       // (A preview under the mouse just shows red: the reason comes if it's clicked.)
       // While it's held where it can't go, the reason stays up (and goes once it can, or it's over the tray).
@@ -2554,12 +2728,15 @@ export class Interaction {
         const covers = m.covers;
         // A depot dropped onto a line: the straights it takes the place of lift and shrink away (back in the box).
         if (covers) for (const c of covers) this.shrinkStandIn(c);
+        // A depot moved off a line: straights close the gap it leaves (in the same undo step).
+        const fill = this.fillFor(m, pose, y);
         const id = covers
-          ? ed.replace(covers, m.type, pose, y, m.flipped, isNew ? undefined : { id: m.pieceId, from: m.from! })
+          ? ed.replace(covers, m.type, pose, y, m.flipped, isNew ? undefined : { id: m.pieceId, from: m.from! }, fill)
           : isNew
             ? ed.place(m.type, pose, y, m.flipped, risers)
-            : (ed.move(m.pieceId, pose, y, m.from!, risers, m.flipped), m.pieceId);
+            : (ed.move(m.pieceId, pose, y, m.from!, risers, m.flipped, fill), m.pieceId);
         if (covers) this.hud.toast(covers.length === 1 ? "Straight back in the box" : `${covers.length} straights back in the box`);
+        else if (fill.length > 0) this.hud.toast(fill.length === 1 ? "A straight closes the gap" : "Straights close the gap");
         g.trackView.setHidden(id, true);
         setRim(g.mats.held, "#ffffff", 0);
         g.flourishes.add(
@@ -2577,10 +2754,11 @@ export class Interaction {
         this.onPlaced?.(snapped);
         // The next is likely the same kind: it stays ready, waiting at this one's free end for a tap. (Not while
         // drawing: a press there draws.)
-        if (m.tray && !this.drawing) {
+        // (Game mode: not when that was the last of it in the toy box.)
+        if (m.tray && !this.drawing && (this.trayHas?.(m.tray) ?? true)) {
           this.arm(m.tray);
           this.previewNextAt(id);
-        }
+        } else if (m.tray && !this.drawing) this.arm(null);
         return;
       }
       case "return": {
@@ -3324,4 +3502,10 @@ export class Interaction {
 /** The plots a town building's squares are in (to redraw when it leaves them). */
 function townSlots(land: Landscape, building: number): number[] {
   return [...new Set((findBuilding(land, building)?.building.cells ?? []).map(plotSlotOf))];
+}
+
+/** The moves the browser ran into this event, or the event itself (an empty list would hide a pan's moves). */
+function coalesced(e: PointerEvent): readonly PointerEvent[] {
+  const list = e.getCoalescedEvents?.();
+  return list?.length ? list : [e];
 }

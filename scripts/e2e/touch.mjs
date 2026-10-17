@@ -162,6 +162,130 @@ async function selectThenDrag(ctx, p) {
   const bMid = await drag(sx, sy, -40);
   check("tap a piece to select it, then a drag picks it up and moves it", bMid === "drag-piece", `mid-drag ${bMid}`);
   await p.keyboard.press("Escape");
+  // 2b. Long-press to pick up: let go of it first (nothing selected), then a finger resting on it picks it up into a drag.
+  await p.keyboard.press("Escape");
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  /** Touch down at (x, y), rest `ms` (with a 3 px wobble), maybe put a second finger down, then report the mode. */
+  // (The mode is read in the page, `ms` after the finger came down by the page's own clock: a slow machine's round
+  // trips mustn't stretch a short press into a long one.)
+  const holdAt = async (x, y, ms, second = false) => {
+    await p.evaluate(() => window.addEventListener("pointerdown", () => (window.__downAt = performance.now()), { capture: true, once: true }));
+    await touch("touchStart", x, y);
+    await touch("touchMove", x + 3, y + 2);
+    if (second) await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x + 3, y: y + 2, id: 1 }, { x: x + 80, y: y + 40, id: 2 }] });
+    // (A hold is taken up a frame after its time: let a frame or two by, unless checking that a short press isn't one.)
+    return p.evaluate(([ms, frames]) => new Promise((r) => setTimeout(() => {
+      const read = () => r(window.woodrail.interaction.mode.kind);
+      if (!frames) return read();
+      requestAnimationFrame(() => requestAnimationFrame(read));
+    }, Math.max(0, window.__downAt + ms - performance.now()))), [ms, ms >= 380]);
+  };
+  const lift = async () => {
+    await touch("touchEnd", 0, 0);
+    await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  };
+  const c0 = await where();
+  [sx, sy] = await onScreen();
+  const held = await holdAt(sx, sy, 520);
+  await lift();
+  const c1 = await where();
+  check("a long press on an unselected piece picks it up", held === "drag-piece", `after 520 ms: ${held}`);
+  check("…and letting go without moving puts it back where it was (and selects it)", JSON.stringify(c1.piece) === JSON.stringify(c0.piece) && (await p.evaluate(() => !document.querySelector(".piece-card").hidden)), `${c0.piece} → ${c1.piece}`);
+  await p.keyboard.press("Escape");
+  // (Stamped with when it happened, as the slow-phone cases below: a busy machine delivers the lift late.)
+  [sx, sy] = await onScreen();
+  {
+    const c = Date.now() / 1000;
+    const before = await where();
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: c, touchPoints: [{ x: sx, y: sy, id: 1 }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", timestamp: c + 0.2, touchPoints: [] });
+    await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+    const short = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+    const after = await where();
+    check("a short press (200 ms) doesn't pick it up (it's a tap: selected)", short === "idle" && JSON.stringify(after.piece) === JSON.stringify(before.piece) && (await p.evaluate(() => !document.querySelector(".piece-card").hidden)), `mode ${short}; piece ${before.piece} → ${after.piece}`);
+  }
+  await p.keyboard.press("Escape");
+  [sx, sy] = await onScreen();
+  const two = await holdAt(sx, sy, 520, true);
+  check("a second finger during the hold cancels it (two fingers move the view)", two === "idle", `after 520 ms with two fingers: ${two}`);
+  await lift();
+  await p.keyboard.press("Escape");
+  // Held, then dragged: it moves.
+  [sx, sy] = await onScreen();
+  await touch("touchStart", sx, sy);
+  await new Promise((r) => setTimeout(r, 520));
+  let hMid = "";
+  for (let k = 1; k <= 12; k++) {
+    await touch("touchMove", sx - (40 * k) / 12, sy);
+    if (k === 6) hMid = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+  }
+  await lift();
+  check("held, then dragged: it moves with the finger", hMid === "drag-piece", `mid-drag ${hMid}`);
+  await p.keyboard.press("Escape");
+  // 2b'. A slow phone (QA): the hold is decided by when things happened (the events' own times), not by which arrives
+  // first. The touches are stamped with the times they happened at, then delivered late.
+  const stamped = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  // A pan whose moves (stamped 30–80 ms in) are only delivered after the hold's time is up: still a pan, put back.
+  await p.keyboard.press("Escape");
+  [sx, sy] = await onScreen();
+  const before = await where();
+  let s0 = Date.now() / 1000;
+  await stamped("touchStart", sx, sy, s0);
+  await new Promise((r) => setTimeout(r, 900));
+  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  for (let k = 1; k <= 6; k++) await stamped("touchMove", sx + 6 * k, sy, s0 + 0.03 + 0.01 * k);
+  await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const lateMoves = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+  await stamped("touchEnd", 0, 0, Date.now() / 1000);
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  const after = await where();
+  check("slow phone: a pan's moves delivered after the hold's time is up stay a pan (put back)", lateMoves !== "drag-piece" && JSON.stringify(after.piece) === JSON.stringify(before.piece), `mode ${lateMoves}; piece ${before.piece} → ${after.piece}`);
+  // A real hold whose timer is late: the drag's first moves, stamped 450 ms in, arrive first: picked up.
+  await p.keyboard.press("Escape");
+  [sx, sy] = await onScreen();
+  s0 = Date.now() / 1000;
+  await stamped("touchStart", sx, sy, s0);
+  for (let k = 1; k <= 4; k++) await stamped("touchMove", sx - 8 * k, sy, s0 + 0.45 + 0.01 * k);
+  const lateTimer = await p.evaluate(() => window.woodrail.interaction.mode.kind);
+  await stamped("touchEnd", 0, 0, Date.now() / 1000);
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  check("slow phone: a real hold whose timer runs late still picks it up", lateTimer === "drag-piece", `mode ${lateTimer}`);
+  await p.keyboard.press("Escape");
+  // 2c. Drawing on: a finger resting on a piece neither picks it up nor starts a line.
+  await p.evaluate(() => window.woodrail.interaction.setDrawing(true));
+  [sx, sy] = await onScreen();
+  const pieces0 = await p.evaluate(() => window.woodrail.layout.pieceCount);
+  const drawHold = await holdAt(sx, sy, 520);
+  await lift();
+  const pieces1 = await p.evaluate(() => window.woodrail.layout.pieceCount);
+  check("drawing on: a long press on a piece doesn't pick it up or draw", drawHold !== "drag-piece" && pieces1 === pieces0, `after 520 ms: ${drawHold}; pieces ${pieces0} → ${pieces1}`);
+  await p.evaluate(() => window.woodrail.interaction.setDrawing(false));
+  await p.keyboard.press("Escape");
+  // 2d. A placed industry (one the player may move: the playthrough's workshop) is picked up with a hold too.
+  const shop = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { poseForCentre } = await import("/src/editor/editor.ts");
+    const { syncIndustries } = await import("/src/game/world.ts");
+    for (const [fx, fy] of [[0.5, 0.3], [0.3, 0.25], [0.7, 0.25], [0.5, 0.2]]) {
+      const g = w.interaction.groundAt(innerWidth * fx, innerHeight * fy);
+      const r = w.editor().place("depot-workshop", poseForCentre("depot-workshop", false, g.x, g.z, 0), 0, false);
+      const id = typeof r === "number" ? r : r?.id ?? -1;
+      if (id < 0) continue;
+      syncIndustries(w);
+      w.invalidate();
+      const piece = w.layout.getPiece(id);
+      const v = new w.camera.position.constructor(piece.pose.x, piece.y + 10, piece.pose.z).project(w.camera);
+      return { id, x: ((v.x + 1) / 2) * innerWidth, y: ((1 - v.y) / 2) * innerHeight };
+    }
+    return null;
+  });
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  if (shop) {
+    const shopHold = await holdAt(shop.x, shop.y, 520);
+    await lift();
+    check("a long press on a placed workshop picks it up", shopHold === "drag-piece", `after 520 ms: ${shopHold}`);
+  } else check("a workshop goes down for the hold check", false, "nowhere to put it");
+  await p.keyboard.press("Escape");
   // 3. A train, not selected: the drag pans, the train stays.
   const placed = await p.evaluate(async (id) => {
     const w = window.woodrail;
@@ -178,6 +302,31 @@ async function selectThenDrag(ctx, p) {
   [sx, sy] = await onScreen();
   const vMid = await drag(sx, sy, 120);
   check("a drag that starts on an unselected engine pans (the camera has it) and leaves the train", placed && vMid === "idle" && (await trains()) === t0, `placed ${placed}, mid-drag ${vMid}`);
+  // Held and let go without moving, a running train stays the same train at the same speed (QA): it's only selected.
+  await p.keyboard.press("Escape");
+  const run0 = await p.evaluate(() => {
+    const w = window.woodrail;
+    const id = w.sim.trainIds().at(-1);
+    const engine = w.sim.getTrain(id).cars.find((c) => c.kind === "engine");
+    engine.lever = 1;
+    return id;
+  });
+  await new Promise((r) => setTimeout(r, 1500));
+  const speedBefore = await p.evaluate((id) => window.woodrail.sim.getTrain(id)?.speed ?? -1, run0);
+  [sx, sy] = await p.evaluate((id) => {
+    const w = window.woodrail;
+    const car = w.sim.getTrain(id).cars[0];
+    const v = new w.camera.position.constructor();
+    w.trainView.carObject(car.id).getWorldPosition(v);
+    v.y += 10;
+    v.project(w.camera);
+    return [((v.x + 1) / 2) * innerWidth, ((1 - v.y) / 2) * innerHeight];
+  }, run0);
+  const trainHold = await holdAt(sx, sy, 520);
+  await lift();
+  const after2 = await p.evaluate((id) => { const t = window.woodrail.sim.getTrain(id); return t ? t.cars.find((c) => c.kind === "engine").lever : null; }, run0);
+  check("held and let go, a running train stays the same train, still running", after2 === 1, `train ${run0}: lever after ${after2} (it was 1; speed then ${Math.round(speedBefore)}; hold mode ${trainHold})`);
+  await p.evaluate((id) => { const t = window.woodrail.sim.getTrain(id); if (t) for (const c of t.cars) c.lever = 0; }, run0);
 }
 
 /**
