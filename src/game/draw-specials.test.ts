@@ -191,6 +191,47 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
     expect(crossed).toBe(all);
   });
 
+  it("a swipe up the screen across a river that runs slantwise (as the map's do), from a little way off it, crosses", () => {
+    const K = 2;
+    const fails: string[] = [];
+    let all = 0;
+    for (const [rdeg, width] of [[45, 1.5], [-45, 1.5], [30, 2], [60, 1], [45, 2.5]]) {
+      // A river band through (600, 0) running at `rdeg`, `width` squares across.
+      const land = flat();
+      const g = land.grid;
+      const ra = (rdeg * Math.PI) / 180;
+      for (let x = -2196; x < 2232; x += 72)
+        for (let z = -1620; z < 1656; z += 72) {
+          const across = -(x - 600) * Math.sin(ra) + z * Math.cos(ra);
+          if (Math.abs(across) < (width * 72) / 2) g.surface[g.cellAtWorld(x, z)] = SURF_RIVER;
+        }
+      g.revision++;
+      for (const deg of [23, -23, 157, -157, 67, -113]) {
+        for (const up of [1, -1]) {
+          for (const lead of [250, 350, 500]) {
+            const a = (deg * Math.PI) / 180;
+            const dx = Math.cos(a);
+            const dz = Math.sin(a);
+            // Where the stroke meets the river's middle line, and `lead` mm before (along the stroke) it starts.
+            const cross = Math.sin(a - ra);
+            // (Room for a ramp before the bank, along the stroke: else it's red, rightly.)
+            if (Math.abs(cross) < 0.3 || lead - (width * 36) / Math.abs(cross) < 200) continue;
+            const sx = 600 - lead * dx;
+            const sz = 0 - lead * dz;
+            const start: DrawEnd = { x: Math.round(sx / 18) * 18, z: Math.round(sz / 18) * 18, heading: Math.round(a / (Math.PI / 4)) * (Math.PI / 4), y: 0, kind: "peg" };
+            const line = new DrawLine(start, options(land));
+            for (let d = 4; d <= 2 * lead + 300; d += 4) line.addSeen((h) => ({ x: start.x + d * dx - up * K * h * dx, z: start.z + d * dz - up * K * h * dz }));
+            line.finish();
+            all++;
+            const ok = !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => isBridge(p.type)) && line.end.y === 0;
+            if (!ok) fails.push(`river ${rdeg}° w${width}, swipe ${deg}° ${up > 0 ? "up" : "down"} from ${lead} mm off: ${name(line)}`);
+          }
+        }
+      }
+    }
+    expect(fails, `${fails.length}/${all}\n${fails.join("\n")}`).toEqual([]);
+  });
+
   it("up on a hill, the finger is read at the hilltop's height: the stroke moves once, as the ramp's top end lands", () => {
     const land = paint(flat(), 504, 2000, -400, 400, 1);
     const line = new DrawLine(at(0), options(land));

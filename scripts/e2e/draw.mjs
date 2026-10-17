@@ -700,7 +700,7 @@ async function slantedRiver() {
       const got0 = await p.evaluate(async ([cx, cz, dir]) => {
         const w = window.woodrail;
         const V = w.camera.position.constructor;
-        w.lookAt(new V(cx, 0, cz), 900, Math.atan2(Math.hypot(700, 1050), 620), Math.atan2(700, 1050));
+        w.lookAt(new V(cx, 0, cz), Math.hypot(700, 620, 1050), Math.atan2(Math.hypot(700, 1050), 620), Math.atan2(700, 1050));
         await new Promise((r) => requestAnimationFrame(() => r()));
         const r = w.canvas.getBoundingClientRect();
         const [sx, sy] = D.screen(cx, 0, cz);
@@ -723,8 +723,16 @@ async function slantedRiver() {
           seq += kind(w.interaction.groundAt(sx, y));
           pts.push([sx, y]);
         }
-        // Grass, then the water, then grass: a clear crossing, with room either side.
-        return /^g{12,}w+g{12,}$/.test(seq) ? { pts } : { seq };
+        // Grass, then the water, then grass: a clear crossing, with room for a ramp either side (300 mm on the ground).
+        const m = /^(g+)w+(g+)$/.exec(seq);
+        if (!m) return { seq };
+        const at = (k) => w.interaction.groundAt(pts[k][0], pts[k][1]);
+        const a0 = at(0);
+        const a1 = at(m[1].length);
+        const b0 = at(seq.length - m[2].length - 1);
+        const b1 = at(seq.length - 1);
+        const room = Math.min(Math.hypot(a1.x - a0.x, a1.z - a0.z), Math.hypot(b1.x - b0.x, b1.z - b0.z));
+        return room >= 300 ? { pts } : { seq: `${seq} (${room.toFixed(0)} mm)` };
       }, [c.x, c.z, dir]);
       if (!got0?.pts) {
         seqs.push(got0?.seq ?? "none");
