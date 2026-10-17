@@ -18,7 +18,7 @@ import {
 } from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { canStandOnArches, connectorRef, flipSwapsEnds, getPieceDef, isBridge, indexOfRef, isJoin, pathLength, pieceOfRef, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceDef, type PieceTypeId, type PlacedPiece } from "../track";
+import { canStandOnArches, connectorRef, flipSwapsEnds, getPieceDef, isBridge, indexOfRef, isJoin, kitOf, pathLength, pieceOfRef, RISER_HEIGHT, TRACK_THICKNESS, TRACK_WIDTH, type Layout, type PieceDef, type PieceTypeId, type PlacedPiece } from "../track";
 import { MAX_BRIDGE_LEVELS } from "../landscape";
 import type { Materials } from "./materials";
 import { rng } from "./textures";
@@ -537,7 +537,8 @@ export class TrackView {
       }
       this.group.add(mesh);
       this.meshes.set(key, { mesh, ids });
-      if (bufferBlock(type)) bufferIds.push(...ids);
+      // (A kit's model draws its own buffer stops, where its roads end.)
+      if (bufferBlock(type) && !kitOf(type)) bufferIds.push(...ids);
     }
 
     if (bufferIds.length > 0) {

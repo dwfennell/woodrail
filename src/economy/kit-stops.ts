@@ -53,7 +53,10 @@ export class KitStops {
     const lead = train.bogies[0];
     const piece = this.layout.getPiece(lead.pieceId);
     const kitStop = piece ? kitOf(piece.type)?.stop : undefined;
-    const stop = kitStop && this.stopsFor(kitStop.who, train) ? kitStop : undefined;
+    let stop = kitStop && this.stopsFor(kitStop.who, train) ? kitStop : undefined;
+    // A road ending at a buffer (a terminus's) stops trains coming in along it, not those heading back out (turned
+    // round at its buffer); on a kit of several roads, whichever road the train is on.
+    if (stop && lead.reversed && getPieceDef(piece!.type, piece!.flipped).paths[lead.pathIndex].to === null) stop = undefined;
     let v = this.visits.get(train.id);
     if (v && v.pieceId !== lead.pieceId) {
       // Its front is off the kit it visited. Turned round while standing there (the lever reversed: a new front): the

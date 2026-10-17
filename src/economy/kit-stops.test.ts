@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ENGINE_SPEED, Sim, SIM_HZ, type CarKind, type Train } from "../sim";
+import { ENGINE_SPEED, Sim, SIM_HZ, type CarKind, type CarLook, type Train } from "../sim";
 import { connectorRef, createWorldConnector, KITS, Layout, type PieceTypeId } from "../track";
 import { ticks } from "./constants";
 import { Economy } from "./economy";
@@ -111,5 +111,87 @@ describe("kit stops (the furnished platform)", () => {
     w.sim.setLever(engine().id, engine().facing === 1 ? -1 : 1);
     for (let k = 0; k < SIM_HZ; k++) w.step();
     expect(w.train().speed).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * A kit at the origin, heading +x, and a straight leading into its road `road` (which starts at l = 72 × road), the
+ * end of the line behind it (a turnback buffer). A train of `cars` on the straight, heading for the kit.
+ */
+function lineInto(kit: PieceTypeId, road: number, cars: CarKind[], looks?: (n: number) => CarLook) {
+  const layout = new Layout();
+  const kitId = layout.addPiece(kit, { x: 0, z: 0, heading: 0 });
+  const l = 72 * road;
+  const lead = layout.addPiece("straight-216", { x: -216, z: l, heading: 0 });
+  layout.addPiece("buffer-turnback", { x: -216, z: l, heading: Math.PI });
+  const sim = new Sim(layout);
+  const economy = new Economy(layout, sim);
+  const placed = sim.addTrain(cars, { pieceId: lead, pathIndex: 0, reversed: false, s: 200 });
+  if (placed.kind !== "placed") throw new Error("no room");
+  const train = () => sim.getTrain(sim.trainIds()[0])! as Train;
+  if (looks) train().cars.forEach((c, i) => sim.setLook(c.id, looks(i)));
+  sim.setLever(train().cars.find((x) => x.kind === "engine")!.id, 1);
+  const step = () => {
+    sim.tick();
+    economy.tick();
+  };
+  return { layout, sim, economy, train, kit: kitId, lead, step };
+}
+
+describe("kit stops on kits of several roads", () => {
+  it("the two-platform station stops a passenger train on whichever road it's on", () => {
+    for (const road of [0, 1]) {
+      const w = lineInto("kit-two-platform-station", road, ["engine", "passenger"]);
+      let halted: { path: number; s: number } | null = null;
+      for (let i = 0; i < 6 * SIM_HZ && !halted; i++) {
+        w.step();
+        const t = w.train();
+        if (w.economy.kitStops.dwelling(t.id)) halted = { path: t.bogies[0].pathIndex, s: t.bogies[0].s };
+      }
+      expect(halted, `road ${road}`).not.toBeNull();
+      expect(halted!.path).toBe(road);
+      expect(Math.abs(halted!.s - KITS["kit-two-platform-station"].stop!.at)).toBeLessThan(1);
+      expect(w.economy.standingAt(w.kit)).toBe(true);
+    }
+  });
+
+  it("a terminus road stops a train short of its buffer, which then turns back there and runs out without stopping again", () => {
+    const w = lineInto("kit-grand-terminus", 1, ["engine", "passenger"]);
+    const stop = KITS["kit-grand-terminus"].stop!;
+    const halts: { s: number; path: number; reversed: boolean }[] = [];
+    let wasDwelling = false;
+    let turned = false;
+    let outAgain = false;
+    for (let i = 0; i < 30 * SIM_HZ && !outAgain; i++) {
+      w.step();
+      const t = w.train();
+      const dwelling = w.economy.kitStops.dwelling(t.id);
+      if (dwelling && !wasDwelling) halts.push({ s: t.bogies[0].s, path: t.bogies[0].pathIndex, reversed: t.bogies[0].reversed });
+      wasDwelling = dwelling;
+      if (t.bogies[0].pieceId === w.kit && t.bogies[0].reversed) turned = true;
+      if (turned && t.bogies.every((b) => b.pieceId !== w.kit)) outAgain = true;
+    }
+    // One stop, on the middle road, its front at the stop point (short of the road's end at 216).
+    expect(halts.length).toBe(1);
+    expect(halts[0].path).toBe(1);
+    expect(halts[0].reversed).toBe(false);
+    expect(Math.abs(halts[0].s - stop.at)).toBeLessThan(1);
+    // Then on to the buffer, turned round, and out of the terminus again without a second stop.
+    expect(turned).toBe(true);
+    expect(outAgain).toBe(true);
+  });
+
+  it("a goods train runs into the terminus without stopping, and turns back at the buffer", () => {
+    const w = lineInto("kit-grand-terminus", 2, ["engine", "hopper"]);
+    let dwelt = false;
+    let turned = false;
+    for (let i = 0; i < 12 * SIM_HZ; i++) {
+      w.step();
+      const t = w.train();
+      if (w.economy.kitStops.dwelling(t.id)) dwelt = true;
+      if (t.bogies[0].pieceId === w.kit && t.bogies[0].reversed) turned = true;
+    }
+    expect(dwelt).toBe(false);
+    expect(turned).toBe(true);
   });
 });

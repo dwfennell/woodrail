@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KITS } from "../track";
+import { kitForAsset, KITS } from "../track";
 import { DEFAULT_FAVOURITES, favouriteItems, propGroups, shelfItem, toggleFavourite, TRAY_TABS, trayKey, trayTabs } from "./tray-catalogue";
 
 describe("tray tabs", () => {
@@ -51,14 +51,14 @@ describe("kit pieces on the catalogue shelves (Sandbox)", () => {
     const railway = buildings.props!.find((s) => s.label === "Railway")!;
     const groups = await propGroups([railway]);
     const items = groups[0].items;
-    const kit = items.find((x) => x.kind === "piece")!;
+    const kit = items.find((x) => x.kind === "piece" && x.type === "kit-platform-furnished")!;
     expect(kit).toEqual({ kind: "piece", type: "kit-platform-furnished", label: "Platform with benches and lamps" });
     expect(trayKey(kit)).toBe("piece:kit-platform-furnished");
     // In the prop's place on the shelf.
     expect(items.length).toBe(railway.assets.length);
     expect(items.indexOf(kit)).toBe(railway.assets.indexOf(KITS["kit-platform-furnished"].asset));
     // The rest of the shelf is still props.
-    expect(items.filter((x) => x.kind === "piece")).toHaveLength(1);
+    expect(items.filter((x) => x.kind === "piece")).toHaveLength(railway.assets.filter((a) => kitForAsset(a)).length);
     expect(shelfItem("bldg-signal-box", "Signal box")).toEqual({ kind: "prop", asset: "bldg-signal-box", label: "Signal box" });
   });
 

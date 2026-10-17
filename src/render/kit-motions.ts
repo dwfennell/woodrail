@@ -60,7 +60,8 @@ export const KIT_MOTIONS: Readonly<Record<string, KitMotion>> = {
   "bldg-castle-gate": {
     parts: ["portcullis"],
     holds: true,
-    pose: (p, on) => each(p, "portcullis", (o) => (o.position.y = on * 48)),
+    // Up clear of an engine's chimney (63 mm).
+    pose: (p, on) => each(p, "portcullis", (o) => (o.position.y = on * 64)),
     ease: 0.7,
   },
   // Engine services: the spout or chute swings over the engine while it stands there.

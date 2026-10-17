@@ -1,6 +1,7 @@
 import type { DepotRole } from "../economy";
+import { normalizeAngle, type Pose } from "./math";
 import type { PieceDef, PieceTypeId } from "./pieces";
-import { straight } from "./shapes";
+import { pose, straight } from "./shapes";
 
 /**
  * Kit pieces: track props that trains really use (see docs/superpowers/specs/2026-10-17-track-props-design.md). A kit
@@ -64,6 +65,41 @@ const PLATFORM_DEPTH = 26;
 const PLATFORM_GAP = 1;
 /** The track's half width (mm): its edge is this far from its centre line. */
 const TRACK_HALF = 20;
+/** Roads side by side in a station or shed: a double track apart, so a ladder of switches and curves meets them. */
+const ROADS = 72;
+/** Where a platform `depth` deep stands beside a track, its edge just off the track's (l of its middle, mm). */
+const beside = (depth: number) => TRACK_HALF + PLATFORM_GAP + depth / 2;
+
+/** A station's stop: a train with coaches halts with its front near the far end of the platform, for 4 s. */
+const PASSENGERS = { at: 196, seconds: 4, who: "passengers" } as const;
+
+/**
+ * Track for a kit of several roads: each starts at a connector (`starts`: the pose it runs on from, into the piece) and
+ * runs `length` straight on, through to a connector at its far end, or (`buffered`) to a buffer there (the model draws
+ * the buffer stop: its face is about 22 past the road's end, where a train's front comes to rest).
+ */
+function roads(type: PieceTypeId, starts: readonly Pose[], length: number, buffered: boolean): PieceDef {
+  const connectors: PieceDef["connectors"][number][] = [];
+  const paths: PieceDef["paths"][number][] = [];
+  for (const s of starts) {
+    const from = connectors.length;
+    connectors.push({ kind: "socket", pose: pose(s.x, s.z, normalizeAngle(s.heading + Math.PI)), y: 0 });
+    let to: number | null = null;
+    if (!buffered) {
+      to = connectors.length;
+      connectors.push({ kind: "peg", pose: pose(s.x + length * Math.cos(s.heading), s.z + length * Math.sin(s.heading), s.heading), y: 0 });
+    }
+    paths.push({ from, to, geom: { kind: "line", start: pose(s.x, s.z, s.heading), length, y0: 0, rise: 0 } });
+  }
+  return { type, connectors, paths, flippable: false, isSwitch: false, supportHeight: 0 };
+}
+
+/** Roads side by side along +t, `ROADS` apart, the first on the piece's own line (l 0), the rest to its left. */
+const sideBySide = (n: number): Pose[] => Array.from({ length: n }, (_, i) => pose(0, i * ROADS, 0));
+
+/** A roundhouse's stall roads: from the rim of a turntable's pit (radius 92), fanned an eighth of a turn apart. */
+const PIT = 92;
+const stalls = (angles: readonly number[]): Pose[] => angles.map((a) => pose(-PIT + PIT * Math.cos(a), PIT * Math.sin(a), a));
 
 /** Every kit, by piece type. */
 export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
@@ -78,7 +114,119 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     place: { t: 108, l: TRACK_HALF + PLATFORM_GAP + PLATFORM_DEPTH / 2, turn: Math.PI },
     footprint: [{ t: 108, l: TRACK_HALF + PLATFORM_GAP + PLATFORM_DEPTH / 2, w: 216, d: PLATFORM_DEPTH + 2 }],
     splices: true,
-    stop: { at: 196, seconds: 4, who: "passengers" },
+    stop: PASSENGERS,
+  },
+  // Halts and stations with their buildings on one side: each a 216 straight, splicing onto a line, a stop for
+  // passenger trains. Each model's platform is 216 long, its edge line to the track.
+  "kit-country-halt": {
+    asset: "bldg-country-halt",
+    name: "halt",
+    track: straight("kit-country-halt", 216),
+    rails: "track",
+    // A platform 28 deep (its shelter on it), edge line on its +z side: turned to face the track.
+    place: { t: 108, l: beside(28), turn: Math.PI },
+    footprint: [{ t: 108, l: beside(28), w: 216, d: 30 }],
+    splices: true,
+    stop: PASSENGERS,
+  },
+  "kit-mountain-station": {
+    asset: "bldg-mountain-station",
+    name: "station",
+    track: straight("kit-mountain-station", 216),
+    rails: "track",
+    // Its platform (24 deep, edge line at the model's z 30) in front of the chalet: turned to face the track.
+    place: { t: 108, l: TRACK_HALF + PLATFORM_GAP + 30, turn: Math.PI },
+    footprint: [
+      { t: 108, l: beside(24), w: 216, d: 26 },
+      // The chalet and its pines behind the platform.
+      { t: 103, l: 63, w: 90, d: 34 },
+    ],
+    splices: true,
+    stop: PASSENGERS,
+  },
+  "kit-harbour-station": {
+    asset: "bldg-harbour-station",
+    name: "station",
+    track: straight("kit-harbour-station", 216),
+    rails: "track",
+    // The quay (40 deep, edge line at the model's z −30) beside the track, the water and jetty beyond it.
+    place: { t: 108, l: TRACK_HALF + PLATFORM_GAP + 30 },
+    footprint: [{ t: 108, l: 66.5, w: 216, d: 91 }],
+    splices: true,
+    stop: PASSENGERS,
+  },
+  // Two through roads a double track apart, a platform outside each: a stop on each road, a natural passing place.
+  "kit-two-platform-station": {
+    asset: "bldg-two-platform-station",
+    name: "station",
+    track: roads("kit-two-platform-station", sideBySide(2), 216, false),
+    rails: "track",
+    place: { t: 108, l: ROADS / 2 },
+    footprint: [
+      // The far platform and its building (right of the first road), the near platform and canopy (left of the second).
+      { t: 108, l: -37, w: 216, d: 32 },
+      { t: 108, l: ROADS + 34, w: 216, d: 28 },
+    ],
+    stop: PASSENGERS,
+  },
+  // Three roads ending at buffers under a glass shed, a concourse past them: trains stop near the buffers, then turn
+  // back there as at any end of the line.
+  "kit-grand-terminus": {
+    asset: "bldg-grand-terminus",
+    name: "terminus",
+    track: roads("kit-grand-terminus", sideBySide(3), 216, true),
+    rails: "track",
+    // The model's origin is 205 in from where its roads start, on the middle road.
+    place: { t: 205, l: ROADS },
+    footprint: [
+      { t: 115, l: -28, w: 230, d: 8 },
+      { t: 115, l: 2 * ROADS + 28, w: 230, d: 8 },
+      { t: 108, l: ROADS / 2, w: 216, d: 26 },
+      { t: 108, l: ROADS * 1.5, w: 216, d: 26 },
+      // The concourse and clock tower.
+      { t: 263, l: ROADS, w: 34, d: 214 },
+    ],
+    stop: { at: 190, seconds: 4, who: "passengers" },
+  },
+  // Somewhere to park engines: two roads into a shed, ending at buffers. Its doors open as a train comes in and close
+  // behind it.
+  "kit-engine-shed": {
+    asset: "bldg-engine-shed",
+    name: "engine shed",
+    track: roads("kit-engine-shed", sideBySide(2), 162, true),
+    rails: "track",
+    // The model's front (+x, its doors) faces where the roads come in, 54 along them.
+    place: { t: 124, l: ROADS / 2, turn: Math.PI },
+    footprint: [{ t: 124, l: ROADS / 2, w: 144, d: 148 }],
+    moves: "occupied",
+  },
+  // Three stalls fanned round a turntable's pit (Sandbox's turntable, to come), their roads ending at buffers.
+  "kit-roundhouse-segment": {
+    asset: "bldg-roundhouse-segment",
+    name: "roundhouse",
+    track: roads("kit-roundhouse-segment", stalls([-Math.PI / 4, 0, Math.PI / 4]), 108, true),
+    rails: "track",
+    // The model's origin is the turntable's centre.
+    place: { t: -PIT, l: 0 },
+    footprint: [
+      { t: 82, l: 0, w: 124, d: 58 },
+      { t: 31, l: 123, w: 128, d: 128 },
+      { t: 31, l: -123, w: 128, d: 128 },
+    ],
+  },
+  // The line runs through the arch on a 108 straight; the portcullis rises as a train comes and drops behind it.
+  "kit-castle-gate": {
+    asset: "bldg-castle-gate",
+    name: "castle gate",
+    track: straight("kit-castle-gate", 108),
+    rails: "track",
+    // Its towers either side of the line (the wall between them stands over the track).
+    footprint: [
+      { t: 54, l: 46, w: 40, d: 44 },
+      { t: 54, l: -46, w: 40, d: 44 },
+    ],
+    splices: true,
+    moves: "occupied",
   },
 };
 
