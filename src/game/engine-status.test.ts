@@ -106,6 +106,34 @@ describe("the engine card's status line", () => {
     return [...seen].filter((s) => /^(Loading|Unloading)/.test(s) && s.endsWith("the sawmill"));
   }
 
+  it("leaving a stop, it's on its way to the next one at once (not still to the one it's leaving)", () => {
+    const layout = new Layout();
+    const ids = (["straight-216", "straight-216", "depot-forest", "straight-216", "straight-216", "depot-sawmill", "straight-216", "straight-216"] as const).map((t, i) => layout.addPiece(t, { x: i * 216, z: 0, heading: 0 }));
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const forest = economy.addDepot("forest", ids[2], 0);
+    const mill = economy.addDepot("sawmill", ids[5], 0);
+    forest.piles[CARGO.log.index] = 6;
+    const r = sim.addTrain(["engine", "timber"], { pieceId: ids[1], pathIndex: 0, reversed: false, s: 100 });
+    if (r.kind !== "placed") throw new Error();
+    const engine = sim.getTrain(r.trainId)!.cars[0].id;
+    economy.setRoute(engine, { stops: [{ depotId: forest.id, action: "pick" }, { depotId: mill.id, action: "drop" }], next: 0 });
+    sim.setLever(engine, 1);
+    const said: string[] = [];
+    for (let k = 0; k < 120 * 30; k++) {
+      sim.tick();
+      economy.tick();
+      const st = engineStatus(sim, economy, engine, (id) => (id === forest.id ? "the forest" : "the sawmill"));
+      if (said.at(-1) !== st) said.push(st);
+    }
+    const loaded = said.indexOf("Loading at the forest");
+    expect(loaded).toBeGreaterThanOrEqual(0);
+    // From the forest to the sawmill: never back to "the forest" on the way (nor on arriving at the sawmill).
+    const leg = said.slice(loaded, said.indexOf("Unloading at the sawmill", loaded));
+    expect(leg).not.toContain("On its way to the forest");
+    expect(leg.slice(1)).toEqual(["On its way to the sawmill"]);
+  });
+
   it("says what's being done for this train: just Unloading at a Drop stop, nothing at a depot not on its route", () => {
     expect(sawmillRun("none")).toContain("Loading and unloading at the sawmill");
     expect(sawmillRun("drop")).toEqual(["Unloading at the sawmill"]);
