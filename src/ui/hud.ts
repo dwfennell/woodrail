@@ -202,6 +202,8 @@ export class Hud {
   private lastButtonAt = -Infinity;
   /** A toast waits for an open card to close (there was no room for it above the card). */
   private toastWaitsForCard = false;
+  /** The toast on screen, from the queue (null: none, or a held piece's refusal). */
+  private toastShowing: { message: string; celebrate: boolean; ms: number; urgent: boolean } | null = null;
   /** Until when (performance.now) the message showing may not be replaced. */
   private toastHeldUntil = 0;
   private toastFlushTimer = 0;
@@ -251,6 +253,12 @@ export class Hud {
     top.appendChild(actions);
     this.root.appendChild(top);
     installTooltips(this.root);
+    // A card that grows once it's open (a workshop's list fills in a frame later) may come up under a toast: it's put
+    // clear again (only when a card's size changes, not per frame).
+    if (typeof ResizeObserver !== "undefined") {
+      const refit = new ResizeObserver(() => this.refitToast());
+      for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) refit.observe(c);
+    }
 
     // Menu
     this.menu.hidden = true;
@@ -1156,8 +1164,25 @@ export class Hud {
     if (i === -1) return;
     const [next] = this.toastQueue.splice(i, 1);
     this.showToast(next.message, next.celebrate, next.ms);
+    this.toastShowing = next;
     this.toastHeldUntil = performance.now() + toastMs(next.message, next.celebrate, next.ms);
     if (this.toastQueue.length > 0) this.flushToasts();
+  }
+
+  /**
+   * A card changed size under the toast showing: move it clear, or (a hint, with no room left) put it back to wait for
+   * the cards to close.
+   */
+  private refitToast(): void {
+    const t = this.toastShowing;
+    if (!t || !this.toastEl.classList.contains("show") || this.toastEl.textContent !== t.message) return;
+    if (this.placeToast(t.message) || t.urgent) return;
+    clearTimeout(this.toastTimer);
+    this.toastEl.classList.remove("show");
+    this.toastShowing = null;
+    this.toastHeldUntil = 0;
+    this.toastQueue.unshift(t);
+    this.toastWaitsForCard = true;
   }
 
   /** The refusal showing while a held piece is over where it can't go (kept up until it can, or it's put down). */
@@ -1172,6 +1197,7 @@ export class Hud {
     this.heldRefusal = message;
     if (message) {
       this.toastQueue.length = 0;
+      this.toastShowing = null;
       this.showToast(message, false, 600000);
       this.toastHeldUntil = performance.now() + toastMs(message, false);
     } else if (this.toastEl.classList.contains("show")) {
