@@ -1108,6 +1108,14 @@ export class Hud {
     return !this.depotCard.hidden;
   }
 
+  /** Where the open card for one thing (an engine, a car, a piece, a depot) is on screen, or null. */
+  openCardRect(): DOMRect | null {
+    for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) {
+      if (!c.hidden && !c.classList.contains("group") && c.offsetParent !== null) return c.getBoundingClientRect();
+    }
+    return null;
+  }
+
   hideCards(): void {
     // A toast waiting for room: once the cards are put away (and any card opening in their place is up), it comes on.
     if (this.toastWaitsForCard) requestAnimationFrame(() => this.flushToasts());

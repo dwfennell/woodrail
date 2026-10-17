@@ -1026,6 +1026,7 @@ export class Interaction {
     g.invalidate();
     if (car.kind === "engine") this.hud.showEngineCard(car.lever, g.following === car.id);
     else this.hud.showCarCard();
+    this.keepClearOfCard(() => g.trainView.carObject(car.id)?.getWorldPosition(new Vector3()) ?? null);
     this.hintDrag();
   }
 
@@ -1035,6 +1036,7 @@ export class Interaction {
     this.game.trackView.setHighlight(id);
     const p = this.game.layout.getPiece(id)!;
     this.hud.showPieceCard(getPieceDef(p.type, false).flippable, "Track piece", true, true, true);
+    this.keepClearOfCard(() => this.pieceCentre(id));
     if (!this.fixedLabel(id)) this.hintDrag();
   }
 
@@ -1103,12 +1105,48 @@ export class Interaction {
     return DEPOT_NAMES[d.role];
   }
 
+  /** A piece's place (its pose, at its height), or null if it's gone. */
+  private pieceCentre(id: number): Vector3 | null {
+    const p = this.game.layout.getPiece(id);
+    return p ? new Vector3(p.pose.x, p.y, p.pose.z) : null;
+  }
+
+  /**
+   * A card just opened over the thing it's for (on a phone a card covers much of the map, and the thing tapped is often
+   * in the middle of it): glide the view just enough that `at` sits in the open map, above the card (or to its left, on
+   * a phone on its side, where cards dock at the right). Once, as the card opens; nothing if it's clear already, the
+   * camera is busy or following a train.
+   */
+  private keepClearOfCard(at: () => Vector3 | null): void {
+    requestAnimationFrame(() => {
+      const g = this.game;
+      const card = this.hud.openCardRect();
+      const p = at();
+      if (!card || !p || g.following !== -1 || g.director.busy) return;
+      const r = g.canvas.getBoundingClientRect();
+      const v = p.clone().project(g.camera);
+      const sx = r.left + ((v.x + 1) / 2) * r.width;
+      const sy = r.top + ((1 - v.y) / 2) * r.height;
+      const pad = 28;
+      if (sx < card.left - pad || sx > card.right + pad || sy < card.top - pad || sy > card.bottom + pad) return;
+      // Docked at the right: to the middle of the room on its left. Otherwise between the top bar (and goals) and it.
+      const side = card.left >= 200;
+      const top = r.top + 124;
+      if (!side && card.top - top < 80) return;
+      const from = this.groundAt(sx, sy);
+      const to = this.groundAt(side ? card.left / 2 : sx, side ? sy : (top + card.top) / 2);
+      if (!from || !to) return;
+      g.director.glideTo(g.controls.target.clone().add(from.sub(to)), g.camera.position.distanceTo(g.controls.target), { duration: 0.45 });
+    });
+  }
+
   private openDepot(depotId: number): void {
     this.clearSelection();
     this.selectedDepot = depotId;
     this.shownDepot.id = -1;
     this.hud.showDepotCard(this.depotTitle(depotId));
     this.refreshDepotCard();
+    this.keepClearOfCard(() => this.pieceCentre(this.game.economy.depot(depotId)?.pieceId ?? -1));
     // An industry the player placed moves too (select first, as anything else).
     if (this.movableIndustry(depotId) !== -1) this.hintDrag();
   }
