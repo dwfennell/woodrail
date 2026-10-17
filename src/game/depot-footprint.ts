@@ -255,6 +255,13 @@ function yardName(role: DepotRole): string {
   return name.endsWith("yard") ? `The ${name}` : `The ${name}'s yard`;
 }
 
+/** What a refused piece in town is told: "Keep the track out of town", or for a depot "Keep the workshop out of town". */
+export function townMessage(type: PieceTypeId): string {
+  const role = INDUSTRY_ROLE[type];
+  const name = !role ? "track" : role === "town" ? "station" : DEPOT_NAMES[role].toLowerCase();
+  return `Keep the ${name} out of town`;
+}
+
 /** The message for a yard that can't go somewhere ("The workshop's yard is on a hill"). */
 export function yardMessage(type: PieceTypeId, why: YardBlock): string {
   if (why === "crane-hill") return "The crane's legs are on a hill";

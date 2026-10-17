@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { checkPlacement, FEAT_BUILDING, FEAT_FIELD, gridWithPlots, SURF_RIVER, SURF_SEA, type Landscape } from "../landscape";
 import { PropStore } from "../props/store";
 import { appendPiece, connectorRef, findSplice, Layout, type PieceTypeId, type Pose } from "../track";
-import { checkYard, footprintInYards, inYardMessage, placedYard, trackInYards, turnedRound, YARD_FLIP_HINT, yardMessage, yardParts, type PlacedYard, type YardCheck } from "./depot-footprint";
+import { checkYard, footprintInYards, inYardMessage, placedYard, trackInYards, townMessage, turnedRound, YARD_FLIP_HINT, yardMessage, yardParts, type PlacedYard, type YardCheck } from "./depot-footprint";
 
 function flat(): Landscape {
   return { seed: 0, starter: false, grid: gridWithPlots(-1, -1, 2, 2), towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
@@ -48,6 +48,10 @@ describe("a depot's yard", () => {
     expect(checkPlacement(ctx.land, "depot-workshop", false, AT, 0)).toEqual({ kind: "clear" });
     expect(checkYard(ctx, "depot-workshop", AT, 0, -1)).toBe("yard-hill");
     expect(yardMessage("depot-workshop", "yard-hill")).toBe("The workshop's yard is on a hill");
+    // Refused in town, a depot is told it by name (the track is told it as track).
+    expect(townMessage("depot-workshop")).toBe("Keep the workshop out of town");
+    expect(townMessage("depot-forest")).toBe("Keep the forest yard out of town");
+    expect(townMessage("straight-216")).toBe("Keep the track out of town");
     // Turned right round on the same track, its yard is on the open side.
     const turned = turnedRound("depot-workshop", AT);
     expect(turned.x).toBeCloseTo(216);

@@ -22,7 +22,7 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
-import { checkYard, footprintInYards, inYardMessage, isYardBlock, placedYard, trackInYards, turnedRound, YARD_FLIP_HINT, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
+import { checkYard, footprintInYards, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, turnedRound, YARD_FLIP_HINT, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { dragMoves } from "./drag-rule";
@@ -1534,6 +1534,8 @@ export class Interaction {
     const reason = this.blockedBy(type, flipped, pose, y, ignoreId);
     // A hill in the way: say how far up it is, and how to get there (only worked out when it's so).
     if (reason === "hill") this.hillWhy = hillMessage(levelsAbove(this.game.landscape, type, flipped, pose, y));
+    // A depot is told it's the depot (its name, as its yard's messages say), not the track, that keeps out of town.
+    if (reason === "town") this.townWhy = townMessage(type);
     if (reason) return { reason, risers: [] };
     // A depot's yard and buildings beside its track need room too; other track keeps out of a player's depot's yard.
     const yard = this.yardBlock(type, pose, y, ignoreId) ?? this.inYard(type, flipped, pose, y, ignoreId);
@@ -1727,6 +1729,7 @@ export class Interaction {
 
   private blockMessage(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
+    if (reason === "town") return this.townWhy;
     if (reason === "splice-fit" || reason === "splice-busy" || reason === "splice-onto") return SPLICE_MESSAGES[reason];
     if (isYardBlock(reason)) return this.yardWhy;
     if (reason === "in-yard") return this.inYardWhy;
@@ -1735,6 +1738,8 @@ export class Interaction {
 
   /** The message for the last "hill" refusal (how many levels up, and how to climb it). */
   private hillWhy = BLOCK_MESSAGES.hill;
+  /** The message for the last "town" refusal (what keeps out of town: the track, or a depot by name). */
+  private townWhy = BLOCK_MESSAGES.town;
 
   /** Check a would-be position for piece `id` (turned or flipped in place: no risers are added), explaining a refusal. */
   private allowed(id: number, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): boolean {
