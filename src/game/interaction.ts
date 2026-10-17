@@ -444,7 +444,7 @@ export class Interaction {
       this.hud.hideCards();
       if (!this.drawHinted) {
         this.drawHinted = true;
-        this.hud.toast("Draw from a track end or open ground · two fingers to pan", false, 3600);
+        this.hud.toast("Draw from a track end · two fingers to pan", false, 3600);
       }
     } else if (this.mode.kind === "draw-track") this.cancel();
     this.onDrawing?.(on);

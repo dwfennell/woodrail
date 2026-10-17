@@ -325,4 +325,26 @@ describe("draw path", () => {
     expect(line.pieces.length).toBeGreaterThan(10);
     expect(per).toBeLessThan(0.5);
   });
+
+  it("a corner sharper than any piece turns leaves the line stalled (so the player can be told), not a straight on", () => {
+    const line = new DrawLine({ x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+    for (let x = 0; x <= 300; x += 4) line.addPoint(x, 0);
+    expect(line.stalled).toBe(false);
+    // Back at 150° from the way it was going, and on.
+    const h = (150 * Math.PI) / 180;
+    let stalled = false;
+    for (let d = 4; d <= 700; d += 4) {
+      line.addPoint(300 + d * Math.cos(h), d * Math.sin(h));
+      stalled ||= line.stalled;
+    }
+    expect(stalled).toBe(true);
+    // A gentle line never stalls.
+    const easy = new DrawLine({ x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+    let ever = false;
+    for (let x = 0; x <= 1500; x += 4) {
+      easy.addPoint(x, 20 * Math.sin(x / 200));
+      ever ||= easy.stalled;
+    }
+    expect(ever).toBe(false);
+  });
 });

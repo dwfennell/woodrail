@@ -73,6 +73,8 @@ export class DrawHand {
   /** How many of each piece the line may use (Game mode: the player's stock), or null for no limit. */
   stock: ((type: PieceTypeId) => number) | null = null;
   private line: DrawLine | null = null;
+  /** This stroke's "too sharp" said already. */
+  private toldStalled = false;
   /** A new line on empty ground, before the finger has moved far enough to know which way it goes. */
   private origin: Vector3 | null = null;
   private ghosts: { mesh: Mesh; key: string }[] = [];
@@ -151,6 +153,11 @@ export class DrawHand {
     if (!p) return;
     const before = line.pieces.length;
     if (line.addPoint(p.x, p.z)) this.sync(line.pieces.length > before);
+    // Stuck behind a corner no piece can turn: say so (once a stroke), rather than the line just stopping.
+    if (line.stalled && !this.toldStalled) {
+      this.toldStalled = true;
+      this.hooks.toast("Too sharp: draw a wider bend");
+    }
     this.drawTrail();
   }
 
@@ -208,6 +215,7 @@ export class DrawHand {
 
   private start(end: DrawEnd): void {
     this.ownCount = -1;
+    this.toldStalled = false;
     this.line = new DrawLine(end, {
       check: (c, line) => this.check(c, line),
       allow: this.stock ? (type, line) => line.filter((p) => p.type === type).length < this.stock!(type) : undefined,

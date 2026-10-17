@@ -227,6 +227,16 @@ export class DrawLine {
     return out;
   }
 
+  /**
+   * Is the line stuck behind the finger: the stroke has gone well on past its end (twice the look-ahead) and nothing
+   * fits it there, though nothing's in the way (a corner sharper than any piece can turn)? Not while going back over it.
+   */
+  get stalled(): boolean {
+    const n = this.ss.length;
+    if (this.stopped || this.retreating || n === 0) return false;
+    return this.ss[n - 1] - this.progress > 2 * DRAW_LOOKAHEAD;
+  }
+
   /** The stroke ahead of the line's end (not yet laid), as x, z pairs into `out`; returns how many points. */
   ahead(out: number[]): number {
     out.length = 0;
