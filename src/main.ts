@@ -29,6 +29,7 @@ import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } fro
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { nextStop, routeStops } from "./game/route-stops";
+import { decoupleWords } from "./game/decouple-words";
 import { engineStatus, trainsForReport, type CantMove } from "./game/engine-status";
 import { MAX_SHEDS, SHED_CAP, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
@@ -1544,14 +1545,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (r.kind === "alone") return hud.toast("Nothing coupled to uncouple there", false, 2500);
     if (r.kind !== "decoupled") return;
     audio.magnet(0.6, 0);
-    // The gap is only a few mm: say what came away. With an engine on this side, the cars that came away from it;
-    // otherwise both parts, this car's first.
+    // The gap is only a few mm: say which part keeps the engine.
     const mine = game.sim.findCar(carId)?.train.cars ?? [];
     const away = game.sim.getTrain(r.trainId === (game.sim.findCar(carId)?.train.id ?? -1) ? before : r.trainId)?.cars ?? [];
-    const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
-    const engineHere = mine.some((c) => c.kind === "engine");
-    const engineThere = away.some((c) => c.kind === "engine");
-    hud.toast(engineHere && !engineThere ? `Uncoupled ${plural(away.length, "wagon")}` : `Split into ${mine.length} + ${away.length}`, false, 2500);
+    hud.toast(decoupleWords(mine.map((c) => c.kind), away.map((c) => c.kind)), false, 2500);
     const found = game.sim.findCar(carId);
     if (found?.train.cars[found.index].kind === "engine") hud.updateEngineCard(found.train.cars[found.index].lever, game.following === carId);
     game.invalidate();
