@@ -117,6 +117,16 @@ function inDepotFootprint(land: Landscape, depotId: number, x: number, z: number
   return depot ? inFixedFootprint(depot.centre, depot.piece.heading, x, z) : false;
 }
 
+/**
+ * Is a plan point on a town station or a map depot (track and the strip beside it) standing on square `i`? Their
+ * squares are marked by their centres, so a point in one of their squares may still be clear of them.
+ */
+export function onFixedSite(land: Landscape, i: number, x: number, z: number): boolean {
+  const f = land.grid.feature[i];
+  if (f === FEAT_STATION) return inStationFootprint(land, land.grid.owner[i], x, z);
+  return f === FEAT_DEPOT && inDepotFootprint(land, land.grid.owner[i], x, z);
+}
+
 /** Track plus the 120 mm strip on its +lateral side, for a fixed 216 mm piece centred at `centre`. */
 function inFixedFootprint(centre: { x: number; z: number }, heading: number, x: number, z: number): boolean {
   const dx = Math.cos(heading);

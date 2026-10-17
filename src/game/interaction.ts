@@ -22,6 +22,7 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
+import { checkYard, turnedRound, YARD_FLIP_HINT, yardMessage, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { dragMoves } from "./drag-rule";
 import { hintSeen, markHintSeen } from "../ui/prefs";
@@ -75,11 +76,12 @@ const MAX_TILT = (2 * Math.PI) / 180;
 const TRAIN_DROP_RANGE = 70;
 
 /**
- * Why a piece can't go somewhere: the track's own reasons, a mode's rule ("site", with its own message), or a depot
+ * Why a piece can't go somewhere: the track's own reasons, a mode's rule ("site", with its own message), a depot
  * held over a line where it can't take a straight's place ("splice-fit": no straight there its length; "splice-busy":
- * a train on it; "splice-onto": over other track, not a straight).
+ * a train on it; "splice-onto": over other track, not a straight), or no room for a depot's yard beside its track
+ * (`YardBlock`: something on the ground there, a hill, or water).
  */
-type PlaceBlock = BlockReason | "site" | "splice-fit" | "splice-busy" | "splice-onto";
+type PlaceBlock = BlockReason | YardBlock | "site" | "splice-fit" | "splice-busy" | "splice-onto";
 
 const SPLICE_MESSAGES = {
   "splice-fit": "Drop it onto a long straight",
@@ -1399,6 +1401,9 @@ export class Interaction {
     // A hill in the way: say how far up it is, and how to get there (only worked out when it's so).
     if (reason === "hill") this.hillWhy = hillMessage(levelsAbove(this.game.landscape, type, flipped, pose, y));
     if (reason) return { reason, risers: [] };
+    // A depot's yard and buildings beside its track need room too.
+    const yard = this.yardBlock(type, pose, y, ignoreId);
+    if (yard) return { reason: yard, risers: [] };
     const s = checkSupport(this.game.landscape, this.game.layout, type, flipped, pose, y, ignoreId);
     if (s.kind === "unsupported") return { reason: "unsupported", risers: [] };
     for (const r of s.risers) {
@@ -1420,6 +1425,48 @@ export class Interaction {
   siteRule: ((type: PieceTypeId, pose: Pose) => string | null) | null = null;
   /** The message for the last "site" refusal. */
   private siteWhy = "";
+
+  /**
+   * Is there room beside a depot piece's track for its yard (see `checkYard`)? Null for other pieces, and for a map's
+   * own depots (they stand where the map put them). While a depot is held, the last answer is kept for its pose.
+   */
+  private yardBlock(type: PieceTypeId, pose: Pose, y: number, ignoreId: Ignore): YardBlock | null {
+    if (!INDUSTRY_ROLE[type]) return null;
+    const own = typeof ignoreId === "number" ? ignoreId : (ignoreId.values().next().value ?? -1);
+    if (own !== -1 && this.fixedLabel(own) !== null) return null;
+    const g = this.game;
+    const ignoreKey = typeof ignoreId === "number" ? ignoreId : [...ignoreId].join(",");
+    const key = `${type}|${pose.x}|${pose.z}|${pose.heading}|${y}|${ignoreKey}|${g.layout.pieceCount}|${g.landscape.grid.revision}|${g.props.version}`;
+    if (this.mode.kind === "drag-piece" && this.yardMemo?.key === key) {
+      this.yardWhy = this.yardMemo.message;
+      return this.yardMemo.why;
+    }
+    const why = checkYard({ land: g.landscape, layout: g.layout, props: g.props, footprint: g.propLibrary.footprint }, type, pose, y, ignoreId);
+    if (why) this.yardWhy = yardMessage(type, why);
+    this.yardMemo = this.mode.kind === "drag-piece" ? { key, why, message: this.yardWhy } : null;
+    return why;
+  }
+  /** The last yard check while a depot was held, for its inputs (cleared when it's put down). */
+  private yardMemo: { key: string; why: YardBlock | null; message: string } | null = null;
+  /** The message for the last yard refusal ("The workshop's yard is on a hill"). */
+  private yardWhy = "";
+
+  /**
+   * A depot refused for want of room for its yard: would it go turned right round (Flip), its yard on the other side
+   * of the line? Worked out only while it's refused, once per spot.
+   */
+  private yardHint(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): string | null {
+    const key = `yard|${type}|${flipped}|${pose.x}|${pose.z}|${pose.heading}|${y}|${this.game.layout.pieceCount}`;
+    if (this.hintFor?.key === key) return this.hintFor.hint;
+    const memo = this.yardMemo;
+    const why = this.yardWhy;
+    const hint = this.splices(type) && this.placement(type, flipped, turnedRound(type, pose), y, ignoreId).reason === null ? YARD_FLIP_HINT : null;
+    // (The turned-round check mustn't take the place of what's said, or remembered, for where it's held.)
+    this.yardMemo = memo;
+    this.yardWhy = why;
+    this.hintFor = { key, hint };
+    return hint;
+  }
 
   /**
    * A piece seated on an end where it can't go: would it go there by another of its ends (turned), or the other hand
@@ -1467,6 +1514,7 @@ export class Interaction {
   private blockMessage(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
     if (reason === "splice-fit" || reason === "splice-busy" || reason === "splice-onto") return SPLICE_MESSAGES[reason];
+    if (reason === "yard-ground" || reason === "yard-hill" || reason === "yard-water") return this.yardWhy;
     return reason === "site" ? this.siteWhy : BLOCK_MESSAGES[reason];
   }
 
@@ -1710,12 +1758,12 @@ export class Interaction {
   }
 
   /** Why the group can't stand where it now is in the layout (each piece, and what holds it up), or null. */
-  private groupBlocked(ids: readonly number[], members: ReadonlySet<number>): BlockReason | null {
+  private groupBlocked(ids: readonly number[], members: ReadonlySet<number>): PlaceBlock | null {
     const g = this.game;
     const hills = hillsOf(g.landscape.grid);
     for (const id of ids) {
       const p = g.layout.getPiece(id)!;
-      const why = this.blockedBy(p.type, p.flipped, p.pose, p.y, id);
+      const why = this.blockedBy(p.type, p.flipped, p.pose, p.y, id) ?? this.yardBlock(p.type, p.pose, p.y, id);
       if (why) return why;
       if (p.type === "riser") {
         // A stand rests on the ground, or on another stand that came along.
@@ -2157,7 +2205,14 @@ export class Interaction {
       // (A preview under the mouse just shows red: the reason comes if it's clicked.)
       // While it's held where it can't go, the reason stays up (and goes once it can, or it's over the tray).
       // (Over a line, a depot's own message says what works: not the turn-to-fit hints.)
-      m.hint = !reason || reason === spliceWhy ? null : m.snap.kind === "snapped" ? this.fitHint(m.type, m.flipped, m.snap, m.pieceId) : this.turnHint(holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId);
+      m.hint =
+        !reason || reason === spliceWhy
+          ? null
+          : reason === "yard-ground" || reason === "yard-hill" || reason === "yard-water"
+            ? this.yardHint(m.type, m.flipped, pose, py, this.ignoreFor(m))
+            : m.snap.kind === "snapped"
+              ? this.fitHint(m.type, m.flipped, m.snap, m.pieceId)
+              : this.turnHint(holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId);
       if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? (m.hint ?? this.blockMessage(reason)) : null);
       m.blocked = reason;
       m.risers = risers;
@@ -2227,6 +2282,7 @@ export class Interaction {
     const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
     const y = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
     const { reason: final, risers } = this.placement(m.type, m.flipped, pose, y, this.ignoreFor(m));
+    this.yardMemo = null;
     // The reason it couldn't go (if it can't) stays up long enough to read; else the held one goes.
     this.hud.setRefusal(null);
     if (final && !m.overTray) this.hud.refuse(m.hint ?? this.blockMessage(final === "piece" ? m.blocked ?? final : final));
