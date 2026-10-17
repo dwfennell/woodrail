@@ -1117,8 +1117,8 @@ export class Interaction {
   /**
    * A card just opened over the thing it's for (on a phone a card covers much of the map, and the thing tapped is often
    * in the middle of it): glide the view just enough that `at` sits in the open map, above the card (or to its left, on
-   * a phone on its side, where cards dock at the right). Once, as the card opens; nothing if it's clear already, the
-   * camera is busy or following a train.
+   * a phone on its side, where cards dock at the right). As the card settles, not per frame; nothing if it's clear
+   * already, the camera is busy or following a train.
    */
   private keepClearOfCard(at: () => Vector3 | null): void {
     const token = ++this.cardNudge;
@@ -1150,9 +1150,15 @@ export class Interaction {
       if (!from || !to) return;
       g.director.glideTo(g.controls.target.clone().add(from.sub(to)), g.camera.position.distanceTo(g.controls.target), { duration: 0.4 });
     };
-    // As it opens, and again once it's filled in (a card grows as its rows come) and that glide is done.
-    requestAnimationFrame(check);
-    setTimeout(check, 500);
+    // Once the card has settled (it grows as its rows fill in, the engine card from 140 px to 225): when its size
+    // stops changing for a moment.
+    let settle = 0;
+    const later = () => {
+      clearTimeout(settle);
+      settle = window.setTimeout(check, 150);
+    };
+    this.hud.onCardResize = later;
+    later();
   }
 
   private openDepot(depotId: number): void {
