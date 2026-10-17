@@ -24,7 +24,7 @@ import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { dragMoves } from "./drag-rule";
-import { HOLD_MS, holdOutcome, holdPicksUp } from "./touch-hold";
+import { HOLD_MS, HOLD_SLOP, holdOutcome, holdPicksUp } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
@@ -811,6 +811,8 @@ export class Interaction {
       this.roads.update(this.roadReady.drag, off ? -1 : this.squareAt(e.clientX, e.clientY), off);
     }
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
+    const still = this.heldStill;
+    if (still && still.pointerId === e.pointerId && Math.hypot(e.clientX - still.x, e.clientY - still.y) >= HOLD_SLOP) this.heldStill = null;
     if (m.kind === "press") {
       const travel = Math.hypot(e.clientX - m.x, e.clientY - m.y);
       if (m.hold) {
@@ -879,11 +881,15 @@ export class Interaction {
     m.hold = { timer: window.setTimeout(() => this.holdFired(m), HOLD_MS), travel: 0 };
   }
 
+  /** Picked up with a hold and not moved since: letting go puts it back as it was (and selects it, as a tap would). */
+  private heldStill: { pointerId: number; x: number; y: number; press: Press } | null = null;
+
   private holdFired(m: Extract<Mode, { kind: "press" }>): void {
     if (this.mode !== m || !m.hold) return;
     m.hold = undefined;
     if (holdOutcome(HOLD_MS, 0, this.touches.size) !== "hold") return;
     if (!this.startDrag(m)) return;
+    this.heldStill = { pointerId: m.pointerId, x: m.x, y: m.y, press: m.press };
     try {
       navigator.vibrate?.(15);
     } catch {
@@ -929,6 +935,14 @@ export class Interaction {
     const m = this.mode;
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     this.game.controls.enabled = true;
+    const still = this.heldStill;
+    this.heldStill = null;
+    if (still && still.pointerId === e.pointerId && m.kind !== "press") {
+      // Held and let go without moving: back where it was (a drop would snap it to the nearest free end), and selected.
+      this.cancel();
+      this.tap(still.press);
+      return;
+    }
     if (m.kind === "press") {
       if (m.hold) clearTimeout(m.hold.timer);
       this.mode = { kind: "idle" };
@@ -985,6 +999,7 @@ export class Interaction {
     this.hud.setRefusal(null);
     const m = this.mode;
     if (m.kind === "press" && m.hold) clearTimeout(m.hold.timer);
+    this.heldStill = null;
     this.game.controls.enabled = true;
     if (m.kind === "drag-piece") {
       this.dropHeld(m.ghost);

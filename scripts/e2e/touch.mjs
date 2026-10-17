@@ -183,7 +183,7 @@ async function selectThenDrag(ctx, p) {
   await lift();
   const c1 = await where();
   check("a long press on an unselected piece picks it up", held === "drag-piece", `after 520 ms: ${held}`);
-  check("…and letting go without moving puts it back where it was", JSON.stringify(c1.piece) === JSON.stringify(c0.piece), `${c0.piece} → ${c1.piece}`);
+  check("…and letting go without moving puts it back where it was (and selects it)", JSON.stringify(c1.piece) === JSON.stringify(c0.piece) && (await p.evaluate(() => !document.querySelector(".piece-card").hidden)), `${c0.piece} → ${c1.piece}`);
   await p.keyboard.press("Escape");
   [sx, sy] = await onScreen();
   const short = await holdAt(sx, sy, 200);
