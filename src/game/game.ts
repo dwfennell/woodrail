@@ -433,10 +433,10 @@ export class Game {
     return this.trackView.markTurnedBack(connectorRef(front.pieceId, end));
   }
 
-  /** Call after any layout edit. */
   /** Goes up whenever the track changes (or a new world is shown), for caches keyed by it (the whistle posts' near track). */
   trackVersion = 0;
 
+  /** Call after any layout edit. */
   trackChanged(): void {
     this.trackVersion++;
     this.invalidate();
