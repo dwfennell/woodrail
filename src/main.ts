@@ -1814,10 +1814,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         : button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots on the map to add them as stops, in order", () => setPlanning(true)),
     );
     box.append(head);
-    if (planning) {
+    // (Only before the first stop: then the stops say it, and the card stays a slim bar over the map.)
+    if (planning && !line) {
       const hint = document.createElement("div");
       hint.className = "route-hint";
-      hint.textContent = line ? "Tap places to add them · tap a stop below to change it" : "Tap stations and depots on the map, in order";
+      hint.textContent = "Tap stations and depots on the map, in order";
       box.append(hint);
     }
     if (line) {
@@ -1842,8 +1843,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const tools = document.createElement("div");
         tools.className = "route-tools";
         tools.append(
-          button("◀", "route-move", "Visit this stop earlier", () => edit((l) => (moveStop(l, k, k - 1), (stopPicked = Math.max(0, k - 1))))),
-          button("▶", "route-move", "Visit this stop later", () => edit((l) => (moveStop(l, k, k + 1), (stopPicked = Math.min(l.length - 1, k + 1))))),
+          // (A lone stop can't move; the first can't go earlier, nor the last later.)
+          ...(line.stops.length > 1
+            ? [
+                button("◀", "route-move", "Visit this stop earlier", () => edit((l) => (moveStop(l, k, k - 1), (stopPicked = Math.max(0, k - 1))))),
+                button("▶", "route-move", "Visit this stop later", () => edit((l) => (moveStop(l, k, k + 1), (stopPicked = Math.min(l.length - 1, k + 1))))),
+              ]
+            : []),
           button(INTENTS[st.action].label, "route-action", INTENTS[st.action].tip, () => edit((l) => (l[k].action = NEXT_INTENT[l[k].action]))),
           // (Waiting to fill means nothing where it only drops.)
           ...(st.action === "drop"
@@ -1855,6 +1861,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
               ]),
           button("✕", "route-remove", "Take this stop off the route", () => edit((l) => (l.splice(k, 1), (stopPicked = -1)))),
         );
+        const moves = tools.querySelectorAll<HTMLButtonElement>(".route-move");
+        if (moves.length === 2) {
+          moves[0].disabled = k === 0;
+          moves[1].disabled = k === line.stops.length - 1;
+        }
         box.append(tools);
       }
       const why = cantReach();
@@ -1872,15 +1883,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (planning === on) return;
     planning = on;
     stopPicked = -1;
+    // Planning, the map wants the room: the card slims to its route (Done and the stops), the tray goes, and the view
+    // frames the train and its line's places above the card.
+    hud.setPlanning(on);
+    if (on) requestAnimationFrame(framePlanning);
+    // A stop's disc tapped: that place again (A → B → A); a stop is taken off with its ✕ in the card.
     interaction.onTapStopDisc = on
       ? (index) => {
           const carId = interaction.openEngineCarId;
-          if (carId === -1) return;
-          editLine(game.economy, carId, (l) => l.splice(index, 1));
-          stopPicked = -1;
-          showRoute();
-          routeChanged();
-          scheduleSave();
+          const stops = lineOf(game.economy, carId)?.stops;
+          const depotId = stops?.[index]?.depotId;
+          if (depotId === undefined) return;
+          // (The last stop's own place again would be the same visit: its chip is picked instead.)
+          if (stops!.at(-1)?.depotId === depotId) {
+            stopPicked = stops!.length - 1;
+            showRoute();
+          } else interaction.onPickPlace?.(depotId);
         }
       : null;
     interaction.onPickPlace = on
@@ -1898,6 +1916,35 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         }
       : null;
     showRoute();
+  }
+
+  /** Frame the open engine's train and its line's places in the room above the (slimmed) card. */
+  function framePlanning(): void {
+    const carId = interaction.openEngineCarId;
+    const found = carId !== -1 ? game.sim.findCar(carId) : undefined;
+    if (!found) return;
+    const points: Vector3[] = [];
+    const w = found.train.world[2 * found.index];
+    if (w) points.push(new Vector3(w.x, 0, w.z));
+    for (const st of lineOf(game.economy, carId)?.stops ?? []) {
+      const d = game.economy.depot(st.depotId);
+      const p = d && game.layout.getPiece(d.pieceId);
+      if (p) points.push(new Vector3(p.pose.x, 0, p.pose.z));
+    }
+    // A train alone: frame a little room round it, its station and what's near.
+    if (points.length === 1) points.push(points[0].clone().add(new Vector3(250, 0, 250)), points[0].clone().add(new Vector3(-250, 0, -250)));
+    const r = game.canvas.getBoundingClientRect();
+    let top = 0;
+    for (const e of document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")) {
+      const b = e.getBoundingClientRect();
+      if (b.height > 0 && b.top < r.height / 3) top = Math.max(top, b.bottom - r.top);
+    }
+    const card = document.querySelector(".engine-card")?.getBoundingClientRect();
+    const bottom = card && card.height > 0 ? card.top - r.top : r.height;
+    const now = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
+    const fit = fitToRect(points, game.camera, now.phi, now.theta, { left: 0, top, right: r.width, bottom }, r.width, r.height, 32);
+    game.follow(-1);
+    game.director.glideTo(fit.target, Math.min(Math.max(fit.distance, 600), game.controls.maxDistance), { theta: now.theta, duration: 0.7 });
   }
 
   /** Why the open engine's line can't be run as it stands (a stop no track leads to), or null: see `showRibbon`. */
@@ -1966,13 +2013,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const n = line.stops.length;
       // A stop is out of reach when no way leads into it (from the train, for the next; else from the stop before).
       const unreachable = (k: number) => (k === next ? toNext === null : n > 1 && legs[(k - 1 + n) % n] === null);
-      const discs: DiscSpec[] = line.stops.map((_, k) => ({
-        pieceId: pieces[k],
-        label: `${k + 1}`,
-        colour: line.colour,
-        state: unreachable(k) ? "unreachable" : k === next ? "next" : "stop",
-      }));
-      routeView.show(ribbons, discs.filter((d) => d.pieceId !== -1));
+      // One disc a place: a place visited twice (A → B → A) shows both its numbers ("1·3").
+      const discs = new Map<number, DiscSpec>();
+      line.stops.forEach((_, k) => {
+        if (pieces[k] === -1) return;
+        const state = unreachable(k) ? "unreachable" : k === next ? "next" : "stop";
+        const d = discs.get(pieces[k]);
+        if (!d) discs.set(pieces[k], { pieceId: pieces[k], label: `${k + 1}`, colour: line.colour, state, stop: k });
+        else {
+          d.label += `·${k + 1}`;
+          if (state === "unreachable" || (state === "next" && d.state === "stop")) d.state = state;
+        }
+      });
+      routeView.show(ribbons, [...discs.values()]);
       const out = line.stops.findIndex((_, k) => unreachable(k));
       if (out !== -1) {
         const name = names.find((st) => st.depotId === line.stops[out].depotId)?.name ?? "a stop";

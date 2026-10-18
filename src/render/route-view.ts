@@ -32,6 +32,8 @@ export interface DiscSpec {
   label: string;
   colour: string;
   state: "next" | "stop" | "unreachable";
+  /** The stop it stands for (in its tag, for picking); else its place in the list given. */
+  stop?: number;
 }
 
 /** The ribbon: its width (mm), how far over the track's top it lies, and how finely it follows curves. */
@@ -251,7 +253,7 @@ export class RouteView {
     const z = piece.pose.z + sample.x * sh + sample.z * ch;
     const top = piece.y + sample.y + TRACK_THICKNESS;
     const size = d.state === "next" ? DISC_NEXT : DISC;
-    const tag = { kind: "route-stop", pieceId: d.pieceId, index };
+    const tag = { kind: "route-stop", pieceId: d.pieceId, index: d.stop ?? index };
 
     const token = new Sprite(this.discMaterial(d));
     token.position.set(x, top + DISC_HEIGHT, z);
@@ -302,6 +304,19 @@ function discTexture(d: DiscSpec): CanvasTexture | null {
   g.beginPath();
   g.arc(cx, cy, r, 0, Math.PI * 2);
   g.fill();
+  if (grey) {
+    // A bold red ring, edged white so it shows on red roofs too: a stop no track leads to reads as a problem at a glance.
+    g.strokeStyle = "#ffffff";
+    g.lineWidth = 4;
+    g.beginPath();
+    g.arc(cx, cy, r + 1, 0, Math.PI * 2);
+    g.stroke();
+    g.strokeStyle = "#d33a2c";
+    g.lineWidth = 12;
+    g.beginPath();
+    g.arc(cx, cy, r - 6, 0, Math.PI * 2);
+    g.stroke();
+  }
   if (d.state === "next") {
     g.strokeStyle = "#ffffff";
     g.lineWidth = 7;
@@ -309,14 +324,14 @@ function discTexture(d: DiscSpec): CanvasTexture | null {
     g.arc(cx, cy, r - 3.5, 0, Math.PI * 2);
     g.stroke();
   }
-  g.font = `bold ${Math.round(r * (d.label.length > 1 ? 1.0 : 1.25))}px system-ui, sans-serif`;
+  g.font = `bold ${Math.round(r * (d.label.length > 2 ? 0.72 : d.label.length > 1 ? 1.0 : 1.25))}px system-ui, sans-serif`;
   g.textAlign = "center";
   g.textBaseline = "middle";
   g.lineJoin = "round";
   g.lineWidth = 6;
-  g.strokeStyle = "rgba(0, 0, 0, 0.28)";
+  g.strokeStyle = grey ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.28)";
   g.strokeText(d.label, cx, cy + 3);
-  g.fillStyle = grey ? "#eeeae4" : "#ffffff";
+  g.fillStyle = grey ? "#5a534c" : "#ffffff";
   g.fillText(d.label, cx, cy + 3);
   if (grey) {
     // A red badge with a white ✕ at the disc's lower right, the number still showing.

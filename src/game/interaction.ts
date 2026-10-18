@@ -1340,7 +1340,16 @@ export class Interaction {
     }
     // Planning a train's route: a station or depot tapped is a stop (see `onPickPlace`).
     if (this.onPickPlace) {
-      const depot = p.kind === "depot" ? g.economy.depot(p.depotId) : p.kind === "piece" ? g.economy.depotAtPiece(p.pieceId) : undefined;
+      // A train tapped: the station or depot it stands at (its engine's own station, the first stop of many a route).
+      const standsAt = (carId: number) => {
+        const t = g.sim.findCar(carId)?.train;
+        for (const b of t?.bogies ?? []) {
+          const d = g.economy.depotAtPiece(b.pieceId);
+          if (d) return d;
+        }
+        return undefined;
+      };
+      const depot = p.kind === "depot" ? g.economy.depot(p.depotId) : p.kind === "piece" ? g.economy.depotAtPiece(p.pieceId) : p.kind === "car" ? standsAt(p.carId) : undefined;
       if (depot) this.onPickPlace(depot.id);
       // Anything else tapped while planning does nothing (the engine's card stays open: Done ends planning).
       return;
@@ -3609,8 +3618,9 @@ export class Interaction {
    */
   private pick(x: number, y: number, touch = false): Press | null {
     const exact = this.pickExact(x, y);
-    // (A route's stop disc floats over the cars: it wins.)
+    // (A route's stop disc floats over the cars: it wins. Planning a route, so does a station or depot tapped.)
     if (exact?.kind === "route-stop") return exact;
+    if (this.onPickPlace && exact && (exact.kind === "depot" || (exact.kind === "piece" && this.game.economy.depotAtPiece(exact.pieceId)))) return exact;
     if (!touch || !nearCarWins(exact ? (exact.kind === "depot" && exact.footprint ? "station" : exact.kind) : null)) return exact;
     const carId = carNearTap(x, y, this.carsOnScreen(), TOUCH_SLACK_PX);
     return carId !== -1 ? { kind: "car", carId } : exact;

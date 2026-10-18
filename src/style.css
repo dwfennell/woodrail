@@ -617,7 +617,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-chip[data-intent="drop"]::after { content: " ↓"; opacity: 0.7; }
 .route-chip[data-intent="pick"]::after { content: " ↑"; opacity: 0.7; }
 .route-tools { display: flex; gap: 4px; }
-.route-tools .route-action { flex: 1; }
+.route-tools .route-action { flex: 1 0 auto; }
+.route-tools button { white-space: nowrap; padding-inline: 10px; }
+/* Planning a route: the map wants the room. The engine card slims to its route, and the tray goes. */
+.planning .engine-card .card-title, .planning .engine-card .engine-status, .planning .engine-card .engine-controls,
+.planning .engine-card .corner, .planning .engine-card > .close, .planning .engine-card .engine-more { display: none; }
+.planning .engine-card .engine-extra { margin-top: 0; }
+.planning .tray, .planning .tray-draw, .planning .tray-orient { display: none; }
 .route-tools { flex-wrap: wrap; }
 .route-wait.on { background: #e6b52c; }
 .route-chip[data-wait]::before { content: "⏳ "; }
