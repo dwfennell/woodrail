@@ -70,6 +70,8 @@ const saveSchema = z.object({
   towns: z.array(z.object({ id: z.number().int().min(0), stationPieceId: z.number().int().positive() })),
   pieces: z.array(pieceSchema),
   switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])),
+  /** Pinned switches, by piece id: routed engines don't throw them (optional: older saves load with none). */
+  pinned: z.array(z.number().int().positive()).optional(),
   trains: z.array(trainSchema),
   /** Economy depots, in id order: the piece each works on and what it does. */
   depots: z.array(
@@ -199,6 +201,7 @@ export function serializeWorld(world: World): SaveData {
     towns: [...world.stations].map(([id, stationPieceId]) => ({ id, stationPieceId })),
     pieces,
     switches,
+    ...(layout.pinnedCount > 0 ? { pinned: [...layout.pinnedIds()] } : {}),
     trains,
     depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
     delivered: [...world.economy.delivered],
@@ -226,6 +229,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     }
   }
   for (const [id, state] of save.switches) if (layout.getPiece(id)) layout.setSwitchState(id, state);
+  for (const id of save.pinned ?? []) layout.setPinned(id, true);
   const land = deserializeLandscape(save.landscape);
   if (!land.ok) return err(`invalid save: ${land.error}`);
   const landscape = land.value;

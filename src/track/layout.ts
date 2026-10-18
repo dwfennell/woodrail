@@ -80,6 +80,8 @@ export class Layout {
     this.pieces.set(id, { id, type, flipped, pose: { ...pose }, y });
     if (id >= this.nextId) this.nextId = id + 1;
     this.seatAll(id);
+    // A pin taken up with the piece comes back with it (undoing its removal), if it's still a switch.
+    if (this.unpinned.delete(id)) this.setPinned(id, true);
     return true;
   }
 
@@ -88,6 +90,10 @@ export class Layout {
     if (!this.lifted.delete(id)) this.detachAll(id);
     this.pieces.delete(id);
     this.switchStates.delete(id);
+    if (this.pinned.delete(id)) {
+      this.unpinned.add(id);
+      this.switchesVersion++;
+    }
     return true;
   }
 
@@ -187,8 +193,37 @@ export class Layout {
     this.switchesVersion++;
   }
 
-  /** Bumped whenever a switch state is set (a turntable's deck follows it: `KitView`). */
+  /** Bumped whenever a switch state is set, or a switch is pinned or unpinned (a turntable's deck follows it: `KitView`). */
   switchesVersion = 0;
+
+  /** Switches pinned: routed engines don't throw them (`steer`), and a way to a stop sees only the route they're set to. */
+  private readonly pinned = new Set<number>();
+  /** Pins of pieces taken up, kept so that putting the piece back (undo) brings its pin back. Ids aren't reused. */
+  private readonly unpinned = new Set<number>();
+
+  /** How many switches are pinned (none: a search needn't ask about each one). */
+  get pinnedCount(): number {
+    return this.pinned.size;
+  }
+
+  isPinned(pieceId: number): boolean {
+    return this.pinned.size > 0 && this.pinned.has(pieceId);
+  }
+
+  /** Pin a switch, or unpin it. A piece that isn't a switch (or isn't there) is left unpinned. */
+  setPinned(pieceId: number, on: boolean): void {
+    if (on) {
+      const piece = this.pieces.get(pieceId);
+      if (!piece || !getPieceDef(piece.type, piece.flipped).isSwitch || this.pinned.has(pieceId)) return;
+      this.pinned.add(pieceId);
+    } else if (!this.pinned.delete(pieceId)) return;
+    this.switchesVersion++;
+  }
+
+  /** The pinned switches' ids (for saving). */
+  pinnedIds(): IterableIterator<number> {
+    return this.pinned.values();
+  }
 
   /** Decks on their way to their next road (turning: they join nothing yet). Not saved: a loaded deck is there. */
   private readonly turning = new Set<number>();
