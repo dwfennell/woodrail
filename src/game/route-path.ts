@@ -1,4 +1,4 @@
-import { createRouteStep, createSample, getPieceDef, pathLength, routeFrom, samplePath, TRACK_THICKNESS, type Layout } from "../track";
+import { createRouteStep, createSample, getPieceDef, MAX_CONNECTORS, pathLength, routeFrom, samplePath, TRACK_THICKNESS, type Layout } from "../track";
 import type { Cursor } from "../sim";
 import { chooseWay, distanceTo, next, SEARCH, wayToward, waysFrom, type AvoidTest } from "../economy/steer";
 
@@ -47,7 +47,7 @@ export const runsLength = (runs: readonly PathRun[]): number => runs.reduce((t, 
 function walkTo(layout: Layout, start: At, target: number, opts?: WalkOptions): Leg {
   const memo = new Map<number, number>();
   const dist = (at: { pieceId: number; entry: number }) => {
-    const key = at.pieceId * 8 + at.entry;
+    const key = at.pieceId * MAX_CONNECTORS + at.entry;
     let d = memo.get(key);
     if (d === undefined) memo.set(key, (d = distanceTo(layout, at, target)));
     return d;
@@ -63,7 +63,8 @@ function walkTo(layout: Layout, start: At, target: number, opts?: WalkOptions): 
     const len = pathLength(path.geom);
     const end = at.reversed ? 0 : len;
     // The walk is decided by where it stands, so coming round to a path the same way again is a loop.
-    const key = (at.pieceId * 8 + at.pathIndex) * 2 + (at.reversed ? 1 : 0);
+    // (A piece has at most a path for each pair of its connectors.)
+    const key = (at.pieceId * MAX_CONNECTORS * MAX_CONNECTORS + at.pathIndex) * 2 + (at.reversed ? 1 : 0);
     if (visited.has(key)) return null;
     visited.add(key);
     if (at.s !== end) runs.push({ pieceId: at.pieceId, pathIndex: at.pathIndex, s0: at.s, s1: end });
