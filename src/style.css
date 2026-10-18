@@ -585,6 +585,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-chip[data-intent="pick"]::after { content: " ↑"; opacity: 0.7; }
 .route-tools { display: flex; gap: 4px; }
 .route-tools .route-action { flex: 1; }
+.route-tools { flex-wrap: wrap; }
+.route-wait.on { background: #e6b52c; }
+.route-chip[data-wait]::before { content: "⏳ "; }
 .route-warn { font-size: 0.85em; color: #b0391f; font-weight: 700; }
 
 /* "Show me": a goal town's name over it for a few seconds (positioned by the game each frame), in a layer over the

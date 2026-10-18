@@ -1753,7 +1753,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const stops = routeStops(game.world);
     const line = lineOf(game.economy, carId);
     const r = game.economy.routeOf(carId);
-    const key = `${carId}:${stops.length}:${planning}:${stopPicked}:${cantReachText}:${line ? `${line.id}|${line.colour}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}`).join(",")}` : "-"}`;
+    const key = `${carId}:${stops.length}:${planning}:${stopPicked}:${cantReachText}:${line ? `${line.id}|${line.colour}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}`).join(",")}` : "-"}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -1815,6 +1815,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         chip.classList.toggle("next", r?.next === k);
         chip.classList.toggle("picked", stopPicked === k);
         if (st.action === "drop" || st.action === "pick") chip.dataset.intent = st.action;
+        if (st.waitFill) chip.dataset.wait = "1";
         chip.style.setProperty("--line", line.colour);
         strip.append(chip);
       });
@@ -1828,6 +1829,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           button("◀", "route-move", "Visit this stop earlier", () => edit((l) => (moveStop(l, k, k - 1), (stopPicked = Math.max(0, k - 1))))),
           button("▶", "route-move", "Visit this stop later", () => edit((l) => (moveStop(l, k, k + 1), (stopPicked = Math.min(l.length - 1, k + 1))))),
           button(INTENTS[st.action].label, "route-action", INTENTS[st.action].tip, () => edit((l) => (l[k].action = NEXT_INTENT[l[k].action]))),
+          // (Waiting to fill means nothing where it only drops.)
+          ...(st.action === "drop"
+            ? []
+            : [
+                button(st.waitFill ? "Waits till full" : "Doesn't wait", `route-wait${st.waitFill ? " on" : ""}`, "Wait here till the wagons are full (of goods a later stop wants)", () =>
+                  edit((l) => (l[k].waitFill = !l[k].waitFill)),
+                ),
+              ]),
           button("✕", "route-remove", "Take this stop off the route", () => edit((l) => (l.splice(k, 1), (stopPicked = -1)))),
         );
         box.append(tools);
