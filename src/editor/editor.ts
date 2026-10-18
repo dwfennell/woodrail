@@ -491,6 +491,9 @@ export class Editor {
     }
     if (c.land) {
       this.onLandChange?.(c.land());
+      // (A land edit can carry props with it, a town's house its squares: they're redrawn where they now stand, and the
+      // undo and redo buttons follow, as for a props edit. QA: an undone house move left the picture as it was.)
+      this.onPropsChange?.();
       return;
     }
     if (c.props) {
