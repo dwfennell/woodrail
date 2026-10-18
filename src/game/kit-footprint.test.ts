@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkPlacement, FEAT_BUILDING, gridWithPlots, SURF_RIVER, type Landscape } from "../landscape";
+import { checkPlacement, FEAT_BUILDING, gridWithPlots, SURF_RIVER, SURF_TOWN, type Landscape } from "../landscape";
 import { PropStore } from "../props/store";
 import { appendPiece, connectorRef, findSplice, Layout, type PieceTypeId, type Pose } from "../track";
 import {
@@ -18,6 +18,7 @@ import {
   yardParts,
   type YardBlock,
   type YardCheck,
+  type YardObstacle,
 } from "./depot-footprint";
 
 // The kit pieces' footprint checks are the depots' (depot-footprint.ts), over the kit's own rectangles: these are the
@@ -47,6 +48,13 @@ function setup(): YardCheck & { land: Landscape; layout: Layout; props: PropStor
 // The platform at the origin along +x: its track z −20 to 20, its platform z 20 to 48 (t 0 to 216).
 const AT = P(0, 0);
 
+/** The refusal for a piece of `type` at `pose`, as the game says it (what's in the way and all), or null. */
+function say(ctx: YardCheck, type: PieceTypeId, pose: Pose = AT): string | null {
+  const out: YardObstacle = { what: null };
+  const why = checkYard(ctx, type, pose, 0, -1, out);
+  return why && yardMessage(type, why, out.what);
+}
+
 describe("a kit's footprint (the furnished platform)", () => {
   it("is its platform's rectangle beside the track on its +l side, worked out once", () => {
     const parts = yardParts(KIT)!;
@@ -75,15 +83,19 @@ describe("a kit's footprint (the furnished platform)", () => {
     setCells(house.land, 150, 160, 30, 40, (i) => (house.land.grid.feature[i] = FEAT_BUILDING));
     expect(checkYard(house, KIT, AT, 0, -1)).toBe("yard-ground");
     expect(yardMessage(KIT, "yard-ground")).toBe("The platform needs open ground");
+    expect(say(house, KIT)).toBe("The platform needs open ground: a house is in the way");
+    expect(say(water, KIT)).toBe("The platform is in the river");
 
     const prop = setup();
     prop.props.add("tree-oak", { x: 60, z: 40, heading: 0, y: 0 });
     expect(checkYard(prop, KIT, AT, 0, -1)).toBe("yard-ground");
+    expect(say(prop, KIT)).toBe("The platform needs open ground: a tree is in the way");
     expect(checkYard(prop, KIT, turnedRound(KIT, AT), 0, -1)).toBeNull();
 
     const track = setup();
     const line = track.layout.addPiece("straight-216", P(0, 40));
     expect(checkYard(track, KIT, AT, 0, -1)).toBe("yard-ground");
+    expect(say(track, KIT)).toBe("The platform needs open ground: the track is in the way");
     expect(checkYard(track, KIT, AT, 0, line)).toBeNull();
     // A line a double track's width away runs clear beside the platform.
     track.layout.removePiece(line);
@@ -98,9 +110,11 @@ describe("a kit's footprint (the furnished platform)", () => {
     const ctx = setup();
     ctx.layout.addPiece("depot-workshop", turnedRound("depot-workshop", P(0, 100)));
     expect(checkYard(ctx, KIT, AT, 0, -1)).toBe("yard-ground");
+    expect(say(ctx, KIT)).toBe("The platform needs open ground: the workshop's yard is in the way");
     const other = setup();
     other.layout.addPiece(KIT, AT);
     expect(checkYard(other, "depot-workshop", turnedRound("depot-workshop", P(0, 100)), 0, -1)).toBe("yard-ground");
+    expect(say(other, "depot-workshop", turnedRound("depot-workshop", P(0, 100)))).toBe("The workshop's yard needs open ground: the track is in the way");
     // Two platforms back to back across a line's width: clear.
     expect(checkYard(other, KIT, turnedRound(KIT, P(0, 0)), 0, -1)).toBeNull();
   });
@@ -166,17 +180,49 @@ describe("a kit dropped onto a line: the flip hint", () => {
 
 describe("the train lift's footprint: its whole frame", () => {
   const LIFT = "kit-train-lift" as const;
-  it("covers its posts, braces and counterweights (l ±42, t 0 to 288), a notch at each end over the line", () => {
+  it("covers its posts and platform on the ground (l ±38, t 0 to 288), a notch at each end over the line; its counterweights overhead", () => {
     const parts = yardParts(LIFT)!;
-    const inside = (t: number, l: number) => parts.some((p) => Math.abs(t - p.cx) <= p.hw && Math.abs(l - p.cz) <= p.hd);
-    // A post at each end and the middle, each side; a counterweight; the platform's middle.
+    const inside = (t: number, l: number, overhead = false) =>
+      parts.some((p) => !!(p as { overhead?: boolean }).overhead === overhead && Math.abs(t - p.cx) <= p.hw && Math.abs(l - p.cz) <= p.hd);
+    // A post at each end and the middle, each side (the model's posts: l ±28 to ±36); the platform's middle.
     for (const t of [2, 10, 144, 278, 286]) for (const l of [-36, -28, 28, 36]) expect(inside(t, l), `post t ${t} l ${l}`).toBe(true);
-    for (const l of [-41, 41]) expect(inside(216, l)).toBe(true);
     expect(inside(144, 0)).toBe(true);
-    // Not the line at its ends (the track joined there), nor past its frame.
+    // The counterweights (l ±35.4 to ±41.4, t 209 to 223) hang overhead.
+    for (const l of [-41.4, -35.4, 35.4, 41.4]) for (const t of [209, 223]) expect(inside(t, l, true), `weight t ${t} l ${l}`).toBe(true);
+    // Not the line at its ends (the track joined there), nor past its frame on the ground (2 mm past the posts).
     expect(inside(2, 0)).toBe(false);
     expect(inside(286, 0)).toBe(false);
-    expect(inside(144, 46)).toBe(false);
+    expect(inside(144, 39)).toBe(false);
+    expect(inside(216, 41)).toBe(false);
+  });
+
+  it("stands right up to ground it can't (a town lot 2 mm past its posts), and says what's in the way when it can't", () => {
+    // A town square from z 72: the lift's posts at z 34 + 36 = 70 stand 2 mm short of it (its old ±42 frame reached 76).
+    const town = setup();
+    setCells(town.land, 0, 300, 80, 100, (i) => (town.land.grid.surface[i] = SURF_TOWN));
+    expect(say(town, LIFT, P(0, 34))).toBeNull();
+    // 4 mm closer, its posts would stand on the lot.
+    expect(say(town, LIFT, P(0, 38))).toBe("The train lift needs open ground: the town is in the way");
+    const house = setup();
+    setCells(house.land, 0, 300, 80, 100, (i) => (house.land.grid.feature[i] = FEAT_BUILDING));
+    expect(say(house, LIFT, P(0, 38))).toBe("The train lift needs open ground: a house is in the way");
+    const river = setup();
+    setCells(river.land, 0, 300, 80, 100, (i) => (river.land.grid.surface[i] = SURF_RIVER));
+    expect(say(river, LIFT, P(0, 34))).toBeNull();
+    expect(say(river, LIFT, P(0, 38))).toBe("The train lift is in the river");
+    const hill = setup();
+    setCells(hill.land, 0, 300, 80, 100, (i) => (hill.land.grid.height[i] = 1));
+    expect(say(hill, LIFT, P(0, 34))).toBeNull();
+    expect(say(hill, LIFT, P(0, 38))).toBe("The train lift is on a hill");
+    // Its counterweights hang over the river (or a hill) at z 34 + 41.4: nothing on the ground is in their way.
+    expect(say(river, LIFT, P(0, 34))).toBeNull();
+    // But a tree under one is.
+    const tree = { ...setup(), footprint: () => ({ cx: 0, cz: 0, hw: 2, hd: 2 }) };
+    tree.props.add("scene-birch", { x: 216, z: 41, heading: 0, y: 0 });
+    expect(say(tree, LIFT)).toBe("The train lift needs open ground: a tree is in the way");
+    // And track under it isn't (it would pass under at 70 mm and more up; the posts' band keeps its line over 52 mm off).
+    const yards = [placedYard(9, LIFT, AT, 0)!];
+    expect(trackInYards(yards, "straight-216", false, P(108, 54), 0, -1)).toBeNull();
   });
 
   it("a tree by a leg or a counterweight is refused; the line joined at both ends (felt and a level up) is clear", () => {

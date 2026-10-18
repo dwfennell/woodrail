@@ -211,6 +211,44 @@ describe("the train lift", () => {
     expect(w.events.some((e) => e.kind === "derailed")).toBe(false);
   });
 
+  it("a train waiting at its end gives way to one coming off it (no livelock with a turnback at the top)", () => {
+    // A dead-end branch: the low line, the lift, and a turnback at the top. One train rides up and back down; the other
+    // comes up behind it and waits at the low end, in the way of the one coming off. It gives way (turns back), so the
+    // one coming off gets off, rather than turning back onto the lift and riding round for good (QA's sweep: 35 rides
+    // while the other waited 5 min).
+    const layout = new Layout();
+    layout.addPiece("buffer-turnback", { x: 0, z: 0, heading: Math.PI });
+    const s: number[] = [layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 })];
+    for (let i = 0; i < 5; i++) s.push(onEnd(layout, s.at(-1)!, 1, "straight-216"));
+    const lift = onEnd(layout, s.at(-1)!, 1, "kit-train-lift");
+    onEnd(layout, lift, 1, "buffer-turnback");
+    const sim = new Sim(layout);
+    const engines = [s[4], s[1]].map((pieceId) => {
+      const placed = sim.addTrain(["engine", "passenger"], { pieceId, pathIndex: 0, reversed: false, s: 60 });
+      if (placed.kind !== "placed") throw new Error("no room");
+      const id = sim.getTrain(placed.trainId)!.cars[0].id;
+      sim.setLever(id, 1);
+      return id;
+    });
+    // (Cars keep their ids; a train turned back is a new train.)
+    const longest = [0, 0];
+    const now = [0, 0];
+    const offLow = [0, 0];
+    for (let i = 0; i < 300 * SIM_HZ; i++) {
+      sim.tick();
+      engines.forEach((car, k) => {
+        const t = sim.findCar(car)!.train;
+        now[k] = sim.liftState(t.id) === "waiting" ? now[k] + 1 : 0;
+        longest[k] = Math.max(longest[k], now[k]);
+        if (t.bogies[0].pieceId === s[3]) offLow[k]++;
+      });
+    }
+    // Neither is held at the lift for long at a stretch (it was the whole 5 minutes), and both get about the line.
+    expect(Math.max(...longest) / SIM_HZ).toBeLessThan(30);
+    expect(offLow.every((n) => n > 0)).toBe(true);
+    expect(sim.drainEvents().some((e) => e.kind === "derailed")).toBe(false);
+  });
+
   it("paused (the sim not ticked), a ride holds where it is, and carries on after", () => {
     const w = line();
     expect(w.until(() => w.sim.liftState(w.train().id) === "riding", 30)).toBe(true);

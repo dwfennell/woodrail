@@ -4,6 +4,7 @@ import { pieceOf, ROAD_PIECES, turnOf, type RoadPieceId } from "../../roads";
 import { RISER_HEIGHT } from "../../track";
 import { FELT_TILE, type Materials } from "../materials";
 import { setCullRects, TILE_DEPTH, TILE_WIDTH, tileAt } from "./tiles";
+import { nonIndexed } from "../non-indexed";
 
 /**
  * Road pieces drawn on their squares: a beech board, grey felt on it and white paint, one merged mesh per material per
@@ -239,7 +240,7 @@ function hump(g: BufferGeometry): void {
 }
 
 function flatten(parts: BufferGeometry[]): PieceMesh {
-  const flat = parts.map((g) => (g.index ? g.toNonIndexed() : g));
+  const flat = parts.map(nonIndexed);
   let n = 0;
   for (const g of flat) n += g.getAttribute("position").count;
   const out: PieceMesh = { position: new Float32Array(n * 3), normal: new Float32Array(n * 3), uv: new Float32Array(n * 2) };

@@ -51,6 +51,13 @@ export interface NoteResult {
   entry: JournalEntry | null;
 }
 
+/** A journal as saved (`Journal.toJSON`). */
+export interface JournalData {
+  entries: JournalEntry[];
+  seq: number;
+  readSeq: number;
+}
+
 export const JOURNAL_CAP = 50;
 export const MERGE_WINDOW_MS = 60_000;
 
@@ -101,6 +108,18 @@ export class Journal {
     this.list = [];
     this.seq = 0;
     this.readSeq = 0;
+  }
+
+  /** The entries and what's been read, to save beside the railway. */
+  toJSON(): JournalData {
+    return { entries: this.list.map((e) => ({ ...e })), seq: this.seq, readSeq: this.readSeq };
+  }
+
+  /** Back as saved (`toJSON`): newest first, no more than the cap. */
+  restore(data: JournalData): void {
+    this.list = data.entries.slice(0, this.cap).map((e) => ({ ...e }));
+    this.seq = Math.max(data.seq, ...this.list.map((e) => e.seq));
+    this.readSeq = Math.min(data.readSeq, this.seq);
   }
 
   add(input: NoteInput, now = this.clock()): NoteResult {
