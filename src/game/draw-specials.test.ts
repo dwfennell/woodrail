@@ -480,3 +480,52 @@ describe("QA sweep: ramps not learned (Game mode)", () => {
     expectJoined(line);
   });
 });
+
+describe("QA junction notes N6: a U-turn that runs into a hill", () => {
+  it("no move slow (at most a piece a move): U-turns of 80 to 140 mm radius into a hill a level or two up, ramps or none", () => {
+    const strokes: { opts: DrawOptions; pts: { x: number; z: number }[] }[] = [];
+    for (const noRamp of [false, true])
+      for (const h of [1, 2])
+        for (const r of [80, 90, 110, 140])
+          for (const hx of [72, 144, 216, 288])
+            for (const lead of [100, 200]) {
+              const land = paint(flat(), hx, hx + 216, Z + 36, Z + 324, h);
+              const opts = options(land, new Layout(), noRamp ? { allow: (t) => t !== "ramp" && !isBridge(t), outOf: () => "Ramp: not learned yet" } : {});
+              const pts: { x: number; z: number }[] = [];
+              for (let x = 4; x <= lead; x += 6) pts.push({ x, z: Z });
+              for (let a = 6 / r; a <= Math.PI; a += 6 / r) pts.push({ x: lead + r * Math.sin(a), z: Z + r - r * Math.cos(a) });
+              for (let x = lead; x >= lead - 200; x -= 6) pts.push({ x, z: Z + 2 * r });
+              strokes.push({ opts, pts });
+            }
+    // (As the other timing guards: the slowest few moves left out, a loaded machine stalls one now and then.)
+    const SPARED = 4;
+    const run = () => {
+      const slowest: number[] = [];
+      let most = 0;
+      for (const { opts, pts } of strokes) {
+        const line = new DrawLine(at(0), opts);
+        for (const p of pts) {
+          const n = line.pieces.length;
+          const t0 = performance.now();
+          line.addPoint(p.x, p.z);
+          const t = performance.now() - t0;
+          if (slowest.length <= SPARED || t > slowest[SPARED]) {
+            slowest.push(t);
+            slowest.sort((a, b) => b - a);
+            slowest.length = Math.min(slowest.length, SPARED + 1);
+          }
+          most = Math.max(most, line.pieces.length - n);
+        }
+        line.finish();
+      }
+      return { worst: slowest[Math.min(SPARED, slowest.length - 1)] ?? 0, most };
+    };
+    run();
+    const { worst: first, most } = run();
+    expect(most).toBe(1);
+    // About 0.5 ms at worst in Node (the move that lays the first piece); generous for a slow CI, best of up to five.
+    let worst = first;
+    for (let k = 0; k < 4 && worst >= 4; k++) worst = Math.min(worst, run().worst);
+    expect(worst).toBeLessThan(4);
+  });
+});

@@ -81,6 +81,8 @@ export interface DrawOptions {
   meet?: (end: DrawEnd, line: readonly DrawnPiece[]) => DrawCandidate | null;
   /** Does the line end on other track here (seated, so it's finished)? */
   closes?: (end: DrawEnd) => boolean;
+  /** Is a free end of other track within `reach` (mm) of this end (a piece from here might close onto it)? */
+  nearTrack?: (end: DrawEnd, reach: number) => boolean;
   /** The ground's height (mm) at a plan point: where a ramp's far end will land (see `DrawLine.lands`). */
   groundAt?: (x: number, z: number) => number;
   /**
@@ -96,6 +98,8 @@ export interface DrawOptions {
 
 /** Stroke points closer than this (mm) to the last are skipped. */
 const STEP = 6;
+/** Other track's free end this near (mm) the line's end: a piece that closes onto it is looked for (see `closeOnto`). */
+const CLOSE_REACH = 300;
 /** The next piece is chosen once the stroke reaches this far (mm) past the line's end, so the look-ahead sees it. */
 export const DRAW_LOOKAHEAD = 250;
 /**
@@ -362,6 +366,13 @@ export class DrawLine {
   /** The finger has moved to (x, z): extend the stroke, take pieces off if it's retracing, and grow behind it. True if the pieces changed. */
   addPoint(x: number, z: number): boolean {
     if (Math.hypot(x - this.fx, z - this.fz) < STEP) return false;
+    // The stroke's first points short of where the line starts (a branch's: the finger still by the line it left, the
+    // switch's branch end ahead of it): waited out, as if the stroke began there. Taken as the stroke's way, they bent
+    // it into an S-jog of two tight curves to come back onto the finger's line (QA: switch, curve, reversed curve).
+    if (this.xs.length === 1) {
+      const s = this.start;
+      if ((x - s.x) * Math.cos(s.heading) + (z - s.z) * Math.sin(s.heading) < STEP) return false;
+    }
     const before = this.pieces.length;
     const trimmed = this.retrace(x, z);
     const mx = x - this.fx;
@@ -591,6 +602,10 @@ export class DrawLine {
       }
       // Back round to its own start: a piece that closes the loop there goes down, rather than one on past it.
       if (this.closeOnStart(end)) return;
+      // A piece that closes onto other track's free end here, its far end on the stroke: that, rather than a piece on
+      // first (QA N5: 5 mm short of a station's end, a straight then a curve into the house beside it, where the one
+      // curve closed).
+      if (this.closeOnto(end)) return;
       // Finishing a loop that has come round to just short of its start, running its way: that's where it ends (a piece
       // more would go on across its first piece, and say so).
       if (finishing && this.backAtStart(end)) return;
@@ -628,6 +643,28 @@ export class DrawLine {
       this.pieces.pop();
       this.progress = progress;
       this.stopped = null;
+    }
+    return false;
+  }
+
+  /**
+   * Other track's free end within a piece of the line's end: lay the piece that seats on it (`closes` says so), if one
+   * does and its far end is on the stroke, and the line is closed. True if it closed. Only near track (one look for a
+   * free end, `nearTrack`, before trying the pieces).
+   */
+  private closeOnto(end: DrawEnd): boolean {
+    const closes = this.options.closes;
+    if (!closes || !this.options.nearTrack?.(end, CLOSE_REACH)) return false;
+    const allow = this.options.allow;
+    const check = this.options.check;
+    for (const c of candidatesFrom(end, allow ? DRAW_TYPES.filter((t) => allow(t, this.pieces)) : DRAW_TYPES)) {
+      if (!closes(c.end)) continue;
+      const near = this.nearest(c.end.x, c.end.z, this.progress - 10, this.progress + c.length * 1.6 + 40);
+      if (near.d >= MEET_REACH || near.s > this.strokeLength + MEET_REACH) continue;
+      if (check?.(c, this.pieces)) continue;
+      this.lay(c, near.s);
+      if (!this.stopped) this.stopped = "closed";
+      return true;
     }
     return false;
   }
