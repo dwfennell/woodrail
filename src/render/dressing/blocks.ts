@@ -4,6 +4,7 @@ import { CELL, CORNER_RADIUS, forEachInPlot, hillPieces, hillSlabs, hillsOf, typ
 import { RISER_HEIGHT } from "../../track";
 import { BEECH_UV_SCALE, type Materials } from "../materials";
 import { roundedChamferedBox } from "./chamfer";
+import { nonIndexed } from "../non-indexed";
 
 /** Beech tones (multiplied over the wood texture) so a hill reads as a stack of separate blocks. */
 export const BLOCK_TONES = ["#ffffff", "#f4e4cc", "#ead3b0", "#fbefdc", "#e2c7a0"];
@@ -112,7 +113,7 @@ export function shadowProxyMesh(geometry: BufferGeometry): Mesh {
 /** The geometry of a shadow stand-in (positions only), or null for nothing. */
 export function shadowProxyGeometry(slabs: readonly Slab[], round: readonly RoundBlock[] = []): BufferGeometry | null {
   const pieces: BufferGeometry[] = slabs.map((s) => {
-    const g = new BoxGeometry(s.x1 - s.x0 - GAP, RISER_HEIGHT - GAP, s.z1 - s.z0 - GAP).toNonIndexed();
+    const g = nonIndexed(new BoxGeometry(s.x1 - s.x0 - GAP, RISER_HEIGHT - GAP, s.z1 - s.z0 - GAP));
     g.translate((s.x0 + s.x1) / 2, (s.level - 1) * RISER_HEIGHT + RISER_HEIGHT / 2, (s.z0 + s.z1) / 2);
     return g;
   });

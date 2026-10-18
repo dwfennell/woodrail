@@ -1,9 +1,9 @@
 import type { DragTarget } from "./drag-rule";
 
 /**
- * Long-press to pick up, on touch: a finger that rests on a piece, a train or a placed industry picks it up into a drag
- * without selecting it first. A finger that moves first pans, as it always has (see `dragMoves`), so panning a busy map
- * never grabs anything; a quick tap still selects.
+ * Long-press to pick up, on touch: a finger that rests on a piece, a train, a placed industry or cargo picks it up into a
+ * drag without selecting it first. A finger that moves first pans, as it always has (see `dragMoves`), so panning a busy
+ * map never grabs anything; a quick tap still selects (or, on cargo, moves it).
  *
  * HOLD_MS: 380 ms. Long enough that a finger landing to pan (which moves within a frame or two) or a tap (well under
  * 250 ms) never counts; shorter than the 500 ms the phone's own long-press menus take, since here it's the main way to
@@ -18,10 +18,13 @@ import type { DragTarget } from "./drag-rule";
 export const HOLD_MS = 380;
 export const HOLD_SLOP = 10;
 
-/** What can be picked up with a long press: track, a train, an industry (props and roads still want selecting first). */
+/**
+ * What can be picked up with a long press: track, a train, an industry, cargo off a pile or a wagon (props and roads
+ * still want selecting first).
+ */
 export function holdPicksUp(target: DragTarget, pointerType: string): boolean {
   if (pointerType === "mouse") return false;
-  return target === "piece" || target === "car" || target === "depot";
+  return target === "piece" || target === "car" || target === "depot" || target === "cargo";
 }
 
 /** Where a press that may become a hold has got to. */

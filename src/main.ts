@@ -1,13 +1,13 @@
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
-import { Editor, pieceCentre } from "./editor/editor";
+import { Editor, pieceCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
-import { CELL, connectedPairs, fixedHome, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
+import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
-import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, OLDER_SAVE, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
+import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, OLDER_SAVE, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { makesLine } from "./game/learn-text";
@@ -58,7 +58,7 @@ import type { PropModel } from "./render/props/library";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { connectorRef, createWorldConnector, getPieceDef, isLift, kitOf, pathLength, PIECE_TYPES, type Anchor, type Layout, type PieceTypeId } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, isLift, kitOf, pathLength, PIECE_TYPES, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
@@ -81,9 +81,6 @@ const OPENING_DISTANCE = 1000;
 const GOAL_MARGIN = 260;
 /** Room round a news place made of several spots (new houses, a connection). */
 const PLACE_MARGIN = 140;
-
-/** How far a station or depot may turn when it gives (radians). */
-const GIVE_TURN = (4 * Math.PI) / 180;
 
 /** Tray pictures drawn together, a batch a frame, after the title's up. */
 const THUMBNAIL_BATCH = 8;
@@ -137,7 +134,7 @@ function linkedSeed(): number | null {
 /** The autosave was from an older version of the game (turned away: a fresh map instead). The game says so. */
 let olderSave = false;
 
-function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean } {
+function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean; fromSave: boolean } {
   const seed = linkedSeed();
   const mode = seed !== null ? "sandbox" : loadLastMode();
   // Reloaded from play (graphics switched, an update taken): straight back into the game, past the title.
@@ -147,9 +144,9 @@ function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean } {
   if (saved && !saved.ok && saved.error === OLDER_SAVE) olderSave = true;
   if (seed !== null) {
     const same = saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter;
-    return { world: same ? saved.value : createWorld(seed), mode, linked: true };
+    return { world: same ? saved.value : createWorld(seed), mode, linked: true, fromSave: !!same };
   }
-  return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: resumed };
+  return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: resumed, fromSave: !!saved?.ok };
 }
 
 const RESUME_KEY = "woodrail.resume";
@@ -183,41 +180,13 @@ let reports: Reporter | null = null;
 function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<typeof initialWorld>): void {
   const game = new Game(canvas, opening.world);
   let mode = opening.mode;
-  // Stations and depots never shift to take up joint play.
+  // Stations and depots never move (to take up joint play, or to close a near miss).
   const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
-  /** An editor for the world's track and props (props-only edits skip the track's work). */
-  /**
-   * Stations and depots give a little (half a square, a few degrees) from where the map put them, as wooden track
-   * does when pushed, so track closing on one needn't meet it exactly.
-   */
-  const stationGive = (id: number): Anchor | null => {
-    const land = game.landscape;
-    for (const t of land.towns) if (game.stations.get(t.id) === id) return { home: fixedHome(t.centre, t.station.heading), reach: CELL / 2, turn: GIVE_TURN };
-    for (const d of land.depots) if (game.depots.get(d.id) === id) return { home: fixedHome(d.centre, d.piece.heading), reach: CELL / 2, turn: GIVE_TURN };
-    return null;
-  };
-  /** A station or depot was nudged: the map's record of it follows, and its buildings and yard are redrawn. */
-  const stationsNudged = (ids: number[]) => {
-    const land = game.landscape;
-    const slots = new Set<number>();
-    for (const id of ids) {
-      const pose = game.layout.getPiece(id)?.pose;
-      if (!pose) continue;
-      const town = land.towns.find((t) => game.stations.get(t.id) === id);
-      const depot = land.depots.find((d) => game.depots.get(d.id) === id);
-      if (town) town.station = { ...pose };
-      if (depot) depot.piece = { ...pose };
-      const i = land.grid.cellAtWorld(pose.x, pose.z);
-      if (i !== -1) slots.add(plotSlotOf(i));
-    }
-    game.editLand([...slots]);
-    game.depotView.setWorld(game.economy, game.layout);
-  };
   /** Has the train lift's first-time tip been shown (on this device)? */
   let liftTipShown = liftTipSeen();
+  /** An editor for the world's track and props (props-only edits skip the track's work). */
   const makeEditor = () => {
-    const ed = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece, stationGive);
-    ed.onNudge = stationsNudged;
+    const ed = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece);
     ed.onTrackEdit = (ids) => {
       const id = ids.find((i) => game.layout.getPiece(i));
       if (id !== undefined) saveLastBuilt(mode, pieceCentre(game.layout, id));
@@ -235,6 +204,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // An edit, undo or redo refused: it would take up or move a train lift that's carrying a train or has one on it.
     ed.onHeld = (liftId) => {
       hud.toast(liftHeldMessage(game.sim.pieceOccupied(liftId)));
+      audio.refuse();
+    };
+    // An undo or redo refused: it would take up or move track a train is on (and derail it).
+    ed.onTrainOn = () => {
+      hud.toast(TRAIN_ON_TRACK);
       audio.refuse();
     };
     ed.onLandChange = (slots) => {
@@ -757,6 +731,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.follow(-1);
     editor = makeEditor();
     interaction.clearSelection();
+    interaction.guideHeld(null);
     hud.hideCards();
     onChange();
   }
@@ -805,7 +780,25 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function save(): void {
     if (!playing) return;
     saveToStorage(game.world, mode);
+    saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON() });
     if (mode === "game") saveProgress(progress.toJSON());
+  }
+
+  /**
+   * The world just loaded is the mode's saved one (`fromSave`): its clock, pause and Journal back as they were saved
+   * with it; else (a fresh map) they start afresh, the pause as it was.
+   */
+  function restoreSession(m: GameMode, fromSave: boolean): void {
+    const s = fromSave ? loadSession(m) : null;
+    game.simSeconds = s?.clock ?? 0;
+    if (s) journal.restore(s.journal);
+    else journal.clear();
+    if (s) {
+      game.paused = s.paused;
+      pausedBeforeTitle = s.paused;
+      hud.setPaused(s.paused);
+    }
+    goalsPanel.newsChanged();
   }
   /** False while the title is up. */
   let playing = false;
@@ -2702,6 +2695,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const guide = goal.guide(game.world);
     interaction.guideSpots = guide.marks.map((p) => ({ x: p.x, z: p.z }));
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
+    // The piece it asks for comes out of the tray the way it fits at the spot shown.
+    interaction.guideHeld(guide.held ?? null);
     if (guide.points.length > 0) {
       // The places along the screen's long side, with room round them for their surroundings (and for the goals card
       // and the tray, which cover the top and the bottom of the screen).
@@ -2771,12 +2766,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     leaving = false;
     if (fresh && next === "game") resetGoals();
     if (fresh) saveLastBuilt(next, null);
-    if (fresh) setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
-    else if (next !== mode) {
+    if (fresh) {
+      setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
+      restoreSession(next, false);
+    } else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
       if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
       setWorld(saved?.ok ? saved.value : buildStarterWorld());
+      restoreSession(next, !!saved?.ok);
     }
     enter(next);
     openingView();
@@ -3175,6 +3173,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         }),
     });
   }
+  restoreSession(mode, opening.fromSave);
   // The loading screen's toys play their entry in full before it moves on (it's short, and capped).
   void entryPlayed().then(() => {
     trayThumbnailsSaved = drawTrayThumbnails();

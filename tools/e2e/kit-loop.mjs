@@ -20,10 +20,14 @@ mkdirSync(OUT, { recursive: true });
 const started = Date.now();
 const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5352, strictPort: false }, logLevel: "error" });
 await server.listen();
-const PAGE = server.resolvedUrls.local[0];
+// The same map every run (a linked map opens straight in Sandbox): a fresh one is random, and on some there's no room
+// for the line, so the build failed now and then.
+const PAGE = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-${process.env.SEED ?? 7}`;
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const p = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+// CPU_THROTTLE=4: run the page 4× slower (as a slow phone, or a loaded machine), to shake out timing flakes.
+if (Number(process.env.CPU_THROTTLE) > 1) await (await p.context().newCDPSession(p)).send("Emulation.setCPUThrottlingRate", { rate: Number(process.env.CPU_THROTTLE) });
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 p.on("console", (m) => {
@@ -37,18 +41,32 @@ const check = (what, ok, detail = "") => {
 };
 const shot = (n) => p.screenshot({ path: `${OUT}/${n}.png`, timeout: 120000 }).catch((e) => console.log(`(no picture ${n}: ${e.message.split("\n")[0]})`));
 
-await p.goto(PAGE);
-await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => !b.hidden && b.classList.contains("primary")).click());
+// (A cold dev server, or several at once, can take a while to serve the page.)
+await p.goto(PAGE, { timeout: 240000 });
 await p.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
-await p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
+await p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 120000))]));
+
+/**
+ * Draw the scene as it now stands and wait for it to be on screen: a frame asked for (render on change draws none
+ * otherwise), drawn, and the scene still after it (a camera glide or an ease over). In place of a fixed wait, which a
+ * slow frame (the first with a new model in view can take seconds on SwiftShader) outlasts. `settle` false: just the
+ * frame (an ease held still, which draws on, never settles).
+ */
+const drawn = async (settle = true) => {
+  const f0 = await p.evaluate(() => {
+    window.woodrail.invalidate();
+    return window.woodrail.framesDrawn;
+  });
+  await p.waitForFunction((f0) => window.woodrail.framesDrawn > f0, f0, { timeout: 180000, polling: 100 });
+  if (settle) await p.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 180000))]));
+};
 
 /** Frames drawn over `s` seconds once the scene has settled. */
 const idleFrames = (s) =>
   p.evaluate(async (s) => {
     const w = window.woodrail;
     w.invalidate();
-    await Promise.race([w.settled(10), new Promise((r) => setTimeout(r, 60000))]);
+    await Promise.race([w.settled(10), new Promise((r) => setTimeout(r, 180000))]);
     await new Promise((r) => setTimeout(r, 1000));
     const f0 = w.framesDrawn;
     await new Promise((r) => setTimeout(r, s * 1000));
@@ -146,6 +164,10 @@ if (built) {
   const placed = await p.evaluate(
     ({ s1 }) => {
       const w = window.woodrail;
+      // The game's own loop paused from the start: the train moves only as it's stepped (below), so every check starts
+      // from the same place. (Running, how far it got in the waits for pictures depended on how fast frames were drawn:
+      // on a fast machine it was part way, or all the way, across the loop before the first step.)
+      w.paused = true;
       const r = w.sim.addTrain(["engine", "passenger", "passenger"], { pieceId: s1, pathIndex: 0, reversed: false, s: 200 });
       if (r.kind !== "placed") return null;
       const t = w.sim.getTrain(r.trainId);
@@ -158,7 +180,7 @@ if (built) {
   );
   check("a train on the line", !!placed);
   await p.evaluate((id) => window.woodrail.__look(id, 520), kit);
-  await p.waitForTimeout(3000);
+  await drawn();
   // The hand-off at the entry, a frame sequence (closer in): pictures at shares of the engine's way across.
   /** Step until the show at `kit` has drawn `u` of the way across (or it isn't on any more): its progress then. */
   const stepTo = (u) =>
@@ -173,13 +195,12 @@ if (built) {
   const frames = async (name, shares) => {
     for (const [i, u] of shares.entries()) {
       const at = await stepTo(u);
-      await p.evaluate(() => window.woodrail.invalidate());
-      await p.waitForTimeout(1500);
+      await drawn();
       await shot(`${name}-${i}-u${at.toFixed(3)}`);
     }
   };
   await p.evaluate((id) => window.woodrail.__look(id, 700, 1.1, 40, 20, 70), kit);
-  await p.waitForTimeout(2000);
+  await drawn();
   await frames("handoff-in", [0.005, 0.025, 0.045, 0.065, 0.085, 0.11]);
   await p.evaluate((id) => window.woodrail.__look(id, 520), kit);
   // Up to part way round the loop (the copy climbing its far side): a picture.
@@ -201,8 +222,7 @@ if (built) {
     { kit },
   );
   check("the show starts as the engine comes on: the engine goes, its copy climbs the loop", first.started >= 0 && first.hidden && !!first.copy, JSON.stringify(first));
-  await p.evaluate(() => window.woodrail.invalidate());
-  await p.waitForTimeout(3000);
+  await drawn();
   await shot("loop-mid-way");
   const top = await p.evaluate(
     ({ kit }) => {
@@ -216,12 +236,11 @@ if (built) {
     { kit },
   );
   check("the copy goes over the top upside down", !!top.copy && top.copy.upY < -0.98 && top.copy.y > 100, JSON.stringify(top));
-  await p.evaluate(() => window.woodrail.invalidate());
-  await p.waitForTimeout(3000);
+  await drawn();
   await shot("loop-top");
   // The hand-off at the exit, a frame sequence (closer in).
   await p.evaluate((id) => window.woodrail.__look(id, 700, 1.1, 40, 20, 146), kit);
-  await p.waitForTimeout(2000);
+  await drawn();
   await frames("handoff-out", [0.885, 0.905, 0.925, 0.945, 0.965, 0.99]);
   await p.evaluate((id) => window.woodrail.__look(id, 520), kit);
   // On to the end: the show ends at the far end, the engine whole again; the train comes out the far end at speed.
@@ -250,12 +269,12 @@ if (built) {
   );
   check("the show ends at the far end: no copy left, the engine whole", end.ended >= 0 && end.endedOn === after && end.copies === 0 && end.engine?.visible === true && end.engine.scale === 1, JSON.stringify(end));
   check("the train comes out the far end at speed", end.on.every((id) => id === after || id === after + 1) && end.speed >= 119);
+  // Idle frames, the kit in view: no trains; a train standing mid-show; the game paused mid-show. (Cleared before the
+  // game runs again: running on, the train would turn back at the buffer and into the loop again.)
   await p.evaluate(() => {
+    window.woodrail.__clear();
     window.woodrail.paused = false;
   });
-
-  // Idle frames, the kit in view: no trains; a train standing mid-show; the game paused mid-show.
-  await p.evaluate(() => window.woodrail.__clear());
   await p.evaluate((id) => window.woodrail.__look(id, 520), kit);
   const none = await idleFrames(IDLE_S);
   // The same with the show's hook off (as if there were no loop kit).
@@ -343,7 +362,8 @@ if (built) {
   if (target) {
     await shot("tap-copy-before");
     await p.mouse.click(target.x, target.y);
-    await p.waitForTimeout(1500);
+    // The card opens on the tap's release (a timeout here leaves the check below to say it didn't).
+    await p.waitForFunction(() => window.woodrail.hud.engineCardOpen, null, { timeout: 30000, polling: 100 }).catch(() => {});
   }
   const tapped = await p.evaluate(() => ({ open: window.woodrail.hud.engineCardOpen, selected: window.woodrail.interaction.selectedCar, engine: window.woodrail.__engine }));
   await shot("tap-copy-card");
@@ -364,8 +384,7 @@ if (built) {
   }, kit);
   check("backing up calls the show off at once (the ease still to run)", !off.running && off.busy, JSON.stringify(off));
   for (let i = 0; i < 4; i++) {
-    await p.evaluate(() => window.woodrail.invalidate());
-    await p.waitForTimeout(1500);
+    await drawn(false);
     await shot(`cancel-${i}`);
     // A tenth of a second of the ease (the train held, so it's the ease alone that moves).
     await p.evaluate(() => {

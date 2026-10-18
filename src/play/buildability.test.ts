@@ -11,9 +11,6 @@ import { play } from "./player";
  * either kind (peg or hole), 0.4 to 1.6 m apart, on flat felt. The player is a casual one: near the end it tries two
  * pieces in hand (about fifty tries), then Auto. The rate is the number to raise; the floor below is today's.
  */
-/** How far stations and depots give, as in the game (half a square, a few degrees); 0 to measure without. */
-const GIVE: number = 36;
-
 function trial(seed: number): ReturnType<typeof play> {
   const r = rng(seed);
   const layout = new Layout();
@@ -27,9 +24,8 @@ function trial(seed: number): ReturnType<typeof play> {
   const b = pieceAt(lattice(Math.cos(bearing) * dist), lattice(Math.sin(bearing) * dist), quarter());
   const from = connectorRef(a, r() < 0.5 ? 0 : 1);
   const to = connectorRef(b, r() < 0.5 ? 0 : 1);
-  const homes = new Map([a, b].map((id) => [id, { ...layout.getPiece(id)!.pose }]));
-  const give = (id: number) => (GIVE > 0 && homes.has(id) ? { home: homes.get(id)!, reach: GIVE, turn: (4 * Math.PI) / 180 } : null);
-  const editor = new Editor(layout, new Sim(layout), () => {}, (id) => id === a || id === b, give);
+  // (Stations and depots never move: the track laid to them takes up the play.)
+  const editor = new Editor(layout, new Sim(layout), () => {}, (id) => id === a || id === b);
   return play(layout, editor, from, to);
 }
 
@@ -45,7 +41,7 @@ describe("buildability (a simulated player joining two ends)", () => {
     console.log(`buildability: ${(rate * 100).toFixed(1)}% joined (${ok.length}/${N}), ${pieces.toFixed(1)} pieces on average; ${JSON.stringify(Object.fromEntries(how))}`);
     const failed = results.filter((r) => !r.ok).map((r) => ({ how: r.how, ...r.miss }));
     console.log("not joined (how it ended, distance mm, degrees from facing, ends alike):", JSON.stringify(failed.slice(0, 12)));
-    // Today's rate (90.0% for a casual player trying two pieces in hand; 86.0% if stations didn't give): it may only go up.
+    // Today's rate (91.7% for a casual player trying two pieces in hand, stations never moving): it may only go up.
     expect(rate).toBeGreaterThanOrEqual(0.88);
   }, 120_000);
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cargoDropTarget, type CargoDropInput } from "./cargo-drop";
+import { cargoDropTarget, putsBack, type CargoDropInput } from "./cargo-drop";
 
 const base: CargoDropInput = {
   kind: "log",
@@ -32,5 +32,19 @@ describe("cargoDropTarget", () => {
 
   it("never drops a unit back onto the wagon it came from", () => {
     expect(cargoDropTarget({ ...base, carId: 3, from: { kind: "car", carId: 3 }, x: 500 })).toBeNull();
+  });
+});
+
+describe("putsBack", () => {
+  it("let go by its own pile, or on the wagon it came off: put back (nothing to refuse)", () => {
+    expect(putsBack({ ...base, x: 0, z: 30 })).toBe(true);
+    expect(putsBack({ ...base, from: { kind: "car", carId: 3 }, carId: 3 })).toBe(true);
+  });
+
+  it("anywhere else (open ground, another wagon, another kind's pile): not put back, so it's refused", () => {
+    expect(putsBack({ ...base, x: 0, z: 200 })).toBe(false);
+    expect(putsBack({ ...base, from: { kind: "pile", depotId: 1, cargo: "planks" }, x: 0, z: 200 })).toBe(false);
+    expect(putsBack({ ...base, from: { kind: "car", carId: 3 }, carId: 4 })).toBe(false);
+    expect(putsBack({ ...base, from: { kind: "car", carId: 3 } })).toBe(false);
   });
 });

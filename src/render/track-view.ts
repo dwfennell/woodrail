@@ -27,6 +27,7 @@ import { BUFFER_EXTRA, buildBufferBlockGeometry, buildPieceGeometry, buildPieceS
 import type { PieceJob, PieceResult } from "./piece-worker";
 import { loadCached, saveCached } from "./piece-cache";
 import { drainQueue } from "./worker-queue";
+import { nonIndexed } from "./non-indexed";
 
 const geometryCache = new Map<string, BufferGeometry>();
 /** Selection outline colours: selected, about to join track, can't go there. */
@@ -233,7 +234,7 @@ function standIn(type: PieceTypeId, levels: number, def: PieceDef): BufferGeomet
 function onScaffolding(shown: BufferGeometry, def: PieceDef, bottom: number, top: number): BufferGeometry {
   const built = buildScaffold(def, bottom, top);
   if (!built) return shown;
-  const scaffold = shown.index ? built : built.toNonIndexed();
+  const scaffold = shown.index ? built : nonIndexed(built);
   const merged = mergeGeometries([shown, scaffold]);
   if (!merged) return shown;
   merged.clearGroups();
@@ -367,7 +368,7 @@ function switchLeverGeometry(): BufferGeometry {
   stick.translate(0, 13 + 4, 0);
   const knob = new SphereGeometry(5, 20, 14);
   knob.translate(0, 31, 0);
-  return mergeGeometries([base.toNonIndexed(), stick.toNonIndexed(), knob.toNonIndexed()].map((g) => {
+  return mergeGeometries([base, stick, knob].map(nonIndexed).map((g) => {
     g.deleteAttribute("uv");
     return g;
   }));
