@@ -219,38 +219,44 @@ const lineLoops = new WeakMap<Economy, Map<number, { key: string; has: boolean }
  * pinned, and the road it takes holds the line's longest train clear of both switches?
  */
 export function loopOnLine(economy: Economy): boolean {
+  for (const lineId of new Set(economy.lineIdOf.values())) if (loopOnLineId(economy, lineId)) return true;
+  return false;
+}
+
+/** `loopOnLine` for one line (`lineId`): can its trains cross in a passing loop on it? */
+export function loopOnLineId(economy: Economy, lineId: number): boolean {
   const { layout } = economy;
   const loops = passingLoops(layout);
   if (loops.length === 0) return false;
   let byLine = lineLoops.get(economy);
   if (!byLine) lineLoops.set(economy, (byLine = new Map()));
-  const longest = new Map<number, number>();
-  for (const [engine, lineId] of economy.lineIdOf) {
+  let longest = -1;
+  for (const [engine, id] of economy.lineIdOf) {
+    if (id !== lineId) continue;
     const found = economy.sim.findCar(engine);
-    if (found) longest.set(lineId, Math.max(longest.get(lineId) ?? 0, carsLength(found.train.cars)));
+    if (found) longest = Math.max(longest, carsLength(found.train.cars));
   }
-  for (const [lineId, len] of longest) {
-    const line = economy.lines.get(lineId);
-    if (!line) continue;
-    const stops = line.stops.map((s) => economy.depot(s.depotId)?.pieceId ?? -1).filter((p) => p !== -1 && layout.getPiece(p));
-    const pinned = loops.map((l) => (layout.isPinned(l.a) || layout.isPinned(l.b) ? 1 : 0)).join("");
-    const key = `${stops.join(",")}|${len}|${layout.revision}|${layout.routingVersion}|${pinned}`;
-    let at = byLine.get(lineId);
-    if (!at || at.key !== key) {
-      let has = false;
-      for (const leg of lineLegs(layout, stops)) {
-        if (!leg || has) continue;
-        const steps: WayStep[] = leg.map((r) => {
-          const piece = layout.getPiece(r.pieceId)!;
-          const path = getPieceDef(piece.type, piece.flipped).paths[r.pathIndex];
-          const forward = r.s1 >= r.s0;
-          return { pieceId: r.pieceId, entry: forward ? path.from : (path.to ?? -1), exit: forward ? (path.to ?? -1) : path.from, len: Math.abs(r.s1 - r.s0) };
-        });
-        has = loopRuns(layout, steps).some((run) => run.entry !== -1 && run.length >= len + STAND_SHORT + TAIL_CLEAR && !layout.isPinned(loops[run.loop].a) && !layout.isPinned(loops[run.loop].b));
-      }
-      byLine.set(lineId, (at = { key, has }));
+  if (longest < 0) return false;
+  const len = longest;
+  const line = economy.lines.get(lineId);
+  if (!line) return false;
+  const stops = line.stops.map((s) => economy.depot(s.depotId)?.pieceId ?? -1).filter((p) => p !== -1 && layout.getPiece(p));
+  const pinned = loops.map((l) => (layout.isPinned(l.a) || layout.isPinned(l.b) ? 1 : 0)).join("");
+  const key = `${stops.join(",")}|${len}|${layout.revision}|${layout.routingVersion}|${pinned}`;
+  let at = byLine.get(lineId);
+  if (!at || at.key !== key) {
+    let has = false;
+    for (const leg of lineLegs(layout, stops)) {
+      if (!leg || has) continue;
+      const steps: WayStep[] = leg.map((r) => {
+        const piece = layout.getPiece(r.pieceId)!;
+        const path = getPieceDef(piece.type, piece.flipped).paths[r.pathIndex];
+        const forward = r.s1 >= r.s0;
+        return { pieceId: r.pieceId, entry: forward ? path.from : (path.to ?? -1), exit: forward ? (path.to ?? -1) : path.from, len: Math.abs(r.s1 - r.s0) };
+      });
+      has = loopRuns(layout, steps).some((run) => run.entry !== -1 && run.length >= len + STAND_SHORT + TAIL_CLEAR && !layout.isPinned(loops[run.loop].a) && !layout.isPinned(loops[run.loop].b));
     }
-    if (at.has) return true;
+    byLine.set(lineId, (at = { key, has }));
   }
-  return false;
+  return at.has;
 }

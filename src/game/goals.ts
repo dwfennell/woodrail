@@ -1,9 +1,11 @@
 import { CELL, connectedPairs, SURF_RIVER, type LandscapeGrid } from "../landscape";
-import { getPieceDef, isBridge, type PieceTypeId } from "../track";
+import { getPieceDef, isBridge, type Layout, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
 import { workshops, workshopStock } from "./crafting";
 import { depotSpot } from "./depot-footprint";
-import { loopOnLine } from "./passing-loop";
+import { loopOnLine, loopOnLineId } from "./passing-loop";
+import { lineLegs } from "./route-path";
+import { next } from "../economy/steer";
 import { receivedBy } from "./town-life";
 import { townStatus } from "./towns";
 import type { World } from "./world";
@@ -59,6 +61,72 @@ const running = (w: World) =>
     const t = w.sim.getTrain(id);
     return t && !t.derailed && t.speed > RUNNING;
   });
+
+/** Each piece's network of joined track (an id per network), cached per layout by its revision. */
+const networks = new WeakMap<Layout, { revision: number; of: Map<number, number> }>();
+
+function networkOf(layout: Layout): Map<number, number> {
+  const hit = networks.get(layout);
+  if (hit && hit.revision === layout.revision) return hit.of;
+  const of = new Map<number, number>();
+  for (const start of layout.pieceIds()) {
+    if (of.has(start)) continue;
+    of.set(start, start);
+    const todo = [start];
+    while (todo.length > 0) {
+      const id = todo.pop()!;
+      const piece = layout.getPiece(id)!;
+      const n = getPieceDef(piece.type, piece.flipped).connectors.length;
+      for (let c = 0; c < n; c++) {
+        const to = next(layout, id, c)?.pieceId;
+        if (to !== undefined && !of.has(to)) {
+          of.set(to, start);
+          todo.push(to);
+        }
+      }
+    }
+  }
+  networks.set(layout, { revision: layout.revision, of });
+  return of;
+}
+
+/**
+ * Can two of these running trains (ids) run at once without only turning each other back: two of one line that has a
+ * passing loop its trains can cross in (as the "Lay a passing loop" goal has it), or two on separate track (on track
+ * not joined, or on different lines whose ways share no piece)?
+ */
+function canPass(w: World, ids: readonly number[]): boolean {
+  const { economy, layout } = w;
+  const net = networkOf(layout);
+  const trains = ids.map((id) => {
+    const t = w.sim.getTrain(id)!;
+    const engine = t.cars.find((c) => c.kind === "engine");
+    return { line: engine ? (economy.lineIdOf.get(engine.id) ?? -1) : -1, net: net.get(t.bogies[0]?.pieceId ?? -1) ?? -1 };
+  });
+  const ways = new Map<number, Set<number>>();
+  const wayOf = (lineId: number) => {
+    let s = ways.get(lineId);
+    if (s) return s;
+    const line = economy.lines.get(lineId);
+    s = new Set<number>();
+    if (line) for (const leg of lineLegs(layout, line.stops.map((st) => economy.depot(st.depotId)?.pieceId ?? -1).filter((p) => p >= 0))) for (const r of leg ?? []) s.add(r.pieceId);
+    ways.set(lineId, s);
+    return s;
+  };
+  for (let i = 0; i < trains.length; i++)
+    for (let j = i + 1; j < trains.length; j++) {
+      const a = trains[i];
+      const b = trains[j];
+      if (a.net !== b.net) return true;
+      if (a.line >= 0 && a.line === b.line && loopOnLineId(economy, a.line)) return true;
+      if (a.line >= 0 && b.line >= 0 && a.line !== b.line) {
+        const wa = wayOf(a.line);
+        const wb = wayOf(b.line);
+        if (wa.size > 0 && wb.size > 0 && ![...wa].some((p) => wb.has(p))) return true;
+      }
+    }
+  return false;
+}
 
 /** The towns of the largest network of track joining two or more towns (empty when no two are joined). */
 function largestNetwork(w: World): number[] {
@@ -397,11 +465,13 @@ export const GOALS: readonly Goal[] = [
     title: "Run two trains at once",
     hint: "Put a second train on your line: they pass at the loop.",
     // On one line two trains only turn each other back: this goal waits till the player can build a passing loop (two
-    // switches, learned before signals) with signals to hold one train while the other passes.
+    // switches, learned before signals) with signals to hold one train while the other passes. It ticks only for two
+    // trains that can pass: two of a line with a passing loop its trains cross in, or two on separate track.
     needs: ["signals"],
     check: (w) => {
-      const n = running(w).length;
-      return { done: n >= 2, count: Math.min(n, 2), target: 2, unit: "trains" };
+      const ids = running(w);
+      const done = ids.length >= 2 && canPass(w, ids);
+      return { done, count: done ? 2 : Math.min(ids.length, 1), target: 2, unit: "trains" };
     },
     guide: (w) => guideTrains(w, "trains"),
   },

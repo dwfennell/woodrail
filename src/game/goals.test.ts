@@ -4,6 +4,11 @@ import { connectedPairs } from "../landscape";
 import { GOALS, GoalTracker } from "./goals";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
 import { CARGO } from "../economy/cargo";
+import { Sim } from "../sim";
+import { getPieceDef } from "../track";
+import { Economy } from "../economy";
+import { editLine, joinLine } from "./lines";
+import { chain, loopOn, train as loopTrain, type World as LoopWorld } from "../economy/loop-fixtures";
 
 const goal = (id: string) => GOALS.find((g) => g.id === id)!;
 
@@ -26,7 +31,46 @@ function trainOn(w: World, pieceId: number, kinds: Parameters<World["sim"]["addT
   return w.sim.getTrain(r.trainId)!;
 }
 
+/**
+ * A line X–Y with a passing loop mid-way (or none), two trains of it running: "Run two trains at once" ticks only
+ * when they can pass (QA: it ticked the moment two ran, and new players jammed for about 5 game-minutes).
+ */
+function lineWith(loop: boolean) {
+  const layout = new Layout();
+  const [x, ...west] = chain(layout, ["depot-forest", "straight-216", "straight-216"]);
+  appendPiece(layout, "buffer-turnback", false, connectorRef(x, 0));
+  let from = connectorRef(west[1], 1);
+  if (loop) from = connectorRef(loopOn(layout, from, ["straight-216", "straight-216"], ["straight-216"]).s2, 0);
+  const east = chain(layout, ["straight-216", "straight-216", "depot-forest"], from);
+  appendPiece(layout, "buffer-turnback", false, connectorRef(east[2], 1));
+  const sim = new Sim(layout);
+  const economy = new Economy(layout, sim);
+  const dx = economy.addDepot("forest", x, 0);
+  const dy = economy.addDepot("town", east[2], 1);
+  const w = { layout, sim, economy, dx } as unknown as LoopWorld;
+  const a = loopTrain(w, west[0], true);
+  const b = loopTrain(w, east[0], false);
+  const red = editLine(economy, a, (s) => s.push(...[dx, dy].map((d) => ({ depotId: d.id, action: "auto" as const }))))!;
+  joinLine(economy, b, red.id);
+  for (const e of [a, b]) sim.findCar(e)!.train.speed = 40;
+  return { w: w as unknown as World, a, b, economy, sim };
+}
+
 describe("goals", () => {
+  it("'Run two trains at once' ticks only when two trains of a line can pass: a passing loop it crosses in", () => {
+    const none = lineWith(false);
+    expect(goal("two-trains").check(none.w)).toMatchObject({ done: false, count: 1, target: 2 });
+    const loop = lineWith(true);
+    expect(goal("two-trains").check(loop.w)).toMatchObject({ done: true, count: 2, target: 2 });
+    // A pinned switch: the loop's no passing place, so not yet.
+    const pinned = lineWith(true);
+    for (const id of pinned.w.layout.pieceIds()) {
+      const p = pinned.w.layout.getPiece(id)!;
+      if (getPieceDef(p.type, p.flipped).isSwitch) pinned.w.layout.setPinned(id, true);
+    }
+    expect(goal("two-trains").check(pinned.w).done).toBe(false);
+  });
+
   it("have unique ids, and none is done on a fresh starter map", () => {
     expect(new Set(GOALS.map((g) => g.id)).size).toBe(GOALS.length);
     const w = buildStarterWorld();
@@ -59,9 +103,15 @@ describe("goals", () => {
     expect(goal("two-trains").check(w)).toMatchObject({ done: false, count: 1 });
     second.speed = 40;
     expect(goal("station-stop").check(w).done).toBe(true);
-    expect(goal("two-trains").check(w).done).toBe(true);
+    // Two running on one stretch of track with no passing loop only turn each other back: not yet (see below).
+    expect(goal("two-trains").check(w)).toMatchObject({ done: false, count: 1 });
+    // On separate track (another, not joined to it): two at once.
+    const away = w.layout.addPiece("straight-216", { x: 40_000, z: 40_000, heading: 0 });
+    const third = trainOn(w, away);
+    third.speed = 40;
+    expect(goal("two-trains").check(w)).toMatchObject({ done: true, count: 2 });
     // A derailed train isn't running.
-    t.derailed = true;
+    third.derailed = true;
     expect(goal("two-trains").check(w).done).toBe(false);
   });
 
