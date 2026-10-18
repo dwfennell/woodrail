@@ -1081,6 +1081,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const ctx = { learned: progress.learned };
     const fresh = goals.update(game.world, ctx);
     if (fresh.length > 0) {
+      // (A goal done: its guide's markers no longer hold a piece.)
+      interaction.guideSpots = [];
       saveGoals(goals.ids());
       if (announce) {
         const titles = fresh.map((g) => g.title);
@@ -2698,6 +2700,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const goal = goals.current();
     if (!goal) return;
     const guide = goal.guide(game.world);
+    interaction.guideSpots = guide.marks.map((p) => ({ x: p.x, z: p.z }));
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
     if (guide.points.length > 0) {
       // The places along the screen's long side, with room round them for their surroundings (and for the goals card
@@ -2722,6 +2725,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   function resetGoals(): void {
+    interaction.guideSpots = [];
     progress = Progress.fresh();
     hud.setCoins(progress.coins);
     crafting.setProgress(progress);
@@ -2763,6 +2767,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Load or make the mode's world, and play. */
   function begin(next: GameMode, fresh: boolean): void {
+    interaction.guideSpots = [];
     leaving = false;
     if (fresh && next === "game") resetGoals();
     if (fresh) saveLastBuilt(next, null);

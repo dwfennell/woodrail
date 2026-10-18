@@ -91,6 +91,8 @@ function visualCentre(type: PieceTypeId, flipped: boolean, pose: Pose, geometry 
  * lifted point put a tall thing far above it close up, and a bridge under the thumb.
  */
 const TOUCH_LIFT_PX = 56;
+/** A finger this near (mm, on the ground) a guide's marker holds the piece there, not above the finger (see `guideSpots`). */
+const GUIDE_REACH = 130;
 /** A tap on touch takes a car this near it on screen (half a 44 px target): cars are small at the default zoom. */
 const TOUCH_SLACK_PX = 22;
 /** About the middle of a car's body above the rails (mm): where a finger aims at it. */
@@ -336,6 +338,12 @@ export class Interaction {
   onDepart: (() => void) | null = null;
   /** A switch was thrown (it's saved; nothing else changed). */
   onSwitched: (() => void) | null = null;
+  /**
+   * Where the current goal's guide marks a piece to go (Show me's rings), till that goal's done. A finger put on one,
+   * holding a piece on touch, holds it there: on the marker, as the player means, not floating above the finger (QA:
+   * put on the workshop's marker, it was held 46 px above it, and refused).
+   */
+  guideSpots: readonly { x: number; z: number }[] = [];
   /** Planning a train's route: a tap on another train (not at a place) ends it, here, before that train's card opens. */
   onLeavePlanning: (() => void) | null = null;
   /** Planning a train's route: a tap on a station or depot is offered here (its economy depot); true if taken. */
@@ -2777,8 +2785,9 @@ export class Interaction {
     if (m.kind === "drag-piece") {
       m.ghost.visible = !m.overTray && !!ground;
       if (!ground) return;
-      // On touch the piece floats a little above the finger so it isn't hidden.
-      const sy = this.lastPointerWasTouch ? y - TOUCH_LIFT_PX : y;
+      // On touch the piece floats a little above the finger so it isn't hidden: not with the finger on a guide's marker.
+      const onGuide = this.guideSpots.some((s) => Math.hypot(s.x - ground.x, s.z - ground.z) <= GUIDE_REACH);
+      const sy = this.lastPointerWasTouch && !onGuide ? y - TOUCH_LIFT_PX : y;
       // Where the piece would be held at a given height: under the finger as seen at that height (a raised end shows
       // well in front of the ground under it).
       // The auto straight is held, and seeks a seat, as the long straight it starts as.
