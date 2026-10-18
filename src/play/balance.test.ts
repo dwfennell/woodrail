@@ -11,7 +11,7 @@ import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { inUse, Progress } from "../game/progress";
 import { firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas, takeBlueprint, takeCrate } from "../game/rewards";
-import { learnAuto, learnWithGoods, priceOf, ready, techOf, TECHS } from "../game/tech";
+import { keepsPlanks, learnAuto, learnWithGoods, priceOf, ready, techOf, TECHS } from "../game/tech";
 import { describePrice } from "../game/blueprints";
 import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "../game/things";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
@@ -187,20 +187,14 @@ class Player {
     for (const id of learnAuto(this.progress)) this.learned(id, "came with a landmark", "free");
   }
 
-  /** The workshop keeps planks while it's short of the cheapest blueprint on the board (as the game does). */
+  /** The workshop keeps planks while it's short of the dearest blueprint ready on the board (as the game does). */
   planksKept = false;
   updatePlanksKept(): void {
     if (workshops(this.w).length === 0) {
       this.planksKept = false;
       return;
     }
-    let cheapest = Infinity;
-    for (const t of TECHS) {
-      if (!this.progress.board.has(t.id) || this.progress.learned.has(t.id) || !ready(this.progress, t.id)) continue;
-      const planks = priceOf(this.progress, t).planks ?? 0;
-      if (planks > 0) cheapest = Math.min(cheapest, planks);
-    }
-    this.planksKept = (workshopStock(this.w).planks ?? 0) < cheapest && cheapest < Infinity;
+    this.planksKept = keepsPlanks(this.progress, workshopStock(this.w).planks ?? 0);
   }
 
   level(i: number): number {

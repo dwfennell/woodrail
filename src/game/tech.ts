@@ -1,3 +1,4 @@
+import { WORKSHOP_CAP } from "../economy/economy";
 import type { Bag } from "../economy/goods";
 import { BLUEPRINTS, type Blueprint, type Need, type Price } from "./blueprints";
 import { takeFromWorkshops } from "./crafting";
@@ -77,6 +78,26 @@ export function seenOf(p: Progress, offered: ReadonlySet<string> = new Set()): M
 export function priceOf(p: Progress, t: Tech): Price {
   if (!p.learned.has("college") || !t.price.planks) return t.price;
   return { ...t.price, planks: Math.ceil(t.price.planks * 0.8) };
+}
+
+/**
+ * Planks the workshop keeps (towns don't take them from unrouted trains, which carry them on to it) until its yard
+ * holds this many: enough for the dearest blueprint ready on the board, so whichever the player picks can be paid (with
+ * only the cheapest, a 10-plank Bridges waited at 9 while an 8-plank one was ready). No more than the yard holds. 0:
+ * nothing to keep for.
+ */
+export function planksWanted(p: Progress, yardCap = WORKSHOP_CAP): number {
+  let most = 0;
+  for (const t of TECHS) {
+    if (!p.board.has(t.id) || p.learned.has(t.id) || !ready(p, t.id)) continue;
+    most = Math.max(most, priceOf(p, t).planks ?? 0);
+  }
+  return Math.min(most, yardCap);
+}
+
+/** Does the workshop keep planks now, holding `stock`? (See `planksWanted`.) */
+export function keepsPlanks(p: Progress, stock: number): boolean {
+  return stock < planksWanted(p);
 }
 
 /** The goods a price takes from the workshop's yard (planks and others; coins aside). */

@@ -3,7 +3,7 @@ import { CARGO } from "../economy/cargo";
 import { capOf } from "../economy/economy";
 import { appendPiece, connectorRef } from "../track";
 import { Progress } from "./progress";
-import { built, choose, learnWithGoods, offerFor, ready, TECHS } from "./tech";
+import { built, choose, keepsPlanks, learnWithGoods, offerFor, planksWanted, priceOf, ready, techOf, TECHS } from "./tech";
 import { THING_RULES } from "./things";
 import { buildStarterWorld, syncIndustries } from "./world";
 
@@ -58,5 +58,28 @@ describe("blueprints", () => {
     // Not on the board: can't be bought.
     d.piles[CARGO.planks.index] = 12;
     expect(learnWithGoods(w, p, "passengers")).toBe(false);
+  });
+});
+
+describe("planks kept for the workshop (no route needed)", () => {
+  it("fills to the dearest blueprint ready on the board, not the cheapest: Bridges (10) isn't left waiting at 9", () => {
+    const p = Progress.fresh();
+    p.learned.add("switches");
+    p.board.clear();
+    for (const id of ["bridges", "signals"]) p.board.add(id);
+    expect(ready(p, "signals") && ready(p, "bridges")).toBe(true);
+    expect(priceOf(p, techOf("signals")!).planks).toBe(8);
+    expect(planksWanted(p)).toBe(10);
+    expect(keepsPlanks(p, 9)).toBe(true);
+    expect(keepsPlanks(p, 10)).toBe(false);
+  });
+
+  it("never more than the yard holds, and nothing kept with nothing ready", () => {
+    const p = Progress.fresh();
+    p.board.clear();
+    expect(planksWanted(p)).toBe(0);
+    expect(keepsPlanks(p, 0)).toBe(false);
+    p.board.add("bridges");
+    expect(planksWanted(p, 6)).toBe(6);
   });
 });

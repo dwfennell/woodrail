@@ -43,7 +43,7 @@ import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice,
 import { MAX_SHEDS, SHED_CAP, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
-import { goodsOf, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
+import { goodsOf, keepsPlanks, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
@@ -1561,7 +1561,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       scheduleSave();
     });
   }
-  /** Planks kept for the workshop: it's short of what the cheapest blueprint on the board needs (worked out once a second). */
+  /** Planks kept for the workshop: it holds fewer than the dearest blueprint ready on the board needs (`planksWanted`) (worked out once a second). */
   let planksKept = false;
   const keepPlanks = (kind: string) => kind === "planks" && planksKept;
   function updatePlanksKept(): void {
@@ -1570,13 +1570,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       planksKept = false;
       return;
     }
-    let cheapest = Infinity;
-    for (const t of TECHS) {
-      if (!progress.board.has(t.id) || progress.learned.has(t.id) || !ready(progress, t.id)) continue;
-      const planks = priceOf(progress, t).planks ?? 0;
-      if (planks > 0) cheapest = Math.min(cheapest, planks);
-    }
-    planksKept = (workshopStock(game.world).planks ?? 0) < cheapest && cheapest < Infinity;
+    planksKept = keepsPlanks(progress, workshopStock(game.world).planks ?? 0);
   }
 
   setInterval(() => {
