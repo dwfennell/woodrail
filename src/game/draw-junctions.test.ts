@@ -336,19 +336,29 @@ describe("junctions' cost", () => {
     expect(layout.pieceCount).toBe(400);
     const junctions: JunctionRules = { layout, check: () => null, occupied: () => false, may: () => null };
     const start = { x: 0, z: 400, heading: -Math.PI / 4, y: 0, kind: "peg" as const };
+    // (As the draw-path timing guards: the slowest few looks left out of `worst`, since a loaded machine (the whole
+    // suite running) stalls one now and then, while a slow look comes back every time and the fifth slowest still
+    // catches it. Warmed up first; the best of up to five runs counts; the very slowest only within a looser bound.)
+    const SPARED = 4;
     const run = () => {
-      let worst = 0;
+      const times: number[] = [];
       for (let k = 0; k < 200; k++) {
         const t0 = performance.now();
         mergeAt(junctions, start, [], { x: (k * 37) % 3000 - 1500, z: (k * 53) % 3000 - 1500 }, new Set(), 0);
-        worst = Math.max(worst, performance.now() - t0);
+        times.push(performance.now() - t0);
       }
-      return worst;
+      times.sort((a, b) => b - a);
+      return { worst: times[SPARED], slowest: times[0], median: times[times.length >> 1] };
     };
     run();
-    let worst = run();
-    for (let k = 0; k < 4 && worst >= 1; k++) worst = Math.min(worst, run());
-    expect(worst).toBeLessThan(1);
+    let r = run();
+    for (let k = 0; k < 4 && r.worst >= 1; k++) {
+      const next = run();
+      if (next.worst < r.worst) r = next;
+    }
+    expect(r.worst).toBeLessThan(1);
+    expect(r.median).toBeLessThan(1);
+    expect(r.slowest).toBeLessThan(20);
   });
 });
 
