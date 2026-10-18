@@ -151,6 +151,8 @@ type Press =
   | { kind: "car"; carId: number }
   /** A switch's lever or a signal (`road`: which of a signal piece's signals, a gantry's road; else 0). */
   | { kind: "lever"; pieceId: number; road?: number }
+  /** A stop disc of the route being planned (its index in the route). */
+  | { kind: "route-stop"; index: number }
   /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
   | { kind: "piece"; pieceId: number; deck?: boolean }
   /** A depot's yard, building or crane (economy depot id). */
@@ -338,6 +340,11 @@ export class Interaction {
   onDepart: (() => void) | null = null;
   /** A switch was thrown (it's saved; nothing else changed). */
   onSwitched: (() => void) | null = null;
+  /** Planning a train's route: a tap on a station or depot is offered here (its economy depot); true if taken. */
+  onPickPlace: ((depotId: number) => boolean) | null = null;
+  /** Planning a train's route: its stop discs (the route view's group), a tap on one handed here (the stop's index). */
+  routeGroup: Object3D | null = null;
+  onTapStopDisc: ((index: number) => void) | null = null;
   /**
    * A tap on empty ground (where it landed, and where on screen): true if it was taken (then it doesn't count toward
    * a double tap).
@@ -999,7 +1006,9 @@ export class Interaction {
     if (hit && this.armed) this.arm(null);
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
     // (While picking several, any track in view can be tapped.)
-    if (hit?.kind === "piece" && !this.picking && !this.withinReach(hit.pieceId)) hit = null;
+    // (Planning a route, a station or depot is tapped from any zoom.)
+    const place = !!this.onPickPlace && hit?.kind === "piece" && !!this.game.economy.depotAtPiece(hit.pieceId);
+    if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) hit = null;
     // (In Game mode, only the player's own: lineside furniture, not the town's houses.)
     if (hit?.kind === "prop" && ((!this.propsEditable && this.game.props.get(hit.propId)?.building !== undefined) || !this.propWithinReach(hit.propId))) hit = null;
     if (hit?.kind === "road" && !this.roadWithinReach(hit.cell)) hit = null;
@@ -1013,7 +1022,8 @@ export class Interaction {
     if (!hit) {
       // Empty floor: the camera pans; a tap here deselects (but not the pieces being picked: Done lets them go), and a
       // double tap focuses on that spot.
-      if (!this.picking) {
+      // (Planning a route, the engine's card stays: Done ends it.)
+      if (!this.picking && !this.onPickPlace) {
         this.hud.hideCards();
         this.clearSelection();
       }
@@ -1283,7 +1293,8 @@ export class Interaction {
         if (this.armed) {
           this.arm(null);
           this.lastTap = null;
-        } else if (ground && this.onFloorTap?.(ground, e.clientX, e.clientY)) this.lastTap = null;
+        } else if (this.onPickPlace) this.lastTap = null;
+        else if (ground && this.onFloorTap?.(ground, e.clientX, e.clientY)) this.lastTap = null;
         else if (this.noteTap(e) && ground) this.game.director.focus(ground, 260);
       } else this.lastTap = null;
     }
@@ -1415,6 +1426,26 @@ export class Interaction {
 
   private tap(p: Press, add = false): void {
     const g = this.game;
+    if (p.kind === "route-stop") {
+      this.onTapStopDisc?.(p.index);
+      return;
+    }
+    // Planning a train's route: a station or depot tapped is a stop (see `onPickPlace`).
+    if (this.onPickPlace) {
+      // A train tapped: the station or depot it stands at (its engine's own station, the first stop of many a route).
+      const standsAt = (carId: number) => {
+        const t = g.sim.findCar(carId)?.train;
+        for (const b of t?.bogies ?? []) {
+          const d = g.economy.depotAtPiece(b.pieceId);
+          if (d) return d;
+        }
+        return undefined;
+      };
+      const depot = p.kind === "depot" ? g.economy.depot(p.depotId) : p.kind === "piece" ? g.economy.depotAtPiece(p.pieceId) : p.kind === "car" ? standsAt(p.carId) : undefined;
+      if (depot) this.onPickPlace(depot.id);
+      // Anything else tapped while planning does nothing (the engine's card stays open: Done ends planning).
+      return;
+    }
     if (p.kind === "lever") {
       this.throwLever(p.pieceId, p.road);
       return;
@@ -3681,6 +3712,9 @@ export class Interaction {
    */
   private pick(x: number, y: number, touch = false): Press | null {
     const exact = this.pickExact(x, y);
+    // (A route's stop disc floats over the cars: it wins. Planning a route, so does a station or depot tapped.)
+    if (exact?.kind === "route-stop") return exact;
+    if (this.onPickPlace && exact && (exact.kind === "depot" || (exact.kind === "piece" && this.game.economy.depotAtPiece(exact.pieceId)))) return exact;
     if (!touch || !nearCarWins(exact ? (exact.kind === "depot" && exact.footprint ? "station" : exact.kind) : null)) return this.deckOverTrain(exact, exact);
     const carId = carNearTap(x, y, this.carsOnScreen(), TOUCH_SLACK_PX);
     return this.deckOverTrain(carId !== -1 ? { kind: "car", carId } : exact, exact);
@@ -3700,6 +3734,10 @@ export class Interaction {
   private pickExact(x: number, y: number): (Press & { footprint?: boolean }) | null {
     this.setNdc(x, y);
     const g = this.game;
+    // Planning a route: its stop discs float over everything, and win.
+    if (this.routeGroup?.visible && this.onTapStopDisc) {
+      for (const h of this.raycaster.intersectObject(this.routeGroup, true)) if (h.object.userData.kind === "route-stop") return { kind: "route-stop", index: h.object.userData.index as number };
+    }
     // (The kits' group: a turntable's deck is tapped to turn it, picked as a switch's lever; a signal skin's model to
     // hold its signal. The crossings': a crossing style is its prop's.)
     const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group], true);

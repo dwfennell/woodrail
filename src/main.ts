@@ -7,7 +7,7 @@ import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { CELL, connectedPairs, fixedHome, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
-import { hasSave, loadFromStorage, loadGoals, loadProgress, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
+import { hasSave, loadFromStorage, loadGoals, loadProgress, OLDER_SAVE, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
@@ -30,10 +30,13 @@ import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
-import { nextStop, routeStops } from "./game/route-stops";
+import { routeStops } from "./game/route-stops";
+import { editLine, lineOf, moveStop } from "./game/lines";
+import { aheadRuns, legFromCursor, lineLegs } from "./game/route-path";
+import { RouteView, type DiscSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { engineStatus, trainsForReport, type CantMove } from "./game/engine-status";
-import { MAX_SHEDS, SHED_CAP, type StopAction } from "./economy";
+import { MAX_SHEDS, SHED_CAP, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { goodsOf, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
@@ -47,11 +50,12 @@ import { aOrAn, describe as describeGoods, kindsOf, minus, total, type Bag } fro
 import { costTag, trayCostTag } from "./ui/cost-tag";
 import { GOODS_ICON, type CargoKind } from "./economy/cargo";
 import { qualityFor, saveQualityOverride } from "./render/quality";
+import type { PropModel } from "./render/props/library";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { connectorRef, createWorldConnector, getPieceDef, kitOf, PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
-import type { CarKind, CarLook } from "./sim";
+import { connectorRef, createWorldConnector, getPieceDef, kitOf, PIECE_TYPES, type Anchor, type Layout, type PieceTypeId } from "./track";
+import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
@@ -81,9 +85,20 @@ const GIVE_TURN = (4 * Math.PI) / 180;
 const THUMBNAIL_BATCH = 8;
 /** How long (ms) a batch of tray pictures waits for the scene to be still before it's drawn anyway. */
 const THUMBNAIL_STILL_WAIT_MS = 1500;
+/**
+ * How long (ms) a frame may spend drawing pictures asked for on demand (a shelf's, a blueprint ticket's) before the rest
+ * wait for the next frame: a few a frame on a phone, so a ticket's fill in at once without a frame dropped for it.
+ */
+const PICTURE_BUDGET_MS = 7;
 
 /** How long (ms) an engine's status must hold before its card shows it (so it doesn't flicker between steps). */
 const STATUS_HOLD_MS = 600;
+
+/** A car's tray picture's key: its tray card's on its own, in its own look (undefined if the tray has none). */
+function carPictureKey(kind: CarKind): string | undefined {
+  const item = TRAIN_ITEMS.find((t) => t.kind === "train" && t.cars.length === 1 && t.cars[0] === kind && !t.looks?.length);
+  return item && trayKey(item);
+}
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const loading = document.querySelector<HTMLDivElement>("#loading");
@@ -98,6 +113,9 @@ function linkedSeed(): number | null {
  * The world to open with. A linked map opens in Sandbox (fresh, unless the sandbox autosave is already that map, so
  * reloading keeps your track); otherwise the last mode's autosave, or the starter map.
  */
+/** The autosave was from an older version of the game (turned away: a fresh map instead). The game says so. */
+let olderSave = false;
+
 function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean } {
   const seed = linkedSeed();
   const mode = seed !== null ? "sandbox" : loadLastMode();
@@ -105,6 +123,7 @@ function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean } {
   const resumed = takeResume() === mode;
   const saved = loadFromStorage(mode);
   if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${mode} autosave (${saved.error})`);
+  if (saved && !saved.ok && saved.error === OLDER_SAVE) olderSave = true;
   if (seed !== null) {
     const same = saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter;
     return { world: same ? saved.value : createWorld(seed), mode, linked: true };
@@ -329,7 +348,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         hud.setTrayOrientation(interaction.trayFlipped);
       },
       depotWaitFull: () => interaction.toggleDepotWaitFull(),
-      needThumbnails: (items) => drawPropThumbnails(items),
+      needThumbnails: (items) => wantPictures(items, "tray"),
       kitsShown: (items) => interaction.warmKits(items),
       landTool: (tool) => setLandTool(tool),
       sendReport: async (text) => {
@@ -388,9 +407,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Start-up's tray pictures, all drawn and saved (the e2e tests wait on it before reloading). */
   let trayThumbnailsSaved: Promise<void> = Promise.resolve();
 
-  // Catalogue models' tray pictures: drawn when their shelf is first shown, one a frame (each builds the model, if it
-  // isn't yet), then kept with the start-up pictures for the next visit.
-  const thumbQueue: string[] = [];
+  // Pictures drawn on demand: catalogue models' (a kit's, a prop's) when their shelf is first shown, and those the
+  // blueprint board's open ticket shows; then kept with the start-up pictures for the next visit. Every one's model is
+  // fetched as soon as it's asked for (all at once), and those ready are drawn as many a frame as fit in
+  // PICTURE_BUDGET_MS, the open ticket's first: the first picture of a frame waits for the graphics card (it's read
+  // back), the rest in that frame hardly at all. Nothing runs once none are waiting.
+  /** A picture asked for: by the tray, the board, or both; `ready` once its model's fetched and built. */
+  type PictureJob = { item: TrayItem; tray: boolean; board: boolean; ready: boolean; model?: PropModel | null };
+  const pictureJobs = new Map<string, PictureJob>();
+  let pictureFrame = 0;
   let studio: ThumbnailStudio | null = null;
   let thumbSaveTimer = 0;
   /**
@@ -409,44 +434,80 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.setThumbnail(key, thumbnails.get(key)!);
     board.pictureCame(key);
   }
-  function drawPropThumbnails(items: TrayItem[]): void {
-    const idle = thumbQueue.length === 0;
-    for (const item of items) {
-      // A kit piece on a catalogue shelf: its track and model, once the model's built.
-      const key = item.kind === "prop" ? item.asset : item.kind === "piece" && kitOf(item.type) ? trayKey(item) : null;
-      if (key && !thumbQueue.includes(key)) thumbQueue.push(key);
-    }
-    if (idle && thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
-  }
-  function nextThumbnail(): void {
-    const asset = thumbQueue[0];
-    if (asset === undefined) return;
-    if (asset.startsWith("piece:")) {
-      const type = asset.slice("piece:".length) as PieceTypeId;
-      void Promise.all([game.kitView.load(type), TrackView.whenBuilt(type)]).then(() => {
-        thumbQueue.shift();
-        studio ??= new ThumbnailStudio(game.renderer);
-        for (const key of drawThumbnails([{ kind: "piece", type, label: "" }], false, studio)) pictureDrawn(key);
-        saveThumbnailsSoon();
-        if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
-      });
-      return;
-    }
-    void game.propLibrary.load(asset).then((model) => {
-      thumbQueue.shift();
-      if (model) {
-        studio ??= new ThumbnailStudio(game.renderer);
-        const subject = new Group();
-        for (const part of model.parts) subject.add(new Mesh(part.geometry, part.material));
-        subject.rotation.y = -0.6;
-        const url = studio.shoot(subject);
-        const key = `prop:${asset}`;
-        thumbnails.set(key, url);
-        pictureDrawn(key);
-        saveThumbnailsSoon();
+  /**
+   * Pictures wanted by the tray (`from` "tray": added to what it asked for before) or by the board's open ticket
+   * ("board": replaces what it asked for before, so a ticket closed or left stops waiting for its own).
+   */
+  function wantPictures(items: readonly TrayItem[], from: "tray" | "board"): void {
+    if (from === "board") {
+      const keep = new Set(items.map(trayKey));
+      for (const [key, job] of pictureJobs) {
+        if (!job.board || keep.has(key)) continue;
+        job.board = false;
+        if (!job.tray) pictureJobs.delete(key);
       }
-      if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
-    });
+    }
+    for (const item of items) {
+      // A prop, a kit piece (its track and model) or a train; other pieces are drawn at start-up.
+      if (!(item.kind === "prop" || item.kind === "train" || (item.kind === "piece" && kitOf(item.type)))) continue;
+      const key = trayKey(item);
+      const url = thumbnails.get(key);
+      if (url) {
+        if (from === "tray") hud.setThumbnail(key, url);
+        continue;
+      }
+      const had = pictureJobs.get(key);
+      if (had) {
+        had[from] = true;
+        continue;
+      }
+      const job: PictureJob = { item, tray: from === "tray", board: from === "board", ready: false };
+      pictureJobs.set(key, job);
+      // Its model fetched and built now, alongside the others'.
+      const loaded: Promise<unknown> =
+        item.kind === "prop" ? game.propLibrary.load(item.asset).then((m) => (job.model = m)) : item.kind === "piece" ? Promise.all([game.kitView.load(item.type), TrackView.whenBuilt(item.type)]) : Promise.resolve();
+      loaded.then(
+        () => {
+          job.ready = true;
+          if (pictureJobs.get(key) === job) schedulePictures();
+        },
+        // Not fetched: forgotten, so asking again (the shelf or ticket shown again) retries.
+        () => {
+          if (pictureJobs.get(key) === job) pictureJobs.delete(key);
+        },
+      );
+    }
+  }
+  function schedulePictures(): void {
+    if (!pictureFrame) pictureFrame = requestAnimationFrame(drawWantedPictures);
+  }
+  /** Draw the pictures ready, the board's first, as many as fit in this frame's budget (one at least). */
+  function drawWantedPictures(): void {
+    pictureFrame = 0;
+    const start = performance.now();
+    const ready = [...pictureJobs].filter(([, j]) => j.ready).sort(([, a], [, b]) => Number(b.board) - Number(a.board));
+    let drawn = 0;
+    for (const [key, job] of ready) {
+      if (drawn > 0 && performance.now() - start > PICTURE_BUDGET_MS) break;
+      pictureJobs.delete(key);
+      drawn++;
+      studio ??= new ThumbnailStudio(game.renderer);
+      const { item } = job;
+      if (item.kind !== "prop") {
+        for (const k of drawThumbnails([item], false, studio)) pictureDrawn(k);
+        continue;
+      }
+      // (A prop whose asset doesn't exist has no picture: its blank stays.)
+      if (!job.model) continue;
+      const subject = new Group();
+      for (const part of job.model.parts) subject.add(new Mesh(part.geometry, part.material));
+      subject.rotation.y = -0.6;
+      thumbnails.set(key, studio.shoot(subject));
+      pictureDrawn(key);
+    }
+    if (drawn > 0) saveThumbnailsSoon();
+    // More ready than fitted: the rest next frame. (Those still loading schedule a frame when they're in.)
+    if (drawn < ready.length) schedulePictures();
   }
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
@@ -1191,15 +1252,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     },
     close: () => setBoardOpen(false),
     picture: (key) => thumbnails.get(key),
-    // A kit's or a prop's picture is drawn on demand, as for the tray (the rest are drawn at start-up, or with Game
-    // mode's models).
+    // A kit's, a prop's or a car's picture is drawn on demand if it isn't yet, as for the tray (the cars' and the other
+    // pieces' are drawn at start-up, or with Game mode's models), before the tray's; none once the board's shut ([]).
     needPictures: (keys) =>
-      drawPropThumbnails(
+      wantPictures(
         keys.flatMap((k): TrayItem[] => {
           if (k.startsWith("prop:")) return [{ kind: "prop", asset: k.slice(5), label: "" }];
+          if (k.startsWith("train:")) return TRAIN_ITEMS.filter((t) => trayKey(t) === k);
           const type = k.slice(6) as PieceTypeId;
           return k.startsWith("piece:") && kitOf(type) ? [{ kind: "piece", type, label: "" }] : [];
         }),
+        "board",
       ),
   });
 
@@ -1263,13 +1326,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const seen = seenOf(progress, new Set(progress.offers.flatMap((o) => o.ids)));
     const stations: Station[] = TECHS.map((t) => {
       // Pieces (kits and industries among them) and props as their tray pictures, as the tray shows them (a thing's id
-      // is its tray key); their drawings stand in till those are drawn. Cars as their drawings.
+      // is its tray key); their drawings stand in till those are drawn. A car as its tray card's picture (the car on its
+      // own, in its own look), its drawing standing in.
       const makes: Station["makes"] = unlocksOf(t.id).map((x) =>
         x.startsWith("piece:")
           ? { label: ruleOf(x)!.label, icon: pieceIcon(x.slice(6) as PieceTypeId), picture: x }
           : x.startsWith("prop:")
             ? { label: ruleOf(x)!.label, icon: `<span class="bp-pending"></span>`, picture: x }
-            : { label: ruleOf(x)!.label, icon: trainIcon([x.slice(4) as CarKind]) },
+            : { label: ruleOf(x)!.label, icon: trainIcon([x.slice(4) as CarKind]), picture: carPictureKey(x.slice(4) as CarKind) },
       );
       if (t.feature) makes.push({ label: t.feature.label, icon: `<span class="bp-feature">${t.feature.icon}</span>` });
       if (makes.length === 0) makes.push({ label: t.brings, icon: `<span class="bp-feature">✨</span>` });
@@ -1645,14 +1709,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows);
   }
 
-  // The open engine's route (both modes; Game mode once Train routes is learned): its stops in order, what it does
-  // at each (drop goods, pick them up, both), and the one it's heading for. It sets the switches itself.
+  // The open engine's line (both modes; Game mode once Train routes is learned): a colour and a name, its stops in
+  // order (the one it's heading for marked), and, a stop tapped, what to do with it. Planning, a tap on a station or
+  // depot on the map adds it (see `interaction.onPickPlace`). The economy works out what's loaded and dropped where
+  // ("auto"); Drop and Pick up are kept as overrides.
   let routeShown = "";
-  const ACTIONS: Record<StopAction, { label: string; next: StopAction; tip: string }> = {
-    both: { label: "Both", next: "drop", tip: "Drops goods this stop takes, and picks up what it gives" },
-    drop: { label: "Drop", next: "pick", tip: "Only drops goods off here" },
-    pick: { label: "Pick up", next: "both", tip: "Only picks goods up here" },
+  /** Planning the open engine's line: taps on places add them as stops. */
+  let planning = false;
+  /** The stop whose chip was tapped (its actions shown), or −1. */
+  let stopPicked = -1;
+  const INTENTS: Record<StopAction, { label: string; tip: string }> = {
+    auto: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
+    both: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
+    drop: { label: "Only drop", tip: "Only drops goods off here" },
+    pick: { label: "Only pick up", tip: "Only picks goods up here" },
   };
+  const NEXT_INTENT: Record<StopAction, StopAction> = { auto: "drop", both: "drop", drop: "pick", pick: "auto" };
   /**
    * The open engine card's live parts: what the train's doing, and which way its engine's front points on screen (the
    * way arrow follows the camera and the track). Cheap: a few lookups a frame, and the card redraws only on change.
@@ -1798,11 +1870,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (carId === -1 || !allowed) {
       if (routeShown !== "") hud.engineExtra.hidden = true;
       routeShown = "";
+      setPlanning(false);
       return;
     }
     const stops = routeStops(game.world);
+    const line = lineOf(game.economy, carId);
     const r = game.economy.routeOf(carId);
-    const key = `${carId}:${stops.length}:${r ? `${r.next}|${r.stops.map((st) => `${st.depotId}${st.action}`).join(",")}` : "-"}`;
+    const key = `${carId}:${stops.length}:${planning}:${stopPicked}:${cantReachText}:${line ? `${line.id}|${line.colour}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}`).join(",")}` : "-"}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -1810,16 +1884,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     box.hidden = stops.length === 0;
     box.classList.add("route");
     const nameOf = (id: number) => stops.find((st) => st.depotId === id)?.name ?? "?";
-    // A warehouse takes and gives the same goods: a stop there either drops off or picks up (Both reads as Drop).
-    const atWarehouse = (st: { depotId: number }) => game.economy.depot(st.depotId)?.role === "warehouse";
-    const shown = (st: { depotId: number; action: StopAction }): StopAction => (atWarehouse(st) && st.action === "both" ? "drop" : st.action);
-    const stored = (st: { depotId: number; action: StopAction }): StopAction => (atWarehouse(st) ? (shown(st) === "drop" ? "pick" : "drop") : ACTIONS[st.action].next);
-    const set = (edit: (stops: { depotId: number; action: StopAction }[]) => void) => {
-      const cur = game.economy.routeOf(carId);
-      const list = cur ? cur.stops.map((st) => ({ ...st })) : [];
-      edit(list);
-      game.economy.setRoute(carId, list.length > 0 ? { stops: list, next: Math.min(cur?.next ?? 0, list.length - 1) } : null);
+    const edit = (change: (l: RouteStopDef[]) => void) => {
+      editLine(game.economy, carId, change);
       showRoute();
+      routeChanged();
       scheduleSave();
     };
     const button = (text: string, cls: string, tip: string, onClick: () => void) => {
@@ -1834,39 +1902,244 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     head.className = "route-head";
     const label = document.createElement("span");
     label.className = "engine-extra-label";
-    label.textContent = "Route";
+    if (line) {
+      const swatch = document.createElement("i");
+      swatch.className = "route-swatch";
+      swatch.style.background = line.colour;
+      label.append(swatch, line.name);
+    } else label.textContent = "Route";
     head.append(label);
-    if (!r) {
+    if (!line && !planning) {
       const any = document.createElement("span");
       any.className = "route-none";
       any.textContent = "Goes anywhere, works at every stop";
       head.append(any);
     }
-    box.append(head);
-    (r?.stops ?? []).forEach((st, k) => {
-      const row = document.createElement("div");
-      row.className = "route-stop";
-      row.classList.toggle("next", r!.next === k);
-      const mark = document.createElement("span");
-      mark.className = "route-mark";
-      mark.textContent = r!.next === k ? "▶" : `${k + 1}`;
-      row.append(
-        mark,
-        button(nameOf(st.depotId), "route-name", "Tap to choose another stop", () => set((l) => (l[k].depotId = nextStop(routeStops(game.world), l[k].depotId)))),
-        button(ACTIONS[shown(st)].label, "route-action", ACTIONS[shown(st)].tip, () => set((l) => (l[k].action = stored(l[k])))),
-        button("✕", "route-remove", "Take this stop off the route", () => set((l) => l.splice(k, 1))),
-      );
-      box.append(row);
-    });
-    box.append(
-      button("+ Stop", "route-add", "Add a stop: the train stops only at its stops, and sets the switches on its way", () =>
-        set((l) => {
-          const used = new Set(l.map((st) => st.depotId));
-          const pick = stops.find((st) => !used.has(st.depotId)) ?? stops[0];
-          l.push({ depotId: pick.depotId, action: "both" });
-        }),
-      ),
+    head.append(
+      planning
+        ? button("Done", "route-plan on", "Finish planning the route", () => setPlanning(false))
+        : button(line ? "Edit" : "Plan a route", "route-plan", "Tap stations and depots on the map to add them as stops, in order", () => setPlanning(true)),
     );
+    box.append(head);
+    // (Only before the first stop: then the stops say it, and the card stays a slim bar over the map.)
+    if (planning && !line) {
+      const hint = document.createElement("div");
+      hint.className = "route-hint";
+      hint.textContent = "Tap stations and depots on the map, in order";
+      box.append(hint);
+    }
+    if (line) {
+      const strip = document.createElement("div");
+      strip.className = "route-stops";
+      line.stops.forEach((st, k) => {
+        const chip = button(`${r?.next === k ? "▶" : k + 1} ${nameOf(st.depotId)}`, "route-chip", "Tap for this stop's options", () => {
+          stopPicked = stopPicked === k ? -1 : k;
+          showRoute();
+        });
+        chip.classList.toggle("next", r?.next === k);
+        chip.classList.toggle("picked", stopPicked === k);
+        if (st.action === "drop" || st.action === "pick") chip.dataset.intent = st.action;
+        if (st.waitFill) chip.dataset.wait = "1";
+        chip.style.setProperty("--line", line.colour);
+        strip.append(chip);
+      });
+      box.append(strip);
+      const k = stopPicked;
+      if (k >= 0 && k < line.stops.length) {
+        const st = line.stops[k];
+        const tools = document.createElement("div");
+        tools.className = "route-tools";
+        tools.append(
+          // (A lone stop can't move; the first can't go earlier, nor the last later.)
+          ...(line.stops.length > 1
+            ? [
+                button("◀", "route-move", "Visit this stop earlier", () => edit((l) => (moveStop(l, k, k - 1), (stopPicked = Math.max(0, k - 1))))),
+                button("▶", "route-move", "Visit this stop later", () => edit((l) => (moveStop(l, k, k + 1), (stopPicked = Math.min(l.length - 1, k + 1))))),
+              ]
+            : []),
+          button(INTENTS[st.action].label, "route-action", INTENTS[st.action].tip, () => edit((l) => (l[k].action = NEXT_INTENT[l[k].action]))),
+          // (Waiting to fill means nothing where it only drops.)
+          ...(st.action === "drop"
+            ? []
+            : [
+                button(st.waitFill ? "Waits till full" : "Doesn't wait", `route-wait${st.waitFill ? " on" : ""}`, "Wait here till the wagons are full (of goods a later stop wants)", () =>
+                  edit((l) => (l[k].waitFill = !l[k].waitFill)),
+                ),
+              ]),
+          button("✕", "route-remove", "Take this stop off the route", () => edit((l) => (l.splice(k, 1), (stopPicked = -1)))),
+        );
+        const moves = tools.querySelectorAll<HTMLButtonElement>(".route-move");
+        if (moves.length === 2) {
+          moves[0].disabled = k === 0;
+          moves[1].disabled = k === line.stops.length - 1;
+        }
+        box.append(tools);
+      }
+      const why = cantReach();
+      if (why) {
+        const warn = document.createElement("div");
+        warn.className = "route-warn";
+        warn.textContent = why;
+        box.append(warn);
+      }
+    }
+  }
+
+  /** Plan the open engine's line by tapping places (on), or stop (off). */
+  function setPlanning(on: boolean): void {
+    if (planning === on) return;
+    planning = on;
+    stopPicked = -1;
+    // Planning, the map wants the room: the card slims to its route (Done and the stops), the tray goes, and the view
+    // frames the train and its line's places above the card.
+    hud.setPlanning(on);
+    if (on) requestAnimationFrame(framePlanning);
+    // A stop's disc tapped: that place again (A → B → A); a stop is taken off with its ✕ in the card.
+    interaction.onTapStopDisc = on
+      ? (index) => {
+          const carId = interaction.openEngineCarId;
+          const stops = lineOf(game.economy, carId)?.stops;
+          const depotId = stops?.[index]?.depotId;
+          if (depotId === undefined) return;
+          // (The last stop's own place again would be the same visit: its chip is picked instead.)
+          if (stops!.at(-1)?.depotId === depotId) {
+            stopPicked = stops!.length - 1;
+            showRoute();
+          } else interaction.onPickPlace?.(depotId);
+        }
+      : null;
+    interaction.onPickPlace = on
+      ? (depotId) => {
+          const carId = interaction.openEngineCarId;
+          if (carId === -1) return false;
+          editLine(game.economy, carId, (l) => {
+            // The same place twice in a row is one visit: not added again.
+            if (l.at(-1)?.depotId !== depotId) l.push({ depotId, action: "auto" });
+          });
+          showRoute();
+          routeChanged();
+          scheduleSave();
+          return true;
+        }
+      : null;
+    showRoute();
+  }
+
+  /** Frame the open engine's train and its line's places in the room above the (slimmed) card. */
+  function framePlanning(): void {
+    const carId = interaction.openEngineCarId;
+    const found = carId !== -1 ? game.sim.findCar(carId) : undefined;
+    if (!found) return;
+    const points: Vector3[] = [];
+    const w = found.train.world[2 * found.index];
+    if (w) points.push(new Vector3(w.x, 0, w.z));
+    for (const st of lineOf(game.economy, carId)?.stops ?? []) {
+      const d = game.economy.depot(st.depotId);
+      const p = d && game.layout.getPiece(d.pieceId);
+      if (p) points.push(new Vector3(p.pose.x, 0, p.pose.z));
+    }
+    // A train alone: frame a little room round it, its station and what's near.
+    if (points.length === 1) points.push(points[0].clone().add(new Vector3(250, 0, 250)), points[0].clone().add(new Vector3(-250, 0, -250)));
+    const r = game.canvas.getBoundingClientRect();
+    let top = 0;
+    for (const e of document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")) {
+      const b = e.getBoundingClientRect();
+      if (b.height > 0 && b.top < r.height / 3) top = Math.max(top, b.bottom - r.top);
+    }
+    const card = document.querySelector(".engine-card")?.getBoundingClientRect();
+    const bottom = card && card.height > 0 ? card.top - r.top : r.height;
+    const now = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
+    const fit = fitToRect(points, game.camera, now.phi, now.theta, { left: 0, top, right: r.width, bottom }, r.width, r.height, 32);
+    game.follow(-1);
+    game.director.glideTo(fit.target, Math.min(Math.max(fit.distance, 600), game.controls.maxDistance), { theta: now.theta, duration: 0.7 });
+  }
+
+  /** Why the open engine's line can't be run as it stands (a stop no track leads to), or null: see `showRibbon`. */
+  let cantReachText: string | null = null;
+  const cantReach = (): string | null => cantReachText;
+  /** The open engine's line changed (its ribbon is redrawn). */
+  const routeChanged = (): void => {
+    ribbonKey = "";
+  };
+
+  // The open engine's route on the track (see src/render/route-view.ts): its line's ribbon round all its stops, the
+  // way on from the train to the stop it's heading for, and numbered discs over the stops (one no track leads to
+  // crossed out); a train on no line shows where the switches send it, dotted. Built only when something it shows
+  // changes (the train, its line, the track, a switch, the piece the train's on): a key compared each frame.
+  let routeView: RouteView | null = null;
+  let routeLayout: Layout | null = null;
+  let ribbonKey = "";
+  /** How far ahead "where the switches send it" is drawn (mm). */
+  const AHEAD = 700;
+  function showRibbon(): void {
+    const carId = interaction.openEngineCarId;
+    const found = carId !== -1 ? game.sim.findCar(carId) : undefined;
+    if (!found || found.train.derailed) {
+      if (ribbonKey !== "") {
+        routeView?.clear();
+        ribbonKey = "";
+        cantReachText = null;
+        game.invalidate();
+      }
+      return;
+    }
+    // The way the engine's train is going (or, standing, the way its front faces).
+    const t = found.train;
+    const engine = t.cars[found.index];
+    const way = (engine.lever || 1) * engine.facing;
+    const tail = t.bogies[t.bogies.length - 1];
+    const lead = way > 0 ? t.bogies[0] : tail;
+    const line = lineOf(game.economy, carId);
+    const r = game.economy.routeOf(carId);
+    const key = `${carId}|${game.trackVersion}|${game.layout.switchesVersion}|${lead.pieceId}|${lead.reversed}|${way}|${line ? `${line.colour}|${r?.next}|${line.stops.map((st) => st.depotId).join(",")}` : "-"}`;
+    if (key === ribbonKey) return;
+    ribbonKey = key;
+    if (!routeView || routeLayout !== game.layout) {
+      if (routeView) {
+        game.scene.remove(routeView.group);
+        routeView.dispose();
+      }
+      routeView = new RouteView(game.layout, game.mats);
+      routeLayout = game.layout;
+      game.scene.add(routeView.group);
+      interaction.routeGroup = routeView.group;
+    }
+    const front: Cursor = { ...lead };
+    if (way < 0) flipCursor(game.layout, front);
+    cantReachText = null;
+    if (!line || !r) {
+      routeView.show([{ runs: aheadRuns(game.layout, front, AHEAD), colour: "#ffffff", dotted: true }], []);
+    } else {
+      const names = routeStops(game.world);
+      const pieces = line.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1);
+      const legs = lineLegs(game.layout, pieces);
+      const next = r.next % line.stops.length;
+      const toNext = pieces[next] === -1 ? null : legFromCursor(game.layout, front, pieces[next]);
+      const ribbons: RibbonSpec[] = legs.flatMap((leg) => (leg ? [{ runs: leg, colour: line.colour }] : []));
+      if (toNext) ribbons.push({ runs: toNext, colour: line.colour });
+      const n = line.stops.length;
+      // A stop is out of reach when no way leads into it (from the train, for the next; else from the stop before).
+      const unreachable = (k: number) => (k === next ? toNext === null : n > 1 && legs[(k - 1 + n) % n] === null);
+      // One disc a place: a place visited twice (A → B → A) shows both its numbers ("1·3").
+      const discs = new Map<number, DiscSpec>();
+      line.stops.forEach((_, k) => {
+        if (pieces[k] === -1) return;
+        const state = unreachable(k) ? "unreachable" : k === next ? "next" : "stop";
+        const d = discs.get(pieces[k]);
+        if (!d) discs.set(pieces[k], { pieceId: pieces[k], label: `${k + 1}`, colour: line.colour, state, stop: k });
+        else {
+          d.label += `·${k + 1}`;
+          if (state === "unreachable" || (state === "next" && d.state === "stop")) d.state = state;
+        }
+      });
+      routeView.show(ribbons, [...discs.values()]);
+      const out = line.stops.findIndex((_, k) => unreachable(k));
+      if (out !== -1) {
+        const name = names.find((st) => st.depotId === line.stops[out].depotId)?.name ?? "a stop";
+        cantReachText = `Can't reach ${name}: no track leads there`;
+      }
+    }
+    game.invalidate();
   }
 
   // The map view (Game mode): the whole land from above, with what each town wants and each depot holds.
@@ -2009,6 +2282,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
+      if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game: here's a fresh one");
       setWorld(saved?.ok ? saved.value : buildStarterWorld());
     }
     enter(next);
@@ -2041,6 +2315,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     mode = next;
     saveLastMode(mode);
     title.hide();
+    if (olderSave) {
+      olderSave = false;
+      hud.toast("Your last map was saved by an older version of the game: here's a fresh one", false, 6000);
+    }
     leaveOpening();
     // The first frames after the map appears (or changes) are slow while it settles: not a reason to draw coarser.
     game.settleResolution();
@@ -2335,6 +2613,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       goalsCheckedAt = now;
       checkGoals(true);
     }
+    showRibbon();
     showRoute();
     showEngineView();
     let derailed = false;

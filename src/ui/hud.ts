@@ -1059,6 +1059,11 @@ export class Hud {
     this.shownAngle = NaN;
   }
 
+  /** Planning a train's route: the engine card slims to its route, and the tray is put away (see style.css). */
+  setPlanning(on: boolean): void {
+    this.root.classList.toggle("planning", on);
+  }
+
   get engineCardOpen(): boolean {
     return !this.engineCard.hidden;
   }
