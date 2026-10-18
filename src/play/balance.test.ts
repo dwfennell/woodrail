@@ -145,6 +145,10 @@ class Player {
 
   attach(w: World): void {
     this.w = w;
+    // BALANCE_CROSSING=off: no crossing at all (trains of a line meet and turn back, as on main before Phase 3);
+    // =3b: crossing one stop (or loop) at a time, no block working.
+    if (ENV.BALANCE_CROSSING === "off") w.economy.crossing.enabled = false;
+    if (ENV.BALANCE_CROSSING === "3b") w.economy.crossing.blocks = false;
     this.fixed = new Set([...w.stations.values(), ...w.depots.values()]);
     this.editor = new Editor(w.layout, w.sim, () => {}, (id) => this.fixed.has(id));
     const host: TownLifeHost = Object.assign(w, { footprintOf: () => undefined, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });

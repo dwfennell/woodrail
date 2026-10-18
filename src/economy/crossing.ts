@@ -252,6 +252,8 @@ interface Ask {
   upto: number;
   stand: ReadonlySet<number> | null;
   merge: Claim | null;
+  /** Its way back: found clear in `settle`, it turns round where it stands (`backOff`). */
+  turn?: boolean;
 }
 
 interface Reservation extends Block {
@@ -583,7 +585,15 @@ export class Crossing {
       }
       // (Its card keeps what it waited for till it moves off, next tick.)
       if (a.v.wait) this.parting.set(a.engine, { wait: a.v.wait, tick: this.host.sim.ticks });
-      if (a.gate) {
+      if (a.turn) {
+        // Its way back found clear, in turn: it turns round where it stands, then asks for that way (as any train
+        // between stops with no claim). (Holding it through the turn left a station loop with three trains stuck.)
+        if (a.gate) this.gates.delete(a.engine);
+        else this.grant(a.engine, a.v, null);
+        this.reservations.delete(a.engine);
+        this.shortCalls.set(a.engine, { stop: -1, tick: this.host.sim.ticks, turned: false, pieces: new Set() });
+        this.host.sim.turnBack(train.id);
+      } else if (a.gate) {
         this.gates.delete(a.engine);
         this.reserve(a.engine, a.way, false, a.upto);
       } else this.grant(a.engine, a.v, a.way, a.upto);
@@ -660,7 +670,7 @@ export class Crossing {
       const lv = this.visitOf(s.loop);
       const later = !lv || earlier(lv, v, s.loop, engine);
       const train = host.sim.findCar(engine)?.train;
-      if (later && train && this.backOff(engine, train)) {
+      if (later && train && this.backOff(engine, train, v)) {
         v.wait = { kind: "needs-loop", lineId };
         return true;
       }
@@ -1779,13 +1789,8 @@ export class Crossing {
     }
     // Facing away from where it's going (turned back from meeting a train, say), its way runs on to the end of the line
     // to turn round there, and a train of its line stands in the way to it: it turns round where it stands instead.
-    if (this.blocking && train.speed < 1 && this.wrongWay(leg, at, s.hard)) {
-      this.shortCalls.set(engine, { stop: -1, tick: this.host.sim.ticks, turned: false, pieces: new Set() });
-      this.reservations.delete(engine);
-      this.gates.delete(engine);
-      this.host.sim.turnBack(train.id);
-      return true;
-    }
+    // (Only if its way back is clear: it turns holding it, see `backOff`.)
+    if (this.blocking && train.speed < 1 && this.wrongWay(leg, at, s.hard) && this.backOff(engine, train, g)) return true;
     return !this.waitOn(engine, lineId, now, g, s, true);
   }
 
@@ -1794,7 +1799,7 @@ export class Crossing {
    * its line's trains up to where it could next wait (a passing place, its stop, a turn at the end of the line). True if
    * it's turning.
    */
-  private backOff(engine: number, train: Train): boolean {
+  private backOff(engine: number, train: Train, v: Visit): boolean {
     const { host } = this;
     const r = host.route(engine);
     if (!r || r.stops.length === 0 || train.speed >= 1 || train.turnback >= 0 || this.shortCalls.has(engine)) return false;
@@ -1807,11 +1812,10 @@ export class Crossing {
     const upto = Math.max(1, this.uptoAfter(claims, train, 0, true));
     const s = this.scan(engine, train, claims.slice(0, upto), target, host.live(engine), newVisit(Infinity, 0, host.sim.ticks), upto === claims.length, this.standRoad(claims, upto));
     if (s.hard.length > 0) return false;
-    this.shortCalls.set(engine, { stop: -1, tick: host.sim.ticks, turned: false, pieces: new Set() });
-    this.reservations.delete(engine);
-    this.gates.delete(engine);
-    host.sim.turnBack(train.id);
-    return true;
+    // (It turns only once its way back, as far as the passing place it goes back to, is found clear in `settle`,
+    // in turn with the line's other asks.)
+    if (v.asking) return true;
+    return this.ask({ engine, v, gate: this.gates.get(engine) === v, way: oneLeg(claims, target), at: 0, upto, stand: this.standRoad(claims, upto), merge: null, turn: true });
   }
 
   /**

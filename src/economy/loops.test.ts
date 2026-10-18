@@ -575,3 +575,33 @@ describe("QA verify (crossing, Phase 3c)", { timeout: 300_000 }, () => {
       for (const e of es) expect(r.arrivals.get(e)!).toBeGreaterThan(5);
     });
 });
+
+describe("turning round mid-line (crossing, Phase 3c)", { timeout: 300_000 }, () => {
+  for (const kind of ["bare", "loopstop"] as const)
+    it(`${kind}, 3 trains: a train turns round short of a line end only with its way back clear, and claims it`, () => {
+      const { w, es } = jamWorld(kind, 3);
+      const r = runner(w, es);
+      const turns: { e: number; tick: number }[] = [];
+      const seen = new Map<number, number>();
+      let unclaimed = 0;
+      for (let i = 0; i < 10 * 60 * SIM_HZ; i++) {
+        r.step();
+        for (const e of es) {
+          const tr = w.sim.findCar(e)!.train;
+          const t = tr.lastTurn;
+          if (t?.cause === "short" && seen.get(e) !== t.tick && !w.economy.routeOf(e)!.at) {
+            seen.set(e, t.tick);
+            turns.push({ e, tick: i });
+          }
+        }
+        // Turned round mid-line: within 2 s it holds its way back.
+        for (const x of turns) if (i === x.tick + 2 * SIM_HZ && !w.economy.routeOf(x.e)!.at && w.economy.crossing.claimOf(x.e) === null) unclaimed++;
+      }
+      // (Placed as they are, a train is turned round mid-line here, at least once.)
+      expect(turns.length).toBeGreaterThan(0);
+      expect(unclaimed).toBe(0);
+      // Nothing ran into it on its way back (in the 20 s after it turned).
+      const after = r.meetings.filter((m) => turns.some((x) => m.tick > x.tick && m.tick - x.tick < 20 * SIM_HZ));
+      expect(after).toEqual([]);
+    });
+});
