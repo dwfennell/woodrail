@@ -590,10 +590,13 @@ export class Hud {
         });
       } else {
         // A crossing's style (barriers, gates) only goes on a level crossing: it says it needs a road.
-        b.title = item.kind === "prop" && crossingStyleOf(item.asset) ? `${item.label}: goes where track crosses a road` : `Drag onto the floor: ${item.label}`;
+        // A tap says so too, since a phone never shows a title.
+        const crossing = item.kind === "prop" && crossingStyleOf(item.asset);
+        const tip = crossing ? `${item.label}: goes where track crosses a road` : `Drag onto the floor: ${item.label}`;
+        b.title = tip;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move) });
+          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: crossing ? () => this.toast(tip) : undefined });
         });
       }
       if (openDef?.favourites && canFavourite(item)) {
