@@ -675,3 +675,25 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .harbour-buy { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .harbour-buy-line { flex-basis: 100%; font-size: 13px; font-weight: 700; color: #6a5340; }
 .coin-dot { display: inline-block; width: 13px; height: 13px; margin-left: 4px; vertical-align: -2px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffe08a, #e2a12b 70%); box-shadow: inset 0 0 0 1.5px #c98a1c; }
+
+/* Lines: on a train's card, its line's trains, Leave, and (on no line) the lines it could run. */
+.route-line-name { cursor: pointer; }
+.route-riders { font-weight: 600; opacity: 0.7; }
+.route-head .route-leave { padding-inline: 10px; }
+.route-join { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.route-join-line { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
+/* The Lines view: a sheet at the bottom (the tray's away), each line a row. */
+.lines-open .tray, .lines-open .tray-draw, .lines-open .tray-orient { display: none; }
+.lines-view { width: min(calc(100vw - 32px), 440px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); gap: 8px; padding: 12px; }
+.lines-head { display: flex; align-items: center; justify-content: space-between; color: #6a4a2c; }
+.lines-list { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; overflow-y: auto; }
+.lines-row { display: flex; align-items: center; gap: 10px; }
+.lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
+.lines-swatch { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 3px rgba(60, 40, 20, 0.35); cursor: pointer; padding: 0; }
+.lines-swatch.on { outline: 3px solid #3a2a1c; outline-offset: 1px; }
+.lines-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lines-name { font: inherit; font-weight: 700; color: #3a2a1c; background: transparent; border: none; border-bottom: 2px dashed rgba(106, 74, 44, 0.3); padding: 2px 0; min-width: 0; width: 100%; }
+.lines-name:focus { outline: none; border-bottom-color: #6a4a2c; background: rgba(255, 255, 255, 0.6); }
+.lines-info { font-size: 0.8em; opacity: 0.7; }
+.lines-palette { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 4px 42px; }
+.lines-none { font-size: 0.9em; opacity: 0.75; }
