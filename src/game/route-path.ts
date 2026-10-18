@@ -1,6 +1,6 @@
 import { createRouteStep, createSample, getPieceDef, pathLength, routeFrom, samplePath, TRACK_THICKNESS, type Layout } from "../track";
 import type { Cursor } from "../sim";
-import { distanceTo, next, SEARCH, wayToward, waysFrom } from "../economy/steer";
+import { distanceTo, next, SEARCH, wayToward, waysFrom, type PinnedTest } from "../economy/steer";
 
 /** A stretch of one path of one piece, from s0 to s1 along the path's own geometry (s0 > s1 when run backwards). */
 export interface PathRun {
@@ -33,14 +33,15 @@ export const runsLength = (runs: readonly PathRun[]): number => runs.reduce((t, 
  * The way a routed train goes from `start` to the middle of piece `target`, choosing at each switch as `steer` does
  * (`wayToward`, the shortest way on by `distanceTo`) and turning back at the end of a line. Null if it never gets
  * there: no way leads there, or it would go round for ever. Bounded by `SEARCH` steps; `distanceTo` is memoised per
- * call, so each (piece, entry) is searched from at most once.
+ * call, so each (piece, entry) is searched from at most once. `pinned`: which switches stay as they're set (by default the
+ * layout's pinned ones).
  */
-function walkTo(layout: Layout, start: At, target: number): Leg {
+function walkTo(layout: Layout, start: At, target: number, pinned?: PinnedTest): Leg {
   const memo = new Map<number, number>();
   const dist = (at: { pieceId: number; entry: number }) => {
     const key = at.pieceId * 8 + at.entry;
     let d = memo.get(key);
-    if (d === undefined) memo.set(key, (d = distanceTo(layout, at, target)));
+    if (d === undefined) memo.set(key, (d = distanceTo(layout, at, target, pinned)));
     return d;
   };
   const runs: PathRun[] = [];
@@ -60,7 +61,7 @@ function walkTo(layout: Layout, start: At, target: number): Leg {
     if (at.s !== end) runs.push({ pieceId: at.pieceId, pathIndex: at.pathIndex, s0: at.s, s1: end });
     const exit = at.reversed ? path.from : (path.to ?? -1);
     const n = next(layout, at.pieceId, exit);
-    const ways = n ? waysFrom(layout, n.pieceId, n.entry) : [];
+    const ways = n ? waysFrom(layout, n.pieceId, n.entry, pinned) : [];
     if (!n || ways.length === 0) {
       // The end of the line: the train comes back along this path.
       at = { pieceId: at.pieceId, pathIndex: at.pathIndex, reversed: !at.reversed, s: end };
@@ -86,8 +87,11 @@ function walkTo(layout: Layout, start: At, target: number): Leg {
   return null;
 }
 
-/** From a train's front cursor to a piece: the way a routed train would go (as steer.ts chooses), or null. */
-export function legFromCursor(layout: Layout, front: Cursor, targetPiece: number): Leg {
+/**
+ * From a train's front cursor to a piece: the way a routed train would go (as steer.ts chooses), or null. `pinned`: see
+ * `walkTo`.
+ */
+export function legFromCursor(layout: Layout, front: Cursor, targetPiece: number, pinned?: PinnedTest): Leg {
   if (!layout.getPiece(front.pieceId) || !layout.getPiece(targetPiece)) return null;
   const len = lengthOf(layout, front.pieceId, front.pathIndex);
   const s = front.reversed ? len - front.s : front.s;
@@ -96,7 +100,7 @@ export function legFromCursor(layout: Layout, front: Cursor, targetPiece: number
     const ahead = front.reversed ? s >= len / 2 : s <= len / 2;
     if (ahead) return [{ pieceId: front.pieceId, pathIndex: front.pathIndex, s0: s, s1: len / 2 }];
   }
-  return walkTo(layout, { pieceId: front.pieceId, pathIndex: front.pathIndex, reversed: front.reversed, s }, targetPiece);
+  return walkTo(layout, { pieceId: front.pieceId, pathIndex: front.pathIndex, reversed: front.reversed, s }, targetPiece, pinned);
 }
 
 /**
@@ -211,13 +215,14 @@ export function nearestAhead(layout: Layout, starts: readonly Cursor[], length: 
 /**
  * Why a stop can't be reached, where it's a pinned switch: the first pinned switch that, set the other way, would let
  * the way from `starts` reach piece `target`. −1 if none (nothing pinned, or no track leads there whatever the switches).
- * Asks a view of the layout with that one switch unpinned: the layout itself isn't touched (no version bumps).
+ * Asks the way with that one switch counted as unpinned (steer's `pinned` test): the layout itself isn't touched (no
+ * version bumps).
  */
 export function pinnedBlocking(layout: Layout, starts: readonly Cursor[], target: number): number {
   if (layout.pinnedCount === 0) return -1;
   for (const pin of layout.pinnedIds()) {
-    const view = Object.create(layout, { isPinned: { value: (id: number) => id !== pin && layout.isPinned(id) } }) as Layout;
-    if (starts.some((start) => legFromCursor(view, start, target) !== null)) return pin;
+    const test: PinnedTest = (id) => id !== pin && layout.isPinned(id);
+    if (starts.some((start) => legFromCursor(layout, start, target, test) !== null)) return pin;
   }
   return -1;
 }
