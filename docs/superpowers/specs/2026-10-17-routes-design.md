@@ -245,7 +245,8 @@ lovely version:
   - Not handled: a stop whose platform is itself on a loop road and every train calls there (they can't pass on one
     platform), and a train standing at a stop with its front over a loop's switch (it fouls the loop: they wait as in
     3a, then the 30 s release).
-- **Phase 3c (built, branch routes-blocks): block working.** Under 3b a line with no passing place, or more trains
+- **Phase 3c (built, branch routes-blocks): block working. Status: parked, 2026-10-18** (what was learned, why it's
+  parked, the open ideas and the tools: `2026-10-18-crossing-parked.md`). Under 3b a line with no passing place, or more trains
   than loops, still ended in the 30 s release and a head-on meeting. 3c claims whole blocks, as on a real single line:
   - **A passing place** is a usable passing loop as in 3b (a way through it, both switches unpinned, the road long
     enough for the train: its length plus 6 mm each end; steering can hold the train on it). A loop too short for the
