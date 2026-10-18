@@ -959,6 +959,8 @@ export class Hud {
   setHistory(canUndo: boolean, canRedo: boolean): void {
     this.undoBtn.disabled = !canUndo;
     this.redoBtn.disabled = !canRedo;
+    // (On a phone the bar shows Redo, beside Undo, only while there's something to redo: after an Undo, till an edit.)
+    this.redoBtn.classList.toggle("can-redo", canRedo);
     this.redoItem.disabled = !canRedo;
   }
 
