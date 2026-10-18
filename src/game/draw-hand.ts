@@ -3,7 +3,7 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Editor } from "../editor/editor";
-import { archFloors, bridgeLevels, CELL, cutsHills, hillsOf, inRiver, isWater, looseHeight } from "../landscape";
+import { bridgeLevels, CELL, cutsHills, hillsOf, inRiver, isWater, looseHeight } from "../landscape";
 import { dustPuff } from "../render/dust";
 import { delayed, settle } from "../render/flourishes";
 import { ghostMesh, pieceGeometry } from "../render/track-view";
@@ -43,6 +43,8 @@ function pieceName(type: PieceTypeId): string {
   return name + (name.includes("curve") ? "s" : " pieces");
 }
 
+/** The pencil line starts at the line's end if that's this close (mm) to the stroke ahead. */
+const TRAIL_JOIN = 40;
 /** The most points the pencil line ahead of the track shows. */
 const TRAIL_POINTS = 1024;
 
@@ -641,9 +643,11 @@ export class DrawHand {
       const key = `${p.type}|${p.flipped}|${p.pose.x.toFixed(1)}|${p.pose.z.toFixed(1)}|${p.pose.heading.toFixed(3)}|${p.y}|${p.blocked}`;
       if (this.ghosts[i]?.key === key) continue;
       if (this.ghosts[i]) g.scene.remove(this.ghosts[i].mesh);
-      // A bridge (or a ramp up off the ground) on its arches, as it will stand.
+      // A bridge (or a ramp up off the ground) on its arches. (Its arches all the way down: arches cut short over a
+      // hill's edge are another geometry, built on the move that needed it, up to 36 ms in QA's replay; the piece put
+      // down has them.)
       const levels = canStandOnArches(p.type) ? bridgeLevels(g.landscape, p.type, p.flipped, p.pose, p.y) : 0;
-      const floors = levels > 0 ? archFloors(g.landscape, p.type, p.flipped, p.pose, p.y, levels) : null;
+      const floors = null;
       // A ramp, let into a hill, is drawn over it (its cutting isn't made till it's put down: making it on each move
       // that changed the line's last ramp took up to 118 ms on a terrace, QA N2).
       const top = cutsHills(p.type);
@@ -665,7 +669,14 @@ export class DrawHand {
       this.trail.visible = false;
       return;
     }
-    const n = Math.min(TRAIL_POINTS, line.ahead(this.trailPoints));
+    let n = Math.min(TRAIL_POINTS, line.ahead(this.trailPoints));
+    // The pencil line is the finger's: it starts at the line's end only when that's on it (come off a river crossing,
+    // which keeps to its eighth, the line's end can be well to one side, and the pencil jogged across to it).
+    const tp = this.trailPoints;
+    if (n > 2 && Math.hypot(tp[2] - tp[0], tp[3] - tp[1]) > TRAIL_JOIN) {
+      tp.splice(0, 2);
+      n--;
+    }
     this.trail.visible = n > 1;
     if (n > 1) {
       const y = line.seenAt + 3;

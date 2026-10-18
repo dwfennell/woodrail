@@ -799,7 +799,11 @@ async function qaReplay() {
     { name: "slant -23 back", x: -36, z: -1620, h: 2.7401669256310974, total: 972, back: true, cam: [-477.8, -1432.4, 3662.2] },
     { name: "slant 10 there", x: -180, z: -1620, h: 2.5307274153917776, total: 852, back: false, cam: [-524, -1379.1, 3662.2] },
     { name: "slant 40 back (the clean case)", x: -252, z: -1620, h: 2.2689280275926285, total: 852, back: true, cam: [-522, -1298.3, 3662.2] },
-    { name: "terrace: a level up, then another", terrace: true },
+    { name: "terrace: a level up, then another", terrace: true, lanes: [0] },
+    // QA's second terrace site (heading 180°, a square a level up, then another), at QA's world line and camera (as
+    // the unit replay has it; a search for such a site found another, by the map's edge): a ramp at the first rise,
+    // and never "too sharp" on a straight stroke.
+    { name: "terrace 2: a square a level up, then another", x: -1764, z: -1620, h: Math.PI, total: 480, back: false, cam: [-2004, -1620, 3662.2], climb: true, noTurn: true },
   ];
   for (const c of cases) {
     // A fresh page for each, as QA ran them.
@@ -832,7 +836,7 @@ async function qaReplay() {
     const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
     // The terrace: QA's search (one lane) for a level up then another, at 135°.
     const run = c.terrace
-      ? await q.evaluate(() => {
+      ? await q.evaluate((lanes) => {
           const segs = [["g0", 250, 450], ["h1", 36, 200], ["h2", 72, 400]];
           const w = window.woodrail;
           const G = w.landscape.grid;
@@ -860,7 +864,7 @@ async function qaReplay() {
                 while (len < mx) {
                   const x = ox + fx * (d + len);
                   const z = oz + fz * (d + len);
-                  if (kindAt(x, z) !== kind || pcs.some((p) => Math.hypot(p.x - x, p.z - z) < 140)) break;
+                  if (lanes.some((sd) => kindAt(x - fz * sd, z + fx * sd) !== kind) || pcs.some((p) => Math.hypot(p.x - x, p.z - z) < 140)) break;
                   len += 12;
                 }
                 if (len < mn) {
@@ -872,7 +876,7 @@ async function qaReplay() {
               if (ok) return { x: ox, z: oz, h, total: d, back: false };
             }
           return null;
-        })
+        }, c.lanes)
       : c;
     if (!run) {
       check(`QA replay, ${c.name}: found its run`, false);
@@ -959,11 +963,12 @@ async function qaReplay() {
     const ms = (r) => `move worst ${r.worst.toFixed(1)} ms, p95 ${r.p95.toFixed(1)} ms`;
     const what = `${got.types.join(" ")}${got.toasts.length ? ` · toasts: ${got.toasts.join(" | ")}` : ""} · cold ${ms(got)} · warm ${ms(best)}`;
     const same = warm.every((r) => r.types.join(" ") === got.types.join(" "));
-    if (!c.terrace) {
+    if (!c.terrace && !c.climb) {
       const ok = got.types.includes("bridge") && !got.types.includes("bridge-curve") && got.ends.length === 2 && got.ends.every((y) => y <= 1);
       check(`QA replay, ${c.name}: crosses, no curved bridge, both ends on the ground`, ok, what);
     } else {
       check(`QA replay, ${c.name}: climbs (a ramp)`, got.types.includes("ramp"), what);
+      if (c.noTurn) check(`QA replay, ${c.name}: no curve, and never "too sharp"`, !got.types.some((t) => t.startsWith("curve")) && !got.toasts.some((t) => /too sharp/i.test(t)), what);
     }
     // No hitch on the moves that lay it (QA: 17.5 to 25 ms on one move each crossing; about 4 ms wanted at 1×): 16 ms
     // warm, and the cold first stroke within 50 ms (a real regression, such as a rebuild on every move, still fails).
