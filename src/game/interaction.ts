@@ -1062,9 +1062,19 @@ export class Interaction {
   }
 
   private onMove(e: PointerEvent): void {
-    // A floor press that has moved past the slop is a drag (the camera's), not a tap, wherever it's let go.
+    // A floor press that has moved past the slop is a drag (the camera's), not a tap, wherever it's let go. (Every point
+    // the pointer passed since the last event: a busy frame can't hide an out-and-back drag.)
     const f = this.floorDown;
-    if (f && f.id === e.pointerId && !f.moved && Math.hypot(e.clientX - f.x, e.clientY - f.y) >= dragSlop(e.pointerType)) f.moved = true;
+    if (f && f.id === e.pointerId && !f.moved) {
+      const slop = dragSlop(e.pointerType);
+      const pts = e.getCoalescedEvents?.() ?? [];
+      for (const p of pts.length ? pts : [e]) {
+        if (Math.hypot(p.clientX - f.x, p.clientY - f.y) >= slop) {
+          f.moved = true;
+          break;
+        }
+      }
+    }
     const m = this.mode;
     if (m.kind === "idle" && this.landCursor && e.pointerType === "mouse" && e.target === this.game.canvas) this.showSquare(this.squareAt(e.clientX, e.clientY));
     // A ready road's outline follows the mouse (not while the camera's being dragged).

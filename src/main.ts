@@ -2086,15 +2086,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         strip.append(chip);
       });
       box.append(strip);
-      // Stops beyond the edge (scrolled sideways, planning): the edge fades, as the tray's does.
+      // Stops beyond the edge (scrolled sideways): the edge fades, as the tray's does.
       const edges = () => {
         strip.classList.toggle("more-right", strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 2);
         strip.classList.toggle("more-left", strip.scrollLeft > 2);
       };
       strip.addEventListener("scroll", edges, { passive: true });
       requestAnimationFrame(() => {
-        // The picked stop (else the last, just added) scrolled into view.
-        const chip = (strip.querySelector<HTMLElement>(".route-chip.picked") ?? (planning ? strip.lastElementChild : null)) as HTMLElement | null;
+        // The picked stop (else, planning, the last, just added; else the one it's heading for) scrolled into view.
+        const chip = (strip.querySelector<HTMLElement>(".route-chip.picked") ?? (planning ? strip.lastElementChild : strip.querySelector(".route-chip.next"))) as HTMLElement | null;
         // Wholly in view, clear of the edges' fades (the strip's last chip scrolls fully to its end).
         if (chip) {
           const fade = 44;
@@ -2261,6 +2261,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     frameInRoom([...points, game.controls.target.clone()], Math.min(d, 900));
   }
 
+  /** The open engine's card shows something on the map: the engine (both ends, and its top) and those points framed in the
+   * map's room (between the bar at the top and the card), if they aren't all there now. Not zoomed in. */
+  function showWithEngine(carId: number, points: Vector3[]): void {
+    const found = carId !== -1 ? game.sim.findCar(carId) : undefined;
+    const ends = found ? [found.train.world[2 * found.index], found.train.world[2 * found.index + 1]].filter((w) => w) : [];
+    const engine = ends.flatMap((w) => [new Vector3(w.x, 0, w.z), new Vector3(w.x, ENGINE_TOP, w.z)]);
+    const all = [...engine, ...points];
+    if (all.length === 0 || inRoom(all)) return;
+    frameInRoom(all, Math.min(game.camera.position.distanceTo(game.controls.target), 900));
+  }
+  /** About how tall an engine stands (mm), to keep its top in view as well as its wheels. */
+  const ENGINE_TOP = 70;
+
   /** The front of an engine's train, the way it's going (or, standing, the way its front faces), as a cursor. */
   function trainFront(carId: number): Cursor | null {
     const found = carId !== -1 ? game.sim.findCar(carId) : undefined;
@@ -2371,12 +2384,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const ahead = aheadRuns(game.layout, front, AHEAD);
       routeView.show([{ runs: ahead, colour: "#ffffff", dotted: true }], []);
       // With the card open, the way ahead is shown, once: not left under the card (a train heading toward it).
-      const last = ahead.at(-1);
-      const end = last && pointOnPath(game.layout, last.pieceId, last.pathIndex, last.s1);
-      const train = trainSpot(carId);
-      if (!planning && nudgedFor !== carId && end && train) {
+      // (Its whole length, a point a run, not only its end: it may curve toward the card and back.)
+      const path = ahead.flatMap((run) => {
+        const p = pointOnPath(game.layout, run.pieceId, run.pathIndex, run.s1);
+        return p ? [new Vector3(p.x, p.y, p.z)] : [];
+      });
+      if (!planning && nudgedFor !== carId && path.length > 0) {
         nudgedFor = carId;
-        requestAnimationFrame(() => keepInView([train, new Vector3(end.x, end.y, end.z)]));
+        requestAnimationFrame(() => showWithEngine(carId, path));
       }
     } else {
       const names = routeStops(game.world);
@@ -2424,10 +2439,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // With the card open (not planning), the stop that can't be reached is shown, once: not left off screen or
         // under the card.
         const spot = pieceSpot(pieces[out]);
-        const train = trainSpot(carId);
-        if (!planning && nudgedFor !== carId && spot && train) {
+        if (!planning && nudgedFor !== carId && spot) {
           nudgedFor = carId;
-          requestAnimationFrame(() => keepInView([train, spot.clone().setY(spot.y + 70)]));
+          requestAnimationFrame(() => showWithEngine(carId, [spot, spot.clone().setY(spot.y + 70)]));
         }
       }
     }

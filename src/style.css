@@ -620,7 +620,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-head .route-plan { margin-left: auto; }
 .route-plan.on { background: #3c9a5f; color: #fff; }
 .route-hint { font-size: 0.85em; opacity: 0.75; }
-.route-stops { display: flex; flex-wrap: wrap; gap: 4px; position: relative; }
+.route-stops { display: flex; flex-wrap: nowrap; gap: 4px; position: relative; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.route-stops::-webkit-scrollbar { display: none; }
 .route-chip { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
 .route-chip.next { font-weight: 800; }
 .route-chip.picked { outline: 2px solid #3a2a1c; outline-offset: 1px; }
@@ -639,14 +640,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-wait.on { background: #e6b52c; }
 .route-chip[data-wait]::before { content: "⏳ "; }
 .route-warn { font-size: 0.85em; color: #b0391f; font-weight: 700; }
-/* Planning, the bar stays slim: the stops one row, scrolled sideways if they don't fit; a picked stop's tools compact. */
-.planning .route-stops { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
-.planning .route-stops::-webkit-scrollbar { display: none; }
+/* The stops one row, scrolled sideways if they don't fit (the card stays short); planning, a picked stop's tools compact. */
 .planning .route-tools { flex-wrap: nowrap; }
-.planning .route-stops.more-right { mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); }
-.planning .route-stops.more-left { mask-image: linear-gradient(90deg, transparent, #000 28px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); }
-.planning .route-stops.more-left.more-right { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); }
-.planning .route-chip, .planning .route-tools button { flex: 0 0 auto; }
+.route-stops.more-right { mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); }
+.route-stops.more-left { mask-image: linear-gradient(90deg, transparent, #000 28px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); }
+.route-stops.more-left.more-right { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); }
+.route-chip, .planning .route-tools button { flex: 0 0 auto; }
 .planning .route-tools button { padding-inline: 8px; font-size: 13px; min-width: 44px; }
 .planning .engine-extra.route { gap: 4px; }
 /* (The tray's away: the bar sits at the bottom, full width, so the map has the rest.) */
