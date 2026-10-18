@@ -2,8 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Not before the crossing work lands.** Building starts only after the crossing branches (`crossing-tip`,
-> `routes-cross`) are merged to main. Each phase then branches from main as it is.
+> **Not before the crossing work lands.** Building starts only after the crossing branches (`routes-loops`,
+> `routes-blocks` and the 3d follow-up, steer following the held claim) are merged to main. Each phase then branches from main as it is.
 
 **Goal:** Every blueprint is learned by research at a school, a depot beside a town that trains deliver goods to.
 Town growth always offers a choice of resources, never a blueprint.
