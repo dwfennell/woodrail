@@ -227,3 +227,21 @@ describe("Layout pinned switches", () => {
     expect(layout.isPinned(sw)).toBe(true);
   });
 });
+
+describe("Layout revision", () => {
+  it("goes up when a piece is added, moved, nudged or taken away, not when it's only looked at", () => {
+    const l = new Layout();
+    const seen: number[] = [l.revision];
+    const a = l.addPiece("straight-144", P(0, 0));
+    seen.push(l.revision);
+    l.getPiece(a);
+    expect(l.revision).toBe(seen.at(-1));
+    l.movePiece(a, P(10, 0), 0);
+    seen.push(l.revision);
+    l.nudgePieces(new Map([[a, P(11, 0)]]));
+    seen.push(l.revision);
+    l.removePiece(a);
+    seen.push(l.revision);
+    for (let i = 1; i < seen.length; i++) expect(seen[i]).toBeGreaterThan(seen[i - 1]);
+  });
+});

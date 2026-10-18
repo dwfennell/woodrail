@@ -305,7 +305,7 @@ export class GoalsPanel {
    * wait for blueprints (`locked` says which to learn).
    */
   show(done: number, current: Goal | null, progress: GoalProgress | null, next: Goal | null, total = GOALS.length, locked: string | null = null, lockedCount = 0): void {
-    const key = `${done}|${total}|${lockedCount}|${current?.id}|${progress?.count}|${next?.id}|${locked}`;
+    const key = `${done}|${total}|${lockedCount}|${current?.id}|${progress?.count}|${progress?.hint}|${next?.id}|${locked}`;
     if (key === this.shownKey) return;
     const fresh = this.shownKey !== "" && !this.shownKey.startsWith(`${done}|`);
     this.shownKey = key;
@@ -326,7 +326,7 @@ export class GoalsPanel {
     }
     const counted = progress?.target ? `<span class="goal-progress">${progress.count} / ${progress.target} ${progress.unit ?? ""}</span>` : "";
     this.pane.innerHTML = `
-      <div class="goal current${fresh ? " arrive" : ""}"><span class="goal-box"></span><div><b>${current.title}</b>${counted}<p>${current.hint}</p><button class="chip text goals-show" title="Show me where to do this goal">Show me</button></div></div>
+      <div class="goal current${fresh ? " arrive" : ""}"><span class="goal-box"></span><div><b>${current.title}</b>${counted}<p>${progress?.hint ?? current.hint}</p><button class="chip text goals-show" title="Show me where to do this goal">Show me</button></div></div>
       ${next ? `<div class="goal upcoming"><span class="goal-box"></span><span>${next.title}</span></div>` : lockedRow}`;
   }
 }
