@@ -71,6 +71,15 @@ export function bridgeLevels(land: Landscape, type: PieceTypeId, flipped: boolea
 }
 
 /**
+ * How many whole levels a piece at base height `y` stands above the lowest ground under its track (0 at ground level,
+ * or less than a level up): where a drawn line refused over a river can take a bridge straight on, rather than first
+ * ramping up (see `drawRefusal`).
+ */
+export function levelsOver(land: Landscape, type: PieceTypeId, flipped: boolean, pose: Pose, y: number): number {
+  return Math.max(0, Math.floor((y - groundUnder(land, type, flipped, pose)) / RISER_HEIGHT + TOL / RISER_HEIGHT));
+}
+
+/**
  * How far down each of a bridge's arch openings reaches (`ARCH_CENTRES` order), in riser heights below its base:
  * down to the highest ground under that arch, so an arch over a hill springs from the hilltop rather than running
  * down into it. (The viaduct itself still stands on the lowest ground under the deck: its foot in the hill is hidden

@@ -3,12 +3,13 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import type { Editor } from "../editor/editor";
-import { CELL, looseHeight } from "../landscape";
+import { archFloors, bridgeLevels, CELL, cutsHills, hillsOf, inRiver, isWater, looseHeight } from "../landscape";
 import { dustPuff } from "../render/dust";
 import { delayed, settle } from "../render/flourishes";
-import { ghostMesh } from "../render/track-view";
+import { ghostMesh, pieceGeometry } from "../render/track-view";
 import {
   candidatesFrom,
+  canStandOnArches,
   createWorldConnector,
   DRAW_LOOKAHEAD,
   DrawLine,
@@ -22,12 +23,14 @@ import {
   solveParentPose,
   transformPose,
   type DrawCandidate,
+  type DrawCheck,
   type DrawEnd,
   type DrawnPiece,
   type PieceTypeId,
   type Pose,
 } from "../track";
 import type { Game } from "./game";
+import { drawMessage, drawRefusal } from "./track-rules";
 import { TRACK_ITEMS } from "../ui/tray-catalogue";
 
 /** A piece's name as the tray shows it, in lower case ("long", "curve"). */
@@ -80,6 +83,8 @@ export interface DrawHooks {
 export class DrawHand {
   /** How many of each piece the line may use (Game mode: the player's stock), or null for no limit. */
   stock: ((type: PieceTypeId) => number) | null = null;
+  /** Game mode: what to say of a piece the player hasn't learned yet ("Ramp: not learned yet"), or null if they have. */
+  unlearned: ((type: PieceTypeId) => string | null) | null = null;
   private line: DrawLine | null = null;
   /** This stroke's "too sharp" (or "out of") said already. */
   private toldStalled = false;
@@ -105,6 +110,9 @@ export class DrawHand {
   /** Ghosts are a little bolder than a held piece's preview: a line is several of them, seen from further out. */
   private readonly okMat: Material;
   private readonly blockedMat: Material;
+  /** The same, drawn over whatever's in front (a ramp's ghost, inside the hill it will cut into). */
+  private readonly okTopMat: Material;
+  private readonly blockedTopMat: Material;
 
   constructor(
     private readonly game: Game,
@@ -113,6 +121,8 @@ export class DrawHand {
   ) {
     this.okMat = Object.assign(game.mats.trackGhostSnap.clone(), { opacity: 0.85 });
     this.blockedMat = Object.assign(game.mats.trackGhostBlocked.clone(), { opacity: 0.85 });
+    this.okTopMat = Object.assign(this.okMat.clone(), { depthTest: false });
+    this.blockedTopMat = Object.assign(this.blockedMat.clone(), { depthTest: false });
     // The dark edge under, then the light line: one geometry, made once for as many points as the trail can have, and
     // filled in place as the finger moves (nothing made anew on a pointer move).
     this.trailGeometry.setPositions(new Float32Array(3 * TRAIL_POINTS));
@@ -168,12 +178,13 @@ export class DrawHand {
     }
     const line = this.line;
     if (!line) return;
-    const p = this.hooks.planeAt(x, y, line.start.y);
-    if (!p) return;
+    // (Read at the height the line has got to: see `DrawLine.addSeen`.)
     const before = line.pieces.length;
+    const { p, changed } = line.addSeen((h) => this.hooks.planeAt(x, y, h));
+    if (!p) return;
     if (this.last) this.sinceGrown += Math.hypot(p.x - this.last.x, p.z - this.last.z);
     this.last = { x: p.x, z: p.z };
-    if (line.addPoint(p.x, p.z)) this.sync(line.pieces.length > before);
+    if (changed) this.sync(line.pieces.length > before);
     // (Grown or taken back: not stuck. Nor while going back over the line.)
     if (line.pieces.length !== before || line.goingBack) this.sinceGrown = 0;
     // Stuck behind the finger (a corner no piece can turn, a circle too tight, or no piece left that fits): say why,
@@ -181,7 +192,7 @@ export class DrawHand {
     const stuck = line.stalled || (this.sinceGrown > STALL_MM && !line.stopped && !line.pieces.some((q) => q.blocked));
     if (stuck && !this.toldStalled) {
       this.toldStalled = true;
-      this.hooks.toast(line.refused ? `Out of ${pieceName(line.refused)}` : "Too sharp: draw a wider bend");
+      this.hooks.toast(line.refused ? this.outOf(line.refused) : "Too sharp: draw a wider bend");
     }
     this.drawTrail();
   }
@@ -229,6 +240,53 @@ export class DrawHand {
     g.invalidate();
   }
 
+  private warmed = false;
+  /** `warm` has done all its jobs (for tests that time a first stroke). */
+  ready = false;
+
+  /**
+   * Get ready for a line meeting the river or a hill, once, a job at a time when idle (`idle`): the river's outline
+   * index (`inRiver`), and the geometry of the bridges and ramps on arches a level up. Otherwise the first stroke over
+   * the water built them on one pointer move (2 to 7 ms each in the browser, and the move that met the river 10 ms).
+   */
+  warm(idle: (f: () => void) => unknown): void {
+    if (this.warmed) return;
+    this.warmed = true;
+    const g = this.game;
+    const jobs: (() => void)[] = [
+      () => {
+        const grid = g.landscape.grid;
+        for (let i = 0; i < grid.cellCount; i++)
+          if (isWater(grid.surface[i])) {
+            inRiver(grid, grid.centreX(grid.colOf(i)), grid.centreZ(grid.rowOf(i)));
+            return;
+          }
+      },
+      // A crossing's pieces: a ramp up and down (on the ground, and on arches a level up), bridges a level or two up.
+      // (A ramp down, flipped, was built on the move that laid it: 18 to 28 ms in QA's replay.)
+      ...(
+        [
+          ["ramp", false, 0],
+          ["ramp", true, 0],
+          ["bridge", false, 1],
+          ["ramp", false, 1],
+          ["ramp", true, 1],
+          ["bridge", false, 2],
+        ] as const
+      ).map(([type, flipped, levels]) => () => void pieceGeometry(type, flipped, levels)),
+    ];
+    const next = () => {
+      const job = jobs.shift();
+      if (!job) {
+        this.ready = true;
+        return;
+      }
+      job();
+      idle(next);
+    };
+    idle(next);
+  }
+
   /** Is there a free end of track near screen point (x, y) to draw on from? */
   nearFreeEnd(x: number, y: number): boolean {
     return this.freeEndAt(x, y) !== null;
@@ -243,25 +301,36 @@ export class DrawHand {
     this.toldStalled = false;
     this.sinceGrown = 0;
     this.last = null;
+    const hills = hillsOf(this.game.landscape.grid);
     this.line = new DrawLine(end, {
       check: (c, line) => this.check(c, line),
       allow: this.stock ? (type, line) => line.filter((p) => p.type === type).length < this.stock!(type) : undefined,
       meet: (e) => this.meet(e),
       closes: (e) => this.closes(e),
+      groundAt: (x, z) => hills.groundAt(x, z),
+      wet: (x, z) => inRiver(this.game.landscape.grid, x, z),
+      onMap: (x, z) => this.game.landscape.grid.cellAtWorld(x, z) !== -1,
+      outOf: (type) => this.outOf(type),
     });
+  }
+
+  /** What to say of a piece the line needed and the player has none of: not learned yet, or none left in the box. */
+  private outOf(type: PieceTypeId): string {
+    return this.unlearned?.(type) ?? `Out of ${pieceName(type)}`;
   }
 
   /**
    * May a drawn piece go here: on the land and clear of other track (the line's own pieces too), resting on what's
-   * under it? Null, or why not (as the toast says it).
+   * under it? Null, or why not: the reason code (so the line can tell a hill from a river, see `drawRefusal`) and the
+   * message, as the toast says it.
    */
-  private check(c: DrawCandidate, line: readonly DrawnPiece[]): string | null {
+  private check(c: DrawCandidate, line: readonly DrawnPiece[]): DrawCheck | null {
     const { reason, risers } = this.hooks.placement(c.type, c.flipped, c.pose, c.y);
-    // A drawn line stays at its height: no risers are put in under it.
-    const why = reason ?? (risers.length > 0 ? "unsupported" : null);
-    if (why) return this.hooks.message(why);
+    // A drawn line puts in no risers under it: needing them is "unsupported".
+    const why = drawRefusal(this.game.landscape, c.type, c.flipped, c.pose, c.y, reason, risers);
+    if (why) return { reason: why.reason, message: drawMessage(why.reason, why.levels, this.hooks.message), levels: why.levels };
     this.syncOwn(line);
-    if (findOverlap(this.own, c.type, c.flipped, c.pose, c.y, -1) !== -1) return "The line would cross itself";
+    if (findOverlap(this.own, c.type, c.flipped, c.pose, c.y, -1) !== -1) return { reason: "self", message: "The line would cross itself" };
     return null;
   }
 
@@ -368,10 +437,16 @@ export class DrawHand {
     let i = 0;
     for (; i < pieces.length; i++) {
       const p = pieces[i];
-      const key = `${p.type}|${p.flipped}|${p.pose.x.toFixed(1)}|${p.pose.z.toFixed(1)}|${p.pose.heading.toFixed(3)}|${p.blocked}`;
+      const key = `${p.type}|${p.flipped}|${p.pose.x.toFixed(1)}|${p.pose.z.toFixed(1)}|${p.pose.heading.toFixed(3)}|${p.y}|${p.blocked}`;
       if (this.ghosts[i]?.key === key) continue;
       if (this.ghosts[i]) g.scene.remove(this.ghosts[i].mesh);
-      const mesh = ghostMesh(p.type, p.flipped, p.blocked ? this.blockedMat : this.okMat);
+      // A bridge (or a ramp up off the ground) on its arches, as it will stand.
+      const levels = canStandOnArches(p.type) ? bridgeLevels(g.landscape, p.type, p.flipped, p.pose, p.y) : 0;
+      const floors = levels > 0 ? archFloors(g.landscape, p.type, p.flipped, p.pose, p.y, levels) : null;
+      // A ramp, let into a hill, is drawn over it (its cutting isn't made till it's put down: making it on each move
+      // that changed the line's last ramp took up to 118 ms on a terrace, QA N2).
+      const top = cutsHills(p.type);
+      const mesh = ghostMesh(p.type, p.flipped, p.blocked ? (top ? this.blockedTopMat : this.blockedMat) : top ? this.okTopMat : this.okMat, levels, floors);
       mesh.matrixAutoUpdate = false;
       mesh.matrix.makeRotationY(-p.pose.heading);
       mesh.matrix.setPosition(p.pose.x, p.y + 1, p.pose.z);
@@ -392,7 +467,7 @@ export class DrawHand {
     const n = Math.min(TRAIL_POINTS, line.ahead(this.trailPoints));
     this.trail.visible = n > 1;
     if (n > 1) {
-      const y = line.start.y + 3;
+      const y = line.seenAt + 3;
       const a = this.trailSegments.array as Float32Array;
       const pts = this.trailPoints;
       for (let i = 0; i + 1 < n; i++) {
