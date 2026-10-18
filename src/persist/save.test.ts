@@ -247,6 +247,30 @@ describe("save format", () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.sim.trainCount).toBe(0);
   });
+
+  it("round-trips pinned switches; a save without them loads with none", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const sw = appendPiece(world.layout, "switch", false, connectorRef(station, 1));
+    world.layout.setSwitchState(sw, 1);
+    world.layout.setPinned(sw, true);
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    expect(data.pinned).toEqual([sw]);
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.layout.isPinned(sw)).toBe(true);
+    expect(r.value.layout.switchState(sw)).toBe(1);
+    // An older save (no field): loads, nothing pinned; and nothing pinned saves no field.
+    delete data.pinned;
+    const old = deserializeWorld(data);
+    expect(old.ok).toBe(true);
+    if (!old.ok) return;
+    expect(old.value.layout.isPinned(sw)).toBe(false);
+    expect(old.value.layout.pinnedCount).toBe(0);
+    expect("pinned" in serializeWorld(old.value)).toBe(false);
+  });
 });
 
 describe("station binding", () => {
