@@ -6,6 +6,7 @@ import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 import { roadIcon } from "./road-icons";
 import { isKit } from "../track";
+import { crossingStyleOf } from "../landscape/crossing-styles";
 import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, shownGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 import { loadFavourites, saveFavourites } from "./prefs";
 
@@ -588,7 +589,8 @@ export class Hud {
           this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: () => this.handlers.trayTap(item) });
         });
       } else {
-        b.title = `Drag onto the floor: ${item.label}`;
+        // A crossing's style (barriers, gates) only goes on a level crossing: it says it needs a road.
+        b.title = item.kind === "prop" && crossingStyleOf(item.asset) ? `${item.label}: goes where track crosses a road` : `Drag onto the floor: ${item.label}`;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
           this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move) });
