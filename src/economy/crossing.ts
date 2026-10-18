@@ -879,13 +879,16 @@ export class Crossing {
     if (res && !res.free && res.trainId !== train.id && t && t.cause !== "train" && t.tick >= res.made && this.frontIndex(res.claims, train, res.from) !== -1) res.trainId = train.id;
     const turned = !!res && train.turnback < 0 && t?.cause === "train" && t.tick >= res.made;
     // (Let go and turned back from meeting a train since: its way is worked out again, so it doesn't bounce for ever.)
-    const stale = !!res && (res.trainId !== train.id || turned || (!res.free && (res.revision !== layout.revision || res.routing !== layout.routingVersion || !res.targets.includes(target))));
+    // (Turned round since, any way (the end of open track, a buffer), and no longer facing along its claim: its way is
+    // worked out again from its tail, so it never runs back over track it holds the other way.)
+    const faced = !!res && !res.free && !r.at && !turned && train.turnback < 0 && !!t && t.tick >= res.made && this.frontIndex(res.claims, train, res.from) === -1;
+    const stale = !!res && (res.trainId !== train.id || turned || faced || (!res.free && (res.revision !== layout.revision || res.routing !== layout.routingVersion || !res.targets.includes(target))));
     // (Kept at a stop inside its block, not yet sent on from it: it asks afresh there.)
     if (res && stale && r.at && !this.visits.get(engine)?.granted) {
       this.reservations.delete(engine);
       return null;
     }
-    const relegs = (): Reservation => this.releg(engine, train, target < 0 ? null : this.wayFrom(engine, train, r, live(), !!r.at, res && !res.free ? res : null, (leg) => (r.at ? 0 : Math.max(0, this.frontIndex(leg, train, 0)))), live, turned && this.blocking);
+    const relegs = (): Reservation => this.releg(engine, train, target < 0 ? null : this.wayFrom(engine, train, r, live(), !!r.at, res && !res.free ? res : null, (leg) => (r.at ? 0 : Math.max(0, this.frontIndex(leg, train, 0)))), live, (turned || faced) && this.blocking);
     if (!res || stale) {
       res = relegs();
       if (turned) res.made = sim.ticks + 1;
@@ -1545,11 +1548,16 @@ export class Crossing {
     };
     const way: Block = this.wayFrom(engine, train, r, live, false, res, standAt) ?? res;
     const leg = way.claims;
-    const at = standAt(leg);
+    let at = standAt(leg);
     if (at >= leg.length) {
-      this.gates.delete(engine);
-      this.reserve(engine, way, false, leg.length);
-      return true;
+      // (With blocks, its stand not found on its way afresh: what's ahead of it is asked for like any block, never
+      // just taken.)
+      if (this.blocking && leg.length > 0) at = Math.min(leg.length - 1, Math.max(0, this.frontIndex(leg, train, 0)));
+      else {
+        this.gates.delete(engine);
+        this.reserve(engine, way, false, leg.length);
+        return true;
+      }
     }
     const upto = this.uptoAfter(leg, train, at, true);
     const stand = this.standRoad(leg, upto);
