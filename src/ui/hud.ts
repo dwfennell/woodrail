@@ -737,13 +737,15 @@ export class Hud {
       <div class="help-card">
         <h2>Welcome to Woodrail</h2>
         <div class="tips">
-          <div class="tip"><span class="tip-art art-build"></span><b>Build</b><span>Tap a shelf in the tray, then drag a piece out. Pegs click into holes when they're close.</span></div>
+          <div class="tip"><span class="tip-art art-build"></span><b>Build</b><span>Tap a shelf in the tray, then drag a piece out. Or tap ✎ Draw and draw a line of track with a finger.</span></div>
           <div class="tip"><span class="tip-art art-run"></span><b>Run</b><span>Drop a train on the track and tap the engine to set it going.</span></div>
           <div class="tip"><span class="tip-art art-look"></span><b>Look around</b><span>Drag to pan, pinch or scroll to zoom, double-tap to take a closer look.</span></div>
         </div>
+        <p class="help-goals"><b>Goals</b> at the top say what to do next: tap <b>Show me</b> to see where.</p>
         <details class="more-help">
           <summary>More help</summary>
           <ul>
+            <li><b>Pegs</b> click into holes when they're close.</li>
             <li><b>Edit:</b> tap a piece to rotate, flip or delete it. Drag it to move it; drop it on the tray to put it away.</li>
             <li><b>Switches:</b> tap the yellow lever to change the points.</li>
             <li><b>Towns:</b> join two stations with track to connect their towns.</li>
@@ -902,6 +904,9 @@ export class Hud {
     this.modeTag.className = `mode-tag mode-${mode}`;
     for (const b of this.sandboxItems) b.hidden = mode !== "sandbox";
     for (const b of this.gameItems) b.hidden = mode !== "game";
+    // (The help's line about goals: only Game has them.)
+    const goalsHelp = this.help.querySelector<HTMLElement>(".help-goals");
+    if (goalsHelp) goalsHelp.hidden = mode !== "game";
     this.mapBtn.hidden = mode !== "game";
     this.boardBtn.hidden = mode !== "game";
   }

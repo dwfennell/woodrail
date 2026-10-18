@@ -349,7 +349,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         openingView();
       },
       toggleExpand: () => setExpanding(!expanding),
-      toggleMap: () => (mapView.open ? closeMap(true) : openMap()),
+      toggleMap: () => (mapView.open ? closeMap(true, true) : openMap()),
       toggleBoard: () => setBoardOpen(!board.open),
       buyLand: () => buyLand(),
       newGame: () => newGame(),
@@ -844,6 +844,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.paused = true;
     loading?.classList.add("behind-title");
     title.root.classList.add("over-opening");
+    // (Its cards wait unseen, and can't be pressed, till they're placed: moved under a finger, a tap on Continue
+    // ended on the card round it and did nothing (QA).)
+    title.root.classList.add("placing");
     title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") });
     // Of the loading screen's toys, just the train stays, right where it is, under the name: the cards come in below it.
     toys?.showTrainOnly();
@@ -876,6 +879,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         const cards = title.root.querySelector<HTMLElement>(".title-cards");
         if (!name || !canvas || !span || !cards) {
           title.root.style.paddingTop = `${Math.round(innerHeight * 0.4)}px`;
+          title.root.classList.remove("placing");
           return;
         }
         // Where they'd be unmoved.
@@ -900,6 +904,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         }
         canvas.style.opacity = withTrain ? "" : "0";
         title.root.style.paddingTop = `${Math.round(top + n.height + gap + trainSlot)}px`;
+        title.root.classList.remove("placing");
       }),
     );
   }
@@ -924,7 +929,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function leaveOpening(): void {
     if (!overOpening) return;
     overOpening = false;
-    title.root.classList.remove("over-opening");
+    title.root.classList.remove("over-opening", "placing");
     title.root.style.paddingTop = "";
     dismissLoading();
     removeEventListener("resize", refreshToys);
@@ -2184,14 +2189,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /** Plan the open engine's line by tapping places (on), or stop (off). */
-  function setPlanning(on: boolean): void {
+  function setPlanning(on: boolean, frame = true): void {
     if (planning === on) return;
     planning = on;
     stopPicked = -1;
     // Planning, the map wants the room: the card slims to its route (Done and the stops), the tray goes, and the view
-    // frames the train and its line's places above the card.
+    // frames the train and its line's places above the card (not when it goes on after the map: see `openMap`).
     hud.setPlanning(on);
-    if (on) requestAnimationFrame(framePlanning);
+    if (on && frame) requestAnimationFrame(framePlanning);
     // A stop's disc tapped: that place again (A → B → A); a stop is taken off with its ✕ in the card.
     interaction.onTapStopDisc = on
       ? (index) => {
@@ -2206,6 +2211,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           } else interaction.onPickPlace?.(depotId);
         }
       : null;
+    interaction.onLeavePlanning = on ? () => setPlanning(false) : null;
     interaction.onPickPlace = on
       ? (depotId) => {
           const carId = interaction.openEngineCarId;
@@ -2253,16 +2259,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * Glide the view to show `points` in the map's room (above the card), at the camera's angle, `minDistance` to
    * `maxDistance` mm away (the furthest of `points`, last, are left out where they'd need it further).
    */
-  function frameInRoom(points: Vector3[], minDistance: number, maxDistance = game.controls.maxDistance): void {
+  function frameInRoom(points: Vector3[], minDistance: number, maxDistance = game.controls.maxDistance, mustShow = 0): void {
     const room = mapRoom();
     const now = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
     const fitOf = (ps: Vector3[]) => fitToRect(ps, game.camera, now.phi, now.theta, { left: 0, top: room.top, right: room.width, bottom: room.bottom }, room.width, room.height, 32);
-    // Too far out to show them all: the last (furthest) points go, down to the first two, so what's shown is near.
+    // Too far out to show them all: the last (furthest) points go, down to the first two, so what's shown is near. The
+    // first `mustShow` never go: they're shown however far out that takes (a line's stops: QA, planning zoomed in on
+    // the train and left them off screen).
     let shown = points;
     let fit = fitOf(shown);
-    while (fit.distance > maxDistance && shown.length > 2) fit = fitOf((shown = shown.slice(0, -1)));
+    while (fit.distance > maxDistance && shown.length > Math.max(2, mustShow)) fit = fitOf((shown = shown.slice(0, -1)));
+    const cap = mustShow > 0 && shown.length <= mustShow ? Math.max(maxDistance, fit.distance) : maxDistance;
     game.follow(-1);
-    game.director.glideTo(fit.target, Math.min(Math.max(fit.distance, minDistance), maxDistance, game.controls.maxDistance), { theta: now.theta, duration: 0.7 });
+    game.director.glideTo(fit.target, Math.min(Math.max(fit.distance, minDistance), cap, game.controls.maxDistance), { theta: now.theta, duration: 0.7 });
   }
 
   /** Are these points on screen in the map's room (with a margin), as the camera is now? */
@@ -2342,10 +2351,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       .filter((p): p is Vector3 => !!p && p.distanceTo(train) > 1)
       .sort((a, b) => a.distanceTo(train) - b.distanceTo(train))
       .filter((p, k) => k < NEAR_MIN || (k < NEAR_COUNT && p.distanceTo(train) <= NEAR_PLACES));
+    // The train and its line's stops are always shown; starting a line, the nearest two places too (somewhere to tap).
+    const must = points.length + (points.length === 1 ? Math.min(NEAR_MIN, near.length) : 0);
     points.push(...near);
     // Nothing near: a little room round the train.
     if (points.length === 1) points.push(train.clone().add(new Vector3(250, 0, 250)), train.clone().add(new Vector3(-250, 0, -250)));
-    frameInRoom(points, 600, FRAME_MAX);
+    frameInRoom(points, 600, FRAME_MAX, must);
   }
 
   /** Why the open engine's line can't be run as it stands (a stop no track leads to), or null: see `showRibbon`. */
@@ -2583,12 +2594,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   // The map view (Game mode): the whole land from above, with what each town wants and each depot holds.
-  const mapView = new MapView(hud.root, { go: (m) => goToMarker(m), close: () => closeMap(true) });
+  const mapView = new MapView(hud.root, { go: (m) => goToMarker(m), close: () => closeMap(true, true) });
   /** Where the camera was before the map opened, to go back to. */
   let mapReturn: { target: Vector3; distance: number; phi: number; theta: number } | null = null;
   let mapRefreshedAt = 0;
 
+  /** Planning a route when the map opened: the engine, so planning goes on when it closes (−1 if not). */
+  let planAfterMap = -1;
   function openMap(): void {
+    // The map is how to find a far place while planning (the hint says to tap places on the map): planning waits.
+    planAfterMap = planning ? interaction.openEngineCarId : -1;
     closeLines();
     if (expanding) setExpanding(false);
     if (board.open) setBoardOpen(false);
@@ -2609,7 +2624,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /** Close the map; `back` glides to where the camera was. */
-  function closeMap(back: boolean): void {
+  function closeMap(back: boolean, resume = false): void {
     if (!mapView.open) return;
     mapView.setOpen(false);
     hud.setMapOpen(false);
@@ -2619,10 +2634,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     mapReturn = null;
     game.invalidate();
+    // Back to planning, the engine's card (its bar) as it was; the view where the map left it (a town picked there).
+    // (Only when it's the player closing it, or picking a place on it: not the title, the board or the lines opening.)
+    const carId = planAfterMap;
+    planAfterMap = -1;
+    if (carId !== -1 && resume) {
+      interaction.openEngineCard(carId);
+      if (interaction.openEngineCarId === carId) {
+        showRoute();
+        setPlanning(true, false);
+      }
+    }
   }
 
   function goToMarker(m: MapMarker): void {
-    closeMap(false);
+    closeMap(false, true);
     game.director.glideTo(new Vector3(m.x, 0, m.z), 1000, { phi: 0.95, duration: 1 });
     if (m.kind === "town") game.flourishes.add(game.landscapeView.flash([Number(m.key.split(":")[1])]));
     else {
@@ -2857,7 +2883,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "TEXTAREA" || tag === "INPUT") return;
     if (e.key === "`") hud.perf.hidden = !hud.perf.hidden;
-    if (e.key === "Escape" && mapView.open) closeMap(true);
+    if (e.key === "Escape" && mapView.open) closeMap(true, true);
     if (e.key === "Escape" && board.open) setBoardOpen(false);
     if (e.key === " " && !title.shown && tag !== "BUTTON") {
       e.preventDefault();
