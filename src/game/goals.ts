@@ -431,6 +431,11 @@ export class GoalTracker {
     return GOALS.filter((g) => this.done.has(g.id) || this.open(g)).length;
   }
 
+  /** The goals still to come that wait for blueprints (hidden, but counted on the panel: "16 / 17", not "16 / 16"). */
+  get lockedCount(): number {
+    return GOALS.filter((g) => !this.done.has(g.id) && !this.open(g)).length;
+  }
+
   /** A goal still to come that waits for blueprints, in a few words: "Learn Signals to unlock a goal" (or null). */
   lockedHint(): string | null {
     const g = GOALS.find((x) => !this.done.has(x.id) && !this.open(x));

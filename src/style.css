@@ -601,8 +601,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @media (prefers-reduced-motion: reduce) { .icon-btn-alert::after { animation: none; } }
 /* The Blueprints button, till the board is first opened, while a reward waits: a glow round the whole button. */
 /* (An outline, so the button keeps its bevel; bright enough to see outdoors.) */
-.board-new { outline: 4px solid #ffc21f; outline-offset: 2px; animation: board-pulse 1.1s ease-in-out infinite; }
-@keyframes board-pulse { 50% { transform: scale(1.12); outline-color: #ff8a00; outline-offset: 4px; } }
+/* At its peak the ring reaches about 8.6 px past the button ((4 + 3) x 1.06, and the grow): a margin keeps it 3 px or
+   more clear of its neighbours (the bar's gap is 5 px on a phone). Only this button moves over: the bar is right-aligned. */
+.board-new { outline: 4px solid #ffc21f; outline-offset: 2px; margin-inline: 7px; animation: board-pulse 1.1s ease-in-out infinite; }
+@keyframes board-pulse { 50% { transform: scale(1.06); outline-color: #ff8a00; outline-offset: 3px; } }
 @media (prefers-reduced-motion: reduce) { .board-new { animation: none; } }
 
 /* Game mode's coins, by the logo: a stack of toy coins and the count. */

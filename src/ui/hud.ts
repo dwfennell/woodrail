@@ -1389,6 +1389,13 @@ export class Hud {
     this.queueToast(message, celebrate, ms, performance.now() - this.lastButtonAt < TOAST_ANSWER_MS);
   }
 
+  /** Is toast `message` showing, or waiting its turn (not yet gone)? */
+  hasToast(message: string): boolean {
+    if (this.toastQueue.some((t) => t.message === message)) return true;
+    const t = this.toastShowing;
+    return !!t && t.message === message && this.toastEl.classList.contains("show") && this.toastEl.textContent === message;
+  }
+
   /**
    * Say `message` in place of toast `old` (several goals ticked together become one line): changed where it shows or
    * waits, its time to read starting again; a plain toast if `old` has gone.

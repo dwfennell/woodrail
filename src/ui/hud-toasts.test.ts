@@ -85,6 +85,17 @@ describe("toasts", () => {
     expect(shown.filter((s) => s === "Can't go there")).toHaveLength(1);
   });
 
+  it("knows a toast showing or waiting from one gone", () => {
+    const { hud } = toastHud();
+    hud.toast("✓ A", true, 3200);
+    hud.toast("Joined");
+    expect(hud.hasToast("✓ A")).toBe(true);
+    expect(hud.hasToast("Joined")).toBe(true);
+    expect(hud.hasToast("Other")).toBe(false);
+    vi.advanceTimersByTime(30000);
+    expect(hud.hasToast("✓ A")).toBe(false);
+  });
+
   it("a held refusal that's then put down where it can't go stays up, shown once", () => {
     const { hud, shown } = toastHud();
     hud.setRefusal("That's a house — go around it");
