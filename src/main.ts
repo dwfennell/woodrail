@@ -188,9 +188,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.setHistory(ed.canUndo, ed.canRedo);
       scheduleSave();
     };
+    // Every props edit, done, undone or redone (and a land edit recorded): the one place a prop coming or going is
+    // heard, so Game mode's toy box counts on the tray follow it here (a made prop, once placed, isn't one left).
     ed.onPropsChange = () => {
       game.propsChanged();
       hud.setHistory(ed.canUndo, ed.canRedo);
+      if (mode === "game") hud.refreshTrayBadges();
       scheduleSave();
     };
     return ed;
