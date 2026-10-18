@@ -662,7 +662,8 @@ export class Hud {
         else {
           void propGroups(tab.props).then((g) => {
             loadedGroups.set(tab.id, g);
-            if (openId === tab.id) openTab(tab);
+            // (Opened on a shelf, as "Show me" does: it opens on that shelf once its props are in.)
+            if (openId === tab.id) openTab(tab, shelf);
           });
           if (groups.length === 0) {
             this.trayGlide++;
@@ -1392,6 +1393,13 @@ export class Hud {
    */
   toast(message: string, celebrate = false, ms = 2200): void {
     this.queueToast(message, celebrate, ms, performance.now() - this.lastButtonAt < TOAST_ANSWER_MS);
+  }
+
+  /** Is toast `message` showing, or waiting its turn (not yet gone)? */
+  hasToast(message: string): boolean {
+    if (this.toastQueue.some((t) => t.message === message)) return true;
+    const t = this.toastShowing;
+    return !!t && t.message === message && this.toastEl.classList.contains("show") && this.toastEl.textContent === message;
   }
 
   /**

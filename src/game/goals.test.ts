@@ -155,6 +155,32 @@ describe("build-bridge guide", () => {
     expect(goal("build-bridge").guide(w).points[0]).toEqual({ x: g.centreX(g.colOf(j)), z: g.centreZ(g.rowOf(j)) });
   });
 
+  it("frames a river crossing on the way to the next town, over a river square that merely runs by the line", () => {
+    const { w, straights } = joined();
+    const g = w.landscape.grid;
+    g.forEachCell((i) => {
+      if (g.surface[i] === 1) g.surface[i] = 0;
+    });
+    // (The first two towns are joined: the next is the nearest of the rest to them, the third by the second.)
+    const [a, b] = [w.landscape.towns[1].centre, w.landscape.towns[2].centre];
+    // One square by the track's end (not on the way anywhere), one halfway to the next town.
+    const end = w.layout.getPiece(straights[3])!.pose;
+    const by = g.cellAtWorld(end.x + 150, end.z + 150);
+    const mid = g.cellAtWorld((a.x + b.x) / 2, (a.z + b.z) / 2);
+    expect(by).not.toBe(-1);
+    expect(mid).not.toBe(-1);
+    g.surface[by] = 1;
+    g.surface[mid] = 1;
+    g.touch();
+    const spot = { x: g.centreX(g.colOf(mid)), z: g.centreZ(g.rowOf(mid)) };
+    const guide = goal("build-bridge").guide(w);
+    expect(guide.points[0]).toEqual(spot);
+    expect(guide.marks).toEqual([spot]);
+    expect(guide).toMatchObject({ tab: "track", shelf: "Bridges" });
+    expect(guide.points).toContainEqual(a);
+    expect(guide.points).toContainEqual(b);
+  });
+
   it("falls back to the line when the map has no river", () => {
     const { w } = joined();
     const g = w.landscape.grid;
@@ -300,11 +326,12 @@ describe("place-workshop guide", () => {
     const next = goal("place-workshop").guide(w);
     expect(next.marks).toHaveLength(1);
     expect(Math.hypot(next.points[0].x - first.points[0].x, next.points[0].z - first.points[0].z)).toBeGreaterThan(100);
-    // Nowhere it fits: as before, the line itself.
+    // Nowhere it fits: still a marker (QA: it showed none), on the line where it's nearest the stations.
     for (const id of straights) hillsBeside(w, id);
     const none = goal("place-workshop").guide(w);
-    expect(none.points.length).toBe(straights.length);
-    expect(none.marks).toEqual([]);
+    expect(none.marks).toHaveLength(1);
+    expect(straights.map((id) => w.layout.getPiece(id)!.pose)).toContainEqual(none.marks[0]);
+    expect(none.points[0]).toEqual(none.marks[0]);
   });
 
   it("with no track laid yet, shows the next towns to join, as before", () => {

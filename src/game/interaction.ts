@@ -19,7 +19,7 @@ import type { PropPose } from "../props/store";
 import { FootprintOutline } from "../render/props/outline";
 import { modelKey } from "../render/props/library";
 import { isDoubleTap, type TapRecord } from "./camera-director";
-import { dropOutcome, heldReason, onwardEnds, refusalText } from "./drop";
+import { dropOutcome, heldReason, letGoRefusal, onwardEnds, refusalText } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
@@ -1398,7 +1398,12 @@ export class Interaction {
     if (m.kind === "drag-piece") {
       this.dropHeld(m.ghost);
       if (m.pieceId !== -1 && m.from) this.game.layout.dropPiece(m.pieceId, m.from.pose, m.from.y);
-      if (m.pieceId === -1) this.onTrayPieceDropped?.(false);
+      if (m.pieceId === -1) {
+        // Let go of where it couldn't go: why, as a drop says it (then the game says it's back in the box).
+        const why = letGoRefusal({ isNew: true, overTray: m.overTray, blocked: m.blocked }, (b) => m.hint || this.blockMessage(b as PlaceBlock));
+        if (why) this.hud.refuse(why);
+        this.onTrayPieceDropped?.(false);
+      }
       if (INDUSTRY_ROLE[m.type]) this.game.depotView.setWorld(this.game.economy, this.game.layout);
       this.treeKey = "";
       this.game.previewTrees(null);
@@ -2950,7 +2955,7 @@ export class Interaction {
                 ? null // (taking straights' place: there's no end it's seated on to turn about)
                 : this.fitHint(m.type, m.flipped, m.snap, m.pieceId)
               : this.turnHint(holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId);
-      if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? (m.hint ?? this.blockMessage(reason)) : null);
+      if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? (m.hint || this.blockMessage(reason)) : null);
       m.blocked = reason;
       m.risers = risers;
       // Trees hop out of the way of where the piece would go (and back when it moves on); a ramp shows its cutting.
@@ -3035,7 +3040,7 @@ export class Interaction {
     this.yardMemo = [];
     // The reason it couldn't go (if it can't) stays up long enough to read; else the held one goes.
     this.hud.setRefusal(null);
-    if (final && !m.overTray) this.hud.refuse(m.hint ?? this.blockMessage(final === "piece" ? m.blocked ?? final : final));
+    if (final && !m.overTray) this.hud.refuse(m.hint || this.blockMessage(final === "piece" ? m.blocked ?? final : final));
     const mesh = m.ghost;
     const shown: PiecePose = { x: m.shown.x, y: m.shown.y, z: m.shown.z, heading: m.shown.heading };
     const industry = !!INDUSTRY_ROLE[m.type];
