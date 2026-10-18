@@ -730,6 +730,8 @@ export class Interaction {
   trayAllowed: ((item: TrayItem) => boolean) | null = null;
   /** Is there another of this tray item to put down (Game mode: in the toy box, not made on the spot)? Null: always. */
   trayHas: ((item: TrayItem) => boolean) | null = null;
+  /** A piece taken from the tray was put down (`placed`), or not (refused, back over the tray, or the drag let go). */
+  onTrayPieceDropped: ((placed: boolean) => void) | null = null;
   /** A train taken from the tray was put down: on the track (`placed`), or not (off it, or back over the tray). */
   onTrayTrainDropped: ((placed: boolean) => void) | null = null;
 
@@ -1390,6 +1392,7 @@ export class Interaction {
     if (m.kind === "drag-piece") {
       this.dropHeld(m.ghost);
       if (m.pieceId !== -1 && m.from) this.game.layout.dropPiece(m.pieceId, m.from.pose, m.from.y);
+      if (m.pieceId === -1) this.onTrayPieceDropped?.(false);
       if (INDUSTRY_ROLE[m.type]) this.game.depotView.setWorld(this.game.economy, this.game.layout);
       this.treeKey = "";
       this.game.previewTrees(null);
@@ -3051,6 +3054,7 @@ export class Interaction {
           const sh = Math.sin(pose.heading);
           g.flourishes.add(dustPuff(g.scene, pose.x + c.x * ch - c.z * sh, y, pose.z + c.x * sh + c.z * ch));
         }
+        if (isNew) this.onTrayPieceDropped?.(true);
         this.onPlaced?.(snapped);
         // The next is likely the same kind: it stays ready, waiting at this one's free end for a tap. (Not while
         // drawing: a press there draws.)
@@ -3078,6 +3082,8 @@ export class Interaction {
         return;
       }
       case "to-tray": {
+        // A new piece not put down: what was made for it from the tray is given back.
+        this.onTrayPieceDropped?.(false);
         if (m.overTray || !mesh.visible) {
           // Put back in the box: nothing ready any more.
           if (m.overTray) this.arm(null);
