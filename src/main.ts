@@ -37,7 +37,7 @@ import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { routeStops } from "./game/route-stops";
 import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, moveStop, recolourLine, renameLine, stopLine, trainsOn } from "./game/lines";
-import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pointOnPath, stopCursors } from "./game/route-path";
+import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pinnedBlocking, pointOnPath, stopCursors } from "./game/route-path";
 import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
@@ -2549,12 +2549,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // A stop is out of reach when no way leads into it (from the train, for the next; else from the stop before).
       const unreachable = (k: number) => (k === next ? toNext === null : n > 1 && legs[(k - 1 + n) % n] === null);
       // Where its way runs out, a red dashed gap across to it.
+      // (Or, where a pinned switch is what keeps it away, from that switch: set the other way, it would lead there.)
       const gaps: GapSpec[] = [];
+      const pinnedFor = new Map<number, number>();
       line.stops.forEach((_, k) => {
         if (!unreachable(k) || pieces[k] === -1) return;
         const to = pointOnPath(game.layout, pieces[k], 0, pathLengthOf(pieces[k]) / 2);
         const starts = k === next ? [front] : stopCursors(game.layout, pieces[(k - 1 + n) % n]);
-        const from = to && nearestAhead(game.layout, starts, GAP_SEARCH, to.x, to.z);
+        const pin = pinnedBlocking(game.layout, starts, pieces[k]);
+        if (pin !== -1) pinnedFor.set(k, pin);
+        const from = to && (pin !== -1 ? pointOnPath(game.layout, pin, 0, pathLengthOf(pin) / 2) : nearestAhead(game.layout, starts, GAP_SEARCH, to.x, to.z));
         if (to && from && Math.hypot(from.x - to.x, from.z - to.z) > 20) gaps.push({ from, to });
       });
       // One disc a place: a place visited twice (A → B → A) shows both its numbers ("1·3").
@@ -2579,7 +2583,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const out = line.stops.findIndex((_, k) => unreachable(k));
       if (out !== -1) {
         const name = names.find((st) => st.depotId === line.stops[out].depotId)?.name ?? "a stop";
-        cantReachText = `Can't reach ${name}: no track leads there`;
+        cantReachText = pinnedFor.has(out) ? `Can't reach ${name}: a pinned switch sends trains the other way` : `Can't reach ${name}: no track leads there`;
         // With the card open (not planning), the stop that can't be reached is shown, once: not left off screen or
         // under the card.
         const spot = pieceSpot(pieces[out]);
