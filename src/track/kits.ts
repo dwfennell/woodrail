@@ -20,6 +20,11 @@ export interface KitRect {
   readonly l: number;
   readonly w: number;
   readonly d: number;
+  /**
+   * It hangs clear of the ground (the train lift's counterweights): only props and other footprints are kept out of
+   * it, not the ground, hills, water or track under it.
+   */
+  readonly overhead?: boolean;
 }
 
 /** Which trains stop at a kit: those with passenger cars, those with a steam engine, or any powered train. */
@@ -183,13 +188,17 @@ function turntable(type: PieceTypeId): PieceDef {
 export const LIFT_LENGTH = 288;
 export const LIFT_RISE = RISER_HEIGHT;
 /**
- * The lift's frame in plan (its footprint): it reaches this far either side of the line (its counterweights, l ±41.4;
- * its posts ±36: `mech-train-lift` in src/catalogue/assets/mechanisms.ts). Its side bands run from `LIFT_BAND_IN` out,
- * and the middle between them stops `LIFT_END_NOTCH` short of each end, clear of the track joined there.
+ * The lift's frame in plan (its footprint), as `mech-train-lift` (src/catalogue/assets/mechanisms.ts) measures: on the
+ * ground, its posts reach l ±36 (t 2 to 286) and its platform ±26.5; the frame is that plus 2 mm (the ground is sampled
+ * 2 mm in from a footprint's edges, so at the posts' faces). Its side bands run from `LIFT_BAND_IN` out, and the middle
+ * between them stops `LIFT_END_NOTCH` short of each end, clear of the track joined there. Its counterweights hang
+ * further out (l ±35.4 to ±41.4, t 209 to 223) but 70 mm or more up: overhead, kept clear of props and other kits only.
  */
-const LIFT_FRAME_HALF = 42;
+const LIFT_FRAME_HALF = 38;
 const LIFT_BAND_IN = 22;
 const LIFT_END_NOTCH = 16;
+/** The counterweights' overhead rectangles (t, l of their middle; w, d), 1 mm round the model's. */
+const LIFT_WEIGHT = { t: 216, l: 38.4, w: 16, d: 8 };
 /** How long the lift takes to carry a train from one end to the other (s). */
 export const LIFT_SECONDS = 3;
 
@@ -594,13 +603,16 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     rails: "model",
     // The model's origin is the platform's middle.
     place: { t: LIFT_LENGTH / 2, l: 0 },
-    // Its whole frame (posts, braces and counterweights: t 0 to 288, l ±42), but for a notch at each end over the line
-    // so the track joined there stays clear (its discs reach 14 mm: `TRACK_RADIUS` in src/game/depot-footprint.ts): a
-    // band along each side the full length, and the middle between them stopping short of each end.
+    // Its frame on the ground (posts and platform: t 0 to 288, l ±38), but for a notch at each end over the line so
+    // the track joined there stays clear (its discs reach 14 mm: `TRACK_RADIUS` in src/game/depot-footprint.ts): a band
+    // along each side the full length, and the middle between them stopping short of each end. And its counterweights,
+    // overhead.
     footprint: [
       { t: LIFT_LENGTH / 2, l: (LIFT_FRAME_HALF + LIFT_BAND_IN) / 2, w: LIFT_LENGTH, d: LIFT_FRAME_HALF - LIFT_BAND_IN },
       { t: LIFT_LENGTH / 2, l: -(LIFT_FRAME_HALF + LIFT_BAND_IN) / 2, w: LIFT_LENGTH, d: LIFT_FRAME_HALF - LIFT_BAND_IN },
       { t: LIFT_LENGTH / 2, l: 0, w: LIFT_LENGTH - 2 * LIFT_END_NOTCH, d: 2 * LIFT_BAND_IN },
+      { ...LIFT_WEIGHT, overhead: true },
+      { ...LIFT_WEIGHT, l: -LIFT_WEIGHT.l, overhead: true },
     ],
     moves: "state",
   },
