@@ -8,7 +8,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, isLift, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
+import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSpliceThatFits, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, isLift, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult, type Splice } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
@@ -19,7 +19,7 @@ import type { PropPose } from "../props/store";
 import { FootprintOutline } from "../render/props/outline";
 import { modelKey } from "../render/props/library";
 import { isDoubleTap, type TapRecord } from "./camera-director";
-import { dropOutcome, heldReason, onwardEnds } from "./drop";
+import { dropOutcome, heldReason, onwardEnds, refusalText } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
@@ -1919,13 +1919,16 @@ export class Interaction {
     const g = this.game;
     const ignoreKey = typeof ignoreId === "number" ? ignoreId : [...ignoreId].join(",");
     const key = `${type}|${pose.x}|${pose.z}|${pose.heading}|${y}|${ignoreKey}|${g.layout.pieceCount}|${g.landscape.grid.revision}|${g.props.version}`;
-    if (this.mode.kind === "drag-piece" && this.yardMemo?.key === key) {
-      this.yardWhy = this.yardMemo.message;
-      return this.yardMemo.why;
+    const held = this.mode.kind === "drag-piece";
+    const hit = held ? this.yardMemo.find((e) => e.key === key) : undefined;
+    if (hit) {
+      this.yardWhy = hit.message;
+      return hit.why;
     }
     const why = checkYard({ land: g.landscape, layout: g.layout, props: g.props, footprint: g.propLibrary.footprint }, type, pose, y, ignoreId);
     if (why) this.yardWhy = yardMessage(type, why);
-    this.yardMemo = this.mode.kind === "drag-piece" ? { key, why, message: this.yardWhy } : null;
+    // (Two kept: held at a joint, both straights' places are checked on each move.)
+    this.yardMemo = held ? [{ key, why, message: this.yardWhy }, ...this.yardMemo.slice(0, 1)] : [];
     return why;
   }
   /**
@@ -1994,8 +1997,8 @@ export class Interaction {
     return reason === "yard" ? this.inYardWhy : PROP_MESSAGES[reason];
   }
 
-  /** The last yard check while a depot was held, for its inputs (cleared when it's put down). */
-  private yardMemo: { key: string; why: YardBlock | null; message: string } | null = null;
+  /** The last two yard checks while a depot was held, for their inputs (cleared when it's put down). */
+  private yardMemo: { key: string; why: YardBlock | null; message: string }[] = [];
   /** The message for the last yard refusal ("The workshop's yard is on a hill"). */
   private yardWhy = "";
 
@@ -2089,7 +2092,12 @@ export class Interaction {
     return hint;
   }
 
+  /** What to say for a piece refused for `reason` (never nothing: a refusal always says something). */
   private blockMessage(reason: PlaceBlock): string {
+    return refusalText(this.blockWhy(reason));
+  }
+
+  private blockWhy(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
     if (reason === "town") return this.townWhy;
     if (reason === "splice-fit" || reason === "splice-busy" || reason === "splice-onto") return SPLICE_MESSAGES[reason];
@@ -2831,6 +2839,8 @@ export class Interaction {
       m.covers = null;
       m.rest = null;
       let spliceWhy: PlaceBlock | null = null;
+      // The placement check last made of a splice (reused below for the one taken, not worked out twice).
+      let spliceFit = null as { pose: Pose; placed: { reason: PlaceBlock | null; risers: RiserAt[] } } | null;
       if (this.splices(m.type)) {
         // Its centre as held under the finger, seen at the height of each straight it may be over (a few heights).
         // On touch, where it's drawn (held by its middle, not where it was taken hold of: QA N1).
@@ -2854,7 +2864,17 @@ export class Interaction {
         const free = (id: number) => !sim.pieceOccupied(id);
         const reach = Math.max(capture, TRACK_WIDTH);
         // (Its whole track is looked along: held across a line with its middle off it, it still meets it.)
-        const s = findSplice(this.game.layout, m.type, m.heldFlipped, centre, m.heading, reach, free);
+        // Held at a joint, where the straight it would take won't do (too few trees by it, no room for its yard), it
+        // takes the one on the other side of the joint if it can go there (QA: a Harvester at a joint was refused).
+        const fits = (f: Extract<Splice, { kind: "splice" }>) => {
+          const ignore = new Set([m.pieceId, ...f.covers]);
+          const placed = this.placement(m.type, m.heldFlipped, f.pose, f.y, ignore);
+          spliceFit = { pose: f.pose, placed };
+          return placed.reason === null;
+        };
+        // (At the joint: the finger on it, within a finger's width. On touch the piece is drawn above the finger.)
+        const finger = (h: number) => this.planeAt(x, y, h);
+        const s = findSpliceThatFits(this.game.layout, m.type, m.heldFlipped, centre, m.heading, reach, free, fits, finger, capture);
         if (s.kind === "splice") {
           m.snap = { kind: "snapped", pose: s.pose, y: s.y, connector: 0, target: -1, distance: 0, flipped: m.heldFlipped };
           m.covers = s.covers;
@@ -2873,7 +2893,7 @@ export class Interaction {
       }
       let pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
       let py = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
-      let placed = this.placement(m.type, m.flipped, pose, py, this.ignoreFor(m));
+      let placed = spliceFit?.pose === pose && m.flipped === m.heldFlipped ? spliceFit.placed : this.placement(m.type, m.flipped, pose, py, this.ignoreFor(m));
       // Seated on an end where it can't go, but seated by another of its ends there it can (a curve bending the other
       // way, clear of a house): it goes that way. (Never mirrored: that's the player's Flip.) Turn still turns it.
       // (Not a depot spliced into a straight: that snap has no end of its own.)
@@ -2985,7 +3005,7 @@ export class Interaction {
     const pose = m.snap.kind === "snapped" ? m.snap.pose : m.pose;
     const y = m.snap.kind === "snapped" ? m.snap.y : m.looseY;
     const { reason: final, risers } = this.placement(m.type, m.flipped, pose, y, this.ignoreFor(m));
-    this.yardMemo = null;
+    this.yardMemo = [];
     // The reason it couldn't go (if it can't) stays up long enough to read; else the held one goes.
     this.hud.setRefusal(null);
     if (final && !m.overTray) this.hud.refuse(m.hint ?? this.blockMessage(final === "piece" ? m.blocked ?? final : final));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPieceDef } from "../track";
-import { dropOutcome, heldReason, onwardEnds } from "./drop";
+import { dropOutcome, heldReason, onwardEnds, REFUSED_FALLBACK, refusalText } from "./drop";
 
 describe("dropOutcome", () => {
   it.each([
@@ -29,6 +29,15 @@ describe("heldReason (a depot held over a line)", () => {
     // It can go (or isn't over a line): as the placement check says.
     expect(heldReason(null, "splice-busy")).toBeNull();
     expect(heldReason("building", null)).toBe("building");
+  });
+});
+
+describe("refusalText (what a refused drop says)", () => {
+  it("its own reason, or a plain one if it has none: never nothing", () => {
+    expect(refusalText("Needs trees nearby: 1 of 5")).toBe("Needs trees nearby: 1 of 5");
+    expect(refusalText("Drop it onto a straight")).toBe("Drop it onto a straight");
+    for (const none of ["", "  ", null, undefined]) expect(refusalText(none)).toBe(REFUSED_FALLBACK);
+    expect(REFUSED_FALLBACK.length).toBeLessThan(24);
   });
 });
 
