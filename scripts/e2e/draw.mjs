@@ -975,7 +975,7 @@ async function junctions() {
     for (let pz = B.z0 + 600; pz < B.z1 - 600; pz += 72)
       for (let px = B.x0 + 600; px < B.x1 - 600; px += 72) {
         let ok = true;
-        for (let dz = -144; dz <= 432 && ok; dz += 72) for (let dx = -504; dx <= 504 && ok; dx += 72) ok = free(px + dx, pz + dz) && w.layout.queryFreeConnectors(px + dx, pz + dz, 72, []) === 0;
+        for (let dz = -360; dz <= 432 && ok; dz += 72) for (let dx = -504; dx <= 504 && ok; dx += 72) ok = free(px + dx, pz + dz) && w.layout.queryFreeConnectors(px + dx, pz + dz, 72, []) === 0;
         if (ok) return { x: Math.round(px / 18) * 18, z: Math.round(pz / 18) * 18 };
       }
     return null;
