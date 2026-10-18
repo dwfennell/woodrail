@@ -85,8 +85,11 @@ await p.evaluate(() => {
   };
 });
 
+/** Only the ramps and bridges cases (E2E_ONLY=specials): quick to run on their own. */
+const ONLY_SPECIALS = process.env.E2E_ONLY === "specials";
+
 // Favourites: first on the Track tab, a ★ on a shelf's piece adds it, and it's remembered.
-{
+if (!process.env.E2E_ONLY) {
   await p.evaluate(() => localStorage.removeItem("woodrail.favourites"));
   await tapSel(p, ".tabs [data-tab=track]");
   const favs = await p.$$eval(".scroller > .tray-item:not(.tray-group)", (bs) => bs.map((b) => b.querySelector(".label")?.textContent));
@@ -104,7 +107,7 @@ await p.evaluate(() => {
 }
 
 // A drag up on a shelf (not opened) takes out its first piece: the first thing a new player tries.
-{
+if (!process.env.E2E_ONLY) {
   await tapSel(p, ".tabs [data-tab=track]");
   const shelf = await p.$(".scroller .tray-group:has-text('Curve')");
   const box = await shelf.boundingBox();
@@ -120,13 +123,13 @@ await p.evaluate(() => {
 /** A free end of track on level ground with clear, level, empty land ahead of it (found from the map). */
 const site = await p.evaluate(async () => {
   const w = window.woodrail;
-  const { createWorldConnector } = await import("/src/track/layout.ts");
+  const { connectorRef, createWorldConnector } = await import("/src/track/layout.ts");
   const G = w.landscape.grid;
   const c = createWorldConnector();
   for (const id of w.layout.pieceIds()) {
     const piece = w.layout.getPiece(id);
     for (let i = 0; i < 4; i++) {
-      const ref = id * 4 + i;
+      const ref = connectorRef(id, i);
       if (w.layout.joinedConnector(ref) !== -1) continue;
       try {
         w.layout.worldConnector(ref, c);
@@ -159,9 +162,9 @@ const focus = async (x, z, r = 320, page = p) => {
   }, [x, z, r]);
   await page.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
 };
-/** Drag the mouse through world points (x, z) on the ground, a few px a step. */
+/** Drag the mouse through world points (x, z) on the ground (or (x, z, y), up at height y), a few px a step. */
 const drawThrough = async (pts, { shotAt = -1, shotName = "", stepPx = 14 } = {}) => {
-  const screen = await p.evaluate((pts) => pts.map(([x, z]) => D.screen(x, 0, z)), pts);
+  const screen = await p.evaluate((pts) => pts.map(([x, z, y = 0]) => D.screen(x, y, z)), pts);
   await p.mouse.move(screen[0][0], screen[0][1]);
   await p.mouse.down();
   for (let i = 1; i < screen.length; i++) {
@@ -178,6 +181,17 @@ const drawThrough = async (pts, { shotAt = -1, shotName = "", stepPx = 14 } = {}
   await settled(p);
   return shown;
 };
+
+if (ONLY_SPECIALS) {
+  await specials();
+  await finishRun();
+}
+
+/** Only QA's replay of the slanted river crossings and the terrace climb (E2E_ONLY=qa-slant). */
+if (process.env.E2E_ONLY === "qa-slant") {
+  await qaReplay();
+  await finishRun();
+}
 
 if (site) {
   const { x, z, heading: h } = site;
@@ -510,18 +524,18 @@ step("7b");
     const got = await q.evaluate(
       async ([n0, last]) => {
         const w = window.woodrail;
-        const { createWorldConnector } = await import("/src/track/layout.ts");
+        const { connectorRef, createWorldConnector } = await import("/src/track/layout.ts");
         const c = createWorldConnector();
         const ids = [...w.layout.pieceIds()].slice(n0);
         let near = Infinity;
         for (const id of ids)
           for (let i = 0; i < 2; i++) {
             try {
-              w.layout.worldConnector(id * 4 + i, c);
+              w.layout.worldConnector(connectorRef(id, i), c);
             } catch {
               continue;
             }
-            if (w.layout.joinedConnector(id * 4 + i) === -1) near = Math.min(near, Math.hypot(c.x - last.x, c.z - last.z));
+            if (w.layout.joinedConnector(connectorRef(id, i)) === -1) near = Math.min(near, Math.hypot(c.x - last.x, c.z - last.z));
           }
         return { types: ids.map((id) => w.layout.getPiece(id).type), near, toasts: window.__toasts.splice(0) };
       },
@@ -537,9 +551,403 @@ step("7b");
   await ctx.close();
 }
 
-check("no page errors", errors.length === 0, errors.join(" | "));
-await b.close();
-await server.close();
-const failed = results.filter((r) => !r.ok).length;
-console.log(`\n${results.length - failed}/${results.length} passed`);
-process.exit(failed ? 1 : 0);
+// 8. Ramps and bridges (N2 phase 1), and QA's replay.
+
+step("8");
+await specials();
+step("9");
+await qaReplay();
+await finishRun();
+
+/**
+ * Ramps and bridges come into a drawn line where it needs them (N2 phase 1): a stroke from open ground across the
+ * river (a ramp up, bridges, a ramp down), and one from open ground up onto a hill a level up (a ramp, in a cutting).
+ * Both drawn as new lines on empty ground, found on the map: straight along a row or column of squares.
+ */
+async function specials() {
+  await focus(0, 0, 400);
+  const found = await p.evaluate(() => {
+    const w = window.woodrail;
+    const G = w.landscape.grid;
+    const B = w.director.bounds;
+    const C = 72;
+    const at = (x, z) => G.cellAtWorld(x, z);
+    // (Trees step aside for track.)
+    const grass = (x, z) => {
+      const c = at(x, z);
+      return c !== -1 && G.height[c] === 0 && G.surface[c] === 0 && G.feature[c] <= 1 && G.road[c] === 0;
+    };
+    const water = (x, z) => {
+      const c = at(x, z);
+      return c !== -1 && G.surface[c] === 1 && G.feature[c] === 0 && G.road[c] === 0;
+    };
+    const hill = (x, z) => {
+      const c = at(x, z);
+      return c !== -1 && G.height[c] === 1 && G.surface[c] === 0 && G.feature[c] <= 1 && G.road[c] === 0;
+    };
+    const track = [];
+    for (const id of w.layout.pieceIds()) track.push(w.layout.getPiece(id).pose);
+    const clear = (x, z) => track.every((q) => Math.hypot(q.x - x, q.z - z) > 400);
+    /** From the middle of square (x, z), along (dx, dz): `lead` squares of `first`, then `mid` of `then`, then `tail` of `last`, on three rows side by side. */
+    const run = (x, z, dx, dz, lead, first, mid, then, tail, last, sides = 1) => {
+      for (let side = -sides; side <= sides; side++) {
+        const sx = x - dz * side * C;
+        const sz = z + dx * side * C;
+        let k = 0;
+        for (; k < lead; k++) if (!first(sx + dx * k * C, sz + dz * k * C) || !clear(sx + dx * k * C, sz + dz * k * C)) return false;
+        for (let m = 0; m < mid; m++, k++) if (!then(sx + dx * k * C, sz + dz * k * C) || !clear(sx + dx * k * C, sz + dz * k * C)) return false;
+        for (let t = 0; t < tail; t++, k++) if (!last(sx + dx * k * C, sz + dz * k * C) || !clear(sx + dx * k * C, sz + dz * k * C)) return false;
+      }
+      return true;
+    };
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    let river = null;
+    let up = null;
+    // (Hills on the map are smaller than rivers are long: the best way up there is, roomiest first.)
+    for (const [lead, len, sides] of [[5, 6, 1], [5, 4, 1], [4, 4, 0], [4, 3, 0]]) {
+      for (let z = B.z0 + 400; z < B.z1 - 400 && !(river && up); z += C) {
+        for (let x = B.x0 + 400; x < B.x1 - 400 && !(river && up); x += C) {
+          const cx = (Math.floor(x / C) + 0.5) * C;
+          const cz = (Math.floor(z / C) + 0.5) * C;
+          for (const [dx, dz] of dirs) {
+            if (!river)
+              for (const width of [1, 2, 3, 4])
+                if (run(cx, cz, dx, dz, 5, grass, width, water, 6, grass)) {
+                  river = { x: cx, z: cz, dx, dz, squares: 5 + width + 5, width };
+                  break;
+                }
+            if (!up && run(cx, cz, dx, dz, lead, grass, len, hill, 0, hill, sides)) up = { x: cx, z: cz, dx, dz, squares: lead + len - 1, lead };
+          }
+        }
+      }
+      if (up) break;
+    }
+    return { river, up, mode: w.mode() };
+  });
+  check("found a straight way across the river, and one up onto a hill, from open ground", !!found.river && !!found.up, JSON.stringify(found));
+  // Drawing on (it's off after Esc, above).
+  if (!(await p.evaluate(() => window.woodrail.interaction.isDrawing))) await tapSel(p, ".tray-draw");
+  check("…with drawing on", await p.evaluate(() => window.woodrail.interaction.isDrawing));
+  // Draw it, and read back the new line's pieces (types and heights), its joints and what it said.
+  const drawAcross = async (way, height, name) => {
+    const len = way.squares * 72;
+    // From a little in from the start square's middle, to its end; up on the hill (from its edge), seen at its height.
+    const pts = [];
+    for (let d = 0; d <= len; d += 36) pts.push([way.x + way.dx * d, way.z + way.dz * d, height(d)]);
+    await focus(way.x + (way.dx * len) / 2, way.z + (way.dz * len) / 2, len / 2 + 150);
+    await p.evaluate(() => window.__toasts.splice(0));
+    const [n0, j0] = await p.evaluate(() => [D.pieces(), D.joints()]);
+    await drawThrough(pts, { shotAt: pts.length - 3, shotName: `draw-8-${name}-drawing.png` });
+    await shot(p, `${OUT}/draw-8-${name}-laid.png`);
+    return p.evaluate(
+      ([n0, j0]) => {
+        const w = window.woodrail;
+        const ids = [...w.layout.pieceIds()].slice(n0);
+        const pieces = ids.map((id) => {
+          const q = w.layout.getPiece(id);
+          return { type: q.type, y: q.y, flipped: q.flipped };
+        });
+        return { pieces, joints: D.joints() - j0, toasts: D.toasts() };
+      },
+      [n0, j0],
+    );
+  };
+  const show = (got) => `${got.pieces.map((q) => `${q.type}@${q.y}`).join(" ")}${got.toasts.length ? ` · toasts: ${got.toasts.join(" | ")}` : ""}`;
+  if (found.river) {
+    // A straight line on the screen, as over the ground (once the line is up a level, the finger is seen at that
+    // height: the line drifts a little to one side of where it would be on the ground, and follows that).
+    const got = await drawAcross(found.river, () => 0, "river");
+    const types = got.pieces.map((q) => q.type);
+    const firstRamp = types.indexOf("ramp");
+    const lastRamp = types.lastIndexOf("ramp");
+    const bridges = got.pieces.filter((q) => q.type.startsWith("bridge"));
+    check(
+      "a stroke across the river from the ground: a ramp up, bridges over, a ramp down",
+      firstRamp !== -1 && lastRamp > firstRamp && bridges.length >= 1 && types.indexOf("bridge") > firstRamp && types.lastIndexOf("bridge") < lastRamp,
+      show(got),
+    );
+    check("…straight bridges under a straight stroke (no curved bridges: no S over the water)", !types.includes("bridge-curve"), show(got));
+    check("…every piece joined, the bridges a level up, and back on the ground at the far end", got.joints === got.pieces.length - 1 && bridges.every((q) => q.y === 48) && got.pieces.at(-1)?.y === 0, show(got));
+    if (got.pieces.length) await p.evaluate(() => window.woodrail.interaction.undo());
+  }
+  if (found.up) {
+    // The hill starts `lead` squares on (from the start square's middle, half a square less): past there the finger is
+    // over the hilltop.
+    const got = await drawAcross(found.up, (d) => (d > (found.up.lead - 0.5) * 72 ? 48 : 0), "hill");
+    const ramps = got.pieces.filter((q) => q.type === "ramp");
+    check("a stroke up onto a hill a level up lays a ramp, and runs on on the hilltop", ramps.length === 1 && got.pieces.at(-1)?.y === 48 && got.joints === got.pieces.length - 1, show(got));
+    // The ramp is let into the hill: a cutting in its blocks.
+    const cut = await p.evaluate(async () => {
+      const { hillsOf } = await import("/src/landscape/hill-shape.ts");
+      return hillsOf(window.woodrail.landscape.grid).cutBlocks().length;
+    });
+    check("…in a cutting", cut > 0, `${cut} blocks cut`);
+    if (got.pieces.length) await p.evaluate(() => window.woodrail.interaction.undo());
+  }
+  await slantedRiver();
+}
+
+/**
+ * QA: a swipe straight up the screen at the default camera (about 23° off the grid on the map) across the river crosses
+ * it (a ramp up in time, bridges, a ramp down), rather than stopping red at the bank. Looked for over the river's
+ * squares: framed from the default camera's side and tilt, a vertical swipe through the water that starts and ends on
+ * open grass with nothing else in the way.
+ */
+async function slantedRiver() {
+  const cands = await p.evaluate(() => {
+    const w = window.woodrail;
+    const G = w.landscape.grid;
+    const out = [];
+    for (let i = 0; i < G.cellCount && out.length < 40; i += 7) if (G.surface[i] === 1 && G.road[i] === 0) out.push({ x: G.centreX(G.colOf(i)), z: G.centreZ(G.rowOf(i)) });
+    return out;
+  });
+  const seqs = [];
+  for (const c of cands) {
+    for (const dir of [1, -1]) {
+      // The default view: from (700, 620, 1050) off the target, looking down at it.
+      const got0 = await p.evaluate(async ([cx, cz, dir]) => {
+        const w = window.woodrail;
+        const V = w.camera.position.constructor;
+        w.lookAt(new V(cx, 0, cz), Math.hypot(700, 620, 1050), Math.atan2(Math.hypot(700, 1050), 620), Math.atan2(700, 1050));
+        await new Promise((r) => requestAnimationFrame(() => r()));
+        const r = w.canvas.getBoundingClientRect();
+        const [sx, sy] = D.screen(cx, 0, cz);
+        if (sx < r.left + 100 || sx > r.right - 100) return { seq: "off side" };
+        const G = w.landscape.grid;
+        const kind = (g) => {
+          if (!g) return "x";
+          const i = G.cellAtWorld(g.x, g.z);
+          if (i === -1 || G.road[i] !== 0 || G.feature[i] > 1) return "x";
+          if (G.surface[i] === 1) return "w";
+          // (Sand on a bank is ground as grass is.)
+          if ((G.surface[i] !== 0 && G.surface[i] !== 6) || G.height[i] !== 0 || w.layout.queryFreeConnectors(g.x, g.z, 250, []) > 0) return "x";
+          return "g";
+        };
+        const pts = [];
+        let seq = "";
+        for (let k = -44; k <= 44; k++) {
+          const y = sy - dir * k * 5;
+          if (y < r.top + 60 || y > r.bottom - 170) return { seq: "off screen" };
+          seq += kind(w.interaction.groundAt(sx, y));
+          pts.push([sx, y]);
+        }
+        // Grass, then the water, then grass: a clear crossing, with room for a ramp either side (300 mm on the ground).
+        const m = /^(g+)w+(g+)$/.exec(seq);
+        if (!m) return { seq };
+        const at = (k) => w.interaction.groundAt(pts[k][0], pts[k][1]);
+        const a0 = at(0);
+        const a1 = at(m[1].length);
+        const b0 = at(seq.length - m[2].length - 1);
+        const b1 = at(seq.length - 1);
+        const room = Math.min(Math.hypot(a1.x - a0.x, a1.z - a0.z), Math.hypot(b1.x - b0.x, b1.z - b0.z));
+        return room >= 300 ? { pts } : { seq: `${seq} (${room.toFixed(0)} mm)` };
+      }, [c.x, c.z, dir]);
+      if (!got0?.pts) {
+        seqs.push(got0?.seq ?? "none");
+        continue;
+      }
+      const pts = got0.pts;
+      await p.evaluate(() => window.__toasts.splice(0));
+      const n0 = await p.evaluate(() => D.pieces());
+      await p.mouse.move(pts[0][0], pts[0][1]);
+      await p.mouse.down();
+      for (const [x, y] of pts.slice(1)) await p.mouse.move(x, y);
+      await p.mouse.up();
+      await settled(p);
+      await shot(p, `${OUT}/draw-8-slanted-river.png`);
+      const got = await p.evaluate((n0) => {
+        const w = window.woodrail;
+        const pieces = [...w.layout.pieceIds()].slice(n0).map((id) => ({ type: w.layout.getPiece(id).type, y: w.layout.getPiece(id).y }));
+        return { pieces, toasts: D.toasts() };
+      }, n0);
+      const types = got.pieces.map((q) => q.type);
+      const what = `${got.pieces.map((q) => `${q.type}@${q.y}`).join(" ")}${got.toasts.length ? ` · toasts: ${got.toasts.join(" | ")}` : ""} (swipe ${dir > 0 ? "up" : "down"} the screen)`;
+      check("a swipe straight up the screen at the default camera crosses the river: ramp up, bridges, ramp down", types.filter((t) => t === "ramp").length >= 2 && types.some((t) => t.startsWith("bridge")) && got.pieces.at(-1)?.y === 0 && !got.toasts.some((t) => /bridge over the river/.test(t)), what);
+      if (got.pieces.length) await p.evaluate(() => window.woodrail.interaction.undo());
+      return;
+    }
+  }
+  check("found a river to swipe across at the default camera", false, seqs.slice(0, 6).join(" / "));
+}
+
+/**
+ * QA's replay (N2 phase 1, QA on 32891ec): seed 7, fresh, a phone (390×844, touch), Draw on, QA's exact world lines
+ * across the river at a slant to the grid, with QA's camera, each point seen at the ground's height, touch moves every
+ * 10 px, a fresh page for each. Each must cross (a bridge), with no curved bridge, both its ends on the ground; the
+ * clean case (40°, back) stays clean. And the terrace climb (a level, then another) where one move took 118.6 ms (the
+ * second ramp's cutting preview): DrawHand.move under 16 ms at worst.
+ */
+async function qaReplay() {
+  // QA's exact world lines (seed 7, fresh, Sandbox), and QA's camera for each (phi 0.95, theta −1.1659).
+  const cases = [
+    { name: "slant 23 there", x: -36, z: -1620, h: 2.7576202181510405, total: 972, back: false, cam: [-481, -1440.2, 3662.2] },
+    { name: "slant 30 back", x: -252, z: -1620, h: 2.0943951023931953, total: 972, back: true, cam: [-492, -1204.3, 4760.9] },
+    { name: "slant 10 back", x: -180, z: -1620, h: 2.5307274153917776, total: 852, back: true, cam: [-524, -1379.1, 3662.2] },
+    { name: "slant -23 back", x: -36, z: -1620, h: 2.7401669256310974, total: 972, back: true, cam: [-477.8, -1432.4, 3662.2] },
+    { name: "slant 10 there", x: -180, z: -1620, h: 2.5307274153917776, total: 852, back: false, cam: [-524, -1379.1, 3662.2] },
+    { name: "slant 40 back (the clean case)", x: -252, z: -1620, h: 2.2689280275926285, total: 852, back: true, cam: [-522, -1298.3, 3662.2] },
+    { name: "terrace: a level up, then another", terrace: true },
+  ];
+  for (const c of cases) {
+    // A fresh page for each, as QA ran them.
+    const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    const q = await ctx.newPage();
+    q.on("pageerror", (e) => errors.push(e.message));
+    await boot(q);
+    await q.evaluate(() => {
+      const w = window.woodrail;
+      window.__toasts = [];
+      const orig = w.hud.toast.bind(w.hud);
+      w.hud.toast = (m, ...a) => {
+        window.__toasts.push(m);
+        return orig(m, ...a);
+      };
+      // DrawHand.move's times, for the hitch.
+      const d = w.interaction.draw;
+      const move = d.move.bind(d);
+      window.__moves = [];
+      d.move = (x, y) => {
+        const t0 = performance.now();
+        move(x, y);
+        window.__moves.push(performance.now() - t0);
+      };
+    });
+    await q.tap(".tray-draw");
+    // (Drawing switched on gets ready when idle, a job at a time: a player's finger comes later than a script's.)
+    await q.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
+    const cdp = await ctx.newCDPSession(q);
+    const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
+    // The terrace: QA's search (one lane) for a level up then another, at 135°.
+    const run = c.terrace
+      ? await q.evaluate(() => {
+          const segs = [["g0", 250, 450], ["h1", 36, 200], ["h2", 72, 400]];
+          const w = window.woodrail;
+          const G = w.landscape.grid;
+          const kindAt = (x, z) => {
+            const i = G.cellAtWorld(x, z);
+            if (i === -1) return "off";
+            if (G.road[i] || G.feature[i] > 1) return "x";
+            if (G.surface[i] === 1) return "river";
+            if (G.surface[i] === 5) return "x";
+            const h = G.height[i];
+            return h === 0 ? (G.surface[i] === 0 || G.surface[i] === 6 ? "g0" : "x") : "h" + h;
+          };
+          const pcs = [...w.layout.pieceIds()].map((id) => w.layout.getPiece(id).pose);
+          for (let i = 0; i < G.cellCount; i++)
+            for (let k = 0; k < 8; k++) {
+              const h = (k * Math.PI) / 4;
+              const fx = Math.cos(h);
+              const fz = Math.sin(h);
+              const ox = G.centreX(G.colOf(i));
+              const oz = G.centreZ(G.rowOf(i));
+              let d = 0;
+              let ok = true;
+              for (const [kind, mn, mx] of segs) {
+                let len = 0;
+                while (len < mx) {
+                  const x = ox + fx * (d + len);
+                  const z = oz + fz * (d + len);
+                  if (kindAt(x, z) !== kind || pcs.some((p) => Math.hypot(p.x - x, p.z - z) < 140)) break;
+                  len += 12;
+                }
+                if (len < mn) {
+                  ok = false;
+                  break;
+                }
+                d += len;
+              }
+              if (ok) return { x: ox, z: oz, h, total: d, back: false };
+            }
+          return null;
+        })
+      : c;
+    if (!run) {
+      check(`QA replay, ${c.name}: found its run`, false);
+      await ctx.close();
+      continue;
+    }
+    // The finger's path every 15 mm along the world line, seen at the ground's height, with QA's camera (or, for the
+    // terrace, the smallest view that frames it).
+    const screen = await q.evaluate(([run, cam]) => {
+      const w = window.woodrail;
+      const G = w.landscape.grid;
+      const V = w.camera.position.constructor;
+      const pts = [];
+      for (let d = 0; d <= run.total; d += 15) pts.push([run.x + Math.cos(run.h) * d, run.z + Math.sin(run.h) * d]);
+      if (run.back) pts.reverse();
+      const project = () =>
+        pts.map(([x, z]) => {
+          const i = G.cellAtWorld(x, z);
+          const v = new V(x, i === -1 ? 0 : G.groundY(i), z).project(w.camera);
+          const r = w.canvas.getBoundingClientRect();
+          return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+        });
+      if (cam) {
+        w.lookAt(new V(cam[0], 0, cam[1]), cam[2], 0.95, -1.1659);
+        return project();
+      }
+      const cx = pts.reduce((t, p) => t + p[0], 0) / pts.length;
+      const cz = pts.reduce((t, p) => t + p[1], 0) / pts.length;
+      const trayTop = document.querySelector(".tray")?.getBoundingClientRect().top ?? 644;
+      let dist = 450;
+      for (let n = 0; n < 12; n++, dist *= 1.3) {
+        w.lookAt(new V(cx, 0, cz), dist, 0.95, -1.1659);
+        const sp = project();
+        if (sp.every(([x, y]) => x >= 60 && x <= 330 && y >= 110 && y <= trayTop - 50)) return sp;
+      }
+      return project();
+    }, [run, c.cam ?? null]);
+    await q.evaluate(() => {
+      window.__toasts.splice(0);
+      window.__moves.splice(0);
+    });
+    const ids0 = await q.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+    await touch("touchStart", screen[0][0], screen[0][1]);
+    for (let i = 1; i < screen.length; i++) {
+      const [ax, ay] = screen[i - 1];
+      const [bx, by] = screen[i];
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
+      for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+    }
+    await touch("touchEnd", 0, 0);
+    await settled(q);
+    await shot(q, `${OUT}/draw-9-qa-${c.name.replace(/[^a-z0-9]+/gi, "-")}.png`);
+    const got = await q.evaluate(async ([ids0]) => {
+      const w = window.woodrail;
+      const { connectorRef, createWorldConnector } = await import("/src/track/layout.ts");
+      const was = new Set(ids0);
+      const ids = [...w.layout.pieceIds()].filter((id) => !was.has(id));
+      const cn = createWorldConnector();
+      const ends = [];
+      for (const id of ids)
+        for (let k = 0; k < 2; k++) {
+          const ref = connectorRef(id, k);
+          if (w.layout.joinedConnector(ref) !== -1) continue;
+          w.layout.worldConnector(ref, cn);
+          ends.push(cn.y);
+        }
+      const moves = window.__moves.slice().sort((a, b) => a - b);
+      return { types: ids.map((id) => w.layout.getPiece(id).type), ends, toasts: window.__toasts.splice(0), worst: moves[moves.length - 1] ?? 0, p95: moves[Math.floor(moves.length * 0.95)] ?? 0 };
+    }, [ids0]);
+    const what = `${got.types.join(" ")}${got.toasts.length ? ` · toasts: ${got.toasts.join(" | ")}` : ""} · move worst ${got.worst.toFixed(1)} ms, p95 ${got.p95.toFixed(1)} ms`;
+    if (!c.terrace) {
+      const ok = got.types.includes("bridge") && !got.types.includes("bridge-curve") && got.ends.length === 2 && got.ends.every((y) => y <= 1);
+      check(`QA replay, ${c.name}: crosses, no curved bridge, both ends on the ground`, ok, what);
+      // And no hitch on the moves that laid it (QA: 17.5 to 25 ms on one move each crossing; about 4 ms wanted at 1×,
+      // generous here for software GL under load).
+      check(`QA replay, ${c.name}: no move over 16 ms`, got.worst < 16, what);
+    } else {
+      check(`QA replay, ${c.name}: climbs (a ramp), and no move over 16 ms`, got.types.includes("ramp") && got.worst < 16, what);
+    }
+    await ctx.close();
+  }
+}
+
+async function finishRun() {
+  check("no page errors", errors.length === 0, errors.join(" | "));
+  await b.close();
+  await server.close();
+  const failed = results.filter((r) => !r.ok).length;
+  console.log(`\n${results.length - failed}/${results.length} passed`);
+  process.exit(failed ? 1 : 0);
+}
