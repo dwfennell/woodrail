@@ -189,14 +189,15 @@ describe("automatic servicing", () => {
     expect(w.economy.cargoOf(first)).toEqual({ kind: "log", count: 3 });
   });
 
-  it("wait-for-full holds a routed train only where it may pick up: not at a Drop stop, nor a depot not on its route", () => {
+  it("wait to fill holds a routed train only where it may pick up: not at a Drop stop, nor a depot not on its route", () => {
     const lastPiece = (w: ReturnType<typeof setup>) => [...w.layout.pieceIds()].at(-1)!;
     for (const action of ["drop", "elsewhere", "pick"] as const) {
       const w = setup("forest");
+      // A routed train reads "Wait here till full" from its stop (the depot's own setting is for unrouted trains).
       w.economy.setWaitFull(w.depot.id, true);
       // "elsewhere": its only stop is another depot, past this one.
       const other = action === "elsewhere" ? w.economy.addDepot("sawmill", lastPiece(w), 0).id : -1;
-      const stop = action === "elsewhere" ? { depotId: other, action: "both" as const } : { depotId: w.depot.id, action };
+      const stop = action === "elsewhere" ? { depotId: other, action: "both" as const, waitFill: true } : { depotId: w.depot.id, action, waitFill: true };
       w.economy.setRoute(w.engine().id, { stops: [stop], next: 0 });
       const first = w.wagons()[0].id;
       let held = 0;
