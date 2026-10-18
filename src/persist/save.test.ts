@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildStarterWorld, syncIndustries, unlockPlot, type World } from "../game/world";
 import { appendPiece, connectorRef } from "../track";
 import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape";
 import { encodeRoad, pieceOf } from "../roads";
 import { SIM_DT } from "../sim";
-import { deserializeWorld, OLDER_SAVE, SAVE_VERSION, serializeWorld, type SaveData } from "./save";
+import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, OLDER_SAVE, SAVE_VERSION, saveToStorage, serializeWorld, type SaveData } from "./save";
 import { editLine, lineOf } from "../game/lines";
 import { CARGO_KINDS } from "../economy";
 
@@ -79,13 +79,35 @@ describe("save format", () => {
     ]);
   });
 
-  it("is at version 10 (lines), and turns older saves away, saying so", () => {
-    expect(SAVE_VERSION).toBe(10);
+  it("is at version 11 (buildings resized, big landmarks on 2×2 lots), and turns older saves away, saying so", () => {
+    expect(SAVE_VERSION).toBe(11);
     const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
-    data.version = 9;
+    data.version = 10;
     const r = deserializeWorld(data);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toBe(OLDER_SAVE);
+  });
+
+  it("an older autosave is kept aside under a backup key (not overwritten by the fresh map's), and the title knows", () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
+    try {
+      const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
+      data.version = 10;
+      const raw = JSON.stringify(data);
+      store.set("woodrail.game.v2", raw);
+      expect(hasOlderSave("game")).toBe(true);
+      expect(hasOlderSave("sandbox")).toBe(false);
+      const r = loadFromStorage("game");
+      expect(r?.ok).toBe(false);
+      expect(store.get(backupKey("game", 10))).toBe(raw);
+      // The fresh map saves over the autosave; the backup stays.
+      expect(saveToStorage(worldWithTrain(), "game")).toBe(true);
+      expect(hasOlderSave("game")).toBe(false);
+      expect(store.get(backupKey("game", 10))).toBe(raw);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("keeps lines: their colour, name and stops (wait to fill too), shared by the trains that run them", () => {
