@@ -256,3 +256,14 @@ describe("steer: a follow hint", () => {
     expect(o.layout.switchState(o.sw)).toBe(0);
   });
 });
+
+describe("steer: a switch with a train on it", () => {
+  it("is never thrown under the train (its cars behind would take the other road)", () => {
+    const o = ovalWithSpur();
+    const follow = (id: number, path: number) => id === o.sw && path === 1;
+    expect(steer(o.layout, o.train(), true, o.far, undefined, follow, (id) => id === o.sw)).toBe(false);
+    expect(o.layout.switchState(o.sw)).toBe(0);
+    expect(steer(o.layout, o.train(), true, o.far, undefined, follow, () => false)).toBe(true);
+    expect(o.layout.switchState(o.sw)).toBe(1);
+  });
+});

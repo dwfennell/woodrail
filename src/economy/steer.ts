@@ -155,7 +155,8 @@ export function chooseWay(
  *
  * `follow` (the way a train has been given, such as the track it holds a claim on): at the switch, if exactly one
  * way's path through it is followed, that way is taken, whatever the distance (it beats `avoid`). Otherwise the choice
- * is as without it. A pinned switch still offers one way (`waysFrom`), so it wins over both.
+ * is as without it. A pinned switch still offers one way (`waysFrom`), so it wins over both. `occupied`: a switch a
+ * train stands on, or is crossing, is left as it is.
  */
 export function steer(
   layout: Layout,
@@ -164,6 +165,7 @@ export function steer(
   target: number,
   avoid?: AvoidTest,
   follow?: AvoidTest,
+  occupied?: (pieceId: number) => boolean,
 ): boolean {
   // The cursor at the train's front, pointing the way it goes.
   const b = forward ? train.bogies[0] : train.bogies[train.bogies.length - 1];
@@ -183,6 +185,8 @@ export function steer(
       const followed = follow ? ways.filter((w) => follow(n.pieceId, w.path)) : [];
       const best = followed.length === 1 ? followed[0].option : chooseWay(layout, n.pieceId, ways, target, avoid);
       if (best === -1 || layout.switchState(n.pieceId) % ways.length === best) return false;
+      // (Never under a train: its cars behind would take the other road.)
+      if (occupied?.(n.pieceId)) return false;
       layout.setSwitchState(n.pieceId, best);
       return true;
     }

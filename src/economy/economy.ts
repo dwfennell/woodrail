@@ -1367,6 +1367,12 @@ export class Economy {
    * Set the switches ahead of each routed train (or just `only`) toward its next stop: through a passing loop, onto
    * the road crossing wants it on (see `Crossing.steerAvoid`).
    */
+  /** Is a train on this piece (a switch steering mustn't throw under it)? */
+  private readonly occupied = (pieceId: number): boolean => {
+    for (const id of this.sim.trainIds()) if (this.sim.getTrain(id)?.bogies.some((b) => b.pieceId === pieceId)) return true;
+    return false;
+  };
+
   private steerTrains(only?: ReadonlySet<number>): void {
     for (const [engine, r] of this.routes) {
       if (only && !only.has(engine)) continue;
@@ -1375,7 +1381,7 @@ export class Economy {
       const net = this.drive(found.train);
       const d = this.depots[r.stops[r.next % r.stops.length].depotId];
       if (net === 0 || !d || !this.onMap(d)) continue;
-      if (steer(this.layout, found.train, net > 0, d.pieceId, this.crossing.steerAvoid(engine, found.train))) this.onSwitch?.(d.pieceId);
+      if (steer(this.layout, found.train, net > 0, d.pieceId, this.crossing.steerAvoid(engine, found.train), undefined, this.occupied)) this.onSwitch?.(d.pieceId);
     }
   }
 
