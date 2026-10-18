@@ -662,7 +662,8 @@ export class Hud {
         else {
           void propGroups(tab.props).then((g) => {
             loadedGroups.set(tab.id, g);
-            if (openId === tab.id) openTab(tab);
+            // (Opened on a shelf, as "Show me" does: it opens on that shelf once its props are in.)
+            if (openId === tab.id) openTab(tab, shelf);
           });
           if (groups.length === 0) {
             this.trayGlide++;

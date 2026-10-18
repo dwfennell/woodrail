@@ -1,4 +1,4 @@
-import { connectedPairs, SURF_RIVER, type LandscapeGrid } from "../landscape";
+import { CELL, connectedPairs, SURF_RIVER, type LandscapeGrid } from "../landscape";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
 import { workshops, workshopStock } from "./crafting";
@@ -156,15 +156,56 @@ function riverPoints(grid: LandscapeGrid): Point[] {
 /** Most anchors compared with the river squares on one tap (the track is thinned to this many points). */
 const MAX_ANCHORS = 80;
 
+/** How far (mm) from the straight run between two towns a river square counts as on the way. */
+const ON_THE_WAY = CELL * 0.75;
+
+/** The distance from `p` to the segment `a`-`b`, and how far along it (0..1) the nearest point is. */
+function toSegment(p: Point, a: Point, b: Point): { d: number; t: number } {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const len2 = dx * dx + dz * dz;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / len2));
+  return { d: Math.hypot(p.x - (a.x + t * dx), p.z - (a.z + t * dz)), t };
+}
+
 /**
- * Where a bridge is wanted: the river square nearest the player's line (their track and the towns on their railway,
- * or else the next towns to join), framed with that bit of the line. With no river on the map: the line as it is.
+ * A river crossing worth bridging: where the straight run from a town on the railway to the nearest town not on it
+ * (with none joined yet, between two towns) crosses the river, the first river square on the way. Nearest pairs of
+ * towns first. Null if no such run crosses the river.
+ */
+function crossingAhead(w: World, river: readonly Point[]): { at: Point; from: number; to: number } | null {
+  const all = w.landscape.towns.map((t) => t.id);
+  const joined = largestNetwork(w);
+  const from = joined.length > 0 ? joined : all;
+  const to = all.filter((id) => !joined.includes(id));
+  const pairs = from.flatMap((a) => to.filter((b) => b !== a).map((b) => ({ a, b, d: dist(townAt(w, a), townAt(w, b)) })));
+  pairs.sort((x, y) => x.d - y.d);
+  for (const { a, b } of pairs) {
+    const pa = townAt(w, a);
+    const pb = townAt(w, b);
+    let best: { p: Point; t: number } | null = null;
+    for (const p of river) {
+      const s = toSegment(p, pa, pb);
+      if (s.d < ON_THE_WAY && (!best || s.t < best.t)) best = { p, t: s.t };
+    }
+    if (best) return { at: best.p, from: a, to: b };
+  }
+  return null;
+}
+
+/**
+ * Where a bridge is wanted: a river crossing on the way to the next town to join (`crossingAhead`), framed with the
+ * towns either side; else the river square nearest the player's line (their track and the towns on their railway, or
+ * else the next towns to join), framed with that bit of the line. With no river on the map: the line as it is. The
+ * Track tab opens on its Bridges shelf.
  */
 function guideBridge(w: World): GoalGuide {
   const tab = "track";
   const shelf = "Bridges";
   const river = riverPoints(w.landscape.grid);
   if (river.length === 0) return guideTrains(w, tab, shelf);
+  const ahead = crossingAhead(w, river);
+  if (ahead) return { points: [ahead.at, townAt(w, ahead.from), townAt(w, ahead.to)], towns: [ahead.to], marks: [ahead.at], tab, shelf };
   const joined = largestNetwork(w);
   const track = trackPoints(w);
   const step = Math.max(1, Math.ceil(track.length / MAX_ANCHORS));
@@ -279,7 +320,11 @@ export const GOALS: readonly Goal[] = [
       // A straight of the line where the workshop fits, yard and all: nearest the map's stations and depots.
       const near = [...w.depots.values(), ...w.stations.values()].map((id) => piecePoint(w, id));
       const spot = depotSpot(w, "depot-workshop", near);
-      return spot ? { ...guide, points: [{ x: spot.x, z: spot.z }], towns: [], marks: [{ x: spot.x, z: spot.z }] } : guide;
+      if (spot) return { ...guide, points: [{ x: spot.x, z: spot.z }], towns: [], marks: [{ x: spot.x, z: spot.z }] };
+      // No straight where it fits yet: still a marker, on the line where it's nearest the stations and depots (with
+      // no line yet, the towns' stations are ringed).
+      const line = closest(trackPoints(w), near, (p) => p);
+      return line ? { ...guide, points: [line[0], line[1]], towns: [], marks: [line[0]] } : guide;
     },
   },
   {
