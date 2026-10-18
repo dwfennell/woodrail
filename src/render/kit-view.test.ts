@@ -1,4 +1,4 @@
-import { Color, MeshStandardMaterial } from "three";
+import { Color, MeshStandardMaterial, PerspectiveCamera } from "three";
 import { describe, expect, it } from "vitest";
 import { Layout } from "../track";
 import { KitView } from "./kit-view";
@@ -57,6 +57,35 @@ describe("KitView's moving parts", () => {
     expect(results.at(-1)).toBe("still");
     expect(liveGroups()).toBe(0);
     expect(view.animating).toBe(false);
+  });
+
+  it("paused, a triggered kit holds where it is; out of view, it moves on unseen and asks for no frames", async () => {
+    const lib = new PropLibrary(stubMaterials());
+    await lib.load(kitModelKey("kit-castle-gate"));
+    const layout = new Layout();
+    layout.addPiece("kit-castle-gate", { x: 100, z: 50, heading: 0 });
+    const view = new KitView(lib);
+    view.sync(layout);
+    const camera = new PerspectiveCamera(50, 390 / 844, 10, 100000);
+    const look = (x: number, z: number) => {
+      camera.position.set(x, 900, z + 700);
+      camera.lookAt(x, 0, z);
+      camera.updateMatrixWorld();
+    };
+    look(100, 50);
+    expect(view.update(() => true, 1 / 30, false, camera)).toBe("moving");
+    const portcullis = view.group.children.find((c) => c.name === "movers")!.getObjectByName("portcullis")!;
+    const y = portcullis.position.y;
+    // Paused: nothing moves, nothing to draw.
+    for (let i = 0; i < 60; i++) expect(view.update(() => true, 1 / 30, true, camera)).toBe("still");
+    expect(portcullis.position.y).toBe(y);
+    // Running, out of view: it rises unseen, drawing nothing.
+    look(30000, 30000);
+    expect(view.update(() => true, 1 / 30, false, camera)).toBe("still");
+    expect(portcullis.position.y).toBeGreaterThan(y);
+    // In view again: it's drawn moving.
+    look(100, 50);
+    expect(view.update(() => true, 1 / 30, false, camera)).toBe("moving");
   });
 });
 
