@@ -1,7 +1,8 @@
 import { getPieceDef, isKit, pathLength, type Layout } from "../track";
-import { SIM_DT, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
+import { Spacing } from "./spacing";
 import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
 import { steer } from "./steer";
@@ -932,7 +933,8 @@ export class Economy {
       // take them stops under the crane), while a wagon could take some.
       if (!this.waitsHere(train, d)) {
         s.phase = NONE;
-        return Infinity;
+        // Its work here done (or none): it waits a moment longer if another train of its line left here just now.
+        return this.spacingCap(train, d);
       }
     }
     s.phase = CRAWLING;
@@ -996,6 +998,45 @@ export class Economy {
       for (const k of RECIPES[d.role].gives) if ((c.kind === null || c.kind === k) && canCarry(car.kind, k) && this.picksAt(route, d, k)) return true;
     }
     return false;
+  }
+
+  /**
+   * Auto-spacing: is this routed train, at the stop it's heading for with nothing (more) to do there, held a moment so
+   * its line's trains spread out (see spacing.ts)? Its speed limit if so, else Infinity. Stopped there (its work done)
+   * it stays where it is (0); running in with nothing to do it brakes as for a signal, to stop by the stop's far end,
+   * but only where it can stop cleanly in that room (else it runs through, and is spaced at a stop where it stops).
+   * Its line's trains are counted live: those on the track and not derailed. Its lever set (the player sends it on)
+   * lets it go.
+   */
+  private spacingCap(train: Train, d: DepotState): number {
+    let cap = 0;
+    let clean = true;
+    if (train.speed > CRAWL_SPEED + 1e-6) {
+      const front = train.bogies[0];
+      if (front.pieceId !== d.pieceId) return Infinity;
+      const len = this.depotLength(d);
+      const room = (front.reversed ? along(front, len) : len - along(front, len)) - STOP_SHORT;
+      cap = room > 0 ? Math.sqrt(2 * ACCELERATION * room) : 0;
+      clean = train.speed <= cap + 1e-6;
+    }
+    for (const car of train.cars) {
+      const lineId = this.lineIdOf.get(car.id);
+      const r = lineId === undefined ? undefined : this.routes.get(car.id);
+      const line = lineId === undefined ? undefined : this.lines.get(lineId);
+      if (!r || !line) continue;
+      const index = r.next % r.stops.length;
+      if (r.stops[index].depotId !== d.id) return Infinity;
+      // (Braking for a hold already begun, it carries on: only a new hold needs room to stop in.)
+      if (!clean && !this.spacing.holding(car.id)) return Infinity;
+      const live: number[] = [];
+      for (const [engine, id] of this.lineIdOf) {
+        if (id !== line.id) continue;
+        const found = this.sim.findCar(engine);
+        if (found && !found.train.derailed) live.push(engine);
+      }
+      return this.spacing.holds(line.id, stopsKey(line), car.id, index, live, this.ticksRun, train.leverTick ?? 0) ? cap : Infinity;
+    }
+    return Infinity;
   }
 
   /** Stop the train for the crane to work on this car. */
@@ -1092,6 +1133,7 @@ export class Economy {
 
   /** One sim tick of production, use and crane work (and trains' dwells at kits' stops). */
   tick(): void {
+    this.ticksRun++;
     this.work();
     this.kitStops.tick();
     if (this.routes.size > 0) {
@@ -1169,6 +1211,10 @@ export class Economy {
   /** Called when a route has set a switch (the game redraws its lever). */
   onSwitch: ((pieceId: number) => void) | null = null;
   private steerTicks = 0;
+  /** Ticks run (sim time: a pause stops it), for spacing the trains on a line (`spacing`). */
+  private ticksRun = 0;
+  /** Auto-spacing of the trains on a line (see spacing.ts). */
+  readonly spacing = new Spacing();
 
   /** A routed train that has been at its next stop and left it heads for the one after. */
   private advanceRoutes(): void {
@@ -1184,10 +1230,16 @@ export class Economy {
         continue;
       }
       const on = found.train.bogies.some((b) => b.pieceId === d.pieceId);
-      if (on) r.at = true;
-      else if (r.at) {
+      const lineId = this.lineIdOf.get(engine);
+      const line = lineId === undefined ? undefined : this.lines.get(lineId);
+      if (on) {
+        // Come to it (for spacing: the first here goes first).
+        if (!r.at && line) this.spacing.arrived(line.id, stopsKey(line), engine, r.next % r.stops.length, this.ticksRun);
+        r.at = true;
+      } else if (r.at) {
         // Left it: on past it, and past any stops after it at the same depot (they were the same visit).
         r.at = false;
+        if (line) this.spacing.departed(line.id, stopsKey(line), engine, r.next % r.stops.length, this.ticksRun);
         for (let k = 0; k < r.stops.length; k++) {
           r.next = (r.next + 1) % r.stops.length;
           if (r.stops[r.next].depotId !== stop.depotId) break;
@@ -1226,6 +1278,7 @@ export class Economy {
     for (const id of this.lineIdOf.keys()) if (!this.routes.has(id)) this.lineIdOf.delete(id);
     const run = new Set(this.lineIdOf.values());
     for (const id of this.lines.keys()) if (!run.has(id)) this.lines.delete(id);
+    this.spacing.prune(run, new Set(this.lineIdOf.keys()));
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);
     this.kitStops.prune();
   }
@@ -1238,6 +1291,12 @@ function cycleTicks(seconds: number, rate: number): number {
 }
 
 /** A cursor's distance from its path's `from` end. */
+/** A train braking to wait at its stop (auto-spacing) stops this far (mm) short of the stop's far end. */
+const STOP_SHORT = 6;
+
 function along(c: Cursor, len: number): number {
   return c.reversed ? len - c.s : c.s;
 }
+
+/** A line's stops as a key (spacing starts afresh when they change). */
+const stopsKey = (line: Line): string => line.stops.map((s) => s.depotId).join(",");
