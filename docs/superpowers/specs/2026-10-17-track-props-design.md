@@ -340,6 +340,18 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
      turntable turned past half round, running the other way: an engine turned round), and it's drawn carried round
      over the glide, held still, nothing coupling to it. A train partly on it or moving refuses the turn
      (`deckRefusal`, with the toast).
+   - **A lift** (Phase 3, the train lift): `lift: { seconds }` on a gated track whose paths are the platform standing
+     at each end (path k from end k into the piece, ending there; ends at different `y`). The sim works it, with no
+     economy stop: a train coming onto the live platform brakes to halt its front just short of the far end (cap 0;
+     too long for it, it's told once, `lift-refused`, runs to the end and turns back); halted a moment (`LIFT_DWELL`)
+     with its lever on, or called by a train waiting at the far end while it's empty, it goes. A tap sends it too.
+     The move is `Sim.carry(piece, to, seconds)`: every axle to the same spot on road `to` at once, the train drawn
+     carried there (`dy` on the ride) as the sim ticks, so paused it holds. Closed ends (platform away or moving) and
+     a busy one (a train on it) hold trains at the joint like a red signal (`liftCap`); it won't go while a train is
+     partly on it or coming in within braking distance (`deckRefusal` "approaching"). Its motion's `state.source` is
+     `"ride"` (`Sim.liftPosition`, 0 to 1, `glide: 0`); the game asks `KitView.update` when `Sim.ridesVersion` moves.
+     Its high end stands on its own tower (`checkSupport`) and holds up track joined there. A save mid-ride comes back
+     at the end it was going to (axles and switch state move at the start).
 6. **Tests to copy:**
    - `src/track/kits.test.ts`: the registry;
    - `src/game/kit-footprint.test.ts`: the footprint and flip hint;
@@ -351,6 +363,8 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
    - `src/sim/signal-skins.test.ts`: skinned signals hold trains as the plain one does; the gantry's two signals;
    - `src/render/kit-skins.test.ts`: signal skins' aspects drawn, the buffer-stop lamp;
    - `src/landscape/crossing-styles.test.ts`: crossing styles, resolved and drawn.
+   - `src/sim/lift.test.ts`: the train lift (the carry, holds, refusals, a second train, paused); its motion in
+     `src/render/kit-view.test.ts`; `npm run e2e:lift` (tools/e2e/lift.mjs) up and back down at 390×844, and idle frames.
 
 ## Phase 3 plan (2026-10-17, after P0 to P2 and the signals)
 
@@ -368,6 +382,14 @@ roundhouse doors are done. That leaves three mechanisms and Game mode.
 
 All three use the hooks already built (`moves`, `rails: "model"`, the turntable's ride, signal holds). None needs a
 new per-frame cost.
+
+**Built (kit-lift): the train lift** (`kit-train-lift`, Sandbox's Machines → Railway & yard shelf). A 288 platform
+(an engine and two cars) rising one level (`LIFT_RISE`, one constant) from its low end to its high end, straight on,
+over `LIFT_SECONDS` (3 s); the model was re-authored round it (`mech-train-lift`). Automatic: a train halts on it,
+waits a second and is carried up or down, then drives off with its lever left on; an empty platform comes to a train
+waiting at its far end. A tap sends it (refused while paused, mid-ride, with a train partly on it or coming in). See
+"How to add a kit", 5, for the mechanism. Idle with a still lift on screen: 0 frames in 30 s running, paused, and
+paused mid-ride (as with the turntable before it).
 
 ### Game mode availability (Game Mode, design for the user)
 

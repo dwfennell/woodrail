@@ -3515,14 +3515,27 @@ export class Interaction {
       const refused = g.sim.deckRefusal(pieceId);
       const kit = kitOf(g.layout.getPiece(pieceId)!.type);
       const name = `The ${kit?.name ?? "deck"}`;
-      // (Paused, the train wouldn't go round with the deck.)
-      if (!refused && g.paused && kit && g.sim.deckCarries(pieceId)) {
-        this.hud.toast(`${name} turns a train while the game's running`);
+      const lift = !!kit?.track.lift;
+      // (Paused, the train wouldn't go round with the deck; a lift doesn't go at all till the game runs.)
+      if (!refused && g.paused && kit && (lift || g.sim.deckCarries(pieceId))) {
+        this.hud.toast(lift ? `${name} works while the game's running` : `${name} turns a train while the game's running`);
         return;
       }
       if (refused || !g.sim.toggleSwitch(pieceId)) {
         this.hud.toast(
-          refused === "turning" ? `${name} is still turning` : refused === "moving" ? `${name} turns a train once it has stopped` : `${name} won't turn with a train partly on it`,
+          lift
+            ? refused === "turning"
+              ? `${name} is still moving`
+              : refused === "moving"
+                ? `${name} goes once the train has stopped`
+                : refused === "approaching"
+                  ? `${name} waits for the train coming in`
+                  : `${name} won't go with a train partly on it`
+            : refused === "turning"
+              ? `${name} is still turning`
+              : refused === "moving"
+                ? `${name} turns a train once it has stopped`
+                : `${name} won't turn with a train partly on it`,
         );
         return;
       }
