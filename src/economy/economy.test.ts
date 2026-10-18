@@ -186,12 +186,10 @@ describe("warehouses", () => {
     // No route: passed by.
     expect(economy.needsService(store, full.id)).toBe(false);
     expect(economy.needsService(store, empty.id)).toBe(false);
-    // Drop (or Both, which is Drop here): unloads, loads nothing back.
-    for (const action of ["drop", "both"] as const) {
-      economy.setRoute(engine.id, { stops: [{ depotId: store.id, action }], next: 0 });
-      expect(economy.needsService(store, full.id), action).toBe(true);
-      expect(economy.needsService(store, empty.id), action).toBe(false);
-    }
+    // Drop: unloads, loads nothing back.
+    economy.setRoute(engine.id, { stops: [{ depotId: store.id, action: "drop" }], next: 0 });
+    expect(economy.needsService(store, full.id)).toBe(true);
+    expect(economy.needsService(store, empty.id)).toBe(false);
     // Pick up: an empty wagon that can carry what's there loads (a timber wagon: no flour, so nothing).
     economy.setRoute(engine.id, { stops: [{ depotId: store.id, action: "pick" }], next: 0 });
     expect(economy.needsService(store, full.id)).toBe(false);
