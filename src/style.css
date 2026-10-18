@@ -365,6 +365,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* (Where the word would cut the goal's title short: the round ⌖ alone, as before.) */
 .goals.collapsed.show-tight .goals-show-icon { width: 44px; padding: 0; justify-content: center; }
 .goals.collapsed.show-tight .goals-show-word { display: none; }
+.goals.collapsed.title-small .goals-now { font-size: 13px; letter-spacing: -0.01em; }
 .goals-show { margin-top: 6px; height: 40px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
 .goals-body { display: none; }
 .goals.collapsed .goals-head { padding-bottom: 10px; }

@@ -1,7 +1,8 @@
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre, TRAIN_ON_TRACK } from "./editor/editor";
-import { fitToRect, frameAlong, frameDistance } from "./game/camera-director";
+import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
+import { viewRoom } from "./ui/view-room";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
@@ -965,9 +966,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showMe: () => showGoal(),
       fly: (place) => {
         // Several spots (new houses, two stations) are framed together, closer than a lone spot.
-        const f = frameAlong(place.points ?? [place], game.camera.fov, game.camera.aspect, place.points ? PLACE_MARGIN : GOAL_MARGIN);
-        game.follow(-1);
-        game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 1, inRoom: true });
+        const spots = place.points ?? [place];
+        const f = frameAlong(spots, game.camera.fov, game.camera.aspect, place.points ? PLACE_MARGIN : GOAL_MARGIN);
+        const pts = spots.map((q) => new Vector3(q.x, 0, q.z));
+        frameInRoom(pts, Math.min(f.distance, game.controls.maxDistance), game.controls.maxDistance, pts.length);
       },
     },
     journal,
@@ -2210,21 +2212,25 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showRoute();
   }
 
-  /** The room the map has on screen (canvas pixels): below the top bar (and the goals), above the engine's card. */
-  function mapRoom(): { top: number; bottom: number; width: number; height: number } {
+  /**
+   * The room the map has on screen (canvas pixels): below the top bar (and the goals), above the tray or a card, or
+   * beside a card docked at the right (see `viewRoom`); the whole view where too little is left. One measure for every
+   * framing (the director's too: `roomOf`).
+   */
+  function measureRoom(): (ViewRoom & { width: number; height: number }) | null {
     const r = game.canvas.getBoundingClientRect();
-    let top = 0;
-    for (const e of document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")) {
+    const rel = (e: Element) => {
       const b = e.getBoundingClientRect();
-      if (b.height > 0 && b.top < r.height / 3) top = Math.max(top, b.bottom - r.top);
-    }
-    // (Above the engine's card, or the Lines view, whichever is up.)
-    let bottom = r.height;
-    for (const e of document.querySelectorAll(".engine-card, .lines-view")) {
-      const b = e.getBoundingClientRect();
-      if (b.height > 0) bottom = Math.min(bottom, b.top - r.top);
-    }
-    return { top, bottom, width: r.width, height: r.height };
+      return { left: b.left - r.left, top: b.top - r.top, right: b.right - r.left, bottom: b.bottom - r.top };
+    };
+    const room = viewRoom(r.width, r.height, [...document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")].map(rel), [...document.querySelectorAll(".hud .tray, .hud .tray-draw, .hud .tray-orient, .hud .card")].map(rel));
+    return room && { ...room, width: r.width, height: r.height };
+  }
+  function mapRoom(): ViewRoom & { width: number; height: number } {
+    const room = measureRoom();
+    if (room) return room;
+    const r = game.canvas.getBoundingClientRect();
+    return { left: 0, top: 0, right: r.width, bottom: r.height, width: r.width, height: r.height };
   }
 
   /** A piece's middle, on the ground. */
@@ -2237,10 +2243,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * Glide the view to show `points` in the map's room (above the card), at the camera's angle, `minDistance` to
    * `maxDistance` mm away (the furthest of `points`, last, are left out where they'd need it further).
    */
-  function frameInRoom(points: Vector3[], minDistance: number, maxDistance = game.controls.maxDistance, mustShow = 0): void {
+  function frameInRoom(points: Vector3[], minDistance: number, maxDistance = game.controls.maxDistance, mustShow = 0, theta?: number): void {
     const room = mapRoom();
     const now = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
-    const fitOf = (ps: Vector3[]) => fitToRect(ps, game.camera, now.phi, now.theta, { left: 0, top: room.top, right: room.width, bottom: room.bottom }, room.width, room.height, 32);
+    // (Facing as asked: along a goal's places, as Show me does.)
+    if (theta !== undefined) now.theta = theta;
+    const fitOf = (ps: Vector3[]) => fitToRect(ps, game.camera, now.phi, now.theta, room, room.width, room.height, 32);
     // Too far out to show them all: the last (furthest) points go, down to the first two, so what's shown is near. The
     // first `mustShow` never go: they're shown however far out that takes (a line's stops: QA, planning zoomed in on
     // the train and left them off screen).
@@ -2260,7 +2268,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       v.copy(p).project(game.camera);
       const x = ((v.x + 1) / 2) * room.width;
       const y = ((1 - v.y) / 2) * room.height;
-      return v.z < 1 && x >= margin && x <= room.width - margin && y >= room.top + margin && y <= room.bottom - margin;
+      return v.z < 1 && x >= room.left + margin && x <= room.right - margin && y >= room.top + margin && y <= room.bottom - margin;
     });
   }
 
@@ -2502,22 +2510,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // What the map shows (between the top bar and the tray, beside or above an open card or sheet): the game's glides
   // and a followed train centre their target there, not behind a card (QA: an engine glided to sat under the card
   // that was open). Measured when any of these changes size, never per frame.
-  game.director.roomOf = () => {
-    const r = game.canvas.getBoundingClientRect();
-    const room = { left: 0, top: 0, right: r.width, bottom: r.height };
-    for (const e of document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")) {
-      const b = e.getBoundingClientRect();
-      if (b.height > 0 && b.top - r.top < r.height / 3) room.top = Math.max(room.top, b.bottom - r.top);
-    }
-    for (const e of document.querySelectorAll(".hud .tray, .hud .tray-draw, .hud .tray-orient, .hud .card")) {
-      const b = e.getBoundingClientRect();
-      if (b.height === 0 || b.width === 0) continue;
-      // Docked at the right (a phone on its side): the room is beside it. Otherwise it's below the room.
-      if (b.left - r.left > r.width * 0.4 && b.top - r.top < r.height / 2) room.right = Math.min(room.right, b.left - r.left);
-      else if (b.top - r.top > room.top) room.bottom = Math.min(room.bottom, b.top - r.top);
-    }
-    return room.bottom - room.top > 80 && room.right - room.left > 80 ? room : null;
-  };
+  game.director.roomOf = () => measureRoom();
   {
     const changed = new ResizeObserver(() => game.director.roomChanged());
     for (const e of document.querySelectorAll(".hud .tray, .hud .card, .hud .goals, .topbar")) changed.observe(e);
@@ -2690,9 +2683,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (guide.points.length > 0) {
       // The places along the screen's long side, with room round them for their surroundings (and for the goals card
       // and the tray, which cover the top and the bottom of the screen).
+      // Fitted in the room the map has (QA: in landscape a marker sat behind the card, and a bridge's line under the
+      // goals); facing along the places, and no closer than their surroundings want (a lone spot).
       const f = frameAlong(guide.points, game.camera.fov, game.camera.aspect, GOAL_MARGIN);
-      game.follow(-1);
-      game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 1, inRoom: true, ...(f.theta === null ? {} : { theta: f.theta }) });
+      const pts = guide.points.map((q) => new Vector3(q.x, 0, q.z));
+      frameInRoom(pts, Math.min(f.distance, game.controls.maxDistance), game.controls.maxDistance, pts.length, f.theta ?? undefined);
     }
     if (guide.towns.length > 0) game.flourishes.add(game.landscapeView.flash(guide.towns));
     const grid = game.landscape.grid;
