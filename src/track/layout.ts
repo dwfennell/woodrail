@@ -52,8 +52,8 @@ export class Layout {
   }
 
   /**
-   * Bumped whenever the track changes: a piece added, taken up, lifted or put down, or a joint made or parted (not a
-   * nudge, which keeps the joints). With `routingVersion`, what a cache of ways along the track is keyed on.
+   * Bumped whenever the track changes: a piece added, taken up, lifted, put down (moved) or nudged, or a joint made or
+   * parted. With `routingVersion`, what a cache of ways along the track is keyed on; also caches of where track is.
    */
   revision = 0;
 
@@ -152,6 +152,7 @@ export class Layout {
    * replaced, free connectors re-indexed and the seating errors of their joints recomputed.
    */
   nudgePieces(poses: ReadonlyMap<number, Pose>): void {
+    if (poses.size > 0) this.revision++;
     for (const [id, pose] of poses) {
       const piece = this.pieces.get(id);
       if (!piece || this.lifted.has(id)) continue;

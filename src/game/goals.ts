@@ -1,4 +1,5 @@
-import { CELL, connectedPairs, SURF_RIVER, type LandscapeGrid } from "../landscape";
+import { connectedPairs, SURF_RIVER, type LandscapeGrid } from "../landscape";
+import { acrossRiver, type AcrossRiver } from "./across-river";
 import { getPieceDef, isBridge, type Layout, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
 import { workshops, workshopStock } from "./crafting";
@@ -16,6 +17,8 @@ export interface GoalProgress {
   count?: number;
   target?: number;
   unit?: string;
+  /** A nudge for how things stand now, in place of the goal's own. */
+  hint?: string;
 }
 
 /** Where to look for a goal ("Show me"): places to frame and point at, and the tray tab that has what it needs. */
@@ -233,56 +236,48 @@ function riverPoints(grid: LandscapeGrid): Point[] {
 /** Most anchors compared with the river squares on one tap (the track is thinned to this many points). */
 const MAX_ANCHORS = 80;
 
-/** How far (mm) from the straight run between two towns a river square counts as on the way. */
-const ON_THE_WAY = CELL * 0.75;
-
-/** The distance from `p` to the segment `a`-`b`, and how far along it (0..1) the nearest point is. */
-function toSegment(p: Point, a: Point, b: Point): { d: number; t: number } {
-  const dx = b.x - a.x;
-  const dz = b.z - a.z;
-  const len2 = dx * dx + dz * dz;
-  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / len2));
-  return { d: Math.hypot(p.x - (a.x + t * dx), p.z - (a.z + t * dz)), t };
-}
-
-/**
- * A river crossing worth bridging: where the straight run from a town on the railway to the nearest town not on it
- * (with none joined yet, between two towns) crosses the river, the first river square on the way. Nearest pairs of
- * towns first. Null if no such run crosses the river.
- */
-function crossingAhead(w: World, river: readonly Point[]): { at: Point; from: number; to: number } | null {
-  const all = w.landscape.towns.map((t) => t.id);
+/** The player's line, for what's across the river from it: their track and the towns on their railway (or the next towns to join). */
+function lineOf(w: World): Point[] {
+  const track = trackPoints(w);
   const joined = largestNetwork(w);
-  const from = joined.length > 0 ? joined : all;
-  const to = all.filter((id) => !joined.includes(id));
-  const pairs = from.flatMap((a) => to.filter((b) => b !== a).map((b) => ({ a, b, d: dist(townAt(w, a), townAt(w, b)) })));
-  pairs.sort((x, y) => x.d - y.d);
-  for (const { a, b } of pairs) {
-    const pa = townAt(w, a);
-    const pb = townAt(w, b);
-    let best: { p: Point; t: number } | null = null;
-    for (const p of river) {
-      const s = toSegment(p, pa, pb);
-      if (s.d < ON_THE_WAY && (!best || s.t < best.t)) best = { p, t: s.t };
-    }
-    if (best) return { at: best.p, from: a, to: b };
-  }
-  return null;
+  const ids = joined.length > 0 ? joined : track.length > 0 ? [] : nextTowns(w);
+  return [...track, ...ids.map((id) => w.landscape.towns.find((t) => t.id === id)!.station)];
 }
 
+/** `acrossRiver` from the line, by world, kept while the track (pieces and where they lie) and the land are the same. */
+const acrossCache = new WeakMap<World, { key: string; hit: AcrossRiver | null }>();
+
+function bridgeTarget(w: World): AcrossRiver | null {
+  const land = w.landscape;
+  const key = `${w.layout.revision}|${land.grid.revision}|${land.towns.length}|${land.depots.length}`;
+  const cached = acrossCache.get(w);
+  if (cached?.key === key) return cached.hit;
+  const hit = riverPoints(land.grid).length === 0 ? null : acrossRiver(land, lineOf(w), land.depots.map((d) => d.centre));
+  acrossCache.set(w, { key, hit });
+  return hit;
+}
+
+/** The bridge goal's hint when there's a river but nothing across it to reach. */
+export const NOTHING_ACROSS_HINT = "Nothing's across the river yet. Learn bridges, make one and lay it over the water.";
+
 /**
- * Where a bridge is wanted: a river crossing on the way to the next town to join (`crossingAhead`), framed with the
- * towns either side; else the river square nearest the player's line (their track and the towns on their railway, or
- * else the next towns to join), framed with that bit of the line. With no river on the map: the line as it is. The
- * Track tab opens on its Bridges shelf.
+ * Where a bridge is wanted: where the shortest way from the line to the nearest thing across the river (a town off the
+ * railway, a depot, ground for an industry: `acrossRiver`) crosses it, framed with both banks (and the thing, when
+ * it's near). With nothing across: the river square nearest the player's line (their track and the towns on their
+ * railway, or else the next towns to join), framed with that bit of the line. With no river on the map: the line as
+ * it is. The Track tab opens on its Bridges shelf.
  */
 function guideBridge(w: World): GoalGuide {
   const tab = "track";
   const shelf = "Bridges";
   const river = riverPoints(w.landscape.grid);
   if (river.length === 0) return guideTrains(w, tab, shelf);
-  const ahead = crossingAhead(w, river);
-  if (ahead) return { points: [ahead.at, townAt(w, ahead.from), townAt(w, ahead.to)], towns: [ahead.to], marks: [ahead.at], tab, shelf };
+  const ahead = bridgeTarget(w);
+  if (ahead) {
+    const points = [ahead.river, ahead.near, ahead.far];
+    if (dist(ahead.at, ahead.river) <= SHOW_ACROSS) points.push(ahead.at);
+    return { points, towns: ahead.town === undefined ? [] : [ahead.town], marks: [ahead.river], tab, shelf };
+  }
   const joined = largestNetwork(w);
   const track = trackPoints(w);
   const step = Math.max(1, Math.ceil(track.length / MAX_ANCHORS));
@@ -292,6 +287,9 @@ function guideBridge(w: World): GoalGuide {
   if (!pair) return guideTrains(w, tab, shelf);
   return { points: [pair[1], pair[0]], towns: [], marks: [pair[1]], tab, shelf };
 }
+
+/** What's across the river is framed with the crossing when it's this near it (mm); further, just the crossing. */
+const SHOW_ACROSS = 1500;
 
 const deliveredTotal = (w: World) => {
   let n = 0;
@@ -437,7 +435,10 @@ export const GOALS: readonly Goal[] = [
     blueprint: "bridges",
     title: "Build a bridge",
     hint: "Learn bridges on the blueprint board and make one at your workshop. Then take your track over a river.",
-    check: (w) => ({ done: hasPiece(w, (type) => isBridge(type)) }),
+    check: (w) => {
+      if (hasPiece(w, (type) => isBridge(type))) return { done: true };
+      return riverPoints(w.landscape.grid).length > 0 && !bridgeTarget(w) ? { done: false, hint: NOTHING_ACROSS_HINT } : { done: false };
+    },
     guide: guideBridge,
   },
   {

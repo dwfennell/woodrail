@@ -1,13 +1,14 @@
 import { CARGO, CARGO_KINDS, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { pilesOf } from "../economy/economy";
 import type { TownStatus } from "./towns";
+import type { DepotRole } from "../economy";
 import { DEPOT_NAMES, type World } from "./world";
 
 /** One thing the map view points out: where it is, what it's called, and a line about it. */
 export interface MapMarker {
-  /** Unique within a map: "town:3", "depot:1". */
+  /** Unique within a map: "town:3", "depot:1", "site:7" (an industry the player put down). */
   key: string;
-  kind: "town" | "forest" | "sawmill";
+  kind: "town" | Exclude<DepotRole, "town">;
   x: number;
   z: number;
   title: string;
@@ -38,6 +39,16 @@ export function mapMarkers(world: World, statusOf: (townId: number) => TownStatu
     const kinds = pilesOf(d.kind);
     const stock = state ? kinds.map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${state.piles[CARGO[k].index]}`).join(" · ") : "";
     out.push({ key: `depot:${d.id}`, kind: d.kind, x: d.centre.x, z: d.centre.z, title: DEPOT_NAMES[d.kind], detail: stock });
+  }
+  // The industries the player has put down (a workshop): not the map's own, nor a town's station.
+  const own = new Set(world.depots.values());
+  for (const d of world.economy.allDepots()) {
+    if (d.role === "town" || own.has(d.pieceId)) continue;
+    const piece = world.layout.getPiece(d.pieceId);
+    const title = DEPOT_NAMES[d.role];
+    if (!piece || !title) continue;
+    const stock = pilesOf(d.role).map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${d.piles[CARGO[k].index]}`).join(" · ");
+    out.push({ key: `site:${d.id}`, kind: d.role, x: piece.pose.x, z: piece.pose.z, title, detail: stock });
   }
   return out;
 }

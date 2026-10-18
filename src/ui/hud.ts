@@ -104,6 +104,9 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", html = ""):
   return e;
 };
 
+/** How long a menu item that asks first (New game) waits for the second tap (ms). */
+const ASK_MS = 4000;
+
 function button(label: string, title: string, onClick: () => void, cls = "chip"): HTMLButtonElement {
   const b = el("button", cls, label);
   b.title = title;
@@ -236,6 +239,9 @@ export class Hud {
   private readonly reportNote = document.createElement("textarea");
   private readonly sandboxItems: HTMLButtonElement[];
   private readonly gameItems: HTMLButtonElement[];
+  /** The menu's New game (it asks first: see `stopAsking`), and the timer that stops it asking. */
+  private readonly newGameItem: HTMLButtonElement;
+  private newGameAsk = 0;
   readonly perf = el("div", "perf");
   private toastTimer = 0;
   private readonly toastQueue: { message: string; celebrate: boolean; ms: number; urgent: boolean }[] = [];
@@ -334,12 +340,21 @@ export class Hud {
         h.newLayout();
       }, "menu-item"),
     ];
-    this.gameItems = [
-      button("New game", "Start the goals again on the starter map", () => {
-        this.menu.hidden = true;
-        h.newGame();
-      }, "menu-item"),
-    ];
+    // Starting over loses the game's progress: the first tap asks, a second (while it asks) does it.
+    const newGame = button("New game", "Start the goals again on the starter map", () => {
+      if (!newGame.classList.contains("asking")) {
+        newGame.classList.add("asking");
+        newGame.textContent = "Start over? Tap again";
+        window.clearTimeout(this.newGameAsk);
+        this.newGameAsk = window.setTimeout(() => this.stopAsking(newGame), ASK_MS);
+        return;
+      }
+      this.stopAsking(newGame);
+      this.menu.hidden = true;
+      h.newGame();
+    }, "menu-item");
+    this.newGameItem = newGame;
+    this.gameItems = [newGame];
     // The bar's buttons that don't fit on a phone.
     const narrow = (label: string, title: string, act: () => void) =>
       button(label, title, () => {
@@ -978,8 +993,17 @@ export class Hud {
     this.help.hidden = false;
   }
 
+  /** A menu item that asks before it acts goes back to its plain self. */
+  private stopAsking(item: HTMLButtonElement): void {
+    window.clearTimeout(this.newGameAsk);
+    item.classList.remove("asking");
+    item.textContent = "New game";
+  }
+
   toggleMenu(): void {
     this.menu.hidden = !this.menu.hidden;
+    // (Opened or closed, New game asks afresh.)
+    this.stopAsking(this.newGameItem);
     // The toast showing is over the menu's top items: it goes (the next waiting, if any, comes on under the menu).
     if (!this.menu.hidden && this.toastEl.classList.contains("show")) this.dismissToast();
   }

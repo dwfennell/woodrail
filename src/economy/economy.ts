@@ -1251,8 +1251,9 @@ export class Economy {
   accepts: ((d: DepotState, kind: CargoKind) => boolean) | null = null;
 
   /**
-   * Goods a mode keeps for a workshop (Game mode: planks, while the workshop holds fewer than the dearest blueprint ready
-   * on the board needs): towns don't take them from unrouted trains, which carry them on to the workshop.
+   * Goods a mode keeps for a workshop (Game mode: planks, while the workshop holds fewer than the cheapest blueprint
+   * ready on the board needs, or the current goal's blueprint if more: `planksWanted` in tech.ts): towns don't take
+   * them from unrouted trains, which carry them on to the workshop.
    */
   reserved: ((kind: CargoKind) => boolean) | null = null;
 

@@ -233,3 +233,26 @@ describe("steer: an avoid hint", () => {
     expect(o.layout.switchState(o.sw)).toBe(0);
   });
 });
+
+describe("steer: a follow hint", () => {
+  it("takes the way followed through the switch, whatever the distance, and beats avoid", () => {
+    const o = ovalWithSpur();
+    // Round the oval is the shorter way; following the curve sends it down the spur.
+    expect(steer(o.layout, o.train(), true, o.far, undefined, (id, path) => id === o.sw && path === 1)).toBe(true);
+    expect(o.layout.switchState(o.sw)).toBe(1);
+    // Followed and avoided both: followed wins.
+    const both = (id: number, path: number) => id === o.sw && path === 0;
+    expect(steer(o.layout, o.train(), true, o.far, both, both)).toBe(true);
+    expect(o.layout.switchState(o.sw)).toBe(0);
+  });
+
+  it("with no way, or every way, followed, chooses as without it; a pinned switch wins", () => {
+    const o = ovalWithSpur();
+    expect(steer(o.layout, o.train(), true, o.far, undefined, () => false)).toBe(false);
+    expect(steer(o.layout, o.train(), true, o.far, undefined, (id) => id === o.sw)).toBe(false);
+    expect(o.layout.switchState(o.sw)).toBe(0);
+    o.layout.setPinned(o.sw, true);
+    expect(steer(o.layout, o.train(), true, o.far, undefined, (id, path) => id === o.sw && path === 1)).toBe(false);
+    expect(o.layout.switchState(o.sw)).toBe(0);
+  });
+});

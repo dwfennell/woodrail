@@ -477,15 +477,19 @@ function discTexture(d: DiscSpec): CanvasTexture | null {
     g.arc(cx, cy, r - 3.5, 0, Math.PI * 2);
     g.stroke();
   }
-  g.font = `bold ${Math.round(r * (d.label.length > 2 ? 0.72 : d.label.length > 1 ? 1.0 : 1.25))}px system-ui, sans-serif`;
+  const fit = discLabel(d.label, r, (text, size) => {
+    g.font = `bold ${Math.round(size)}px system-ui, sans-serif`;
+    return g.measureText(text).width;
+  });
+  g.font = `bold ${Math.round(fit.size)}px system-ui, sans-serif`;
   g.textAlign = "center";
   g.textBaseline = "middle";
   g.lineJoin = "round";
   g.lineWidth = 6;
   g.strokeStyle = grey ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.28)";
-  g.strokeText(d.label, cx, cy + 3);
+  g.strokeText(fit.text, cx, cy + 3);
   g.fillStyle = grey ? "#5a534c" : "#ffffff";
-  g.fillText(d.label, cx, cy + 3);
+  g.fillText(fit.text, cx, cy + 3);
   if (grey) {
     // A red badge with a white "!" at the disc's lower right (a problem, not "remove"), the number still showing.
     const bx = cx + r * 0.68;
@@ -517,3 +521,26 @@ function discTexture(d: DiscSpec): CanvasTexture | null {
   return tex;
 }
 
+
+/**
+ * A disc's label as it fits inside it (radius `r` px, `width` measuring text at a size): one number big, a pair a
+ * little smaller, more smaller still, and a long list of visits ("4·6·8·1", QA: clipped) smaller again down to what
+ * still reads (half the radius), past which its first two and "+" ("4·6+"), or its first and "+".
+ */
+export function discLabel(label: string, r: number, width: (text: string, size: number) => number): { text: string; size: number } {
+  const room = r * 1.5;
+  let size = r * (label.length > 2 ? 0.72 : label.length > 1 ? 1.0 : 1.25);
+  const w = width(label, size);
+  if (w <= room) return { text: label, size };
+  size = Math.max(r * 0.5, (size * room) / w);
+  if (width(label, size) <= room) return { text: label, size };
+  // (The first two and "+"; with big numbers, the first and "+".)
+  const parts = label.split("·");
+  for (const text of [`${parts.slice(0, 2).join("·")}+`, `${parts[0]}+`]) {
+    size = r * 0.72;
+    const w2 = width(text, size);
+    if (w2 <= room) return { text, size };
+    if (width(text, r * 0.5) <= room) return { text, size: (size * room) / w2 };
+  }
+  return { text: `${parts[0]}+`, size: r * 0.5 };
+}
