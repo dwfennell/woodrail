@@ -10,6 +10,7 @@ import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, OLDER_SAVE, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
+import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
 import { GoalsPanel } from "./ui/goals-panel";
 import { Journal, type JournalEntry, type JournalPlace, type NoteInput } from "./game/journal";
@@ -1344,9 +1345,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   });
 
   function learned(id: string): void {
-    const makes = unlocksOf(id).map((t) => ruleOf(t)!.label.toLowerCase());
+    const makes = unlocksOf(id).map((t) => ruleOf(t)!.label);
     const t = techOf(id)!;
-    note({ kind: "milestone", text: makes.length > 0 ? `Learned ${t.label.toLowerCase()}! Make ${makes.slice(0, 2).join(" and ")}${makes.length > 2 ? " and more" : ""} at the workshop` : `Learned ${t.label}! ${t.blurb}` }, 3800);
+    note({ kind: "milestone", text: makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.blurb}` }, 3800);
     // An upgrade takes effect at once: industries' rates and the cranes.
     applyCranes(game.economy, progress);
     industriesChanged();

@@ -208,7 +208,7 @@ export const GOALS: readonly Goal[] = [
   {
     id: "get-moving",
     title: "Get a train moving",
-    hint: "Tap the engine and push its lever forward.",
+    hint: "Tap the engine, then tap Go.",
     check: (w) => ({ done: running(w).length > 0 }),
     guide: (w) => guideTrains(w),
   },
