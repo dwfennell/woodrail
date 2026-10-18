@@ -1561,7 +1561,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       scheduleSave();
     });
   }
-  /** Planks kept for the workshop: it holds fewer than the dearest blueprint ready on the board needs (`planksWanted`) (worked out once a second). */
+  /** Planks kept for the workshop: it holds fewer than the board's cheapest ready blueprint, or the current goal's, needs (`planksWanted`; worked out once a second). */
   let planksKept = false;
   const keepPlanks = (kind: string) => kind === "planks" && planksKept;
   function updatePlanksKept(): void {
@@ -1570,7 +1570,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       planksKept = false;
       return;
     }
-    planksKept = keepsPlanks(progress, workshopStock(game.world).planks ?? 0);
+    planksKept = keepsPlanks(progress, workshopStock(game.world).planks ?? 0, goals.current()?.blueprint ?? null);
   }
 
   setInterval(() => {

@@ -46,6 +46,8 @@ export interface Goal {
   guide(world: World): GoalGuide;
   /** Blueprints to learn before it shows or counts (till then it's passed over). */
   readonly needs?: readonly string[];
+  /** The blueprint it's after, if any: while it's the current goal the workshop keeps planks for it (`planksWanted`). */
+  readonly blueprint?: string;
 }
 
 /** Above this speed (mm/s) a train counts as running. */
@@ -342,6 +344,7 @@ export const GOALS: readonly Goal[] = [
   },
   {
     id: "learn-switches",
+    blueprint: "switches",
     title: "Learn switches",
     hint: "Open Blueprints and tap Switches.",
     check: (_w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches") }),
@@ -356,6 +359,7 @@ export const GOALS: readonly Goal[] = [
   },
   {
     id: "build-bridge",
+    blueprint: "bridges",
     title: "Build a bridge",
     hint: "Learn bridges on the blueprint board and make one at your workshop. Then take your track over a river.",
     check: (w) => ({ done: hasPiece(w, (type) => isBridge(type)) }),

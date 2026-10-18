@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
 import { capOf } from "../economy/economy";
 import { appendPiece, connectorRef } from "../track";
+import { GOALS } from "./goals";
 import { Progress } from "./progress";
 import { built, choose, keepsPlanks, learnWithGoods, offerFor, planksWanted, priceOf, ready, techOf, TECHS } from "./tech";
 import { THING_RULES } from "./things";
@@ -62,16 +63,30 @@ describe("blueprints", () => {
 });
 
 describe("planks kept for the workshop (no route needed)", () => {
-  it("fills to the dearest blueprint ready on the board, not the cheapest: Bridges (10) isn't left waiting at 9", () => {
+  it("fills to the current goal's blueprint: Bridges (10) for \"Build a bridge\" isn't left waiting at 9", () => {
     const p = Progress.fresh();
     p.learned.add("switches");
     p.board.clear();
-    for (const id of ["bridges", "signals"]) p.board.add(id);
-    expect(ready(p, "signals") && ready(p, "bridges")).toBe(true);
+    for (const id of ["bridges", "signals", "junctions"]) p.board.add(id);
+    expect(ready(p, "signals") && ready(p, "bridges") && ready(p, "junctions")).toBe(true);
     expect(priceOf(p, techOf("signals")!).planks).toBe(8);
-    expect(planksWanted(p)).toBe(10);
-    expect(keepsPlanks(p, 9)).toBe(true);
-    expect(keepsPlanks(p, 10)).toBe(false);
+    const aim = GOALS.find((g) => g.id === "build-bridge")!.blueprint!;
+    expect(aim).toBe("bridges");
+    expect(planksWanted(p, aim)).toBe(10);
+    expect(keepsPlanks(p, 9, aim)).toBe(true);
+    expect(keepsPlanks(p, 10, aim)).toBe(false);
+  });
+
+  it("with no goal after one, the cheapest ready blueprint (never the dearest: the towns would go short)", () => {
+    const p = Progress.fresh();
+    p.learned.add("switches");
+    p.board.clear();
+    for (const id of ["bridges", "signals", "junctions"]) p.board.add(id);
+    expect(planksWanted(p)).toBe(8);
+    expect(keepsPlanks(p, 9)).toBe(false);
+    // A goal's blueprint not ready, or learned: the cheapest.
+    p.learned.add("bridges");
+    expect(planksWanted(p, "bridges")).toBe(8);
   });
 
   it("never more than the yard holds, and nothing kept with nothing ready", () => {
@@ -80,6 +95,6 @@ describe("planks kept for the workshop (no route needed)", () => {
     expect(planksWanted(p)).toBe(0);
     expect(keepsPlanks(p, 0)).toBe(false);
     p.board.add("bridges");
-    expect(planksWanted(p, 6)).toBe(6);
+    expect(planksWanted(p, null, 6)).toBe(6);
   });
 });

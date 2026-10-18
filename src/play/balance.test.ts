@@ -187,14 +187,44 @@ class Player {
     for (const id of learnAuto(this.progress)) this.learned(id, "came with a landmark", "free");
   }
 
-  /** The workshop keeps planks while it's short of the dearest blueprint ready on the board (as the game does). */
+  /** The workshop keeps planks while it's short of the cheapest blueprint ready on the board, or the current goal's (as the game does). */
   planksKept = false;
   updatePlanksKept(): void {
     if (workshops(this.w).length === 0) {
       this.planksKept = false;
       return;
     }
-    this.planksKept = keepsPlanks(this.progress, workshopStock(this.w).planks ?? 0);
+    const stock = workshopStock(this.w).planks ?? 0;
+    // BALANCE_KEEP=cheapest | dearest: earlier rules (kept till the cheapest, or the dearest, ready blueprint is paid
+    // for), to compare.
+    if (ENV.BALANCE_KEEP === "cheapest") {
+      let cheapest = Infinity;
+      for (const t of TECHS) {
+        if (!this.progress.board.has(t.id) || this.progress.learned.has(t.id) || !ready(this.progress, t.id)) continue;
+        const planks = priceOf(this.progress, t).planks ?? 0;
+        if (planks > 0) cheapest = Math.min(cheapest, planks);
+      }
+      this.planksKept = stock < cheapest && cheapest < Infinity;
+    } else if (ENV.BALANCE_KEEP === "dearest") {
+      // (game-balance-4's first try: kept till the dearest ready blueprint is paid for. It starved the towns.)
+      let most = 0;
+      for (const t of TECHS) if (this.progress.board.has(t.id) && !this.progress.learned.has(t.id) && ready(this.progress, t.id)) most = Math.max(most, priceOf(this.progress, t).planks ?? 0);
+      this.planksKept = stock < Math.min(most, 30);
+    } else this.planksKept = keepsPlanks(this.progress, stock, this.goals.current()?.blueprint ?? null);
+  }
+
+  /** Seconds planks were kept for the workshop; the longest stretch (s) with no planks into any town, after the first. */
+  keptSeconds = 0;
+  townGap = 0;
+  private toTowns = 0;
+  private toTownsAt = 0;
+  private townsFed(): void {
+    let n = 0;
+    for (const v of this.w.economy.delivered.values()) n += v;
+    if (n !== this.toTowns) {
+      this.toTowns = n;
+      this.toTownsAt = this.tick;
+    } else if (n > 0) this.townGap = Math.max(this.townGap, (this.tick - this.toTownsAt) / SIM_HZ);
   }
 
   level(i: number): number {
@@ -218,6 +248,8 @@ class Player {
       this.tick++;
       if (this.tick % SIM_HZ !== 0) continue;
       this.updatePlanksKept();
+      if (this.planksKept) this.keptSeconds++;
+      this.townsFed();
       const t0 = performance.now();
       this.town.update();
       if (this.growing) {
@@ -1213,7 +1245,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
-      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry}`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min`,
       `findings:\n- ${P.findings.join("\n- ") || "none"}`,
     ].join("\n");
     console.log(out);

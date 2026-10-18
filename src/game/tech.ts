@@ -82,22 +82,27 @@ export function priceOf(p: Progress, t: Tech): Price {
 
 /**
  * Planks the workshop keeps (towns don't take them from unrouted trains, which carry them on to it) until its yard
- * holds this many: enough for the dearest blueprint ready on the board, so whichever the player picks can be paid (with
- * only the cheapest, a 10-plank Bridges waited at 9 while an 8-plank one was ready). No more than the yard holds. 0:
- * nothing to keep for.
+ * holds this many: enough for the cheapest blueprint ready on the board, or, if more, for the one the current goal is
+ * after (`aim`: Bridges for "Build a bridge"). With only the cheapest, a 10-plank Bridges waited at 9 while an 8-plank
+ * one was ready (QA); keeping for the dearest starved the towns (the balance play-through: a City up to 76 minutes
+ * later). No more than the yard holds. 0: nothing to keep for.
  */
-export function planksWanted(p: Progress, yardCap = WORKSHOP_CAP): number {
-  let most = 0;
+export function planksWanted(p: Progress, aim: string | null = null, yardCap = WORKSHOP_CAP): number {
+  const open = (t: Tech) => p.board.has(t.id) && !p.learned.has(t.id) && ready(p, t.id);
+  let cheapest = Infinity;
   for (const t of TECHS) {
-    if (!p.board.has(t.id) || p.learned.has(t.id) || !ready(p, t.id)) continue;
-    most = Math.max(most, priceOf(p, t).planks ?? 0);
+    const planks = open(t) ? (priceOf(p, t).planks ?? 0) : 0;
+    if (planks > 0) cheapest = Math.min(cheapest, planks);
   }
-  return Math.min(most, yardCap);
+  const goal = aim ? techOf(aim) : undefined;
+  const aimed = goal && open(goal) ? (priceOf(p, goal).planks ?? 0) : 0;
+  const want = Math.max(cheapest === Infinity ? 0 : cheapest, aimed);
+  return Math.min(want, yardCap);
 }
 
 /** Does the workshop keep planks now, holding `stock`? (See `planksWanted`.) */
-export function keepsPlanks(p: Progress, stock: number): boolean {
-  return stock < planksWanted(p);
+export function keepsPlanks(p: Progress, stock: number, aim: string | null = null): boolean {
+  return stock < planksWanted(p, aim);
 }
 
 /** The goods a price takes from the workshop's yard (planks and others; coins aside). */
