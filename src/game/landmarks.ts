@@ -12,10 +12,11 @@ export interface Landmark {
   /** What it does, for the town's card and the toast. */
   readonly blurb: string;
   /**
-   * Its catalogue model on a two-square lot, and on a one-square lot (the first that's in the catalogue). One that
-   * comes with a blueprint goes up only on a two-square lot.
+   * Its catalogue model on a 2×2 lot, a two-square lot, and a one-square lot (the first that's in the catalogue and
+   * fits: see `fitsLot`). One with `four` models takes a 2×2 lot where there's room. One that comes with a blueprint
+   * goes up only on two squares or more.
    */
-  readonly models: { readonly two: readonly string[]; readonly one: readonly string[] };
+  readonly models: { readonly four?: readonly string[]; readonly two: readonly string[]; readonly one: readonly string[] };
   /** Goes up only once this blueprint is learned (at the next town to grow to its level), and in one town only. */
   readonly tech?: string;
 }
@@ -33,14 +34,14 @@ export const LANDMARKS: readonly Landmark[] = [
     name: "Market",
     level: 2,
     blurb: "Pays half again for everything delivered to this town.",
-    models: { two: ["bldg-market-hall", "bldg-post-office"], one: ["bldg-corner-shop"] },
+    models: { four: ["bldg-market-hall"], two: ["bldg-market-hall", "bldg-post-office"], one: ["bldg-corner-shop"] },
   },
   {
     id: "library",
     name: "Library",
     level: 3,
     blurb: "Opens the advanced blueprints (quarries and more).",
-    models: { two: ["bldg-library", "bldg-apartment-block"], one: ["bldg-cafe"] },
+    models: { four: ["bldg-library"], two: ["bldg-library", "bldg-apartment-block"], one: ["bldg-bakery"] },
   },
   {
     id: "college",
@@ -48,7 +49,7 @@ export const LANDMARKS: readonly Landmark[] = [
     level: 2,
     tech: "college",
     blurb: "Ideas come twice as often, and blueprints cost a fifth fewer planks.",
-    models: { two: ["bldg-college", "bldg-library", "bldg-school"], one: [] },
+    models: { four: ["bldg-college"], two: ["bldg-college", "bldg-library", "bldg-school"], one: [] },
   },
 ];
 

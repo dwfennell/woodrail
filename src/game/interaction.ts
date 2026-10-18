@@ -3585,7 +3585,7 @@ export class Interaction {
     const p = g.props.get(id);
     if (!p) return;
     const pose: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
-    const links = { building: p.building, town: p.town, variant: p.variant };
+    const links = { building: p.building, town: p.town, variant: p.variant, scale: p.scale };
     if (p.building === undefined) {
       this.editor().editProps({ do: () => g.props.remove(id), undo: () => g.props.add(p.asset, pose, id, links) });
       g.propsChanged();
@@ -3617,7 +3617,7 @@ export class Interaction {
     const g = this.game;
     const land = g.landscape;
     const p = g.props.get(id)!;
-    const links = { building: p.building, town: p.town, variant: p.variant };
+    const links = { building: p.building, town: p.town, variant: p.variant, scale: p.scale };
     const changed = townSlots(land, building);
     let putBack = () => {};
     const doIt = () => {
