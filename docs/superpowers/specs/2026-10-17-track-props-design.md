@@ -398,6 +398,24 @@ waiting at its far end. A tap sends it (refused while paused, mid-ride, with a t
 "How to add a kit", 5, for the mechanism. Idle with a still lift on screen: 0 frames in 30 s running, paused, and
 paused mid-ride (as with the turntable before it).
 
+**QA notes (lift-notes).** Called "Train lift" everywhere (tray, card, toasts, catalogue; `LIFT_NAME`).
+- Taps: down, its platform's floor lies level with the unseen felt-level track it's picked by, so which mesh a ray
+  met first was a coin toss (about half the taps opened the Track card). A ray that meets a lift is now classed by
+  where it meets it, in the piece's frame (`liftTap` in src/game/touch-pick.ts, `Interaction.liftTapAlong`): on the
+  platform where it stands now (down, up or between), it sends it, as a turntable's deck; else on its tower, frame or
+  base, its piece's card; past its ends, to what's behind. A post of the tower in front of the platform doesn't take
+  the tap from it.
+- A lift carrying a train, going, or with a train on it can't be taken up, moved or turned (`Sim.liftFree`): the
+  editor refuses the edit, and an undo or redo that would, history kept (`Editor.onHeld`; "A train is on it", or
+  "The train lift is still moving"). Undo puts a lift back with its platform where it stood (switch state).
+- "That train's too long for the train lift" once per train (by its cars: a train turned back comes again as a new
+  train), again only after 5 minutes (`TooLongNotice`).
+- Its footprint is its whole frame (posts, braces, counterweights: l ±42), notched at each end over the line.
+- A red stop board on each end post, shown at the end the platform's away from (both while it moves): a visibility
+  set as the platform poses, so only while it rides. A clunk as it sets off and arrives, and a soft winding while it
+  rides (quiet paused or muted). "Tap the train lift to send it", once, when one's first put down
+  (`woodrail.liftTip`).
+
 ### Game mode availability (Game Mode, design for the user)
 
 The kits stay Sandbox-only until this is agreed. My proposal is to tie them to blueprints that are already on the

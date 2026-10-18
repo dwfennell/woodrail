@@ -226,4 +226,20 @@ describe("the train lift", () => {
   it("dwells LIFT_DWELL ticks before going", () => {
     expect(LIFT_DWELL).toBe(SIM_HZ);
   });
+
+  it("says which lifts ride (for their sound): none still, the lift from its ride's start to its end", () => {
+    const w = line();
+    w.sim.removeTrain(w.sim.trainIds()[0]);
+    w.tick();
+    expect(w.sim.ridingLifts()).toEqual([]);
+    expect(w.sim.toggleSwitch(w.lift)).toBe(true);
+    expect(w.sim.ridingLifts()).toEqual([w.lift]);
+    let ticks = 0;
+    while (w.sim.ridingLifts().length > 0 && ticks < 10 * SIM_HZ) {
+      w.tick();
+      ticks++;
+    }
+    expect(ticks).toBe(LIFT_SECONDS * SIM_HZ);
+    expect(w.sim.liftPosition(w.lift)).toBe(1);
+  });
 });

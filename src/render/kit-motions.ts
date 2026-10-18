@@ -1,6 +1,9 @@
 import type { Object3D } from "three";
 import { LIFT_RISE } from "../track/kits";
 
+/** A lift's platform this close (mm) to an end counts as there, for its stop boards (it's eased in: exactly, at its end). */
+const LIFT_STOP_SLACK = 1e-3;
+
 /**
  * How kit pieces' models move (`KitDef.moves`, src/track/kits.ts): for each asset that moves, the nodes that move (the
  * asset's own pivots, named as its catalogue `animate` names them: door leaves, a portcullis, a crane's trolley) and how
@@ -204,7 +207,9 @@ export const KIT_MOTIONS: Readonly<Record<string, KitMotion>> = {
   }),
   // The train lift's platform stands where the sim's ride has carried it (0 down, 1 up, between while it rises or
   // falls: `Sim.liftPosition`), its counterweights going the other way and its winding gear turning.
-  "mech-train-lift": stateMotion(["lift", "cw0", "cw1", "gear"], {
+  // Its stop boards show at each end the platform's away from (both while it moves), where trains are held: a
+  // visibility set as it poses, which is only while it rides (a still lift poses nothing).
+  "mech-train-lift": stateMotion(["lift", "cw0", "cw1", "gear", "stop0", "stop1"], {
     source: "ride",
     glide: 0,
     value: (k) => k * LIFT_RISE,
@@ -213,6 +218,8 @@ export const KIT_MOTIONS: Readonly<Record<string, KitMotion>> = {
       each(p, "cw0", (o) => (o.position.y = -y));
       each(p, "cw1", (o) => (o.position.y = -y));
       each(p, "gear", (o) => (o.rotation.z = y / 8));
+      each(p, "stop0", (o) => (o.visible = y > LIFT_STOP_SLACK));
+      each(p, "stop1", (o) => (o.visible = y < LIFT_RISE - LIFT_STOP_SLACK));
     },
   }),
   "mech-train-wash": {

@@ -182,6 +182,14 @@ function turntable(type: PieceTypeId): PieceDef {
 /** The train lift's platform: as long as an engine and two cars (mm), and how far it rises (one level). */
 export const LIFT_LENGTH = 288;
 export const LIFT_RISE = RISER_HEIGHT;
+/**
+ * The lift's frame in plan (its footprint): it reaches this far either side of the line (its counterweights, l ±41.4;
+ * its posts ±36: `mech-train-lift` in src/catalogue/assets/mechanisms.ts). Its side bands run from `LIFT_BAND_IN` out,
+ * and the middle between them stops `LIFT_END_NOTCH` short of each end, clear of the track joined there.
+ */
+const LIFT_FRAME_HALF = 42;
+const LIFT_BAND_IN = 22;
+const LIFT_END_NOTCH = 16;
 /** How long the lift takes to carry a train from one end to the other (s). */
 export const LIFT_SECONDS = 3;
 
@@ -581,15 +589,18 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
   // standing on it). The model draws the platform's rails.
   "kit-train-lift": {
     asset: "mech-train-lift",
-    name: "lift",
+    name: "train lift",
     track: trainLift("kit-train-lift"),
     rails: "model",
     // The model's origin is the platform's middle.
     place: { t: LIFT_LENGTH / 2, l: 0 },
-    // The tower's sides, either side of the platform.
+    // Its whole frame (posts, braces and counterweights: t 0 to 288, l ±42), but for a notch at each end over the line
+    // so the track joined there stays clear (its discs reach 14 mm: `TRACK_RADIUS` in src/game/depot-footprint.ts): a
+    // band along each side the full length, and the middle between them stopping short of each end.
     footprint: [
-      { t: LIFT_LENGTH / 2, l: 32, w: LIFT_LENGTH - 8, d: 10 },
-      { t: LIFT_LENGTH / 2, l: -32, w: LIFT_LENGTH - 8, d: 10 },
+      { t: LIFT_LENGTH / 2, l: (LIFT_FRAME_HALF + LIFT_BAND_IN) / 2, w: LIFT_LENGTH, d: LIFT_FRAME_HALF - LIFT_BAND_IN },
+      { t: LIFT_LENGTH / 2, l: -(LIFT_FRAME_HALF + LIFT_BAND_IN) / 2, w: LIFT_LENGTH, d: LIFT_FRAME_HALF - LIFT_BAND_IN },
+      { t: LIFT_LENGTH / 2, l: 0, w: LIFT_LENGTH - 2 * LIFT_END_NOTCH, d: 2 * LIFT_BAND_IN },
     ],
     moves: "state",
   },

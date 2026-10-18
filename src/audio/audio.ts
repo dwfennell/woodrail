@@ -44,6 +44,8 @@ export class ToyAudio {
   setMuted(m: boolean): void {
     this.muted = m;
     if (this.master) this.master.gain.value = m ? 0 : 0.8;
+    // (Its winding's level is set again by the next frame that hears a lift ride.)
+    if (m) this.setWinding(0);
   }
 
   /** A short filtered noise burst plus a resonant "tock": the sound of wood on wood. */
@@ -295,6 +297,50 @@ export class ToyAudio {
     for (let i = 0; i < 5; i++) {
       setTimeout(() => this.knock(volume * (0.9 - i * 0.15), 260 + Math.random() * 500, 0.09, pan + (Math.random() - 0.5) * 0.3), i * 70 + Math.random() * 40);
     }
+  }
+
+  /** A train lift setting off or arriving: a soft, deep wooden clunk and a click of its gear. */
+  liftClunk(volume: number, pan: number): void {
+    this.knock(volume * 0.5, 150 * this.vary(1), 0.16, pan);
+    setTimeout(() => this.knock(volume * 0.22, 640 * this.vary(1), 0.03, pan), 45);
+  }
+
+  private winding: { gain: GainNode; osc: OscillatorNode; lfo: OscillatorNode } | null = null;
+  private windingLevel = 0;
+
+  /**
+   * A train lift's winding gear while it rides: a soft low whirr with a ratchet's flutter, level 0..1 (0: quiet, as
+   * when no lift rides or the game's paused). Built on first use; a call at the same level does nothing.
+   */
+  setWinding(level: number): void {
+    const ctx = this.ctx;
+    const target = this.muted ? 0 : Math.min(1, Math.max(0, level)) * 0.03;
+    if (!ctx || !this.master || target === this.windingLevel || (!this.winding && target === 0)) return;
+    this.windingLevel = target;
+    if (!this.winding) {
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.value = 130;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 520;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      // The ratchet: the whirr's loudness fluttering a dozen times a second.
+      const flutter = ctx.createGain();
+      flutter.gain.value = 0.7;
+      const lfo = ctx.createOscillator();
+      lfo.type = "square";
+      lfo.frequency.value = 12;
+      const depth = ctx.createGain();
+      depth.gain.value = 0.3;
+      lfo.connect(depth).connect(flutter.gain);
+      osc.connect(lp).connect(flutter).connect(gain).connect(this.master);
+      osc.start();
+      lfo.start();
+      this.winding = { gain, osc, lfo };
+    }
+    this.winding.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.08);
   }
 
   /** Motor hum level 0..1 from the number and nearness of running engines. */
