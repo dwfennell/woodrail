@@ -993,7 +993,7 @@ async function junctions() {
     const q = w.layout.getPiece(ids[1]);
     const half = q.type === "straight-216" ? 108 : 72;
     return { x: q.pose.x + Math.cos(q.pose.heading) * half, z: q.pose.z + Math.sin(q.pose.heading) * half, id: ids[1], type: q.type };
-  }, n0);
+  }, [n0]);
   // A branch: pressed on it, off at 45° to +z.
   const sw0 = await count("switch");
   await drawThrough([0, 40, 80, 160, 240, 320, 400].map((d) => [mid.x + d * Math.SQRT1_2, mid.z + d * Math.SQRT1_2]), { shotAt: 5, shotName: "draw-10-branch.png" });
