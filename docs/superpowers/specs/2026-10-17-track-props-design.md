@@ -329,6 +329,11 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
    - `depot`: a `DepotRole` (Sandbox's: `KitDepotRole`, loaders with an endless heap and an unloader that swallows
      goods). `syncIndustries` registers it; `DepotView` leaves it to the kit's model.
    - `stop.cooldown` (seconds: an engine service's), and `crawl` (mm/s: a weighbridge).
+   - `show: "loop"` (the loop-the-loop, built in Phase 3): drawn only, nothing in the sim. `LoopShowView`
+     (`src/render/loop-show.ts`) watches engines come onto the kit from either end and, one at a time, puts a toy
+     copy of the engine (TrainView's model cloned, sharing its geometry and materials, at 0.6 size) round the model's
+     loop on a spline (a table of points authored to the model's ring, built once), driven by how far the engine is
+     across. `without: ["car"]` leaves a part of the asset out of the kit's model (the loop's own little car).
    - A kit of several roads: build its track with `roads(type, starts, length, buffered)` in `kits.ts`. Buffer-ended
      roads stop trains coming in only, and the model draws the buffer stops (`TrackView` leaves its block off kits).
    - `rails: "model"`: the model draws its own rails (a deck's: keep its slab with `deckTrack` in the asset, so it isn't
@@ -340,17 +345,33 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
      turntable turned past half round, running the other way: an engine turned round), and it's drawn carried round
      over the glide, held still, nothing coupling to it. A train partly on it or moving refuses the turn
      (`deckRefusal`, with the toast).
+   - **A lift** (Phase 3, the train lift): `lift: { seconds }` on a gated track whose paths are the platform standing
+     at each end (path k from end k into the piece, ending there; ends at different `y`). The sim works it, with no
+     economy stop: a train coming onto the live platform brakes to halt its front just short of the far end (cap 0;
+     too long for it, it's told once, `lift-refused`, runs to the end and turns back); halted a moment (`LIFT_DWELL`)
+     with its lever on, or called by a train waiting at the far end while it's empty, it goes. A tap sends it too.
+     The move is `Sim.carry(piece, to, seconds)`: every axle to the same spot on road `to` at once, the train drawn
+     carried there (`dy` on the ride) as the sim ticks, so paused it holds. Closed ends (platform away or moving) and
+     a busy one (a train on it) hold trains at the joint like a red signal (`liftCap`); it won't go while a train is
+     partly on it or coming in within braking distance (`deckRefusal` "approaching"). Its motion's `state.source` is
+     `"ride"` (`Sim.liftPosition`, 0 to 1, `glide: 0`); the game asks `KitView.update` when `Sim.ridesVersion` moves.
+     Its high end stands on its own tower (`checkSupport`) and holds up track joined there. A save mid-ride comes back
+     at the end it was going to (axles and switch state move at the start).
 6. **Tests to copy:**
    - `src/track/kits.test.ts`: the registry;
    - `src/game/kit-footprint.test.ts`: the footprint and flip hint;
    - `src/economy/kit-stops.test.ts`: stops (several roads, buffer-ended roads, services' cool-down);
    - `src/economy/kit-depots.test.ts`: cargo stops and the crawl;
+   - `src/render/loop-show.test.ts`: the loop's spline and frames, the show's timing, frames asked for, one show at a
+     time, backing out (and `npm run e2e:loop`, tools/e2e/kit-loop.mjs);
    - `src/render/kit-motions.test.ts`, `src/render/kit-view.test.ts`: moving parts;
    - `src/editor/editor.test.ts`: the kit block, splice and undo;
    - `src/persist/save.test.ts`: kit pieces in saves.
    - `src/sim/signal-skins.test.ts`: skinned signals hold trains as the plain one does; the gantry's two signals;
    - `src/render/kit-skins.test.ts`: signal skins' aspects drawn, the buffer-stop lamp;
    - `src/landscape/crossing-styles.test.ts`: crossing styles, resolved and drawn.
+   - `src/sim/lift.test.ts`: the train lift (the carry, holds, refusals, a second train, paused); its motion in
+     `src/render/kit-view.test.ts`; `npm run e2e:lift` (tools/e2e/lift.mjs) up and back down at 390×844, and idle frames.
 
 ## Phase 3 plan (2026-10-17, after P0 to P2 and the signals)
 
@@ -364,10 +385,36 @@ roundhouse doors are done. That leaves three mechanisms and Game mode.
 |---|---|---|
 | Train lift | Two rim ends, a level or more apart. A train halts on the platform: a stop at the platform's middle, cap 0. It is carried up as a ride, the way the turntable carries trains (`Sim.startRide`): bogies held still while the platform's motion (`moves: "state"`) lifts them, then moved onto the upper path with the lever left on. One new sim move, "carry a train from end A to end B over T seconds", built on the turntable's ride. | Sandbox |
 | Moving bridges (bascule, swing, lift) | A bridge style (Rail and road's bridge styles) with a state: open blocks the track, so the bridge acts as a held signal on both paths (`signal` plus a hold bit, which already exists) while it's raised. It opens for a few seconds every so often, or when tapped, and only when no train is on it or within braking distance. Boats under it are optional (the harbour boats already exist). | Rail and road |
-| Loop-the-loop | A show, not track: a 216 straight kit. A train on it slows to a crawl while a toy copy of its engine runs the loop (a `moves: "occupied"` animation on a spline), and the copy meets the real train at the far end. Nothing in the sim changes. | Sandbox |
+| Loop-the-loop | **Built (kit-loop).** A show, not track: `kit-loop-the-loop`, a 216 straight (splices) trains crawl over at 40 mm/s, so a show lasts 5.4 s. The model's loop stands beside the line (l 80, its plane along the track; over the line its ring would cross the track), its slabs and little car left out. When an engine's middle comes on at either end, it shrinks away on the line as a 0.6-size copy grows at the bottom of the loop (the first and last tenth of the way across); the copy runs once round, slower over the top, upside down there, drifting 16 across the ring, and trades back at the far end as the engine gets there. The coupled cars stay as they are. Not a `moves` motion (a `KitMotion` can't know the engine): its own `LoopShowView`, driven by the engine's place across the piece, so it holds while paused or standing and asks for frames only while it moves in view. One show per kit; an engine backing up, coming off or taken away calls it off, the engine whole again. Tray: Machines → Railway & yard, Sandbox only. | Sandbox |
 
 All three use the hooks already built (`moves`, `rails: "model"`, the turntable's ride, signal holds). None needs a
 new per-frame cost.
+
+**Built (kit-lift): the train lift** (`kit-train-lift`, Sandbox's Machines → Railway & yard shelf). A 288 platform
+(an engine and two cars) rising one level (`LIFT_RISE`, one constant) from its low end to its high end, straight on,
+over `LIFT_SECONDS` (3 s); the model was re-authored round it (`mech-train-lift`). Automatic: a train halts on it,
+waits a second and is carried up or down, then drives off with its lever left on; an empty platform comes to a train
+waiting at its far end. A tap sends it (refused while paused, mid-ride, with a train partly on it or coming in). See
+"How to add a kit", 5, for the mechanism. Idle with a still lift on screen: 0 frames in 30 s running, paused, and
+paused mid-ride (as with the turntable before it).
+
+**QA notes (lift-notes).** Called "Train lift" everywhere (tray, card, toasts, catalogue; `LIFT_NAME`).
+- Taps: down, its platform's floor lies level with the unseen felt-level track it's picked by, so which mesh a ray
+  met first was a coin toss (about half the taps opened the Track card). A ray that meets a lift is now classed by
+  where it meets it, in the piece's frame (`liftTap` in src/game/touch-pick.ts, `Interaction.liftTapAlong`): on the
+  platform where it stands now (down, up or between), it sends it, as a turntable's deck; else on its tower, frame or
+  base, its piece's card; past its ends, to what's behind. A post of the tower in front of the platform doesn't take
+  the tap from it.
+- A lift carrying a train, going, or with a train on it can't be taken up, moved or turned (`Sim.liftFree`): the
+  editor refuses the edit, and an undo or redo that would, history kept (`Editor.onHeld`; "A train is on it", or
+  "The train lift is still moving"). Undo puts a lift back with its platform where it stood (switch state).
+- "That train's too long for the train lift" once per train (by its cars: a train turned back comes again as a new
+  train), again only after 5 minutes (`TooLongNotice`).
+- Its footprint is its whole frame (posts, braces, counterweights: l ±42), notched at each end over the line.
+- A red stop board on each end post, shown at the end the platform's away from (both while it moves): a visibility
+  set as the platform poses, so only while it rides. A clunk as it sets off and arrives, and a soft winding while it
+  rides (quiet paused or muted). "Tap the train lift to send it", once, when one's first put down
+  (`woodrail.liftTip`).
 
 ### Game mode availability (Game Mode, design for the user)
 

@@ -8,10 +8,10 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
+import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, isLift, LIFT_LENGTH, LIFT_RISE, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
-import { checkProp, propsInRect, PROP_MESSAGES, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
+import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
@@ -35,7 +35,8 @@ import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
-import { carNearTap, deckTapWins, nearCarWins, type CarOnScreen } from "./touch-pick";
+import { carNearTap, deckTapWins, liftTap, nearCarWins, type CarOnScreen } from "./touch-pick";
+import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
 function whenIdle(f: () => void): void {
@@ -1163,6 +1164,11 @@ export class Interaction {
       this.hud.toast("A train is on it");
       return idle();
     }
+    // (A train lift going to its other end, empty: picked up, it would leave its ride mid-way.)
+    if (lifts.some((id) => id !== -1 && !this.game.sim.liftFree(id))) {
+      this.hud.toast(liftHeldMessage(false));
+      return idle();
+    }
     if (m.press.kind === "piece" && this.picking) {
       // Picking: a drag on a picked piece moves them all; anywhere else it pans (so a pan never breaks the group).
       if (!this.picked.has(m.press.pieceId)) return idle();
@@ -1528,7 +1534,7 @@ export class Interaction {
     this.selectedPiece = id;
     this.game.trackView.setHighlight(id);
     const p = this.game.layout.getPiece(id)!;
-    this.hud.showPieceCard(getPieceDef(p.type, false).flippable, "Track piece", true, true, true);
+    this.hud.showPieceCard(getPieceDef(p.type, false).flippable, isLift(p.type) ? LIFT_NAME : "Track piece", true, true, true);
     this.keepClearOfCard(() => this.pieceCentre(id));
     if (!this.fixedLabel(id)) this.hintDrag();
   }
@@ -2262,12 +2268,24 @@ export class Interaction {
     }
     if (this.selectedPiece === -1) return;
     const id = this.selectedPiece;
+    // A train lift carrying a train, going, or with one on it stays (taken up, the train would be left in mid-air):
+    // said, and left selected.
+    if (this.liftHeld(id)) return;
     this.clearSelection();
     this.hud.hideCards();
     const p = this.game.layout.getPiece(id);
     if (!p) return;
     this.shrinkStandIn(id);
     this.editor().remove(id);
+  }
+
+  /** Is this a train lift that may not be taken up or moved now (`Sim.liftFree`)? If so the player is told why. */
+  private liftHeld(id: number): boolean {
+    const sim = this.game.sim;
+    if (sim.liftFree(id)) return false;
+    this.hud.toast(liftHeldMessage(sim.pieceOccupied(id)));
+    this.onRefused?.();
+    return true;
   }
 
   /** A stand-in for a piece about to be taken up: it lifts and shrinks away where the piece was. */
@@ -2463,7 +2481,7 @@ export class Interaction {
   private deletePicked(): void {
     const g = this.game;
     const ids = this.pickedWithRisers();
-    if (ids.length === 0) return;
+    if (ids.length === 0 || ids.some((id) => this.liftHeld(id))) return;
     const pieces = ids.map((id) => g.layout.getPiece(id)!);
     this.clearSelection();
     this.hud.hideCards();
@@ -3383,6 +3401,8 @@ export class Interaction {
     const key = modelKey(asset, variant);
     const ghost = new Group();
     ghost.visible = false;
+    // (A town's landmark drawn smaller than its model is carried at its own size.)
+    ghost.scale.setScalar(g.props.get(propId)?.scale ?? 1);
     const dress = () => {
       const model = g.propLibrary.model(key);
       if (!model) return;
@@ -3439,7 +3459,7 @@ export class Interaction {
     const h = hills.groundAt(at.x + offset.x, at.z + offset.z);
     if (h > 0) at = this.planeAt(x, sy, h + rise) ?? at;
     const pose = { x: Math.round((at.x + offset.x) / 2) * 2, z: Math.round((at.z + offset.z) / 2) * 2, heading: m.heading };
-    const fp = g.propLibrary.footprint(m.asset);
+    const fp = scaleFootprint(g.propLibrary.footprint(m.asset), g.props.get(m.propId)?.scale);
     let ground = hills.groundAt(pose.x, pose.z);
     let blocked: PropBlock | null = null;
     if (standsAside(m.asset)) {
@@ -3486,7 +3506,7 @@ export class Interaction {
       if (m.propId !== -1) this.removeProp(m.propId);
       return;
     }
-    const fp = g.propLibrary.footprint(m.asset);
+    const fp = scaleFootprint(g.propLibrary.footprint(m.asset), g.props.get(m.propId)?.scale);
     if (m.blocked || !fp) {
       this.onRefused?.();
       g.propsChanged(-1);
@@ -3528,7 +3548,7 @@ export class Interaction {
     if (!p) return;
     this.clearSelection();
     this.selectedProp = id;
-    this.propOutline.show(g.propLibrary.footprint(p.asset) ?? null, p.x, p.y, p.z, p.heading);
+    this.propOutline.show(scaleFootprint(g.propLibrary.footprint(p.asset), p.scale) ?? null, p.x, p.y, p.z, p.heading);
     this.hud.showPieceCard(false, g.propLibrary.model(modelKey(p.asset, p.variant))?.name ?? "Model", false);
     if (LEVER_PROPS.has(p.asset)) this.showLevers(id);
     this.hintDrag();
@@ -3547,14 +3567,27 @@ export class Interaction {
       const refused = g.sim.deckRefusal(pieceId);
       const kit = kitOf(g.layout.getPiece(pieceId)!.type);
       const name = `The ${kit?.name ?? "deck"}`;
-      // (Paused, the train wouldn't go round with the deck.)
-      if (!refused && g.paused && kit && g.sim.deckCarries(pieceId)) {
-        this.hud.toast(`${name} turns a train while the game's running`);
+      const lift = !!kit?.track.lift;
+      // (Paused, the train wouldn't go round with the deck; a lift doesn't go at all till the game runs.)
+      if (!refused && g.paused && kit && (lift || g.sim.deckCarries(pieceId))) {
+        this.hud.toast(lift ? `${name} works while the game's running` : `${name} turns a train while the game's running`);
         return;
       }
       if (refused || !g.sim.toggleSwitch(pieceId)) {
         this.hud.toast(
-          refused === "turning" ? `${name} is still turning` : refused === "moving" ? `${name} turns a train once it has stopped` : `${name} won't turn with a train partly on it`,
+          lift
+            ? refused === "turning"
+              ? `${name} is still moving`
+              : refused === "moving"
+                ? `${name} goes once the train has stopped`
+                : refused === "approaching"
+                  ? `${name} waits for the train coming in`
+                  : `${name} won't go with a train partly on it`
+            : refused === "turning"
+              ? `${name} is still turning`
+              : refused === "moving"
+                ? `${name} turns a train once it has stopped`
+                : `${name} won't turn with a train partly on it`,
         );
         return;
       }
@@ -3592,7 +3625,7 @@ export class Interaction {
   private turnProp(id: number): void {
     const g = this.game;
     const p = g.props.get(id);
-    const fp = p && g.propLibrary.footprint(p.asset);
+    const fp = p && scaleFootprint(g.propLibrary.footprint(p.asset), p.scale);
     if (!p || !fp) return;
     const from: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
     const to = { x: p.x, z: p.z, heading: p.heading + Math.PI / 4 };
@@ -3619,7 +3652,7 @@ export class Interaction {
     const p = g.props.get(id);
     if (!p) return;
     const pose: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
-    const links = { building: p.building, town: p.town, variant: p.variant };
+    const links = { building: p.building, town: p.town, variant: p.variant, scale: p.scale };
     if (p.building === undefined) {
       this.editor().editProps({ do: () => g.props.remove(id), undo: () => g.props.add(p.asset, pose, id, links) });
       g.propsChanged();
@@ -3651,7 +3684,7 @@ export class Interaction {
     const g = this.game;
     const land = g.landscape;
     const p = g.props.get(id)!;
-    const links = { building: p.building, town: p.town, variant: p.variant };
+    const links = { building: p.building, town: p.town, variant: p.variant, scale: p.scale };
     const changed = townSlots(land, building);
     let putBack = () => {};
     const doIt = () => {
@@ -3739,6 +3772,47 @@ export class Interaction {
     return deck === -1 ? hit : { kind: "piece", pieceId: deck, deck: true };
   }
 
+  /** The train lift whose model (its live platform and parts, or its drawing) or unseen track a ray hit, or −1. */
+  private liftHit(object: Object3D, batchId: number | undefined, instanceId: number | undefined): number {
+    const g = this.game;
+    const lift = (id: number) => {
+      const p = id === -1 ? undefined : g.layout.getPiece(id);
+      return p && isLift(p.type) ? id : -1;
+    };
+    if (object.userData.kind === "switch-lever") return lift(object.userData.pieceId as number);
+    const kit = g.kitView.pieceAt(object, batchId);
+    if (kit !== -1) return lift(kit);
+    return lift(g.trackView.pieceAt(object, instanceId));
+  }
+
+  /**
+   * What a tap whose ray meets this lift first at `hits[from]` is: "send" if it meets the lift's platform anywhere along
+   * it (a post or brace of its tower in front, a few mm wide on screen, doesn't take the tap from the platform behind
+   * it), else "select" if it met its tower or frame, else "pass" (past its ends: to what's behind). Hidden parts (a
+   * stop board put away) are passed through.
+   */
+  private liftTapAlong(lift: number, hits: readonly { object: Object3D; point: Vector3; batchId?: number; instanceId?: number }[], from: number): "send" | "select" | "pass" {
+    let what: "select" | "pass" = "pass";
+    for (let k = from; k < hits.length; k++) {
+      const h = hits[k];
+      if ((k !== from && this.liftHit(h.object, h.batchId, h.instanceId) !== lift) || !shownInTree(h.object)) continue;
+      const at = this.liftTapAt(lift, h.point);
+      if (at === "send") return "send";
+      if (at === "select") what = "select";
+    }
+    return what;
+  }
+
+  /** What a tap at world point `at` on a train lift is (`liftTap`): on its platform, wherever it stands now, or not. */
+  private liftTapAt(pieceId: number, at: Vector3): "send" | "select" | "pass" {
+    const p = this.game.layout.getPiece(pieceId)!;
+    const c = Math.cos(p.pose.heading);
+    const s = Math.sin(p.pose.heading);
+    const dx = at.x - p.pose.x;
+    const dz = at.z - p.pose.z;
+    return liftTap(dx * c + dz * s, -dx * s + dz * c, at.y - p.y, this.game.sim.liftPosition(pieceId) * LIFT_RISE, LIFT_LENGTH);
+  }
+
   private pickExact(x: number, y: number): (Press & { footprint?: boolean }) | null {
     this.setNdc(x, y);
     const g = this.game;
@@ -3749,7 +3823,8 @@ export class Interaction {
     // (The kits' group: a turntable's deck is tapped to turn it, picked as a switch's lever; a signal skin's model to
     // hold its signal. The crossings': a crossing style is its prop's.)
     const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group], true);
-    for (const h of hits) {
+    for (let i = 0; i < hits.length; i++) {
+      const h = hits[i];
       const slot = g.depotView.cargoAt(h.object, h.instanceId);
       if (slot) {
         const cargo = slot.kind === "pile" ? slot.cargo : g.economy.cargoOf(slot.carId).kind;
@@ -3762,6 +3837,14 @@ export class Interaction {
       }
       const carId = g.trainView.carAt(h.object as Object3D);
       if (carId !== -1) return { kind: "car", carId };
+      // A train lift: a tap on its platform, down or up (or between), sends it; on its tower or frame it's its piece's.
+      // (Down, its platform lies level with the unseen track it's picked by: where the ray met it decides, see `liftTap`.)
+      const lift = this.liftHit(h.object, h.batchId, h.instanceId);
+      if (lift !== -1) {
+        const what = this.liftTapAlong(lift, hits, i);
+        if (what === "pass") continue;
+        return what === "send" ? { kind: "piece", pieceId: lift, deck: true } : { kind: "piece", pieceId: lift };
+      }
       if (h.object.userData.kind === "switch-lever") {
         const pieceId = h.object.userData.pieceId as number;
         return h.object.userData.deck ? { kind: "piece", pieceId, deck: true } : { kind: "lever", pieceId };
@@ -3878,6 +3961,12 @@ export class Interaction {
 /** The plots a town building's squares are in (to redraw when it leaves them). */
 function townSlots(land: Landscape, building: number): number[] {
   return [...new Set((findBuilding(land, building)?.building.cells ?? []).map(plotSlotOf))];
+}
+
+/** Is this object drawn: it and everything it's in shown (a ray meets hidden meshes too, a lift's stop board put away)? */
+function shownInTree(o: Object3D | null): boolean {
+  for (; o; o = o.parent) if (!o.visible) return false;
+  return true;
 }
 
 /** The moves the browser ran into this event, or the event itself (an empty list would hide a pan's moves). */

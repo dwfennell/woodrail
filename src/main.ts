@@ -7,7 +7,7 @@ import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { CELL, connectedPairs, fixedHome, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
-import { hasSave, loadFromStorage, loadGoals, loadProgress, OLDER_SAVE, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
+import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, OLDER_SAVE, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
@@ -37,6 +37,7 @@ import { aheadRuns, legFromCursor, lineLegs } from "./game/route-path";
 import { RouteView, type DiscSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { engineStatus, trainsForReport, type CantMove } from "./game/engine-status";
+import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { MAX_SHEDS, SHED_CAP, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
@@ -55,7 +56,7 @@ import type { PropModel } from "./render/props/library";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { connectorRef, createWorldConnector, getPieceDef, kitOf, PIECE_TYPES, type Anchor, type Layout, type PieceTypeId } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, isLift, kitOf, PIECE_TYPES, type Anchor, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
@@ -193,12 +194,29 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.editLand([...slots]);
     game.depotView.setWorld(game.economy, game.layout);
   };
+  /** Has the train lift's first-time tip been shown (on this device)? */
+  let liftTipShown = liftTipSeen();
   const makeEditor = () => {
     const ed = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece, stationGive);
     ed.onNudge = stationsNudged;
     ed.onTrackEdit = (ids) => {
       const id = ids.find((i) => game.layout.getPiece(i));
       if (id !== undefined) saveLastBuilt(mode, pieceCentre(game.layout, id));
+      // A train lift put down for the first time on this device: how to work it.
+      const lift = (i: number) => {
+        const p = game.layout.getPiece(i);
+        return !!p && isLift(p.type);
+      };
+      if (!liftTipShown && ids.some(lift)) {
+        liftTipShown = true;
+        markLiftTipSeen();
+        hud.toast(LIFT_TIP, false, 4000);
+      }
+    };
+    // An edit, undo or redo refused: it would take up or move a train lift that's carrying a train or has one on it.
+    ed.onHeld = (liftId) => {
+      hud.toast(liftHeldMessage(game.sim.pieceOccupied(liftId)));
+      audio.refuse();
     };
     ed.onLandChange = (slots) => {
       game.editLand(slots);
@@ -808,7 +826,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.paused = true;
     loading?.classList.add("behind-title");
     title.root.classList.add("over-opening");
-    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") });
+    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") });
     // Of the loading screen's toys, just the train stays, right where it is, under the name: the cards come in below it.
     toys?.showTrainOnly();
     settleHop();
@@ -912,7 +930,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.director.glideTo(new Vector3((e.x0 + e.x1) / 2, 0, (e.z0 + e.z1) / 2), distance, { phi: 0.9, duration: 1.4 });
     pausedBeforeTitle = game.paused;
     game.paused = true;
-    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") });
+    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") });
   }
 
   // Game mode's goals: checked about once a second and after every change to the track.
@@ -2270,7 +2288,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
-      if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game: here's a fresh one");
+      if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
       setWorld(saved?.ok ? saved.value : buildStarterWorld());
     }
     enter(next);
@@ -2305,7 +2323,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     title.hide();
     if (olderSave) {
       olderSave = false;
-      hud.toast("Your last map was saved by an older version of the game: here's a fresh one", false, 6000);
+      hud.toast("Your last map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
     }
     leaveOpening();
     // The first frames after the map appears (or changes) are slow while it settles: not a reason to draw coarser.
@@ -2518,6 +2536,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return false;
     }
   })();
+  /** A train too long for a lift is told so once (for a few minutes), not on every approach. */
+  const tooLong = new TooLongNotice();
+  /** The lifts heard riding (for the clunk as each gets there), and where. */
+  const liftsHeard = new Map<number, { x: number; z: number }>();
   function showLoopTip(): void {
     loopTipShown = true;
     try {
@@ -2544,6 +2566,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Whistle posts' near track: worked out again only when the props or the track change.
     whistles.sync(game.layout, game.props, game.trackVersion);
     for (const e of game.events) {
+      // A train too long for a lift's platform: it turns back at the end, and the player is told why (once).
+      // (Once a train, not on each approach: by its cars, as it comes back from turning round a new train.)
+      if (e.kind === "lift-refused") {
+        const cars = game.sim.getTrain(e.trainId)?.cars.map((c) => c.id) ?? [];
+        if (tooLong.shouldTell(cars, now)) hud.toast(TOO_LONG_MESSAGE);
+      }
       if (e.kind === "buffer" && !loopTipShown && game.sim.getTrain(e.trainId)?.lastTurn?.cause === "train") showLoopTip();
       const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);
       if (!p) continue;
@@ -2567,6 +2595,28 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hum += listen(t.world[0].x, t.world[0].z)[0];
     }
     audio.setHum(game.paused ? 0 : hum);
+    // Train lifts: a clunk as one sets off and as it gets there, and its gear winding while it rides (paused, its ride
+    // holds, quiet). Nothing riding and none heard riding: one comparison.
+    const riding = game.sim.ridingLifts();
+    if (riding.length > 0 || liftsHeard.size > 0) {
+      let wind = 0;
+      for (const id of riding) {
+        const at = game.layout.getPiece(id) ? pieceCentre(game.layout, id) : null;
+        if (!at) continue;
+        const [v, pan] = listen(at.x, at.z);
+        if (!liftsHeard.has(id)) {
+          liftsHeard.set(id, at);
+          audio.liftClunk(v, pan);
+        }
+        wind = Math.max(wind, v);
+      }
+      for (const [id, at] of liftsHeard) {
+        if (riding.includes(id)) continue;
+        liftsHeard.delete(id);
+        audio.liftClunk(...listen(at.x, at.z));
+      }
+      audio.setWinding(game.paused ? 0 : wind);
+    }
 
     // Cranes: a clunk per unit, and a chime when planks reach a town. Saws buzz while they cut.
     for (const e of game.economy.drainEvents()) {

@@ -11,6 +11,9 @@ const RUST = "#a4512f";
 const LIT_RED = "#ff4a2e";
 const LIT_GREEN = "#4dff7a";
 const LIT_AMBER = "#ffc23a";
+/** The train lift kit's platform: its length and rise (LIFT_LENGTH, LIFT_RISE in src/track/kits.ts). */
+const LIFT_LENGTH = 288;
+const LIFT_RISE = 48;
 /** Deck height of raised bridges: the slab's base, so its top sits at a hill block's 64. */
 const DECK = 52;
 
@@ -501,45 +504,62 @@ const mechanisms: Asset[] = [
   },
   {
     id: "mech-train-lift",
-    name: "Train lift tower",
+    name: "Train lift",
     category: "Mechanisms",
     tags: ["lift", "elevator", "vertical", "tower", "level"],
-    notes: "A lift tower that carries a whole car up to a high-level track and back down. A space-saving way between ground level and a layer of hills, with a satisfying wait at the top.",
+    notes: "A lift tower that carries a train up a level to a high line and back down: an engine and two cars stand on its platform while it rises. A space-saving way between the felt and a hilltop, with a satisfying wait at the top.",
     build: (k) => {
-      const g = k.group(k.trackSlab(80, -90, 0, 0));
+      // Round the game's kit piece (kit-train-lift, src/track/kits.ts): a platform 288 long rising one level (48) from
+      // its low end (−x) to its high end (+x), carrying its own rails. Its moving parts are pivots, at rest at 0.
+      const half = LIFT_LENGTH / 2;
+      const top = LIFT_RISE + 104;
       const blue = k.paint(TOY.blue);
-      for (const x of [-46, 46]) for (const z of [-32, 32]) g.add(k.box(blue, 8, 200, 8, 2, x, 0, z));
+      const yellow = k.paint(TOY.yellow);
+      const g = k.group(k.box(k.cut, LIFT_LENGTH, 1, 48, 0.5));
+      // Posts at the ends and the middle each side, tied along the top and across the ends, braced above the high line.
+      for (const x of [-half + 6, 0, half - 6]) for (const z of [-32, 32]) g.add(k.box(blue, 8, top, 8, 2, x, 0, z));
       for (const z of [-32, 32]) {
-        g.add(k.box(blue, 100, 8, 8, 2, 0, 200, z));
-        for (let i = 0; i < 4; i++) g.add(strut(k, blue, -42, 20 + i * 44, 42, 60 + i * 44, z, 2.5));
-        g.add(named(k.box(k.paint(TOY.grey), 12, 26, 6, 1.5, 0, 147, z * 1.18), z < 0 ? "cw0" : "cw1"));
+        g.add(k.box(blue, LIFT_LENGTH - 4, 8, 8, 2, 0, top, z));
+        for (const [x1, x2] of [
+          [-half + 6, 0],
+          [0, half - 6],
+        ])
+          g.add(strut(k, blue, x1, LIFT_RISE + 28, x2, top - 4, z, 2.5), strut(k, blue, x1, top - 4, x2, LIFT_RISE + 28, z, 2.5));
+        g.add(pivot(z < 0 ? "cw0" : "cw1", 0, 0, 0, k.box(k.paint(TOY.grey), 14, 26, 6, 1.5, half / 2, top - 34, z * 1.2)));
       }
-      g.add(k.box(blue, 8, 8, 72, 2, -46, 200, 0), k.box(blue, 8, 8, 72, 2, 46, 200, 0));
-      g.add(named(k.cylZ(k.paint(TOY.red), 14, 6, 0, 214, 0, 16), "gear"));
-      g.add(k.box(k.paint(TOY.yellow), 10, 8, 4, 1, 0, 210, 0));
-      // The upper track, held up on a pier.
-      g.add(pier(k, 30, 150, 40, 106, 0), k.trackSlab(80, 90, 150, 0));
+      for (const x of [-half + 6, half - 6]) g.add(k.box(blue, 8, 8, 72, 2, x, top, 0));
+      // The winding gear on top.
+      g.add(k.box(yellow, 30, 8, 12, 1, 0, top + 8, 0));
+      g.add(named(k.cylZ(k.paint(TOY.red), 14, 6, 0, top + 22, 0, 16), "gear"));
+      // A red stop board on each end post, facing trains coming in: shown at an end while the platform's away from it
+      // (or moving), where trains are held.
+      const red = k.paint(TOY.red);
+      g.add(named(k.box(red, 2, 14, 16, 1, -half - 1, 16, -32), "stop0"), named(k.box(red, 2, 14, 16, 1, half + 1, LIFT_RISE + 16, -32), "stop1"));
       g.add(
         pivot(
           "lift",
           0,
           0,
           0,
-          k.box(k.paint(TOY.yellow), 88, 4, 56, 1.5),
-          k.trackSlab(88, 0, 4, 0),
-          k.box(k.paint(TOY.yellow), 88, 3, 3, 1, 0, 28, -26),
-          k.box(k.paint(TOY.yellow), 88, 3, 3, 1, 0, 28, 26),
-          k.many(4, (i) => k.box(k.paint(TOY.yellow), 3, 26, 3, 1, i < 2 ? -42 : 42, 4, i % 2 ? 26 : -26)),
+          deckTrack(k.trackSlab(LIFT_LENGTH - 2, 0, 0, 0)),
+          // Its yellow frame either side of the rails, and a guard rail along each side on posts.
+          k.box(yellow, LIFT_LENGTH - 2, 6, 4, 1, 0, 0, -24),
+          k.box(yellow, LIFT_LENGTH - 2, 6, 4, 1, 0, 0, 24),
+          k.box(yellow, LIFT_LENGTH - 2, 3, 3, 1, 0, 34, -25),
+          k.box(yellow, LIFT_LENGTH - 2, 3, 3, 1, 0, 34, 25),
+          k.many(6, (i) => k.box(yellow, 3, 30, 3, 1, ((i % 3) - 1) * (half - 4), 4, i < 3 ? -25 : 25)),
         ),
       );
       return g;
     },
     animate: (root, t) => {
       const f = cycle(t, 10);
-      part(root, "lift").position.y = 146 * f;
-      part(root, "cw0").position.y = 160 - 146 * f;
-      part(root, "cw1").position.y = 160 - 146 * f;
-      part(root, "gear").rotation.z = f * 9;
+      part(root, "lift").position.y = LIFT_RISE * f;
+      part(root, "cw0").position.y = -LIFT_RISE * f;
+      part(root, "cw1").position.y = -LIFT_RISE * f;
+      part(root, "gear").rotation.z = f * 6;
+      part(root, "stop0").visible = f > 0;
+      part(root, "stop1").visible = f < 1;
     },
   },
   {

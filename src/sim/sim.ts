@@ -1,4 +1,4 @@
-import { connectorRef, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, MAX_CONNECTORS, normalizeAngle, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
+import { connectorRef, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, MAX_CONNECTORS, normalizeAngle, pathExitConnector, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -84,6 +84,8 @@ export type SimEvent =
   | { readonly kind: "buffer"; readonly trainId: number }
   /** A train was lifted and turned round at a turnback buffer (it has a new id; its cars keep theirs). */
   | { readonly kind: "turned"; readonly trainId: number; readonly newTrainId: number }
+  /** A train came onto a lift too long to fit on its platform: it runs to the platform's end and turns back. */
+  | { readonly kind: "lift-refused"; readonly trainId: number; readonly pieceId: number }
   /** An axle rolled over a joint between pieces (the toy's clickety-clack). */
   | { readonly kind: "joint"; readonly trainId: number; readonly bogie: number };
 
@@ -437,6 +439,7 @@ export class Sim {
   trackChanged(moved: readonly number[] = []): void {
     // Signals are found again (their aspects worked out on the next tick).
     this.signals = null;
+    this.lifts = null;
     for (const train of this.trains.values()) {
       if (train.derailed) continue;
       for (const b of train.bogies) {
@@ -508,6 +511,8 @@ export class Sim {
       return true;
     }
     if (def?.gated && this.deckRefusal(pieceId)) return false;
+    // A lift sends its platform to its other end, with any train standing on it.
+    if (def?.lift) return this.carry(pieceId, (this.layout.switchState(pieceId) + 1) % def.paths.length, def.lift.seconds) !== null;
     const routes = !def ? 2 : def.gated ? def.paths.length : def.paths.filter((p) => p.from === 0).length;
     const was = this.layout.switchState(pieceId);
     this.layout.setSwitchState(pieceId, (was + 1) % Math.max(2, routes));
@@ -528,11 +533,12 @@ export class Sim {
    * moving or waiting to turn back, or it's still carrying one round. Null if it can: empty, or carrying trains
    * standing wholly on it (they turn with it: an engine turned round).
    */
-  deckRefusal(pieceId: number): "partly" | "moving" | "turning" | null {
+  deckRefusal(pieceId: number): DeckRefusal | null {
     // (Points and signals are thrown whatever stands on them.)
     const piece = this.layout.getPiece(pieceId);
-    if (!piece || !getPieceDef(piece.type, piece.flipped).gated) return null;
-    if (this.rides.has(pieceId)) return "turning";
+    const def = piece && getPieceDef(piece.type, piece.flipped);
+    if (!def?.gated) return null;
+    if (this.rides.has(pieceId) || (def.lift && this.layout.deckTurning(pieceId))) return "turning";
     for (const t of this.trains.values()) {
       if (t.derailed) continue;
       let on = 0;
@@ -541,6 +547,8 @@ export class Sim {
       if (on < t.bogies.length) return "partly";
       if (t.speed > 0 || t.turnback >= 0) return "moving";
     }
+    // A lift waits for a train coming in to its open end (it would run off the end of the line).
+    if (def.lift && this.approaching(pieceId)) return "approaching";
     return null;
   }
 
@@ -557,7 +565,7 @@ export class Sim {
    */
   private readonly rides = new Map<
     number,
-    { trainIds: number[]; from: WorldSample[][]; angle: number; cx: number; cz: number; dx: number; dz: number; start: number; done: number }
+    { trainIds: number[]; from: WorldSample[][]; angle: number; cx: number; cz: number; dx: number; dz: number; dy: number; start: number; done: number }
   >();
 
   /**
@@ -609,12 +617,12 @@ export class Sim {
       cx = (m11 * rx - m01 * rz) / det;
       cz = (-m10 * rx + m00 * rz) / det;
     }
-    this.rides.set(pieceId, { trainIds: riders.map((t) => t.id), from: from0, angle, cx, cz, dx: q.x - p.x, dz: q.z - p.z, start: this.ticks, done });
-    for (let i = 0; i < riders.length; i++) this.carry(riders[i], from0[i], 0, angle, cx, cz, q.x - p.x, q.z - p.z);
+    this.rides.set(pieceId, { trainIds: riders.map((t) => t.id), from: from0, angle, cx, cz, dx: q.x - p.x, dz: q.z - p.z, dy: 0, start: this.ticks, done });
+    for (let i = 0; i < riders.length; i++) this.drawCarried(riders[i], from0[i], 0, angle, cx, cz, q.x - p.x, q.z - p.z, 0);
   }
 
-  /** A riding train drawn `e` (0 to 1) of the way round (or across) from where it stood. */
-  private carry(t: Train, from: readonly WorldSample[], e: number, angle: number, cx: number, cz: number, dx: number, dz: number): void {
+  /** A riding train drawn `e` (0 to 1) of the way round (or across, or up) from where it stood. */
+  private drawCarried(t: Train, from: readonly WorldSample[], e: number, angle: number, cx: number, cz: number, dx: number, dz: number, dy: number): void {
     const turn = Math.abs(angle) > 1e-9;
     const ch = Math.cos(angle * e);
     const sh = Math.sin(angle * e);
@@ -630,22 +638,24 @@ export class Sim {
         w.z = f.z + dz * e;
         w.heading = f.heading;
       }
-      w.y = f.y;
+      w.y = f.y + dy * e;
       w.slope = f.slope;
     }
   }
 
   /** Riding trains carried on with their decks; a ride over, they're drawn where they now stand. */
   private updateRides(): void {
+    this.ridesVersion++;
     for (const [id, r] of this.rides) {
       const over = this.ticks >= r.done;
       const u = over ? 1 : (this.ticks - r.start) / (r.done - r.start);
       const e = u * u * (3 - 2 * u);
       r.trainIds.forEach((tid, i) => {
         const t = this.trains.get(tid);
-        if (!t) return;
+        // (One that came off the rails meanwhile, a deck picked up under it, lies where it fell.)
+        if (!t || t.derailed) return;
         if (over) this.refreshWorld(t);
-        else this.carry(t, r.from[i], e, r.angle, r.cx, r.cz, r.dx, r.dz);
+        else this.drawCarried(t, r.from[i], e, r.angle, r.cx, r.cz, r.dx, r.dz, r.dy);
       });
       if (over) this.rides.delete(id);
     }
@@ -678,9 +688,262 @@ export class Sim {
     return false;
   }
 
+  // ---- lifts (a train lift: `PieceDef.lift`) ------------------------------------------------------------------
+
+  /** Goes up on every tick a deck or lift is carrying (or moving empty), so its moving parts are redrawn only then. */
+  ridesVersion = 0;
+  /** The lifts on the layout (found again after the track changes), or null till then. */
+  private lifts: number[] | null = null;
+  /** Ticks each lift's been ready to go (a train halted on it, or one waiting at its far end): its dwell. */
+  private readonly liftWaits = new Map<number, number>();
+  /** Lifts a train is waiting at the far (closed) end of this tick: they come for it once empty. */
+  private readonly liftCalls = new Set<number>();
+  /** Trains told they're too long for a lift (once each time they come onto one). */
+  private readonly liftRefused = new Set<number>();
+
+  /**
+   * The new move: carry the trains standing wholly on a deck from the road it lies on (end A) to road `to` (end B)
+   * over `seconds`. Each axle goes at once to the same spot on the new road (straight roads: the spot across, or above,
+   * from where it stood), running the same way, so a train driving in drives on out at the far end with its lever
+   * left on; the trains are drawn carried there over the time (`ridesVersion`), held still, nothing coupling to them.
+   * The deck joins nothing meanwhile (`Layout.deckTurning`: the far end holds trains like a red signal). It moves only
+   * as the sim ticks, so paused, a ride holds where it is. A lift's tap, and its own ride once a train's halted on it,
+   * come here. The riders' ids, or null if it can't (`deckRefusal`, or not straight roads).
+   */
+  carry(pieceId: number, to: number, seconds: number): number[] | null {
+    const piece = this.layout.getPiece(pieceId);
+    const def = piece && getPieceDef(piece.type, piece.flipped);
+    if (!def?.gated || this.deckRefusal(pieceId)) return null;
+    const from = this.layout.switchState(pieceId) % def.paths.length;
+    const a = def.paths[from]?.geom;
+    const b = def.paths[to]?.geom;
+    if (from === to || a?.kind !== "line" || b?.kind !== "line") return null;
+    const done = this.ticks + Math.max(1, Math.round(seconds * SIM_HZ));
+    this.layout.setSwitchState(pieceId, to);
+    this.layout.setDeckTurning(pieceId, true);
+    this.decksTurning.set(pieceId, done);
+    const riders = [...this.trains.values()].filter((t) => !t.derailed && t.bogies.length > 0 && t.bogies.every((c) => c.pieceId === pieceId));
+    const from0 = riders.map((t) => t.world.map((w) => ({ ...w })));
+    const lenA = a.length;
+    const lenB = b.length;
+    const bh = b.start.heading;
+    for (const t of riders) {
+      for (const c of t.bogies) {
+        // Where it stands in the piece, and which way it runs; then the same on the new road.
+        const u = c.reversed ? lenA - c.s : c.s;
+        const px = a.start.x + u * Math.cos(a.start.heading);
+        const pz = a.start.z + u * Math.sin(a.start.heading);
+        const way = a.start.heading + (c.reversed ? Math.PI : 0);
+        const ub = Math.min(lenB, Math.max(0, (px - b.start.x) * Math.cos(bh) + (pz - b.start.z) * Math.sin(bh)));
+        c.pathIndex = to;
+        c.reversed = Math.cos(way - bh) < 0;
+        c.s = c.reversed ? lenB - ub : ub;
+      }
+      t.memory.clear();
+      this.refreshWorld(t);
+    }
+    // The move as the world sees it (one axle from where it stood to where it is now; empty, the roads' own).
+    const p = from0[0]?.[0];
+    const q = riders[0]?.world[0];
+    const dx = p && q ? q.x - p.x : 0;
+    const dz = p && q ? q.z - p.z : 0;
+    const dy = p && q ? q.y - p.y : b.y0 - a.y0;
+    this.rides.set(pieceId, { trainIds: riders.map((t) => t.id), from: from0, angle: 0, cx: 0, cz: 0, dx, dz, dy, start: this.ticks, done });
+    for (let i = 0; i < riders.length; i++) this.drawCarried(riders[i], from0[i], 0, 0, 0, 0, dx, dz, dy);
+    this.updateSignals();
+    return riders.map((t) => t.id);
+  }
+
+  /**
+   * Where a lift's platform stands: 0 at its first end (path 0), 1 at its second, between while it's carrying (eased,
+   * as its riders are drawn). Its switch state for any other piece.
+   */
+  liftPosition(pieceId: number): number {
+    const piece = this.layout.getPiece(pieceId);
+    const def = piece && getPieceDef(piece.type, piece.flipped);
+    if (!def) return 0;
+    const at = this.layout.switchState(pieceId) % Math.max(1, def.paths.length);
+    const r = this.rides.get(pieceId);
+    if (!r || !def.lift) return at;
+    const u = Math.min(1, Math.max(0, (this.ticks - r.start) / (r.done - r.start)));
+    const e = u * u * (3 - 2 * u);
+    return 1 - at + (2 * at - 1) * e;
+  }
+
+  private readonly ridingOut: number[] = [];
+
+  /**
+   * The lifts riding now (carrying a train, or going empty), for their sound: none (a comparison) while nothing rides.
+   * The list is reused: read it before the next call.
+   */
+  ridingLifts(): readonly number[] {
+    this.ridingOut.length = 0;
+    if (this.rides.size === 0) return this.ridingOut;
+    for (const id of this.rides.keys()) if (this.liftDef(id)) this.ridingOut.push(id);
+    return this.ridingOut;
+  }
+
+  /**
+   * May this lift be taken up, moved, turned or flipped now? Not while it's carrying a train or going (it would leave
+   * the train in mid-air), nor with a train on it: false then. True for any other piece.
+   */
+  liftFree(pieceId: number): boolean {
+    if (!this.liftDef(pieceId)) return true;
+    return !this.rides.has(pieceId) && !this.layout.deckTurning(pieceId) && !this.pieceOccupied(pieceId);
+  }
+
+  /** The lifts that mustn't be taken up or moved now (`liftFree`): none, at once, on a layout without a lift. */
+  heldLifts(): number[] {
+    if (this.lifts !== null && this.lifts.length === 0) return [];
+    const out: number[] = [];
+    for (const id of this.lifts ?? this.layout.pieceIds()) if (this.liftDef(id) && !this.liftFree(id)) out.push(id);
+    return out;
+  }
+
+  /** A train at a lift, for its engine's card: being carried, waiting at it (held at its far end, or on it), or null. */
+  liftState(trainId: number): "riding" | "waiting" | null {
+    const t = this.trains.get(trainId);
+    if (!t || t.derailed || !this.lifts || this.lifts.length === 0) return null;
+    for (const [id, r] of this.rides) if (r.trainIds.includes(t.id) && this.liftDef(id)) return "riding";
+    return t.speed < 1 && drive(t) !== 0 && this.liftCap(t, false) === 0 ? "waiting" : null;
+  }
+
+  /** A lift piece's def, or undefined. */
+  private liftDef(pieceId: number): PieceDef | undefined {
+    const p = this.layout.getPiece(pieceId);
+    const def = p && getPieceDef(p.type, p.flipped);
+    return def?.lift ? def : undefined;
+  }
+
+  /**
+   * How fast a train may go for the lifts: on a platform, coming in, to halt with its front just short of its end (if
+   * it fits: else it runs on to the end and turns back, told so once); coming up to a lift's end that's closed (its
+   * platform away or moving) or busy (another train on it), to halt with its front face at the joint, as at a red
+   * signal (and, standing there, it calls the platform: `record`). Infinity otherwise.
+   */
+  private liftCap(train: Train, record: boolean): number {
+    const lead = train.bogies[0];
+    const def = this.liftDef(lead.pieceId);
+    if (def) {
+      // Heading out (carried, or turned back at the end): away it goes.
+      if (lead.reversed) return Infinity;
+      const len = pathLength(def.paths[lead.pathIndex].geom);
+      if (trainLength(train) > len - 2 * LIFT_FACE_GAP) {
+        if (record && !this.liftRefused.has(train.id)) {
+          this.liftRefused.add(train.id);
+          this.events.push({ kind: "lift-refused", trainId: train.id, pieceId: lead.pieceId });
+        }
+        return Infinity;
+      }
+      return brakeTo(len - LIFT_FACE_GAP - CAR_SPECS[train.cars[0].kind].bogieInset - lead.s);
+    }
+    if (record && this.liftRefused.size > 0) this.liftRefused.delete(train.id);
+    const inset = CAR_SPECS[train.cars[0].kind].bogieInset;
+    const v = train.speed;
+    const look = (v * v) / (2 * ACCELERATION) + 2 * v * SIM_DT + LIFT_LOOK + inset;
+    const c: Cursor = { ...lead };
+    advanceCursor(this.layout, c, look, null, lookAdv);
+    let liftId = -1;
+    let dist = 0;
+    if (lookAdv.status === ADV_OPEN_END) {
+      // The end it runs to: a lift's, closed?
+      const p = this.layout.getPiece(c.pieceId)!;
+      const exit = pathExitConnector(getPieceDef(p.type, p.flipped), c.pathIndex, c.reversed);
+      const joined = exit < 0 ? -1 : this.layout.joinedConnector(connectorRef(c.pieceId, exit));
+      if (joined === -1 || !this.liftDef(pieceOfRef(joined))) return Infinity;
+      liftId = pieceOfRef(joined);
+      dist = lookAdv.moved;
+    } else if (c.pieceId !== lead.pieceId && this.liftDef(c.pieceId) && this.liftBusy(c.pieceId, train)) {
+      liftId = c.pieceId;
+      dist = lookAdv.moved - c.s;
+    } else return Infinity;
+    const room = dist - inset - LIFT_FACE_GAP;
+    if (record && v < 1 && room < 1) this.liftCalls.add(liftId);
+    return brakeTo(room);
+  }
+
+  /** Is a train other than `me` on this lift? */
+  private liftBusy(pieceId: number, me: Train): boolean {
+    for (const t of this.trains.values()) {
+      if (t === me || t.derailed) continue;
+      for (const b of t.bogies) if (b.pieceId === pieceId) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Is a train coming in to this lift within its braking distance (and a margin), so that if the lift went now it
+   * would run up to the end it closes? Trains on it are looked at by the caller.
+   */
+  private approaching(pieceId: number): boolean {
+    for (const t of this.trains.values()) {
+      if (t.derailed || t.bogies.length === 0 || t.bogies.some((b) => b.pieceId === pieceId)) continue;
+      const net = drive(t);
+      if (t.speed === 0 && net === 0) continue;
+      // Standing, held at a lift's end (waiting behind the train it's carrying) or at a red signal: it isn't coming.
+      if (t.speed === 0 && (this.liftCap(t, false) === 0 || this.signalCap(t) === 0)) continue;
+      // Standing, about to set off backwards: its back leads.
+      const back = t.speed === 0 && net < 0;
+      const c: Cursor = { ...(back ? t.bogies[t.bogies.length - 1] : t.bogies[0]) };
+      if (back) flipCursor(this.layout, c);
+      const inset = CAR_SPECS[t.cars[back ? t.cars.length - 1 : 0].kind].bogieInset;
+      advanceCursor(this.layout, c, (t.speed * t.speed) / (2 * ACCELERATION) + LIFT_LOOK + inset, null, lookAdv);
+      if (c.pieceId === pieceId) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Each lift, once a tick: a train halted on its platform (its lever on), or one waiting at its far end while it
+   * stands empty, makes it ready; ready for `LIFT_DWELL` ticks, and no train coming in, it goes (`carry`).
+   */
+  private updateLifts(): void {
+    if (this.lifts === null) {
+      this.lifts = [];
+      for (const id of this.layout.pieceIds()) if (this.liftDef(id)) this.lifts.push(id);
+      for (const id of this.liftWaits.keys()) if (!this.lifts.includes(id)) this.liftWaits.delete(id);
+    }
+    for (const id of this.liftRefused) if (!this.trains.has(id)) this.liftRefused.delete(id);
+    for (const id of this.lifts) {
+      const def = this.liftDef(id);
+      if (!def || this.layout.isLifted(id) || this.rides.has(id)) {
+        this.liftWaits.delete(id);
+        continue;
+      }
+      const at = this.layout.switchState(id) % def.paths.length;
+      let partly = false;
+      let ridersReady = true;
+      let riders = 0;
+      let halted = false;
+      for (const t of this.trains.values()) {
+        if (t.derailed) continue;
+        let on = 0;
+        for (const b of t.bogies) if (b.pieceId === id) on++;
+        if (on === 0) continue;
+        if (on < t.bogies.length) partly = true;
+        riders++;
+        if (t.speed !== 0 || t.turnback >= 0) ridersReady = false;
+        const lead = t.bogies[0];
+        if (drive(t) !== 0 && !lead.reversed && lead.pathIndex === at && this.liftCap(t, false) === 0) halted = true;
+      }
+      const ready = !partly && (riders > 0 ? ridersReady && halted : this.liftCalls.has(id));
+      if (!ready) {
+        this.liftWaits.delete(id);
+        continue;
+      }
+      const n = (this.liftWaits.get(id) ?? 0) + 1;
+      this.liftWaits.set(id, n);
+      if (n < LIFT_DWELL || this.approaching(id)) continue;
+      this.liftWaits.delete(id);
+      this.carry(id, (at + 1) % def.paths.length, def.lift!.seconds);
+    }
+    this.liftCalls.clear();
+  }
+
   tick(): void {
     this.ticks++;
     if (this.rides.size > 0) this.updateRides();
+    if (this.lifts === null || this.lifts.length > 0) this.updateLifts();
     if (this.decksTurning.size > 0) {
       for (const [id, done] of this.decksTurning)
         if (done <= this.ticks) {
@@ -916,7 +1179,7 @@ export class Sim {
     let net = 0;
     for (const car of train.cars) if (car.kind === "engine") net += car.lever * car.facing;
     let target = net === 0 ? 0 : Math.sign(net) * (this.topSpeed ? this.topSpeed(train) : ENGINE_SPEED);
-    const cap = net !== 0 ? Math.min(this.speedCap ? this.speedCap(train) : Infinity, this.signalCap(train)) : Infinity;
+    const cap = net !== 0 ? Math.min(this.speedCap ? this.speedCap(train) : Infinity, this.signalCap(train), this.lifts && this.lifts.length > 0 ? this.liftCap(train, true) : Infinity) : Infinity;
     if (target > cap) target = cap;
     let v = train.speed;
     const step = ACCELERATION * (this.quickness ? this.quickness(train) : 1) * SIM_DT;
@@ -1132,6 +1395,33 @@ export class Sim {
     this.trains.delete(a.id);
     this.events.push({ kind: "coupled", trainId: b.id, absorbedTrainId: a.id });
   }
+}
+
+/** Why a deck (or a lift) won't go now: see `Sim.deckRefusal`. */
+export type DeckRefusal = "partly" | "moving" | "turning" | "approaching";
+
+/** A lift waits this long (ticks) with a train halted on it, or called, before it goes: a moment's pause. */
+export const LIFT_DWELL = SIM_HZ;
+/** How far (mm) short of a lift's platform end, or of a closed lift's end, a train's front face halts. */
+const LIFT_FACE_GAP = 2;
+/** How far (mm) past its braking distance a train looks for a lift's end, and counts as coming in to one. */
+const LIFT_LOOK = 24;
+
+/** How fast a train may go to stop within `d` mm (as at a red signal). */
+const brakeTo = (d: number): number => (d < 0.5 ? 0 : Math.sqrt(2 * ACCELERATION * (d - 0.5)));
+
+/** A train's length, buffer face to buffer face (mm). */
+function trainLength(t: Train): number {
+  let n = 0;
+  for (const c of t.cars) n += CAR_SPECS[c.kind].length;
+  return n + COUPLER_GAP * Math.max(0, t.cars.length - 1);
+}
+
+/** Which way a train's engines drive it: + toward its front, − its back, 0 not at all (levers off). */
+function drive(t: Train): number {
+  let net = 0;
+  for (const car of t.cars) if (car.kind === "engine") net += car.lever * car.facing;
+  return net;
 }
 
 /** A signal's key: its piece and which of the piece's paths (roads) it guards (as many as it has connectors, at most). */

@@ -298,6 +298,8 @@ export interface SwapPiece {
   readonly flipped: boolean;
   /** A switch set this way when it goes down (the old line's route), if not its first. */
   readonly state?: number;
+  /** The piece taken up whose pin this one keeps, if it was pinned (a switch swapped for a three-way, set the same way). */
+  readonly pinOf?: number;
 }
 
 /** A switch swapped into a line: the straights it takes up, what goes down instead (the switch first), and its branch end. */
@@ -747,5 +749,5 @@ export function findThreeWay(layout: Layout, onto: number, heading: number, canT
   // The switch's own paths: 0 straight on, 1 its branch. The three-way's: 0 straight, then its + curve, then its −.
   const state = old === 0 ? 0 : def.paths.findIndex((q) => q.to === branchLeg);
   const c = def.connectors[newLeg];
-  return { kind: "swap", covers: [onto], pieces: [{ type: "switch-3way", pose, y: p.y, flipped: false, state }], end: { x: legEnd.x, z: legEnd.z, heading: normalizeAngle(legEnd.heading), y: p.y + c.y, kind: c.kind } };
+  return { kind: "swap", covers: [onto], pieces: [{ type: "switch-3way", pose, y: p.y, flipped: false, state, pinOf: onto }], end: { x: legEnd.x, z: legEnd.z, heading: normalizeAngle(legEnd.heading), y: p.y + c.y, kind: c.kind } };
 }

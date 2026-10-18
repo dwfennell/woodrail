@@ -14,10 +14,12 @@ export interface Prop {
   town?: number;
   /** Colour variant (0 or none: the model's own colours). */
   variant?: number;
+  /** Drawn at this scale of its model (none: 1): a town's landmark on a smaller lot than it wants. */
+  scale?: number;
 }
 
 /** What a prop is part of, beyond its pose. */
-export type PropLinks = Pick<Prop, "building" | "town" | "variant">;
+export type PropLinks = Pick<Prop, "building" | "town" | "variant" | "scale">;
 
 export type PropPose = Pick<Prop, "x" | "z" | "heading" | "y">;
 

@@ -73,7 +73,8 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   workshop: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
-    piles: { planks: { t: 60, l: 84, y: YARD, across: 2, axis: "t" } },
+    // (Its yard holds up to WORKSHOP_CAP: the pile shows as many as it always has.)
+    piles: { planks: { t: 60, l: 84, y: YARD, across: 2, axis: "t", show: 12 } },
     trackT: 60,
   },
   // The farm chain: a farm yard (grain from the fields) and a mill (grain into flour), laid out like the others.
@@ -947,7 +948,8 @@ export class DepotView {
       // Source and destination centres of the unit being moved.
       const car = carObject(move.carId);
       const cargo = economy.cargoOf(move.carId);
-      const pileCount = site.depot.piles[CARGO[move.kind].index];
+      // (No higher than the pile is drawn: a warehouse or workshop holds more than it shows.)
+      const pileCount = Math.min(site.depot.piles[CARGO[move.kind].index], layout.piles[move.kind]?.show ?? Infinity);
       let pileYaw: number;
       if (move.toPile) {
         this.onCar(site, car, move.kind, cargo.count - 1, _a);

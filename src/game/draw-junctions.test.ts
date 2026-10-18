@@ -203,6 +203,39 @@ describe("a branch off a large curve or a switch", () => {
     expect(three.kind === "branch" && three.swap.pieces[0].type).toBe("switch-3way");
     expect(branchFrom(r(true), sw, press, finger)).toEqual({ kind: "refused", message: "Three-way: not learned yet" });
   });
+
+  it("pins: a switch spliced into a straight starts unpinned; a pinned switch made a three-way keeps its pin (set the same way), and undo puts the pinned switch back", () => {
+    const s = setup();
+    const { b, line: drawn } = branchStroke(s, s.ids[1], 300, 45);
+    if (b.kind !== "branch" || !drawn) throw new Error(b.kind);
+    const ids = s.editor.replaceRun(linePlan(b.swap, drawn.placeable(), null).covers, linePlan(b.swap, drawn.placeable(), null).pieces);
+    expect(s.layout.isPinned(ids[0])).toBe(false);
+    s.editor.undo();
+
+    const layout = new Layout();
+    const a = layout.addPiece("straight-216", { x: 0, z: Z, heading: 0 }, 0);
+    const sw = appendPiece(layout, "switch", false, connectorRef(a, 1));
+    layout.setSwitchState(sw, 1);
+    layout.setPinned(sw, true);
+    const editor = new Editor(layout, new Sim(layout), () => {});
+    const swPose = layout.getPiece(sw)!.pose;
+    const rules: JunctionRules = { layout, check: () => null, occupied: () => false, may: () => null };
+    const press = { x: swPose.x + 70, z: swPose.z - 5 };
+    const three = branchFrom(rules, sw, press, { x: press.x + 50, z: press.z - 50 });
+    if (three.kind !== "branch") throw new Error(three.kind);
+    const [tw] = editor.replaceRun(three.swap.covers, three.swap.pieces);
+    expect(layout.getPiece(tw)?.type).toBe("switch-3way");
+    expect(layout.isPinned(tw)).toBe(true);
+    expect(layout.switchState(tw)).not.toBe(0);
+    editor.undo();
+    expect(layout.getPiece(tw)).toBeUndefined();
+    expect(layout.isPinned(sw)).toBe(true);
+    expect(layout.switchState(sw)).toBe(1);
+    expect(layout.pinnedCount).toBe(1);
+    editor.redo();
+    expect(layout.isPinned(tw)).toBe(true);
+    expect(layout.pinnedCount).toBe(1);
+  });
 });
 
 describe("crossing a line (the stroke goes on through it)", () => {

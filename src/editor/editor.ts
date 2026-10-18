@@ -20,6 +20,8 @@ interface PieceRecord {
   pose: Pose;
   y: number;
   flipped: boolean;
+  /** Its switch state, if not 0 (a turntable's deck's road, a lift's platform at its high end): put back with it. */
+  switchState?: number;
 }
 
 interface Command {
@@ -109,6 +111,9 @@ export class Editor {
     private readonly give: (pieceId: number) => Anchor | null = () => null,
   ) {}
 
+  /** Called when an edit, undo or redo was refused: it would have taken up or moved this lift while it's held (`run`). */
+  onHeld: ((liftId: number) => void) | null = null;
+
   /** Called when pieces that give (stations, depots) were nudged by a change, its undo or its redo. */
   onNudge: ((ids: number[]) => void) | null = null;
 
@@ -189,13 +194,16 @@ export class Editor {
 
   /**
    * Take up `covers` and put `pieces` down, in one undo step: a drawn line with the switch it swaps into the line it
-   * leaves or meets (and the plain straights either side of it). Undone, the covers go back as they were. The ids
-   * of the pieces put down, in order.
+   * leaves or meets (and the plain straights either side of it). A switch put down starts unpinned, unless it takes the
+   * place of a pinned one (`pinOf`: a switch swapped for a three-way, set the same way). Undone, the covers go back as
+   * they were (their switch states and pins too). The ids of the pieces put down, in order.
    */
-  replaceRun(covers: readonly number[], pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean; state?: number }[]): number[] {
+  replaceRun(
+    covers: readonly number[],
+    pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean; state?: number; pinOf?: number }[],
+  ): number[] {
     const recs = covers.map((id) => this.record(id)).filter((r): r is PieceRecord => r !== null);
-    // The covers' own switch settings, to set back on undo (a switch swapped for a three-way).
-    const states = new Map(covers.map((id) => [id, this.layout.switchState(id)] as const));
+    const pinned = new Set(covers.filter((id) => this.layout.isPinned(id)));
     const ids: number[] = [];
     this.run({
       do: () => {
@@ -205,32 +213,33 @@ export class Editor {
           else this.layout.restorePiece(ids[i], p.type, p.pose, p.y, p.flipped);
           // (A switch put in for one taken up is set to the old line's way.)
           if (p.state) this.layout.setSwitchState(ids[i], p.state);
+          if (p.pinOf !== undefined && pinned.has(p.pinOf)) this.layout.setPinned(ids[i], true);
         });
       },
       undo: () => {
-        for (let i = ids.length - 1; i >= 0; i--) this.layout.removePiece(ids[i]);
-        for (const r of recs) {
-          this.layout.restorePiece(r.id, r.type, r.pose, r.y, r.flipped);
-          if (states.has(r.id)) this.layout.setSwitchState(r.id, states.get(r.id)!);
+        for (let i = ids.length - 1; i >= 0; i--) {
+          this.layout.setPinned(ids[i], false);
+          this.layout.removePiece(ids[i]);
         }
+        for (const r of recs) this.restore(r);
       },
       seats: () => [...ids],
     });
     return ids;
   }
 
+  /** Take up a piece. False if there's none, or it may not be taken up now (see `run`). */
   remove(id: number): boolean {
     const rec = this.record(id);
     if (!rec) return false;
-    this.run({
+    return this.run({
       do: () => {
         this.layout.removePiece(id);
       },
       undo: () => {
-        this.layout.restorePiece(rec.id, rec.type, rec.pose, rec.y, rec.flipped);
+        this.restore(rec);
       },
     });
-    return true;
   }
 
   /** Move a piece (it may currently be lifted for dragging; `from` is where it was picked up). */
@@ -276,15 +285,14 @@ export class Editor {
   removeGroup(ids: readonly number[]): boolean {
     const recs = ids.map((id) => this.record(id)).filter((r): r is PieceRecord => r !== null);
     if (recs.length === 0) return false;
-    this.run({
+    return this.run({
       do: () => {
         for (const r of recs) this.layout.removePiece(r.id);
       },
       undo: () => {
-        for (const r of recs) this.layout.restorePiece(r.id, r.type, r.pose, r.y, r.flipped);
+        for (const r of recs) this.restore(r);
       },
     });
-    return true;
   }
 
   /**
@@ -338,7 +346,7 @@ export class Editor {
     const wasFlipped = rec.flipped;
     const supports = this.supports(risers);
     const filler = this.filler(fill);
-    this.run({
+    return this.run({
       do: () => {
         supports.add();
         this.layout.dropPiece(id, pose, y, flipped);
@@ -352,7 +360,6 @@ export class Editor {
       moves: [id],
       seats: () => [id, ...filler.ids],
     });
-    return true;
   }
 
   rotate(id: number, delta: number): boolean {
@@ -385,24 +392,37 @@ export class Editor {
       this.layout.removePiece(id);
       this.layout.restorePiece(id, rec.type, pose, rec.y, flipped);
     };
-    this.run({ do: () => swap(!rec.flipped, flippedPose), undo: () => swap(rec.flipped, rec.pose), moves: [id], seats: () => [id] });
+    return this.run({ do: () => swap(!rec.flipped, flippedPose), undo: () => swap(rec.flipped, rec.pose), moves: [id], seats: () => [id] });
+  }
+
+  /** Undo the last edit. Refused, the history kept as it was, if it would take up or move a held lift (see `run`). */
+  undo(): boolean {
+    const c = this.undoStack[this.undoStack.length - 1];
+    if (!c || !this.step(c, () => c.undo(), () => c.do())) return false;
+    this.redoStack.push(this.undoStack.pop()!);
+    this.changed(c);
     return true;
   }
 
-  undo(): void {
-    const c = this.undoStack.pop();
-    if (!c) return;
-    c.undo();
-    this.redoStack.push(c);
+  /** Redo the last edit undone. Refused, as `undo` is, if it would take up or move a held lift. */
+  redo(): boolean {
+    const c = this.redoStack[this.redoStack.length - 1];
+    if (!c || !this.step(c, () => c.do(), () => c.undo())) return false;
+    this.undoStack.push(this.redoStack.pop()!);
     this.changed(c);
+    return true;
   }
 
-  redo(): void {
-    const c = this.redoStack.pop();
-    if (!c) return;
-    c.do();
-    this.undoStack.push(c);
-    this.changed(c);
+  /** One way of an undo step (`go`), put straight back (`back`) and refused if it disturbed a held lift. */
+  private step(c: Command, go: () => void, back: () => void): boolean {
+    const held = c.props || c.land || c.roads ? null : this.held();
+    go();
+    if (!held) return true;
+    const id = this.disturbed(held, c);
+    if (id === -1) return true;
+    back();
+    this.onHeld?.(id);
+    return false;
   }
 
   clearHistory(): void {
@@ -410,8 +430,21 @@ export class Editor {
     this.redoStack = [];
   }
 
-  private run(c: Command): void {
+  /**
+   * Do an edit as one undo step. Refused (false, undone at once, `onHeld` told) if it would take up or move a lift
+   * that's carrying a train or has one on it (`Sim.heldLifts`): the train would be left derailed in mid-air.
+   */
+  private run(c: Command): boolean {
+    const held = c.props || c.land || c.roads ? null : this.held();
     c.do();
+    if (held) {
+      const id = this.disturbed(held, c);
+      if (id !== -1) {
+        c.undo();
+        this.onHeld?.(id);
+        return false;
+      }
+    }
     if (c.seats) {
       const seeds = c.seats();
       this.onTrackEdit?.(seeds);
@@ -421,6 +454,7 @@ export class Editor {
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
     this.redoStack = [];
     this.changed(c);
+    return true;
   }
 
   private changed(c: Command): void {
@@ -445,7 +479,7 @@ export class Editor {
    * shift joins the command: redo puts the pieces back where they were shifted to, undo where they were before.
    */
   private takeUpPlay(c: Command, seeds: number[]): Command {
-    const pinned = (id: number) => (this.fixed(id) && !this.give(id)) || this.sim.pieceOccupied(id);
+    const pinned = (id: number) => (this.fixed(id) && !this.give(id)) || this.sim.pieceOccupied(id) || !this.sim.liftFree(id);
     const anchor = (id: number) => (this.fixed(id) && !this.sim.pieceOccupied(id) ? this.give(id) : null);
     const nudged = (moved: Map<number, Pose>) => {
       const ids = [...moved.keys()].filter((id) => this.fixed(id));
@@ -563,6 +597,34 @@ export class Editor {
 
   private record(id: number): PieceRecord | null {
     const p = this.layout.getPiece(id);
-    return p ? { id, type: p.type, pose: { ...p.pose }, y: p.y, flipped: p.flipped } : null;
+    if (!p) return null;
+    const rec: PieceRecord = { id, type: p.type, pose: { ...p.pose }, y: p.y, flipped: p.flipped };
+    const state = this.layout.switchState(id);
+    if (state !== 0) rec.switchState = state;
+    return rec;
+  }
+
+  /** Put a piece taken up back as it was (its switch state too: a lift's platform where it stood). */
+  private restore(r: PieceRecord): void {
+    if (this.layout.restorePiece(r.id, r.type, r.pose, r.y, r.flipped) && r.switchState !== undefined) this.layout.setSwitchState(r.id, r.switchState);
+  }
+
+  /**
+   * The lifts that mustn't be taken up or moved now (`Sim.heldLifts`: carrying a train, going, or with a train on
+   * one), as they stand; null if none (at once, on a layout without a lift).
+   */
+  private held(): PieceRecord[] | null {
+    const ids = this.sim.heldLifts();
+    return ids.length === 0 ? null : ids.map((id) => this.record(id)!);
+  }
+
+  /** The first of `held` that `c` took up, moved, turned or flipped (it's done), or −1. */
+  private disturbed(held: readonly PieceRecord[], c: Command): number {
+    for (const r of held) {
+      const p = this.layout.getPiece(r.id);
+      const moved = !p || this.layout.isLifted(r.id) || p.y !== r.y || p.flipped !== r.flipped || p.pose.x !== r.pose.x || p.pose.z !== r.pose.z || p.pose.heading !== r.pose.heading;
+      if (moved || c.moves?.includes(r.id)) return r.id;
+    }
+    return -1;
   }
 }
