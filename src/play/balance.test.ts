@@ -117,6 +117,11 @@ class Player {
   /** Town growths, and how long each `TownLife.update` that grew one took (ms). */
   /** Train-seconds held at stops by auto-spacing. */
   heldSeconds = 0;
+  /** Train-seconds waiting at stops for a train of the line coming the other way (crossing), and of those saying the line needs a passing loop; head-on turn-backs. */
+  crossSeconds = 0;
+  loopSeconds = 0;
+  headOn = 0;
+  readonly turnsSeen = new Set<string>();
   readonly growths: { minute: number; town: string; level: string; ms: number; built: number }[] = [];
   private growing: { town: string; level: string; built: number } | null = null;
   /** Each blueprint learned: when, how, and what it cost. */
@@ -157,6 +162,8 @@ class Player {
     this.town.reset();
     this.syncLandmarks();
     this.counters.reset(w.economy);
+    // BALANCE_NOCROSS=1: trains of a line don't wait for each other (as before routes Phase 3).
+    w.economy.crossing.enabled = !ENV.BALANCE_NOCROSS;
     applyCranes(w.economy, this.progress);
     attachEngines(w);
     attachPassengers(w, () => this.progress, () => {
@@ -243,6 +250,20 @@ class Player {
       }
       peopleArrive(this.w, this.progress, 1, this.people);
       for (const engine of this.w.economy.lineIdOf.keys()) if (this.w.economy.spacing.holding(engine)) this.heldSeconds++;
+      for (const engine of this.w.economy.lineIdOf.keys()) {
+        const c = this.w.economy.crossWait(engine);
+        if (c) this.crossSeconds++;
+        if (c?.wait.kind === "needs-loop") this.loopSeconds++;
+      }
+      for (const id of this.w.sim.trainIds()) {
+        const t = this.w.sim.getTrain(id)!;
+        const turn = t.lastTurn;
+        const key = turn && `${turn.tick}:${turn.pieceId}:${t.cars[0].id}`;
+        if (turn?.cause === "train" && key && !this.turnsSeen.has(key)) {
+          this.turnsSeen.add(key);
+          this.headOn++;
+        }
+      }
       for (const g of this.goals.update(this.w, { learned: this.progress.learned })) {
         this.happened++;
         this.note(`GOAL ${this.goals.doneCount}/${GOALS.length} ✓ ${g.title}`);
@@ -1200,7 +1221,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
-      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut}`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} crossWait ${(P.crossSeconds / 60).toFixed(1)}min loopWait ${(P.loopSeconds / 60).toFixed(1)}min headOn ${P.headOn}`,
       `findings:\n- ${P.findings.join("\n- ") || "none"}`,
     ].join("\n");
     console.log(out);

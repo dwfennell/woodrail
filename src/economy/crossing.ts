@@ -88,6 +88,8 @@ interface Reservation {
   routing: number;
   /** When (sim tick) it was worked out, and the piece it leads to (its next stop's). */
   made: number;
+  /** The train it was made for (a train put back on the rails, or coupled, is another: its claim is worked out again). */
+  trainId: number;
   target: number;
   /** Let go without a claim (timed out, or sent on by the player): only the pieces it stands on count. */
   free: boolean;
@@ -377,7 +379,8 @@ export class Crossing {
 
   private reserve(engine: number, claims: readonly Claim[], free: boolean, target: number): void {
     const { layout, sim } = this.host;
-    this.reservations.set(engine, { claims, from: 0, revision: layout.revision, routing: layout.routingVersion, made: sim.ticks, free, target });
+    const trainId = sim.findCar(engine)?.train.id ?? -1;
+    this.reservations.set(engine, { claims, from: 0, revision: layout.revision, routing: layout.routingVersion, made: sim.ticks, free, target, trainId });
   }
 
   /**
@@ -391,7 +394,7 @@ export class Crossing {
     if (!res && r.at) return null;
     const target = this.host.stopPiece(r.stops[r.at ? stopAfter(r, r.next % r.stops.length) : r.next % r.stops.length].depotId);
     const turned = !!res && train.turnback < 0 && train.lastTurn?.cause === "train" && train.lastTurn.tick >= res.made;
-    if (!res || (!res.free && (res.revision !== layout.revision || res.routing !== layout.routingVersion || res.target !== target || turned))) {
+    if (!res || res.trainId !== train.id || (!res.free && (res.revision !== layout.revision || res.routing !== layout.routingVersion || res.target !== target || turned))) {
       const claims = target < 0 ? null : r.at ? this.pending(engine, train, target) : this.fromTail(train, target);
       this.reserve(engine, claims ?? [], claims === null, target);
       res = this.reservations.get(engine)!;
