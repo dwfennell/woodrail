@@ -21,6 +21,9 @@ export interface Lot {
   changes?: { id: number; kind?: "shop"; floors?: 2 }[];
 }
 
+/** How many places beside the streets a 2×2 block is looked for at, nearest first, before the town does without. */
+const BLOCK_TRIES = 24;
+
 /** How far from its centre (mm) a town may spread: about six squares. */
 const MAX_REACH = 6.5 * 72;
 
@@ -84,8 +87,8 @@ export function nextLots(land: Landscape, town: Town, editor: LandEditor, n: num
  * Make up to `n` of `lots` 2×2 blocks (the biggest landmarks), in place: a block is four squares of grass or green at
  * one height with a street along one side, that the editor allows as a whole. First a lot on the streets grows back
  * from its street (a two-square lot by the two squares behind it; one square by its neighbour along the street and the
- * two behind), then a block anywhere along the town's streets, within its reach, takes the last lot's place (the last,
- * as no later lot needs its streets). The lots' count never changes, so neither do the town's houses; where there's no
+ * two behind), then a block beside the town's streets, within its reach (the nearest `BLOCK_TRIES` places), takes the
+ * last one-square lot's place (else the last lot's: as no later lot needs its streets). The lots' count never changes, so neither do the town's houses; where there's no
  * room, the lots stay as they are.
  */
 function bigLots(land: Landscape, town: Town, editor: LandEditor, lots: Lot[], n: number, hold: (cells: readonly number[]) => void): void {
@@ -132,7 +135,9 @@ function bigLots(land: Landscape, town: Town, editor: LandEditor, lots: Lot[], n
   // None on the streets' lots: a block anywhere beside a street, nearest the town's centre, for the last lot.
   const away = (i: number) => Math.hypot(g.centreX(g.colOf(i)) - town.centre.x, g.centreZ(g.rowOf(i)) - town.centre.z);
   while (made < n) {
-    const last = [...lots].reverse().find((l) => l.cells.length < 4);
+    // (A one-square lot first: a two-square one may be another landmark's.)
+    const back = [...lots].reverse();
+    const last = back.find((l) => l.cells.length === 1) ?? back.find((l) => l.cells.length < 4);
     if (!last) return;
     // The pairs of squares side by side along a street, nearest first; the first that makes a block wins.
     const pairs: { a: number; b: number; e: number; d: number }[] = [];
@@ -147,7 +152,9 @@ function bigLots(land: Landscape, town: Town, editor: LandEditor, lots: Lot[], n
     }
     pairs.sort((p, q) => p.d - q.d || p.a - q.a);
     let best: { cells: number[]; e: number } | null = null;
-    for (const p of pairs) {
+    // Only the nearest few are tried (each a full check that every town is still reachable): on a crowded map where
+    // they all fail, the town grows on its lots as they are rather than stall the frame it grows on.
+    for (const p of pairs.slice(0, BLOCK_TRIES)) {
       const cells = block(p.a, p.b, p.e, []);
       if (cells) {
         best = { cells, e: p.e };
