@@ -1,3 +1,5 @@
+import { kitOf } from "../track";
+import type { DepotState } from "../economy";
 import { DEPOT_NAMES, type World } from "./world";
 
 /** A place a train's route can stop at: any depot on the map (a town's station, an industry). */
@@ -12,9 +14,14 @@ export function routeStops(w: World): RouteStop[] {
   const towns = depots.filter((d) => d.role === "town");
   const others = depots.filter((d) => d.role !== "town");
   const out: RouteStop[] = towns.map((d) => ({ depotId: d.id, name: w.landscape.towns.find((t) => t.id === d.townId)?.name ?? "Town" }));
+  // An industry by its kind's name; a kit piece's cargo stop (Sandbox's loaders) by its kit's ("Log loader").
+  const nameOf = (d: DepotState) => {
+    const kit = kitOf(w.layout.getPiece(d.pieceId)!.type);
+    return kit ? kit.name[0].toUpperCase() + kit.name.slice(1) : DEPOT_NAMES[d.role as keyof typeof DEPOT_NAMES];
+  };
   for (const d of others) {
-    const same = others.filter((o) => o.role === d.role);
-    const base = DEPOT_NAMES[d.role as keyof typeof DEPOT_NAMES];
+    const base = nameOf(d);
+    const same = others.filter((o) => nameOf(o) === base);
     out.push({ depotId: d.id, name: same.length > 1 ? `${base} ${same.indexOf(d) + 1}` : base });
   }
   return out;

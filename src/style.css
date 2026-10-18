@@ -107,7 +107,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item.tray-back { width: 56px; background: rgba(120, 80, 40, 0.1); box-shadow: none; }
 .tray-item.tray-back .icon { font-size: 34px; font-weight: 800; color: #7a5a3a; height: 52px; width: auto; }
 
-.card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 130px); background: rgba(250, 243, 230, 0.95); backdrop-filter: blur(10px); border-radius: 18px; box-shadow: 0 10px 34px rgba(60, 40, 20, 0.3); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
+/* A card sits just clear of the tray (138 px with its tabs): over it, it would cover the tabs. */
+.card { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(max(10px, env(safe-area-inset-bottom)) + 146px); background: rgba(250, 243, 230, 0.95); backdrop-filter: blur(10px); border-radius: 18px; box-shadow: 0 10px 34px rgba(60, 40, 20, 0.3); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; min-width: 250px; }
 .card-title { font-weight: 800; font-size: 15px; color: #6a4a2c; }
 .card-row, .lever-row { display: flex; gap: 8px; }
 .card-hint { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; margin-top: -6px; max-width: 300px; }
@@ -121,6 +122,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .piece-card.group .card-title::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: #ffe07a; box-shadow: 0 0 0 2px #e0a93a; margin-right: 8px; vertical-align: 1px; }
 .depot-stock { font-size: 14px; font-weight: 700; color: #7a5532; font-variant-numeric: tabular-nums; text-align: center; }
 .depot-card .card-row { flex-wrap: wrap; justify-content: center; }
+/* A signal box's or lever frame's points and signals: chips a finger wide (44 px tall, two to a row where they fit,
+   a long label wrapping inside its chip), the list scrolling past six or so (on phones the card scrolls as one). */
+.piece-card .lever-list { flex-wrap: wrap; justify-content: center; width: 340px; max-width: 100%; max-height: min(42vh, 260px); overflow-y: auto; overscroll-behavior: contain; }
+.piece-card .lever-list .lever-chip { flex: 1 1 140px; height: auto; min-height: 44px; padding: 6px 10px; line-height: 1.2; white-space: normal; }
+.piece-card .lever-list .card-hint { margin-top: 0; }
 .land-text { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 320px; }
 .lever { width: 60px; height: 50px; font-size: 20px; }
 /* The engine card: what it's doing, a big Go/Stop and the way it goes; Follow and ⋯ in the top corners. */
@@ -204,7 +210,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* A tall card (a workshop's list) stops under the goals chip, and scrolls as one: no list scrolling inside it. */
   .card { max-height: calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 146px - max(10px, env(safe-area-inset-top)) - 116px); overflow-y: auto; overscroll-behavior: contain; }
   .card > * { flex-shrink: 0; }
-  .card .depot-extra { max-height: none; overflow: visible; }
+  .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
 }
 @media (max-width: 400px) {
   .brand:has(.coins:not([hidden])) .brand-block { display: none; }
@@ -220,12 +226,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
      a second tap on it (a car, for its own card) would land on the card's Go instead. */
   .card, .card.piece-card.group { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; top: calc(max(10px, env(safe-area-inset-top)) + 56px); bottom: auto; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 140px); overflow-y: auto; overscroll-behavior: contain; }
   .card > * { flex-shrink: 0; }
-  .card .depot-extra { max-height: none; overflow: visible; }
+  .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
 }
 
 /* ---- motion ---------------------------------------------------------------------------------------------- */
-@keyframes card-in { from { opacity: 0; transform: translate(-50%, 14px) scale(0.96); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+/* Cards pop in where they stand (`scale`, not `transform`, which places them): rising from below, one would sit
+   over the tray's tabs as it came in. */
+@keyframes card-in { from { opacity: 0; scale: 0.96; } }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: none; } }
 .card:not([hidden]) { animation: card-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.15); }
 .menu:not([hidden]) { animation: pop-in 0.18s ease-out; transform-origin: top right; }
@@ -240,19 +248,44 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .card-open .tray.track-tab.in-group .tray-orient, .card-open .tray.track-tab.has-favourites .tray-orient { display: none; }
 .tray-orient .chip { padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 /* Draw: above the tray, at the left, while the Track tab is open. */
-.tray-draw { position: absolute; left: 12px; top: -52px; display: none; padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+/* (A flex box, so its pencil and word are centred as a plain button's text is: Turn's and Flip's, beside it.) */
+.tray-draw { position: absolute; left: 12px; top: -52px; display: none; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 .tray.draw-tab .tray-draw { display: inline-flex; }
 .card-open .tray.draw-tab .tray-draw { display: none; }
 /* Turn and Flip do nothing for a drawn line: away while drawing. */
 .tray.drawing .tray-orient { display: none !important; }
-/* A phone on its side: the map's strip is short. Turn and Flip only while a shelf is open (as before favourites), and
-   Draw sits in the tab row, at its right (the tabs scroll clear of it). */
-@media (max-height: 520px) {
+/* The tray's head: the tabs, and the tools (Draw, Turn, Flip). On a big screen the tools float above the tray, as
+   placed above; on a phone (QA U3, N6) they share the tab row at its right, as icons, and the tabs scroll in the room
+   left: nothing floats over the map where the track is being laid, and the tools never cover a tab. */
+.tray-head, .tray-tools { display: contents; }
+@media (max-width: 640px), (max-height: 520px) {
+  .tray-head { display: flex; align-items: flex-start; gap: 6px; }
+  .tray-head .tabs { flex: 1 1 auto; min-width: 0; }
+  /* (Over the shelf below, so the chips' taps reach just past them, not through to a tile's favourite star.) */
+  .tray-tools { display: flex; flex: none; order: 1; gap: 6px; align-items: center; padding: 3px 2px 0 0; position: relative; z-index: 1; }
+  .tray-tools .tray-orient { gap: 6px; }
+  .tray-tools .tray-draw, .tray-tools .tray-orient { position: static; top: auto; left: auto; right: auto; }
+  .tray-tools .chip { display: inline-flex; align-items: center; justify-content: center; height: 34px; min-width: 40px; padding: 0 9px; font-size: 12px; line-height: 1; box-shadow: 0 2px 6px rgba(60, 40, 20, 0.18); position: relative; }
+  /* Drawn small to fit the row, but a finger's 44 px to tap. */
+  /* (Sideways, half the gap between chips, so neighbours' reach meets but doesn't overlap; more at the row's ends.) */
+  .tray-tools .chip::after { content: ""; position: absolute; inset: -5px -3px; }
+  .tray-tools .tray-draw::after { left: -4px; }
+  .tray-tools .tray-flip::after { right: -4px; }
+  .tray-tools .chip-word { display: none; }
+  .tray-tools .turn-arrow { margin-left: 2px; }
+  /* Turn and Flip only while a shelf is open (as before favourites): at the top the row keeps its room for the tabs.
+     (They're still only for track, and step aside for a card's own buttons, as above.) */
   .tray.track-tab.has-favourites:not(.in-group) .tray-orient { display: none; }
-  .tray-draw { top: 2px; left: auto; right: 8px; height: 34px; padding: 0 10px; font-size: 12px; z-index: 2; }
-  /* Drawn smaller to fit the tab row, but a finger's 44 px to tap. */
-  .tray-draw::after { content: ""; position: absolute; inset: -5px; }
-  .tray.draw-tab .tabs { padding-right: 92px; }
+}
+/* A narrow phone: Draw as its pencil (Turn and Flip are icons already) and the tabs a little tighter, so every tab
+   still shows beside the tools (Game's Industries, where a goal sends you). */
+@media (max-width: 400px) {
+  .tray-tools .draw-word { display: none; }
+  .tray-head { gap: 4px; }
+  .tray-head .tabs { padding: 0 4px; }
+  .tray-head .tab { padding-left: 8px; padding-right: 8px; font-size: 13px; }
+  /* (36 px drawn; with their reach either side still 42 px to tap, and 44 tall.) */
+  .tray-tools .chip { min-width: 36px; padding: 0 6px; }
 }
 /* The Turn button's arrow points the way the next piece will face. */
 .tray-orient .turn-arrow { display: inline-block; transform: rotate(var(--tray-turn, 0deg)); transition: transform 0.2s ease; margin-left: 4px; }
@@ -290,9 +323,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .title-screen.over-opening { z-index: 60; background: none; justify-content: flex-start; animation: none; }
 .title-screen.over-opening .title-head { display: none; }
 /* The choices fade in, rising a little, one after the other. */
-.title-screen.over-opening .title-card { animation: card-in 0.6s ease-out backwards; }
+.title-screen.over-opening .title-card { animation: title-card-in 0.6s ease-out backwards; }
 .title-screen.over-opening .title-card + .title-card { animation-delay: 0.15s; }
-@keyframes card-in { from { opacity: 0; translate: 0 14px; } }
+@keyframes title-card-in { from { opacity: 0; translate: 0 14px; } }
 @media (prefers-reduced-motion: reduce) { .title-screen.over-opening .title-card { animation: card-fade 0.4s ease-out backwards; } }
 @keyframes card-fade { from { opacity: 0; } }
 #loading.behind-title .load-bar, #loading.behind-title p { visibility: hidden; }
@@ -365,6 +398,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 
 /* ---- catalogue models in the tray ------------------------------------------------------------------------ */
 .tray.turn-only .tray-flip { display: none; }
+/* A kit piece in hand from a models tab: Flip turns its building to the other side of the line. */
+.tray.turn-only.holding-kit .tray-flip { display: inline-block; }
 .thumb-pending { display: block; width: 100%; height: 100%; min-height: 44px; border-radius: 10px; background: linear-gradient(90deg, rgba(160, 110, 60, 0.08), rgba(160, 110, 60, 0.18), rgba(160, 110, 60, 0.08)); background-size: 200% 100%; animation: thumb-wait 1.3s linear infinite; }
 @keyframes thumb-wait { to { background-position: -200% 0; } }
 .tray-loading { padding: 26px 18px; font-weight: 800; color: #8a6440; }

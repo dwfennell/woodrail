@@ -10,8 +10,10 @@ from bldg_parts import (  # noqa: F401
 
 
 def country_halt(k):
+    # 216 long, a long straight's length: the game's kit piece (src/track/kits.ts, kit-country-halt) stands it beside
+    # its track, edge line (+z) to the track.
     green = k.paint(TOY.green)
-    g = platform(k, 100, 28, 0, 0)
+    g = platform(k, 216, 28, 0, 0)
     # Lean-to shelter: back wall, two sides, sloping roof.
     g.add(k.box(green, 40, 26, 3, 1, 0, 13, -11))
     g.add(k.box(green, 3, 26, 14, 1, -18.5, 13, -5))
@@ -20,47 +22,49 @@ def country_halt(k):
     roof.rotation.x = 0.18
     g.add(roof)
     g.add(bench(k, 0, -6, 0, 13, TOY.cream))
-    g.add(nameBoard(k, 34, -6, 22, 13))
-    g.add(lamp(k, -38, 6, 30, 13))
+    g.add(nameBoard(k, 50, -6, 22, 13))
+    g.add(lamp(k, -70, 6, 30, 13), lamp(k, 84, 6, 30, 13))
     g.add(peg(k, TOY.purple, TOY.black, -24, 13, 4))
     return g
 
 
 def two_platform_station(k):
+    # Two through roads 216 long, a double track apart (72), between a platform each side: the game's kit piece
+    # (kit-two-platform-station) is a double straight under it.
     g = Node()
-    for z in (-22, 22):
-        g.add(k.trackSlab(150, 0, 0, z))
-    g.add(platform(k, 150, 26, 0, -56, 13, 1))
-    g.add(platform(k, 150, 26, 0, 56, 13, -1))
+    for z in (-36, 36):
+        g.add(k.trackSlab(216, 0, 0, z))
+    g.add(platform(k, 216, 26, 0, -70, 13, 1))
+    g.add(platform(k, 216, 26, 0, 70, 13, -1))
     # Station building on the far platform.
-    b = k.at(house(k, 60, 18, 28, k.paint(TOY.cream), TOY.red, 10), -25, 13, -60)
+    b = k.at(house(k, 60, 18, 28, k.paint(TOY.cream), TOY.red, 10), -25, 13, -74)
     b.add(doorZ(k, TOY.blue, 0, 9.5, 10, 18))
     for x in (-18, 18):
         b.add(winZ(k, x, 9, 9.3))
     # Added: a step at the door.
     b.add(k.box(k.paint(STONE), 14, 1.2, 3, 0.4, 0, 0, 10.5))
     g.add(b)
-    g.add(chimney(k, -40, 50, -63))
+    g.add(chimney(k, -40, 50, -77))
     # Canopy on the near platform.
     for x in (-50, -20, 10):
-        g.add(k.cyl(k.paint(TOY.green), 1.4, 30, x, 13, 58, 1.4, 10))
-    canopy = k.box(k.paint(TOY.green), 76, 2.5, 26, 0.8, -20, 43, 56)
+        g.add(k.cyl(k.paint(TOY.green), 1.4, 30, x, 13, 72, 1.4, 10))
+    canopy = k.box(k.paint(TOY.green), 76, 2.5, 26, 0.8, -20, 43, 70)
     canopy.rotation.x = -0.12
     g.add(canopy)
-    g.add(bench(k, -35, 62, math.pi, 13), bench(k, -5, 62, math.pi, 13))
+    g.add(bench(k, -35, 76, math.pi, 13), bench(k, -5, 76, math.pi, 13))
     # Footbridge: two stair towers and a covered span.
     blue = k.paint(TOY.blue)
-    for z in (-60, 60):
+    for z in (-74, 74):
         g.add(k.box(blue, 18, 54, 14, 1.5, 48, 13, z))
         g.add(hip(k, k.paint(TOY.red), 20, 8, 48, 78, z))
-    g.add(k.box(blue, 18, 4, 110, 1, 48, 62, 0))
+    g.add(k.box(blue, 18, 4, 138, 1, 48, 62, 0))
     for x in (40, 56):
-        g.add(k.box(k.paint(TOY.cream), 2, 10, 106, 0.6, x, 66, 0))
-    g.add(k.box(k.paint(TOY.red), 22, 2.5, 112, 0.8, 48, 77, 0))
-    for x in (-60, 20, 64):
-        g.add(lamp(k, x, -46, 30, 13))
-    g.add(lamp(k, 64, 46, 30, 13))
-    g.add(nameBoard(k, 25, -66, 26, 13))
+        g.add(k.box(k.paint(TOY.cream), 2, 10, 134, 0.6, x, 66, 0))
+    g.add(k.box(k.paint(TOY.red), 22, 2.5, 140, 0.8, 48, 77, 0))
+    for x in (-90, 20, 84):
+        g.add(lamp(k, x, -60, 30, 13))
+    g.add(lamp(k, 84, 60, 30, 13))
+    g.add(nameBoard(k, 25, -80, 26, 13))
     return g
 
 
@@ -71,47 +75,52 @@ def _arc(r, a0, a1, step=2.0, least=12):
 
 
 def grand_terminus(k):
+    # Three roads a double track apart (72), each 216 long from the throat to its end, buffers just past that: the game's
+    # kit piece (kit-grand-terminus) puts its track under them, the model's origin 205 in from where its roads start.
     g = Node()
     cream = k.paint(TOY.cream)
-    # Tracks and buffer stops.
-    for z in (-48, 0, 48):
-        g.add(k.trackSlab(130, -30, 0, z))
+    # Tracks and buffer stops (the stop's face 22 past the road's end, where a train's front comes to rest).
+    for z in (-72, 0, 72):
+        g.add(k.trackSlab(238, -86, 0, z))
         g.add(k.box(k.paint(TOY.red), 6, 12, 30, 1.5, 36, 12, z))
         for s in (-10, 10):
             g.add(k.cylX(k.paint(TOY.black), 2.5, 4, 32, 18, z + s, 12))
-    for z in (-24, 24):
-        g.add(platform(k, 130, 8, -30, z, 13))
+    for z in (-36, 36):
+        g.add(platform(k, 216, 26, -97, z, 13))
     # Shed: low side walls, ribs, half-barrel glass roof.
-    for z in (-72, 72):
-        g.add(k.box(k.paint(BRICK), 140, 30, 4, 1, -25, 0, z))
-    # The code's open half cylinder (r 70, 136 long, axis along x, arching over the top): a 1.5 mm band across z/y,
-    # extruded 136 along local z and turned so that runs along x.
-    band = _arc(70.75, 0, math.pi) + _arc(69.25, math.pi, 0)
-    g.add(k.at(k.extrude(k.glass, band, 136, 0, 0, 0, 0.5), -25, 30, 0, math.pi / 2))
-    for x in (-90, -58, -25, 8, 40):
-        g.add(k.at(k.ring(k.paint(TOY.green), 71, 1.6, 0, 0, 0, True, math.pi), x, 30, 0, math.pi / 2))
-    g.add(k.box(k.paint(TOY.green), 136, 3, 4, 1, -25, 99, 0))
+    for z in (-100, 100):
+        g.add(k.box(k.paint(BRICK), 230, 30, 4, 1, -90, 0, z))
+    # The code's open half cylinder (r 100, axis along x, arching over the top): a 1.5 mm band across z/y, extruded
+    # along local z and turned so that runs along x.
+    band = _arc(100.75, 0, math.pi) + _arc(99.25, math.pi, 0)
+    # Pale glazing: a whole roof of the dark window glass reads as black from above.
+    g.add(k.at(k.extrude(k.fixed("#cfe2ea"), band, 226, 0, 0, 0, 0.5), -90, 30, 0, math.pi / 2))
+    for x in (-195, -150, -105, -60, -15, 22):
+        g.add(k.at(k.ring(k.paint(TOY.green), 101, 1.6, 0, 0, 0, True, math.pi), x, 30, 0, math.pi / 2))
+    g.add(k.box(k.paint(TOY.green), 226, 3, 4, 1, -90, 129, 0))
     # Concourse front and clock tower.
-    g.add(k.box(cream, 30, 48, 150, 2, 58, 0, 0))
-    g.add(k.box(k.paint(TOY.blue), 34, 3, 154, 1, 58, 48, 0))
-    for z in (-55, -35, 35, 55):
+    g.add(k.box(cream, 30, 48, 210, 2, 58, 0, 0))
+    g.add(k.box(k.paint(TOY.blue), 34, 3, 214, 1, 58, 48, 0))
+    for z in (-85, -55, 55, 85):
         g.add(winX(k, 73, 26, z, 10, 14))
-    for z in (-18, 18):
+    for z in (-25, 25):
         g.add(doorX(k, TOY.blue, 73, z, 12, 24))
         # Added: a stone step at each door.
         g.add(k.box(k.paint(STONE), 4, 1.2, 16, 0.4, 74.5, 0, z))
-    g.add(k.box(cream, 26, 108, 26, 2, 58, 0, 0))
-    g.add(hip(k, k.paint(TOY.green), 30, 22, 58, 108, 0))
-    g.add(k.cyl(k.paint(TOY.yellow), 1, 10, 58, 128, 0, 0.5, 8))
-    g.add(clock(k, 9, 72, 90, 0))
-    g.add(clock(k, 9, 44, 90, 0, math.pi))
-    g.add(k.box(k.paint(WIN), 1.6, 26, 12, 0.6, 72, 52, 0))
-    g.add(peg(k, TOY.red, TOY.black, 82, 0, 30), peg(k, TOY.blue, None, 84, 0, -40))
+    g.add(k.box(cream, 26, 138, 26, 2, 58, 0, 0))
+    g.add(hip(k, k.paint(TOY.green), 30, 22, 58, 138, 0))
+    g.add(k.cyl(k.paint(TOY.yellow), 1, 10, 58, 158, 0, 0.5, 8))
+    g.add(clock(k, 9, 72, 120, 0))
+    g.add(clock(k, 9, 44, 120, 0, math.pi))
+    g.add(k.box(k.paint(WIN), 1.6, 26, 12, 0.6, 72, 70, 0))
+    g.add(peg(k, TOY.red, TOY.black, 82, 0, 40), peg(k, TOY.blue, None, 84, 0, -50))
     return g
 
 
 def mountain_station(k):
-    g = platform(k, 90, 24, 0, 18, 13, 1)
+    # The platform 216 long (a long straight's length): the kit piece (kit-mountain-station) stands it beside its
+    # track, edge line (+z) to the track.
+    g = platform(k, 216, 24, 0, 18, 13, 1)
     g.add(k.box(k.paint(STONE), 60, 16, 30, 1.5, -5, 0, -12))
     upper = k.at(house(k, 60, 30, 24, k.paint(TOY.brown), TOY.red, 9, 0, 0, 8), -5, 16, -12)
     upper.add(k.roof(k.paint(TOY.white), 56, 42, 12, 0, 23.2 + 2.4, 0, 1.6))
@@ -132,15 +141,18 @@ def mountain_station(k):
         g.add(winZ(k, x, 5, 3.4, 8, 7))
     g.add(chimney(k, -25, 46, -18, 12, STONE))
     g.add(pine(k, 36, -18, 44), pine(k, 44, -6, 34))
-    g.add(nameBoard(k, 25, 22, 22, 13, TOY.red))
+    g.add(nameBoard(k, 60, 22, 22, 13, TOY.red))
+    g.add(lamp(k, -80, 22, 30, 13), lamp(k, 90, 22, 30, 13))
     return g
 
 
 def harbour_station(k):
+    # The quay 216 long (a long straight's length), its edge line on the -z side: the kit piece (kit-harbour-station)
+    # stands it beside its track there, the water beyond.
     g = Node()
-    g.add(k.box(k.water, 140, 1.2, 50, 0.4, 0, 0, 50))
-    g.add(platform(k, 140, 30, 0, -10, 13, -1))
-    b = k.at(house(k, 54, 22, 26, k.paint(TOY.white), TOY.blue, 10), -20, 13, -12)
+    g.add(k.box(k.water, 216, 1.2, 50, 0.4, 0, 0, 35))
+    g.add(platform(k, 216, 40, 0, -10, 13, -1))
+    b = k.at(house(k, 54, 22, 26, k.paint(TOY.white), TOY.blue, 10), -20, 13, -2)
     b.add(doorZ(k, TOY.blue, 0, 11.4, 10, 17))
     for x in (-17, 17):
         b.add(winZ(k, x, 9, 11.2, 9, 9))
@@ -148,22 +160,22 @@ def harbour_station(k):
         b.add(winZ(k, x, 9, -11.2, 9, 9))
     g.add(b)
     # Jetty on piles.
-    g.add(k.box(k.wood, 18, 3, 40, 0.6, 40, 10, 22))
-    for z in (10, 26, 40):
+    g.add(k.box(k.wood, 18, 3, 40, 0.6, 40, 10, 32))
+    for z in (20, 36, 50):
         for x in (33, 47):
             g.add(k.cyl(k.paint(TOY.brown), 1.8, 11, x, 0, z, 1.8, 10))
     for x in (10, 60):
-        g.add(k.lathe(k.paint(TOY.black), [(0, 0), (3, 0), (2, 3), (2, 5), (3.4, 6), (0, 6.5)], x, 13, 3, 14))
+        g.add(k.lathe(k.paint(TOY.black), [(0, 0), (3, 0), (2, 3), (2, 5), (3.4, 6), (0, 6.5)], x, 13, 6, 14))
     # Lifebuoy on a post.
-    g.add(k.cyl(k.paint(TOY.white), 1.2, 22, -60, 13, 3, 1.2, 8))
-    g.add(k.at(k.ring(k.paint(TOY.red), 5, 1.8, 0, 0, 0, True), -60, 30, 4.5))
+    g.add(k.cyl(k.paint(TOY.white), 1.2, 22, -60, 13, 6, 1.2, 8))
+    g.add(k.at(k.ring(k.paint(TOY.red), 5, 1.8, 0, 0, 0, True), -60, 30, 7.5))
     # The boat.
     boat = named(Node(), "boat")
     boat.add(k.lathe(k.paint(TOY.red), [(0, 0), (5, 0), (8, 6), (0, 6)], 0, 0, 0, 20))
     boat.children[0].scale.set(2.4, 1, 1)
     boat.add(k.box(k.paint(TOY.white), 12, 8, 10, 1.5, -2, 6, 0), k.cyl(k.paint(TOY.yellow), 2, 6, -2, 14, 0, 2, 10))
-    g.add(k.at(boat, 72, 0, 46))
-    g.add(lamp(k, 40, -20, 30, 13))
+    g.add(k.at(boat, 72, 0, 50))
+    g.add(lamp(k, 40, -22, 30, 13), lamp(k, -80, -22, 30, 13))
     return g
 
 
@@ -230,15 +242,17 @@ def waiting_shelter(k):
 
 
 def platform_furnished(k):
-    g = platform(k, 140, 26, 0, 0)
-    for x in (-55, 0, 55):
+    # 216 long, a long straight's length: the game's kit piece (src/track/kits.ts, kit-platform-furnished) stands it
+    # beside its track, edge line (+z) to the track.
+    g = platform(k, 216, 26, 0, 0)
+    for x in (-90, -30, 30, 90):
         g.add(lamp(k, x, -6, 32, 13))
-    g.add(bench(k, -28, -6, 0, 13), bench(k, 28, -6, 0, 13))
+    g.add(bench(k, -60, -6, 0, 13), bench(k, 60, -6, 0, 13))
     # Hanging clock on a bracket.
     g.add(k.cyl(k.paint(TOY.black), 1.2, 40, 0, 13, -9, 1.2, 8))
     g.add(k.box(k.paint(TOY.black), 2, 2, 10, 0.4, 0, 52, -5))
     g.add(clock(k, 5, 1.2, 46, 0), clock(k, 5, -1.2, 46, 0, math.pi))
-    g.add(k.cyl(k.paint(TOY.green), 3, 7, 62, 13, -6, 3.4, 14))
+    g.add(k.cyl(k.paint(TOY.green), 3, 7, 41, 13, -6, 3.4, 14))
     g.add(peg(k, TOY.yellow, None, -10, 13, 2), peg(k, TOY.green, TOY.brown, 14, 13, -2))
     return g
 
@@ -246,9 +260,10 @@ def platform_furnished(k):
 def station_clock(k):
     g = Node()
     g.add(k.lathe(k.paint(TOY.green), [(0, 0), (5, 0), (5, 2), (2.5, 4), (1.8, 10), (1.8, 40), (3, 42), (0, 42)], 0, 0, 0, 20))
-    g.add(k.cylZ(k.paint(TOY.green), 8, 6, 0, 50, 0, 24))
-    g.add(clock(k, 6.5, 0, 50, 3.2, -math.pi / 2), clock(k, 6.5, 0, 50, -3.2, math.pi / 2))
-    g.add(k.ball(k.paint(TOY.yellow), 2, 0, 59.5, 0))
+    # A big two-faced head, its faces bold (see `clock`): read from across the layout at the usual zoom.
+    g.add(k.cylZ(k.paint(TOY.green), 10.6, 6, 0, 52, 0, 28))
+    g.add(clock(k, 8.6, 0, 52, 3.2, -math.pi / 2, bold=True), clock(k, 8.6, 0, 52, -3.2, math.pi / 2, bold=True))
+    g.add(k.ball(k.paint(TOY.yellow), 2.2, 0, 64.2, 0))
     return g
 
 

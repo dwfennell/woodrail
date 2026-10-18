@@ -5,6 +5,7 @@ import { blockWord } from "./blocks";
 import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 import { roadIcon } from "./road-icons";
+import { isKit } from "../track";
 import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 import { loadFavourites, saveFavourites } from "./prefs";
 
@@ -171,6 +172,8 @@ export class Hud {
   private readonly groupHint = el("div", "card-hint");
   private readonly groupRow = el("div", "card-row");
   private readonly pieceRow = el("div", "card-row");
+  /** A signal box's or lever frame's card: the points and signals near it, each a chip to throw (see `showLevers`). */
+  private readonly leverList = el("div", "card-row lever-list");
   private readonly doneBtn: HTMLButtonElement;
   private readonly deleteBtn: HTMLButtonElement;
   private readonly selectMoreBtn: HTMLButtonElement;
@@ -421,7 +424,8 @@ export class Hud {
     this.joinedBtn = button("Joined track", "Add all the track joined to these pieces", h.selectJoined, "chip text");
     this.doneBtn = button("Done", "Finish picking", h.doneSelecting, "chip text primary");
     this.groupRow.append(this.joinedBtn, this.doneBtn);
-    this.pieceCard.append(this.pieceTitle, this.groupHint, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
+    this.leverList.hidden = true;
+    this.pieceCard.append(this.pieceTitle, this.groupHint, this.leverList, pieceRow, this.selectMoreBtn, this.groupRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.pieceCard);
 
     // Depot card: what's on its piles, and how it treats trains.
@@ -458,7 +462,9 @@ export class Hud {
       const key = trayKey(item);
       const thumb = this.thumbs.get(key);
       if (thumb) return `<img src="${thumb}" alt="" draggable="false">`;
-      // A piece or train not drawn yet shows its icon till its picture comes (`setThumbnail` swaps it in).
+      // A piece or train not drawn yet shows its icon till its picture comes (`setThumbnail` swaps it in). A kit piece
+      // (on a catalogue shelf) is drawn when its shelf is first shown, with its model.
+      if (item.kind === "piece" && isKit(item.type)) missing.push(item);
       if (item.kind === "piece") return `<span class="thumb-icon" data-thumb="${key}">${pieceIcon(item.type)}</span>`;
       if (item.kind === "tool") return uiIcon(item.tool);
       if (item.kind === "road") return roadIcon(item.auto ? "auto" : item.piece);
@@ -665,8 +671,9 @@ export class Hud {
     };
     // Turn and flip, for track pieces: set how the next piece comes out, or turn the one in hand (with another finger).
     const orient = el("div", "tray-orient");
-    this.flipTrayBtn = button("⇋ Flip", "Mirror the next piece (or the one you're holding)", () => this.handlers.trayFlip(), "chip text tray-flip");
-    const turnBtn = button(`↻ Turn<span class="turn-arrow">↑</span>`, "Turn the next piece (or the one you're holding) an eighth of a turn", () => this.handlers.trayTurn(), "chip text");
+    // (On a phone they sit in the tray's tab row as icons: their words go.)
+    this.flipTrayBtn = button(`⇋<span class="chip-word"> Flip</span>`, "Mirror the next piece (or the one you're holding)", () => this.handlers.trayFlip(), "chip text tray-flip");
+    const turnBtn = button(`↻<span class="chip-word"> Turn</span><span class="turn-arrow">↑</span>`, "Turn the next piece (or the one you're holding) an eighth of a turn", () => this.handlers.trayTurn(), "chip text");
     // Tapped with a second finger while the first holds a piece (QA): a browser sends no click for a finger that isn't
     // the first, so these act on that finger's lift over them (the first finger's tap still clicks, once).
     const secondFinger = (b: HTMLButtonElement, act: () => void) =>
@@ -677,8 +684,16 @@ export class Hud {
     secondFinger(this.flipTrayBtn, () => this.handlers.trayFlip());
     orient.append(turnBtn, this.flipTrayBtn);
     // Draw: a drag on the map lays a line of track behind the finger (see DrawHand).
-    this.drawBtn = button("✎ Draw", "Draw track: drag from the end of a track, or across the ground", () => this.handlers.trayDraw(!this.drawing), "chip text tray-draw");
-    this.tray.append(orient, this.drawBtn, tabs, scroller);
+    this.drawBtn = button(`✎<span class="draw-word"> Draw</span>`, "Draw track: drag from the end of a track, or across the ground", () => this.handlers.trayDraw(!this.drawing), "chip text tray-draw");
+    // The tab row and the tools (Draw, Turn, Flip): on a big screen the tools float above the tray (the row is just the
+    // tabs); on a phone they share the tab row, at its right, the tabs scrolling in what's left (they never cover a tab,
+    // nor the track being laid). First in the page, as they were, for a keyboard and a screen reader; on a phone the
+    // row shows them after the tabs.
+    const tools = el("div", "tray-tools");
+    tools.append(this.drawBtn, orient);
+    const head = el("div", "tray-head");
+    head.append(tools, tabs);
+    this.tray.append(head, scroller);
     this.root.appendChild(this.tray);
 
     // Beside the HUD, not in it, so a toast shows over the panels opened over the HUD too (the Blueprints board).
@@ -1043,7 +1058,19 @@ export class Hud {
     this.selectMoreBtn.hidden = !canGroup;
     this.groupHint.hidden = true;
     this.groupRow.hidden = true;
+    this.leverList.hidden = true;
     this.pieceCard.classList.remove("group");
+  }
+
+  /**
+   * On the open piece card (a signal box or lever frame's): the points and signals near it, each a chip saying which
+   * way it's set; a tap throws it (`onThrow` with its index). An empty list says there are none near.
+   */
+  showLevers(levers: readonly { label: string; title: string }[], onThrow: (i: number) => void): void {
+    this.leverList.replaceChildren(
+      ...(levers.length === 0 ? [el("div", "card-hint", "No points or signals near: put it by a junction")] : levers.map((l, i) => button(l.label, l.title, () => onThrow(i), "chip text lever-chip"))),
+    );
+    this.leverList.hidden = false;
   }
 
   /** The card while picking several pieces: how many, what a tap and a drag do, and what can be done to them all. */
@@ -1193,6 +1220,15 @@ export class Hud {
   }
 
   /** Point the Turn arrow (degrees clockwise on screen from straight up). Cheap to call every frame. */
+  private holdingKit = false;
+
+  /** A kit piece is in hand: on a models tab (Turn only) Flip shows too, to turn its building to the other side. */
+  setHoldingKit(on: boolean): void {
+    if (on === this.holdingKit) return;
+    this.holdingKit = on;
+    this.tray.classList.toggle("holding-kit", on);
+  }
+
   setTrayArrow(deg: number): void {
     const d = Math.round(deg);
     if (d === this.trayArrowWanted) return;

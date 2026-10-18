@@ -74,6 +74,7 @@ const CAR_COLORS: Record<CarKind, [string, string]> = {
   caboose: ["#c8442f", "#f0ebe0"],
   timber: ["#e3bf8c", "#c8442f"],
   van: ["#2f6db5", "#f0ebe0"],
+  cleaner: ["#e6b52c", "#2a2a2a"],
 };
 
 /** Side-view SVG of a car or a short train. */

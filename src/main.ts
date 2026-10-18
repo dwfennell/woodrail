@@ -1,7 +1,7 @@
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre } from "./editor/editor";
-import { frameAlong, frameDistance } from "./game/camera-director";
+import { fitToRect, frameAlong, frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
@@ -25,6 +25,7 @@ import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, lacking, uncraft, workshops, workshopStock } from "./game/crafting";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
 import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
@@ -48,7 +49,7 @@ import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, kitOf, PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
 import type { CarKind, CarLook } from "./sim";
 import { Hud } from "./ui/hud";
 import { INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
@@ -218,7 +219,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             ? [{ key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks }]
             : [],
       ),
-      (type) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : null),
+      (type) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : kitOf(type) ? game.kitView.model(type) : null),
       studio,
     );
     for (const [k, v] of drawn) thumbnails.set(k, v);
@@ -400,12 +401,27 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
   function drawPropThumbnails(items: TrayItem[]): void {
     const idle = thumbQueue.length === 0;
-    for (const item of items) if (item.kind === "prop" && !thumbQueue.includes(item.asset)) thumbQueue.push(item.asset);
+    for (const item of items) {
+      // A kit piece on a catalogue shelf: its track and model, once the model's built.
+      const key = item.kind === "prop" ? item.asset : item.kind === "piece" && kitOf(item.type) ? trayKey(item) : null;
+      if (key && !thumbQueue.includes(key)) thumbQueue.push(key);
+    }
     if (idle && thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
   }
   function nextThumbnail(): void {
     const asset = thumbQueue[0];
     if (asset === undefined) return;
+    if (asset.startsWith("piece:")) {
+      const type = asset.slice("piece:".length) as PieceTypeId;
+      void Promise.all([game.kitView.load(type), TrackView.whenBuilt(type)]).then(() => {
+        thumbQueue.shift();
+        studio ??= new ThumbnailStudio(game.renderer);
+        for (const key of drawThumbnails([{ kind: "piece", type, label: "" }], false, studio)) hud.setThumbnail(key, thumbnails.get(key)!);
+        saveThumbnailsSoon();
+        if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
+      });
+      return;
+    }
     void game.propLibrary.load(asset).then((model) => {
       thumbQueue.shift();
       if (model) {
@@ -2031,6 +2047,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return [volume, pan];
   };
   const carPoint = (trainId: number, bogie = 0) => game.sim.getTrain(trainId)?.world[bogie];
+  const whistles = new WhistlePosts();
+  /**
+   * Which engine by a whistle post whistles in a frame, and how loud: heard from the camera as `listen` hears its
+   * clacks (louder and more central the nearer it is), the nearest train's whistle winning over a far one's.
+   */
+  const whistleCalls = new WhistleCalls();
+  const playWhistle = (v: number, pan: number) => audio.whistle(v, pan);
+  const trainAlive = (id: number) => !!game.sim.getTrain(id);
+  const whistleFor = (trainId: number, v: number, pan: number) => {
+    const t = game.sim.getTrain(trainId);
+    if (!t || !whistles.has(t.bogies[0].pieceId) || !t.cars.some((c) => c.kind === "engine")) return;
+    whistleCalls.offer(trainId, v, pan, performance.now());
+  };
   /** Where a depot's crane works (world plan point). */
   const depotPoint = (depotId: number) => {
     const d = game.economy.depot(depotId);
@@ -2071,16 +2100,43 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * towns), keeping the way the view faces.
    */
   function backToRailway(): void {
-    const points: { x: number; z: number }[] = [];
+    // The track, end to end (its pieces' ends and middles), or the first towns' stations if there's none yet.
+    const points: Vector3[] = [];
+    const end = createWorldConnector();
     for (const id of game.layout.pieceIds()) {
-      if (isFixedPiece(id) || game.layout.getPiece(id)!.type === "riser") continue;
-      points.push(pieceCentre(game.layout, id));
+      const piece = game.layout.getPiece(id)!;
+      if (isFixedPiece(id) || piece.type === "riser") continue;
+      const c = pieceCentre(game.layout, id);
+      points.push(new Vector3(c.x, piece.y, c.z));
+      const n = getPieceDef(piece.type, piece.flipped).connectors.length;
+      for (let i = 0; i < n; i++) {
+        game.layout.worldConnector(connectorRef(id, i), end);
+        points.push(new Vector3(end.x, end.y, end.z));
+      }
     }
-    if (points.length === 0) for (const t of game.landscape.towns.slice(0, 2)) points.push(t.station);
+    if (points.length === 0) for (const t of game.landscape.towns.slice(0, 2)) points.push(new Vector3(t.station.x, 0, t.station.z));
     if (points.length === 0) return;
+    // Facing along it (up a phone held upright), turned the shorter way round from where the view faces now.
     const f = frameAlong(points, game.camera.fov, game.camera.aspect, GOAL_MARGIN);
+    const now = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
+    let theta = f.theta ?? now.theta;
+    if (Math.abs(Math.atan2(Math.sin(theta - now.theta), Math.cos(theta - now.theta))) > Math.PI / 2) theta += Math.PI;
+    // In the room the HUD leaves: below the top bar (and the goals), above the tray.
+    const r = game.canvas.getBoundingClientRect();
+    let top = 0;
+    for (const e of document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")) {
+      const b = e.getBoundingClientRect();
+      if (b.height > 0 && b.top < r.height / 3) top = Math.max(top, b.bottom - r.top);
+    }
+    // (Above the tools floating over the tray too, Draw and Turn, where they float: not on a phone, where they're in its row.)
+    let bottom = r.height;
+    for (const e of [hud.tray, ...document.querySelectorAll(".tray-draw, .tray-orient")]) {
+      const b = e.getBoundingClientRect();
+      if (b.height > 0) bottom = Math.min(bottom, b.top - r.top);
+    }
+    const fit = fitToRect(points, game.camera, now.phi, theta, { left: 0, top, right: r.width, bottom }, r.width, r.height, 24);
     game.follow(-1);
-    game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 0.9 });
+    game.director.glideTo(fit.target, Math.min(fit.distance, game.controls.maxDistance), { theta, duration: 0.9 });
   }
 
   function openingView(): void {
@@ -2157,7 +2213,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   game.onFrame = (dt) => {
     interaction.refreshDepotCard();
     // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.
-    hud.setTrayArrow(interaction.trayArrow(hud.propsTab));
+    hud.setTrayArrow(interaction.trayArrow(hud.propsTab && !interaction.holdingKit));
+    hud.setHoldingKit(interaction.holdingKit);
     interaction.tick(dt);
     const now = performance.now();
     if (mapView.open) {
@@ -2165,6 +2222,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else placeMap();
     }
     let hum = 0;
+    // Whistle posts' near track: worked out again only when the props or the track change.
+    whistles.sync(game.layout, game.props, game.trackVersion);
     for (const e of game.events) {
       if (e.kind === "buffer" && !loopTipShown && game.sim.getTrain(e.trainId)?.lastTurn?.cause === "train") showLoopTip();
       const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);
@@ -2174,11 +2233,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         continue;
       }
       const [v, pan] = listen(p.x, p.z);
-      if (e.kind === "joint") audio.clack(v, pan);
-      else if (e.kind === "coupled") audio.magnet(v, pan);
+      if (e.kind === "joint") {
+        audio.clack(v, pan);
+        // An engine coming onto track near a whistle post whistles (once as it passes).
+        if (e.bogie === 0 && whistles.size > 0) whistleFor(e.trainId, v, pan);
+      } else if (e.kind === "coupled") audio.magnet(v, pan);
       else if (e.kind === "derailed") audio.crash(v, pan);
       else if (e.kind === "buffer") audio.magnet(v * 0.6, pan);
     }
+    whistleCalls.flush(now, playWhistle, trainAlive);
     for (const id of game.sim.trainIds()) {
       const t = game.sim.getTrain(id)!;
       if (t.derailed || t.speed < 5 || !t.cars.some((c) => c.kind === "engine" && c.lever !== 0)) continue;
@@ -2235,7 +2298,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, trayThumbnailsSaved: () => trayThumbnailsSaved });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, trayThumbnailsSaved: () => trayThumbnailsSaved });
   game.start();
   // Opening in Game mode: start fetching its models now, ahead of play.
   if (mode === "game") ensureGameModels();

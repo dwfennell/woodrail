@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RISER_HEIGHT } from "../track";
-import { buildStarterWorld, unlockPlot, type World } from "../game/world";
+import { buildStarterWorld, syncIndustries, unlockPlot, type World } from "../game/world";
 import { appendPiece, connectorRef } from "../track";
 import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape";
 import { encodeRoad, pieceOf } from "../roads";
@@ -323,3 +323,122 @@ describe("props in saves", () => {
     expect(old.ok && [...old.value.props.all()].filter((p) => p.building === undefined).length).toBe(0);
   });
 });
+
+describe("kit pieces in saves", () => {
+  it("round-trip as pieces, and an old save's furnished platform prop stays a prop where it was", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const kit = appendPiece(world.layout, "kit-platform-furnished", false, connectorRef(station, 1));
+    world.props.add("bldg-platform-furnished", { x: 300, z: 120, heading: 1, y: 0 });
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const piece = r.value.layout.getPiece(kit)!;
+    expect(piece.type).toBe("kit-platform-furnished");
+    expect(r.value.layout.joinedConnector(connectorRef(kit, 0))).toBe(connectorRef(station, 1));
+    // The prop isn't turned into a kit: a plain prop, where it stood.
+    const prop = [...r.value.props.all()].find((p) => p.asset === "bldg-platform-furnished")!;
+    expect(prop).toMatchObject({ x: 300, z: 120, heading: 1 });
+  });
+
+  it("cargo kits round-trip with their depots (a loader and an unloader), and a train's route stops at them", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const loader = appendPiece(world.layout, "kit-log-loader", false, connectorRef(station, 1));
+    const shed = appendPiece(world.layout, "kit-goods-shed", false, connectorRef(loader, 1));
+    expect(syncIndustries(world)).toBe(true);
+    const before = world.economy.allDepots().map((d) => ({ pieceId: d.pieceId, role: d.role }));
+    expect(before).toContainEqual({ pieceId: loader, role: "loader-log" });
+    expect(before).toContainEqual({ pieceId: shed, role: "unloader" });
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.economy.allDepots().map((d) => ({ pieceId: d.pieceId, role: d.role }))).toEqual(before);
+    // The loader's heap is as full as ever; nothing new to add.
+    expect(r.value.economy.depotAtPiece(loader)!.piles[CARGO_KINDS.indexOf("log")]).toBeGreaterThan(0);
+    expect(syncIndustries(r.value)).toBe(false);
+  });
+
+  it("a turntable round-trips with its deck turned (a switch state past a three-way's)", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const table = appendPiece(world.layout, "kit-turntable", false, connectorRef(station, 1));
+    world.layout.setSwitchState(table, 3);
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.layout.getPiece(table)!.type).toBe("kit-turntable");
+    expect(r.value.layout.switchState(table)).toBe(3);
+  });
+
+  it("an old save's held-back props (now kits) load unchanged, as props where they were", () => {
+    const world = buildStarterWorld();
+    const old = ["bldg-engine-shed", "bldg-castle-gate", "mech-log-loader", "mech-water-crane", "mech-weighbridge", "bldg-grand-terminus", "mech-turntable", "mech-transfer-table", "mech-train-wash"];
+    old.forEach((asset, i) => world.props.add(asset, { x: 200 + i * 150, z: 600, heading: 0.5, y: 0 }));
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const props = [...r.value.props.all()].filter((p) => old.includes(p.asset));
+    expect(props.map((p) => p.asset).sort()).toEqual([...old].sort());
+    for (const p of props) expect(p).toMatchObject({ x: 200 + old.indexOf(p.asset) * 150, z: 600, heading: 0.5 });
+    // No kit pieces made of them.
+    expect([...r.value.layout.pieceIds()].some((id) => r.value.layout.getPiece(id)!.type.startsWith("kit-"))).toBe(false);
+  });
+
+  it("signal skins and the buffer-stop lamp round-trip as pieces, with their signals' holds (a gantry's both: state 3)", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const sem = appendPiece(world.layout, "kit-semaphore-signal", false, connectorRef(station, 1));
+    const light = appendPiece(world.layout, "kit-colour-light-signal", false, connectorRef(sem, 1));
+    const gantry = appendPiece(world.layout, "kit-signal-gantry", false, connectorRef(light, 1));
+    const lamp = appendPiece(world.layout, "kit-buffer-stop-lamp", false, connectorRef(gantry, 1));
+    world.sim.toggleSignal(sem, 0);
+    world.sim.toggleSignal(gantry, 0);
+    world.sim.toggleSignal(gantry, 1);
+    const w = roundTripOf(world);
+    expect([sem, light, gantry, lamp].map((id) => w.layout.getPiece(id)!.type)).toEqual(["kit-semaphore-signal", "kit-colour-light-signal", "kit-signal-gantry", "kit-buffer-stop-lamp"]);
+    expect([w.layout.switchState(sem), w.layout.switchState(light), w.layout.switchState(gantry)]).toEqual([1, 0, 3]);
+    expect([w.sim.signalHeld(gantry, 0), w.sim.signalHeld(gantry, 1)]).toEqual([true, true]);
+    expect(w.layout.joinedConnector(connectorRef(lamp, 0))).toBe(connectorRef(gantry, 1));
+  });
+
+  it("old saves load unchanged: a plain signal held at red, buffers, and the held-back signal and crossing models as props", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const signal = appendPiece(world.layout, "signal", false, connectorRef(station, 1));
+    const buffer = appendPiece(world.layout, "buffer-turnback", false, connectorRef(signal, 1));
+    world.sim.toggleSwitch(signal);
+    const old = ["mech-semaphore-signal", "mech-colour-light-signal", "mech-signal-gantry", "mech-buffer-stop-lamp", "mech-level-crossing", "mech-gated-crossing"];
+    old.forEach((asset, i) => world.props.add(asset, { x: 200 + i * 150, z: 600, heading: 0.5, y: 0 }));
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    // (As an older build wrote it: nothing in it is new.)
+    expect(data.switches).toContainEqual([signal, 1]);
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.layout.getPiece(signal)!.type).toBe("signal");
+    expect(r.value.layout.getPiece(buffer)!.type).toBe("buffer-turnback");
+    expect(r.value.sim.signalHeld(signal)).toBe(true);
+    const props = [...r.value.props.all()].filter((p) => old.includes(p.asset));
+    expect(props.map((p) => p.asset).sort()).toEqual([...old].sort());
+    for (const p of props) expect(p).toMatchObject({ x: 200 + old.indexOf(p.asset) * 150, z: 600, heading: 0.5 });
+    expect([...r.value.layout.pieceIds()].some((id) => r.value.layout.getPiece(id)!.type.startsWith("kit-"))).toBe(false);
+    // And saved again, the same.
+    expect(JSON.parse(JSON.stringify(serializeWorld(r.value)))).toEqual(data);
+  });
+});
+
+function roundTripOf(w: World): World {
+  const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
+  if (!r.ok) throw new Error(r.error);
+  return r.value;
+}

@@ -1,6 +1,7 @@
 import { Group, Shape, type Material, type Mesh, type Object3D } from "three";
 import { TOY, type Kit } from "../kit";
 import type { Asset } from "../types";
+import { buildTrackCleaner } from "./track-cleaner";
 
 /** Working mechanisms (cranes, signals, crossings, turntables) and bridges & tunnels. */
 
@@ -27,6 +28,16 @@ function pivot(name: string, x: number, y: number, z: number, ...parts: Object3D
   g.position.set(x, y, z);
   for (const p of parts) g.add(p);
   return g;
+}
+
+/**
+ * A deck's slab of track (a turntable's, a transfer table's): part of the model, kept when a kit leaves out its slabs
+ * (the game draws no track there: the deck carries the rails, `rails: "model"` in src/track/kits.ts).
+ */
+function deckTrack(slab: Group): Group {
+  slab.userData.slab = false;
+  slab.name = "deckTrack";
+  return slab;
 }
 
 /** Find a named part once, then remember it on the root (animate runs every frame). */
@@ -168,7 +179,8 @@ const mechanisms: Asset[] = [
     notes: "A rolling yellow gantry that straddles the line and lifts containers on and off flat wagons. A freight yard could ask the player to stop a flat wagon exactly under the trolley.",
     build: (k) => {
       const y = k.paint(TOY.yellow);
-      const g = k.group(k.trackSlab(180));
+      // Over a 216 straight (the game's kit piece, kit-gantry-crane).
+      const g = k.group(k.trackSlab(216));
       for (const z of [-58, 58]) {
         g.add(k.box(y, 76, 8, 10, 2, 0, 4, z));
         for (const x of [-30, 30]) g.add(k.wheel(5, x, 5, z + Math.sign(z) * 7));
@@ -207,7 +219,8 @@ const mechanisms: Asset[] = [
     notes: "A tall portal crane on four legs over the dockside line, its long jib slewing round to swing crates from ships to wagons. Pairs with a quay piece: boats bring cargo, trains take it inland.",
     build: (k) => {
       const red = k.paint(TOY.red);
-      const g = k.group(k.trackSlab(160));
+      // Over a 162 straight (the game's kit piece, kit-harbour-crane).
+      const g = k.group(k.trackSlab(162));
       for (const x of [-24, 24]) for (const z of [-27, 27]) g.add(k.box(red, 8, 60, 8, 2, x, 0, z));
       for (const z of [-27, 27]) g.add(k.box(red, 56, 6, 8, 2, 0, 50, z));
       g.add(k.box(k.paint(TOY.black), 62, 6, 62, 2, 0, 60, 0));
@@ -296,7 +309,7 @@ const mechanisms: Asset[] = [
           0,
           0,
           0,
-          k.trackSlab(174, 0, 4, 0),
+          deckTrack(k.trackSlab(174, 0, 4, 0)),
           k.cyl(k.paint(TOY.red), 8, 18, 0, 0, 0, 8, 20),
           k.many(2, (i) => k.cylZ(k.paint(TOY.black), 4, 44, i ? 84 : -84, 5, 0, 14)),
           k.many(2, (i) => k.box(k.paint(TOY.red), 3, 14, 3, 1, i ? 70 : -70, 16, i ? 22 : -22)),
@@ -333,7 +346,7 @@ const mechanisms: Asset[] = [
           0,
           0,
           k.box(k.paint(TOY.blue), 112, 6, 48, 2, 0, 0, 0),
-          k.trackSlab(118, 0, 5, 0),
+          deckTrack(k.trackSlab(118, 0, 5, 0)),
           k.many(4, (i) => k.cylX(k.paint(TOY.red), 4, 6, i < 2 ? -40 : 40, 4, i % 2 ? 18 : -18, 14)),
           k.box(k.paint(TOY.yellow), 14, 18, 12, 2, 50, 17, 26),
           k.peg(TOY.orange, TOY.yellow, 36, 17, 30),
@@ -356,7 +369,8 @@ const mechanisms: Asset[] = [
     tags: ["coal", "chute", "bunker", "loading", "hopper"],
     notes: "A timber coal bunker on stilts with a hinged chute that drops down over the line. Park a hopper underneath and the chute tips to fill it: a mine could produce coal that towns want delivered.",
     build: (k) => {
-      const g = k.group(k.trackSlab(140));
+      // Beside a 108 straight (the game's kit piece, kit-coal-chute).
+      const g = k.group(k.trackSlab(108));
       for (const x of [-26, 26]) for (const z of [-34, -70]) g.add(k.box(k.wood, 6, 70, 6, 1.5, x, 0, z));
       g.add(strut(k, k.wood, -26, 10, 26, 60, -34, 3), strut(k, k.wood, -26, 60, 26, 10, -70, 3));
       g.add(k.box(k.paint(TOY.black), 64, 34, 46, 3, 0, 70, -52));
@@ -389,7 +403,8 @@ const mechanisms: Asset[] = [
     tags: ["grain", "silo", "farm", "elevator", "wheat"],
     notes: "A tall red elevator house with twin silos and a swinging spout that pours grain into wagons below. A farm line could ship grain at harvest to the mill in town.",
     build: (k) => {
-      const g = k.group(k.trackSlab(160));
+      // Beside a 162 straight (the game's kit piece, kit-grain-elevator).
+      const g = k.group(k.trackSlab(162));
       g.add(k.box(k.paint(TOY.red), 50, 150, 46, 3, -10, 0, -60));
       g.add(k.roof(k.paint(TOY.grey), 54, 50, 18, -10, 150, -60));
       for (let i = 0; i < 3; i++) g.add(k.box(k.paint(TOY.white), 10, 12, 1.4, 1, -10, 40 + i * 36, -36.6));
@@ -423,7 +438,8 @@ const mechanisms: Asset[] = [
     tags: ["timber", "logs", "forest", "crane", "loader"],
     notes: "A post crane by a log pile, its grab swinging trunks onto a timber wagon. Woodrail already has timber wagons: a forest siding with this loader gives them somewhere to fill up.",
     build: (k) => {
-      const g = k.group(k.trackSlab(140));
+      // Beside a 162 straight (the game's kit piece, kit-log-loader).
+      const g = k.group(k.trackSlab(162));
       for (let row = 0; row < 3; row++)
         for (let i = 0; i < 3 - row; i++) g.add(k.cylX(k.paint(TOY.brown), 5, 60, -20, 5 + row * 9, -48 + (i - (2 - row) / 2) * 10.5, 16));
       g.add(k.cyl(k.paint(TOY.green), 7, 76, 40, 0, -40, 5, 18));
@@ -457,7 +473,8 @@ const mechanisms: Asset[] = [
     tags: ["conveyor", "belt", "crates", "factory", "loading"],
     notes: "An inclined belt carrying crates up and over a line, tipping them into a wagon parked beneath. Factories could load parcels this way while the player shunts empties in and fulls out.",
     build: (k) => {
-      const g = k.group(k.at(k.trackSlab(120), 86, 0, 0, Math.PI / 2));
+      // Its track runs along z at x 86, a 216 straight (the game's kit piece, kit-cargo-conveyor).
+      const g = k.group(k.at(k.trackSlab(216), 86, 0, 0, Math.PI / 2));
       const belt = k.paint(TOY.black);
       g.add(strut(k, belt, -90, 14, 70, 72, 0, 4, 22));
       for (const z of [-12, 12]) g.add(strut(k, k.paint(TOY.blue), -90, 18, 70, 76, z, 3, 2));
@@ -532,7 +549,8 @@ const mechanisms: Asset[] = [
     tags: ["wash", "brushes", "clean", "depot", "water"],
     notes: "A drive-through wash with spinning brushes and sprays. Engines could get grubby on coal runs and come out shining, with a little sparkle, after a pass through.",
     build: (k) => {
-      const g = k.group(k.trackSlab(140));
+      // Its track a 108 straight (the kit's: src/track/kits.ts).
+      const g = k.group(k.trackSlab(108));
       const frame = k.paint(TOY.teal);
       for (const x of [-34, 34]) {
         for (const z of [-36, 36]) g.add(k.box(frame, 7, 74, 7, 2, x, 0, z));
@@ -551,6 +569,8 @@ const mechanisms: Asset[] = [
       g.add(top);
       const drops = pivot("drops", 0, 0, 0);
       for (let i = 0; i < 8; i++) drops.add(k.ball(k.paint(TOY.sky), 1.4, -30 + (i % 4) * 2, 30 + i * 4, i % 2 ? 30 : -30));
+      // Dripping only while it's washing (the kit's motion and `animate` show them).
+      drops.visible = false;
       g.add(drops);
       return g;
     },
@@ -703,18 +723,19 @@ const mechanisms: Asset[] = [
     tags: ["signal", "gantry", "double track", "lights", "bridge"],
     notes: "A lattice bridge spanning two tracks with a signal head over each line. A natural piece for a double-track main line, each head showing whether its own line is clear.",
     build: (k) => {
-      const g = k.group(k.trackSlab(100, 0, 0, -24), k.trackSlab(100, 0, 0, 24));
+      // Over double track (its lines 72 apart), its legs clear of both.
+      const g = k.group(k.trackSlab(144, 0, 0, -36), k.trackSlab(144, 0, 0, 36));
       const grey = k.paint(TOY.grey);
-      for (const z of [-62, 62]) {
+      for (const z of [-70, 70]) {
         g.add(k.box(grey, 12, 4, 12, 1.5, 0, 0, z), k.box(grey, 7, 104, 7, 2, 0, 4, z));
       }
-      for (const y of [96, 108]) g.add(k.box(grey, 6, 4, 132, 1.5, 0, y, 0));
-      for (let i = 0; i < 8; i++) g.add(strutZ(k, grey, -56 + i * 14, 98, -49 + i * 14, 108, 0, 2));
-      for (let i = 0; i < 9; i++) g.add(k.box(k.paint(TOY.yellow), 2, 10, 2, 0.5, -8, 112, -56 + i * 14));
-      g.add(k.box(k.paint(TOY.yellow), 2, 2, 116, 0.5, -8, 122, 0), k.box(k.paint(TOY.white), 14, 2, 120, 0.5, -3, 112, 0));
+      for (const y of [96, 108]) g.add(k.box(grey, 6, 4, 148, 1.5, 0, y, 0));
+      for (let i = 0; i < 10; i++) g.add(strutZ(k, grey, -63 + i * 14, 98, -56 + i * 14, 108, 0, 2));
+      for (let i = 0; i < 11; i++) g.add(k.box(k.paint(TOY.yellow), 2, 10, 2, 0.5, -8, 112, -63 + i * 12.6));
+      g.add(k.box(k.paint(TOY.yellow), 2, 2, 130, 0.5, -8, 122, 0), k.box(k.paint(TOY.white), 14, 2, 134, 0.5, -3, 112, 0));
       for (const [z, i] of [
-        [-24, 0],
-        [24, 1],
+        [-36, 0],
+        [36, 1],
       ] as const) {
         g.add(k.box(grey, 3, 10, 3, 1, 0, 86, z), k.box(k.paint(TOY.black), 8, 22, 12, 3, 2, 66, z));
         g.add(lens(k, LIT_RED, `r${i}`, 5.6, 82, z), lens(k, LIT_GREEN, `g${i}`, 5.6, 72, z));
@@ -780,7 +801,7 @@ const mechanisms: Asset[] = [
     tags: ["water", "steam", "column", "refill", "tank"],
     notes: "A turned iron water column whose arm swings out over the track to fill a steam engine's tank. Steam engines could need water every so many laps, so routes have to pass one.",
     build: (k) => {
-      const g = k.group(k.trackSlab(100, 0, 0, 38), k.cyl(k.paint(DARK_STONE), 12, 4, 0, 0, 0, 12, 20));
+      const g = k.group(k.trackSlab(108, 0, 0, 38), k.cyl(k.paint(DARK_STONE), 12, 4, 0, 0, 0, 12, 20));
       g.add(
         k.lathe(
           k.paint(TOY.black),
@@ -829,7 +850,7 @@ const mechanisms: Asset[] = [
     tags: ["coal", "crane", "grab", "depot", "steam"],
     notes: "A raised coaling stage with a small crane and a clamshell grab that opens over an engine's tender. Steam engines could need both coal and water to keep running, giving depots a purpose.",
     build: (k) => {
-      const g = k.group(k.trackSlab(120, 0, 0, 40));
+      const g = k.group(k.trackSlab(108, 0, 0, 40));
       g.add(k.box(k.paint("#a85d3a"), 80, 40, 40, 2, 0, 0, -20), k.box(k.paint(DARK_STONE), 84, 4, 44, 1, 0, 40, -20));
       for (let i = 0; i < 4; i++) g.add(k.box(k.cut, 10, 14, 1, 0.5, -30 + i * 20, 14, 0.2));
       g.add(coalHeap(k, 16, -20, 44, -24), coalHeap(k, 12, 22, 44, -30));
@@ -866,7 +887,8 @@ const mechanisms: Asset[] = [
     tags: ["tipper", "dump", "unloading", "quarry", "gravel"],
     notes: "A cradle that grips a wagon and rolls it sideways to empty its load into a pit. Unload ore or gravel without a hopper door: a quarry line ends here and the player keeps it fed.",
     build: (k) => {
-      const g = k.group(k.trackSlab(50, -75, 0, 0), k.trackSlab(50, 75, 0, 0));
+      // 216 of track in all, the cradle's in the middle (the game's kit piece, kit-tipping-dump).
+      const g = k.group(k.trackSlab(58, -79, 0, 0), k.trackSlab(58, 79, 0, 0));
       g.add(k.box(k.cut, 100, 3, 64, 1, 0, 0, 52), coalHeap(k, 22, -10, 3, 54), coalHeap(k, 14, 22, 3, 62));
       g.add(k.box(k.paint(STONE), 100, 6, 6, 1.5, 0, 0, 84), k.box(k.paint(STONE), 100, 6, 6, 1.5, 0, 0, 20));
       for (const x of [-46, 46]) g.add(k.box(k.paint(TOY.blue), 8, 30, 10, 2, x, 0, 18));
@@ -898,7 +920,7 @@ const mechanisms: Asset[] = [
     tags: ["fuel", "diesel", "tank", "pump", "depot"],
     notes: "A big yellow tank on a cradle with a pump and a swinging hose arm. Diesel engines could visit to fill up, the gauge needle rising as the player holds the pump.",
     build: (k) => {
-      const g = k.group(k.trackSlab(120, 0, 0, 36));
+      const g = k.group(k.trackSlab(108, 0, 0, 36));
       for (const x of [-30, 30]) g.add(k.box(k.paint(TOY.grey), 8, 16, 32, 2, x, 0, -30));
       g.add(k.cylX(k.paint(TOY.yellow), 18, 90, 0, 32, -30, 24));
       for (const s of [-1, 1]) {
@@ -1015,7 +1037,8 @@ const mechanisms: Asset[] = [
     tags: ["weigh", "scale", "freight", "dial", "goods yard"],
     notes: "A steel plate in the track with a little hut whose big dial weighs each wagon that stops on it. Contracts could ask for an exact tonnage: fill hoppers until the needle hits the mark.",
     build: (k) => {
-      const g = k.group(k.trackSlab(140), k.box(k.metal, 70, 1, 42, 0.4, 0, 0, 0), k.box(k.paint(TOY.black), 72, 2, 2, 0.5, 0, 10.5, 21), k.box(k.paint(TOY.black), 72, 2, 2, 0.5, 0, 10.5, -21));
+      // A 108 straight (the game's kit piece, kit-weighbridge).
+      const g = k.group(k.trackSlab(108), k.box(k.metal, 70, 1, 42, 0.4, 0, 0, 0), k.box(k.paint(TOY.black), 72, 2, 2, 0.5, 0, 10.5, 21), k.box(k.paint(TOY.black), 72, 2, 2, 0.5, 0, 10.5, -21));
       g.add(k.box(k.paint(TOY.green), 34, 34, 28, 3, 0, 0, -50), k.roof(k.paint(TOY.red), 38, 32, 12, 0, 34, -50));
       g.add(k.box(k.glass, 12, 10, 1, 0.5, -9, 14, -35.8), k.box(k.paint(TOY.cream), 10, 18, 1, 0.5, 10, 0, -35.8));
       g.add(k.cylZ(k.paint(TOY.white), 9, 2, -6, 50, -35, 24), k.ring(k.paint(TOY.black), 9, 1, -6, 50, -34, true));
@@ -1034,7 +1057,8 @@ const mechanisms: Asset[] = [
     tags: ["hopper", "drop", "gravel", "loading", "bin"],
     notes: "A big bin on legs over the line whose bottom doors swing open to drop a load straight into the wagon below. The player times a slow crawl underneath to fill a whole rake of hoppers.",
     build: (k) => {
-      const g = k.group(k.trackSlab(140));
+      // Over a 162 straight (the game's kit piece, kit-drop-hopper).
+      const g = k.group(k.trackSlab(162));
       for (const x of [-30, 30]) for (const z of [-32, 32]) g.add(k.box(k.paint(TOY.grey), 6, 80, 6, 1.5, x, 0, z));
       g.add(k.box(k.paint(TOY.orange), 70, 30, 70, 3, 0, 80, 0));
       g.add(k.lathe(k.paint(TOY.orange), [
@@ -1063,20 +1087,8 @@ const mechanisms: Asset[] = [
     category: "Mechanisms",
     tags: ["cleaning", "brush", "maintenance", "wagon", "depot"],
     notes: "A short maintenance wagon with spinning brushes underneath and a little cab. Running it round could sweep away leaves or snow that slow other trains down.",
-    build: (k) => {
-      const len = 80;
-      const g = k.group(k.bogies(len), k.coupler(len, 1), k.coupler(len, -1));
-      g.add(k.box(k.paint(TOY.yellow), len - 6, 8, 30, 2, 0, 12, 0));
-      g.add(k.box(k.paint(TOY.yellow), 28, 22, 28, 3, -18, 20, 0), k.box(k.glass, 29, 8, 20, 1, -18, 30, 0), k.box(k.paint(TOY.black), 30, 3, 30, 1, -18, 42, 0));
-      g.add(k.cyl(k.paint(TOY.orange), 3, 3, -18, 45, 0, 3, 12), named(k.ball(k.paint(LIT_AMBER), 2.4, -18, 50, 0), "beacon"));
-      g.add(k.cylX(k.paint(TOY.teal), 9, 28, 16, 29, 0, 20), k.box(k.paint(TOY.grey), 30, 3, 22, 1, 16, 20, 0));
-      for (const x of [-4, 4]) {
-        const b = pivot(x < 0 ? "brushA" : "brushB", x, 9, 0, k.cylZ(k.paint(TOY.red), 3, 26, 0, 0, 0, 12));
-        for (let i = 0; i < 6; i++) b.add(k.box(k.paint(TOY.black), 1, 3, 24, 0.3, Math.cos(i) * 3.5, Math.sin(i) * 3.5 - 1.5, 0).rotateZ(i));
-        g.add(b);
-      }
-      return g;
-    },
+    // (Shared with the game's track cleaner car.)
+    build: (k) => buildTrackCleaner(k),
     animate: (root, t) => {
       part(root, "brushA").rotation.z = t * 10;
       part(root, "brushB").rotation.z = t * 10;
