@@ -10,11 +10,11 @@ import { BRIDGE_PROP_SHELVES, PROP_TABS, type PropShelf } from "../catalogue/she
  * the mode: Sandbox has everything, Game mode the railway itself.
  */
 export type TrayItem =
-  | { kind: "piece"; type: PieceTypeId; label: string; auto?: boolean }
-  /** `sandbox`: on Sandbox's tray only (a car Game mode doesn't make: the track cleaner). */
-  | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string; sandbox?: true }
+  /** `unlearned: "hide"`: in Game mode, not shown until its blueprint is learned (a railway kit), not shown "Locked". */
+  | { kind: "piece"; type: PieceTypeId; label: string; auto?: boolean; unlearned?: "hide" }
+  | { kind: "train"; cars: CarKind[]; looks?: CarLook[]; label: string; unlearned?: "hide" }
   /** A catalogue model, placed as a decorative prop. */
-  | { kind: "prop"; asset: string; label: string }
+  | { kind: "prop"; asset: string; label: string; unlearned?: "hide" }
   /** A road piece (the Roads tab): fills one square, snaps to the roads beside it. */
   | { kind: "road"; piece: RoadPieceId; label: string; auto?: boolean }
   /** A land-editing tool (the Land tab): chosen with a tap, then used by tapping the land. */
@@ -70,7 +70,8 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["hopper"], label: "Hopper" },
   { kind: "train", cars: ["timber"], label: "Flatbed wagon" },
   { kind: "train", cars: ["van"], label: "Goods van" },
-  { kind: "train", cars: ["cleaner"], label: "Track cleaner", sandbox: true },
+  // (Game mode's once Scenery kit is learned.)
+  { kind: "train", cars: ["cleaner"], label: "Track cleaner", unlearned: "hide" },
   { kind: "train", cars: ["passenger"], label: "Coach" },
   { kind: "train", cars: ["passenger"], looks: ["dining"], label: "Dining car" },
   { kind: "train", cars: ["passenger"], looks: ["sleeper"], label: "Sleeper" },
@@ -84,6 +85,8 @@ export const TRAIN_ITEMS: TrayItem[] = [
 export interface TrayGroup {
   label: string;
   items: TrayItem[];
+  /** Shown in these modes only (default: wherever its tab is). */
+  modes?: readonly GameMode[];
 }
 
 const pieces = (...types: PieceTypeId[]) => types.map((t) => TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === t && !i.auto)!);
@@ -149,6 +152,66 @@ export const INDUSTRY_GROUPS: TrayGroup[] = [
   },
 ];
 
+/** A kit piece on Game mode's tray: hidden till its blueprint is learned (see `THING_RULES` for which). */
+const kit = (type: PieceTypeId, label: string): TrayItem => ({ kind: "piece", type, label, unlearned: "hide" });
+const furniture = (asset: string, label: string): TrayItem => ({ kind: "prop", asset, label, unlearned: "hide" });
+
+/**
+ * Game mode's railway kits (src/track/kits.ts) and lineside furniture: the track kits on the Track tab, buildings and
+ * services beside the industries. Each shows once its blueprint is learned (Sandbox has them all on its catalogue
+ * shelves instead).
+ */
+export const GAME_TRACK_KITS: TrayGroup = {
+  label: "Railway kit",
+  modes: ["game"],
+  items: [
+    kit("kit-semaphore-signal", "Semaphore"),
+    kit("kit-colour-light-signal", "Colour light"),
+    kit("kit-signal-gantry", "Signal gantry"),
+    kit("kit-turntable", "Turntable"),
+    kit("kit-transfer-table", "Transfer table"),
+  ],
+};
+export const GAME_KIT_GROUPS: TrayGroup[] = [
+  {
+    label: "Railway",
+    items: [
+      kit("kit-engine-shed", "Engine shed"),
+      kit("kit-water-tower", "Water tower"),
+      kit("kit-coal-stage", "Coal stage"),
+      kit("kit-water-crane", "Water crane"),
+      kit("kit-coaling-crane", "Coaling crane"),
+      kit("kit-roundhouse-segment", "Roundhouse"),
+    ],
+  },
+  {
+    label: "Halts",
+    items: [kit("kit-country-halt", "Country halt"), kit("kit-mountain-station", "Mountain station"), kit("kit-harbour-station", "Harbour station"), kit("kit-platform-furnished", "Platform")],
+  },
+  {
+    label: "Lineside",
+    items: [
+      kit("kit-castle-gate", "Castle gate"),
+      kit("kit-train-wash", "Train wash"),
+      kit("kit-weighbridge", "Weighbridge"),
+      furniture("bldg-station-clock", "Station clock"),
+      furniture("mech-whistle-post", "Whistle post"),
+      furniture("bldg-signal-box", "Signal box"),
+      furniture("mech-lever-frame", "Lever frame"),
+      furniture("mech-level-crossing", "Level crossing"),
+      furniture("mech-gated-crossing", "Gated crossing"),
+    ],
+  },
+];
+
+/**
+ * What a shelf shows now: its items but those hidden till learned (`unlearned: "hide"`, by `known`), and none of the
+ * shelves left empty. Game mode's first hour sees only what it can use, or will soon (locked pieces show "Locked").
+ */
+export function shownGroups(groups: readonly TrayGroup[], known: (item: TrayItem) => boolean): TrayGroup[] {
+  return groups.map((g) => (g.items.some((i) => "unlearned" in i && i.unlearned === "hide") ? { ...g, items: g.items.filter((i) => !("unlearned" in i && i.unlearned === "hide") || known(i)) } : g)).filter((g) => g.items.length > 0);
+}
+
 /** A tab of the tray: its shelves, and the modes that show it. */
 export interface TrayTab {
   id: string;
@@ -173,9 +236,9 @@ const SANDBOX: readonly GameMode[] = ["sandbox"];
 const GAME: readonly GameMode[] = ["game"];
 
 export const TRAY_TABS: TrayTab[] = [
-  { id: "track", label: "Track", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip", favourites: true },
+  { id: "track", label: "Track", modes: BOTH, groups: [...TRACK_GROUPS, ...BRIDGE_GROUPS, GAME_TRACK_KITS], props: BRIDGE_PROP_SHELVES, orient: "turn-flip", favourites: true },
   { id: "trains", label: "Trains", modes: BOTH, groups: TRAIN_GROUPS, favourites: true },
-  { id: "industries", label: "Industries", modes: GAME, groups: INDUSTRY_GROUPS, orient: "turn-flip" },
+  { id: "industries", label: "Industries", modes: GAME, groups: [...INDUSTRY_GROUPS, ...GAME_KIT_GROUPS], orient: "turn-flip" },
   ...PROP_TABS.map((t): TrayTab => ({ id: t.id, label: t.label, modes: SANDBOX, groups: [], props: t.shelves, orient: "turn" })),
   { id: "roads", label: "Roads", modes: SANDBOX, groups: ROAD_GROUPS, orient: "turn" },
   // Opening the Land tab switches land editing on; the tools act on the land itself.
@@ -199,15 +262,10 @@ export const TRAY_TABS: TrayTab[] = [
 
 /** The tabs a mode shows, in order (outside Sandbox, without catalogue models). */
 export function trayTabs(mode: GameMode): TrayTab[] {
-  const tabs = TRAY_TABS.filter((t) => t.modes.includes(mode));
+  const tabs = TRAY_TABS.filter((t) => t.modes.includes(mode)).map((t) => ({ ...t, groups: t.groups.filter((g) => !g.modes || g.modes.includes(mode)) }));
   if (mode === "sandbox") return tabs;
-  // Outside Sandbox: no catalogue models, and no Sandbox-only items (the track cleaner).
-  const sandboxOnly = (i: TrayItem) => i.kind === "train" && !!i.sandbox;
-  return tabs.map((t) => ({
-    ...t,
-    props: undefined,
-    groups: t.groups.map((g) => ({ ...g, items: g.items.filter((i) => !sandboxOnly(i)) })).filter((g) => g.items.length > 0),
-  }));
+  // Outside Sandbox: no catalogue shelves (Game mode's kits and furniture are on its own shelves: `GAME_KIT_GROUPS`).
+  return tabs.map((t) => ({ ...t, props: undefined }));
 }
 
 /** Shelves of catalogue models as tray groups, named from the catalogue (loads the files they're in). */

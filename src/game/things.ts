@@ -3,13 +3,15 @@ import type { CarKind, CarLook } from "../sim";
 import type { PieceTypeId } from "../track";
 
 /**
- * Everything the player can put on the map in Game mode, by one id: a track piece (`piece:switch`) or a car
- * (`car:engine`). Industries are track pieces too (`piece:depot-workshop`).
+ * Everything the player can put on the map in Game mode, by one id: a track piece (`piece:switch`), a car
+ * (`car:engine`) or a catalogue model placed as a prop (`prop:bldg-station-clock`: lineside furniture). Industries and
+ * kits are track pieces too (`piece:depot-workshop`, `piece:kit-water-tower`).
  */
-export type ThingId = `piece:${PieceTypeId}` | `car:${CarKind}`;
+export type ThingId = `piece:${PieceTypeId}` | `car:${CarKind}` | `prop:${string}`;
 
 export const pieceThing = (type: PieceTypeId): ThingId => `piece:${type}`;
 export const carThing = (kind: CarKind): ThingId => `car:${kind}`;
+export const propThing = (asset: string): ThingId => `prop:${asset}`;
 
 /** What it takes to have one: made at the workshop from `cost`, once `tech` is learned. */
 export interface ThingRule {
@@ -19,6 +21,8 @@ export interface ThingRule {
   readonly coins?: number;
   /** The blueprint that must be learned first (none: known from the start). */
   readonly tech?: string;
+  /** Free and unlimited once its blueprint is learned (only a look: the crossing styles). Never made or counted. */
+  readonly free?: true;
 }
 
 /**
@@ -65,6 +69,45 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-power": { label: "Power station", cost: { planks: 24, iron: 6 }, coins: 80, tech: "electricity" },
   "piece:depot-warehouse": { label: "Warehouse", cost: { planks: 18 }, coins: 50, tech: "warehouses" },
   "piece:depot-harbour": { label: "Harbour", cost: { planks: 30, stone: 10 }, coins: 100, tech: "harbours" },
+
+  // Railway kits (src/track/kits.ts) and lineside furniture in Game mode: each row names the blueprint that unlocks it
+  // (docs/superpowers/specs/2026-10-17-track-props-design.md, "Game mode availability"). Priced against the pieces
+  // like them: a signal skin a plank over the signal, an engine service like a switch, a shed or roundhouse like the
+  // workshop; planks only (kits make the railway, not the economy). Not in Game mode: Sandbox's cargo loaders and
+  // unloaders (the goods shed among them), the two-platform station, the terminus, the fuel station, the buffer-stop
+  // lamp.
+  // Signals: the semaphore is the signal in a look of its own; the colour light needs electricity.
+  "piece:kit-semaphore-signal": { label: "Semaphore signal", cost: { planks: 3 }, tech: "signals" },
+  "piece:kit-colour-light-signal": { label: "Colour-light signal", cost: { planks: 2, iron: 1 }, tech: "electricity" },
+  // Junctions and loops: the gantry, a signal over each of two roads.
+  "piece:kit-signal-gantry": { label: "Signal gantry", cost: { planks: 6 }, tech: "junctions" },
+  // Engine shed: the shed, and engine services (steam engines stop at them for water or coal).
+  "piece:kit-engine-shed": { label: "Engine shed", cost: { planks: 12 }, tech: "engine-shed" },
+  "piece:kit-water-tower": { label: "Water tower", cost: { planks: 4 }, tech: "engine-shed" },
+  "piece:kit-coal-stage": { label: "Coal stage", cost: { planks: 5 }, tech: "engine-shed" },
+  "piece:kit-water-crane": { label: "Water crane", cost: { planks: 3 }, tech: "engine-shed" },
+  "piece:kit-coaling-crane": { label: "Coaling crane", cost: { planks: 5 }, tech: "engine-shed" },
+  // Turntable and roundhouse.
+  "piece:kit-turntable": { label: "Turntable", cost: { planks: 10 }, tech: "turntable" },
+  "piece:kit-roundhouse-segment": { label: "Roundhouse", cost: { planks: 12 }, tech: "turntable" },
+  "piece:kit-transfer-table": { label: "Transfer table", cost: { planks: 8 }, tech: "turntable" },
+  // Halts: more passenger stops for the town nearest them (`HALT_KITS`, src/game/world.ts).
+  "piece:kit-country-halt": { label: "Country halt", cost: { planks: 6 }, tech: "halts" },
+  "piece:kit-mountain-station": { label: "Mountain station", cost: { planks: 8 }, tech: "halts" },
+  "piece:kit-harbour-station": { label: "Harbour station", cost: { planks: 8 }, tech: "halts" },
+  "piece:kit-platform-furnished": { label: "Platform", cost: { planks: 4 }, tech: "halts" },
+  // Scenery kit: sights on the line with small behaviours, and the furniture beside it.
+  "piece:kit-castle-gate": { label: "Castle gate", cost: { planks: 8 }, tech: "scenery" },
+  "piece:kit-train-wash": { label: "Train wash", cost: { planks: 5 }, tech: "scenery" },
+  "piece:kit-weighbridge": { label: "Weighbridge", cost: { planks: 4 }, tech: "scenery" },
+  "car:cleaner": { label: "Track cleaner", cost: { planks: 3 }, tech: "scenery" },
+  "prop:bldg-station-clock": { label: "Station clock", cost: { planks: 2 }, tech: "scenery" },
+  "prop:mech-whistle-post": { label: "Whistle post", cost: { planks: 1 }, tech: "scenery" },
+  "prop:bldg-signal-box": { label: "Signal box", cost: { planks: 4 }, tech: "scenery" },
+  "prop:mech-lever-frame": { label: "Lever frame", cost: { planks: 2 }, tech: "scenery" },
+  // Crossing styles: only a look, so free once learned.
+  "prop:mech-level-crossing": { label: "Level crossing", cost: {}, tech: "scenery", free: true },
+  "prop:mech-gated-crossing": { label: "Gated crossing", cost: {}, tech: "scenery", free: true },
 };
 
 /**
@@ -89,13 +132,20 @@ export const STARTING_BOX: Partial<Record<ThingId, number>> = {
 
 export const ruleOf = (id: ThingId): ThingRule | undefined => THING_RULES[id];
 
-/** Free and unlimited (not counted in the toy box)? */
-export const isFree = (id: ThingId): boolean => !THING_RULES[id];
+/**
+ * Free and unlimited (not counted in the toy box)? Anything without a rule, and what's free once learned (a crossing
+ * style). Whether it's known yet is `Progress.knows`.
+ */
+export const isFree = (id: ThingId): boolean => THING_RULES[id]?.free !== undefined || !THING_RULES[id];
+
+/** A tray item that puts things on the map: a piece, a train, or a catalogue model (a prop). */
+export type ThingItem = { kind: "piece"; type: PieceTypeId } | { kind: "train"; cars: readonly CarKind[] } | { kind: "prop"; asset: string };
 
 /** The things a tray item puts on the map, with how many of each (a train: its cars). */
-export function thingsFor(item: { kind: "piece"; type: PieceTypeId } | { kind: "train"; cars: readonly CarKind[] }): Map<ThingId, number> {
+export function thingsFor(item: ThingItem): Map<ThingId, number> {
   const out = new Map<ThingId, number>();
   if (item.kind === "piece") out.set(pieceThing(item.type), 1);
+  else if (item.kind === "prop") out.set(propThing(item.asset), 1);
   else for (const c of item.cars) out.set(carThing(c), (out.get(carThing(c)) ?? 0) + 1);
   return out;
 }

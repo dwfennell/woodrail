@@ -62,7 +62,7 @@ export class Progress {
 
   /** Can all of these go on the map now? Returns the first thing short, or null. */
   short(world: World, needs: ReadonlyMap<ThingId, number>): ThingId | null {
-    for (const [id, n] of needs) if (!isFree(id) && (!this.knows(id) || this.available(world, id) < n)) return id;
+    for (const [id, n] of needs) if (!this.knows(id) || (!isFree(id) && this.available(world, id) < n)) return id;
     return null;
   }
 
@@ -73,6 +73,7 @@ export class Progress {
   /** Never own less than is on the map (a save from before the toy box, or a hand-edited one). */
   coverMap(world: World): void {
     for (const id of Object.keys(THING_RULES) as ThingId[]) {
+      if (isFree(id)) continue;
       const n = inUse(world, id);
       if (n > (this.owned.get(id) ?? 0)) this.owned.set(id, n);
     }
@@ -141,9 +142,13 @@ export interface ProgressData {
 
 /** How many of a thing are on the map. */
 export function inUse(world: World, id: ThingId): number {
-  const [kind, name] = id.split(":") as ["piece" | "car", string];
+  const kind = id.slice(0, id.indexOf(":")) as "piece" | "car" | "prop";
+  const name = id.slice(id.indexOf(":") + 1);
   let n = 0;
-  if (kind === "piece") {
+  if (kind === "prop") {
+    // The player's own: a town's buildings and dressing (`building` set) came with the map.
+    for (const p of world.props.all()) if (p.asset === name && p.building === undefined) n++;
+  } else if (kind === "piece") {
     for (const pid of world.layout.pieceIds()) if (world.layout.getPiece(pid)!.type === name) n++;
     // A generated depot isn't the player's: only count pieces they could have placed.
     if (name.startsWith("depot-")) for (const pid of world.depots.values()) if (world.layout.getPiece(pid)?.type === name) n--;

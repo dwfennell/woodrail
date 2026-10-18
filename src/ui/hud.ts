@@ -6,7 +6,7 @@ import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 import { roadIcon } from "./road-icons";
 import { isKit } from "../track";
-import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
+import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, shownGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 import { loadFavourites, saveFavourites } from "./prefs";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
@@ -653,6 +653,8 @@ export class Hud {
           }
         }
       }
+      // Game mode: kits and furniture not learned yet stay off the tray (`shownGroups`).
+      if (this.trayKnown) groups = shownGroups(groups, this.trayKnown);
       const open = shelf ? groups.find((g) => g.label === shelf) : undefined;
       if (groups.length === 1) showItems(groups, groups[0], false);
       else if (open) showItems(groups, open);
@@ -662,6 +664,9 @@ export class Hud {
     this.openTrayTab = (id, shelf) => {
       const tab = list.find((t) => t.id === id);
       if (tab) openTab(tab, shelf);
+    };
+    this.reopenTray = () => {
+      if (openDef) openTab(openDef);
     };
     this.showTabs = (mode) => {
       tabs.innerHTML = "";
@@ -816,6 +821,18 @@ export class Hud {
   /** Rebuild the tray's tabs for a mode (set in the constructor, where the tray is built). */
   private showTabs: (mode: GameMode) => void = () => {};
   private openTrayTab: (id: string, shelf?: string) => void = () => {};
+  private reopenTray: () => void = () => {};
+
+  /**
+   * Which of the tray's items hidden till learned (`unlearned: "hide"`: Game mode's kits) show: set by the game (null:
+   * all of them, as in Sandbox). `trayLearned` shows the tray again once something's learned.
+   */
+  trayKnown: ((item: TrayItem) => boolean) | null = null;
+
+  /** Something was learned: the open tab shows again, with what it brought (back at its shelves). */
+  trayLearned(): void {
+    this.reopenTray();
+  }
 
   /**
    * What a tray item's corner says (Game mode's toy box: how many are left, or that it's locked), or null for nothing.

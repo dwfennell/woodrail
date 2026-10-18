@@ -13,7 +13,18 @@ export function routeStops(w: World): RouteStop[] {
   const depots = w.economy.allDepots().filter((d) => w.layout.getPiece(d.pieceId));
   const towns = depots.filter((d) => d.role === "town");
   const others = depots.filter((d) => d.role !== "town");
-  const out: RouteStop[] = towns.map((d) => ({ depotId: d.id, name: w.landscape.towns.find((t) => t.id === d.townId)?.name ?? "Town" }));
+  // A town's station by the town's name; its halts after it ("Ashby halt", Game mode's: see `HALT_KITS`).
+  const townName = (d: DepotState) => {
+    const town = w.landscape.towns.find((t) => t.id === d.townId)?.name ?? "Town";
+    const kit = kitOf(w.layout.getPiece(d.pieceId)!.type);
+    return kit ? `${town} ${kit.name}` : town;
+  };
+  towns.sort((a, b) => Number(w.economy.isHalt(a)) - Number(w.economy.isHalt(b)));
+  const out: RouteStop[] = towns.map((d) => {
+    const base = townName(d);
+    const same = towns.filter((o) => townName(o) === base);
+    return { depotId: d.id, name: same.length > 1 ? `${base} ${same.indexOf(d) + 1}` : base };
+  });
   // An industry by its kind's name; a kit piece's cargo stop (Sandbox's loaders) by its kit's ("Log loader").
   const nameOf = (d: DepotState) => {
     const kit = kitOf(w.layout.getPiece(d.pieceId)!.type);

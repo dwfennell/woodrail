@@ -3,7 +3,7 @@ import type { Landscape, Town } from "../landscape";
 import { MARKET_BONUS, SCHOOL_IDEA_SECONDS, townLandmarks } from "./landmarks";
 import type { Progress } from "./progress";
 import { choose, offerFor, ready, techOf, TECHS } from "./tech";
-import { ruleOf, THING_RULES, type ThingId } from "./things";
+import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
 import { payFor, type TownStatus } from "./towns";
 
 /**
@@ -70,14 +70,14 @@ const isBuilding = (id: ThingId) => id.startsWith("piece:depot-");
 
 /**
  * A crate for a town that grew to `level`: `level + 1` different things you know how to make (no buildings), two of a
- * piece of track, one of a car. Empty if you know nothing that costs anything yet.
+ * piece of track, one of a car or furniture. Empty if you know nothing that costs anything yet.
  */
 export function crateFor(p: Progress, level: number, random: () => number): [ThingId, number][] {
-  const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => !isBuilding(id) && p.knows(id));
+  const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => !isBuilding(id) && !isFree(id) && p.knows(id));
   const out: [ThingId, number][] = [];
   while (out.length < level + 1 && known.length > 0) {
     const id = known.splice(Math.floor(random() * known.length), 1)[0];
-    out.push([id, id.startsWith("car:") ? 1 : 2]);
+    out.push([id, id.startsWith("piece:") ? 2 : 1]);
   }
   return out;
 }

@@ -51,6 +51,11 @@ export class KitStops {
   constructor(
     private readonly layout: Layout,
     private readonly sim: Sim,
+    /**
+     * Is this kit piece an economy depot too (Game mode's halts: a town's passenger stop)? Then the depot's service is
+     * its stop (trains halt there for people to get on and off, and run through with no one to), not the kit's dwell.
+     */
+    private readonly hasDepot: (pieceId: number) => boolean = () => false,
   ) {}
 
   /**
@@ -80,7 +85,7 @@ export class KitStops {
     const lead = train.bogies[0];
     const piece = this.layout.getPiece(lead.pieceId);
     const kitStop = piece ? kitOf(piece.type)?.stop : undefined;
-    let stop = kitStop && this.stopsFor(kitStop.who, train) ? kitStop : undefined;
+    let stop = kitStop && this.stopsFor(kitStop.who, train) && !this.hasDepot(lead.pieceId) ? kitStop : undefined;
     // A road ending at a buffer (a terminus's) stops trains coming in along it, not those heading back out (turned
     // round at its buffer); on a kit of several roads, whichever road the train is on.
     if (stop && lead.reversed && getPieceDef(piece!.type, piece!.flipped).paths[lead.pathIndex].to === null) stop = undefined;

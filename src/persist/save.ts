@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
-import { depotPieceType, INDUSTRY_ROLE, STATION_CRANE_AT, type World } from "../game/world";
+import { depotPieceType, HALT_KITS, INDUSTRY_ROLE, STATION_CRANE_AT, type World } from "../game/world";
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
@@ -233,13 +233,17 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     // (Or a kit piece that's a cargo stop: Sandbox's loaders and unloaders.)
     const role = piece ? (INDUSTRY_ROLE[piece.type] ?? kitOf(piece.type)?.depot) : undefined;
     if (!expected.has(d.pieceId) && role === d.role && ![...depots.values()].includes(d.pieceId)) expected.set(d.pieceId, { role: d.role, townId: -1 });
+    // (Or a halt, Game mode's: a passenger stop of a town's on a kit piece.)
+    if (!expected.has(d.pieceId) && piece && HALT_KITS.has(piece.type) && d.role === "town" && landscape.towns.some((t) => t.id === d.townId)) expected.set(d.pieceId, { role: "town", townId: d.townId });
   }
   if (save.depots.length !== expected.size) return err("invalid save: wrong number of economy depots");
   for (const [i, d] of save.depots.entries()) {
     const want = expected.get(d.pieceId);
     if (d.id !== i || !want || want.role !== d.role || want.townId !== d.townId) return err(`invalid save: economy depot ${d.id} doesn't match the landscape`);
     expected.delete(d.pieceId);
-    const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId);
+    // A town's station stops wagons by its crane; a halt's coaches stop along its platform (its middle).
+    const halt = d.role === "town" && HALT_KITS.has(layout.getPiece(d.pieceId)?.type ?? "straight-216");
+    const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, halt ? undefined : STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId);
     state.auto = d.auto;
     state.waitFull = d.waitFull;
     if (d.role === "harbour") state.sheds = d.sheds ?? 0;

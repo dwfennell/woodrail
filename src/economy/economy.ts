@@ -1,4 +1,4 @@
-import { getPieceDef, pathLength, type Layout } from "../track";
+import { getPieceDef, isKit, pathLength, type Layout } from "../track";
 import { SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
@@ -138,8 +138,11 @@ export interface DepotState {
   readonly id: number;
   readonly pieceId: number;
   readonly role: DepotRole;
-  /** The town a station depot belongs to (−1 for goods depots). */
-  readonly townId: number;
+  /**
+   * The town a station depot belongs to (−1 for goods depots); a halt's, the town nearest it (set again when it moves:
+   * `syncHalts`).
+   */
+  townId: number;
   /** Load and unload trains by itself. */
   auto: boolean;
   /** Trains wait under the crane until each wagon is full. */
@@ -218,7 +221,8 @@ export class Economy {
     readonly layout: Layout,
     readonly sim: Sim,
   ) {
-    this.kitStops = new KitStops(layout, sim);
+    // A kit with a depot on it (Game mode's halts) stops trains as the depot does, for its work: not for its dwell too.
+    this.kitStops = new KitStops(layout, sim, (pieceId) => this.byPiece.has(pieceId));
     sim.speedCap = (train) => this.capFor(train);
   }
 
@@ -280,19 +284,35 @@ export class Economy {
   /** Would someone on this coach get off here: a town's station other than where they got on (a stop to drop at)? */
   private canAlight(d: DepotState, carId: number): boolean {
     const r = this.riders.get(carId);
-    if (!r || d.role !== "town" || r.from === d.id) return false;
+    // (A town's halts are its stops too: no one gets off in the town they got on in.)
+    if (!r || d.role !== "town" || this.townOf(r.from) === d.townId) return false;
     const route = this.routeOfCar(carId);
     return !route || stopAt(route, d.id, "drop");
   }
 
-  /** Would someone waiting here get on this coach: a free seat, and no one aboard bound from elsewhere? */
+  /** Would someone waiting here get on this coach: a free seat, and no one aboard bound from another town? */
   private canBoard(d: DepotState, carId: number): boolean {
     if (d.role !== "town" || d.waiting <= 0 || !this.seatsOf) return false;
     const r = this.riders.get(carId);
-    if (r && (r.from !== d.id || r.count >= this.seatsOf(carId))) return false;
+    if (r && (this.townOf(r.from) !== d.townId || r.count >= this.seatsOf(carId))) return false;
     if (!r && this.seatsOf(carId) <= 0) return false;
     const route = this.routeOfCar(carId);
     return !route || stopAt(route, d.id, "pick");
+  }
+
+  /** The town a passenger stop (a station's depot, or a halt's) is for, by its depot id: −1 for none. */
+  private townOf(depotId: number): number {
+    return this.depots[depotId]?.townId ?? -1;
+  }
+
+  /**
+   * Is this a halt: a town's passenger stop on a kit piece (Game mode's halts and small stations, `HALT_KITS`), not
+   * its station? People get on and off there as at the station, but it takes no goods.
+   */
+  isHalt(d: DepotState): boolean {
+    if (d.role !== "town") return false;
+    const p = this.layout.getPiece(d.pieceId);
+    return !!p && isKit(p.type);
   }
 
   setAuto(depotId: number, on: boolean): void {
@@ -452,6 +472,8 @@ export class Economy {
   private canUnload(d: DepotState, carId: number): boolean {
     const c = this.cargoOf(carId);
     if (c.kind === null || c.count <= 0 || !RECIPES[d.role].takes.includes(c.kind)) return false;
+    // A halt is for people only: goods trains run through.
+    if (this.isHalt(d)) return false;
     // Goods landed here for trains to take away aren't taken back (from any car, nor a car that took them here).
     if ((this.landed.get(d.id)?.[CARGO[c.kind].index] ?? 0) > 0 || this.landedFrom.get(carId) === d.id) return false;
     if (this.accepts) {
@@ -823,7 +845,7 @@ export class Economy {
           if (from) this.onAlight?.(from, d, s.carId);
         } else {
           d.waiting--;
-          this.setRiders(s.carId, (r?.count ?? 0) + 1, d.id);
+          this.setRiders(s.carId, (r?.count ?? 0) + 1, r?.from ?? d.id);
         }
         continue;
       }

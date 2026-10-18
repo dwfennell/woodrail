@@ -351,7 +351,7 @@ export class Interaction {
   landCursor: string | null = null;
   /** Land editing's Move tool: the map's scenery (trees, fields, the shed) can be selected and moved. */
   landMove = false;
-  /** Props can be selected and moved (Sandbox); in Game mode the town's houses stay put. */
+  /** Props can be selected and moved (Sandbox); in Game mode the town's houses stay put (the player's own furniture moves). */
   propsEditable = true;
   private selectedScenery: Scenery | null = null;
   /** Round the selected scenery, or where it would go. */
@@ -975,7 +975,8 @@ export class Interaction {
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
     // (While picking several, any track in view can be tapped.)
     if (hit?.kind === "piece" && !this.picking && !this.withinReach(hit.pieceId)) hit = null;
-    if (hit?.kind === "prop" && (!this.propsEditable || !this.propWithinReach(hit.propId))) hit = null;
+    // (In Game mode, only the player's own: lineside furniture, not the town's houses.)
+    if (hit?.kind === "prop" && ((!this.propsEditable && this.game.props.get(hit.propId)?.building !== undefined) || !this.propWithinReach(hit.propId))) hit = null;
     if (hit?.kind === "road" && !this.roadWithinReach(hit.cell)) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     // By a free end, on nothing that can be taken hold of from here after all: it draws straight away.

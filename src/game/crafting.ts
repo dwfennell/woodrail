@@ -114,7 +114,7 @@ export class Crafting {
   }
 
   order(id: ThingId): void {
-    if (ruleOf(id) && this.progress.knows(id)) this.progress.orders.push(id);
+    if (ruleOf(id) && !isFree(id) && this.progress.knows(id)) this.progress.orders.push(id);
   }
 
   /** Take the last order of this kind off the list (not one already being made). */
