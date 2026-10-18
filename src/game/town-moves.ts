@@ -12,7 +12,7 @@ import { findBuilding } from "../props/towns";
  */
 
 /** Why a house can't go where it's held. */
-export type TownMoveBlock = "landmark" | "other-town" | "not-town" | "no-street" | "size" | "station" | LandBlock;
+export type TownMoveBlock = "landmark" | "other-town" | "not-town" | "no-street" | "end-on" | "size" | "station" | LandBlock;
 
 /** Where a held house would go: its squares and the edge facing its street, or, swapping, the building it trades with. */
 export interface TownLot {
@@ -134,7 +134,8 @@ export function lotFor(land: Landscape, id: number, cell: number, checker: LotCh
       }
       if (front !== undefined) break;
     }
-    if (front === undefined) return "no-street";
+    // (A street only at a two-square lot's end: it's the way it would stand that's wrong, not the street.)
+    if (front === undefined) return cells.length === 2 && cells.some((i) => streetEdge(land, i) !== undefined) ? "end-on" : "no-street";
     // Level, and level with its street (not up on a step beside it).
     if (cells.some((i) => g.height[i] !== g.height[cells[0]]) || g.height[street] !== g.height[cells[0]]) return "uneven";
     return { cells, front, corner: cells.some((i) => streetsBeside(land, i) >= 2) };
@@ -229,6 +230,8 @@ export function townMoveMessage(reason: TownMoveBlock): string {
       return "That's the station";
     case "no-street":
       return "A house needs a street beside it";
+    case "end-on":
+      return "The street must run along its long side";
     case "track":
       return "There's track in the way";
     case "prop":

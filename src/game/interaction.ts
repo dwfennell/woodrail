@@ -302,7 +302,7 @@ type Mode =
        * Game mode, a town's house being moved about its town: it snaps to its town's lots (see town-moves.ts). Its
        * building, its town look, the lot under the hand (worked out again only when the square under it changes).
        */
-      town?: { building: number; look: Look; editor: LandEditor; cell: number; start: number; lot: TownLot | TownMoveBlock | null; preview: number; told: Set<TownMoveBlock> };
+      town?: { building: number; look: Look; editor: LandEditor; cell: number; start: number; lot: TownLot | TownMoveBlock | null; preview: number; told: Set<string> };
     }
   | { kind: "drag-road"; pointerId: number; drag: RoadDrag; overTray: boolean }
   /** Drawing a line of track (the Draw chip on): see `DrawHand`. */
@@ -3668,10 +3668,11 @@ export class Interaction {
     }
     if (m.town) {
       // (Each reason told once a carry, not on every square it crosses.)
-      const why = typeof m.town.lot === "string" ? m.town.lot : null;
-      if (why && !m.town.told.has(why)) {
-        m.town.told.add(why);
-        this.hud.toast(townMoveMessage(why));
+      // (By what's said: several reasons share a line.)
+      const said = typeof m.town.lot === "string" ? townMoveMessage(m.town.lot) : null;
+      if (said && !m.town.told.has(said)) {
+        m.town.told.add(said);
+        this.hud.toast(said);
       }
     } else if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(this.propMessage(blocked));
     m.blocked = blocked;
