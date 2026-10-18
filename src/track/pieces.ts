@@ -126,6 +126,12 @@ export interface PieceDef {
    * number of paths) joins its ends; every other end is open while the deck lies elsewhere (a train turns back there).
    */
   readonly gated?: boolean;
+  /**
+   * A lift (a train lift's platform: `gated` too): its paths are the platform standing at each of its ends (path k at
+   * end k's height, from that end into the piece, ending there), and the sim works it (see `Sim.carry`): a train that
+   * comes onto the platform halts on it, and it's carried to the other end over `seconds`, then drives off there.
+   */
+  readonly lift?: { readonly seconds: number };
 }
 
 /**

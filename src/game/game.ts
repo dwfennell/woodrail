@@ -5,6 +5,7 @@ import { PropLibrary } from "../render/props/library";
 import { BoatsView } from "../render/boats-view";
 import { PropsView } from "../render/props/props-view";
 import { KitView } from "../render/kit-view";
+import { LoopShowView } from "../render/loop-show";
 import { ClockView } from "../render/clock-view";
 import {
   ACESFilmicToneMapping,
@@ -137,6 +138,8 @@ export class Game {
   readonly propsView: PropsView;
   /** The kit pieces' models, drawn where their pieces stand (see `KitView`). */
   readonly kitView: KitView;
+  /** The loop-the-loops' shows: a toy copy of an engine crossing one runs its loop (see `LoopShowView`). */
+  readonly loopShow = new LoopShowView();
   /** Station clocks' hands, showing the game's time (see `ClockView`). */
   readonly clockView: ClockView;
   /** A prop being moved by hand: not drawn where it stood. */
@@ -233,7 +236,9 @@ export class Game {
     this.kitView = new KitView(this.propLibrary);
     // Signal skins show their signals' aspects (a bit for each road at red).
     this.kitView.signalState = (id) => this.sim.redSignals(id);
+    this.kitView.ridePosition = (id) => this.sim.liftPosition(id);
     this.scene.add(this.kitView.group);
+    this.scene.add(this.loopShow.group);
     this.clockView = new ClockView(this.propLibrary);
     this.scene.add(this.clockView.group);
     // A model arriving (its code fetched and built) draws the props (and kits) that were waiting for it.
@@ -521,6 +526,7 @@ export class Game {
   /** The kits' models follow the layout (a diff: only kits added, moved, taken up or put down are touched). */
   syncKits(force = false): void {
     if (this.kitView.sync(this.layout, (id) => this.trackView.isHidden(id), force)) this.invalidate();
+    this.loopShow.sync(this.layout, (id) => this.trackView.isHidden(id));
   }
 
   /** A piece hidden while its stand-in settles hides its kit model too. */
@@ -684,18 +690,27 @@ export class Game {
     const trainsMoved = this.trainsChanged();
     if (trainsMoved || tipping || this.flourishes.count > 0) active = true;
     // Kits' moving parts (doors, cranes, spouts, a turntable's deck, a signal's arm or lamps): looked at only on frames
-    // where trains moved, one halted, a switch was thrown (a deck turns) or a signal changed aspect, or while one is
+    // where trains moved, one halted, a switch was thrown (a deck turns), a signal changed aspect or a ride moved on
+    // (a lift's platform: only as the sim ticks, so never while paused), or while one is
     // still moving. Idle, this is a few comparisons.
     if (
       this.kitView.hasMovers &&
-      (trainsMoved || this.kitView.animating || this.economy.halts !== this.haltsSeen || this.layout.switchesVersion !== this.switchesSeen || this.sim.signalsVersion !== this.kitSignalsSeen)
+      (trainsMoved || this.kitView.animating || this.economy.halts !== this.haltsSeen || this.layout.switchesVersion !== this.switchesSeen || this.sim.signalsVersion !== this.kitSignalsSeen || this.sim.ridesVersion !== this.kitRidesSeen)
     ) {
       this.haltsSeen = this.economy.halts;
       this.switchesSeen = this.layout.switchesVersion;
       this.kitSignalsSeen = this.sim.signalsVersion;
+      this.kitRidesSeen = this.sim.ridesVersion;
       const kits = this.kitView.update(this.kitTriggered, dt, this.paused, this.camera);
       if (kits === "moving") active = true;
       else if (kits === "changed") this.invalidate();
+    }
+    // A loop-the-loop's show follows its engine across: looked at only on frames where trains moved, or while a show
+    // is on (still while its train stands or the game is paused; out of view, unseen and undrawn).
+    if (this.loopShow.count > 0 && (trainsMoved || this.loopShow.running)) {
+      const show = this.loopShow.update(this.snapshot, this.trainView, this.camera);
+      if (show === "moving") active = true;
+      else if (show === "changed") this.invalidate();
     }
     // Boats sailing in view (one out of view moves on unseen, drawing nothing).
     if (this.boats.update(this.camera)) active = true;
@@ -1003,6 +1018,8 @@ export class Game {
   private switchesSeen = 0;
   /** `Sim.signalsVersion` as last seen by the kits (a signal skin's parts show its aspect: `KitStateMotion.source`). */
   private kitSignalsSeen = -1;
+  /** `Sim.ridesVersion` as last seen by the kits (a lift's platform moves only as the sim ticks its ride). */
+  private kitRidesSeen = -1;
 
   /**
    * Does a kit's trigger for its moving parts hold (`KitDef.moves`): a train on it, or one standing at it? (A kit that

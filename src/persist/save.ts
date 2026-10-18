@@ -17,12 +17,13 @@ import { joinSavedLine, LINE_COLOURS } from "../game/lines";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
 /**
- * Save format, version 10 (lines: routes with a colour and a name). Plain JSON validated with Zod; only this module
+ * Save format, version 11 (town buildings at their new sizes, the biggest landmarks on 2×2 lots; 10: lines, routes
+ * with a colour and a name). Plain JSON validated with Zod; only this module
  * (and `landscape-data`) knows its shape. The landscape is saved square by square (see `landscape-data.ts`): loading
  * never regenerates it. No backward compatibility until the game reaches v1: an older save is turned away
  * (`OLDER_SAVE`), and the game starts afresh.
  */
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 
 /** The error an older save gets (the title says so kindly). */
 export const OLDER_SAVE = "older version";
@@ -69,6 +70,8 @@ const saveSchema = z.object({
   towns: z.array(z.object({ id: z.number().int().min(0), stationPieceId: z.number().int().positive() })),
   pieces: z.array(pieceSchema),
   switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])),
+  /** Pinned switches, by piece id: routed engines don't throw them (optional: older saves load with none). */
+  pinned: z.array(z.number().int().positive()).optional(),
   trains: z.array(trainSchema),
   /** Economy depots, in id order: the piece each works on and what it does. */
   depots: z.array(
@@ -118,6 +121,7 @@ const saveSchema = z.object({
         building: z.number().int().min(0).optional(),
         town: z.number().int().min(0).optional(),
         variant: z.number().int().min(0).max(8).optional(),
+        scale: z.number().min(0.5).max(1).optional(),
       }),
     )
     .optional(),
@@ -197,12 +201,13 @@ export function serializeWorld(world: World): SaveData {
     towns: [...world.stations].map(([id, stationPieceId]) => ({ id, stationPieceId })),
     pieces,
     switches,
+    ...(layout.pinnedCount > 0 ? { pinned: [...layout.pinnedIds()] } : {}),
     trains,
     depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(lines.length > 0 ? { lines } : {}),
-    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}) })),
+    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}) })),
   };
 }
 
@@ -224,6 +229,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     }
   }
   for (const [id, state] of save.switches) if (layout.getPiece(id)) layout.setSwitchState(id, state);
+  for (const id of save.pinned ?? []) layout.setPinned(id, true);
   const land = deserializeLandscape(save.landscape);
   if (!land.ok) return err(`invalid save: ${land.error}`);
   const landscape = land.value;
@@ -315,7 +321,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     });
   }
   const props = new PropStore();
-  for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}) });
+  for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}) });
   // Saves from before towns were built from catalogue models: their buildings get their models now.
   addTownProps(landscape, props);
   return ok({ layout, sim, landscape, stations, depots, economy, props });
@@ -368,6 +374,30 @@ export function saveToStorage(world: World, mode: GameMode = "sandbox"): boolean
 }
 
 /** True when the mode has an autosave (valid or not: loading says which). */
+/** Where an older save is kept (`backupKey`), not overwritten, when the game turns it away and starts afresh. */
+export const backupKey = (mode: GameMode, version: number): string => `${STORAGE_KEYS[mode]}.backup-v${version}`;
+
+/** Is this mode's autosave from an older version (one that won't load: the title says so)? */
+export function hasOlderSave(mode: GameMode): boolean {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS[mode]);
+    return raw !== null && olderVersion(raw) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** The version of a save older than this game's, or null (this version's, or not a save at all). */
+function olderVersion(raw: string): number | null {
+  let v: unknown;
+  try {
+    v = (JSON.parse(raw) as { version?: unknown } | null)?.version;
+  } catch {
+    return null;
+  }
+  return typeof v === "number" && v < SAVE_VERSION ? v : null;
+}
+
 export function hasSave(mode: GameMode): boolean {
   try {
     return localStorage.getItem(STORAGE_KEYS[mode]) !== null;
@@ -390,7 +420,17 @@ export function loadFromStorage(mode: GameMode = "sandbox"): Result<World, strin
   } catch {
     return err("autosave is not valid JSON");
   }
-  return deserializeWorld(data);
+  const loaded = deserializeWorld(data);
+  // An older save, turned away: kept under a key of its own, so the fresh map's autosave doesn't overwrite it.
+  if (!loaded.ok && loaded.error === OLDER_SAVE) {
+    const version = (data as { version: number }).version;
+    try {
+      if (localStorage.getItem(backupKey(mode, version)) === null) localStorage.setItem(backupKey(mode, version), raw);
+    } catch {
+      // No room to keep it: it goes, as before.
+    }
+  }
+  return loaded;
 }
 
 /** Game mode: the ids of the goals done, kept beside the game's autosave. */

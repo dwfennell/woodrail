@@ -21,6 +21,8 @@
     "e2e:decks": "node tools/e2e/deck-taps.mjs",
     "e2e:kits": "node tools/e2e/track-props.mjs",
     "e2e:kits-game": "node tools/e2e/kits-game.mjs",
+    "e2e:lift": "node tools/e2e/lift.mjs",
+    "e2e:loop": "node tools/e2e/kit-loop.mjs",
     "build:artifact": "node scripts/artifact-build.mjs",
     "blueprints:page": "node scripts/blueprint-page.mjs"
   },

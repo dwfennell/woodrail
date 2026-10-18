@@ -58,6 +58,8 @@ describe("town landmarks", () => {
   it("a school has ideas: now and then a blueprint goes on the board, to learn at its price, while its town is supplied", () => {
     const w = buildStarterWorld();
     const p = Progress.fresh();
+    // (Farming and mills off the board: three ready ones waiting would stop the school thinking.)
+    for (const id of ["farming", "mills"]) p.board.delete(id);
     const clock = { seconds: 0 };
     const random = () => 0.3;
     expect(schoolIdeas(p, w.landscape, clock, SCHOOL_IDEA_SECONDS, random)).toBeNull();
@@ -111,6 +113,8 @@ describe("town landmarks", () => {
     const run = (college: boolean) => {
       const w = buildStarterWorld();
       const p = Progress.fresh();
+      // (The board a new game had when these numbers were taken: switches and bridges.)
+      for (const id of ["farming", "mills"]) p.board.delete(id);
       w.landscape.towns[0].buildings[0].landmark = "school";
       const clock = { seconds: 0 };
       let revealed = 0;

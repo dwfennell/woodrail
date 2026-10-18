@@ -67,12 +67,19 @@ export interface Recipe {
   readonly sink?: boolean;
 }
 
+/**
+ * Most planks (and iron) a workshop's yard holds: enough for the dearest blueprint or building (30 planks), so one
+ * workshop can pay for any of them. (At 12, a blueprint of 14 planks or more could never be paid, and the planks kept
+ * for it starved the towns.)
+ */
+export const WORKSHOP_CAP = 30;
+
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
   town: { takes: ["planks", "flour", "stone", "iron", "furniture", "tools"], gives: [], cycle: { uses: {}, makes: {}, seconds: 30, eats: true } },
   // Takes goods in to make things from (Game mode's crafting draws on its pile; it makes nothing by itself).
-  workshop: { takes: ["planks", "iron"], gives: [] },
+  workshop: { takes: ["planks", "iron"], gives: [], cap: WORKSHOP_CAP },
   // The farm chain (Game mode): a farm yard by the fields fills hoppers with grain; a mill grinds it into flour.
   farm: { takes: [], gives: ["grain"], cycle: { uses: {}, makes: { grain: 1 }, seconds: 12 } },
   mill: { takes: ["grain"], gives: ["flour"], cycle: { uses: { grain: 1 }, makes: { flour: 1 }, seconds: 8 } },

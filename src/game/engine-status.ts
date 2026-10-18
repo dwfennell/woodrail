@@ -13,6 +13,8 @@ export type TrainState =
   | { kind: "red-signal"; signalId: number }
   /** Standing at a kit's stop (a platform) for its dwell. */
   | { kind: "at-stop"; pieceId: number }
+  /** Carried by a train lift, or waiting for its platform (on it, about to go; or at its far end). */
+  | { kind: "lift"; riding: boolean }
   | { kind: "too-heavy" }
   | { kind: "no-power" }
   | { kind: "slowing" }
@@ -62,6 +64,8 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   if (train.turnback >= 0) return { kind: "turning-back", cause: turn?.cause ?? "buffer", pieceId: turn?.pieceId ?? -1 };
   const stopAt = economy.kitStops.dwellingAt(train.id);
   if (stopAt !== -1) return { kind: "at-stop", pieceId: stopAt };
+  const lift = sim.liftState(train.id);
+  if (lift) return { kind: "lift", riding: lift === "riding" };
   if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id) };
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
   if (train.speed < 1) {
@@ -100,6 +104,8 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       const type = economy.layout.getPiece(s.pieceId)?.type;
       return `Calling at the ${(type && kitOf(type)?.name) ?? "stop"}`;
     }
+    case "lift":
+      return s.riding ? "Riding the train lift" : "Waiting for the train lift";
     case "too-heavy":
       return "Too heavy for its engine: take a car off, or add an engine";
     case "no-power":

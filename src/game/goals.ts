@@ -333,7 +333,7 @@ export const GOALS: readonly Goal[] = [
   {
     id: "two-trains",
     title: "Run two trains at once",
-    hint: "Put a second train on the line and get both moving.",
+    hint: "A second train needs track of its own: on one line they turn each other back.",
     check: (w) => {
       const n = running(w).length;
       return { done: n >= 2, count: Math.min(n, 2), target: 2, unit: "trains" };
