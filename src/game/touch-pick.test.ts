@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carNearTap, deckTapWins, liftTap } from "./touch-pick";
+import { carNearTap, deckTapWins, liftTap, liftTapAlong } from "./touch-pick";
 
 // Two short cars end to end along y = 100 (a train 10–20 px a car, as at the default zoom on a phone).
 const cars = [
@@ -99,5 +99,21 @@ describe("a tap on a train lift (`liftTap`, piece-local t, l, y)", () => {
   it("past its ends (where its unseen track runs on under the next piece's): neither, the tap goes through", () => {
     expect(liftTap(-20, 0, 6, 0, L)).toBe("pass");
     expect(liftTap(L + 20, 0, RISE + 6, RISE, L)).toBe("pass");
+  });
+});
+
+describe("a tap's ray through a train lift (`liftTapAlong`): the first of its parts met decides", () => {
+  const L = 288;
+  it("a post in front of the platform takes the tap: its card, never its card and a send", () => {
+    // The ray meets a post (t 144, l 32, 20 up), then the platform behind it (l 0, its floor).
+    expect(liftTapAlong([liftTap(144, 32, 20, 0, L), liftTap(150, 0, 2, 0, L)])).toBe("select");
+    // Straight onto the platform: it sends it.
+    expect(liftTapAlong([liftTap(150, 0, 2, 0, L), liftTap(150, -32, 0, 0, L)])).toBe("send");
+  });
+  it("past its ends, on to the next part met; nothing of it: through", () => {
+    expect(liftTapAlong([liftTap(-20, 0, 6, 0, L), liftTap(4, -32, 30, 0, L)])).toBe("select");
+    expect(liftTapAlong([liftTap(-20, 0, 6, 0, L), liftTap(6, 0, 4, 0, L)])).toBe("send");
+    expect(liftTapAlong([liftTap(-20, 0, 6, 0, L)])).toBe("pass");
+    expect(liftTapAlong([])).toBe("pass");
   });
 });

@@ -23,7 +23,7 @@ import { dropOutcome, heldReason, onwardEnds, refusalText } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
-import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
+import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
@@ -33,7 +33,7 @@ import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
-import { carNearTap, deckTapWins, liftTap, nearCarWins, type CarOnScreen } from "./touch-pick";
+import { carNearTap, deckTapWins, liftTap, liftTapAlong, nearCarWins, type CarOnScreen } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
@@ -1326,8 +1326,10 @@ export class Interaction {
     }
     if (still && still.pointerId === e.pointerId && m.kind !== "press") {
       // Held and let go without moving: back where it was (a drop would snap it to the nearest free end), and selected.
+      // (Selected only: held on a turntable's deck or a lift's platform, it isn't turned or sent as well.)
       this.cancel();
-      this.tap(still.press);
+      const p = still.press;
+      this.tap(p.kind === "piece" && p.deck ? { kind: "piece", pieceId: p.pieceId } : p);
       return;
     }
     if (m.kind === "press") {
@@ -1934,8 +1936,8 @@ export class Interaction {
       this.yardWhy = hit.message;
       return hit.why;
     }
-    const why = checkYard({ land: g.landscape, layout: g.layout, props: g.props, footprint: g.propLibrary.footprint }, type, pose, y, ignoreId);
-    if (why) this.yardWhy = yardMessage(type, why);
+    const why = checkYard({ land: g.landscape, layout: g.layout, props: g.props, footprint: g.propLibrary.footprint }, type, pose, y, ignoreId, this.yardWhat);
+    if (why) this.yardWhy = yardMessage(type, why, this.yardWhat.what);
     // (Two kept: held at a joint, both straights' places are checked on each move.)
     this.yardMemo = held ? [{ key, why, message: this.yardWhy }, ...this.yardMemo.slice(0, 1)] : [];
     return why;
@@ -2010,6 +2012,8 @@ export class Interaction {
   private yardMemo: { key: string; why: YardBlock | null; message: string }[] = [];
   /** The message for the last yard refusal ("The workshop's yard is on a hill"). */
   private yardWhy = "";
+  /** What the last yard check found in the way (one object, reused on every move). */
+  private readonly yardWhat: YardObstacle = { what: null };
 
   /**
    * A depot refused for want of room for its yard: would it go turned right round (Flip), its yard on the other side
@@ -3811,21 +3815,21 @@ export class Interaction {
   }
 
   /**
-   * What a tap whose ray meets this lift first at `hits[from]` is: "send" if it meets the lift's platform anywhere along
-   * it (a post or brace of its tower in front, a few mm wide on screen, doesn't take the tap from the platform behind
-   * it), else "select" if it met its tower or frame, else "pass" (past its ends: to what's behind). Hidden parts (a
-   * stop board put away) are passed through.
+   * What a tap whose ray meets this lift first at `hits[from]` is (`liftTapAlong`): what the first of its parts the
+   * ray meets says, "send" on its platform, "select" on its tower, posts, braces or base (its card, as any kit's: a post
+   * in front of the platform takes the tap), "pass" past its ends (to what's behind). Hidden parts (a stop board put
+   * away) are passed through.
    */
   private liftTapAlong(lift: number, hits: readonly { object: Object3D; point: Vector3; batchId?: number; instanceId?: number }[], from: number): "send" | "select" | "pass" {
-    let what: "select" | "pass" = "pass";
-    for (let k = from; k < hits.length; k++) {
-      const h = hits[k];
-      if ((k !== from && this.liftHit(h.object, h.batchId, h.instanceId) !== lift) || !shownInTree(h.object)) continue;
-      const at = this.liftTapAt(lift, h.point);
-      if (at === "send") return "send";
-      if (at === "select") what = "select";
+    const self = this;
+    function* along() {
+      for (let k = from; k < hits.length; k++) {
+        const h = hits[k];
+        if ((k !== from && self.liftHit(h.object, h.batchId, h.instanceId) !== lift) || !shownInTree(h.object)) continue;
+        yield self.liftTapAt(lift, h.point);
+      }
     }
-    return what;
+    return liftTapAlong(along());
   }
 
   /** What a tap at world point `at` on a train lift is (`liftTap`): on its platform, wherever it stands now, or not. */
