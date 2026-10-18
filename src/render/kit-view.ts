@@ -80,6 +80,11 @@ export class KitView {
    * (`KitStateMotion.source`: signal skins). Set by the game; null: all clear.
    */
   signalState: ((pieceId: number) => number) | null = null;
+  /**
+   * Where a lift's platform stands (`Sim.liftPosition`: 0 to 1, between while a ride carries it), for the kits whose
+   * state is a ride (`KitStateMotion.source` "ride"). Set by the game; null: its switch state.
+   */
+  ridePosition: ((pieceId: number) => number) | null = null;
   /** The source the view draws from: the kit pieces shown. */
   private readonly source = {
     version: 0,
@@ -294,6 +299,8 @@ export class KitView {
   /** A kit's state, as its piece's switch state says (or, for a signal skin, its signals' aspects). */
   private stateOf(m: Mover): number {
     if (m.motion.state!.source === "signals") return this.signalState?.(m.id) ?? 0;
+    // (A lift's platform: as far as the sim has carried it, between its ends while it rides.)
+    if (m.motion.state!.source === "ride" && this.ridePosition) return this.ridePosition(m.id);
     return (this.layout?.switchState(m.id) ?? 0) % Math.max(1, m.kit.track.paths.length);
   }
 

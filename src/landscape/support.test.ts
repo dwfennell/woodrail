@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BRIDGE_LENGTH, Layout, RAMP_LENGTH, RISER_HEIGHT } from "../track";
+import { BRIDGE_LENGTH, Layout, LIFT_LENGTH, LIFT_RISE, RAMP_LENGTH, RISER_HEIGHT } from "../track";
 import { gridWithPlots } from "./grid";
 import type { Landscape } from "./generate";
 import { archFloors, bridgeLevels, checkSupport, looseHeight, riserStackAt } from "./support";
@@ -20,6 +20,16 @@ const P = (x: number, z: number, heading = 0) => ({ x, z, heading });
 const Z = 36;
 
 describe("checkSupport", () => {
+  it("a train lift on the felt stands on its tower (no riser under its high end), and track off its high end rests there", () => {
+    const layout = new Layout();
+    expect(checkSupport(flat(), layout, "kit-train-lift", false, P(0, Z), 0, -1)).toEqual({ kind: "held", risers: [] });
+    layout.addPiece("kit-train-lift", P(0, Z), 0);
+    // A straight a level up on its high end: its near end rests on the lift, its far end on a riser.
+    const s = checkSupport(flat(), layout, "straight-216", false, P(LIFT_LENGTH, Z), LIFT_RISE, -1);
+    expect(s.kind).toBe("held");
+    if (s.kind === "held") expect(s.risers.map((r) => Math.round(r.pose.x))).toEqual([LIFT_LENGTH + 216]);
+  });
+
   it("track on the felt is held", () => {
     expect(checkSupport(flat(), new Layout(), "straight-216", false, P(0, Z), 0, -1)).toEqual({ kind: "held", risers: [] });
   });

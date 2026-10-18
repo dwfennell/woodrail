@@ -2862,6 +2862,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Whistle posts' near track: worked out again only when the props or the track change.
     whistles.sync(game.layout, game.props, game.trackVersion);
     for (const e of game.events) {
+      // A train too long for a lift's platform: it turns back at the end, and the player is told why (once).
+      if (e.kind === "lift-refused") hud.toast("That train's too long for the lift: an engine and two cars fit");
       if (e.kind === "buffer" && !loopTipShown && game.sim.getTrain(e.trainId)?.lastTurn?.cause === "train") showLoopTip();
       const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);
       if (!p) continue;
