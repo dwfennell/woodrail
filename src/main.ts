@@ -966,7 +966,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // Several spots (new houses, two stations) are framed together, closer than a lone spot.
         const f = frameAlong(place.points ?? [place], game.camera.fov, game.camera.aspect, place.points ? PLACE_MARGIN : GOAL_MARGIN);
         game.follow(-1);
-        game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 1 });
+        game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 1, inRoom: true });
       },
     },
     journal,
@@ -1074,6 +1074,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const ctx = { learned: progress.learned };
     const fresh = goals.update(game.world, ctx);
     if (fresh.length > 0) {
+      // (A goal done: its guide's markers no longer hold a piece.)
+      interaction.guideSpots = [];
       saveGoals(goals.ids());
       if (announce) {
         const titles = fresh.map((g) => g.title);
@@ -2508,6 +2510,30 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     },
     close: () => closeLines(),
   });
+
+  // What the map shows (between the top bar and the tray, beside or above an open card or sheet): the game's glides
+  // and a followed train centre their target there, not behind a card (QA: an engine glided to sat under the card
+  // that was open). Measured when any of these changes size, never per frame.
+  game.director.roomOf = () => {
+    const r = game.canvas.getBoundingClientRect();
+    const room = { left: 0, top: 0, right: r.width, bottom: r.height };
+    for (const e of document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")) {
+      const b = e.getBoundingClientRect();
+      if (b.height > 0 && b.top - r.top < r.height / 3) room.top = Math.max(room.top, b.bottom - r.top);
+    }
+    for (const e of document.querySelectorAll(".hud .tray, .hud .tray-draw, .hud .tray-orient, .hud .card")) {
+      const b = e.getBoundingClientRect();
+      if (b.height === 0 || b.width === 0) continue;
+      // Docked at the right (a phone on its side): the room is beside it. Otherwise it's below the room.
+      if (b.left - r.left > r.width * 0.4 && b.top - r.top < r.height / 2) room.right = Math.min(room.right, b.left - r.left);
+      else if (b.top - r.top > room.top) room.bottom = Math.min(room.bottom, b.top - r.top);
+    }
+    return room.bottom - room.top > 80 && room.right - room.left > 80 ? room : null;
+  };
+  {
+    const changed = new ResizeObserver(() => game.director.roomChanged());
+    for (const e of document.querySelectorAll(".hud .tray, .hud .card, .hud .goals, .topbar")) changed.observe(e);
+  }
   let allLines: RouteView | null = null;
   let allLinesLayout: Layout | null = null;
   let allLinesKey = "";
@@ -2637,7 +2663,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   function goToMarker(m: MapMarker): void {
     closeMap(false, true);
-    game.director.glideTo(new Vector3(m.x, 0, m.z), 1000, { phi: 0.95, duration: 1 });
+    game.director.glideTo(new Vector3(m.x, 0, m.z), 1000, { phi: 0.95, duration: 1, inRoom: true });
     if (m.kind === "town") game.flourishes.add(game.landscapeView.flash([Number(m.key.split(":")[1])]));
     else {
       const i = game.landscape.grid.cellAtWorld(m.x, m.z);
@@ -2667,6 +2693,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const goal = goals.current();
     if (!goal) return;
     const guide = goal.guide(game.world);
+    interaction.guideSpots = guide.marks.map((p) => ({ x: p.x, z: p.z }));
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
     // The piece it asks for comes out of the tray the way it fits at the spot shown.
     interaction.guideHeld(guide.held ?? null);
@@ -2675,7 +2702,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // and the tray, which cover the top and the bottom of the screen).
       const f = frameAlong(guide.points, game.camera.fov, game.camera.aspect, GOAL_MARGIN);
       game.follow(-1);
-      game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 1, ...(f.theta === null ? {} : { theta: f.theta }) });
+      game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 1, inRoom: true, ...(f.theta === null ? {} : { theta: f.theta }) });
     }
     if (guide.towns.length > 0) game.flourishes.add(game.landscapeView.flash(guide.towns));
     const grid = game.landscape.grid;
@@ -2693,6 +2720,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   function resetGoals(): void {
+    interaction.guideSpots = [];
     progress = Progress.fresh();
     hud.setCoins(progress.coins);
     crafting.setProgress(progress);
@@ -2734,6 +2762,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** Load or make the mode's world, and play. */
   function begin(next: GameMode, fresh: boolean): void {
+    interaction.guideSpots = [];
     leaving = false;
     if (fresh && next === "game") resetGoals();
     if (fresh) saveLastBuilt(next, null);

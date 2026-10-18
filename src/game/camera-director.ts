@@ -1,4 +1,4 @@
-import { Spherical, Vector3, type PerspectiveCamera } from "three";
+import { PerspectiveCamera, Spherical, Vector3 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { damp, easeInOutCubic } from "../lib/tween";
 
@@ -66,6 +66,39 @@ export function frameAlong(
  * the points' own projections, so a tilted view's near and far ends and the HUD's bars are allowed for (a guess from
  * the field of view alone left a long line off the ends of a phone). A few rounds of moving and zooming to suit.
  */
+/** The part of the view (px) that shows the map: not under the top bar, the tray, an open card or a sheet. */
+export interface ViewRoom {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+const aimCam = new PerspectiveCamera();
+const aimSph = new Spherical();
+const aimV = new Vector3();
+/**
+ * Where to look (the controls' target) so that `target` shows in the middle of `room` rather than of the screen, the
+ * camera `distance` away at `phi`, `theta` about where it looks (`camera` gives the lens; the view is `width`×`height`
+ * px). Moving the camera along the ground moves every ground point on screen alike, so one step is exact: the target
+ * goes by however far the room's middle is from the screen's, as seen on the ground at the target's height. Written
+ * into `out`.
+ */
+export function aimInRoom(target: Vector3, distance: number, phi: number, theta: number, camera: PerspectiveCamera, width: number, height: number, room: ViewRoom, out = new Vector3()): Vector3 {
+  aimCam.copy(camera);
+  aimCam.position.setFromSpherical(aimSph.set(distance, phi, theta)).add(target);
+  aimCam.lookAt(target);
+  aimCam.updateMatrixWorld();
+  const cx = (room.left + room.right) / 2;
+  const cy = (room.top + room.bottom) / 2;
+  aimV.set((cx / width) * 2 - 1, 1 - (cy / height) * 2, 0.5).unproject(aimCam).sub(aimCam.position);
+  // (Looking up at the room's middle, or along the ground: as it was.)
+  if (aimV.y >= -1e-9) return out.copy(target);
+  const k = (target.y - aimCam.position.y) / aimV.y;
+  // The ground under the room's middle; the target goes as far the other way.
+  return out.set(2 * target.x - (aimCam.position.x + aimV.x * k), target.y, 2 * target.z - (aimCam.position.z + aimV.z * k));
+}
+
 export function fitToRect(
   points: readonly Vector3[],
   camera: PerspectiveCamera,
@@ -204,6 +237,8 @@ interface Shot {
   delay: number;
   /** Keep the destination on something moving (writes into the given vector; false when it's gone). */
   track?: (out: Vector3) => boolean;
+  /** Its target is shown in the room's middle (see `CameraDirector.roomOf`). */
+  inRoom?: boolean;
 }
 
 const EDGE_PAN_SPEED = 0.9; // view distances per second at full push
@@ -253,6 +288,37 @@ export class CameraDirector {
   private readonly forward = new Vector3();
   /** Half extents of the area the camera may look at (the mat). */
   bounds: ViewBounds = { x0: -Infinity, z0: -Infinity, x1: Infinity, z1: Infinity };
+  /**
+   * The part of the view that shows the map (see `ViewRoom`), as the game measures it: glides asked to (`inRoom`), and
+   * a followed train, centre their target there, not behind an open card. Measured only when it may have changed
+   * (`roomChanged`), never per frame.
+   */
+  roomOf: (() => ViewRoom | null) | null = null;
+  private room: ViewRoom | null = null;
+  private roomStale = true;
+  /** The HUD's layout changed (a card opened, closed or grew; the window turned): the room is measured again. */
+  roomChanged(): void {
+    this.roomStale = true;
+  }
+  private currentRoom(): ViewRoom | null {
+    if (this.roomStale) {
+      this.room = this.roomOf?.() ?? null;
+      this.roomStale = false;
+    }
+    return this.room;
+  }
+  /** Where to look so `target` shows in the room's middle from `sph` (or `target` itself, with no room known). */
+  private aimed(target: Vector3, s: Spherical, out: Vector3): Vector3 {
+    const room = this.currentRoom();
+    if (!room) return out.copy(target);
+    const w = this.viewW;
+    const h = this.viewH;
+    if (w <= 0 || h <= 0) return out.copy(target);
+    return aimInRoom(target, s.radius, s.phi, s.theta, this.camera, w, h, room, out);
+  }
+  private viewW = 0;
+  private viewH = 0;
+  private readonly followAim = new Vector3();
 
   constructor(
     private readonly camera: PerspectiveCamera,
@@ -276,7 +342,7 @@ export class CameraDirector {
   glideTo(
     target: Vector3,
     distance: number,
-    opts: { phi?: number; theta?: number; duration?: number; delay?: number; track?: (out: Vector3) => boolean } = {},
+    opts: { phi?: number; theta?: number; duration?: number; delay?: number; track?: (out: Vector3) => boolean; inRoom?: boolean } = {},
   ): void {
     const c = this.controls;
     const from = new Spherical().setFromVector3(this.tmp.subVectors(this.camera.position, c.target));
@@ -284,14 +350,16 @@ export class CameraDirector {
     to.radius = Math.min(c.maxDistance, Math.max(c.minDistance, to.radius));
     to.phi = Math.min(c.maxPolarAngle, Math.max(0.05, to.phi));
     this.zoomGoal = -1;
-    this.shot = { fromTarget: c.target.clone(), toTarget: this.onMat(target.clone()), from, to, elapsed: 0, duration: opts.duration ?? 0.7, delay: opts.delay ?? 0, track: opts.track };
+    // (In the room: the target in the middle of what the map shows, above a card, not behind it.)
+    const goal = opts.inRoom ? this.aimed(target, to, new Vector3()) : target.clone();
+    this.shot = { fromTarget: c.target.clone(), toTarget: this.onMat(goal), from, to, elapsed: 0, duration: opts.duration ?? 0.7, delay: opts.delay ?? 0, track: opts.track, inRoom: opts.inRoom };
   }
 
   /** Frame a point of interest of the given radius, keeping the viewing direction. Never zooms out. */
   focus(point: Vector3, radius: number): void {
     const current = this.camera.position.distanceTo(this.controls.target);
     const d = Math.min(frameDistance(radius, this.camera.fov, this.camera.aspect), current * 0.7);
-    this.glideTo(point, d, { duration: 0.75 });
+    this.glideTo(point, d, { duration: 0.75, inRoom: true });
   }
 
   /** Follow a moving object (or stop following with null), easing to a lower, closer angle. */
@@ -299,7 +367,7 @@ export class CameraDirector {
     this.followed = position;
     if (!position) return;
     const p = position();
-    if (p) this.glideTo(p, 420, { phi: 1.08, duration: 0.9 });
+    if (p) this.glideTo(p, 420, { phi: 1.08, duration: 0.9, inRoom: true });
   }
 
   get following(): boolean {
@@ -346,6 +414,11 @@ export class CameraDirector {
   update(dt: number, viewW: number, viewH: number, elapsed = dt): void {
     const c = this.controls;
     const cam = this.camera;
+    if (viewW !== this.viewW || viewH !== this.viewH) {
+      this.viewW = viewW;
+      this.viewH = viewH;
+      this.roomStale = true;
+    }
     this.edgePanning = false;
 
     if (this.shot) {
@@ -374,9 +447,11 @@ export class CameraDirector {
     }
 
     if (this.followed && !this.shot) {
-      const p = this.followed();
+      let p = this.followed();
       if (!p) this.followed = null;
       else {
+        // (Kept in the room's middle, as seen from where the camera is now.)
+        p = this.aimed(p, sph.setFromVector3(this.tmp.subVectors(cam.position, c.target)), this.followAim);
         this.tmp2.copy(c.target);
         c.target.set(damp(c.target.x, p.x, FOLLOW_LAMBDA, dt), damp(c.target.y, p.y, FOLLOW_LAMBDA, dt), damp(c.target.z, p.z, FOLLOW_LAMBDA, dt));
         cam.position.add(this.tmp.subVectors(c.target, this.tmp2));
@@ -384,7 +459,7 @@ export class CameraDirector {
     } else if (this.followed && this.shot) {
       // Keep the glide's destination on the moving train.
       const p = this.followed();
-      if (p) this.onMat(this.shot.toTarget.copy(p));
+      if (p) this.onMat(this.shot.inRoom ? this.aimed(p, this.shot.to, this.shot.toTarget) : this.shot.toTarget.copy(p));
     }
 
     if (this.edgePointer) {
