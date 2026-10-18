@@ -50,6 +50,7 @@ import { aOrAn, describe as describeGoods, kindsOf, minus, total, type Bag } fro
 import { costTag, trayCostTag } from "./ui/cost-tag";
 import { GOODS_ICON, type CargoKind } from "./economy/cargo";
 import { qualityFor, saveQualityOverride } from "./render/quality";
+import type { PropModel } from "./render/props/library";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
@@ -84,9 +85,20 @@ const GIVE_TURN = (4 * Math.PI) / 180;
 const THUMBNAIL_BATCH = 8;
 /** How long (ms) a batch of tray pictures waits for the scene to be still before it's drawn anyway. */
 const THUMBNAIL_STILL_WAIT_MS = 1500;
+/**
+ * How long (ms) a frame may spend drawing pictures asked for on demand (a shelf's, a blueprint ticket's) before the rest
+ * wait for the next frame: a few a frame on a phone, so a ticket's fill in at once without a frame dropped for it.
+ */
+const PICTURE_BUDGET_MS = 7;
 
 /** How long (ms) an engine's status must hold before its card shows it (so it doesn't flicker between steps). */
 const STATUS_HOLD_MS = 600;
+
+/** A car's tray picture's key: its tray card's on its own, in its own look (undefined if the tray has none). */
+function carPictureKey(kind: CarKind): string | undefined {
+  const item = TRAIN_ITEMS.find((t) => t.kind === "train" && t.cars.length === 1 && t.cars[0] === kind && !t.looks?.length);
+  return item && trayKey(item);
+}
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const loading = document.querySelector<HTMLDivElement>("#loading");
@@ -353,7 +365,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         hud.setTrayOrientation(interaction.trayFlipped);
       },
       depotWaitFull: () => interaction.toggleDepotWaitFull(),
-      needThumbnails: (items) => drawPropThumbnails(items),
+      needThumbnails: (items) => wantPictures(items, "tray"),
       kitsShown: (items) => interaction.warmKits(items),
       landTool: (tool) => setLandTool(tool),
       sendReport: async (text) => {
@@ -412,9 +424,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Start-up's tray pictures, all drawn and saved (the e2e tests wait on it before reloading). */
   let trayThumbnailsSaved: Promise<void> = Promise.resolve();
 
-  // Catalogue models' tray pictures: drawn when their shelf is first shown, one a frame (each builds the model, if it
-  // isn't yet), then kept with the start-up pictures for the next visit.
-  const thumbQueue: string[] = [];
+  // Pictures drawn on demand: catalogue models' (a kit's, a prop's) when their shelf is first shown, and those the
+  // blueprint board's open ticket shows; then kept with the start-up pictures for the next visit. Every one's model is
+  // fetched as soon as it's asked for (all at once), and those ready are drawn as many a frame as fit in
+  // PICTURE_BUDGET_MS, the open ticket's first: the first picture of a frame waits for the graphics card (it's read
+  // back), the rest in that frame hardly at all. Nothing runs once none are waiting.
+  /** A picture asked for: by the tray, the board, or both; `ready` once its model's fetched and built. */
+  type PictureJob = { item: TrayItem; tray: boolean; board: boolean; ready: boolean; model?: PropModel | null };
+  const pictureJobs = new Map<string, PictureJob>();
+  let pictureFrame = 0;
   let studio: ThumbnailStudio | null = null;
   let thumbSaveTimer = 0;
   /**
@@ -433,44 +451,80 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.setThumbnail(key, thumbnails.get(key)!);
     board.pictureCame(key);
   }
-  function drawPropThumbnails(items: TrayItem[]): void {
-    const idle = thumbQueue.length === 0;
-    for (const item of items) {
-      // A kit piece on a catalogue shelf: its track and model, once the model's built.
-      const key = item.kind === "prop" ? item.asset : item.kind === "piece" && kitOf(item.type) ? trayKey(item) : null;
-      if (key && !thumbQueue.includes(key)) thumbQueue.push(key);
-    }
-    if (idle && thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
-  }
-  function nextThumbnail(): void {
-    const asset = thumbQueue[0];
-    if (asset === undefined) return;
-    if (asset.startsWith("piece:")) {
-      const type = asset.slice("piece:".length) as PieceTypeId;
-      void Promise.all([game.kitView.load(type), TrackView.whenBuilt(type)]).then(() => {
-        thumbQueue.shift();
-        studio ??= new ThumbnailStudio(game.renderer);
-        for (const key of drawThumbnails([{ kind: "piece", type, label: "" }], false, studio)) pictureDrawn(key);
-        saveThumbnailsSoon();
-        if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
-      });
-      return;
-    }
-    void game.propLibrary.load(asset).then((model) => {
-      thumbQueue.shift();
-      if (model) {
-        studio ??= new ThumbnailStudio(game.renderer);
-        const subject = new Group();
-        for (const part of model.parts) subject.add(new Mesh(part.geometry, part.material));
-        subject.rotation.y = -0.6;
-        const url = studio.shoot(subject);
-        const key = `prop:${asset}`;
-        thumbnails.set(key, url);
-        pictureDrawn(key);
-        saveThumbnailsSoon();
+  /**
+   * Pictures wanted by the tray (`from` "tray": added to what it asked for before) or by the board's open ticket
+   * ("board": replaces what it asked for before, so a ticket closed or left stops waiting for its own).
+   */
+  function wantPictures(items: readonly TrayItem[], from: "tray" | "board"): void {
+    if (from === "board") {
+      const keep = new Set(items.map(trayKey));
+      for (const [key, job] of pictureJobs) {
+        if (!job.board || keep.has(key)) continue;
+        job.board = false;
+        if (!job.tray) pictureJobs.delete(key);
       }
-      if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
-    });
+    }
+    for (const item of items) {
+      // A prop, a kit piece (its track and model) or a train; other pieces are drawn at start-up.
+      if (!(item.kind === "prop" || item.kind === "train" || (item.kind === "piece" && kitOf(item.type)))) continue;
+      const key = trayKey(item);
+      const url = thumbnails.get(key);
+      if (url) {
+        if (from === "tray") hud.setThumbnail(key, url);
+        continue;
+      }
+      const had = pictureJobs.get(key);
+      if (had) {
+        had[from] = true;
+        continue;
+      }
+      const job: PictureJob = { item, tray: from === "tray", board: from === "board", ready: false };
+      pictureJobs.set(key, job);
+      // Its model fetched and built now, alongside the others'.
+      const loaded: Promise<unknown> =
+        item.kind === "prop" ? game.propLibrary.load(item.asset).then((m) => (job.model = m)) : item.kind === "piece" ? Promise.all([game.kitView.load(item.type), TrackView.whenBuilt(item.type)]) : Promise.resolve();
+      loaded.then(
+        () => {
+          job.ready = true;
+          if (pictureJobs.get(key) === job) schedulePictures();
+        },
+        // Not fetched: forgotten, so asking again (the shelf or ticket shown again) retries.
+        () => {
+          if (pictureJobs.get(key) === job) pictureJobs.delete(key);
+        },
+      );
+    }
+  }
+  function schedulePictures(): void {
+    if (!pictureFrame) pictureFrame = requestAnimationFrame(drawWantedPictures);
+  }
+  /** Draw the pictures ready, the board's first, as many as fit in this frame's budget (one at least). */
+  function drawWantedPictures(): void {
+    pictureFrame = 0;
+    const start = performance.now();
+    const ready = [...pictureJobs].filter(([, j]) => j.ready).sort(([, a], [, b]) => Number(b.board) - Number(a.board));
+    let drawn = 0;
+    for (const [key, job] of ready) {
+      if (drawn > 0 && performance.now() - start > PICTURE_BUDGET_MS) break;
+      pictureJobs.delete(key);
+      drawn++;
+      studio ??= new ThumbnailStudio(game.renderer);
+      const { item } = job;
+      if (item.kind !== "prop") {
+        for (const k of drawThumbnails([item], false, studio)) pictureDrawn(k);
+        continue;
+      }
+      // (A prop whose asset doesn't exist has no picture: its blank stays.)
+      if (!job.model) continue;
+      const subject = new Group();
+      for (const part of job.model.parts) subject.add(new Mesh(part.geometry, part.material));
+      subject.rotation.y = -0.6;
+      thumbnails.set(key, studio.shoot(subject));
+      pictureDrawn(key);
+    }
+    if (drawn > 0) saveThumbnailsSoon();
+    // More ready than fitted: the rest next frame. (Those still loading schedule a frame when they're in.)
+    if (drawn < ready.length) schedulePictures();
   }
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
@@ -1125,6 +1179,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return n;
   }
 
+  /** Game mode: a track piece not learned yet, as the tray says it ("Ramp: not learned yet"), or null. */
+  function pieceUnlearned(type: PieceTypeId): string | null {
+    for (const id of thingsFor({ kind: "piece", type }).keys()) if (!isFree(id) && !progress.knows(id)) return `${ruleOf(id)!.label}: not learned yet`;
+    return null;
+  }
+
   /** The toy box on the tray (Game mode): how many of each are left. */
   function trayBadge(item: ThingItem | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null {
     if (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop") return null;
@@ -1209,15 +1269,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     },
     close: () => setBoardOpen(false),
     picture: (key) => thumbnails.get(key),
-    // A kit's or a prop's picture is drawn on demand, as for the tray (the rest are drawn at start-up, or with Game
-    // mode's models).
+    // A kit's, a prop's or a car's picture is drawn on demand if it isn't yet, as for the tray (the cars' and the other
+    // pieces' are drawn at start-up, or with Game mode's models), before the tray's; none once the board's shut ([]).
     needPictures: (keys) =>
-      drawPropThumbnails(
+      wantPictures(
         keys.flatMap((k): TrayItem[] => {
           if (k.startsWith("prop:")) return [{ kind: "prop", asset: k.slice(5), label: "" }];
+          if (k.startsWith("train:")) return TRAIN_ITEMS.filter((t) => trayKey(t) === k);
           const type = k.slice(6) as PieceTypeId;
           return k.startsWith("piece:") && kitOf(type) ? [{ kind: "piece", type, label: "" }] : [];
         }),
+        "board",
       ),
   });
 
@@ -1281,13 +1343,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const seen = seenOf(progress, new Set(progress.offers.flatMap((o) => o.ids)));
     const stations: Station[] = TECHS.map((t) => {
       // Pieces (kits and industries among them) and props as their tray pictures, as the tray shows them (a thing's id
-      // is its tray key); their drawings stand in till those are drawn. Cars as their drawings.
+      // is its tray key); their drawings stand in till those are drawn. A car as its tray card's picture (the car on its
+      // own, in its own look), its drawing standing in.
       const makes: Station["makes"] = unlocksOf(t.id).map((x) =>
         x.startsWith("piece:")
           ? { label: ruleOf(x)!.label, icon: pieceIcon(x.slice(6) as PieceTypeId), picture: x }
           : x.startsWith("prop:")
             ? { label: ruleOf(x)!.label, icon: `<span class="bp-pending"></span>`, picture: x }
-            : { label: ruleOf(x)!.label, icon: trainIcon([x.slice(4) as CarKind]) },
+            : { label: ruleOf(x)!.label, icon: trainIcon([x.slice(4) as CarKind]), picture: carPictureKey(x.slice(4) as CarKind) },
       );
       if (t.feature) makes.push({ label: t.feature.label, icon: `<span class="bp-feature">${t.feature.icon}</span>` });
       if (makes.length === 0) makes.push({ label: t.brings, icon: `<span class="bp-feature">✨</span>` });
@@ -2436,6 +2499,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     interaction.siteRule = mode === "game" ? (type, pose) => siteWhy(game.landscape, type, pose) ?? haltWhy(game.landscape, type, pose) : null;
     // A drawn line uses only the pieces in the toy box (Game mode).
     interaction.draw.stock = mode === "game" ? pieceStock : null;
+    interaction.draw.unlearned = mode === "game" ? pieceUnlearned : null;
     if (mode === "game") {
       ensureGameModels();
       townLife.reset();

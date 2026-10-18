@@ -7,11 +7,11 @@ import { setRim } from "../render/materials";
 import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
-import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
+import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
-import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
+import { checkProp, propsInRect, PROP_MESSAGES, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
@@ -26,6 +26,7 @@ import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
+import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
 import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch-hold";
@@ -411,7 +412,7 @@ export class Interaction {
     this.roads = new RoadHand(game, hud, editor, () => this.onRefused?.(), () => this.onPlaced?.(false));
     this.draw = new DrawHand(game, editor, {
       placement: (type, flipped, pose, y) => this.placement(type, flipped, pose, y, -1),
-      message: (reason) => (reason === "site" ? this.siteWhy : (BLOCK_MESSAGES[reason as BlockReason] ?? reason)),
+      message: (reason) => this.blockMessage(reason as PlaceBlock) ?? reason,
       planeAt: (x, y, h) => this.planeAt(x, y, h),
       toScreen: (v) => {
         const p = v.clone().project(game.camera);
@@ -608,6 +609,7 @@ export class Interaction {
     if (on) {
       // The first stroke shouldn't be the one the drawing code is compiled on (see `warmDrawing`): when idle, once.
       whenIdle(() => warmDrawing());
+      this.draw.warm(whenIdle);
       this.arm(null);
       this.clearSelection();
       this.hud.hideCards();
@@ -1823,19 +1825,25 @@ export class Interaction {
     this.onTurned?.();
   }
 
-  /** Why a piece can't go here (the landscape, or another piece in the way), or null when it can. */
+  /** Why a piece can't go here (the landscape, or another piece in the way), or null when it can (see `trackBlock`). */
   private blockedBy(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): BlockReason | null {
-    const c = checkPlacement(this.game.landscape, type, flipped, pose, y);
-    if (c.kind === "blocked") return c.reason;
-    // Bridges' and raised ramps' arches are solid down to the ground (but for their openings).
-    const g = this.game;
-    const arches = { mine: bridgeLevels(g.landscape, type, flipped, pose, y) * RISER_HEIGHT, of: (p: PlacedPiece) => g.bridgeLevelsOf(p) * RISER_HEIGHT };
-    if (findOverlap(g.layout, type, flipped, pose, y, ignoreId, arches) !== -1) return "piece";
-    if (findLowCrossing(g.layout, type, flipped, pose, y, ignoreId) !== -1) return "headroom";
-    if (pieceHitsProp(g.props, g.propLibrary.footprint, type, flipped, pose)) return "prop";
-    // A ramp cutting into a hill mustn't take the ground from under other track.
-    return cutUndermines(g.landscape, g.layout, type, flipped, pose, y, ignoreId) === -1 ? null : "undercut";
+    return trackBlock(this.rules, type, flipped, pose, y, ignoreId);
   }
+
+  /** The track's own placement rules, on the map as it is now (see `TrackRules`). */
+  private readonly rules: TrackRules = ((self: Interaction): TrackRules => ({
+    // (Read when asked: a new map replaces the landscape and layout.)
+    get land() {
+      return self.game.landscape;
+    },
+    get layout() {
+      return self.game.layout;
+    },
+    get props() {
+      return self.game.props;
+    },
+    footprint: (asset: string) => self.game.propLibrary.footprint(asset),
+  }))(this);
 
   /**
    * Can a piece go here, and what holds it up: null and the risers to add under ends in the air, or why not (the
@@ -1851,12 +1859,8 @@ export class Interaction {
     // A depot's yard and buildings beside its track need room too; other track keeps out of a player's depot's yard.
     const yard = this.yardBlock(type, pose, y, ignoreId) ?? this.inYard(type, flipped, pose, y, ignoreId);
     if (yard) return { reason: yard, risers: [] };
-    const s = checkSupport(this.game.landscape, this.game.layout, type, flipped, pose, y, ignoreId);
-    if (s.kind === "unsupported") return { reason: "unsupported", risers: [] };
-    for (const r of s.risers) {
-      const why = this.blockedBy("riser", false, r.pose, r.y, ignoreId);
-      if (why) return { reason: why, risers: [] };
-    }
+    const s = trackSupport(this.rules, type, flipped, pose, y, ignoreId);
+    if (s.reason) return { reason: s.reason, risers: [] };
     const site = this.siteRule?.(type, pose) ?? null;
     if (site) {
       this.siteWhy = site;
