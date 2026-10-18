@@ -1,6 +1,7 @@
 import { BufferAttribute, BufferGeometry, Color, Group, Mesh, type Material } from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { shadowProxyMesh } from "./blocks";
+import { nonIndexed } from "../non-indexed";
 
 /** Parts smaller than this every way (mm) cast no shadow of their own: window frames, sills, signs' letters. */
 const STAND_IN_MIN = 8;
@@ -69,7 +70,7 @@ export class Batcher {
     const bucket = paintColor ? this.paint! : material;
     let list = this.buckets.get(bucket);
     if (!list) this.buckets.set(bucket, (list = []));
-    const g = geometry.index ? geometry.toNonIndexed() : geometry;
+    const g = nonIndexed(geometry);
     if (this.withStandIns) {
       const stand = partStandIn(g);
       if (stand) this.standIns.push(stand);

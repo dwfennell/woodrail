@@ -17,6 +17,12 @@ describe("what a drag moves", () => {
       expect(dragMoves(target, true, "mouse"), target).toBe(true);
     }
   });
+
+  it("cargo (never selected): a mouse drags it off its pile at once; a finger or pen pans (QA: a pan from the sawmill's goods pile carried planks off)", () => {
+    expect(dragMoves("cargo", false, "mouse")).toBe(true);
+    expect(dragMoves("cargo", false, "touch")).toBe(false);
+    expect(dragMoves("cargo", false, "pen")).toBe(false);
+  });
 });
 
 describe("how far a press moves before it's a drag", () => {

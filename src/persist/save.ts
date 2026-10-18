@@ -10,10 +10,13 @@ import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, type Sto
 
 /** The biggest pile any depot keeps (a warehouse's). */
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
+/** The fastest a train is saved going (mm/s): well over any engine's top speed. */
+const MAX_SAVED_SPEED = 1000;
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
 import { getPieceDef, kitOf, Layout, MAX_CONNECTORS, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
 import { joinSavedLine, LINE_COLOURS } from "../game/lines";
+import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
 /**
@@ -62,6 +65,8 @@ const trainSchema = z.object({
     reversed: z.boolean(),
     s: z.number().finite(),
   }),
+  /** How fast it was going (mm/s; optional: older saves, and trains standing, load at rest). */
+  speed: z.number().min(0).max(MAX_SAVED_SPEED).optional(),
 });
 
 const saveSchema = z.object({
@@ -193,6 +198,7 @@ export function serializeWorld(world: World): SaveData {
         };
       }),
       lead: { ...t.bogies[0] },
+      ...(t.speed > 0 && !t.derailed ? { speed: Math.min(MAX_SAVED_SPEED, Math.round(t.speed * 100) / 100) } : {}),
     };
   });
   return {
@@ -303,6 +309,8 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     const placed = putBack(sim, layout, t.cars.map((c) => c.kind), t.lead);
     if (placed.kind !== "placed") continue;
     const train = sim.getTrain(placed.trainId)!;
+    // Running on as it was (only where it was saved: a train put back elsewhere starts at rest).
+    if (t.speed && train.bogies[0].pieceId === t.lead.pieceId && Math.abs(train.bogies[0].s - t.lead.s) < 1e-6) train.speed = t.speed;
     train.cars.forEach((car, i) => {
       if (t.cars[i].facing === -1) sim.flipCar(car.id);
       const look = t.cars[i].look;
@@ -471,5 +479,56 @@ export function loadProgress(): unknown {
     return raw === null ? undefined : JSON.parse(raw);
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * What goes on beside a mode's railway, saved with it (not in the save format: nothing in the world depends on it): the
+ * game's clock (seconds played, the Journal's times are on it), whether it was paused, and the Journal.
+ */
+const sessionSchema = z.object({
+  clock: z.number().min(0).finite(),
+  paused: z.boolean(),
+  journal: z.object({
+    entries: z
+      .array(
+        z.object({
+          kind: z.enum(["event", "milestone"]),
+          text: z.string().max(2000),
+          place: z.object({ x: z.number().finite(), z: z.number().finite(), points: z.array(z.object({ x: z.number().finite(), z: z.number().finite() })).max(64).optional() }).optional(),
+          time: z.number().finite(),
+          key: z.string().max(500).optional(),
+          count: z.number().int().min(1),
+          qty: z.number().finite(),
+          seq: z.number().int().min(0),
+        }),
+      )
+      .max(JOURNAL_CAP),
+    seq: z.number().int().min(0),
+    readSeq: z.number().int().min(0),
+  }),
+});
+
+export type SessionData = z.infer<typeof sessionSchema>;
+
+const sessionKey = (mode: GameMode): string => `${STORAGE_KEYS[mode]}.session`;
+
+export function saveSession(mode: GameMode, data: SessionData): void {
+  try {
+    localStorage.setItem(sessionKey(mode), JSON.stringify(data));
+  } catch {
+    // storage unavailable: the clock and the Journal start afresh next time
+  }
+}
+
+/** A mode's saved session, or null (none, or it can't be read: start afresh). */
+export function loadSession(mode: GameMode): SessionData | null {
+  try {
+    const raw = localStorage.getItem(sessionKey(mode));
+    if (raw === null) return null;
+    const parsed = sessionSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
   }
 }

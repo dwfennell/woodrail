@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { checkPlacement, FEAT_BUILDING, FEAT_FIELD, gridWithPlots, SURF_RIVER, SURF_SEA, type Landscape } from "../landscape";
+import { checkPlacement, FEAT_BUILDING, FEAT_FIELD, FEAT_SHED, gridWithPlots, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_SEA, SURF_TOWN, type Landscape } from "../landscape";
 import { PropStore } from "../props/store";
 import { appendPiece, connectorRef, findSplice, Layout, type PieceTypeId, type Pose } from "../track";
-import { checkYard, flipHint, footprintInYards, inYardMessage, placedYard, trackInYards, townMessage, turnedRound, YARD_FLIP_HINT, YARD_NO_ROOM, yardMessage, yardParts, type PlacedYard, type YardCheck } from "./depot-footprint";
+import { checkYard, flipHint, footprintInYards, inYardMessage, placedYard, propPhrase, trackInYards, townMessage, turnedRound, YARD_FLIP_HINT, YARD_NO_ROOM, yardMessage, yardParts, type PlacedYard, type YardCheck, type YardObstacle } from "./depot-footprint";
 
 function flat(): Landscape {
   return { seed: 0, starter: false, grid: gridWithPlots(-1, -1, 2, 2), towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
@@ -155,6 +155,75 @@ describe("a depot dropped onto a line", () => {
     const ignore = new Set(s.covers);
     expect(checkYard(ctx, "depot-workshop", s.pose, s.y, ignore)).toBe("yard-hill");
     expect(checkYard(ctx, "depot-workshop", turnedRound("depot-workshop", s.pose), s.y, ignore)).toBe("yard-water");
+  });
+});
+
+describe("a yard's refusal says what's in the way", () => {
+  /** The message for the workshop at `pose`, as the game says it. */
+  const say = (ctx: YardCheck, type: PieceTypeId = "depot-workshop", pose: Pose = AT): string | null => {
+    const out: YardObstacle = { what: null };
+    const why = checkYard(ctx, type, pose, 0, -1, out);
+    return why && yardMessage(type, why, out.what);
+  };
+
+  it("names what's on the ground: a house, a field, the shed, the town, a road, a lane, the river, the sea, a hill", () => {
+    const cases: [number | null, number | null, number | null, string][] = [
+      [FEAT_BUILDING, null, null, "The workshop's yard needs open ground: a house is in the way"],
+      [FEAT_FIELD, null, null, "The workshop's yard needs open ground: a field is in the way"],
+      [FEAT_SHED, null, null, "The workshop's yard needs open ground: the engine shed is in the way"],
+      [null, SURF_TOWN, null, "The workshop's yard needs open ground: the town is in the way"],
+      [null, SURF_ROAD, null, "The workshop's yard needs open ground: a road is in the way"],
+      [null, SURF_LANE, null, "The workshop's yard needs open ground: a lane is in the way"],
+      [null, SURF_RIVER, null, "The workshop's yard is in the river"],
+      [null, SURF_SEA, null, "The workshop's yard is in the sea"],
+      [null, null, 1, "The workshop's yard is on a hill"],
+    ];
+    for (const [feature, surface, height, message] of cases) {
+      const ctx = setup();
+      setCells(ctx.land, 100, 110, 60, 70, (i) => {
+        if (feature !== null) ctx.land.grid.feature[i] = feature;
+        if (surface !== null) ctx.land.grid.surface[i] = surface;
+        if (height !== null) ctx.land.grid.height[i] = height;
+      });
+      expect(say(ctx), message).toBe(message);
+    }
+    // Past the map's edge.
+    expect(say(setup(), "depot-workshop", P(1e5, 0))).toBe("The workshop's yard needs open ground: the edge of the map is in the way");
+  });
+
+  it("names a prop, other track, or another yard", () => {
+    const tree = setup();
+    tree.props.add("scene-apple-tree", { x: 60, z: 90, heading: 0, y: 0 });
+    expect(say(tree)).toBe("The workshop's yard needs open ground: a tree is in the way");
+    const barn = setup();
+    barn.props.add("bldg-red-barn", { x: 60, z: 90, heading: 0, y: 0 });
+    expect(say(barn)).toBe("The workshop's yard needs open ground: a red barn is in the way");
+    expect(propPhrase({ asset: "bldg-apartment-block" })).toBe("an apartment block");
+    expect(propPhrase({ asset: "life-swans" })).toBe("swans");
+    expect(propPhrase({ asset: "veh-town-bus" })).toBe("a town bus");
+    const ducks = setup();
+    ducks.props.add("life-ducks", { x: 60, z: 90, heading: 0, y: 0 });
+    expect(say(ducks)).toBe("The workshop's yard needs open ground: ducks are in the way");
+
+    const track = setup();
+    track.layout.addPiece("straight-216", P(0, 80));
+    expect(say(track)).toBe("The workshop's yard needs open ground: the track is in the way");
+    const depots = setup();
+    depots.layout.addPiece("depot-sawmill", P(100, 0));
+    expect(say(depots, "depot-workshop", P(0, 10))).toBe("The workshop's yard needs open ground: the sawmill's yard is in the way");
+    // With nothing said, the message is as it was.
+    expect(yardMessage("depot-workshop", "yard-ground")).toBe("The workshop's yard needs open ground");
+    expect(yardMessage("depot-workshop", "yard-water")).toBe("The workshop's yard is in the water");
+  });
+
+  it("and for the crane's legs", () => {
+    const ctx = setup();
+    ctx.props.add("rock", { x: 108, z: 31 - 25, heading: 0, y: 0 });
+    ctx.footprint = () => ({ cx: 0, cz: 0, hw: 2, hd: 2 });
+    expect(say(ctx, "depot-sawmill", P(0, 31))).toBe("The crane's legs need open ground: a rock is in the way");
+    const water = setup();
+    setCells(water.land, 100, 116, 150, 160, (i) => (water.land.grid.surface[i] = SURF_RIVER));
+    expect(say(water, "depot-sawmill", P(0, 31))).toBe("The crane's legs are in the river");
   });
 });
 

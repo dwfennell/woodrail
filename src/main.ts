@@ -7,7 +7,7 @@ import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
-import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, OLDER_SAVE, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
+import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, OLDER_SAVE, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { makesLine } from "./game/learn-text";
@@ -134,7 +134,7 @@ function linkedSeed(): number | null {
 /** The autosave was from an older version of the game (turned away: a fresh map instead). The game says so. */
 let olderSave = false;
 
-function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean } {
+function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean; fromSave: boolean } {
   const seed = linkedSeed();
   const mode = seed !== null ? "sandbox" : loadLastMode();
   // Reloaded from play (graphics switched, an update taken): straight back into the game, past the title.
@@ -144,9 +144,9 @@ function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean } {
   if (saved && !saved.ok && saved.error === OLDER_SAVE) olderSave = true;
   if (seed !== null) {
     const same = saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter;
-    return { world: same ? saved.value : createWorld(seed), mode, linked: true };
+    return { world: same ? saved.value : createWorld(seed), mode, linked: true, fromSave: !!same };
   }
-  return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: resumed };
+  return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: resumed, fromSave: !!saved?.ok };
 }
 
 const RESUME_KEY = "woodrail.resume";
@@ -780,7 +780,25 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function save(): void {
     if (!playing) return;
     saveToStorage(game.world, mode);
+    saveSession(mode, { clock: game.simSeconds, paused: game.paused, journal: journal.toJSON() });
     if (mode === "game") saveProgress(progress.toJSON());
+  }
+
+  /**
+   * The world just loaded is the mode's saved one (`fromSave`): its clock, pause and Journal back as they were saved
+   * with it; else (a fresh map) they start afresh, the pause as it was.
+   */
+  function restoreSession(m: GameMode, fromSave: boolean): void {
+    const s = fromSave ? loadSession(m) : null;
+    game.simSeconds = s?.clock ?? 0;
+    if (s) journal.restore(s.journal);
+    else journal.clear();
+    if (s) {
+      game.paused = s.paused;
+      pausedBeforeTitle = s.paused;
+      hud.setPaused(s.paused);
+    }
+    goalsPanel.newsChanged();
   }
   /** False while the title is up. */
   let playing = false;
@@ -2719,12 +2737,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     leaving = false;
     if (fresh && next === "game") resetGoals();
     if (fresh) saveLastBuilt(next, null);
-    if (fresh) setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
-    else if (next !== mode) {
+    if (fresh) {
+      setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
+      restoreSession(next, false);
+    } else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
       if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
       setWorld(saved?.ok ? saved.value : buildStarterWorld());
+      restoreSession(next, !!saved?.ok);
     }
     enter(next);
     openingView();
@@ -3123,6 +3144,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         }),
     });
   }
+  restoreSession(mode, opening.fromSave);
   // The loading screen's toys play their entry in full before it moves on (it's short, and capped).
   void entryPlayed().then(() => {
     trayThumbnailsSaved = drawTrayThumbnails();

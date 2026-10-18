@@ -881,6 +881,18 @@ export class Sim {
     return brakeTo(room);
   }
 
+  /** Is this train standing at a lift's end, held there for it (`liftState` "waiting", not on it)? */
+  private waitsForLift(t: Train): boolean {
+    return drive(t) !== 0 && !this.onLift(t) && this.liftCap(t, false) === 0;
+  }
+
+  /** Is any of this train on a lift's platform? */
+  private onLift(t: Train): boolean {
+    if (!this.lifts || this.lifts.length === 0) return false;
+    for (const b of t.bogies) if (this.liftDef(b.pieceId)) return true;
+    return false;
+  }
+
   /** Is a train other than `me` on this lift? */
   private liftBusy(pieceId: number, me: Train): boolean {
     for (const t of this.trains.values()) {
@@ -1350,6 +1362,14 @@ export class Sim {
           const closing = a.speed + (front ? b.speed : -b.speed);
           if (closing <= 0) continue;
           if (front && hasEngine(a) && hasEngine(b)) {
+            // Coming off a lift into a train standing at its end, waiting for it: the one waiting gives way (it turns
+            // back, and the other comes off). Else the one coming off would turn back onto the lift and ride round
+            // again, and the one waiting never get on.
+            if (b.speed === 0 && this.waitsForLift(b) && this.onLift(a)) {
+              a.speed = 0;
+              this.meet(b);
+              continue;
+            }
             // Head on, engine against engine: like the end of the line, each stops, waits, and turns back (coupled,
             // their engines would only push against each other). Wagons met end to end are coupled on (below), so an
             // engine backing into the wagons it left picks them up again.

@@ -4,7 +4,8 @@ import { appendPiece, connectorRef, LIFT_RISE } from "../track";
 import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape";
 import { encodeRoad, pieceOf } from "../roads";
 import { SIM_DT, SIM_HZ } from "../sim";
-import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, OLDER_SAVE, SAVE_VERSION, saveToStorage, serializeWorld, type SaveData } from "./save";
+import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, loadSession, OLDER_SAVE, SAVE_VERSION, saveSession, saveToStorage, serializeWorld, type SaveData } from "./save";
+import { Journal } from "../game/journal";
 import { editLine, lineOf } from "../game/lines";
 import { CARGO_KINDS } from "../economy";
 
@@ -86,6 +87,56 @@ describe("save format", () => {
     const r = deserializeWorld(data);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toBe(OLDER_SAVE);
+  });
+
+  it("keeps a running train's speed: it carries on as fast, not from a standstill (and a standing train stands)", () => {
+    const world = worldWithTrain();
+    for (let i = 0; i < 3 / SIM_DT; i++) world.sim.tick();
+    const before = world.sim.getTrain(world.sim.trainIds()[0])!;
+    expect(before.speed).toBeGreaterThan(50);
+    const data = serializeWorld(world);
+    const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.sim.getTrain(r.value.sim.trainIds()[0])!.speed).toBeCloseTo(before.speed, 1);
+    // A save without speeds (older, or every train standing) loads them at rest.
+    delete data.trains[0].speed;
+    const old = deserializeWorld(JSON.parse(JSON.stringify(data)));
+    expect(old.ok && old.value.sim.getTrain(old.value.sim.trainIds()[0])!.speed).toBe(0);
+  });
+
+  it("keeps the game's clock, its pause and the Journal beside a mode's autosave", () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
+    try {
+      let now = 0;
+      const journal = new Journal(() => now);
+      for (let i = 0; i < 32; i++) {
+        now = i * 70_000;
+        journal.add({ kind: "event", text: `Delivered ${i}`, key: `d${i % 3}`, qty: 2, place: { x: i, z: 10 - i } });
+      }
+      journal.markRead();
+      journal.add({ kind: "milestone", text: "Larkfield grew" });
+      expect(journal.unread).toBe(1);
+      saveSession("game", { clock: 2240.5, paused: true, journal: journal.toJSON() });
+      expect(loadSession("sandbox")).toBeNull();
+      const s = loadSession("game")!;
+      expect(s.clock).toBe(2240.5);
+      expect(s.paused).toBe(true);
+      const back = new Journal(() => now);
+      back.restore(s.journal);
+      expect(JSON.parse(JSON.stringify(back.entries))).toEqual(JSON.parse(JSON.stringify(journal.entries)));
+      expect(back.unread).toBe(1);
+      // News after loading counts as unread, on top.
+      back.add({ kind: "event", text: "More" });
+      expect(back.unread).toBe(2);
+      expect(back.entries[0].text).toBe("More");
+      // Damaged: none (start afresh), not a throw.
+      store.set("woodrail.game.v2.session", "{");
+      expect(loadSession("game")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("an older autosave is kept aside under a backup key (not overwritten by the fresh map's), and the title knows", () => {
