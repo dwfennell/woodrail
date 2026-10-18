@@ -786,7 +786,10 @@ async function qaReplay() {
     { name: "slant -23 back", x: -36, z: -1620, h: 2.7401669256310974, total: 972, back: true, cam: [-477.8, -1432.4, 3662.2] },
     { name: "slant 10 there", x: -180, z: -1620, h: 2.5307274153917776, total: 852, back: false, cam: [-524, -1379.1, 3662.2] },
     { name: "slant 40 back (the clean case)", x: -252, z: -1620, h: 2.2689280275926285, total: 852, back: true, cam: [-522, -1298.3, 3662.2] },
-    { name: "terrace: a level up, then another", terrace: true },
+    { name: "terrace: a level up, then another", terrace: true, lanes: [0] },
+    // QA's second terrace site (three lanes: heading 180°, a square a level up, then another): a ramp at the first
+    // rise, and never "too sharp" on a straight stroke.
+    { name: "terrace 2: a square a level up, then another", terrace: true, lanes: [-25, 0, 25], noTurn: true },
   ];
   for (const c of cases) {
     // A fresh page for each, as QA ran them.
@@ -819,7 +822,7 @@ async function qaReplay() {
     const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
     // The terrace: QA's search (one lane) for a level up then another, at 135°.
     const run = c.terrace
-      ? await q.evaluate(() => {
+      ? await q.evaluate((lanes) => {
           const segs = [["g0", 250, 450], ["h1", 36, 200], ["h2", 72, 400]];
           const w = window.woodrail;
           const G = w.landscape.grid;
@@ -847,7 +850,7 @@ async function qaReplay() {
                 while (len < mx) {
                   const x = ox + fx * (d + len);
                   const z = oz + fz * (d + len);
-                  if (kindAt(x, z) !== kind || pcs.some((p) => Math.hypot(p.x - x, p.z - z) < 140)) break;
+                  if (lanes.some((sd) => kindAt(x - fz * sd, z + fx * sd) !== kind) || pcs.some((p) => Math.hypot(p.x - x, p.z - z) < 140)) break;
                   len += 12;
                 }
                 if (len < mn) {
@@ -859,7 +862,7 @@ async function qaReplay() {
               if (ok) return { x: ox, z: oz, h, total: d, back: false };
             }
           return null;
-        })
+        }, c.lanes)
       : c;
     if (!run) {
       check(`QA replay, ${c.name}: found its run`, false);
@@ -897,38 +900,43 @@ async function qaReplay() {
       }
       return project();
     }, [run, c.cam ?? null]);
-    await q.evaluate(() => {
-      window.__toasts.splice(0);
-      window.__moves.splice(0);
-    });
-    const ids0 = await q.evaluate(() => [...window.woodrail.layout.pieceIds()]);
-    await touch("touchStart", screen[0][0], screen[0][1]);
-    for (let i = 1; i < screen.length; i++) {
-      const [ax, ay] = screen[i - 1];
-      const [bx, by] = screen[i];
-      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
-      for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
-    }
-    await touch("touchEnd", 0, 0);
-    await settled(q);
-    await shot(q, `${OUT}/draw-9-qa-${c.name.replace(/[^a-z0-9]+/gi, "-")}.png`);
-    const got = await q.evaluate(async ([ids0]) => {
-      const w = window.woodrail;
-      const { connectorRef, createWorldConnector } = await import("/src/track/layout.ts");
-      const was = new Set(ids0);
-      const ids = [...w.layout.pieceIds()].filter((id) => !was.has(id));
-      const cn = createWorldConnector();
-      const ends = [];
-      for (const id of ids)
-        for (let k = 0; k < 2; k++) {
-          const ref = connectorRef(id, k);
-          if (w.layout.joinedConnector(ref) !== -1) continue;
-          w.layout.worldConnector(ref, cn);
-          ends.push(cn.y);
-        }
-      const moves = window.__moves.slice().sort((a, b) => a - b);
-      return { types: ids.map((id) => w.layout.getPiece(id).type), ends, toasts: window.__toasts.splice(0), worst: moves[moves.length - 1] ?? 0, p95: moves[Math.floor(moves.length * 0.95)] ?? 0 };
-    }, [ids0]);
+    /** The stroke, and what it laid (the new pieces, their free ends' heights, toasts, DrawHand.move's times). */
+    const strokeOnce = async (shotName) => {
+      await q.evaluate(() => {
+        window.__toasts.splice(0);
+        window.__moves.splice(0);
+      });
+      const ids0 = await q.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+      await touch("touchStart", screen[0][0], screen[0][1]);
+      for (let i = 1; i < screen.length; i++) {
+        const [ax, ay] = screen[i - 1];
+        const [bx, by] = screen[i];
+        const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
+        for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+      }
+      await touch("touchEnd", 0, 0);
+      await settled(q);
+      await shot(q, `${OUT}/draw-9-qa-${c.name.replace(/[^a-z0-9]+/gi, "-")}${shotName}.png`);
+      const got = await q.evaluate(async ([ids0]) => {
+        const w = window.woodrail;
+        const { connectorRef, createWorldConnector } = await import("/src/track/layout.ts");
+        const was = new Set(ids0);
+        const ids = [...w.layout.pieceIds()].filter((id) => !was.has(id));
+        const cn = createWorldConnector();
+        const ends = [];
+        for (const id of ids)
+          for (let k = 0; k < 2; k++) {
+            const ref = connectorRef(id, k);
+            if (w.layout.joinedConnector(ref) !== -1) continue;
+            w.layout.worldConnector(ref, cn);
+            ends.push(cn.y);
+          }
+        const moves = window.__moves.slice().sort((a, b) => a - b);
+        return { types: ids.map((id) => w.layout.getPiece(id).type), ends, toasts: window.__toasts.splice(0), worst: moves[moves.length - 1] ?? 0, p95: moves[Math.floor(moves.length * 0.95)] ?? 0 };
+      }, [ids0]);
+      return got;
+    };
+    const got = await strokeOnce("");
     const what = `${got.types.join(" ")}${got.toasts.length ? ` · toasts: ${got.toasts.join(" | ")}` : ""} · move worst ${got.worst.toFixed(1)} ms, p95 ${got.p95.toFixed(1)} ms`;
     if (!c.terrace) {
       const ok = got.types.includes("bridge") && !got.types.includes("bridge-curve") && got.ends.length === 2 && got.ends.every((y) => y <= 1);
@@ -938,7 +946,13 @@ async function qaReplay() {
       check(`QA replay, ${c.name}: no move over 16 ms`, got.worst < 16, what);
     } else {
       check(`QA replay, ${c.name}: climbs (a ramp), and no move over 16 ms`, got.types.includes("ramp") && got.worst < 16, what);
+      if (c.noTurn) check(`QA replay, ${c.name}: no curve, and never "too sharp"`, !got.types.some((t) => t.startsWith("curve")) && !got.toasts.some((t) => /too sharp/i.test(t)), what);
     }
+
+    // Again, warm (QA saw one warm move take 35.9 ms at the ramp and bridge's choice): the same stroke after an undo.
+    if (got.types.length) await q.evaluate(() => window.woodrail.interaction.undo());
+    const warm = await strokeOnce("-warm");
+    check(`QA replay, ${c.name}: warm, no move over 16 ms`, warm.worst < 16, `${warm.types.join(" ")} · move worst ${warm.worst.toFixed(1)} ms, p95 ${warm.p95.toFixed(1)} ms`);
     await ctx.close();
   }
 }

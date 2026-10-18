@@ -302,6 +302,8 @@ export class DrawLine {
    * bridges), then a ramp down; and how many bridges are down.
    */
   private crossing: { heading: number; phase: "turn" | "run" | "over"; bridges: number } | null = null;
+  /** Come off a crossing and not yet back in a straight stroke's band (see `chooseFlat`). */
+  private offBand = false;
   /** The special piece the piece being placed needed but may not use (see `want`), or null. */
   private wanted: PieceTypeId | null = null;
 
@@ -444,13 +446,30 @@ export class DrawLine {
   addSeen(read: (height: number) => { x: number; z: number } | null): { p: { x: number; z: number } | null; changed: boolean } {
     const e = this.end;
     if (e.y !== this.seen && this.resting(e)) {
-      const was = read(this.seen);
-      const now = read(e.y);
+      const was = this.onGround(read, this.seen);
+      const now = this.onGround(read, e.y);
       if (was && now) this.shiftAhead(now.x - was.x, now.z - was.z);
       this.seen = e.y;
     }
-    const p = read(this.seen);
+    const p = this.onGround(read, this.seen);
     return { p, changed: p ? this.addPoint(p.x, p.z) : false };
+  }
+
+  /**
+   * The finger read at a height, or on the ground under it where that's higher (a hill ahead of the line, the finger
+   * over its top: read on the plane at the line's height, it was seen beyond the hill, and the stroke doubled back
+   * where it crossed onto it, a "too sharp" stall, QA N2). Two steps of looking at the ground under the point.
+   */
+  private onGround(read: (height: number) => { x: number; z: number } | null, height: number): { x: number; z: number } | null {
+    const groundAt = this.options.groundAt;
+    let p = read(height);
+    for (let k = 0; k < 2 && p && groundAt; k++) {
+      const g = groundAt(p.x, p.z);
+      if (g <= height + 1) break;
+      height = g;
+      p = read(height);
+    }
+    return p;
   }
 
   /** Does the line's end rest on the ground (not up on arches, a ramp's own support, or risers)? Yes if the ground isn't known. */
@@ -860,6 +879,7 @@ export class DrawLine {
     if (c.bridges > 0 && down && dry(RAMP_LENGTH + APPROACH_SLACK + 48) && !check(down)) {
       this.lay(down, this.alongStroke(down), false, null);
       this.crossing = null;
+      this.offBand = true;
       return true;
     }
     const b = candidatesFrom(e, ["bridge"])[0];
@@ -1144,6 +1164,10 @@ export class DrawLine {
     // starting tilts the chord a little, so not quite its way).
     const y0 = (end.z - c.z) * c.ux - (end.x - c.x) * c.uz;
     if (Math.abs(normalizeAngle(end.heading - theta)) < FLAT_ON_H && Math.abs(y0) < FLAT_ON_D) return undefined;
+    // Out of the band altogether, come off a river crossing (which keeps to its eighth): the usual scoring steers it
+    // back to the finger (the band's plans would sooner stop, finishing, than pay to come back in).
+    if (this.offBand && Math.abs(y0) > BAND) return undefined;
+    this.offBand = false;
     let atLo: boolean;
     if (Math.abs(normalizeAngle(end.heading - lo)) < 0.01) atLo = true;
     else if (Math.abs(normalizeAngle(end.heading - lo - EIGHTH)) < 0.01) atLo = false;
