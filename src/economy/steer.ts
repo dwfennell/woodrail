@@ -124,22 +124,23 @@ function avoided(layout: Layout, pieceId: number, way: { path: number; exit: num
   return !!n && waysFrom(layout, n.pieceId, n.entry).some((w) => avoid(n.pieceId, w.path));
 }
 
-/** `wayToward`, passing over avoided ways while another still reaches `target`. */
-function chooseWay(
+/** `wayToward`, passing over avoided ways while another still reaches `target` (as `steer` chooses; `dist` as for `wayToward`). */
+export function chooseWay(
   layout: Layout,
   pieceId: number,
   ways: readonly { option: number; path: number; exit: number }[],
   target: number,
   avoid: AvoidTest | undefined,
+  dist?: (at: { pieceId: number; entry: number }) => number,
 ): number {
   if (avoid) {
     const kept = ways.filter((w) => !avoided(layout, pieceId, w, avoid));
     if (kept.length > 0 && kept.length < ways.length) {
-      const best = wayToward(layout, pieceId, kept, target);
+      const best = wayToward(layout, pieceId, kept, target, dist);
       if (best !== -1) return best;
     }
   }
-  return wayToward(layout, pieceId, ways, target);
+  return wayToward(layout, pieceId, ways, target, dist);
 }
 
 /**
@@ -151,8 +152,19 @@ function chooseWay(
  * on): at the switch, a way whose path through it, or a path just after it, is avoided is passed over, so long as
  * another way still reaches `target`; if none does, the hint is ignored (a train is never stranded by it). Without it,
  * the choice is the same as ever.
+ *
+ * `follow` (the way a train has been given, such as the track it holds a claim on): at the switch, if exactly one
+ * way's path through it is followed, that way is taken, whatever the distance (it beats `avoid`). Otherwise the choice
+ * is as without it. A pinned switch still offers one way (`waysFrom`), so it wins over both.
  */
-export function steer(layout: Layout, train: Train, forward: boolean, target: number, avoid?: AvoidTest): boolean {
+export function steer(
+  layout: Layout,
+  train: Train,
+  forward: boolean,
+  target: number,
+  avoid?: AvoidTest,
+  follow?: AvoidTest,
+): boolean {
   // The cursor at the train's front, pointing the way it goes.
   const b = forward ? train.bogies[0] : train.bogies[train.bogies.length - 1];
   const c: Cursor = { ...b };
@@ -168,7 +180,8 @@ export function steer(layout: Layout, train: Train, forward: boolean, target: nu
     if (!n || n.pieceId === target) return false;
     const ways = waysFrom(layout, n.pieceId, n.entry);
     if (ways.length > 1) {
-      const best = chooseWay(layout, n.pieceId, ways, target, avoid);
+      const followed = follow ? ways.filter((w) => follow(n.pieceId, w.path)) : [];
+      const best = followed.length === 1 ? followed[0].option : chooseWay(layout, n.pieceId, ways, target, avoid);
       if (best === -1 || layout.switchState(n.pieceId) % ways.length === best) return false;
       layout.setSwitchState(n.pieceId, best);
       return true;
