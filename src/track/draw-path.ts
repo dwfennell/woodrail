@@ -88,6 +88,8 @@ export interface DrawOptions {
    * ramp up in time (see `DrawLine.waterAhead`).
    */
   wet?: (x: number, z: number) => boolean;
+  /** Is a plan point on the map (track may go there)? A crossing keeps to it (see `DrawLine.startCrossing`). */
+  onMap?: (x: number, z: number) => boolean;
   /** What to say when the line needed a special piece (a ramp, a bridge) it may not use: "Out of ramp pieces". */
   outOf?: (type: PieceTypeId) => string;
 }
@@ -769,15 +771,16 @@ export class DrawLine {
       const cz = Math.sin(heading);
       let from = -1;
       let to = -1;
+      const onMap = this.options.onMap;
       for (let d = APPROACH_STEP; d <= CROSS_LOOK; d += APPROACH_STEP) {
+        // (Off the map before it's over the water and down again, the crossing can't go this way: a ramp's length on.)
+        if (onMap && !onMap(e.x + cx * d, e.z + cz * d)) break;
+        if (to !== -1 && d > to + RAMP_LENGTH) break;
         const w = wet(e.x + cx * d, e.z + cz * d);
         if (w && from === -1) from = d;
-        if (!w && from !== -1) {
-          to = d;
-          break;
-        }
+        if (!w && from !== -1 && to === -1) to = d;
       }
-      if (from === -1 || to === -1) continue;
+      if (from === -1 || to === -1 || (onMap && !onMap(e.x + cx * (to + RAMP_LENGTH), e.z + cz * (to + RAMP_LENGTH)))) continue;
       // Less water, nearer the stroke's way, and fewer curves to turn onto it (each needs room before the bank).
       const cost = to - from + 40 * Math.abs(normalizeAngle(heading - way)) + 100 * Math.round(Math.abs(normalizeAngle(heading - e.heading)) / EIGHTH);
       if (!best || cost < best.cost) best = { heading: normalizeAngle(heading), cost };

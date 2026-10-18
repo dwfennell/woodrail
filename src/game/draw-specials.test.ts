@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { gridWithPlots, hillMessage, hillsOf, inRiver, SURF_RIVER, syncCuttings, type BlockReason, type Landscape } from "../landscape";
 import { DrawLine, isBridge, Layout, RISER_HEIGHT, type DrawEnd, type DrawOptions, type PieceTypeId } from "../track";
+import { createWorld } from "./world";
 import { drawMessage, drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
 
 /**
@@ -37,6 +38,7 @@ function options(land: Landscape, layout = new Layout(), extra: Partial<DrawOpti
     },
     groundAt: (x, z) => hills.groundAt(x, z),
     wet: (x, z) => inRiver(land.grid, x, z),
+    onMap: (x, z) => land.grid.cellAtWorld(x, z) !== -1,
     outOf: (t) => `Out of ${t}`,
     ...extra,
   };
@@ -378,5 +380,49 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
     }
     // And at the same cost: one check for each piece laid, as before.
     expect(checks).toBe(before.join(" ").split(" ").length);
+  });
+
+  it("QA's slanted river strokes on seed 7 (their exact world lines and camera) cross square, with straight bridges, and come down", () => {
+    const world = createWorld(7);
+    const land = world.landscape;
+    const G = land.grid;
+    // QA's camera (phi 0.95 from straight down, theta −1.1659, about 3.7 m off): a point on the screen is seen this much
+    // nearer the camera, along the ground, for each mm up.
+    const theta = -1.1659;
+    const ux = Math.sin(theta);
+    const uz = Math.cos(theta);
+    const K = Math.tan(0.95);
+    // QA's exact world lines (seed 7, fresh): start, heading, length, and which way the finger went.
+    const runs: [string, number, number, number, number, boolean][] = [
+      ["slant 23 there", -36, -1620, 2.7576202181510405, 972, false],
+      ["slant 30 back", -252, -1620, 2.0943951023931953, 972, true],
+      ["slant 10 back", -180, -1620, 2.5307274153917776, 852, true],
+      ["slant -23 back", -36, -1620, 2.7401669256310974, 972, true],
+      ["slant 10 there", -180, -1620, 2.5307274153917776, 852, false],
+      ["slant 40 back (clean)", -252, -1620, 2.2689280275926285, 852, true],
+    ];
+    const fails: string[] = [];
+    for (const [label, x0, z0, h, total, back] of runs) {
+      const pts: { x: number; z: number }[] = [];
+      for (let d = 0; d <= total; d += 15) pts.push({ x: x0 + Math.cos(h) * d, z: z0 + Math.sin(h) * d });
+      if (back) pts.reverse();
+      // The finger's screen points, seen on the ground (at its height there) as QA projected them.
+      const ground = (x: number, z: number) => G.groundY(G.cellAtWorld(x, z));
+      const first = pts[0];
+      const heading = Math.atan2(pts[1].z - first.z, pts[1].x - first.x);
+      const start: DrawEnd = { x: Math.round(first.x / 18) * 18, z: Math.round(first.z / 18) * 18, heading: Math.round(heading / (Math.PI / 4)) * (Math.PI / 4), y: 0, kind: "peg" };
+      const line = new DrawLine(start, options(land, world.layout));
+      for (let i = 1; i < pts.length; i++)
+        for (let k = 1; k <= 3; k++) {
+          const x = pts[i - 1].x + ((pts[i].x - pts[i - 1].x) * k) / 3;
+          const z = pts[i - 1].z + ((pts[i].z - pts[i - 1].z) * k) / 3;
+          const g = ground(x, z);
+          line.addSeen((y) => ({ x: x + (y - g) * K * ux, z: z + (y - g) * K * uz }));
+        }
+      line.finish();
+      const ok = !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => p.type === "bridge") && !line.pieces.some((p) => p.type === "bridge-curve") && line.end.y === 0;
+      if (!ok) fails.push(`${label}: ${name(line)} [${line.pieces.at(-1)?.blockedBy} ${line.pieces.at(-1)?.blocked}] end ${line.end.x.toFixed(0)},${line.end.z.toFixed(0)}`);
+    }
+    expect(fails, fails.join("\n")).toEqual([]);
   });
 });

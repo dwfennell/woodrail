@@ -301,6 +301,7 @@ export class DrawHand {
       closes: (e) => this.closes(e),
       groundAt: (x, z) => hills.groundAt(x, z),
       wet: (x, z) => inRiver(this.game.landscape.grid, x, z),
+      onMap: (x, z) => this.game.landscape.grid.cellAtWorld(x, z) !== -1,
       outOf: (type) => this.outOf(type),
     });
   }
