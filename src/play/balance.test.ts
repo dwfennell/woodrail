@@ -821,7 +821,8 @@ class Playthrough {
     // (Past the first, not while the workshop is short of planks to build with: research takes planks off the line
     // before the workshop sees them, so a player keeps a few for track and buildings first.)
     if (this.school !== -1 && (P.researchedAt.length === 0 || P.planks() >= RESEARCH_SPARE)) {
-      const rich = s.coins >= 150;
+      // (As before research: planks and coins to spare, 24 and 150.)
+      const rich = P.planks() >= 24 && s.coins >= 150;
       // (Only what the railway can bring the goods for: Mills once there's a farm yard for its grain.)
       const made = new Set(w.economy.allDepots().flatMap((d) => RECIPES[d.role].gives));
       const feedable = (id: string) => Object.keys(researchCost(id).goods).every((k) => made.has(k as CargoKind));

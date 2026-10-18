@@ -1482,9 +1482,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // A school thinks only while its town has had a delivery lately.
       const supplied = (town: number) => performance.now() - (lastDelivered.get(town) ?? -Infinity) < SCHOOL_SUPPLIED_MS;
       const idea = schoolIdeas(progress, game.landscape, schoolClock, CRAFT_STEP * (progress.learned.has("college") ? 2 : 1), Math.random, supplied);
+      // (No note: with research, anything ready can be picked, so the board putting one on it says nothing new. The
+      // ideas themselves go in P3.)
       if (idea) {
-        const school = game.landscape.towns.find((t) => t.name === idea.from);
-        note({ kind: "event", text: `${idea.from}: ${techOf(idea.id)!.label} is on the board`, place: school && { x: school.station.x, z: school.station.z } });
         refreshBoard();
         scheduleSave();
       }
