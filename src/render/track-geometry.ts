@@ -395,7 +395,8 @@ function riserGeometry(): BufferGeometry {
  * (Unioning overlapping swept solids with CSG is pathologically slow on their coplanar faces.)
  */
 function flatBlockBody(def: PieceDef): BufferGeometry {
-  const runs = def.paths.map((p) => framesAlong(p.geom, 0, 0));
+  // A road ending at a buffer runs on past its end to carry the stop (a kit's terminus or shed: its model draws it).
+  const runs = def.paths.map((p) => framesAlong(p.geom, 0, p.to === null ? BUFFER_EXTRA : 0));
   // Double track: one board, filled in between its two lines.
   if (def.web) runs.push(framesAlong(def.web, 0, 0));
   return flatBody(runs);
@@ -411,12 +412,15 @@ function flatBody(runs: Frame[][]): BufferGeometry {
   });
   const [first, ...rest] = ribbons;
   const union = polygonClipping.union(first, ...rest);
-  const [ring, ...holes] = union[0];
-  const shape = new Shape(ring.slice(0, -1).map(([x, z]) => new Vector2(x, -z)));
-  // A loop's track encloses the felt inside it: keep that open.
-  for (const h of holes) shape.holes.push(new Path(h.slice(0, -1).map(([x, z]) => new Vector2(x, -z))));
+  // One board, or several apart (a kit's roads side by side: a shed's, a terminus's).
+  const shapes = union.map(([ring, ...holes]) => {
+    const shape = new Shape(ring.slice(0, -1).map(([x, z]) => new Vector2(x, -z)));
+    // A loop's track encloses the felt inside it: keep that open.
+    for (const h of holes) shape.holes.push(new Path(h.slice(0, -1).map(([x, z]) => new Vector2(x, -z))));
+    return shape;
+  });
   const bevel = 2;
-  const g = new ExtrudeGeometry(shape, {
+  const g = new ExtrudeGeometry(shapes, {
     depth: TRACK_THICKNESS - 2 * bevel,
     bevelEnabled: true,
     bevelThickness: bevel,

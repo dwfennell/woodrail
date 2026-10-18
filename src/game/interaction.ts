@@ -7,11 +7,11 @@ import { setRim } from "../render/materials";
 import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone } from "../render/track-view";
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
-import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
+import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, cutUndermines, checkPlacement, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
+import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type PlacedPiece, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
-import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
+import { checkProp, pieceHitsProp, propsInRect, PROP_MESSAGES, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
@@ -22,7 +22,8 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
-import { checkYard, flipHint, footprintInYards, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
+import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
+import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { warmDrawing } from "../track/draw-path";
@@ -132,6 +133,9 @@ const TRAIN_DROP_RANGE = 70;
  */
 type PlaceBlock = BlockReason | YardBlock | "in-yard" | "site" | "splice-fit" | "splice-busy" | "splice-onto";
 
+/** A crossing prop dropped this near a level crossing's middle (mm) goes onto it (see `styleCrossings`). */
+const CROSSING_DROP_REACH = 2 * STYLE_REACH;
+
 const SPLICE_MESSAGES = {
   "splice-fit": "Drop it onto a long straight",
   "splice-busy": "A train is on that straight",
@@ -140,10 +144,12 @@ const SPLICE_MESSAGES = {
 
 type Press =
   | { kind: "car"; carId: number }
-  | { kind: "lever"; pieceId: number }
+  /** A switch's lever or a signal (`road`: which of a signal piece's signals, a gantry's road; else 0). */
+  | { kind: "lever"; pieceId: number; road?: number }
   /** A stop disc of the route being planned (its index in the route). */
   | { kind: "route-stop"; index: number }
-  | { kind: "piece"; pieceId: number }
+  /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
+  | { kind: "piece"; pieceId: number; deck?: boolean }
   /** A depot's yard, building or crane (economy depot id). */
   | { kind: "depot"; depotId: number }
   /** A log or plank bundle on a pile or wagon. */
@@ -232,6 +238,8 @@ type Mode =
       looseY: number;
       /** A depot held over a line: the straights it would take the place of (it's snapped where they are), or null. */
       covers: readonly number[] | null;
+      /** Straights put down with it beside it, in the rest of a longer straight it takes half of (a 108 kit on a 216). */
+      rest: readonly Placement[] | null;
       /**
        * A depot picked up from inline (joined at both ends to plain track): the ends it was joined to, from its first
        * end's to its second's, so straights can close the gap it leaves when it goes elsewhere. Else null or absent.
@@ -520,6 +528,7 @@ export class Interaction {
         pose: { x: 0, z: 0, heading: 0 },
         looseY: 0,
         covers: null,
+        rest: null,
         blocked: null,
         risers: [],
         overTray: true,
@@ -773,6 +782,15 @@ export class Interaction {
    * The tray's Turn arrow, as seen on screen (degrees clockwise from straight up = away from the camera): which way
    * the next model faces (`props`), or the next piece runs.
    */
+  /**
+   * Is a kit piece in hand, or ready to put down with a tap (from a models shelf, whose tray shows only Turn: Flip
+   * shows too, and Turn and Flip act on the kit)?
+   */
+  get holdingKit(): boolean {
+    if (this.mode.kind === "drag-piece") return isKit(this.mode.type);
+    return this.armed?.kind === "piece" && isKit(this.armed.type);
+  }
+
   trayArrow(props: boolean): number {
     const d = new Vector3();
     this.game.camera.getWorldDirection(d);
@@ -783,7 +801,8 @@ export class Interaction {
 
   /** Tray "Turn": turns the piece in hand (if any) and every piece taken out after it (`props`: every model). */
   turnTrayPiece(props = false): void {
-    if (props || this.mode.kind === "drag-prop") {
+    // (A kit piece from a models shelf, in hand or ready, turns as a piece: the shelf's own Turn is for models.)
+    if ((props && !this.holdingKit) || this.mode.kind === "drag-prop") {
       if (this.mode.kind === "drag-prop") this.rotateSelected();
       else this.propHeading = this.nextPropHeading() + Math.PI / 4;
       return;
@@ -1327,16 +1346,18 @@ export class Interaction {
       return;
     }
     if (p.kind === "lever") {
-      // Only the points move: redrawn and saved, nothing else rebuilt (no geometry changed).
-      g.sim.toggleSwitch(p.pieceId);
-      g.trackView.syncSwitches();
-      g.invalidate();
-      this.onSwitched?.();
+      this.throwLever(p.pieceId, p.road);
+      return;
+    }
+    if (p.kind === "piece" && p.deck && !this.picking && !add) {
+      this.throwLever(p.pieceId);
       return;
     }
     if (p.kind === "piece") {
       const depot = g.economy.depotAtPiece(p.pieceId);
-      if (depot) this.openDepot(depot.id);
+      // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
+      const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type);
+      if (depot && !kitDepot) this.openDepot(depot.id);
       else if (this.fixedLabel(p.pieceId)) this.hud.toast(this.fixedLabel(p.pieceId)!);
       else if (this.picking || add) this.togglePick(p.pieceId);
       else this.selectPiece(p.pieceId);
@@ -1782,7 +1803,7 @@ export class Interaction {
    * own depots (they stand where the map put them). While a depot is held, the last answer is kept for its pose.
    */
   private yardBlock(type: PieceTypeId, pose: Pose, y: number, ignoreId: Ignore): YardBlock | null {
-    if (!INDUSTRY_ROLE[type]) return null;
+    if (!hasFootprint(type)) return null;
     const own = typeof ignoreId === "number" ? ignoreId : (ignoreId.values().next().value ?? -1);
     if (own !== -1 && this.fixedLabel(own) !== null) return null;
     const g = this.game;
@@ -1802,7 +1823,7 @@ export class Interaction {
    * "in-yard", saying whose. Bounding boxes first, against the few player depots.
    */
   private inYard(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): "in-yard" | null {
-    if (INDUSTRY_ROLE[type]) return null;
+    if (INDUSTRY_ROLE[type] || hasFootprint(type)) return null;
     const yard = trackInYards(this.playerYards(), type, flipped, pose, y, ignoreId);
     if (yard) this.inYardWhy = inYardMessage(yard.type);
     return yard ? "in-yard" : null;
@@ -1811,8 +1832,9 @@ export class Interaction {
   private inYardWhy = "";
 
   /**
-   * The yards of the depots the player placed (not the map's own, nor one in the hand), with their bounding boxes:
-   * built again only when one of them is placed, moved or taken up (a key of their poses: a few numbers each).
+   * The yards of the depots the player placed (not the map's own, nor one in the hand), and the ground of the kit
+   * pieces on the map (also not one in the hand), with their bounding boxes: built again only when one of them is
+   * placed, moved or taken up (a key of their poses: a few numbers each).
    */
   private playerYards(): readonly PlacedYard[] {
     const g = this.game;
@@ -1823,13 +1845,26 @@ export class Interaction {
       if (!p || !INDUSTRY_ROLE[p.type] || layout.isLifted(d.pieceId)) continue;
       key += `${d.pieceId}:${p.pose.x}:${p.pose.z}:${p.pose.heading}:${p.y};`;
     }
+    const kits = g.kitView.pieceIds();
+    for (const id of kits) {
+      const p = layout.getPiece(id);
+      if (!p || layout.isLifted(id)) continue;
+      key += `k${id}:${p.pose.x}:${p.pose.z}:${p.pose.heading}:${p.y};`;
+    }
     if (this.yardsFor?.key === key) return this.yardsFor.yards;
     const fixed = new Set(g.depots.values());
     const yards: PlacedYard[] = [];
     for (const d of g.economy.allDepots()) {
       const p = layout.getPiece(d.pieceId);
-      if (!p || fixed.has(d.pieceId) || layout.isLifted(d.pieceId)) continue;
+      // (A kit piece that's a cargo stop has its ground with the kits, below.)
+      if (!p || fixed.has(d.pieceId) || layout.isLifted(d.pieceId) || kitOf(p.type)) continue;
       const yard = placedYard(d.pieceId, p.type, p.pose, p.y);
+      if (yard) yards.push(yard);
+    }
+    for (const id of kits) {
+      const p = layout.getPiece(id);
+      if (!p || layout.isLifted(id)) continue;
+      const yard = placedYard(id, p.type, p.pose, p.y);
       if (yard) yards.push(yard);
     }
     this.yardsFor = { key, yards };
@@ -1978,9 +2013,12 @@ export class Interaction {
     return GRAB_PIECE_MM * pxPerMm >= GRAB_MIN_PX;
   }
 
-  /** Is this a depot piece, which is dropped onto a straight of a line to take its place (and turns round to flip)? */
+  /**
+   * Is this a depot piece, or a kit that splices (`KitDef.splices`), which is dropped onto a straight of a line to take
+   * its place (and turns round to flip)?
+   */
   private splices(type: PieceTypeId): boolean {
-    return !!INDUSTRY_ROLE[type] && straightLength(type, false) > 0;
+    return (!!INDUSTRY_ROLE[type] || !!kitOf(type)?.splices) && straightLength(type, false) > 0;
   }
 
   /**
@@ -1993,7 +2031,7 @@ export class Interaction {
     for (const i of [0, 1]) {
       const partner = layout.joinedConnector(connectorRef(pieceId, i));
       const q = partner === -1 ? undefined : layout.getPiece(pieceOfRef(partner));
-      if (!q || q.type === "station" || INDUSTRY_ROLE[q.type] || q.type.startsWith("depot-") || getPieceDef(q.type, q.flipped).paths.length === 0) return null;
+      if (!q || q.type === "station" || INDUSTRY_ROLE[q.type] || q.type.startsWith("depot-") || kitOf(q.type) || getPieceDef(q.type, q.flipped).paths.length === 0) return null;
       ends.push(partner);
     }
     return [ends[0], ends[1]];
@@ -2396,6 +2434,7 @@ export class Interaction {
     for (const [id, p] of m.before) poses.set(id, { x: p.x + dx, z: p.z + dz, heading: p.heading });
     g.layout.nudgePieces(poses);
     g.trackView.moveInstances(m.ids);
+    g.kitView.moveInstances(g.layout, m.ids);
     const blocked = this.groupBlocked(m.ids, m.members);
     this.hud.setRefusal(blocked ? this.blockMessage(blocked) : null);
     m.blocked = blocked;
@@ -2410,6 +2449,7 @@ export class Interaction {
     g.layout.nudgePieces(m.before);
     for (const ref of m.parted) g.layout.seatFree(ref);
     g.trackView.moveInstances(m.ids);
+    g.kitView.moveInstances(g.layout, m.ids);
     g.trackView.jointsChanged();
     g.trackView.setHighlights(this.picked);
     g.sim.trackChanged();
@@ -2471,6 +2511,7 @@ export class Interaction {
       pose: { ...p.pose },
       looseY: p.y,
       covers: null,
+      rest: null,
       blocked: null,
       risers: [],
       overTray: false,
@@ -2512,9 +2553,10 @@ export class Interaction {
     mesh.castShadow = true;
     mesh.renderOrder = 0;
     mesh.matrixAutoUpdate = false;
-    // An industry comes with its yard and buildings.
+    // An industry comes with its yard and buildings; a kit with its model.
     const role = INDUSTRY_ROLE[type];
     if (role) mesh.add(this.game.depotView.model(role));
+    else if (kitOf(type)) mesh.add(this.game.kitView.model(type));
     this.game.scene.add(mesh);
     return mesh;
   }
@@ -2665,6 +2707,7 @@ export class Interaction {
       }
       // A depot held over a straight of a line takes its place (or a run of straights its length), turned along it.
       m.covers = null;
+      m.rest = null;
       let spliceWhy: PlaceBlock | null = null;
       if (this.splices(m.type)) {
         // Its centre as held under the finger, seen at the height of each straight it may be over (a few heights).
@@ -2693,6 +2736,7 @@ export class Interaction {
         if (s.kind === "splice") {
           m.snap = { kind: "snapped", pose: s.pose, y: s.y, connector: 0, target: -1, distance: 0, flipped: m.heldFlipped };
           m.covers = s.covers;
+          m.rest = s.rest ? s.rest.map((f) => ({ type: f.type, pose: f.pose, y: f.y })) : null;
         } else if (s.kind !== "none") spliceWhy = s.kind === "busy" ? "splice-busy" : "splice-fit";
         else spliceWhy = "splice-onto";
       }
@@ -2843,7 +2887,7 @@ export class Interaction {
         // A depot dropped onto a line: the straights it takes the place of lift and shrink away (back in the box).
         if (covers) for (const c of covers) this.shrinkStandIn(c);
         // A depot moved off a line: straights close the gap it leaves (in the same undo step).
-        const fill = this.fillFor(m, pose, y);
+        const fill = [...this.fillFor(m, pose, y), ...(m.rest ?? [])];
         const id = covers
           ? ed.replace(covers, m.type, pose, y, m.flipped, isNew ? undefined : { id: m.pieceId, from: m.from! }, fill)
           : isNew
@@ -3287,7 +3331,22 @@ export class Interaction {
     const fp = g.propLibrary.footprint(m.asset);
     let ground = hills.groundAt(pose.x, pose.z);
     let blocked: PropBlock | null = null;
-    if (fp) {
+    if (standsAside(m.asset)) {
+      // A crossing prop goes onto a level crossing, as its style: it snaps to the nearest one in reach (`styleCrossings`
+      // links it by where it stands), and goes nowhere else.
+      const crossings = g.levelCrossings;
+      const i = nearestCrossing(crossings, pose.x, pose.z, CROSSING_DROP_REACH);
+      const c = i === -1 ? undefined : crossings[i];
+      if (!c || c.gates.length === 0) blocked = "no-crossing";
+      else {
+        pose.x = Math.round(c.x / 2) * 2;
+        pose.z = Math.round(c.z / 2) * 2;
+        ground = c.y;
+        // One style to a crossing.
+        for (const other of g.props.all())
+          if (other.id !== m.propId && standsAside(other.asset) && nearestCrossing(crossings, other.x, other.z) === i) blocked = "prop";
+      }
+    } else if (fp) {
       const own = new Set(buildingCells(g.landscape, m.propId === -1 ? undefined : g.props.get(m.propId)?.building));
       const c = checkProp({ land: g.landscape, track: m.track, props: g.props, footprint: g.propLibrary.footprint }, fp, pose, placeOn(m.asset), m.propId, own);
       if (c.kind === "clear") ground = c.y;
@@ -3360,7 +3419,62 @@ export class Interaction {
     this.selectedProp = id;
     this.propOutline.show(g.propLibrary.footprint(p.asset) ?? null, p.x, p.y, p.z, p.heading);
     this.hud.showPieceCard(false, g.propLibrary.model(modelKey(p.asset, p.variant))?.name ?? "Model", false);
+    if (LEVER_PROPS.has(p.asset)) this.showLevers(id);
     this.hintDrag();
+  }
+
+  /**
+   * Throw a switch's points, or hold or let go a signal (`road`: which of a signal piece's, a gantry's road): redrawn
+   * and saved, nothing else rebuilt (a signal skin's model follows its aspect: `KitStateMotion.source`).
+   */
+  private throwLever(pieceId: number, road = 0): void {
+    const g = this.game;
+    const piece = g.layout.getPiece(pieceId);
+    if (piece && getPieceDef(piece.type, piece.flipped).signal) g.sim.toggleSignal(pieceId, road);
+    else {
+      // A turntable's deck turns a train standing still wholly on it, not one partly on it or moving.
+      const refused = g.sim.deckRefusal(pieceId);
+      const kit = kitOf(g.layout.getPiece(pieceId)!.type);
+      const name = `The ${kit?.name ?? "deck"}`;
+      // (Paused, the train wouldn't go round with the deck.)
+      if (!refused && g.paused && kit && g.sim.deckCarries(pieceId)) {
+        this.hud.toast(`${name} turns a train while the game's running`);
+        return;
+      }
+      if (refused || !g.sim.toggleSwitch(pieceId)) {
+        this.hud.toast(
+          refused === "turning" ? `${name} is still turning` : refused === "moving" ? `${name} turns a train once it has stopped` : `${name} won't turn with a train partly on it`,
+        );
+        return;
+      }
+    }
+    g.trackView.syncSwitches();
+    g.invalidate();
+    this.onSwitched?.();
+  }
+
+  /**
+   * A signal box's or lever frame's card lists the points and signals near it (worked out on the tap), each a chip
+   * saying how it's set: a tap throws it, and the list says so.
+   */
+  private showLevers(propId: number): void {
+    const g = this.game;
+    const p = g.props.get(propId);
+    if (!p) return;
+    const levers = leversNear(g.layout, p.x, p.z);
+    const counts = { points: 0, signal: 0 };
+    const items = levers.map((l) => {
+      const n = ++counts[l.kind];
+      return l.kind === "points"
+        ? { label: `Points ${n}: ${pointsWay(g.layout, l.pieceId)}`, title: "Throw these points" }
+        : { label: `Signal ${n}: ${g.sim.signalHeld(l.pieceId, l.road) ? "held at red" : "free"}`, title: "Hold this signal at red, or let it go" };
+    });
+    this.hud.showLevers(items, (i) => {
+      const l = levers[i];
+      if (!g.layout.getPiece(l.pieceId) || this.selectedProp !== propId) return;
+      this.throwLever(l.pieceId, l.road);
+      this.showLevers(propId);
+    });
   }
 
   /** Turn a placed prop an eighth, if it still fits. */
@@ -3371,8 +3485,10 @@ export class Interaction {
     if (!p || !fp) return;
     const from: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
     const to = { x: p.x, z: p.z, heading: p.heading + Math.PI / 4 };
-    const c = checkProp({ land: g.landscape, track: new TrackIndex(g.layout), props: g.props, footprint: g.propLibrary.footprint }, fp, to, placeOn(p.asset), id);
-    const why = c.kind === "blocked" ? c.reason : this.propInYard(fp, to);
+    // (A crossing prop turns where it stands, on its crossing.)
+    const aside = standsAside(p.asset);
+    const c: ReturnType<typeof checkProp> = aside ? { kind: "clear", y: p.y } : checkProp({ land: g.landscape, track: new TrackIndex(g.layout), props: g.props, footprint: g.propLibrary.footprint }, fp, to, placeOn(p.asset), id);
+    const why = c.kind === "blocked" ? c.reason : aside ? null : this.propInYard(fp, to);
     if (c.kind === "blocked" || why) {
       this.hud.toast(this.propMessage(why!));
       this.onRefused?.();
@@ -3507,7 +3623,9 @@ export class Interaction {
     if (this.routeGroup?.visible && this.onTapStopDisc) {
       for (const h of this.raycaster.intersectObject(this.routeGroup, true)) if (h.object.userData.kind === "route-stop") return { kind: "route-stop", index: h.object.userData.index as number };
     }
-    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group], true);
+    // (The kits' group: a turntable's deck is tapped to turn it, picked as a switch's lever; a signal skin's model to
+    // hold its signal. The crossings': a crossing style is its prop's.)
+    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group], true);
     for (const h of hits) {
       const slot = g.depotView.cargoAt(h.object, h.instanceId);
       if (slot) {
@@ -3521,7 +3639,21 @@ export class Interaction {
       }
       const carId = g.trainView.carAt(h.object as Object3D);
       if (carId !== -1) return { kind: "car", carId };
-      if (h.object.userData.kind === "switch-lever") return { kind: "lever", pieceId: h.object.userData.pieceId as number };
+      if (h.object.userData.kind === "switch-lever") {
+        const pieceId = h.object.userData.pieceId as number;
+        return h.object.userData.deck ? { kind: "piece", pieceId, deck: true } : { kind: "lever", pieceId };
+      }
+      // A signal skin's model is its lever (a tap holds it at red, or lets it go: a gantry's, the road it's over). Any
+      // other kit's model is passed through, to the track or ground behind it.
+      const kitPiece = g.kitView.pieceAt(h.object, h.batchId);
+      if (kitPiece !== -1) {
+        const road = signalRoadAt(g.layout, kitPiece, h.point.x, h.point.z);
+        if (road !== -1) return { kind: "lever", pieceId: kitPiece, road };
+        continue;
+      }
+      // A level crossing's style (its barriers or gates) is its prop's.
+      const stylePropId = g.crossingsView.propAt(h.object);
+      if (stylePropId !== -1 && g.props.get(stylePropId)) return { kind: "prop", propId: stylePropId };
       const propId = g.propsView.propAt(h.object, h.batchId);
       if (propId !== -1) return { kind: "prop", propId };
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);

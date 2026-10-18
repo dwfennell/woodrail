@@ -2,13 +2,13 @@ import { Group, Mesh } from "three";
 import { buildCarModel } from "../../render/train-models";
 import { buildPieceGeometry, withPegs } from "../../render/track-geometry";
 import { CAR_KINDS, type CarKind } from "../../sim/cars";
-import { getPieceDef, isBridge, isJoin, PIECE_TYPES, type PieceTypeId } from "../../track";
+import { getPieceDef, isBridge, isJoin, isKit, PIECE_TYPES, type PieceTypeId } from "../../track";
 import type { Asset } from "../types";
 
 /** The game's own track pieces and cars, for reference beside the new ideas. */
-const CAR_NAMES: Record<CarKind, string> = { engine: "Engine", hopper: "Hopper wagon", passenger: "Passenger coach", caboose: "Caboose", timber: "Flatbed wagon", van: "Goods van" };
+const CAR_NAMES: Record<CarKind, string> = { engine: "Engine", hopper: "Hopper wagon", passenger: "Passenger coach", caboose: "Caboose", timber: "Flatbed wagon", van: "Goods van", cleaner: "Track cleaner" };
 
-const pieces: Asset[] = PIECE_TYPES.filter((type) => !isJoin(type)).map((type: PieceTypeId) => ({
+const pieces: Asset[] = PIECE_TYPES.filter((type) => !isJoin(type) && !isKit(type)).map((type: PieceTypeId) => ({
   id: `game-${type}`,
   name: type.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase()),
   category: "Track" as const,
@@ -28,7 +28,8 @@ const pieces: Asset[] = PIECE_TYPES.filter((type) => !isJoin(type)).map((type: P
   },
 }));
 
-const cars: Asset[] = CAR_KINDS.map((kind) => ({
+// (The track cleaner is the catalogue's own mech-track-cleaner.)
+const cars: Asset[] = CAR_KINDS.filter((kind) => kind !== "cleaner").map((kind) => ({
   id: `game-${kind}`,
   name: CAR_NAMES[kind],
   category: kind === "engine" ? ("Trains" as const) : ("Wagons" as const),

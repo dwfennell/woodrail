@@ -190,6 +190,18 @@ export class Layout {
   /** Bumped whenever a switch state is set (a turntable's deck follows it: `KitView`). */
   switchesVersion = 0;
 
+  /** Decks on their way to their next road (turning: they join nothing yet). Not saved: a loaded deck is there. */
+  private readonly turning = new Set<number>();
+
+  deckTurning(pieceId: number): boolean {
+    return this.turning.size > 0 && this.turning.has(pieceId);
+  }
+
+  setDeckTurning(pieceId: number, on: boolean): void {
+    if (on) this.turning.add(pieceId);
+    else this.turning.delete(pieceId);
+  }
+
   /** Seat a free connector on a free one within the joint tolerance, if there is one (a near miss just closed). */
   seatFree(ref: number): boolean {
     if (this.joinedTo.has(ref) || !this.pieces.has(pieceOfRef(ref)) || this.lifted.has(pieceOfRef(ref))) return false;

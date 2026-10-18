@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CATALOGUE } from "./assets";
 import { fileOf } from "./registry";
 import { BRIDGE_PROP_SHELVES, PROP_TABS, RAIL_HELD_BACK } from "./shelves";
+import { KIT_TYPES, KITS } from "../track";
 
 const listed = [...PROP_TABS.flatMap((t) => t.shelves), ...BRIDGE_PROP_SHELVES].flatMap((s) => s.assets);
 const ids = new Set(CATALOGUE.map((a) => a.id));
@@ -36,5 +37,18 @@ describe("prop shelves", () => {
       "scene-sun-moon",
       "scene-zebra-crossing",
     ]);
+  });
+
+  it("offer every kit piece's model on a Sandbox shelf, none of them held back", () => {
+    const held = new Set(RAIL_HELD_BACK);
+    for (const type of KIT_TYPES) {
+      const asset = KITS[type].asset;
+      expect(listed, type).toContain(asset);
+      expect(held.has(asset), type).toBe(false);
+    }
+    // Stations and sheds on Buildings → Railway; the machines on Machines → Railway & yard.
+    const shelf = (tab: string, label: string) => PROP_TABS.find((t) => t.id === tab)!.shelves.find((s) => s.label === label)!.assets;
+    for (const a of ["bldg-two-platform-station", "bldg-grand-terminus", "bldg-engine-shed", "bldg-roundhouse-segment", "bldg-castle-gate"]) expect(shelf("buildings", "Railway")).toContain(a);
+    for (const a of ["mech-gantry-crane", "mech-log-loader", "mech-water-crane", "mech-fuel-station", "mech-weighbridge"]) expect(shelf("machines", "Railway & yard")).toContain(a);
   });
 });

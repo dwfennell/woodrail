@@ -4,6 +4,8 @@ import type { PropStore } from "../props/store";
 import { PropLibrary } from "../render/props/library";
 import { BoatsView } from "../render/boats-view";
 import { PropsView } from "../render/props/props-view";
+import { KitView } from "../render/kit-view";
+import { ClockView } from "../render/clock-view";
 import {
   ACESFilmicToneMapping,
   Clock,
@@ -32,10 +34,12 @@ import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
-import { archFloors, bridgeLevels, findCrossings, SURF_LANE, syncCuttings, type HeldPiece, PLOT_DEPTH, type Landscape } from "../landscape";
+import { archFloors, bridgeLevels, findCrossings, styleCrossings, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape } from "../landscape";
+import type { Prop } from "../props/store";
+import type { PropSource } from "../render/props/props-view";
 import { setHazeLand, setHazeReach } from "../render/haze";
 import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
-import { connectorRef, getPieceDef, pathLength, type Layout, type PlacedPiece } from "../track";
+import { connectorRef, getPieceDef, pathLength, type KitDef, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
 import { hasLandForSale, landForSale, plotsAround, unlockPlot, type World } from "./world";
@@ -131,6 +135,10 @@ export class Game {
   /** Boats calling at harbours (Game mode). */
   readonly boats: BoatsView;
   readonly propsView: PropsView;
+  /** The kit pieces' models, drawn where their pieces stand (see `KitView`). */
+  readonly kitView: KitView;
+  /** Station clocks' hands, showing the game's time (see `ClockView`). */
+  readonly clockView: ClockView;
   /** A prop being moved by hand: not drawn where it stood. */
   private hiddenProp = -1;
   paused = false;
@@ -218,16 +226,29 @@ export class Game {
     this.depotView.setWorld(this.economy, this.layout);
     this.crossingsView = new CrossingsView(this.mats);
     this.scene.add(this.crossingsView.group);
-    this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
+    this.crossingsChanged();
     this.propLibrary = new PropLibrary(this.mats);
     this.propsView = new PropsView(this.propLibrary);
     this.scene.add(this.propsView.group);
-    // A model arriving (its code fetched and built) draws the props that were waiting for it.
-    this.propLibrary.onLoaded = () => {
-      this.propsView.sync(this.props, this.hiddenProp, true);
+    this.kitView = new KitView(this.propLibrary);
+    // Signal skins show their signals' aspects (a bit for each road at red).
+    this.kitView.signalState = (id) => this.sim.redSignals(id);
+    this.scene.add(this.kitView.group);
+    this.clockView = new ClockView(this.propLibrary);
+    this.scene.add(this.clockView.group);
+    // A model arriving (its code fetched and built) draws the props (and kits) that were waiting for it.
+    this.propLibrary.onLoaded = (key) => {
+      if (key.startsWith("kit:")) this.syncKits(true);
+      else {
+        this.propsView.sync(this.shownProps(), this.hiddenProp, true);
+        this.clockView.sync(this.props, this.hiddenProp, true);
+      }
       this.invalidate();
     };
-    this.propsView.sync(this.props);
+    this.propsView.sync(this.shownProps());
+    this.clockView.sync(this.props);
+    this.watchHidden();
+    this.syncKits();
     this.boats = new BoatsView(this.propLibrary, () => this.invalidate());
     this.scene.add(this.boats.group);
     this.post = createPost(this.renderer, this.scene, this.camera, this.quality);
@@ -270,7 +291,9 @@ export class Game {
     this.watchSwitches();
     this.props = world.props;
     this.hiddenProp = -1;
-    this.propsView.sync(this.props, -1, true);
+    this.trackVersion++;
+    this.propsView.sync(this.shownProps(), -1, true);
+    this.clockView.sync(this.props, -1, true);
     this.scene.remove(this.landscapeView.group);
     this.landscapeView.dispose();
     this.landscapeView = new LandscapeView(this.landscape, this.mats, !this.quality.ambientOcclusion);
@@ -285,7 +308,9 @@ export class Game {
     this.trackView.showAllEnds(this.allEnds);
     this.scene.add(this.trackView.group);
     this.trackView.sync();
-    this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
+    this.watchHidden();
+    this.syncKits(true);
+    this.crossingsChanged();
     this.depotView.setWorld(this.economy, this.layout);
     this.landChanged();
   }
@@ -408,7 +433,7 @@ export class Game {
     return this.trackView.markTurnedBack(connectorRef(front.pieceId, end));
   }
 
-  /** Bumped by every layout edit (`trackChanged`): what's drawn from the track (a train's route) is redrawn on it. */
+  /** Goes up whenever the track changes (or a new world is shown), for caches keyed by it (the whistle posts' near track). */
   trackVersion = 0;
 
   /** Call after any layout edit. */
@@ -419,10 +444,65 @@ export class Game {
     // trees.
     syncCuttings(this.landscape, this.layout);
     this.trackView.sync();
+    this.syncKits();
     const hop = this.landscapeView.syncTrees(this.layout, true);
     if (hop) this.flourishes.add(hop);
     this.economy.prune();
-    this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
+    this.crossingsChanged();
+  }
+
+  /** The level crossings as derived from the track and roads (`findCrossings`), before their styles. */
+  private crossings: LevelCrossing[] = [];
+  /** What the crossings' styles were last worked out from (the props' version, the prop in the hand). */
+  private stylesFor = "";
+  /** The crossing props drawn as their crossings' styles (not as props: see `styleCrossings`). */
+  private linkedProps: ReadonlySet<number> = new Set();
+  private linkedVersion = 0;
+  /** The props drawn by `propsView`: all but the linked crossing props. Its version: see `shownProps`. */
+  private readonly drawnProps = {
+    version: 0,
+    get: (id: number): Prop | undefined => (this.linkedProps.has(id) ? undefined : this.props.get(id)),
+    all: (): Iterable<Prop> => this.unlinkedProps(),
+  };
+  private drawnFor = "";
+
+  private *unlinkedProps(): Iterable<Prop> {
+    for (const p of this.props.all()) if (!this.linkedProps.has(p.id)) yield p;
+  }
+
+  /** The props to draw (see `drawnProps`), its version brought up to date with the store's and the links'. */
+  private shownProps(): PropSource {
+    const key = `${this.props.version}|${this.linkedVersion}`;
+    if (key !== this.drawnFor) {
+      this.drawnFor = key;
+      this.drawnProps.version++;
+    }
+    return this.drawnProps;
+  }
+
+  /** Track or roads changed (or a new world): the crossings are found again, and styled. */
+  private crossingsChanged(): void {
+    this.crossings = findCrossings(this.landscape, this.layout);
+    this.styleCrossings(true);
+  }
+
+  /**
+   * Each crossing's style, from the crossing props on it (`styleCrossings`): worked out again only when the props
+   * changed (or `force`: the crossings did). A prop that becomes linked, or stops being, is drawn again (or not).
+   */
+  private styleCrossings(force = false): void {
+    const key = `${this.props.version}|${this.hiddenProp}`;
+    if (!force && key === this.stylesFor) return;
+    this.stylesFor = key;
+    const { crossings, linked } = styleCrossings(this.crossings, this.props.all(), this.hiddenProp);
+    this.crossingsView.setCrossings(crossings);
+    this.invalidate();
+    const same = linked.size === this.linkedProps.size && [...linked].every((id) => this.linkedProps.has(id));
+    if (same) return;
+    this.linkedProps = linked;
+    this.linkedVersion++;
+    // (In the constructor, before the props are drawn at all.)
+    if (this.propsView) this.propsView.sync(this.shownProps(), this.hiddenProp);
   }
 
   /**
@@ -436,6 +516,16 @@ export class Game {
     }
     const hop = this.landscapeView.previewTrees(held);
     if (hop) this.flourishes.add(hop);
+  }
+
+  /** The kits' models follow the layout (a diff: only kits added, moved, taken up or put down are touched). */
+  syncKits(force = false): void {
+    if (this.kitView.sync(this.layout, (id) => this.trackView.isHidden(id), force)) this.invalidate();
+  }
+
+  /** A piece hidden while its stand-in settles hides its kit model too. */
+  private watchHidden(): void {
+    this.trackView.onHidden = () => this.syncKits();
   }
 
   /** Re-rail a derailed train near where its lead car came to rest. Returns the new train id or -1. */
@@ -572,6 +662,8 @@ export class Game {
       }
       if (steps === MAX_STEPS_PER_FRAME) this.accumulator = 0;
     }
+    // Station clocks show the game's time: their hands are set when its minute changes (drawn if one's in view).
+    if (this.clockView.count > 0 && this.clockView.tick(this.simSeconds, this.camera)) this.invalidate();
     // A signal changed aspect: its arm moves (nothing else is redrawn).
     if (this.sim.signalsVersion !== this.signalsShown) {
       this.signalsShown = this.sim.signalsVersion;
@@ -588,7 +680,22 @@ export class Game {
     const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), dt);
     if (depots === "moving") active = true;
     else if (depots === "changed") this.invalidate();
-    if (this.trainsChanged() || tipping || this.flourishes.count > 0) active = true;
+    const trainsMoved = this.trainsChanged();
+    if (trainsMoved || tipping || this.flourishes.count > 0) active = true;
+    // Kits' moving parts (doors, cranes, spouts, a turntable's deck, a signal's arm or lamps): looked at only on frames
+    // where trains moved, one halted, a switch was thrown (a deck turns) or a signal changed aspect, or while one is
+    // still moving. Idle, this is a few comparisons.
+    if (
+      this.kitView.hasMovers &&
+      (trainsMoved || this.kitView.animating || this.economy.halts !== this.haltsSeen || this.layout.switchesVersion !== this.switchesSeen || this.sim.signalsVersion !== this.kitSignalsSeen)
+    ) {
+      this.haltsSeen = this.economy.halts;
+      this.switchesSeen = this.layout.switchesVersion;
+      this.kitSignalsSeen = this.sim.signalsVersion;
+      const kits = this.kitView.update(this.kitTriggered, dt);
+      if (kits === "moving") active = true;
+      else if (kits === "changed") this.invalidate();
+    }
     // Boats sailing in view (one out of view moves on unseen, drawing nothing).
     if (this.boats.update(this.camera)) active = true;
     // Things casting shadows have moved (the camera alone doesn't change the shadow map).
@@ -811,7 +918,7 @@ export class Game {
   roadsEdited(slots: readonly number[], trees: boolean): void {
     for (const s of slots) this.landscape.grid.touch(s);
     this.landscapeView.roadsEdited(trees);
-    this.crossingsView.setCrossings(findCrossings(this.landscape, this.layout));
+    this.crossingsChanged();
     // Switch levers stand clear of the roads.
     this.trackView.syncSwitches();
     this.invalidate();
@@ -820,7 +927,15 @@ export class Game {
   /** Props were added, moved or removed (or one is being held: `hidden`, −1 for none): redraw them. */
   propsChanged(hidden = this.hiddenProp): void {
     this.hiddenProp = hidden;
-    if (this.propsView.sync(this.props, hidden)) this.invalidate();
+    this.clockView.sync(this.props, hidden);
+    // Crossing props style the crossings they're on (one in the hand doesn't, for now).
+    this.styleCrossings();
+    if (this.propsView.sync(this.shownProps(), hidden)) this.invalidate();
+  }
+
+  /** The level crossings on the map now, as found from track and roads (for placing a crossing prop on one). */
+  get levelCrossings(): readonly LevelCrossing[] {
+    return this.crossings;
   }
 
   /** The sim's signal aspects last drawn (see `Sim.signalsVersion`). */
@@ -881,6 +996,20 @@ export class Game {
   private lastTrainCount = -1;
 
   /** Has any car moved, a lever changed or a train come off since the last frame? */
+  /** `Economy.halts` as last seen (a train halting at a kit starts its moving parts). */
+  private haltsSeen = 0;
+  /** `Layout.switchesVersion` as last seen (a switch thrown turns a turntable's deck: `moves: "state"`). */
+  private switchesSeen = 0;
+  /** `Sim.signalsVersion` as last seen by the kits (a signal skin's parts show its aspect: `KitStateMotion.source`). */
+  private kitSignalsSeen = -1;
+
+  /**
+   * Does a kit's trigger for its moving parts hold (`KitDef.moves`): a train on it, or one standing at it? (A kit that
+   * moves with its state, a turntable, follows its piece's switch state instead: `KitView` reads it from the layout.)
+   */
+  private readonly kitTriggered = (pieceId: number, kit: KitDef): boolean =>
+    kit.moves === "occupied" ? this.sim.pieceOccupied(pieceId) : kit.moves === "stopped" ? this.economy.standingAt(pieceId) : false;
+
   private trainsChanged(): boolean {
     const snap = this.snapshot;
     const n = snap.count * 6;

@@ -1,6 +1,6 @@
 import { RECIPES, type Economy } from "../economy";
 import { SIM_DT, type Sim, type Train, type TurnCause } from "../sim";
-import type { Layout } from "../track";
+import { kitOf, type Layout } from "../track";
 
 /** Why a train can't move at all: too heavy for its engines, or electric with no power (see `cantMove`). */
 export type CantMove = (train: Train) => "too-heavy" | "no-power" | null;
@@ -11,6 +11,8 @@ export type TrainState =
   | { kind: "worked"; depotId: number; work: "Loading" | "Unloading" | "Loading and unloading" }
   | { kind: "turning-back"; cause: TurnCause; pieceId: number; done?: boolean }
   | { kind: "red-signal"; signalId: number }
+  /** Standing at a kit's stop (a platform) for its dwell. */
+  | { kind: "at-stop"; pieceId: number }
   | { kind: "too-heavy" }
   | { kind: "no-power" }
   | { kind: "slowing" }
@@ -58,6 +60,8 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     return { kind: "worked", depotId: depot.id, work: loads && unloads ? "Loading and unloading" : unloads ? "Unloading" : "Loading" };
   }
   if (train.turnback >= 0) return { kind: "turning-back", cause: turn?.cause ?? "buffer", pieceId: turn?.pieceId ?? -1 };
+  const stopAt = economy.kitStops.dwellingAt(train.id);
+  if (stopAt !== -1) return { kind: "at-stop", pieceId: stopAt };
   if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id) };
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
   if (train.speed < 1) {
@@ -92,6 +96,10 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return s.cause === "train" ? "Turning back: another train's in the way" : "Turning back at the end of the line";
     case "red-signal":
       return "Waiting at a red signal";
+    case "at-stop": {
+      const type = economy.layout.getPiece(s.pieceId)?.type;
+      return `Calling at the ${(type && kitOf(type)?.name) ?? "stop"}`;
+    }
     case "too-heavy":
       return "Too heavy for its engine: take a car off, or add an engine";
     case "no-power":

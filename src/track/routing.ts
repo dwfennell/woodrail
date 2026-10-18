@@ -22,6 +22,18 @@ export function routeFrom(layout: Layout, pieceId: number, connectorIndex: numbe
   const piece = layout.getPiece(nextId)!;
   const paths = getPieceDef(piece.type, piece.flipped).paths;
 
+  // A deck (a turntable's): only the way it lies now joins anything.
+  if (getPieceDef(piece.type, piece.flipped).gated) {
+    if (layout.deckTurning(nextId)) return false;
+    const i = layout.switchState(nextId) % paths.length;
+    const p = paths[i];
+    if (p.from !== entry && p.to !== entry) return false;
+    out.pieceId = nextId;
+    out.pathIndex = i;
+    out.reversed = p.to === entry;
+    return true;
+  }
+
   let count = 0;
   for (let i = 0; i < paths.length; i++) if (paths[i].from === entry || paths[i].to === entry) count++;
   if (count === 0) return false;
