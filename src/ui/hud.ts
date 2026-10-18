@@ -928,7 +928,26 @@ export class Hud {
   setBoardButton(open: boolean, alert: boolean): void {
     this.boardBtn.classList.toggle("active", open);
     this.boardBtn.classList.toggle("icon-btn-alert", alert);
+    // Until the board is first opened, a reward waiting makes the whole button glow (its icon has no label).
+    if (open && !this.boardSeen) {
+      this.boardSeen = true;
+      try {
+        localStorage.setItem("woodrail.boardSeen", "1");
+      } catch {
+        // storage unavailable: it glows again next visit
+      }
+    }
+    this.boardBtn.classList.toggle("board-new", alert && !this.boardSeen);
   }
+
+  /** Has this player opened the blueprint board before (on any visit)? */
+  private boardSeen = ((): boolean => {
+    try {
+      return localStorage.getItem("woodrail.boardSeen") === "1";
+    } catch {
+      return false;
+    }
+  })();
 
   /**
    * A newer build is out: offered in the menu (its button gets a dot) and said once in a toast. Nothing new on the map
@@ -1381,6 +1400,28 @@ export class Hud {
    */
   toast(message: string, celebrate = false, ms = 2200): void {
     this.queueToast(message, celebrate, ms, performance.now() - this.lastButtonAt < TOAST_ANSWER_MS);
+  }
+
+  /**
+   * Say `message` in place of toast `old` (several goals ticked together become one line): changed where it shows or
+   * waits, its time to read starting again; a plain toast if `old` has gone.
+   */
+  retoast(old: string, message: string, celebrate = false, ms = 2200): void {
+    const queued = this.toastQueue.find((t) => t.message === old);
+    if (queued) {
+      queued.message = message;
+      return;
+    }
+    const t = this.toastShowing;
+    if (t && t.message === old && this.toastEl.classList.contains("show") && this.toastEl.textContent === old) {
+      note("toast", message);
+      t.message = message;
+      this.showToast(message, celebrate, ms);
+      this.toastShownAt = performance.now();
+      this.toastHeldUntil = this.toastShownAt + toastMs(message, celebrate, ms);
+      return;
+    }
+    this.toast(message, celebrate, ms);
   }
 
   /**

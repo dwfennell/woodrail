@@ -23,7 +23,7 @@ export interface Station {
   price: string;
   planks: number;
   affordable?: boolean;
-  /** For `ready` and not affordable: why not, in one short line ("6 planks needed at workshop (2 there)"). */
+  /** For `ready` and not affordable: why not, in one short line ("6🪵 needed at workshop (2 there)"). */
   why?: string;
   /** What must be done first, in words, and whether it is. */
   requires: { text: string; met: boolean }[];

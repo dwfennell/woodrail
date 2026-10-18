@@ -43,6 +43,8 @@ export interface Goal {
   check(world: World, ctx?: GoalContext): GoalProgress;
   /** Where to look and what to reach for, from the world as it is now. */
   guide(world: World): GoalGuide;
+  /** Blueprints to learn before it shows or counts (till then it's passed over). */
+  readonly needs?: readonly string[];
 }
 
 /** Above this speed (mm/s) a train counts as running. */
@@ -333,7 +335,9 @@ export const GOALS: readonly Goal[] = [
   {
     id: "two-trains",
     title: "Run two trains at once",
-    hint: "A second train needs track of its own: on one line they turn each other back.",
+    hint: "Lay a passing loop with signals so they can pass.",
+    // On one line two trains only turn each other back: this goal waits till the player can build a passing loop.
+    needs: ["signals", "junctions"],
     check: (w) => {
       const n = running(w).length;
       return { done: n >= 2, count: Math.min(n, 2), target: 2, unit: "trains" };
@@ -373,7 +377,8 @@ export class GoalTracker {
    * they're met, whatever the current goal. One a check either way.
    */
   update(world: World, ctx: GoalContext = NO_CONTEXT): Goal[] {
-    for (const g of GOALS) if (!this.done.has(g.id) && !this.met.has(g.id) && g.check(world, ctx).done) this.met.add(g.id);
+    this.learned = ctx.learned;
+    for (const g of GOALS) if (!this.done.has(g.id) && !this.met.has(g.id) && this.open(g) && g.check(world, ctx).done) this.met.add(g.id);
     const now = this.current();
     const open = GOALS.findIndex((g) => g.id === FIRST_OPEN_GOAL);
     const next = GOALS.find((g, i) => this.met.has(g.id) && (g === now || i >= open));
@@ -398,13 +403,26 @@ export class GoalTracker {
 
   /** The first goal not yet done (null when all are). */
   current(): Goal | null {
-    return GOALS.find((g) => !this.done.has(g.id)) ?? null;
+    return this.left()[0] ?? null;
   }
 
   /** The goal after the current one. */
   next(): Goal | null {
+    return this.left()[1] ?? null;
+  }
+
+  /** Blueprints learned, as of the last check (a goal that needs some waits for them). */
+  private learned: ReadonlySet<string> = NO_CONTEXT.learned;
+
+  /** Can this goal show and count yet (its blueprints learned)? */
+  private open(g: Goal): boolean {
+    return !g.needs || g.needs.every((id) => this.learned.has(id));
+  }
+
+  /** The goals not done, in order: those open first, then any still waiting for their blueprints. */
+  private left(): Goal[] {
     const left = GOALS.filter((g) => !this.done.has(g.id));
-    return left[1] ?? null;
+    return [...left.filter((g) => this.open(g)), ...left.filter((g) => !this.open(g))];
   }
 
   /** The goals to save: those done, and those met and waiting (they're ticked off after a reload). */
