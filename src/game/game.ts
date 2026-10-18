@@ -677,7 +677,8 @@ export class Game {
     this.simMs = performance.now() - t0;
     const tipping = this.trainView.update(this.snapshot, dt);
     let active = this.crossingsView.update(this.snapshot, dt);
-    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), dt);
+    // Depots' cranes and saws move by the game's time (paused, they hold still), and ask for frames only in view.
+    const depots = this.depotView.update(this.economy, this.snapshot.ids, this.snapshot.count, (id) => this.trainView.carObject(id), this.simSeconds, this.paused);
     if (depots === "moving") active = true;
     else if (depots === "changed") this.invalidate();
     const trainsMoved = this.trainsChanged();
@@ -692,7 +693,7 @@ export class Game {
       this.haltsSeen = this.economy.halts;
       this.switchesSeen = this.layout.switchesVersion;
       this.kitSignalsSeen = this.sim.signalsVersion;
-      const kits = this.kitView.update(this.kitTriggered, dt);
+      const kits = this.kitView.update(this.kitTriggered, dt, this.paused, this.camera);
       if (kits === "moving") active = true;
       else if (kits === "changed") this.invalidate();
     }

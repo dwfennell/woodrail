@@ -1,4 +1,4 @@
-import { Group, Mesh, type Object3D } from "three";
+import { Frustum, Group, Matrix4, Mesh, Sphere, type Camera, type Object3D } from "three";
 import type { Prop } from "../props/store";
 import { DECK_GLIDE_S, kitOf, type KitDef, type Layout, type PieceTypeId } from "../track";
 import { motionOf, type KitMotion, type MotionParts } from "./kit-motions";
@@ -30,6 +30,12 @@ interface Mover {
   to: number;
   u: number;
 }
+
+/** Room round a kit piece's origin for the whole of its model and its shadow, when asking if it's in view (mm). */
+const KIT_REACH = 480;
+const frustum = new Frustum();
+const viewProjection = new Matrix4();
+const sphere = new Sphere();
 
 /** Smoothstep, for easing a motion in and out. */
 const smooth = (u: number) => u * u * (3 - 2 * u);
@@ -174,20 +180,33 @@ export class KitView {
   /**
    * Move the kits' moving parts on by `dt` seconds: each eases toward full engagement while `triggered` says its
    * trigger holds, and back to rest after. Looks only at the movers (a short list); called by the game only on frames
-   * already running for trains (see the class note). "moving" while any part moved (draw, and redraw shadows);
-   * "changed" when something was swapped back to its still drawing (draw once); "still" otherwise.
+   * already running for trains (see the class note). "moving" while any part moved in or near `camera`'s view (draw,
+   * and redraw shadows; one out of view moves on unseen, and a camera move bringing it into view draws it); "changed"
+   * when something was swapped back to its still drawing (draw once); "still" otherwise. `paused` (the game is): the
+   * motions its trains drive hold where they are (a deck or a signal's arm, moved by a tap, still glides).
    */
-  update(triggered: (pieceId: number, kit: KitDef) => boolean, dt: number): "moving" | "changed" | "still" {
+  update(triggered: (pieceId: number, kit: KitDef) => boolean, dt: number, paused = false, camera: Camera | null = null): "moving" | "changed" | "still" {
     let moved = false;
     let changed = false;
     let swapped = false;
+    if (camera) frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const seen = (m: Mover): boolean => {
+      if (!camera) return true;
+      const d = this.drawn.get(m.id);
+      if (!d) return false;
+      sphere.center.set(d.x, d.y, d.z);
+      sphere.radius = KIT_REACH;
+      return frustum.intersectsSphere(sphere);
+    };
     for (const m of this.movers.values()) {
       if (m.motion.state) {
         const r = this.follow(m, dt);
         if (r === "woke") swapped = true;
-        else if (r === "moved") moved = true;
+        else if (r === "moved" && seen(m)) moved = true;
         continue;
       }
+      // Paused: a moving part stays where it is (and asks for nothing), and carries on from there.
+      if (paused) continue;
       const want = triggered(m.id, m.kit);
       if (!want && m.on === 0 && !m.live) continue;
       if (!m.live) {
@@ -216,7 +235,7 @@ export class KitView {
         continue;
       }
       m.still = holding;
-      if (!holding) moved = true;
+      if (!holding && seen(m)) moved = true;
     }
     this.moving = false;
     for (const m of this.movers.values()) if (m.live && !m.still) this.moving = true;
