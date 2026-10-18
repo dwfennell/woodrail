@@ -75,7 +75,7 @@ const halt = await p.evaluate(() => {
   const t = w.landscape.towns[0];
   return { far: w.interaction.siteRule("kit-country-halt", { x: t.centre.x + 20000, z: t.centre.z + 20000, heading: 0 }), near: w.interaction.siteRule("kit-country-halt", { x: t.centre.x + 400, z: t.centre.z, heading: 0 }) };
 });
-check("a halt far from towns: \"Build halts near a town\"; near one, fine", halt.far === "Build halts near a town" && halt.near === null, JSON.stringify(halt));
+check("a halt far from towns: \"Build halts within 23 squares of a town\"; near one, fine", halt.far === "Build halts within 23 squares of a town" && halt.near === null, JSON.stringify(halt));
 
 // 3. Engine shed learned (as from the board), and a water tower in the toy box.
 await p.evaluate(() => {

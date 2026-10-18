@@ -24,7 +24,8 @@ import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, lacking, uncraft, workshops, workshopStock } from "./game/crafting";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
-import { DEPOT_NAMES, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { DEPOT_NAMES, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
@@ -464,6 +465,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   interaction.onTurned = () => audio.rotate();
   interaction.onDepart = () => audio.bell();
   interaction.onSwitched = () => scheduleSave();
+  // A halt held (Game mode): each town's reach shows as a ring on the ground, built once, shown and hidden after.
+  const haltReach = new HaltReachView(game.scene, HALT_REACH);
+  interaction.onHeld = (type) => {
+    const show = mode === "game" && type !== null && HALT_KITS.has(type);
+    if (show === haltReach.showing) return;
+    if (show) haltReach.show(game.landscape);
+    else haltReach.hide();
+    game.invalidate();
+  };
 
   // ---- adding land -----------------------------------------------------------------------------------------
 
