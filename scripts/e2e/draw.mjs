@@ -994,7 +994,8 @@ async function junctions() {
     const half = q.type === "straight-216" ? 108 : 72;
     return { x: q.pose.x + Math.cos(q.pose.heading) * half, z: q.pose.z + Math.sin(q.pose.heading) * half, id: ids[1], type: q.type };
   }, [n0]);
-  // A branch: pressed on it, off at 45° to +z.
+  // A branch: pressed on it, off at 45° to +z (framed close: track is taken hold of only from close by).
+  await focus(mid.x + 120, mid.z + 120, 420);
   const sw0 = await count("switch");
   await drawThrough([0, 40, 80, 160, 240, 320, 400].map((d) => [mid.x + d * Math.SQRT1_2, mid.z + d * Math.SQRT1_2]), { shotAt: 5, shotName: "draw-10-branch.png" });
   const [n2, j2] = await p.evaluate(() => [D.pieces(), D.joints()]);
@@ -1005,6 +1006,7 @@ async function junctions() {
   check("junctions: one undo takes the branch and its switch up, and the line is as it was", n3 === n1 && (await count("switch")) === sw0, `${n3} vs ${n1}`);
   // A merge: from open ground above the line, in at 45°, let go on it.
   const mx = open.x + 60;
+  await focus(mx - 170, open.z + 170, 420);
   const sw2 = await count("switch");
   await drawThrough([0, 60, 120, 180, 240, 300, 340].map((d) => [mx - 340 + d, open.z + 340 - d]), { shotAt: 5, shotName: "draw-10-merge.png" });
   const sw3 = await count("switch");
@@ -1022,6 +1024,7 @@ async function junctions() {
     w.hud.setPlanning(true);
   });
   const disabled = await p.evaluate(() => document.querySelector(".tray-draw").disabled);
+  await focus(mid.x + 60, mid.z + 120, 420);
   const n5 = await p.evaluate(() => D.pieces());
   await drawThrough([0, 100, 200, 300].map((d) => [open.x - 200 + d, open.z + 250]));
   await drawThrough([0, 40, 80, 160, 240].map((d) => [mid.x + d * Math.SQRT1_2, mid.z + d * Math.SQRT1_2]));
