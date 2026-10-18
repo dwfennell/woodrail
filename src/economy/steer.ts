@@ -124,22 +124,23 @@ function avoided(layout: Layout, pieceId: number, way: { path: number; exit: num
   return !!n && waysFrom(layout, n.pieceId, n.entry).some((w) => avoid(n.pieceId, w.path));
 }
 
-/** `wayToward`, passing over avoided ways while another still reaches `target`. */
-function chooseWay(
+/** `wayToward`, passing over avoided ways while another still reaches `target` (as `steer` chooses; `dist` as for `wayToward`). */
+export function chooseWay(
   layout: Layout,
   pieceId: number,
   ways: readonly { option: number; path: number; exit: number }[],
   target: number,
   avoid: AvoidTest | undefined,
+  dist?: (at: { pieceId: number; entry: number }) => number,
 ): number {
   if (avoid) {
     const kept = ways.filter((w) => !avoided(layout, pieceId, w, avoid));
     if (kept.length > 0 && kept.length < ways.length) {
-      const best = wayToward(layout, pieceId, kept, target);
+      const best = wayToward(layout, pieceId, kept, target, dist);
       if (best !== -1) return best;
     }
   }
-  return wayToward(layout, pieceId, ways, target);
+  return wayToward(layout, pieceId, ways, target, dist);
 }
 
 /**

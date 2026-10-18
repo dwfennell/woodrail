@@ -1,23 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { Sim, SIM_DT, SIM_HZ, type CarKind } from "../sim";
+import { Sim, SIM_DT, SIM_HZ } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { editLine, joinLine } from "../game/lines";
 import { engineStatus } from "../game/engine-status";
-import { CARGO } from "./cargo";
 import { Economy, type DepotRole } from "./economy";
 import { LOOP_WAIT_S } from "./crossing";
-
-/** Lay `types` end to end on from connector `from` (or from the origin); their ids. */
-function chain(layout: Layout, types: readonly PieceTypeId[], from = -1, flips: readonly boolean[] = []): number[] {
-  const ids: number[] = [];
-  let ref = from;
-  types.forEach((t, k) => {
-    const id = ref === -1 ? layout.addPiece(t, { x: 0, z: 0, heading: 0 }) : appendPiece(layout, t, !!flips[k], ref);
-    ids.push(id);
-    ref = connectorRef(id, 1);
-  });
-  return ids;
-}
+import { chain, runner, train } from "./loop-fixtures";
 
 /**
  * A single-track line from depot X to depot Y, turnbacks on both ends, with in the middle: (`loop`) a passing loop, the
@@ -61,46 +49,6 @@ function line(kind: "loop" | "plain" | "middle", roles: { x: DepotRole; m: Depot
 
 type World = ReturnType<typeof line>;
 
-/** A train of `cars` on piece `pieceId`, facing along its path (or back, `reversed`), its lever on. */
-function train(w: World, pieceId: number, reversed: boolean, cars: CarKind[] = ["engine", "timber"], s = 100): number {
-  const placed = w.sim.addTrain(cars, { pieceId, pathIndex: 0, reversed, s });
-  if (placed.kind !== "placed") throw new Error("no room");
-  const engine = w.sim.getTrain(placed.trainId)!.cars[0].id;
-  w.sim.setLever(engine, 1);
-  return engine;
-}
-
-/** Run `seconds`; counts head-on meetings (a train turned back by another) and every cross wait seen, by engine. */
-function runner(w: World, engines: readonly number[], topUp = true) {
-  const meetings: { tick: number; engine: number }[] = [];
-  const waits = new Map<number, Set<string>>(engines.map((e) => [e, new Set()]));
-  const arrivals = new Map<number, number>(engines.map((e) => [e, 0]));
-  const lastTurn = new Map<number, number>();
-  let t = 0;
-  const step = () => {
-    if (topUp && w.dx) w.dx.piles[CARGO.log.index] = Math.max(w.dx.piles[CARGO.log.index], 6);
-    const before = engines.map((e) => w.economy.routeOf(e)?.at ?? false);
-    w.sim.tick();
-    w.economy.tick();
-    t++;
-    engines.forEach((e, k) => {
-      const tr = w.sim.findCar(e)?.train;
-      const turn = tr?.lastTurn;
-      if (turn?.cause === "train" && lastTurn.get(e) !== turn.tick) {
-        lastTurn.set(e, turn.tick);
-        meetings.push({ tick: t, engine: e });
-      }
-      const wait = w.economy.crossWait(e);
-      if (wait) waits.get(e)!.add(wait.wait.kind === "needs-loop" ? "needs-loop" : `waiting@${wait.wait.depotId}:${wait.wait.moving ? "moving" : "standing"}`);
-      if (!before[k] && w.economy.routeOf(e)?.at) arrivals.set(e, arrivals.get(e)! + 1);
-    });
-  };
-  const run = (seconds: number) => {
-    for (let i = 0; i < seconds * SIM_HZ; i++) step();
-  };
-  return { meetings, waits, arrivals, step, run, now: () => t * SIM_DT };
-}
-
 /** Two trains on one line of `stops` (depot ids): A west of the middle facing X, B east of it facing Y. */
 function twoTrains(w: World, stops: number[], aNext: number, bNext: number) {
   const a = train(w, w.west[0], true);
@@ -112,7 +60,8 @@ function twoTrains(w: World, stops: number[], aNext: number, bNext: number) {
   return { a, b, red };
 }
 
-describe("trains that wait for each other (crossing)", () => {
+// (Minutes of play, tick by tick: slow on a loaded machine.)
+describe("trains that wait for each other (crossing)", { timeout: 60_000 }, () => {
   it("the passing loop closes (the layout the tests run on)", () => {
     const w = line("loop");
     expect(w.layout.joinedConnector(connectorRef(w.s1, 2))).not.toBe(-1);
@@ -286,8 +235,10 @@ describe("trains that wait for each other (crossing)", () => {
 
   it("the engine card says what it waits for", () => {
     const names = (w: World) => (id: number) => (id === w.dx.id ? "Larkfield" : id === w.dy.id ? "Elderwick" : "the sawmill");
-    // Waiting at M for the train from Y.
+    // Waiting at M for the train from Y (waiting only at stops, Phase 3a: with Phase 3b the train from Y waits on the
+    // loop's main road instead of at Y: see loops.test.ts).
     const w = line("loop");
+    w.economy.crossing.loops = false;
     const { a, b } = twoTrains(w, [w.dx.id, w.dm!.id, w.dy.id], 0, 2);
     const r = runner(w, [a, b]);
     const texts = new Set<string>();
@@ -310,10 +261,14 @@ describe("trains that wait for each other (crossing)", () => {
   });
 });
 
-describe("crossing: claims kept true to the track", () => {
-  /** Run till A has left X with its claim to M; A's front still short of west[1]. */
-  function leftX() {
+describe("crossing: claims kept true to the track", { timeout: 60_000 }, () => {
+  /**
+   * Run till A has left X with its claim to M; A's front still short of west[1]. `stopsOnly`: trains wait only at stops
+   * (Phase 3a: B doesn't wait on the loop's main road, where a switch thrown in front of A would send it).
+   */
+  function leftX(stopsOnly = false) {
     const w = line("loop");
+    w.economy.crossing.loops = !stopsOnly;
     const { a, b } = twoTrains(w, [w.dx.id, w.dm!.id, w.dy.id], 0, 2);
     const r = runner(w, [a, b]);
     for (let i = 0; i < 120 * SIM_HZ; i++) {
@@ -343,7 +298,7 @@ describe("crossing: claims kept true to the track", () => {
   });
 
   it("a train off its claimed way (a switch thrown under it) claims its way afresh from its tail", () => {
-    const { w, a, r } = leftX();
+    const { w, a, r } = leftX(true);
     // The player throws the loop's first switch to the main road just ahead of it, and steering can't throw it back.
     w.layout.setSwitchState(w.s1, 0);
     const set = w.layout.setSwitchState.bind(w.layout);

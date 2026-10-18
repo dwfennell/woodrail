@@ -23,10 +23,12 @@ export type TrainState =
   | { kind: "spacing"; line: string; left: number | null }
   /**
    * Held at its stop till the way on is clear of its line's trains coming the other way: waiting for one (coming from
-   * `depotId`, or standing at it), or in a mutual wait (`needsLoop`: the line needs a passing loop).
+   * `depotId`, or standing at it; `atLoop`: it waits in a passing loop), or in a mutual wait (`needsLoop`: the line needs a passing loop).
    */
-  | { kind: "crossing"; line: string; depotId: number; moving: boolean; needsLoop: boolean }
+  | { kind: "crossing"; line: string; depotId: number; moving: boolean; needsLoop: boolean; atLoop: boolean }
   | { kind: "held-up" }
+  /** Stood still with a train of its own line just ahead. */
+  | { kind: "line-train"; line: string }
   | { kind: "starting" }
   | { kind: "running" };
 
@@ -83,8 +85,8 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     if (cross) {
       const w = cross.wait;
       return w.kind === "needs-loop"
-        ? { kind: "crossing", line: cross.line.name, depotId: -1, moving: false, needsLoop: true }
-        : { kind: "crossing", line: cross.line.name, depotId: w.depotId, moving: w.moving, needsLoop: false };
+        ? { kind: "crossing", line: cross.line.name, depotId: -1, moving: false, needsLoop: true, atLoop: false }
+        : { kind: "crossing", line: cross.line.name, depotId: w.depotId, moving: w.moving, needsLoop: false, atLoop: w.atLoop };
     }
   }
   if (train.speed < 1) {
@@ -93,6 +95,11 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     // Getting going (moving, but under 1 mm/s yet), or told to go a moment ago: not held up.
     const justSet = train.leverTick !== undefined && (sim.ticks - train.leverTick) * SIM_DT < STARTING_S;
     if (train.speed > 0 || justSet) return { kind: "starting" };
+    // Up against a train of its own line (one let go, or turned back, from a wait): it waits for that train.
+    for (const car of train.cars) {
+      const line = car.kind === "engine" ? economy.lineTrainInTheWay(car.id) : null;
+      if (line) return { kind: "line-train", line: line.name };
+    }
     return { kind: "held-up" };
   }
   // Gathering speed after Go.
@@ -140,7 +147,10 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
     case "crossing":
       if (s.needsLoop) return `The ${s.line} needs a passing loop`;
+      if (s.atLoop) return `Waiting at the loop for the ${s.line} train`;
       return `Waiting for the ${s.line} train ${s.moving ? "from" : "at"} ${nameOf(s.depotId)}`;
+    case "line-train":
+      return `Waiting for the ${s.line} train`;
     case "held-up":
       return "Waiting: something's in the way";
     case "running": {

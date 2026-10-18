@@ -305,6 +305,11 @@ export class Economy {
       },
       drive: (train) => this.drive(train),
       busy: (train, engine) => this.servingDepot(train.id) !== undefined || this.spacing.holding(engine),
+      live: (engine) => {
+        const lineId = this.lineIdOf.get(engine);
+        return lineId === undefined || !this.lines.has(lineId) ? [] : this.liveOn(lineId);
+      },
+      lineOf: (engine) => this.lineIdOf.get(engine) ?? -1,
     });
   }
 
@@ -911,12 +916,12 @@ export class Economy {
   }
 
   /**
-   * The sim's speed limit for a powered train: a depot's (see `depotCap`), and a kit's stop's (a platform: see
-   * `KitStops`), whichever is lower.
+   * The sim's speed limit for a powered train: a depot's (see `depotCap`), a kit's stop's (a platform: see
+   * `KitStops`), and a passing loop's, for a routed train to wait in it (see `Crossing.gateCap`), whichever is lowest.
    */
   private capFor(train: Train): number {
     const depot = this.depotCap(train);
-    return depot === 0 ? 0 : Math.min(depot, this.kitStops.cap(train));
+    return depot === 0 ? 0 : Math.min(depot, this.kitStops.cap(train), this.crossing.gateCap(train, this.ticksRun));
   }
 
   /**
@@ -1191,7 +1196,10 @@ export class Economy {
     if (this.routes.size > 0) {
       this.advanceRoutes();
       // Switches ahead of routed trains, a few times a second (a train covers a few mm a tick).
+      // (And any that has just claimed a section into a passing loop: its road there may have changed.)
       if (++this.steerTicks % STEER_TICKS === 0) this.steerTrains();
+      else if (this.crossing.steerSoon.size > 0) this.steerTrains(this.crossing.steerSoon);
+      this.crossing.steerSoon.clear();
     }
     for (const d of this.depots) {
       if (!this.working(d)) {
@@ -1283,6 +1291,13 @@ export class Economy {
     return wait && line ? { line, wait } : null;
   }
 
+  /** Is this engine's train stood still behind, or nose to nose with, a train of its own line? Its line, for its card. */
+  lineTrainInTheWay(engineCarId: number): Line | null {
+    const lineId = this.lineIdOf.get(engineCarId);
+    const line = lineId === undefined ? undefined : this.lines.get(lineId);
+    return line && this.crossing.inTheWay(engineCarId) !== -1 ? line : null;
+  }
+
   /** Ticks run (sim time: a pause stops it), for spacing the trains on a line (`spacing`). */
   private ticksRun = 0;
   /** Auto-spacing of the trains on a line (see spacing.ts). */
@@ -1324,15 +1339,19 @@ export class Economy {
     }
   }
 
-  /** Set the switches ahead of each routed train toward its next stop. */
-  private steerTrains(): void {
+  /**
+   * Set the switches ahead of each routed train (or just `only`) toward its next stop: through a passing loop, onto
+   * the road crossing wants it on (see `Crossing.steerAvoid`).
+   */
+  private steerTrains(only?: ReadonlySet<number>): void {
     for (const [engine, r] of this.routes) {
+      if (only && !only.has(engine)) continue;
       const found = this.sim.findCar(engine);
       if (!found || found.train.derailed) continue;
       const net = this.drive(found.train);
       const d = this.depots[r.stops[r.next % r.stops.length].depotId];
       if (net === 0 || !d) continue;
-      if (steer(this.layout, found.train, net > 0, d.pieceId)) this.onSwitch?.(d.pieceId);
+      if (steer(this.layout, found.train, net > 0, d.pieceId, this.crossing.steerAvoid(engine, found.train))) this.onSwitch?.(d.pieceId);
     }
   }
 

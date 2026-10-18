@@ -220,14 +220,31 @@ lovely version:
   calling (on the other road of a loop), or two platforms. With no passing place the card says *"The Red line needs a
   passing loop"*; after 30 s the first-ready train is let go and they turn back as before (or sooner: nothing on the
   line moving for 20 s, or *Go now*). The player's line is never changed.
-- **Phase 3b (follow-up): waiting at the loop's switch.** The usual line runs there and back and calls at every
-  station both ways, so a loop laid at a one-platform station can't let two trains cross under 3a: both must stop at
-  the same platform. 3b splits a way into sections at passing loops between stops:
-  - a train claims only up to the next passing loop, and waits in the loop, short of its far switch, when the
-    section beyond is claimed against it;
-  - steering sends the oncoming train onto the loop's free road (not the one the waiting train stands on), so they
-    pass;
-  - claims, release behind the tail, and the mutual-wait status carry over from 3a.
+- **Phase 3b (built, branch routes-loops): waiting in a passing loop.** The usual line runs there and back and calls
+  at every station both ways, so a loop beside a one-platform station, or mid-way between stops, can't let two trains
+  cross under 3a: both must stop at the same platform. 3b splits a way into sections at passing loops between stops:
+  - a way is cut at each loop it runs through (in by one switch's stem, out by the other's) where the train fits on
+    the road it takes with both switches clear (its length plus 6 mm each end) and neither switch is pinned (a pinned
+    switch wins: no cut, so the train waits as in 3a);
+  - a train claims one section at a time: its first when it leaves its stop, the next as it comes up to the loop's
+    far switch (a virtual signal: refused, it brakes at the sim's acceleration to stand on the loop's road, its front
+    6 mm short of the switch). A section into a loop also needs the road it would stand on clear of the line's other
+    trains, either way (so a follower doesn't run up behind a train already waiting there), and a train out of a loop
+    waits for one coming out by the other road;
+  - steering is given a hint (Rail and road's `steer(…, avoid)`): a loop road a train of the line coming the other
+    way is on or holds, or the other road of a loop the train already holds its road in. The walks that make claims
+    use the same hint, so claims match what steering does. A lone train gets none;
+  - the card says *"Waiting at the loop for the Red line train"*; claims, release behind the tail, the 30 s and 20 s
+    releases, Go now, and the re-leg rules carry over from 3a. Nothing is saved: a loaded train between stops claims
+    from its tail (a way that starts in a loop is cut at its far switch).
+  - No jam lasts (QA's B1 on 3a): a hold also ends when the awaited train turns back from meeting another, and after
+    30 s in which the awaited train made no progress along its claim (moving or not); a mutual wait no longer runs
+    the 20 s line-still clock. On a line with no passing place two trains then follow each other rather than one
+    holding while the other bounces off it. The "Lay a passing loop" goal ticks only for a loop the line's trains can
+    cross in as above (a way through it, unpinned, the road long enough for the line's longest train).
+  - Not handled: a stop whose platform is itself on a loop road and every train calls there (they can't pass on one
+    platform), and a train standing at a stop with its front over a loop's switch (it fouls the loop: they wait as in
+    3a, then the 30 s release).
 
 ### 3.6 Game mode and Sandbox
 

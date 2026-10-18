@@ -1892,12 +1892,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const standing = lever === 0 && found.train.speed === 0;
     if (standing && (opened || !viewStanding) && game.sim.engineBlocked(carId, 1) && !game.sim.engineBlocked(carId, -1)) hud.setEngineWay(-1);
     viewStanding = standing;
-    // A town by its name; anything else as "the sawmill" ("the workshop 2" where there are more).
+    // A town by its name; anything else by its stop name, as the stop chips show it: "the Sawmill" ("the Workshop 2").
     const nameOf = (id: number) => {
       const d = game.economy.depot(id);
       const stop = routeStops(game.world).find((st) => st.depotId === id);
       if (d?.role === "town") return stop?.name ?? "the station";
-      return `the ${(stop?.name ?? (d ? DEPOT_NAMES[d.role] : "depot")).toLowerCase()}`;
+      return `the ${stop?.name ?? (d ? DEPOT_NAMES[d.role] : "depot")}`;
     };
     // A status shows once it's held a moment (a train being worked at the end of the line passes through several).
     const now = performance.now();

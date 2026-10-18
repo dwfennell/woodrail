@@ -1,6 +1,6 @@
 import { createRouteStep, createSample, getPieceDef, pathLength, routeFrom, samplePath, TRACK_THICKNESS, type Layout } from "../track";
 import type { Cursor } from "../sim";
-import { distanceTo, next, SEARCH, wayToward, waysFrom } from "../economy/steer";
+import { chooseWay, distanceTo, next, SEARCH, wayToward, waysFrom, type AvoidTest } from "../economy/steer";
 
 /** A stretch of one path of one piece, from s0 to s1 along the path's own geometry (s0 > s1 when run backwards). */
 export interface PathRun {
@@ -12,6 +12,15 @@ export interface PathRun {
 
 /** The way between two stops: the runs in order, or null if no way leads there. */
 export type Leg = PathRun[] | null;
+
+/**
+ * How a walk chooses beyond `steer`'s own rule: `avoid` as `steer` is given it (the same choice), and `on`: switches a
+ * train stands on, by the path it's on (it goes the way it is, not the way it would be steered).
+ */
+export interface WalkOptions {
+  avoid?: AvoidTest;
+  on?: ReadonlyMap<number, number>;
+}
 
 /** Where a walk along the track stands: on a path, going one way, from `s` (the path's own geometry). */
 interface At {
@@ -35,7 +44,7 @@ export const runsLength = (runs: readonly PathRun[]): number => runs.reduce((t, 
  * there: no way leads there, or it would go round for ever. Bounded by `SEARCH` steps; `distanceTo` is memoised per
  * call, so each (piece, entry) is searched from at most once.
  */
-function walkTo(layout: Layout, start: At, target: number): Leg {
+function walkTo(layout: Layout, start: At, target: number, opts?: WalkOptions): Leg {
   const memo = new Map<number, number>();
   const dist = (at: { pieceId: number; entry: number }) => {
     const key = at.pieceId * 8 + at.entry;
@@ -67,8 +76,11 @@ function walkTo(layout: Layout, start: At, target: number): Leg {
       continue;
     }
     let option = 0;
-    if (n.pieceId !== target && ways.length > 1) {
-      option = wayToward(layout, n.pieceId, ways, target, dist);
+    const on = ways.length > 1 ? opts?.on?.get(n.pieceId) : undefined;
+    const onWay = on === undefined ? -1 : ways.findIndex((w) => w.path === on);
+    if (onWay !== -1) option = onWay;
+    else if (n.pieceId !== target && ways.length > 1) {
+      option = opts?.avoid ? chooseWay(layout, n.pieceId, ways, target, opts.avoid, dist) : wayToward(layout, n.pieceId, ways, target, dist);
       // No way on leads there: the switch stays as it's set.
       if (option === -1) option = layout.switchState(n.pieceId) % ways.length;
     } else if (ways.length > 1) option = layout.switchState(n.pieceId) % ways.length;
@@ -87,7 +99,7 @@ function walkTo(layout: Layout, start: At, target: number): Leg {
 }
 
 /** From a train's front cursor to a piece: the way a routed train would go (as steer.ts chooses), or null. */
-export function legFromCursor(layout: Layout, front: Cursor, targetPiece: number): Leg {
+export function legFromCursor(layout: Layout, front: Cursor, targetPiece: number, opts?: WalkOptions): Leg {
   if (!layout.getPiece(front.pieceId) || !layout.getPiece(targetPiece)) return null;
   const len = lengthOf(layout, front.pieceId, front.pathIndex);
   const s = front.reversed ? len - front.s : front.s;
@@ -96,7 +108,7 @@ export function legFromCursor(layout: Layout, front: Cursor, targetPiece: number
     const ahead = front.reversed ? s >= len / 2 : s <= len / 2;
     if (ahead) return [{ pieceId: front.pieceId, pathIndex: front.pathIndex, s0: s, s1: len / 2 }];
   }
-  return walkTo(layout, { pieceId: front.pieceId, pathIndex: front.pathIndex, reversed: front.reversed, s }, targetPiece);
+  return walkTo(layout, { pieceId: front.pieceId, pathIndex: front.pathIndex, reversed: front.reversed, s }, targetPiece, opts);
 }
 
 /**
