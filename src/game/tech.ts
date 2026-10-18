@@ -16,8 +16,11 @@ export type Tech = Blueprint;
 /** Every blueprint, built or planned. */
 export const TECHS: readonly Tech[] = BLUEPRINTS;
 
-/** On the board from a new game's start, to be learned with goods. */
-export const STARTING_BOARD: readonly string[] = ["switches", "bridges"];
+/**
+ * On the board from a new game's start, to be learned with goods. Farming and mills are here (not left to a town's
+ * offer) because a town wants flour to grow past a town: without them in reach a game could stall there for an hour.
+ */
+export const STARTING_BOARD: readonly string[] = ["switches", "bridges", "farming", "mills"];
 
 const BY_ID = new Map(TECHS.map((t) => [t.id, t]));
 export const techOf = (id: string): Tech | undefined => BY_ID.get(id);

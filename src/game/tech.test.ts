@@ -1,17 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
+import { capOf } from "../economy/economy";
 import { appendPiece, connectorRef } from "../track";
 import { Progress } from "./progress";
-import { choose, learnWithGoods, offerFor, ready } from "./tech";
+import { built, choose, learnWithGoods, offerFor, ready, TECHS } from "./tech";
+import { THING_RULES } from "./things";
 import { buildStarterWorld, syncIndustries } from "./world";
 
 describe("blueprints", () => {
-  it("start with switches and bridges on the board; junctions wait for switches", () => {
+  it("start with switches, bridges, farming and mills on the board; junctions wait for switches, mills for farming", () => {
     const p = Progress.fresh();
-    expect([...p.board].sort()).toEqual(["bridges", "switches"]);
+    expect([...p.board].sort()).toEqual(["bridges", "farming", "mills", "switches"]);
+    expect(ready(p, "mills")).toBe(false);
     expect(ready(p, "junctions")).toBe(false);
     p.learned.add("switches");
     expect(ready(p, "junctions")).toBe(true);
+  });
+
+  it("one workshop's yard holds the planks for any blueprint or building (it once held 12: a mill could never be paid)", () => {
+    const most = Math.max(...TECHS.filter(built).map((t) => t.price.planks ?? 0), ...Object.values(THING_RULES).map((r) => r!.cost.planks ?? 0));
+    expect(capOf("workshop")).toBeGreaterThanOrEqual(most);
   });
 
   it("a growing town offers two ready blueprints, new ones first; choosing one learns it and boards the other", () => {
