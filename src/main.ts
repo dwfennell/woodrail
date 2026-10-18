@@ -30,6 +30,8 @@ import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { routeStops } from "./game/route-stops";
 import { editLine, lineOf, moveStop } from "./game/lines";
+import { aheadRuns, legFromCursor, lineLegs } from "./game/route-path";
+import { RouteView, type DiscSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { engineStatus, trainsForReport, type CantMove } from "./game/engine-status";
 import { MAX_SHEDS, SHED_CAP, type RouteStopDef, type StopAction } from "./economy";
@@ -49,8 +51,8 @@ import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
-import type { CarKind, CarLook } from "./sim";
+import { PIECE_TYPES, type Anchor, type Layout, type PieceTypeId } from "./track";
+import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
@@ -1751,7 +1753,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const stops = routeStops(game.world);
     const line = lineOf(game.economy, carId);
     const r = game.economy.routeOf(carId);
-    const key = `${carId}:${stops.length}:${planning}:${stopPicked}:${line ? `${line.id}|${line.colour}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}`).join(",")}` : "-"}`;
+    const key = `${carId}:${stops.length}:${planning}:${stopPicked}:${cantReachText}:${line ? `${line.id}|${line.colour}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}`).join(",")}` : "-"}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -1830,7 +1832,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         );
         box.append(tools);
       }
-      const why = cantReach?.(carId);
+      const why = cantReach();
       if (why) {
         const warn = document.createElement("div");
         warn.className = "route-warn";
@@ -1845,6 +1847,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (planning === on) return;
     planning = on;
     stopPicked = -1;
+    interaction.onTapStopDisc = on
+      ? (index) => {
+          const carId = interaction.openEngineCarId;
+          if (carId === -1) return;
+          editLine(game.economy, carId, (l) => l.splice(index, 1));
+          stopPicked = -1;
+          showRoute();
+          routeChanged();
+          scheduleSave();
+        }
+      : null;
     interaction.onPickPlace = on
       ? (depotId) => {
           const carId = interaction.openEngineCarId;
@@ -1862,10 +1875,87 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showRoute();
   }
 
-  /** Why the open engine's line can't be run as it stands (a stop no track leads to), or null: see the route view. */
-  let cantReach: ((carId: number) => string | null) | null = null;
+  /** Why the open engine's line can't be run as it stands (a stop no track leads to), or null: see `showRibbon`. */
+  let cantReachText: string | null = null;
+  const cantReach = (): string | null => cantReachText;
   /** The open engine's line changed (its ribbon is redrawn). */
-  let routeChanged = (): void => {};
+  const routeChanged = (): void => {
+    ribbonKey = "";
+  };
+
+  // The open engine's route on the track (see src/render/route-view.ts): its line's ribbon round all its stops, the
+  // way on from the train to the stop it's heading for, and numbered discs over the stops (one no track leads to
+  // crossed out); a train on no line shows where the switches send it, dotted. Built only when something it shows
+  // changes (the train, its line, the track, a switch, the piece the train's on): a key compared each frame.
+  let routeView: RouteView | null = null;
+  let routeLayout: Layout | null = null;
+  let ribbonKey = "";
+  /** How far ahead "where the switches send it" is drawn (mm). */
+  const AHEAD = 700;
+  function showRibbon(): void {
+    const carId = interaction.openEngineCarId;
+    const found = carId !== -1 ? game.sim.findCar(carId) : undefined;
+    if (!found || found.train.derailed) {
+      if (ribbonKey !== "") {
+        routeView?.clear();
+        ribbonKey = "";
+        cantReachText = null;
+        game.invalidate();
+      }
+      return;
+    }
+    // The way the engine's train is going (or, standing, the way its front faces).
+    const t = found.train;
+    const engine = t.cars[found.index];
+    const way = (engine.lever || 1) * engine.facing;
+    const tail = t.bogies[t.bogies.length - 1];
+    const lead = way > 0 ? t.bogies[0] : tail;
+    const line = lineOf(game.economy, carId);
+    const r = game.economy.routeOf(carId);
+    const key = `${carId}|${game.trackVersion}|${game.layout.switchesVersion}|${lead.pieceId}|${lead.reversed}|${way}|${line ? `${line.colour}|${r?.next}|${line.stops.map((st) => st.depotId).join(",")}` : "-"}`;
+    if (key === ribbonKey) return;
+    ribbonKey = key;
+    if (!routeView || routeLayout !== game.layout) {
+      if (routeView) {
+        game.scene.remove(routeView.group);
+        routeView.dispose();
+      }
+      routeView = new RouteView(game.layout, game.mats);
+      routeLayout = game.layout;
+      game.scene.add(routeView.group);
+      interaction.routeGroup = routeView.group;
+    }
+    const front: Cursor = { ...lead };
+    if (way < 0) flipCursor(game.layout, front);
+    cantReachText = null;
+    if (!line || !r) {
+      routeView.show([{ runs: aheadRuns(game.layout, front, AHEAD), colour: "#ffffff", dotted: true }], []);
+    } else {
+      const names = routeStops(game.world);
+      const pieces = line.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1);
+      const legs = lineLegs(game.layout, pieces);
+      const next = r.next % line.stops.length;
+      const toNext = pieces[next] === -1 ? null : legFromCursor(game.layout, front, pieces[next]);
+      const ribbons: RibbonSpec[] = legs.flatMap((leg) => (leg ? [{ runs: leg, colour: line.colour }] : []));
+      if (toNext) ribbons.push({ runs: toNext, colour: line.colour });
+      const n = line.stops.length;
+      // A stop is out of reach when no way leads into it (from the train, for the next; else from the stop before).
+      const unreachable = (k: number) => (k === next ? toNext === null : n > 1 && legs[(k - 1 + n) % n] === null);
+      const discs: DiscSpec[] = line.stops.map((_, k) => ({
+        pieceId: pieces[k],
+        label: `${k + 1}`,
+        colour: line.colour,
+        state: unreachable(k) ? "unreachable" : k === next ? "next" : "stop",
+      }));
+      routeView.show(ribbons, discs.filter((d) => d.pieceId !== -1));
+      const out = line.stops.findIndex((_, k) => unreachable(k));
+      if (out !== -1) {
+        const name = names.find((st) => st.depotId === line.stops[out].depotId)?.name ?? "a stop";
+        cantReachText = `Can't reach ${name}: no track leads there`;
+      }
+    }
+    game.invalidate();
+  }
 
   // The map view (Game mode): the whole land from above, with what each town wants and each depot holds.
   const mapView = new MapView(hud.root, { go: (m) => goToMarker(m), close: () => closeMap(true) });
@@ -2288,6 +2378,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       goalsCheckedAt = now;
       checkGoals(true);
     }
+    showRibbon();
     showRoute();
     showEngineView();
     let derailed = false;

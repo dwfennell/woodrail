@@ -408,8 +408,12 @@ export class Game {
     return this.trackView.markTurnedBack(connectorRef(front.pieceId, end));
   }
 
+  /** Bumped by every layout edit (`trackChanged`): what's drawn from the track (a train's route) is redrawn on it. */
+  trackVersion = 0;
+
   /** Call after any layout edit. */
   trackChanged(): void {
+    this.trackVersion++;
     this.invalidate();
     // Ramps cut into the hills, before anything asks the ground: the track's arches (how far down a bridge reaches),
     // trees.

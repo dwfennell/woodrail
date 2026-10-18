@@ -184,7 +184,11 @@ export class Layout {
 
   setSwitchState(pieceId: number, state: number): void {
     this.switchStates.set(pieceId, state);
+    this.switchesVersion++;
   }
+
+  /** Bumped whenever a switch state is set (a turntable's deck follows it: `KitView`). */
+  switchesVersion = 0;
 
   /** Seat a free connector on a free one within the joint tolerance, if there is one (a near miss just closed). */
   seatFree(ref: number): boolean {

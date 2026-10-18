@@ -141,6 +141,8 @@ const SPLICE_MESSAGES = {
 type Press =
   | { kind: "car"; carId: number }
   | { kind: "lever"; pieceId: number }
+  /** A stop disc of the route being planned (its index in the route). */
+  | { kind: "route-stop"; index: number }
   | { kind: "piece"; pieceId: number }
   /** A depot's yard, building or crane (economy depot id). */
   | { kind: "depot"; depotId: number }
@@ -322,6 +324,9 @@ export class Interaction {
   onSwitched: (() => void) | null = null;
   /** Planning a train's route: a tap on a station or depot is offered here (its economy depot); true if taken. */
   onPickPlace: ((depotId: number) => boolean) | null = null;
+  /** Planning a train's route: its stop discs (the route view's group), a tap on one handed here (the stop's index). */
+  routeGroup: Object3D | null = null;
+  onTapStopDisc: ((index: number) => void) | null = null;
   /**
    * A tap on empty ground (where it landed, and where on screen): true if it was taken (then it doesn't count toward
    * a double tap).
@@ -917,7 +922,9 @@ export class Interaction {
     if (hit && this.armed) this.arm(null);
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
     // (While picking several, any track in view can be tapped.)
-    if (hit?.kind === "piece" && !this.picking && !this.withinReach(hit.pieceId)) hit = null;
+    // (Planning a route, a station or depot is tapped from any zoom.)
+    const place = !!this.onPickPlace && hit?.kind === "piece" && !!this.game.economy.depotAtPiece(hit.pieceId);
+    if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) hit = null;
     if (hit?.kind === "prop" && (!this.propsEditable || !this.propWithinReach(hit.propId))) hit = null;
     if (hit?.kind === "road" && !this.roadWithinReach(hit.cell)) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
@@ -930,7 +937,8 @@ export class Interaction {
     if (!hit) {
       // Empty floor: the camera pans; a tap here deselects (but not the pieces being picked: Done lets them go), and a
       // double tap focuses on that spot.
-      if (!this.picking) {
+      // (Planning a route, the engine's card stays: Done ends it.)
+      if (!this.picking && !this.onPickPlace) {
         this.hud.hideCards();
         this.clearSelection();
       }
@@ -1174,7 +1182,8 @@ export class Interaction {
         if (this.armed) {
           this.arm(null);
           this.lastTap = null;
-        } else if (ground && this.onFloorTap?.(ground, e.clientX, e.clientY)) this.lastTap = null;
+        } else if (this.onPickPlace) this.lastTap = null;
+        else if (ground && this.onFloorTap?.(ground, e.clientX, e.clientY)) this.lastTap = null;
         else if (this.noteTap(e) && ground) this.game.director.focus(ground, 260);
       } else this.lastTap = null;
     }
@@ -1306,10 +1315,16 @@ export class Interaction {
 
   private tap(p: Press, add = false): void {
     const g = this.game;
+    if (p.kind === "route-stop") {
+      this.onTapStopDisc?.(p.index);
+      return;
+    }
     // Planning a train's route: a station or depot tapped is a stop (see `onPickPlace`).
     if (this.onPickPlace) {
       const depot = p.kind === "depot" ? g.economy.depot(p.depotId) : p.kind === "piece" ? g.economy.depotAtPiece(p.pieceId) : undefined;
-      if (depot && this.onPickPlace(depot.id)) return;
+      if (depot) this.onPickPlace(depot.id);
+      // Anything else tapped while planning does nothing (the engine's card stays open: Done ends planning).
+      return;
     }
     if (p.kind === "lever") {
       // Only the points move: redrawn and saved, nothing else rebuilt (no geometry changed).
@@ -3478,6 +3493,8 @@ export class Interaction {
    */
   private pick(x: number, y: number, touch = false): Press | null {
     const exact = this.pickExact(x, y);
+    // (A route's stop disc floats over the cars: it wins.)
+    if (exact?.kind === "route-stop") return exact;
     if (!touch || !nearCarWins(exact ? (exact.kind === "depot" && exact.footprint ? "station" : exact.kind) : null)) return exact;
     const carId = carNearTap(x, y, this.carsOnScreen(), TOUCH_SLACK_PX);
     return carId !== -1 ? { kind: "car", carId } : exact;
@@ -3486,6 +3503,10 @@ export class Interaction {
   private pickExact(x: number, y: number): (Press & { footprint?: boolean }) | null {
     this.setNdc(x, y);
     const g = this.game;
+    // Planning a route: its stop discs float over everything, and win.
+    if (this.routeGroup?.visible && this.onTapStopDisc) {
+      for (const h of this.raycaster.intersectObject(this.routeGroup, true)) if (h.object.userData.kind === "route-stop") return { kind: "route-stop", index: h.object.userData.index as number };
+    }
     const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group], true);
     for (const h of hits) {
       const slot = g.depotView.cargoAt(h.object, h.instanceId);
