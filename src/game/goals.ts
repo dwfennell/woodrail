@@ -1,5 +1,7 @@
 import { connectedPairs, SURF_RIVER, type LandscapeGrid } from "../landscape";
+import { acrossRiver, type AcrossRiver } from "./across-river";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
+import { BLUEPRINTS } from "./blueprints";
 import { workshops, workshopStock } from "./crafting";
 import { depotSpot } from "./depot-footprint";
 import { receivedBy } from "./town-life";
@@ -12,6 +14,8 @@ export interface GoalProgress {
   count?: number;
   target?: number;
   unit?: string;
+  /** A nudge for how things stand now, in place of the goal's own. */
+  hint?: string;
 }
 
 /** Where to look for a goal ("Show me"): places to frame and point at, and the tray tab that has what it needs. */
@@ -25,6 +29,12 @@ export interface GoalGuide {
   /** The tray tab to open, and a shelf in it. */
   tab?: "track" | "trains" | "industries";
   shelf?: string;
+  /**
+   * A piece the goal asks for, and the way round it fits at the guided spot: taken from the tray after "Show me", it
+   * comes out turned that way (held so, a depot takes the straight's place that way round), not as the view would
+   * turn it (QA: the workshop's spot was refused, its building over the river, in the starting view).
+   */
+  held?: { type: PieceTypeId; heading: number };
 }
 
 /** What a goal may ask beyond the world: the player's progress (blueprints learned). */
@@ -43,6 +53,10 @@ export interface Goal {
   check(world: World, ctx?: GoalContext): GoalProgress;
   /** Where to look and what to reach for, from the world as it is now. */
   guide(world: World): GoalGuide;
+  /** Blueprints to learn before it shows or counts (till then it's passed over). */
+  readonly needs?: readonly string[];
+  /** The blueprint it's after, if any: while it's the current goal the workshop keeps planks for it (`planksWanted`). */
+  readonly blueprint?: string;
 }
 
 /** Above this speed (mm/s) a train counts as running. */
@@ -153,15 +167,48 @@ function riverPoints(grid: LandscapeGrid): Point[] {
 /** Most anchors compared with the river squares on one tap (the track is thinned to this many points). */
 const MAX_ANCHORS = 80;
 
+/** The player's line, for what's across the river from it: their track and the towns on their railway (or the next towns to join). */
+function lineOf(w: World): Point[] {
+  const track = trackPoints(w);
+  const joined = largestNetwork(w);
+  const ids = joined.length > 0 ? joined : track.length > 0 ? [] : nextTowns(w);
+  return [...track, ...ids.map((id) => w.landscape.towns.find((t) => t.id === id)!.station)];
+}
+
+/** `acrossRiver` from the line, by world, kept while the track (pieces and where they lie) and the land are the same. */
+const acrossCache = new WeakMap<World, { key: string; hit: AcrossRiver | null }>();
+
+function bridgeTarget(w: World): AcrossRiver | null {
+  const land = w.landscape;
+  const key = `${w.layout.revision}|${land.grid.revision}|${land.towns.length}|${land.depots.length}`;
+  const cached = acrossCache.get(w);
+  if (cached?.key === key) return cached.hit;
+  const hit = riverPoints(land.grid).length === 0 ? null : acrossRiver(land, lineOf(w), land.depots.map((d) => d.centre));
+  acrossCache.set(w, { key, hit });
+  return hit;
+}
+
+/** The bridge goal's hint when there's a river but nothing across it to reach. */
+export const NOTHING_ACROSS_HINT = "Nothing's across the river yet. Learn bridges, make one and lay it over the water.";
+
 /**
- * Where a bridge is wanted: the river square nearest the player's line (their track and the towns on their railway,
- * or else the next towns to join), framed with that bit of the line. With no river on the map: the line as it is.
+ * Where a bridge is wanted: where the shortest way from the line to the nearest thing across the river (a town off the
+ * railway, a depot, ground for an industry: `acrossRiver`) crosses it, framed with both banks (and the thing, when
+ * it's near). With nothing across: the river square nearest the player's line (their track and the towns on their
+ * railway, or else the next towns to join), framed with that bit of the line. With no river on the map: the line as
+ * it is. The Track tab opens on its Bridges shelf.
  */
 function guideBridge(w: World): GoalGuide {
   const tab = "track";
   const shelf = "Bridges";
   const river = riverPoints(w.landscape.grid);
   if (river.length === 0) return guideTrains(w, tab, shelf);
+  const ahead = bridgeTarget(w);
+  if (ahead) {
+    const points = [ahead.river, ahead.near, ahead.far];
+    if (dist(ahead.at, ahead.river) <= SHOW_ACROSS) points.push(ahead.at);
+    return { points, towns: ahead.town === undefined ? [] : [ahead.town], marks: [ahead.river], tab, shelf };
+  }
   const joined = largestNetwork(w);
   const track = trackPoints(w);
   const step = Math.max(1, Math.ceil(track.length / MAX_ANCHORS));
@@ -171,6 +218,9 @@ function guideBridge(w: World): GoalGuide {
   if (!pair) return guideTrains(w, tab, shelf);
   return { points: [pair[1], pair[0]], towns: [], marks: [pair[1]], tab, shelf };
 }
+
+/** What's across the river is framed with the crossing when it's this near it (mm); further, just the crossing. */
+const SHOW_ACROSS = 1500;
 
 const deliveredTotal = (w: World) => {
   let n = 0;
@@ -205,7 +255,7 @@ export const GOALS: readonly Goal[] = [
   {
     id: "get-moving",
     title: "Get a train moving",
-    hint: "Tap the engine and push its lever forward.",
+    hint: "Tap the engine, then tap Go.",
     check: (w) => ({ done: running(w).length > 0 }),
     guide: (w) => guideTrains(w),
   },
@@ -276,7 +326,11 @@ export const GOALS: readonly Goal[] = [
       // A straight of the line where the workshop fits, yard and all: nearest the map's stations and depots.
       const near = [...w.depots.values(), ...w.stations.values()].map((id) => piecePoint(w, id));
       const spot = depotSpot(w, "depot-workshop", near);
-      return spot ? { ...guide, points: [{ x: spot.x, z: spot.z }], towns: [], marks: [{ x: spot.x, z: spot.z }] } : guide;
+      if (spot) return { ...guide, points: [{ x: spot.x, z: spot.z }], towns: [], marks: [{ x: spot.x, z: spot.z }], held: { type: "depot-workshop", heading: spot.heading } };
+      // No straight where it fits yet: still a marker, on the line where it's nearest the stations and depots (with
+      // no line yet, the towns' stations are ringed).
+      const line = closest(trackPoints(w), near, (p) => p);
+      return line ? { ...guide, points: [line[0], line[1]], towns: [], marks: [line[0]] } : guide;
     },
   },
   {
@@ -294,6 +348,7 @@ export const GOALS: readonly Goal[] = [
   },
   {
     id: "learn-switches",
+    blueprint: "switches",
     title: "Learn switches",
     hint: "Open Blueprints and tap Switches.",
     check: (_w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches") }),
@@ -308,9 +363,13 @@ export const GOALS: readonly Goal[] = [
   },
   {
     id: "build-bridge",
+    blueprint: "bridges",
     title: "Build a bridge",
     hint: "Learn bridges on the blueprint board and make one at your workshop. Then take your track over a river.",
-    check: (w) => ({ done: hasPiece(w, (type) => isBridge(type)) }),
+    check: (w) => {
+      if (hasPiece(w, (type) => isBridge(type))) return { done: true };
+      return riverPoints(w.landscape.grid).length > 0 && !bridgeTarget(w) ? { done: false, hint: NOTHING_ACROSS_HINT } : { done: false };
+    },
     guide: guideBridge,
   },
   {
@@ -333,7 +392,10 @@ export const GOALS: readonly Goal[] = [
   {
     id: "two-trains",
     title: "Run two trains at once",
-    hint: "A second train needs track of its own: on one line they turn each other back.",
+    hint: "Lay a passing loop with signals so they can pass.",
+    // On one line two trains only turn each other back: this goal waits till the player can build a passing loop (two
+    // switches, learned before signals) with signals to hold one train while the other passes.
+    needs: ["signals"],
     check: (w) => {
       const n = running(w).length;
       return { done: n >= 2, count: Math.min(n, 2), target: 2, unit: "trains" };
@@ -373,7 +435,8 @@ export class GoalTracker {
    * they're met, whatever the current goal. One a check either way.
    */
   update(world: World, ctx: GoalContext = NO_CONTEXT): Goal[] {
-    for (const g of GOALS) if (!this.done.has(g.id) && !this.met.has(g.id) && g.check(world, ctx).done) this.met.add(g.id);
+    this.learned = ctx.learned;
+    for (const g of GOALS) if (!this.done.has(g.id) && !this.met.has(g.id) && this.open(g) && g.check(world, ctx).done) this.met.add(g.id);
     const now = this.current();
     const open = GOALS.findIndex((g) => g.id === FIRST_OPEN_GOAL);
     const next = GOALS.find((g, i) => this.met.has(g.id) && (g === now || i >= open));
@@ -398,13 +461,43 @@ export class GoalTracker {
 
   /** The first goal not yet done (null when all are). */
   current(): Goal | null {
-    return GOALS.find((g) => !this.done.has(g.id)) ?? null;
+    return this.left()[0] ?? null;
   }
 
   /** The goal after the current one. */
   next(): Goal | null {
-    const left = GOALS.filter((g) => !this.done.has(g.id));
-    return left[1] ?? null;
+    return this.left()[1] ?? null;
+  }
+
+  /** Blueprints learned, as of the last check (a goal that needs some waits for them). */
+  private learned: ReadonlySet<string> = NO_CONTEXT.learned;
+
+  /** Can this goal show and count yet (its blueprints learned)? */
+  private open(g: Goal): boolean {
+    return !g.needs || g.needs.every((id) => this.learned.has(id));
+  }
+
+  /** The goals not done that can show now, in order (one waiting for its blueprints is hidden, and not counted). */
+  private left(): Goal[] {
+    return GOALS.filter((g) => !this.done.has(g.id) && this.open(g));
+  }
+
+  /** The goals counted now: those done and those open ("3 / 16" while one waits for its blueprints). */
+  get total(): number {
+    return GOALS.filter((g) => this.done.has(g.id) || this.open(g)).length;
+  }
+
+  /** The goals still to come that wait for blueprints (hidden, but counted on the panel: "16 / 17", not "16 / 16"). */
+  get lockedCount(): number {
+    return GOALS.filter((g) => !this.done.has(g.id) && !this.open(g)).length;
+  }
+
+  /** A goal still to come that waits for blueprints, in a few words: "Learn Signals to unlock a goal" (or null). */
+  lockedHint(): string | null {
+    const g = GOALS.find((x) => !this.done.has(x.id) && !this.open(x));
+    if (!g) return null;
+    const names = g.needs!.filter((id) => !this.learned.has(id)).map((id) => BLUEPRINTS.find((b) => b.id === id)?.label ?? id);
+    return `Learn ${names.join(" and ")} to unlock a goal`;
   }
 
   /** The goals to save: those done, and those met and waiting (they're ticked off after a reload). */

@@ -14,6 +14,25 @@ export function dropOutcome(d: { blocked: boolean; overTray: boolean; isNew: boo
   return "place";
 }
 
+/** Said for a refusal with no reason of its own to give: a piece is never refused in silence. */
+export const REFUSED_FALLBACK = "It can't go there";
+
+/** What to say for a refused drop: its own reason, or `REFUSED_FALLBACK` if it has none (blank). */
+export function refusalText(why: string | null | undefined): string {
+  return why && why.trim() ? why : REFUSED_FALLBACK;
+}
+
+/**
+ * What to say when a new piece's drag ends without a drop (the browser took the touch back, a second finger came, Esc):
+ * why it couldn't go where it was held, if it couldn't (`blocked`), through `refusalText`; else nothing here (the
+ * game says it's back in the box, and what was made for it is given back). A piece being moved floats back unsaid; one
+ * over the tray was put back on purpose.
+ */
+export function letGoRefusal(d: { isNew: boolean; overTray: boolean; blocked: string | null }, message: (blocked: string) => string): string | null {
+  if (!d.isNew || d.overTray || !d.blocked) return null;
+  return refusalText(message(d.blocked));
+}
+
 /**
  * Why a depot held over a line can't go there, from the placement check's reason (`placed`) and what's said over the
  * line (`splice`: "splice-busy", a train on the straight; "splice-fit"; "splice-onto"), or null if it can go. On other

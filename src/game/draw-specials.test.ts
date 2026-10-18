@@ -504,3 +504,25 @@ let qaWorldMemo: ReturnType<typeof createWorld> | null = null;
 function qaWorld(): ReturnType<typeof createWorld> {
   return (qaWorldMemo ??= createWorld(7));
 }
+
+describe("QA sweep: ramps not learned (Game mode)", () => {
+  it("a stroke between hills that a flat line can follow lays it, rather than stopping red for a ramp (item 1d)", () => {
+    // Hills a level up: two blocks either side of a way through, and one further on (QA: the way to the sawmill).
+    let land = flat();
+    for (const [x0, x1, z0, z1] of [
+      [0, 288, -432, -216],
+      [576, 720, -144, -72],
+      [576, 720, 144, 216],
+      [864, 936, 0, 144],
+    ])
+      land = paint(land, x0, x1, z0, z1, 1);
+    // The stroke bends off toward -z between them, by up to 124 mm.
+    const z = (x: number) => Z - (124 * (1 - Math.cos((Math.PI * x) / 1028))) / 2;
+    const line = stroke(at(0), options(land, new Layout(), { allow: (t) => t !== "ramp" && !isBridge(t), outOf: () => "Ramp: not learned yet" }), 1100, z);
+    expect(line.pieces.some((p) => p.blocked), name(line)).toBe(false);
+    expect(line.refused).toBe(null);
+    expect(ramps(line, true) + ramps(line, false)).toBe(0);
+    expect(line.end.x).toBeGreaterThan(1000);
+    expectJoined(line);
+  });
+});

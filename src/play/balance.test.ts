@@ -5,19 +5,22 @@ import { describe as describeGoods } from "../economy/goods";
 import { craftNow, craftShort, Crafting, lacking, workshops, workshopStock } from "../game/crafting";
 import { attachEngines } from "../game/engines";
 import { GOALS, GoalTracker } from "../game/goals";
-import { siteWhy, updateRates } from "../game/industries";
+import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
 import { landmarksOf, townLandmarks } from "../game/landmarks";
-import { startLine } from "../game/lines";
+import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { inUse, Progress } from "../game/progress";
 import { firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas, takeBlueprint, takeCrate } from "../game/rewards";
-import { learnAuto, learnWithGoods, priceOf, ready, techOf, TECHS } from "../game/tech";
+import { keepsPlanks, learnAuto, learnWithGoods, priceOf, ready, techOf, TECHS } from "../game/tech";
 import { describePrice } from "../game/blueprints";
 import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "../game/things";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { applyCranes, boostOf, Counters } from "../game/upgrades";
 import { buildStarterWorld, haltTown, haltWhy, syncIndustries, type World } from "../game/world";
-import { FEAT_FIELD, looseHeight } from "../landscape";
+import { FEAT_FIELD, FEAT_TREE, looseHeight } from "../landscape";
+import { LandEditor } from "../landscape/edit";
+import { propsInRect } from "../props/placement";
+import { fieldPrice, fieldSpot, plantField } from "../game/fields";
 import { rng } from "../lib/rng";
 import { SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, indexOfRef, pieceOfRef, type PieceTypeId, type Pose } from "../track";
@@ -34,13 +37,16 @@ import { endOn, rulesFor } from "./rules";
  *
  * Slow (minutes of play are simulated tick by tick), so skipped unless asked for:
  *   BALANCE=1 npx vitest run src/play/balance.test.ts
- * BALANCE_JSON=1 also prints the timeline as one line of JSON; BALANCE_MINUTES caps the play (default 180).
+ * BALANCE_TRAINS_PER_LINE=n puts up to n trains on the line once routes are learned (default 1). BALANCE_JSON=1 also
+ * prints the timeline as one line of JSON; BALANCE_MINUTES caps the play (default 180).
  */
 
 /** The environment (Node's, under Vitest), without Node's types. */
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const RUN = !!ENV.BALANCE;
 const MAX_MINUTES = Number(ENV.BALANCE_MINUTES ?? 180);
+/** Most trains on the line once routes are learned (1: only the goods train). */
+const PER_LINE = Number(ENV.BALANCE_TRAINS_PER_LINE ?? 1);
 /** The target: a town that's a City ★★ (the sixth rung: hamlet, village, town, city, city ★, city ★★). */
 const TARGET_LEVEL = 5;
 
@@ -75,7 +81,7 @@ const WISH: readonly string[] = [
 ];
 
 /** Wished for, but of no use to this player till much later: bought only with planks and coins to spare. */
-const LATER: ReadonlySet<string> = new Set(["warehouses", "harvesters", "sawmills", "signals", "junctions", "college"]);
+const LATER: ReadonlySet<string> = new Set(["warehouses", "sawmills", "signals", "junctions", "college"]);
 
 interface Row {
   minute: number;
@@ -109,6 +115,8 @@ class Player {
   /** What happened in the minute being played (for idle stretches). */
   happened = 0;
   /** Town growths, and how long each `TownLife.update` that grew one took (ms). */
+  /** Train-seconds held at stops by auto-spacing. */
+  heldSeconds = 0;
   readonly growths: { minute: number; town: string; level: string; ms: number; built: number }[] = [];
   private growing: { town: string; level: string; built: number } | null = null;
   /** Each blueprint learned: when, how, and what it cost. */
@@ -179,20 +187,44 @@ class Player {
     for (const id of learnAuto(this.progress)) this.learned(id, "came with a landmark", "free");
   }
 
-  /** The workshop keeps planks while it's short of the cheapest blueprint on the board (as the game does). */
+  /** The workshop keeps planks while it's short of the cheapest blueprint ready on the board, or the current goal's (as the game does). */
   planksKept = false;
   updatePlanksKept(): void {
     if (workshops(this.w).length === 0) {
       this.planksKept = false;
       return;
     }
-    let cheapest = Infinity;
-    for (const t of TECHS) {
-      if (!this.progress.board.has(t.id) || this.progress.learned.has(t.id) || !ready(this.progress, t.id)) continue;
-      const planks = priceOf(this.progress, t).planks ?? 0;
-      if (planks > 0) cheapest = Math.min(cheapest, planks);
-    }
-    this.planksKept = (workshopStock(this.w).planks ?? 0) < cheapest && cheapest < Infinity;
+    const stock = workshopStock(this.w).planks ?? 0;
+    // BALANCE_KEEP=cheapest | dearest: earlier rules (kept till the cheapest, or the dearest, ready blueprint is paid
+    // for), to compare.
+    if (ENV.BALANCE_KEEP === "cheapest") {
+      let cheapest = Infinity;
+      for (const t of TECHS) {
+        if (!this.progress.board.has(t.id) || this.progress.learned.has(t.id) || !ready(this.progress, t.id)) continue;
+        const planks = priceOf(this.progress, t).planks ?? 0;
+        if (planks > 0) cheapest = Math.min(cheapest, planks);
+      }
+      this.planksKept = stock < cheapest && cheapest < Infinity;
+    } else if (ENV.BALANCE_KEEP === "dearest") {
+      // (game-balance-4's first try: kept till the dearest ready blueprint is paid for. It starved the towns.)
+      let most = 0;
+      for (const t of TECHS) if (this.progress.board.has(t.id) && !this.progress.learned.has(t.id) && ready(this.progress, t.id)) most = Math.max(most, priceOf(this.progress, t).planks ?? 0);
+      this.planksKept = stock < Math.min(most, 30);
+    } else this.planksKept = keepsPlanks(this.progress, stock, this.goals.current()?.blueprint ?? null);
+  }
+
+  /** Seconds planks were kept for the workshop; the longest stretch (s) with no planks into any town, after the first. */
+  keptSeconds = 0;
+  townGap = 0;
+  private toTowns = 0;
+  private toTownsAt = 0;
+  private townsFed(): void {
+    let n = 0;
+    for (const v of this.w.economy.delivered.values()) n += v;
+    if (n !== this.toTowns) {
+      this.toTowns = n;
+      this.toTownsAt = this.tick;
+    } else if (n > 0) this.townGap = Math.max(this.townGap, (this.tick - this.toTownsAt) / SIM_HZ);
   }
 
   level(i: number): number {
@@ -216,6 +248,8 @@ class Player {
       this.tick++;
       if (this.tick % SIM_HZ !== 0) continue;
       this.updatePlanksKept();
+      if (this.planksKept) this.keptSeconds++;
+      this.townsFed();
       const t0 = performance.now();
       this.town.update();
       if (this.growing) {
@@ -234,6 +268,7 @@ class Player {
         this.note(`${idea.from}: ${techOf(idea.id)!.label} is on the board (${describePrice(priceOf(this.progress, techOf(idea.id)!))})`);
       }
       peopleArrive(this.w, this.progress, 1, this.people);
+      for (const engine of this.w.economy.lineIdOf.keys()) if (this.w.economy.spacing.holding(engine)) this.heldSeconds++;
       for (const g of this.goals.update(this.w, { learned: this.progress.learned })) {
         this.happened++;
         this.note(`GOAL ${this.goals.doneCount}/${GOALS.length} ✓ ${g.title}`);
@@ -331,7 +366,7 @@ class Player {
     if (why) return why;
     // On that piece, else on any free long straight of the player's (a long train needs room).
     const others = [...this.w.layout.pieceIds()].filter((id) => id !== pieceId && !this.fixed.has(id) && this.w.layout.getPiece(id)!.type === "straight-216" && !this.w.sim.pieceOccupied(id));
-    for (const on of [pieceId, ...others])
+    for (const on of [...(this.w.layout.getPiece(pieceId) ? [pieceId] : []), ...others])
       for (const s of [100, 60, 140, 30]) {
         const r = this.w.sim.addTrain(cars, { pieceId: on, pathIndex: 0, reversed: false, s });
         if (r.kind !== "placed") continue;
@@ -617,6 +652,11 @@ class Playthrough {
   sawnAt = 0;
   /** Trains picked up after a jam (the second train isn't put back on the same line while it would jam again). */
   lifted = 0;
+  /** The line every train runs once routes are learned, the most trains it had, and trains taken off it for a jam. */
+  lineId = -1;
+  perLine = 0;
+  jamCut = 0;
+  extraAt = -99;
   recomposed = -99;
   /** Minutes in a row with nothing new. */
   idle = 0;
@@ -624,8 +664,16 @@ class Playthrough {
   why = "";
   idleWhy = "";
   farmTry = -99;
+  harvester = -1;
+  harvesterTry = -99;
   /** When things first came within reach (a blueprint offered or on the board), and each town level first reached. */
   readonly firsts: Record<string, number> = {};
+  /** Minutes a farm yard or a quarry waited on coins alone (learned, planks in the yard). */
+  readonly coinWait = { farm: 0, quarry: 0 };
+  /** The longest stretch with no planks sawn (whole minutes). */
+  stall = 0;
+  /** The longest stretch with no planks sawn while two trains share the line (they turn each other back). */
+  jamStall = 0;
   quarryTry = -99;
 
   play(): void {
@@ -716,16 +764,21 @@ class Playthrough {
     if (sawn !== this.sawn) {
       this.sawn = sawn;
       this.sawnAt = P.minute;
-    } else if (P.minute - this.sawnAt >= 4 && this.trains.size >= 2) {
+    } else if ((this.stall = Math.max(this.stall, Math.round(P.minute - this.sawnAt))) && (this.trains.size < 2 || (this.jamStall = Math.max(this.jamStall, Math.round(P.minute - this.sawnAt)))) && P.minute - this.sawnAt >= 4 && this.trains.size >= 2) {
       const [e, kind] = [...this.trains].find(([id]) => id !== this.timber) ?? [];
       if (e !== undefined) {
         P.lift(e);
         this.trains.delete(e);
         this.lifted++;
+        if (this.lines) this.jamCut++;
         P.findings.push(`Minute ${P.minute.toFixed(0)}: no planks sawn for 4 minutes with ${this.trains.size + 1} trains on one line (they turn each other back; the goods train never reached the forest). Picked the ${kind} train up.`);
         P.note(`JAM: no planks sawn for 4 min; picked the ${kind} train up`);
         this.sawnAt = P.minute;
       }
+    }
+    if (Math.round(P.minute - this.sawnAt) === 5) {
+      P.note("STALL: no planks sawn for 5 minutes");
+      P.trains();
     }
     // Rewards: a blueprint from what a town offers (the one wanted most), or the crate if no blueprint.
     while (s.offers.length > 0) {
@@ -885,7 +938,7 @@ class Playthrough {
 
     // The second train: when the box has an engine again (the first village's present), on the far half of the line.
     const engines = (s.owned.get("car:engine") ?? 0) - inUse(w, "car:engine");
-    if (this.trains.size < 2 && engines > 0 && this.lifted === 0) {
+    if (this.trains.size < 2 && engines > 0 && this.lifted === 0 && goal === "two-trains") {
       const cars: CarKind[] = s.learned.has("passengers") ? ["engine", "passenger", "passenger"] : ["engine", "timber"];
       const spot = [...w.layout.pieceIds()].find((id) => !P.fixed.has(id) && w.layout.getPiece(id)!.type.startsWith("straight") && w.layout.getPiece(id)!.pose.x > 700 && !w.sim.pieceOccupied(id));
       if (spot !== undefined) {
@@ -929,12 +982,17 @@ class Playthrough {
           updateRates(w, (role) => boostOf(s, role));
           P.happened++;
           P.note(`built a farm yard at the line's end (rate ${w.economy.depotAtPiece(r.id)!.rate.toFixed(2)})`);
+          this.firsts["farm built"] = Math.round(P.minute);
           if (this.lines) this.routeGoods();
         } else {
           P.note("COULDN'T reach a farm site from the line's ends (or a branch)");
           s.add("piece:depot-farm", 0);
         }
-      } else this.why = `a farm yard (${describeGoods(ruleOf("piece:depot-farm")!.cost)} + ${ruleOf("piece:depot-farm")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
+      } else {
+        // Waiting on coins alone (the planks are there): counted, for the summary.
+        if (s.coins < ruleOf("piece:depot-farm")!.coins! && P.planks() >= (ruleOf("piece:depot-farm")!.cost.planks ?? 0)) this.coinWait.farm++;
+        this.why = `a farm yard (${describeGoods(ruleOf("piece:depot-farm")!.cost)} + ${ruleOf("piece:depot-farm")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
+      }
     }
     // The mill, after the farm yard.
     if (this.farm >= 0 && this.mill === -1 && s.learned.has("mills")) {
@@ -969,7 +1027,7 @@ class Playthrough {
     if (this.farm >= 0) want.push("hopper");
     if (this.mill >= 0) want.push("van");
     if (this.quarry >= 0) want.push("hopper");
-    if (s.learned.has("passengers") && this.lifted > 0) want.push("passenger", "passenger");
+    if (s.learned.has("passengers")) want.push("passenger", "passenger");
     if (this.farm < 0 && !s.learned.has("passengers")) want.push("timber");
     const kinds: CarKind[] = ["engine", ...want.slice(0, pulls)];
     const found = w.sim.findCar(this.timber);
@@ -1013,6 +1071,62 @@ class Playthrough {
       this.lines = true;
       this.routeGoods();
       P.happened++;
+    }
+    // More trains on the line as they become affordable (an engine and two flatbeds), up to BALANCE_TRAINS_PER_LINE,
+    // a few minutes apart; one fewer for each that jammed the line.
+    if (this.lines && this.lineId >= 0 && this.trains.size < PER_LINE - this.jamCut && P.minute - this.extraAt >= 3) {
+      const cars: CarKind[] = ["engine", "timber", "timber"];
+      if (P.canMake(thingsFor({ kind: "train", cars }))) {
+        const e = P.train(cars, -1, 1);
+        if (typeof e === "number") {
+          this.trains.set(e, `line train ${this.trains.size + 1}`);
+          joinLine(w.economy, e, this.lineId);
+          this.extraAt = P.minute;
+          P.note(`another train (engine, 2 flatbeds) on the line: ${trainsOn(w.economy, this.lineId).length} now`);
+        }
+      } else this.why ||= `another train for the line (engine 6🪵 + 2 flatbeds 6🪵; have ${P.planks()} planks)`;
+    }
+    if (this.lineId >= 0) this.perLine = Math.max(this.perLine, trainsOn(w.economy, this.lineId).filter((e) => w.sim.findCar(e)).length);
+
+    // A harvester (a forest yard of the player's own) by trees at a line end, for more logs.
+    if (this.harvester === -1 && s.learned.has("harvesters") && P.minute - this.harvesterTry >= 10) {
+      if (P.canMake(new Map([["piece:depot-forest", 1]]))) {
+        this.harvesterTry = P.minute;
+        const trees: number[] = [];
+        g.forEachCell((i) => {
+          if (g.feature[i] === FEAT_TREE) trees.push(i);
+        });
+        P.make(new Map([["piece:depot-forest", 1]]));
+        const r = extend(P, { type: "depot-forest", cells: trees }) ?? (s.learned.has("switches") ? branchOff(P, "depot-forest", trees) : null);
+        if (r) {
+          this.harvester = r.id;
+          capEnd(P, r.beyond);
+          syncIndustries(w, true);
+          updateRates(w, (role) => boostOf(s, role));
+          P.happened++;
+          P.note(`built a harvester (rate ${w.economy.depotAtPiece(r.id)!.rate.toFixed(2)})`);
+          if (this.lines) this.routeGoods();
+        } else P.note("COULDN'T reach a harvester site");
+      } else this.why ||= `a harvester (${describeGoods(ruleOf("piece:depot-forest")!.cost)} + ${ruleOf("piece:depot-forest")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
+    }
+    // Fields for the farm yard while it works below full speed, with coins to spare (its card's "Plant a field").
+    if (this.farm >= 0 && s.coins >= fieldPrice(s.fieldsPlanted) + 60) {
+      const piece = w.layout.getPiece(this.farm);
+      const r = piece && resourceAt(w.landscape, "farm", piece.pose);
+      if (piece && r && r.count < r.need) {
+        const editor = new LandEditor(w.landscape, w.layout, { inRect: (x0, z0, x1, z1) => propsInRect(w.props, () => undefined, x0, z0, x1, z1) });
+        const cells = fieldSpot(w.landscape, editor, yardMiddle(piece.pose), SITE_RULES.farm!.reach);
+        if (cells) {
+          const price = fieldPrice(s.fieldsPlanted);
+          s.coins -= price;
+          s.fieldsPlanted++;
+          P.spent.buildCoins += price;
+          plantField(w.landscape, cells);
+          updateRates(w, (role) => boostOf(s, role));
+          P.happened++;
+          P.note(`planted a field for ${price} coins (farm yard at ${Math.round(rateFor(r.count + 4, r.need) * 100)}%)`);
+        }
+      }
     }
 
     // Halts: a country halt in the line near a town (its people share the town's).
@@ -1073,12 +1187,24 @@ class Playthrough {
           updateRates(w, (role) => boostOf(s, role));
           P.happened++;
           P.note("built a quarry at a line end");
+          this.firsts["quarry built"] = Math.round(P.minute);
           if (this.lines) this.routeGoods();
         } else {
           P.note("COULDN'T reach a quarry site from the line's ends (or a branch)");
         }
-      } else this.why = `a quarry (${describeGoods(ruleOf("piece:depot-quarry")!.cost)} + ${ruleOf("piece:depot-quarry")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
+      } else {
+        // Waiting on coins alone (the planks are there): counted, for the summary.
+        if (s.coins < ruleOf("piece:depot-quarry")!.coins! && P.planks() >= (ruleOf("piece:depot-quarry")!.cost.planks ?? 0)) this.coinWait.quarry++;
+        this.why = `a quarry (${describeGoods(ruleOf("piece:depot-quarry")!.cost)} + ${ruleOf("piece:depot-quarry")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
+      }
     }
+  }
+
+  /** Minutes from learning a blueprint to building what it brings ("-": not both). */
+  wait(blueprint: string, built: string): string {
+    const learned = this.p.learnedAt.find((b) => b.id === blueprint)?.minute;
+    const at = this.firsts[built];
+    return learned === undefined || at === undefined ? "-" : String(Math.round(at - learned));
   }
 
   /** Give each train a line: the depots along the track in order, there and back, "auto" (the intent rules). */
@@ -1089,11 +1215,13 @@ class Playthrough {
     if (order.length < 2) return;
     const back = order.slice(1, -1).reverse();
     const stops = [...order, ...back].map((depotId) => ({ depotId, action: "auto" as const }));
-    for (const [engine, kind] of this.trains) {
-      if (!w.sim.findCar(engine)) continue;
-      startLine(w.economy, engine, stops.map((x) => ({ ...x })));
-      P.note(`${kind} train on a line of ${stops.length} stops: ${order.map((d) => w.economy.depot(d)!.role).join(" → ")} and back`);
-    }
+    // One line for every train (with routes-lines' auto-spacing to spread them out); its stops follow the track.
+    const live = [...this.trains.keys()].filter((e) => w.sim.findCar(e));
+    if (live.length === 0) return;
+    if (this.lineId < 0 || !w.economy.lines.has(this.lineId)) this.lineId = startLine(w.economy, live[0], stops.map((x) => ({ ...x }))).id;
+    for (const e of live) joinLine(w.economy, e, this.lineId);
+    editLine(w.economy, live[0], (old) => old.splice(0, old.length, ...stops.map((x) => ({ ...x }))));
+    P.note(`${live.length} train(s) on a line of ${stops.length} stops: ${order.map((d) => w.economy.depot(d)!.role).join(" → ")} and back`);
   }
 
   report(): void {
@@ -1117,6 +1245,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min`,
       `findings:\n- ${P.findings.join("\n- ") || "none"}`,
     ].join("\n");
     console.log(out);

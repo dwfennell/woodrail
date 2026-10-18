@@ -51,6 +51,12 @@ export class Layout {
     return this.pieces.size;
   }
 
+  /** Bumped whenever a piece is added or taken away (not moved): for caches of which pieces are on the map. */
+  piecesVersion = 0;
+
+  /** Bumped whenever a piece is added, taken away or put down somewhere (moved or nudged): for caches of where track is. */
+  revision = 0;
+
   get jointCount(): number {
     return this.jointMap.size;
   }
@@ -70,6 +76,8 @@ export class Layout {
   addPiece(type: PieceTypeId, pose: Pose, y = 0, flipped = false): number {
     const id = this.nextId++;
     this.pieces.set(id, { id, type, flipped, pose: { ...pose }, y });
+    this.piecesVersion++;
+    this.revision++;
     this.seatAll(id);
     return id;
   }
@@ -78,6 +86,8 @@ export class Layout {
   restorePiece(id: number, type: PieceTypeId, pose: Pose, y: number, flipped: boolean): boolean {
     if (this.pieces.has(id)) return false;
     this.pieces.set(id, { id, type, flipped, pose: { ...pose }, y });
+    this.piecesVersion++;
+    this.revision++;
     if (id >= this.nextId) this.nextId = id + 1;
     this.seatAll(id);
     // A pin taken up with the piece comes back with it (undoing its removal), if it's still a switch.
@@ -89,6 +99,8 @@ export class Layout {
     if (!this.pieces.has(id)) return false;
     if (!this.lifted.delete(id)) this.detachAll(id);
     this.pieces.delete(id);
+    this.piecesVersion++;
+    this.revision++;
     this.switchStates.delete(id);
     if (this.pinned.delete(id)) {
       this.unpinned.add(id);
@@ -118,6 +130,7 @@ export class Layout {
     if (!this.lifted.has(id)) this.detachAll(id);
     this.lifted.delete(id);
     this.pieces.set(id, { ...piece, pose: { ...pose }, y, flipped: flipped ?? piece.flipped });
+    this.revision++;
     this.seatAll(id);
     return true;
   }
@@ -127,6 +140,7 @@ export class Layout {
    * replaced, free connectors re-indexed and the seating errors of their joints recomputed.
    */
   nudgePieces(poses: ReadonlyMap<number, Pose>): void {
+    if (poses.size > 0) this.revision++;
     for (const [id, pose] of poses) {
       const piece = this.pieces.get(id);
       if (!piece || this.lifted.has(id)) continue;

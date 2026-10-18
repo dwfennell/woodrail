@@ -16,14 +16,18 @@ function world(cars: Parameters<Sim["addTrain"]>[0] = ["engine", "timber", "timb
   return { layout, sim, train, economy: new Economy(layout, sim) };
 }
 
+/** A straight off by itself, for a depot to stand on (a depot whose piece isn't on the map is taken up: makes nothing). */
+let asides = 0;
+const aside = (layout: Layout) => layout.addPiece("straight-216", { x: 3000 + 300 * asides++, z: 3000, heading: 0 });
+
 const run = (e: Economy, seconds: number) => {
   for (let i = 0; i < seconds * SIM_HZ; i++) e.tick();
 };
 
 describe("production", () => {
   it("a forest grows a log every 15 s up to its cap, then stops", () => {
-    const { economy } = world();
-    const f = economy.addDepot("forest", 999);
+    const { economy, layout } = world();
+    const f = economy.addDepot("forest", aside(layout));
     run(economy, 14.9);
     expect(f.piles[CARGO.log.index]).toBe(0);
     run(economy, 0.2);
@@ -33,8 +37,8 @@ describe("production", () => {
   });
 
   it("a sawmill turns a log into planks every 8 s, only with a log and room", () => {
-    const { economy } = world();
-    const s = economy.addDepot("sawmill", 999);
+    const { economy, layout } = world();
+    const s = economy.addDepot("sawmill", aside(layout));
     run(economy, 20);
     expect(s.piles[CARGO.planks.index]).toBe(0);
     s.piles[CARGO.log.index] = 3;
@@ -46,8 +50,8 @@ describe("production", () => {
   });
 
   it("a town uses a bundle every 30 s", () => {
-    const { economy } = world();
-    const t = economy.addDepot("town", 999, 4);
+    const { economy, layout } = world();
+    const t = economy.addDepot("town", aside(layout), 4);
     t.piles[CARGO.planks.index] = 2;
     run(economy, 30.05);
     expect(t.piles[CARGO.planks.index]).toBe(1);
@@ -58,10 +62,10 @@ describe("production", () => {
 
 describe("moving cargo by hand", () => {
   it("moves one unit from a pile to a wagon and back, keeping each wagon to one kind", () => {
-    const { economy, train } = world();
+    const { economy, train, layout } = world();
     const [engine, w1] = train.cars;
-    const f = economy.addDepot("forest", 999);
-    const s = economy.addDepot("sawmill", 998);
+    const f = economy.addDepot("forest", aside(layout));
+    const s = economy.addDepot("sawmill", aside(layout));
     f.piles[CARGO.log.index] = 2;
     s.piles[CARGO.planks.index] = 1;
     expect(economy.moveCargo({ kind: "pile", depotId: f.id, cargo: "log" }, { kind: "car", carId: w1.id })).toBe(true);
@@ -71,7 +75,7 @@ describe("moving cargo by hand", () => {
     expect(economy.moveCargo({ kind: "pile", depotId: s.id, cargo: "planks" }, { kind: "car", carId: w1.id })).toBe(false);
     expect(economy.moveCargo({ kind: "pile", depotId: f.id, cargo: "log" }, { kind: "car", carId: engine.id })).toBe(false);
     // Logs go onto the sawmill's input pile, not a town's.
-    const t = economy.addDepot("town", 997, 0);
+    const t = economy.addDepot("town", aside(layout), 0);
     expect(economy.moveCargo({ kind: "car", carId: w1.id }, { kind: "pile", depotId: t.id, cargo: "log" })).toBe(false);
     expect(economy.moveCargo({ kind: "car", carId: w1.id }, { kind: "pile", depotId: s.id, cargo: "log" })).toBe(true);
     expect(economy.cargoOf(w1.id)).toEqual({ kind: null, count: 0 });
@@ -79,20 +83,20 @@ describe("moving cargo by hand", () => {
   });
 
   it("refuses a full wagon, a full pile and an empty source", () => {
-    const { economy, train } = world();
+    const { economy, train, layout } = world();
     const w1 = train.cars[1];
-    const f = economy.addDepot("forest", 999);
+    const f = economy.addDepot("forest", aside(layout));
     f.piles[CARGO.log.index] = PILE_CAP;
     economy.setCargo(w1.id, "log", 3);
     expect(economy.moveCargo({ kind: "pile", depotId: f.id, cargo: "log" }, { kind: "car", carId: w1.id })).toBe(false);
     expect(economy.moveCargo({ kind: "car", carId: w1.id }, { kind: "pile", depotId: f.id, cargo: "log" })).toBe(false);
-    const empty = economy.addDepot("sawmill", 998);
+    const empty = economy.addDepot("sawmill", aside(layout));
     expect(economy.moveCargo({ kind: "pile", depotId: empty.id, cargo: "planks" }, { kind: "car", carId: train.cars[2].id })).toBe(false);
   });
 
   it("counts planks put on a town's pile as delivered", () => {
-    const { economy, train } = world();
-    const t = economy.addDepot("town", 997, 3);
+    const { economy, train, layout } = world();
+    const t = economy.addDepot("town", aside(layout), 3);
     economy.setCargo(train.cars[1].id, "planks", 2);
     economy.moveCargo({ kind: "car", carId: train.cars[1].id }, { kind: "pile", depotId: t.id, cargo: "planks" });
     expect(economy.delivered.get(3)).toBe(1);
@@ -174,6 +178,49 @@ describe("routes", () => {
   });
 });
 
+describe("a depot whose piece is taken up (its placement undone)", () => {
+  it("isn't listed, makes nothing and is no train's next stop till the piece is back, then it is, piles and all", () => {
+    const { layout, train, economy } = world();
+    const [a, b] = [...layout.pieceIds()];
+    const forestAt = aside(layout);
+    const town = economy.addDepot("town", a, 0);
+    const saw = economy.addDepot("sawmill", b);
+    const forest = economy.addDepot("forest", forestAt);
+    forest.piles[CARGO.log.index] = 2;
+    const engine = train.cars[0];
+    economy.setRoute(engine.id, { stops: [{ depotId: forest.id, action: "pick" }, { depotId: saw.id, action: "drop" }], next: 0 });
+    expect(economy.allDepots()).toEqual([town, saw, forest]);
+    const piece = layout.getPiece(forestAt)!;
+    layout.removePiece(forestAt);
+    // (QA: an undone Harvester stayed in allDepots, forest:168.)
+    expect(economy.allDepots()).toEqual([town, saw]);
+    expect(economy.onMap(forest)).toBe(false);
+    run(economy, 40);
+    expect(forest.piles[CARGO.log.index]).toBe(2);
+    // The train heading for it goes on to the next stop (the sawmill) instead.
+    expect(economy.routeOf(engine.id)!.next).toBe(1);
+    // Back (redo): the same depot, its logs kept, listed and working again.
+    layout.restorePiece(forestAt, piece.type, piece.pose, piece.y, piece.flipped);
+    expect(economy.allDepots()).toEqual([town, saw, forest]);
+    expect(economy.depotAtPiece(forestAt)).toBe(forest);
+    run(economy, 15.1);
+    expect(forest.piles[CARGO.log.index]).toBe(3);
+  });
+
+  it("works its list out again only when pieces come or go", () => {
+    const { layout, economy } = world();
+    const [a] = [...layout.pieceIds()];
+    economy.addDepot("forest", a);
+    const list = economy.allDepots();
+    expect(economy.allDepots()).toBe(list);
+    layout.movePiece(a, { x: 10, z: 0, heading: 0 }, 0);
+    expect(economy.allDepots()).toBe(list);
+    economy.addDepot("sawmill", aside(layout));
+    expect(economy.allDepots()).not.toBe(list);
+    expect(economy.allDepots()).toHaveLength(2);
+  });
+});
+
 describe("warehouses", () => {
   it("keep every good, more of it, for routed trains only: dropped where a stop says Drop, picked up where it says Pick up", () => {
     const { layout, train, economy } = world();
@@ -209,9 +256,9 @@ describe("recipes", () => {
   });
 
   it("an industry's rate sets how fast it makes things: half the trees, half the logs", () => {
-    const { economy } = world();
-    const full = economy.addDepot("forest", 998);
-    const half = economy.addDepot("forest", 997);
+    const { economy, layout } = world();
+    const full = economy.addDepot("forest", aside(layout));
+    const half = economy.addDepot("forest", aside(layout));
     half.rate = 0.5;
     run(economy, 61);
     expect(full.piles[CARGO.log.index]).toBe(4);

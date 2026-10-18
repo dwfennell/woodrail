@@ -74,3 +74,13 @@ export function liftTap(t: number, l: number, y: number, platformY: number, leng
   const on = t >= 0 && t <= length && Math.abs(l) <= LIFT_PLATFORM_HALF && y >= platformY - LIFT_PLATFORM_UNDER && y <= platformY + LIFT_PLATFORM_TOP;
   return on ? "send" : "select";
 }
+
+/**
+ * A tap's ray through a train lift: what each of its parts the ray meets says (`liftTap`, nearest first). The first
+ * part met that isn't past its ends decides: a post or brace of its tower in front of the platform takes the tap (its
+ * card), so one tap never both opens its card and sends it, and a tap anywhere on its model is the lift's.
+ */
+export function liftTapAlong(along: Iterable<"send" | "select" | "pass">): "send" | "select" | "pass" {
+  for (const at of along) if (at !== "pass") return at;
+  return "pass";
+}

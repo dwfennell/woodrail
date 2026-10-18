@@ -17,7 +17,8 @@ import {
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import polygonClipping, { type Polygon } from "polygon-clipping";
-import { ADDITION, Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
+import { ADDITION, type Brush, Evaluator, SUBTRACTION } from "three-bvh-csg";
+import { CsgBrush, csgEvaluate } from "./csg-brush";
 import {
   ARCH_CENTRES,
   ARCH_CROWN_DROP,
@@ -34,6 +35,7 @@ import {
   type PathGeom,
   type PieceDef,
 } from "../track";
+import { nonIndexed } from "./non-indexed";
 
 // Render-only dimensions (mm).
 export const GROOVE_DEPTH = 3;
@@ -280,11 +282,11 @@ function extrudeUp(shape: Shape, height: number, bevel: number): BufferGeometry 
     curveSegments: 24,
   });
   g.translate(0, 0, bevel);
-  return g.toNonIndexed();
+  return nonIndexed(g);
 }
 
 function brush(g: BufferGeometry, material: Material = BODY): Brush {
-  const b = new Brush(g.index ? g.toNonIndexed() : g, material);
+  const b = new CsgBrush(nonIndexed(g), material);
   b.updateMatrixWorld();
   return b;
 }
@@ -332,9 +334,9 @@ function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[]
   let result = brush(sweep(viaductProfile(height + rise), frames), PAINT);
   const ground = -height;
   if (rise > 0) {
-    const below = onlyCsgAttributes(new BoxGeometry(len * 2, rise * 2, TRACK_WIDTH * 2).toNonIndexed());
+    const below = onlyCsgAttributes(nonIndexed(new BoxGeometry(len * 2, rise * 2, TRACK_WIDTH * 2)));
     below.translate(len / 2, ground - 1 - rise, 0);
-    result = evaluator.evaluate(result, brush(below), SUBTRACTION);
+    result = csgEvaluate(evaluator, result, brush(below), SUBTRACTION);
   }
   // Arch tops a spandrel below the deck; the openings reach the ground. A low viaduct's arches are smaller, so each
   // still springs a little above the ground (a full-size one would be cut off by it).
@@ -347,15 +349,15 @@ function bridgeSupport(def: PieceDef, height: number, floors?: readonly number[]
     const radius = Math.min(len * ARCH_RADIUS, archTop - floor - 4, floor > -height ? (archTop - floor) / 2 : Infinity);
     // No room for an arch here (a ramp's low end, close to the ground): solid.
     if (radius < 6) return;
-    const arch = onlyCsgAttributes(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40).toNonIndexed());
+    const arch = onlyCsgAttributes(nonIndexed(new CylinderGeometry(radius, radius, TRACK_WIDTH + 10, 40)));
     arch.rotateX(Math.PI / 2);
     arch.translate(0, archTop - radius, 0);
-    const opening = onlyCsgAttributes(new BoxGeometry(radius * 2, archTop - radius - floor + 2, TRACK_WIDTH + 10).toNonIndexed());
+    const opening = onlyCsgAttributes(nonIndexed(new BoxGeometry(radius * 2, archTop - radius - floor + 2, TRACK_WIDTH + 10)));
     opening.translate(0, (archTop - radius + floor) / 2 - 1, 0);
     for (const g of [arch, opening]) {
       g.rotateY(-p.heading);
       g.translate(p.x, 0, p.z);
-      result = evaluator.evaluate(result, brush(g), SUBTRACTION);
+      result = csgEvaluate(evaluator, result, brush(g), SUBTRACTION);
     }
   });
   return result.geometry;
@@ -383,7 +385,7 @@ function viaductProfile(height: number): ProfilePoint[] {
 }
 
 function riserGeometry(): BufferGeometry {
-  const g = onlyCsgAttributes(new RoundedBoxGeometry(TRACK_WIDTH + 6, RISER_HEIGHT, TRACK_WIDTH + 6, 3, 3).toNonIndexed());
+  const g = onlyCsgAttributes(nonIndexed(new RoundedBoxGeometry(TRACK_WIDTH + 6, RISER_HEIGHT, TRACK_WIDTH + 6, 3, 3)));
   g.translate(0, RISER_HEIGHT / 2, 0);
   // All body: meshes draw a body + cut material pair, and only faces in a group get drawn.
   g.addGroup(0, g.attributes.position.count, SLOT_BODY);
@@ -430,7 +432,7 @@ function flatBody(runs: Frame[][]): BufferGeometry {
   });
   g.translate(0, 0, bevel);
   g.applyMatrix4(new Matrix4().makeBasis(new Vector3(1, 0, 0), new Vector3(0, 0, -1), new Vector3(0, 1, 0)));
-  return onlyCsgAttributes(g.toNonIndexed());
+  return onlyCsgAttributes(nonIndexed(g));
 }
 
 /** Re-index CSG output groups so materialIndex is SLOT_BODY, SLOT_CUT or SLOT_PAINT. */
@@ -568,9 +570,9 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
   const ownSupport = def.type === "ramp" && def.paths.length === 1;
   if ((levels > 0 || ownSupport) && def.paths.length === 1) {
     // Keep the viaduct's own (painted) group through the union.
-    const support = new Brush(bridgeSupport(def, levels * RISER_HEIGHT, floors), [PAINT, PAINT, PAINT]);
+    const support = new CsgBrush(bridgeSupport(def, levels * RISER_HEIGHT, floors), [PAINT, PAINT, PAINT]);
     support.updateMatrixWorld();
-    result = evaluator.evaluate(result, support, ADDITION);
+    result = csgEvaluate(evaluator, result, support, ADDITION);
   }
 
   // On a piece with several paths, straight grooves are cut in short steps like curved ones: one long sliver cut
@@ -579,13 +581,13 @@ export function buildPieceGeometry(def: PieceDef, levels = 0, floors: readonly n
   for (const p of def.paths) {
     for (const c of [-GROOVE_SPACING / 2, GROOVE_SPACING / 2]) {
       const extra = p.to === null ? BUFFER_EXTRA - 20 : 2;
-      result = evaluator.evaluate(result, brush(sweep(grooveProfile(c), framesAlong(p.geom, 2, extra, step)), CUT), SUBTRACTION);
+      result = csgEvaluate(evaluator, result, brush(sweep(grooveProfile(c), framesAlong(p.geom, 2, extra, step)), CUT), SUBTRACTION);
     }
   }
 
   // Every end is carved as a hole: any two ends join, so which end of a joint shows the peg is the layout's to say.
   // TrackView draws the pegs (`buildPegGeometry`), and `withPegs` adds a lone piece's own.
-  for (const c of def.connectors) result = evaluator.evaluate(result, brush(socketCutter(c), CUT), SUBTRACTION);
+  for (const c of def.connectors) result = csgEvaluate(evaluator, result, brush(socketCutter(c), CUT), SUBTRACTION);
 
   const out = slotGroups(result);
   out.computeBoundingBox();
@@ -606,9 +608,9 @@ function loopGeometry(def: PieceDef): BufferGeometry {
   const grooveFrames = framesAlong(geom, 2, 2);
   const gm = Math.floor(grooveFrames.length / 2);
   for (const run of [grooveFrames.slice(0, gm + 2), grooveFrames.slice(gm - 1)]) {
-    for (const c of [-GROOVE_SPACING / 2, GROOVE_SPACING / 2]) result = evaluator.evaluate(result, brush(sweep(grooveProfile(c), run), CUT), SUBTRACTION);
+    for (const c of [-GROOVE_SPACING / 2, GROOVE_SPACING / 2]) result = csgEvaluate(evaluator, result, brush(sweep(grooveProfile(c), run), CUT), SUBTRACTION);
   }
-  for (const c of def.connectors) result = evaluator.evaluate(result, brush(socketCutter(c), CUT), SUBTRACTION);
+  for (const c of def.connectors) result = csgEvaluate(evaluator, result, brush(socketCutter(c), CUT), SUBTRACTION);
   const out = slotGroups(result);
   out.computeBoundingBox();
   out.computeBoundingSphere();
@@ -637,13 +639,13 @@ export function buildPegGeometry(): BufferGeometry {
   // seat for every joint on the map, so kept to a few dozen triangles: coarse curves, no bevel.
   const plugShape = keyholeShape(0, PEG_NECK_LENGTH + SOCKET_CLEARANCE - 1, PEG_NECK_WIDTH / 2 + SOCKET_CLEARANCE, PEG_HEAD_RADIUS + SOCKET_CLEARANCE, -1);
   const pegShape = keyholeShape(0, PEG_NECK_LENGTH, PEG_NECK_WIDTH / 2, PEG_HEAD_RADIUS, 1);
-  const top = (shape: Shape, height: number) => new ShapeGeometry(shape, PEG_CURVE_SEGMENTS).translate(0, 0, height).toNonIndexed();
+  const top = (shape: Shape, height: number) => nonIndexed(new ShapeGeometry(shape, PEG_CURVE_SEGMENTS).translate(0, 0, height));
   const plugTop = top(plugShape, TRACK_THICKNESS - PLUG_DROP);
   const pegTop = top(pegShape, PEG_HEIGHT);
   // The peg's walls: an extrusion's sides only (its caps are the first group).
   const extruded = new ExtrudeGeometry(pegShape, { depth: PEG_HEIGHT, bevelEnabled: false, curveSegments: PEG_CURVE_SEGMENTS });
   const capCount = extruded.groups[0].count;
-  const walls = extruded.toNonIndexed();
+  const walls = nonIndexed(extruded);
   const wallPositions = walls.getAttribute("position").array.slice(capCount * 3);
   const wallUvs = walls.getAttribute("uv").array.slice(capCount * 2);
   const pegWalls = new BufferGeometry();
@@ -683,7 +685,7 @@ export function withPegs(carved: BufferGeometry, def: PieceDef): BufferGeometry 
   const ends = def.type === "joiner" ? [] : def.connectors.filter((c) => c.kind === "peg");
   if (ends.length === 0) return carved;
   const source = buildPegGeometry();
-  const peg = carved.index ? source : source.toNonIndexed();
+  const peg = carved.index ? source : nonIndexed(source);
   const pegs = ends.map((c) => peg.clone().applyMatrix4(pegMatrix(c)));
   const attrs = Object.keys(carved.attributes);
   for (const p of pegs) for (const name of Object.keys(p.attributes)) if (!attrs.includes(name)) p.deleteAttribute(name);
@@ -715,7 +717,7 @@ function joinerGeometry(def: PieceDef): BufferGeometry {
     g.applyMatrix4(connectorBasis(c.pose.x, c.y, c.pose.z, c.pose.heading));
     return onlyCsgAttributes(g);
   });
-  const out = slotGroups(evaluator.evaluate(brush(pegs[0]), brush(pegs[1]), ADDITION));
+  const out = slotGroups(csgEvaluate(evaluator, brush(pegs[0]), brush(pegs[1]), ADDITION));
   out.computeBoundingBox();
   out.computeBoundingSphere();
   return out;
@@ -735,7 +737,7 @@ export function buildBufferBlockGeometry(def: PieceDef): BufferGeometry | null {
     b.translate(len + BUFFER_EXTRA - 16 - 3, TRACK_THICKNESS + 12, side);
     bumpers.push(b);
   }
-  return mergeGeometries([g.toNonIndexed(), ...bumpers.map((b) => b.toNonIndexed())]);
+  return mergeGeometries([g, ...bumpers].map(nonIndexed));
 }
 
 export { BoxGeometry };

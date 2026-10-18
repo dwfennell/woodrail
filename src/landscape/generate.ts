@@ -162,7 +162,7 @@ export function stationEnds(town: Town): [Pose, Pose] {
 
 /**
  * Where a fixed piece (a station or a depot) was put by the generator: its track centred on `centre`, at the quarter
- * turn nearest `heading`. Stations and depots may give a little from here to take up joint play (see `Anchor`).
+ * turn nearest `heading`.
  */
 export function fixedHome(centre: { x: number; z: number }, heading: number): Pose {
   const h = normaliseHeading(Math.round(heading / (Math.PI / 2)) * (Math.PI / 2));

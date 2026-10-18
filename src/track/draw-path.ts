@@ -103,6 +103,12 @@ export const DRAW_LOOKAHEAD = 250;
  * it's this far (mm) ahead of it. (When it lifts, whether the last bit of stroke gets a piece is scored: see `stopCost`.)
  */
 const FINISH_SLACK = 27;
+/**
+ * The finger this far (mm) to the side of the line's end, ahead of it, counts as going on from it whichever way it
+ * moves: round a U-turn on the tight curve's radius (two radii across), it's well clear of the line, not coming back
+ * over it.
+ */
+const TURNED_REACH = 1.7 * SMALL_CURVE_RADIUS;
 /** Retracing: the finger this close (mm) to a piece's track, heading back along it, takes it (and those after) off. */
 const TRIM_REACH = 30;
 /** The finger counts as moving away from the line's end when its movement is at least this far (a cosine) that way. */
@@ -344,6 +350,12 @@ export class DrawLine {
     return this.pieces.length ? this.pieces[this.pieces.length - 1].end : this.start;
   }
 
+  /** Where the stroke has got to: the finger's last point in it. */
+  get tip(): { x: number; z: number } {
+    const n = this.xs.length - 1;
+    return { x: this.xs[n], z: this.zs[n] };
+  }
+
   /** The stroke's length so far (mm). */
   get strokeLength(): number {
     return this.ss[this.ss.length - 1];
@@ -373,8 +385,11 @@ export class DrawLine {
     }
     this.push(x, z);
     // Coming back toward the end (turning round to retrace, the tip of a hairpin): no new ghost meanwhile (but pieces
-    // already due, a move's budget having run out, still come).
-    if (away || this.backlog) this.grow(false, GROW_PER_MOVE);
+    // already due, a move's budget having run out, still come). Round a U-turn as tight as the tight curve, though,
+    // the finger past halfway round comes back toward the end a whole turn's width to its side, not back over the
+    // line: it grows (QA: a one-stroke U of about 90 mm radius laid nothing).
+    const turned = ahead > 0 && Math.abs(ez * Math.cos(e.heading) - ex * Math.sin(e.heading)) >= TURNED_REACH;
+    if (away || turned || this.backlog) this.grow(false, GROW_PER_MOVE);
     return trimmed || this.pieces.length !== before;
   }
 
@@ -418,6 +433,18 @@ export class DrawLine {
     const reach = CIRCLING * unlaid;
     for (let i = n - 1; i >= 0 && this.ss[i] > this.progress; i--) if (Math.hypot(this.xs[i] - e.x, this.zs[i] - e.z) >= reach) return false;
     return true;
+  }
+
+  /**
+   * Lifted (after `finish`), was the line left behind, nothing in its way: at least the look-ahead of the stroke not
+   * laid, the finger let go well clear of the line's end (a corner or a circle tighter than any piece, the U of a
+   * hairpin)? Not if it closed or stopped at something, or the finger came back over the line.
+   */
+  get leftBehind(): boolean {
+    const n = this.ss.length;
+    if (this.stopped || this.retreating || n === 0 || this.ss[n - 1] - this.progress < DRAW_LOOKAHEAD) return false;
+    const e = this.end;
+    return Math.hypot(this.xs[n - 1] - e.x, this.zs[n - 1] - e.z) >= 2 * FINISH_SLACK;
   }
 
   /** The stroke ahead of the line's end (not yet laid), as x, z pairs into `out`; returns how many points. */
@@ -590,7 +617,7 @@ export class DrawLine {
       const flat = this.flatStroke() ? this.chooseFlat(end, finishing) : undefined;
       const best = flat === undefined ? this.choose(end, finishing) : flat;
       if (!best) return;
-      this.place(best.candidate, best.s, flat !== undefined);
+      this.place(best.candidate, best.s, flat !== undefined, finishing);
       if (!this.stopped && this.options.closes?.(this.end)) this.stopped = "closed";
     }
   }
@@ -646,14 +673,30 @@ export class DrawLine {
   }
 
   /** Lay a piece the line chose, or the special piece it needs there instead (see `special`), or show it can't go. */
-  private place(c: DrawCandidate, s: number, aside: boolean): void {
+  private place(c: DrawCandidate, s: number, aside: boolean, finishing: boolean): void {
     this.wanted = null;
     const why = this.options.check?.(c, this.pieces) ?? null;
+    const refused = this.refused;
     if (why && this.special(why)) return;
     // The river just ahead on the ground: cross it square (see `cross`), rather than meeting the bank wherever the
-    // stroke's staircase brings the line to it. Only near water: elsewhere a line costs what it did.
-    if (!why && this.waterAhead(c) && this.startCrossing() && this.cross()) return;
-    // Refused, and the piece that would have done (a ramp, a bridge) is one the player has none of: say that.
+    // stroke's staircase brings the line to it. Only near water: elsewhere a line costs what it did. (If the player
+    // may not cross, the line just goes on: it wasn't refused anything. QA: a flat line said "No ramp pieces left".)
+    if (!why && this.waterAhead(c) && this.startCrossing(false) && this.cross()) return;
+    // Refused, and the piece that would have done (a ramp, a bridge) is one the player may not use: the plain piece
+    // that goes there instead and best follows the stroke, its end on it, if one does (QA: in a flat gap between hills,
+    // an imprecise stroke said "Ramp: not learned yet" when a straight would have gone through). Nothing was wanted
+    // after all. (Only on this refusal: a dozen or so pieces checked, the cheapest first.)
+    if (why && this.wanted) {
+      const ok = (q: DrawCandidate) => this.onStroke(q, this.progress) !== null && !this.options.check?.(q, this.pieces);
+      const clear = this.best(this.end, finishing, this.allowed(), ok);
+      if (clear) {
+        this.wanted = null;
+        this.refused = refused;
+        this.lay(clear.candidate, clear.s, false, null);
+        return;
+      }
+    }
+    // Refused, and the piece that would have done is one the player has none of: say that.
     const outOf = this.wanted && this.options.outOf ? this.options.outOf(this.wanted) : null;
     this.lay(c, s, aside, why && outOf ? { ...why, message: outOf } : why);
   }
@@ -691,6 +734,12 @@ export class DrawLine {
     if (down === "laid") return true;
     // Where a ramp down would stand in the river, or (just off a bridge) isn't on the stroke yet: a bridge on, till it is.
     return (down === "river" || (!!last && isBridge(last.type))) && this.bridge();
+  }
+
+  /** The plain pieces the line may use now. */
+  private allowed(): readonly PieceTypeId[] {
+    const allow = this.options.allow;
+    return allow ? DRAW_TYPES.filter((t) => allow(t, this.pieces)) : DRAW_TYPES;
   }
 
   /** May the line use a piece of this type now (Game mode: has the player one left)? */
@@ -771,13 +820,13 @@ export class DrawLine {
    * room for a ramp, and curved bridges made an S over the water): of the two eighths either side of the stroke's way
    * on from the line's end, the one that crosses the least water (looked along from the end, every `APPROACH_STEP`
    * mm), the nearer the stroke's on a tie. False if neither meets water within `CROSS_LOOK`, or the line may have no
-   * ramp or bridge (`want` says which).
+   * ramp or bridge (`want` says which, if the crossing is `needed`: not when it would only be begun ahead of time).
    */
-  private startCrossing(): boolean {
+  private startCrossing(needed = true): boolean {
     const wet = this.options.wet;
     if (!wet) return false;
-    if (!this.may("ramp")) return this.want("ramp");
-    if (!this.may("bridge")) return this.want("bridge");
+    if (!this.may("ramp")) return needed && this.want("ramp");
+    if (!this.may("bridge")) return needed && this.want("bridge");
     const e = this.end;
     // The stroke's way on: from the line's end to where the stroke has got (or the tail's heading, close in).
     const n = this.xs.length - 1;
@@ -995,7 +1044,7 @@ export class DrawLine {
    * by what they cost before their ends are looked for on the stroke, aren't scored further: the same choice, at a
    * fraction of the cost.
    */
-  private best(end: DrawEnd, finishing: boolean, types: readonly PieceTypeId[]): { candidate: DrawCandidate; s: number } | null {
+  private best(end: DrawEnd, finishing: boolean, types: readonly PieceTypeId[], ok?: (c: DrawCandidate) => boolean): { candidate: DrawCandidate; s: number } | null {
     const firsts = candidatesFrom(end, types);
     let best: { candidate: DrawCandidate; s: number } | null = null;
     const k = this.pieces.length;
@@ -1019,7 +1068,14 @@ export class DrawLine {
     }
     scored.sort((p, q) => p.costA - q.costA);
     const wins = (cost: number, rank: number) => cost < bestCost || (cost === bestCost && rank < bestRank);
+    // No pair from a first piece can beat the best so far, even with no cost of its own but its pieces' and covering
+    // all the stroke there is (nor can the piece alone, finishing): skip it (most of the cost of a step is finding the
+    // second pieces' ends on the stroke).
+    const gain = (this.strokeLength - this.progress) * ADVANCE + FIT_REBATE;
     for (const { a, ea, bendA, costA, i } of scored) {
+      if (costA - gain > bestCost + 1e-9) continue;
+      // (Only pieces that may go there, if asked: checked once they might still win, as the dearest part.)
+      if (ok && !ok(a)) continue;
       // Finishing, a piece may end the line on its own.
       if (finishing) {
         const cost = costA - (Math.min(ea.s, this.strokeLength) - this.progress) * ADVANCE;
@@ -1030,10 +1086,6 @@ export class DrawLine {
         }
       }
       const room = this.strokeLength - ea.s;
-      // No pair from here can beat the best so far, even with no cost of its own but its pieces' and covering all the
-      // stroke there is: skip the second pieces (most of the cost of a step is finding their ends on the stroke).
-      const gain = (this.strokeLength - this.progress) * ADVANCE + FIT_REBATE;
-      if (costA - gain > bestCost + 1e-9) continue;
       const seconds = candidatesFrom(a.end, types);
       for (let j = 0; j < seconds.length; j++) {
         const b = seconds[j];

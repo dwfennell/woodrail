@@ -84,11 +84,12 @@ describe("coins as well as goods", () => {
     c.tick(w, 1);
     expect(p.making).toBe(false);
     expect(shop.piles[CARGO.planks.index]).toBe(12);
-    p.coins = 45;
+    // (A farm yard: 6 planks + 90 coins.)
+    p.coins = 200;
     c.tick(w, 1);
     expect(p.making).toBe(true);
-    expect(p.coins).toBe(15);
-    expect(shop.piles[CARGO.planks.index]).toBe(0);
+    expect(p.coins).toBe(110);
+    expect(shop.piles[CARGO.planks.index]).toBe(6);
   });
 
   it("from the tray: one made at once from the yard's planks, into the toy box", () => {

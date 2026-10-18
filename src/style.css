@@ -62,6 +62,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .menu-item { text-align: left; border: none; background: transparent; font: inherit; font-weight: 700; padding: 12px 14px; border-radius: 10px; color: #3a2a1c; cursor: pointer; }
 .menu-item:hover { background: #ead7b8; }
 .menu-item:disabled { opacity: 0.45; cursor: default; }
+/* A menu item asking before it acts (New game): as the route's Leave asks. */
+.menu-item.asking, .menu-item.asking:hover { background: #b0391f; color: #fff; }
 .narrow-only { display: none; }
 @media (max-width: 640px) { .menu .narrow-only { display: block; } }
 
@@ -167,6 +169,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .help-card h2 { margin: 0 0 4px; font-size: 24px; }
 .help-card ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
 .tips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 4px 0 6px; }
+.help-goals { margin: 2px 4px 6px; font-size: 13.5px; line-height: 1.35; }
 .tip { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; background: #fff8ec; border-radius: 14px; padding: 10px 8px 12px; box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.12); font-size: 13.5px; line-height: 1.35; }
 .tip b { font-size: 15px; }
 .tip-art { width: 88px; height: 66px; background: center / contain no-repeat; display: grid; place-items: center; }
@@ -200,17 +203,20 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* (They stay 40 px drawn, to fit a 360 px screen with the coins showing, but take a tap 2 px around: 44 px.) */
   .actions > .chip:not(.attention) { position: relative; }
   .actions > .chip::after { content: ""; position: absolute; inset: -2px; }
-  .actions > .chip.attention { position: absolute; top: 50px; right: 0; }
+  /* Re-rail, under the bar at the right, level with the goals bar (and as tall), which gives it room while it shows:
+     over the goals' right end it took the taps meant for it (QA). */
+  .actions > .chip.attention { position: absolute; top: 60px; right: 0; height: 44px; }
+  body:has(.actions > .chip.attention:not([hidden])) .goals { max-width: calc(100% - 24px - 70px); }
   .chip { min-width: 44px; height: 44px; padding: 0 10px; font-size: 16px; }
   .chip.text { font-size: 13px; }
   .tray-item { width: 70px; height: 80px; }
-  /* The tray's tabs tall enough to tap (they were 30 px); the cards above sit that much higher. */
-  .tab { padding: 11px 14px 10px; }
+  /* The tray's tabs a finger's height to tap (44 px; they were 30, then 39); the cards above sit that much higher. */
+  .tab { padding: 13px 14px 13px; }
   /* Whole words only (no "Crossroad / s"): a little smaller, two lines at most. */
   .tray-item .label { font-size: 11px; letter-spacing: -0.01em; }
-  .card { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 146px); min-width: 0; width: calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
+  .card { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 151px); min-width: 0; width: calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)); }
   /* A tall card (a workshop's list) stops under the goals chip, and scrolls as one: no list scrolling inside it. */
-  .card { max-height: calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 146px - max(10px, env(safe-area-inset-top)) - 116px); overflow-y: auto; overscroll-behavior: contain; }
+  .card { max-height: calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 151px - max(10px, env(safe-area-inset-top)) - 116px); overflow-y: auto; overscroll-behavior: contain; }
   .card > * { flex-shrink: 0; }
   .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
 }
@@ -223,10 +229,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 @media (max-height: 520px) {
   .tray-item { width: 70px; height: 80px; }
   .tray-item .label { font-size: 11px; letter-spacing: -0.01em; }
-  .tab { padding: 9px 14px 8px; }
+  .tab { padding: 13px 14px 13px; }
   /* Cards dock at the right, under the top bar: in the middle they'd sit on the very train or piece just tapped, and
      a second tap on it (a car, for its own card) would land on the card's Go instead. */
-  .card, .card.piece-card.group { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; top: calc(max(10px, env(safe-area-inset-top)) + 56px); bottom: auto; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 140px); overflow-y: auto; overscroll-behavior: contain; }
+  .card, .card.piece-card.group { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; top: calc(max(10px, env(safe-area-inset-top)) + 56px); bottom: auto; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 149px); overflow-y: auto; overscroll-behavior: contain; }
   .card > * { flex-shrink: 0; }
   .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
@@ -282,7 +288,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A narrow phone: Draw as its pencil (Turn and Flip are icons already) and the tabs a little tighter, so every tab
    still shows beside the tools (Game's Industries, where a goal sends you). */
 @media (max-width: 400px) {
-  .tray-tools .draw-word { display: none; }
+  /* (Its word goes only while a shelf is open, Turn and Flip beside it; at the top there's room: QA, a bare ✎.) */
+  .tray.in-group .tray-tools .draw-word { display: none; }
   .tray-head { gap: 4px; }
   .tray-head .tabs { padding: 0 4px; }
   .tray-head .tab { padding-left: 8px; padding-right: 8px; font-size: 13px; }
@@ -324,6 +331,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    name stays hidden, and its cards fade in below the train (their top set from where the train ends). */
 .title-screen.over-opening { z-index: 60; background: none; justify-content: flex-start; animation: none; }
 .title-screen.over-opening .title-head { display: none; }
+.title-screen.placing .title-cards { visibility: hidden; pointer-events: none; }
 /* The choices fade in, rising a little, one after the other. */
 .title-screen.over-opening .title-card { animation: title-card-in 0.6s ease-out backwards; }
 .title-screen.over-opening .title-card + .title-card { animation-delay: 0.15s; }
@@ -351,6 +359,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goals-show-icon::before { content: ""; position: absolute; inset: 5px; z-index: -1; border-radius: 50%; background: linear-gradient(180deg, #f6e3c1, #e8c992); box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.25); }
 .goals-show-icon:hover::before { filter: brightness(1.05); }
 .goals.collapsed .goals-show-icon { display: grid; }
+/* Its word beside the ⌖ (QA: unlabelled): a pill, not a dot. */
+.goals.collapsed .goals-show-icon { display: inline-flex; align-items: center; gap: 4px; width: auto; padding: 0 13px 0 11px; font: inherit; font-weight: 800; font-size: 13px; white-space: nowrap; }
+.goals.collapsed .goals-show-icon::before { border-radius: 17px; }
+/* (Where the word would cut the goal's title short: the round ⌖ alone, as before.) */
+.goals.collapsed.show-tight .goals-show-icon { width: 44px; padding: 0; justify-content: center; }
+.goals.collapsed.show-tight .goals-show-word { display: none; }
 .goals-show { margin-top: 6px; height: 40px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
 .goals-body { display: none; }
 .goals.collapsed .goals-head { padding-bottom: 10px; }
@@ -363,6 +377,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goal-tick { display: grid; place-items: center; background: linear-gradient(180deg, #8fd08a, #5aa35a); box-shadow: none; color: #fff; font-weight: 800; font-size: 14px; }
 .goal.upcoming { opacity: 0.55; font-size: 13px; font-weight: 700; align-items: center; }
 .goal.upcoming .goal-box { width: 16px; height: 16px; margin: 0 2px; }
+.goal.upcoming.locked .goal-box { background: none; box-shadow: none; font-size: 12px; line-height: 16px; text-align: center; }
 .goal.arrive { animation: goal-arrive 0.5s cubic-bezier(0.3, 1.4, 0.5, 1); }
 @keyframes goal-arrive { from { opacity: 0; transform: translateY(14px); } }
 .goals.ticked .goals-count { animation: goal-pop 0.6s ease-out; }
@@ -429,6 +444,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .map-dot { flex: none; width: 16px; height: 16px; border-radius: 50%; background: #c8442f; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.2); }
 .map-marker.kind-forest .map-dot { background: #3f8f4a; border-radius: 4px; }
 .map-marker.kind-sawmill .map-dot { background: #d8961f; border-radius: 4px; }
+/* An industry the player put down (a workshop): a square, in its own colour. */
+.map-marker:not(.kind-town):not(.kind-forest):not(.kind-sawmill) .map-dot { background: #7a5ab8; border-radius: 4px; }
 .map-text { display: flex; flex-direction: column; min-width: 0; }
 .map-text b { font-size: 14px; line-height: 1.15; }
 .map-text span { font-size: 12px; font-weight: 700; color: #6a5340; line-height: 1.25; }
@@ -598,6 +615,13 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .icon-btn-alert::after { content: ""; position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #c8442f; box-shadow: 0 0 0 2px #fbf3e4; animation: alert-pulse 1.2s ease-in-out infinite; }
 @keyframes alert-pulse { 50% { transform: scale(1.3); } }
 @media (prefers-reduced-motion: reduce) { .icon-btn-alert::after { animation: none; } }
+/* The Blueprints button, till the board is first opened, while a reward waits: a glow round the whole button. */
+/* (An outline, so the button keeps its bevel; bright enough to see outdoors.) */
+/* At its peak the ring reaches about 8.6 px past the button ((4 + 3) x 1.06, and the grow): a margin keeps it 3 px or
+   more clear of its neighbours (the bar's gap is 5 px on a phone). Only this button moves over: the bar is right-aligned. */
+.board-new { outline: 4px solid #ffc21f; outline-offset: 2px; margin-inline: 7px; animation: board-pulse 1.1s ease-in-out infinite; }
+@keyframes board-pulse { 50% { transform: scale(1.06); outline-color: #ff8a00; outline-offset: 3px; } }
+@media (prefers-reduced-motion: reduce) { .board-new { animation: none; } }
 
 /* Game mode's coins, by the logo: a stack of toy coins and the count. */
 .coins { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 800; color: #5a3f24; font-variant-numeric: tabular-nums; padding: 2px 9px 2px 4px; border-radius: 999px; background: #f3e1b6; }
@@ -616,7 +640,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-head .route-plan { margin-left: auto; }
 .route-plan.on { background: #3c9a5f; color: #fff; }
 .route-hint { font-size: 0.85em; opacity: 0.75; }
-.route-stops { display: flex; flex-wrap: wrap; gap: 4px; }
+.route-stops { display: flex; flex-wrap: nowrap; gap: 4px; position: relative; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.route-stops::-webkit-scrollbar { display: none; }
 .route-chip { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
 .route-chip.next { font-weight: 800; }
 .route-chip.picked { outline: 2px solid #3a2a1c; outline-offset: 1px; }
@@ -625,6 +650,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-tools { display: flex; gap: 4px; }
 .route-tools .route-action { flex: 1 0 auto; }
 .route-tools button { white-space: nowrap; padding-inline: 10px; }
+.route-tools .route-move, .route-tools .route-remove { min-width: 44px; min-height: 44px; }
 /* Planning a route: the map wants the room. The engine card slims to its route, and the tray goes. */
 .planning .engine-card .card-title, .planning .engine-card .engine-status, .planning .engine-card .engine-controls,
 .planning .engine-card .corner, .planning .engine-card > .close, .planning .engine-card .engine-more { display: none; }
@@ -634,6 +660,16 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-wait.on { background: #e6b52c; }
 .route-chip[data-wait]::before { content: "⏳ "; }
 .route-warn { font-size: 0.85em; color: #b0391f; font-weight: 700; }
+/* The stops one row, scrolled sideways if they don't fit (the card stays short); planning, a picked stop's tools compact. */
+.planning .route-tools { flex-wrap: nowrap; }
+.route-stops.more-right { mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); }
+.route-stops.more-left { mask-image: linear-gradient(90deg, transparent, #000 28px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); }
+.route-stops.more-left.more-right { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); }
+.route-chip, .planning .route-tools button { flex: 0 0 auto; }
+.planning .route-tools button { padding-inline: 8px; font-size: 13px; min-width: 44px; }
+.planning .engine-extra.route { gap: 4px; }
+/* (The tray's away: the bar sits at the bottom, full width, so the map has the rest.) */
+.planning .engine-card { width: min(calc(100vw - 32px), 440px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); padding: 10px 12px; }
 
 /* "Show me": a goal town's name over it for a few seconds (positioned by the game each frame), in a layer over the
    canvas that clips them, so one off screen never widens the page. */
@@ -663,3 +699,36 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .harbour-buy { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .harbour-buy-line { flex-basis: 100%; font-size: 13px; font-weight: 700; color: #6a5340; }
 .coin-dot { display: inline-block; width: 13px; height: 13px; margin-left: 4px; vertical-align: -2px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffe08a, #e2a12b 70%); box-shadow: inset 0 0 0 1.5px #c98a1c; }
+
+/* Lines: on a train's card, its line's trains, Leave, and (on no line) the lines it could run. */
+/* The route's part of the card stays within the card on a narrow phone: its head row shrinks the line's name. */
+.engine-card { max-width: calc(100vw - 32px); box-sizing: border-box; }
+.engine-extra.route { align-self: stretch; min-width: 0; }
+.route-head { min-width: 0; }
+.route-line-name { cursor: pointer; min-height: 44px; min-width: 0; flex: 1 1 auto; overflow: hidden; }
+.route-riders { white-space: nowrap; flex: 0 0 auto; }
+/* A long name ends in "…" rather than wrapping the card's head. */
+.route-line-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.route-head .route-plan, .route-head .route-leave { flex: 0 0 auto; }
+.route-leave.asking { background: #b0391f; color: #fff; }
+.route-join-line:disabled { opacity: 0.45; }
+.route-riders { font-weight: 600; opacity: 0.7; }
+.route-head .route-leave { padding-inline: 10px; }
+.route-join { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.route-join-line { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
+/* The Lines view: a sheet at the bottom (the tray's away), each line a row. */
+.lines-open .tray, .lines-open .tray-draw, .lines-open .tray-orient { display: none; }
+.lines-view { width: min(calc(100vw - 32px), 440px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); gap: 8px; padding: 12px; }
+.lines-head { display: flex; align-items: center; justify-content: space-between; color: #6a4a2c; }
+.lines-list { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; overflow-y: auto; }
+.lines-row { display: flex; align-items: center; gap: 10px; }
+.lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
+.lines-swatch { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 3px rgba(60, 40, 20, 0.35); cursor: pointer; padding: 0; }
+.lines-swatch.on { outline: 3px solid #3a2a1c; outline-offset: 1px; }
+.lines-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lines-name { font: inherit; font-weight: 700; color: #3a2a1c; background: transparent; border: none; border-bottom: 2px dashed rgba(106, 74, 44, 0.3); padding: 2px 0; min-width: 0; width: 100%; min-height: 44px; box-sizing: border-box; }
+.lines-head button, .lines-show { min-height: 44px; min-width: 44px; }
+.lines-name:focus { outline: none; border-bottom-color: #6a4a2c; background: rgba(255, 255, 255, 0.6); }
+.lines-info { font-size: 0.8em; opacity: 0.7; }
+.lines-palette { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 4px 54px; }
+.lines-none { font-size: 0.9em; opacity: 0.75; }

@@ -321,6 +321,31 @@ describe("coupling", () => {
     expect(sim.getTrain(behind.trainId)!.speed).toBe(0);
   });
 
+  it("an engine held behind another train's engine stands still: it doesn't creep into the gap (QA: idle frames)", () => {
+    const { layout, ids } = longLine(14);
+    const sim = new Sim(layout);
+    const ahead = sim.addTrain(["engine", "hopper"], { pieceId: ids[7], pathIndex: 0, reversed: false, s: 100 });
+    const behind = sim.addTrain(["engine", "hopper"], { pieceId: ids[4], pathIndex: 0, reversed: false, s: 100 });
+    if (ahead.kind !== "placed" || behind.kind !== "placed") throw new Error("not placed");
+    sim.setLever(sim.getTrain(behind.trainId)!.cars[0].id, 1);
+    run(sim, 10);
+    // Its lever still on, held: not one tick of movement in the next 20 s (it used to step into the gap each tick and
+    // be stopped after, reading speed 0 while it crept on).
+    const at = sim.getTrain(behind.trainId)!.bogies.map((b) => ({ ...b }));
+    let moved = 0;
+    for (let i = 0; i < 20 * SIM_HZ; i++) {
+      sim.tick();
+      if (sim.getTrain(behind.trainId)!.bogies.some((b, k) => b.pieceId !== at[k].pieceId || b.s !== at[k].s)) moved++;
+    }
+    expect(moved).toBe(0);
+    expect(sim.getTrain(behind.trainId)!.speed).toBe(0);
+    // And it follows when the one ahead goes.
+    sim.setLever(sim.getTrain(ahead.trainId)!.cars[0].id, 1);
+    run(sim, 2);
+    expect(sim.getTrain(behind.trainId)!.speed).toBeGreaterThan(50);
+    expect(sim.drainEvents().some((e) => e.kind === "coupled" || e.kind === "derailed")).toBe(false);
+  });
+
   it("two trains meeting head on stop, wait, and each turn back: no crash, no coupling", () => {
     const { layout, ids } = longLine(14);
     const sim = new Sim(layout);

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { appendPiece, connectorRef, Layout } from "../track";
-import { connectedPairs } from "../landscape";
-import { GOALS, GoalTracker } from "./goals";
-import { buildStarterWorld, syncIndustries, type World } from "./world";
+import { appendPiece, connectorRef, findSplice, Layout } from "../track";
+import { checkPlacement, connectedPairs, FEAT_TREE, SURF_GRASS, SURF_RIVER } from "../landscape";
+import { checkYard } from "./depot-footprint";
+import { GOALS, GoalTracker, NOTHING_ACROSS_HINT } from "./goals";
+import { buildStarterWorld, createWorld, STARTER_SEED, syncIndustries, type World } from "./world";
 import { CARGO } from "../economy/cargo";
 
 const goal = (id: string) => GOALS.find((g) => g.id === id)!;
@@ -18,6 +19,18 @@ function joined(): { w: World; straights: number[] } {
     straights.push(last);
   }
   return { w, straights };
+}
+
+/** Clear the map's river and run one across it, along the row at `z`; returns the row. */
+function riverRow(w: World, z: number): number {
+  const g = w.landscape.grid;
+  const row = g.rowAt(z);
+  g.forEachCell((i, _c, r) => {
+    if (g.surface[i] === SURF_RIVER) g.surface[i] = SURF_GRASS;
+    if (r === row) g.surface[i] = SURF_RIVER;
+  });
+  g.touch();
+  return row;
 }
 
 function trainOn(w: World, pieceId: number, kinds: Parameters<World["sim"]["addTrain"]>[0] = ["engine"]) {
@@ -153,6 +166,81 @@ describe("build-bridge guide", () => {
     g.surface[j] = 1;
     g.touch();
     expect(goal("build-bridge").guide(w).points[0]).toEqual({ x: g.centreX(g.colOf(j)), z: g.centreZ(g.rowOf(j)) });
+  });
+
+  it("with nothing across the river, says so in the hint", () => {
+    const { w } = joined();
+    const g = w.landscape.grid;
+    g.forEachCell((i) => {
+      if (g.surface[i] === SURF_RIVER) g.surface[i] = 0;
+    });
+    // A pond beside the line: no land beyond it.
+    const end = w.layout.getPiece(w.stations.get(w.landscape.towns[1].id)!)!.pose;
+    g.surface[g.cellAtWorld(end.x + 150, end.z + 150)] = SURF_RIVER;
+    g.touch();
+    expect(goal("build-bridge").check(w)).toEqual({ done: false, hint: NOTHING_ACROSS_HINT });
+    expect(goal("build-bridge").guide(w).marks).toHaveLength(1);
+  });
+
+  it("frames the crossing toward a town across the river, both banks in view", () => {
+    const { w } = joined();
+    const g = w.landscape.grid;
+    // A river right across the map between the joined towns and the rest.
+    const towns = w.landscape.towns;
+    const row = riverRow(w, Math.max(...towns.slice(2).map((t) => t.centre.z)) + 250);
+    expect(towns.slice(0, 2).every((t) => g.rowAt(t.centre.z) > row)).toBe(true);
+    const guide = goal("build-bridge").guide(w);
+    const across = towns.slice(2);
+    expect(across.map((t) => t.id)).toContain(guide.towns[0]);
+    expect(guide.marks).toHaveLength(1);
+    const [river, near, far, town] = guide.points;
+    expect(g.surface[g.cellAtWorld(river.x, river.z)]).toBe(SURF_RIVER);
+    expect(g.rowAt(near.z)).toBeGreaterThan(row);
+    expect(g.rowAt(far.z)).toBeLessThan(row);
+    expect(town).toEqual(across.find((t) => t.id === guide.towns[0])!.centre);
+    expect(guide).toMatchObject({ tab: "track", shelf: "Bridges" });
+    expect(goal("build-bridge").check(w).hint).toBeUndefined();
+  });
+
+  it("frames the crossing toward a forest across the river (with no town or depot there)", () => {
+    const { w } = joined();
+    const g = w.landscape.grid;
+    const towns = w.landscape.towns;
+    const row = riverRow(w, Math.max(...towns.map((t) => t.centre.z), ...w.landscape.depots.map((d) => d.centre.z)) + 500);
+    // Bare grass beyond it, but for a stand of trees.
+    g.forEachCell((i, _c, r) => {
+      if (r <= row) return;
+      g.height[i] = 0;
+      g.feature[i] = 0;
+    });
+    const wood = { x: 0, z: (row + 6) * 72 };
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) g.feature[g.index(g.colAt(wood.x) + dc, g.rowAt(wood.z) + dr)] = FEAT_TREE;
+    g.touch();
+    const guide = goal("build-bridge").guide(w);
+    expect(guide.towns).toEqual([]);
+    const [river, near, far, at] = guide.points;
+    expect(g.surface[g.cellAtWorld(river.x, river.z)]).toBe(SURF_RIVER);
+    expect(g.rowAt(near.z)).toBeLessThan(row);
+    expect(g.rowAt(far.z)).toBeGreaterThan(row);
+    // A square with the trees in an industry's reach.
+    expect(Math.hypot(at.x - wood.x, at.z - wood.z)).toBeLessThan(250 + 72);
+    expect(goal("build-bridge").check(w).hint).toBeUndefined();
+  });
+
+  it("on real starter maps, points over a river", () => {
+    for (const seed of [STARTER_SEED, 2, 42]) {
+      const w = createWorld(seed, true);
+      const [a] = w.landscape.towns;
+      let last = w.stations.get(a.id)!;
+      for (let i = 0; i < 4; i++) last = appendPiece(w.layout, "straight-216", false, connectorRef(last, 1));
+      const g = w.landscape.grid;
+      const guide = goal("build-bridge").guide(w);
+      const [river, near, far] = guide.points;
+      expect(g.surface[g.cellAtWorld(river.x, river.z)], `seed ${seed}`).toBe(SURF_RIVER);
+      expect(g.surface[g.cellAtWorld(near.x, near.z)], `seed ${seed}`).not.toBe(SURF_RIVER);
+      expect(g.surface[g.cellAtWorld(far.x, far.z)], `seed ${seed}`).not.toBe(SURF_RIVER);
+      expect(goal("build-bridge").check(w).hint, `seed ${seed}`).toBeUndefined();
+    }
   });
 
   it("falls back to the line when the map has no river", () => {
@@ -300,15 +388,69 @@ describe("place-workshop guide", () => {
     const next = goal("place-workshop").guide(w);
     expect(next.marks).toHaveLength(1);
     expect(Math.hypot(next.points[0].x - first.points[0].x, next.points[0].z - first.points[0].z)).toBeGreaterThan(100);
-    // Nowhere it fits: as before, the line itself.
+    // Nowhere it fits: still a marker (QA: it showed none), on the line where it's nearest the stations.
     for (const id of straights) hillsBeside(w, id);
     const none = goal("place-workshop").guide(w);
-    expect(none.points.length).toBe(straights.length);
-    expect(none.marks).toEqual([]);
+    expect(none.marks).toHaveLength(1);
+    expect(straights.map((id) => w.layout.getPiece(id)!.pose)).toContainEqual(none.marks[0]);
+    expect(none.points[0]).toEqual(none.marks[0]);
+  });
+
+  it("says which way round the workshop fits at its spot: held so, it takes that straight's place and fits", () => {
+    /** Raise the squares beside a straight's middle on one side only (`side` +1: its left, −1: its right). */
+    const hillOneSide = (w: World, id: number, side: 1 | -1) => {
+      const g = w.landscape.grid;
+      const m = middle(w, id);
+      const p = w.layout.getPiece(id)!.pose;
+      g.forEachCell((i, col, row) => {
+        const dx = g.centreX(col) - m.x;
+        const dz = g.centreZ(row) - m.z;
+        const across = side * (-Math.sin(p.heading) * dx + Math.cos(p.heading) * dz);
+        const along = Math.abs(Math.cos(p.heading) * dx + Math.sin(p.heading) * dz);
+        if (along < 150 && across > 50 && across < 160) g.height[i] = 1;
+      });
+      g.revision++;
+    };
+    /** Held over `at` turned `heading`: does the workshop take a straight's place there and fit, yard and all? */
+    const fitsHeld = (w: World, at: { x: number; z: number }, heading: number) => {
+      const s = findSplice(w.layout, "depot-workshop", false, at, heading, 14);
+      if (s.kind !== "splice") return false;
+      const ctx = { land: w.landscape, layout: w.layout, props: w.props, footprint: () => undefined };
+      return checkPlacement(w.landscape, "depot-workshop", false, s.pose, s.y).kind === "clear" && checkYard(ctx, "depot-workshop", s.pose, s.y, new Set(s.covers)) === null;
+    };
+    for (const side of [1, -1] as const) {
+      const { w, straights } = joined();
+      const spot = goal("place-workshop").guide(w).points[0];
+      const at = straights.find((id) => Math.hypot(middle(w, id).x - spot.x, middle(w, id).z - spot.z) < 1)!;
+      // Only one way round fits there now (QA: in the starting view the spot was refused, the other way round).
+      hillOneSide(w, at, side);
+      const g = goal("place-workshop").guide(w);
+      expect(g.held?.type).toBe("depot-workshop");
+      expect(fitsHeld(w, g.points[0], g.held!.heading), `side ${side}`).toBe(true);
+      expect(fitsHeld(w, g.points[0], g.held!.heading + Math.PI), `side ${side}, turned round`).toBe(false);
+    }
   });
 
   it("with no track laid yet, shows the next towns to join, as before", () => {
     const fresh = buildStarterWorld();
     expect(goal("place-workshop").guide(fresh).towns.length).toBe(2);
+  });
+  it("two trains at once waits for signals (a passing loop): hidden, not counted, never the current goal till then", () => {
+    const w = buildStarterWorld();
+    const t = new GoalTracker(GOALS.filter((g) => g.id !== "two-trains" && g.id !== "join-all").map((g) => g.id));
+    t.update(w, { learned: new Set(["switches"]) });
+    expect(t.current()?.id).toBe("join-all");
+    expect(t.next()).toBeNull();
+    expect(t.total).toBe(GOALS.length - 1);
+    expect(t.lockedHint()).toBe("Learn Signals to unlock a goal");
+    // Every other goal done: still not the current one.
+    const all = new GoalTracker(GOALS.filter((g) => g.id !== "two-trains").map((g) => g.id));
+    all.update(w, { learned: new Set() });
+    expect(all.current()).toBeNull();
+    expect(all.lockedHint()).toBe("Learn Signals to unlock a goal");
+    t.update(w, { learned: new Set(["switches", "signals"]) });
+    expect(t.current()?.id).toBe("two-trains");
+    expect(t.total).toBe(GOALS.length);
+    expect(t.lockedHint()).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import { createRouteStep, getPieceDef, pathLength, routeFrom, type Layout } from "../track";
+import { createRouteStep, createSample, getPieceDef, pathLength, routeFrom, samplePath, TRACK_THICKNESS, type Layout } from "../track";
 import type { Cursor } from "../sim";
 import { distanceTo, next, SEARCH, wayToward, waysFrom } from "../economy/steer";
 
@@ -160,4 +160,50 @@ export function aheadRuns(layout: Layout, front: Cursor, length: number): PathRu
     s = reversed ? len : 0;
   }
   return runs;
+}
+
+const at = createSample();
+
+/** The world point at distance `s` along a piece's path, on the track's top. */
+export function pointOnPath(layout: Layout, pieceId: number, pathIndex: number, s: number): { x: number; y: number; z: number } | null {
+  const piece = layout.getPiece(pieceId);
+  if (!piece) return null;
+  samplePath(getPieceDef(piece.type, piece.flipped).paths[pathIndex].geom, s, at);
+  const ch = Math.cos(piece.pose.heading);
+  const sh = Math.sin(piece.pose.heading);
+  return { x: piece.pose.x + at.x * ch - at.z * sh, y: piece.y + at.y + TRACK_THICKNESS, z: piece.pose.z + at.x * sh + at.z * ch };
+}
+
+/** The cursors leaving the middle of a stop piece, both ways along its first path. */
+export function stopCursors(layout: Layout, pieceId: number): Cursor[] {
+  if (!layout.getPiece(pieceId)) return [];
+  const mid = lengthOf(layout, pieceId, 0) / 2;
+  return [
+    { pieceId, pathIndex: 0, reversed: false, s: mid },
+    { pieceId, pathIndex: 0, reversed: true, s: mid },
+  ];
+}
+
+/**
+ * Where the way on from `starts` (as the switches send a train, up to `length` mm each) comes nearest to (x, z): where
+ * a way to a stop no track reaches runs out (its gap is drawn from there). Null if there's no track there at all.
+ */
+export function nearestAhead(layout: Layout, starts: readonly Cursor[], length: number, x: number, z: number): { x: number; y: number; z: number } | null {
+  let best: { x: number; y: number; z: number } | null = null;
+  let bestD = Infinity;
+  for (const start of starts) {
+    for (const run of aheadRuns(layout, start, length)) {
+      const n = Math.max(1, Math.ceil(Math.abs(run.s1 - run.s0) / 12));
+      for (let i = 0; i <= n; i++) {
+        const p = pointOnPath(layout, run.pieceId, run.pathIndex, run.s0 + ((run.s1 - run.s0) * i) / n);
+        if (!p) continue;
+        const d = Math.hypot(p.x - x, p.z - z);
+        if (d < bestD) {
+          bestD = d;
+          best = p;
+        }
+      }
+    }
+  }
+  return best;
 }

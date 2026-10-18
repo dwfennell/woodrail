@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPieceDef } from "../track";
-import { dropOutcome, heldReason, onwardEnds } from "./drop";
+import { dropOutcome, heldReason, letGoRefusal, onwardEnds, REFUSED_FALLBACK, refusalText } from "./drop";
 
 describe("dropOutcome", () => {
   it.each([
@@ -29,6 +29,28 @@ describe("heldReason (a depot held over a line)", () => {
     // It can go (or isn't over a line): as the placement check says.
     expect(heldReason(null, "splice-busy")).toBeNull();
     expect(heldReason("building", null)).toBe("building");
+  });
+});
+
+describe("refusalText (what a refused drop says)", () => {
+  it("its own reason, or a plain one if it has none: never nothing", () => {
+    expect(refusalText("Needs trees nearby: 1 of 5")).toBe("Needs trees nearby: 1 of 5");
+    expect(refusalText("Drop it onto a straight")).toBe("Drop it onto a straight");
+    for (const none of ["", "  ", null, undefined]) expect(refusalText(none)).toBe(REFUSED_FALLBACK);
+    expect(REFUSED_FALLBACK.length).toBeLessThan(24);
+  });
+});
+
+describe("letGoRefusal (a new piece's drag ends without a drop)", () => {
+  const say = (b: string) => (b === "river" ? "Bridges go over rivers" : "");
+  it("held where it couldn't go: says why, never nothing", () => {
+    expect(letGoRefusal({ isNew: true, overTray: false, blocked: "river" }, say)).toBe("Bridges go over rivers");
+    expect(letGoRefusal({ isNew: true, overTray: false, blocked: "piece" }, say)).toBe(REFUSED_FALLBACK);
+  });
+  it("held where it could go, back over the tray, or a piece being moved: nothing here (it's back in the box, or back)", () => {
+    expect(letGoRefusal({ isNew: true, overTray: false, blocked: null }, say)).toBeNull();
+    expect(letGoRefusal({ isNew: true, overTray: true, blocked: "river" }, say)).toBeNull();
+    expect(letGoRefusal({ isNew: false, overTray: false, blocked: "river" }, say)).toBeNull();
   });
 });
 

@@ -14,16 +14,22 @@ export const TOO_LONG_AGAIN_MS = 5 * 60_000;
 
 /**
  * Trains told they're too long for a lift. Keyed by their cars, not the train's id: a train turned back at a lift's
- * end (as one too long is) comes back as a new train, its cars keeping theirs. A few entries (one per car told).
+ * end (as one too long is) comes back as a new train, its cars keeping theirs. No car ids (missing or empty): keyed by
+ * the train's id instead, so it's still told only once and not on every approach. A few entries (one per car told).
  */
 export class TooLongNotice {
-  private readonly told = new Map<number, number>();
+  /** When each was told: "c<car id>" for a car, "t<train id>" for a train whose cars weren't known. */
+  private readonly told = new Map<string, number>();
 
-  /** Tell this train (its cars' ids) now (`now`, ms)? Yes the first time, and again only after `TOO_LONG_AGAIN_MS`. */
-  shouldTell(carIds: readonly number[], now: number): boolean {
-    for (const [id, at] of this.told) if (now - at >= TOO_LONG_AGAIN_MS) this.told.delete(id);
-    if (carIds.some((id) => this.told.has(id))) return false;
-    for (const id of carIds) this.told.set(id, now);
+  /**
+   * Tell this train (its cars' ids; else its id, `trainId`) now (`now`, ms)? Yes the first time, and again only after
+   * `TOO_LONG_AGAIN_MS`. Neither cars nor a train id: no (there's nothing to tell it once by).
+   */
+  shouldTell(carIds: readonly number[] | undefined, now: number, trainId?: number): boolean {
+    for (const [key, at] of this.told) if (now - at >= TOO_LONG_AGAIN_MS) this.told.delete(key);
+    const keys = carIds && carIds.length > 0 ? carIds.map((id) => `c${id}`) : trainId !== undefined ? [`t${trainId}`] : [];
+    if (keys.length === 0 || keys.some((k) => this.told.has(k))) return false;
+    for (const k of keys) this.told.set(k, now);
     return true;
   }
 }

@@ -1,7 +1,7 @@
 import type { DepotRole } from "../economy";
-import { checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, hillsOf, isWater, onFixedSite, SURF_LANE, SURF_ROAD, SURF_TOWN, type Landscape } from "../landscape";
+import { checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, hillsOf, isWater, onFixedSite, SURF_LANE, SURF_ROAD, SURF_SEA, SURF_TOWN, type Landscape } from "../landscape";
 import { footprintCorners, footprintsOverlap, inFootprint, scaleFootprint, standsAside, type Footprint } from "../props/placement";
-import type { PropStore } from "../props/store";
+import type { Prop, PropStore } from "../props/store";
 import { DEPOT_LAYOUT } from "../render/depot-view";
 import { createSample, findOverlap, findSplice, getPieceDef, ignores, isPlainStraight, kitOf, straightLength, normalizeAngle, pathLength, samplePath, TRAIN_CLEARANCE, type Ignore, type KitDef, type Layout, type PieceTypeId, type Pose } from "../track";
 import { DEPOT_NAMES, INDUSTRY_ROLE, type World } from "./world";
@@ -35,6 +35,13 @@ interface YardPart extends Footprint {
   readonly crane: boolean;
   /** A leg on the far side of the line: only the ground and props are checked there, not other track. */
   readonly post: boolean;
+  /**
+   * Overhead (a kit's part that hangs clear of the ground, like the train lift's counterweights): no ground, hill,
+   * water or track is checked under it, only props and other footprints (the tall things it would run into).
+   */
+  readonly overhead?: boolean;
+  /** Other track keeps this much further off it than `TRACK_RADIUS` (see `KitRect.trackPad`). */
+  readonly trackPad?: number;
 }
 
 interface YardShape {
@@ -62,6 +69,10 @@ const HILL_SLACK = 0.5;
 const HARBOUR_DRY = 84;
 /** Other track this close to the yard (mm: its discs' radius, as in `findOverlap`) runs through it. */
 const TRACK_RADIUS = 14;
+/** The most any part pads that (`trackPad`), for the quick distance checks before the exact ones. */
+const TRACK_PAD_MAX = 6;
+/** A track point this far outside a yard's box can't be in it. */
+const PAD = TRACK_RADIUS + TRACK_PAD_MAX;
 /** Other track this far above or below the depot's base (mm) passes clear of its yard: two levels. */
 const HEADROOM = TRAIN_CLEARANCE;
 
@@ -85,7 +96,7 @@ function shapeOf(role: DepotRole): YardShape | null {
 /** A kit's footprint beside its track: its rectangles, all of them pad (checked against everything). */
 function kitShape(kit: KitDef): YardShape | null {
   return shapeFrom(
-    kit.footprint.map((r) => ({ cx: r.t, cz: r.l, hw: r.w / 2, hd: r.d / 2, crane: false, post: false })),
+    kit.footprint.map((r) => ({ cx: r.t, cz: r.l, hw: r.w / 2, hd: r.d / 2, crane: false, post: false, ...(r.overhead ? { overhead: true } : {}), ...(r.trackPad ? { trackPad: r.trackPad } : {}) })),
     Infinity,
   );
 }
@@ -114,6 +125,9 @@ function shapeFrom(parts: YardPart[], wetFrom: number): YardShape | null {
   const legs: number[] = [];
   let reach = 0;
   for (const p of parts) {
+    reach = Math.max(reach, Math.hypot(Math.abs(p.cx) + p.hw, Math.abs(p.cz) + p.hd));
+    // (Nothing on the ground is in an overhead part's way: no samples.)
+    if (p.overhead) continue;
     const t0 = p.cx - p.hw + INSET;
     const l0 = p.cz - p.hd + INSET;
     const w = Math.max(0, 2 * (p.hw - INSET));
@@ -126,7 +140,6 @@ function shapeFrom(parts: YardPart[], wetFrom: number): YardShape | null {
         legs.push(p.crane ? 1 : 0);
       }
     }
-    reach = Math.max(reach, Math.hypot(Math.abs(p.cx) + p.hw, Math.abs(p.cz) + p.hd));
   }
   return { parts, samples: Float64Array.from(pts), legs: Uint8Array.from(legs), wetFrom, reach };
 }
@@ -182,12 +195,19 @@ export interface YardCheck {
   footprint(asset: string): Footprint | undefined;
 }
 
+/** What a yard check found in the way, for its message: `what` a phrase ("a house", "the river"), null if it can't say. */
+export interface YardObstacle {
+  what: string | null;
+}
+
 /**
  * Is there room for the yard of a depot piece at `pose` (track base at `y`)? Null when there is (or it isn't a depot
- * piece), else why not. `ignore` leaves out the piece being moved and any straights it takes the place of. Called on
- * every pointer move while a depot is held: about a hundred squares looked up, and a pass over the pieces nearby.
+ * piece), else why not; `out.what`, if given, says what's in the way ("a house", "the river": see `yardMessage`).
+ * `ignore` leaves out the piece being moved and any straights it takes the place of. Called on every pointer move
+ * while a depot is held: about a hundred squares looked up, and a pass over the pieces nearby.
  */
-export function checkYard(ctx: YardCheck, type: PieceTypeId, pose: Pose, y: number, ignore: Ignore): YardBlock | null {
+export function checkYard(ctx: YardCheck, type: PieceTypeId, pose: Pose, y: number, ignore: Ignore, out?: YardObstacle): YardBlock | null {
+  if (out) out.what = null;
   const shape = shapeFor(type);
   if (!shape) return null;
   const hills = hillsOf(ctx.land.grid);
@@ -196,50 +216,121 @@ export function checkYard(ctx: YardCheck, type: PieceTypeId, pose: Pose, y: numb
   const pts = shape.samples;
   // The pad's samples come first: what's wrong there is said first; the crane's legs only if the pad is clear.
   let legs: "ground" | "hill" | "water" | null = null;
+  let legsWhat: string | null = null;
   for (let i = 0, k = 0; i < pts.length && !legs; i += 2, k++) {
     const t = pts[i];
     const l = pts[i + 1];
     const why = groundWhy(ctx.land, hills, pose.x + t * c - l * s, pose.z + t * s + l * c, y, l >= shape.wetFrom);
     if (!why) continue;
-    if (shape.legs[k] === 0) return `yard-${why}`;
+    if (shape.legs[k] === 0) {
+      if (out) out.what = groundWhat;
+      return `yard-${why}`;
+    }
     legs = why;
+    legsWhat = groundWhat;
   }
-  if (propsInYard(ctx, shape, pose, false) || piecesInYard(ctx.layout, type, shape, pose, y, ignore, false)) return "yard-ground";
-  if (legs) return `crane-${legs}`;
-  return propsInYard(ctx, shape, pose, true) || piecesInYard(ctx.layout, type, shape, pose, y, ignore, true) ? "crane-ground" : null;
+  const what = inYard(ctx, type, shape, pose, y, ignore, false);
+  if (what) {
+    if (out) out.what = what;
+    return "yard-ground";
+  }
+  if (legs) {
+    if (out) out.what = legsWhat;
+    return `crane-${legs}`;
+  }
+  const atLegs = inYard(ctx, type, shape, pose, y, ignore, true);
+  if (out) out.what = atLegs;
+  return atLegs ? "crane-ground" : null;
+}
+
+/**
+ * What's on the yard pad (or, with `crane`, under the crane's legs), as a phrase for the message, or null: a prop,
+ * else other track or another yard.
+ */
+function inYard(ctx: YardCheck, type: PieceTypeId, shape: YardShape, pose: Pose, y: number, ignore: Ignore, crane: boolean): string | null {
+  const prop = propsInYard(ctx, shape, pose, crane);
+  return prop ? propPhrase(prop) : piecesInYard(ctx.layout, type, shape, pose, y, ignore, crane);
+}
+
+/** What `groundWhy` last found in the way ("a house", "the river"). */
+let groundWhat = "";
+
+/** Words for what's in the way. */
+const WHAT = {
+  edge: "the edge of the map",
+  house: "a house",
+  shed: "the engine shed",
+  field: "a field",
+  station: "a station",
+  depot: "a depot",
+  river: "the river",
+  sea: "the sea",
+  town: "the town",
+  road: "a road",
+  lane: "a lane",
+  hill: "a hill",
+  track: "the track",
+} as const;
+
+/** Catalogue models that are trees, by the words in their ids. */
+const TREE = /(^|-)(tree|fir|birch|palm|willow|oak|pine)(-|$)/;
+
+/**
+ * A prop as a phrase for a message: "a tree", else its model's id in words ("a red barn", "an apartment block",
+ * "swans"). Only worked out once something's found in the way.
+ */
+export function propPhrase(prop: Pick<Prop, "asset">): string {
+  const id = prop.asset;
+  if (TREE.test(id)) return "a tree";
+  const words = id.slice(id.indexOf("-") + 1).replace(/-/g, " ");
+  if (/[^s]s$/.test(words) && !/(us|terminus)$/.test(words)) return words;
+  return `${/^[aeiou]/.test(words) ? "an" : "a"} ${words}`;
 }
 
 /** What's wrong with the ground at a point of a yard: something stands there, it's a hill, or water (unless `wet` may be). */
 function groundWhy(land: Landscape, hills: ReturnType<typeof hillsOf>, x: number, z: number, y: number, wet: boolean): "ground" | "hill" | "water" | null {
   const g = land.grid;
   const cell = g.cellAtWorld(x, z);
-  if (cell === -1) return "ground";
+  if (cell === -1) return found(WHAT.edge, "ground");
   const f = g.feature[cell];
-  if (f === FEAT_BUILDING || f === FEAT_SHED || f === FEAT_FIELD) return "ground";
-  if ((f === FEAT_STATION || f === FEAT_DEPOT) && onFixedSite(land, cell, x, z)) return "ground";
+  if (f === FEAT_BUILDING) return found(WHAT.house, "ground");
+  if (f === FEAT_SHED) return found(WHAT.shed, "ground");
+  if (f === FEAT_FIELD) return found(WHAT.field, "ground");
+  if ((f === FEAT_STATION || f === FEAT_DEPOT) && onFixedSite(land, cell, x, z)) return found(f === FEAT_STATION ? WHAT.station : WHAT.depot, "ground");
   const surface = g.surface[cell];
   if (isWater(surface)) {
-    if (!wet) return "water";
-  } else if (surface === SURF_TOWN || surface === SURF_ROAD || surface === SURF_LANE || g.road[cell] !== 0) return "ground";
-  return hills.groundAt(x, z) > y + HILL_SLACK ? "hill" : null;
+    if (!wet) return found(surface === SURF_SEA ? WHAT.sea : WHAT.river, "water");
+  } else if (surface === SURF_TOWN) return found(WHAT.town, "ground");
+  else if (surface === SURF_ROAD || g.road[cell] !== 0) return found(WHAT.road, "ground");
+  else if (surface === SURF_LANE) return found(WHAT.lane, "ground");
+  return hills.groundAt(x, z) > y + HILL_SLACK ? found(WHAT.hill, "hill") : null;
 }
 
-/** Does a prop stand on the yard pad (or, with `crane`, under the crane's legs)? */
-function propsInYard(ctx: YardCheck, shape: YardShape, pose: Pose, crane: boolean): boolean {
-  if (ctx.props.size === 0) return false;
+/** Notes what's in the way (`groundWhat`), and says why. */
+function found<W extends "ground" | "hill" | "water">(what: string, why: W): W {
+  groundWhat = what;
+  return why;
+}
+
+/** The prop that stands on the yard pad (or, with `crane`, under the crane's legs), or null. */
+function propsInYard(ctx: YardCheck, shape: YardShape, pose: Pose, crane: boolean): Prop | null {
+  if (ctx.props.size === 0) return null;
   for (const prop of ctx.props.all()) {
     // (A crossing prop stands on its crossing's track: it's the crossing's look, not in anything's way.)
     const fp = standsAside(prop.asset) ? undefined : scaleFootprint(ctx.footprint(prop.asset), prop.scale);
     if (!fp) continue;
     if (Math.hypot(prop.x - pose.x, prop.z - pose.z) > shape.reach + Math.hypot(Math.abs(fp.cx) + fp.hw, Math.abs(fp.cz) + fp.hd)) continue;
-    for (const part of shape.parts) if (part.crane === crane && footprintsOverlap(part, pose, fp, prop)) return true;
+    for (const part of shape.parts) if (part.crane === crane && footprintsOverlap(part, pose, fp, prop)) return prop;
   }
-  return false;
+  return null;
 }
 
-/** Does other track run through the yard, or another depot's yard overlap it (or this one's track run through that)? */
-function piecesInYard(layout: Layout, type: PieceTypeId, shape: YardShape, pose: Pose, y: number, ignore: Ignore, crane: boolean): boolean {
-  if (crane && !shape.parts.some((p) => p.crane && !p.post)) return false;
+/**
+ * Does other track run through the yard ("the track"), or another depot's yard overlap it, or this one's track run
+ * through that ("the workshop's yard", "the platform")? Null if not.
+ */
+function piecesInYard(layout: Layout, type: PieceTypeId, shape: YardShape, pose: Pose, y: number, ignore: Ignore, crane: boolean): string | null {
+  if (crane && !shape.parts.some((p) => p.crane && !p.post)) return null;
   const me = pieceShape(type, false);
   const c = Math.cos(pose.heading);
   const s = Math.sin(pose.heading);
@@ -250,7 +341,7 @@ function piecesInYard(layout: Layout, type: PieceTypeId, shape: YardShape, pose:
     const them = pieceShape(other.type, other.flipped);
     const dx = other.pose.x - pose.x;
     const dz = other.pose.z - pose.z;
-    const near = me.reach + them.reach + TRACK_RADIUS;
+    const near = me.reach + them.reach + TRACK_RADIUS + TRACK_PAD_MAX;
     if (dx * dx + dz * dz > near * near) continue;
     const theirs = them.yard;
     // Their track through my yard.
@@ -261,21 +352,28 @@ function piecesInYard(layout: Layout, type: PieceTypeId, shape: YardShape, pose:
       if (Math.abs(other.y + pts[i + 2] - y) >= HEADROOM) continue;
       const x = other.pose.x + pts[i] * oc - pts[i + 1] * os;
       const z = other.pose.z + pts[i] * os + pts[i + 1] * oc;
-      for (const part of shape.parts) if (part.crane === crane && !part.post && inFootprint(part, pose, x, z, TRACK_RADIUS)) return true;
+      for (const part of shape.parts) if (part.crane === crane && !part.post && !part.overhead && inFootprint(part, pose, x, z, TRACK_RADIUS + (part.trackPad ?? 0))) return WHAT.track;
     }
     if (!theirs) continue;
     // Their yard and mine; my track through their yard.
-    for (const a of shape.parts) if (a.crane === crane) for (const b of theirs.parts) if (footprintsOverlap(a, pose, b, other.pose)) return true;
+    for (const a of shape.parts) if (a.crane === crane) for (const b of theirs.parts) if (footprintsOverlap(a, pose, b, other.pose)) return footprintPhrase(other.type);
     // (My track through their yard is said once, with the pad.)
     if (crane) continue;
     const mine = me.track;
     for (let i = 0; i < mine.length; i += 3) {
       const x = pose.x + mine[i] * c - mine[i + 1] * s;
       const z = pose.z + mine[i] * s + mine[i + 1] * c;
-      for (const b of theirs.parts) if (!b.post && inFootprint(b, other.pose, x, z, TRACK_RADIUS)) return true;
+      for (const b of theirs.parts) if (!b.post && !b.overhead && inFootprint(b, other.pose, x, z, TRACK_RADIUS + (b.trackPad ?? 0))) return footprintPhrase(other.type);
     }
   }
-  return false;
+  return null;
+}
+
+/** Another piece's footprint as a phrase: "the workshop's yard", "the platform". */
+function footprintPhrase(type: PieceTypeId): string {
+  const role = INDUSTRY_ROLE[type];
+  const kit = role ? undefined : kitOf(type);
+  return role ? yardName(role).replace(/^The /, "the ") : kit ? `the ${kit.name}` : "a depot's yard";
 }
 
 /** What a depot's yard is called in messages: "The workshop's yard", or just "The forest yard". */
@@ -291,17 +389,21 @@ export function townMessage(type: PieceTypeId): string {
   return `Keep the ${name} out of town`;
 }
 
-/** The message for a yard that can't go somewhere ("The workshop's yard is on a hill"). */
-export function yardMessage(type: PieceTypeId, why: YardBlock): string {
-  if (why === "crane-hill") return "The crane's legs are on a hill";
-  if (why === "crane-water") return "The crane's legs are in the water";
-  if (why === "crane-ground") return "The crane's legs need open ground";
+/**
+ * The message for a yard that can't go somewhere ("The workshop's yard is on a hill"), saying what's in the way when
+ * `what` (`checkYard`'s `out.what`) is given: "The train lift needs open ground: a house is in the way", "The sawmill's
+ * yard is in the river".
+ */
+export function yardMessage(type: PieceTypeId, why: YardBlock, what: string | null = null): string {
+  const crane = why.startsWith("crane-");
   const role = INDUSTRY_ROLE[type];
   const kit = role ? undefined : kitOf(type);
-  const yard = role ? yardName(role) : kit ? `The ${kit.name}` : "The yard";
-  if (why === "yard-hill") return `${yard} is on a hill`;
-  if (why === "yard-water") return `${yard} is in the water`;
-  return `${yard} needs open ground`;
+  const yard = crane ? "The crane's legs" : role ? yardName(role) : kit ? `The ${kit.name}` : "The yard";
+  const are = crane ? "are" : "is";
+  if (why === "yard-hill" || why === "crane-hill") return `${yard} ${are} on a hill`;
+  if (why === "yard-water" || why === "crane-water") return `${yard} ${are} in ${what === WHAT.river || what === WHAT.sea ? what : "the water"}`;
+  const need = `${yard} ${crane ? "need" : "needs"} open ground`;
+  return what ? `${need}: ${what} ${/^(a|an|the) /.test(what) ? "is" : "are"} in the way` : need;
 }
 
 /** A player's depot as placed, with its yard's world bounding box: for keeping other things out of its yard. */
@@ -341,7 +443,7 @@ export function placedYard(pieceId: number, type: PieceTypeId, pose: Pose, y: nu
 export function trackInYards(yards: readonly PlacedYard[], type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore: Ignore): PlacedYard | null {
   if (yards.length === 0) return null;
   const me = pieceShape(type, flipped);
-  const r = me.reach + TRACK_RADIUS;
+  const r = me.reach + TRACK_RADIUS + TRACK_PAD_MAX;
   let c = NaN;
   let s = NaN;
   for (const yard of yards) {
@@ -356,8 +458,8 @@ export function trackInYards(yards: readonly PlacedYard[], type: PieceTypeId, fl
       if (Math.abs(y + pts[i + 2] - yard.y) >= HEADROOM) continue;
       const x = pose.x + pts[i] * c - pts[i + 1] * s;
       const z = pose.z + pts[i] * s + pts[i + 1] * c;
-      if (x < yard.x0 - TRACK_RADIUS || x > yard.x1 + TRACK_RADIUS || z < yard.z0 - TRACK_RADIUS || z > yard.z1 + TRACK_RADIUS) continue;
-      for (const part of yard.parts) if (!part.post && inFootprint(part, yard.pose, x, z, TRACK_RADIUS)) return yard;
+      if (x < yard.x0 - PAD || x > yard.x1 + PAD || z < yard.z0 - PAD || z > yard.z1 + PAD) continue;
+      for (const part of yard.parts) if (!part.post && !part.overhead && inFootprint(part, yard.pose, x, z, TRACK_RADIUS + (part.trackPad ?? 0))) return yard;
     }
   }
   return null;
@@ -453,13 +555,14 @@ export function noRoomMessage(type: PieceTypeId): string {
 }
 
 /**
- * A depot at `pose` refused for its yard: what to say about turning it right round (Flip), given `why`, the full
- * placement check (its track's and its yard's) of a pose. The flip hint only if turned round it passes it all; "No
- * room for the yard here" if its yard is refused that way too; else nothing (what's said for where it's held stands).
+ * A depot at `pose` refused (for `held`, its yard by default): what to say about turning it right round (Flip), given
+ * `why`, the full placement check (its track's, its yard's, its site's) of a pose. The flip hint whenever turned round
+ * it passes it all, whatever kept it out as held (its yard, too few trees by it, the river under its building: QA);
+ * "No room for the yard here" if its yard is refused both ways; else nothing (what's said for where it's held stands).
  */
-export function flipHint(type: PieceTypeId, pose: Pose, why: (pose: Pose) => string | null): string | null {
+export function flipHint(type: PieceTypeId, pose: Pose, why: (pose: Pose) => string | null, held: string = "yard-ground"): string | null {
   const turned = why(turnedRound(type, pose));
-  return turned === null ? flipHintMessage(type) : isYardBlock(turned) ? noRoomMessage(type) : null;
+  return turned === null ? flipHintMessage(type) : isYardBlock(held) && isYardBlock(turned) ? noRoomMessage(type) : null;
 }
 
 /** A straight depot at `pose` turned right round on the same track: the same ends, its yard on the other side. */

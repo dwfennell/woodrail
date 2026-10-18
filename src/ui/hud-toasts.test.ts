@@ -64,12 +64,12 @@ describe("toasts", () => {
 
   it("a refusal goes first: never after the success toast of the same drop", () => {
     const { hud, shown } = toastHud();
-    hud.toast("Made a switch: 3🪵 planks from the workshop");
+    hud.toast("Made a switch: 3🪵 from the workshop");
     hud.refuse("That's a house — go around it");
     expect(shown.at(-1)).toBe("That's a house — go around it");
     vi.advanceTimersByTime(20000);
     // The success it pushed off (it had only just come on) shows again after it; the refusal never comes last.
-    expect(shown).toEqual(["Made a switch: 3🪵 planks from the workshop", "That's a house — go around it", "Made a switch: 3🪵 planks from the workshop"]);
+    expect(shown).toEqual(["Made a switch: 3🪵 from the workshop", "That's a house — go around it", "Made a switch: 3🪵 from the workshop"]);
   });
 
   it("a refusal goes ahead of toasts waiting, and of a celebration that comes after it", () => {
@@ -83,6 +83,17 @@ describe("toasts", () => {
     expect(shown.indexOf("Can't go there")).toBeLessThan(shown.indexOf("Two"));
     expect(shown.indexOf("Can't go there")).toBeLessThan(shown.indexOf("Goal done!"));
     expect(shown.filter((s) => s === "Can't go there")).toHaveLength(1);
+  });
+
+  it("knows a toast showing or waiting from one gone", () => {
+    const { hud } = toastHud();
+    hud.toast("✓ A", true, 3200);
+    hud.toast("Joined");
+    expect(hud.hasToast("✓ A")).toBe(true);
+    expect(hud.hasToast("Joined")).toBe(true);
+    expect(hud.hasToast("Other")).toBe(false);
+    vi.advanceTimersByTime(30000);
+    expect(hud.hasToast("✓ A")).toBe(false);
   });
 
   it("a held refusal that's then put down where it can't go stays up, shown once", () => {

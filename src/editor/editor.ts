@@ -1,6 +1,5 @@
 import type { Sim } from "../sim";
 import {
-  type Anchor,
   connectorRef,
   getPieceDef,
   normalizeAngle,
@@ -43,6 +42,9 @@ const HISTORY_LIMIT = 100;
 /** How far apart (mm) and how far from facing (radians) two free ends may be for the track to be pulled together. */
 const NEAR_MISS_REACH = 45;
 const NEAR_MISS_ANGLE = (12 * Math.PI) / 180;
+
+/** Said when an undo or redo is refused because a train is on track it would take up or move (`Editor.onTrainOn`). */
+export const TRAIN_ON_TRACK = "A train is on that track";
 
 /** A piece to put down along with an edit. */
 export interface Placement {
@@ -105,17 +107,21 @@ export class Editor {
     private readonly layout: Layout,
     private readonly sim: Sim,
     private readonly onChange: () => void,
-    /** Pieces that never shift to take up joint play (stations, depots). Track under a train never shifts either. */
+    /**
+     * Map pieces (stations, depots): they never shift to take up joint play, nor to close a near miss; the loose track
+     * bends to meet them, within joint play, or stays apart. Track under a train never shifts either.
+     */
     private readonly fixed: (pieceId: number) => boolean = () => false,
-    /** Of those, the ones that may give a little (see `Anchor`): their home, and how far they may go from it. */
-    private readonly give: (pieceId: number) => Anchor | null = () => null,
   ) {}
 
   /** Called when an edit, undo or redo was refused: it would have taken up or moved this lift while it's held (`run`). */
   onHeld: ((liftId: number) => void) | null = null;
 
-  /** Called when pieces that give (stations, depots) were nudged by a change, its undo or its redo. */
-  onNudge: ((ids: number[]) => void) | null = null;
+  /**
+   * Called when an undo or redo was refused because it would take up or move track a train is on (it would derail
+   * the train), with that piece. The history is kept as it was, to try again once the train has gone.
+   */
+  onTrainOn: ((pieceId: number) => void) | null = null;
 
   /** Called when track is put down or moved (not undone), with the pieces it put down. */
   onTrackEdit: ((ids: number[]) => void) | null = null;
@@ -186,6 +192,42 @@ export class Editor {
       },
       undo: () => {
         for (let i = ids.length - 1; i >= 0; i--) this.layout.removePiece(ids[i]);
+      },
+      seats: () => [...ids],
+    });
+    return ids;
+  }
+
+  /**
+   * Take up `covers` and put `pieces` down, in one undo step: a drawn line with the switch it swaps into the line it
+   * leaves or meets (and the plain straights either side of it). A switch put down starts unpinned, unless it takes the
+   * place of a pinned one (`pinOf`: a switch swapped for a three-way, set the same way). Undone, the covers go back as
+   * they were (their switch states and pins too). The ids of the pieces put down, in order.
+   */
+  replaceRun(
+    covers: readonly number[],
+    pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean; state?: number; pinOf?: number }[],
+  ): number[] {
+    const recs = covers.map((id) => this.record(id)).filter((r): r is PieceRecord => r !== null);
+    const pinned = new Set(covers.filter((id) => this.layout.isPinned(id)));
+    const ids: number[] = [];
+    this.run({
+      do: () => {
+        for (const r of recs) this.layout.removePiece(r.id);
+        pieces.forEach((p, i) => {
+          if (ids[i] === undefined) ids[i] = this.layout.addPiece(p.type, p.pose, p.y, p.flipped);
+          else this.layout.restorePiece(ids[i], p.type, p.pose, p.y, p.flipped);
+          // (A switch put in for one taken up is set to the old line's way.)
+          if (p.state) this.layout.setSwitchState(ids[i], p.state);
+          if (p.pinOf !== undefined && pinned.has(p.pinOf)) this.layout.setPinned(ids[i], true);
+        });
+      },
+      undo: () => {
+        for (let i = ids.length - 1; i >= 0; i--) {
+          this.layout.setPinned(ids[i], false);
+          this.layout.removePiece(ids[i]);
+        }
+        for (const r of recs) this.restore(r);
       },
       seats: () => [...ids],
     });
@@ -377,16 +419,37 @@ export class Editor {
     return true;
   }
 
-  /** One way of an undo step (`go`), put straight back (`back`) and refused if it disturbed a held lift. */
+  /**
+   * One way of an undo step (`go`), put straight back (`back`) and refused if it disturbed a held lift, or track a
+   * train is on (QA: undoing a line a train had rolled onto derailed it, cargo spilt).
+   */
   private step(c: Command, go: () => void, back: () => void): boolean {
-    const held = c.props || c.land || c.roads ? null : this.held();
+    const track = !(c.props || c.land || c.roads);
+    const held = track ? this.held() : null;
+    const under = track ? this.underTrains() : null;
     go();
-    if (!held) return true;
-    const id = this.disturbed(held, c);
-    if (id === -1) return true;
+    const lift = held ? this.disturbed(held, c) : -1;
+    const train = lift === -1 && under ? this.disturbed(under, c) : -1;
+    if (lift === -1 && train === -1) return true;
     back();
-    this.onHeld?.(id);
+    if (lift !== -1) this.onHeld?.(lift);
+    else this.onTrainOn?.(train);
     return false;
+  }
+
+  /** The pieces a train (on the rails) stands on, or null for none. */
+  private underTrains(): PieceRecord[] | null {
+    let out: PieceRecord[] | null = null;
+    for (const t of this.sim.trainIds()) {
+      const train = this.sim.getTrain(t)!;
+      if (train.derailed) continue;
+      for (const b of train.bogies) {
+        if (out?.some((r) => r.id === b.pieceId)) continue;
+        const r = this.record(b.pieceId);
+        if (r) (out ??= []).push(r);
+      }
+    }
+    return out;
   }
 
   clearHistory(): void {
@@ -443,26 +506,21 @@ export class Editor {
    * shift joins the command: redo puts the pieces back where they were shifted to, undo where they were before.
    */
   private takeUpPlay(c: Command, seeds: number[]): Command {
-    const pinned = (id: number) => (this.fixed(id) && !this.give(id)) || this.sim.pieceOccupied(id) || !this.sim.liftFree(id);
-    const anchor = (id: number) => (this.fixed(id) && !this.sim.pieceOccupied(id) ? this.give(id) : null);
-    const nudged = (moved: Map<number, Pose>) => {
-      const ids = [...moved.keys()].filter((id) => this.fixed(id));
-      if (ids.length > 0) this.onNudge?.(ids);
-    };
+    // (Map pieces never move: QA saw stations drift up to 8 mm and 0.9° as track closed on them, then refuse track at
+    // their other end as "in the way".)
+    const pinned = (id: number) => this.fixed(id) || this.sim.pieceOccupied(id) || !this.sim.liftFree(id);
     const posesOf = (ids: Iterable<number>) => new Map([...ids].map((id) => [id, { ...this.layout.getPiece(id)!.pose }]));
     const wrap = (after: Map<number, Pose>, before: Map<number, Pose>, close: readonly number[]): Command => ({
       do: () => {
         c.do();
         this.layout.nudgePieces(after);
         for (const ref of close) this.layout.seatFree(ref);
-        nudged(after);
       },
       undo: () => {
         // Near misses it closed part again (a pushed run isn't taken up, which would part them).
         for (const ref of close) this.layout.unseat(ref);
         this.layout.nudgePieces(before);
         c.undo();
-        nudged(before);
       },
       moves: c.moves,
     });
@@ -470,23 +528,21 @@ export class Editor {
     // gives a little at each joint, as wooden track does when pushed. If that can't seat them, they stay apart.
     const near = this.nearMisses(seeds);
     if (near.length > 0) {
-      const pulled = relaxJoints(this.layout, seeds, pinned, near, anchor);
+      const pulled = relaxJoints(this.layout, seeds, pinned, near);
       if (pulled.size > 0) {
         const before = posesOf(pulled.keys());
         this.layout.nudgePieces(pulled);
         const closed = near.map(([a]) => a).filter((ref) => this.layout.seatFree(ref));
         if (closed.length > 0) {
-          nudged(pulled);
           return wrap(pulled, before, closed);
         }
         this.layout.nudgePieces(before);
       }
     }
-    const after = relaxJoints(this.layout, seeds, pinned, [], anchor);
+    const after = relaxJoints(this.layout, seeds, pinned);
     if (after.size === 0) return c;
     const before = posesOf(after.keys());
     this.layout.nudgePieces(after);
-    nudged(after);
     return wrap(after, before, []);
   }
 

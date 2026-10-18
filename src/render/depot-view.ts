@@ -12,6 +12,7 @@ import { setCullBox, tileAt } from "./dressing/tiles";
 import type { Materials } from "./materials";
 import { TIMBER_DECK } from "./train-models";
 import { dressIndustry, PAD_H, PALLET_H, pallet } from "./industry-dressing";
+import { nonIndexed } from "./non-indexed";
 
 /** A pile's place in depot coordinates: `t` along the depot track from its socket end, `l` across (yard side +). */
 interface PileSpot {
@@ -369,7 +370,7 @@ export class DepotView {
     }
     const log = new CylinderGeometry(LOG_RADIUS, LOG_RADIUS, LOG_LENGTH, 14).rotateZ(Math.PI / 2);
     const boards = mergeGeometries(
-      [0, 1, 2].map((k) => new RoundedBoxGeometry(BUNDLE_LENGTH, BUNDLE_HEIGHT / 3 - 0.3, BUNDLE_WIDTH, 1, 0.5).translate(0, -BUNDLE_HEIGHT / 3 + (k * BUNDLE_HEIGHT) / 3, 0).toNonIndexed()),
+      [0, 1, 2].map((k) => nonIndexed(new RoundedBoxGeometry(BUNDLE_LENGTH, BUNDLE_HEIGHT / 3 - 0.3, BUNDLE_WIDTH, 1, 0.5).translate(0, -BUNDLE_HEIGHT / 3 + (k * BUNDLE_HEIGHT) / 3, 0))),
     )!;
     const strap = new BoxGeometry(2.4, BUNDLE_HEIGHT + 0.4, BUNDLE_WIDTH + 0.4);
     const logMat = mats.lacquer("#a8743f");
@@ -379,7 +380,7 @@ export class DepotView {
     const tie = new CylinderGeometry(1.6, 2.2, 2.4, 10).rotateZ(Math.PI / 2).translate(SACK_LENGTH / 2 + 0.6, 0, 0);
     // Coal and ore: lumps in a little heap; iron: bars in a bundle (stand-ins until the models come).
     const lumps = (color: string): [BufferGeometry, Material][] => [[new RoundedBoxGeometry(SACK_LENGTH, STONE_HEIGHT, SACK_WIDTH, 2, 3.2), mats.lacquer(color)]];
-    const bars = mergeGeometries([0, 1, 2].map((k) => new RoundedBoxGeometry(SACK_LENGTH, STONE_HEIGHT / 2 - 0.3, SACK_WIDTH / 3 - 0.4, 1, 0.5).translate(0, -STONE_HEIGHT / 4, (k - 1) * (SACK_WIDTH / 3)).toNonIndexed()).concat([new RoundedBoxGeometry(SACK_LENGTH * 0.9, STONE_HEIGHT / 2 - 0.3, SACK_WIDTH / 2, 1, 0.5).translate(0, STONE_HEIGHT / 4, 0).toNonIndexed()]))!;
+    const bars = mergeGeometries([0, 1, 2].map((k) => nonIndexed(new RoundedBoxGeometry(SACK_LENGTH, STONE_HEIGHT / 2 - 0.3, SACK_WIDTH / 3 - 0.4, 1, 0.5).translate(0, -STONE_HEIGHT / 4, (k - 1) * (SACK_WIDTH / 3)))).concat([nonIndexed(new RoundedBoxGeometry(SACK_LENGTH * 0.9, STONE_HEIGHT / 2 - 0.3, SACK_WIDTH / 2, 1, 0.5).translate(0, STONE_HEIGHT / 4, 0))]))!;
     const looks: Record<Exclude<CargoKind, "stone">, [BufferGeometry, Material][]> & { stone?: [BufferGeometry, Material][] } = {
       coal: hasPart("load-coal") ? partPieces(mats, "load-coal").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m]) : lumps("#2a2b2e"),
       ore: hasPart("load-ore") ? partPieces(mats, "load-ore").map(([g, m]) => [g.translate(0, -STONE_HEIGHT / 2, 0), m]) : lumps("#9a4f2c"),
@@ -1021,6 +1022,33 @@ export class DepotView {
   isDepotPart(object: Object3D): boolean {
     for (let o: Object3D | null = object; o; o = o.parent) if (o === this.group) return true;
     return false;
+  }
+
+  /**
+   * The depot (economy id) whose yard a ground point is on (a little past its edge counts), −1 if none: what a tap on
+   * a depot's building or yard means. By the yard itself, not by nearness to its crane or piles: those sit at one end,
+   * and a tap on a workshop's far end went to the town's station beside it (QA). The nearest yard's middle wins.
+   */
+  depotAt(x: number, z: number, edge = 8): number {
+    let best = -1;
+    let bestD = Infinity;
+    for (const site of this.sites) {
+      const pad = site.layout.pad;
+      if (!pad) continue;
+      const c = Math.cos(site.pose.heading);
+      const s = Math.sin(site.pose.heading);
+      const dx = x - site.pose.x;
+      const dz = z - site.pose.z;
+      const t = c * dx + s * dz - pad.t;
+      const l = -s * dx + c * dz - pad.l;
+      if (Math.abs(t) > pad.w / 2 + edge || Math.abs(l) > pad.d / 2 + edge) continue;
+      const d = Math.hypot(t, l);
+      if (d < bestD) {
+        bestD = d;
+        best = site.depot.id;
+      }
+    }
+    return best;
   }
 
   /** The depot (economy id) whose yard is nearest a ground point, within `range` mm; −1 if none. */

@@ -21,6 +21,10 @@ export const SIM_DT = 1 / SIM_HZ;
 export const TURNBACK_TICKS = 2 * SIM_HZ;
 /** How far back (mm) an engine following another train's engine holds. */
 const FOLLOW_GAP = 10;
+/** For this long (2 s) after coming off a lift, a train still has the right of way over one coming toward it. */
+const LIFT_GRACE = 2 * SIM_HZ;
+/** Slower than this (mm/s) a train is standing: it doesn't move (or ask for frames) at all. */
+const MIN_SPEED = 0.01;
 const hasEngine = (t: Train): boolean => t.cars.some((c) => c.kind === "engine");
 
 /** How far along the track (mm) a re-railed train may be slid to find room, and in what steps. */
@@ -34,7 +38,7 @@ const TURN_CLEARANCE = 0.05;
 // Motion tuning (mm, s).
 export const ENGINE_SPEED = 120;
 /** How quickly (mm/s²) a train gets up to speed, or stops: half a second either way. */
-const ACCELERATION = ENGINE_SPEED * 2;
+export const ACCELERATION = ENGINE_SPEED * 2;
 const SIDE_HIT_DISTANCE = 12;
 /** How far ahead (mm) a train looks for a signal at red, and in what steps: well past its stopping distance. */
 const SIGNAL_LOOK = 300;
@@ -85,7 +89,7 @@ export type SimEvent =
   /** A train was lifted and turned round at a turnback buffer (it has a new id; its cars keep theirs). */
   | { readonly kind: "turned"; readonly trainId: number; readonly newTrainId: number }
   /** A train came onto a lift too long to fit on its platform: it runs to the platform's end and turns back. */
-  | { readonly kind: "lift-refused"; readonly trainId: number; readonly pieceId: number }
+  | { readonly kind: "lift-refused"; readonly trainId: number; readonly pieceId: number; readonly carIds: readonly number[] }
   /** An axle rolled over a joint between pieces (the toy's clickety-clack). */
   | { readonly kind: "joint"; readonly trainId: number; readonly bogie: number };
 
@@ -134,6 +138,8 @@ const adv = createAdvance();
 const lookAdv = createAdvance();
 const face = { x: 0, y: 0, z: 0 };
 const otherFace = { x: 0, y: 0, z: 0 };
+const followFace = { x: 0, y: 0, z: 0 };
+const followOther = { x: 0, y: 0, z: 0 };
 
 export class Sim {
   private nextTrainId = 1;
@@ -831,7 +837,7 @@ export class Sim {
       if (trainLength(train) > len - 2 * LIFT_FACE_GAP) {
         if (record && !this.liftRefused.has(train.id)) {
           this.liftRefused.add(train.id);
-          this.events.push({ kind: "lift-refused", trainId: train.id, pieceId: lead.pieceId });
+          this.events.push({ kind: "lift-refused", trainId: train.id, pieceId: lead.pieceId, carIds: train.cars.map((c) => c.id) });
         }
         return Infinity;
       }
@@ -860,6 +866,24 @@ export class Sim {
     const room = dist - inset - LIFT_FACE_GAP;
     if (record && v < 1 && room < 1) this.liftCalls.add(liftId);
     return brakeTo(room);
+  }
+
+  /** Is this train coming off a lift: on its platform, or off it within the last `LIFT_GRACE` ticks? */
+  private comingOffLift(t: Train): boolean {
+    if (!this.lifts || this.lifts.length === 0) return false;
+    if (this.onLift(t)) return true;
+    const off = this.offLift.get(t.id);
+    return off !== undefined && this.ticks - off < LIFT_GRACE;
+  }
+
+  /** When each train was last on a lift (`Sim.ticks`), for `comingOffLift`: kept a moment, then forgotten. */
+  private readonly offLift = new Map<number, number>();
+
+  /** Is any of this train on a lift's platform? */
+  private onLift(t: Train): boolean {
+    if (!this.lifts || this.lifts.length === 0) return false;
+    for (const b of t.bogies) if (this.liftDef(b.pieceId)) return true;
+    return false;
   }
 
   /** Is a train other than `me` on this lift? */
@@ -943,7 +967,12 @@ export class Sim {
   tick(): void {
     this.ticks++;
     if (this.rides.size > 0) this.updateRides();
-    if (this.lifts === null || this.lifts.length > 0) this.updateLifts();
+    if (this.lifts === null || this.lifts.length > 0) {
+      this.updateLifts();
+      // (Who's on a lift now, for `comingOffLift`; those long off it forgotten.)
+      for (const t of this.trains.values()) if (!t.derailed && this.onLift(t)) this.offLift.set(t.id, this.ticks);
+      for (const [id, at] of this.offLift) if (this.ticks - at >= LIFT_GRACE || !this.trains.has(id)) this.offLift.delete(id);
+    }
     if (this.decksTurning.size > 0) {
       for (const [id, done] of this.decksTurning)
         if (done <= this.ticks) {
@@ -1190,6 +1219,11 @@ export class Sim {
       this.flipTrain(train);
       v = -v;
     }
+    // Behind another train's engine, it closes up only to the gap it holds back at (else it would step into it each
+    // tick and be stopped after: a creep that reads as standing still).
+    if (v > 0 && this.trains.size > 1 && hasEngine(train)) v = Math.min(v, this.followRoom(train, v) / SIM_DT);
+    // (Too slow to see: standing.)
+    if (v < MIN_SPEED) v = 0;
     train.speed = v;
     if (v === 0) return;
 
@@ -1329,6 +1363,19 @@ export class Sim {
           const closing = a.speed + (front ? b.speed : -b.speed);
           if (closing <= 0) continue;
           if (front && hasEngine(a) && hasEngine(b)) {
+            // One of them coming off a lift (on it, or just off it): the other gives way (it turns back) and the one
+            // coming off waits a moment, then comes on. Else both would turn back, and the one coming off would go
+            // back onto the lift and ride round again, never getting off it (QA: 35 rides, 2 stops reached).
+            const aOff = this.comingOffLift(a);
+            if (aOff !== this.comingOffLift(b)) {
+              const yields = aOff ? b : a;
+              const keeps = aOff ? a : b;
+              keeps.speed = 0;
+              // (Waiting for the other to turn back, it keeps its right of way however long that takes.)
+              if (this.offLift.has(keeps.id)) this.offLift.set(keeps.id, this.ticks);
+              this.meet(yields);
+              continue;
+            }
             // Head on, engine against engine: like the end of the line, each stops, waits, and turns back (coupled,
             // their engines would only push against each other). Wagons met end to end are coupled on (below), so an
             // engine backing into the wagons it left picks them up again.
@@ -1351,6 +1398,25 @@ export class Sim {
         if (!ends && this.hitsSide(b)) this.meet(a);
       }
     }
+  }
+
+  /**
+   * How far (mm) this train may go before its front comes within `FOLLOW_GAP` of the back of another train with an
+   * engine (the gap `resolveContacts` holds a follower at), looking no further than this tick's move at speed `v`.
+   */
+  private followRoom(train: Train, v: number): number {
+    this.endFace(train, true, followFace);
+    // (As far as `resolveContacts` reaches after this tick's move.)
+    const look = FOLLOW_GAP + Math.max(4, v * SIM_DT + 2) + v * SIM_DT;
+    let room = Infinity;
+    for (const b of this.trains.values()) {
+      if (b === train || b.derailed || !hasEngine(b)) continue;
+      this.endFace(b, false, followOther);
+      if (Math.abs(followFace.y - followOther.y) > 20) continue;
+      const d = Math.hypot(followFace.x - followOther.x, followFace.z - followOther.z);
+      if (d <= look) room = Math.min(room, Math.max(0, d - FOLLOW_GAP));
+    }
+    return room;
   }
 
   /** A train stopped by another meeting it head on: it waits, then turns back (as at the end of the line). */
