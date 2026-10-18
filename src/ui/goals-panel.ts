@@ -293,14 +293,20 @@ export class GoalsPanel {
   }
 
   /** Show the current goal (null when all are done) and its progress. */
-  show(done: number, current: Goal | null, progress: GoalProgress | null, next: Goal | null): void {
-    const key = `${done}|${current?.id}|${progress?.count}|${next?.id}`;
+  show(done: number, current: Goal | null, progress: GoalProgress | null, next: Goal | null, total = GOALS.length, locked: string | null = null): void {
+    const key = `${done}|${total}|${current?.id}|${progress?.count}|${next?.id}|${locked}`;
     if (key === this.shownKey) return;
     const fresh = this.shownKey !== "" && !this.shownKey.startsWith(`${done}|`);
     this.shownKey = key;
-    this.count.textContent = `${done} / ${GOALS.length}`;
-    this.now.textContent = current?.title ?? "All done!";
+    this.count.textContent = `${done} / ${total}`;
+    this.now.textContent = current?.title ?? locked ?? "All done!";
     this.showBtn.hidden = !current;
+    // A goal still to come waits for blueprints: said in a line of its own ("Learn Signals to unlock a goal").
+    const lockedRow = locked ? `<div class="goal upcoming locked"><span class="goal-box">🔒</span><span>${locked}</span></div>` : "";
+    if (!current && locked) {
+      this.pane.innerHTML = lockedRow;
+      return;
+    }
     if (!current) {
       this.pane.innerHTML = `
         <div class="goal current all-done"><span class="goal-tick">✓</span><div><b>All goals done!</b><p>Every town is on the railway and the planks are flowing.</p></div></div>
@@ -310,6 +316,6 @@ export class GoalsPanel {
     const counted = progress?.target ? `<span class="goal-progress">${progress.count} / ${progress.target} ${progress.unit ?? ""}</span>` : "";
     this.pane.innerHTML = `
       <div class="goal current${fresh ? " arrive" : ""}"><span class="goal-box"></span><div><b>${current.title}</b>${counted}<p>${current.hint}</p><button class="chip text goals-show" title="Show me where to do this goal">Show me</button></div></div>
-      ${next ? `<div class="goal upcoming"><span class="goal-box"></span><span>${next.title}</span></div>` : ""}`;
+      ${next ? `<div class="goal upcoming"><span class="goal-box"></span><span>${next.title}</span></div>` : lockedRow}`;
   }
 }

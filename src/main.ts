@@ -991,9 +991,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const zs = points.map((p) => p.z);
     return { x: (Math.min(...xs) + Math.max(...xs)) / 2, z: (Math.min(...zs) + Math.max(...zs)) / 2, points: points.map((p) => ({ x: p.x, z: p.z })) };
   }
-  /** The latest growth milestone: a goal ticked within a moment of it joins its toast and entry. */
+  /** The latest growth milestone (at game time, s): a goal ticked within a moment of it joins its entry. */
   let growth: { entry: JournalEntry; at: number } | null = null;
-  const GROWTH_JOIN_MS = 1500;
+  const GROWTH_JOIN_S = 1.5;
   const depotPlace = (depotId: number) => {
     const d = game.economy.depot(depotId);
     const p = d && game.layout.getPiece(d.pieceId)?.pose;
@@ -1038,10 +1038,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // A first, a present or a landmark: a moment. A one-line toast; the News entry has the rest, and the goal it
         // ticks joins that entry.
         const entry = note({ kind: "milestone", text: `${grew} ${extras.join(" · ")}`, place: where }, 5200, true);
-        growth = entry ? { entry, at: performance.now() } : null;
-        checkGoals(true);
+        growth = entry ? { entry, at: game.simSeconds } : null;
         if (entry) hud.toast(built.length > 0 ? `${town.name} is ${level}!` : grew, true, 3200);
-        growth = entry ? { entry, at: performance.now() } : null;
+        checkGoals(true);
+        growth = entry ? { entry, at: game.simSeconds } : null;
       } else {
         note({ kind: "event", text: grew, place: where });
         checkGoals(true); // (its tick is logged after the growth)
@@ -1067,9 +1067,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   });
   /** When goals were last checked (wall-clock ms: frame times are capped, so slow frames would stretch a dt sum). */
   let goalsCheckedAt = 0;
-  /** The latest goals ticked, a moment apart at most: their News entry and toast take the next one in. */
+  /**
+   * The latest goals ticked (at game time, s), a moment apart at most: their News entry and toast take the next one in.
+   * Game time, not the clock's: goals met while paused, or on one busy frame, are one line however long that took.
+   */
   let ticks: { entry: JournalEntry; titles: string[]; at: number; toast: string } | null = null;
-  const GOALS_JOIN_MS = 2500;
+  const GOALS_JOIN_S = 2.5;
   function checkGoals(announce: boolean): void {
     if (mode !== "game" || !playing) return;
     const ctx = { learned: progress.learned };
@@ -1078,14 +1081,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       saveGoals(goals.ids());
       if (announce) {
         const tick = `✓ ${fresh.map((g) => g.title).join(" · ")}`;
-        if (growth && (performance.now() - growth.at < GROWTH_JOIN_MS)) {
-          // Right after a growth milestone: part of the same toast and entry.
+        if (growth && game.simSeconds - growth.at < GROWTH_JOIN_S) {
+          // Right after a growth milestone: part of the same entry, and a toast of its own after the growth's.
           journal.amend(growth.entry, `${growth.entry.text} · ${tick}`);
           goalsPanel.newsChanged();
-        } else if (ticks && performance.now() - ticks.at < GOALS_JOIN_MS) {
+          hud.toast(tick, true, 3200);
+        } else if (ticks && game.simSeconds - ticks.at < GOALS_JOIN_S) {
           // Goals ticked together (one a check, a moment apart): one line in the News and one toast.
           ticks.titles.push(...fresh.map((g) => g.title));
-          ticks.at = performance.now();
+          ticks.at = game.simSeconds;
           const text = `${ticks.titles.length} goals done: ${ticks.titles.join(" · ")}`;
           journal.amend(ticks.entry, text);
           goalsPanel.newsChanged();
@@ -1096,7 +1100,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           const entry = note({ kind: "milestone", text: tick, place: where && { x: where.x, z: where.z } }, 3200, true);
           if (entry) {
             hud.toast(tick, true, 3200);
-            ticks = { entry, titles: fresh.map((g) => g.title), at: performance.now(), toast: tick };
+            ticks = { entry, titles: fresh.map((g) => g.title), at: game.simSeconds, toast: tick };
           }
         }
         audio.chime();
@@ -1104,7 +1108,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       }
     }
     const current = goals.current();
-    goalsPanel.show(goals.doneCount, current, current ? current.check(game.world, ctx) : null, goals.next());
+    goalsPanel.show(goals.doneCount, current, current ? current.check(game.world, ctx) : null, goals.next(), goals.total, goals.lockedHint());
   }
 
   // Game mode's toy box and workshop: what you own (worked out against what's on the map), and what's being made.
@@ -1125,7 +1129,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function trayAllowed(item: ThingItem | { kind: string }, make = true): boolean {
     if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return true;
     // (A new take: whatever an earlier one made is settled, or never was.)
-    if (make) trainMade = null;
+    if (make) trainMade = pieceMade = null;
     const look = lockedLook(item);
     if (look) {
       const t = techOf(look)!;
@@ -1157,17 +1161,36 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!make) return true;
     // A train's cars are made as it's taken out: kept to be given back if it's dropped off the track.
     trainMade = item.kind === "train" ? lack : null;
+    // A piece's is given back if it isn't put down (a first switch dragged out and let go where it can't go).
+    pieceMade = item.kind === "piece" ? lack : null;
     const cost = costOf(lack);
     // "a switch", "3 flatbed wagons", or a whole train by its name.
     const made = one === 1 ? aOrAn(label.toLowerCase()) : one > 1 ? describeThings([...lack]).toLowerCase() : label.toLowerCase();
-    const said = `Made ${made}: ${[total(cost.goods) > 0 ? `${describeGoods(cost.goods)} from the workshop` : "", cost.coins > 0 ? `${cost.coins} coins` : ""].filter(Boolean).join(" and ")}`;
+    const said = `Made ${made}: ${[total(cost.goods) > 0 ? `${costTag(cost.goods)} from the workshop` : "", cost.coins > 0 ? costTag({}, cost.coins) : ""].filter(Boolean).join(" and ")}`;
     // A train's is said once it's on the track (dropped off it, nothing's made after all).
     if (trainMade) trainSaid = said;
+    else if (pieceMade) pieceSaid = said;
     else hud.toast(said, false, 2600);
     afterCraft();
     return true;
   }
 
+  /** What was made for the piece in hand (taken from the tray), until it's put down. */
+  let pieceMade: Map<ThingId, number> | null = null;
+  let pieceSaid = "";
+  interaction.onTrayPieceDropped = (placed) => {
+    const made = pieceMade;
+    const said = pieceSaid;
+    pieceMade = null;
+    pieceSaid = "";
+    if (!made || mode !== "game") return;
+    if (placed) {
+      hud.toast(said, false, 2600);
+      return;
+    }
+    uncraft(game.world, progress, made);
+    afterCraft();
+  };
   /** The cars made for the train in hand (taken from the tray), until it's put down. */
   let trainMade: Map<ThingId, number> | null = null;
   let trainSaid = "";
@@ -1373,7 +1396,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function refreshBoard(): void {
     // A blueprint another card taught may still sit on a pending offer: swap it out before anything is shown.
     if (refreshOffers(progress, Math.random)) scheduleSave();
-    hud.setBoardButton(board.open, progress.offers.length > 0);
+    hud.setBoardButton(board.open, progress.offers.length);
     if (!board.open) return;
     const stock = workshopStock(game.world);
     const offerOf = (id: string) => progress.offers.findIndex((o) => o.ids.includes(id));
@@ -1487,7 +1510,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     line.textContent = `Field squares nearby: ${r.count} (works at ${speed}% speed; full speed at ${r.need})`;
     const plant = document.createElement("button");
     plant.className = "chip text farm-plant";
-    plant.textContent = `Plant a field · ${price} coins`;
+    plant.textContent = `Plant a field · ${costTag({}, price)}`;
     plant.title = "A field of crops on open grass near this yard (trees there are felled)";
     plant.disabled = progress.coins < price;
     plant.addEventListener("click", (e) => {
@@ -1759,7 +1782,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const nowRule = now ? ruleOf(now.id)! : null;
     const shortGoods = nowRule ? minus(nowRule.cost, workshopStock(game.world)) : {};
     const shortCoins = nowRule ? Math.max(0, (nowRule.coins ?? 0) - progress.coins) : 0;
-    const need = now?.waiting ? [total(shortGoods) > 0 ? describeGoods(shortGoods) : "", shortCoins > 0 ? `${shortCoins} coins` : ""].filter(Boolean).join(" + ") || null : null;
+    const need = now?.waiting ? [total(shortGoods) > 0 ? costTag(shortGoods) : "", shortCoins > 0 ? costTag({}, shortCoins) : ""].filter(Boolean).join(" ") || null : null;
     workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows);
   }
 

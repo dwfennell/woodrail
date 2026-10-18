@@ -1,5 +1,6 @@
 import { connectedPairs, SURF_RIVER, type LandscapeGrid } from "../landscape";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
+import { BLUEPRINTS } from "./blueprints";
 import { workshops, workshopStock } from "./crafting";
 import { depotSpot } from "./depot-footprint";
 import { receivedBy } from "./town-life";
@@ -336,8 +337,9 @@ export const GOALS: readonly Goal[] = [
     id: "two-trains",
     title: "Run two trains at once",
     hint: "Lay a passing loop with signals so they can pass.",
-    // On one line two trains only turn each other back: this goal waits till the player can build a passing loop.
-    needs: ["signals", "junctions"],
+    // On one line two trains only turn each other back: this goal waits till the player can build a passing loop (two
+    // switches, learned before signals) with signals to hold one train while the other passes.
+    needs: ["signals"],
     check: (w) => {
       const n = running(w).length;
       return { done: n >= 2, count: Math.min(n, 2), target: 2, unit: "trains" };
@@ -419,10 +421,22 @@ export class GoalTracker {
     return !g.needs || g.needs.every((id) => this.learned.has(id));
   }
 
-  /** The goals not done, in order: those open first, then any still waiting for their blueprints. */
+  /** The goals not done that can show now, in order (one waiting for its blueprints is hidden, and not counted). */
   private left(): Goal[] {
-    const left = GOALS.filter((g) => !this.done.has(g.id));
-    return [...left.filter((g) => this.open(g)), ...left.filter((g) => !this.open(g))];
+    return GOALS.filter((g) => !this.done.has(g.id) && this.open(g));
+  }
+
+  /** The goals counted now: those done and those open ("3 / 16" while one waits for its blueprints). */
+  get total(): number {
+    return GOALS.filter((g) => this.done.has(g.id) || this.open(g)).length;
+  }
+
+  /** A goal still to come that waits for blueprints, in a few words: "Learn Signals to unlock a goal" (or null). */
+  lockedHint(): string | null {
+    const g = GOALS.find((x) => !this.done.has(x.id) && !this.open(x));
+    if (!g) return null;
+    const names = g.needs!.filter((id) => !this.learned.has(id)).map((id) => BLUEPRINTS.find((b) => b.id === id)?.label ?? id);
+    return `Learn ${names.join(" and ")} to unlock a goal`;
   }
 
   /** The goals to save: those done, and those met and waiting (they're ticked off after a reload). */
