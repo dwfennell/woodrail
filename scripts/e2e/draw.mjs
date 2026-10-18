@@ -1000,7 +1000,9 @@ async function junctions() {
   await drawThrough([0, 40, 80, 160, 240, 320, 400].map((d) => [mid.x + d * Math.SQRT1_2, mid.z + d * Math.SQRT1_2]), { shotAt: 5, shotName: "draw-10-branch.png" });
   const [n2, j2] = await p.evaluate(() => [D.pieces(), D.joints()]);
   const sw1 = await count("switch");
-  check("junctions: a stroke off a line's body branches through a switch put in its place", sw1 === sw0 + 1 && n2 > n1 && j2 - j1 === n2 - n1 + 1, `${sw1 - sw0} switch, ${n2 - n1} pieces, ${j2 - j1} joints`);
+  // (Every piece joined: the line through the switch as before, and the branch on from it: one joint for each piece
+  // more, as the new line's first piece is joined to the switch.)
+  check("junctions: a stroke off a line's body branches through a switch put in its place", sw1 === sw0 + 1 && n2 > n1 && j2 - j1 === n2 - n1, `${sw1 - sw0} switch, ${n2 - n1} pieces, ${j2 - j1} joints`);
   await p.evaluate(() => window.woodrail.interaction.undo());
   const [n3] = await p.evaluate(() => [D.pieces()]);
   check("junctions: one undo takes the branch and its switch up, and the line is as it was", n3 === n1 && (await count("switch")) === sw0, `${n3} vs ${n1}`);
@@ -1011,7 +1013,7 @@ async function junctions() {
   await drawThrough([0, 60, 120, 180, 240, 300, 340].map((d) => [mx - 340 + d, open.z + 340 - d]), { shotAt: 5, shotName: "draw-10-merge.png" });
   const sw3 = await count("switch");
   const [n4, j4] = await p.evaluate(() => [D.pieces(), D.joints()]);
-  check("junctions: a line drawn in at 45° and let go on a line merges through a switch", sw3 === sw2 + 1 && j4 - j1 >= n4 - n1 + 1, `${sw3 - sw2} switch, ${n4 - n1} pieces, ${j4 - j1} joints`);
+  check("junctions: a line drawn in at 45° and let go on a line merges through a switch", sw3 === sw2 + 1 && n4 > n1 && j4 - j1 === n4 - n1, `${sw3 - sw2} switch, ${n4 - n1} pieces, ${j4 - j1} joints`);
   await p.evaluate(() => window.woodrail.interaction.undo());
   // The planning guard: a route being planned (as the engine card's Plan does), Draw on.
   await p.evaluate(() => {
