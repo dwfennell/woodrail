@@ -210,6 +210,8 @@ export class Hud {
   private readonly followBtn: HTMLButtonElement;
   /** The engine's lever as last shown, and the way Go will send it (+1: its own front first). */
   private engineLever = 0;
+  /** The train is held at its stop for spacing: Go reads "Go now" (see `setGoNow`). */
+  private goNow = false;
   private engineWay: 1 | -1 = 1;
   /** Shown status and arrow angle (degrees), to touch the page only when they change. */
   private shownStatus = "";
@@ -384,7 +386,8 @@ export class Hud {
     this.engineCard.appendChild(this.engineStatus);
     const controls = el("div", "engine-controls");
     // One big button: Go (the way the arrow shows) or Stop.
-    this.goBtn = button("", "Go", () => h.lever(this.engineLever !== 0 ? 0 : this.engineWay), "chip go");
+    // (Held at its stop for spacing: "Go now" sends it on with one tap, the lever as it is.)
+    this.goBtn = button("", "Go", () => h.lever(this.goNow && this.engineLever !== 0 ? (this.engineLever as -1 | 1) : this.engineLever !== 0 ? 0 : this.engineWay), "chip go");
     // Which way: the arrow points where the train will go on screen; a tap turns it round (at once, if it's moving).
     this.wayBtn = button("", "Which way it goes: tap to change", () => {
       this.engineWay = this.engineWay === 1 ? -1 : 1;
@@ -1059,12 +1062,20 @@ export class Hud {
     }
   }
 
+  /** The open engine's train is (or isn't) held at its stop for spacing: Go reads "Go now", and one tap sends it on. */
+  setGoNow(on: boolean): void {
+    if (on === this.goNow) return;
+    this.goNow = on;
+    this.drawEngine();
+  }
+
   private drawEngine(): void {
     const moving = this.engineLever !== 0;
-    this.goBtn.classList.toggle("stop", moving);
+    const now = moving && this.goNow;
+    this.goBtn.classList.toggle("stop", moving && !now);
     // Go goes the way the arrow beside it shows (no triangle of its own pointing elsewhere).
-    this.goBtn.innerHTML = moving ? `<span class="go-icon">■</span>Stop` : "Go";
-    this.goBtn.title = moving ? "Stop" : "Go";
+    this.goBtn.innerHTML = now ? "Go now" : moving ? `<span class="go-icon">■</span>Stop` : "Go";
+    this.goBtn.title = now ? "Go now, without waiting to space out" : moving ? "Stop" : "Go";
     // The arrow's angle depends on the way chosen: redrawn on the next view update.
     this.shownAngle = NaN;
   }

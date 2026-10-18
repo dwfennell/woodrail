@@ -4,6 +4,8 @@ import { SIM_DT } from "../sim";
 export const DEFAULT_HEADWAY_S = 8;
 /** A train is never held at a stop longer than this (s) for spacing, from when it would first have left. */
 export const MAX_HOLD_S = 20;
+/** The headway, as a share of an even spacing (a lap shared among the line's trains): only a real gap is made up. */
+export const HEADWAY_SHARE = 0.8;
 /** How much a new lap counts in a line's lap estimate (the rest is the estimate so far). */
 const LAP_WEIGHT = 0.5;
 
@@ -36,6 +38,11 @@ export class Spacing {
    * when it leaves its stop.
    */
   private readonly holdFrom = new Map<number, { tick: number; lever: number }>();
+  /**
+   * What each held engine is waiting for, as last asked (`holds`): its line, when (tick) the hold will be over at the
+   * latest, and whether it's behind another train (then it can't say how long). For the engine's card.
+   */
+  private readonly waits = new Map<number, { lineId: number; asked: number; until: number; behind: boolean; from: number }>();
 
   private of(lineId: number, stops: string): LineSpacing {
     let s = this.lines.get(lineId);
@@ -53,6 +60,7 @@ export class Spacing {
     const s = this.of(lineId, stops);
     s.lastDepart.set(index, { tick: now, engine });
     s.at.delete(engine);
+    this.waits.delete(engine);
     const held = this.holdFrom.get(engine);
     if (held) s.heldInLap.set(engine, (s.heldInLap.get(engine) ?? 0) + (now - held.tick));
     this.holdFrom.delete(engine);
@@ -74,6 +82,7 @@ export class Spacing {
    * false once it may go, the hold has run `MAX_HOLD_S`, or its lever has been set since (the player sends it on).
    */
   holds(lineId: number, stops: string, engine: number, index: number, live: readonly number[], now: number, lever = 0): boolean {
+    this.waits.delete(engine);
     if (live.length < 2) return false;
     // Let go (its lever set since the hold began): not held again this visit.
     const held = this.holdFrom.get(engine);
@@ -88,15 +97,32 @@ export class Spacing {
         break;
       }
     }
+    let until = Infinity;
     if (!behind) {
       const last = s.lastDepart.get(index);
       if (!last || last.engine === engine || !live.includes(last.engine)) return false;
-      const headway = s.lap > 0 ? s.lap / live.length : DEFAULT_HEADWAY_S / SIM_DT;
+      // (A little short of an even share: trains already about evenly spaced aren't held for small differences.)
+      const headway = s.lap > 0 ? (s.lap / live.length) * HEADWAY_SHARE : DEFAULT_HEADWAY_S / SIM_DT;
       if (now - last.tick >= headway) return false;
+      until = last.tick + headway;
     }
     if (!held) this.holdFrom.set(engine, { tick: now, lever });
-    return now - (held?.tick ?? now) < MAX_HOLD_S / SIM_DT;
+    const from = held?.tick ?? now;
+    const cap = from + MAX_HOLD_S / SIM_DT;
+    if (now >= cap) return false;
+    this.waits.set(engine, { lineId, asked: now, until: Math.min(until, cap), behind, from });
+    return true;
   }
+  /**
+   * Is engine `engine` held for spacing now (tick `now`: asked this tick or the last)? Its line, how long it has waited and
+   * at most has left (seconds; a train behind another can't know: null), for its card.
+   */
+  waitOf(engine: number, now: number): { lineId: number; waited: number; left: number | null } | null {
+    const w = this.waits.get(engine);
+    if (!w || now - w.asked > 1) return null;
+    return { lineId: w.lineId, waited: (now - w.from) * SIM_DT, left: w.behind ? null : Math.max(0, (w.until - now) * SIM_DT) };
+  }
+
   /** Has engine `engine` a hold begun at its stop (this visit)? */
   holding(engine: number): boolean {
     return this.holdFrom.has(engine);
@@ -112,5 +138,6 @@ export class Spacing {
     for (const id of this.lines.keys()) if (!lines.has(id)) this.lines.delete(id);
     for (const s of this.lines.values()) for (const id of s.at.keys()) if (!engines.has(id)) s.at.delete(id);
     for (const id of this.holdFrom.keys()) if (!engines.has(id)) this.holdFrom.delete(id);
+    for (const id of this.waits.keys()) if (!engines.has(id)) this.waits.delete(id);
   }
 }

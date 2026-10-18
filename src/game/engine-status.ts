@@ -17,6 +17,8 @@ export type TrainState =
   | { kind: "no-power" }
   | { kind: "slowing" }
   | { kind: "stopped" }
+  /** Held at its stop a moment so its line's trains spread out (auto-spacing): `left` seconds at most, or not known. */
+  | { kind: "spacing"; line: string; left: number | null }
   | { kind: "held-up" }
   | { kind: "starting" }
   | { kind: "running" };
@@ -64,6 +66,11 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   if (stopAt !== -1) return { kind: "at-stop", pieceId: stopAt };
   if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id) };
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
+  // Held a moment at its stop so its line's trains spread out.
+  for (const car of train.cars) {
+    const wait = economy.spacingWait(car.id);
+    if (wait) return { kind: "spacing", line: wait.line.name, left: wait.left };
+  }
   if (train.speed < 1) {
     const why = cantMove?.(train) ?? null;
     if (why) return { kind: why };
@@ -110,6 +117,9 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return "Starting";
     case "stopped":
       return "Stopped";
+    case "spacing":
+      // (A countdown, in whole seconds, where it's known: behind another train it waits for that one to go.)
+      return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
     case "held-up":
       return "Waiting: something's in the way";
     case "running": {

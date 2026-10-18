@@ -1211,6 +1211,16 @@ export class Economy {
   /** Called when a route has set a switch (the game redraws its lever). */
   onSwitch: ((pieceId: number) => void) | null = null;
   private steerTicks = 0;
+  /**
+   * Is this engine's train held at its stop for spacing (see spacing.ts)? Its line, and how long it has waited and has
+   * at most left (s; null while it waits behind another train of the line), for its card.
+   */
+  spacingWait(engineCarId: number): { line: Line; waited: number; left: number | null } | null {
+    const w = this.spacing.waitOf(engineCarId, this.ticksRun);
+    const line = w && this.lines.get(w.lineId);
+    return w && line ? { line, waited: w.waited, left: w.left } : null;
+  }
+
   /** Ticks run (sim time: a pause stops it), for spacing the trains on a line (`spacing`). */
   private ticksRun = 0;
   /** Auto-spacing of the trains on a line (see spacing.ts). */

@@ -5,6 +5,7 @@ import { editLine, joinLine } from "../game/lines";
 import { CARGO } from "./cargo";
 import { Economy } from "./economy";
 import { DEFAULT_HEADWAY_S, MAX_HOLD_S, Spacing } from "./spacing";
+import { engineStatus } from "../game/engine-status";
 
 /**
  * An oval with a forest on one side and a sawmill on the other, and `count` timber trains standing bunched up just
@@ -218,5 +219,27 @@ describe("auto-spacing on a line", () => {
     const last = w.holds.filter((h) => h.engine === held).at(-1)!;
     expect((last.tick - holdStart) * SIM_DT).toBeLessThanOrEqual(MAX_HOLD_S);
     expect(w.economy.routeOf(held)!.next).toBe(1);
+  });
+
+  it("a held train's card says it's spacing out (with how long, at most, where it's known); its lever set again sends it on", () => {
+    const w = oval(2);
+    let held = -1;
+    for (let i = 0; i < 800 * SIM_HZ && held === -1; i++) {
+      const n = w.holds.length;
+      w.step();
+      const h = w.holds.at(-1);
+      if (w.holds.length > n && h && w.economy.spacingWait(h.engine)?.left) held = h.engine;
+    }
+    expect(held).not.toBe(-1);
+    const status = engineStatus(w.sim, w.economy, held, () => "");
+    expect(status).toMatch(/^Spacing out from the other Red line trains · \d+ s$/);
+    const wait = w.economy.spacingWait(held)!;
+    expect(wait.left!).toBeLessThanOrEqual(MAX_HOLD_S);
+    // "Go now": the lever set again, as it is.
+    const lever = w.sim.findCar(held)!.train.cars[0].lever as 1 | -1;
+    w.sim.setLever(held, lever);
+    w.run(1);
+    expect(w.economy.spacingWait(held)).toBe(null);
+    expect(w.sim.findCar(held)!.train.speed).toBeGreaterThan(0);
   });
 });

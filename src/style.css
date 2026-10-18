@@ -678,7 +678,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .coin-dot { display: inline-block; width: 13px; height: 13px; margin-left: 4px; vertical-align: -2px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffe08a, #e2a12b 70%); box-shadow: inset 0 0 0 1.5px #c98a1c; }
 
 /* Lines: on a train's card, its line's trains, Leave, and (on no line) the lines it could run. */
-.route-line-name { cursor: pointer; }
+/* The route's part of the card stays within the card on a narrow phone: its head row shrinks the line's name. */
+.engine-card { max-width: calc(100vw - 32px); box-sizing: border-box; }
+.engine-extra.route { align-self: stretch; min-width: 0; }
+.route-head { min-width: 0; }
+.route-line-name { cursor: pointer; min-height: 44px; min-width: 0; flex: 1 1 auto; overflow: hidden; }
+.route-riders { white-space: nowrap; flex: 0 0 auto; }
+/* A long name ends in "…" rather than wrapping the card's head. */
+.route-line-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.route-head .route-plan, .route-head .route-leave { flex: 0 0 auto; }
+.route-leave.asking { background: #b0391f; color: #fff; }
+.route-join-line:disabled { opacity: 0.45; }
 .route-riders { font-weight: 600; opacity: 0.7; }
 .route-head .route-leave { padding-inline: 10px; }
 .route-join { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
@@ -690,11 +700,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .lines-list { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; overflow-y: auto; }
 .lines-row { display: flex; align-items: center; gap: 10px; }
 .lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
-.lines-swatch { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 3px rgba(60, 40, 20, 0.35); cursor: pointer; padding: 0; }
+.lines-swatch { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 3px rgba(60, 40, 20, 0.35); cursor: pointer; padding: 0; }
 .lines-swatch.on { outline: 3px solid #3a2a1c; outline-offset: 1px; }
 .lines-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.lines-name { font: inherit; font-weight: 700; color: #3a2a1c; background: transparent; border: none; border-bottom: 2px dashed rgba(106, 74, 44, 0.3); padding: 2px 0; min-width: 0; width: 100%; }
+.lines-name { font: inherit; font-weight: 700; color: #3a2a1c; background: transparent; border: none; border-bottom: 2px dashed rgba(106, 74, 44, 0.3); padding: 2px 0; min-width: 0; width: 100%; min-height: 44px; box-sizing: border-box; }
+.lines-head button, .lines-show { min-height: 44px; min-width: 44px; }
 .lines-name:focus { outline: none; border-bottom-color: #6a4a2c; background: rgba(255, 255, 255, 0.6); }
 .lines-info { font-size: 0.8em; opacity: 0.7; }
-.lines-palette { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 4px 42px; }
+.lines-palette { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 4px 54px; }
 .lines-none { font-size: 0.9em; opacity: 0.75; }
