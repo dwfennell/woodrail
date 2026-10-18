@@ -113,3 +113,24 @@ describe("DepotView: a working depot draws only while the game runs and it's in 
     for (let i = 0; i < sa.length; i++) expect(sa[i].quaternion.angleTo(sb[i].quaternion)).toBeLessThan(1e-6);
   });
 });
+
+describe("DepotView.depotAt: a tap on a depot's yard or buildings means that depot (QA: the workshop's far end went to the town beside it)", () => {
+  for (const heading of [0, Math.PI / 3]) {
+    it(`by the yard it's on, its far end too (heading ${heading.toFixed(2)})`, () => {
+      const layout = new Layout();
+      const at = layout.addPiece("depot-workshop", { x: 500, z: -300, heading });
+      const economy = new Economy(layout, new Sim(layout));
+      const shop = economy.addDepot("workshop", at);
+      const view = new DepotView(stubMaterials());
+      view.setWorld(economy, layout);
+      // In the site's frame (t along the track, l across): the yard runs t 10..206, l 30..114.
+      const world = (t: number, l: number) => ({ x: 500 + Math.cos(heading) * t - Math.sin(heading) * l, z: -300 + Math.sin(heading) * t + Math.cos(heading) * l });
+      for (const [t, l] of [[190, 100], [200, 40], [20, 110], [108, 72]]) {
+        const p = world(t, l);
+        expect(view.depotAt(p.x, p.z), `t ${t}, l ${l}`).toBe(shop.id);
+      }
+      const off = world(108, 200);
+      expect(view.depotAt(off.x, off.z)).toBe(-1);
+    });
+  }
+});

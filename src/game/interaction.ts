@@ -336,6 +336,8 @@ export class Interaction {
   onDepart: (() => void) | null = null;
   /** A switch was thrown (it's saved; nothing else changed). */
   onSwitched: (() => void) | null = null;
+  /** Planning a train's route: a tap on another train (not at a place) ends it, here, before that train's card opens. */
+  onLeavePlanning: (() => void) | null = null;
   /** Planning a train's route: a tap on a station or depot is offered here (its economy depot); true if taken. */
   onPickPlace: ((depotId: number) => boolean) | null = null;
   /** Planning a train's route: its stop discs (the route view's group), a tap on one handed here (the stop's index). */
@@ -1457,9 +1459,15 @@ export class Interaction {
         return undefined;
       };
       const depot = p.kind === "depot" ? g.economy.depot(p.depotId) : p.kind === "piece" ? g.economy.depotAtPiece(p.pieceId) : p.kind === "car" ? standsAt(p.carId) : undefined;
-      if (depot) this.onPickPlace(depot.id);
-      // Anything else tapped while planning does nothing (the engine's card stays open: Done ends planning).
-      return;
+      if (depot) {
+        this.onPickPlace(depot.id);
+        return;
+      }
+      // Another train, out on the line: planning ends and its card opens, as a tap on it does (QA: it did nothing).
+      const other = p.kind === "car" && g.sim.findCar(p.carId)?.train !== g.sim.findCar(this.selectedCar)?.train;
+      if (!other) return;
+      // (Anything else tapped while planning does nothing: the engine's card stays open, Done ends planning.)
+      this.onLeavePlanning?.();
     }
     if (p.kind === "lever") {
       this.throwLever(p.pieceId, p.road);
@@ -1582,6 +1590,18 @@ export class Interaction {
   /** The car whose card is open (an engine's or a wagon's), or −1. */
   get selectedCarId(): number {
     return this.selectedCar;
+  }
+
+  /** Open an engine's card (as a tap on it would, with nothing else): planning its route goes on after the map. */
+  openEngineCard(carId: number): void {
+    const found = this.game.sim.findCar(carId);
+    const car = found?.train.cars[found.index];
+    if (!car || car.kind !== "engine" || found!.train.derailed) return;
+    this.clearSelection();
+    this.selectedCar = car.id;
+    this.game.trainView.setSelected(car.id);
+    this.game.invalidate();
+    this.hud.showEngineCard(car.lever, this.game.following === car.id);
   }
 
   /** The engine whose card is open, or −1. */
@@ -3858,7 +3878,9 @@ export class Interaction {
         if (cargo) return { kind: "cargo", slot, cargo };
       }
       if (g.depotView.isDepotPart(h.object)) {
-        const depotId = g.depotView.depotNear(h.point.x, h.point.z);
+        // (The yard it's on, else the nearest crane, pile or loading point.)
+        const on = g.depotView.depotAt(h.point.x, h.point.z);
+        const depotId = on !== -1 ? on : g.depotView.depotNear(h.point.x, h.point.z);
         if (depotId !== -1) return { kind: "depot", depotId };
         continue;
       }
