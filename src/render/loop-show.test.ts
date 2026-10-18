@@ -1,13 +1,14 @@
-import { Box3, BoxGeometry, Color, Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Vector3, type BufferGeometry, type Object3D } from "three";
+import { Box3, BoxGeometry, Color, Group, Mesh, MeshStandardMaterial, PerspectiveCamera, Quaternion, Raycaster, Vector3, type BufferGeometry, type Object3D } from "three";
 import { describe, expect, it } from "vitest";
 import { Kit } from "../catalogue/kit";
 import { loadAsset } from "../catalogue/registry";
 import type { Materials } from "./materials";
 import { bake, kitModelKey, PropLibrary } from "./props/library";
 import { Economy } from "../economy";
-import { createSnapshot, Sim, SIM_HZ, type CarKind, type SimSnapshot } from "../sim";
+import { CAR_SPECS, createSnapshot, Sim, SIM_HZ, type CarKind, type SimSnapshot } from "../sim";
 import { connectorRef, createWorldConnector, KITS, Layout, LOOP_BESIDE, type PieceTypeId } from "../track";
-import { LOOP_HUB, LOOP_SCALE, LOOP_SWAP, loopPath, LoopShowView, loopTable, pathAt, poseAt, showAt } from "./loop-show";
+import { hopAt, LOOP_CANCEL_S, LOOP_HOP, LOOP_HUB, LOOP_SCALE, LOOP_SWAP, loopPath, LoopShowView, loopTable, pathAt, poseAt, showAt } from "./loop-show";
+import { AXLE_HEIGHT } from "./train-models";
 
 const LOOP = "kit-loop-the-loop" as const;
 
@@ -207,9 +208,18 @@ function line(cars: CarKind[] = ["engine", "hopper"], before = 1) {
     economy.tick();
     sim.writeSnapshot(snap);
     objects.sync(snap);
-    return view.update(snap, objects, camera);
+    return view.update(snap, objects, camera, 1 / SIM_HZ);
   };
-  return { layout, sim, economy, train, engine, view, kit, step, objects, snap };
+  // The kit's place: its piece's pose, and a world point's place against it (t along its line, l across, up).
+  const pose = layout.getPiece(kit)!.pose;
+  const local = (p: Vector3) => {
+    const dx = p.x - pose.x;
+    const dz = p.z - pose.z;
+    const c = Math.cos(pose.heading);
+    const s = Math.sin(pose.heading);
+    return { t: dx * c + dz * s, l: -dx * s + dz * c, y: p.y };
+  };
+  return { layout, sim, economy, train, engine, view, kit, step, objects, snap, local };
 }
 
 /** A camera over (x, z), or far away from it. */
@@ -227,7 +237,7 @@ describe("LoopShowView", () => {
     let started = -1;
     let ended = -1;
     let upsideDown = false;
-    let shrunk = 1;
+    let hidden = false;
     const up = new Vector3();
     for (let k = 0; k < 20 * SIM_HZ; k++) {
       w.step();
@@ -239,7 +249,7 @@ describe("LoopShowView", () => {
         copy.updateWorldMatrix(true, false);
         up.set(0, 1, 0).transformDirection(copy.matrixWorld);
         if (up.y < -0.99 && copy.visible) upsideDown = true;
-        shrunk = Math.min(shrunk, w.objects.carObject(w.engine)!.scale.x);
+        if (!w.objects.carObject(w.engine)!.visible && copy.visible) hidden = true;
       }
       if (ended >= 0) break;
     }
@@ -249,8 +259,15 @@ describe("LoopShowView", () => {
     // The engine crosses the whole kit at the crawl (its leading axle was on before its middle was).
     expect((ended - started) / SIM_HZ).toBeCloseTo(216 / KITS[LOOP].crawl!, 1);
     expect(upsideDown).toBe(true);
-    // The engine went while its copy ran, and is whole again after.
-    expect(shrunk).toBeLessThan(0.01);
+    // The engine's model was hidden while its copy stood in for it, and shows again after (never shrunk).
+    expect(hidden).toBe(true);
+    // Called off at once (in logic), the engine eased back (drawn) over a moment, then still.
+    let easing = 0;
+    while (w.view.busy) {
+      easing++;
+      w.step();
+    }
+    expect(easing / SIM_HZ).toBeLessThanOrEqual(LOOP_CANCEL_S + 2 / SIM_HZ);
     const obj = w.objects.carObject(w.engine)!;
     expect(obj.scale.x).toBe(1);
     expect(obj.visible).toBe(true);
@@ -323,6 +340,155 @@ describe("LoopShowView", () => {
     expect(moving).toBe(true);
   });
 
+  it("the hand-off: the engine hops off the line onto the loop's start, shrinking, and back on at the far end, growing, with no jumps", () => {
+    const w = line(["engine", "hopper"]);
+    const at = new Vector3();
+    const engineAt = new Vector3();
+    const frames: { u: number; copy: Vector3; engine: Vector3; scale: number; hidden: boolean }[] = [];
+    let endedVisible = false;
+    for (let k = 0; k < 20 * SIM_HZ; k++) {
+      w.step();
+      const copy = w.view.copyAt(w.kit);
+      if (copy) {
+        copy.updateWorldMatrix(true, false);
+        at.setFromMatrixPosition(copy.matrixWorld);
+        w.objects.carObject(w.engine)!.getWorldPosition(engineAt);
+        frames.push({ u: w.view.progress(w.kit), copy: at.clone(), engine: engineAt.clone(), scale: copy.scale.x, hidden: !w.objects.carObject(w.engine)!.visible });
+      } else if (frames.length > 0) {
+        // Over: the engine shows at once (the copy landed on it: nothing to ease), no copy left.
+        endedVisible = w.objects.carObject(w.engine)!.visible && w.view.group.children.length === 0 && !w.view.busy;
+        break;
+      }
+    }
+    expect(frames.length).toBeGreaterThan(5 * SIM_HZ);
+    expect(endedVisible).toBe(true);
+    // The engine's model hidden all through (the copy stands in for it).
+    expect(frames.every((f) => f.hidden)).toBe(true);
+    // At first the copy covers the engine exactly, whole; at the last, it has landed on it again.
+    const first = frames[0];
+    const last = frames.at(-1)!;
+    expect(first.u).toBeLessThan(0.01);
+    expect(first.copy.distanceTo(first.engine)).toBeLessThan(1);
+    expect(first.scale).toBeGreaterThan(0.99);
+    expect(last.u).toBeGreaterThan(0.99);
+    expect(last.copy.distanceTo(last.engine)).toBeLessThan(1);
+    expect(last.scale).toBeGreaterThan(0.99);
+    // On the way out to the ring: across from the line to the ring's start (its plane `LOOP_BESIDE` off it, the copy
+    // drifting 8 in), shrinking all the way, lifted by the hop on the way; on the ring by the end of the hop.
+    const hopIn = frames.filter((f) => f.u <= LOOP_SWAP);
+    const hopOut = frames.filter((f) => f.u >= 1 - LOOP_SWAP);
+    for (let i = 1; i < hopIn.length; i++) {
+      expect(w.local(hopIn[i].copy).l).toBeGreaterThanOrEqual(w.local(hopIn[i - 1].copy).l - 1e-6);
+      expect(hopIn[i].scale).toBeLessThanOrEqual(hopIn[i - 1].scale + 1e-9);
+    }
+    for (let i = 1; i < hopOut.length; i++) {
+      expect(w.local(hopOut[i].copy).l).toBeLessThanOrEqual(w.local(hopOut[i - 1].copy).l + 1e-6);
+      expect(hopOut[i].scale).toBeGreaterThanOrEqual(hopOut[i - 1].scale - 1e-9);
+    }
+    const ringStart = new Vector3();
+    poseAt(loopPath(), 0, ringStart, new Quaternion());
+    const onRing = frames.find((f) => f.u >= LOOP_SWAP)!;
+    expect(w.local(onRing.copy).l).toBeCloseTo(LOOP_BESIDE + ringStart.z, 0);
+    expect(onRing.scale).toBeCloseTo(LOOP_SCALE, 5);
+    // The hop: half way, it's well above the straight line between the line and the ring's start.
+    const mid = hopIn.reduce((a, b) => (Math.abs(showAt(b.u).grow - 0.5) < Math.abs(showAt(a.u).grow - 0.5) ? b : a));
+    expect(w.local(mid.copy).y - (first.copy.y + (onRing.copy.y - first.copy.y) * showAt(mid.u).grow)).toBeGreaterThan(LOOP_HOP * 0.8);
+    expect(hopAt(0)).toBe(0);
+    expect(hopAt(1)).toBeCloseTo(0, 9);
+    // No jumps: from one tick to the next the copy moves a few mm at most (the hop is the quickest part).
+    let jump = 0;
+    for (let i = 1; i < frames.length; i++) jump = Math.max(jump, frames[i].copy.distanceTo(frames[i - 1].copy));
+    expect(jump).toBeLessThan(3);
+  });
+
+  it("the cars coast on behind on a tow rope to the copy; an engine on its own has none", () => {
+    const w = line(["engine", "hopper"]);
+    while (w.view.progress(w.kit) < 0.5) w.step();
+    const ropes = w.view.ropesAt(w.kit);
+    // Two lengths (to its sag), from the hopper's end toward the engine to the copy's back.
+    expect(ropes).toHaveLength(2);
+    expect(ropes[0].to.distanceTo(ropes[1].from)).toBeLessThan(1e-6);
+    const i = [...w.snap.ids.slice(0, w.snap.count)].findIndex((id) => id !== w.engine);
+    const o = i * 6;
+    const h = w.snap.transforms[o + 3];
+    const half = CAR_SPECS.hopper.length / 2;
+    const ends = [1, -1].map((sg) => new Vector3(w.snap.transforms[o] + sg * Math.cos(h) * half, w.snap.transforms[o + 1] + AXLE_HEIGHT, w.snap.transforms[o + 2] + sg * Math.sin(h) * half));
+    const engine = w.objects.carObject(w.engine)!.position;
+    const front = ends.reduce((a, b) => (a.distanceTo(engine) < b.distanceTo(engine) ? a : b));
+    expect(ropes[0].from.distanceTo(front)).toBeLessThan(1e-3);
+    const copy = w.view.copyAt(w.kit)!;
+    copy.updateWorldMatrix(true, false);
+    const back = new Vector3(-CAR_SPECS.engine.length / 2, AXLE_HEIGHT, 0).applyMatrix4(copy.matrixWorld);
+    expect(ropes[1].to.distanceTo(back)).toBeLessThan(1e-3);
+    // Sagging a little, below the straight line between its ends.
+    expect(ropes[0].to.y).toBeLessThan((ropes[0].from.y + ropes[1].to.y) / 2);
+    const alone = line(["engine"]);
+    while (alone.view.progress(alone.kit) < 0.5) alone.step();
+    expect(alone.view.ropesAt(alone.kit)).toHaveLength(0);
+  });
+
+  it("a tap on the copy is a tap on its engine (the pick's `engineAt`); the ropes and other cars aren't", () => {
+    const w = line(["engine", "hopper"]);
+    while (w.view.progress(w.kit) < 0.5) w.step();
+    const copy = w.view.copyAt(w.kit)!;
+    copy.updateWorldMatrix(true, true);
+    w.view.group.updateMatrixWorld(true);
+    // A ray from above, straight down onto the copy, as a tap on it casts.
+    const centre = new Box3().setFromObject(copy).getCenter(new Vector3());
+    const ray = new Raycaster(new Vector3(centre.x, centre.y + 500, centre.z), new Vector3(0, -1, 0));
+    const hits = ray.intersectObject(w.view.group, true);
+    expect(hits.length).toBeGreaterThan(0);
+    expect(w.view.engineAt(hits[0].object)).toBe(w.engine);
+    copy.traverse((o) => expect(w.view.engineAt(o)).toBe(w.engine));
+    expect(w.view.engineAt(w.objects.carObject(w.engine)!)).toBe(-1);
+    // The ropes aren't picked (a tap on them goes through, to the cars or track behind).
+    const ropes: Object3D[] = [];
+    w.view.group.traverse((o) => {
+      if (o.name === "loop-rope") ropes.push(o);
+    });
+    expect(ropes.length).toBeGreaterThan(0);
+    for (const r of ropes) {
+      const out: unknown[] = [];
+      r.raycast(ray, out as never);
+      expect(out).toHaveLength(0);
+    }
+  });
+
+  it("an eased call-off asks for frames for a moment, the copy going back to the engine, then none", () => {
+    const w = line(["engine", "hopper"]);
+    const piece = w.layout.getPiece(w.kit)!.pose;
+    const near = cameraAt(piece.x + 108, piece.z + 40);
+    while (w.view.progress(w.kit) < 0.4) w.step(near);
+    // Lever back: it slows, stops and backs up; the show's off the tick it backs.
+    w.sim.setLever(w.engine, -1);
+    while (w.view.running) w.step(near);
+    const copy = w.view.copyAt(w.kit) ?? (w.view.group.children[0]?.getObjectByName("loop-copy") as Group);
+    expect(copy).toBeDefined();
+    const engineAt = new Vector3();
+    const gaps: number[] = [];
+    const results: string[] = [];
+    while (w.view.busy) {
+      copy.updateWorldMatrix(true, false);
+      w.objects.carObject(w.engine)!.getWorldPosition(engineAt);
+      gaps.push(new Vector3().setFromMatrixPosition(copy.matrixWorld).distanceTo(engineAt));
+      results.push(w.step(near));
+    }
+    // About `LOOP_CANCEL_S` of frames, each moving, the copy closing on the engine all the way.
+    expect(results.length / SIM_HZ).toBeGreaterThan(LOOP_CANCEL_S - 0.02);
+    expect(results.length / SIM_HZ).toBeLessThanOrEqual(LOOP_CANCEL_S + 2 / SIM_HZ);
+    expect(results.every((r) => r === "moving")).toBe(true);
+    for (let k = 1; k < gaps.length; k++) expect(gaps[k]).toBeLessThan(gaps[k - 1] + 0.5);
+    expect(gaps.at(-1)!).toBeLessThan(gaps[0] * 0.1);
+    // Over: the engine shows, whole, and nothing more is asked for: lever off, standing, no frames.
+    expect(w.objects.carObject(w.engine)!.visible).toBe(true);
+    expect(w.view.group.children).toHaveLength(0);
+    w.sim.setLever(w.engine, 0);
+    for (let k = 0; k < 2 * SIM_HZ; k++) w.step(near);
+    expect(w.train().speed).toBe(0);
+    for (let k = 0; k < 60; k++) expect(w.view.update(w.snap, w.objects, near, 1 / 60)).toBe("still");
+    expect(w.view.busy).toBe(false);
+  });
+
   it("one show at a time: a second engine coming on during a show gets none, nor after it once inside", () => {
     const layout = new Layout();
     const kit = layout.addPiece(LOOP, { x: 0, z: 0, heading: 0 });
@@ -355,6 +521,9 @@ describe("LoopShowView", () => {
     at(230, 140);
     at(260, 220);
     expect(view.showing(kit)).toBe(-1);
+    // (It was last drawn mid-loop, the test jumping it to the end: its copy eases back to it over a moment.)
+    for (let k = 0; k < LOOP_CANCEL_S * 60 + 2; k++) at(260, 220);
+    expect(view.busy).toBe(false);
     expect(view.group.children).toHaveLength(0);
     // A third comes on from the far end, running the other way: it gets a show, the copy run round backwards.
     snap.count = 1;
@@ -376,7 +545,7 @@ describe("LoopShowView", () => {
 
   it("an engine backing out mid-show calls it off cleanly: the copy gone, the engine whole", () => {
     const w = line(["engine", "hopper"]);
-    for (let k = 0; k < 20 * SIM_HZ && !(w.view.running && (w.view.copyAt(w.kit)?.visible ?? false) && w.objects.carObject(w.engine)!.scale.x < 0.5); k++) w.step();
+    for (let k = 0; k < 20 * SIM_HZ && !(w.view.running && w.view.progress(w.kit) > 0.3); k++) w.step();
     expect(w.view.running).toBe(true);
     // Lever back: it slows, stops and backs up.
     w.sim.setLever(w.engine, -1);
@@ -386,6 +555,13 @@ describe("LoopShowView", () => {
       if (!w.view.running) off = k;
     }
     expect(off).toBeGreaterThanOrEqual(0);
+    // Called off at once (in logic), the engine eased back (drawn) over a moment, then still.
+    let easing = 0;
+    while (w.view.busy) {
+      easing++;
+      w.step();
+    }
+    expect(easing / SIM_HZ).toBeLessThanOrEqual(LOOP_CANCEL_S + 2 / SIM_HZ);
     const obj = w.objects.carObject(w.engine)!;
     expect(obj.scale.x).toBe(1);
     expect(obj.visible).toBe(true);
@@ -407,16 +583,32 @@ describe("LoopShowView", () => {
   it("a kit taken up or moved mid-show, or the engine taken away, calls it off", () => {
     const w = line();
     while (!w.view.running) w.step();
+    while (w.view.progress(w.kit) < 0.3) w.step();
     w.layout.liftPiece(w.kit);
     w.view.sync(w.layout);
+    // Off at once; the engine eased back over a moment (the frame loop asks while it's busy), then shown.
     expect(w.view.running).toBe(false);
-    expect(w.objects.carObject(w.engine)!.scale.x).toBe(1);
     expect(w.view.count).toBe(0);
+    expect(w.view.busy).toBe(true);
+    for (let k = 0; k < LOOP_CANCEL_S * SIM_HZ + 2; k++) w.step();
+    expect(w.view.busy).toBe(false);
+    expect(w.objects.carObject(w.engine)!.visible).toBe(true);
+    expect(w.objects.carObject(w.engine)!.scale.x).toBe(1);
+    expect(w.view.group.children).toHaveLength(0);
+    // The engine taken away mid-loop: the copy shrinks away where it is, over a moment.
     const v = line();
-    while (!v.view.running) v.step();
+    while (v.view.progress(v.kit) < 0.3) v.step();
+    const copy = v.view.copyAt(v.kit)!;
     v.sim.removeTrain(v.train().id);
     v.step();
     expect(v.view.running).toBe(false);
+    const scales: number[] = [];
+    while (v.view.busy) {
+      scales.push(copy.scale.x);
+      v.step();
+    }
+    expect(scales.length).toBeGreaterThan(LOOP_CANCEL_S * SIM_HZ * 0.8);
+    for (let k = 1; k < scales.length; k++) expect(scales[k]).toBeLessThan(scales[k - 1]);
     expect(v.view.group.children).toHaveLength(0);
   });
 });

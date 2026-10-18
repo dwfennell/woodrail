@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { syncIndustries, type World } from "../game/world";
-import { Sim, SIM_HZ, ENGINE_SPEED, type CarKind, type Train } from "../sim";
+import { ACCELERATION, Sim, SIM_DT, SIM_HZ, ENGINE_SPEED, type CarKind, type Train } from "../sim";
 import { connectorRef, createWorldConnector, KITS, Layout, type PieceTypeId } from "../track";
 import { RECIPES, WAGON_CAPACITY, CARGO, Economy } from ".";
 
@@ -117,5 +117,49 @@ describe("Sandbox's cargo machines (kit pieces as depots)", () => {
     expect(sawOn).toBe(true);
     expect(fastestOn).toBeLessThanOrEqual(crawl);
     expect(after).toBe(ENGINE_SPEED);
+  });
+
+  it.each(["kit-weighbridge", "kit-train-wash", "kit-loop-the-loop"] as const)("%s: the crawl is eased in and out (braking at the sim's rate), with no step in speed", (kit) => {
+    const w = line(["straight-216", "straight-216", kit, "straight-216"], ["engine", "hopper", "hopper"]);
+    const crawl = KITS[kit].crawl!;
+    const kitId = w.ids[2];
+    const step = ACCELERATION * SIM_DT;
+    // The speed each tick, and where the leading axle was (how far short of the kit, mm; 0 once on it).
+    const profile: { v: number; short: number; on: boolean; past: boolean }[] = [];
+    let entered = false;
+    let left = false;
+    for (let i = 0; i < 30 * SIM_HZ; i++) {
+      w.step();
+      const t = w.train();
+      const lead = t.bogies[0];
+      const on = t.bogies.some((b) => b.pieceId === kitId);
+      if (lead.pieceId === kitId) entered = true;
+      if (entered && !on) left = true;
+      const short = lead.pieceId === w.ids[1] ? 216 - lead.s : lead.pieceId === w.ids[0] ? 432 - lead.s : 0;
+      profile.push({ v: t.speed, short, on, past: left });
+      if (left && t.speed === ENGINE_SPEED) break;
+    }
+    expect(entered && left).toBe(true);
+    // No step: from one tick to the next the speed changes by no more than the sim's easing (up or down).
+    let biggest = 0;
+    for (let i = 1; i < profile.length; i++) biggest = Math.max(biggest, Math.abs(profile[i].v - profile[i - 1].v));
+    expect(biggest).toBeLessThanOrEqual(step + 1e-9);
+    // At full speed coming up; slowing before its leading axle is on (over about its braking distance to the crawl),
+    // and at the crawl as it gets there; the crawl while on it; full speed again after.
+    const brake = (ENGINE_SPEED ** 2 - crawl ** 2) / (2 * ACCELERATION);
+    const full = profile.findIndex((p) => p.v === ENGINE_SPEED);
+    expect(full).toBeGreaterThan(0);
+    const firstSlow = profile.findIndex((p, i) => i > full && p.v < ENGINE_SPEED);
+    expect(firstSlow).toBeGreaterThan(full);
+    expect(profile[firstSlow].short).toBeGreaterThan(brake - 3);
+    expect(profile[firstSlow].short).toBeLessThan(brake + 3);
+    const onAt = profile.findIndex((p) => p.on);
+    expect(profile[onAt].v).toBeLessThanOrEqual(crawl + step);
+    for (const p of profile) if (p.on) expect(p.v).toBeLessThanOrEqual(crawl + step);
+    // Eased out: it picks up from the crawl over the sim's half second, not at once.
+    const out = profile.findIndex((p) => p.past);
+    expect(profile[out].v).toBeLessThanOrEqual(crawl + step);
+    expect(profile.at(-1)!.v).toBe(ENGINE_SPEED);
+    expect(profile.length - out).toBeGreaterThan(((ENGINE_SPEED - crawl) / ACCELERATION) * SIM_HZ - 2);
   });
 });

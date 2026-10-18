@@ -1,5 +1,5 @@
-import { kitOf, getPieceDef, type KitStopWho, type Layout } from "../track";
-import { SIM_DT, type Sim, type Train } from "../sim";
+import { kitOf, getPieceDef, pathLength, type KitStopWho, type Layout } from "../track";
+import { ACCELERATION, ADV_OK, advanceCursor, createAdvance, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { ticks } from "./constants";
 
 /** Coming up to the stop point. */
@@ -16,6 +16,8 @@ const AT_STOP = 0.05;
  * from there, so it eases in rather than halting dead. (The sim's own easing is twice the top speed a second.)
  */
 const BRAKING = 240;
+/** How much a train's speed eases in one sim tick (mm/s): the sim's `ACCELERATION`. */
+const EASE = ACCELERATION * SIM_DT;
 /** Slowest it creeps the last little way (mm/s), so it doesn't take for ever over the last millimetre. */
 const CREEP = 6;
 
@@ -67,7 +69,12 @@ export class KitStops {
     return stop === 0 ? 0 : Math.min(stop, this.crawlCap(train));
   }
 
-  /** A crawl's speed limit: the slowest crawl of the kits under the train's axles (Infinity: none). */
+  /**
+   * A crawl's speed limit: the slowest crawl of the kits under the train's axles, and, coming up to a crawl kit, what
+   * it can still ease down to that crawl from by its leading axle getting there (braking as the sim eases, at its
+   * `ACCELERATION`), so it slows into the crawl rather than dropping to it at once (Infinity: none). Out the far end
+   * it eases back up as the sim does any train under no limit.
+   */
   private crawlCap(train: Train): number {
     let cap = Infinity;
     let last = -1;
@@ -78,7 +85,43 @@ export class KitStops {
       const crawl = piece ? kitOf(piece.type)?.crawl : undefined;
       if (crawl !== undefined && crawl < cap) cap = crawl;
     }
-    return cap;
+    // (Standing, it has nothing to ease down from: it's limited again the next tick, as it sets off.)
+    const v = train.speed;
+    return v === 0 ? cap : this.crawlAhead(train.bogies[0], v, cap);
+  }
+
+  private readonly look: Cursor = { pieceId: 0, pathIndex: 0, reversed: false, s: 0 };
+  private readonly lookAdv = createAdvance();
+
+  /**
+   * The limit crawl kits ahead of the leading axle `lead` put on a train at speed `v` (no faster than `under`): the
+   * speed from which it eases down to each one's crawl by the time it gets there. Looks only as far as it could need
+   * to (its braking distance from `v`, and a tick's run), piece by piece: on most ticks no further than the end of
+   * the piece it's on.
+   */
+  private crawlAhead(lead: Cursor, v: number, under: number): number {
+    const reach = (v * v) / (2 * ACCELERATION) + v * SIM_DT;
+    const c = this.look;
+    c.pieceId = lead.pieceId;
+    c.pathIndex = lead.pathIndex;
+    c.reversed = lead.reversed;
+    c.s = lead.s;
+    let cap = under;
+    let dist = 0;
+    for (;;) {
+      const piece = this.layout.getPiece(c.pieceId);
+      if (!piece) return cap;
+      const toEnd = pathLength(getPieceDef(piece.type, piece.flipped).paths[c.pathIndex].geom) - c.s;
+      dist += toEnd;
+      if (dist > reach) return cap;
+      // Onto the next piece (just over its joint), as the train's own axle would go (switches as they're set).
+      if (advanceCursor(this.layout, c, toEnd + 1e-6, null, this.lookAdv).status !== ADV_OK) return cap;
+      dist += 1e-6;
+      const next = this.layout.getPiece(c.pieceId);
+      const crawl = next ? kitOf(next.type)?.crawl : undefined;
+      // (As the sim moves it: a tick's run at the speed it's limited to, so it slows by no more than a tick's easing.)
+      if (crawl !== undefined) cap = Math.min(cap, Math.sqrt(EASE * EASE + crawl * crawl + 2 * ACCELERATION * dist) - EASE);
+    }
   }
 
   private stopCap(train: Train): number {
