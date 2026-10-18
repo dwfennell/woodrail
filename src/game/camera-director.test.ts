@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Spherical, Vector3 } from "three";
-import { clampTarget, clampView, fitToRect, EDGE_TOUCH_DWELL, EDGE_TOUCH_RAMP, EDGE_TOUCH_SPEED, EDGE_TOUCH_ZONE, edgeDwell, edgePan, frameAlong, frameDistance, isDoubleTap, lerpAngle, nearPlaneFor } from "./camera-director";
+import { aimInRoom, clampTarget, clampView, fitToRect, EDGE_TOUCH_DWELL, EDGE_TOUCH_RAMP, EDGE_TOUCH_SPEED, EDGE_TOUCH_ZONE, edgeDwell, edgePan, frameAlong, frameDistance, isDoubleTap, lerpAngle, nearPlaneFor } from "./camera-director";
 
 describe("frameDistance", () => {
   it("fits a sphere to the narrower side of the frustum", () => {
@@ -278,5 +278,37 @@ describe("fitToRect: the whole railway in the room the HUD leaves (QA: back to m
     check([new Vector3(-900, 0, 200), new Vector3(1100, 0, -150)], 0.8, -1.4);
     const loop = Array.from({ length: 16 }, (_, i) => new Vector3(Math.cos((i / 16) * 2 * Math.PI) * 600, 0, Math.sin((i / 16) * 2 * Math.PI) * 400));
     check(loop, 1.1, 0.3);
+  });
+});
+
+describe("aimInRoom: the game's glides show their target in the middle of what the map shows, not behind a card", () => {
+  const show = (look: Vector3, target: Vector3, d: number, phi: number, theta: number, w: number, h: number) => {
+    const cam = new PerspectiveCamera(30, w / h, 5, 40000);
+    cam.position.setFromSpherical(new Spherical(d, phi, theta)).add(look);
+    cam.lookAt(look);
+    cam.updateMatrixWorld();
+    const v = target.clone().project(cam);
+    return { x: ((v.x + 1) / 2) * w, y: ((1 - v.y) / 2) * h };
+  };
+  const cases = [
+    // A phone upright, a card over the bottom half; a phone on its side, a card docked at the right.
+    { w: 390, h: 844, room: { left: 0, top: 70, right: 390, bottom: 380 } },
+    { w: 844, h: 390, room: { left: 0, top: 56, right: 520, bottom: 250 } },
+  ];
+  for (const { w, h, room } of cases)
+    for (const [phi, theta, d] of [[1.0, 0.3, 420], [0.7, -2.1, 1500], [1.2, 1.4, 900]])
+      it(`${w}x${h}, phi ${phi}, theta ${theta}, ${d} mm away`, () => {
+        const target = new Vector3(320, 24, -180);
+        const camera = new PerspectiveCamera(30, w / h, 5, 40000);
+        const look = aimInRoom(target, d, phi, theta, camera, w, h, room);
+        const s = show(look, target, d, phi, theta, w, h);
+        expect(s.x).toBeCloseTo((room.left + room.right) / 2, 0);
+        expect(s.y).toBeCloseTo((room.top + room.bottom) / 2, 0);
+        expect(look.y).toBe(target.y);
+      });
+  it("with the whole view as the room it's where it was", () => {
+    const target = new Vector3(10, 0, 20);
+    const look = aimInRoom(target, 600, 1, 0.5, new PerspectiveCamera(30, 390 / 844, 5, 40000), 390, 844, { left: 0, top: 0, right: 390, bottom: 844 });
+    expect(look.distanceTo(target)).toBeLessThan(1e-6);
   });
 });

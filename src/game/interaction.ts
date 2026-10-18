@@ -526,6 +526,10 @@ export class Interaction {
       const cars = item.cars.map((kind, i) => ({ kind, facing: 1 as const, lever: 0 as const, id: ids[i], look: item.looks?.[i] ?? ("classic" as const) }));
       this.mode = { kind: "drag-train", pointerId: e.pointerId, cars, origin: null, ghost: this.trainGhost(cars), target: null, overTray: true };
     }
+    // Taken out by a move (up off the shelf): held where that move is now. This handler had already seen that move
+    // (before there was anything to drag), so a flick that lifts straight after it, with no move between, would drop
+    // a piece still counted as over the tray, put back without a word (QA).
+    if (e.pointerId !== -1 && typeof e.clientX === "number" && this.mode.kind !== "idle") this.updateDrag(e.clientX, e.clientY);
   }
 
   /** A new piece taken from the tray, held (not yet drawn: the first pointer move places it). */
