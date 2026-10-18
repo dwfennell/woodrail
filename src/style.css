@@ -62,6 +62,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .menu-item { text-align: left; border: none; background: transparent; font: inherit; font-weight: 700; padding: 12px 14px; border-radius: 10px; color: #3a2a1c; cursor: pointer; }
 .menu-item:hover { background: #ead7b8; }
 .menu-item:disabled { opacity: 0.45; cursor: default; }
+/* A menu item asking before it acts (New game): as the route's Leave asks. */
+.menu-item.asking, .menu-item.asking:hover { background: #b0391f; color: #fff; }
 .narrow-only { display: none; }
 @media (max-width: 640px) { .menu .narrow-only { display: block; } }
 
