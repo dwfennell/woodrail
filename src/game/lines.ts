@@ -46,26 +46,70 @@ function nextLineId(economy: Economy): number {
   return id;
 }
 
+/** The engines that run line `id`. */
+export function trainsOn(economy: Economy, id: number): number[] {
+  const out: number[] = [];
+  for (const [engine, line] of economy.lineIdOf) if (line === id) out.push(engine);
+  return out;
+}
+
 /**
- * Change this engine's line: `edit` gets its stops (in place) and changes them; the line is made if it has none.
- * Its train keeps heading for the stop it was (where it's still on the line), else the one now in that place. No stops
- * left: the line's gone, and the train goes anywhere again.
+ * Change this engine's line: `edit` gets its stops (in place) and changes them; the line is made if it has none. Every
+ * train on the line keeps heading for the stop it was (where it's still on the line), else the one now in that place.
+ * No stops left: the line's gone, and its trains go anywhere again.
  */
 export function editLine(economy: Economy, engineCarId: number, edit: (stops: RouteStopDef[]) => void): Line | null {
   let line = lineOf(economy, engineCarId);
   if (!line) line = startLine(economy, engineCarId, []);
-  const route = economy.routeOf(engineCarId);
-  const heading = route ? line.stops[route.next % Math.max(1, line.stops.length)] : undefined;
-  const at = route?.next ?? 0;
+  const trains = trainsOn(economy, line.id).map((engine) => {
+    const route = economy.routeOf(engine);
+    return { engine, route, heading: route ? line!.stops[route.next % Math.max(1, line!.stops.length)] : undefined, at: route?.next ?? 0 };
+  });
   edit(line.stops);
   if (line.stops.length === 0) {
-    stopLine(economy, engineCarId);
+    for (const t of trains) stopLine(economy, t.engine);
     return null;
   }
-  const kept = heading ? line.stops.indexOf(heading) : -1;
-  const next = kept !== -1 ? kept : Math.min(at, line.stops.length - 1);
-  economy.setRoute(engineCarId, { stops: line.stops, next, at: kept !== -1 ? route?.at : false });
+  for (const t of trains) {
+    const kept = t.heading ? line.stops.indexOf(t.heading) : -1;
+    const next = kept !== -1 ? kept : Math.min(t.at, line.stops.length - 1);
+    economy.setRoute(t.engine, { stops: line.stops, next, at: kept !== -1 ? t.route?.at : false });
+  }
   return line;
+}
+
+/**
+ * This engine runs line `id` from now on (leaving any it ran), heading for the line's stop nearest along it (the first
+ * the train would come to is not known here: the first stop).
+ */
+export function joinLine(economy: Economy, engineCarId: number, id: number): Line | null {
+  const line = economy.lines.get(id);
+  if (!line || line.stops.length === 0) return null;
+  if (economy.lineIdOf.get(engineCarId) === id) return line;
+  stopLine(economy, engineCarId);
+  economy.lineIdOf.set(engineCarId, id);
+  economy.setRoute(engineCarId, { stops: line.stops, next: 0 });
+  return line;
+}
+
+/** A line's new name (trimmed, kept short; empty keeps the old one). */
+export function renameLine(economy: Economy, id: number, name: string): void {
+  const line = economy.lines.get(id);
+  const n = name.trim().slice(0, LINE_NAME_MAX);
+  if (line && n) line.name = n;
+}
+
+/** Longest a line's name may be. */
+export const LINE_NAME_MAX = 24;
+
+/** A line's new colour (one of `LINE_COLOURS`); its name follows if it was the colour's own ("Red line"). */
+export function recolourLine(economy: Economy, id: number, colour: string): void {
+  const line = economy.lines.get(id);
+  const to = LINE_COLOURS.find((c) => c.colour === colour);
+  if (!line || !to) return;
+  const from = LINE_COLOURS.find((c) => c.colour === line.colour);
+  if (from && line.name === `${from.name} line`) line.name = `${to.name} line`;
+  line.colour = colour;
 }
 
 /** This engine runs no line now (goes anywhere, works at every stop); a line no train runs is forgotten. */

@@ -317,3 +317,53 @@ describe("findSnapAtPoint", () => {
     }
   });
 });
+
+describe("a train lift held square across a line (QA: dropped loose, held at π against the line's π/2)", () => {
+  const LIFT = "kit-train-lift" as const;
+  const LEN = 288;
+  /** A line of two 216s heading π/2 from (0, 0), `y` up: its free ends at z = 0 (facing −z) and z = 432 (facing +z). */
+  const line = (y: number) => {
+    const l = new Layout();
+    const a = l.addPiece("straight-216", P(0, 0, Math.PI / 2), y);
+    appendPiece(l, "straight-216", false, connectorRef(a, 1));
+    return l;
+  };
+
+  it("joins a line on the floor by its low end, at either end of the line, turned a quarter along it", () => {
+    const l = line(0);
+    for (const [endZ, along] of [
+      [432, Math.PI / 2],
+      [0, -Math.PI / 2],
+    ] as const) {
+      // Held at π with its low end (connector 0, the pose's origin) a little off the line's end.
+      const s = findSnap(l, LIFT, false, P(10, endZ + 8, Math.PI), 0);
+      expect(s.kind, `end z=${endZ}`).toBe("snapped");
+      if (s.kind !== "snapped") continue;
+      expect(s.connector).toBe(0);
+      expect(s.y).toBe(0);
+      expect(Math.cos(s.pose.heading - along)).toBeCloseTo(1, 6);
+    }
+  });
+
+  it("joins a line a level up by its high end", () => {
+    const l = line(RISER_HEIGHT);
+    // Held at π with its high end (connector 1, LEN along) a little off the line's end at z = 0.
+    const s = findSnap(l, LIFT, false, P(LEN + 6, -6, Math.PI), 0);
+    expect(s.kind).toBe("snapped");
+    if (s.kind === "snapped") {
+      expect(s.connector).toBe(1);
+      expect(s.y).toBe(0);
+    }
+  });
+
+  it("pointed at the line's end, or just ahead of it on its line, it joins however it's held", () => {
+    const l = line(0);
+    for (const heading of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      const at = findSnapAtPoint(l, LIFT, false, P(0, 600, heading), 0, { x: 4, z: 440 });
+      expect(at.kind, `at, held ${heading}`).toBe("snapped");
+      const ahead = findSnapAhead(l, LIFT, false, P(0, 600, heading), 0, { x: 10, z: 432 + LEN / 2 });
+      expect(ahead.kind, `ahead, held ${heading}`).toBe("snapped");
+      if (ahead.kind === "snapped") expect(Math.cos(ahead.pose.heading - Math.PI / 2)).toBeCloseTo(1, 6);
+    }
+  });
+});

@@ -1027,6 +1027,12 @@ export class Interaction {
       this.mode = { kind: "draw-track", pointerId: e.pointerId };
       return;
     }
+    // Planning a route: nothing is taken hold of, so the camera has every drag from its start, even one on a station
+    // or a disc (handled as a floor tap: a tap there adds the place, see `onUp`).
+    if (hit && this.onPickPlace) {
+      this.floorDown = this.touches.size <= 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, press: hit } : null;
+      return;
+    }
     if (!hit) {
       // Empty floor: the camera pans; a tap here deselects (but not the pieces being picked: Done lets them go), and a
       // double tap focuses on that spot.
@@ -1055,6 +1061,8 @@ export class Interaction {
    * selected)? Picking several, only a picked piece moves. Cargo is fetched from its pile with a drag either way.
    */
   private dragsWhatsPressed(press: Press, pointerType: string): boolean {
+    // Planning a route, nothing moves: any drag pans (a tap adds a stop).
+    if (this.onPickPlace) return false;
     switch (press.kind) {
       case "piece":
         if (this.picking) return this.picked.has(press.pieceId);
@@ -1073,6 +1081,19 @@ export class Interaction {
   }
 
   private onMove(e: PointerEvent): void {
+    // A floor press that has moved past the slop is a drag (the camera's), not a tap, wherever it's let go. (Every point
+    // the pointer passed since the last event: a busy frame can't hide an out-and-back drag.)
+    const f = this.floorDown;
+    if (f && f.id === e.pointerId && !f.moved) {
+      const slop = dragSlop(e.pointerType);
+      const pts = e.getCoalescedEvents?.() ?? [];
+      for (const p of pts.length ? pts : [e]) {
+        if (Math.hypot(p.clientX - f.x, p.clientY - f.y) >= slop) {
+          f.moved = true;
+          break;
+        }
+      }
+    }
     const m = this.mode;
     if (m.kind === "idle" && this.landCursor && e.pointerType === "mouse" && e.target === this.game.canvas) this.showSquare(this.squareAt(e.clientX, e.clientY));
     // A ready road's outline follows the mouse (not while the camera's being dragged).
@@ -1197,8 +1218,9 @@ export class Interaction {
   private armHold(m: Extract<Mode, { kind: "press" }>, t: number): void {
     const target = m.press.kind === "piece" ? "piece" : m.press.kind === "car" ? "car" : m.press.kind === "depot" ? "depot" : null;
     // Drawing, on a line's body: a drag draws a branch, so a long press (a mouse's too) is how the piece is picked up.
+    // (Never while planning a route: then a press draws nothing, `drawsNow`, and a hold picks nothing up.)
     const branch = this.drawsNow && m.branch !== undefined;
-    if (!branch && (!target || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType))) return;
+    if (!branch && (!target || this.onPickPlace || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType))) return;
     // Drawing is its own tool: a finger resting there neither picks anything up nor starts a line (Rail and road's).
     if (this.drawing && !branch) return;
     if (m.press.kind === "piece" && (this.picking || this.fixedLabel(m.press.pieceId))) return;
@@ -1283,8 +1305,14 @@ export class Interaction {
       this.floorDown = null;
       // A tap is a press that stays put (a finger wobbles more than a mouse), let go within FLOOR_TAP_MS: a slow phone,
       // or a careful child, takes its time.
-      const still = Math.hypot(e.clientX - f.x, e.clientY - f.y) < dragSlop(e.pointerType);
+      const still = !f.moved && Math.hypot(e.clientX - f.x, e.clientY - f.y) < dragSlop(e.pointerType);
       if (still && e.timeStamp - f.t < FLOOR_TAP_MS && this.touches.size <= 1) {
+        // Planning, on a place (or a disc, or a train at its station): that's the tap.
+        if (f.press) {
+          this.tap(f.press);
+          this.lastTap = null;
+          return;
+        }
         const ground = this.groundAt(e.clientX, e.clientY);
         if (f.road && this.roadReady) {
           const r = this.roadReady;
@@ -1355,7 +1383,7 @@ export class Interaction {
     else this.dropTrain(m);
   }
 
-  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean } | null = null;
+  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; press?: Press; moved?: boolean } | null = null;
 
   private somethingSelected(): boolean {
     return this.selectedPiece !== -1 || this.selectedProp !== -1 || this.selectedCar !== -1 || this.selectedDepot !== -1 || this.selectedScenery !== null;
@@ -3822,9 +3850,12 @@ export class Interaction {
     }
     // (The kits' group: a turntable's deck is tapped to turn it, picked as a switch's lever; a signal skin's model to
     // hold its signal. The crossings': a crossing style is its prop's.)
-    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group], true);
+    // (The loop-the-loops' shows': a tap on an engine's copy running the loop is a tap on the engine.)
+    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group, g.loopShow.group], true);
     for (let i = 0; i < hits.length; i++) {
       const h = hits[i];
+      const shown = g.loopShow.engineAt(h.object as Object3D);
+      if (shown !== -1) return { kind: "car", carId: shown };
       const slot = g.depotView.cargoAt(h.object, h.instanceId);
       if (slot) {
         const cargo = slot.kind === "pile" ? slot.cargo : g.economy.cargoOf(slot.carId).kind;

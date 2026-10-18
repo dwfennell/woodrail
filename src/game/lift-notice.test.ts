@@ -23,6 +23,22 @@ describe("a train too long for a lift is told once, not on every approach", () =
     expect(n.shouldTell([1, 2, 3, 4], TOO_LONG_AGAIN_MS + 1000)).toBe(false);
   });
 
+  it("no car ids (missing or empty): told once by the train's id, not on every approach", () => {
+    const n = new TooLongNotice();
+    expect(n.shouldTell([], 0, 5)).toBe(true);
+    expect(n.shouldTell([], 1000, 5)).toBe(false);
+    expect(n.shouldTell(undefined, 2000, 5)).toBe(false);
+    // Another train, also without cars: told.
+    expect(n.shouldTell(undefined, 3000, 6)).toBe(true);
+    // A train's id doesn't clash with a car of the same number.
+    expect(n.shouldTell([5], 4000, 9)).toBe(true);
+    // Again after a few minutes.
+    expect(n.shouldTell([], TOO_LONG_AGAIN_MS, 5)).toBe(true);
+    // Nothing to key on: never told (rather than told on every approach).
+    expect(n.shouldTell([], 0)).toBe(false);
+    expect(n.shouldTell(undefined, 0)).toBe(false);
+  });
+
   it("names the train lift", () => {
     expect(TOO_LONG_MESSAGE).toBe("That train's too long for the train lift: an engine and two cars fit");
     expect(LIFT_TIP).toBe("Tap the train lift to send it");

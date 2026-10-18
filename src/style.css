@@ -598,6 +598,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .icon-btn-alert::after { content: ""; position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #c8442f; box-shadow: 0 0 0 2px #fbf3e4; animation: alert-pulse 1.2s ease-in-out infinite; }
 @keyframes alert-pulse { 50% { transform: scale(1.3); } }
 @media (prefers-reduced-motion: reduce) { .icon-btn-alert::after { animation: none; } }
+/* The Blueprints button, till the board is first opened, while a reward waits: a glow round the whole button. */
+.board-new { animation: board-glow 1.4s ease-in-out infinite; }
+@keyframes board-glow { 50% { box-shadow: 0 0 0 7px rgba(224, 165, 38, 0.6), 0 0 18px 6px rgba(224, 165, 38, 0.45); } }
+@media (prefers-reduced-motion: reduce) { .board-new { animation: none; box-shadow: 0 0 0 4px rgba(224, 165, 38, 0.7); } }
 
 /* Game mode's coins, by the logo: a stack of toy coins and the count. */
 .coins { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 800; color: #5a3f24; font-variant-numeric: tabular-nums; padding: 2px 9px 2px 4px; border-radius: 999px; background: #f3e1b6; }
@@ -616,7 +620,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-head .route-plan { margin-left: auto; }
 .route-plan.on { background: #3c9a5f; color: #fff; }
 .route-hint { font-size: 0.85em; opacity: 0.75; }
-.route-stops { display: flex; flex-wrap: wrap; gap: 4px; }
+.route-stops { display: flex; flex-wrap: nowrap; gap: 4px; position: relative; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.route-stops::-webkit-scrollbar { display: none; }
 .route-chip { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
 .route-chip.next { font-weight: 800; }
 .route-chip.picked { outline: 2px solid #3a2a1c; outline-offset: 1px; }
@@ -625,6 +630,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-tools { display: flex; gap: 4px; }
 .route-tools .route-action { flex: 1 0 auto; }
 .route-tools button { white-space: nowrap; padding-inline: 10px; }
+.route-tools .route-move, .route-tools .route-remove { min-width: 44px; min-height: 44px; }
 /* Planning a route: the map wants the room. The engine card slims to its route, and the tray goes. */
 .planning .engine-card .card-title, .planning .engine-card .engine-status, .planning .engine-card .engine-controls,
 .planning .engine-card .corner, .planning .engine-card > .close, .planning .engine-card .engine-more { display: none; }
@@ -634,6 +640,16 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-wait.on { background: #e6b52c; }
 .route-chip[data-wait]::before { content: "⏳ "; }
 .route-warn { font-size: 0.85em; color: #b0391f; font-weight: 700; }
+/* The stops one row, scrolled sideways if they don't fit (the card stays short); planning, a picked stop's tools compact. */
+.planning .route-tools { flex-wrap: nowrap; }
+.route-stops.more-right { mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); }
+.route-stops.more-left { mask-image: linear-gradient(90deg, transparent, #000 28px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); }
+.route-stops.more-left.more-right { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); }
+.route-chip, .planning .route-tools button { flex: 0 0 auto; }
+.planning .route-tools button { padding-inline: 8px; font-size: 13px; min-width: 44px; }
+.planning .engine-extra.route { gap: 4px; }
+/* (The tray's away: the bar sits at the bottom, full width, so the map has the rest.) */
+.planning .engine-card { width: min(calc(100vw - 32px), 440px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); padding: 10px 12px; }
 
 /* "Show me": a goal town's name over it for a few seconds (positioned by the game each frame), in a layer over the
    canvas that clips them, so one off screen never widens the page. */
@@ -663,3 +679,36 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .harbour-buy { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .harbour-buy-line { flex-basis: 100%; font-size: 13px; font-weight: 700; color: #6a5340; }
 .coin-dot { display: inline-block; width: 13px; height: 13px; margin-left: 4px; vertical-align: -2px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffe08a, #e2a12b 70%); box-shadow: inset 0 0 0 1.5px #c98a1c; }
+
+/* Lines: on a train's card, its line's trains, Leave, and (on no line) the lines it could run. */
+/* The route's part of the card stays within the card on a narrow phone: its head row shrinks the line's name. */
+.engine-card { max-width: calc(100vw - 32px); box-sizing: border-box; }
+.engine-extra.route { align-self: stretch; min-width: 0; }
+.route-head { min-width: 0; }
+.route-line-name { cursor: pointer; min-height: 44px; min-width: 0; flex: 1 1 auto; overflow: hidden; }
+.route-riders { white-space: nowrap; flex: 0 0 auto; }
+/* A long name ends in "…" rather than wrapping the card's head. */
+.route-line-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.route-head .route-plan, .route-head .route-leave { flex: 0 0 auto; }
+.route-leave.asking { background: #b0391f; color: #fff; }
+.route-join-line:disabled { opacity: 0.45; }
+.route-riders { font-weight: 600; opacity: 0.7; }
+.route-head .route-leave { padding-inline: 10px; }
+.route-join { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.route-join-line { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
+/* The Lines view: a sheet at the bottom (the tray's away), each line a row. */
+.lines-open .tray, .lines-open .tray-draw, .lines-open .tray-orient { display: none; }
+.lines-view { width: min(calc(100vw - 32px), 440px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); gap: 8px; padding: 12px; }
+.lines-head { display: flex; align-items: center; justify-content: space-between; color: #6a4a2c; }
+.lines-list { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; overflow-y: auto; }
+.lines-row { display: flex; align-items: center; gap: 10px; }
+.lines-row-wrap { display: flex; flex-direction: column; gap: 6px; }
+.lines-swatch { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 1px 3px rgba(60, 40, 20, 0.35); cursor: pointer; padding: 0; }
+.lines-swatch.on { outline: 3px solid #3a2a1c; outline-offset: 1px; }
+.lines-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lines-name { font: inherit; font-weight: 700; color: #3a2a1c; background: transparent; border: none; border-bottom: 2px dashed rgba(106, 74, 44, 0.3); padding: 2px 0; min-width: 0; width: 100%; min-height: 44px; box-sizing: border-box; }
+.lines-head button, .lines-show { min-height: 44px; min-width: 44px; }
+.lines-name:focus { outline: none; border-bottom-color: #6a4a2c; background: rgba(255, 255, 255, 0.6); }
+.lines-info { font-size: 0.8em; opacity: 0.7; }
+.lines-palette { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 4px 54px; }
+.lines-none { font-size: 0.9em; opacity: 0.75; }

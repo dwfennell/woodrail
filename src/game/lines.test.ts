@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Economy } from "../economy";
 import { Sim } from "../sim";
 import { Layout } from "../track";
-import { editLine, LINE_COLOURS, lineOf, moveStop, stopLine } from "./lines";
+import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, moveStop, recolourLine, renameLine, stopLine, trainsOn } from "./lines";
 
 /** An economy with three depots on a straight line, and an engine. */
 function world() {
@@ -68,5 +68,47 @@ describe("lines", () => {
     w.economy.prune();
     expect(w.economy.lines.size).toBe(0);
     expect(w.economy.lineIdOf.size).toBe(0);
+  });
+
+  it("several trains run one line: an edit keeps each heading for its own stop; one leaving keeps the line for the rest", () => {
+    const w = world();
+    const line = editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }, { depotId: w.mill, action: "auto" }, { depotId: w.town, action: "auto" }))!;
+    const r = w.sim.addTrain(["engine"], { pieceId: w.economy.depot(w.town)!.pieceId, pathIndex: 0, reversed: false, s: 100 });
+    if (r.kind !== "placed") throw new Error();
+    const second = w.sim.getTrain(r.trainId)!.cars[0].id;
+    expect(joinLine(w.economy, second, line.id)).toBe(line);
+    expect(trainsOn(w.economy, line.id).sort()).toEqual([w.engine, second].sort());
+    expect(w.economy.routeOf(second)!.stops).toBe(line.stops);
+    w.economy.routeOf(w.engine)!.next = 1;
+    w.economy.routeOf(second)!.next = 2;
+    // The first stop taken off: each still heading for its own (mill, town).
+    editLine(w.economy, second, (s) => s.splice(0, 1));
+    expect(line.stops[w.economy.routeOf(w.engine)!.next].depotId).toBe(w.mill);
+    expect(line.stops[w.economy.routeOf(second)!.next].depotId).toBe(w.town);
+    // One leaves: the other still runs it.
+    stopLine(w.economy, w.engine);
+    expect(w.economy.lines.has(line.id)).toBe(true);
+    expect(trainsOn(w.economy, line.id)).toEqual([second]);
+    // Emptied: every train on it goes anywhere again.
+    joinLine(w.economy, w.engine, line.id);
+    expect(editLine(w.economy, w.engine, (s) => s.splice(0))).toBe(null);
+    expect(w.economy.routeOf(second)).toBeUndefined();
+    expect(w.economy.lines.size).toBe(0);
+  });
+
+  it("a line can be renamed and recoloured (its name follows its colour while it's the colour's own)", () => {
+    const w = world();
+    const line = editLine(w.economy, w.engine, (s) => s.push({ depotId: w.forest, action: "auto" }))!;
+    recolourLine(w.economy, line.id, LINE_COLOURS[3].colour);
+    expect(line.colour).toBe(LINE_COLOURS[3].colour);
+    expect(line.name).toBe("Green line");
+    renameLine(w.economy, line.id, "  Timber run  ");
+    expect(line.name).toBe("Timber run");
+    renameLine(w.economy, line.id, "   ");
+    expect(line.name).toBe("Timber run");
+    recolourLine(w.economy, line.id, LINE_COLOURS[1].colour);
+    expect(line.name).toBe("Timber run");
+    renameLine(w.economy, line.id, "x".repeat(60));
+    expect(line.name).toHaveLength(LINE_NAME_MAX);
   });
 });

@@ -34,7 +34,7 @@ const TURN_CLEARANCE = 0.05;
 // Motion tuning (mm, s).
 export const ENGINE_SPEED = 120;
 /** How quickly (mm/s²) a train gets up to speed, or stops: half a second either way. */
-const ACCELERATION = ENGINE_SPEED * 2;
+export const ACCELERATION = ENGINE_SPEED * 2;
 const SIDE_HIT_DISTANCE = 12;
 /** How far ahead (mm) a train looks for a signal at red, and in what steps: well past its stopping distance. */
 const SIGNAL_LOOK = 300;
@@ -85,7 +85,7 @@ export type SimEvent =
   /** A train was lifted and turned round at a turnback buffer (it has a new id; its cars keep theirs). */
   | { readonly kind: "turned"; readonly trainId: number; readonly newTrainId: number }
   /** A train came onto a lift too long to fit on its platform: it runs to the platform's end and turns back. */
-  | { readonly kind: "lift-refused"; readonly trainId: number; readonly pieceId: number }
+  | { readonly kind: "lift-refused"; readonly trainId: number; readonly pieceId: number; readonly carIds: readonly number[] }
   /** An axle rolled over a joint between pieces (the toy's clickety-clack). */
   | { readonly kind: "joint"; readonly trainId: number; readonly bogie: number };
 
@@ -831,7 +831,7 @@ export class Sim {
       if (trainLength(train) > len - 2 * LIFT_FACE_GAP) {
         if (record && !this.liftRefused.has(train.id)) {
           this.liftRefused.add(train.id);
-          this.events.push({ kind: "lift-refused", trainId: train.id, pieceId: lead.pieceId });
+          this.events.push({ kind: "lift-refused", trainId: train.id, pieceId: lead.pieceId, carIds: train.cars.map((c) => c.id) });
         }
         return Infinity;
       }

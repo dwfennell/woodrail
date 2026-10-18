@@ -184,3 +184,52 @@ describe("pinned switches", () => {
     expect(layout.switchState(sw)).toBe(1);
   });
 });
+
+/**
+ * An oval of large curves with a switch in it (its straight way runs on round the oval) and a spur off its curve to
+ * the end of a line. From the switch's trunk both ways reach the oval's far side: round it, or down the spur and back.
+ * A train stands just short of the switch, heading into its trunk.
+ */
+function ovalWithSpur() {
+  const layout = new Layout();
+  const half: PieceTypeId[] = ["curve-large", "curve-large", "curve-large", "curve-large"];
+  const types: PieceTypeId[] = [...half, "straight-216", "switch", ...half, "straight-216", "straight-144"];
+  const ids: number[] = [];
+  for (const t of types) ids.push(ids.length === 0 ? layout.addPiece(t, { x: 0, z: 0, heading: 0 }) : appendPiece(layout, t, false, connectorRef(ids[ids.length - 1], 1)));
+  const sw = ids[5];
+  const spur = appendPiece(layout, "straight-216", false, connectorRef(sw, 2));
+  const sim = new Sim(layout);
+  const placed = sim.addTrain(["engine"], { pieceId: ids[4], pathIndex: 0, reversed: false, s: 150 });
+  if (placed.kind !== "placed") throw new Error("no room");
+  const train = () => sim.getTrain(sim.trainIds()[0])!;
+  return { layout, ids, sw, spur, train, far: ids[1] };
+}
+
+describe("steer: an avoid hint", () => {
+  it("without one, or with nothing in it, the choice is as ever", () => {
+    const o = ovalWithSpur();
+    expect(o.layout.switchState(o.sw)).toBe(0);
+    expect(steer(o.layout, o.train(), true, o.far)).toBe(false);
+    expect(steer(o.layout, o.train(), true, o.far, () => false)).toBe(false);
+    expect(o.layout.switchState(o.sw)).toBe(0);
+  });
+
+  it("passes over a way onto avoided track, through the switch or just after it, while the other still gets there", () => {
+    const o = ovalWithSpur();
+    // The straight way through the switch avoided: down the spur (and back) instead.
+    expect(steer(o.layout, o.train(), true, o.far, (id, path) => id === o.sw && path === 0)).toBe(true);
+    expect(o.layout.switchState(o.sw)).toBe(1);
+    // The spur (just after the switch's curve) avoided: back to the straight way.
+    expect(steer(o.layout, o.train(), true, o.far, (id) => id === o.spur)).toBe(true);
+    expect(o.layout.switchState(o.sw)).toBe(0);
+  });
+
+  it("never strands a train: with every way avoided it chooses as without the hint, and a pinned switch wins", () => {
+    const o = ovalWithSpur();
+    expect(steer(o.layout, o.train(), true, o.far, (id) => id === o.sw)).toBe(false);
+    expect(o.layout.switchState(o.sw)).toBe(0);
+    o.layout.setPinned(o.sw, true);
+    expect(steer(o.layout, o.train(), true, o.far, (id, path) => id === o.sw && path === 0)).toBe(false);
+    expect(o.layout.switchState(o.sw)).toBe(0);
+  });
+});
