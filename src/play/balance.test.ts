@@ -24,6 +24,8 @@ import { fieldPrice, fieldSpot, plantField } from "../game/fields";
 import { rng } from "../lib/rng";
 import { SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, indexOfRef, pieceOfRef, type PieceTypeId, type Pose } from "../track";
+import { lineLegs } from "../game/route-path";
+import { carsLength, loopOnLine, passingLoops } from "../game/passing-loop";
 import { play, type Blocked } from "./player";
 import { endOn, rulesFor } from "./rules";
 
@@ -262,6 +264,7 @@ class Player {
         if (turn?.cause === "train" && key && !this.turnsSeen.has(key)) {
           this.turnsSeen.add(key);
           this.headOn++;
+          if (ENV.BALANCE_HEADON) this.note(`head-on: engine ${t.cars.find((c) => c.kind === "engine")?.id} on ${this.w.layout.getPiece(turn.pieceId)?.type} (piece ${turn.pieceId}); line ${this.w.economy.lineIdOf.get(t.cars.find((c) => c.kind === "engine")?.id ?? -1) ?? "-"}`);
         }
       }
       for (const g of this.goals.update(this.w, { learned: this.progress.learned })) {
@@ -506,6 +509,86 @@ function branchOff(P: Player, type: PieceTypeId, cells: number[], after?: PieceT
   return null;
 }
 
+/**
+ * A passing loop spliced into the line mid-way between two of its stops, as a player would lay one for a second train
+ * (routes Phase 3b: trains of the line cross there): four (or three) straights in a row on the way between the stops
+ * become a switch, the main road (straights), the other road round beside it (a curve, straights, a curve) and a
+ * switch, made at the workshop. The loop's pieces, or null with everything put back.
+ */
+function spliceLoop(P: Player, stopPieces: readonly number[], longest = 0): number[] | null {
+  const w = P.w;
+  const L = w.layout;
+  if (!P.canMake(new Map([["piece:switch", 2]]))) return null;
+  /** The main road and the other road's straights for a run of n straight-216s (the loop's switches are 144 long). */
+  const ROADS: Record<number, { main: PieceTypeId[]; side: PieceTypeId[] }> = {
+    4: { main: ["straight-216", "straight-216", "straight-144"], side: ["straight-216", "straight-144"] },
+    3: { main: ["straight-216", "straight-144"], side: ["straight-144"] },
+  };
+  // Runs of straights on the line's ways between stops: first where the main road holds the line's longest train
+  // (`longest`, mm) clear of both switches, then clear of the stops, then longest, then nearest the middle.
+  const runs: { ids: number[]; mid: number; clear: boolean; fits: boolean }[] = [];
+  for (const n of [4, 3])
+    for (const leg of lineLegs(L, stopPieces)) {
+      const ids: number[] = [];
+      for (const r of leg ?? []) if (ids.at(-1) !== r.pieceId) ids.push(r.pieceId);
+      for (let k = 0; k + n <= ids.length; k++) {
+        const run = ids.slice(k, k + n);
+        if (run.some((id) => P.fixed.has(id) || L.getPiece(id)!.type !== "straight-216" || w.sim.pieceOccupied(id))) continue;
+        // (Clear of the stops at either end by two pieces: a long train worked at a stop creeps on past it.)
+        runs.push({ ids: run, mid: Math.abs(k + n / 2 - ids.length / 2), clear: k >= 3 && k + n <= ids.length - 3, fits: (n === 4 ? 576 : 360) >= longest + 12 });
+      }
+    }
+  runs.sort((a, b) => Number(b.fits) - Number(a.fits) || Number(b.clear) - Number(a.clear) || b.ids.length - a.ids.length || a.mid - b.mid);
+  const rules = P.rules();
+  /** The end joined to piece `id` other than by piece `not`. */
+  const outer = (id: number, not: number): number => {
+    for (const c of [0, 1]) {
+      const j = L.joinedConnector(connectorRef(id, c));
+      if (j !== -1 && pieceOfRef(j) !== not) return j;
+    }
+    return -1;
+  };
+  for (const { ids } of runs.slice(0, 12)) {
+    const n = ids.length;
+    const before = outer(ids[0], ids[1]);
+    const after = outer(ids[n - 1], ids[n - 2]);
+    if (before === -1 || after === -1) continue;
+    const was = ids.map((id) => ({ ...L.getPiece(id)! }));
+    for (const side of [false, true]) {
+      for (const id of ids) P.editor.remove(id);
+      const placed: number[] = [];
+      const put = (type: PieceTypeId, flipped: boolean, ref: number, via?: number): number => {
+        const tmp = appendPiece(L, type, flipped, ref, via);
+        const p = L.getPiece(tmp)!;
+        L.removePiece(tmp);
+        const id = P.editor.place(type, p.pose, p.y, flipped);
+        placed.push(id);
+        return id;
+      };
+      const s1 = put("switch", side, before, 0);
+      let at = s1;
+      for (const t of ROADS[n].main) at = put(t, false, connectorRef(at, 1));
+      const mainEnd = at;
+      at = put("curve-large", !side, connectorRef(s1, 2));
+      for (const t of ROADS[n].side) at = put(t, false, connectorRef(at, 1));
+      at = put("curve-large", !side, connectorRef(at, 1));
+      const s2 = put("switch", !side, connectorRef(at, 1), 2);
+      const closes =
+        L.joinedConnector(connectorRef(s2, 1)) === connectorRef(mainEnd, 1) &&
+        L.joinedConnector(connectorRef(s2, 0)) === after &&
+        L.joinedConnector(connectorRef(s1, 0)) === before;
+      const allowed = placed.every((id) => {
+        const p = L.getPiece(id)!;
+        return !rules(p.type, p.flipped, p.pose, p.y, id);
+      });
+      if (closes && allowed && P.settle()) return placed;
+      for (const id of placed) P.editor.remove(id);
+      ids.splice(0, n, ...was.map((p) => P.editor.place(p.type, p.pose, p.y, p.flipped)));
+    }
+  }
+  return null;
+}
+
 function industryAt(P: Player, type: PieceTypeId, ref: number): number {
   const id = placeOn(P, ref, type);
   const p = P.w.layout.getPiece(id)!;
@@ -645,6 +728,8 @@ class Playthrough {
   lines = false;
   sawn = 0;
   sawnAt = 0;
+  /** Head-on meetings and needs-a-loop seconds (`Player`) when planks were last sawn. */
+  troubleAt = 0;
   /** Trains picked up after a jam (the second train isn't put back on the same line while it would jam again). */
   lifted = 0;
   /** The line every train runs once routes are learned, the most trains it had, and trains taken off it for a jam. */
@@ -652,6 +737,10 @@ class Playthrough {
   perLine = 0;
   jamCut = 0;
   extraAt = -99;
+  /** The passing loop laid on the line (its pieces), and when it was last tried. */
+  loop: number[] | null = null;
+  loopTry = -99;
+  loopAt: number | null = null;
   recomposed = -99;
   /** Minutes in a row with nothing new. */
   idle = 0;
@@ -752,12 +841,16 @@ class Playthrough {
       if (back !== -1) for (const car of w.sim.getTrain(back)?.cars ?? []) if (car.kind === "engine") w.sim.setLever(car.id, 1);
     }
     // Two trains on one line turn each other back, and the goods train may never reach one end: with no planks sawn
-    // for a few minutes, a player sees it and picks the other train up (it can come back on a line of its own).
+    // for a few minutes, a player sees it and picks the other train up (it can come back on a line of its own). Only
+    // if the trains did get in each other's way meanwhile (met head on, or waited saying the line needs a loop):
+    // otherwise the line is just long, and the player leaves it be.
     const sawn = w.economy.made[CARGO.planks.index];
+    const trouble = P.headOn + P.loopSeconds;
     if (sawn !== this.sawn) {
       this.sawn = sawn;
       this.sawnAt = P.minute;
-    } else if ((this.stall = Math.max(this.stall, Math.round(P.minute - this.sawnAt))) && (this.trains.size < 2 || (this.jamStall = Math.max(this.jamStall, Math.round(P.minute - this.sawnAt)))) && P.minute - this.sawnAt >= 4 && this.trains.size >= 2) {
+      this.troubleAt = trouble;
+    } else if ((this.stall = Math.max(this.stall, Math.round(P.minute - this.sawnAt))) && (this.trains.size < 2 || (this.jamStall = Math.max(this.jamStall, Math.round(P.minute - this.sawnAt)))) && P.minute - this.sawnAt >= 4 && this.trains.size >= 2 && trouble > this.troubleAt) {
       const [e, kind] = [...this.trains].find(([id]) => id !== this.timber) ?? [];
       if (e !== undefined) {
         P.lift(e);
@@ -767,6 +860,7 @@ class Playthrough {
         P.findings.push(`Minute ${P.minute.toFixed(0)}: no planks sawn for 4 minutes with ${this.trains.size + 1} trains on one line (they turn each other back; the goods train never reached the forest). Picked the ${kind} train up.`);
         P.note(`JAM: no planks sawn for 4 min; picked the ${kind} train up`);
         this.sawnAt = P.minute;
+        this.troubleAt = trouble;
       }
     }
     if (Math.round(P.minute - this.sawnAt) === 5) {
@@ -1062,7 +1156,25 @@ class Playthrough {
     }
     // More trains on the line as they become affordable (an engine and two flatbeds), up to BALANCE_TRAINS_PER_LINE,
     // a few minutes apart; one fewer for each that jammed the line.
-    if (this.lines && this.lineId >= 0 && this.trains.size < PER_LINE - this.jamCut && P.minute - this.extraAt >= 3) {
+    // With more than one train for the line, a passing loop on it first (mid-way between two stops), once switches
+    // are learned and can be made (BALANCE_NOLOOP=1: none).
+    if (this.lines && this.lineId >= 0 && PER_LINE > 1 && !this.loop && !ENV.BALANCE_NOLOOP && P.progress.knows("piece:switch") && P.minute - this.loopTry >= 3) {
+      this.loopTry = P.minute;
+      const line = w.economy.lines.get(this.lineId);
+      const stops = line ? [...new Set(line.stops.map((st) => w.economy.depot(st.depotId)!.pieceId))] : [];
+      const longest = Math.max(0, ...[...w.economy.lineIdOf].filter(([, id]) => id === this.lineId).map(([e]) => w.sim.findCar(e)?.train.cars.length ? carsLength(w.sim.findCar(e)!.train.cars) : 0));
+      this.loop = spliceLoop(P, stops, longest);
+      if (this.loop) {
+        P.happened++;
+        this.loopAt = P.minute;
+        P.note(`laid a passing loop on the line (${this.loop.length} pieces)`);
+        if (ENV.BALANCE_HEADON) P.note(`  loops: ${JSON.stringify(passingLoops(w.layout).map((l) => ({ a: l.a, b: l.b, roads: l.roads.map((r) => [r.pieces, Math.round(r.length)]) })))}; loop pieces ${this.loop.join(",")}; goal ${loopOnLine(w.economy)}`);
+      } else this.why ||= "a passing loop for the line (no room, or 2 switches to make)";
+    }
+    // (With the loop scripted, the line's second train waits for it, as a player who knows the line needs one would.)
+    const loopFirst = PER_LINE > 1 && !ENV.BALANCE_NOLOOP && !this.loop;
+    if (loopFirst && this.lines && this.trains.size < PER_LINE - this.jamCut) this.why ||= "another train for the line, once it has a passing loop";
+    if (!loopFirst && this.lines && this.lineId >= 0 && this.trains.size < PER_LINE - this.jamCut && P.minute - this.extraAt >= 3) {
       const cars: CarKind[] = ["engine", "timber", "timber"];
       if (P.canMake(thingsFor({ kind: "train", cars }))) {
         const e = P.train(cars, -1, 1);
@@ -1221,7 +1333,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
-      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} crossWait ${(P.crossSeconds / 60).toFixed(1)}min loopWait ${(P.loopSeconds / 60).toFixed(1)}min headOn ${P.headOn}`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} loop ${this.loopAt ?? "-"} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} crossWait ${(P.crossSeconds / 60).toFixed(1)}min loopWait ${(P.loopSeconds / 60).toFixed(1)}min headOn ${P.headOn}`,
       `findings:\n- ${P.findings.join("\n- ") || "none"}`,
     ].join("\n");
     console.log(out);
