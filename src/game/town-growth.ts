@@ -25,7 +25,7 @@ export interface Lot {
 const BLOCK_TRIES = 24;
 
 /** How far from its centre (mm) a town may spread: about six squares. */
-const MAX_REACH = 6.5 * 72;
+export const MAX_REACH = 6.5 * 72;
 
 /** Grid edges +col, +row, −col, −row. */
 const EDGES = [

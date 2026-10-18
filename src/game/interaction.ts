@@ -12,7 +12,9 @@ import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapA
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
-import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
+import { buildingCells, buildingPose, findBuilding, looksOf, releaseBuilding } from "../props/towns";
+import { lotFor, movableBuilding, moveBuilding, townMoveMessage, type TownLot, type TownMoveBlock } from "./town-moves";
+import type { Look } from "../render/dressing/buildings";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
 import type { PropPose } from "../props/store";
@@ -289,6 +291,11 @@ type Mode =
       overTray: boolean;
       /** The track, sampled once for the drag (it doesn't change meanwhile). */
       track: TrackIndex;
+      /**
+       * Game mode, a town's house being moved about its town: it snaps to its town's lots (see town-moves.ts). Its
+       * building, its town look, the lot under the hand (worked out again only when the square under it changes).
+       */
+      town?: { building: number; look: Look; editor: LandEditor; cell: number; lot: TownLot | TownMoveBlock | null };
     }
   | { kind: "drag-road"; pointerId: number; drag: RoadDrag; overTray: boolean }
   /** Drawing a line of track (the Draw chip on): see `DrawHand`. */
@@ -1037,8 +1044,8 @@ export class Interaction {
     // (Planning a route, a station or depot is tapped from any zoom.)
     const place = !!this.onPickPlace && hit?.kind === "piece" && !!this.game.economy.depotAtPiece(hit.pieceId);
     if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) hit = null;
-    // (In Game mode, only the player's own: lineside furniture, not the town's houses.)
-    if (hit?.kind === "prop" && ((!this.propsEditable && this.game.props.get(hit.propId)?.building !== undefined) || !this.propWithinReach(hit.propId))) hit = null;
+    // (In Game mode, the town's houses only to move them about their town: a landmark not at all.)
+    if (hit?.kind === "prop" && ((this.townHouse(hit.propId) && !movableBuilding(this.game.landscape, this.game.props.get(hit.propId)?.building)) || !this.propWithinReach(hit.propId))) hit = null;
     if (hit?.kind === "road" && !this.roadWithinReach(hit.cell)) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     // By a free end, on nothing that can be taken hold of from here after all: it draws straight away.
@@ -1087,6 +1094,8 @@ export class Interaction {
       case "depot":
         return dragMoves("depot", press.depotId === this.selectedDepot, pointerType);
       case "prop":
+        // (A town's house in Game mode is never selected: a finger rests on it to pick it up, a mouse drags it.)
+        if (this.townHouse(press.propId)) return pointerType === "mouse";
         return dragMoves("prop", press.propId === this.selectedProp, pointerType);
       case "road":
         return dragMoves("road", press.cell === this.roads.selected, pointerType);
@@ -1221,7 +1230,9 @@ export class Interaction {
    */
   private armHold(m: Extract<Mode, { kind: "press" }>, t: number): void {
     const k = m.press.kind;
-    const target = k === "piece" || k === "car" || k === "depot" || k === "cargo" ? k : null;
+    // (A town's house in Game mode is picked up as a piece is: a finger resting on it.)
+    const house = m.press.kind === "prop" && this.townHouse(m.press.propId);
+    const target = k === "piece" || k === "car" || k === "depot" || k === "cargo" ? k : house ? "piece" : null;
     if (!target || this.onPickPlace || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType)) return;
     // Drawing is its own tool: a finger resting there neither picks anything up nor starts a line (Rail and road's).
     if (this.drawing) return;
@@ -1527,7 +1538,11 @@ export class Interaction {
       return;
     }
     if (p.kind === "prop") {
-      this.selectProp(p.propId);
+      // (A town's house in Game mode isn't selected: a tap there is a tap on the map.)
+      if (this.townHouse(p.propId)) {
+        this.hud.hideCards();
+        this.clearSelection();
+      } else this.selectProp(p.propId);
       return;
     }
     if (p.kind === "road") {
@@ -2058,6 +2073,11 @@ export class Interaction {
   }
 
   /** What to say for a prop that can't go somewhere. */
+  /** Is this prop a town's building in Game mode (moved only about its town: see town-moves.ts)? */
+  private townHouse(propId: number): boolean {
+    return !this.propsEditable && this.game.props.get(propId)?.building !== undefined;
+  }
+
   private propMessage(reason: PropBlock): string {
     return reason === "yard" ? this.inYardWhy : PROP_MESSAGES[reason];
   }
@@ -2788,7 +2808,8 @@ export class Interaction {
     if (m.kind !== "drag-piece" && m.kind !== "drag-train" && m.kind !== "drag-cargo" && m.kind !== "drag-prop" && m.kind !== "drag-road") return;
     this.lastX = x;
     this.lastY = y;
-    m.overTray = this.hud.isOverTray(x, y);
+    // (A town's house in Game mode can't go back in the box: it's the town's, not the player's.)
+    m.overTray = this.hud.isOverTray(x, y) && !(m.kind === "drag-prop" && m.town);
     const r = this.game.canvas.getBoundingClientRect();
     const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
     // A drag coming up out of the tray passes through the bottom band: only pan once it has left the band.
@@ -3524,6 +3545,8 @@ export class Interaction {
     const from: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
     this.mode = this.propDrag(p.asset, propId, pointerId, p.heading, from, { x: p.x - ground.x, z: p.z - ground.z }, p.variant);
     this.mode.overTray = false;
+    const found = this.townHouse(propId) && p.building !== undefined ? findBuilding(g.landscape, p.building) : null;
+    if (found) this.mode.town = { building: p.building!, look: looksOf(g.landscape, found.town).get(p.building!) ?? "house", editor: this.landEditor(), cell: -2, lot: null };
     // Drawn by the hand while it moves, not where it stood.
     g.propsChanged(propId);
     this.onPickup?.();
@@ -3567,6 +3590,23 @@ export class Interaction {
         for (const other of g.props.all())
           if (other.id !== m.propId && standsAside(other.asset) && nearestCrossing(crossings, other.x, other.z) === i) blocked = "prop";
       }
+    } else if (m.town) {
+      // A town's house: onto the lot under it, as its town would stand it there (or, red, where it's held).
+      const t = m.town;
+      const cell = g.landscape.grid.cellAtWorld(pose.x, pose.z);
+      if (cell !== t.cell) {
+        t.cell = cell;
+        t.lot = lotFor(g.landscape, t.building, cell, t.editor);
+      }
+      const found = findBuilding(g.landscape, t.building);
+      if (typeof t.lot === "string" || !t.lot || !found) blocked = "town";
+      else {
+        const at = buildingPose(g.landscape, found.town, { ...found.building, cells: t.lot.cells, front: t.lot.front }, t.look, m.asset, g.props.get(m.propId)?.scale ?? 1);
+        pose.x = at.x;
+        pose.z = at.z;
+        pose.heading = at.heading;
+        ground = g.landscape.grid.groundY(t.lot.cells[0]);
+      }
     } else if (fp) {
       const own = new Set(buildingCells(g.landscape, m.propId === -1 ? undefined : g.props.get(m.propId)?.building));
       const c = checkProp({ land: g.landscape, track: m.track, props: g.props, footprint: g.propLibrary.footprint }, fp, pose, placeOn(m.asset), m.propId, own);
@@ -3574,7 +3614,12 @@ export class Interaction {
       else blocked = c.reason;
       blocked ??= this.propInYard(fp, pose);
     }
-    if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(this.propMessage(blocked));
+    if (m.town) {
+      // (Told once per reason, as it changes.)
+      const why = typeof m.town.lot === "string" ? m.town.lot : null;
+      if (why && (blocked !== m.blocked || why !== this.houseWhy)) this.hud.toast(townMoveMessage(why));
+      this.houseWhy = why;
+    } else if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(this.propMessage(blocked));
     m.blocked = blocked;
     m.pose = { ...pose, y: ground };
     m.ghost.visible = !m.overTray;
@@ -3600,8 +3645,8 @@ export class Interaction {
     if (m.blocked || !fp) {
       this.onRefused?.();
       g.propsChanged(-1);
-      // A moved prop stays where it was, still selected.
-      if (m.propId !== -1) this.selectProp(m.propId);
+      // A moved prop stays where it was, still selected (a town's house in Game mode is never selected).
+      if (m.propId !== -1 && !m.town) this.selectProp(m.propId);
       return;
     }
     const store = g.props;
@@ -3623,13 +3668,14 @@ export class Interaction {
       const id = m.propId;
       const from = m.from!;
       const building = store.get(id)?.building;
-      if (building === undefined) this.editor().editProps({ do: () => store.move(id, pose), undo: () => store.move(id, from) });
+      if (m.town && typeof m.town.lot === "object" && m.town.lot) this.moveTownHouse(id, m.town.building, m.town.lot, pose, from);
+      else if (building === undefined) this.editor().editProps({ do: () => store.move(id, pose), undo: () => store.move(id, from) });
       else this.moveTownProp(id, building, pose, from);
     }
     g.propsChanged(-1);
     this.onPlaced?.(false);
-    // It stays selected, to nudge or turn again straight away.
-    this.selectProp(placed);
+    // It stays selected, to nudge or turn again straight away (a town's house in Game mode is never selected).
+    if (!m.town) this.selectProp(placed);
   }
 
   private selectProp(id: number): void {
@@ -3770,6 +3816,47 @@ export class Interaction {
   }
 
   /** Move a town building's prop: it leaves its squares (they become street) and is an ordinary prop from now on. */
+  /** The last reason a held town house was refused (to say it once). */
+  private houseWhy: TownMoveBlock | null = null;
+
+  /**
+   * Game mode: a town's house put down on a lot of its town (`lot`, from `lotFor`), at `pose`: its record and squares
+   * move with it (see `moveBuilding`), and, swapping, the other building's prop goes to the lot it left. One undo step.
+   */
+  private moveTownHouse(id: number, building: number, lot: TownLot, pose: PropPose, from: PropPose): void {
+    const g = this.game;
+    const land = g.landscape;
+    const found = findBuilding(land, building);
+    if (!found) return;
+    // The other building's prop, swapping: where it stands now, and where it goes (onto this house's lot).
+    const partner = lot.swap === undefined ? undefined : [...g.props.all()].find((p) => p.building === lot.swap);
+    const partnerFrom = partner && { x: partner.x, z: partner.z, heading: partner.heading, y: partner.y };
+    let partnerTo: PropPose | undefined;
+    if (partner && lot.swap !== undefined) {
+      const other = findBuilding(land, lot.swap)!.building;
+      const at = buildingPose(land, found.town, { ...other, cells: found.building.cells, front: found.building.front }, looksOf(land, found.town).get(other.id) ?? "house", partner.asset, partner.scale ?? 1);
+      partnerTo = { ...at, y: land.grid.groundY(found.building.cells[0]) };
+    }
+    const changed = [...new Set([...found.building.cells, ...lot.cells].map(plotSlotOf))];
+    let putBack = () => {};
+    const doIt = () => {
+      putBack = moveBuilding(land, building, lot);
+      g.props.move(id, pose);
+      if (partner && partnerTo) g.props.move(partner.id, partnerTo);
+    };
+    doIt();
+    g.editLand(changed);
+    this.editor().recordLand({
+      do: doIt,
+      undo: () => {
+        putBack();
+        g.props.move(id, from);
+        if (partner && partnerFrom) g.props.move(partner.id, partnerFrom);
+      },
+      slots: () => changed,
+    });
+  }
+
   private moveTownProp(id: number, building: number, pose: PropPose, from: PropPose): void {
     const g = this.game;
     const land = g.landscape;
