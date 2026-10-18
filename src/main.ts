@@ -2060,7 +2060,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       requestAnimationFrame(() => {
         // The picked stop (else the last, just added) scrolled into view.
         const chip = (strip.querySelector<HTMLElement>(".route-chip.picked") ?? (planning ? strip.lastElementChild : null)) as HTMLElement | null;
-        if (chip && (chip.offsetLeft < strip.scrollLeft || chip.offsetLeft + chip.offsetWidth > strip.scrollLeft + strip.clientWidth)) strip.scrollLeft = chip.offsetLeft + chip.offsetWidth / 2 - strip.clientWidth / 2;
+        // Wholly in view, clear of the edges' fades (the strip's last chip scrolls fully to its end).
+        if (chip) {
+          const fade = 44;
+          const right = chip.offsetLeft + chip.offsetWidth;
+          if (right > strip.scrollLeft + strip.clientWidth - fade) strip.scrollLeft = Math.min(strip.scrollWidth - strip.clientWidth, right - strip.clientWidth + fade);
+          else if (chip.offsetLeft < strip.scrollLeft + fade) strip.scrollLeft = Math.max(0, chip.offsetLeft - fade);
+        }
         edges();
       });
       // The first time, a word on what a chip does (till one is tapped).
@@ -2299,6 +2305,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         game.invalidate();
       }
       ribbonFor = { carId: -1, stops: "", next: -1 };
+      nudgedFor = -1;
       return;
     }
     // The way the engine's train is going (or, standing, the way its front faces).
@@ -2326,7 +2333,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (way < 0) flipCursor(game.layout, front);
     cantReachText = null;
     if (!line || !r) {
-      routeView.show([{ runs: aheadRuns(game.layout, front, AHEAD), colour: "#ffffff", dotted: true }], []);
+      const ahead = aheadRuns(game.layout, front, AHEAD);
+      routeView.show([{ runs: ahead, colour: "#ffffff", dotted: true }], []);
+      // With the card open, the way ahead is shown, once: not left under the card (a train heading toward it).
+      const last = ahead.at(-1);
+      const end = last && pointOnPath(game.layout, last.pieceId, last.pathIndex, last.s1);
+      const train = trainSpot(carId);
+      if (!planning && nudgedFor !== carId && end && train) {
+        nudgedFor = carId;
+        requestAnimationFrame(() => keepInView([train, new Vector3(end.x, end.y, end.z)]));
+      }
     } else {
       const names = routeStops(game.world);
       const pieces = line.stops.map((st) => game.economy.depot(st.depotId)?.pieceId ?? -1);
@@ -2386,7 +2402,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   /** What the ribbon last showed (to tell a stop just added, and a new next stop). */
   let ribbonFor = { carId: -1, stops: "", next: -1 };
-  /** The engine whose card last nudged the view to show a stop it can't reach (once per opening). */
+  /** The engine whose card last nudged the view to show a stop it can't reach, or its way ahead (once per opening). */
   let nudgedFor = -1;
   /** How far on (mm) a way is followed to find where it runs out, for a stop it can't reach. */
   const GAP_SEARCH = 3000;
