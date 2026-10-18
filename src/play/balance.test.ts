@@ -7,7 +7,7 @@ import { attachEngines } from "../game/engines";
 import { GOALS, GoalTracker } from "../game/goals";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
 import { landmarksOf, townLandmarks } from "../game/landmarks";
-import { startLine } from "../game/lines";
+import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { inUse, Progress } from "../game/progress";
 import { firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas, takeBlueprint, takeCrate } from "../game/rewards";
@@ -37,13 +37,16 @@ import { endOn, rulesFor } from "./rules";
  *
  * Slow (minutes of play are simulated tick by tick), so skipped unless asked for:
  *   BALANCE=1 npx vitest run src/play/balance.test.ts
- * BALANCE_JSON=1 also prints the timeline as one line of JSON; BALANCE_MINUTES caps the play (default 180).
+ * BALANCE_TRAINS_PER_LINE=n puts up to n trains on the line once routes are learned (default 1). BALANCE_JSON=1 also
+ * prints the timeline as one line of JSON; BALANCE_MINUTES caps the play (default 180).
  */
 
 /** The environment (Node's, under Vitest), without Node's types. */
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const RUN = !!ENV.BALANCE;
 const MAX_MINUTES = Number(ENV.BALANCE_MINUTES ?? 180);
+/** Most trains on the line once routes are learned (1: only the goods train). */
+const PER_LINE = Number(ENV.BALANCE_TRAINS_PER_LINE ?? 1);
 /** The target: a town that's a City ★★ (the sixth rung: hamlet, village, town, city, city ★, city ★★). */
 const TARGET_LEVEL = 5;
 
@@ -112,6 +115,8 @@ class Player {
   /** What happened in the minute being played (for idle stretches). */
   happened = 0;
   /** Town growths, and how long each `TownLife.update` that grew one took (ms). */
+  /** Train-seconds held at stops by auto-spacing. */
+  heldSeconds = 0;
   readonly growths: { minute: number; town: string; level: string; ms: number; built: number }[] = [];
   private growing: { town: string; level: string; built: number } | null = null;
   /** Each blueprint learned: when, how, and what it cost. */
@@ -237,6 +242,7 @@ class Player {
         this.note(`${idea.from}: ${techOf(idea.id)!.label} is on the board (${describePrice(priceOf(this.progress, techOf(idea.id)!))})`);
       }
       peopleArrive(this.w, this.progress, 1, this.people);
+      for (const engine of this.w.economy.lineIdOf.keys()) if (this.w.economy.spacing.holding(engine)) this.heldSeconds++;
       for (const g of this.goals.update(this.w, { learned: this.progress.learned })) {
         this.happened++;
         this.note(`GOAL ${this.goals.doneCount}/${GOALS.length} ✓ ${g.title}`);
@@ -334,7 +340,7 @@ class Player {
     if (why) return why;
     // On that piece, else on any free long straight of the player's (a long train needs room).
     const others = [...this.w.layout.pieceIds()].filter((id) => id !== pieceId && !this.fixed.has(id) && this.w.layout.getPiece(id)!.type === "straight-216" && !this.w.sim.pieceOccupied(id));
-    for (const on of [pieceId, ...others])
+    for (const on of [...(this.w.layout.getPiece(pieceId) ? [pieceId] : []), ...others])
       for (const s of [100, 60, 140, 30]) {
         const r = this.w.sim.addTrain(cars, { pieceId: on, pathIndex: 0, reversed: false, s });
         if (r.kind !== "placed") continue;
@@ -620,6 +626,11 @@ class Playthrough {
   sawnAt = 0;
   /** Trains picked up after a jam (the second train isn't put back on the same line while it would jam again). */
   lifted = 0;
+  /** The line every train runs once routes are learned, the most trains it had, and trains taken off it for a jam. */
+  lineId = -1;
+  perLine = 0;
+  jamCut = 0;
+  extraAt = -99;
   recomposed = -99;
   /** Minutes in a row with nothing new. */
   idle = 0;
@@ -731,6 +742,7 @@ class Playthrough {
         P.lift(e);
         this.trains.delete(e);
         this.lifted++;
+        if (this.lines) this.jamCut++;
         P.findings.push(`Minute ${P.minute.toFixed(0)}: no planks sawn for 4 minutes with ${this.trains.size + 1} trains on one line (they turn each other back; the goods train never reached the forest). Picked the ${kind} train up.`);
         P.note(`JAM: no planks sawn for 4 min; picked the ${kind} train up`);
         this.sawnAt = P.minute;
@@ -1027,6 +1039,21 @@ class Playthrough {
       this.routeGoods();
       P.happened++;
     }
+    // More trains on the line as they become affordable (an engine and two flatbeds), up to BALANCE_TRAINS_PER_LINE,
+    // a few minutes apart; one fewer for each that jammed the line.
+    if (this.lines && this.lineId >= 0 && this.trains.size < PER_LINE - this.jamCut && P.minute - this.extraAt >= 3) {
+      const cars: CarKind[] = ["engine", "timber", "timber"];
+      if (P.canMake(thingsFor({ kind: "train", cars }))) {
+        const e = P.train(cars, -1, 1);
+        if (typeof e === "number") {
+          this.trains.set(e, `line train ${this.trains.size + 1}`);
+          joinLine(w.economy, e, this.lineId);
+          this.extraAt = P.minute;
+          P.note(`another train (engine, 2 flatbeds) on the line: ${trainsOn(w.economy, this.lineId).length} now`);
+        }
+      } else this.why ||= `another train for the line (engine 6🪵 + 2 flatbeds 6🪵; have ${P.planks()} planks)`;
+    }
+    if (this.lineId >= 0) this.perLine = Math.max(this.perLine, trainsOn(w.economy, this.lineId).filter((e) => w.sim.findCar(e)).length);
 
     // A harvester (a forest yard of the player's own) by trees at a line end, for more logs.
     if (this.harvester === -1 && s.learned.has("harvesters") && P.minute - this.harvesterTry >= 10) {
@@ -1143,11 +1170,13 @@ class Playthrough {
     if (order.length < 2) return;
     const back = order.slice(1, -1).reverse();
     const stops = [...order, ...back].map((depotId) => ({ depotId, action: "auto" as const }));
-    for (const [engine, kind] of this.trains) {
-      if (!w.sim.findCar(engine)) continue;
-      startLine(w.economy, engine, stops.map((x) => ({ ...x })));
-      P.note(`${kind} train on a line of ${stops.length} stops: ${order.map((d) => w.economy.depot(d)!.role).join(" → ")} and back`);
-    }
+    // One line for every train (with routes-lines' auto-spacing to spread them out); its stops follow the track.
+    const live = [...this.trains.keys()].filter((e) => w.sim.findCar(e));
+    if (live.length === 0) return;
+    if (this.lineId < 0 || !w.economy.lines.has(this.lineId)) this.lineId = startLine(w.economy, live[0], stops.map((x) => ({ ...x }))).id;
+    for (const e of live) joinLine(w.economy, e, this.lineId);
+    editLine(w.economy, live[0], (old) => old.splice(0, old.length, ...stops.map((x) => ({ ...x }))));
+    P.note(`${live.length} train(s) on a line of ${stops.length} stops: ${order.map((d) => w.economy.depot(d)!.role).join(" → ")} and back`);
   }
 
   report(): void {
@@ -1171,7 +1200,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
-      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins}`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut}`,
       `findings:\n- ${P.findings.join("\n- ") || "none"}`,
     ].join("\n");
     console.log(out);
