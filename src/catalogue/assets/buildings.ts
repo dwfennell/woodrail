@@ -63,6 +63,7 @@ export const ASSETS: Asset[] = [
   {
     id: "bldg-two-platform-station",
     name: "Two-platform station with footbridge",
+    trayLabel: "Footbridge station",
     category: CAT,
     tags: ["station", "footbridge", "double track", "platform", "canopy"],
     notes: "Two through tracks between a platform each side, joined by a covered footbridge. A good passing place: one train waits at the platform while the other runs through.",
