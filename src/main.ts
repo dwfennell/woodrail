@@ -1905,6 +1905,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         strip.append(chip);
       });
       box.append(strip);
+      // Stops beyond the edge (scrolled sideways, planning): the edge fades, as the tray's does.
+      const edges = () => {
+        strip.classList.toggle("more-right", strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 2);
+        strip.classList.toggle("more-left", strip.scrollLeft > 2);
+      };
+      strip.addEventListener("scroll", edges, { passive: true });
+      requestAnimationFrame(() => {
+        // The picked stop (else the last, just added) scrolled into view.
+        const chip = (strip.querySelector<HTMLElement>(".route-chip.picked") ?? (planning ? strip.lastElementChild : null)) as HTMLElement | null;
+        if (chip && (chip.offsetLeft < strip.scrollLeft || chip.offsetLeft + chip.offsetWidth > strip.scrollLeft + strip.clientWidth)) strip.scrollLeft = chip.offsetLeft + chip.offsetWidth / 2 - strip.clientWidth / 2;
+        edges();
+      });
       // The first time, a word on what a chip does (till one is tapped).
       if (!stopHintSeen && stopPicked === -1) {
         const hint = document.createElement("div");
@@ -1930,7 +1942,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           ...(st.action === "drop"
             ? []
             : [
-                button(st.waitFill ? "Wait till full: on" : "Wait till full: off", `route-wait${st.waitFill ? " on" : ""}`, "Wait here till the wagons are full (of goods a later stop wants)", () =>
+                button(st.waitFill ? "Wait: on" : "Wait: off", `route-wait${st.waitFill ? " on" : ""}`, "Wait here till the wagons are full (of goods a later stop wants)", () =>
                   edit((l) => (l[k].waitFill = !l[k].waitFill)),
                 ),
               ]),
@@ -2023,13 +2035,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return p ? new Vector3(p.pose.x, p.y, p.pose.z) : null;
   };
 
-  /** Glide the view to show `points` in the map's room (above the card), at the camera's angle; `minDistance` mm. */
-  function frameInRoom(points: Vector3[], minDistance: number): void {
+  /**
+   * Glide the view to show `points` in the map's room (above the card), at the camera's angle, `minDistance` to
+   * `maxDistance` mm away (the furthest of `points`, last, are left out where they'd need it further).
+   */
+  function frameInRoom(points: Vector3[], minDistance: number, maxDistance = game.controls.maxDistance): void {
     const room = mapRoom();
     const now = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
-    const fit = fitToRect(points, game.camera, now.phi, now.theta, { left: 0, top: room.top, right: room.width, bottom: room.bottom }, room.width, room.height, 32);
+    const fitOf = (ps: Vector3[]) => fitToRect(ps, game.camera, now.phi, now.theta, { left: 0, top: room.top, right: room.width, bottom: room.bottom }, room.width, room.height, 32);
+    // Too far out to show them all: the last (furthest) points go, down to the first two, so what's shown is near.
+    let shown = points;
+    let fit = fitOf(shown);
+    while (fit.distance > maxDistance && shown.length > 2) fit = fitOf((shown = shown.slice(0, -1)));
     game.follow(-1);
-    game.director.glideTo(fit.target, Math.min(Math.max(fit.distance, minDistance), game.controls.maxDistance), { theta: now.theta, duration: 0.7 });
+    game.director.glideTo(fit.target, Math.min(Math.max(fit.distance, minDistance), maxDistance, game.controls.maxDistance), { theta: now.theta, duration: 0.7 });
   }
 
   /** Are these points on screen in the map's room (with a margin), as the camera is now? */
@@ -2058,9 +2077,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return w ? new Vector3(w.x, 0, w.z) : null;
   }
 
-  /** How near (mm) a place is to the train to be framed with it when planning starts, and how many such places. */
+  /**
+   * Planning starts framing the train with its nearest places: those within `NEAR_PLACES` mm (up to `NEAR_COUNT`), and
+   * at least the nearest `NEAR_MIN` however far, the view no further out than `FRAME_MAX` mm.
+   */
   const NEAR_PLACES = 1100;
   const NEAR_COUNT = 3;
+  const NEAR_MIN = 2;
+  const FRAME_MAX = 4200;
 
   /** Planning starts: frame the train, its line's places, and the places nearest it (the likely first stops). */
   function framePlanning(): void {
@@ -2076,13 +2100,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const near = game.economy
       .allDepots()
       .map((d) => pieceSpot(d.pieceId))
-      .filter((p): p is Vector3 => !!p && p.distanceTo(train) <= NEAR_PLACES)
+      .filter((p): p is Vector3 => !!p && p.distanceTo(train) > 1)
       .sort((a, b) => a.distanceTo(train) - b.distanceTo(train))
-      .slice(0, NEAR_COUNT);
+      .filter((p, k) => k < NEAR_MIN || (k < NEAR_COUNT && p.distanceTo(train) <= NEAR_PLACES));
     points.push(...near);
     // Nothing near: a little room round the train.
     if (points.length === 1) points.push(train.clone().add(new Vector3(250, 0, 250)), train.clone().add(new Vector3(-250, 0, -250)));
-    frameInRoom(points, 600);
+    frameInRoom(points, 600, FRAME_MAX);
   }
 
   /** Why the open engine's line can't be run as it stands (a stop no track leads to), or null: see `showRibbon`. */

@@ -423,7 +423,7 @@ export class RouteView {
 
 /**
  * A stop disc's face: a round token of the line's colour seen a little from above (its edge showing below), the
- * number in white; "next" with a white rim, "unreachable" greyed with a red ✕. Null where there's no canvas (tests).
+ * number in white; "next" with a white rim, "unreachable" greyed with a red "!". Null where there's no canvas (tests).
  */
 function discTexture(d: DiscSpec): CanvasTexture | null {
   if (typeof document === "undefined") return null;
@@ -483,7 +483,7 @@ function discTexture(d: DiscSpec): CanvasTexture | null {
   g.fillStyle = grey ? "#5a534c" : "#ffffff";
   g.fillText(d.label, cx, cy + 3);
   if (grey) {
-    // A red badge with a white ✕ at the disc's lower right, the number still showing.
+    // A red badge with a white "!" at the disc's lower right (a problem, not "remove"), the number still showing.
     const bx = cx + r * 0.68;
     const by = cy + r * 0.62;
     const br = S * 0.19;
@@ -495,16 +495,17 @@ function discTexture(d: DiscSpec): CanvasTexture | null {
     g.beginPath();
     g.arc(bx, by, br, 0, Math.PI * 2);
     g.fill();
-    const k = br * 0.45;
     g.lineCap = "round";
     g.strokeStyle = "#ffffff";
     g.lineWidth = 5.5;
     g.beginPath();
-    g.moveTo(bx - k, by - k);
-    g.lineTo(bx + k, by + k);
-    g.moveTo(bx + k, by - k);
-    g.lineTo(bx - k, by + k);
+    g.moveTo(bx, by - br * 0.55);
+    g.lineTo(bx, by + br * 0.12);
     g.stroke();
+    g.fillStyle = "#ffffff";
+    g.beginPath();
+    g.arc(bx, by + br * 0.5, 3.2, 0, Math.PI * 2);
+    g.fill();
   }
   const tex = new CanvasTexture(c);
   tex.colorSpace = SRGBColorSpace;
