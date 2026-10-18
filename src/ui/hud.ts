@@ -78,6 +78,8 @@ export interface HudHandlers {
   sendReport(note: string): Promise<void>;
   /** Tray items shown without a picture yet: draw them (a few at a time) and hand each back with `setThumbnail`. */
   needThumbnails(items: TrayItem[]): void;
+  /** Kit pieces shown in the tray (pictured or not): their models can be built ahead of a drag (see `Interaction.warmKits`). */
+  kitsShown?(items: TrayItem[]): void;
 }
 
 /** Movement (px) before a press on a tray item becomes a scroll or a pick-up. */
@@ -458,8 +460,10 @@ export class Hud {
     window.addEventListener("resize", edges);
     // Pictures not drawn yet (catalogue models, drawn on demand) wait as a placeholder until `setThumbnail`.
     const missing: TrayItem[] = [];
+    const kits: TrayItem[] = [];
     const picture = (item: TrayItem) => {
       const key = trayKey(item);
+      if (item.kind === "piece" && isKit(item.type)) kits.push(item);
       const thumb = this.thumbs.get(key);
       if (thumb) return `<img src="${thumb}" alt="" draggable="false">`;
       // A piece or train not drawn yet shows its icon till its picture comes (`setThumbnail` swaps it in). A kit piece
@@ -473,17 +477,15 @@ export class Hud {
       return `<span class="thumb-pending" data-thumb="${key}"></span>`;
     };
     /** A label that doesn't fit its tile, a long word ("Warehouse" at 70 px) or more lines than it has ("Farmer with
-     * pitchfork"), is set smaller with a third line rather than broken or cut (and smaller again if it still doesn't). */
+     * pitchfork"), is set smaller with a third line rather than broken or cut. */
     const fitLabels = () => {
       const labels = [...scroller.querySelectorAll<HTMLElement>(".label")];
       // (Not while the tray isn't laid out: behind the title screen everything measures 0.)
       if (labels.length === 0 || scroller.clientWidth === 0) return;
       // (A line cut off is a whole line taller, ~13 px; a pixel or two is just how the lines round.)
       const wide = (l: HTMLElement) => l.scrollWidth > l.clientWidth + 1 || l.scrollHeight > l.clientHeight + 4;
-      for (const l of labels) l.classList.remove("squeeze", "tight");
-      const squeezed = labels.filter(wide);
-      for (const l of squeezed) l.classList.add("squeeze");
-      for (const l of squeezed.filter(wide)) l.classList.add("tight");
+      for (const l of labels) l.classList.remove("squeeze");
+      for (const l of labels.filter(wide)) l.classList.add("squeeze");
     };
     this.fitTrayLabels = fitLabels;
     // Again when the tiles change size (the phone turns) and when the type's font has come (it's wider than the one
@@ -496,8 +498,12 @@ export class Hud {
     document.fonts?.addEventListener("loadingdone", () => requestAnimationFrame(fitLabels));
     const show = () => {
       requestAnimationFrame(edges);
+      // Now, before the shelf is first drawn (a shelf opened from a frame's own work would show a frame of labels cut
+      // off), and again next frame in case the tiles weren't laid out yet.
+      fitLabels();
       requestAnimationFrame(fitLabels);
       if (missing.length > 0) this.handlers.needThumbnails(missing.splice(0));
+      if (kits.length > 0) this.handlers.kitsShown?.(kits.splice(0));
     };
     // Top level: one button per group; open one to see its items, with a way back first in the row.
     const showGroups = (groups: TrayGroup[]) => {

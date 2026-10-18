@@ -184,6 +184,26 @@ describe("the turntable", () => {
     expect(w.train().derailed).toBe(false);
   });
 
+  it("deckUnder: the deck a train stands still wholly on (a tap there is the deck's), else -1", () => {
+    const w = onDeck("kit-turntable", [4]);
+    const [engine] = w.train().cars;
+    expect(w.sim.deckUnder(engine.id)).toBe(w.id);
+    // An engine and a wagon are longer than the deck: partly on it, not the deck's.
+    const long = onDeck("kit-turntable", [4], ["engine", "hopper"]);
+    expect(long.sim.deckRefusal(long.id)).toBe("partly");
+    expect(long.sim.deckUnder(long.train().cars[1].id)).toBe(-1);
+    expect(w.sim.pieceOccupied(w.id)).toBe(true);
+    // Driven off: moving (then partly on, then off it) it's no longer the deck's.
+    w.sim.setLever(engine.id, 1);
+    for (let i = 0; i < SIM_HZ && w.train().speed === 0; i++) w.sim.tick();
+    expect(w.sim.deckUnder(engine.id)).toBe(-1);
+    // On ordinary track, standing still: never a deck.
+    const line = yard("kit-turntable", [4]);
+    expect(line.train().speed).toBe(0);
+    expect(line.sim.deckUnder(line.train().cars[0].id)).toBe(-1);
+    expect(line.sim.deckUnder(9999)).toBe(-1);
+  });
+
   it("won't turn with a train partly on it, or moving on it (points and signals are thrown whatever's on them)", () => {
     const w = yard("kit-turntable", [4]);
     expect(w.train().bogies.some((b) => b.pieceId === w.start)).toBe(true);

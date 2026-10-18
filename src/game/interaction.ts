@@ -19,7 +19,7 @@ import type { PropPose } from "../props/store";
 import { FootprintOutline } from "../render/props/outline";
 import { modelKey } from "../render/props/library";
 import { isDoubleTap, type TapRecord } from "./camera-director";
-import { dropOutcome, heldReason } from "./drop";
+import { dropOutcome, heldReason, onwardEnds } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
@@ -27,12 +27,19 @@ import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYar
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
 import { warmDrawing } from "../track/draw-path";
-import { dragMoves } from "./drag-rule";
+import { dragMoves, dragSlop } from "./drag-rule";
 import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
-import { carNearTap, nearCarWins, type CarOnScreen } from "./touch-pick";
+import { carNearTap, deckTapWins, nearCarWins, type CarOnScreen } from "./touch-pick";
+
+/** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
+function whenIdle(f: () => void): void {
+  const idle = (globalThis as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+  if (idle) idle(f, { timeout: 2000 });
+  else setTimeout(f, 50);
+}
 
 /** The middle of a drawn shape, in its own frame (before it's turned to a heading or moved). */
 function geometryMiddle(g: BufferGeometry): Vector3 {
@@ -107,9 +114,6 @@ function trainSpan(cars: readonly { kind: CarKind }[], index: number): number {
  */
 const GRAB_MIN_PX = 54;
 const GRAB_PIECE_MM = 144;
-const DRAG_THRESHOLD = 6;
-/** A finger's tap on the ground may move this far (px) and still be a tap. */
-const TOUCH_TAP_SLOP = 10;
 /** A press on the ground let go within this (ms) is a tap (a long one counts: a slow phone delays the lift). */
 const FLOOR_TAP_MS = 1200;
 /** How far (mm) a picked group's free end reaches for a free end of other track to click onto, and how far off facing. */
@@ -541,14 +545,45 @@ export class Interaction {
   /** Called when the ready tray piece changes. */
   onArmed: ((item: TrayItem | null) => void) | null = null;
 
+  /** Kits whose models are built (or asked for) ahead of a drag, and those waiting their turn. */
+  private readonly kitsWarmed = new Set<PieceTypeId>();
+  private readonly kitsToWarm: PieceTypeId[] = [];
+
+  /**
+   * Kit pieces shown in the tray: build their models when idle, one at a time, and check a placement of each once, so
+   * a kit's first drag isn't the one its model is built on (a long task as it comes out of the tray: 15-20 ms in
+   * headless Chromium on a desktop, several times that on a phone, delaying the first pointer moves) nor the one its
+   * placement checks are compiled on. A returning player's tray pictures are saved, so nothing else has built them.
+   */
+  warmKits(items: readonly TrayItem[]): void {
+    const idle = this.kitsToWarm.length === 0;
+    for (const item of items)
+      if (item.kind === "piece" && isKit(item.type) && !this.kitsWarmed.has(item.type)) {
+        this.kitsWarmed.add(item.type);
+        this.kitsToWarm.push(item.type);
+      }
+    if (idle && this.kitsToWarm.length > 0) whenIdle(() => this.warmNextKit());
+  }
+
+  private warmNextKit(): void {
+    const type = this.kitsToWarm.shift();
+    if (!type) return;
+    const next = () => {
+      // (Off the drag's path: a placement where the view is, its answer thrown away.)
+      const t = this.game.controls.target;
+      if (this.mode.kind === "idle") this.placement(type, false, { x: t.x, z: t.z, heading: 0 }, 0, -1);
+      if (this.kitsToWarm.length > 0) whenIdle(() => this.warmNextKit());
+    };
+    this.game.kitView.load(type).then(next, next);
+  }
+
   /** Switch drawing track on or off (the tray's Draw chip). */
   setDrawing(on: boolean): void {
     if (on === this.drawing) return;
     this.drawing = on;
     if (on) {
       // The first stroke shouldn't be the one the drawing code is compiled on (see `warmDrawing`): when idle, once.
-      const idle = (globalThis as { requestIdleCallback?: (f: () => void) => number }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 50));
-      idle(() => warmDrawing());
+      whenIdle(() => warmDrawing());
       this.arm(null);
       this.clearSelection();
       this.hud.hideCards();
@@ -575,14 +610,16 @@ export class Interaction {
     this.readyRoad(null);
     if (item && item.kind !== "piece") item = null;
     if (item === this.armed || (item && this.armed && trayKey(item) === trayKey(this.armed))) return;
-    const first = item !== null && this.armed === null && !this.armHinted;
     this.armed = item;
     this.hidePreview();
     this.onArmed?.(item);
-    if (first) {
-      this.armHinted = true;
-      this.hud.toast("Tap the piece waiting at the end to add it · tap anywhere else to stop", false, 3200);
-    }
+  }
+
+  /** The first time a ready piece waits at a free end (see `previewNextAt`): how to add it. */
+  private hintArmed(): void {
+    if (this.armHinted) return;
+    this.armHinted = true;
+    this.hud.toast("Tap the piece waiting at the end to add it · tap anywhere else to stop", false, 3200);
   }
 
   private armHinted = false;
@@ -731,13 +768,14 @@ export class Interaction {
     const p = g.layout.getPiece(pieceId);
     if (!p) return;
     const w: WorldConnector = { x: 0, z: 0, heading: 0, y: 0, kind: "socket" };
-    const count = getPieceDef(p.type, p.flipped).connectors.length;
+    const def = getPieceDef(p.type, p.flipped);
     const r = g.canvas.getBoundingClientRect();
+    // Only at an end the line runs on from (not beside the road a terminus came in by, nor round a turntable).
+    const ends = onwardEnds(def, def.connectors.map((_, i) => g.layout.joinedConnector(connectorRef(pieceId, i)) !== -1));
     // A free end in view (clear of the tray) if there is one; else one out of view, waiting there till you pan to it.
     for (const inView of [true, false]) {
-      for (let i = 0; i < count; i++) {
+      for (const i of ends) {
         const ref = connectorRef(pieceId, i);
-        if (g.layout.joinedConnector(ref) !== -1) continue;
         g.layout.worldConnector(ref, w);
         // A little beyond the end, clear of the track (a tap there puts it down; one on the track selects that).
         const at = new Vector3(w.x + Math.cos(w.heading) * 60, w.y, w.z + Math.sin(w.heading) * 60);
@@ -749,6 +787,8 @@ export class Interaction {
         this.showPreview(sx, sy, false, !inView);
         if (this.preview?.ghost.visible) {
           this.previewAt = at;
+          // (Said only now: a terminus, or a piece with no room at its ends, has nothing waiting, and is put away.)
+          this.hintArmed();
           return;
         }
         this.hidePreview();
@@ -1022,7 +1062,7 @@ export class Interaction {
           this.updateDrag(e.clientX, e.clientY);
           return;
         }
-      } else if (travel < DRAG_THRESHOLD) return;
+      } else if (travel < dragSlop(m.pointerType)) return;
       // Drawing, and it moved: a line from the free end it started by, not a drag of what's there.
       if (m.draws && this.drawing && this.draw.begin(m.x, m.y)) {
         this.game.controls.enabled = false;
@@ -1056,6 +1096,12 @@ export class Interaction {
     };
     // Stations and depots are part of the map and stay put.
     if (m.press.kind === "piece" && this.fixedLabel(m.press.pieceId)) return idle();
+    // Track with a train on it stays put: lifted, it would derail the train (a turntable carrying an engine, say).
+    const lifts = m.press.kind === "piece" ? (this.picking ? (this.picked.has(m.press.pieceId) ? this.pickedWithRisers() : []) : [m.press.pieceId]) : m.press.kind === "depot" ? [this.movableIndustry(m.press.depotId)] : [];
+    if (lifts.some((id) => id !== -1 && this.game.sim.pieceOccupied(id))) {
+      this.hud.toast("A train is on it");
+      return idle();
+    }
     if (m.press.kind === "piece" && this.picking) {
       // Picking: a drag on a picked piece moves them all; anywhere else it pans (so a pan never breaks the group).
       if (!this.picked.has(m.press.pieceId)) return idle();
@@ -1168,7 +1214,7 @@ export class Interaction {
       this.floorDown = null;
       // A tap is a press that stays put (a finger wobbles more than a mouse), let go within FLOOR_TAP_MS: a slow phone,
       // or a careful child, takes its time.
-      const still = Math.hypot(e.clientX - f.x, e.clientY - f.y) < (e.pointerType === "mouse" ? DRAG_THRESHOLD : TOUCH_TAP_SLOP);
+      const still = Math.hypot(e.clientX - f.x, e.clientY - f.y) < dragSlop(e.pointerType);
       if (still && e.timeStamp - f.t < FLOOR_TAP_MS && this.touches.size <= 1) {
         const ground = this.groundAt(e.clientX, e.clientY);
         if (f.road && this.roadReady) {
@@ -3588,9 +3634,20 @@ export class Interaction {
    */
   private pick(x: number, y: number, touch = false): Press | null {
     const exact = this.pickExact(x, y);
-    if (!touch || !nearCarWins(exact ? (exact.kind === "depot" && exact.footprint ? "station" : exact.kind) : null)) return exact;
+    if (!touch || !nearCarWins(exact ? (exact.kind === "depot" && exact.footprint ? "station" : exact.kind) : null)) return this.deckOverTrain(exact, exact);
     const carId = carNearTap(x, y, this.carsOnScreen(), TOUCH_SLACK_PX);
-    return carId !== -1 ? { kind: "car", carId } : exact;
+    return this.deckOverTrain(carId !== -1 ? { kind: "car", carId } : exact, exact);
+  }
+
+  /**
+   * A train standing still wholly on a turntable's deck covers most of it: a tap there is the deck's (it turns it) when
+   * the tap is on the deck itself (a fingertip's slack doesn't give it to the train), or on the train with the turntable
+   * selected (the player is working it). Otherwise, and for a train moving or on ordinary track, `hit` as it was.
+   */
+  private deckOverTrain(hit: Press | null, exact: Press | null): Press | null {
+    if (hit?.kind !== "car") return hit;
+    const deck = deckTapWins(this.game.sim.deckUnder(hit.carId), exact, this.selectedPiece);
+    return deck === -1 ? hit : { kind: "piece", pieceId: deck, deck: true };
   }
 
   private pickExact(x: number, y: number): (Press & { footprint?: boolean }) | null {

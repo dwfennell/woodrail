@@ -54,7 +54,7 @@ describe("kit pieces on the catalogue shelves (Sandbox)", () => {
     const groups = await propGroups([railway]);
     const items = groups[0].items;
     const kit = items.find((x) => x.kind === "piece" && x.type === "kit-platform-furnished")!;
-    expect(kit).toEqual({ kind: "piece", type: "kit-platform-furnished", label: "Platform with benches and lamps" });
+    expect(kit).toEqual({ kind: "piece", type: "kit-platform-furnished", label: "Busy platform" }); // (its tray name: the catalogue's is too long for a tile)
     expect(trayKey(kit)).toBe("piece:kit-platform-furnished");
     // In the prop's place on the shelf.
     expect(items.length).toBe(railway.assets.length);

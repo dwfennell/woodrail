@@ -10,3 +10,12 @@ export function dragMoves(target: DragTarget, selected: boolean, pointerType: st
   if (target === "prop" || target === "road") return false;
   return pointerType === "mouse";
 }
+
+/**
+ * How far (px) a press may move and still be a tap, and so how far it must go to become a drag (of what's pressed, or
+ * of the view): a mouse 6, a finger (or a pen) 10, as a finger wobbles more (the same as `HOLD_SLOP`). One figure for
+ * both, so a finger's tap on something selected (a turntable's deck, a switch's lever) is never taken for a drag of it.
+ */
+export function dragSlop(pointerType: string): number {
+  return pointerType === "mouse" ? 6 : 10;
+}

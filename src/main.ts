@@ -326,6 +326,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
       depotWaitFull: () => interaction.toggleDepotWaitFull(),
       needThumbnails: (items) => drawPropThumbnails(items),
+      kitsShown: (items) => interaction.warmKits(items),
       landTool: (tool) => setLandTool(tool),
       sendReport: async (text) => {
         if (!reports) throw new Error("reports aren't available here");

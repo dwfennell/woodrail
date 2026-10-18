@@ -89,6 +89,7 @@ export const ASSETS: Asset[] = [
   {
     id: "life-porter",
     name: "Porter with luggage trolley",
+    trayLabel: "Porter",
     category: C,
     tags: ["person", "porter", "luggage", "trolley", "station", "suitcase"],
     notes: "A porter in a brown waistcoat pushing a four-wheeled barrow piled with cases, a trunk and a hatbox. Wheel luggage from the taxi rank to the coach: passengers won't board until their bags are loaded.",
@@ -97,6 +98,7 @@ export const ASSETS: Asset[] = [
   {
     id: "life-signal-operator",
     name: "Signal operator at the lever frame",
+    trayLabel: "Signalman",
     category: C,
     tags: ["person", "signal", "signal box", "levers", "railway", "staff"],
     notes: "A signal operator in shirtsleeves and waistcoat working a frame of coloured levers. Put them in a signal box: each lever pulled changes a signal or a point, so the box becomes the player's control desk.",
@@ -134,6 +136,7 @@ export const ASSETS: Asset[] = [
   {
     id: "life-traveller",
     name: "Traveller with suitcase",
+    trayLabel: "Traveller",
     category: C,
     tags: ["person", "traveller", "passenger", "suitcase", "bowler"],
     notes: "A traveller in a green coat and bowler hat with a strapped brown case. A passenger with a destination: deliver them to the station they ask for to earn a ticket.",
@@ -188,6 +191,7 @@ export const ASSETS: Asset[] = [
   {
     id: "life-police",
     name: "Police officer directing traffic",
+    trayLabel: "Traffic police",
     category: C,
     tags: ["person", "police", "traffic", "helmet", "whistle", "town"],
     notes: "A police officer in a tall rounded helmet, white gloves raised to stop the traffic. Stand at a level crossing or junction: road vehicles wait while the officer's arm is up.",
@@ -216,6 +220,7 @@ export const ASSETS: Asset[] = [
   {
     id: "life-chef",
     name: "Chef flipping pancakes",
+    trayLabel: "Pancake chef",
     category: C,
     tags: ["person", "chef", "cook", "pan", "restaurant", "dining car"],
     notes: "A chef in a tall toque and red neckerchief tossing a pancake in a pan. Belongs in the dining car or station café; a busy chef means hungry passengers want the food wagon.",
@@ -239,6 +244,7 @@ export const ASSETS: Asset[] = [
   {
     id: "life-builder",
     name: "Builder with wheelbarrow",
+    trayLabel: "Builder",
     category: C,
     tags: ["person", "builder", "hard hat", "wheelbarrow", "construction", "sand"],
     notes: "A builder in a yellow hard hat and hi-vis bib pushing a wheelbarrow of sand, a shovel stuck in it. Shows up where a track or building is being placed; new pieces arrive in their barrow.",
@@ -247,6 +253,7 @@ export const ASSETS: Asset[] = [
   {
     id: "life-crane-operator",
     name: "Crane operator with pendant",
+    trayLabel: "Crane operator",
     category: C,
     tags: ["person", "crane", "operator", "hard hat", "hi-vis", "yard", "controls"],
     notes: "A crane operator in an orange hard hat and hi-vis vest, working a yellow push-button pendant on a dangling cable. Stand them by the goods-yard crane: tap the operator to work the crane.",
@@ -259,6 +266,7 @@ export const ASSETS: Asset[] = [
   {
     id: "life-ice-cream-seller",
     name: "Ice-cream seller and cart",
+    trayLabel: "Ice-cream cart",
     category: C,
     tags: ["person", "ice cream", "cart", "umbrella", "seaside", "park"],
     notes: "An ice-cream seller in a striped boater behind a two-wheeled cart under a pink parasol, holding out a cone. Set up by the beach halt: on hot days passengers queue, and the cart needs milk from the dairy.",
@@ -563,6 +571,7 @@ export const ASSETS: Asset[] = [
   {
     id: "life-elephant",
     name: "Circus elephant on a drum",
+    trayLabel: "Circus elephant",
     category: C,
     tags: ["animal", "elephant", "circus", "trunk", "show"],
     notes: "A grey circus elephant in a red-and-gold blanket and a little fez, standing on a starry drum, swinging its trunk. Arrives on the circus train: unload it at the big-top siding for a show.",
@@ -606,6 +615,7 @@ export const ASSETS: Asset[] = [
   {
     id: "life-seagulls",
     name: "Seagulls on mooring posts",
+    trayLabel: "Seagulls",
     category: C,
     tags: ["animal", "seagull", "bird", "harbour", "seaside", "posts", "flying"],
     notes: "Gulls bobbing on three weathered mooring posts while another wheels overhead. Harbour dressing: gulls gather when the fish train arrives and scatter when it whistles.",
