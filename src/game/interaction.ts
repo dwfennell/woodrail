@@ -33,7 +33,7 @@ import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
-import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch-hold";
+import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
@@ -193,6 +193,8 @@ type Mode =
        * picks the piece up, a tap is a tap on it.
        */
       branch?: number;
+      /** With `branch`: the line's way across, on screen (a unit normal), to tell a finger leaving it (see `branchStrayed`). */
+      across?: [number, number];
       /** On touch, a press on something not selected that a long press would pick up (see touch-hold.ts). */
       hold?: {
         timer: number;
@@ -1090,7 +1092,10 @@ export class Interaction {
     // branches off it.
     if (this.drawsNow && !drawsFromEnd && !this.picking && hit.kind === "piece" && this.fixedLabel(hit.pieceId) === null) {
       const p = this.game.layout.getPiece(hit.pieceId);
-      if (p && branchesOff(p.type)) press.branch = hit.pieceId;
+      if (p && branchesOff(p.type)) {
+        press.branch = hit.pieceId;
+        press.across = this.screenAcross(ground, p.pose.heading);
+      }
     }
     this.mode = press;
     this.armHold(press, e.timeStamp);
@@ -1149,6 +1154,8 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (this.vetoHold(e)) return;
     if (m.kind === "draw-track") {
+      // (A branch waiting for its way: the moves a slow phone ran together, in order, so it faces the way it set off.)
+      if (this.draw.branchPending) for (const c of coalesced(e)) this.draw.feel(c.clientX, c.clientY);
       this.updateDraw(e.clientX, e.clientY);
       return;
     }
@@ -1163,7 +1170,7 @@ export class Interaction {
         let at = e.timeStamp - h.t;
         for (const c of coalesced(e)) {
           at = c.timeStamp - h.t;
-          if (h.strayedAt === null && Math.hypot(c.clientX - m.x, c.clientY - m.y) >= HOLD_SLOP) h.strayedAt = at;
+          if (h.strayedAt === null && this.strayed(m, c.clientX - m.x, c.clientY - m.y)) h.strayedAt = at;
         }
         const outcome = decideHold(h.strayedAt, at, this.touches.size);
         // Still waiting, or held and not moved yet (the timer's frame picks it up; a held train waits for a move).
@@ -1315,7 +1322,7 @@ export class Interaction {
       m.hold = undefined;
       if (!this.startDrag(m)) return;
       this.heldStill = { pointerId: m.pointerId, x: m.x, y: m.y, press: m.press };
-      this.heldUnsure = { pointerId: m.pointerId, x: m.x, y: m.y, t: h.t };
+      this.heldUnsure = { pointerId: m.pointerId, x: m.x, y: m.y, t: h.t, press: m };
       this.updateDrag(m.x, m.y);
       // (The buzz waits a frame: moves a slow phone delivers late may yet undo the pickup, and it shouldn't buzz then.)
       const drag = this.mode;
@@ -1328,7 +1335,27 @@ export class Interaction {
    * If the first moves to come say the finger had strayed before the hold's time was up, it was a pan: put it back.
    * Settled (null) by the first move from after that time.
    */
-  private heldUnsure: { pointerId: number; x: number; y: number; t: number } | null = null;
+  private heldUnsure: { pointerId: number; x: number; y: number; t: number; press: Extract<Mode, { kind: "press" }> } | null = null;
+
+  /** Has a press's finger strayed from where it came down (a pan; drawing, on a line's body, a branch): see `armHold`. */
+  private strayed(m: Extract<Mode, { kind: "press" }>, dx: number, dy: number): boolean {
+    return m.branch !== undefined && this.drawsNow ? branchStrayed(dx, dy, m.across) : Math.hypot(dx, dy) >= HOLD_SLOP;
+  }
+
+  /** The screen's unit normal to a line through world point `at` running at `heading` (for `branchStrayed`), or undefined. */
+  private screenAcross(at: Vector3, heading: number): [number, number] | undefined {
+    const cam = this.game.camera;
+    const a = at.clone().project(cam);
+    const b = new Vector3(at.x + Math.cos(heading) * 50, at.y, at.z + Math.sin(heading) * 50).project(cam);
+    // (Screen y runs down; the normal's sign doesn't matter.)
+    const dx = b.x - a.x;
+    const dy = -(b.y - a.y);
+    const r = this.game.canvas.getBoundingClientRect();
+    const sx = (dx * r.width) / 2;
+    const sy = (dy * r.height) / 2;
+    const l = Math.hypot(sx, sy);
+    return l < 1e-6 ? undefined : [-sy / l, sx / l];
+  }
 
   /** True if the late moves undid a pickup that was really a pan (the view takes the gesture from here). */
   private vetoHold(e: PointerEvent): boolean {
@@ -1337,10 +1364,19 @@ export class Interaction {
     for (const c of coalesced(e)) {
       const at = c.timeStamp - u.t;
       if (at >= HOLD_MS) break;
-      if (undoesHold(at, Math.hypot(c.clientX - u.x, c.clientY - u.y), false)) {
+      // (Drawing, on a line's body: a few pixels across it is enough, and it was a branch, not a pan.)
+      const strayed = at < HOLD_MS && this.strayed(u.press, c.clientX - u.x, c.clientY - u.y);
+      if (strayed || undoesHold(at, Math.hypot(c.clientX - u.x, c.clientY - u.y), false)) {
         this.heldUnsure = null;
         this.heldStill = null;
         this.cancel();
+        const b = u.press.branch;
+        if (b !== undefined && this.drawsNow && this.touches.size <= 1 && this.draw.beginBranch(u.x, u.y, b)) {
+          this.clearSelection();
+          this.game.controls.enabled = false;
+          this.mode = { kind: "draw-track", pointerId: e.pointerId };
+          this.updateDraw(e.clientX, e.clientY);
+        }
         return true;
       }
     }
