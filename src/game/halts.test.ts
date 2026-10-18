@@ -157,7 +157,7 @@ describe("placing a halt in Game mode", () => {
     expect(haltWhy(w.landscape, "kit-country-halt", near)).toBeNull();
     const far = { x: town.centre.x + HALT_REACH * 4, z: town.centre.z + HALT_REACH * 4, heading: 0 };
     expect(haltTown(w.landscape, far)).toBeNull();
-    for (const type of HALT_KITS) expect(haltWhy(w.landscape, type, far)).toBe("Build halts near a town");
+    for (const type of HALT_KITS) expect(haltWhy(w.landscape, type, far)).toBe("Build halts within 23 squares of a town");
     // Only halts are held to towns.
     expect(haltWhy(w.landscape, "kit-water-tower", far)).toBeNull();
     expect(haltWhy(w.landscape, "straight-216", far)).toBeNull();

@@ -221,7 +221,8 @@ const INDUSTRY_MODELS: Partial<Record<DepotRole, { part: string; slots: Record<s
   farm: { part: "industry-farm", slots: { silo: "#f0ebe0", roof: "#c8442f" } },
   mill: { part: "industry-mill", slots: { cap: "#2f6db5" } },
   quarry: { part: "industry-quarry", slots: { roof: "#c8442f" } },
-  warehouse: { part: "industry-warehouse", slots: { roof: "#3c8f4e", doors: "#e6b52c" } },
+  // (In the goods-shed kit's look and colours, bldg-goods-shed: no slots.)
+  warehouse: { part: "industry-warehouse", slots: {} },
   mine: { part: "industry-mine", slots: {} },
   carpenter: { part: "industry-carpenter", slots: {} },
   smithy: { part: "industry-smithy", slots: {} },
@@ -632,9 +633,10 @@ export class DepotView {
       b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(10, 14, 2, 1, 0.8), 34, 74.5, PAD_H + 7));
     }
     if (site.depot.role === "warehouse") {
-      // A long beech goods shed with a green roof at the far side of the yard.
-      b.add(mats.blockWood, place(new RoundedBoxGeometry(120, 36, 30, 2, 3), 136, 98, PAD_H + 18));
-      b.add(mats.lacquer("#3c8f4e"), place(new RoundedBoxGeometry(126, 5, 36, 1, 2), 136, 98, PAD_H + 39));
+      // A brown goods shed with a red roof and a loading dock toward the track, at the far end of the yard.
+      b.add(mats.lacquer("#7a4a2a"), place(new RoundedBoxGeometry(90, 38, 40, 2, 3), 154, 92, PAD_H + 19));
+      b.add(mats.lacquer("#c8442f"), place(new RoundedBoxGeometry(95, 5, 45, 1, 2), 154, 92, PAD_H + 40));
+      b.add(mats.naturalWood, place(new RoundedBoxGeometry(100, 12, 18, 1, 1.2), 154, 62, PAD_H + 6));
     }
     if (site.depot.role === "quarry") {
       // A rock face of grey blocks stepping up at the far side of the yard.

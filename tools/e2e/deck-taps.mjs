@@ -103,6 +103,25 @@ const select = async () => {
   await new Promise((r) => setTimeout(r, 400));
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
 };
+/** The view still: no glide running (`director.busy`), and the frames after it drawn. */
+const still = async () => {
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  await settle();
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+};
+/**
+ * A screen point (`[x, y, ...]` from `at`) worked out once the view is still and staying still: re-projected until two
+ * looks 300 ms apart agree (a card opening can start a glide a moment after a selection), just before the tap.
+ */
+const steady = async (at) => {
+  for (let k = 0; ; k++) {
+    await still();
+    const a = await at();
+    await new Promise((r) => setTimeout(r, 300));
+    const b = await at();
+    if (k >= 20 || (Math.abs(a[0] - b[0]) < 1 && Math.abs(a[1] - b[1]) < 1)) return b;
+  }
+};
 const clear = () => p.evaluate(() => { window.woodrail.__toasts = []; window.woodrail.__events = []; });
 const report = () => p.evaluate(() => ({ toasts: window.woodrail.__toasts, events: window.woodrail.__events }));
 const cdp = await ctx.newCDPSession(p);
@@ -110,8 +129,8 @@ const touch = (type, x, y, timestamp) => cdp.send("Input.dispatchTouchEvent", { 
 
 async function tapCase(name, along, how) {
   await select();
-  await settle();
-  const [x, y] = await deckPoint(along);
+  await still();
+  const [x, y] = await steady(() => deckPoint(along));
   const before = await state();
   await clear();
   await how(x, y);
@@ -151,8 +170,8 @@ await tapCase("a 62 ms tap on the engine, delivered late", 0, async (x, y) => {
 // A drag that starts on the selected turntable, train on it: not picked up.
 {
   await select();
-  await settle();
-  const [x, y] = await deckPoint(78);
+  await still();
+  const [x, y] = await steady(() => deckPoint(78));
   await clear();
   await touch("touchStart", x, y);
   let mid = "";
@@ -170,8 +189,9 @@ await tapCase("a 62 ms tap on the engine, delivered late", 0, async (x, y) => {
 // The turntable not selected: a tap on the engine standing on it takes the engine (its card, to drive it off).
 {
   await p.evaluate(() => window.woodrail.interaction.clearSelection());
-  await settle();
-  const [x, y] = await deckPoint(0);
+  // (The card closing may glide the view back: project the point only once it's still.)
+  await still();
+  const [x, y] = await steady(() => deckPoint(0));
   const before = await state();
   await p.touchscreen.tap(x, y);
   await settle();
@@ -181,7 +201,7 @@ await tapCase("a 62 ms tap on the engine, delivered late", 0, async (x, y) => {
 
 // An engine on ordinary track: a tap takes the engine, as ever.
 {
-  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  await still();
   const at = await p.evaluate(async () => {
     const w = window.woodrail;
     const { poseForCentre } = await import("/src/editor/editor.ts");
@@ -194,10 +214,20 @@ await tapCase("a 62 ms tap on the engine, delivered late", 0, async (x, y) => {
     const near = nearestCursor(w.layout, x, z, 60, 0);
     const r = near && w.sim.addTrainAround(["engine"], near.cursor);
     w.invalidate();
-    const v = new w.camera.position.constructor(x, 30, z).project(w.camera);
-    return { id, r: r?.kind, sx: ((v.x + 1) / 2) * innerWidth, sy: ((1 - v.y) / 2) * innerHeight };
+    return { id, r: r?.kind, x, z };
   });
-  await settle();
+  // Clearing the selection may start a glide: the engine's screen point is worked out only once the view is still,
+  // just before the tap (a point projected mid-glide misses).
+  const [sx, sy] = await steady(() =>
+    p.evaluate(({ x, z }) => {
+      const w = window.woodrail;
+      const v = new w.camera.position.constructor(x, 30, z).project(w.camera);
+      const r = w.canvas.getBoundingClientRect();
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+    }, at),
+  );
+  const pt = { sx, sy };
+  Object.assign(at, pt);
   await p.touchscreen.tap(at.sx, at.sy);
   await settle();
   const s = await state();

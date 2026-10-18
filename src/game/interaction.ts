@@ -338,7 +338,24 @@ export class Interaction {
    * a double tap).
    */
   onFloorTap: ((ground: Vector3, x: number, y: number) => boolean) | null = null;
-  private mode: Mode = { kind: "idle" };
+  private currentMode: Mode = { kind: "idle" };
+  /** What the pointer's doing. Set, it tells `onHeld` when the piece in hand changes (picked up, put down, let go). */
+  private get mode(): Mode {
+    return this.currentMode;
+  }
+  private set mode(m: Mode) {
+    this.currentMode = m;
+    const held = m.kind === "drag-piece" ? m.type : null;
+    if (held === this.heldType) return;
+    this.heldType = held;
+    this.onHeld?.(held);
+  }
+  private heldType: PieceTypeId | null = null;
+  /**
+   * The kind of piece being held (from the tray, or picked up off the map), once as it's taken and with null once it's
+   * gone: not called on moves (Game mode shows a halt's reach while one is held).
+   */
+  onHeld: ((type: PieceTypeId | null) => void) | null = null;
   private selectedPiece = -1;
   /** Picking several pieces (see `selectMore`): which are picked. */
   private picking = false;

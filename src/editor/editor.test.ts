@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { Sim } from "../sim";
 import { connectorRef, findSplice, fitAutoStraight, gapFill, getPieceDef, Layout, solveParentPose } from "../track";
 import { Editor, pieceCentre } from "./editor";
+import { Progress } from "../game/progress";
+import type { World } from "../game/world";
+import { PropStore } from "../props/store";
 
 function setup() {
   const layout = new Layout();
@@ -627,5 +630,42 @@ describe("a kit piece (the furnished platform) dropped onto a line, as a depot i
     expect(layout.getPiece(filled)).toBeUndefined();
     expect(layout.joinedConnector(connectorRef(kit, 0))).toBe(connectorRef(a, 1));
     expect(layout.joinedConnector(connectorRef(kit, 1))).toBe(connectorRef(b, 0));
+  });
+});
+
+describe("props edits (Game mode's tray counts follow them)", () => {
+  it("placing, moving and removing a prop, and undo and redo, each tell onPropsChange once: a made prop, placed, is none left", () => {
+    const { layout, sim, editor, changes } = setup();
+    const store = new PropStore();
+    const world = { layout, sim, props: store, depots: new Map() } as unknown as World;
+    const p = Progress.fresh();
+    const box = "prop:bldg-signal-box";
+    // One made at the workshop, not yet put down.
+    p.add(box);
+    // As main.ts's hook does: every props edit works the tray's counts out again from the toy box.
+    let heard = 0;
+    let badge = p.available(world, box);
+    editor.onPropsChange = () => {
+      heard++;
+      badge = p.available(world, box);
+    };
+    expect(badge).toBe(1);
+    const at = (x: number) => ({ x, z: 0, heading: 0, y: 0 });
+    let id = -1;
+    editor.editProps({ do: () => (id = store.add("bldg-signal-box", at(0), id === -1 ? undefined : id).id), undo: () => store.remove(id) });
+    expect([heard, badge]).toEqual([1, 0]);
+    editor.editProps({ do: () => store.move(id, at(50)), undo: () => store.move(id, at(0)) });
+    expect([heard, badge]).toEqual([2, 0]);
+    editor.editProps({ do: () => store.remove(id), undo: () => store.add("bldg-signal-box", at(50), id) });
+    expect([heard, badge]).toEqual([3, 1]);
+    editor.undo();
+    expect([heard, badge]).toEqual([4, 0]);
+    editor.undo();
+    editor.undo();
+    expect([heard, badge]).toEqual([6, 1]);
+    editor.redo();
+    expect([heard, badge]).toEqual([7, 0]);
+    // Props only: the track's onChange (and its badge refresh) never ran.
+    expect(changes()).toBe(0);
   });
 });

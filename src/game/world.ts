@@ -1,4 +1,4 @@
-import { adoptRegion, generateLandscape, generatePlot, PLOT_DEPTH, plotKey, seaPlot, type DepotKind, type Landscape, type PlotCoord } from "../landscape";
+import { adoptRegion, CELL, generateLandscape, generatePlot, PLOT_DEPTH, plotKey, seaPlot, type DepotKind, type Landscape, type PlotCoord } from "../landscape";
 import { Economy, type DepotRole } from "../economy";
 import { Sim } from "../sim";
 import { kitOf, Layout, type PieceTypeId } from "../track";
@@ -104,9 +104,12 @@ export function haltTown(land: Landscape, pose: { x: number; z: number; heading:
   return best;
 }
 
+/** A halt too far from every town: how far it may be, in squares (the land's, as the game names them elsewhere). */
+export const HALT_TOO_FAR = `Build halts within ${Math.round(HALT_REACH / CELL)} squares of a town`;
+
 /** Game mode's rule for a halt's place (`Interaction.siteRule`): near a town, or why not. */
 export function haltWhy(land: Landscape, type: PieceTypeId, pose: { x: number; z: number; heading: number }): string | null {
-  return HALT_KITS.has(type) && !haltTown(land, pose) ? "Build halts near a town" : null;
+  return HALT_KITS.has(type) && !haltTown(land, pose) ? HALT_TOO_FAR : null;
 }
 
 export interface World {

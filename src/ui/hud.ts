@@ -6,6 +6,7 @@ import { costTagSize } from "./cost-tag";
 import { pieceIcon, trainIcon, uiIcon } from "./icons";
 import { roadIcon } from "./road-icons";
 import { isKit } from "../track";
+import { crossingStyleOf } from "../landscape/crossing-styles";
 import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, shownGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 import { loadFavourites, saveFavourites } from "./prefs";
 
@@ -588,10 +589,14 @@ export class Hud {
           this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: () => this.handlers.trayTap(item) });
         });
       } else {
-        b.title = `Drag onto the floor: ${item.label}`;
+        // A crossing's style (barriers, gates) only goes on a level crossing: it says it needs a road.
+        // A tap says so too, since a phone never shows a title.
+        const crossing = item.kind === "prop" && crossingStyleOf(item.asset);
+        const tip = crossing ? `${item.label}: goes where track crosses a road` : `Drag onto the floor: ${item.label}`;
+        b.title = tip;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move) });
+          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: crossing ? () => this.toast(tip) : undefined });
         });
       }
       if (openDef?.favourites && canFavourite(item)) {
@@ -957,6 +962,8 @@ export class Hud {
   setHistory(canUndo: boolean, canRedo: boolean): void {
     this.undoBtn.disabled = !canUndo;
     this.redoBtn.disabled = !canRedo;
+    // (On a phone the bar shows Redo, beside Undo, only while there's something to redo: after an Undo, till an edit.)
+    this.redoBtn.classList.toggle("can-redo", canRedo);
     this.redoItem.disabled = !canRedo;
   }
 

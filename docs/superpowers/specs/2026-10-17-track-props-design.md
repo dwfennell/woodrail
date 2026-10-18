@@ -404,15 +404,23 @@ or piece of furniture naming its blueprint and plank cost; tests: `src/game/kit-
 - The track cleaner is the wagon (`car:cleaner`); lineside furniture are props (`prop:<asset>` things), counted on
   the map like pieces. The crossing styles' rules are `free`.
 - **Halts** (`HALT_KITS`, src/game/world.ts): placed in Game mode within `HALT_REACH` (a plot's depth) of a town's
-  middle, a halt is an economy depot of role "town" for the nearest town (re-linked if moved). People wait there at
-  the town's rate, board, and alight from other towns as at its station (`canAlight`/`canBoard` compare towns, not
-  depots); it takes no goods (`Economy.isHalt`). Its kit dwell gives way to the depot's service (`KitStops`
-  `hasDepot`), so a train stops once, and only when someone gets on or off. Elsewhere: "Build halts near a town".
+  middle, a halt is an economy depot of role "town" for the nearest town (re-linked if moved). People wait there,
+  board, and alight from other towns as at its station (`canAlight`/`canBoard` compare towns, not depots); it takes no
+  goods (`Economy.isHalt`). Its kit dwell gives way to the depot's service (`KitStops` `hasDepot`), so a train stops
+  once, and only when someone gets on or off. Elsewhere: "Build halts within 23 squares of a town" (`HALT_TOO_FAR`).
+  While a halt is held, a soft ring on the ground shows each town's reach (`HaltReachView`: one mesh for all towns,
+  built on the first show, rebuilt only when the towns or their ground change).
+- **Halts share a town's people** (`peopleArrive`, QA): a town has one arrivals clock and one waiting cap across its
+  station and halts, and each newcomer goes to the stop with the fewest waiting (the station on a tie). Halts spread
+  a town's passengers along its lines; they don't add to them. A town with only its station is as before.
 - **Tray:** Game mode's "Railway kit" shelf on the Track tab (signal skins, turntable, transfer table) and "Railway",
   "Halts" and "Lineside" shelves on the Industries tab. Their items are hidden (not shown Locked) until learned, so a
   new player's tray is as before.
-- Cargo machines stay Sandbox's; the goods shed as the warehouse's look was not done (the warehouse is a Blender
-  part of DepotView's yard, not a kit model, so swapping it isn't a small change).
+- Cargo machines stay Sandbox's. Game's warehouse wears the goods shed's look (kits-game-p3): its Blender part
+  (`industry-warehouse`, tools/blender/dressing.py, in industry.glb) is re-dressed with the goods shed's pieces, its
+  dock facing the track; footprint, piles, crane and track as before.
+- **Board pictures** (kits-game-p3): a blueprint's ticket shows each piece and prop it makes as its tray picture (the
+  rendered model); a kit's or a prop's is drawn on demand as for the tray (`needPictures`, `pictureCame`).
 
 ### Order
 
