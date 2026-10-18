@@ -5,7 +5,7 @@ import { fitToRect, frameAlong, frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
-import { CELL, connectedPairs, fixedHome, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
+import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, OLDER_SAVE, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
@@ -56,7 +56,7 @@ import type { PropModel } from "./render/props/library";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { connectorRef, createWorldConnector, getPieceDef, isLift, kitOf, pathLength, PIECE_TYPES, type Anchor, type Layout, type PieceTypeId } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, isLift, kitOf, pathLength, PIECE_TYPES, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
@@ -79,9 +79,6 @@ const OPENING_DISTANCE = 1000;
 const GOAL_MARGIN = 260;
 /** Room round a news place made of several spots (new houses, a connection). */
 const PLACE_MARGIN = 140;
-
-/** How far a station or depot may turn when it gives (radians). */
-const GIVE_TURN = (4 * Math.PI) / 180;
 
 /** Tray pictures drawn together, a batch a frame, after the title's up. */
 const THUMBNAIL_BATCH = 8;
@@ -181,41 +178,13 @@ let reports: Reporter | null = null;
 function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<typeof initialWorld>): void {
   const game = new Game(canvas, opening.world);
   let mode = opening.mode;
-  // Stations and depots never shift to take up joint play.
+  // Stations and depots never move (to take up joint play, or to close a near miss).
   const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
-  /** An editor for the world's track and props (props-only edits skip the track's work). */
-  /**
-   * Stations and depots give a little (half a square, a few degrees) from where the map put them, as wooden track
-   * does when pushed, so track closing on one needn't meet it exactly.
-   */
-  const stationGive = (id: number): Anchor | null => {
-    const land = game.landscape;
-    for (const t of land.towns) if (game.stations.get(t.id) === id) return { home: fixedHome(t.centre, t.station.heading), reach: CELL / 2, turn: GIVE_TURN };
-    for (const d of land.depots) if (game.depots.get(d.id) === id) return { home: fixedHome(d.centre, d.piece.heading), reach: CELL / 2, turn: GIVE_TURN };
-    return null;
-  };
-  /** A station or depot was nudged: the map's record of it follows, and its buildings and yard are redrawn. */
-  const stationsNudged = (ids: number[]) => {
-    const land = game.landscape;
-    const slots = new Set<number>();
-    for (const id of ids) {
-      const pose = game.layout.getPiece(id)?.pose;
-      if (!pose) continue;
-      const town = land.towns.find((t) => game.stations.get(t.id) === id);
-      const depot = land.depots.find((d) => game.depots.get(d.id) === id);
-      if (town) town.station = { ...pose };
-      if (depot) depot.piece = { ...pose };
-      const i = land.grid.cellAtWorld(pose.x, pose.z);
-      if (i !== -1) slots.add(plotSlotOf(i));
-    }
-    game.editLand([...slots]);
-    game.depotView.setWorld(game.economy, game.layout);
-  };
   /** Has the train lift's first-time tip been shown (on this device)? */
   let liftTipShown = liftTipSeen();
+  /** An editor for the world's track and props (props-only edits skip the track's work). */
   const makeEditor = () => {
-    const ed = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece, stationGive);
-    ed.onNudge = stationsNudged;
+    const ed = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece);
     ed.onTrackEdit = (ids) => {
       const id = ids.find((i) => game.layout.getPiece(i));
       if (id !== undefined) saveLastBuilt(mode, pieceCentre(game.layout, id));
