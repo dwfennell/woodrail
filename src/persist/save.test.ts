@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildStarterWorld, syncIndustries, unlockPlot, type World } from "../game/world";
 import { appendPiece, connectorRef } from "../track";
 import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape";
 import { encodeRoad, pieceOf } from "../roads";
 import { SIM_DT } from "../sim";
-import { deserializeWorld, OLDER_SAVE, SAVE_VERSION, serializeWorld, type SaveData } from "./save";
+import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, OLDER_SAVE, SAVE_VERSION, saveToStorage, serializeWorld, type SaveData } from "./save";
 import { editLine, lineOf } from "../game/lines";
 import { CARGO_KINDS } from "../economy";
 
@@ -79,13 +79,35 @@ describe("save format", () => {
     ]);
   });
 
-  it("is at version 10 (lines), and turns older saves away, saying so", () => {
-    expect(SAVE_VERSION).toBe(10);
+  it("is at version 11 (buildings resized, big landmarks on 2×2 lots), and turns older saves away, saying so", () => {
+    expect(SAVE_VERSION).toBe(11);
     const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
-    data.version = 9;
+    data.version = 10;
     const r = deserializeWorld(data);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toBe(OLDER_SAVE);
+  });
+
+  it("an older autosave is kept aside under a backup key (not overwritten by the fresh map's), and the title knows", () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
+    try {
+      const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
+      data.version = 10;
+      const raw = JSON.stringify(data);
+      store.set("woodrail.game.v2", raw);
+      expect(hasOlderSave("game")).toBe(true);
+      expect(hasOlderSave("sandbox")).toBe(false);
+      const r = loadFromStorage("game");
+      expect(r?.ok).toBe(false);
+      expect(store.get(backupKey("game", 10))).toBe(raw);
+      // The fresh map saves over the autosave; the backup stays.
+      expect(saveToStorage(worldWithTrain(), "game")).toBe(true);
+      expect(hasOlderSave("game")).toBe(false);
+      expect(store.get(backupKey("game", 10))).toBe(raw);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("keeps lines: their colour, name and stops (wait to fill too), shared by the trains that run them", () => {
@@ -225,6 +247,30 @@ describe("save format", () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.sim.trainCount).toBe(0);
   });
+
+  it("round-trips pinned switches; a save without them loads with none", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const sw = appendPiece(world.layout, "switch", false, connectorRef(station, 1));
+    world.layout.setSwitchState(sw, 1);
+    world.layout.setPinned(sw, true);
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    expect(data.pinned).toEqual([sw]);
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.layout.isPinned(sw)).toBe(true);
+    expect(r.value.layout.switchState(sw)).toBe(1);
+    // An older save (no field): loads, nothing pinned; and nothing pinned saves no field.
+    delete data.pinned;
+    const old = deserializeWorld(data);
+    expect(old.ok).toBe(true);
+    if (!old.ok) return;
+    expect(old.value.layout.isPinned(sw)).toBe(false);
+    expect(old.value.layout.pinnedCount).toBe(0);
+    expect("pinned" in serializeWorld(old.value)).toBe(false);
+  });
 });
 
 describe("station binding", () => {
@@ -324,6 +370,8 @@ describe("props in saves", () => {
     const world = buildStarterWorld();
     world.props.add("bldg-red-barn", { x: 100, z: 50, heading: 0.5, y: 0 });
     world.props.add("life-cow", { x: -40, z: 10, heading: 2, y: 64 });
+    // A landmark drawn smaller than its model (on a smaller lot than it wants) keeps its scale.
+    world.props.add("bldg-library", { x: 300, z: -50, heading: 0, y: 0 }, undefined, { scale: 0.85 });
     const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
     const r = deserializeWorld(data);
     expect(r.ok && [...r.value.props.all()]).toEqual([...world.props.all()]);

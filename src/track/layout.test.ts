@@ -192,3 +192,38 @@ describe("Layout.restorePiece", () => {
     expect(l.restorePiece(a, "straight-54", P(0, 0), 0, false)).toBe(false);
   });
 });
+
+describe("Layout pinned switches", () => {
+  it("pins and unpins a switch (bumping switchesVersion); a piece that isn't a switch can't be pinned", () => {
+    const layout = new Layout();
+    const sw = layout.addPiece("switch", { x: 0, z: 0, heading: 0 });
+    const st = layout.addPiece("straight-216", { x: 500, z: 0, heading: 0 });
+    const v0 = layout.switchesVersion;
+    layout.setPinned(sw, true);
+    expect(layout.isPinned(sw)).toBe(true);
+    expect(layout.switchesVersion).toBe(v0 + 1);
+    layout.setPinned(sw, true);
+    expect(layout.switchesVersion).toBe(v0 + 1);
+    layout.setPinned(st, true);
+    layout.setPinned(999, true);
+    expect(layout.isPinned(st)).toBe(false);
+    expect(layout.isPinned(999)).toBe(false);
+    expect([...layout.pinnedIds()]).toEqual([sw]);
+    layout.setPinned(sw, false);
+    expect(layout.isPinned(sw)).toBe(false);
+    expect(layout.switchesVersion).toBe(v0 + 2);
+    expect(layout.pinnedCount).toBe(0);
+  });
+
+  it("removing a switch drops its pin; putting it back (undo) brings the pin back", () => {
+    const layout = new Layout();
+    const sw = layout.addPiece("switch", { x: 0, z: 0, heading: 0 });
+    layout.setPinned(sw, true);
+    const p = layout.getPiece(sw)!;
+    layout.removePiece(sw);
+    expect(layout.isPinned(sw)).toBe(false);
+    expect(layout.pinnedCount).toBe(0);
+    layout.restorePiece(sw, p.type, p.pose, p.y, p.flipped);
+    expect(layout.isPinned(sw)).toBe(true);
+  });
+});

@@ -29,6 +29,7 @@ const q = new Quaternion();
 const up = new Vector3(0, 1, 0);
 const pos = new Vector3();
 const one = new Vector3(1, 1, 1);
+const sized = new Vector3();
 
 const START_INSTANCES = 64;
 const START_VERTICES = 1 << 16;
@@ -112,11 +113,11 @@ export class PropsView {
         }
         this.drawn.set(p.id, d);
       }
-      const poseKey = `${p.x}|${p.z}|${p.heading}|${p.y}`;
+      const poseKey = `${p.x}|${p.z}|${p.heading}|${p.y}|${p.scale ?? 1}`;
       if (poseKey !== d.key) {
         d.key = poseKey;
         q.setFromAxisAngle(up, -p.heading);
-        m.compose(pos.set(p.x, p.y, p.z), q, one);
+        m.compose(pos.set(p.x, p.y, p.z), q, p.scale ? sized.setScalar(p.scale) : one);
         for (const inst of d.instances) {
           inst.batch.mesh.setMatrixAt(inst.id, m);
           touched.add(inst.batch);

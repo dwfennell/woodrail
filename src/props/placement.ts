@@ -43,6 +43,14 @@ const STEP = 16;
 /** Ground heights closer than this (mm) count as level. */
 const LEVEL = 1;
 
+/** A footprint at a prop's own scale (`Prop.scale`: a landmark drawn smaller on a smaller lot), or as it is. */
+export function scaleFootprint(fp: Footprint, scale: number | undefined): Footprint;
+export function scaleFootprint(fp: Footprint | undefined, scale: number | undefined): Footprint | undefined;
+export function scaleFootprint(fp: Footprint | undefined, scale: number | undefined): Footprint | undefined {
+  if (!fp || !scale || scale === 1) return fp;
+  return { cx: fp.cx * scale, cz: fp.cz * scale, hw: fp.hw * scale, hd: fp.hd * scale };
+}
+
 /** The footprint's corners in world space (x, z pairs), for a prop at `pose`. */
 export function footprintCorners(fp: Footprint, pose: Pick<Pose, "x" | "z" | "heading">): number[] {
   const c = Math.cos(pose.heading);
@@ -184,7 +192,7 @@ export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | 
   if (ctx.track.hits(fp, pose)) return { kind: "blocked", reason: "track" };
   for (const other of ctx.props.all()) {
     if (other.id === ignoreId || standsAside(other.asset)) continue;
-    const ofp = ctx.footprint(other.asset);
+    const ofp = scaleFootprint(ctx.footprint(other.asset), other.scale);
     if (ofp && footprintsOverlap(fp, pose, ofp, other)) return { kind: "blocked", reason: "prop" };
   }
   return { kind: "clear", y: Number.isNaN(y) ? 0 : y };
@@ -197,7 +205,7 @@ export function pieceHitsProp(props: PropStore, footprint: (asset: string) => Fo
   addTrackPoints(buckets, type, flipped, pose);
   const margin = TRACK_WIDTH / 2;
   for (const prop of props.all()) {
-    const fp = standsAside(prop.asset) ? undefined : footprint(prop.asset);
+    const fp = standsAside(prop.asset) ? undefined : scaleFootprint(footprint(prop.asset), prop.scale);
     if (!fp) continue;
     for (const list of buckets.values()) for (let i = 0; i < list.length; i += 2) if (inFootprint(fp, prop, list[i], list[i + 1], margin)) return true;
   }
@@ -207,7 +215,7 @@ export function pieceHitsProp(props: PropStore, footprint: (asset: string) => Fo
 /** Does any prop's footprint reach into the world rectangle (x0, z0)–(x1, z1)? (Bounding boxes of the footprints.) */
 export function propsInRect(props: PropStore, footprint: (asset: string) => Footprint | undefined, x0: number, z0: number, x1: number, z1: number): boolean {
   for (const p of props.all()) {
-    const fp = standsAside(p.asset) ? undefined : footprint(p.asset);
+    const fp = standsAside(p.asset) ? undefined : scaleFootprint(footprint(p.asset), p.scale);
     if (!fp) continue;
     const c = footprintCorners(fp, p);
     const minX = Math.min(c[0], c[2], c[4], c[6]);

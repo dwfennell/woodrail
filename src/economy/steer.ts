@@ -8,7 +8,8 @@ export const SEARCH = 4000;
 
 /**
  * The way out of a piece entered through `entry`: each path from that end (`option` counts them, as switch states do;
- * `path` is its index in the piece's paths), and where it leaves (−1: a buffer).
+ * `path` is its index in the piece's paths), and where it leaves (−1: a buffer). A pinned switch (or a deck) has just
+ * the one way it's set to, so `steer` passes it by and `distanceTo` follows only that route.
  */
 export function waysFrom(layout: Layout, pieceId: number, entry: number): { option: number; path: number; exit: number }[] {
   const piece = layout.getPiece(pieceId);
@@ -23,6 +24,11 @@ export function waysFrom(layout: Layout, pieceId: number, entry: number): { opti
     if (open !== -1 && i !== open) continue;
     if (p.from !== entry && p.to !== entry) continue;
     out.push({ option: out.length, path: i, exit: p.from === entry ? (p.to ?? -1) : p.from });
+  }
+  // A pinned switch: only the route it's set to goes anywhere (steering doesn't throw it), picked as `routeFrom` does.
+  if (out.length > 1 && layout.isPinned(pieceId)) {
+    const set = out[layout.switchState(pieceId) % out.length];
+    return [{ option: 0, path: set.path, exit: set.exit }];
   }
   return out;
 }
@@ -95,7 +101,8 @@ export function wayToward(
 
 /**
  * Set the next switch ahead of a train (the next piece it enters where it has a choice) toward the piece `target`,
- * the shortest way on. Leaves it as it is if no way leads there. Returns true if a switch was changed.
+ * the shortest way on. Leaves it as it is if no way leads there. Returns true if a switch was changed. A pinned switch
+ * is never thrown: it offers no choice (`waysFrom`), so the next one beyond it is set instead.
  */
 export function steer(layout: Layout, train: Train, forward: boolean, target: number): boolean {
   // The cursor at the train's front, pointing the way it goes.

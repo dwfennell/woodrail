@@ -7,7 +7,7 @@ import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
 import { CELL, connectedPairs, fixedHome, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
-import { hasSave, loadFromStorage, loadGoals, loadProgress, OLDER_SAVE, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
+import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, OLDER_SAVE, saveGoals, saveProgress, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
 import { GoalTracker } from "./game/goals";
 import { GoalsPanel } from "./ui/goals-panel";
@@ -826,7 +826,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.paused = true;
     loading?.classList.add("behind-title");
     title.root.classList.add("over-opening");
-    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") });
+    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") });
     // Of the loading screen's toys, just the train stays, right where it is, under the name: the cards come in below it.
     toys?.showTrainOnly();
     settleHop();
@@ -930,7 +930,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.director.glideTo(new Vector3((e.x0 + e.x1) / 2, 0, (e.z0 + e.z1) / 2), distance, { phi: 0.9, duration: 1.4 });
     pausedBeforeTitle = game.paused;
     game.paused = true;
-    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") });
+    title.show({ sandbox: hasSave("sandbox"), game: hasSave("game") }, { sandbox: hasOlderSave("sandbox"), game: hasOlderSave("game") });
   }
 
   // Game mode's goals: checked about once a second and after every change to the track.
@@ -2583,7 +2583,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
-      if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game: here's a fresh one");
+      if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
       setWorld(saved?.ok ? saved.value : buildStarterWorld());
     }
     enter(next);
@@ -2619,7 +2619,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     title.hide();
     if (olderSave) {
       olderSave = false;
-      hud.toast("Your last map was saved by an older version of the game: here's a fresh one", false, 6000);
+      hud.toast("Your last map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
     }
     leaveOpening();
     // The first frames after the map appears (or changes) are slow while it settles: not a reason to draw coarser.

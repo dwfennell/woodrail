@@ -11,7 +11,7 @@ import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGH
 import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
-import { checkProp, propsInRect, PROP_MESSAGES, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
+import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
 import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
@@ -3363,6 +3363,8 @@ export class Interaction {
     const key = modelKey(asset, variant);
     const ghost = new Group();
     ghost.visible = false;
+    // (A town's landmark drawn smaller than its model is carried at its own size.)
+    ghost.scale.setScalar(g.props.get(propId)?.scale ?? 1);
     const dress = () => {
       const model = g.propLibrary.model(key);
       if (!model) return;
@@ -3419,7 +3421,7 @@ export class Interaction {
     const h = hills.groundAt(at.x + offset.x, at.z + offset.z);
     if (h > 0) at = this.planeAt(x, sy, h + rise) ?? at;
     const pose = { x: Math.round((at.x + offset.x) / 2) * 2, z: Math.round((at.z + offset.z) / 2) * 2, heading: m.heading };
-    const fp = g.propLibrary.footprint(m.asset);
+    const fp = scaleFootprint(g.propLibrary.footprint(m.asset), g.props.get(m.propId)?.scale);
     let ground = hills.groundAt(pose.x, pose.z);
     let blocked: PropBlock | null = null;
     if (standsAside(m.asset)) {
@@ -3466,7 +3468,7 @@ export class Interaction {
       if (m.propId !== -1) this.removeProp(m.propId);
       return;
     }
-    const fp = g.propLibrary.footprint(m.asset);
+    const fp = scaleFootprint(g.propLibrary.footprint(m.asset), g.props.get(m.propId)?.scale);
     if (m.blocked || !fp) {
       this.onRefused?.();
       g.propsChanged(-1);
@@ -3508,7 +3510,7 @@ export class Interaction {
     if (!p) return;
     this.clearSelection();
     this.selectedProp = id;
-    this.propOutline.show(g.propLibrary.footprint(p.asset) ?? null, p.x, p.y, p.z, p.heading);
+    this.propOutline.show(scaleFootprint(g.propLibrary.footprint(p.asset), p.scale) ?? null, p.x, p.y, p.z, p.heading);
     this.hud.showPieceCard(false, g.propLibrary.model(modelKey(p.asset, p.variant))?.name ?? "Model", false);
     if (LEVER_PROPS.has(p.asset)) this.showLevers(id);
     this.hintDrag();
@@ -3572,7 +3574,7 @@ export class Interaction {
   private turnProp(id: number): void {
     const g = this.game;
     const p = g.props.get(id);
-    const fp = p && g.propLibrary.footprint(p.asset);
+    const fp = p && scaleFootprint(g.propLibrary.footprint(p.asset), p.scale);
     if (!p || !fp) return;
     const from: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
     const to = { x: p.x, z: p.z, heading: p.heading + Math.PI / 4 };
@@ -3599,7 +3601,7 @@ export class Interaction {
     const p = g.props.get(id);
     if (!p) return;
     const pose: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
-    const links = { building: p.building, town: p.town, variant: p.variant };
+    const links = { building: p.building, town: p.town, variant: p.variant, scale: p.scale };
     if (p.building === undefined) {
       this.editor().editProps({ do: () => g.props.remove(id), undo: () => g.props.add(p.asset, pose, id, links) });
       g.propsChanged();
@@ -3631,7 +3633,7 @@ export class Interaction {
     const g = this.game;
     const land = g.landscape;
     const p = g.props.get(id)!;
-    const links = { building: p.building, town: p.town, variant: p.variant };
+    const links = { building: p.building, town: p.town, variant: p.variant, scale: p.scale };
     const changed = townSlots(land, building);
     let putBack = () => {};
     const doIt = () => {

@@ -42,6 +42,10 @@ pieces ahead (`steer.ts`). A switch the player set by hand can quietly change ba
 - `src/persist/save.ts`: `pinned`.
 - Tests: steer leaves a pinned switch alone and routes around it; save round-trip; layout pin survives undo.
 
+Status (2026-10-18): the data side of pinning has landed: `Layout.isPinned` / `setPinned` (pin changes bump
+`switchesVersion`), `steer`/`waysFrom` treating a pinned switch as fixed, and the save's optional `pinned`. The UI
+(long press, peg, warmer chevrons, the first-time toast) is still to come.
+
 ## Later (with route planning, C)
 
 The engine card's stop list offers only the stops a train can actually reach from where it is, taking pinned
