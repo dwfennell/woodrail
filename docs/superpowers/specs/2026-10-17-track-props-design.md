@@ -416,8 +416,11 @@ or piece of furniture naming its blueprint and plank cost; tests: `src/game/kit-
 - **Tray:** Game mode's "Railway kit" shelf on the Track tab (signal skins, turntable, transfer table) and "Railway",
   "Halts" and "Lineside" shelves on the Industries tab. Their items are hidden (not shown Locked) until learned, so a
   new player's tray is as before.
-- Cargo machines stay Sandbox's; the goods shed as the warehouse's look was not done (the warehouse is a Blender
-  part of DepotView's yard, not a kit model, so swapping it isn't a small change).
+- Cargo machines stay Sandbox's. Game's warehouse wears the goods shed's look (kits-game-p3): its Blender part
+  (`industry-warehouse`, tools/blender/dressing.py, in industry.glb) is re-dressed with the goods shed's pieces, its
+  dock facing the track; footprint, piles, crane and track as before.
+- **Board pictures** (kits-game-p3): a blueprint's ticket shows each piece and prop it makes as its tray picture (the
+  rendered model); a kit's or a prop's is drawn on demand as for the tray (`needPictures`, `pictureCame`).
 
 ### Order
 
