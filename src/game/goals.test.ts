@@ -311,4 +311,13 @@ describe("place-workshop guide", () => {
     const fresh = buildStarterWorld();
     expect(goal("place-workshop").guide(fresh).towns.length).toBe(2);
   });
+  it("two trains at once waits for signals and junctions (a passing loop): passed over till then, and not counted", () => {
+    const w = buildStarterWorld();
+    const t = new GoalTracker(GOALS.filter((g) => g.id !== "two-trains" && g.id !== "join-all").map((g) => g.id));
+    t.update(w, { learned: new Set(["signals"]) });
+    expect(t.current()?.id).toBe("join-all");
+    expect(t.next()?.id).toBe("two-trains");
+    t.update(w, { learned: new Set(["signals", "junctions"]) });
+    expect(t.current()?.id).toBe("two-trains");
+  });
 });

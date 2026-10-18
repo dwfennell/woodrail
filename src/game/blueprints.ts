@@ -113,7 +113,7 @@ const row = (r: Row): Blueprint => ({ learn: "board", requires: [], price: {}, .
 
 export const BLUEPRINTS: readonly Blueprint[] = [
   // Track
-  row({ id: "switches", label: "Switches", branch: "track", tier: 1, key: true, needs: [], price: { planks: 6 }, blurb: "Branch a line in two.", brings: "Switch, Y switch" }),
+  row({ id: "switches", label: "Switches", branch: "track", tier: 1, key: true, needs: [], price: { planks: 4 }, blurb: "Branch a line in two.", brings: "Switch, Y switch" }),
   row({ id: "bridges", label: "Bridges and ramps", branch: "track", tier: 1, key: true, needs: [], price: { planks: 10 }, blurb: "Ramp up and over rivers and other lines, and raise track higher.", brings: "Ramps, bridges, risers" }),
   row({ id: "junctions", label: "Junctions and loops", branch: "track", tier: 1, key: true, needs: ["switches"], price: { planks: 12 }, blurb: "Three-ways, crossings, double track, and loops to turn a train round.", brings: "Crossings, wye, three-way, double track, balloon loops, signal gantry" }),
   row({ id: "signals", label: "Signals", branch: "track", tier: 1, key: true, needs: ["switches"], price: { planks: 8 }, blurb: "Two trains share a line: a train waits at a red signal until the track ahead is clear. Tap one to hold trains there.", brings: "Signal, semaphore signal" }),

@@ -1035,11 +1035,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const grew = built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`;
       const where = built.length > 0 ? placeOf(built) : here;
       if (extras.length > 0) {
-        // A first, a present or a landmark: a moment. One toast and one entry, and the goal it ticks joins them.
+        // A first, a present or a landmark: a moment. A one-line toast; the News entry has the rest, and the goal it
+        // ticks joins that entry.
         const entry = note({ kind: "milestone", text: `${grew} ${extras.join(" · ")}`, place: where }, 5200, true);
         growth = entry ? { entry, at: performance.now() } : null;
         checkGoals(true);
-        if (entry) hud.toast(entry.text, true, 5200);
+        if (entry) hud.toast(built.length > 0 ? `${town.name} is ${level}!` : grew, true, 3200);
         growth = entry ? { entry, at: performance.now() } : null;
       } else {
         note({ kind: "event", text: grew, place: where });
@@ -1066,6 +1067,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   });
   /** When goals were last checked (wall-clock ms: frame times are capped, so slow frames would stretch a dt sum). */
   let goalsCheckedAt = 0;
+  /** The latest goals ticked, a moment apart at most: their News entry and toast take the next one in. */
+  let ticks: { entry: JournalEntry; titles: string[]; at: number; toast: string } | null = null;
+  const GOALS_JOIN_MS = 2500;
   function checkGoals(announce: boolean): void {
     if (mode !== "game" || !playing) return;
     const ctx = { learned: progress.learned };
@@ -1078,9 +1082,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           // Right after a growth milestone: part of the same toast and entry.
           journal.amend(growth.entry, `${growth.entry.text} · ${tick}`);
           goalsPanel.newsChanged();
+        } else if (ticks && performance.now() - ticks.at < GOALS_JOIN_MS) {
+          // Goals ticked together (one a check, a moment apart): one line in the News and one toast.
+          ticks.titles.push(...fresh.map((g) => g.title));
+          ticks.at = performance.now();
+          const text = `${ticks.titles.length} goals done: ${ticks.titles.join(" · ")}`;
+          journal.amend(ticks.entry, text);
+          goalsPanel.newsChanged();
+          hud.retoast(ticks.toast, text, true, 3200);
+          ticks.toast = text;
         } else {
           const where = fresh[0].guide(game.world).points[0];
-          note({ kind: "milestone", text: tick, place: where && { x: where.x, z: where.z } }, 3200);
+          const entry = note({ kind: "milestone", text: tick, place: where && { x: where.x, z: where.z } }, 3200, true);
+          if (entry) {
+            hud.toast(tick, true, 3200);
+            ticks = { entry, titles: fresh.map((g) => g.title), at: performance.now(), toast: tick };
+          }
         }
         audio.chime();
         goalsPanel.celebrate();
@@ -1133,7 +1150,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return false;
     }
     if (why) {
-      const short = [total(why.goods) > 0 ? `${describeGoods(why.goods)} more at the workshop` : "", why.coins > 0 ? `${why.coins} more coins` : ""].filter(Boolean).join(" and ");
+      const short = [total(why.goods) > 0 ? `${costTag(why.goods)} more at the workshop` : "", why.coins > 0 ? `${costTag({}, why.coins)} more` : ""].filter(Boolean).join(" and ");
       hud.toast(`${label}: needs ${short}`, false, 3600);
       return false;
     }
@@ -1347,9 +1364,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const have = stock[k] ?? 0;
       if (have >= goods[k]!) continue;
       if (have === 0 && k === "planks") return "Bring planks from the sawmill by train";
-      return `${describeGoods({ [k]: goods[k] })} needed at workshop (${have} there)`;
+      return `${costTag({ [k]: goods[k] })} needed at workshop (${have} there)`;
     }
-    if (progress.coins < coins) return `${coins} coins needed (${progress.coins} now)`;
+    if (progress.coins < coins) return `${costTag({}, coins)} needed (${progress.coins} now)`;
     return null;
   }
 
@@ -2646,6 +2663,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     saveGoals([]);
     journal.clear();
     growth = null;
+    ticks = null;
     goalsPanel.reset();
   }
 
