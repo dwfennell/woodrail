@@ -1,6 +1,6 @@
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
-import { Editor, pieceCentre } from "./editor/editor";
+import { Editor, pieceCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
@@ -202,6 +202,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // An edit, undo or redo refused: it would take up or move a train lift that's carrying a train or has one on it.
     ed.onHeld = (liftId) => {
       hud.toast(liftHeldMessage(game.sim.pieceOccupied(liftId)));
+      audio.refuse();
+    };
+    // An undo or redo refused: it would take up or move track a train is on (and derail it).
+    ed.onTrainOn = () => {
+      hud.toast(TRAIN_ON_TRACK);
       audio.refuse();
     };
     ed.onLandChange = (slots) => {

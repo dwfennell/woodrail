@@ -43,6 +43,9 @@ const HISTORY_LIMIT = 100;
 const NEAR_MISS_REACH = 45;
 const NEAR_MISS_ANGLE = (12 * Math.PI) / 180;
 
+/** Said when an undo or redo is refused because a train is on track it would take up or move (`Editor.onTrainOn`). */
+export const TRAIN_ON_TRACK = "A train is on that track";
+
 /** A piece to put down along with an edit. */
 export interface Placement {
   type: PieceTypeId;
@@ -113,6 +116,12 @@ export class Editor {
 
   /** Called when an edit, undo or redo was refused: it would have taken up or moved this lift while it's held (`run`). */
   onHeld: ((liftId: number) => void) | null = null;
+
+  /**
+   * Called when an undo or redo was refused because it would take up or move track a train is on (it would derail
+   * the train), with that piece. The history is kept as it was, to try again once the train has gone.
+   */
+  onTrainOn: ((pieceId: number) => void) | null = null;
 
   /** Called when track is put down or moved (not undone), with the pieces it put down. */
   onTrackEdit: ((ids: number[]) => void) | null = null;
@@ -374,16 +383,37 @@ export class Editor {
     return true;
   }
 
-  /** One way of an undo step (`go`), put straight back (`back`) and refused if it disturbed a held lift. */
+  /**
+   * One way of an undo step (`go`), put straight back (`back`) and refused if it disturbed a held lift, or track a
+   * train is on (QA: undoing a line a train had rolled onto derailed it, cargo spilt).
+   */
   private step(c: Command, go: () => void, back: () => void): boolean {
-    const held = c.props || c.land || c.roads ? null : this.held();
+    const track = !(c.props || c.land || c.roads);
+    const held = track ? this.held() : null;
+    const under = track ? this.underTrains() : null;
     go();
-    if (!held) return true;
-    const id = this.disturbed(held, c);
-    if (id === -1) return true;
+    const lift = held ? this.disturbed(held, c) : -1;
+    const train = lift === -1 && under ? this.disturbed(under, c) : -1;
+    if (lift === -1 && train === -1) return true;
     back();
-    this.onHeld?.(id);
+    if (lift !== -1) this.onHeld?.(lift);
+    else this.onTrainOn?.(train);
     return false;
+  }
+
+  /** The pieces a train (on the rails) stands on, or null for none. */
+  private underTrains(): PieceRecord[] | null {
+    let out: PieceRecord[] | null = null;
+    for (const t of this.sim.trainIds()) {
+      const train = this.sim.getTrain(t)!;
+      if (train.derailed) continue;
+      for (const b of train.bogies) {
+        if (out?.some((r) => r.id === b.pieceId)) continue;
+        const r = this.record(b.pieceId);
+        if (r) (out ??= []).push(r);
+      }
+    }
+    return out;
   }
 
   clearHistory(): void {
