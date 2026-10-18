@@ -705,10 +705,11 @@ export class Game {
       if (kits === "moving") active = true;
       else if (kits === "changed") this.invalidate();
     }
-    // A loop-the-loop's show follows its engine across: looked at only on frames where trains moved, or while a show
-    // is on (still while its train stands or the game is paused; out of view, unseen and undrawn).
-    if (this.loopShow.count > 0 && (trainsMoved || this.loopShow.running)) {
-      const show = this.loopShow.update(this.snapshot, this.trainView, this.camera);
+    // A loop-the-loop's show follows its engine across: looked at only on frames where trains moved, or while it's
+    // busy (a show on: still while its train stands or the game is paused, out of view unseen and undrawn; or one
+    // called off, easing its engine back for a moment).
+    if ((this.loopShow.count > 0 && trainsMoved) || this.loopShow.busy) {
+      const show = this.loopShow.update(this.snapshot, this.trainView, this.camera, dt);
       if (show === "moving") active = true;
       else if (show === "changed") this.invalidate();
     }
