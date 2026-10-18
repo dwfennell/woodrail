@@ -75,7 +75,9 @@ export class Batcher {
       const stand = partStandIn(g);
       if (stand) this.standIns.push(stand);
     }
-    for (const name of Object.keys(g.attributes)) if (!["position", "normal", "uv"].includes(name)) g.deleteAttribute(name);
+    // (Paint already coloured, a baked catalogue model's, keeps its vertex colours.)
+    const colored = !paintColor && bucket === this.paint && !!g.getAttribute("color");
+    for (const name of Object.keys(g.attributes)) if (!["position", "normal", "uv"].includes(name) && !(colored && name === "color")) g.deleteAttribute(name);
     if (paintColor) {
       const c = this.color.set(paintColor);
       const n = g.getAttribute("position").count;

@@ -4,6 +4,7 @@ import { getPieceDef, isBridge, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
 import { workshops, workshopStock } from "./crafting";
 import { depotSpot } from "./depot-footprint";
+import { schoolOf, siteWhy } from "./industries";
 import { receivedBy } from "./town-life";
 import { townStatus } from "./towns";
 import type { World } from "./world";
@@ -55,7 +56,7 @@ export interface Goal {
   guide(world: World): GoalGuide;
   /** Blueprints to learn before it shows or counts (till then it's passed over). */
   readonly needs?: readonly string[];
-  /** The blueprint it's after, if any: while it's the current goal the workshop keeps planks for it (`planksWanted`). */
+  /** The blueprint it's after, if any (to research at a school). */
   readonly blueprint?: string;
 }
 
@@ -130,6 +131,29 @@ function nextTowns(w: World): number[] {
 }
 
 const guideTowns = (w: World, ids: number[]): GoalGuide => ({ points: ids.map((id) => townAt(w, id)), towns: ids, marks: [] });
+
+/** The schools on the map. */
+const schools = (w: World) => w.economy.allDepots().filter((d) => d.role === "school");
+
+/**
+ * Where research goes on: the school (and the sawmill, for its planks); with none on the map yet, a straight of the
+ * line beside the town that's grown most (its station first), where the school fits.
+ */
+export function guideSchool(w: World): GoalGuide {
+  const school = schools(w)[0];
+  if (school) {
+    const at = piecePoint(w, school.pieceId);
+    return { points: [at, ...guideDepot(w, "sawmill").points.slice(0, 1)], towns: [], marks: [at] };
+  }
+  const guide: GoalGuide = { ...guideTrains(w), tab: "industries", shelf: "Industries" };
+  const town = [...w.landscape.towns].sort((a, b) => townStatus(receivedBy(w, b.id)).fill - townStatus(receivedBy(w, a.id)).fill)[0];
+  const station = town && w.stations.get(town.id);
+  if (station === undefined) return guide;
+  const fits = (pose: { x: number; z: number; heading: number }) => !siteWhy(w.landscape, "depot-school", pose, (id) => schoolOf(w, id));
+  const spot = depotSpot(w, "depot-school", [piecePoint(w, station)], fits);
+  if (spot) return { ...guide, points: [{ x: spot.x, z: spot.z }], towns: [], marks: [{ x: spot.x, z: spot.z }], held: { type: "depot-school", heading: spot.heading } };
+  return { ...guide, ...guideTowns(w, [town.id]), tab: "industries", shelf: "Industries" };
+}
 
 /** Look at what's on the board: the trains (or failing that the track, or the first towns) and reach for a tab. */
 function guideTrains(w: World, tab?: GoalGuide["tab"], shelf?: string): GoalGuide {
@@ -350,9 +374,9 @@ export const GOALS: readonly Goal[] = [
     id: "learn-switches",
     blueprint: "switches",
     title: "Learn switches",
-    hint: "Open Blueprints and tap Switches.",
-    check: (_w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches") }),
-    guide: (w) => guideTrains(w),
+    hint: "Tap Switches in Blueprints, then bring 4 planks to your school.",
+    check: (w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches"), ...(ctx.learned.has("switches") || schools(w).length > 0 ? {} : { hint: "Place your school beside a town (Industries tab)." }) }),
+    guide: guideSchool,
   },
   {
     id: "lay-switch",

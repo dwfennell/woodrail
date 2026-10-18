@@ -2,7 +2,7 @@ import { CARGO, CARGO_KINDS, GOODS_ICON, type CargoKind } from "../economy/cargo
 import { pilesOf } from "../economy/economy";
 import type { TownStatus } from "./towns";
 import type { DepotRole } from "../economy";
-import { DEPOT_NAMES, type World } from "./world";
+import { DEPOT_NAMES, depotName, type World } from "./world";
 
 /** One thing the map view points out: where it is, what it's called, and a line about it. */
 export interface MapMarker {
@@ -45,9 +45,10 @@ export function mapMarkers(world: World, statusOf: (townId: number) => TownStatu
   for (const d of world.economy.allDepots()) {
     if (d.role === "town" || own.has(d.pieceId)) continue;
     const piece = world.layout.getPiece(d.pieceId);
-    const title = DEPOT_NAMES[d.role];
+    const title = depotName(world, d);
     if (!piece || !title) continue;
-    const stock = pilesOf(d.role).map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${d.piles[CARGO[k].index]}`).join(" · ");
+    // (A school's goods go into its research: it has no piles to list.)
+    const stock = (d.role === "school" ? [] : pilesOf(d.role)).map((k) => `${GOODS_ICON[k]} ${CARGO[k].label} ${d.piles[CARGO[k].index]}`).join(" · ");
     out.push({ key: `site:${d.id}`, kind: d.role, x: piece.pose.x, z: piece.pose.z, title, detail: stock });
   }
   return out;

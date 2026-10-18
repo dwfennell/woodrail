@@ -23,8 +23,12 @@ export interface Station {
   price: string;
   planks: number;
   affordable?: boolean;
-  /** For `ready` and not affordable: why not, in one short line ("6🪵 needed at workshop (2 there)"). */
+  /** For `ready`: why not yet, or how its research stands, in one short line ("bring 4🪵 to Larkfield school"). */
   why?: string;
+  /** For `ready`: it's the research under way, or the one up next. */
+  research?: "current" | "next";
+  /** For `ready`: the button's word ("Research", "Next up"); "Learn" if not given. */
+  action?: string;
   /** What must be done first, in words, and whether it is. */
   requires: { text: string; met: boolean }[];
   /** For `offered`: which offer (to choose it). */
@@ -398,7 +402,10 @@ export class BlueprintBoard {
             : "";
       // Not yet: why, in place of the count (so a greyed Learn always says why).
       const cost = s.why ? `<span class="bp-why">${esc(s.why)}</span>` : gauge;
-      foot = `<span class="bp-cost">${cost}</span><button class="chip text${s.affordable ? " primary" : ""}" data-act="learn" data-id="${s.id}" ${s.affordable ? "" : `aria-disabled="true" title="${esc(s.why ?? "")}"`}>Learn · ${esc(s.price)}</button>`;
+      // (The research under way says so, its button resting.)
+      const lit = s.affordable && s.research !== "current";
+      const word = s.research === "current" ? esc(s.action ?? "Researching") : `${esc(s.action ?? "Learn")} · ${esc(s.price)}`;
+      foot = `<span class="bp-cost">${cost}</span><button class="chip text${lit ? " primary" : ""}" data-act="learn" data-id="${s.id}" ${lit ? "" : `aria-disabled="true" title="${esc(s.why ?? "")}"`}>${word}</button>`;
     } else foot = `<span class="bp-waits">${esc(s.waits ?? "Later")}</span>`;
     return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b><span>${esc(s.blurb)}</span></div>${makes ? `<div class="bp-makes">${makes}</div>` : ""}<div class="bp-ticket-needs">${needs.length ? `<span>Needs: ${esc(needs.join(" + "))}</span>` : ""}${opens.length ? `<span>Opens: ${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}</span>` : ""}${s.state !== "learned" && (s.price !== "free" || reqs) ? `<span>${s.price !== "free" ? `Price: ${esc(s.price)}` : ""}</span>${reqs}` : ""}</div><div class="bp-ticket-foot">${foot}</div></div>`;
   }

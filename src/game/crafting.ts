@@ -79,8 +79,9 @@ export function uncraft(world: World, p: Progress, wants: ReadonlyMap<ThingId, n
 
 /** Could `wants` be made now, from the tray (as `craftNow`, taking nothing)? Null if so, else why not. */
 export function craftShort(world: World, p: Progress, wants: ReadonlyMap<ThingId, number>): null | "no-workshop" | { goods: Bag; coins: number } {
-  if (workshops(world).length === 0) return "no-workshop";
   const cost = costOf(wants);
+  // (Something of coins alone, a school, needs no workshop to make it.)
+  if (workshops(world).length === 0 && total(cost.goods) > 0) return "no-workshop";
   const goods = minus(cost.goods, workshopStock(world));
   const coins = Math.max(0, cost.coins - p.coins);
   return total(goods) > 0 || coins > 0 ? { goods, coins } : null;

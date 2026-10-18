@@ -90,6 +90,7 @@ export type PieceTypeId =
   | "depot-power"
   | "depot-harbour"
   | "depot-warehouse"
+  | "depot-school"
   | JoinTypeId
   | FitTypeId
   | KitTypeId;
@@ -481,6 +482,7 @@ const CATALOG: Record<PieceTypeId, PieceDef> = {
   "depot-power": straight("depot-power", 216),
   "depot-harbour": straight("depot-harbour", 216),
   "depot-warehouse": straight("depot-warehouse", 216),
+  "depot-school": straight("depot-school", 216),
 };
 
 /** The join sizes: lengths and sideways shifts on the lattice, gentle enough to run (no tighter than a small curve). */

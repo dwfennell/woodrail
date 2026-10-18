@@ -21,7 +21,7 @@ import { modelKey } from "../render/props/library";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason, letGoRefusal, onwardEnds, refusalText } from "./drop";
 import type { Game } from "./game";
-import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
+import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
 import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
@@ -1657,7 +1657,7 @@ export class Interaction {
     const d = this.game.economy.depot(depotId);
     if (!d) return "";
     if (d.role === "town") return `${this.game.landscape.towns.find((t) => t.id === d.townId)?.name ?? ""} goods`;
-    return DEPOT_NAMES[d.role];
+    return depotName(this.game, d);
   }
 
   /** Counts the cards opened: a check for one that's been replaced since does nothing. */
@@ -1729,6 +1729,12 @@ export class Interaction {
     if (this.movableIndustry(depotId) !== -1) this.hintDrag();
   }
 
+  /**
+   * A school's card (Game mode): `key` changes whenever what it shows does (cheap: called every frame while it's open);
+   * `show` gives its rows, the research's goods (got of needed) and a line about it.
+   */
+  schoolCard: { key(): number; show(): { piles: { label: string; count: number; cap: number }[]; note: string } } | null = null;
+
   /** Keep the open depot card's pile counts current (call every frame). */
   refreshDepotCard(): void {
     if (this.selectedDepot === -1 || !this.hud.depotCardOpen) return;
@@ -1736,7 +1742,8 @@ export class Interaction {
     if (!d) return;
     // Only redraw the card when something on it changed (this runs every frame).
     // (A harbour's dock sheds change what its piles hold: they count here too.)
-    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.sheds;
+    // A school's card shows its research (Game mode), redrawn when that changes (its key: a counter, no allocation).
+    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.sheds;
     const shown = this.shownDepot;
     // Every pile's count hashed into one number (a warehouse's or harbour's piles hold more than 15): no allocation on
     // this per-frame check.
@@ -1748,6 +1755,11 @@ export class Interaction {
     shown.auto = d.auto;
     shown.wait = d.waitFull;
     shown.delivered = delivered0;
+    if (d.role === "school") {
+      const r = this.schoolCard?.show() ?? { piles: [], note: "" };
+      this.hud.updateDepotCard(r.piles, d.auto, null, r.note);
+      return;
+    }
     let piles = pilesOf(d.role).map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
     // A harbour's quay takes any good: it lists only what's there.
     if (d.role === "harbour") piles = piles.filter((p) => p.count > 0);
@@ -1957,7 +1969,7 @@ export class Interaction {
     if (yard) return { reason: yard, risers: [] };
     const s = trackSupport(this.rules, type, flipped, pose, y, ignoreId);
     if (s.reason) return { reason: s.reason, risers: [] };
-    const site = this.siteRule?.(type, pose) ?? null;
+    const site = this.siteRule?.(type, pose, ignoreId) ?? null;
     if (site) {
       this.siteWhy = site;
       return { reason: "site", risers: [] };
@@ -1967,9 +1979,10 @@ export class Interaction {
 
   /**
    * A mode's own rule for where a piece may go, beyond the track's (Game mode: an industry stands near its resource),
-   * as the message to show, or null. Runs on every move while a piece is held: keep it cheap.
+   * as the message to show, or null. `ignoreId`: the piece being moved (it doesn't count against itself). Runs on
+   * every move while a piece is held: keep it cheap.
    */
-  siteRule: ((type: PieceTypeId, pose: Pose) => string | null) | null = null;
+  siteRule: ((type: PieceTypeId, pose: Pose, ignoreId: Ignore) => string | null) | null = null;
   /** The message for the last "site" refusal. */
   private siteWhy = "";
 

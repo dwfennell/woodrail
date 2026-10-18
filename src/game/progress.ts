@@ -1,5 +1,7 @@
+import { CARGO_KINDS } from "../economy/cargo";
 import { RENAMED } from "./blueprints";
-import { STARTING_BOARD, techOf } from "./tech";
+import { newResearch, researchFromJSON, researchToJSON, type Research, type ResearchData } from "./research";
+import { techOf } from "./tech";
 import { isFree, ruleOf, STARTING_BOX, THING_RULES, thingsFor, type ThingId } from "./things";
 import type { World } from "./world";
 
@@ -31,12 +33,15 @@ export class Progress {
   riders = 0;
   /** The landmarks your towns have (a school, a market, a library): from the map, not saved (see `landmarksOf`). */
   readonly landmarks = new Set<string>();
+  /** What the schools are researching (see `research.ts`). */
+  research: Research = newResearch();
 
-  /** A new game: the starting box. */
+  /**
+   * A new game: the starting box. (No starting board: any blueprint ready to learn can be picked for research.)
+   */
   static fresh(): Progress {
     const p = new Progress();
     for (const [id, n] of Object.entries(STARTING_BOX) as [ThingId, number][]) p.owned.set(id, n);
-    for (const t of STARTING_BOARD) p.board.add(t);
     return p;
   }
 
@@ -80,7 +85,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: this.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: o.crate.map(([id, n]) => [id, n] as [ThingId, number]) } : {}) })), coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, counts: [...this.counts] };
+    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: this.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: o.crate.map(([id, n]) => [id, n] as [ThingId, number]) } : {}) })), coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, counts: [...this.counts], research: researchToJSON(this.research) };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -112,6 +117,8 @@ export class Progress {
     p.riders = Number.isInteger(d?.riders) && d!.riders! > 0 ? d!.riders! : 0;
     p.bestLevel = Number.isInteger(d?.bestLevel) && d!.bestLevel! > 0 ? d!.bestLevel! : 0;
     if (d && Array.isArray(d.counts)) for (const e of d.counts) if (Array.isArray(e) && typeof e[0] === "string" && Number.isFinite(e[1]) && e[1] > 0) p.counts.set(e[0], e[1]);
+    // Research: only blueprints still to learn.
+    p.research = researchFromJSON(d?.research, (t) => (known(t) && !p.learned.has(known(t)!) ? known(t) : null), new Set(CARGO_KINDS));
     return p;
   }
 }
@@ -138,6 +145,7 @@ export interface ProgressData {
   counts?: [string, number][];
   orders?: string[];
   making?: boolean;
+  research?: ResearchData;
 }
 
 /** How many of a thing are on the map. */
