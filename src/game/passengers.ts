@@ -38,27 +38,43 @@ export function riderSeconds(level: number, busy = false): number {
 }
 
 /**
- * People turn up at towns' stations, `seconds` of play at a time. `clock` holds each station's time since its last
- * (kept by the caller between calls). Cheap: a few towns, called about once a second.
+ * People turn up at towns' stations, `seconds` of play at a time. A town's arrivals are shared among its stops (its
+ * station and any halts, every depot of role "town" with its `townId`), not added to: one clock and one cap per town,
+ * each newcomer going to the stop with the fewest waiting (the earliest, its station, on a tie). So halts spread a
+ * town's people out; they don't make more. `clock` holds each town's time since its last arrival, by town id (kept by
+ * the caller between calls). Cheap: a few towns, called about once a second.
  */
 export function peopleArrive(world: World, p: Progress, seconds: number, clock: Map<number, number>): void {
   // No one waits for coaches that can't be made yet.
   if (!p.learned.has("passengers")) return;
   const cap = waitingCap(p);
+  const busy = p.learned.has("stations");
+  // Each town's stops, in depot order (its station, added with the map, first).
+  const stops = new Map<number, DepotState[]>();
   for (const d of world.economy.allDepots()) {
     if (d.role !== "town" || !world.layout.getPiece(d.pieceId)) continue;
-    if (d.waiting >= cap) {
-      clock.set(d.id, 0);
+    const list = stops.get(d.townId);
+    if (list) list.push(d);
+    else stops.set(d.townId, [d]);
+  }
+  for (const [townId, list] of stops) {
+    let waiting = 0;
+    for (const d of list) waiting += d.waiting;
+    if (waiting >= cap) {
+      clock.set(townId, 0);
       continue;
     }
-    const every = riderSeconds(townStatus(receivedBy(world, d.townId)).level, p.learned.has("stations"));
-    let t = (clock.get(d.id) ?? 0) + seconds;
-    while (t >= every && d.waiting < cap) {
+    const every = riderSeconds(townStatus(receivedBy(world, townId)).level, busy);
+    let t = (clock.get(townId) ?? 0) + seconds;
+    while (t >= every && waiting < cap) {
       t -= every;
-      d.waiting++;
+      let to = list[0];
+      for (const d of list) if (d.waiting < to.waiting) to = d;
+      to.waiting++;
+      waiting++;
     }
-    // A full platform doesn't save up people for later.
-    clock.set(d.id, d.waiting >= cap ? 0 : t);
+    // A full town doesn't save up people for later.
+    clock.set(townId, waiting >= cap ? 0 : t);
   }
 }
 

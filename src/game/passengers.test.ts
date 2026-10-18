@@ -77,6 +77,30 @@ describe("passengers", () => {
     expect(A.waiting).toBe(WAITING_CAP * 2);
   });
 
+  it("a town's halts share its people with its station: as many arrive with 4 halts as with none", () => {
+    /** People who turned up in town A over `seconds`, with `halts` halts of A's, and how they're spread. */
+    const arrivals = (halts: number, seconds: number) => {
+      const { w, economy, A, B } = line();
+      const stops = [A];
+      for (let i = 0; i < halts; i++) stops.push(economy.addDepot("town", w.layout.addPiece("kit-country-halt", { x: 0, z: 400 + i * 400, heading: 0 }), 0));
+      const p = Progress.fresh();
+      p.learned.add("passengers");
+      const clock = new Map<number, number>();
+      for (let s = 0; s < seconds; s++) peopleArrive(w, p, 1, clock);
+      // Town B's own rate is untouched.
+      expect(B.waiting).toBe(Math.min(WAITING_CAP, Math.floor(seconds / RIDER_SECONDS)));
+      return stops.map((d) => d.waiting);
+    };
+    const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+    // Below the cap: the same number in the same time, spread over the stops (fewest waiting first, the station on a tie).
+    expect(arrivals(0, RIDER_SECONDS * 5)).toEqual([5]);
+    expect(arrivals(4, RIDER_SECONDS * 5)).toEqual([1, 1, 1, 1, 1]);
+    expect(sum(arrivals(4, RIDER_SECONDS * 3 - 1))).toBe(2);
+    // And one cap for the whole town, not one per stop.
+    expect(sum(arrivals(0, RIDER_SECONDS * 40))).toBe(WAITING_CAP);
+    expect(sum(arrivals(4, RIDER_SECONDS * 40))).toBe(WAITING_CAP);
+  });
+
   it("a coach takes them to the next town, where they pay a fare by how far they came", () => {
     const { w, economy, A, B, car, run } = line(["passenger", "engine"]);
     const p = Progress.fresh();
