@@ -40,9 +40,9 @@ describe("blueprints", () => {
     syncIndustries(w);
     const d = w.economy.depotAtPiece(piece)!;
     const p = Progress.fresh();
-    d.piles[CARGO.planks.index] = 5;
+    d.piles[CARGO.planks.index] = 3;
     expect(learnWithGoods(w, p, "switches")).toBe(false);
-    d.piles[CARGO.planks.index] = 7;
+    d.piles[CARGO.planks.index] = 5;
     expect(learnWithGoods(w, p, "switches")).toBe(true);
     expect(d.piles[CARGO.planks.index]).toBe(1);
     expect(p.knows("piece:switch")).toBe(true);
