@@ -198,6 +198,42 @@ export class Editor {
     return ids;
   }
 
+  /**
+   * Take up `covers` and put `pieces` down, in one undo step: a drawn line with the switch it swaps into the line it
+   * leaves or meets (and the plain straights either side of it). A switch put down starts unpinned, unless it takes the
+   * place of a pinned one (`pinOf`: a switch swapped for a three-way, set the same way). Undone, the covers go back as
+   * they were (their switch states and pins too). The ids of the pieces put down, in order.
+   */
+  replaceRun(
+    covers: readonly number[],
+    pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean; state?: number; pinOf?: number }[],
+  ): number[] {
+    const recs = covers.map((id) => this.record(id)).filter((r): r is PieceRecord => r !== null);
+    const pinned = new Set(covers.filter((id) => this.layout.isPinned(id)));
+    const ids: number[] = [];
+    this.run({
+      do: () => {
+        for (const r of recs) this.layout.removePiece(r.id);
+        pieces.forEach((p, i) => {
+          if (ids[i] === undefined) ids[i] = this.layout.addPiece(p.type, p.pose, p.y, p.flipped);
+          else this.layout.restorePiece(ids[i], p.type, p.pose, p.y, p.flipped);
+          // (A switch put in for one taken up is set to the old line's way.)
+          if (p.state) this.layout.setSwitchState(ids[i], p.state);
+          if (p.pinOf !== undefined && pinned.has(p.pinOf)) this.layout.setPinned(ids[i], true);
+        });
+      },
+      undo: () => {
+        for (let i = ids.length - 1; i >= 0; i--) {
+          this.layout.setPinned(ids[i], false);
+          this.layout.removePiece(ids[i]);
+        }
+        for (const r of recs) this.restore(r);
+      },
+      seats: () => [...ids],
+    });
+    return ids;
+  }
+
   /** Take up a piece. False if there's none, or it may not be taken up now (see `run`). */
   remove(id: number): boolean {
     const rec = this.record(id);

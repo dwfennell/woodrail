@@ -348,6 +348,12 @@ export class DrawLine {
     return this.pieces.length ? this.pieces[this.pieces.length - 1].end : this.start;
   }
 
+  /** Where the stroke has got to: the finger's last point in it. */
+  get tip(): { x: number; z: number } {
+    const n = this.xs.length - 1;
+    return { x: this.xs[n], z: this.zs[n] };
+  }
+
   /** The stroke's length so far (mm). */
   get strokeLength(): number {
     return this.ss[this.ss.length - 1];
