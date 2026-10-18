@@ -65,6 +65,9 @@ import type { Route } from "./economy";
  * switch. Ways are cached per train, keyed on where it stands and the track's revisions. Nothing here is saved.
  */
 
+/** A gate visit's `far` while a train between stops with no claim asks for one (`claimAsk`). */
+const ASKING = -2;
+
 /** How often (economy ticks) a waiting train looks again. */
 export const CHECK_TICKS = 12;
 /** Two trains each in the other's way (no passing place): after this long (s) the one ready first is let go. */
@@ -645,6 +648,9 @@ export class Crossing {
     this.mergeAt = merge;
     const last = mine[mine.length - 1].pieceId;
     const byPiece = this.mine;
+    // (Its section ends with the turn at a terminus: see `turnClaim`.)
+    const end = mine[mine.length - 1];
+    const turnsHere = this.blocking && mine.length > 1 && end.len === 0 && mine[mine.length - 2].pieceId === end.pieceId && mine[mine.length - 2].back !== end.back;
     byPiece.clear();
     for (const c of mine) {
       const at = byPiece.get(c.pieceId);
@@ -674,6 +680,12 @@ export class Crossing {
             standing.push(u);
             if (loop === -1 && still && this.waitsOn(u, engine, live.length)) loop = u;
           }
+        }
+        // (With blocks, into a block that ends at a terminus: one on it, even heading our way, holding only part of its
+        // way, will turn back there into us; it goes first.)
+        else if (turnsHere && !res.free && res.upto < res.claims.length && this.occupancy(tu).some((c) => byPiece.has(c.pieceId))) {
+          hard.push(u);
+          if (tu.speed < 1) standing.push(u);
         }
         // Heading for our stop too, ahead of us (its way there claimed): where it goes on from there, there (it may turn
         // back at it).
@@ -844,12 +856,18 @@ export class Crossing {
     const train = this.blocking ? this.host.sim.findCar(engine)?.train : undefined;
     const r = train ? this.host.route(engine) : undefined;
     const way = train && r && r.stops.length > 0 ? this.wayFrom(engine, train, r, this.host.live(engine), !!r.at, null, (leg) => (r.at ? 0 : Math.max(0, this.frontIndex(leg, train, 0)))) : null;
-    if (way && way.claims.length > 0) this.reserve(engine, way, false);
+    // (As far as it's clear of the line's trains, though: it can't go through one.)
+    if (way && way.claims.length > 0 && train) this.releg(engine, train, way, () => this.host.live(engine), true);
     else this.reserve(engine, NO_BLOCK, true);
   }
 
   /** Reserve a block: claims up to `upto` (by default, to the end of the section the train's front is in). */
   private reserve(engine: number, way: Block, free: boolean, upto?: number): void {
+    this.reservations.set(engine, this.build(engine, way, free, upto));
+  }
+
+  /** A reservation of `way` for this train, not yet held (see `reserve`). */
+  private build(engine: number, way: Block, free: boolean, upto?: number): Reservation {
     const { layout, sim } = this.host;
     const train = sim.findCar(engine)?.train;
     const trainId = train?.id ?? -1;
@@ -858,8 +876,8 @@ export class Crossing {
     const atStop = !!this.host.route(engine)?.at;
     const to = free ? 0 : (upto ?? (train ? this.uptoAfter(claims, train, atStop ? 0 : Math.max(0, this.frontIndex(claims, train, 0)), !atStop) : claims.length));
     const target = way.targets.length > 0 ? way.targets[way.targets.length - 1] : -1;
-    this.reservations.set(engine, { ...way, from: 0, upto: to, revision: layout.revision, routing: layout.routingVersion, made: sim.ticks, free, target, trainId });
     if (!free && to < claims.length) this.steerSoon.add(engine);
+    return { ...way, from: 0, upto: to, revision: layout.revision, routing: layout.routingVersion, made: sim.ticks, free, target, trainId };
   }
 
   /**
@@ -867,8 +885,12 @@ export class Crossing {
    * between stops, if the track or a pin changed, or if it turned back from meeting a train. Null: standing at its stop,
    * not yet sent on.
    */
-  private reservation(engine: number, train: Train, r: Route, liveNow?: readonly number[]): Reservation | null {
+  private reservation(engine: number, train: Train, r: Route, liveNow?: readonly number[], mode: "own" | "view" = "view"): Reservation | null {
     const live = () => liveNow ?? this.host.live(engine);
+    // (With blocks, a claim between stops is only ever granted in `settle`: worked out afresh here it is a view of the
+    // way the train would claim, for another train's check, never held; the train itself asks for it, held still
+    // meanwhile (`claimAsk`).)
+    const asks = this.blocking && !r.at;
     const { layout, sim } = this.host;
     let res = this.reservations.get(engine);
     if (!res && r.at) return null;
@@ -888,7 +910,11 @@ export class Crossing {
       this.reservations.delete(engine);
       return null;
     }
-    const relegs = (): Reservation => this.releg(engine, train, target < 0 ? null : this.wayFrom(engine, train, r, live(), !!r.at, res && !res.free ? res : null, (leg) => (r.at ? 0 : Math.max(0, this.frontIndex(leg, train, 0)))), live, (turned || faced) && this.blocking);
+    const relegs = (): Reservation => this.releg(engine, train, target < 0 ? null : this.wayFrom(engine, train, r, live(), !!r.at, res && !res.free ? res : null, (leg) => (r.at ? 0 : Math.max(0, this.frontIndex(leg, train, 0)))), live, (turned || faced) && this.blocking, !asks);
+    if (asks && (!res || stale)) {
+      if (res) this.reservations.delete(engine);
+      return mode === "own" ? null : relegs();
+    }
     if (!res || stale) {
       res = relegs();
       if (turned) res.made = sim.ticks + 1;
@@ -904,7 +930,13 @@ export class Crossing {
           on = true;
         }
       }
-      if (!on && target >= 0) res = relegs();
+      if (!on && target >= 0) {
+        if (asks) {
+          this.reservations.delete(engine);
+          return mode === "own" ? null : relegs();
+        }
+        res = relegs();
+      }
     }
     return res;
   }
@@ -918,9 +950,9 @@ export class Crossing {
    * back, and meets the other.) Its block's legs beyond its next stop are claimed only as far as they're clear: else
    * it claims to the stop, and asks there.
    */
-  private releg(engine: number, train: Train, way: Block | null, live: () => readonly number[], clipAll = false): Reservation {
-    this.reserve(engine, way ?? NO_BLOCK, way === null);
-    const res = this.reservations.get(engine)!;
+  private releg(engine: number, train: Train, way: Block | null, live: () => readonly number[], clipAll = false, store = true): Reservation {
+    const res = this.build(engine, way ?? NO_BLOCK, way === null);
+    if (store) this.reservations.set(engine, res);
     if (res.free || !this.loops || this.clipping) return res;
     // (Turned back from meeting a train, with blocks: only as far as it's clear, loop or none, then it asks.)
     const loopy = clipAll || this.blocking || this.uptoAfter(res.claims, train, -1, true, true) < res.claims.length;
@@ -941,7 +973,7 @@ export class Crossing {
           j = res.ends[0];
           continue;
         }
-        const s = this.scan(engine, train, res.claims.slice(k + 1, j), target, engines, dummy, j === res.claims.length, j === res.upto ? this.standRoad(res.claims, j) : null);
+        const s = this.scan(engine, train, res.claims.slice(k + 1, j), target, engines, dummy, j === res.claims.length, j === res.upto ? this.standFor(train, res.claims, j) : null);
         if (s.hard.length > 0) {
           res.upto = leg > 0 ? Math.max(res.ends[leg - 1], k + 1) : j - 1;
           // (Not to stand on a loop's road, or a switch, short of a train coming the other way: short of the loop.)
@@ -1295,6 +1327,15 @@ export class Crossing {
         if (sc !== null) return sc;
       }
       let res = this.reservations.get(car.id);
+      // (With blocks: a train between stops holding no claim (or one gone stale) is held where it is, and asks.)
+      if (car.kind === "engine" && this.blocking) {
+        const at = this.host.route(car.id);
+        if (at && !at.at && at.stops.length > 0 && this.host.lineOf(car.id) >= 0) {
+          res = this.reservation(car.id, train, at, undefined, "own") ?? undefined;
+          if (!res) return this.claimAsk(car.id, train, at, now);
+          if (this.gates.get(car.id)?.far === ASKING) this.gates.delete(car.id);
+        }
+      }
       if (!res) {
         if (car.kind !== "engine") continue;
         const at = this.host.route(car.id);
@@ -1490,8 +1531,67 @@ export class Crossing {
     return room > 0 ? Math.sqrt(2 * ACCELERATION * room) : 0;
   }
 
+  /**
+   * A train between stops with no claim (with blocks): held where it is (0) while it asks for its way from its tail,
+   * as far as it's clear, granted in `settle` like any other; it says what it waits for. Alone on its line: no claim.
+   */
+  /** `standRoad`, unless the train is on that road already (it isn't entering it: it stands where it is). */
+  private standFor(train: Train, claims: readonly Claim[], upto: number): ReadonlySet<number> | null {
+    const road = this.standRoad(claims, upto);
+    return road && train.bogies.some((b) => road.has(b.pieceId)) ? null : road;
+  }
+
+  private claimAsk(engine: number, train: Train, r: Route, now: number): number {
+    const { host } = this;
+    const lever = train.leverTick ?? 0;
+    let g = this.gates.get(engine);
+    if (!g || g.far !== ASKING) {
+      g = newVisit(now, lever, host.sim.ticks);
+      g.far = ASKING;
+      this.gates.set(engine, g);
+    }
+    g.asked = now;
+    if (g.asking || now - g.checkedAt < CHECK_TICKS) return 0;
+    if (g.checkedAt === -Infinity) g.readySince = g.quietSince = g.progressAt = now;
+    g.checkedAt = now;
+    const live = host.live(engine);
+    const target = host.stopPiece(r.stops[r.next % r.stops.length].depotId);
+    if (live.length < 2 || target < 0) {
+      this.gates.delete(engine);
+      return Infinity;
+    }
+    const way = this.wayFrom(engine, train, r, live, false, null, (leg) => Math.max(0, this.frontIndex(leg, train, 0)));
+    if (!way || way.claims.length === 0) {
+      this.gates.delete(engine);
+      return Infinity;
+    }
+    const lineId = host.lineOf(engine);
+    // Sent on by the player: it takes its way (the safety net, logged).
+    if (g.lever !== lever) {
+      this.letGo(engine, g, "go-now");
+      return Infinity;
+    }
+    const cand = this.releg(engine, train, way, () => live, true, false);
+    const k = Math.max(0, this.frontIndex(cand.claims, train, 0));
+    if (cand.upto > k + 1 || cand.upto >= cand.claims.length) {
+      this.ask({ engine, v: g, gate: true, way: cand, at: k, upto: cand.upto, stand: this.standFor(train, cand.claims, cand.upto), merge: null });
+      return 0;
+    }
+    // (Nothing on ahead clear: it waits, saying for which train.)
+    const upto = this.uptoAfter(cand.claims, train, k, true);
+    const s = this.scan(engine, train, cand.claims.slice(k, Math.max(upto, k + 1)), cand.targets[cand.targets.length - 1], live, g, false, this.standFor(train, cand.claims, upto));
+    g.hard = s.hard;
+    g.standing = s.standing;
+    if (s.hard.length === 0 && s.soft === -1) {
+      this.ask({ engine, v: g, gate: true, way: cand, at: k, upto: Math.max(upto, k + 1), stand: this.standFor(train, cand.claims, upto), merge: null });
+      return 0;
+    }
+    // (Let go, the safety net: it goes holding its way, logged.)
+    return this.waitOn(engine, lineId, now, g, s, false) ? 0 : Infinity;
+  }
+
   private gate(engine: number, train: Train, r: Route, now: number): number {
-    const res = this.reservation(engine, train, r);
+    const res = this.reservation(engine, train, r, undefined, "own");
     if (!res || res.free || !gated(res)) {
       this.gates.delete(engine);
       return Infinity;
@@ -1519,8 +1619,9 @@ export class Crossing {
         return Infinity;
       }
       if (now - g.checkedAt >= CHECK_TICKS && !g.asking) {
-        // (First come, first served: from when it first asks.)
-        if (g.checkedAt === -Infinity) g.readySince = now;
+        // (First come, first served: from when it first asks; its clocks for the safety net start then too, not when it
+        // took the claim this gate ends.)
+        if (g.checkedAt === -Infinity) g.readySince = g.quietSince = g.progressAt = now;
         g.checkedAt = now;
         const live = this.host.live(engine);
         if (live.length < 2) {

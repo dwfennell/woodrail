@@ -493,11 +493,12 @@ describe("crossing never jams for good (QA B1)", { timeout: 60_000 }, () => {
   });
 });
 
-/** A train's longest hold (s): how long, in one episode, it stood waiting with a cross wait on its card. */
+/** A train's longest hold (s), in one episode, waiting with a cross wait on its card; and ticks it stood in a loop with none, more than 1 s on end. */
 function holds(w: World, es: readonly number[]) {
   const since = new Map<number, number>();
   let max = 0;
   let stillNoWait = 0;
+  const bare = new Map<number, number>();
   let t = 0;
   return {
     tick(inLoop: (e: number) => boolean) {
@@ -509,7 +510,12 @@ function holds(w: World, es: readonly number[]) {
           max = Math.max(max, (t - since.get(e)!) / SIM_HZ);
         } else since.delete(e);
         const tr = w.sim.findCar(e)!.train;
-        if (!wait && tr.speed < 1 && inLoop(e) && !w.economy.routeOf(e)!.at && tr.turnback < 0) stillNoWait++;
+        // (A tick or two while a train held for its claim asks for it, granted at the end of the tick, isn't a stand.)
+        if (!wait && tr.speed < 1 && inLoop(e) && !w.economy.routeOf(e)!.at && tr.turnback < 0) {
+          const n = (bare.get(e) ?? 0) + 1;
+          bare.set(e, n);
+          if (n > SIM_HZ) stillNoWait++;
+        } else bare.delete(e);
       }
     },
     max: () => max,
