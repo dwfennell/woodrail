@@ -68,6 +68,9 @@ import type { Route } from "./economy";
 /** A gate visit's `far` while a train between stops with no claim asks for one (`claimAsk`). */
 const ASKING = -2;
 
+/** A train turning round where it stands that hasn't turned after this long (s) gives up (see `shortCall`). */
+const TURN_GIVE_UP_S = 15;
+
 /** How often (economy ticks) a waiting train looks again. */
 export const CHECK_TICKS = 12;
 /** Two trains each in the other's way (no passing place): after this long (s) the one ready first is let go. */
@@ -1553,6 +1556,12 @@ export class Crossing {
     }
     // Turning round where it stands to face its way (see `wrongWay`): once turned, it claims its way afresh.
     if (sc.stop === -1) {
+      // (Held from turning (the sim waits for a crane, say): after a while it gives up, and asks as it stands.)
+      if (host.sim.ticks - sc.tick > TURN_GIVE_UP_S / SIM_DT) {
+        this.shortCalls.delete(engine);
+        if (train.lastTurn?.cause !== "short" || train.lastTurn.tick < sc.tick) train.turnback = -1;
+        return null;
+      }
       if (train.turnback >= 0) return Infinity;
       const t = train.lastTurn;
       if (t?.cause === "short" && t.tick >= sc.tick) {
@@ -1562,8 +1571,15 @@ export class Crossing {
       if (train.speed < 1) host.sim.turnBack(train.id);
       return train.turnback >= 0 ? Infinity : 0;
     }
-    // (Not at its stop yet: the economy has it there on its tick.)
-    if (!r.at) return 0;
+    if (!r.at) {
+      // Gone on from that stop (its route's next stop is another): the call is over.
+      if (host.stopPiece(r.stops[r.next % r.stops.length].depotId) !== sc.stop) {
+        this.shortCalls.delete(engine);
+        return null;
+      }
+      // (Not at its stop yet: the economy has it there on its tick.)
+      return 0;
+    }
     if (!sc.turned) {
       const t = train.lastTurn;
       if (train.turnback < 0 && t?.cause === "short" && t.tick >= sc.tick) {
@@ -1802,7 +1818,9 @@ export class Crossing {
   private backOff(engine: number, train: Train, v: Visit): boolean {
     const { host } = this;
     const r = host.route(engine);
-    if (!r || r.stops.length === 0 || train.speed >= 1 || train.turnback >= 0 || this.shortCalls.has(engine)) return false;
+    // (Not while it's being worked at a depot: the sim holds a turn till the crane's done; nor at the end of the line,
+    // where the sim turns it round itself.)
+    if (!r || r.stops.length === 0 || train.speed >= 1 || train.turnback >= 0 || this.shortCalls.has(engine) || host.busy(train, engine) || this.atLineEnd(train)) return false;
     const target = host.stopPiece(r.stops[r.at ? stopAfter(r, r.next % r.stops.length) : r.next % r.stops.length].depotId);
     if (target < 0) return false;
     const c = this.end(train, true);
@@ -1816,6 +1834,17 @@ export class Crossing {
     // in turn with the line's other asks.)
     if (v.asking) return true;
     return this.ask({ engine, v, gate: this.gates.get(engine) === v, way: oneLeg(claims, target), at: 0, upto, stand: this.standRoad(claims, upto), merge: null, turn: true });
+  }
+
+  /** Is the train on a line end (a buffer, or track that just stops)? */
+  private atLineEnd(train: Train): boolean {
+    const { layout } = this.host;
+    return train.bogies.some((b) => {
+      const piece = layout.getPiece(b.pieceId);
+      if (!piece) return false;
+      const def = getPieceDef(piece.type, piece.flipped);
+      return def.paths.some((pa) => pa.to === null) || def.connectors.some((_, c) => next(layout, b.pieceId, c) === null);
+    });
   }
 
   /**

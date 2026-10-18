@@ -145,9 +145,7 @@ class Player {
 
   attach(w: World): void {
     this.w = w;
-    // BALANCE_CROSSING=off: no crossing at all (trains of a line meet and turn back, as on main before Phase 3);
-    // =3b: crossing one stop (or loop) at a time, no block working.
-    if (ENV.BALANCE_CROSSING === "off") w.economy.crossing.enabled = false;
+    // BALANCE_CROSSING=3b: crossing one stop (or loop) at a time, no block working (=off: none, as BALANCE_NOCROSS).
     if (ENV.BALANCE_CROSSING === "3b") w.economy.crossing.blocks = false;
     this.fixed = new Set([...w.stations.values(), ...w.depots.values()]);
     this.editor = new Editor(w.layout, w.sim, () => {}, (id) => this.fixed.has(id));
@@ -177,7 +175,7 @@ class Player {
     this.syncLandmarks();
     this.counters.reset(w.economy);
     // BALANCE_NOCROSS=1: trains of a line don't wait for each other (as before routes Phase 3).
-    w.economy.crossing.enabled = !ENV.BALANCE_NOCROSS;
+    w.economy.crossing.enabled = !ENV.BALANCE_NOCROSS && ENV.BALANCE_CROSSING !== "off";
     applyCranes(w.economy, this.progress);
     attachEngines(w);
     attachPassengers(w, () => this.progress, () => {
