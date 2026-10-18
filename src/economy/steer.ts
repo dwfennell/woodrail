@@ -6,12 +6,21 @@ const LOOK_AHEAD = 6;
 /** The most track pieces a search for the way to a stop goes through. */
 export const SEARCH = 4000;
 
+/** Which switches count as pinned (the layout's own, by default; a caller may ask "what if this one weren't?"). */
+export type PinnedTest = (pieceId: number) => boolean;
+
 /**
  * The way out of a piece entered through `entry`: each path from that end (`option` counts them, as switch states do;
  * `path` is its index in the piece's paths), and where it leaves (−1: a buffer). A pinned switch (or a deck) has just
- * the one way it's set to, so `steer` passes it by and `distanceTo` follows only that route.
+ * the one way it's set to, so `steer` passes it by and `distanceTo` follows only that route. `pinned` says which
+ * switches are pinned (the layout's by default).
  */
-export function waysFrom(layout: Layout, pieceId: number, entry: number): { option: number; path: number; exit: number }[] {
+export function waysFrom(
+  layout: Layout,
+  pieceId: number,
+  entry: number,
+  pinned: PinnedTest = (id) => layout.isPinned(id),
+): { option: number; path: number; exit: number }[] {
   const piece = layout.getPiece(pieceId);
   if (!piece) return [];
   const def = getPieceDef(piece.type, piece.flipped);
@@ -26,7 +35,7 @@ export function waysFrom(layout: Layout, pieceId: number, entry: number): { opti
     out.push({ option: out.length, path: i, exit: p.from === entry ? (p.to ?? -1) : p.from });
   }
   // A pinned switch: only the route it's set to goes anywhere (steering doesn't throw it), picked as `routeFrom` does.
-  if (out.length > 1 && layout.isPinned(pieceId)) {
+  if (out.length > 1 && pinned(pieceId)) {
     const set = out[layout.switchState(pieceId) % out.length];
     return [{ option: 0, path: set.path, exit: set.exit }];
   }
@@ -45,9 +54,15 @@ export const TURN_COST = 12;
 
 /**
  * How many pieces from (piece, entry) to `target` along the track; −1 if it can't be reached. A train turns back at
- * the end of a line (a buffer, or track that just stops), so a way may too, at a cost (`TURN_COST`).
+ * the end of a line (a buffer, or track that just stops), so a way may too, at a cost (`TURN_COST`). `pinned` as for
+ * `waysFrom`.
  */
-export function distanceTo(layout: Layout, start: { pieceId: number; entry: number }, target: number): number {
+export function distanceTo(
+  layout: Layout,
+  start: { pieceId: number; entry: number },
+  target: number,
+  pinned: PinnedTest = (id) => layout.isPinned(id),
+): number {
   const seen = new Set<number>([start.pieceId * MAX_CONNECTORS + start.entry]);
   // Ways by length: turning back puts a way further down the list.
   const byDepth: { pieceId: number; entry: number }[][] = [[start]];
@@ -61,7 +76,7 @@ export function distanceTo(layout: Layout, start: { pieceId: number; entry: numb
         (byDepth[d] ??= []).push(n);
         count++;
       };
-      for (const w of waysFrom(layout, at.pieceId, at.entry)) {
+      for (const w of waysFrom(layout, at.pieceId, at.entry, pinned)) {
         const n = next(layout, at.pieceId, w.exit);
         if (n) push(n, depth + 1);
         // The end of the line: the train comes back the way it came, through this piece and out where it came in.
