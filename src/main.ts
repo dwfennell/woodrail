@@ -25,6 +25,7 @@ import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, lacking, uncraft, workshops, workshopStock } from "./game/crafting";
+import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { HaltReachView } from "./render/halt-reach-view";
@@ -1228,23 +1229,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return null;
   }
 
-  /** Game mode: how many of a track piece the player could put down now (0 if not learned). */
-  function pieceStock(type: PieceTypeId): number {
-    const needs = thingsFor({ kind: "piece", type });
-    let n = Infinity;
-    for (const [id, k] of needs) {
-      if (!progress.knows(id)) return 0;
-      if (isFree(id)) continue;
-      n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
-    }
-    return n;
-  }
-
-  /** Game mode: a track piece not learned yet, as the tray says it ("Ramp: not learned yet"), or null. */
-  function pieceUnlearned(type: PieceTypeId): string | null {
-    for (const id of thingsFor({ kind: "piece", type }).keys()) if (!isFree(id) && !progress.knows(id)) return `${ruleOf(id)!.label}: not learned yet`;
-    return null;
-  }
+  /** Game mode: how many of a track piece the player could put down now (0 if not learned); see `pieceStock`. */
+  const pieceStock = (type: PieceTypeId): number => supplyOf(progress, game.world, type);
+  /** Game mode: a track piece not learned yet, as the tray says it, or null. */
+  const pieceUnlearned = (type: PieceTypeId): string | null => unlearnedOf(progress, type);
 
   /** The toy box on the tray (Game mode): how many of each are left. */
   function trayBadge(item: ThingItem | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null {

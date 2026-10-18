@@ -25,12 +25,15 @@ import {
   type DrawCheck,
   type DrawEnd,
   type DrawnPiece,
+  type PieceSwap,
   type PieceTypeId,
+  type SwapPiece,
   type Pose,
 } from "../track";
 import type { Game } from "./game";
 import { DrawNotice } from "./draw-notice";
 import { drawMessage, drawRefusal } from "./track-rules";
+import { branchFrom, BUSY_MESSAGE, crossingAt, junctionWhy, linePlan, mergeAt, type JunctionRules, type Merge } from "./draw-junctions";
 import { TRACK_ITEMS } from "../ui/tray-catalogue";
 
 /** A piece's name as the tray shows it, in lower case ("long", "curve"). */
@@ -49,6 +52,8 @@ const END_REACH_PX = 44;
 const START_GRID = CELL / 4;
 /** A new line waits until the finger has moved this far (mm), to know which way it goes. */
 const START_MOVE = 30;
+/** A crossing goes in once the finger is this far (mm) past its far end (until then it may yet stop on the line: a merge). */
+const CROSS_ON = 120;
 /** Drawn pieces go down one after another, this far apart (seconds). */
 const RIPPLE = 0.045;
 /** At most this many of them click as they go down (a long line would be a drum roll). */
@@ -58,8 +63,10 @@ const CLICKS = 12;
 export type DrawBlock = string;
 
 export interface DrawHooks {
-  /** Can a piece go here (a held piece's checks)? Null and the risers it'd need, or why not. */
-  placement(type: PieceTypeId, flipped: boolean, pose: Pose, y: number): { reason: string | null; risers: unknown[] };
+  /** Can a piece go here (a held piece's checks, the pieces in `ignore` left out)? Null and the risers it'd need, or why not. */
+  placement(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore?: ReadonlySet<number>): { reason: string | null; risers: unknown[] };
+  /** Is a train on this piece? */
+  occupied(pieceId: number): boolean;
   /** The message for a reason `placement` gave. */
   message(reason: string): string;
   /** Screen point to a point at that height (mm) on the map. */
@@ -92,6 +99,25 @@ export class DrawHand {
   /** A new line on empty ground, before the finger has moved far enough to know which way it goes. */
   private origin: Vector3 | null = null;
   private ghosts: { mesh: Mesh; key: string }[] = [];
+  /**
+   * A press on a line's body (a plain straight), waiting for the finger to go off the line to know which way the
+   * branch leaves: the straight, and where it was pressed (on the track, at its height).
+   */
+  private pending: { onto: number; press: { x: number; z: number }; y: number } | null = null;
+  /** The switch the line branches off through (swapped into the line it started on), or null. */
+  private branch: PieceSwap | null = null;
+  /** The switch the line would merge through if let go now (shown), or null; and its key, so it's shown afresh only when it changes. */
+  private merge: Merge | null = null;
+  private mergeKey = "";
+  /** Ghosts of the swaps' pieces (the branch's, then the merge's), and the straights they replace (outlined). */
+  private swapGhosts: Mesh[] = [];
+  /**
+   * What the line laid before each crossing it went on through, and the crossings with the straights either side of
+   * them (the line goes on from the last one's far end, a new DrawLine): the pieces, the straights they take up, their
+   * ghosts, and how many crossings of each type.
+   */
+  private crossed: { pieces: SwapPiece[]; covers: number[]; ghosts: Mesh[]; used: Map<PieceTypeId, number> } = { pieces: [], covers: [], ghosts: [], used: new Map() };
+  private mergeGhosts: Mesh[] = [];
   /** The stroke still ahead of the line's end, drawn as a pencil line on the ground: light, with a dark edge, wide
    * enough to see beside a finger (pixels on screen, however far off the view is). */
   private readonly trail = new Group();
@@ -100,6 +126,9 @@ export class DrawHand {
   /** The trail's segments (start and end point each), written in place. */
   private readonly trailSegments: InterleavedBuffer;
   private readonly trailPoints: number[] = [];
+  /** The straights a branch's switch replaces (left out of the checks), and its pieces' ids in `own`. */
+  private branchCovers: ReadonlySet<number> = new Set();
+  private swapIds: number[] = [];
   /** The line's own pieces, as a layout, so it can't cross itself. */
   private readonly own = new Layout();
   /** The pieces in `own` (the line's, as it was last asked about) and their ids there. */
@@ -138,7 +167,7 @@ export class DrawHand {
   }
 
   get active(): boolean {
-    return this.line !== null || this.origin !== null;
+    return this.line !== null || this.origin !== null || this.pending !== null;
   }
 
   /**
@@ -158,8 +187,56 @@ export class DrawHand {
     return true;
   }
 
+  /**
+   * A press at screen point (x, y) on a line's body, plain straight `onto`, with drawing on: a branch off it, once the
+   * finger has gone off the line (see `branchFrom`). False if a train is on it (and says so), or it's off the map.
+   */
+  beginBranch(x: number, y: number, onto: number): boolean {
+    this.clear();
+    const p = this.game.layout.getPiece(onto);
+    const at = p && this.hooks.planeAt(x, y, p.y);
+    if (!p || !at) return false;
+    if (this.hooks.occupied(onto)) {
+      this.hooks.toast(BUSY_MESSAGE);
+      return false;
+    }
+    this.pending = { onto, press: { x: at.x, z: at.z }, y: p.y };
+    return true;
+  }
+
+  /** The rules the junctions are found by (see `JunctionRules`). */
+  private readonly junctions: JunctionRules = ((self: DrawHand): JunctionRules => ({
+    get layout() {
+      return self.game.layout;
+    },
+    check: (type, flipped, pose, y, ignore) => {
+      const { reason, risers } = self.hooks.placement(type, flipped, pose, y, ignore);
+      const why = reason ?? (risers.length > 0 ? "unsupported" : null);
+      return why ? self.hooks.message(why) : null;
+    },
+    occupied: (id) => self.hooks.occupied(id),
+    may: (type, used) => (!self.stock || self.stock(type) > used ? null : self.outOf(type)),
+  }))(this);
+
   /** The finger moved to screen point (x, y). */
   move(x: number, y: number): void {
+    const pending = this.pending;
+    if (pending) {
+      const f = this.hooks.planeAt(x, y, pending.y);
+      if (!f) return;
+      const b = branchFrom(this.junctions, pending.onto, pending.press, f);
+      if (b.kind === "wait") return;
+      this.pending = null;
+      if (b.kind === "refused") {
+        this.hooks.toast(b.message);
+        this.clear();
+        return;
+      }
+      // The switch shows as a ghost over the straights it takes the place of (outlined), and the line goes on from its branch.
+      this.branch = b.swap;
+      this.swapGhosts = this.showSwap(b.swap);
+      this.start(b.swap.end);
+    }
     if (this.origin) {
       const p = this.hooks.planeAt(x, y, 0);
       if (!p) return;
@@ -181,6 +258,8 @@ export class DrawHand {
     const { p, changed } = line.addSeen((h) => this.hooks.planeAt(x, y, h));
     if (!p) return;
     if (changed) this.sync(line.pieces.length > before);
+    this.showMerge();
+    this.goOnAcross();
     // Stuck behind the finger (a corner no piece can turn, a circle too tight, or no piece left that fits): say why,
     // once a stroke, rather than the line just stopping (see `DrawNotice`).
     const say = this.notice.moved(line, p, before);
@@ -188,7 +267,10 @@ export class DrawHand {
     this.drawTrail();
   }
 
-  /** The finger lifted: the line goes down (as far as it may), one piece after another. */
+  /**
+   * The finger lifted: the line goes down (as far as it may), one piece after another; with the switch it branches off
+   * through, and the one it merges through if it was let go on a line it comes in to at 45° (all one undo step).
+   */
   end(): void {
     const line = this.line;
     if (!line) {
@@ -197,27 +279,48 @@ export class DrawHand {
     }
     line.finish();
     this.sync(false);
+    const merge = this.mergeNow();
     const pieces = line.placeable();
     const g = this.game;
-    const ghosts = this.ghosts.splice(0, pieces.length);
-    const say = this.notice.lifted(line, pieces.length);
-    if (say) this.hooks.toast(say);
+    const branch = this.branch;
+    const plan = linePlan(branch, pieces, merge, this.crossed);
+    const ghosts = this.ghosts.splice(0, merge ? merge.keep : pieces.length);
+    // A train come onto the straights a switch would take the place of meanwhile: nothing goes down.
+    const busy = plan.covers.some((id) => this.hooks.occupied(id));
+    if (busy) this.hooks.toast(BUSY_MESSAGE);
+    else {
+      // (Merged, it's closed onto that line: nothing past it to say.)
+      let say = this.notice.lifted(line, pieces.length, !!merge);
+      // Stopped by a line it met: why no junction went in there, if one was what it was after (QA sweep 4).
+      const last = line.pieces[line.pieces.length - 1];
+      if (say && !merge && last?.blocked === say) {
+        const swaps = [...(branch?.pieces ?? []), ...this.crossed.pieces];
+        say = junctionWhy(this.junctions, line.start, line.pieces, line.tip, this.taken(), (t) => swaps.filter((q) => q.type === t).length) ?? say;
+      }
+      if (say) this.hooks.toast(say);
+    }
     this.clear();
-    if (pieces.length === 0) return;
-    const ids = this.editor().placeRun(pieces.map((p) => ({ type: p.type, pose: p.pose, y: p.y, flipped: p.flipped })));
-    pieces.forEach((p, i) => {
+    // A branch with no line after it (let go before a piece followed): nothing.
+    if (busy || plan.pieces.length === (branch?.pieces.length ?? 0)) return;
+    const ids = plan.covers.length ? this.editor().replaceRun(plan.covers, plan.pieces) : this.editor().placeRun(plan.pieces);
+    const closed = line.stopped === "closed" || !!merge;
+    plan.pieces.forEach((p, i) => {
       const id = ids[i];
-      const mesh = ghosts[i].mesh;
+      // The line's own ghosts settle into place; the swaps' pieces get a mesh of their own.
+      const k = i - plan.line;
+      const mesh = k >= 0 && k < ghosts.length ? ghosts[k].mesh : this.pieceMesh(p);
+      if (!(k >= 0 && k < ghosts.length)) g.scene.add(mesh);
       mesh.material = [g.mats.track, g.mats.trackCut, g.mats.bridgePaint];
       g.trackView.setHidden(id, true);
       const to = { x: p.pose.x, y: p.y, z: p.pose.z, heading: p.pose.heading };
       const from = { ...to, y: p.y + 14 };
+      const last = i === plan.pieces.length - 1;
       g.flourishes.add(
         delayed(i * RIPPLE, () => {
-          if (i < CLICKS || i === pieces.length - 1) this.hooks.onPlaced(i);
-          if (i === pieces.length - 1 && line.stopped === "closed") {
-            const e = p.end;
-            g.flourishes.add(dustPuff(g.scene, e.x, e.y, e.z));
+          if (i < CLICKS || last) this.hooks.onPlaced(i);
+          if (last && closed) {
+            const e = merge ? merge.swap.end : pieces[pieces.length - 1]?.end;
+            if (e) g.flourishes.add(dustPuff(g.scene, e.x, e.y, e.z));
           }
           return settle(mesh, from, to, () => {
             g.scene.remove(mesh);
@@ -227,6 +330,112 @@ export class DrawHand {
       );
     });
     g.invalidate();
+  }
+
+  /** A ghost-style mesh for a piece of a swap (a switch, the straights beside it), placed. */
+  private pieceMesh(p: SwapPiece, mat: Material = this.okMat): Mesh {
+    const mesh = ghostMesh(p.type, p.flipped, mat);
+    mesh.matrixAutoUpdate = false;
+    mesh.matrix.makeRotationY(-p.pose.heading);
+    mesh.matrix.setPosition(p.pose.x, p.y + 1, p.pose.z);
+    return mesh;
+  }
+
+  /** Show a swap: its pieces as ghosts, the straights it replaces outlined. The ghosts. */
+  private showSwap(w: PieceSwap): Mesh[] {
+    const out = w.pieces.map((p) => this.pieceMesh(p));
+    for (const m of out) this.game.scene.add(m);
+    this.outlineCovers();
+    this.game.invalidate();
+    return out;
+  }
+
+  /** Outline the straights the swaps would take the place of. */
+  private outlineCovers(): void {
+    this.game.trackView.setHighlights([...(this.branch?.covers ?? []), ...this.crossed.covers, ...(this.merge?.swap.covers ?? [])], "select", false);
+  }
+
+  /** The merge the line would make if let go now (see `mergeAt`), or null. */
+  private mergeNow(): Merge | null {
+    const line = this.line;
+    if (!line || line.stopped === "closed") return null;
+    const m = mergeAt(this.junctions, line.start, line.placeable(), line.tip, this.taken(), this.branch ? 1 : 0);
+    if (m?.kind === "short") {
+      if (!this.toldShort) this.hooks.toast(m.message);
+      this.toldShort = true;
+      return null;
+    }
+    return m;
+  }
+
+  /** The straights the line's swaps take the place of so far (a branch's, and its crossings'). */
+  private taken(): Set<number> {
+    return new Set([...(this.branch?.covers ?? []), ...this.crossed.covers]);
+  }
+
+  /**
+   * The line stopped where it ran into a plain straight's run, and the finger went on across it (`CROSS_ON` past the
+   * crossing's far end): a crossing swapped in there (see `crossingAt`), the line so far kept with it, and a new line
+   * drawn on from its far end. Looked for once each time the line stops so.
+   */
+  private goOnAcross(): void {
+    const line = this.line;
+    const last = line?.pieces[line.pieces.length - 1];
+    if (!line || line.stopped !== "blocked" || last?.blockedBy !== "piece") return;
+    if (this.crossLooked !== last) {
+      this.crossLooked = last;
+      const c = crossingAt(this.junctions, line.start, line.placeable(), this.taken(), (t) => this.crossed.used.get(t) ?? 0);
+      if (c?.kind === "short" && !this.toldShort) {
+        this.toldShort = true;
+        this.hooks.toast(c.message);
+      }
+      this.crossing = c?.kind === "crossing" ? c : null;
+    }
+    const c = this.crossing;
+    if (!c) return;
+    // Gone on across it, the finger well past its far end: until then, it may yet stop on the line (a merge).
+    const ex = c.swap.exit!;
+    const tip = line.tip;
+    if ((tip.x - ex.x) * Math.cos(ex.heading) + (tip.z - ex.z) * Math.sin(ex.heading) < CROSS_ON) return;
+    const kept = line.placeable().slice(0, c.keep);
+    const ghosts = this.ghosts.splice(0, c.keep).map((g) => g.mesh);
+    for (const gh of this.ghosts) this.game.scene.remove(gh.mesh);
+    this.ghosts = [];
+    const added = [...c.links, ...c.swap.pieces];
+    const meshes = added.map((p) => this.pieceMesh(p));
+    for (const m of meshes) this.game.scene.add(m);
+    this.crossed.pieces.push(...kept.map((p) => ({ type: p.type, pose: p.pose, y: p.y, flipped: p.flipped })), ...added);
+    this.crossed.covers.push(...c.swap.covers);
+    this.crossed.ghosts.push(...ghosts, ...meshes);
+    const type = c.swap.pieces[0].type;
+    this.crossed.used.set(type, (this.crossed.used.get(type) ?? 0) + 1);
+    this.crossing = null;
+    this.crossLooked = null;
+    this.outlineCovers();
+    this.start(ex);
+    this.hooks.onGrow();
+    this.game.invalidate();
+  }
+
+  /** The crossing the line would go on through (once the finger's past it), and the stopped piece it was looked for at. */
+  private crossing: Extract<ReturnType<typeof crossingAt>, { kind: "crossing" }> | null = null;
+  private crossLooked: DrawnPiece | null = null;
+
+  /** "Out of switches" said already this stroke (a merge it couldn't make). */
+  private toldShort = false;
+
+  /** Show the merge the line would make if let go now, as ghosts, when that changes. */
+  private showMerge(): void {
+    const m = this.mergeNow();
+    const key = m ? `${m.keep}|${m.swap.covers.join(",")}|${m.swap.pieces.map((p) => `${p.type}${p.pose.x.toFixed(0)},${p.pose.z.toFixed(0)}`).join(";")}|${m.links.map((l) => l.type).join(",")}` : "";
+    if (key === this.mergeKey) return;
+    this.mergeKey = key;
+    this.merge = m;
+    for (const g of this.mergeGhosts) this.game.scene.remove(g);
+    this.mergeGhosts = m ? [...m.links, ...m.swap.pieces].map((p) => this.pieceMesh(p)) : [];
+    for (const g of this.mergeGhosts) this.game.scene.add(g);
+    this.outlineCovers();
+    this.game.invalidate();
   }
 
   private warmed = false;
@@ -287,6 +496,10 @@ export class DrawHand {
   }
 
   private start(end: DrawEnd): void {
+    this.toldShort = false;
+    this.branchCovers = this.taken();
+    for (const id of this.swapIds) this.own.removePiece(id);
+    this.swapIds = [...(this.branch?.pieces ?? []), ...this.crossed.pieces].map((p) => this.own.addPiece(p.type, p.pose, p.y, p.flipped));
     this.notice.start();
     const hills = hillsOf(this.game.landscape.grid);
     this.line = new DrawLine(end, {
@@ -312,7 +525,8 @@ export class DrawHand {
    * message, as the toast says it.
    */
   private check(c: DrawCandidate, line: readonly DrawnPiece[]): DrawCheck | null {
-    const { reason, risers } = this.hooks.placement(c.type, c.flipped, c.pose, c.y);
+    // (Branching off a line, the straights the switch goes in place of aren't in the way: the switch is, in `own`.)
+    const { reason, risers } = this.hooks.placement(c.type, c.flipped, c.pose, c.y, this.branchCovers.size ? this.branchCovers : undefined);
     // A drawn line puts in no risers under it: needing them is "unsupported".
     const why = drawRefusal(this.game.landscape, c.type, c.flipped, c.pose, c.y, reason, risers);
     if (why) return { reason: why.reason, message: drawMessage(why.reason, why.levels, this.hooks.message), levels: why.levels };
@@ -476,6 +690,19 @@ export class DrawHand {
 
   private clear(): void {
     for (const gh of this.ghosts) this.game.scene.remove(gh.mesh);
+    for (const m of [...this.swapGhosts, ...this.mergeGhosts, ...this.crossed.ghosts]) this.game.scene.remove(m);
+    if (this.branch || this.merge || this.crossed.covers.length) this.game.trackView.setHighlights([], "select", false);
+    this.crossed = { pieces: [], covers: [], ghosts: [], used: new Map() };
+    this.crossing = null;
+    this.crossLooked = null;
+    this.swapGhosts = [];
+    this.mergeGhosts = [];
+    this.branch = null;
+    this.merge = null;
+    this.mergeKey = "";
+    this.pending = null;
+    for (const id of this.swapIds) this.own.removePiece(id);
+    this.swapIds = [];
     this.ghosts = [];
     this.line = null;
     this.origin = null;
