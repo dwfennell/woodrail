@@ -42,12 +42,12 @@ describe("long-press to pick up", () => {
     expect(HOLD_SLOP).toBeLessThanOrEqual(12);
   });
 
-  it("on touch (and a pen) track, trains and industries can be held; props and roads still want selecting; a mouse never holds", () => {
+  it("on touch (and a pen) track, trains, industries and cargo can be held; props and roads still want selecting; a mouse never holds", () => {
     for (const pointer of ["touch", "pen"]) {
-      for (const target of ["piece", "car", "depot"] as const) expect(holdPicksUp(target, pointer), `${pointer} ${target}`).toBe(true);
+      for (const target of ["piece", "car", "depot", "cargo"] as const) expect(holdPicksUp(target, pointer), `${pointer} ${target}`).toBe(true);
       for (const target of ["prop", "road"] as const) expect(holdPicksUp(target, pointer), `${pointer} ${target}`).toBe(false);
     }
-    for (const target of ["piece", "car", "depot", "prop", "road"] as const) expect(holdPicksUp(target, "mouse"), target).toBe(false);
+    for (const target of ["piece", "car", "depot", "prop", "road", "cargo"] as const) expect(holdPicksUp(target, "mouse"), target).toBe(false);
   });
 
   it("a pickup by the timer is undone by late events that happened in time: a stray (a pan) or a lift (a tap)", () => {

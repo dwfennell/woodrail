@@ -31,7 +31,7 @@ import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
 import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
-import { cargoDropTarget } from "./cargo-drop";
+import { cargoDropTarget, putsBack } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 import { carNearTap, deckTapWins, liftTap, nearCarWins, type CarOnScreen } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
@@ -1041,7 +1041,8 @@ export class Interaction {
 
   /**
    * Does a drag that starts on `press` move it, rather than pan the view (see `dragMoves`: on touch, only what's
-   * selected)? Picking several, only a picked piece moves. Cargo is fetched from its pile with a drag either way.
+   * selected)? Picking several, only a picked piece moves. Cargo is never selected: a mouse drags it off its pile or
+   * wagon straight away, a finger rests on it first (see `armHold`), so a pan that starts on a pile pans.
    */
   private dragsWhatsPressed(press: Press, pointerType: string): boolean {
     // Planning a route, nothing moves: any drag pans (a tap adds a stop).
@@ -1058,6 +1059,8 @@ export class Interaction {
         return dragMoves("prop", press.propId === this.selectedProp, pointerType);
       case "road":
         return dragMoves("road", press.cell === this.roads.selected, pointerType);
+      case "cargo":
+        return dragMoves("cargo", false, pointerType);
       default:
         return true;
     }
@@ -1186,7 +1189,8 @@ export class Interaction {
    * buzz where the phone has one.
    */
   private armHold(m: Extract<Mode, { kind: "press" }>, t: number): void {
-    const target = m.press.kind === "piece" ? "piece" : m.press.kind === "car" ? "car" : m.press.kind === "depot" ? "depot" : null;
+    const k = m.press.kind;
+    const target = k === "piece" || k === "car" || k === "depot" || k === "cargo" ? k : null;
     if (!target || this.onPickPlace || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType)) return;
     // Drawing is its own tool: a finger resting there neither picks anything up nor starts a line (Rail and road's).
     if (this.drawing) return;
@@ -1732,27 +1736,29 @@ export class Interaction {
     const ground = m.overTray ? null : this.groundAt(x, y);
     const under = this.pick(x, y);
     const carId = under?.kind === "car" ? under.carId : under?.kind === "cargo" && under.slot.kind === "car" ? under.slot.carId : -1;
-    const to = ground
-      ? cargoDropTarget({
-          kind: m.cargo,
-          from: m.from,
-          x: ground.x,
-          z: ground.z,
-          carId,
-          piles: g.depotView.piles(),
-          carAccepts: (id, kind) => g.economy.carAccepts(id, kind),
-          pileAccepts: (id, kind) => {
-            const d = g.economy.depot(id);
-            return !!d && g.economy.pileAccepts(d, kind);
-          },
-        })
-      : null;
+    const drop = ground && {
+      kind: m.cargo,
+      from: m.from,
+      x: ground.x,
+      z: ground.z,
+      carId,
+      piles: g.depotView.piles(),
+      carAccepts: (id: number, kind: CargoKind) => g.economy.carAccepts(id, kind),
+      pileAccepts: (id: number, kind: CargoKind) => {
+        const d = g.economy.depot(id);
+        return !!d && g.economy.pileAccepts(d, kind);
+      },
+    };
+    const to = drop ? cargoDropTarget(drop) : null;
     if (to && g.economy.moveCargo(m.from, to)) {
       this.onPlaced?.(true);
       this.changed();
+    } else if (!to && drop && putsBack(drop)) {
+      // Let go back on its own pile (or wagon): put back, nothing refused.
     } else {
       this.onRefused?.();
-      this.hud.toast(m.cargo === "log" ? "Logs go on a flatbed wagon or the sawmill's log pile" : "Planks go on a flatbed wagon or a station's goods pile");
+      // (A refusal, as for a piece put down where it can't go: at once, and said once while it's up.)
+      this.hud.refuse(m.cargo === "log" ? "Logs go on a flatbed wagon or the sawmill's log pile" : m.cargo === "planks" ? "Planks go on a flatbed wagon or a station's goods pile" : "That goes on a wagon that carries it, or a pile that takes it");
     }
   }
 
