@@ -256,3 +256,27 @@ describe("steer: a follow hint", () => {
     expect(o.layout.switchState(o.sw)).toBe(0);
   });
 });
+
+describe("steer: a switch with a train on it", () => {
+  it("is never thrown under the train (its cars behind would take the other road)", () => {
+    const o = ovalWithSpur();
+    const follow = (id: number, path: number) => id === o.sw && path === 1;
+    expect(steer(o.layout, o.train(), true, o.far, undefined, follow, (id) => id === o.sw)).toBe(false);
+    expect(o.layout.switchState(o.sw)).toBe(0);
+    expect(steer(o.layout, o.train(), true, o.far, undefined, follow, () => false)).toBe(true);
+    expect(o.layout.switchState(o.sw)).toBe(1);
+  });
+
+  it("a routed train doesn't throw the switch under a line-mate still on it", () => {
+    // Trunk → switch → A (straight) / B (curve). One train stands across the switch on its straight way; another, on
+    // the trunk behind it, is routed to B. Its steering must wait till the switch is clear.
+    const j = junction();
+    const placed = j.sim.addTrain(["engine"], { pieceId: j.sw, pathIndex: 0, reversed: false, s: 120 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    j.economy.setRoute(j.engine().id, { stops: [{ depotId: j.depotB.id, action: "both" }], next: 0 });
+    for (let i = 0; i < 3 * SIM_HZ; i++) {
+      j.economy.tick();
+      expect(j.layout.switchState(j.sw)).toBe(0);
+    }
+  });
+});

@@ -249,6 +249,44 @@ describe("the train lift", () => {
     expect(sim.drainEvents().some((e) => e.kind === "derailed")).toBe(false);
   });
 
+  it("a train just off a lift has the right of way over one running at it: the other turns back, it comes on", () => {
+    // QA: one coming off met the other still running in (not yet waiting); both turned back, so the one coming off
+    // went back up the lift, round and round (35 rides, 2 stops reached).
+    const layout = new Layout();
+    layout.addPiece("buffer-turnback", { x: 0, z: 0, heading: Math.PI });
+    const s: number[] = [layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 })];
+    for (let i = 0; i < 5; i++) s.push(onEnd(layout, s.at(-1)!, 1, "straight-216"));
+    const lift = onEnd(layout, s.at(-1)!, 1, "kit-train-lift");
+    onEnd(layout, lift, 1, "buffer-turnback");
+    const sim = new Sim(layout);
+    // One on the platform, carried down and driving off; the other running toward the lift.
+    const off = sim.addTrain(["engine", "passenger"], { pieceId: lift, pathIndex: 0, reversed: true, s: 200 });
+    const on = sim.addTrain(["engine", "passenger"], { pieceId: s[3], pathIndex: 0, reversed: false, s: 100 });
+    if (off.kind !== "placed" || on.kind !== "placed") throw new Error("no room");
+    const [a, b] = [off, on].map((p) => sim.getTrain(p.trainId)!.cars[0].id);
+    sim.setLever(a, 1);
+    sim.setLever(b, 1);
+    const turns = { a: 0, b: 0 };
+    let rodeAgain = false;
+    let aLow = false;
+    for (let i = 0; i < 12 * SIM_HZ; i++) {
+      sim.tick();
+      for (const e of sim.drainEvents()) {
+        if (e.kind !== "buffer") continue;
+        if (sim.findCar(a)?.train.id === e.trainId) turns.a++;
+        if (sim.findCar(b)?.train.id === e.trainId) turns.b++;
+      }
+      const ta = sim.findCar(a)!.train;
+      if (sim.liftState(ta.id) === "riding") rodeAgain = true;
+      if (ta.bogies[0].pieceId === s[1]) aLow = true;
+    }
+    // The one running in turned back; the one coming off didn't, never rode again, and went on down the line.
+    expect(turns.b).toBeGreaterThan(0);
+    expect(turns.a).toBe(0);
+    expect(rodeAgain).toBe(false);
+    expect(aLow).toBe(true);
+  });
+
   it("paused (the sim not ticked), a ride holds where it is, and carries on after", () => {
     const w = line();
     expect(w.until(() => w.sim.liftState(w.train().id) === "riding", 30)).toBe(true);

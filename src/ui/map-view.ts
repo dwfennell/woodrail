@@ -7,6 +7,9 @@ export interface MapViewHandlers {
   close(): void;
 }
 
+/** What the map's bar says to do, as a rule. */
+const MAP_HINT = "Tap a place to go there";
+
 /**
  * The map view's overlay: a label over each town and depot (positioned by the caller from the camera), and a way
  * back. Only built while open; repositioned only on frames that draw.
@@ -22,13 +25,19 @@ export class MapView {
   /** What the last placement was made from, so an unmoved map costs nothing. */
   private placedKey = "";
 
+  /** What the bar says to do (planning a route, a place gone to is then tapped to add it). */
+  setHint(text: string | null): void {
+    const hint = this.bar.querySelector(".map-hint");
+    if (hint) hint.textContent = text ?? MAP_HINT;
+  }
+
   constructor(parent: HTMLElement, handlers: MapViewHandlers) {
     this.root.className = "map-view";
     this.root.hidden = true;
     this.layer.className = "map-layer";
     const bar = this.bar;
     bar.className = "map-bar";
-    bar.innerHTML = `<b>Map</b><span>Tap a place to go there</span>`;
+    bar.innerHTML = `<b>Map</b><span class="map-hint">${MAP_HINT}</span>`;
     const back = document.createElement("button");
     back.className = "chip text primary";
     back.textContent = "Back";

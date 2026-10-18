@@ -220,9 +220,11 @@ describe("the train lift's footprint: its whole frame", () => {
     const tree = { ...setup(), footprint: () => ({ cx: 0, cz: 0, hw: 2, hd: 2 }) };
     tree.props.add("scene-birch", { x: 216, z: 41, heading: 0, y: 0 });
     expect(say(tree, LIFT)).toBe("The train lift needs open ground: a tree is in the way");
-    // And track under it isn't (it would pass under at 70 mm and more up; the posts' band keeps its line over 52 mm off).
+    // And track under it isn't (it would pass under at 70 mm and more up); the posts' band keeps another line's drawn
+    // edge clear of them: its centre over 58 mm off (38 + 20), not 54 (QA: the posts overlapped its edge by 2 mm there).
     const yards = [placedYard(9, LIFT, AT, 0)!];
-    expect(trackInYards(yards, "straight-216", false, P(108, 54), 0, -1)).toBeNull();
+    expect(trackInYards(yards, "straight-216", false, P(108, 59), 0, -1)).toBeNull();
+    expect(trackInYards(yards, "straight-216", false, P(108, 54), 0, -1)).not.toBeNull();
   });
 
   it("a tree by a leg or a counterweight is refused; the line joined at both ends (felt and a level up) is clear", () => {

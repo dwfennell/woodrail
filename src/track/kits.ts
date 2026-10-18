@@ -25,6 +25,11 @@ export interface KitRect {
    * it, not the ground, hills, water or track under it.
    */
   readonly overhead?: boolean;
+  /**
+   * Other track keeps this much further off it (mm) than the track's discs reach (14 mm): to the track's drawn edge,
+   * for a frame standing on the ground right beside the line (the train lift's posts), so they don't overlap.
+   */
+  readonly trackPad?: number;
 }
 
 /** Which trains stop at a kit: those with passenger cars, those with a steam engine, or any powered train. */
@@ -197,6 +202,12 @@ export const LIFT_RISE = RISER_HEIGHT;
 const LIFT_FRAME_HALF = 38;
 const LIFT_BAND_IN = 22;
 const LIFT_END_NOTCH = 16;
+/**
+ * Track beside the lift keeps clear of its posts by its drawn width (half of 40 mm), not just its discs' 14 mm (QA: at
+ * 54 mm from a neighbouring line, the posts at ±36 overlapped its edge by 2 mm). Still clear of its own joined track:
+ * the bands start 22 mm out, past 14 + 6.
+ */
+const LIFT_TRACK_PAD = 6;
 /** The counterweights' overhead rectangles (t, l of their middle; w, d), 1 mm round the model's. */
 const LIFT_WEIGHT = { t: 216, l: 38.4, w: 16, d: 8 };
 /** How long the lift takes to carry a train from one end to the other (s). */
@@ -608,8 +619,8 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     // along each side the full length, and the middle between them stopping short of each end. And its counterweights,
     // overhead.
     footprint: [
-      { t: LIFT_LENGTH / 2, l: (LIFT_FRAME_HALF + LIFT_BAND_IN) / 2, w: LIFT_LENGTH, d: LIFT_FRAME_HALF - LIFT_BAND_IN },
-      { t: LIFT_LENGTH / 2, l: -(LIFT_FRAME_HALF + LIFT_BAND_IN) / 2, w: LIFT_LENGTH, d: LIFT_FRAME_HALF - LIFT_BAND_IN },
+      { t: LIFT_LENGTH / 2, l: (LIFT_FRAME_HALF + LIFT_BAND_IN) / 2, w: LIFT_LENGTH, d: LIFT_FRAME_HALF - LIFT_BAND_IN, trackPad: LIFT_TRACK_PAD },
+      { t: LIFT_LENGTH / 2, l: -(LIFT_FRAME_HALF + LIFT_BAND_IN) / 2, w: LIFT_LENGTH, d: LIFT_FRAME_HALF - LIFT_BAND_IN, trackPad: LIFT_TRACK_PAD },
       { t: LIFT_LENGTH / 2, l: 0, w: LIFT_LENGTH - 2 * LIFT_END_NOTCH, d: 2 * LIFT_BAND_IN },
       { ...LIFT_WEIGHT, overhead: true },
       { ...LIFT_WEIGHT, l: -LIFT_WEIGHT.l, overhead: true },

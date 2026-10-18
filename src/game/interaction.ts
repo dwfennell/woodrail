@@ -28,6 +28,8 @@ import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
+import { branchesOff } from "./draw-junctions";
+import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
@@ -186,6 +188,11 @@ type Mode =
       add: boolean;
       /** Drawing, on something near a free end: a drag draws from that end, a tap is a tap on what's there. */
       draws?: boolean;
+      /**
+       * Drawing, on a line's body (this plain straight): a drag draws a branch off it (a switch goes in), a long press
+       * picks the piece up, a tap is a tap on it.
+       */
+      branch?: number;
       /** On touch, a press on something not selected that a long press would pick up (see touch-hold.ts). */
       hold?: {
         timer: number;
@@ -429,7 +436,8 @@ export class Interaction {
     game.scene.add(this.propOutline.line, this.squareOutline.line, this.sceneryOutline.line);
     this.roads = new RoadHand(game, hud, editor, () => this.onRefused?.(), () => this.onPlaced?.(false));
     this.draw = new DrawHand(game, editor, {
-      placement: (type, flipped, pose, y) => this.placement(type, flipped, pose, y, -1),
+      placement: (type, flipped, pose, y, ignore) => this.placement(type, flipped, pose, y, ignore ?? -1),
+      occupied: (id) => this.game.sim.pieceOccupied(id),
       message: (reason) => this.blockMessage(reason as PlaceBlock) ?? reason,
       planeAt: (x, y, h) => this.planeAt(x, y, h),
       toScreen: (v) => {
@@ -660,6 +668,11 @@ export class Interaction {
 
   get isDrawing(): boolean {
     return this.drawing;
+  }
+
+  /** Does a press draw track now: Draw on, and no train's route being planned (see `pressDraws`)? */
+  private get drawsNow(): boolean {
+    return pressDraws(this.drawing, !!this.onPickPlace);
   }
 
   private drawHinted = false;
@@ -1018,7 +1031,7 @@ export class Interaction {
     }
     // Drawing: from a free end, or on empty ground, a drag draws track (two fingers still move the view).
     let drawsFromEnd = false;
-    if (this.drawing && this.touches.size <= 1) {
+    if (this.drawsNow && this.touches.size <= 1) {
       const atEnd = this.draw.nearFreeEnd(e.clientX, e.clientY);
       const over = this.pick(e.clientX, e.clientY, e.pointerType === "touch");
       // Near a free end but on something (a car, the line's last piece): a press there, as ever, unless it moves
@@ -1073,6 +1086,12 @@ export class Interaction {
     }
     this.game.controls.enabled = false;
     const press: Extract<Mode, { kind: "press" }> = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey, draws: drawsFromEnd };
+    // Drawing, on a line's body (a plain straight, a large curve or a switch, not one of the map's own): a drag
+    // branches off it.
+    if (this.drawsNow && !drawsFromEnd && !this.picking && hit.kind === "piece" && this.fixedLabel(hit.pieceId) === null) {
+      const p = this.game.layout.getPiece(hit.pieceId);
+      if (p && branchesOff(p.type)) press.branch = hit.pieceId;
+    }
     this.mode = press;
     this.armHold(press, e.timeStamp);
   }
@@ -1159,8 +1178,21 @@ export class Interaction {
           return;
         }
       } else if (travel < dragSlop(m.pointerType)) return;
+      // Drawing, and it moved off a line's body: a branch off it (a long press, above, picked the piece up instead).
+      if (m.branch !== undefined && this.drawsNow && this.touches.size <= 1) {
+        if (this.draw.beginBranch(m.x, m.y, m.branch)) {
+          this.clearSelection();
+          this.game.controls.enabled = false;
+          this.mode = { kind: "draw-track", pointerId: m.pointerId };
+          this.updateDraw(e.clientX, e.clientY);
+        } else {
+          this.mode = { kind: "idle" };
+          this.game.controls.enabled = true;
+        }
+        return;
+      }
       // Drawing, and it moved: a line from the free end it started by, not a drag of what's there.
-      if (m.draws && this.drawing && this.draw.begin(m.x, m.y)) {
+      if (m.draws && this.drawsNow && this.draw.begin(m.x, m.y)) {
         this.game.controls.enabled = false;
         this.mode = { kind: "draw-track", pointerId: m.pointerId };
         this.updateDraw(e.clientX, e.clientY);
@@ -1233,9 +1265,12 @@ export class Interaction {
     // (A town's house in Game mode is picked up as a piece is: a finger resting on it.)
     const house = m.press.kind === "prop" && this.townHouse(m.press.propId);
     const target = k === "piece" || k === "car" || k === "depot" || k === "cargo" ? k : house ? "piece" : null;
-    if (!target || this.onPickPlace || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType)) return;
+    // Drawing, on a line's body: a drag draws a branch, so a long press (a mouse's too) is how the piece is picked up.
+    // (Never while planning a route: then a press draws nothing, `drawsNow`, and a hold picks nothing up.)
+    const branch = this.drawsNow && m.branch !== undefined;
+    if (!branch && (!target || this.onPickPlace || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType))) return;
     // Drawing is its own tool: a finger resting there neither picks anything up nor starts a line (Rail and road's).
-    if (this.drawing) return;
+    if (this.drawing && !branch) return;
     if (m.press.kind === "piece" && (this.picking || this.fixedLabel(m.press.pieceId))) return;
     if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) === -1) return;
     m.hold = { timer: window.setTimeout(() => this.holdFired(m), HOLD_MS), t, strayedAt: null };

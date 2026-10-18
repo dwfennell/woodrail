@@ -69,10 +69,13 @@ export class DrawNotice {
     return this.stuckWhy(line);
   }
 
-  /** The finger lifted (the line finished): what to say, or null. `placed`: how many pieces go down. */
-  lifted(line: DrawLine, placed: number): string | null {
+  /**
+   * The finger lifted (the line finished): what to say, or null. `placed`: how many pieces go down; `merged`: it was
+   * let go on a line it comes in to (closed onto it, as a closed line is).
+   */
+  lifted(line: DrawLine, placed: number, merged = false): string | null {
     // (A closed line has nothing past where it closed: nothing to say.)
-    const blocked = line.stopped === "closed" ? null : line.pieces.find((p) => p.blocked)?.blocked;
+    const blocked = line.stopped === "closed" || merged ? null : line.pieces.find((p) => p.blocked)?.blocked;
     if (blocked) return blocked;
     if (line.refused) {
       const why = this.unlearned(line.refused);
