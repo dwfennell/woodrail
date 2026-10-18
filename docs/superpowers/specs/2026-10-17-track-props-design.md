@@ -328,12 +328,18 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
      or y to swing).
    - `depot`: a `DepotRole` (Sandbox's: `KitDepotRole`, loaders with an endless heap and an unloader that swallows
      goods). `syncIndustries` registers it; `DepotView` leaves it to the kit's model.
-   - `stop.cooldown` (seconds: an engine service's), and `crawl` (mm/s: a weighbridge).
+   - `stop.cooldown` (seconds: an engine service's), and `crawl` (mm/s: a weighbridge). A crawl is eased in: coming up
+     to a crawl kit, `KitStops` limits a train to what it can still brake to the crawl from (at the sim's
+     `ACCELERATION`) by its leading axle getting there; out the far end it eases back up as the sim does.
    - `show: "loop"` (the loop-the-loop, built in Phase 3): drawn only, nothing in the sim. `LoopShowView`
      (`src/render/loop-show.ts`) watches engines come onto the kit from either end and, one at a time, puts a toy
      copy of the engine (TrainView's model cloned, sharing its geometry and materials, at 0.6 size) round the model's
      loop on a spline (a table of points authored to the model's ring, built once), driven by how far the engine is
-     across. `without: ["car"]` leaves a part of the asset out of the kit's model (the loop's own little car).
+     across. The copy takes the engine's place where it stands and hops off the line onto the ring (and back on at the
+     far end), the engine's model hidden meanwhile; its coupled cars coast on, on a tow rope to it; a tap on it is a
+     tap on the engine (`engineAt`, in the pick). Called off, the logic's at once and the copy eases back to the engine
+     over 0.3 s (`busy` meanwhile). `without: ["car"]` leaves a part of the asset out of the kit's model (the loop's own
+     little car).
    - A kit of several roads: build its track with `roads(type, starts, length, buffered)` in `kits.ts`. Buffer-ended
      roads stop trains coming in only, and the model draws the buffer stops (`TrackView` leaves its block off kits).
    - `rails: "model"`: the model draws its own rails (a deck's: keep its slab with `deckTrack` in the asset, so it isn't
@@ -362,8 +368,9 @@ Phase 0 lands first. Everyone builds on its interface, and nothing else starts b
    - `src/game/kit-footprint.test.ts`: the footprint and flip hint;
    - `src/economy/kit-stops.test.ts`: stops (several roads, buffer-ended roads, services' cool-down);
    - `src/economy/kit-depots.test.ts`: cargo stops and the crawl;
-   - `src/render/loop-show.test.ts`: the loop's spline and frames, the show's timing, frames asked for, one show at a
-     time, backing out (and `npm run e2e:loop`, tools/e2e/kit-loop.mjs);
+   - `src/render/loop-show.test.ts`: the loop's spline and frames, the show's timing, the hand-off, the tow rope, a
+     tap on the copy, frames asked for, one show at a time, backing out and the eased call-off (and `npm run e2e:loop`,
+     tools/e2e/kit-loop.mjs: hand-off frame sequences, a tap on the copy, a call-off, idle frames);
    - `src/render/kit-motions.test.ts`, `src/render/kit-view.test.ts`: moving parts;
    - `src/editor/editor.test.ts`: the kit block, splice and undo;
    - `src/persist/save.test.ts`: kit pieces in saves.
@@ -385,7 +392,7 @@ roundhouse doors are done. That leaves three mechanisms and Game mode.
 |---|---|---|
 | Train lift | Two rim ends, a level or more apart. A train halts on the platform: a stop at the platform's middle, cap 0. It is carried up as a ride, the way the turntable carries trains (`Sim.startRide`): bogies held still while the platform's motion (`moves: "state"`) lifts them, then moved onto the upper path with the lever left on. One new sim move, "carry a train from end A to end B over T seconds", built on the turntable's ride. | Sandbox |
 | Moving bridges (bascule, swing, lift) | A bridge style (Rail and road's bridge styles) with a state: open blocks the track, so the bridge acts as a held signal on both paths (`signal` plus a hold bit, which already exists) while it's raised. It opens for a few seconds every so often, or when tapped, and only when no train is on it or within braking distance. Boats under it are optional (the harbour boats already exist). | Rail and road |
-| Loop-the-loop | **Built (kit-loop).** A show, not track: `kit-loop-the-loop`, a 216 straight (splices) trains crawl over at 40 mm/s, so a show lasts 5.4 s. The model's loop stands beside the line (l 80, its plane along the track; over the line its ring would cross the track), its slabs and little car left out. When an engine's middle comes on at either end, it shrinks away on the line as a 0.6-size copy grows at the bottom of the loop (the first and last tenth of the way across); the copy runs once round, slower over the top, upside down there, drifting 16 across the ring, and trades back at the far end as the engine gets there. The coupled cars stay as they are. Not a `moves` motion (a `KitMotion` can't know the engine): its own `LoopShowView`, driven by the engine's place across the piece, so it holds while paused or standing and asks for frames only while it moves in view. One show per kit; an engine backing up, coming off or taken away calls it off, the engine whole again. Tray: Machines → Railway & yard, Sandbox only. | Sandbox |
+| Loop-the-loop | **Built (kit-loop).** A show, not track: `kit-loop-the-loop`, a 216 straight (splices) trains crawl over at 40 mm/s, so a show lasts 5.4 s. The model's loop stands beside the line (l 80, its plane along the track; over the line its ring would cross the track), its slabs and little car left out. When an engine's middle comes on at either end, a copy of it takes its place and hops off the line onto the bottom of the loop, sliding across and up and shrinking to 0.6 size (the first tenth of the way across); it runs once round, slower over the top, upside down there, drifting 16 across the ring, and hops back down onto the line at the far end (the last tenth), landing on the engine as it gets there. The coupled cars coast on behind on a tow rope to the copy (the engine's detour); a tap on the copy opens the engine's card. Trains ease into the crawl (as into every crawl kit) rather than dropping to it. Not a `moves` motion (a `KitMotion` can't know the engine): its own `LoopShowView`, driven by the engine's place across the piece, so it holds while paused or standing and asks for frames only while it moves in view. One show per kit; an engine backing up, coming off or taken away (or the kit taken up) calls it off at once, the copy easing back to the engine over 0.3 s (a few frames, then still). Tray: Machines → Railway & yard, Sandbox only. | Sandbox |
 
 All three use the hooks already built (`moves`, `rails: "model"`, the turntable's ride, signal holds). None needs a
 new per-frame cost.

@@ -3821,9 +3821,12 @@ export class Interaction {
     }
     // (The kits' group: a turntable's deck is tapped to turn it, picked as a switch's lever; a signal skin's model to
     // hold its signal. The crossings': a crossing style is its prop's.)
-    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group], true);
+    // (The loop-the-loops' shows': a tap on an engine's copy running the loop is a tap on the engine.)
+    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group, g.loopShow.group], true);
     for (let i = 0; i < hits.length; i++) {
       const h = hits[i];
+      const shown = g.loopShow.engineAt(h.object as Object3D);
+      if (shown !== -1) return { kind: "car", carId: shown };
       const slot = g.depotView.cargoAt(h.object, h.instanceId);
       if (slot) {
         const cargo = slot.kind === "pile" ? slot.cargo : g.economy.cargoOf(slot.carId).kind;
