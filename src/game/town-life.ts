@@ -134,13 +134,16 @@ export class TownLife {
     const editor = new LandEditor(g.landscape, g.layout, { inRect: (x0, z0, x1, z1) => propsInRect(g.props, (a) => g.footprintOf(a), x0, z0, x1, z1) });
     // Its landmarks go up as it reaches their levels (every one it hasn't got, if it grew by more than one): each on a
     // lot of its own, a two-square one if there is one (they're big buildings), so ask for that many.
+    // The biggest (with 2×2 models) take a 2×2 block where there's room, first.
     const due = dueLandmarks(g.landscape, town, status.level, (t) => this.events.knows?.(t) ?? false);
-    const lots = nextLots(g.landscape, town, editor, houses, { wide: due.length });
-    for (const mark of due) {
+    const big = due.filter((m) => m.models.four?.length);
+    const lots = nextLots(g.landscape, town, editor, houses, { wide: due.length, big: big.length });
+    for (const mark of [...big, ...due.filter((m) => !big.includes(m))]) {
       const free = lots.filter((l) => !l.landmark);
-      // One that comes with a blueprint (the college) has a big building of its own: it waits for a two-square lot
+      const of = (n: number) => free.find((l) => l.cells.length === n);
+      // One that comes with a blueprint (the college) has a big building of its own: it waits for two squares or more
       // (here when it next grows, or in the next town to grow).
-      const lot = free.find((l) => l.cells.length > 1) ?? (mark.tech ? undefined : free[0]);
+      const lot = (big.includes(mark) ? of(4) : undefined) ?? of(2) ?? (mark.tech ? of(4) : free.find((l) => l.cells.length < 4) ?? free[0]);
       if (lot) lot.landmark = mark.id;
     }
     if (lots.length > 0) {
