@@ -1021,6 +1021,16 @@ async function junctions() {
   const [n4, j4] = await p.evaluate(() => [D.pieces(), D.joints()]);
   check("junctions: a line drawn in at 45° and let go on a line merges through a switch", sw3 === sw2 + 1 && n4 > n1 && j4 - j1 === n4 - n1, `${sw3 - sw2} switch, ${n4 - n1} pieces, ${j4 - j1} joints`);
   await p.evaluate(() => window.woodrail.interaction.undo());
+  // A crossing: from open ground beside the line, square across it and well on past.
+  const cx0 = open.x + 18;
+  await focus(cx0, open.z + 120, 460);
+  const [n7, j7] = await p.evaluate(() => [D.pieces(), D.joints()]);
+  const cr0 = await count("crossing");
+  await drawThrough([0, 80, 160, 240, 320, 400, 480, 560, 640].map((d) => [cx0, open.z - 300 + d]), { shotAt: 7, shotName: "draw-10-crossing.png" });
+  const cr1 = await count("crossing");
+  const [n8, j8] = await p.evaluate(() => [D.pieces(), D.joints()]);
+  check("junctions: a line drawn square across a line goes on through a crossing put in its place", cr1 === cr0 + 1 && n8 > n7 && j8 - j7 === n8 - n7, `${cr1 - cr0} crossing, ${n8 - n7} pieces, ${j8 - j7} joints`);
+  if (n8 !== n7) await p.evaluate(() => window.woodrail.interaction.undo());
   // The planning guard: a route being planned (as the engine card's Plan does), Draw on.
   await p.evaluate(() => {
     const w = window.woodrail;

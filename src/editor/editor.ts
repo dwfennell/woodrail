@@ -192,8 +192,10 @@ export class Editor {
    * leaves or meets (and the plain straights either side of it). Undone, the covers go back as they were. The ids
    * of the pieces put down, in order.
    */
-  replaceRun(covers: readonly number[], pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean }[]): number[] {
+  replaceRun(covers: readonly number[], pieces: readonly { type: PieceTypeId; pose: Pose; y: number; flipped: boolean; state?: number }[]): number[] {
     const recs = covers.map((id) => this.record(id)).filter((r): r is PieceRecord => r !== null);
+    // The covers' own switch settings, to set back on undo (a switch swapped for a three-way).
+    const states = new Map(covers.map((id) => [id, this.layout.switchState(id)] as const));
     const ids: number[] = [];
     this.run({
       do: () => {
@@ -201,11 +203,16 @@ export class Editor {
         pieces.forEach((p, i) => {
           if (ids[i] === undefined) ids[i] = this.layout.addPiece(p.type, p.pose, p.y, p.flipped);
           else this.layout.restorePiece(ids[i], p.type, p.pose, p.y, p.flipped);
+          // (A switch put in for one taken up is set to the old line's way.)
+          if (p.state) this.layout.setSwitchState(ids[i], p.state);
         });
       },
       undo: () => {
         for (let i = ids.length - 1; i >= 0; i--) this.layout.removePiece(ids[i]);
-        for (const r of recs) this.layout.restorePiece(r.id, r.type, r.pose, r.y, r.flipped);
+        for (const r of recs) {
+          this.layout.restorePiece(r.id, r.type, r.pose, r.y, r.flipped);
+          if (states.has(r.id)) this.layout.setSwitchState(r.id, states.get(r.id)!);
+        }
       },
       seats: () => [...ids],
     });

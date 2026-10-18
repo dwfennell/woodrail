@@ -3,7 +3,7 @@ import { Editor } from "../editor/editor";
 import { gridWithPlots, hillsOf, type Landscape } from "../landscape";
 import { Sim } from "../sim";
 import { appendPiece, connectorRef, DrawLine, Layout, type DrawOptions, type PieceTypeId } from "../track";
-import { branchFrom, BUSY_MESSAGE, linePlan, mergeAt, type JunctionRules } from "./draw-junctions";
+import { branchFrom, BUSY_MESSAGE, crossingAt, linePlan, mergeAt, type JunctionRules } from "./draw-junctions";
 import { Progress } from "./progress";
 import { pieceStock, pieceUnlearned } from "./supply";
 import { drawMessage, drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
@@ -167,6 +167,94 @@ describe("merging into a line on lift", () => {
     for (let d = 4; d <= 300; d += 4) drawn.addPoint(236 + (d / 458) * 324, Z + 324 - (d / 458) * 324);
     drawn.finish();
     expect(mergeAt(s.junctions, drawn.start, drawn.placeable(), drawn.tip, new Set(), 0)).toBeNull();
+  });
+});
+
+describe("a branch off a large curve or a switch", () => {
+  it("off a large curve: a switch or a Y in its place; off a switch's open side: a three-way (Game: the junctions blueprint)", () => {
+    const land = flat();
+    const layout = new Layout();
+    const a = layout.addPiece("straight-216", { x: 0, z: Z, heading: 0 }, 0);
+    const c = appendPiece(layout, "curve-large", false, connectorRef(a, 1));
+    const b = appendPiece(layout, "straight-216", false, connectorRef(c, 1));
+    const sw = appendPiece(layout, "switch", false, connectorRef(b, 1));
+    const rules: TrackRules = { land, layout, props: null, footprint: () => undefined };
+    const progress = Progress.fresh();
+    progress.learned.add("switches");
+    const world = { ...createWorld(7), layout };
+    const r = (game: boolean): JunctionRules => ({
+      layout,
+      check: (type, flipped, pose, y, ignore) => {
+        const p = trackPlacement(rules, type, flipped, pose, y, ignore);
+        return p.reason ? trackMessage(p.reason) : null;
+      },
+      occupied: () => false,
+      may: (type, used) => (!game ? null : (pieceUnlearned(progress, type) ?? (pieceStock(progress, world, type) > used ? null : `Out of ${type}`))),
+    });
+    // Straight on from the curve's start: a switch.
+    const fromCurve = branchFrom(r(false), c, { x: 260, z: Z }, { x: 330, z: Z });
+    if (fromCurve.kind !== "branch") throw new Error(JSON.stringify(fromCurve));
+    expect(fromCurve.kind === "branch" && fromCurve.swap.pieces[0].type).toBe("switch");
+    // Off the switch's open side (−45°): a three-way, in Sandbox; in Game mode not till the junctions blueprint.
+    const swPose = layout.getPiece(sw)!.pose;
+    const press = { x: swPose.x + 70, z: swPose.z - 5 };
+    const finger = { x: press.x + 50, z: press.z - 50 };
+    const three = branchFrom(r(false), sw, press, finger);
+    expect(three.kind === "branch" && three.swap.pieces[0].type).toBe("switch-3way");
+    expect(branchFrom(r(true), sw, press, finger)).toEqual({ kind: "refused", message: "Three-way: not learned yet" });
+  });
+});
+
+describe("crossing a line (the stroke goes on through it)", () => {
+  it("at 90° or 45°, a crossing (or 45° crossing) goes in where the line meets it, and the line goes on beyond, all one undo step", () => {
+    for (const [deg, type] of [[90, "crossing"], [-90, "crossing"], [45, "crossing-45"], [-45, "crossing-45"], [135, "crossing-45"]] as const) {
+      const s = setup();
+      const joints = s.layout.jointCount;
+      const before = s.layout.pieceCount;
+      const a = (deg * Math.PI) / 180;
+      // From open ground 400 mm off the line, across it at `deg`, and 400 mm on.
+      const cx = 430;
+      const at = (d: number) => ({ x: cx + Math.cos(a) * (d - 400), z: Z + Math.sin(a) * (d - 400) });
+      const p0 = at(0);
+      const start = { x: Math.round(p0.x / 18) * 18, z: Math.round(p0.z / 18) * 18, heading: a, y: 0, kind: "peg" as const };
+      const first = new DrawLine(start, s.options(new Set()));
+      let d = 4;
+      for (; d <= 800 && first.stopped === null; d += 4) first.addPoint(at(d).x, at(d).z);
+      expect(first.stopped, `${deg}°`).toBe("blocked");
+      expect(first.pieces[first.pieces.length - 1].blockedBy, `${deg}°`).toBe("piece");
+      const c = crossingAt(s.junctions, first.start, first.placeable(), new Set(), () => 0);
+      expect(c?.kind, `${deg}°`).toBe("crossing");
+      if (c?.kind !== "crossing") continue;
+      expect(c.swap.pieces[0].type).toBe(type);
+      // The line goes on from the crossing's far end.
+      const crossedPieces = [...first.placeable().slice(0, c.keep).map((p) => ({ type: p.type, pose: p.pose, y: p.y, flipped: p.flipped })), ...(c.link ? [c.link] : []), ...c.swap.pieces];
+      const on = new DrawLine(c.swap.exit!, s.options(new Set(c.swap.covers)));
+      for (; d <= 900; d += 4) on.addPoint(at(d).x, at(d).z);
+      on.finish();
+      expect(on.pieces.some((p) => p.blocked), `${deg}°`).toBe(false);
+      const plan = linePlan(null, on.placeable(), null, { pieces: crossedPieces, covers: [...c.swap.covers] });
+      s.editor.replaceRun(plan.covers, plan.pieces);
+      const types = [...s.layout.pieceIds()].map((id) => s.layout.getPiece(id)!.type);
+      expect(types.filter((t) => t === type).length).toBe(1);
+      // Every piece joined: the old line through the crossing's straight path, the new one through its cross path.
+      const added = plan.pieces.length - plan.covers.length;
+      expect(s.layout.jointCount, `${deg}°`).toBe(joints + added + 2 - 2);
+      s.editor.undo();
+      expect(s.layout.pieceCount).toBe(before);
+      expect(s.layout.jointCount).toBe(joints);
+    }
+  });
+
+  it("needs a crossing in the box (Game: the junctions blueprint), and none with a train on the straight", () => {
+    const s = setup({ crossing: 0, "crossing-45": 0 });
+    const start = { x: 432, z: Z - 400, heading: Math.PI / 2, y: 0, kind: "peg" as const };
+    const first = new DrawLine(start, s.options(new Set()));
+    for (let d = 4; d <= 600 && first.stopped === null; d += 4) first.addPoint(432, Z - 400 + d);
+    expect(crossingAt(s.junctions, first.start, first.placeable(), new Set(), () => 0)).toEqual({ kind: "short", message: "Out of crossing" });
+    const t = setup(null, (ids) => ids);
+    const line2 = new DrawLine(start, t.options(new Set()));
+    for (let d = 4; d <= 600 && line2.stopped === null; d += 4) line2.addPoint(432, Z - 400 + d);
+    expect(crossingAt(t.junctions, line2.start, line2.placeable(), new Set(), () => 0)).toBeNull();
   });
 });
 

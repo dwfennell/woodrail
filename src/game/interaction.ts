@@ -8,7 +8,7 @@ import { endBoardModel, ghostMesh, pieceGeometry, pieceMatrix, type OutlineTone 
 import { damp } from "../lib/tween";
 import { ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, createWorldSample, cursorWorld, nearestCursor, type CarKind, type CarLook, type Cursor } from "../sim";
 import { BLOCK_MESSAGES, hillMessage, levelsAbove, bridgeLevels, CELL, MAX_HEIGHT, hillsOf, nearestCrossing, STYLE_REACH, type Landscape, checkSupport, looseHeight, riserStackAt, type BlockReason } from "../landscape";
-import { connectorRef, gapFill, isKit, isPlainStraight, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
+import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapAhead, flipSwapsEnds, solveParentPose, findOverlap, findSnap, findSnapAtPoint, findSplice, normalizeAngle, straightLength, TRACK_WIDTH, type Ignore, pieceOfRef, type WorldConnector, fitAutoStraight, canStandOnArches, getPieceDef, isBridge, RISER_HEIGHT, SNAP_CAPTURE_RADIUS, type PieceTypeId, type Pose, type SnapResult } from "../track";
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, propsInRect, PROP_MESSAGES, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
@@ -26,6 +26,7 @@ import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
+import { branchesOff } from "./draw-junctions";
 import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
 import { warmDrawing } from "../track/draw-path";
@@ -1038,10 +1039,11 @@ export class Interaction {
     }
     this.game.controls.enabled = false;
     const press: Extract<Mode, { kind: "press" }> = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey, draws: drawsFromEnd };
-    // Drawing, on a line's body (a plain straight, not one of the map's own): a drag branches off it.
+    // Drawing, on a line's body (a plain straight, a large curve or a switch, not one of the map's own): a drag
+    // branches off it.
     if (this.drawsNow && !drawsFromEnd && !this.picking && hit.kind === "piece" && this.fixedLabel(hit.pieceId) === null) {
       const p = this.game.layout.getPiece(hit.pieceId);
-      if (p && isPlainStraight(p.type)) press.branch = hit.pieceId;
+      if (p && branchesOff(p.type)) press.branch = hit.pieceId;
     }
     this.mode = press;
     this.armHold(press, e.timeStamp);

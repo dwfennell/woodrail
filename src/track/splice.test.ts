@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { connectorRef, Layout } from "./layout";
-import { type Pose } from "./math";
+import { normalizeAngle, type Pose } from "./math";
 import { findOverlap } from "./overlap";
 import { appendPiece } from "./snap";
-import { findBranch, findMerge, findSplice, gapFill, isPlainStraight, straightLength, straightsFor, type PieceSwap } from "./splice";
-import type { PieceTypeId } from "./pieces";
+import { findBranch, findCrossing, findCurveSwap, findMerge, findThreeWay, findSplice, gapFill, isPlainStraight, straightLength, straightsFor, type PieceSwap } from "./splice";
+import { getPieceDef, type PieceTypeId } from "./pieces";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
 
@@ -366,5 +366,103 @@ describe("findSplice: a short kit on a longer straight", () => {
     line(l, ["straight-108", "straight-108", "straight-108"]);
     const s = findSplice(l, "kit-water-tower", false, { x: 160, z: 0 }, 0, 40);
     expect(s.kind === "splice" && s.rest).toBeUndefined();
+  });
+});
+
+describe("findCrossing (a drawn line going on across a line at 90° or 45°)", () => {
+  it("swaps a crossing into the line where the drawn line meets it, the drawn line in at one end of its cross path and on from the other", () => {
+    for (const [deg, type] of [[90, "crossing"], [-90, "crossing"], [45, "crossing-45"], [135, "crossing-45"], [-45, "crossing-45"]] as const) {
+      for (const gap of [72, 144, 216]) {
+        const l = new Layout();
+        line(l, ["straight-216", "straight-216", "straight-216", "straight-216"]);
+        const a = (deg * Math.PI) / 180;
+        // The line's end `gap` mm short of the crossing's near end (half the crossing short of where its heading meets
+        // the run's centre line).
+        const hit = { x: 432 + 7, z: 0 };
+        const back = gap + 72;
+        const e = { x: hit.x - Math.cos(a) * back, z: hit.z - Math.sin(a) * back, heading: a, y: 0 };
+        const c = findCrossing(l, e);
+        expect(c, `${deg}° ${gap}`).not.toBeNull();
+        if (!c) continue;
+        expect(c.swap.pieces[0].type, `${deg}° ${gap}`).toBe(type);
+        // In facing the line's end; out the far side, the same way.
+        expect(Math.abs(normalizeAngle(c.swap.end.heading - a - Math.PI)), `${deg}° ${gap}`).toBeLessThan(0.05);
+        expect(Math.abs(normalizeAngle(c.swap.exit!.heading - a)), `${deg}° ${gap}`).toBeLessThan(0.05);
+        expect(Math.sign(c.swap.exit!.z * Math.sign(Math.sin(a)))).toBe(1);
+        // Put down with its straights, the old line and the drawn line are both whole.
+        const ids = apply(l, c.swap);
+        expect(ids.length).toBe(c.swap.pieces.length);
+      }
+    }
+  });
+
+  it("not along the line, nor where it would take up a straight a train is on", () => {
+    const l = new Layout();
+    line(l, ["straight-216", "straight-216", "straight-216"]);
+    expect(findCrossing(l, { x: 0, z: 100, heading: 0, y: 0 })).toBeNull();
+    expect(findCrossing(l, { x: 324, z: -150, heading: Math.PI / 2, y: 0 }, () => false)).toBeNull();
+  });
+});
+
+describe("findCurveSwap (a branch off a large curve) and findThreeWay (off a switch's open side)", () => {
+  /** A straight, a large curve (either hand), a straight: the curve's id. */
+  function curved(l: Layout, flipped: boolean): number {
+    const a = l.addPiece("straight-216", P(0, 0), 0);
+    const c = appendPiece(l, "curve-large", flipped, connectorRef(a, 1));
+    appendPiece(l, "straight-216", false, connectorRef(c, 1));
+    return c;
+  }
+
+  it("a curve becomes a switch (the new line straight on) or a Y (the new line curving the other way), joints kept, set to the old line", () => {
+    for (const flipped of [false, true]) {
+      const turn = flipped ? -1 : 1;
+      // Straight on from where the curve starts: a switch, its branch the old curve.
+      let l = new Layout();
+      let c = curved(l, flipped);
+      const joints = l.jointCount;
+      const w = findCurveSwap(l, c, 260, 0, 0);
+      if (w.kind !== "swap") throw new Error(w.kind);
+      expect(w.pieces[0].type).toBe("switch");
+      expect(w.pieces[0].state).toBe(1);
+      expect(Math.abs(normalizeAngle(w.end.heading))).toBeLessThan(1e-6);
+      apply(l, w);
+      expect(l.jointCount).toBe(joints);
+      // Curving the other way: a Y, one leg the old curve.
+      l = new Layout();
+      c = curved(l, flipped);
+      const y = findCurveSwap(l, c, 260, -turn * 20, (-turn * Math.PI) / 4);
+      if (y.kind !== "swap") throw new Error(y.kind);
+      expect(y.pieces[0].type).toBe("switch-y");
+      expect(Math.sign(normalizeAngle(y.end.heading))).toBe(-turn);
+      apply(l, y);
+      expect(l.jointCount).toBe(joints);
+    }
+  });
+
+  it("a switch becomes a three-way when the stroke leaves on its open side, joints kept, set as it was", () => {
+    for (const flipped of [false, true]) {
+      for (const state of [0, 1]) {
+        const l = new Layout();
+        const a = l.addPiece("straight-216", P(0, 0), 0);
+        const sw = appendPiece(l, "switch", flipped, connectorRef(a, 1));
+        appendPiece(l, "straight-216", false, connectorRef(sw, 1));
+        appendPiece(l, "curve-large", flipped, connectorRef(sw, 2));
+        l.setSwitchState(sw, state);
+        const joints = l.jointCount;
+        const open = flipped ? Math.PI / 4 : -Math.PI / 4;
+        // Not on the branch's own side.
+        expect(findThreeWay(l, sw, -open).kind).toBe("none");
+        const w = findThreeWay(l, sw, open);
+        if (w.kind !== "swap") throw new Error(w.kind);
+        expect(w.pieces[0].type).toBe("switch-3way");
+        expect(Math.abs(normalizeAngle(w.end.heading - open))).toBeLessThan(1e-6);
+        // Set as it was: straight on, or the same curve.
+        const id = apply(l, w)[0];
+        if (w.pieces[0].state) l.setSwitchState(id, w.pieces[0].state);
+        expect(l.jointCount).toBe(joints);
+        const path = getPieceDef("switch-3way", false).paths[l.switchState(id)];
+        expect(path.to).toBe(state === 0 ? 1 : flipped ? 3 : 2);
+      }
+    }
   });
 });
