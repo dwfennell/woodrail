@@ -123,13 +123,13 @@ if (!process.env.E2E_ONLY) {
 /** A free end of track on level ground with clear, level, empty land ahead of it (found from the map). */
 const site = await p.evaluate(async () => {
   const w = window.woodrail;
-  const { createWorldConnector } = await import("/src/track/layout.ts");
+  const { connectorRef, createWorldConnector } = await import("/src/track/layout.ts");
   const G = w.landscape.grid;
   const c = createWorldConnector();
   for (const id of w.layout.pieceIds()) {
     const piece = w.layout.getPiece(id);
     for (let i = 0; i < 4; i++) {
-      const ref = id * 4 + i;
+      const ref = connectorRef(id, i);
       if (w.layout.joinedConnector(ref) !== -1) continue;
       try {
         w.layout.worldConnector(ref, c);
@@ -524,18 +524,18 @@ step("7b");
     const got = await q.evaluate(
       async ([n0, last]) => {
         const w = window.woodrail;
-        const { createWorldConnector } = await import("/src/track/layout.ts");
+        const { connectorRef, createWorldConnector } = await import("/src/track/layout.ts");
         const c = createWorldConnector();
         const ids = [...w.layout.pieceIds()].slice(n0);
         let near = Infinity;
         for (const id of ids)
           for (let i = 0; i < 2; i++) {
             try {
-              w.layout.worldConnector(id * 4 + i, c);
+              w.layout.worldConnector(connectorRef(id, i), c);
             } catch {
               continue;
             }
-            if (w.layout.joinedConnector(id * 4 + i) === -1) near = Math.min(near, Math.hypot(c.x - last.x, c.z - last.z));
+            if (w.layout.joinedConnector(connectorRef(id, i)) === -1) near = Math.min(near, Math.hypot(c.x - last.x, c.z - last.z));
           }
         return { types: ids.map((id) => w.layout.getPiece(id).type), near, toasts: window.__toasts.splice(0) };
       },
@@ -914,14 +914,14 @@ async function qaReplay() {
     await shot(q, `${OUT}/draw-9-qa-${c.name.replace(/[^a-z0-9]+/gi, "-")}.png`);
     const got = await q.evaluate(async ([ids0]) => {
       const w = window.woodrail;
-      const { createWorldConnector } = await import("/src/track/layout.ts");
+      const { connectorRef, createWorldConnector } = await import("/src/track/layout.ts");
       const was = new Set(ids0);
       const ids = [...w.layout.pieceIds()].filter((id) => !was.has(id));
       const cn = createWorldConnector();
       const ends = [];
       for (const id of ids)
         for (let k = 0; k < 2; k++) {
-          const ref = id * 4 + k;
+          const ref = connectorRef(id, k);
           if (w.layout.joinedConnector(ref) !== -1) continue;
           w.layout.worldConnector(ref, cn);
           ends.push(cn.y);
