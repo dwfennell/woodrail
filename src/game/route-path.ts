@@ -207,3 +207,17 @@ export function nearestAhead(layout: Layout, starts: readonly Cursor[], length: 
   }
   return best;
 }
+
+/**
+ * Why a stop can't be reached, where it's a pinned switch: the first pinned switch that, set the other way, would let
+ * the way from `starts` reach piece `target`. −1 if none (nothing pinned, or no track leads there whatever the switches).
+ * Asks a view of the layout with that one switch unpinned: the layout itself isn't touched (no version bumps).
+ */
+export function pinnedBlocking(layout: Layout, starts: readonly Cursor[], target: number): number {
+  if (layout.pinnedCount === 0) return -1;
+  for (const pin of layout.pinnedIds()) {
+    const view = Object.create(layout, { isPinned: { value: (id: number) => id !== pin && layout.isPinned(id) } }) as Layout;
+    if (starts.some((start) => legFromCursor(view, start, target) !== null)) return pin;
+  }
+  return -1;
+}
