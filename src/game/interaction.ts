@@ -34,6 +34,13 @@ import { cargoDropTarget } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
 import { carNearTap, deckTapWins, nearCarWins, type CarOnScreen } from "./touch-pick";
 
+/** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
+function whenIdle(f: () => void): void {
+  const idle = (globalThis as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+  if (idle) idle(f, { timeout: 2000 });
+  else setTimeout(f, 50);
+}
+
 /** The middle of a drawn shape, in its own frame (before it's turned to a heading or moved). */
 function geometryMiddle(g: BufferGeometry): Vector3 {
   if (!g.boundingBox) g.computeBoundingBox();
@@ -538,14 +545,45 @@ export class Interaction {
   /** Called when the ready tray piece changes. */
   onArmed: ((item: TrayItem | null) => void) | null = null;
 
+  /** Kits whose models are built (or asked for) ahead of a drag, and those waiting their turn. */
+  private readonly kitsWarmed = new Set<PieceTypeId>();
+  private readonly kitsToWarm: PieceTypeId[] = [];
+
+  /**
+   * Kit pieces shown in the tray: build their models when idle, one at a time, and check a placement of each once, so
+   * a kit's first drag isn't the one its model is built on (a long task as it comes out of the tray: 15-20 ms in
+   * headless Chromium on a desktop, several times that on a phone, delaying the first pointer moves) nor the one its
+   * placement checks are compiled on. A returning player's tray pictures are saved, so nothing else has built them.
+   */
+  warmKits(items: readonly TrayItem[]): void {
+    const idle = this.kitsToWarm.length === 0;
+    for (const item of items)
+      if (item.kind === "piece" && isKit(item.type) && !this.kitsWarmed.has(item.type)) {
+        this.kitsWarmed.add(item.type);
+        this.kitsToWarm.push(item.type);
+      }
+    if (idle && this.kitsToWarm.length > 0) whenIdle(() => this.warmNextKit());
+  }
+
+  private warmNextKit(): void {
+    const type = this.kitsToWarm.shift();
+    if (!type) return;
+    const next = () => {
+      // (Off the drag's path: a placement where the view is, its answer thrown away.)
+      const t = this.game.controls.target;
+      if (this.mode.kind === "idle") this.placement(type, false, { x: t.x, z: t.z, heading: 0 }, 0, -1);
+      if (this.kitsToWarm.length > 0) whenIdle(() => this.warmNextKit());
+    };
+    this.game.kitView.load(type).then(next, next);
+  }
+
   /** Switch drawing track on or off (the tray's Draw chip). */
   setDrawing(on: boolean): void {
     if (on === this.drawing) return;
     this.drawing = on;
     if (on) {
       // The first stroke shouldn't be the one the drawing code is compiled on (see `warmDrawing`): when idle, once.
-      const idle = (globalThis as { requestIdleCallback?: (f: () => void) => number }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 50));
-      idle(() => warmDrawing());
+      whenIdle(() => warmDrawing());
       this.arm(null);
       this.clearSelection();
       this.hud.hideCards();

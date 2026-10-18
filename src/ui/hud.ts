@@ -78,6 +78,8 @@ export interface HudHandlers {
   sendReport(note: string): Promise<void>;
   /** Tray items shown without a picture yet: draw them (a few at a time) and hand each back with `setThumbnail`. */
   needThumbnails(items: TrayItem[]): void;
+  /** Kit pieces shown in the tray (pictured or not): their models can be built ahead of a drag (see `Interaction.warmKits`). */
+  kitsShown?(items: TrayItem[]): void;
 }
 
 /** Movement (px) before a press on a tray item becomes a scroll or a pick-up. */
@@ -458,8 +460,10 @@ export class Hud {
     window.addEventListener("resize", edges);
     // Pictures not drawn yet (catalogue models, drawn on demand) wait as a placeholder until `setThumbnail`.
     const missing: TrayItem[] = [];
+    const kits: TrayItem[] = [];
     const picture = (item: TrayItem) => {
       const key = trayKey(item);
+      if (item.kind === "piece" && isKit(item.type)) kits.push(item);
       const thumb = this.thumbs.get(key);
       if (thumb) return `<img src="${thumb}" alt="" draggable="false">`;
       // A piece or train not drawn yet shows its icon till its picture comes (`setThumbnail` swaps it in). A kit piece
@@ -498,6 +502,7 @@ export class Hud {
       requestAnimationFrame(edges);
       requestAnimationFrame(fitLabels);
       if (missing.length > 0) this.handlers.needThumbnails(missing.splice(0));
+      if (kits.length > 0) this.handlers.kitsShown?.(kits.splice(0));
     };
     // Top level: one button per group; open one to see its items, with a way back first in the row.
     const showGroups = (groups: TrayGroup[]) => {
