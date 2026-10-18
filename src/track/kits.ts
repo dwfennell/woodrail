@@ -1,7 +1,7 @@
 import type { DepotRole } from "../economy";
 import { normalizeAngle, type Pose } from "./math";
 import type { PieceDef, PieceTypeId } from "./pieces";
-import { BUFFER_LENGTH } from "./constants";
+import { BUFFER_LENGTH, RISER_HEIGHT } from "./constants";
 import { pose, straight } from "./shapes";
 
 /**
@@ -165,6 +165,37 @@ function turntable(type: PieceTypeId): PieceDef {
     geom: { kind: "line" as const, start: pose(connectors[k].pose.x, connectors[k].pose.z, normalizeAngle(at(k) + Math.PI)), length: 2 * PIT, y0: 0, rise: 0 },
   }));
   return { type, connectors, paths, flippable: false, isSwitch: false, supportHeight: 0, gated: true };
+}
+
+/** The train lift's platform: as long as an engine and two cars (mm), and how far it rises (one level). */
+export const LIFT_LENGTH = 288;
+export const LIFT_RISE = RISER_HEIGHT;
+/** How long the lift takes to carry a train from one end to the other (s). */
+export const LIFT_SECONDS = 3;
+
+/**
+ * A train lift's track: its low end (connector 0) and its high end `LIFT_RISE` up (connector 1, straight on, the same
+ * way), and two ways the platform can stand (`gated`, `lift`): path 0 the platform down, from the low end into the
+ * piece; path 1 the platform up, from the high end back into it. Each runs the whole platform and ends there, so a
+ * train carried from one to the other stands on the same spot, running the same way: out at the far end.
+ */
+function trainLift(type: PieceTypeId): PieceDef {
+  return {
+    type,
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(LIFT_LENGTH, 0, 0), y: LIFT_RISE },
+    ],
+    paths: [
+      { from: 0, to: null, geom: { kind: "line", start: pose(0, 0, 0), length: LIFT_LENGTH, y0: 0, rise: 0 } },
+      { from: 1, to: null, geom: { kind: "line", start: pose(LIFT_LENGTH, 0, Math.PI), length: LIFT_LENGTH, y0: LIFT_RISE, rise: 0 } },
+    ],
+    flippable: false,
+    isSwitch: false,
+    supportHeight: 0,
+    gated: true,
+    lift: { seconds: LIFT_SECONDS },
+  };
 }
 
 /** Every kit, by piece type. */
@@ -512,6 +543,24 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     footprint: [{ t: 60, l: 0, w: 116, d: 196 }],
     moves: "state",
   },
+  // A train lift: a tower over a platform as long as an engine and two cars, its low end on one level and its high
+  // end a level up, straight on. A train that comes onto the platform halts there; after a moment it's carried up (or
+  // down) with it, and drives off the far end. A tap sends the platform to the other end (empty, or with a train
+  // standing on it). The model draws the platform's rails.
+  "kit-train-lift": {
+    asset: "mech-train-lift",
+    name: "lift",
+    track: trainLift("kit-train-lift"),
+    rails: "model",
+    // The model's origin is the platform's middle.
+    place: { t: LIFT_LENGTH / 2, l: 0 },
+    // The tower's sides, either side of the platform.
+    footprint: [
+      { t: LIFT_LENGTH / 2, l: 32, w: LIFT_LENGTH - 8, d: 10 },
+      { t: LIFT_LENGTH / 2, l: -32, w: LIFT_LENGTH - 8, d: 10 },
+    ],
+    moves: "state",
+  },
   // A drive-through wash on a 108 straight: trains crawl through while its brushes spin and its sprays drip.
   "kit-train-wash": {
     asset: "mech-train-wash",
@@ -597,6 +646,9 @@ const byType = new Map<string, KitDef>(Object.entries(KITS));
 
 /** The kit a piece type is, or undefined (a map lookup: cheap enough for every piece on every move). */
 export const kitOf = (type: PieceTypeId): KitDef | undefined => byType.get(type);
+
+/** Is this piece type a train lift (its track a `lift`)? */
+export const isLift = (type: PieceTypeId): boolean => !!byType.get(type)?.track.lift;
 
 /** Is this piece type a kit? */
 export const isKit = (type: PieceTypeId): type is KitTypeId => byType.has(type);

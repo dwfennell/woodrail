@@ -1,4 +1,4 @@
-import { ARCH_CENTRES, ARCH_RADIUS, canStandOnArches, createSample, getPieceDef, ignores, isBridge, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, TRACK_WIDTH, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
+import { ARCH_CENTRES, ARCH_RADIUS, canStandOnArches, createSample, getPieceDef, ignores, isBridge, isLift, pathLength, samplePath, JOINT_POS_TOLERANCE, RISER_HEIGHT, TRACK_WIDTH, type Ignore, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { Landscape } from "./generate";
 import { hillsOf } from "./hill-shape";
 
@@ -115,7 +115,7 @@ function feet(type: PieceTypeId, flipped: boolean, pose: Pose): Foot[] {
   }));
 }
 
-/** Risers, bridges and ramps near a point (the pieces that can hold others up), gathered in one pass over the layout. */
+/** Risers, bridges, ramps and train lifts near a point (the pieces that can hold others up), gathered in one pass over the layout. */
 interface Holder {
   type: PieceTypeId;
   flipped: boolean;
@@ -123,8 +123,8 @@ interface Holder {
   y: number;
 }
 const holders: Holder[] = [];
-/** A piece's ends are at most this far from its pose origin (the longest pieces are 216 mm). */
-const PIECE_REACH = 240;
+/** A piece's ends are at most this far from its pose origin (the longest that hold others up: a train lift, 288 mm). */
+const PIECE_REACH = 300;
 
 function gatherHolders(layout: Layout, x: number, z: number, ignoreId: Ignore): Holder[] {
   holders.length = 0;
@@ -132,7 +132,7 @@ function gatherHolders(layout: Layout, x: number, z: number, ignoreId: Ignore): 
   for (const id of layout.pieceIds()) {
     if (ignores(ignoreId, id)) continue;
     const p = layout.getPiece(id)!;
-    if (p.type !== "riser" && !canStandOnArches(p.type)) continue;
+    if (p.type !== "riser" && !canStandOnArches(p.type) && !isLift(p.type)) continue;
     if (Math.abs(p.pose.x - x) > r || Math.abs(p.pose.z - z) > r || layout.isLifted(id)) continue;
     holders.push(p);
   }
@@ -171,8 +171,8 @@ function restHeights(land: Landscape, near: readonly Holder[], x: number, z: num
   for (const p of near) {
     if (p.type === "riser") {
       if (Math.hypot(p.pose.x - x, p.pose.z - z) <= RISER_REACH) out.push(p.y + RISER_HEIGHT);
-    } else if (isBridge(p.type) || bridgeLevels(land, p.type, p.flipped, p.pose, p.y) > 0) {
-      // Bridge ends, and the ends of a ramp on arches.
+    } else if (isBridge(p.type) || isLift(p.type) || bridgeLevels(land, p.type, p.flipped, p.pose, p.y) > 0) {
+      // Bridge ends, the ends of a ramp on arches, and a train lift's (its high end held up by its tower).
       for (const f of feet(p.type, p.flipped, p.pose)) {
         if (Math.hypot(f.x - x, f.z - z) <= JOINT_POS_TOLERANCE) out.push(p.y + f.dy);
       }
@@ -221,8 +221,9 @@ export function checkSupport(
   for (const f of feet(type, flipped, pose)) {
     const fy = y + f.dy;
     if (restHeights(land, near, f.x, f.z).some((h) => Math.abs(h - fy) <= TOL)) continue;
-    // A ramp's high end stands on the ramp's own support, down to where its low end rests (no riser).
-    if (type === "ramp" && f.dy > 0 && restHeights(land, near, f.x, f.z).some((h) => Math.abs(h - y) <= TOL)) continue;
+    // A ramp's high end stands on the ramp's own support, down to where its low end rests (no riser); a train lift's
+    // on its tower.
+    if ((type === "ramp" || isLift(type)) && f.dy > 0 && restHeights(land, near, f.x, f.z).some((h) => Math.abs(h - y) <= TOL)) continue;
     // In the air: stack risers from the ground right under the foot, or on top of a riser stack there.
     const stack = stackIn(near, f.x, f.z);
     const ground = hillsOf(land.grid).groundAt(f.x, f.z);

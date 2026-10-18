@@ -1,4 +1,5 @@
 import type { Object3D } from "three";
+import { LIFT_RISE } from "../track/kits";
 
 /**
  * How kit pieces' models move (`KitDef.moves`, src/track/kits.ts): for each asset that moves, the nodes that move (the
@@ -49,9 +50,11 @@ export interface KitStateMotion {
   /**
    * What the state is: the piece's switch state ("switches", the default: a deck's road, changing with
    * `Layout.switchesVersion`), or its signals' aspects ("signals": a signal skin's, `Sim.redSignals`, a bit for each
-   * road at red, changing with `Sim.signalsVersion`).
+   * road at red, changing with `Sim.signalsVersion`), or where a ride has carried it ("ride": a lift's platform,
+   * `Sim.liftPosition`, 0 to 1 and between, changing only as the sim ticks a ride, with `Sim.ridesVersion`; give it
+   * `glide: 0`, as the sim's ride is the glide).
    */
-  readonly source?: "switches" | "signals";
+  readonly source?: "switches" | "signals" | "ride";
   /** Seconds to glide from one state's value to the next (default `DECK_GLIDE_S`, the deck's); 0: at once (a lamp). */
   readonly glide?: number;
 }
@@ -198,6 +201,19 @@ export const KIT_MOTIONS: Readonly<Record<string, KitMotion>> = {
   "mech-transfer-table": stateMotion(["deck"], {
     value: (k) => [0, 60, -60][k] ?? 0,
     pose: (p, l) => each(p, "deck", (o) => (o.position.z = l)),
+  }),
+  // The train lift's platform stands where the sim's ride has carried it (0 down, 1 up, between while it rises or
+  // falls: `Sim.liftPosition`), its counterweights going the other way and its winding gear turning.
+  "mech-train-lift": stateMotion(["lift", "cw0", "cw1", "gear"], {
+    source: "ride",
+    glide: 0,
+    value: (k) => k * LIFT_RISE,
+    pose: (p, y) => {
+      each(p, "lift", (o) => (o.position.y = y));
+      each(p, "cw0", (o) => (o.position.y = -y));
+      each(p, "cw1", (o) => (o.position.y = -y));
+      each(p, "gear", (o) => (o.rotation.z = y / 8));
+    },
   }),
   "mech-train-wash": {
     parts: ["brushL", "brushR", "brushTop", "drops"],

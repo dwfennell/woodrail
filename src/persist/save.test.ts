@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildStarterWorld, syncIndustries, unlockPlot, type World } from "../game/world";
-import { appendPiece, connectorRef } from "../track";
+import { appendPiece, connectorRef, LIFT_RISE } from "../track";
 import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape";
 import { encodeRoad, pieceOf } from "../roads";
-import { SIM_DT } from "../sim";
+import { SIM_DT, SIM_HZ } from "../sim";
 import { deserializeWorld, OLDER_SAVE, SAVE_VERSION, serializeWorld, type SaveData } from "./save";
 import { editLine, lineOf } from "../game/lines";
 import { CARGO_KINDS } from "../economy";
@@ -388,6 +388,49 @@ describe("kit pieces in saves", () => {
     if (!r.ok) return;
     expect(r.value.layout.getPiece(table)!.type).toBe("kit-turntable");
     expect(r.value.layout.switchState(table)).toBe(3);
+  });
+
+  it("a train lift round-trips up or down, and a save mid-ride comes back at the end it was going to", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const near = appendPiece(world.layout, "straight-216", false, connectorRef(station, 1));
+    const lift = appendPiece(world.layout, "kit-train-lift", false, connectorRef(near, 1));
+    const high = appendPiece(world.layout, "straight-216", false, connectorRef(lift, 1));
+    expect(world.layout.getPiece(high)!.y).toBe(LIFT_RISE);
+    const placed = world.sim.addTrain(["engine", "passenger"], { pieceId: lift, pathIndex: 0, reversed: false, s: 250 });
+    expect(placed.kind).toBe("placed");
+    const id = placed.kind === "placed" ? placed.trainId : -1;
+    const engine = world.sim.getTrain(id)!.cars[0].id;
+    world.sim.setLever(engine, 1);
+    const reload = () => {
+      const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
+      expect(r.ok, r.ok ? "" : r.error).toBe(true);
+      if (!r.ok) throw new Error(r.error);
+      return r.value;
+    };
+    // Down, a train halted on the platform: as it was.
+    for (let i = 0; i < SIM_HZ / 2 && (i === 0 || world.sim.getTrain(id)!.speed > 0); i++) world.sim.tick();
+    expect(world.sim.getTrain(id)!.speed).toBe(0);
+    let w = reload();
+    expect(w.layout.switchState(lift)).toBe(0);
+    expect(w.sim.getTrain(w.sim.trainIds()[0])!.bogies.every((b) => b.pieceId === lift && b.pathIndex === 0)).toBe(true);
+    // Mid-ride (sent up): it comes back up, the train on the upper road heading out, lever on, drawn a level up.
+    expect(world.sim.toggleSwitch(lift)).toBe(true);
+    for (let i = 0; i < SIM_HZ; i++) world.sim.tick();
+    expect(world.sim.liftPosition(lift)).toBeGreaterThan(0);
+    expect(world.sim.liftPosition(lift)).toBeLessThan(1);
+    w = reload();
+    expect(w.layout.switchState(lift)).toBe(1);
+    expect(w.sim.liftPosition(lift)).toBe(1);
+    const t = w.sim.getTrain(w.sim.trainIds()[0])!;
+    expect(t.bogies.every((b) => b.pieceId === lift && b.pathIndex === 1 && b.reversed)).toBe(true);
+    expect(t.world[0].y).toBeCloseTo(LIFT_RISE, 6);
+    expect(t.cars[0].lever).toBe(1);
+    // And it drives off the top.
+    for (let i = 0; i < 4 * SIM_HZ; i++) w.sim.tick();
+    expect(w.sim.getTrain(w.sim.trainIds()[0])!.bogies[0].pieceId).toBe(high);
+    expect(w.sim.getTrain(w.sim.trainIds()[0])!.derailed).toBe(false);
   });
 
   it("an old save's held-back props (now kits) load unchanged, as props where they were", () => {

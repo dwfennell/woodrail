@@ -233,6 +233,7 @@ export class Game {
     this.kitView = new KitView(this.propLibrary);
     // Signal skins show their signals' aspects (a bit for each road at red).
     this.kitView.signalState = (id) => this.sim.redSignals(id);
+    this.kitView.ridePosition = (id) => this.sim.liftPosition(id);
     this.scene.add(this.kitView.group);
     this.clockView = new ClockView(this.propLibrary);
     this.scene.add(this.clockView.group);
@@ -684,15 +685,17 @@ export class Game {
     const trainsMoved = this.trainsChanged();
     if (trainsMoved || tipping || this.flourishes.count > 0) active = true;
     // Kits' moving parts (doors, cranes, spouts, a turntable's deck, a signal's arm or lamps): looked at only on frames
-    // where trains moved, one halted, a switch was thrown (a deck turns) or a signal changed aspect, or while one is
+    // where trains moved, one halted, a switch was thrown (a deck turns), a signal changed aspect or a ride moved on
+    // (a lift's platform: only as the sim ticks, so never while paused), or while one is
     // still moving. Idle, this is a few comparisons.
     if (
       this.kitView.hasMovers &&
-      (trainsMoved || this.kitView.animating || this.economy.halts !== this.haltsSeen || this.layout.switchesVersion !== this.switchesSeen || this.sim.signalsVersion !== this.kitSignalsSeen)
+      (trainsMoved || this.kitView.animating || this.economy.halts !== this.haltsSeen || this.layout.switchesVersion !== this.switchesSeen || this.sim.signalsVersion !== this.kitSignalsSeen || this.sim.ridesVersion !== this.kitRidesSeen)
     ) {
       this.haltsSeen = this.economy.halts;
       this.switchesSeen = this.layout.switchesVersion;
       this.kitSignalsSeen = this.sim.signalsVersion;
+      this.kitRidesSeen = this.sim.ridesVersion;
       const kits = this.kitView.update(this.kitTriggered, dt, this.paused, this.camera);
       if (kits === "moving") active = true;
       else if (kits === "changed") this.invalidate();
@@ -1003,6 +1006,8 @@ export class Game {
   private switchesSeen = 0;
   /** `Sim.signalsVersion` as last seen by the kits (a signal skin's parts show its aspect: `KitStateMotion.source`). */
   private kitSignalsSeen = -1;
+  /** `Sim.ridesVersion` as last seen by the kits (a lift's platform moves only as the sim ticks its ride). */
+  private kitRidesSeen = -1;
 
   /**
    * Does a kit's trigger for its moving parts hold (`KitDef.moves`): a train on it, or one standing at it? (A kit that
