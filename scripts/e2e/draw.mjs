@@ -63,7 +63,9 @@ const bootOnce = async (page) => {
   await page.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
 };
 await boot(p);
-await p.evaluate(() => {
+/** The page's test helpers: toasts kept, and `D` (screen points, piece and joint counts). */
+const installD = (page) =>
+  page.evaluate(() => {
   const w = window.woodrail;
   window.__toasts = [];
   const orig = w.hud.toast.bind(w.hud);
@@ -84,6 +86,7 @@ await p.evaluate(() => {
     toasts: () => window.__toasts.splice(0),
   };
 });
+await installD(p);
 
 /** Only the ramps and bridges cases (E2E_ONLY=specials): quick to run on their own. */
 const ONLY_SPECIALS = process.env.E2E_ONLY === "specials";
@@ -958,6 +961,9 @@ async function qaReplay() {
  * chip can't be pressed, and a station tapped is a stop.
  */
 async function junctions() {
+  // A fresh map (earlier cases leave track about, which a branch's press could land on).
+  await boot(p);
+  await installD(p);
   const open = await p.evaluate(() => {
     const w = window.woodrail;
     const G = w.landscape.grid;
