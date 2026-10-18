@@ -1,0 +1,456 @@
+import { CatmullRomCurve3, Frustum, Group, Matrix4, Quaternion, Sphere, Vector3, type Camera, type Object3D } from "three";
+import { CAR_SPECS, type SimSnapshot } from "../sim";
+import { kitOf, kitPlace, type Layout } from "../track";
+import { AXLE_HEIGHT, WHEEL_RADIUS } from "./train-models";
+
+/**
+ * The loop-the-loop's show (`KitDef.show: "loop"`, src/track/kits.ts): drawn only, nothing in the sim changes. The kit
+ * is a 216 straight trains crawl over, its model's loop standing beside the line. When an engine runs onto it, the
+ * engine shrinks away on the line while a toy copy of it (the same model and colours, at `LOOP_SCALE`) grows at the
+ * bottom of the loop; the copy runs round the loop, upside down over the top, and at the far end shrinks away as the
+ * engine grows back, just as it reaches the piece's far end. The coupled cars run on as they are.
+ *
+ * The copy's place is driven by how far the engine is across the piece (not by a clock of its own): it meets the engine
+ * at the far end whatever the train's speed, holds still while the game is paused or the train stands, and costs no
+ * frames then. One show per kit at a time: another engine coming on during a show just crawls through. An engine that
+ * backs up mid-show (or comes off, or is taken away) cancels it, and its engine is put back as it was.
+ */
+
+// ——— The path: authored to match the catalogue model (mech-loop-the-loop, src/catalogue/assets/mechanisms.ts) ———
+
+/** The radius of the ring's inside, where the copy's wheels run (the model's R), and the hub's height (12 + R). */
+export const LOOP_RADIUS = 54;
+export const LOOP_HUB = 66;
+/** The toy copy's size against the engine's (an engine is 96 long: whole, it wouldn't fit the loop). */
+export const LOOP_SCALE = 0.6;
+/** How far across the ring (z) the copy drifts going round, from −DRIFT to +DRIFT: in by one side, out by the other. */
+const LOOP_DRIFT = 8;
+/** How far round (radians) before the ring's bottom the copy starts, and after it ends. */
+const LOOP_LEAD = 0.3;
+/** Points in the authored table, and samples along the spline through them (by arc length). */
+const LOOP_POINTS = 25;
+const SAMPLES = 160;
+/** Over the top the copy goes this much slower (as a coaster does: 0 the same speed as at the bottom). */
+const TOP_SLOWING = 0.5;
+
+/** The copy's origin's distance from the hub: its wheels (axles `AXLE_HALF` either side of it) on the ring's inside. */
+const AXLE_HALF = CAR_SPECS.engine.length / 2 - CAR_SPECS.engine.bogieInset;
+const WHEEL_FOOT = AXLE_HEIGHT - WHEEL_RADIUS;
+const ORIGIN_RADIUS = Math.sqrt(LOOP_RADIUS ** 2 - (AXLE_HALF * LOOP_SCALE) ** 2) + WHEEL_FOOT * LOOP_SCALE;
+
+/**
+ * The table the copy's spline goes through, in the model's own frame (x along the track, y up, z across; the loop in
+ * its x/y plane round the hub at (0, `LOOP_HUB`)): from just before the ring's bottom, once round, to just after it,
+ * drifting across the ring as it goes. Its first and last points are a step beyond those ends: guides for the
+ * spline's heading there, not on the path.
+ */
+export function loopTable(): Vector3[] {
+  const out: Vector3[] = [];
+  const span = 2 * Math.PI + 2 * LOOP_LEAD;
+  for (let i = -1; i <= LOOP_POINTS; i++) {
+    const f = i / (LOOP_POINTS - 1);
+    const a = -LOOP_LEAD + f * span;
+    out.push(new Vector3(ORIGIN_RADIUS * Math.sin(a), LOOP_HUB - ORIGIN_RADIUS * Math.cos(a), -LOOP_DRIFT + 2 * LOOP_DRIFT * f));
+  }
+  return out;
+}
+
+/** The copy's path sampled by arc length: where its origin is, and how it's turned (x along, y its up), at each. */
+export interface LoopPath {
+  /** Its length (mm). */
+  readonly length: number;
+  readonly points: readonly Vector3[];
+  readonly tangents: readonly Vector3[];
+  /** Its up at each sample: toward the hub's axis, square to the tangent (it never flips). */
+  readonly normals: readonly Vector3[];
+  readonly quats: readonly Quaternion[];
+  /** The share of the run's time taken to reach each sample (0 to 1): slower over the top. */
+  readonly timing: Float32Array;
+}
+
+let cached: LoopPath | null = null;
+
+/** The loop's path (built once, for every loop-the-loop). */
+export function loopPath(): LoopPath {
+  if (cached) return cached;
+  // Through the whole table, but the path is only the stretch between its guides (see `loopTable`).
+  const table = loopTable();
+  const n = table.length;
+  const curve = new CatmullRomCurve3(table, false, "centripetal");
+  // Resampled by arc length: the spline's own parameter goes evenly by points, not by distance.
+  const fine = SAMPLES * 8;
+  const from = 1 / (n - 1);
+  const to = (n - 2) / (n - 1);
+  const at = (i: number) => from + ((to - from) * i) / fine;
+  const lengths = [0];
+  let prev = curve.getPoint(at(0));
+  for (let i = 1; i <= fine; i++) {
+    const p = curve.getPoint(at(i));
+    lengths.push(lengths[i - 1] + p.distanceTo(prev));
+    prev = p;
+  }
+  const length = lengths[fine];
+  const points: Vector3[] = [];
+  const tangents: Vector3[] = [];
+  for (let i = 0, j = 0; i <= SAMPLES; i++) {
+    const want = (length * i) / SAMPLES;
+    while (j < fine - 1 && lengths[j + 1] < want) j++;
+    const u = at(j + Math.min(1, (want - lengths[j]) / (lengths[j + 1] - lengths[j] || 1)));
+    points.push(curve.getPoint(u));
+    tangents.push(curve.getTangent(u).normalize());
+  }
+  // Up: toward the hub's axis (square to the tangent), so the wheels stay on the ring and the copy never leans or
+  // flips. (A rotation-minimising frame would lean ~8° by the end, carried round by the drift across the ring.) The
+  // axis is never along the tangent, so it turns smoothly all the way round.
+  const toAxis = new Vector3();
+  const normals = points.map((p, i) => {
+    toAxis.set(-p.x, LOOP_HUB - p.y, 0);
+    return toAxis.clone().sub(tangents[i].clone().multiplyScalar(toAxis.dot(tangents[i]))).normalize();
+  });
+  const basis = new Matrix4();
+  const quats = points.map((_, i) => new Quaternion().setFromRotationMatrix(basis.makeBasis(tangents[i], normals[i], tangents[i].clone().cross(normals[i]))));
+  // Time to each sample: the copy slows as it climbs (as a coaster's car would), fastest at the bottom.
+  let low = Infinity;
+  let high = -Infinity;
+  for (const p of points) {
+    low = Math.min(low, p.y);
+    high = Math.max(high, p.y);
+  }
+  const timing = new Float32Array(SAMPLES + 1);
+  for (let i = 1; i <= SAMPLES; i++) {
+    const h = ((points[i].y + points[i - 1].y) / 2 - low) / (high - low);
+    timing[i] = timing[i - 1] + 1 / Math.sqrt(1 - TOP_SLOWING * h);
+  }
+  for (let i = 1; i <= SAMPLES; i++) timing[i] /= timing[SAMPLES];
+  cached = { length, points, tangents, normals, quats, timing };
+  return cached;
+}
+
+/** Where along the path (0 to 1, by arc length) the copy is when `run` (0 to 1) of the run's time has gone. */
+export function pathAt(path: LoopPath, run: number): number {
+  const t = path.timing;
+  if (run <= 0) return 0;
+  if (run >= 1) return 1;
+  let lo = 0;
+  let hi = t.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (t[mid] <= run) lo = mid;
+    else hi = mid;
+  }
+  return (lo + (run - t[lo]) / (t[hi] - t[lo])) / (t.length - 1);
+}
+
+const qa = new Quaternion();
+
+/** The copy's origin and turn at `s` along the path (0 to 1, by arc length), in the model's frame. */
+export function poseAt(path: LoopPath, s: number, position: Vector3, quaternion: Quaternion): void {
+  const f = Math.min(Math.max(s, 0), 1) * (path.points.length - 1);
+  const i = Math.min(Math.floor(f), path.points.length - 2);
+  const u = f - i;
+  position.lerpVectors(path.points[i], path.points[i + 1], u);
+  quaternion.copy(path.quats[i]);
+  qa.copy(path.quats[i + 1]);
+  quaternion.slerp(qa, u);
+}
+
+/** The share of the engine's way across in which the engine and copy trade places, at each end. */
+export const LOOP_SWAP = 0.1;
+
+const smooth = (u: number) => u * u * (3 - 2 * u);
+const clamp01 = (u: number) => Math.min(1, Math.max(0, u));
+
+/**
+ * The show at `u` of the engine's way across (0 to 1): `grow`, how far the copy has taken the engine's place (0: the
+ * engine whole, no copy; 1: the engine gone, the copy whole), and `run`, how much of its run round the loop the copy
+ * has done (0 to 1, by time: see `pathAt`).
+ */
+export function showAt(u: number): { grow: number; run: number } {
+  const grow = smooth(clamp01(Math.min(u / LOOP_SWAP, (1 - u) / LOOP_SWAP)));
+  const w = clamp01((u - LOOP_SWAP) / (1 - 2 * LOOP_SWAP));
+  // Half eased: the copy pulls away and comes in gently, but doesn't dawdle.
+  return { grow, run: 0.5 * w + 0.5 * smooth(w) };
+}
+
+// ——— The view ———
+
+/** An engine counts as on the kit's line within this far across it, and this far above or below it (mm). */
+const ON_LINE = 14;
+const ON_LEVEL = 30;
+/** How far either side of the piece engines are watched coming (mm): an engine moves far less in a frame. */
+const WATCH = 120;
+/** An engine this far back from the furthest it got across (mm) is backing up: the show is off. */
+const BACKING = 0.5;
+/** Room round the loop's middle for the whole model and the copy, when asking if it's in view (mm). */
+const SHOW_REACH = 220;
+
+/** The cars drawn (TrainView): the engine's model, which the copy is cloned from and which is hidden for the show. */
+export interface CarObjects {
+  carObject(carId: number): Object3D | undefined;
+}
+
+interface Show {
+  readonly engine: number;
+  /** The engine's model (TrainView's), shrunk away while the copy runs. */
+  readonly obj: Object3D;
+  /** Which way it crosses: +1 from the piece's first end, −1 from its second. */
+  readonly dir: 1 | -1;
+  /** The copy: in `anchor` (the piece's pose), in the model's frame. */
+  readonly anchor: Group;
+  readonly copy: Group;
+  /** The furthest it got across (mm), and the share of the way across last drawn (−1: not yet). */
+  furthest: number;
+  drawn: number;
+}
+
+interface LoopKit {
+  readonly id: number;
+  readonly x: number;
+  readonly z: number;
+  readonly y: number;
+  readonly heading: number;
+  readonly length: number;
+  readonly place: { t: number; l: number; turn: number };
+  /** The loop's middle, in the world (for the view test). */
+  readonly centre: Vector3;
+  show: Show | null;
+  /** Engines near its line on the last update, and how far along it each was (mm), to see one come on. */
+  near: Map<number, number>;
+  next: Map<number, number>;
+}
+
+const frustum = new Frustum();
+const viewProjection = new Matrix4();
+const sphere = new Sphere();
+
+/**
+ * Draws the loop-the-loops' shows (see the note at the top). Kept up to date with the layout by `sync` (the loop kits,
+ * a short list); `update` is asked only on frames where trains moved, or while a show is on (a comparison when nothing
+ * changed). "moving" while a show in or near the view moved on (draw, and redraw shadows); one out of view keeps count
+ * of its engine unseen and draws nothing, and a camera move bringing it into view draws it, the next update posing it.
+ */
+export class LoopShowView {
+  readonly group = new Group();
+  private readonly kits = new Map<number, LoopKit>();
+  private layout: Layout | null = null;
+  private key = "";
+
+  constructor() {
+    this.group.name = "loop-shows";
+  }
+
+  /** How many loop-the-loops are on the layout (none: nothing to update). */
+  get count(): number {
+    return this.kits.size;
+  }
+
+  /** Is a show on now (so `update` is wanted, trains moving or not)? */
+  get running(): boolean {
+    for (const k of this.kits.values()) if (k.show) return true;
+    return false;
+  }
+
+  /**
+   * Bring the loop kits up to date with the layout: one pass over the pieces, work only when a loop kit was added,
+   * moved, taken up or put down (its show, if one was on, is off).
+   */
+  sync(layout: Layout, hidden: (id: number) => boolean = () => false): void {
+    let key = "";
+    for (const id of layout.pieceIds()) {
+      const p = layout.getPiece(id)!;
+      if (kitOf(p.type)?.show !== "loop" || layout.isLifted(id) || hidden(id)) continue;
+      key += `${id}:${p.pose.x}:${p.pose.z}:${p.pose.heading}:${p.y};`;
+    }
+    if (key === this.key && layout === this.layout) return;
+    this.key = key;
+    const sameLayout = layout === this.layout;
+    this.layout = layout;
+    const seen = new Set<number>();
+    for (const id of layout.pieceIds()) {
+      const p = layout.getPiece(id)!;
+      const kit = kitOf(p.type);
+      if (kit?.show !== "loop" || layout.isLifted(id) || hidden(id)) continue;
+      const old = this.kits.get(id);
+      if (sameLayout && old && old.x === p.pose.x && old.z === p.pose.z && old.heading === p.pose.heading && old.y === p.y) {
+        seen.add(id);
+        continue;
+      }
+      if (old) this.stop(old);
+      seen.add(id);
+      const place = kitPlace(kit);
+      const geom = kit.track.paths[0].geom;
+      const length = geom.kind === "line" ? geom.length : 216;
+      const c = Math.cos(p.pose.heading);
+      const s = Math.sin(p.pose.heading);
+      const centre = new Vector3(p.pose.x + place.t * c - place.l * s, p.y + LOOP_HUB, p.pose.z + place.t * s + place.l * c);
+      this.kits.set(id, { id, x: p.pose.x, z: p.pose.z, y: p.y, heading: p.pose.heading, length, place, centre, show: null, near: new Map(), next: new Map() });
+    }
+    for (const [id, k] of this.kits)
+      if (!seen.has(id)) {
+        this.stop(k);
+        this.kits.delete(id);
+      }
+  }
+
+  /**
+   * Move the shows on with the trains (`snap`, as just written): start one for an engine coming onto a loop kit with
+   * none on, follow each engine across, end it at the far end, call it off if the engine backs up or is gone. "moving"
+   * when a show in view moved, "changed" when one in view started or ended (draw once), "still" otherwise.
+   */
+  update(snap: SimSnapshot, cars: CarObjects, camera: Camera | null = null): "moving" | "changed" | "still" {
+    let moved = false;
+    let changed = false;
+    if (camera) frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const inView = (k: LoopKit): boolean => {
+      if (!camera) return true;
+      sphere.center.copy(k.centre);
+      sphere.radius = SHOW_REACH;
+      return frustum.intersectsSphere(sphere);
+    };
+    const engine = CAR_SPECS.engine.index;
+    for (const k of this.kits.values()) {
+      const c = Math.cos(k.heading);
+      const s = Math.sin(k.heading);
+      const next = k.next;
+      next.clear();
+      let showAlong = Number.NaN;
+      for (let i = 0; i < snap.count; i++) {
+        if (snap.kinds[i] !== engine) continue;
+        const o = i * 6;
+        const dx = snap.transforms[o] - k.x;
+        const dz = snap.transforms[o + 2] - k.z;
+        const t = dx * c + dz * s;
+        const l = -dx * s + dz * c;
+        const on = !snap.derailed[i] && Math.abs(l) < ON_LINE && Math.abs(snap.transforms[o + 1] - k.y) < ON_LEVEL && t > -WATCH && t < k.length + WATCH;
+        const id = snap.ids[i];
+        if (k.show?.engine === id) {
+          if (on) showAlong = t;
+          continue;
+        }
+        if (!on) continue;
+        next.set(id, t);
+        // An engine coming on from either end, with no show on: its show starts.
+        const was = k.near.get(id);
+        if (k.show || was === undefined) continue;
+        const dir = was < 0 && t >= 0 ? 1 : was > k.length && t <= k.length ? -1 : 0;
+        if (dir === 0) continue;
+        const heading = snap.transforms[o + 3];
+        // Which way the engine's own front faces, against the way it's crossing.
+        const ahead = Math.cos(heading - k.heading) * dir >= 0;
+        if (!this.start(k, id, dir, ahead, cars)) continue;
+        showAlong = t;
+        next.delete(id);
+        if (inView(k)) changed = true;
+      }
+      k.next = k.near;
+      k.near = next;
+      const show = k.show;
+      if (!show) continue;
+      // Its engine gone, off the line, or its model not the one we hid: off.
+      if (Number.isNaN(showAlong) || cars.carObject(show.engine) !== show.obj) {
+        this.stop(k);
+        if (inView(k)) changed = true;
+        continue;
+      }
+      const along = show.dir === 1 ? showAlong : k.length - showAlong;
+      if (along < show.furthest - BACKING) {
+        // Backing up: the show's off, the engine whole again.
+        this.stop(k);
+        if (inView(k)) changed = true;
+        continue;
+      }
+      show.furthest = Math.max(show.furthest, along);
+      if (along >= k.length) {
+        this.stop(k);
+        if (inView(k)) changed = true;
+        continue;
+      }
+      const u = Math.max(0, along / k.length);
+      // Out of view it moves on unseen (nothing posed, nothing drawn).
+      if (u === show.drawn || !inView(k)) continue;
+      this.pose(show, u);
+      moved = true;
+    }
+    return moved ? "moving" : changed ? "changed" : "still";
+  }
+
+  /** A show starts: the copy, cloned from the engine's model (sharing its geometry and materials), at the loop's start. */
+  private start(k: LoopKit, engine: number, dir: 1 | -1, ahead: boolean, cars: CarObjects): boolean {
+    const obj = cars.carObject(engine);
+    if (!obj) return false;
+    const model = obj.clone(true);
+    // Not its selection shells (TrainView's: see `makeShells`).
+    const shells: Object3D[] = [];
+    model.traverse((o) => {
+      if (typeof o.userData.ring === "boolean") shells.push(o);
+    });
+    for (const o of shells) o.removeFromParent();
+    model.position.set(0, 0, 0);
+    model.rotation.set(0, 0, 0);
+    model.scale.set(1, 1, 1);
+    model.visible = true;
+    // Facing the way it runs round: the path's way (+x) crossing from the first end, back along it from the second;
+    // turned round if the engine runs backwards.
+    if ((dir === 1) !== ahead) model.rotation.y = Math.PI;
+    const copy = new Group();
+    copy.name = "loop-copy";
+    copy.add(model);
+    copy.visible = false;
+    const placed = new Group();
+    placed.position.set(k.place.t, 0, k.place.l);
+    placed.rotation.y = k.place.turn;
+    placed.add(copy);
+    const anchor = new Group();
+    anchor.position.set(k.x, k.y, k.z);
+    anchor.rotation.y = -k.heading;
+    anchor.add(placed);
+    this.group.add(anchor);
+    k.show = { engine, obj, dir, anchor, copy, furthest: 0, drawn: -1 };
+    return true;
+  }
+
+  private readonly position = new Vector3();
+  private readonly turn = new Quaternion();
+
+  /** The copy and the engine where `u` of the way across says (see `showAt`). */
+  private pose(show: Show, u: number): void {
+    show.drawn = u;
+    const { grow, run } = showAt(u);
+    const path = loopPath();
+    const s = pathAt(path, run);
+    poseAt(path, show.dir === 1 ? s : 1 - s, this.position, this.turn);
+    show.copy.position.copy(this.position);
+    show.copy.quaternion.copy(this.turn);
+    show.copy.scale.setScalar(LOOP_SCALE * Math.max(grow, 1e-3));
+    show.copy.visible = grow > 1e-3;
+    show.obj.scale.setScalar(Math.max(1 - grow, 1e-3));
+    show.obj.visible = grow < 1 - 1e-3;
+  }
+
+  /** A show over (or called off): the copy goes, and the engine is whole again. */
+  private stop(k: LoopKit): void {
+    const show = k.show;
+    if (!show) return;
+    k.show = null;
+    show.obj.scale.set(1, 1, 1);
+    show.obj.visible = true;
+    this.group.remove(show.anchor);
+  }
+
+  /** Is a show on at this kit piece, and for which engine (−1: none)? For tests and the e2e. */
+  showing(pieceId: number): number {
+    return this.kits.get(pieceId)?.show?.engine ?? -1;
+  }
+
+  /** A show's copy, if one is on at this kit piece (for tests and the e2e). */
+  copyAt(pieceId: number): Group | undefined {
+    return this.kits.get(pieceId)?.show?.copy;
+  }
+
+  dispose(): void {
+    for (const k of this.kits.values()) this.stop(k);
+    this.kits.clear();
+    this.key = "";
+    this.layout = null;
+  }
+}

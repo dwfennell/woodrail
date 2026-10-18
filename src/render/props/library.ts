@@ -93,15 +93,18 @@ export class PropLibrary {
    * parts (drawn under them while they move: see `moversOf`).
    */
   private loadKit(type: PieceTypeId, name: string, built: Object3D): PropModel {
-    const motion = motionOf(kitOf(type)!.asset);
+    const kit = kitOf(type)!;
+    const motion = motionOf(kit.asset);
     if (motion) motion.pose(partsOf(built), 0, 0);
-    const whole = { name, ...bake(built, this.mats, { slabs: false }) };
+    // (Parts the kit leaves out of its model: `KitDef.without`.)
+    const left = kit.without ? new Set(kit.without) : undefined;
+    const whole = { name, ...bake(built, this.mats, { slabs: false, without: left }) };
     if (!motion) return whole;
     const names = new Set(motion.parts);
     const movers = bakeMovers(built, names, this.mats);
     if (!movers) return whole;
     this.movers.set(type, movers);
-    this.models.set(kitModelKey(type, true), { name, ...bake(built, this.mats, { slabs: false, without: names }) });
+    this.models.set(kitModelKey(type, true), { name, ...bake(built, this.mats, { slabs: false, without: new Set([...names, ...(left ?? [])]) }) });
     return whole;
   }
 
