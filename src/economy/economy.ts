@@ -1190,6 +1190,8 @@ export class Economy {
 
   /** One sim tick of production, use and crane work (and trains' dwells at kits' stops). */
   tick(): void {
+    // Ways found clear by trains of a line this tick, granted in turn (see crossing.ts).
+    this.crossing.settle();
     this.ticksRun++;
     this.work();
     this.kitStops.tick();
@@ -1318,13 +1320,14 @@ export class Economy {
         r.at = false;
         continue;
       }
-      const on = found.train.bogies.some((b) => b.pieceId === d.pieceId);
+      // (Or calling there short of a train of its line standing at it: see `Crossing.callsAt`.)
+      const on = found.train.bogies.some((b) => b.pieceId === d.pieceId) || this.crossing.callsAt(engine) === d.pieceId;
       const lineId = this.lineIdOf.get(engine);
       const line = lineId === undefined ? undefined : this.lines.get(lineId);
       if (on) {
         // Come to it (for spacing: the first here goes first).
         if (!r.at && line) this.spacing.arrived(line.id, stopsKey(line), engine, r.next % r.stops.length, this.ticksRun);
-        if (!r.at) this.crossing.arrived(engine, found.train.leverTick ?? 0);
+        if (!r.at) this.crossing.arrived(engine, found.train.leverTick ?? 0, d.pieceId);
         r.at = true;
       } else if (r.at) {
         // Left it: on past it, and past any stops after it at the same depot (they were the same visit).

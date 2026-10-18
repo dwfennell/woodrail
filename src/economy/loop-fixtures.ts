@@ -70,7 +70,7 @@ export function runner(w: World, engines: readonly number[], topUp = true) {
         meetings.push({ tick: t, engine: e });
       }
       const wait = w.economy.crossWait(e);
-      if (wait) waits.get(e)!.add(wait.wait.kind === "needs-loop" ? "needs-loop" : `waiting@${wait.wait.depotId}:${wait.wait.moving ? "moving" : "standing"}${wait.wait.atLoop ? ":loop" : ""}`);
+      if (wait) waits.get(e)!.add(wait.wait.kind !== "waiting" ? wait.wait.kind : `waiting@${wait.wait.depotId}:${wait.wait.moving ? "moving" : "standing"}${wait.wait.atLoop ? ":loop" : ""}`);
       if (!before[k] && w.economy.routeOf(e)?.at) arrivals.set(e, arrivals.get(e)! + 1);
     });
   };

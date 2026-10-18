@@ -245,6 +245,41 @@ lovely version:
   - Not handled: a stop whose platform is itself on a loop road and every train calls there (they can't pass on one
     platform), and a train standing at a stop with its front over a loop's switch (it fouls the loop: they wait as in
     3a, then the 30 s release).
+- **Phase 3c (built, branch routes-blocks): block working.** Under 3b a line with no passing place, or more trains
+  than loops, still ended in the 30 s release and a head-on meeting. 3c claims whole blocks, as on a real single line:
+  - **A passing place** is a usable passing loop as in 3b (a way through it, both switches unpinned, the road long
+    enough for the train: its length plus 6 mm each end; steering can hold the train on it). A loop too short for the
+    line's trains, or pinned, is plain track.
+  - **A block** runs from where a train stands (its stop, or the loop it waits in) through every stop on single track
+    to the next passing place along its route, and ends at the far switch of that loop's road. A line with no passing
+    place is one block, end to end. A lift and the track either side of it are plain track in a block, never a passing
+    place; a dead-end branch beyond a stop is one block with the stop.
+  - **Termini and turn-backs.** A terminus is a stop where the next leg reverses (a buffer turn-back, or the route
+    turning round over the stop's piece). A block that reaches a terminus ends there and includes the turn-back, so a
+    train always holds the track it needs to turn round and head out again: it is never stuck unable to turn back
+    into its own block. On a line with no passing place, a block that would run up to a line-mate already standing
+    at the terminus stops short of it (off any switch): the train calls at the stop where it stands, turns back there
+    (`Sim.turnBack`, turn cause "short") and waits for its next block like any train at a stop.
+  - **Where trains wait**: at their stop when the block starts there; inside the loop, standing short of its far
+    switch, when they come up to a loop; never on a switch, and never short of a stop they have work at. A stop inside
+    a train's own block (on single track) keeps the claim: it calls there and goes on without asking again.
+  - **First come, first served**, re-asked at the end of each tick in the order trains became ready; a tie (two ready
+    in the same tick, opposite ends) goes to the lower engine id. No train enters a block holding nothing: an empty
+    claim means hold. A train facing the wrong way after a meeting turns where it stands (or backs off from a mutual
+    wait if its way behind is clear) and asks again. A third train is kept out of a loop when the loop's other road is
+    held and a train is coming in from the other end (three trains, two roads).
+  - **The 30 s release** is only the safety net (a train held at red by hand, a lever left at stop): every release is
+    logged (`Crossing.releases`, `released`) with its reason. In normal running on loop lines and no-loop lines alike
+    there are none.
+  - **Cards**: *"Waiting for the Red line train from X"*, *"Waiting at the loop for the Red line"* (short enough for one
+    line at 360 px), and with no passing place *"Waiting its turn: the Red line has no passing loop"*.
+  - **Cost**: block extents (legs) are cached per claim and target, cleared when `Layout.revision` or
+    `routingVersion` changes; nothing walks track per tick. Measured crossing cost with 3 trains: 3-6 µs per tick.
+  - **Saves**: nothing new is saved; a loaded train mid-block claims its block from its tail.
+  - Train ids: the sim makes a new train at every turn-back (by design); crossing keys every claim by the engine's car
+    id, so a turn-back never loses a claim.
+  - The "Run two trains at once" goal ticks only when two trains can pass: two of a line that runs through a passing
+    loop they cross in, or two on separate track (lines whose ways share no piece).
 
 ### 3.6 Game mode and Sandbox
 

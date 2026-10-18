@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Sim, SIM_DT, SIM_HZ } from "../sim";
+import { Sim, SIM_HZ } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
 import { editLine, joinLine } from "../game/lines";
 import { engineStatus } from "../game/engine-status";
@@ -80,7 +80,8 @@ describe("trains that wait for each other (crossing)", { timeout: 60_000 }, () =
     expect(r.arrivals.get(b)!).toBeGreaterThan(20);
     // They waited for each other: at M (on the loop) for the other coming from Y, and never "needs a passing loop".
     for (const e of [a, b]) {
-      expect(r.waits.get(e)!).toContain(`waiting@${w.dy.id}:moving`);
+      // (At M, or inside the loop short of its far switch: Phase 3c's blocks run on through M to the far switch.)
+      expect([...r.waits.get(e)!].some((x) => x.startsWith(`waiting@${w.dy.id}:moving`))).toBe(true);
       expect(r.waits.get(e)!).not.toContain("needs-loop");
     }
     // The same with crossing turned off: they meet head on.
@@ -92,44 +93,40 @@ describe("trains that wait for each other (crossing)", { timeout: 60_000 }, () =
     expect(ro.meetings.length).toBeGreaterThan(0);
   });
 
-  it("with no passing place: both wait saying the line needs a passing loop, then the first is let go as before", () => {
+  // (Phase 3c changed these two: with no passing place the line is one block, end to end, and its trains take turns at
+  // its ends; before, both waited saying the line needs a passing loop, and after 30 s the first was let go into a
+  // head-on meeting.)
+  it("with no passing place (X-M-Y-M): the trains take turns end to end, never meeting, never let go", () => {
     const w = line("middle");
-    const { a, b } = twoTrains(w, [w.dx.id, w.dm!.id, w.dy.id, w.dm!.id], 0, 2);
+    const stops = [w.dx.id, w.dm!.id, w.dy.id, w.dm!.id];
+    const { a, b } = twoTrains(w, stops, 0, 2);
     const r = runner(w, [a, b]);
-    let loopAt = -1;
-    for (let i = 0; i < 180 * SIM_HZ && r.meetings.length === 0; i++) {
-      r.step();
-      if (loopAt < 0 && w.economy.crossWait(a)?.wait.kind === "needs-loop" && w.economy.crossWait(b)?.wait.kind === "needs-loop") loopAt = r.now();
-    }
-    expect(loopAt).toBeGreaterThan(0);
-    // No meeting while they wait; the first is let go after LOOP_WAIT_S and they meet and turn back, as before.
-    expect(r.meetings.length).toBeGreaterThan(0);
-    expect(r.meetings[0].tick * SIM_DT).toBeGreaterThanOrEqual(loopAt + LOOP_WAIT_S - 1);
+    r.run(5 * 60);
+    const half = [a, b].map((e) => r.arrivals.get(e)!);
+    r.run(5 * 60);
+    expect(r.meetings).toEqual([]);
+    expect(w.economy.crossing.released).toMatchObject({ quiet: 0, turned: 0, stalled: 0, mutual: 0 });
+    [a, b].forEach((e, k) => {
+      expect(half[k], `train ${k} by 5 min`).toBeGreaterThan(2);
+      expect(r.arrivals.get(e)!, `train ${k}, 5 to 10 min`).toBeGreaterThan(half[k] + 2);
+      expect(r.waits.get(e)!).toContain("turn");
+      expect(r.waits.get(e)!).not.toContain("needs-loop");
+    });
     // The player's line is never changed: each still runs the stops it was given, in order.
-    for (const e of [a, b]) expect(w.economy.routeOf(e)!.stops.map((s) => s.depotId)).toEqual([w.dx.id, w.dm!.id, w.dy.id, w.dm!.id]);
-    // Nothing freezes: the trains keep moving.
-    r.run(60);
-    expect([a, b].some((e) => w.sim.findCar(e)!.train.speed > 1 || r.meetings.length > 1)).toBe(true);
+    for (const e of [a, b]) expect(w.economy.routeOf(e)!.stops.map((s) => s.depotId)).toEqual(stops);
   });
 
-  it("a line of two stops with no passing place: both wait, saying so; then the first is let go as before", () => {
+  it("a line of two stops with no passing place: the trains take turns, saying so, and never meet", () => {
     const w = line("plain");
     const { a, b } = twoTrains(w, [w.dx.id, w.dy.id], 0, 1);
     const r = runner(w, [a, b]);
-    let loopAt = -1;
-    let bothLoop = false;
-    for (let i = 0; i < 120 * SIM_HZ && r.meetings.length === 0; i++) {
-      r.step();
-      const wa = w.economy.crossWait(a)?.wait.kind;
-      const wb = w.economy.crossWait(b)?.wait.kind;
-      if (loopAt < 0 && (wa === "needs-loop" || wb === "needs-loop")) loopAt = r.now();
-      if (wa === "needs-loop" && wb === "needs-loop") bothLoop = true;
+    r.run(10 * 60);
+    expect(r.meetings).toEqual([]);
+    expect(w.economy.crossing.releases).toEqual([]);
+    for (const e of [a, b]) {
+      expect(r.arrivals.get(e)!).toBeGreaterThan(8);
+      expect(r.waits.get(e)!).toEqual(new Set(["turn"]));
     }
-    expect(loopAt).toBeGreaterThan(0);
-    expect(bothLoop).toBe(true);
-    // No meeting while they wait: only once the first is let go (as before: they meet and turn back).
-    expect(r.meetings.length).toBeGreaterThan(0);
-    expect(r.meetings[0].tick * SIM_DT).toBeGreaterThanOrEqual(loopAt + LOOP_WAIT_S - 1);
   });
 
   it("trains following each other the same way never wait for each other", () => {
@@ -154,7 +151,9 @@ describe("trains that wait for each other (crossing)", { timeout: 60_000 }, () =
     expect(r.arrivals.get(b)!).toBeGreaterThan(10);
   });
 
-  it("a claim is let go behind the train's tail, piece by piece, and ends when it comes to its stop", () => {
+  // (Phase 3c: the block runs on through M, a stop on the loop's other road, to the loop's far switch: before, the claim
+  // ended at M and was let go there.)
+  it("a claim is let go behind the train's tail, piece by piece; its block runs on through M to the loop's far switch", () => {
     const w = line("loop");
     const { a, b } = twoTrains(w, [w.dx.id, w.dm!.id, w.dy.id], 0, 2);
     const r = runner(w, [a, b]);
@@ -165,7 +164,9 @@ describe("trains that wait for each other (crossing)", { timeout: 60_000 }, () =
       if (w.economy.routeOf(a)!.next === 1 && !w.economy.routeOf(a)!.at) claim = w.economy.crossing.claimOf(a);
     }
     expect(claim!.map((c) => c.pieceId)).toEqual(expect.arrayContaining([w.west[0], w.west[1], w.s1, w.m]));
-    expect(claim!.at(-1)!.pieceId).toBe(w.m);
+    // (It stands in the loop short of its far switch: the switch isn't claimed yet.)
+    expect(claim!.map((c) => c.pieceId)).not.toContain(w.s2);
+    expect(claim!.findIndex((c) => c.pieceId === w.m)).toBeLessThan(claim!.length - 1);
     // As it runs on, the pieces behind it are let go: the claim starts where its tail is.
     let seen = 0;
     while (!w.economy.routeOf(a)!.at) {
@@ -179,23 +180,31 @@ describe("trains that wait for each other (crossing)", { timeout: 60_000 }, () =
       seen = Math.max(seen, claim!.length - now.length);
     }
     expect(seen).toBeGreaterThanOrEqual(2);
-    // At M: no claim left.
+    // At M, a stop inside its block: it holds the rest of it (from M to the far switch), and nothing behind.
     expect(w.economy.routeOf(a)!.next).toBe(1);
-    expect(w.economy.crossing.claimOf(a)).toBe(null);
+    const atM = w.economy.crossing.claimOf(a)!.map((c) => c.pieceId);
+    expect(atM).toContain(w.m);
+    expect(atM).not.toContain(w.s2);
+    for (const p of [w.x, w.west[0], w.west[1]]) expect(atM).not.toContain(p);
   });
 
   it("claims are rebuilt from where the trains are (nothing saved): a new economy on the same track holds as before", () => {
     const w = line("loop");
     const { a, b } = twoTrains(w, [w.dx.id, w.dm!.id, w.dy.id], 0, 2);
     const r = runner(w, [a, b]);
-    // Till one train waits at M for the other coming from Y.
+    // Till one train waits for the other (Phase 3c: in the loop, by M, or at its end of the line; before, at M), the
+    // other running with its block claimed.
     let waiting = -1;
     for (let i = 0; i < 300 * SIM_HZ && waiting === -1; i++) {
       r.step();
-      for (const e of [a, b]) if (w.economy.crossWait(e)?.wait.kind === "waiting" && w.economy.routeOf(e)!.next === 1) waiting = e;
+      for (const e of [a, b]) {
+        const u = e === a ? b : a;
+        if (w.economy.crossWait(e)?.wait.kind === "waiting" && !w.economy.routeOf(u)!.at && w.sim.findCar(u)!.train.speed > 1 && w.economy.crossing.claimOf(u)) waiting = e;
+      }
     }
     expect(waiting).not.toBe(-1);
     const other = waiting === a ? b : a;
+    const nexts = new Map([a, b].map((e) => [e, w.economy.routeOf(e)!.next]));
     const claim = w.economy.crossing.claimOf(other)!.map((c) => c.pieceId);
     // "Load": a fresh economy (as a loaded game has), its depots and line as saved, each train heading where it was.
     const economy = new Economy(w.layout, w.sim);
@@ -205,15 +214,22 @@ describe("trains that wait for each other (crossing)", { timeout: 60_000 }, () =
     const stops = [dx, dm, dy].map((d) => ({ depotId: d.id, action: "auto" as const }));
     const red = editLine(economy, waiting, (s) => s.push(...stops))!;
     joinLine(economy, other, red.id);
-    economy.routeOf(waiting)!.next = 1;
-    economy.routeOf(other)!.next = 0;
+    for (const e of [a, b]) economy.routeOf(e)!.next = nexts.get(e)!;
     // The train between stops claims its way from its tail on (the same as it had, less what its tail has cleared)...
     expect(economy.crossing.claimOf(other)!.map((c) => c.pieceId)).toEqual(claim.slice(claim.length - economy.crossing.claimOf(other)!.length));
-    // ...and the one at M still waits for it.
+    // ...and the waiting one still waits for it (once it's done at its stop again, a new economy working it afresh),
+    // and they never meet.
     const w2 = { ...w, economy, dx, dm, dy };
     const r2 = runner(w2, [a, b]);
-    r2.run(1);
-    expect(economy.crossWait(waiting)?.wait).toMatchObject({ kind: "waiting", engine: other });
+    let waited = false;
+    for (let i = 0; i < 30 * SIM_HZ && !waited; i++) {
+      r2.step();
+      const wait = economy.crossWait(waiting)?.wait;
+      waited = wait?.kind === "waiting" && wait.engine === other;
+    }
+    expect(waited).toBe(true);
+    r2.run(60);
+    expect(r2.meetings).toEqual([]);
   });
 
   it("other lines and unrouted trains are left alone (they meet as before)", () => {
@@ -248,14 +264,25 @@ describe("trains that wait for each other (crossing)", { timeout: 60_000 }, () =
     }
     expect(texts).toContain("Waiting for the Red line train from Elderwick");
     expect(texts).toContain("Waiting for the Red line train at Larkfield");
-    // No passing place.
+    // No passing place (Phase 3c): it waits its turn.
     const n = line("plain");
     const t = twoTrains(n, [n.dx.id, n.dy.id], 0, 1);
     const rn = runner(n, [t.a, t.b]);
     let said = "";
     for (let i = 0; i < 60 * SIM_HZ && !said; i++) {
       rn.step();
-      if (n.economy.crossWait(t.a)?.wait.kind === "needs-loop") said = engineStatus(n.sim, n.economy, t.a, names(n));
+      for (const e of [t.a, t.b]) if (!said && n.economy.crossWait(e)?.wait.kind === "turn") said = engineStatus(n.sim, n.economy, e, names(n));
+    }
+    expect(said).toBe("Waiting its turn: the Red line has no passing loop");
+    // Waiting only at stops (Phase 3a, for comparison), the two stand in each other's way: the line needs a passing loop.
+    const o = line("plain");
+    o.economy.crossing.loops = false;
+    const to = twoTrains(o, [o.dx.id, o.dy.id], 0, 1);
+    const ro = runner(o, [to.a, to.b]);
+    said = "";
+    for (let i = 0; i < 60 * SIM_HZ && !said; i++) {
+      ro.step();
+      if (o.economy.crossWait(to.a)?.wait.kind === "needs-loop") said = engineStatus(o.sim, o.economy, to.a, names(o));
     }
     expect(said).toBe("The Red line needs a passing loop");
   });
@@ -320,8 +347,11 @@ describe("crossing: claims kept true to the track", { timeout: 60_000 }, () => {
     expect(now.map((c) => c.pieceId)).not.toContain(Math.floor(w.layout.joinedConnector(connectorRef(w.s1, 2)) / 8));
   });
 
-  it("a mutual wait's status clears once the first-ready train is let go", () => {
+  // (With blocks, Phase 3c, these two take turns instead: the mutual wait and its release are Phase 3b's, kept as the
+  // safety net, so looked at here with blocks off.)
+  it("a mutual wait's status clears once the first-ready train is let go, and the release is logged", () => {
     const w = line("plain");
+    w.economy.crossing.blocks = false;
     const { a, b } = twoTrains(w, [w.dx.id, w.dy.id], 0, 1);
     const r = runner(w, [a, b]);
     let loopAt = -1;
@@ -342,5 +372,7 @@ describe("crossing: claims kept true to the track", { timeout: 60_000 }, () => {
       for (const e of [a, b]) expect(w.economy.crossWait(e)?.wait.kind).not.toBe("needs-loop");
     }
     expect(w.economy.crossWait(gone)).toBe(null);
+    expect(w.economy.crossing.released.mutual).toBe(1);
+    expect(w.economy.crossing.releases).toEqual([expect.objectContaining({ engine: gone, why: "mutual", atLoop: false })]);
   });
 });

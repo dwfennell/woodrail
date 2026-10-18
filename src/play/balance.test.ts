@@ -27,6 +27,7 @@ import { appendPiece, connectorRef, getPieceDef, indexOfRef, pieceOfRef, type Pi
 import { lineLegs } from "../game/route-path";
 import { carsLength, loopOnLine, passingLoops } from "../game/passing-loop";
 import { play, type Blocked } from "./player";
+import type { Crossing } from "../economy/crossing";
 import { endOn, rulesFor } from "./rules";
 
 /**
@@ -46,6 +47,13 @@ import { endOn, rulesFor } from "./rules";
 /** The environment (Node's, under Vitest), without Node's types. */
 const ENV: Record<string, string | undefined> = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const RUN = !!ENV.BALANCE;
+
+/** Crossing's safety-net releases (every why but the player's Go now): the total, and by why. */
+function releasesOf(c: Crossing): string {
+  const parts = (Object.keys(c.released) as (keyof Crossing["released"])[]).filter((k) => k !== "go-now" && c.released[k] > 0);
+  const total = parts.reduce((t, k) => t + c.released[k], 0);
+  return total > 0 ? `${total} (${parts.map((k) => `${k} ${c.released[k]}`).join(", ")})` : "0";
+}
 const MAX_MINUTES = Number(ENV.BALANCE_MINUTES ?? 180);
 /** Most trains on the line once routes are learned (1: only the goods train). */
 const PER_LINE = Number(ENV.BALANCE_TRAINS_PER_LINE ?? 1);
@@ -1378,7 +1386,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
-      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} loop ${this.loopAt ?? "-"} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min crossWait ${(P.crossSeconds / 60).toFixed(1)}min loopWait ${(P.loopSeconds / 60).toFixed(1)}min headOn ${P.headOn}`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} loop ${this.loopAt ?? "-"} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min crossWait ${(P.crossSeconds / 60).toFixed(1)}min loopWait ${(P.loopSeconds / 60).toFixed(1)}min headOn ${P.headOn} releases ${releasesOf(w.economy.crossing)}`,
       `findings:\n- ${P.findings.join("\n- ") || "none"}`,
     ].join("\n");
     console.log(out);

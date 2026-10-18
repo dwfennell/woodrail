@@ -23,9 +23,10 @@ export type TrainState =
   | { kind: "spacing"; line: string; left: number | null }
   /**
    * Held at its stop till the way on is clear of its line's trains coming the other way: waiting for one (coming from
-   * `depotId`, or standing at it; `atLoop`: it waits in a passing loop), or in a mutual wait (`needsLoop`: the line needs a passing loop).
+   * `depotId`, or standing at it; `atLoop`: it waits in a passing loop), or in a mutual wait (`needsLoop`: the line needs a passing loop),
+   * or for its turn on a line with no passing place (`turn`).
    */
-  | { kind: "crossing"; line: string; depotId: number; moving: boolean; needsLoop: boolean; atLoop: boolean }
+  | { kind: "crossing"; line: string; depotId: number; moving: boolean; needsLoop: boolean; atLoop: boolean; turn?: boolean }
   | { kind: "held-up" }
   /** Stood still with a train of its own line just ahead. */
   | { kind: "line-train"; line: string }
@@ -84,6 +85,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     const cross = economy.crossWait(car.id);
     if (cross) {
       const w = cross.wait;
+      if (w.kind === "turn") return { kind: "crossing", line: cross.line.name, depotId: -1, moving: false, needsLoop: false, atLoop: false, turn: true };
       return w.kind === "needs-loop"
         ? { kind: "crossing", line: cross.line.name, depotId: -1, moving: false, needsLoop: true, atLoop: false }
         : { kind: "crossing", line: cross.line.name, depotId: w.depotId, moving: w.moving, needsLoop: false, atLoop: w.atLoop };
@@ -123,6 +125,7 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return `${s.work} at ${nameOf(s.depotId)}`;
     case "turning-back":
       if (s.cause === "open-end") return s.done ? "Turned back: the track ends here" : "Turning back: the track ends here";
+      if (s.cause === "short") return "Turning back: its line's other train is at the stop";
       return s.cause === "train" ? "Turning back: another train's in the way" : "Turning back at the end of the line";
     case "red-signal":
       return "Waiting at a red signal";
@@ -147,7 +150,8 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
     case "crossing":
       if (s.needsLoop) return `The ${s.line} needs a passing loop`;
-      if (s.atLoop) return `Waiting at the loop for the ${s.line} train`;
+      if (s.turn) return `Waiting its turn: the ${s.line} has no passing loop`;
+      if (s.atLoop) return `Waiting at the loop for the ${s.line}`;
       return `Waiting for the ${s.line} train ${s.moving ? "from" : "at"} ${nameOf(s.depotId)}`;
     case "line-train":
       return `Waiting for the ${s.line} train`;

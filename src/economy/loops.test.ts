@@ -128,13 +128,13 @@ describe("trains that wait for each other in passing loops (crossing, Phase 3b)"
     expect(r.meetings).toEqual([]);
     expect(r.arrivals.get(a)!).toBeGreaterThan(30);
     expect(r.arrivals.get(b)!).toBeGreaterThan(30);
-    // They waited for each other in the loop (and never said the line needs a loop)...
-    expect(watch.waited()).toBeGreaterThan(0);
+    // They waited for each other (Phase 3c: at the end of the line, a block's end, or in the loop; and never said the
+    // line needs a loop), and were never let go into each other...
+    expect([...r.waits.get(a)!, ...r.waits.get(b)!].some((s) => s.startsWith("waiting@"))).toBe(true);
     for (const e of [a, b]) expect(r.waits.get(e)!).not.toContain("needs-loop");
-    expect([...r.waits.get(a)!, ...r.waits.get(b)!].some((s) => s.endsWith(":loop"))).toBe(true);
-    // ...and never stood in it but to wait, nor on or fouling a switch.
+    expect(w.economy.crossing.releases).toEqual([]);
+    // ...and never stood in the loop but to wait, nor on or fouling a switch.
     expect(watch.unexplained()).toBe(0);
-    expect(watch.checked()).toBeGreaterThan(0);
     expect(watch.fouled()).toBe(0);
     // Waiting only at stops (Phase 3a), the same line can't cross them: it needs a loop, and they meet.
     const old = line();
@@ -285,24 +285,27 @@ describe("trains that wait for each other in passing loops (crossing, Phase 3b)"
     }
   });
 
-  it("a pinned entry switch wins: the trains wait at their stops as before (Phase 3a), never in the loop", () => {
+  // (Phase 3c: with the loop no passing place, the line has none, so they take turns end to end: before, they stood in
+  // each other's way saying the line needs a passing loop.)
+  it("a pinned entry switch wins: the trains wait at their stops, taking turns, never in the loop", () => {
     for (const pin of ["s1", "s2"] as const) {
       const w = line();
       w.layout.setPinned(w[pin], true);
       const { a, b } = two(w);
       const r = runner(w as unknown as World, [a, b]);
       let loopWait = 0;
-      let needsLoop = false;
+      let turn = false;
       for (let i = 0; i < 4 * 60 * SIM_HZ; i++) {
         r.step();
         for (const e of [a, b]) {
           const wait = w.economy.crossWait(e)?.wait;
           if (wait?.kind === "waiting" && wait.atLoop) loopWait++;
-          if (wait?.kind === "needs-loop") needsLoop = true;
+          if (wait?.kind === "turn") turn = true;
         }
       }
       expect(loopWait, pin).toBe(0);
-      expect(needsLoop, pin).toBe(true);
+      expect(turn, pin).toBe(true);
+      expect(r.meetings, pin).toEqual([]);
     }
   });
 
@@ -339,7 +342,7 @@ describe("trains that wait for each other in passing loops (crossing, Phase 3b)"
       r.step();
       for (const e of [a, b]) if (w.economy.crossWait(e)?.wait.kind === "waiting") texts.add(engineStatus(w.sim, w.economy, e, names));
     }
-    expect(texts).toContain("Waiting at the loop for the Red line train");
+    expect(texts).toContain("Waiting at the loop for the Red line");
   });
 
   it("other lines and unrouted trains are left alone (they meet as before)", () => {
@@ -488,4 +491,81 @@ describe("crossing never jams for good (QA B1)", { timeout: 60_000 }, () => {
     expect(texts).not.toContain("Waiting: something's in the way");
     expect([...texts].some((t) => t.startsWith("Waiting for the Red line train"))).toBe(true);
   });
+});
+
+/** A train's longest hold (s): how long, in one episode, it stood waiting with a cross wait on its card. */
+function holds(w: World, es: readonly number[]) {
+  const since = new Map<number, number>();
+  let max = 0;
+  let stillNoWait = 0;
+  let t = 0;
+  return {
+    tick(inLoop: (e: number) => boolean) {
+      t++;
+      for (const e of es) {
+        const wait = w.economy.crossWait(e);
+        if (wait) {
+          if (!since.has(e)) since.set(e, t);
+          max = Math.max(max, (t - since.get(e)!) / SIM_HZ);
+        } else since.delete(e);
+        const tr = w.sim.findCar(e)!.train;
+        if (!wait && tr.speed < 1 && inLoop(e) && !w.economy.routeOf(e)!.at && tr.turnback < 0) stillNoWait++;
+      }
+    },
+    max: () => max,
+    stillNoWait: () => stillNoWait,
+  };
+}
+
+// QA's verification (routes-loops a7e0b52, blocked on these: B-L1 a late second train on a bare loop, B-L2 a loop too
+// short for the trains), kept as tests: arrivals rise in both halves of 10 minutes, and head-on meetings stay bounded.
+describe("QA verify (crossing, Phase 3c)", { timeout: 300_000 }, () => {
+  for (const kind of ["bare", "loopstop"] as const)
+    for (const delay of [0, 8, 17, 25, 40])
+      it(`${kind === "bare" ? "a bare loop" : "a station loop"}, 2 trains, the second starting ${delay} s late`, () => {
+        const { w, es } = jamWorld(kind, 2);
+        const r = runner(w, es);
+        if (delay) {
+          w.sim.setLever(es[1], 0);
+          r.run(delay);
+          w.sim.setLever(es[1], 1);
+        }
+        const start = es.map((e) => r.arrivals.get(e)!);
+        r.run(5 * 60);
+        const half = es.map((e) => r.arrivals.get(e)!);
+        r.run(5 * 60);
+        es.forEach((e, k) => {
+          expect(half[k], `train ${k}, first half`).toBeGreaterThan(start[k] + 2);
+          expect(r.arrivals.get(e)!, `train ${k}, second half`).toBeGreaterThan(half[k] + 2);
+        });
+        expect(r.meetings).toEqual([]);
+      });
+
+  it("a loop too short for the trains (4 cars): no passing place, one block: they take turns, arrivals rising", () => {
+    const short = line({ main: ["straight-216"], side: [] });
+    const { a, b } = two(short, ["engine", "timber", "timber", "timber"]);
+    const r = runner(short as unknown as World, [a, b]);
+    r.run(5 * 60);
+    const half = [a, b].map((e) => r.arrivals.get(e)!);
+    r.run(5 * 60);
+    [a, b].forEach((e, k) => {
+      expect(half[k], `train ${k}, first half`).toBeGreaterThan(2);
+      expect(r.arrivals.get(e)!, `train ${k}, second half`).toBeGreaterThan(half[k] + 2);
+    });
+    expect(r.meetings).toEqual([]);
+  });
+
+  for (const [kind, n] of [["plain", 3], ["loopstop", 3], ["bare", 3]] as const)
+    it(`${kind}, ${n} trains: every hold is capped, and none stands in the loop without saying why`, () => {
+      const { w, es } = jamWorld(kind, n);
+      const r = runner(w, es);
+      const roads = new Set([...passingLoops(w.layout).flatMap((l) => [...l.pieces])]);
+      const h = holds(w, es);
+      for (let i = 0; i < 10 * 60 * SIM_HZ; i++) {
+        r.step();
+        h.tick((e) => w.sim.findCar(e)!.train.bogies.some((b) => roads.has(b.pieceId)));
+      }
+      expect(h.stillNoWait()).toBe(0);
+      for (const e of es) expect(r.arrivals.get(e)!).toBeGreaterThan(5);
+    });
 });
