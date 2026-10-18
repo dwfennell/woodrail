@@ -1,13 +1,14 @@
 # Research: a school you deliver to, and growth that gives resources
 
-Date: 2026-10-18. Status: design, for review. Game mode only.
+Date: 2026-10-18. Status: design, decided with the user on 2026-10-18 (§8). Plan: `docs/superpowers/plans/2026-10-18-research-plan.md`.
+Game mode only.
 
 ## What the user asked
 
 > I don't love how levelling up cities gets you free techs. I think it should always give you a choice of resources,
 > and all techs should be researchable. I am coming around on the idea of a research building you deliver resources to.
 
-And later: "I think the research building should be placed near a town though, maybe." (A leaning, not a rule.)
+And later: "I think the research building should be placed near a town though, maybe." (Taken up: §8, decision 1.)
 
 ## Where we start from
 
@@ -67,13 +68,16 @@ And later: "I think the research building should be placed near a town though, m
 - **The cost is mixed goods, so research pulls on the whole economy.** The prices in `blueprints.ts` become research
   costs. From tier 2, each one also asks for a good from the chain that comes before it:
 
-  | Tier | Examples (goods, plus coins where today's price has them) |
+  | Tier | Examples (goods; coins from tier 2 only, at today's prices) |
   | --- | --- |
   | 1 | Switches 4🪵 · Signals 8🪵 · Bridges 10🪵 · Farming 12🪵 · Passengers 10🪵 |
   | 2 | Mills 12🪵 6🌾 · Routes 10🪵 20🪙 · Goods engine 12🪵 6🍞 40🪙 · Diesel 14🪵 8🍞 60🪙 |
   | 3 | Quarries 16🪵 10🍞 · Mines 12🪵 10🪨 · Foundry 10🪨 10⚫ · Electricity 10🔩 10⚫ 120🪙 |
 
-  Coins are paid when a research starts. The exact numbers are tuned with the play-through.
+  - **Coins:** tier 1 costs goods only (Halts loses its 20🪙). From tier 2, a research keeps today's coins. They are
+    paid when it starts; a pick you can't pay for yet waits in Next up (its card says how many coins are short).
+    Coins never stand in for goods.
+  - The exact numbers are tuned with the play-through (plan P5).
 
 ## 2. The workshop makes things, the school learns them
 
@@ -163,27 +167,12 @@ The simulated player picks research from today's `WISH` order and takes the grow
   - It redraws only when a delivery or the study timer changes it, so there is no per-frame work.
   - When nothing is picked, the pill says "Pick research".
 
-## 8. Open questions
+## 8. Decisions (the user, 2026-10-18)
 
-1. **Where does the research building go?**
-   - (a) A depot on your line beside a town, using a site rule.
-   - (b) A landmark on the town's own lots, fed through the town's station.
-   - (c) A depot anywhere, like the workshop.
-
-   **Recommend (a).** It gives a reason to grow towns, and research trains share passenger lines. It reuses depots
-   and site rules, so there's no work on lots or roads. (b) splits one station's deliveries between growth and
-   research, which is hard to read. (c) loses the link to towns.
-2. **One research, a queue, or one per school?**
-   - (a) One at a time, plus a Next up slot.
-   - (b) A full queue.
-   - (c) Each school researches its own blueprint.
-
-   **Recommend (a).** It's simple to read on a phone, and the school never sits idle. (c) adds a decision per school
-   and splits deliveries.
-3. **Do coins buy research?**
-   - (a) Goods only.
-   - (b) Coins are part of the price from tier 2, as today's prices are.
-   - (c) Coins can also hurry the goods still missing.
-
-   **Recommend (b).** Coins stay a sink, which keeps the coins-at-180 band. (c) would let coins skip the deliveries,
-   which are the point of research.
+1. **Where the research building goes: a depot on your line beside a town** (a site rule), not a landmark on the
+   town's lots (b) or a depot anywhere (c). It gives a reason to grow towns, shares lines with passengers, and
+   reuses depots and site rules with no work on lots or roads.
+2. **Pacing: one research at a time, plus a Next up slot**, not a full queue or one per school. Simple on a phone,
+   and the school never sits idle.
+3. **Coins: part of the price from tier 2**, as today's prices are; tier 1 is goods only, and coins can't hurry
+   missing goods. Coins stay a sink (the coins-at-180 band), and deliveries stay the point of research.
