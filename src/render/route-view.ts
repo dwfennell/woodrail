@@ -54,10 +54,10 @@ const STEP = 6;
  * Dotted ribbons: dash and gap lengths (mm), and the dashes' widths: a dark outline under a light core, so they read on
  * light wood as a way, not as sleepers (long, narrow, along the track).
  */
-const DASH = 12;
-const GAP = 8;
-const DOT_OUTLINE = 11;
-const DOT_CORE = 5;
+const DASH = 16;
+const GAP = 10;
+const DOT_OUTLINE = 16;
+const DOT_CORE = 8;
 const DOT_OUTLINE_COLOUR = "#2b2f3a";
 /** The red dashes of a gap no track crosses. */
 const GAP_COLOUR = "#d33a2c";
