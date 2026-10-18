@@ -13,56 +13,74 @@ import { scaleOf } from "../catalogue/scale";
  */
 
 /**
- * Catalogue models' ground sizes as modelled (mm, along their own x and z; fronts face +x), for fitting them to town
- * squares. Some are drawn bigger or smaller (`catalogue/scale.ts`): `sizeOf` gives the size drawn.
+ * Catalogue models' ground boxes as modelled (mm, along their own x and z: [x0, x1, z0, z1]; fronts face +x), measured
+ * from the models (a test checks them against the GLB), for fitting them to town squares. Some are drawn bigger or
+ * smaller (`catalogue/scale.ts`); a model stands with its box's middle on its lot's.
  */
-const SIZE: Record<string, readonly [number, number]> = {
-  "bldg-townhouse": [48, 41],
-  "bldg-thatched-cottage": [46, 46],
-  "bldg-timber-house": [48, 43],
-  "bldg-bungalow": [56, 56],
-  "bldg-brick-house": [47, 51],
-  "bldg-narrow-house": [43, 31],
-  "bldg-corner-shop": [53, 46],
-  "bldg-toy-shop": [59, 45],
-  "bldg-bakery": [61, 43],
-  "bldg-terrace": [45, 128],
-  "bldg-semi-detached": [50, 112],
-  "bldg-villa": [55, 108],
-  "bldg-cottage-row": [39, 108],
-  "bldg-church": [101, 45],
-  "bldg-post-office": [70, 45],
-  "bldg-cafe": [72, 44],
-  "bldg-apartment-block": [72, 52],
+const BOX: Record<string, readonly [number, number, number, number]> = {
+  "bldg-townhouse": [-24.5, 24.5, -17.5, 17.5],
+  "bldg-thatched-cottage": [-23, 24, -21, 21],
+  "bldg-timber-house": [-21.5, 27.5, -20, 20],
+  "bldg-bungalow": [-28, 28, -28, 28],
+  "bldg-brick-house": [-22.5, 25, -22.5, 22.5],
+  "bldg-narrow-house": [-21, 24, -14, 14],
+  "bldg-corner-shop": [-23.5, 30, -20.5, 20.5],
+  "bldg-toy-shop": [-26.5, 33, -18.5, 23.5],
+  "bldg-bakery": [-25.5, 34, -18.5, 18.5],
+  "bldg-terrace": [-21, 21, -64.5, 64.5],
+  "bldg-semi-detached": [-26, 24, -56, 56],
+  "bldg-villa": [-24, 31, -54, 54],
+  "bldg-cottage-row": [-18, 19, -54.5, 54.5],
+  "bldg-church": [-51.5, 47, -19.5, 19.5],
+  "bldg-post-office": [-28.5, 39.9, -19.5, 19.5],
+  "bldg-cafe": [-22.5, 48.2, -21, 23],
+  "bldg-apartment-block": [-32, 40.1, -26, 26],
   // Town landmarks (Game mode): a school, a market hall, a library, a college.
-  "bldg-school": [48, 75],
-  "bldg-market-hall": [60, 116],
-  "bldg-library": [59, 104],
-  "bldg-college": [38, 108],
+  "bldg-school": [-19.5, 28.1, -37.5, 37.5],
+  "bldg-market-hall": [-30, 30, -58, 58],
+  "bldg-library": [-29, 29.6, -52, 52],
+  "bldg-college": [-22.5, 18, -54, 54],
 };
+
+/** A town model's box as modelled (see `BOX`), or undefined for one not used in towns. */
+export const boxOf = (asset: string): readonly [number, number, number, number] | undefined => BOX[asset];
 
 /** A town model's ground size as drawn (mm, along its own x and z), or undefined for one not used in towns. */
 export function sizeOf(asset: string): readonly [number, number] | undefined {
-  const s = SIZE[asset];
-  if (!s) return undefined;
+  const b = BOX[asset];
+  if (!b) return undefined;
   const k = scaleOf(asset);
-  return [s[0] * k, s[1] * k];
+  return [(b[1] - b[0]) * k, (b[3] - b[2]) * k];
 }
 
 /** Room left between a model and its squares' edges (mm, each side), so nothing hangs over a street or a neighbour. */
-const LOT_MARGIN = 2;
+const LOT_MARGIN = 1;
+
+/** A lot's room for a model (mm, its short and long side, less the margins): 1 square, 2 side by side, or 2×2. */
+function lotRoom(squares: number): [number, number] {
+  const [w, l] = squares >= 4 ? [2 * CELL, 2 * CELL] : squares === 2 ? [CELL, 2 * CELL] : [CELL, CELL];
+  return [w - 2 * LOT_MARGIN, l - 2 * LOT_MARGIN];
+}
 
 /**
- * Does this model fit a lot of 1 square, 2 side by side, or 4 (2×2), lying along it, with room to spare at the edges?
- * (Every model a town can be dressed with is checked by a test.)
+ * The scale (of the model as modelled) this model stands at on a lot of `squares`: its own (`scaleOf`), or where that
+ * doesn't fit, the largest that does, down to 1 (a landmark on a smaller lot than it wants is a little smaller there,
+ * but itself). Null if it doesn't fit even at 1.
  */
+export function fitScale(asset: string, squares: number): number | null {
+  const b = BOX[asset];
+  if (!b) return null;
+  const dims = [b[1] - b[0], b[3] - b[2]];
+  const [short, long] = [Math.min(...dims), Math.max(...dims)];
+  const [roomShort, roomLong] = lotRoom(squares);
+  const k = Math.min(scaleOf(asset), roomShort / short, roomLong / long);
+  return k >= 1 ? k : null;
+}
+
+/** Does this model fit a lot of 1 square, 2 side by side, or 4 (2×2), lying along it, at the size it's drawn? */
 export function fitsLot(asset: string, squares: number): boolean {
-  const s = sizeOf(asset);
-  if (!s) return false;
-  const short = Math.min(s[0], s[1]);
-  const long = Math.max(s[0], s[1]);
-  const [lotShort, lotLong] = squares >= 4 ? [2 * CELL, 2 * CELL] : squares === 2 ? [CELL, 2 * CELL] : [CELL, CELL];
-  return short <= lotShort - 2 * LOT_MARGIN && long <= lotLong - 2 * LOT_MARGIN;
+  const k = fitScale(asset, squares);
+  return k !== null && k >= scaleOf(asset) - 1e-9;
 }
 
 /** Every model a town is dressed with, by how many squares it stands on (for checking they fit: see the tests). */
@@ -101,6 +119,8 @@ export interface TownProp {
   town: number;
   /** Colour variant (see `COLOR_VARIANTS`): a town's repeated houses in different paint. */
   variant: number;
+  /** Drawn smaller than its model (a landmark on a smaller lot than it wants: see `fitScale`). */
+  scale?: number;
 }
 
 /** The catalogue model and pose for each building of a town (same order as `town.buildings`). */
@@ -116,11 +136,13 @@ export function townProps(land: Landscape, town: Town): TownProp[] {
     const options = (squares === 4 ? undefined : BY_LOOK[looks[k]][squares]) ?? (squares > 1 ? HOUSES_2 : styles);
     // A landmark: its own model, the first of its list that's in the catalogue and fits its lot (others stand in).
     const mark = b.landmark ? landmarkOf(b.landmark) : undefined;
+    // (On a smaller lot than it wants, still itself: drawn as large as fits there.)
     const list = mark && (squares === 4 ? [...(mark.models.four ?? []), ...mark.models.two] : squares === 2 ? mark.models.two : mark.models.one);
-    const marked = list?.find((a) => fitsLot(a, squares));
+    const marked = list?.find((a) => fitScale(a, squares) !== null);
     const asset = marked ?? pick(options);
+    const fit = marked ? fitScale(marked, squares)! / scaleOf(marked) : 1;
     const variant = Math.floor(r() * (COLOR_VARIANTS + 1));
-    return { asset, ...poseFor(land, town, b, looks[k], asset), building: b.id, town: town.id, variant };
+    return { asset, ...poseFor(land, town, b, looks[k], asset, fit), building: b.id, town: town.id, variant, ...(fit < 1 - 1e-6 ? { scale: fit } : {}) };
   });
 }
 
@@ -137,7 +159,21 @@ const EDGES = [
  * else the town's centre. A two-square model lies along its squares; one whose front is on its long side faces across
  * them, one whose front is at an end faces along them (toward the street or centre, whichever side that is).
  */
-function poseFor(land: Landscape, town: Town, b: Building, look: Look, asset: string): { x: number; z: number; heading: number } {
+function poseFor(land: Landscape, town: Town, b: Building, look: Look, asset: string, fit = 1): { x: number; z: number; heading: number } {
+  const { x, z, heading } = facing(land, town, b, look, asset);
+  // The model's box (not its origin) on the lot's middle.
+  const box = BOX[asset];
+  if (!box) return { x, z, heading };
+  const k = scaleOf(asset) * fit;
+  const mx = ((box[0] + box[1]) / 2) * k;
+  const mz = ((box[2] + box[3]) / 2) * k;
+  const c = Math.cos(heading);
+  const sn = Math.sin(heading);
+  return { x: x - (mx * c - mz * sn), z: z - (mx * sn + mz * c), heading };
+}
+
+/** Where a building's lot's middle is, and which way its model faces (see `poseFor`). */
+function facing(land: Landscape, town: Town, b: Building, look: Look, asset: string): { x: number; z: number; heading: number } {
   const fp = footprintOf(land, town, b.cells, look);
   // The way it should face: its street (the town plan's lot front), else the town's centre.
   const street = b.front === undefined ? null : EDGES[b.front];
@@ -172,7 +208,7 @@ export function addTownProps(land: Landscape, props: PropStore): number {
       // On its square's ground: a town that has grown onto a hill stands its houses on the blocks.
       const cell = land.grid.cellAtWorld(t.x, t.z);
       const y = cell >= 0 ? land.grid.groundY(cell) : 0;
-      props.add(t.asset, { x: t.x, z: t.z, heading: t.heading, y }, undefined, { building: t.building, town: t.town, ...(t.variant ? { variant: t.variant } : {}) });
+      props.add(t.asset, { x: t.x, z: t.z, heading: t.heading, y }, undefined, { building: t.building, town: t.town, ...(t.variant ? { variant: t.variant } : {}), ...(t.scale ? { scale: t.scale } : {}) });
       added++;
     }
   }

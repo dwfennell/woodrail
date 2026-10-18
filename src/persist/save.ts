@@ -119,6 +119,7 @@ const saveSchema = z.object({
         building: z.number().int().min(0).optional(),
         town: z.number().int().min(0).optional(),
         variant: z.number().int().min(0).max(8).optional(),
+        scale: z.number().min(0.5).max(1).optional(),
       }),
     )
     .optional(),
@@ -203,7 +204,7 @@ export function serializeWorld(world: World): SaveData {
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(lines.length > 0 ? { lines } : {}),
-    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}) })),
+    props: [...world.props.all()].map((p) => ({ id: p.id, asset: p.asset, x: p.x, z: p.z, heading: p.heading, y: p.y, ...(p.building !== undefined ? { building: p.building, town: p.town } : {}), ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}) })),
   };
 }
 
@@ -316,7 +317,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     });
   }
   const props = new PropStore();
-  for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}) });
+  for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}) });
   // Saves from before towns were built from catalogue models: their buildings get their models now.
   addTownProps(landscape, props);
   return ok({ layout, sim, landscape, stations, depots, economy, props });

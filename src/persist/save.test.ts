@@ -346,6 +346,8 @@ describe("props in saves", () => {
     const world = buildStarterWorld();
     world.props.add("bldg-red-barn", { x: 100, z: 50, heading: 0.5, y: 0 });
     world.props.add("life-cow", { x: -40, z: 10, heading: 2, y: 64 });
+    // A landmark drawn smaller than its model (on a smaller lot than it wants) keeps its scale.
+    world.props.add("bldg-library", { x: 300, z: -50, heading: 0, y: 0 }, undefined, { scale: 0.85 });
     const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
     const r = deserializeWorld(data);
     expect(r.ok && [...r.value.props.all()]).toEqual([...world.props.all()]);

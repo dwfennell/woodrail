@@ -1,29 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FEAT_BUILDING, FEAT_NONE, SURF_ROAD, type Landscape, type Town } from "../landscape";
+import { FEAT_BUILDING, FEAT_NONE, SURF_ROAD, type Landscape } from "../landscape";
 import { LandEditor } from "../landscape/edit";
-import { fitsLot, townModels, townProps } from "../props/towns";
+import { scaleOf } from "../catalogue/scale";
+import { fitScale, fitsLot, townModels, townProps } from "../props/towns";
 import { appendPiece, connectorRef } from "../track";
 import { LANDMARKS } from "./landmarks";
-import { TownLife, type TownLifeHost } from "./town-life";
-import { townStatus } from "./towns";
-import { buildStarterWorld, type World } from "./world";
-
-/** Grow a town of the starter map to a city (school, market, library), as deliveries would. */
-function growToCity(w: World, t: Town): { levels: number[]; buildings: number[] } {
-  const host: TownLifeHost = Object.assign(w, { footprintOf: () => undefined, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
-  const life = new TownLife(host, { grew: () => {}, received: () => {} });
-  life.reset();
-  const levels: number[] = [];
-  const buildings: number[] = [];
-  for (const bag of [{ planks: 4 }, { planks: 12 }, { planks: 26 }, { planks: 26, flour: 6 }]) {
-    w.economy.delivered.set(t.id, bag.planks);
-    w.economy.deliveredGoods.set(t.id, { ...bag });
-    life.update();
-    levels.push(townStatus(bag).level);
-    buildings.push(t.buildings.length);
-  }
-  return { levels, buildings };
-}
+import { growToCity, noRoomForBlocks } from "./town-testing";
+import { buildStarterWorld } from "./world";
 
 /** Is this a 2×2 block of squares with a street along one side? */
 function isBlock(land: Landscape, cells: readonly number[]): boolean {
@@ -35,16 +18,6 @@ function isBlock(land: Landscape, cells: readonly number[]): boolean {
   const [r0, r1] = [Math.min(...rows), Math.max(...rows)];
   const side = (cs: [number, number][]) => cs.every(([c, r]) => g.surface[g.index(c, r)] === SURF_ROAD);
   return side([[c0 - 1, r0], [c0 - 1, r1]]) || side([[c1 + 1, r0], [c1 + 1, r1]]) || side([[c0, r0 - 1], [c1, r0 - 1]]) || side([[c0, r1 + 1], [c1, r1 + 1]]);
-}
-
-/** No 2×2 lots: the editor refuses any lot that's exactly a 2×2 block (as if there were no room for one). */
-function noRoomForBlocks(land: Landscape) {
-  const check = LandEditor.prototype.checkLot;
-  vi.spyOn(LandEditor.prototype, "checkLot").mockImplementation(function (this: LandEditor, cells, reach) {
-    const g = land.grid;
-    if (cells.length === 4 && new Set(cells.map((c) => g.colOf(c))).size === 2 && new Set(cells.map((c) => g.rowOf(c))).size === 2) return "taken";
-    return check.call(this, cells, reach);
-  });
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -65,17 +38,26 @@ describe("big landmarks on 2×2 lots", () => {
     expect(t.buildings.find((x) => x.landmark === "school")!.cells.length).toBeLessThan(4);
   });
 
-  it("with no room for a block, on two squares (or one), with a model that fits there; growth never waits", () => {
-    const w = buildStarterWorld();
-    noRoomForBlocks(w.landscape);
-    const t = w.landscape.towns[0];
-    growToCity(w, t);
-    const props = townProps(w.landscape, t);
-    for (const id of ["school", "market", "library"]) {
-      const b = t.buildings.find((x) => x.landmark === id)!;
-      expect(b, id).toBeDefined();
-      expect(b.cells.length, id).toBeLessThan(4);
-      expect(fitsLot(props.find((p) => p.building === b.id)!.asset, b.cells.length), id).toBe(true);
+  it("with no room for a block, on two squares, still itself (drawn as large as fits there); growth never waits", () => {
+    for (const k of [0, 1, 2, 3, 4]) {
+      const w = buildStarterWorld();
+      noRoomForBlocks(w.landscape);
+      const t = w.landscape.towns[k];
+      growToCity(w, t);
+      vi.restoreAllMocks();
+      const props = townProps(w.landscape, t);
+      for (const id of ["school", "market", "library"]) {
+        const b = t.buildings.find((x) => x.landmark === id)!;
+        expect(b, `${t.name} ${id}`).toBeDefined();
+        expect(b.cells.length, id).toBeLessThan(4);
+        const prop = props.find((p) => p.building === b.id)!;
+        const mark = LANDMARKS.find((l) => l.id === id)!;
+        // Its own model, never a stand-in, on two squares: smaller than it's drawn on a block, but no smaller than modelled.
+        if (b.cells.length === 2) expect(prop.asset, `${t.name} ${id}`).toBe(mark.models.two[0]);
+        const k = fitScale(prop.asset, b.cells.length)!;
+        expect(k).toBeGreaterThanOrEqual(1);
+        expect((prop.scale ?? 1) * scaleOf(prop.asset)).toBeCloseTo(k);
+      }
     }
   });
 
