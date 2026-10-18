@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Sim, SIM_HZ } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, Layout, type PieceTypeId } from "../track";
 import { Economy } from "./economy";
-import { distanceTo, steer } from "./steer";
+import { distanceTo, steer, waysFrom } from "./steer";
 
 /** Lay `type` on free end `ref` (seated by an end of the other kind); returns its id. */
 function lay(layout: Layout, ref: number, type: PieceTypeId): number {
@@ -144,6 +144,19 @@ describe("pinned switches", () => {
     expect(distanceTo(k.layout, { pieceId: k.sw, entry: 0 }, k.b)).toBeGreaterThan(0);
     expect(k.run(20)[0]).toBe(k.b);
     expect(k.layout.switchState(k.sw)).toBe(1);
+  });
+
+  it("a caller can ask what if a switch weren't pinned, without touching the layout", () => {
+    const j = junction();
+    j.layout.setPinned(j.sw, true); // toward A: B is out of reach
+    const version = j.layout.switchesVersion;
+    const unpinned = (id: number) => id !== j.sw && j.layout.isPinned(id);
+    expect(distanceTo(j.layout, { pieceId: j.sw, entry: 0 }, j.b)).toBe(-1);
+    expect(distanceTo(j.layout, { pieceId: j.sw, entry: 0 }, j.b, unpinned)).toBeGreaterThan(0);
+    expect(waysFrom(j.layout, j.sw, 0, unpinned).length).toBe(2);
+    expect(waysFrom(j.layout, j.sw, 0).length).toBe(1);
+    expect(j.layout.isPinned(j.sw)).toBe(true);
+    expect(j.layout.switchesVersion).toBe(version);
   });
 
   it("steers at the next switch beyond a pinned one, along the route it's pinned to", () => {
