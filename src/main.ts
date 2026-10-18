@@ -375,7 +375,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const batch = items.slice(i, i + THUMBNAIL_BATCH);
       await Promise.all(batch.map((item) => (item.kind === "piece" ? TrackView.whenBuilt(item.type) : null)));
       await Promise.race([game.settled(10), sleep(THUMBNAIL_STILL_WAIT_MS)]);
-      for (const key of drawThumbnails(batch, false, studio)) hud.setThumbnail(key, thumbnails.get(key)!);
+      for (const key of drawThumbnails(batch, false, studio)) pictureDrawn(key);
       // Kept as they come (a visit cut short keeps what it drew).
       saveThumbnailsSoon();
     }
@@ -404,6 +404,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       void saveCached("thumbnails", __BUILD_ID__, thumbnails);
     }, 2000);
   }
+  /** A tray picture was drawn (and kept in `thumbnails`): the tray swaps it in, and the blueprint board if it waits for it. */
+  function pictureDrawn(key: string): void {
+    hud.setThumbnail(key, thumbnails.get(key)!);
+    board.pictureCame(key);
+  }
   function drawPropThumbnails(items: TrayItem[]): void {
     const idle = thumbQueue.length === 0;
     for (const item of items) {
@@ -421,7 +426,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       void Promise.all([game.kitView.load(type), TrackView.whenBuilt(type)]).then(() => {
         thumbQueue.shift();
         studio ??= new ThumbnailStudio(game.renderer);
-        for (const key of drawThumbnails([{ kind: "piece", type, label: "" }], false, studio)) hud.setThumbnail(key, thumbnails.get(key)!);
+        for (const key of drawThumbnails([{ kind: "piece", type, label: "" }], false, studio)) pictureDrawn(key);
         saveThumbnailsSoon();
         if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
       });
@@ -436,8 +441,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         subject.rotation.y = -0.6;
         const url = studio.shoot(subject);
         const key = `prop:${asset}`;
-        hud.setThumbnail(key, url);
         thumbnails.set(key, url);
+        pictureDrawn(key);
         saveThumbnailsSoon();
       }
       if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
@@ -1179,6 +1184,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (learnWithGoods(game.world, progress, id)) learned(id);
     },
     close: () => setBoardOpen(false),
+    picture: (key) => thumbnails.get(key),
+    // A kit's or a prop's picture is drawn on demand, as for the tray (the rest are drawn at start-up, or with Game
+    // mode's models).
+    needPictures: (keys) =>
+      drawPropThumbnails(
+        keys.flatMap((k): TrayItem[] => {
+          if (k.startsWith("prop:")) return [{ kind: "prop", asset: k.slice(5), label: "" }];
+          const type = k.slice(6) as PieceTypeId;
+          return k.startsWith("piece:") && kitOf(type) ? [{ kind: "piece", type, label: "" }] : [];
+        }),
+      ),
   });
 
   function learned(id: string): void {
@@ -1240,7 +1256,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const offerOf = (id: string) => progress.offers.findIndex((o) => o.ids.includes(id));
     const seen = seenOf(progress, new Set(progress.offers.flatMap((o) => o.ids)));
     const stations: Station[] = TECHS.map((t) => {
-      const makes = unlocksOf(t.id).map((x) => ({ label: ruleOf(x)!.label, icon: x.startsWith("piece:") ? pieceIcon(x.slice(6) as PieceTypeId) : x.startsWith("prop:") ? `<span class="bp-feature">🪧</span>` : trainIcon([x.slice(4) as CarKind]) }));
+      // Pieces (kits and industries among them) and props as their tray pictures, as the tray shows them (a thing's id
+      // is its tray key); their drawings stand in till those are drawn. Cars as their drawings.
+      const makes: Station["makes"] = unlocksOf(t.id).map((x) =>
+        x.startsWith("piece:")
+          ? { label: ruleOf(x)!.label, icon: pieceIcon(x.slice(6) as PieceTypeId), picture: x }
+          : x.startsWith("prop:")
+            ? { label: ruleOf(x)!.label, icon: `<span class="bp-pending"></span>`, picture: x }
+            : { label: ruleOf(x)!.label, icon: trainIcon([x.slice(4) as CarKind]) },
+      );
       if (t.feature) makes.push({ label: t.feature.label, icon: `<span class="bp-feature">${t.feature.icon}</span>` });
       if (makes.length === 0) makes.push({ label: t.brings, icon: `<span class="bp-feature">✨</span>` });
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
@@ -1996,7 +2020,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       () => {
         game.depotView.rebuildUnits();
         game.depotView.setWorld(game.economy, game.layout);
-        for (const key of drawThumbnails(industryItems)) hud.setThumbnail(key, thumbnails.get(key)!);
+        for (const key of drawThumbnails(industryItems)) pictureDrawn(key);
         game.invalidate();
       },
       (e: unknown) => {

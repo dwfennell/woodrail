@@ -566,6 +566,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-makes { display: flex; flex-wrap: wrap; gap: 6px; }
 .bp-make { display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 4px; border-radius: 10px; background: #f3e6cf; font-size: 12.5px; font-weight: 700; color: #5a3d22; }
 .bp-make svg { width: 34px; height: 22px; }
+/* A thing's tray picture (its model, three-quarter view), and the blank that waits for one (a prop not drawn yet). */
+.bp-make img { width: 40px; height: 33px; margin: -4px 0; object-fit: contain; }
+.bp-make .bp-pending { display: block; width: 34px; height: 22px; border-radius: 6px; background: rgba(160, 110, 60, 0.12); }
 .bp-ticket-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .bp-ticket-foot .chip { height: 44px; font-size: 14.5px; }
 .bp-ticket-foot .chip:disabled { opacity: 0.5; cursor: default; }

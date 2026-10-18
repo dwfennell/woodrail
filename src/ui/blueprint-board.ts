@@ -5,8 +5,11 @@ export interface Station {
   blurb: string;
   /** Its branch (a band of the web). */
   branch: string;
-  /** What it lets you make: a name and a small picture (SVG) each. */
-  makes: { label: string; icon: string }[];
+  /**
+   * What it lets you make: a name and a small picture (SVG) each, and the key of its tray picture (`piece:<type>`,
+   * `prop:<asset>`) shown instead once there is one (see `BlueprintBoardHandlers.picture`).
+   */
+  makes: { label: string; icon: string; picture?: string }[];
   /**
    * learned: painted. offered: a town that grew offers it, free. ready: on the board, to learn at its price.
    * locked: later (needs another blueprint first, or something done, or a town to offer it). soon: not in the game yet.
@@ -48,6 +51,13 @@ export interface BlueprintBoardHandlers {
   crate(offer: number): void;
   learn(id: string): void;
   close(): void;
+  /** A thing's tray picture (an image URL) by its key, if drawn. */
+  picture?(key: string): string | undefined;
+  /**
+   * The ticket shows things whose pictures aren't drawn yet (their SVG stands in): draw them if they can be (a kit's
+   * or a prop's model), calling `pictureCame` with each as it comes.
+   */
+  needPictures?(keys: string[]): void;
 }
 
 /** Where a tag goes on the web (px from the web's top left), and where each band starts. */
@@ -148,8 +158,11 @@ export class BlueprintBoard {
   private view: BoardView | null = null;
   /** The tag whose ticket is showing. */
   private selected = "";
+  /** Pictures the ticket showing waits for (`needPictures`), and whether it's to be rebuilt for one that came. */
+  private wanted = new Set<string>();
+  private redraw = false;
 
-  constructor(parent: HTMLElement, handlers: BlueprintBoardHandlers) {
+  constructor(parent: HTMLElement, private readonly handlers: BlueprintBoardHandlers) {
     this.root.className = "board-panel";
     this.root.hidden = true;
     const head = document.createElement("div");
@@ -207,6 +220,19 @@ export class BlueprintBoard {
       this.shownKey = "";
       this.selected = "";
     }
+  }
+
+  /**
+   * A tray picture was drawn: if the ticket showing is waiting for it (`needPictures`), it's rebuilt to show it (once
+   * for pictures that come together).
+   */
+  pictureCame(key: string): void {
+    if (!this.open || !this.wanted.has(key) || this.redraw) return;
+    this.redraw = true;
+    queueMicrotask(() => {
+      this.redraw = false;
+      if (this.open) this.render();
+    });
   }
 
   show(v: BoardView): void {
@@ -291,6 +317,7 @@ export class BlueprintBoard {
       }
     } else html += `<div class="bp-web-scroll"><div class="bp-web" style="width:${web.width}px;height:${web.height}px">${bands}<svg class="bp-links" width="${web.width}" height="${web.height}" aria-hidden="true">${svg}</svg>${tags}</div></div>`;
     const s = byId.get(this.selected);
+    this.wanted = new Set();
     const sheet = s ? this.ticket(s, v, byId) : "";
     if (this.sheet.innerHTML !== sheet) this.sheet.innerHTML = sheet;
     const scroll = this.body.querySelector(".bp-web-scroll");
@@ -314,7 +341,17 @@ export class BlueprintBoard {
       const known = s.needs.map((n) => byId.get(n)).filter((x): x is Station => !!x && x.seen === "shown");
       return `<div class="bp-ticket hint"><div class="bp-ticket-head"><b>Not found yet</b><span>Something new${known.length ? ` after ${esc(known.map((k) => k.label).join(" and "))}` : ""}. Learn what leads to it to see what it is.</span></div></div>`;
     }
-    const makes = s.makes.map((m) => `<span class="bp-make">${m.icon}<span>${esc(m.label)}</span></span>`).join("");
+    // Each thing as its tray picture (its model) where it's drawn; else its SVG, and the picture asked for.
+    const wanted = new Set<string>();
+    const makes = s.makes
+      .map((m) => {
+        const url = m.picture ? this.handlers.picture?.(m.picture) : undefined;
+        if (m.picture && !url) wanted.add(m.picture);
+        return `<span class="bp-make">${url ? `<img src="${url}" alt="" draggable="false">` : m.icon}<span>${esc(m.label)}</span></span>`;
+      })
+      .join("");
+    this.wanted = wanted;
+    if (wanted.size > 0) this.handlers.needPictures?.([...wanted]);
     // What it needs and what it opens, in words (on a phone the list draws no links between them).
     const needs = s.needs.map((n) => {
       const x = byId.get(n);
