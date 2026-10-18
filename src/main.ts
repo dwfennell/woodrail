@@ -1,7 +1,7 @@
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre } from "./editor/editor";
-import { frameAlong, frameDistance } from "./game/camera-director";
+import { fitToRect, frameAlong, frameDistance } from "./game/camera-director";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
@@ -23,8 +23,9 @@ import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, lacking, uncraft, workshops, workshopStock } from "./game/crafting";
-import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId } from "./game/things";
-import { DEPOT_NAMES, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
+import { DEPOT_NAMES, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { WhistleCalls, WhistlePosts } from "./game/lineside";
 import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
@@ -48,10 +49,10 @@ import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, kitOf, PIECE_TYPES, type Anchor, type PieceTypeId } from "./track";
 import type { CarKind, CarLook } from "./sim";
 import { Hud } from "./ui/hud";
-import { INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
+import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { propsInRect } from "./props/placement";
 import { loadMuted, saveMuted } from "./ui/prefs";
@@ -218,7 +219,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             ? [{ key: trayKey(item), kind: "train" as const, cars: item.cars, looks: item.looks }]
             : [],
       ),
-      (type) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : null),
+      (type) => (type === "signal" ? game.trackView.signalModel() : INDUSTRY_ROLE[type] ? game.depotView.model(INDUSTRY_ROLE[type]) : kitOf(type) ? game.kitView.model(type) : null),
       studio,
     );
     for (const [k, v] of drawn) thumbnails.set(k, v);
@@ -325,6 +326,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
       depotWaitFull: () => interaction.toggleDepotWaitFull(),
       needThumbnails: (items) => drawPropThumbnails(items),
+      kitsShown: (items) => interaction.warmKits(items),
       landTool: (tool) => setLandTool(tool),
       sendReport: async (text) => {
         if (!reports) throw new Error("reports aren't available here");
@@ -374,26 +376,53 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       saveThumbnailsSoon();
     }
     studio.dispose();
+    // All drawn: saved now rather than once the pause is up.
+    clearTimeout(thumbSaveTimer);
+    thumbSaveTimer = 0;
+    await saveCached("thumbnails", __BUILD_ID__, thumbnails);
   }
+  /** Start-up's tray pictures, all drawn and saved (the e2e tests wait on it before reloading). */
+  let trayThumbnailsSaved: Promise<void> = Promise.resolve();
 
   // Catalogue models' tray pictures: drawn when their shelf is first shown, one a frame (each builds the model, if it
   // isn't yet), then kept with the start-up pictures for the next visit.
   const thumbQueue: string[] = [];
   let studio: ThumbnailStudio | null = null;
   let thumbSaveTimer = 0;
-  /** Save the tray pictures drawn so far, once the drawing's paused a moment. */
+  /**
+   * Save the tray pictures drawn so far, 2 s after the first not yet saved (not put off by more coming: a batch every
+   * second or so would put it off till the last, and a visit cut short would keep none).
+   */
   function saveThumbnailsSoon(): void {
-    clearTimeout(thumbSaveTimer);
-    thumbSaveTimer = window.setTimeout(() => void saveCached("thumbnails", __BUILD_ID__, thumbnails), 2000);
+    if (thumbSaveTimer) return;
+    thumbSaveTimer = window.setTimeout(() => {
+      thumbSaveTimer = 0;
+      void saveCached("thumbnails", __BUILD_ID__, thumbnails);
+    }, 2000);
   }
   function drawPropThumbnails(items: TrayItem[]): void {
     const idle = thumbQueue.length === 0;
-    for (const item of items) if (item.kind === "prop" && !thumbQueue.includes(item.asset)) thumbQueue.push(item.asset);
+    for (const item of items) {
+      // A kit piece on a catalogue shelf: its track and model, once the model's built.
+      const key = item.kind === "prop" ? item.asset : item.kind === "piece" && kitOf(item.type) ? trayKey(item) : null;
+      if (key && !thumbQueue.includes(key)) thumbQueue.push(key);
+    }
     if (idle && thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
   }
   function nextThumbnail(): void {
     const asset = thumbQueue[0];
     if (asset === undefined) return;
+    if (asset.startsWith("piece:")) {
+      const type = asset.slice("piece:".length) as PieceTypeId;
+      void Promise.all([game.kitView.load(type), TrackView.whenBuilt(type)]).then(() => {
+        thumbQueue.shift();
+        studio ??= new ThumbnailStudio(game.renderer);
+        for (const key of drawThumbnails([{ kind: "piece", type, label: "" }], false, studio)) hud.setThumbnail(key, thumbnails.get(key)!);
+        saveThumbnailsSoon();
+        if (thumbQueue.length > 0) requestAnimationFrame(nextThumbnail);
+      });
+      return;
+    }
     void game.propLibrary.load(asset).then((model) => {
       thumbQueue.shift();
       if (model) {
@@ -950,6 +979,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const crafting = new Crafting(progress);
   crafting.setProgress(progress);
   const thingLabel = (id: ThingId) => ruleOf(id)?.label ?? id;
+  /** The kits and furniture on the Industries tab's railway shelves: the workshop's card lists them as "Railway". */
+  const RAILWAY_THINGS = new Set(GAME_KIT_GROUPS.flatMap((g) => g.items.flatMap((i) => (i.kind === "piece" || i.kind === "prop" ? [...thingsFor(i).keys()] : []))));
 
   /**
    * Game mode: can this tray item come out (known, and enough of it in the toy box)? Says why not if not. What's
@@ -958,8 +989,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   interaction.trayAllowed = (item) => trayAllowed(item);
   // After the last of something in the toy box goes down, no next one waits at its end.
   interaction.trayHas = (item) => mode !== "game" || item.kind !== "piece" || progress.hasAnother(game.world, item);
-  function trayAllowed(item: Parameters<typeof thingsFor>[0] | { kind: string }, make = true): boolean {
-    if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train")) return true;
+  function trayAllowed(item: ThingItem | { kind: string }, make = true): boolean {
+    if (mode !== "game" || (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop")) return true;
     // (A new take: whatever an earlier one made is settled, or never was.)
     if (make) trainMade = null;
     const look = lockedLook(item);
@@ -968,9 +999,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.toast(t.plan ? `${t.label}: coming soon` : `${t.label}: learn its blueprint first${t.requires.length ? ` (${t.requires.map(describeNeed).join(", ")})` : ""}`, false, 3600);
       return false;
     }
-    const needs = thingsFor(item as Parameters<typeof thingsFor>[0]);
+    const needs = thingsFor(item as ThingItem);
     for (const id of needs.keys()) {
-      if (isFree(id) || progress.knows(id)) continue;
+      if (progress.knows(id)) continue;
       hud.toast(`${ruleOf(id)!.label}: not learned yet`);
       return false;
     }
@@ -1045,8 +1076,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const needs = thingsFor({ kind: "piece", type });
     let n = Infinity;
     for (const [id, k] of needs) {
-      if (isFree(id)) continue;
       if (!progress.knows(id)) return 0;
+      if (isFree(id)) continue;
       n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
     }
     return n;
@@ -1059,11 +1090,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /** The toy box on the tray (Game mode): how many of each are left. */
-  function trayBadge(item: Parameters<typeof thingsFor>[0] | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null {
-    if (item.kind !== "piece" && item.kind !== "train") return null;
-    const needs = thingsFor(item as Parameters<typeof thingsFor>[0]);
-    if ([...needs.keys()].every(isFree)) return null;
+  function trayBadge(item: ThingItem | { kind: string }): { text: string; empty: boolean; attention?: boolean; craft?: boolean; locked?: boolean } | null {
+    if (item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop") return null;
+    const needs = thingsFor(item as ThingItem);
     if ([...needs.keys()].some((id) => !progress.knows(id)) || lockedLook(item)) return { text: "Locked", empty: true, locked: true };
+    // (Free things, a crossing style among them once it's learned: no count.)
+    if ([...needs.keys()].every(isFree)) return null;
     let n = Infinity;
     for (const [id, k] of needs) n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
     // The workshop, while there's none on the map: it's where planks go to learn blueprints.
@@ -1082,7 +1114,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Industries placed or moved: give new ones their depots, and redraw the yards where they stand. */
   let industryKey = "";
   function industriesChanged(): void {
-    const added = syncIndustries(game.world);
+    const added = syncIndustries(game.world, mode === "game");
     let key = "";
     for (const id of game.layout.pieceIds()) {
       const p = game.layout.getPiece(id)!;
@@ -1151,6 +1183,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     industriesChanged();
     audio.chime();
     hud.refreshTrayBadges();
+    hud.trayLearned();
     game.invalidate();
     refreshBoard();
     save();
@@ -1200,7 +1233,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const offerOf = (id: string) => progress.offers.findIndex((o) => o.ids.includes(id));
     const seen = seenOf(progress, new Set(progress.offers.flatMap((o) => o.ids)));
     const stations: Station[] = TECHS.map((t) => {
-      const makes = unlocksOf(t.id).map((x) => ({ label: ruleOf(x)!.label, icon: x.startsWith("piece:") ? pieceIcon(x.slice(6) as PieceTypeId) : trainIcon([x.slice(4) as CarKind]) }));
+      const makes = unlocksOf(t.id).map((x) => ({ label: ruleOf(x)!.label, icon: x.startsWith("piece:") ? pieceIcon(x.slice(6) as PieceTypeId) : x.startsWith("prop:") ? `<span class="bp-feature">🪧</span>` : trainIcon([x.slice(4) as CarKind]) }));
       if (t.feature) makes.push({ label: t.feature.label, icon: `<span class="bp-feature">${t.feature.icon}</span>` });
       if (makes.length === 0) makes.push({ label: t.brings, icon: `<span class="bp-feature">✨</span>` });
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
@@ -1406,7 +1439,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The peg dolls on each platform are the people waiting (Game mode, once coaches are known; else the usual few). */
   function showWaiting(): void {
     const live = mode === "game" && progress.learned.has("passengers");
-    for (const d of game.economy.allDepots()) if (d.role === "town") game.setWaiting(d.townId, live ? d.waiting : null);
+    // (At its station: a halt's people aren't drawn.)
+    for (const d of game.economy.allDepots()) if (d.role === "town" && game.world.stations.get(d.townId) === d.pieceId) game.setWaiting(d.townId, live ? d.waiting : null);
   }
 
   // A town station's card (Game mode): who is waiting for a coach.
@@ -1551,8 +1585,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (workshopShown !== id || force) workshopPanel.hide();
     workshopShown = id;
     const rows: MakeRow[] = [];
+    const SHELVES = ["Track", "Trains", "Industries", "Railway"];
     for (const tid of Object.keys(THING_RULES) as ThingId[]) {
-      if (!progress.knows(tid)) continue;
+      if (!progress.knows(tid) || isFree(tid)) continue;
       const rule = ruleOf(tid)!;
       rows.push({
         id: tid,
@@ -1560,10 +1595,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         cost: costText(rule),
         have: progress.available(game.world, tid),
         queued: progress.orders.filter((o) => o === tid).length,
-        shelf: tid.startsWith("car:") ? "Trains" : tid.includes("depot-") ? "Industries" : "Track",
+        shelf: tid.startsWith("car:") ? "Trains" : tid.includes("depot-") ? "Industries" : RAILWAY_THINGS.has(tid) ? "Railway" : "Track",
       });
     }
-    rows.sort((a, b) => ["Track", "Trains", "Industries"].indexOf(a.shelf) - ["Track", "Trains", "Industries"].indexOf(b.shelf));
+    rows.sort((a, b) => SHELVES.indexOf(a.shelf) - SHELVES.indexOf(b.shelf));
     const now = crafting.now;
     // What it's waiting for: goods in the workshop's yard, and coins.
     const nowRule = now ? ruleOf(now.id)! : null;
@@ -1699,7 +1734,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       viewStatus.next = latest;
       viewStatus.since = now;
     }
-    if (opened || now - viewStatus.since >= STATUS_HOLD_MS) viewStatus.shown = latest;
+    // ("Starting" shows at once: it answers the Go just pressed.)
+    if (opened || latest === "Starting" || now - viewStatus.since >= STATUS_HOLD_MS) viewStatus.shown = latest;
     const status = viewStatus.shown;
     // The engine's own front, as a screen direction (degrees clockwise from right).
     const snap = game.snapshot;
@@ -1982,7 +2018,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     save();
     goalsPanel.setVisible(mode === "game");
     // An industry you place must stand near what it works with (trees, fields): Game mode's rule.
-    interaction.siteRule = mode === "game" ? (type, pose) => siteWhy(game.landscape, type, pose) : null;
+    interaction.siteRule = mode === "game" ? (type, pose) => siteWhy(game.landscape, type, pose) ?? haltWhy(game.landscape, type, pose) : null;
     // A drawn line uses only the pieces in the toy box (Game mode).
     interaction.draw.stock = mode === "game" ? pieceStock : null;
     interaction.draw.unlearned = mode === "game" ? pieceUnlearned : null;
@@ -1995,6 +2031,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       for (const t of game.landscape.towns) progress.bestLevel = Math.max(progress.bestLevel, townLife.status(t.id).level);
       syncLandmarks();
       hud.trayBadge = trayBadge;
+      hud.trayKnown = (item) => item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id));
       hud.setCoins(progress.coins);
       refreshBoard();
     } else {
@@ -2007,6 +2044,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showWaiting();
       shownDelivered = new Map();
       hud.trayBadge = null;
+      hud.trayKnown = null;
       hud.setCoins(null);
     }
     industriesChanged();
@@ -2025,6 +2063,19 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return [volume, pan];
   };
   const carPoint = (trainId: number, bogie = 0) => game.sim.getTrain(trainId)?.world[bogie];
+  const whistles = new WhistlePosts();
+  /**
+   * Which engine by a whistle post whistles in a frame, and how loud: heard from the camera as `listen` hears its
+   * clacks (louder and more central the nearer it is), the nearest train's whistle winning over a far one's.
+   */
+  const whistleCalls = new WhistleCalls();
+  const playWhistle = (v: number, pan: number) => audio.whistle(v, pan);
+  const trainAlive = (id: number) => !!game.sim.getTrain(id);
+  const whistleFor = (trainId: number, v: number, pan: number) => {
+    const t = game.sim.getTrain(trainId);
+    if (!t || !whistles.has(t.bogies[0].pieceId) || !t.cars.some((c) => c.kind === "engine")) return;
+    whistleCalls.offer(trainId, v, pan, performance.now());
+  };
   /** Where a depot's crane works (world plan point). */
   const depotPoint = (depotId: number) => {
     const d = game.economy.depot(depotId);
@@ -2065,16 +2116,43 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * towns), keeping the way the view faces.
    */
   function backToRailway(): void {
-    const points: { x: number; z: number }[] = [];
+    // The track, end to end (its pieces' ends and middles), or the first towns' stations if there's none yet.
+    const points: Vector3[] = [];
+    const end = createWorldConnector();
     for (const id of game.layout.pieceIds()) {
-      if (isFixedPiece(id) || game.layout.getPiece(id)!.type === "riser") continue;
-      points.push(pieceCentre(game.layout, id));
+      const piece = game.layout.getPiece(id)!;
+      if (isFixedPiece(id) || piece.type === "riser") continue;
+      const c = pieceCentre(game.layout, id);
+      points.push(new Vector3(c.x, piece.y, c.z));
+      const n = getPieceDef(piece.type, piece.flipped).connectors.length;
+      for (let i = 0; i < n; i++) {
+        game.layout.worldConnector(connectorRef(id, i), end);
+        points.push(new Vector3(end.x, end.y, end.z));
+      }
     }
-    if (points.length === 0) for (const t of game.landscape.towns.slice(0, 2)) points.push(t.station);
+    if (points.length === 0) for (const t of game.landscape.towns.slice(0, 2)) points.push(new Vector3(t.station.x, 0, t.station.z));
     if (points.length === 0) return;
+    // Facing along it (up a phone held upright), turned the shorter way round from where the view faces now.
     const f = frameAlong(points, game.camera.fov, game.camera.aspect, GOAL_MARGIN);
+    const now = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
+    let theta = f.theta ?? now.theta;
+    if (Math.abs(Math.atan2(Math.sin(theta - now.theta), Math.cos(theta - now.theta))) > Math.PI / 2) theta += Math.PI;
+    // In the room the HUD leaves: below the top bar (and the goals), above the tray.
+    const r = game.canvas.getBoundingClientRect();
+    let top = 0;
+    for (const e of document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")) {
+      const b = e.getBoundingClientRect();
+      if (b.height > 0 && b.top < r.height / 3) top = Math.max(top, b.bottom - r.top);
+    }
+    // (Above the tools floating over the tray too, Draw and Turn, where they float: not on a phone, where they're in its row.)
+    let bottom = r.height;
+    for (const e of [hud.tray, ...document.querySelectorAll(".tray-draw, .tray-orient")]) {
+      const b = e.getBoundingClientRect();
+      if (b.height > 0) bottom = Math.min(bottom, b.top - r.top);
+    }
+    const fit = fitToRect(points, game.camera, now.phi, theta, { left: 0, top, right: r.width, bottom }, r.width, r.height, 24);
     game.follow(-1);
-    game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 0.9 });
+    game.director.glideTo(fit.target, Math.min(fit.distance, game.controls.maxDistance), { theta, duration: 0.9 });
   }
 
   function openingView(): void {
@@ -2151,7 +2229,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   game.onFrame = (dt) => {
     interaction.refreshDepotCard();
     // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.
-    hud.setTrayArrow(interaction.trayArrow(hud.propsTab));
+    hud.setTrayArrow(interaction.trayArrow(hud.propsTab && !interaction.holdingKit));
+    hud.setHoldingKit(interaction.holdingKit);
     interaction.tick(dt);
     const now = performance.now();
     if (mapView.open) {
@@ -2159,6 +2238,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       else placeMap();
     }
     let hum = 0;
+    // Whistle posts' near track: worked out again only when the props or the track change.
+    whistles.sync(game.layout, game.props, game.trackVersion);
     for (const e of game.events) {
       if (e.kind === "buffer" && !loopTipShown && game.sim.getTrain(e.trainId)?.lastTurn?.cause === "train") showLoopTip();
       const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);
@@ -2168,11 +2249,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         continue;
       }
       const [v, pan] = listen(p.x, p.z);
-      if (e.kind === "joint") audio.clack(v, pan);
-      else if (e.kind === "coupled") audio.magnet(v, pan);
+      if (e.kind === "joint") {
+        audio.clack(v, pan);
+        // An engine coming onto track near a whistle post whistles (once as it passes).
+        if (e.bogie === 0 && whistles.size > 0) whistleFor(e.trainId, v, pan);
+      } else if (e.kind === "coupled") audio.magnet(v, pan);
       else if (e.kind === "derailed") audio.crash(v, pan);
       else if (e.kind === "buffer") audio.magnet(v * 0.6, pan);
     }
+    whistleCalls.flush(now, playWhistle, trainAlive);
     for (const id of game.sim.trainIds()) {
       const t = game.sim.getTrain(id)!;
       if (t.derailed || t.speed < 5 || !t.cars.some((c) => c.kind === "engine" && c.lever !== 0)) continue;
@@ -2229,7 +2314,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, trayThumbnailsSaved: () => trayThumbnailsSaved });
   game.start();
   // Opening in Game mode: start fetching its models now, ahead of play.
   if (mode === "game") ensureGameModels();
@@ -2249,7 +2334,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
   // The loading screen's toys play their entry in full before it moves on (it's short, and capped).
   void entryPlayed().then(() => {
-    void drawTrayThumbnails();
+    trayThumbnailsSaved = drawTrayThumbnails();
     if (opening.linked) {
       enter(mode);
       openingView();

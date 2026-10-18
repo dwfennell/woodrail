@@ -122,21 +122,43 @@ def smoke(k, x, y, z):
     return k.at(g, x, y, z)
 
 
-def clock(k, r, x, y, z, ry=0):
-    """A clock face looking along +x with hands named "hour" and "minute", and its hour marks."""
+def clock(k, r, x, y, z, ry=0, bold=False):
+    """
+    A clock face looking along +x with hands named "hour" and "minute", and its hour marks. `bold`: one to be read at a
+    glance from across the layout (the station clock): a pure white face in a thick black rim, hour marks as bars
+    (longer at the quarters), and broad hands with short tails, each standing clear of the marks.
+    """
     g = Node()
-    g.add(k.cylX(k.paint(TOY.black), r + 1.2, 1.6, -0.4, 0, 0, 32))
-    g.add(k.cylX(k.paint(TOY.white), r, 2, 0, 0, 0, 32))
     black = k.paint(TOY.black)
+    if not bold:
+        g.add(k.cylX(black, r + 1.2, 1.6, -0.4, 0, 0, 32))
+        g.add(k.cylX(k.paint(TOY.white), r, 2, 0, 0, 0, 32))
+        for i in range(12):
+            a = i / 12 * math.pi * 2
+            big = i % 3 == 0
+            g.add(k.ball(black, r * (0.08 if big else 0.05), 1.0, math.cos(a) * r * 0.8, math.sin(a) * r * 0.8))
+        hour = named(Node(), "hour")
+        hour.add(k.box(black, 0.8, r * 0.55, 1.6, 0.3, 0, 0, 0))
+        minute = named(Node(), "minute")
+        minute.add(k.box(black, 0.8, r * 0.85, 1.1, 0.3, 0, 0, 0))
+        g.add(k.at(hour, 1.3, 0, 0), k.at(minute, 1.6, 0, 0), k.ball(black, 1, 1.8, 0, 0))
+        return k.at(g, x, y, z, ry)
+    g.add(k.cylX(black, r + 1.4, 1.8, -0.3, 0, 0, 32))
+    g.add(k.cylX(k.paint("#ffffff"), r, 2, 0, 0, 0, 32))
     for i in range(12):
-        a = i / 12 * math.pi * 2
+        # A bar from the rim inwards, in a node turned about the face's axis (x) to its hour.
         big = i % 3 == 0
-        g.add(k.ball(black, r * (0.08 if big else 0.05), 1.0, math.cos(a) * r * 0.8, math.sin(a) * r * 0.8))
+        length = r * (0.26 if big else 0.16)
+        mark = Node()
+        mark.add(k.box(black, 0.5, length, r * (0.13 if big else 0.08), 0.15, 1.0, r * 0.9 - length, 0))
+        mark.rotation.x = i / 12 * math.pi * 2
+        g.add(mark)
+    # The hands: the hour's broad and short, the minute's long, both past the pivot a little (a toy clock's hands).
     hour = named(Node(), "hour")
-    hour.add(k.box(black, 0.8, r * 0.55, 1.6, 0.3, 0, 0, 0))
+    hour.add(k.box(black, 0.7, r * 0.66, r * 0.26, 0.3, 0, -r * 0.14, 0))
     minute = named(Node(), "minute")
-    minute.add(k.box(black, 0.8, r * 0.85, 1.1, 0.3, 0, 0, 0))
-    g.add(k.at(hour, 1.3, 0, 0), k.at(minute, 1.6, 0, 0), k.ball(black, 1, 1.8, 0, 0))
+    minute.add(k.box(black, 0.7, r * 0.96, r * 0.16, 0.25, 0, -r * 0.16, 0))
+    g.add(k.at(hour, 1.45, 0, 0), k.at(minute, 2.2, 0, 0), k.ball(black, r * 0.11, 2.6, 0, 0))
     return k.at(g, x, y, z, ry)
 
 

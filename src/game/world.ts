@@ -1,13 +1,33 @@
-import { adoptRegion, generateLandscape, generatePlot, plotKey, seaPlot, type DepotKind, type Landscape, type PlotCoord } from "../landscape";
+import { adoptRegion, generateLandscape, generatePlot, PLOT_DEPTH, plotKey, seaPlot, type DepotKind, type Landscape, type PlotCoord } from "../landscape";
 import { Economy, type DepotRole } from "../economy";
 import { Sim } from "../sim";
-import { Layout, type PieceTypeId } from "../track";
+import { kitOf, Layout, type PieceTypeId } from "../track";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 
 export const depotPieceType = (kind: DepotKind): PieceTypeId => (kind === "forest" ? "depot-forest" : "depot-sawmill");
 
-export const DEPOT_NAMES: Record<Exclude<DepotRole, "town">, string> = { forest: "Forest yard", sawmill: "Sawmill", workshop: "Workshop", farm: "Farm yard", mill: "Mill", quarry: "Quarry", warehouse: "Warehouse", mine: "Mine", foundry: "Foundry", carpenter: "Carpenter's yard", smithy: "Smithy", power: "Power station", harbour: "Harbour" };
+export const DEPOT_NAMES: Record<Exclude<DepotRole, "town">, string> = {
+  forest: "Forest yard",
+  sawmill: "Sawmill",
+  workshop: "Workshop",
+  farm: "Farm yard",
+  mill: "Mill",
+  quarry: "Quarry",
+  warehouse: "Warehouse",
+  mine: "Mine",
+  foundry: "Foundry",
+  carpenter: "Carpenter's yard",
+  smithy: "Smithy",
+  power: "Power station",
+  harbour: "Harbour",
+  // Sandbox's cargo machines (kit pieces): their own names are their kits' (`KitDef.name`).
+  "loader-log": "Log loader",
+  "loader-grain": "Grain loader",
+  "loader-coal": "Coal loader",
+  "loader-planks": "Crane",
+  unloader: "Unloader",
+};
 
 /** Depot pieces and the work their economy depot does (the map's own, and industries the player places). */
 export const INDUSTRY_ROLE: Partial<Record<PieceTypeId, DepotRole>> = {
@@ -31,15 +51,62 @@ export const INDUSTRY_ROLE: Partial<Record<PieceTypeId, DepotRole>> = {
  * taken up stays, with its piles, until the piece comes back (undo); saving leaves it out. Returns true if any was
  * added.
  */
-export function syncIndustries(world: World): boolean {
+export function syncIndustries(world: World, halts = false): boolean {
   let added = false;
   for (const id of world.layout.pieceIds()) {
-    const role = INDUSTRY_ROLE[world.layout.getPiece(id)!.type];
+    const piece = world.layout.getPiece(id)!;
+    const type = piece.type;
+    if (halts && HALT_KITS.has(type)) {
+      // A halt (Game mode): a passenger stop for the town nearest it, kept linked to the nearest as it moves.
+      const town = haltTown(world.landscape, piece.pose);
+      const d = world.economy.depotAtPiece(id);
+      if (d) {
+        if (town && d.townId !== town.id) d.townId = town.id;
+      } else if (town) {
+        world.economy.addDepot("town", id, town.id);
+        added = true;
+      }
+      continue;
+    }
+    // An industry's piece, or a kit piece that's a cargo stop (Sandbox's loaders and unloaders).
+    const role = INDUSTRY_ROLE[type] ?? kitOf(type)?.depot;
     if (!role || world.economy.depotAtPiece(id)) continue;
     world.economy.addDepot(role, id);
     added = true;
   }
   return added;
+}
+
+/**
+ * Game mode's halts: kit pieces that are passenger stops (`stop.who` "passengers", one road) and, placed within
+ * `HALT_REACH` of a town, become another stop of that town's (an economy depot of role "town"): people wait there,
+ * get on, and get off from other towns, exactly as at its station (see `Economy.isHalt`). Goods trains run through.
+ */
+export const HALT_KITS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["kit-country-halt", "kit-mountain-station", "kit-harbour-station", "kit-platform-furnished"]);
+
+/** How far a halt may stand from a town's middle (mm): a plot's depth, about 23 squares. */
+export const HALT_REACH = PLOT_DEPTH;
+
+/** The town nearest a halt at `pose` (its piece's origin) within `HALT_REACH`, or null. A few towns: cheap. */
+export function haltTown(land: Landscape, pose: { x: number; z: number; heading: number }): Landscape["towns"][number] | null {
+  // Measured from the platform's middle (108 along a 216 halt).
+  const x = pose.x + 108 * Math.cos(pose.heading);
+  const z = pose.z + 108 * Math.sin(pose.heading);
+  let best: Landscape["towns"][number] | null = null;
+  let bestD = HALT_REACH;
+  for (const t of land.towns) {
+    const d = Math.hypot(t.centre.x - x, t.centre.z - z);
+    if (d <= bestD) {
+      bestD = d;
+      best = t;
+    }
+  }
+  return best;
+}
+
+/** Game mode's rule for a halt's place (`Interaction.siteRule`): near a town, or why not. */
+export function haltWhy(land: Landscape, type: PieceTypeId, pose: { x: number; z: number; heading: number }): string | null {
+  return HALT_KITS.has(type) && !haltTown(land, pose) ? "Build halts near a town" : null;
 }
 
 export interface World {

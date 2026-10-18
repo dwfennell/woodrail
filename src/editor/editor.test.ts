@@ -555,3 +555,77 @@ describe("a depot moved off a line, the gap it leaves filled", () => {
     expect(layout.joinedConnector(connectorRef(depot, 1))).toBe(connectorRef(b, 0));
   });
 });
+
+describe("a kit piece (the furnished platform) dropped onto a line, as a depot is", () => {
+  const KIT = "kit-platform-furnished" as const;
+  function threeStraights() {
+    const s = setup();
+    const ids = [0, 1, 2].map((i) => s.editor.place("straight-216", { x: 216 * i, z: 0, heading: 0 }, 0, false));
+    s.editor.clearHistory();
+    return { ...s, ids };
+  }
+
+  it("splices onto the middle straight, joined both ends, in one undo step; undo puts the straight back joined", () => {
+    const { layout, editor, ids } = threeStraights();
+    const s = findSplice(layout, KIT, false, { x: 324, z: 6 }, 0.2, 40);
+    expect(s.kind).toBe("splice");
+    if (s.kind !== "splice") return;
+    expect(s.covers).toEqual([ids[1]]);
+    const kit = editor.replace(s.covers, KIT, s.pose, s.y, false);
+    expect(layout.getPiece(kit)!.type).toBe(KIT);
+    expect(layout.getPiece(ids[1])).toBeUndefined();
+    expect(layout.joinedConnector(connectorRef(kit, 0))).toBe(connectorRef(ids[0], 1));
+    expect(layout.joinedConnector(connectorRef(kit, 1))).toBe(connectorRef(ids[2], 0));
+    editor.undo();
+    expect(layout.getPiece(kit)).toBeUndefined();
+    expect(layout.getPiece(ids[1])!.type).toBe("straight-216");
+    expect(layout.joinedConnector(connectorRef(ids[1], 0))).toBe(connectorRef(ids[0], 1));
+    expect(layout.joinedConnector(connectorRef(ids[1], 1))).toBe(connectorRef(ids[2], 0));
+    expect(editor.canUndo).toBe(false);
+    editor.redo();
+    expect(layout.getPiece(kit)!.type).toBe(KIT);
+    expect(layout.jointCount).toBe(2);
+  });
+
+  it("held turned right round (its Flip), it lies the other way along the line, still joined both ends", () => {
+    const { layout, editor, ids } = threeStraights();
+    const s = findSplice(layout, KIT, false, { x: 324, z: 0 }, Math.PI, 40);
+    if (s.kind !== "splice") throw new Error(s.kind);
+    expect(s.pose.heading).toBeCloseTo(Math.PI);
+    const kit = editor.replace(s.covers, KIT, s.pose, s.y, false);
+    expect(layout.joinedConnector(connectorRef(kit, 0))).toBe(connectorRef(ids[2], 0));
+    expect(layout.joinedConnector(connectorRef(kit, 1))).toBe(connectorRef(ids[0], 1));
+  });
+
+  it("isn't spliced onto another kit (only plain straights are taken up)", () => {
+    const { layout, editor, ids } = threeStraights();
+    const s = findSplice(layout, KIT, false, { x: 324, z: 0 }, 0, 40);
+    if (s.kind !== "splice") throw new Error(s.kind);
+    editor.replace(s.covers, KIT, s.pose, s.y, false);
+    // Held over the kit now in the middle: it reaches for the straights either side instead, or nothing.
+    const again = findSplice(layout, KIT, false, { x: 324, z: 0 }, 0, 10);
+    expect(again.kind === "splice" ? again.covers : []).not.toContain(ids[1]);
+  });
+
+  it("moved off the line: a straight closes the gap, in the same undo step", () => {
+    const { layout, editor } = setup();
+    const a = editor.place("straight-216", { x: 0, z: 0, heading: 0 }, 0, false);
+    const kit = editor.place(KIT, { x: 216, z: 0, heading: 0 }, 0, false);
+    const b = editor.place("straight-216", { x: 432, z: 0, heading: 0 }, 0, false);
+    editor.clearHistory();
+    const ends = [layout.joinedConnector(connectorRef(kit, 0)), layout.joinedConnector(connectorRef(kit, 1))] as const;
+    const from = { pose: { ...layout.getPiece(kit)!.pose }, y: 0 };
+    layout.liftPiece(kit);
+    const fill = gapFill(layout, ends[0], ends[1])!;
+    expect(fill.map((f) => f.type)).toEqual(["straight-216"]);
+    editor.move(kit, { x: 0, z: 900, heading: 0 }, 0, from, [], false, fill.map((f) => ({ ...f })));
+    const filled = [...layout.pieceIds()].find((id) => layout.getPiece(id)!.type === "straight-216" && id !== a && id !== b)!;
+    expect(layout.joinedConnector(connectorRef(filled, 0))).toBe(connectorRef(a, 1));
+    expect(layout.joinedConnector(connectorRef(filled, 1))).toBe(connectorRef(b, 0));
+    editor.undo();
+    expect(editor.canUndo).toBe(false);
+    expect(layout.getPiece(filled)).toBeUndefined();
+    expect(layout.joinedConnector(connectorRef(kit, 0))).toBe(connectorRef(a, 1));
+    expect(layout.joinedConnector(connectorRef(kit, 1))).toBe(connectorRef(b, 0));
+  });
+});

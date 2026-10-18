@@ -1,4 +1,4 @@
-import { connectorRef, getPieceDef, indexOfRef, pieceOfRef, type Layout } from "../track";
+import { connectorRef, getPieceDef, indexOfRef, MAX_CONNECTORS, pieceOfRef, type Layout } from "../track";
 import { flipCursor, type Cursor, type Train } from "../sim";
 
 /** How far ahead of a train (pieces) a switch is set for it: the next one it will choose at, within this many. */
@@ -10,9 +10,14 @@ const SEARCH = 4000;
 function waysFrom(layout: Layout, pieceId: number, entry: number): { option: number; exit: number }[] {
   const piece = layout.getPiece(pieceId);
   if (!piece) return [];
-  const paths = getPieceDef(piece.type, piece.flipped).paths;
+  const def = getPieceDef(piece.type, piece.flipped);
+  const paths = def.paths;
+  // A deck (a turntable's): only the way it lies now goes anywhere (steering doesn't turn it).
+  const open = def.gated ? (layout.deckTurning(pieceId) ? paths.length : layout.switchState(pieceId) % paths.length) : -1;
   const out: { option: number; exit: number }[] = [];
-  for (const p of paths) {
+  for (let i = 0; i < paths.length; i++) {
+    const p = paths[i];
+    if (open !== -1 && i !== open) continue;
     if (p.from !== entry && p.to !== entry) continue;
     out.push({ option: out.length, exit: p.from === entry ? (p.to ?? -1) : p.from });
   }
@@ -34,7 +39,7 @@ const TURN_COST = 12;
  * the end of a line (a buffer, or track that just stops), so a way may too, at a cost (`TURN_COST`).
  */
 export function distanceTo(layout: Layout, start: { pieceId: number; entry: number }, target: number): number {
-  const seen = new Set<number>([start.pieceId * 8 + start.entry]);
+  const seen = new Set<number>([start.pieceId * MAX_CONNECTORS + start.entry]);
   // Ways by length: turning back puts a way further down the list.
   const byDepth: { pieceId: number; entry: number }[][] = [[start]];
   let count = 1;
@@ -42,8 +47,8 @@ export function distanceTo(layout: Layout, start: { pieceId: number; entry: numb
     for (const at of byDepth[depth] ?? []) {
       if (at.pieceId === target) return depth;
       const push = (n: { pieceId: number; entry: number }, d: number) => {
-        if (seen.has(n.pieceId * 8 + n.entry)) return;
-        seen.add(n.pieceId * 8 + n.entry);
+        if (seen.has(n.pieceId * MAX_CONNECTORS + n.entry)) return;
+        seen.add(n.pieceId * MAX_CONNECTORS + n.entry);
         (byDepth[d] ??= []).push(n);
         count++;
       };

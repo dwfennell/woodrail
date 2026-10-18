@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Vector3 } from "three";
-import { clampTarget, clampView, EDGE_TOUCH_DWELL, EDGE_TOUCH_RAMP, EDGE_TOUCH_SPEED, EDGE_TOUCH_ZONE, edgeDwell, edgePan, frameAlong, frameDistance, isDoubleTap, lerpAngle, nearPlaneFor } from "./camera-director";
+import { Spherical, Vector3 } from "three";
+import { clampTarget, clampView, fitToRect, EDGE_TOUCH_DWELL, EDGE_TOUCH_RAMP, EDGE_TOUCH_SPEED, EDGE_TOUCH_ZONE, edgeDwell, edgePan, frameAlong, frameDistance, isDoubleTap, lerpAngle, nearPlaneFor } from "./camera-director";
 
 describe("frameDistance", () => {
   it("fits a sphere to the narrower side of the frustum", () => {
@@ -150,6 +150,21 @@ describe("CameraDirector edge pan", () => {
     d.update(1 / 30, 1000, 800);
     expect(controls.target.z).toBe(z);
   });
+
+  it("on a slow phone the wait before an edge pan is still half a second, not stretched by the capped frame step", () => {
+    const camera = new PerspectiveCamera(30, 1000 / 800, 5, 40000);
+    camera.position.set(0, 600, 600);
+    const controls = { target: new Vector3(), minDistance: 100, maxDistance: 9000, maxPolarAngle: 1.42, addEventListener: () => {} } as unknown as OrbitControls;
+    camera.lookAt(controls.target);
+    const d = new CameraDirector(camera, controls);
+    d.setEdgePointer({ x: 500, y: 590, touch: true, bottom: 600 });
+    // 4 fps: each frame's step is capped at 0.1 s, but 0.25 s really passed.
+    d.update(0.1, 1000, 800, 0.25);
+    expect(controls.target.z).toBe(0);
+    d.update(0.1, 1000, 800, 0.25);
+    d.update(0.1, 1000, 800, 0.25);
+    expect(controls.target.z).toBeGreaterThan(0);
+  });
 });
 
 describe("CameraDirector over the scenery around the mat", () => {
@@ -220,5 +235,48 @@ describe("edge pan while placing, on touch (QA: the view ran off with the target
   });
   it("the band on touch is narrow (it was 72 px)", () => {
     expect(EDGE_TOUCH_ZONE).toBeLessThanOrEqual(40);
+  });
+});
+
+describe("fitToRect: the whole railway in the room the HUD leaves (QA: back to my railway)", () => {
+  // A phone held upright, the view tilted as a player has it, a top bar (to 70 px) and the tray (from 690 px).
+  const W = 390;
+  const H = 844;
+  const room = { left: 0, top: 70, right: W, bottom: 690 };
+  const camera = () => new PerspectiveCamera(30, W / H, 5, 40000);
+  const onScreen = (points: Vector3[], fit: { target: Vector3; distance: number }, phi: number, theta: number) => {
+    const cam = camera();
+    cam.position.setFromSpherical(new Spherical(fit.distance, phi, theta)).add(fit.target);
+    cam.lookAt(fit.target);
+    cam.updateMatrixWorld();
+    return points.map((p) => {
+      const v = p.clone().project(cam);
+      return { x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H };
+    });
+  };
+  const check = (points: Vector3[], phi: number, theta: number) => {
+    const fit = fitToRect(points, camera(), phi, theta, room, W, H, 24);
+    const s = onScreen(points, fit, phi, theta);
+    const xs = s.map((p) => p.x);
+    const ys = s.map((p) => p.y);
+    // All of it in the room, with the margin (to a pixel or two)...
+    expect(Math.min(...xs)).toBeGreaterThanOrEqual(room.left + 22);
+    expect(Math.max(...xs)).toBeLessThanOrEqual(room.right - 22);
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(room.top + 22);
+    expect(Math.max(...ys)).toBeLessThanOrEqual(room.bottom - 22);
+    // ...and filling it one way (not just far off).
+    const fill = Math.max((Math.max(...xs) - Math.min(...xs)) / (W - 48), (Math.max(...ys) - Math.min(...ys)) / (room.bottom - room.top - 48));
+    expect(fill).toBeGreaterThan(0.9);
+  };
+
+  it("six straights in a line, along the screen's long side", () => {
+    const line = Array.from({ length: 7 }, (_, i) => new Vector3(400 + i * 216, 0, 300));
+    check(line, 1.0, Math.PI / 2);
+  });
+
+  it("two stations far apart, and a loop, at another tilt and heading", () => {
+    check([new Vector3(-900, 0, 200), new Vector3(1100, 0, -150)], 0.8, -1.4);
+    const loop = Array.from({ length: 16 }, (_, i) => new Vector3(Math.cos((i / 16) * 2 * Math.PI) * 600, 0, Math.sin((i / 16) * 2 * Math.PI) * 400));
+    check(loop, 1.1, 0.3);
   });
 });

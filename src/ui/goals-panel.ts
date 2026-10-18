@@ -254,6 +254,9 @@ export class GoalsPanel {
     // Entries that fell off the end of the journal.
     const keep = new Set<JournalEntry>(entries);
     for (const [e, el] of have) if (!keep.has(e)) el.remove();
+    // A row for every entry and no more: should the list ever disagree (QA once saw an entry's row twice, not
+    // reproduced), it's drawn again whole rather than left wrong.
+    if (pane.children.length !== entries.length) pane.replaceChildren(...entries.map((e) => this.row(e, now)));
     this.drawnSeq = entries[0].seq;
   }
 

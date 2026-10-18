@@ -3,7 +3,7 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CARGO, CARGO_KINDS, WAGON_CAPACITY, type CargoKind, type CargoSlot, type CraneMove, type DepotRole, type DepotState, type Economy } from "../economy";
 import type { Layout, Pose } from "../track";
-import { TRACK_WIDTH } from "../track";
+import { kitOf, TRACK_WIDTH } from "../track";
 import { STATION_CRANE_AT } from "../game/world";
 import { BUNDLE_HEIGHT, BUNDLE_LENGTH, BUNDLE_WIDTH, CRATE_HEIGHT, LOG_LENGTH, LOG_RADIUS, pileSlot, SACK_HEIGHT, SACK_LENGTH, SACK_WIDTH, STONE_HEIGHT, TOOLBOX_PITCH, unitSize, wagonSlot } from "./cargo-layout";
 import { addPart, hasPart, partPieces } from "./blender-models";
@@ -48,6 +48,9 @@ interface DepotLayout {
 const SIDE = TRACK_WIDTH / 2;
 /** Where a yard's piles stand: on their pallets, on the pad. */
 const YARD = PAD_H + PALLET_H;
+
+/** A kit piece's depot (a Sandbox loader or unloader): nothing of its own drawn here, its kit's model does that. */
+const KIT_DEPOT: DepotLayout = { pad: null, crane: { kind: "jib", t: 108, l: 40, height: 72 }, piles: {}, trackT: 108 };
 
 /** Where everything stands at each kind of depot (depot coordinates; see PileSpot). */
 export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
@@ -177,6 +180,12 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
     },
     trackT: STATION_CRANE_AT,
   },
+  // Sandbox's cargo machines are kit pieces: their models do the drawing (KitView), not this view (see `setWorld`).
+  "loader-log": KIT_DEPOT,
+  "loader-grain": KIT_DEPOT,
+  "loader-coal": KIT_DEPOT,
+  "loader-planks": KIT_DEPOT,
+  unloader: KIT_DEPOT,
 };
 
 /** Each industry's buildings as a Blender part (tools/blender/dressing.py), with its colours. */
@@ -451,8 +460,9 @@ export class DepotView {
     const tiles = new Map<number, { b: Batcher; at: { x: number; z: number }[] }>();
     for (const depot of economy.allDepots()) {
       const piece = layout.getPiece(depot.pieceId);
-      // A depot piece being carried shows its buildings in the hand instead (see `model`).
-      if (!piece || layout.isLifted(depot.pieceId)) continue;
+      // A depot piece being carried shows its buildings in the hand instead (see `model`). A kit piece's depot (a
+      // Sandbox loader or unloader) is drawn by its kit's model, its own crane working (KitView).
+      if (!piece || layout.isLifted(depot.pieceId) || kitOf(piece.type)) continue;
       const spec = DEPOT_LAYOUT[depot.role];
       const pose: SitePose = { ...piece.pose, y: piece.y };
       const site: Site = {

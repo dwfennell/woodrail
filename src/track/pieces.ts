@@ -17,6 +17,8 @@ import {
 } from "./constants";
 import { normalizeAngle, type Pose } from "./math";
 import type { PathGeom } from "./path";
+import { KITS, type KitTypeId } from "./kits";
+import { pose, straight } from "./shapes";
 
 export type ConnectorKind = "peg" | "socket";
 
@@ -89,7 +91,8 @@ export type PieceTypeId =
   | "depot-harbour"
   | "depot-warehouse"
   | JoinTypeId
-  | FitTypeId;
+  | FitTypeId
+  | KitTypeId;
 
 /**
  * Join pieces: S-bends `length` long shifting the line `offset` to the left (flipped: right), on the 18 mm track
@@ -118,11 +121,22 @@ export interface PieceDef {
    * line ahead is occupied or it's held at red (see the sim's block working).
    */
   readonly signal?: { readonly stopAt: number };
+  /**
+   * Its paths are the ways a moving deck can lie (a turntable's): only the one its state picks (`switchState` mod the
+   * number of paths) joins its ends; every other end is open while the deck lies elsewhere (a train turns back there).
+   */
+  readonly gated?: boolean;
 }
 
-export const MAX_CONNECTORS = 4;
+/**
+ * How long a deck takes to turn or slide to its next road (s): it joins nothing till it's there (the sim's
+ * `toggleSwitch`, `Layout.deckTurning`), and `KitView` glides it over the same time.
+ */
+export const DECK_GLIDE_S = 1;
 
-const pose = (x: number, z: number, heading: number): Pose => ({ x, z, heading });
+/** The most ends a piece has (a turntable's eight roads). */
+export const MAX_CONNECTORS = 8;
+
 const offsetPose = (p: Pose, dx: number, dz: number): Pose => ({ x: p.x + dx, z: p.z + dz, heading: p.heading });
 
 function arcEnd(radius: number, sweep: number): Pose {
@@ -131,25 +145,6 @@ function arcEnd(radius: number, sweep: number): Pose {
   return pose(radius * Math.sin(a), sign * radius * (1 - Math.cos(a)), sweep);
 }
 
-function straight(
-  type: PieceTypeId,
-  length: number,
-  a: ConnectorKind = "socket",
-  b: ConnectorKind = "peg",
-  y = 0,
-): PieceDef {
-  return {
-    type,
-    connectors: [
-      { kind: a, pose: pose(0, 0, Math.PI), y },
-      { kind: b, pose: pose(length, 0, 0), y },
-    ],
-    paths: [{ from: 0, to: 1, geom: { kind: "line", start: pose(0, 0, 0), length, y0: y, rise: 0 } }],
-    flippable: false,
-    isSwitch: false,
-    supportHeight: 0,
-  };
-}
 
 function curve(type: PieceTypeId, radius: number): PieceDef {
   return {
@@ -512,6 +507,9 @@ for (const ends of ["pp", "hh"] as const) {
   for (const [length, offset] of JOIN_SIZES) CATALOG[fitType(length, offset, ends)] = bothEnds(sCurve(fitType(length, offset, ends), length, offset), kind);
 }
 
+// Kit pieces (see kits.ts): their track is a piece like any other, saved as one.
+for (const [type, kit] of Object.entries(KITS) as [KitTypeId, (typeof KITS)[KitTypeId]][]) CATALOG[type] = kit.track;
+
 export const PIECE_TYPES = Object.keys(CATALOG) as readonly PieceTypeId[];
 
 /** Bridges stand on their own arches, down to the ground under them. */
@@ -541,7 +539,13 @@ function swapEnds(def: PieceDef): PieceDef {
 }
 
 /** Pieces whose flip swaps their ends' peg and hole, rather than mirroring them. */
-const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>(["ramp", "buffer", "buffer-turnback"]);
+const SWAPS_ENDS: ReadonlySet<PieceTypeId> = new Set<PieceTypeId>([
+  "ramp",
+  "buffer",
+  "buffer-turnback",
+  // Kits flipping (a buffer's skin): a single end, so a flip can only swap its peg and hole.
+  ...(Object.keys(KITS) as KitTypeId[]).filter((t) => KITS[t].track.flippable && KITS[t].track.connectors.length === 1),
+]);
 
 /** Does flipping this piece swap its ends' peg and hole (so a moved one may flip to fit, as a new one does)? */
 export const flipSwapsEnds = (type: PieceTypeId): boolean => SWAPS_ENDS.has(type);
