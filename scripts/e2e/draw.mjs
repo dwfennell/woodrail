@@ -782,13 +782,8 @@ async function qaReplay() {
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
   q.on("pageerror", (e) => errors.push(e.message));
-  // As QA started it: from the title, Sandbox's New map (no help card).
-  await q.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
-  await q.goto(URL);
-  await q.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
-  await q.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((b) => b.textContent.includes("New map")).click());
-  await q.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && document.querySelector(".tray-draw") !== null, null, { timeout: 120000 });
-  await q.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  // The linked map (#seed-7) opens in Sandbox, fresh.
+  await boot(q);
   await q.evaluate(() => {
     const w = window.woodrail;
     window.__toasts = [];
