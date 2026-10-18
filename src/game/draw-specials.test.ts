@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from "three";
 import { gridWithPlots, hillMessage, hillsOf, inRiver, SURF_RIVER, syncCuttings, type BlockReason, type Landscape } from "../landscape";
 import { DrawLine, isBridge, Layout, RISER_HEIGHT, type DrawEnd, type DrawOptions, type PieceTypeId } from "../track";
 import { createWorld } from "./world";
@@ -386,42 +387,73 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
     const world = createWorld(7);
     const land = world.landscape;
     const G = land.grid;
-    // QA's camera (phi 0.95 from straight down, theta −1.1659, about 3.7 m off): a point on the screen is seen this much
-    // nearer the camera, along the ground, for each mm up.
-    const theta = -1.1659;
-    const ux = Math.sin(theta);
-    const uz = Math.cos(theta);
-    const K = Math.tan(0.95);
-    // QA's exact world lines (seed 7, fresh): start, heading, length, and which way the finger went.
-    const runs: [string, number, number, number, number, boolean][] = [
-      ["slant 23 there", -36, -1620, 2.7576202181510405, 972, false],
-      ["slant 30 back", -252, -1620, 2.0943951023931953, 972, true],
-      ["slant 10 back", -180, -1620, 2.5307274153917776, 852, true],
-      ["slant -23 back", -36, -1620, 2.7401669256310974, 972, true],
-      ["slant 10 there", -180, -1620, 2.5307274153917776, 852, false],
-      ["slant 40 back (clean)", -252, -1620, 2.2689280275926285, 852, true],
+    // QA's exact world lines (seed 7, fresh): start, heading, length, which way the finger went, and QA's camera (its
+    // target and distance; phi 0.95 from straight down, theta −1.1659).
+    const runs: [string, number, number, number, number, boolean, number, number, number][] = [
+      ["slant 23 there", -36, -1620, 2.7576202181510405, 972, false, -481, -1440.2, 3662.2],
+      ["slant 30 back", -252, -1620, 2.0943951023931953, 972, true, -492, -1204.3, 4760.9],
+      ["slant 10 back", -180, -1620, 2.5307274153917776, 852, true, -524, -1379.1, 3662.2],
+      ["slant -23 back", -36, -1620, 2.7401669256310974, 972, true, -477.8, -1432.4, 3662.2],
+      ["slant 10 there", -180, -1620, 2.5307274153917776, 852, false, -524, -1379.1, 3662.2],
+      ["slant 40 back (clean)", -252, -1620, 2.2689280275926285, 852, true, -522, -1298.3, 3662.2],
     ];
+    const W = 390;
+    const H = 844;
     const fails: string[] = [];
-    for (const [label, x0, z0, h, total, back] of runs) {
-      const pts: { x: number; z: number }[] = [];
-      for (let d = 0; d <= total; d += 15) pts.push({ x: x0 + Math.cos(h) * d, z: z0 + Math.sin(h) * d });
+    for (const [label, x0, z0, h, total, back, tx, tz, dist] of runs) {
+      // The game's camera, as `Game.lookAt` places it, on a 390 × 844 screen.
+      const camera = new PerspectiveCamera(30, W / H, 5, 40000);
+      const phi = 0.95;
+      const theta = -1.1659;
+      camera.position.set(tx + Math.sin(theta) * Math.sin(phi) * dist, Math.cos(phi) * dist, tz + Math.cos(theta) * Math.sin(phi) * dist);
+      camera.lookAt(tx, 0, tz);
+      camera.updateMatrixWorld();
+      const ray = new Raycaster();
+      const level = new Plane(new Vector3(0, 1, 0), 0);
+      // DrawHand's `planeAt`: a screen point (px) seen on the level plane at a height.
+      const planeAt = (sx: number, sy: number, y: number) => {
+        ray.setFromCamera(new Vector2((sx / W) * 2 - 1, -(sy / H) * 2 + 1), camera);
+        level.constant = -y;
+        const v = ray.ray.intersectPlane(level, new Vector3());
+        return v ? { x: v.x, z: v.z } : null;
+      };
+      // QA's finger: each world point every 15 mm, seen at the ground's height there, on the screen; touch moves every 10 px.
+      const pts: [number, number][] = [];
+      for (let d = 0; d <= total; d += 15) {
+        const x = x0 + Math.cos(h) * d;
+        const z = z0 + Math.sin(h) * d;
+        const v = new Vector3(x, G.groundY(G.cellAtWorld(x, z)), z).project(camera);
+        pts.push([((v.x + 1) / 2) * W, ((1 - v.y) / 2) * H]);
+      }
       if (back) pts.reverse();
-      // The finger's screen points, seen on the ground (at its height there) as QA projected them.
-      const ground = (x: number, z: number) => G.groundY(G.cellAtWorld(x, z));
-      const first = pts[0];
-      const heading = Math.atan2(pts[1].z - first.z, pts[1].x - first.x);
-      const start: DrawEnd = { x: Math.round(first.x / 18) * 18, z: Math.round(first.z / 18) * 18, heading: Math.round(heading / (Math.PI / 4)) * (Math.PI / 4), y: 0, kind: "peg" };
-      const line = new DrawLine(start, options(land, world.layout));
-      for (let i = 1; i < pts.length; i++)
-        for (let k = 1; k <= 3; k++) {
-          const x = pts[i - 1].x + ((pts[i].x - pts[i - 1].x) * k) / 3;
-          const z = pts[i - 1].z + ((pts[i].z - pts[i - 1].z) * k) / 3;
-          const g = ground(x, z);
-          line.addSeen((y) => ({ x: x + (y - g) * K * ux, z: z + (y - g) * K * uz }));
+      const screen: [number, number][] = [pts[0]];
+      for (let i = 1; i < pts.length; i++) {
+        const [ax, ay] = pts[i - 1];
+        const [bx, by] = pts[i];
+        const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
+        for (let k = 1; k <= n; k++) screen.push([ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n]);
+      }
+      // As DrawHand starts a line on open ground: once the finger has gone 30 mm, on the grid, its way in eighths.
+      const origin = planeAt(screen[0][0], screen[0][1], 0)!;
+      let line: DrawLine | null = null;
+      for (const [sx, sy] of screen.slice(1)) {
+        if (!line) {
+          const p = planeAt(sx, sy, 0)!;
+          if (Math.hypot(p.x - origin.x, p.z - origin.z) < 30) continue;
+          const heading = Math.round(Math.atan2(p.z - origin.z, p.x - origin.x) / (Math.PI / 4)) * (Math.PI / 4);
+          const sx0 = Math.round(origin.x / 18) * 18;
+          const sz0 = Math.round(origin.z / 18) * 18;
+          line = new DrawLine({ x: sx0, z: sz0, heading, y: 0, kind: "peg" }, options(land, world.layout));
         }
+        line.addSeen((y) => planeAt(sx, sy, y));
+      }
+      if (!line) {
+        fails.push(`${label}: no line`);
+        continue;
+      }
       line.finish();
       const ok = !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => p.type === "bridge") && !line.pieces.some((p) => p.type === "bridge-curve") && line.end.y === 0;
-      if (!ok) fails.push(`${label}: ${name(line)} [${line.pieces.at(-1)?.blockedBy} ${line.pieces.at(-1)?.blocked}] end ${line.end.x.toFixed(0)},${line.end.z.toFixed(0)}`);
+      if (!ok) fails.push(`${label}: ${name(line)} [${line.pieces.at(-1)?.blockedBy} ${line.pieces.at(-1)?.blocked}]`);
     }
     expect(fails, fails.join("\n")).toEqual([]);
   });

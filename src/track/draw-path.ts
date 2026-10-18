@@ -781,6 +781,11 @@ export class DrawLine {
         if (!w && from !== -1 && to === -1) to = d;
       }
       if (from === -1 || to === -1 || (onMap && !onMap(e.x + cx * (to + RAMP_LENGTH), e.z + cz * (to + RAMP_LENGTH)))) continue;
+      // The far bank no more than a level up (the bridges' height), for a ramp's length: a higher hill there stops it.
+      const groundAt = this.options.groundAt;
+      let high = false;
+      for (let d = to; d <= to + RAMP_LENGTH && groundAt && !high; d += APPROACH_STEP) high = groundAt(e.x + cx * d, e.z + cz * d) > e.y + RISER_HEIGHT + 1;
+      if (high) continue;
       // Less water, nearer the stroke's way, and fewer curves to turn onto it (each needs room before the bank).
       const cost = to - from + 40 * Math.abs(normalizeAngle(heading - way)) + 100 * Math.round(Math.abs(normalizeAngle(heading - e.heading)) / EIGHTH);
       if (!best || cost < best.cost) best = { heading: normalizeAngle(heading), cost };
