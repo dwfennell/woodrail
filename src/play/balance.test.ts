@@ -25,7 +25,7 @@ import { rng } from "../lib/rng";
 import { SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, indexOfRef, pieceOfRef, type PieceTypeId, type Pose } from "../track";
 import { lineLegs } from "../game/route-path";
-import { carsLength, loopOnLine, passingLoops } from "../game/passing-loop";
+import { carsLength, loopOnLine, passingLoops, STAND_SHORT, TAIL_CLEAR } from "../game/passing-loop";
 import { play, type Blocked } from "./player";
 import { endOn, rulesFor } from "./rules";
 
@@ -525,20 +525,28 @@ function spliceLoop(P: Player, stopPieces: readonly number[], longest = 0): numb
     3: { main: ["straight-216", "straight-144"], side: ["straight-144"] },
   };
   // Runs of straights on the line's ways between stops: first where the main road holds the line's longest train
-  // (`longest`, mm) clear of both switches, then clear of the stops, then longest, then nearest the middle.
-  const runs: { ids: number[]; mid: number; clear: boolean; fits: boolean }[] = [];
+  // (`longest`, mm) clear of both switches, then clear of the stops (by up to two pieces: a long train worked at a stop
+  // stands out past it), then longest, then nearest the middle between its two stops.
+  const runs: { ids: number[]; mid: number; clear: number; fits: boolean; busy: boolean }[] = [];
+  const isStop = (id: number) => P.fixed.has(id) || !!w.economy.depotAtPiece(id);
   for (const n of [4, 3])
     for (const leg of lineLegs(L, stopPieces)) {
       const ids: number[] = [];
       for (const r of leg ?? []) if (ids.at(-1) !== r.pieceId) ids.push(r.pieceId);
       for (let k = 0; k + n <= ids.length; k++) {
         const run = ids.slice(k, k + n);
-        if (run.some((id) => P.fixed.has(id) || L.getPiece(id)!.type !== "straight-216" || w.sim.pieceOccupied(id))) continue;
-        // (Clear of the stops at either end by two pieces: a long train worked at a stop creeps on past it.)
-        runs.push({ ids: run, mid: Math.abs(k + n / 2 - ids.length / 2), clear: k >= 3 && k + n <= ids.length - 3, fits: (n === 4 ? 576 : 360) >= longest + 12 });
+        if (run.some((id) => isStop(id) || L.getPiece(id)!.type !== "straight-216")) continue;
+        let before = k - 1;
+        while (before >= 0 && !isStop(ids[before])) before--;
+        let after = k + n;
+        while (after < ids.length && !isStop(ids[after])) after++;
+        const gaps = [k - before - 1, after - k - n];
+        runs.push({ ids: run, mid: Math.abs(gaps[0] - gaps[1]), clear: Math.min(2, ...gaps), fits: (n === 4 ? 576 : 360) >= longest + 12, busy: run.some((id) => w.sim.pieceOccupied(id)) });
       }
     }
-  runs.sort((a, b) => Number(b.fits) - Number(a.fits) || Number(b.clear) - Number(a.clear) || b.ids.length - a.ids.length || a.mid - b.mid);
+  runs.sort((a, b) => Number(b.fits) - Number(a.fits) || b.clear - a.clear || b.ids.length - a.ids.length || a.mid - b.mid);
+  // The best place has a train on it now: wait for it to clear (a loop beside a stop, or too short, is little use).
+  if (runs[0]?.busy) return null;
   const rules = P.rules();
   /** The end joined to piece `id` other than by piece `not`. */
   const outer = (id: number, not: number): number => {
@@ -548,7 +556,7 @@ function spliceLoop(P: Player, stopPieces: readonly number[], longest = 0): numb
     }
     return -1;
   };
-  for (const { ids } of runs.slice(0, 12)) {
+  for (const { ids } of runs.filter((r) => !r.busy).slice(0, 12)) {
     const n = ids.length;
     const before = outer(ids[0], ids[1]);
     const after = outer(ids[n - 1], ids[n - 2]);
@@ -825,6 +833,26 @@ class Playthrough {
     }
     const last = P.rows.at(-1)?.minute ?? 0;
     if (this.idle >= 5) this.idleStretches.push({ from: last - this.idle + 1, to: last, why: this.idleWhy });
+  }
+
+  /**
+   * The longest train (mm) the line's passing loop holds clear of both switches (its shorter road, less the room each
+   * end); Infinity with one train for the line, or no loop yet to fit (it's laid to fit the goods train).
+   */
+  loopRoom(): number {
+    if (PER_LINE < 2 || ENV.BALANCE_NOLOOP || !this.loop) return Infinity;
+    const L = this.p.w.layout;
+    const loop = passingLoops(L).find((l) => this.loop!.includes(l.a));
+    return loop ? Math.min(...loop.roads.map((r) => r.length)) : Infinity;
+  }
+
+  /** A straight on the line's passing loop's other road (its longer one), free of trains; −1 if none. */
+  loopSpot(): number {
+    const w = this.p.w;
+    const loop = this.loop && passingLoops(w.layout).find((l) => this.loop!.includes(l.a));
+    if (!loop) return -1;
+    const side = [...loop.roads].sort((a, b) => b.length - a.length)[0];
+    return side.pieces.find((id) => w.layout.getPiece(id)!.type === "straight-216" && !w.sim.pieceOccupied(id)) ?? -1;
   }
 
   /** A minute's decisions. */
@@ -1112,6 +1140,10 @@ class Playthrough {
     if (s.learned.has("passengers")) want.push("passenger", "passenger");
     if (this.farm < 0 && !s.learned.has("passengers")) want.push("timber");
     const kinds: CarKind[] = ["engine", ...want.slice(0, pulls)];
+    // With more than one train for the line, no longer than its passing loop holds (clear of both switches): a train
+    // too long to wait in the loop can't cross there. (Wagons are dropped from the end of the wish list.)
+    const room = this.loopRoom();
+    while (kinds.length > 2 && carsLength(kinds.map((kind) => ({ kind }))) + STAND_SHORT + TAIL_CLEAR > room) kinds.pop();
     const found = w.sim.findCar(this.timber);
     const current = found?.train.cars.map((c) => c.kind).sort().join(",");
     const look = found ? w.sim.lookOf(this.timber) : "classic";
@@ -1177,7 +1209,8 @@ class Playthrough {
     if (!loopFirst && this.lines && this.lineId >= 0 && this.trains.size < PER_LINE - this.jamCut && P.minute - this.extraAt >= 3) {
       const cars: CarKind[] = ["engine", "timber", "timber"];
       if (P.canMake(thingsFor({ kind: "train", cars }))) {
-        const e = P.train(cars, -1, 1);
+        // (In the loop's other road, as a player would set it down: clear of the goods train's way.)
+        const e = P.train(cars, this.loopSpot(), 1);
         if (typeof e === "number") {
           this.trains.set(e, `line train ${this.trains.size + 1}`);
           joinLine(w.economy, e, this.lineId);
