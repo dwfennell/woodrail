@@ -166,27 +166,30 @@ function quarry(add: PlaceFn, mats: Materials): void {
   add(mats.lacquer("#c8442f"), new RoundedBoxGeometry(4, 8, 14, 1, 1.2), 206, 64, PAD_H + 4);
 }
 
-/** The warehouse: a plank deck, crates and barrels waiting by the shed, a hand truck. */
+/**
+ * The warehouse: a plank deck, and crates and barrels waiting in front of its goods shed (whose dock, from l 53 out,
+ * has crates and sacks of its own: tools/blender/dressing.py, industry_warehouse), a hand truck.
+ */
 function warehouse(add: PlaceFn, mats: Materials): void {
   // The deck: planks along the track, two tones of beech.
   const boards = [mats.lacquer("#d9b27a"), mats.lacquer("#c99f68")];
   const n = 8;
   const w = PAD.d / n;
   for (let k = 0; k < n; k++) add(boards[k % 2], new RoundedBoxGeometry(PAD.w, PAD_H, w - 0.6, 1, 0.8), PAD.t, PAD.l - PAD.d / 2 + w * (k + 0.5), PAD_H / 2);
-  // Crates, painted, at the far end.
+  // Crates, painted, at the far end, between the dock and the track.
   const crate = (c: string, t: number, l: number, y: number, s = 12) => add(mats.lacquer(c), new RoundedBoxGeometry(s, s, s, 1, 1.2), t, l, PAD_H + y + s / 2);
-  crate("#c8442f", 194, 46, 0);
-  crate("#2f6db5", 194, 60, 0);
-  crate("#e6b52c", 194, 53, 12, 10);
-  crate("#3c8f4e", 180, 46, 0, 10);
+  crate("#c8442f", 194, 40, 0);
+  crate("#2f6db5", 181, 40, 0);
+  crate("#e6b52c", 188, 40, 12, 10);
+  crate("#3c8f4e", 168, 40, 0, 10);
   // Barrels.
-  for (const [t, l] of [[150, 44], [160, 46], [155, 54]] as const) {
+  for (const [t, l] of [[118, 39], [128, 40], [123, 47]] as const) {
     add(mats.lacquer("#8a5a33"), new CylinderGeometry(4.6, 4.6, 12, 12), t, l, PAD_H + 6);
     for (const y of [3, 9]) add(mats.lacquer("#2f2f33"), new CylinderGeometry(4.9, 4.9, 1.2, 12), t, l, PAD_H + y);
   }
   // A hand truck leaning by the crates.
-  add(mats.lacquer("#c8442f"), new BoxGeometry(1.4, 18, 8), 176, 60, PAD_H + 9);
-  add(mats.lacquer("#2f2f33"), new CylinderGeometry(2.4, 2.4, 10, 10).rotateX(Math.PI / 2), 176, 60, PAD_H + 2.4);
+  add(mats.lacquer("#c8442f"), new BoxGeometry(1.4, 18, 8), 154, 40, PAD_H + 9);
+  add(mats.lacquer("#2f2f33"), new CylinderGeometry(2.4, 2.4, 10, 10).rotateX(Math.PI / 2), 154, 40, PAD_H + 2.4);
 }
 
 /** The ground of a yard is drawn by `dressIndustry` for these (the plain pad is skipped). */

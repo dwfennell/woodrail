@@ -645,25 +645,32 @@ def industry_quarry(k):
 
 def industry_warehouse(k):
     """
-    The warehouse: a long beech goods shed (120 x 28, walls 32 high) at x 130, z 100 under a solid roof (slot "roof"),
-    three big doors facing the track (slot "doors") with cream lintels, printed windows between them, a name board.
+    The warehouse, in the goods-shed kit's look (bldg_works.goods_shed): a brown timber shed (90 x 40, walls 38 high)
+    with a red roof at x 154, z 92, its loading dock (100 x 18, 12 high) along the track side (-z) with crates and
+    sacks on it, a cream sliding door and a yellow hand crane at the dock's far end reaching toward the track. It stands
+    on the far half of the yard, clear of the piles (x 24-92) and the jib crane (x 60).
     """
-    from bldg_parts import winZ
+    from bldg_parts import WIN, crate, house, sack, winX
 
+    s = Node()
+    # The goods shed in its own frame, turned so the dock faces -z (the kit's is on +z).
+    s.add(house(k, 90, 40, 38, k.paint(TOY.brown), TOY.red, 14))
+    s.add(winX(k, 45, 22, 0, 10, 10), winX(k, -45, 22, 0, 10, 10))
+    s.add(k.box(k.paint(WIN), 34, 28, 1, 0.3, 0, 0, -20.2))
+    s.add(k.box(k.paint(TOY.cream), 34, 28, 2, 0.6, 0, 0, -21.8), k.box(k.paint(TOY.red), 2, 26, 2.6, 0.3, 0, 1, -21.8))
+    s.add(k.box(k.paint(TOY.cream), 80, 2, 3, 0.4, 0, 29, -21.5))
+    s.add(k.box(k.wood, 100, 12, 18, 1.2, 0, 0, -30))
+    s.add(crate(k, -38, 12, -30), crate(k, -28, 12, -33, 8, TOY.blue), crate(k, -36, 21, -31, 7, TOY.red))
+    s.add(sack(k, 24, 12, -32), sack(k, 31, 12, -30), sack(k, 27, 18, -31))
+    crane = Node()
+    crane.add(k.cyl(k.paint(TOY.yellow), 2.4, 30, 0, 0, 0, 2, 12))
+    jib = k.box(k.paint(TOY.yellow), 28, 2.4, 2.4, 0.5, 12, 26, 0)
+    jib.rotation.z = 0.25
+    crane.add(jib, k.cyl(k.paint(TOY.black), 0.4, 14, 25, 15, 0, 0.4, 6), k.box(k.paint(TOY.black), 3, 3, 3, 0.5, 25, 12, 0))
+    # (Its jib swung a quarter turn from along the dock to out over the track side.)
+    s.add(k.at(crane, 45, 12, -32, math.pi / 2))
     g = Node()
-    x, z, w, d, h = 130, 100, 120, 28, 32
-    front = z - d / 2
-    g.add(k.box(k.wood, w, h, d, 3, x, PAD, z))
-    g.add(k.roof(k.paint(slot("roof")), w + 5, d + 6, 13, x, PAD + h - 0.5, z, 3.5))
-    for dx in (-38, 0, 38):
-        g.add(k.box(k.paint(slot("doors")), 20, 24, 1.6, 1, x + dx, PAD, front - 0.4))
-        g.add(k.box(k.paint(CREAM), 23, 2.4, 2.2, 0.8, x + dx, PAD + 24.2, front - 0.4))
-        g.add(k.box(k.paint(CREAM), 1.4, 22, 0.8, 0.3, x + dx, PAD + 1, front - 1.3))
-    for dx in (-19, 19):
-        g.add(winZ(k, x + dx, PAD + 14, front, 9, 9))
-    for dx in (-55, 55):
-        g.add(winZ(k, x + dx, PAD + 14, front, 6, 9))
-    g.add(k.box(k.paint(CREAM), 40, 7, 2, 1, x, PAD + h - 6, front - 0.6))
+    g.add(k.at(s, 154, PAD, 92))
     return g
 
 
