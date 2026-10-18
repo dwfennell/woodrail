@@ -25,10 +25,8 @@ import type { Route } from "./economy";
  *   ready, with the way of the one that has waited longer (or, from the same moment, the lower engine id), unless that
  *   one can't go either.
  * - **Trains that each stand in the next one's way** (no passing place between them: a mutual wait): none can go
- *   first, so they say the line needs a passing loop. After `LOOP_WAIT_S` the one ready first (then the other) goes
- *   on instead to the first stop of its line it can reach clear of them, going on or turning back (each then works
- *   the stops on its own side); with none (a line of two stops), the first is let go after three times as long, as
- *   before (they meet and turn back). Nothing waits for ever: a train is also let go once its line has been still
+ *   first, so they say the line needs a passing loop. After `LOOP_WAIT_S` the one ready first is let go, as before
+ *   (they meet and turn back); the player's line is never changed. Nothing waits for ever: a train is also let go once its line has been still
  *   (nothing moving or being worked) for `QUIET_S` (a train held at a red signal by hand, say), and when its lever is
  *   set again (the player sends it on: "Go now").
  * - **Other lines and unrouted trains** are left alone: the player's signals rule them.
@@ -39,11 +37,8 @@ import type { Route } from "./economy";
 
 /** How often (economy ticks) a waiting train looks again. */
 export const CHECK_TICKS = 12;
-/**
- * Two trains each in the other's way (no passing place): after this long (s) one goes on to a stop it can reach (or,
- * with none, after three times as long, is let go as before).
- */
-export const LOOP_WAIT_S = 10;
+/** Two trains each in the other's way (no passing place): after this long (s) the one ready first is let go. */
+export const LOOP_WAIT_S = 30;
 /** A waiting train is let go once nothing on its line has moved or been worked for this long (s). */
 export const QUIET_S = 20;
 
@@ -75,8 +70,6 @@ export interface CrossHost {
   drive(train: Train): number;
   /** Is this train busy of its own accord (being worked at a depot, held for spacing)? It will go by itself. */
   busy(train: Train, engine: number): boolean;
-  /** Send an engine's train on from its stop to stop `index` of its route instead (turned round first, with `turn`). */
-  skipTo(engine: number, index: number, turn: boolean): void;
 }
 
 interface Reservation {
@@ -215,15 +208,11 @@ export class Crossing {
       this.letGo(engine, v);
       return false;
     }
-    // In a mutual wait (no passing place between them), the one ready first goes on, after a while, to a stop of its
-    // line it can reach without meeting the other (back the way it came, as like as not); the other waits on. If it
-    // can't, the other tries, a while later; and if neither can (a line of two stops), the first is let go as before.
+    // In a mutual wait (no passing place between them), after a while the one ready first is let go, as before.
     if (s.loop !== -1) {
       const lv = this.visits.get(s.loop);
       const first = !lv || v.readySince < lv.readySince || (v.readySince === lv.readySince && engine < s.loop);
-      const waited = (now - v.loopSince) * SIM_DT;
-      if (waited >= LOOP_WAIT_S + (first ? 0 : 1) && this.skip(engine, train, r, live, v)) return false;
-      if (first && waited >= 3 * LOOP_WAIT_S) {
+      if (first && (now - v.loopSince) * SIM_DT >= LOOP_WAIT_S) {
         this.letGo(engine, v);
         return false;
       }
@@ -294,35 +283,6 @@ export class Crossing {
       if (theirs && soft === -1 && uv && !uv.granted && uv.hard.length === 0 && (uv.readySince < v.readySince || (uv.readySince === v.readySince && u < engine)) && this.clashes(theirs, 0)) soft = u;
     }
     return { hard, standing, soft, loop, quiet };
-  }
-
-  /**
-   * In a mutual wait: send the train on to the first stop of its line (in its order, from the one after this) it can
-   * reach, going on or turning back here, clear of every other train of the line. False if there's none.
-   */
-  private skip(engine: number, train: Train, r: Route, live: readonly number[], v: Visit): boolean {
-    const { host, layout } = { host: this.host, layout: this.host.layout };
-    const here = r.stops[r.next % r.stops.length].depotId;
-    const front = this.end(train, false);
-    const back: Cursor = { ...front };
-    flipCursor(layout, back);
-    let k = r.next % r.stops.length;
-    for (let n = 1; n < r.stops.length; n++) {
-      k = (k + 1) % r.stops.length;
-      if (r.stops[k].depotId === here) continue;
-      const target = host.stopPiece(r.stops[k].depotId);
-      if (target < 0) continue;
-      for (const turn of [false, true]) {
-        const claims = claimsOf(layout, legFromCursor(layout, turn ? back : front, target));
-        if (!claims || claims.length === 0) continue;
-        const s = this.scan(engine, train, claims, target, live, v);
-        if (s.hard.length > 0) continue;
-        host.skipTo(engine, k, turn);
-        this.grant(engine, v, claims, target);
-        return true;
-      }
-    }
-    return false;
   }
 
   /**

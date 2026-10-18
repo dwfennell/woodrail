@@ -1,5 +1,5 @@
 import { getPieceDef, isKit, pathLength, type Layout } from "../track";
-import { ACCELERATION, CAR_SPECS, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
 import { Spacing } from "./spacing";
@@ -305,17 +305,6 @@ export class Economy {
       },
       drive: (train) => this.drive(train),
       busy: (train, engine) => this.servingDepot(train.id) !== undefined || this.spacing.holding(engine),
-      skipTo: (engine, index, turn) => {
-        const r = this.routes.get(engine);
-        const found = sim.findCar(engine);
-        if (!r || !found) return;
-        const line = this.lines.get(this.lineIdOf.get(engine) ?? -1);
-        if (line && r.at) this.spacing.departed(line.id, stopsKey(line), engine, r.next % r.stops.length, this.ticksRun);
-        r.next = index % r.stops.length;
-        r.at = false;
-        // Turned round: its engines' levers the other way (as at the end of the line).
-        if (turn) for (const car of found.train.cars) if (CAR_SPECS[car.kind].powered && car.lever !== 0) sim.setLever(car.id, car.lever === 1 ? -1 : 1);
-      },
     });
   }
 

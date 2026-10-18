@@ -249,7 +249,7 @@ class Player {
         this.note(`${idea.from}: ${techOf(idea.id)!.label} is on the board (${describePrice(priceOf(this.progress, techOf(idea.id)!))})`);
       }
       peopleArrive(this.w, this.progress, 1, this.people);
-      for (const engine of this.w.economy.lineIdOf.keys()) if (this.w.economy.spacing.holding(engine)) this.heldSeconds++;
+      for (const engine of this.w.economy.lineIdOf.keys()) if (this.w.sim.findCar(engine) && this.w.economy.spacing.holding(engine)) this.heldSeconds++;
       for (const engine of this.w.economy.lineIdOf.keys()) {
         const c = this.w.economy.crossWait(engine);
         if (c) this.crossSeconds++;

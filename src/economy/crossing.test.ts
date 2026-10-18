@@ -143,16 +143,24 @@ describe("trains that wait for each other (crossing)", () => {
     expect(ro.meetings.length).toBeGreaterThan(0);
   });
 
-  it("with no passing place: one goes on to a stop it can reach, the other waits saying the line needs a passing loop; no meetings, no jam", () => {
+  it("with no passing place: both wait saying the line needs a passing loop, then the first is let go as before", () => {
     const w = line("middle");
     const { a, b } = twoTrains(w, [w.dx.id, w.dm!.id, w.dy.id, w.dm!.id], 0, 2);
     const r = runner(w, [a, b]);
-    r.run(15 * 60);
-    expect(r.meetings).toEqual([]);
-    for (const e of [a, b]) expect(r.waits.get(e)!).toContain("needs-loop");
-    // Nothing freezes: both keep coming to stops (each on its own side of the other).
-    expect(r.arrivals.get(a)!).toBeGreaterThan(10);
-    expect(r.arrivals.get(b)!).toBeGreaterThan(10);
+    let loopAt = -1;
+    for (let i = 0; i < 180 * SIM_HZ && r.meetings.length === 0; i++) {
+      r.step();
+      if (loopAt < 0 && w.economy.crossWait(a)?.wait.kind === "needs-loop" && w.economy.crossWait(b)?.wait.kind === "needs-loop") loopAt = r.now();
+    }
+    expect(loopAt).toBeGreaterThan(0);
+    // No meeting while they wait; the first is let go after LOOP_WAIT_S and they meet and turn back, as before.
+    expect(r.meetings.length).toBeGreaterThan(0);
+    expect(r.meetings[0].tick * SIM_DT).toBeGreaterThanOrEqual(loopAt + LOOP_WAIT_S - 1);
+    // The player's line is never changed: each still runs the stops it was given, in order.
+    for (const e of [a, b]) expect(w.economy.routeOf(e)!.stops.map((s) => s.depotId)).toEqual([w.dx.id, w.dm!.id, w.dy.id, w.dm!.id]);
+    // Nothing freezes: the trains keep moving.
+    r.run(60);
+    expect([a, b].some((e) => w.sim.findCar(e)!.train.speed > 1 || r.meetings.length > 1)).toBe(true);
   });
 
   it("a line of two stops with no passing place: both wait, saying so; then the first is let go as before", () => {
@@ -172,7 +180,7 @@ describe("trains that wait for each other (crossing)", () => {
     expect(bothLoop).toBe(true);
     // No meeting while they wait: only once the first is let go (as before: they meet and turn back).
     expect(r.meetings.length).toBeGreaterThan(0);
-    expect(r.meetings[0].tick * SIM_DT).toBeGreaterThanOrEqual(loopAt + 3 * LOOP_WAIT_S - 1);
+    expect(r.meetings[0].tick * SIM_DT).toBeGreaterThanOrEqual(loopAt + LOOP_WAIT_S - 1);
   });
 
   it("trains following each other the same way never wait for each other", () => {
