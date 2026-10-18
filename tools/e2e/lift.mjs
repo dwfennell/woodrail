@@ -1,9 +1,12 @@
 // End-to-end train lift in Sandbox (`npm run e2e:lift`), on a phone-sized view (390×844): a line built with the lift in
 // it (felt, the lift, a level up, buffers at both ends), a train run up and back down (sim and economy stepped directly,
 // as the kit harness does: headless frames are slow), its positions and heights checked and nothing derailed; then
-// idle frames with a still lift on screen, still and paused (also paused mid-ride): none asked for by the lift.
+// idle frames with a still lift on screen, still and paused (also paused mid-ride): none asked for by the lift. First,
+// real touch taps on its platform standing down and empty (130 and 190 from its low end): each sends it, no card; and
+// one on its tower takes its piece.
 //
 // Usage: npm run e2e:lift [-- <out dir>]   (default out: e2e-out/lift; pictures mid-ride and at the top)
+// PROBE=1: the taps only, with what each ray met.
 // Starts its own dev server. Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium if present.
 import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -114,6 +117,114 @@ await p.evaluate(
   },
   { lift },
 );
+
+// QA N1: taps on the platform standing down and empty sent it about half the time, and opened the Track card the
+// rest (its floor level with the unseen felt-level track it's picked by). Real touch taps on the centreline 130 and
+// 190 from its low end, the game running: each sends the platform up, and opens no card. A tap on its tower's post
+// still takes the piece (its card).
+await p.evaluate(() => {
+  const w = window.woodrail;
+  w.__toasts = [];
+  const toast = w.hud.toast.bind(w.hud);
+  w.hud.toast = (m, ...rest) => (w.__toasts.push(m), toast(m, ...rest));
+  w.paused = false;
+  w.__lookLift(230);
+});
+await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+await settle();
+/** A point on the lift in screen px: `along` from its low end, `across` its line, `up` over its base. */
+const liftPoint = (along, across = 0, up = 6) =>
+  p.evaluate(
+    ([id, along, across, up]) => {
+      const w = window.woodrail;
+      const piece = w.layout.getPiece(id);
+      const h = piece.pose.heading;
+      const x = piece.pose.x + along * Math.cos(h) - across * Math.sin(h);
+      const z = piece.pose.z + along * Math.sin(h) + across * Math.cos(h);
+      const v = new w.camera.position.constructor(x, piece.y + up, z).project(w.camera);
+      const r = w.canvas.getBoundingClientRect();
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+    },
+    [lift, along, across, up],
+  );
+const tapState = () =>
+  p.evaluate((id) => {
+    const w = window.woodrail;
+    const el = document.querySelector(".piece-card");
+    const card = !!el && !el.hidden ? el.querySelector("*")?.textContent ?? "open" : null;
+    return { state: w.layout.switchState(id), moving: w.layout.deckTurning(id), selected: w.interaction.selectedPiece, mode: w.interaction.mode.kind, card, toasts: [...w.__toasts] };
+  }, lift);
+for (const along of [130, 190]) {
+  const [x, y] = await liftPoint(along);
+  const picked = await p.evaluate(([x, y]) => window.woodrail.interaction.pick(x, y, true), [x, y]);
+  if (process.env.PROBE)
+    console.log(
+      JSON.stringify(
+        await p.evaluate(
+          ([x, y, id]) => {
+            const w = window.woodrail;
+            const g = w;
+            const it = w.interaction;
+            it.setNdc(x, y);
+            const piece = w.layout.getPiece(id);
+            const hits = it.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group], true);
+            return hits.slice(0, 8).map((h) => {
+              const dx = h.point.x - piece.pose.x;
+              const dz = h.point.z - piece.pose.z;
+              const c = Math.cos(piece.pose.heading);
+              const s = Math.sin(piece.pose.heading);
+              return { name: h.object.name, type: h.object.type, ud: h.object.userData, lift: it.liftHit(h.object, h.batchId, h.instanceId), t: Math.round(dx * c + dz * s), l: Math.round(-dx * s + dz * c), y: Math.round((h.point.y - piece.y) * 10) / 10, d: Math.round(h.distance) };
+            });
+          },
+          [x, y, lift],
+        ),
+      ),
+    );
+  await p.evaluate(() => (window.woodrail.__toasts.length = 0));
+  await p.touchscreen.tap(x, y);
+  await settle();
+  await new Promise((r) => setTimeout(r, 300));
+  const after = await tapState();
+  check(`a tap on the down platform ${along} mm from its low end sends it, no card`, after.state === 1 && after.selected === -1 && !after.card && after.mode === "idle", JSON.stringify({ at: [Math.round(x), Math.round(y)], picked, ...after }));
+  // Back down, empty, for the next tap (stepped: headless frames are slow).
+  await p.evaluate((id) => {
+    const w = window.woodrail;
+    w.__step(120 * 5, () => !w.layout.deckTurning(id));
+    if (w.layout.switchState(id) === 1) w.sim.toggleSwitch(id);
+    w.__step(120 * 5, () => !w.layout.deckTurning(id) && w.sim.liftPosition(id) === 0);
+    w.interaction.clearSelection();
+    w.hud.hideCards();
+    w.paused = false;
+    w.invalidate();
+  }, lift);
+  await settle();
+}
+{
+  // Its tower: the middle post's top on the far side of the line from the camera (nothing of the platform behind it).
+  const side = await p.evaluate((id) => {
+    const w = window.woodrail;
+    const piece = w.layout.getPiece(id);
+    const h = piece.pose.heading;
+    return Math.sign(-(w.camera.position.x - piece.pose.x) * Math.sin(h) + (w.camera.position.z - piece.pose.z) * Math.cos(h)) || 1;
+  }, lift);
+  const [x, y] = await liftPoint(144, -32 * side, 120);
+  await p.touchscreen.tap(x, y);
+  await settle();
+  await new Promise((r) => setTimeout(r, 300));
+  const after = await tapState();
+  check("a tap on the lift's tower takes its piece (its card, \"Train lift\"), not sent", after.selected === lift && after.card === "Train lift" && after.state === 0 && !after.moving, JSON.stringify(after));
+  await p.evaluate(() => {
+    window.woodrail.interaction.clearSelection();
+    window.woodrail.hud.hideCards();
+  });
+  await settle();
+}
+
+if (process.env.PROBE) {
+  await b.close();
+  await server.close();
+  process.exit(failures ? 1 : 0);
+}
 
 // A train of an engine and a coach on the felt, heading for the lift.
 const run = await p.evaluate(
@@ -229,6 +340,9 @@ const idle = await p.evaluate(
       return r;
     };
     const still = await count(30000);
+    // The stop cue shown all the while: the platform's down, so its high end's board is up (and its low end's not).
+    const live = w.kitView.movers.get(lift)?.live;
+    const cue = [live?.getObjectByName("stop0")?.visible, live?.getObjectByName("stop1")?.visible];
     w.depotView.update = depots;
     w.boats.update = boats;
     w.__others = others.length;
@@ -254,12 +368,13 @@ const idle = await p.evaluate(
     const resumed = w.sim.liftPosition(lift);
     w.__step(120 * 4, () => w.sim.liftPosition(lift) === 1);
     w.paused = false;
-    return { others: w.__others, still, kitAsks: kitAsks.length, clockTicks: clockTicks.length, paused, sent, pos: Math.round(pos * 100) / 100, pausedMidRide, held, resumed: Math.round(resumed * 100) / 100, after: w.sim.liftPosition(lift) };
+    return { others: w.__others, still, cue, kitAsks: kitAsks.length, clockTicks: clockTicks.length, paused, sent, pos: Math.round(pos * 100) / 100, pausedMidRide, held, resumed: Math.round(resumed * 100) / 100, after: w.sim.liftPosition(lift) };
   },
   { lift },
 );
 console.log("idle frames with a still lift on screen (30 s each):", JSON.stringify(idle));
 check("idle: a still lift on screen draws no frames, running (beyond the map's depots' own) or paused", idle.kitAsks === 0 && idle.still <= idle.others && idle.paused === 0, JSON.stringify(idle));
+check("idle: …with its stop cue shown at the closed (high) end", idle.cue?.[0] === false && idle.cue?.[1] === true, JSON.stringify(idle.cue));
 check("paused mid-ride: the platform holds and draws nothing; it carries on after", idle.sent && idle.pausedMidRide === 0 && idle.held && idle.pos > 0 && idle.pos < 1 && idle.resumed > idle.pos && idle.after === 1, JSON.stringify(idle));
 
 check("no page errors", errors.length === 0, errors.join(" | "));
