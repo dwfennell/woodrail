@@ -268,6 +268,14 @@ lovely version:
     claim means hold. A train facing the wrong way after a meeting turns where it stands (or backs off from a mutual
     wait if its way behind is clear) and asks again. A third train is kept out of a loop when the loop's other road is
     held and a train is coming in from the other end (three trains, two roads).
+  - **Stubs**: a stub is the stretch from a line end (buffer or open end) back to the first switch. A train turns
+    back in it, so a train's way into a stub (from outside it) is granted only while no other train of the line holds
+    or stands on any part of it, either way: one train in a stub at a time, the others waiting at the passing place
+    before it. While a train is in a stub, one road of the loop fronting it is kept for its way back: a train of the
+    line coming to that loop from the other end waits back at the passing place before (one waiter in the loop at
+    most). Lines with no passing place for a train keep the end-to-end turn-taking above.
+  - **Claims between stops** are only ever granted in `settle`: a train with none (or one gone stale) is held where
+    it is and asks, like any other.
   - **The 30 s release** is only the safety net (a train held at red by hand, a lever left at stop): every release is
     logged (`Crossing.releases`, `released`) with its reason. In normal running on loop lines and no-loop lines alike
     there are none.

@@ -5,6 +5,7 @@ import { editLine, joinLine } from "../game/lines";
 import { engineStatus } from "../game/engine-status";
 import { Economy } from "./economy";
 import { chain, loopOn, runner, train, type World } from "./loop-fixtures";
+import { stubsOf } from "./crossing";
 
 /**
  * Block working (routes Phase 3c, economy/crossing.ts): a train leaving a passing place claims through to the next
@@ -339,5 +340,76 @@ describe("block working (crossing, Phase 3c)", { timeout: 120_000 }, () => {
     expect(run.meetings).toEqual([]);
     expect(releases(r.economy)).toEqual([]);
     es.forEach((e, k) => expect(run.arrivals.get(e)!, `train ${k}`).toBeGreaterThan(half[k]));
+  });
+
+  it("stubs: each stretch from a line end back to its first switch, none on a line with no switch", () => {
+    const r = runOn();
+    const stubs = stubsOf(r.layout);
+    // X's end (the buffer, X, the two pieces to the loop) and Y's (M and Y beyond it, to the buffer): two stubs.
+    expect(new Set(stubs.values()).size).toBe(2);
+    for (const id of [r.x, ...r.west]) expect(stubs.has(id)).toBe(true);
+    for (const id of [r.m, r.y]) expect(stubs.has(id)).toBe(true);
+    expect(stubs.get(r.x)).not.toBe(stubs.get(r.y));
+    for (const id of [r.s1, r.s2, ...r.main, ...r.side]) expect(stubs.has(id)).toBe(false);
+    expect(stubsOf(plain(2).w.layout).size).toBe(0);
+  });
+
+  it("a stop inside a stub (X – loop – M – Y, M and Y beyond the loop): three trains, one in the stub at a time", () => {
+    const r = runOn();
+    const es = trainsOn(r, true);
+    const run = runner(r.w, es);
+    const stubs = stubsOf(r.layout);
+    const yStub = stubs.get(r.y)!;
+    let shared = 0;
+    for (let i = 0; i < 15 * 60 * SIM_HZ; i++) {
+      run.step();
+      // (Started there, B is let out first; from then on, never two in Y's stub.)
+      if (i > 60 * SIM_HZ) {
+        const inStub = es.filter((e) => r.sim.findCar(e)!.train.bogies.some((b) => stubs.get(b.pieceId) === yStub));
+        if (inStub.length > 1) shared++;
+      }
+    }
+    expect(run.meetings).toEqual([]);
+    expect(releases(r.economy)).toEqual([]);
+    expect(shared).toBe(0);
+    for (const e of es) expect(run.arrivals.get(e)!).toBeGreaterThan(10);
+  });
+
+  it("a loop whose far end is a terminus, three trains: the stub's holder always has a road back; never meeting", () => {
+    // ⊐ X ══ ══ ══ S1 ═ loop ═ S2 ══ T ⊏ (T a terminus just past the loop: its stub is the stretch S2–T).
+    const layout = new Layout();
+    const [x, ...west] = chain(layout, ["depot-forest", "straight-216", "straight-216", "straight-216"]);
+    appendPiece(layout, "buffer-turnback", false, connectorRef(x, 0));
+    const loop = loopOn(layout, connectorRef(west[2], 1), ["straight-216", "straight-216"], ["straight-216"]);
+    const east = chain(layout, ["straight-216", "depot-forest"], connectorRef(loop.s2, 0));
+    appendPiece(layout, "buffer-turnback", false, connectorRef(east[1], 1));
+    const sim = new Sim(layout);
+    const economy = new Economy(layout, sim);
+    const dx = economy.addDepot("forest", x, 0);
+    const dt = economy.addDepot("town", east[1], 1);
+    const w = { layout, sim, economy, dx } as unknown as World;
+    const es = [train(w, west[0], true), train(w, west[2], false), train(w, east[0], false)];
+    const red = editLine(economy, es[0], (s) => s.push(...[dx, dt].map((d) => ({ depotId: d.id, action: "auto" as const }))))!;
+    for (const e of es.slice(1)) joinLine(economy, e, red.id);
+    economy.routeOf(es[0])!.next = 0;
+    economy.routeOf(es[1])!.next = 1;
+    economy.routeOf(es[2])!.next = 1;
+    const run = runner(w, es);
+    const stubs = stubsOf(layout);
+    const tStub = stubs.get(east[1])!;
+    const roads = new Set([...loop.main, ...loop.side]);
+    let crowded = 0;
+    for (let i = 0; i < 10 * 60 * SIM_HZ; i++) {
+      run.step();
+      // While a train is in T's stub, at most one other stands in the loop: its other road is kept for the way back.
+      const at = (e: number) => sim.findCar(e)!.train;
+      const held = es.some((e) => at(e).bogies.some((b) => stubs.get(b.pieceId) === tStub));
+      const waiting = es.filter((e) => at(e).speed < 1 && at(e).bogies.every((b) => roads.has(b.pieceId))).length;
+      if (held && waiting > 1) crowded++;
+    }
+    expect(run.meetings).toEqual([]);
+    expect(releases(economy)).toEqual([]);
+    expect(crowded).toBe(0);
+    for (const e of es) expect(run.arrivals.get(e)!).toBeGreaterThan(5);
   });
 });

@@ -155,6 +155,73 @@ interface Block {
 
 const NO_BLOCK: Block = { claims: [], targets: [], ends: [], turns: false, short: false };
 
+/**
+ * The layout's stubs: each stretch of track from a line end (a buffer, or track that just stops: where trains turn
+ * back) back to the first switch (a passing loop's, or a junction's), not including the switch. A stretch that runs
+ * from one line end to another with no switch at all (a line with no passing place) is no stub. Piece id to stub (the
+ * line end piece it runs to). Cached per layout, by its revision.
+ */
+const stubCache = new WeakMap<Layout, { revision: number; stubOf: Map<number, number>; mouth: Map<number, number> }>();
+export function stubsOf(layout: Layout): ReadonlyMap<number, number> {
+  return stubInfo(layout).stubOf;
+}
+
+/** Each stub's mouth: the switch it runs back to (keyed by stub, as `stubsOf`). */
+export function stubMouths(layout: Layout): ReadonlyMap<number, number> {
+  return stubInfo(layout).mouth;
+}
+
+function stubInfo(layout: Layout) {
+  const hit = stubCache.get(layout);
+  if (hit && hit.revision === layout.revision) return hit;
+  const stubOf = new Map<number, number>();
+  const mouth = new Map<number, number>();
+  const roads = loopRoadAt(layout);
+  const isEnd = (pieceId: number, def: ReturnType<typeof getPieceDef>, c: number): boolean => next(layout, pieceId, c) === null || def.paths.some((pa) => pa.to === null && pa.from === c);
+  for (const id of layout.pieceIds()) {
+    const piece = layout.getPiece(id)!;
+    const def = getPieceDef(piece.type, piece.flipped);
+    if (def.isSwitch || roads.has(id)) continue;
+    for (let c = 0; c < def.connectors.length; c++) {
+      // A line end at this piece: a buffer (a path that stops), or an end joined to nothing.
+      const buffer = def.paths.some((pa) => pa.to === null && pa.from === c);
+      if (!buffer && next(layout, id, c) !== null) continue;
+      const stretch: number[] = [];
+      let at = id;
+      let entered = buffer ? -1 : c;
+      let ok = false;
+      for (let k = 0; k < 4096; k++) {
+        const pc = layout.getPiece(at);
+        if (!pc) break;
+        const d = getPieceDef(pc.type, pc.flipped);
+        if (d.isSwitch || roads.has(at)) {
+          ok = stretch.length > 0;
+          if (ok) mouth.set(id, at);
+          break;
+        }
+        stretch.push(at);
+        // Out by the other end of the path it came in by (a buffer: its one end).
+        let exit = -1;
+        if (entered === -1) exit = c;
+        else {
+          const outs = d.paths.flatMap((pa) => (pa.from === entered && pa.to !== null ? [pa.to] : pa.to === entered ? [pa.from] : []));
+          if (outs.length !== 1) break;
+          exit = outs[0];
+        }
+        if (isEnd(at, d, exit) && at !== id) break;
+        const n = next(layout, at, exit);
+        if (!n) break;
+        at = n.pieceId;
+        entered = n.entry;
+      }
+      if (ok) for (const p of stretch) if (!stubOf.has(p)) stubOf.set(p, id);
+    }
+  }
+  const info = { revision: layout.revision, stubOf, mouth };
+  stubCache.set(layout, info);
+  return info;
+}
+
 /** A block of one leg. */
 const oneLeg = (claims: readonly Claim[], target: number): Block => ({ claims, targets: [target], ends: [claims.length], turns: false, short: false });
 
@@ -664,6 +731,24 @@ export class Crossing {
     let quiet = true;
     // (A mutual wait only counts between two trains standing still: one still running in, or out, is only passing.)
     const still = train.speed < 1;
+    // Stubs (with blocks): into a stub (from outside it) only while no other train of the line holds or stands on any
+    // of it, either way: a train in a stub turns back there, so a stub is one two-way claim.
+    // (Not on a line with no passing place for it: its trains take turns end to end, as one block.)
+    const stubs = this.blocking && !v.turns ? stubsOf(host.layout) : null;
+    let into: Set<number> | null = null;
+    if (stubs && stubs.size > 0) {
+      for (const c of mine) {
+        const st = stubs.get(c.pieceId);
+        if (st !== undefined) (into ??= new Set()).add(st);
+      }
+      // (Not one it's in already, or stands still at the mouth of: it's in that stub's way, not short of it.)
+      if (into) {
+        const mouths = stubMouths(host.layout);
+        for (const b of train.bogies) into.delete(stubs.get(b.pieceId) ?? -1);
+        if (train.speed < 1) for (const st of [...into]) if (train.bogies.some((b) => b.pieceId === mouths.get(st))) into.delete(st);
+      }
+      if (into?.size === 0) into = null;
+    }
     for (const u of live) {
       if (u === engine) continue;
       const tu = host.sim.findCar(u)?.train;
@@ -671,6 +756,15 @@ export class Crossing {
       if (!tu || tu === train || !ru || ru.stops.length === 0) continue;
       if (tu.speed > 1 || host.busy(tu, u)) quiet = false;
       const res = this.reservation(u, tu, ru, live);
+      if (into && stubs) {
+        let on = tu.bogies.some((b) => into!.has(stubs.get(b.pieceId) ?? -1));
+        if (!on && res && !res.free) for (let k = res.from; k < res.upto && !on; k++) on = into.has(stubs.get(res.claims[k].pieceId) ?? -1);
+        if (on) {
+          hard.push(u);
+          if (tu.speed < 1) standing.push(u);
+          continue;
+        }
+      }
       // (Let go and still at its stop: it counts as standing there.)
       if (res && !(res.free && ru.at)) {
         if (res.free ? this.clashes(this.occupancy(tu), 0) : this.clashes(res.claims, res.from, res.upto)) {
@@ -709,7 +803,7 @@ export class Crossing {
       const occ = this.occupancy(tu);
       // (With blocks: standing on our way at all, even heading our way, it goes first: we don't run up behind a train
       // that is itself waiting.)
-      if (this.clashes(occ, 0) || (toStop && uAt === target && theirs && this.clashesOn(theirs, last)) || (this.blocking && tu.speed < 1 && occ.some((c) => this.mine.has(c.pieceId)))) {
+      if (this.clashes(occ, 0) || (toStop && uAt === target && theirs && this.clashesOn(theirs, last)) || (this.blocking && (tu.speed < 1 || tu.turnback >= 0) && occ.some((c) => this.mine.has(c.pieceId)))) {
         hard.push(u);
         // (Still running in to its stop, it isn't standing in the way yet.)
         if (tu.speed < 1) standing.push(u);
@@ -759,20 +853,31 @@ export class Crossing {
     // (One already in the loop leaves a road free as it goes.)
     if (train.bogies.some((b) => onLoop(b.pieceId, -1))) return -1;
     let busy = false;
+    let waitsForMe = false;
     for (const u of live) {
       const tu = u === engine ? undefined : host.sim.findCar(u)?.train;
       if (!tu || tu === train) continue;
       const res = this.letGoBehind(u, tu);
-      if (tu.bogies.some((b) => onLoop(b.pieceId, other))) busy = true;
-      else if (res && !res.free) for (let k = res.from; k < res.upto && !busy; k++) busy = onLoop(res.claims[k].pieceId, other);
-      if (busy) break;
+      let on = tu.bogies.some((b) => onLoop(b.pieceId, other));
+      if (!on && res && !res.free) for (let k = res.from; k < res.upto && !on; k++) on = onLoop(res.claims[k].pieceId, other);
+      if (!on) continue;
+      busy = true;
+      // (The train on the other road waits for this one, coming out of the stub it holds beyond: the road left is
+      // kept for this one, its way back out.)
+      if (this.visitOf(u)?.hard.includes(engine)) waitsForMe = true;
     }
-    if (!busy) return -1;
+    if (!busy || waitsForMe) return -1;
     for (const u of live) {
       const tu = u === engine ? undefined : host.sim.findCar(u)?.train;
       const ru = host.route(u);
       if (!tu || tu === train || !ru || ru.stops.length === 0 || tu.bogies.some((b) => onLoop(b.pieceId, -1))) continue;
       const into = (way: readonly Claim[] | null) => !!way && this.runsOf(way).some((run) => run.loop === loop && run.entry !== -1 && run.toB !== toB);
+      // In a stub (beyond the loop): it must come back out through the loop: a road is kept for it.
+      const stubs = stubsOf(host.layout);
+      if (tu.bogies.some((b) => stubs.has(b.pieceId))) {
+        const uTo = host.stopPiece(ru.stops[ru.at ? stopAfter(ru, ru.next % ru.stops.length) : ru.next % ru.stops.length].depotId);
+        if (uTo >= 0 && into(this.pending(u, tu, uTo))) return u;
+      }
       // On its way in: it holds a claim into the loop from the other end.
       const res = this.letGoBehind(u, tu);
       if (res && !res.free && into(res.claims.slice(res.from, res.upto))) return u;
@@ -1571,6 +1676,7 @@ export class Crossing {
       this.letGo(engine, g, "go-now");
       return Infinity;
     }
+    g.turns = !!way.noLoop;
     const cand = this.releg(engine, train, way, () => live, true, false);
     const k = Math.max(0, this.frontIndex(cand.claims, train, 0));
     if (cand.upto > k + 1 || cand.upto >= cand.claims.length) {
