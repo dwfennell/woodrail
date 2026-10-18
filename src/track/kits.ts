@@ -61,6 +61,13 @@ export interface KitDef {
   /** Trains crawl over it at this speed (mm/s) while any of their axles is on it (a weighbridge). */
   readonly crawl?: number;
   /**
+   * A show put on for a train's engine, drawn only (nothing in the sim changes): "loop", a toy copy of the engine runs
+   * the model's loop while the train crawls over the kit (`LoopShowView`, src/render/loop-show.ts).
+   */
+  readonly show?: "loop";
+  /** Parts of the asset (by node name) its model leaves out: the loop's own little car, whose place the show takes. */
+  readonly without?: readonly string[];
+  /**
    * It's a cargo stop: registered as an economy depot of this role (`syncIndustries`, as industries' pieces are), so
    * trains stop to load and unload as at an industry. Sandbox's roles: an endless loader of one good, or an unloader
    * whose goods vanish (`KitDepotRole`). Its depot isn't drawn by `DepotView`: the kit's model is, its crane moving.
@@ -88,6 +95,11 @@ const TRACK_HALF = 20;
 const ROADS = 72;
 /** How far each leg of the signal gantry stands from its middle (mm): clear of both roads. */
 const GANTRY_LEG = 70;
+/**
+ * How far beside its line the loop-the-loop's model stands (l of its middle, mm): its trestles' feet (56 out from the
+ * loop's plane) just clear of the track's edge.
+ */
+export const LOOP_BESIDE = 80;
 /** Where a platform `depth` deep stands beside a track, its edge just off the track's (l of its middle, mm). */
 const beside = (depth: number) => TRACK_HALF + PLATFORM_GAP + depth / 2;
 
@@ -516,6 +528,26 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     splices: true,
     crawl: 30,
     moves: "occupied",
+  },
+  // The loop-the-loop: a show, not track. A 216 straight trains crawl over, the loop standing beside it on its
+  // trestles; while an engine crosses, a toy copy of it runs the loop (src/render/loop-show.ts) and the engine comes
+  // back at the far end.
+  "kit-loop-the-loop": {
+    asset: "mech-loop-the-loop",
+    name: "loop-the-loop",
+    track: straight("kit-loop-the-loop", 216),
+    rails: "track",
+    // The model's loop stands in its x/y plane (running radius 54, its ring 40 deep, its trestles' feet 56 either side
+    // of it): beside the line, its plane along the track and its middle at the piece's. (Over the line, the ring
+    // would cross the track.) Its own slabs of track either side are left out, and its little car (the show's copy
+    // runs instead).
+    place: { t: 108, l: LOOP_BESIDE },
+    footprint: [{ t: 108, l: LOOP_BESIDE, w: 128, d: 116 }],
+    splices: true,
+    // 216 at 40 mm/s: the show lasts 5.4 s.
+    crawl: 40,
+    show: "loop",
+    without: ["car"],
   },
   // A turntable: eight roads round a pit (radius 92), an eighth of a turn apart, and a deck across it that joins two
   // opposite ones. A tap turns the deck to the next road (not with a train on it); trains run on to a road the deck
