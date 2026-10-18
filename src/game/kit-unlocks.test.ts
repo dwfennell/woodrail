@@ -110,7 +110,7 @@ describe("railway kits in Game mode", () => {
       expect(workshopStock(w).planks, id).toBe(20 - cost.planks);
       expect(workshopStock(w).iron ?? 0, id).toBe(5 - (cost.iron ?? 0));
     }
-    expect(costText(ruleOf("piece:kit-colour-light-signal")!)).toBe("2🪵 planks + 1🔩 iron");
+    expect(costText(ruleOf("piece:kit-colour-light-signal")!)).toBe("2🪵 1🔩");
     // Short of planks: says so, takes nothing.
     const { w } = withWorkshop(3);
     expect(craftNow(w, p, new Map([["piece:kit-engine-shed", 1]]))).toEqual({ goods: { planks: 9 }, coins: 0 });

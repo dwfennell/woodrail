@@ -925,29 +925,16 @@ export class Hud {
   }
 
   /** The blueprint board's button: lit while open, a pulsing dot while a town's choice waits. */
-  setBoardButton(open: boolean, alert: boolean): void {
+  setBoardButton(open: boolean, rewards: number): void {
     this.boardBtn.classList.toggle("active", open);
-    this.boardBtn.classList.toggle("icon-btn-alert", alert);
-    // Until the board is first opened, a reward waiting makes the whole button glow (its icon has no label).
-    if (open && !this.boardSeen) {
-      this.boardSeen = true;
-      try {
-        localStorage.setItem("woodrail.boardSeen", "1");
-      } catch {
-        // storage unavailable: it glows again next visit
-      }
-    }
-    this.boardBtn.classList.toggle("board-new", alert && !this.boardSeen);
+    this.boardBtn.classList.toggle("icon-btn-alert", rewards > 0);
+    // A new reward makes the whole button pulse (its icon has no label) until the board is opened.
+    if (open || rewards < this.rewardsSeen) this.rewardsSeen = rewards;
+    this.boardBtn.classList.toggle("board-new", rewards > this.rewardsSeen);
   }
 
-  /** Has this player opened the blueprint board before (on any visit)? */
-  private boardSeen = ((): boolean => {
-    try {
-      return localStorage.getItem("woodrail.boardSeen") === "1";
-    } catch {
-      return false;
-    }
-  })();
+  /** Rewards waiting when the board was last open: one more since then makes the button pulse. */
+  private rewardsSeen = 0;
 
   /**
    * A newer build is out: offered in the menu (its button gets a dot) and said once in a toast. Nothing new on the map

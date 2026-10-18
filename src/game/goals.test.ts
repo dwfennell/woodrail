@@ -311,13 +311,22 @@ describe("place-workshop guide", () => {
     const fresh = buildStarterWorld();
     expect(goal("place-workshop").guide(fresh).towns.length).toBe(2);
   });
-  it("two trains at once waits for signals and junctions (a passing loop): passed over till then, and not counted", () => {
+  it("two trains at once waits for signals (a passing loop): hidden, not counted, never the current goal till then", () => {
     const w = buildStarterWorld();
     const t = new GoalTracker(GOALS.filter((g) => g.id !== "two-trains" && g.id !== "join-all").map((g) => g.id));
-    t.update(w, { learned: new Set(["signals"]) });
+    t.update(w, { learned: new Set(["switches"]) });
     expect(t.current()?.id).toBe("join-all");
-    expect(t.next()?.id).toBe("two-trains");
-    t.update(w, { learned: new Set(["signals", "junctions"]) });
+    expect(t.next()).toBeNull();
+    expect(t.total).toBe(GOALS.length - 1);
+    expect(t.lockedHint()).toBe("Learn Signals to unlock a goal");
+    // Every other goal done: still not the current one.
+    const all = new GoalTracker(GOALS.filter((g) => g.id !== "two-trains").map((g) => g.id));
+    all.update(w, { learned: new Set() });
+    expect(all.current()).toBeNull();
+    expect(all.lockedHint()).toBe("Learn Signals to unlock a goal");
+    t.update(w, { learned: new Set(["switches", "signals"]) });
     expect(t.current()?.id).toBe("two-trains");
+    expect(t.total).toBe(GOALS.length);
+    expect(t.lockedHint()).toBeNull();
   });
 });

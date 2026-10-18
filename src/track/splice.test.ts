@@ -3,7 +3,7 @@ import { connectorRef, Layout } from "./layout";
 import { type Pose } from "./math";
 import { findOverlap } from "./overlap";
 import { appendPiece } from "./snap";
-import { findSplice, gapFill, isPlainStraight, straightLength, straightsFor } from "./splice";
+import { findSplice, findSpliceThatFits, gapFill, isPlainStraight, straightLength, straightsFor } from "./splice";
 import type { PieceTypeId } from "./pieces";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
@@ -270,5 +270,99 @@ describe("findSplice: a short kit on a longer straight", () => {
     line(l, ["straight-108", "straight-108", "straight-108"]);
     const s = findSplice(l, "kit-water-tower", false, { x: 160, z: 0 }, 0, 40);
     expect(s.kind === "splice" && s.rest).toBeUndefined();
+  });
+});
+
+describe("findSpliceThatFits: held at a joint, the straight it can go on", () => {
+  // A line of three 216s from x 0: joints at 216 and 432. A Harvester held along the line.
+  const setup = () => {
+    const l = new Layout();
+    const ids = line(l, ["straight-216", "straight-216", "straight-216"]);
+    return { l, ids };
+  };
+  const covered = (s: ReturnType<typeof findSplice>) => (s.kind === "splice" ? s.covers : s.kind);
+
+  it("where it fits, it's the straight findSplice picks (the other side isn't asked about)", () => {
+    const { l, ids } = setup();
+    const asked: number[][] = [];
+    const s = findSpliceThatFits(l, "depot-forest", false, { x: 324, z: 0 }, 0, 40, () => true, (f) => (asked.push([...f.covers]), true));
+    expect(covered(s)).toEqual([ids[1]]);
+    expect(asked).toEqual([[ids[1]]]);
+  });
+
+  it("at a joint, where the straight picked won't do (too few trees), it takes the one the other side", () => {
+    const { l, ids } = setup();
+    const first = findSplice(l, "depot-forest", false, { x: 216, z: 0 }, 0, 40);
+    expect(first.kind).toBe("splice");
+    if (first.kind !== "splice") return;
+    const other = first.covers[0] === ids[0] ? ids[1] : ids[0];
+    const s = findSpliceThatFits(l, "depot-forest", false, { x: 216, z: 0 }, 0, 40, () => true, (f) => f.covers[0] === other);
+    expect(covered(s)).toEqual([other]);
+    // A little either side of the joint too (the finger's never exactly on it).
+    for (const x of [200, 230]) {
+      const t = findSpliceThatFits(l, "depot-forest", false, { x, z: 0 }, 0, 40, () => true, (f) => f.covers[0] === ids[0]);
+      expect(covered(t), `held at ${x}`).toEqual([ids[0]]);
+      const u = findSpliceThatFits(l, "depot-forest", false, { x, z: 0 }, 0, 40, () => true, (f) => f.covers[0] === ids[1]);
+      expect(covered(u), `held at ${x}`).toEqual([ids[1]]);
+    }
+  });
+
+  it("on touch, the finger on the joint counts (the piece is drawn above the finger, its middle off the joint)", () => {
+    const { l, ids } = setup();
+    // Held with its middle 80 mm into the second straight; the finger on the joint, or a finger's width (60) off it.
+    const fits = (f: { covers: readonly number[] }) => f.covers[0] === ids[0];
+    expect(covered(findSpliceThatFits(l, "depot-forest", false, { x: 296, z: 0 }, 0, 40, () => true, fits))).toEqual([ids[1]]);
+    expect(covered(findSpliceThatFits(l, "depot-forest", false, { x: 296, z: 0 }, 0, 40, () => true, fits, { x: 220, z: 30 }))).toEqual([ids[0]]);
+    expect(covered(findSpliceThatFits(l, "depot-forest", false, { x: 296, z: 0 }, 0, 40, () => true, fits, { x: 260, z: 0 }, 60))).toEqual([ids[0]]);
+    expect(covered(findSpliceThatFits(l, "depot-forest", false, { x: 296, z: 0 }, 0, 40, () => true, fits, { x: 290, z: 0 }, 60))).toEqual([ids[1]]);
+  });
+
+  it("held square across the line, its track over one straight only, the finger on the joint: the other side too", () => {
+    const { l, ids } = setup();
+    const fits = (f: { covers: readonly number[] }) => f.covers[0] === ids[0];
+    const s = findSpliceThatFits(l, "depot-forest", false, { x: 290, z: 0 }, Math.PI / 2, 40, () => true, fits, { x: 216, z: 40 }, 60);
+    expect(covered(s)).toEqual([ids[0]]);
+    // Its building on the side it was held to, as on any straight.
+    const plain = findSplice(l, "depot-forest", false, { x: 108, z: 0 }, Math.PI / 2, 40);
+    expect(s.kind === "splice" && plain.kind === "splice" && s.pose).toEqual(plain.kind === "splice" && plain.pose);
+  });
+
+  it("not onto another line beside it, however near (only the other side of a joint)", () => {
+    const l = new Layout();
+    const a = l.addPiece("straight-216", P(0, 0));
+    const b = l.addPiece("straight-216", P(0, 30));
+    const s = findSpliceThatFits(l, "depot-forest", false, { x: 108, z: 15 }, 0, 40, () => true, (f) => f.covers[0] !== a && f.covers[0] !== b);
+    expect(s.kind).toBe("splice");
+    const t = findSpliceThatFits(l, "depot-forest", false, { x: 108, z: 15 }, 0, 40, () => true, (f) => !(s.kind === "splice" && f.covers[0] === s.covers[0]));
+    expect(t).toEqual(s);
+  });
+
+  it("held over a straight's middle, it never hops along to the next: it's refused there (the reason is said)", () => {
+    const { l, ids } = setup();
+    const s = findSpliceThatFits(l, "depot-forest", false, { x: 324, z: 0 }, 0, 40, () => true, (f) => f.covers[0] !== ids[1]);
+    expect(covered(s)).toEqual([ids[1]]);
+  });
+
+  it("where neither side fits, it's the straight findSplice picks (and that one's reason is said)", () => {
+    const { l } = setup();
+    const first = findSplice(l, "depot-forest", false, { x: 216, z: 0 }, 0, 40);
+    const s = findSpliceThatFits(l, "depot-forest", false, { x: 216, z: 0 }, 0, 40, () => true, () => false);
+    expect(s).toEqual(first);
+  });
+
+  it("never the other side of a joint onto a straight a train stands on", () => {
+    const { l, ids } = setup();
+    const s = findSpliceThatFits(l, "depot-forest", false, { x: 216, z: 0 }, 0, 40, (id) => id !== ids[0], (f) => f.covers[0] === ids[0]);
+    expect(covered(s)).not.toEqual([ids[0]]);
+  });
+});
+
+describe("findSplice: skip", () => {
+  it("leaves the straights skipped out, as if not there (the next nearest is taken)", () => {
+    const l = new Layout();
+    const ids = line(l, ["straight-216", "straight-216", "straight-216"]);
+    const s = findSplice(l, "depot-workshop", false, { x: 216, z: 0 }, 0, 40, () => true, new Set([ids[0]]));
+    expect(s.kind === "splice" && s.covers).toEqual([ids[1]]);
+    expect(findSplice(l, "depot-workshop", false, { x: 324, z: 0 }, 0, 40, () => true, new Set(ids)).kind).toBe("none");
   });
 });

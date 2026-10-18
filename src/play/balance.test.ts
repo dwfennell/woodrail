@@ -752,6 +752,8 @@ class Playthrough {
   harvesterTry = -99;
   /** When things first came within reach (a blueprint offered or on the board), and each town level first reached. */
   readonly firsts: Record<string, number> = {};
+  /** Minutes a farm yard or a quarry waited on coins alone (learned, planks in the yard). */
+  readonly coinWait = { farm: 0, quarry: 0 };
   /** The longest stretch with no planks sawn (whole minutes). */
   stall = 0;
   /** The longest stretch with no planks sawn while two trains share the line (they turn each other back). */
@@ -1069,12 +1071,17 @@ class Playthrough {
           updateRates(w, (role) => boostOf(s, role));
           P.happened++;
           P.note(`built a farm yard at the line's end (rate ${w.economy.depotAtPiece(r.id)!.rate.toFixed(2)})`);
+          this.firsts["farm built"] = Math.round(P.minute);
           if (this.lines) this.routeGoods();
         } else {
           P.note("COULDN'T reach a farm site from the line's ends (or a branch)");
           s.add("piece:depot-farm", 0);
         }
-      } else this.why = `a farm yard (${describeGoods(ruleOf("piece:depot-farm")!.cost)} + ${ruleOf("piece:depot-farm")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
+      } else {
+        // Waiting on coins alone (the planks are there): counted, for the summary.
+        if (s.coins < ruleOf("piece:depot-farm")!.coins! && P.planks() >= (ruleOf("piece:depot-farm")!.cost.planks ?? 0)) this.coinWait.farm++;
+        this.why = `a farm yard (${describeGoods(ruleOf("piece:depot-farm")!.cost)} + ${ruleOf("piece:depot-farm")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
+      }
     }
     // The mill, after the farm yard.
     if (this.farm >= 0 && this.mill === -1 && s.learned.has("mills")) {
@@ -1287,12 +1294,24 @@ class Playthrough {
           updateRates(w, (role) => boostOf(s, role));
           P.happened++;
           P.note("built a quarry at a line end");
+          this.firsts["quarry built"] = Math.round(P.minute);
           if (this.lines) this.routeGoods();
         } else {
           P.note("COULDN'T reach a quarry site from the line's ends (or a branch)");
         }
-      } else this.why = `a quarry (${describeGoods(ruleOf("piece:depot-quarry")!.cost)} + ${ruleOf("piece:depot-quarry")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
+      } else {
+        // Waiting on coins alone (the planks are there): counted, for the summary.
+        if (s.coins < ruleOf("piece:depot-quarry")!.coins! && P.planks() >= (ruleOf("piece:depot-quarry")!.cost.planks ?? 0)) this.coinWait.quarry++;
+        this.why = `a quarry (${describeGoods(ruleOf("piece:depot-quarry")!.cost)} + ${ruleOf("piece:depot-quarry")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
+      }
     }
+  }
+
+  /** Minutes from learning a blueprint to building what it brings ("-": not both). */
+  wait(blueprint: string, built: string): string {
+    const learned = this.p.learnedAt.find((b) => b.id === blueprint)?.minute;
+    const at = this.firsts[built];
+    return learned === undefined || at === undefined ? "-" : String(Math.round(at - learned));
   }
 
   /** Give each train a line: the depots along the track in order, there and back, "auto" (the intent rules). */
@@ -1333,7 +1352,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
-      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} loop ${this.loopAt ?? "-"} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} crossWait ${(P.crossSeconds / 60).toFixed(1)}min loopWait ${(P.loopSeconds / 60).toFixed(1)}min headOn ${P.headOn}`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} loop ${this.loopAt ?? "-"} crossWait ${(P.crossSeconds / 60).toFixed(1)}min loopWait ${(P.loopSeconds / 60).toFixed(1)}min headOn ${P.headOn}`,
       `findings:\n- ${P.findings.join("\n- ") || "none"}`,
     ].join("\n");
     console.log(out);

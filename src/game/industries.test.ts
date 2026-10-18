@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { FEAT_FIELD, FEAT_NONE, FEAT_TREE, SURF_GRASS } from "../landscape";
-import { rateFor, resourceAt, siteWhy, updateRates } from "./industries";
-import { buildStarterWorld, syncIndustries } from "./world";
+import type { PieceTypeId } from "../track";
+import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates } from "./industries";
+import { buildStarterWorld, INDUSTRY_ROLE, syncIndustries } from "./world";
 
 /** An open patch of grass on the starter map, cleared of features, and a pose for a depot whose yard sits on it. */
 function openPatch() {
@@ -47,6 +48,33 @@ describe("industries near their resource", () => {
     expect(rateFor(30, 10)).toBe(1.5);
     // Workshops, sawmills and mills go anywhere.
     for (const t of ["depot-workshop", "depot-sawmill", "depot-mill"] as const) expect(siteWhy(land, t, pose), t).toBeNull();
+  });
+
+  it("a harvester with 8 of the 10 trees it wants may go (QA): it works at 0.8, and short of 5 it's refused, saying so", () => {
+    const { w, pose, near } = openPatch();
+    const land = w.landscape;
+    const cells = near(250);
+    for (const i of cells.slice(0, 8)) land.grid.feature[i] = FEAT_TREE;
+    expect(resourceAt(land, "forest", pose)).toMatchObject({ count: 8, need: 10 });
+    expect(siteWhy(land, "depot-forest", pose)).toBeNull();
+    expect(rateFor(8, 10)).toBe(0.8);
+    for (const i of cells.slice(4, 8)) land.grid.feature[i] = FEAT_NONE;
+    expect(siteWhy(land, "depot-forest", pose)).toBe("Needs trees nearby: 4 of 5");
+  });
+
+  it("every industry bound to a resource says what it lacks (never refused without a reason)", () => {
+    const { w, pose, near } = openPatch();
+    const land = w.landscape;
+    for (const i of near(300)) land.grid.height[i] = 0;
+    const said: Record<string, string | null> = {};
+    for (const [type, role] of Object.entries(INDUSTRY_ROLE)) if (SITE_RULES[role!]) said[type] = siteWhy(land, type as PieceTypeId, pose);
+    expect(said).toEqual({
+      "depot-forest": "Needs trees nearby: 0 of 5",
+      "depot-farm": "Needs farm fields nearby: 0 of 4",
+      "depot-quarry": "Needs hillside nearby: 0 of 6",
+      "depot-mine": "Needs hillside nearby: 0 of 6",
+      "depot-harbour": "Needs water nearby: 0 of 4",
+    });
   });
 
   it("a farm yard needs farm fields", () => {
