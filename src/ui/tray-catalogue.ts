@@ -75,7 +75,7 @@ export const TRAIN_ITEMS: TrayItem[] = [
   { kind: "train", cars: ["passenger"], looks: ["double-decker"], label: "Double-decker" },
   { kind: "train", cars: ["passenger"], looks: ["first-class"], label: "First class" },
   { kind: "train", cars: ["caboose"], label: "Caboose" },
-  { kind: "train", cars: ["caboose"], looks: ["bay-window"], label: "Bay-window caboose" },
+  { kind: "train", cars: ["caboose"], looks: ["bay-window"], label: "Bay caboose" },
 ];
 
 /** A shelf of the tray: a few related items behind one button. */
@@ -206,7 +206,7 @@ export async function propGroups(shelves: readonly PropShelf[]): Promise<TrayGro
   await Promise.all(
     [...new Set(shelves.flatMap((s) => s.assets.map(fileOf)))].map(async (file) => {
       if (!file) return;
-      for (const [id, asset] of await loadFile(file)) names.set(id, asset.name);
+      for (const [id, asset] of await loadFile(file)) names.set(id, asset.trayLabel ?? asset.name);
     }),
   );
   return shelves.map((s) => ({ label: s.label, items: s.assets.filter((id) => names.has(id)).map((asset): TrayItem => ({ kind: "prop", asset, label: names.get(asset)! })) }));
