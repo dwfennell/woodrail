@@ -1062,6 +1062,8 @@ export class Hud {
   /** Planning a train's route: the engine card slims to its route, and the tray is put away (see style.css). */
   setPlanning(on: boolean): void {
     this.root.classList.toggle("planning", on);
+    // (No drawing track while a route is planned: a press picks a stop.)
+    this.drawBtn.disabled = on;
   }
 
   get engineCardOpen(): boolean {

@@ -187,6 +187,12 @@ if (ONLY_SPECIALS) {
   await finishRun();
 }
 
+/** Only the junctions (N2 phase 2: a branch, a merge) and the planning guard (E2E_ONLY=junctions). */
+if (process.env.E2E_ONLY === "junctions") {
+  await junctions();
+  await finishRun();
+}
+
 /** Only QA's replay of the slanted river crossings and the terrace climb (E2E_ONLY=qa-slant). */
 if (process.env.E2E_ONLY === "qa-slant") {
   await qaReplay();
@@ -557,6 +563,8 @@ step("8");
 await specials();
 step("9");
 await qaReplay();
+step("10");
+await junctions();
 await finishRun();
 
 /**
@@ -941,6 +949,106 @@ async function qaReplay() {
     }
     await ctx.close();
   }
+}
+
+/**
+ * Junctions (N2 phase 2): on open ground, a straight line of long straights is drawn, then a branch off its middle (a
+ * switch goes in, one undo takes it back up), then a line drawn in at 45° and let go on it (a merge). And the planning
+ * guard: while a train's route is planned (`onPickPlace` set), a press draws nothing and branches nothing, the Draw
+ * chip can't be pressed, and a station tapped is a stop.
+ */
+async function junctions() {
+  const open = await p.evaluate(() => {
+    const w = window.woodrail;
+    const G = w.landscape.grid;
+    const B = w.director.bounds;
+    const free = (px, pz) => {
+      const cell = G.cellAtWorld(px, pz);
+      return cell !== -1 && G.height[cell] === 0 && G.surface[cell] === 0 && G.feature[cell] <= 1 && G.road[cell] === 0;
+    };
+    for (let pz = B.z0 + 600; pz < B.z1 - 600; pz += 72)
+      for (let px = B.x0 + 600; px < B.x1 - 600; px += 72) {
+        let ok = true;
+        for (let dz = -432; dz <= 432 && ok; dz += 72) for (let dx = -504; dx <= 504 && ok; dx += 72) ok = free(px + dx, pz + dz) && w.layout.queryFreeConnectors(px + dx, pz + dz, 72, []) === 0;
+        if (ok) return { x: Math.round(px / 18) * 18, z: Math.round(pz / 18) * 18 };
+      }
+    return null;
+  });
+  check("junctions: found open ground", !!open, JSON.stringify(open));
+  if (!open) return;
+  await focus(open.x, open.z, 520);
+  if (!(await p.evaluate(() => window.woodrail.interaction.isDrawing))) await tapSel(p, ".tray-draw");
+  const types = () => p.evaluate(() => [...window.woodrail.layout.pieceIds()].map((id) => window.woodrail.layout.getPiece(id).type));
+  const count = async (t) => (await types()).filter((x) => x === t).length;
+  // The line: 864 mm along +x through the patch.
+  const x0 = open.x - 432;
+  const [n0, j0] = await p.evaluate(() => [D.pieces(), D.joints()]);
+  await drawThrough([0, 150, 300, 450, 600, 750, 900].map((d) => [x0 + d, open.z]));
+  const [n1, j1] = await p.evaluate(() => [D.pieces(), D.joints()]);
+  check("junctions: a straight line drawn to branch off", n1 - n0 >= 3 && j1 - j0 === n1 - n0 - 1, `${n1 - n0} pieces, ${j1 - j0} joints`);
+  // Its second piece's middle, where the branch starts.
+  const mid = await p.evaluate(([n0]) => {
+    const w = window.woodrail;
+    const ids = [...w.layout.pieceIds()].slice(n0);
+    const q = w.layout.getPiece(ids[1]);
+    const half = q.type === "straight-216" ? 108 : 72;
+    return { x: q.pose.x + Math.cos(q.pose.heading) * half, z: q.pose.z + Math.sin(q.pose.heading) * half, id: ids[1], type: q.type };
+  }, n0);
+  // A branch: pressed on it, off at 45° to +z.
+  const sw0 = await count("switch");
+  await drawThrough([0, 40, 80, 160, 240, 320, 400].map((d) => [mid.x + d * Math.SQRT1_2, mid.z + d * Math.SQRT1_2]), { shotAt: 5, shotName: "draw-10-branch.png" });
+  const [n2, j2] = await p.evaluate(() => [D.pieces(), D.joints()]);
+  const sw1 = await count("switch");
+  check("junctions: a stroke off a line's body branches through a switch put in its place", sw1 === sw0 + 1 && n2 > n1 && j2 - j1 === n2 - n1 + 1, `${sw1 - sw0} switch, ${n2 - n1} pieces, ${j2 - j1} joints`);
+  await p.evaluate(() => window.woodrail.interaction.undo());
+  const [n3] = await p.evaluate(() => [D.pieces()]);
+  check("junctions: one undo takes the branch and its switch up, and the line is as it was", n3 === n1 && (await count("switch")) === sw0, `${n3} vs ${n1}`);
+  // A merge: from open ground above the line, in at 45°, let go on it.
+  const mx = open.x + 60;
+  const sw2 = await count("switch");
+  await drawThrough([0, 60, 120, 180, 240, 300, 340].map((d) => [mx - 340 + d, open.z + 340 - d]), { shotAt: 5, shotName: "draw-10-merge.png" });
+  const sw3 = await count("switch");
+  const [n4, j4] = await p.evaluate(() => [D.pieces(), D.joints()]);
+  check("junctions: a line drawn in at 45° and let go on a line merges through a switch", sw3 === sw2 + 1 && j4 - j1 >= n4 - n1 + 1, `${sw3 - sw2} switch, ${n4 - n1} pieces, ${j4 - j1} joints`);
+  await p.evaluate(() => window.woodrail.interaction.undo());
+  // The planning guard: a route being planned (as the engine card's Plan does), Draw on.
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    window.__picked = [];
+    w.interaction.onPickPlace = (id) => {
+      window.__picked.push(id);
+      return true;
+    };
+    w.hud.setPlanning(true);
+  });
+  const disabled = await p.evaluate(() => document.querySelector(".tray-draw").disabled);
+  const n5 = await p.evaluate(() => D.pieces());
+  await drawThrough([0, 100, 200, 300].map((d) => [open.x - 200 + d, open.z + 250]));
+  await drawThrough([0, 40, 80, 160, 240].map((d) => [mid.x + d * Math.SQRT1_2, mid.z + d * Math.SQRT1_2]));
+  const n6 = await p.evaluate(() => D.pieces());
+  check("planning a route: the Draw chip can't be pressed, and a press draws no line and no branch", disabled && n6 === n5, `disabled ${disabled}, ${n6 - n5} pieces`);
+  // A station tapped while planning is a stop, as routes expect.
+  const st = await p.evaluate(() => {
+    const w = window.woodrail;
+    for (const id of w.layout.pieceIds()) {
+      const q = w.layout.getPiece(id);
+      if (q.type === "station" && w.economy.depotAtPiece(id)) return { x: q.pose.x + Math.cos(q.pose.heading) * 108, z: q.pose.z + Math.sin(q.pose.heading) * 108 };
+    }
+    return null;
+  });
+  if (st) {
+    await focus(st.x, st.z, 400);
+    const [sx, sy] = await p.evaluate(([x, z]) => D.screen(x, 0, z), [st.x, st.z]);
+    await p.mouse.click(sx, sy);
+    await settled(p);
+    const picked = await p.evaluate(() => window.__picked.length);
+    check("planning a route with Draw on: a station tapped is a stop", picked === 1, `${picked} picked`);
+  } else check("planning a route: found a station to tap", false);
+  await p.evaluate(() => {
+    const w = window.woodrail;
+    w.interaction.onPickPlace = null;
+    w.hud.setPlanning(false);
+  });
 }
 
 async function finishRun() {

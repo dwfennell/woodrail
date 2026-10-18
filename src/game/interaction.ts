@@ -26,6 +26,7 @@ import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
+import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
@@ -631,6 +632,11 @@ export class Interaction {
     return this.drawing;
   }
 
+  /** Does a press draw track now: Draw on, and no train's route being planned (see `pressDraws`)? */
+  private get drawsNow(): boolean {
+    return pressDraws(this.drawing, !!this.onPickPlace);
+  }
+
   private drawHinted = false;
 
   arm(item: TrayItem | null): void {
@@ -983,7 +989,7 @@ export class Interaction {
     }
     // Drawing: from a free end, or on empty ground, a drag draws track (two fingers still move the view).
     let drawsFromEnd = false;
-    if (this.drawing && this.touches.size <= 1) {
+    if (this.drawsNow && this.touches.size <= 1) {
       const atEnd = this.draw.nearFreeEnd(e.clientX, e.clientY);
       const over = this.pick(e.clientX, e.clientY, e.pointerType === "touch");
       // Near a free end but on something (a car, the line's last piece): a press there, as ever, unless it moves
@@ -1033,7 +1039,7 @@ export class Interaction {
     this.game.controls.enabled = false;
     const press: Extract<Mode, { kind: "press" }> = { kind: "press", press: hit, pointerId: e.pointerId, pointerType: e.pointerType, x: e.clientX, y: e.clientY, ground, add: e.shiftKey, draws: drawsFromEnd };
     // Drawing, on a line's body (a plain straight, not one of the map's own): a drag branches off it.
-    if (this.drawing && !drawsFromEnd && !this.picking && hit.kind === "piece" && this.fixedLabel(hit.pieceId) === null) {
+    if (this.drawsNow && !drawsFromEnd && !this.picking && hit.kind === "piece" && this.fixedLabel(hit.pieceId) === null) {
       const p = this.game.layout.getPiece(hit.pieceId);
       if (p && isPlainStraight(p.type)) press.branch = hit.pieceId;
     }
@@ -1104,7 +1110,7 @@ export class Interaction {
         }
       } else if (travel < dragSlop(m.pointerType)) return;
       // Drawing, and it moved off a line's body: a branch off it (a long press, above, picked the piece up instead).
-      if (m.branch !== undefined && this.drawing && this.touches.size <= 1) {
+      if (m.branch !== undefined && this.drawsNow && this.touches.size <= 1) {
         if (this.draw.beginBranch(m.x, m.y, m.branch)) {
           this.clearSelection();
           this.game.controls.enabled = false;
@@ -1117,7 +1123,7 @@ export class Interaction {
         return;
       }
       // Drawing, and it moved: a line from the free end it started by, not a drag of what's there.
-      if (m.draws && this.drawing && this.draw.begin(m.x, m.y)) {
+      if (m.draws && this.drawsNow && this.draw.begin(m.x, m.y)) {
         this.game.controls.enabled = false;
         this.mode = { kind: "draw-track", pointerId: m.pointerId };
         this.updateDraw(e.clientX, e.clientY);
@@ -1183,7 +1189,7 @@ export class Interaction {
   private armHold(m: Extract<Mode, { kind: "press" }>, t: number): void {
     const target = m.press.kind === "piece" ? "piece" : m.press.kind === "car" ? "car" : m.press.kind === "depot" ? "depot" : null;
     // Drawing, on a line's body: a drag draws a branch, so a long press (a mouse's too) is how the piece is picked up.
-    const branch = this.drawing && m.branch !== undefined;
+    const branch = this.drawsNow && m.branch !== undefined;
     if (!branch && (!target || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType))) return;
     // Drawing is its own tool: a finger resting there neither picks anything up nor starts a line (Rail and road's).
     if (this.drawing && !branch) return;

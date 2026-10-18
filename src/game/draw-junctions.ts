@@ -18,6 +18,8 @@ export interface JunctionRules {
 
 /** The finger must go this far (mm) off the line it was pressed on before a branch is decided (as a new line waits). */
 export const BRANCH_MOVE = 30;
+/** ... and this far (mm) from where it was pressed. */
+export const BRANCH_WAY = 50;
 
 /** What it says when a train is on the straight a switch would go in place of. */
 export const BUSY_MESSAGE = "A train is on that straight";
@@ -35,7 +37,8 @@ export function branchFrom(r: JunctionRules, onto: number, press: { x: number; z
   const p = r.layout.getPiece(onto);
   if (!p) return { kind: "refused", message: NO_ROOM_MESSAGE };
   const off = Math.abs(-(finger.x - p.pose.x) * Math.sin(p.pose.heading) + (finger.z - p.pose.z) * Math.cos(p.pose.heading));
-  if (off < BRANCH_MOVE) return { kind: "wait" };
+  // (And its way is taken over its first 50 mm: which way the switch faces is the leg nearer that way.)
+  if (off < BRANCH_MOVE || Math.hypot(finger.x - press.x, finger.z - press.z) < BRANCH_WAY) return { kind: "wait" };
   const short = r.may("switch", 0);
   if (short) return { kind: "refused", message: short };
   const w = findBranch(r.layout, onto, press.x, press.z, Math.atan2(finger.z - press.z, finger.x - press.x), (id) => !r.occupied(id));
