@@ -295,7 +295,7 @@ type Mode =
        * Game mode, a town's house being moved about its town: it snaps to its town's lots (see town-moves.ts). Its
        * building, its town look, the lot under the hand (worked out again only when the square under it changes).
        */
-      town?: { building: number; look: Look; editor: LandEditor; cell: number; lot: TownLot | TownMoveBlock | null };
+      town?: { building: number; look: Look; editor: LandEditor; cell: number; lot: TownLot | TownMoveBlock | null; preview: number };
     }
   | { kind: "drag-road"; pointerId: number; drag: RoadDrag; overTray: boolean }
   /** Drawing a line of track (the Draw chip on): see `DrawHand`. */
@@ -1460,6 +1460,7 @@ export class Interaction {
       this.game.depotView.dragging = null;
     } else if (m.kind === "drag-prop") {
       this.game.scene.remove(m.ghost);
+      if (m.town && m.town.preview !== -1) this.game.previewProp(m.town.preview, null);
       this.propOutline.hide();
       this.game.propsChanged(-1);
     } else if (m.kind === "drag-scenery") {
@@ -3546,7 +3547,7 @@ export class Interaction {
     this.mode = this.propDrag(p.asset, propId, pointerId, p.heading, from, { x: p.x - ground.x, z: p.z - ground.z }, p.variant);
     this.mode.overTray = false;
     const found = this.townHouse(propId) && p.building !== undefined ? findBuilding(g.landscape, p.building) : null;
-    if (found) this.mode.town = { building: p.building!, look: looksOf(g.landscape, found.town).get(p.building!) ?? "house", editor: this.landEditor(), cell: -2, lot: null };
+    if (found) this.mode.town = { building: p.building!, look: looksOf(g.landscape, found.town).get(p.building!) ?? "house", editor: this.landEditor(), cell: -2, lot: null, preview: -1 };
     // Drawn by the hand while it moves, not where it stood.
     g.propsChanged(propId);
     this.onPickup?.();
@@ -3597,6 +3598,11 @@ export class Interaction {
       if (cell !== t.cell) {
         t.cell = cell;
         t.lot = lotFor(g.landscape, t.building, cell, t.editor);
+        // Swapping: the other house shows where it would go (the held one's lot), so it reads as a swap, not a stack.
+        const swap = typeof t.lot === "object" && t.lot?.swap !== undefined ? this.swapPartner(t.building, t.lot) : null;
+        if (t.preview !== -1 && t.preview !== swap?.id) g.previewProp(t.preview, null);
+        t.preview = swap?.id ?? -1;
+        if (swap) g.previewProp(swap.id, swap.to);
       }
       const found = findBuilding(g.landscape, t.building);
       if (typeof t.lot === "string" || !t.lot || !found) blocked = "town";
@@ -3631,6 +3637,7 @@ export class Interaction {
 
   private dropProp(m: Extract<Mode, { kind: "drag-prop" }>): void {
     const g = this.game;
+    if (m.town && m.town.preview !== -1) g.previewProp(m.town.preview, null);
     g.director.setEdgePointer(null);
     this.mode = { kind: "idle" };
     g.scene.remove(m.ghost);
@@ -3829,14 +3836,10 @@ export class Interaction {
     const found = findBuilding(land, building);
     if (!found) return;
     // The other building's prop, swapping: where it stands now, and where it goes (onto this house's lot).
-    const partner = lot.swap === undefined ? undefined : [...g.props.all()].find((p) => p.building === lot.swap);
+    const swap = lot.swap === undefined ? null : this.swapPartner(building, lot);
+    const partner = swap ? g.props.get(swap.id) : undefined;
     const partnerFrom = partner && { x: partner.x, z: partner.z, heading: partner.heading, y: partner.y };
-    let partnerTo: PropPose | undefined;
-    if (partner && lot.swap !== undefined) {
-      const other = findBuilding(land, lot.swap)!.building;
-      const at = buildingPose(land, found.town, { ...other, cells: found.building.cells, front: found.building.front }, looksOf(land, found.town).get(other.id) ?? "house", partner.asset, partner.scale ?? 1);
-      partnerTo = { ...at, y: land.grid.groundY(found.building.cells[0]) };
-    }
+    const partnerTo = swap?.to;
     const changed = [...new Set([...found.building.cells, ...lot.cells].map(plotSlotOf))];
     let putBack = () => {};
     const doIt = () => {
@@ -3855,6 +3858,18 @@ export class Interaction {
       },
       slots: () => changed,
     });
+  }
+
+  /** Swapping town building `building` onto `lot`: the other building's prop, and where it goes (the first's lot). */
+  private swapPartner(building: number, lot: TownLot): { id: number; to: PropPose } | null {
+    const g = this.game;
+    const land = g.landscape;
+    const found = findBuilding(land, building);
+    const other = lot.swap === undefined ? undefined : findBuilding(land, lot.swap);
+    const prop = other && [...g.props.all()].find((p) => p.building === lot.swap);
+    if (!found || !other || !prop) return null;
+    const at = buildingPose(land, other.town, { ...other.building, cells: found.building.cells, front: found.building.front }, looksOf(land, other.town).get(other.building.id) ?? "house", prop.asset, prop.scale ?? 1);
+    return { id: prop.id, to: { ...at, y: land.grid.groundY(found.building.cells[0]) } };
   }
 
   private moveTownProp(id: number, building: number, pose: PropPose, from: PropPose): void {

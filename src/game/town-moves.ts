@@ -94,16 +94,20 @@ export function lotFor(land: Landscape, id: number, cell: number, checker: LotCh
     return { cells: [...other.building.cells], front: other.building.front, corner: !!other.building.corner, swap: other.building.id };
   }
   const own = townSquares(town);
-  /** Grass at the town's edge (beside one of its squares, within growth's reach of its centre): the town may spread there. */
+  /** Grass within growth's reach of the town's centre. */
+  const near = (i: number): boolean => g.surface[i] === SURF_GRASS && Math.hypot(g.centreX(g.colOf(i)) - town.centre.x, g.centreZ(g.rowOf(i)) - town.centre.z) <= MAX_REACH;
+  /** Grass at the town's edge (beside one of its squares or streets, within its reach): the town may spread there. */
   const edge = (i: number): boolean => {
-    if (g.surface[i] !== SURF_GRASS || Math.hypot(g.centreX(g.colOf(i)) - town.centre.x, g.centreZ(g.rowOf(i)) - town.centre.z) > MAX_REACH) return false;
+    if (!near(i)) return false;
+    if (streetEdge(land, i) !== undefined) return true;
     for (const [dc, dr] of EDGES) {
       const nb = g.index(g.colOf(i) + dc, g.rowOf(i) + dr);
       if (nb !== -1 && own.has(nb)) return true;
     }
     return false;
   };
-  if (!own.has(cell) && !edge(cell)) return "not-town";
+  // (Grass the town reaches but with no street beside it: it's the street that's missing.)
+  if (!own.has(cell) && !edge(cell)) return near(cell) ? "no-street" : "not-town";
   const mine = new Set(building.cells);
   /** A square this house may stand on: a town green, grass at the town's edge, or one of its own. */
   const free = (i: number): LandBlock | null => {
