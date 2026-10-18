@@ -194,6 +194,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .brand { min-width: 0; overflow: hidden; }
   /* The bar keeps what's used most; the rest are in the menu. Re-rail, when it shows, sits under the bar. */
   .actions .wide-only { display: none; }
+  /* Redo, though, beside Undo after an Undo (till a new edit leaves nothing to redo): a finger can't find it in the menu. */
+  .actions .wide-only.can-redo { display: block; }
   .actions > .chip { min-width: 40px; height: 40px; padding: 0 8px; }
   /* (They stay 40 px drawn, to fit a 360 px screen with the coins showing, but take a tap 2 px around: 44 px.) */
   .actions > .chip:not(.attention) { position: relative; }
