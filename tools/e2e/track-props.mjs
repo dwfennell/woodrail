@@ -71,7 +71,7 @@ await p.evaluate(() => {
   };
   w.__buildNow = (seq, nextEnd = {}) => {
     const i = w.interaction;
-    // (A connector ref: piece id × MAX_CONNECTORS, 8 since the turntable, + its index.)
+    // Connector refs are id * MAX_CONNECTORS + k (src/track/pieces.ts).
     const c = (id, k) => w.layout.worldConnector(id * 8 + k, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
     for (let ring = 1; ring < 20; ring++)
       for (let k = 0; k < 16; k++)
