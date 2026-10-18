@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_NONE, FEAT_STATION, FEAT_TREE, PLOT_COLS, PLOT_DEPTH, PLOT_ROWS, PLOT_WIDTH, SURF_GRASS, SURF_LANE, SURF_RIVER, SURF_SAND, SURF_SEA, type LandscapeGrid } from "./grid";
-import { adoptRegion, corridorCells, fixedHome, generateLandscape, generatePlot, generateRegion, reachable, stationEnds, type Landscape } from "./generate";
+import { adoptRegion, corridorCells, fixedHome, generateLandscape, generatePlot, generateRegion, reachable, starterLoopPlace, stationEnds, type Landscape } from "./generate";
 import { BORDER_BAND, edgeContract, STUB_DEPTH } from "./edges";
 
 const SEEDS = Array.from({ length: 200 }, (_, i) => i + 1);
@@ -105,7 +105,7 @@ describe("generateLandscape", () => {
   });
 
   // Game mode's first game is seed 7; later games are starter maps from any seed.
-  it.each([7, 1000, 8919, 72271, 230651])("starter maps (seed %i) line up the sawmill, towns 0 and 1 and the forest yard with a clear strip along them", (seed) => {
+  it.each([7, 1000, 8919, 72271, 230651, 1, 2, 3, 4, 5, 42, 99, 123456, 777777])("starter maps (seed %i) line up the sawmill, towns 0 and 1 and the forest yard with a clear strip along them", (seed) => {
     const land = generateLandscape(seed, { starter: true });
     expect(land.towns).toHaveLength(5);
     expect(land.depots.map((d) => d.kind).sort()).toEqual(["forest", "sawmill"]);
@@ -145,6 +145,14 @@ describe("generateLandscape", () => {
     }
     // Open ground between the first two towns: no hills near their line.
     for (let x = a.centre.x + CELL; x < b.centre.x; x += CELL) for (let dz = -4; dz <= 4; dz++) expect(g.height[g.cellAtWorld(x, a.centre.z + dz * CELL)], `${x},${dz}`).toBe(0);
+    // A passing loop's place mid-way between the second town and the forest yard (six long straights apart): four
+    // straights of the line with a straight to spare at each end, clear, flat and dry for three rows either side.
+    expect(forest.centre.x - b.centre.x).toBeCloseTo(1512);
+    const place = starterLoopPlace(land)!;
+    expect(place.x1 - place.x0).toBeCloseTo(864);
+    expect(place.x0 - (b.centre.x + 108)).toBeCloseTo(216);
+    expect(forest.centre.x - 108 - place.x1).toBeCloseTo(216);
+    for (let x = place.x0 + CELL / 2; x < place.x1; x += CELL) for (let dz = -3; dz <= 3; dz++) flatAt(x, a.centre.z + dz * CELL);
   });
 });
 

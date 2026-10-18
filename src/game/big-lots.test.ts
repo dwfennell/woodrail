@@ -25,7 +25,8 @@ afterEach(() => vi.restoreAllMocks());
 describe("big landmarks on 2×2 lots", () => {
   it("a city grows its library (and market) on a 2×2 block facing a street, with its own model", () => {
     const w = buildStarterWorld();
-    const t = w.landscape.towns[0];
+    // (Elderwick, the second starter town: one with room round its streets for 2×2 blocks.)
+    const t = w.landscape.towns[1];
     growToCity(w, t);
     const props = townProps(w.landscape, t);
     for (const id of ["library", "market"]) {

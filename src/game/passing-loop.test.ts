@@ -77,7 +77,7 @@ describe("passing loops", () => {
     const ids = GOALS.map((g) => g.id);
     expect(ids.indexOf("lay-loop")).toBe(ids.indexOf("two-trains") - 1);
     expect(GOALS.find((g) => g.id === "lay-loop")!.needs).toEqual(["junctions"]);
-    expect(GOALS.find((g) => g.id === "lay-loop")!.hint).toBe("Two tracks side by side let trains pass.");
+    expect(GOALS.find((g) => g.id === "lay-loop")!.hint).toBe("Two tracks side by side let trains pass. Make it longer than your trains.");
     const t = new GoalTracker(GOALS.filter((g) => !["lay-loop", "two-trains", "join-all"].includes(g.id)).map((g) => g.id));
     const w = buildStarterWorld();
     t.update(w, { learned: new Set(["signals"]) });

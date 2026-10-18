@@ -1,4 +1,4 @@
-import { connectedPairs, SURF_RIVER, type LandscapeGrid } from "../landscape";
+import { connectedPairs, starterLoopPlace, SURF_RIVER, type LandscapeGrid } from "../landscape";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
 import { workshops, workshopStock } from "./crafting";
 import { depotSpot } from "./depot-footprint";
@@ -336,11 +336,18 @@ export const GOALS: readonly Goal[] = [
   {
     id: "lay-loop",
     title: "Lay a passing loop",
-    hint: "Two tracks side by side let trains pass.",
+    hint: "Two tracks side by side let trains pass. Make it longer than your trains.",
     // Two switches and two roads between them, on a line a train runs: where its trains will wait for each other.
     needs: ["junctions"],
     check: (w) => ({ done: loopOnLine(w.economy) }),
-    guide: (w) => guideTrains(w, "track", "Switch"),
+    guide: (w) => {
+      // On the starter map, the stretch kept clear for one mid-way between the second town and the forest yard.
+      const guide = guideTrains(w, "track", "Switch");
+      const place = starterLoopPlace(w.landscape);
+      if (!place) return guide;
+      const mid = { x: (place.x0 + place.x1) / 2, z: place.z };
+      return { ...guide, points: [mid], towns: [], marks: [mid] };
+    },
   },
   {
     id: "two-trains",

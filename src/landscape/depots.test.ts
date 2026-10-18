@@ -56,7 +56,8 @@ describe("depots", () => {
     const mill = land.depots.find((d) => d.kind === "sawmill")!;
     const forest = land.depots.find((d) => d.kind === "forest")!;
     expect(Math.hypot(mill.centre.x - a.centre.x, mill.centre.z - a.centre.z)).toBeLessThan(1500);
-    expect(Math.hypot(forest.centre.x - b.centre.x, forest.centre.z - b.centre.z)).toBeLessThan(1500);
+    // (Six long straights from the second town's station: room for a passing loop mid-way.)
+    expect(Math.hypot(forest.centre.x - b.centre.x, forest.centre.z - b.centre.z)).toBeLessThan(1600);
   });
 
   it("track can't be laid over a depot", () => {

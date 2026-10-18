@@ -366,10 +366,28 @@ describe("the grand tour", () => {
         }
         return false;
       };
+      /** Is a switch within `n` pieces of piece `id`, either way along the line? */
+      const nearSwitch = (id: number, n: number): boolean => {
+        for (let c = 0; c < 2; c++) {
+          let at = id;
+          let exit = c;
+          for (let k = 0; k < n; k++) {
+            const j = w().layout.joinedConnector(connectorRef(at, exit));
+            if (j === -1) break;
+            at = pieceOfRef(j);
+            const p = w().layout.getPiece(at)!;
+            const ends = getPieceDef(p.type, p.flipped).connectors.length;
+            if (ends > 2) return true;
+            if (ends !== 2) break;
+            exit = 1 - indexOfRef(j);
+          }
+        }
+        return false;
+      };
       const branchOff = (type: PieceTypeId, cells: number[], after?: PieceTypeId): number => {
         // Not close to the end of a line: a train turning back there would still be on the switch, and couldn't take
-        // its branch.
-        const line = [...w().layout.pieceIds()].filter((id) => !T.fixed.has(id) && w().layout.getPiece(id)!.type === "straight-216" && (type === "depot-quarry" || !nearEnd(id, 4)));
+        // its branch. Nor right beside another branch's switch (a train on one would stand over the other).
+        const line = [...w().layout.pieceIds()].filter((id) => !T.fixed.has(id) && w().layout.getPiece(id)!.type === "straight-216" && (type === "depot-quarry" || !nearEnd(id, 4)) && !nearSwitch(id, 2));
         for (const s of line) {
           const p = w().layout.getPiece(s)!;
           const ends = [0, 1].map((c) => w().layout.joinedConnector(connectorRef(s, c)));
@@ -540,7 +558,8 @@ describe("the grand tour", () => {
           const had = new Set(w().layout.pieceIds());
           let r = play(w().layout, T.editor, from, connectorRef(id, 1), { blocked: rulesFor(w()), maxPieces: 60, fiddle: 3 });
           if (!r.ok) r = play(w().layout, T.editor, from, connectorRef(id, 0), { blocked: rulesFor(w()), maxPieces: 60, fiddle: 3 });
-          if (r.ok) {
+          // (Joined from `from` itself: a site that happens to meet other track doesn't count.)
+          if (r.ok && w().layout.joinedConnector(from) !== -1) {
             T.note(`${type}: track from piece ${pieceOfRef(from)} joined to it (${r.pieces} pieces, site ${n})`);
             return id;
           }
@@ -564,10 +583,14 @@ describe("the grand tour", () => {
         T.learnAnyway("electricity");
         syncIndustries(w());
         updateRates(w());
-        const branchRef = w().layout.joinedConnector(connectorRef(mine, 1));
+        // (On the branch side of the mine, whichever end of it the foundry is on.)
+        const branchRef = [0, 1].map((c) => w().layout.joinedConnector(connectorRef(mine, c))).find((j) => j !== -1 && pieceOfRef(j) !== foundry) ?? -1;
         const branch = branchRef === -1 ? mine : pieceOfRef(branchRef);
         // A goods engine with two hoppers (coal and ore) and a timber wagon (iron).
-        const ore = T.train(["engine", "hopper", "hopper", "timber"], branch, 1);
+        // (Set going toward the mine: forward along the branch piece's first path if that runs to the mine's end.)
+        const bp = w().layout.getPiece(branch)!;
+        const toMine = branchRef !== -1 && getPieceDef(bp.type, bp.flipped).paths[0].to === indexOfRef(branchRef);
+        const ore = T.train(["engine", "hopper", "hopper", "timber"], branch, branchRef === -1 || toMine ? 1 : -1);
         T.reportEvery = 60;
         w().sim.setLook(ore, "goods");
         // (A routed train drops at every stop that says so, in passing: coal for the power station goes on a route of

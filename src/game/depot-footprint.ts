@@ -1,5 +1,5 @@
 import type { DepotRole } from "../economy";
-import { checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, hillsOf, isWater, onFixedSite, SURF_LANE, SURF_ROAD, SURF_TOWN, type Landscape } from "../landscape";
+import { CELL, checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, hillsOf, isWater, onFixedSite, SURF_LANE, SURF_ROAD, SURF_TOWN, starterLoopPlace, type Landscape } from "../landscape";
 import { footprintCorners, footprintsOverlap, inFootprint, scaleFootprint, standsAside, type Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
 import { DEPOT_LAYOUT } from "../render/depot-view";
@@ -392,11 +392,15 @@ const spots = new WeakMap<World, { key: string; spot: Pose | null }>();
 /**
  * A straight of the player's line where a depot of `type` could be dropped and fit, yard and all (either way round):
  * the middle of that straight and the line's heading there, or null. The straights nearest `near` are tried first, at
- * most `SPOT_TRIES` of them; the answer is kept until the layout, the land or the props change.
+ * most `SPOT_TRIES` of them; the answer is kept until the layout, the land or the props change. Not between the starter
+ * map's second town and its forest yard: that stretch is kept for a passing loop (see `starterLoopPlace`).
  */
 export function depotSpot(w: World, type: PieceTypeId, near: readonly { x: number; z: number }[]): Pose | null {
   const layout = w.layout;
   const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+  const loop = starterLoopPlace(w.landscape);
+  /** On the loop's place, or the straight either side of it (between the stations). */
+  const onLoop = (x: number, z: number) => !!loop && Math.abs(z - loop.z) < CELL / 2 && x > loop.x0 - 216 && x < loop.x1 + 216;
   const straights: { id: number; x: number; z: number; heading: number; d: number }[] = [];
   let sig = 0;
   for (const id of layout.pieceIds()) {
@@ -406,6 +410,7 @@ export function depotSpot(w: World, type: PieceTypeId, near: readonly { x: numbe
     const x = p.pose.x + half * Math.cos(p.pose.heading);
     const z = p.pose.z + half * Math.sin(p.pose.heading);
     sig = (sig * 31 + x * 7 + z * 13 + p.y + id) % 1e9;
+    if (onLoop(x, z)) continue;
     let d = near.length === 0 ? 0 : Infinity;
     for (const q of near) d = Math.min(d, Math.hypot(q.x - x, q.z - z));
     straights.push({ id, x, z, heading: p.pose.heading, d });

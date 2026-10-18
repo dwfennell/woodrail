@@ -128,8 +128,22 @@ const CORRIDOR_HALF_WIDTH = 2 * CELL;
 /** A town's station keeps only the track's own row clear (trains come in on one straight track), so houses can
  *  stand beside the line. */
 const TRACK_ROW = CELL / 2;
-/** On the starter map, from a first town's centre to its depot's (the sawmill beyond one, the forest beyond the other). */
-const STARTER_DEPOT_GAP = 1080;
+/**
+ * The starter map's first two towns: their centres on x, 1080 apart (four long straights between their stations), left
+ * of the middle so the forest yard beyond the second has room.
+ */
+const STARTER_TOWN_X = [-756, 324] as const;
+/**
+ * On the starter map, from the second town's centre to the forest yard's: six long straights (1296 mm) between its
+ * station and the yard, so a passing loop four straights long (`STARTER_LOOP`) fits mid-way with a straight to spare at
+ * each end (a long train worked at a stop stands out past it). The loop's roads hold the starter goods train (an engine
+ * and four wagons) clear of both switches.
+ */
+const STARTER_DEPOT_GAP = 1512;
+/** The starter line's passing-loop place: four long straights mid-way between the second town and the forest yard. */
+const STARTER_LOOP = 864;
+/** Rows either side of the line kept clear (of hills, trees and buildings) along the loop's place, for its other road. */
+const STARTER_LOOP_ROWS = 3;
 /**
  * The starter sawmill's way in: three long straights (648 mm) out from the first town's station, then a quarter turn
  * of two large curves (radius 180) into the sawmill, which stands across the line, toward the middle of the map.
@@ -138,6 +152,17 @@ const STARTER_RUN = 648;
 const STARTER_TURN = 180;
 /** Rows either side of the first two towns' line kept free of hills between them (open ground to join them). */
 const STARTER_OPEN_ROWS = 5;
+
+/**
+ * The starter line's passing-loop place: the line's z, and the stretch of it (on x) mid-way between the second town's
+ * station and the forest yard, kept clear on both sides for a loop's other road. Null on other maps.
+ */
+export function starterLoopPlace(land: { starter: boolean; towns: readonly { centre: { x: number; z: number } }[] }): { x0: number; x1: number; z: number } | null {
+  const [a, b] = land.towns;
+  if (!land.starter || !a || !b) return null;
+  const x0 = b.centre.x + HALF_STATION + (STARTER_DEPOT_GAP - STATION_LENGTH - STARTER_LOOP) / 2;
+  return { x0, x1: x0 + STARTER_LOOP, z: a.centre.z };
+}
 
 /** Where the starter line's straight run ends and the turn to the sawmill begins, and which way it turns (+1: +z). */
 function starterTurn(a: { centre: { x: number; z: number } }): { x: number; side: number } {
@@ -322,6 +347,7 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
     const [, forest] = depots;
     const turn = starterTurn(a);
     const pivot = { x: turn.x, z: a.centre.z + turn.side * STARTER_TURN };
+    const loop = starterLoopPlace({ starter, towns })!;
     grid.forEachCell((i, col, row) => {
       const x = grid.centreX(col);
       const z = grid.centreZ(row);
@@ -333,6 +359,15 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
         grid.surface[i] = SURF_GRASS;
       }
       if (x > a.centre.x && x < b.centre.x && Math.abs(z - a.centre.z) <= STARTER_OPEN_ROWS * CELL) open.add(i);
+      // The passing loop's place: clear ground either side of the line, for the loop's other road.
+      if (x > loop.x0 && x < loop.x1 && Math.abs(z - a.centre.z) <= STARTER_LOOP_ROWS * CELL) {
+        open.add(i);
+        if (grid.feature[i] === FEAT_NONE) {
+          protectedCells.add(i);
+          townGround.delete(i);
+          grid.surface[i] = SURF_GRASS;
+        }
+      }
     });
   }
 
@@ -462,9 +497,9 @@ function placeTowns(random: () => number, region: Region, starter: boolean, inte
   let offLine = (_x: number, _z: number) => true;
   if (starter) {
     const z = snap(-200 + random() * 300);
-    towns.push(make(-540, z, 0));
-    towns.push(make(540, z, 0));
-    const ends = [starterTurn({ centre: { x: -540, z } }).x - STARTER_TURN, 540 + STARTER_DEPOT_GAP];
+    towns.push(make(STARTER_TOWN_X[0], z, 0));
+    towns.push(make(STARTER_TOWN_X[1], z, 0));
+    const ends = [starterTurn({ centre: { x: STARTER_TOWN_X[0], z } }).x - STARTER_TURN, STARTER_TOWN_X[1] + STARTER_DEPOT_GAP];
     offLine = (x, tz) =>
       ends.every((ex) => Math.hypot(ex - x, z - tz) >= MIN_TOWN_SPACING) && !(Math.abs(tz - z) < 6 * CELL && x > ends[0] - 6 * CELL && x < ends[1] + 6 * CELL);
   }
