@@ -40,6 +40,8 @@ interface YardPart extends Footprint {
    * water or track is checked under it, only props and other footprints (the tall things it would run into).
    */
   readonly overhead?: boolean;
+  /** Other track keeps this much further off it than `TRACK_RADIUS` (see `KitRect.trackPad`). */
+  readonly trackPad?: number;
 }
 
 interface YardShape {
@@ -67,6 +69,10 @@ const HILL_SLACK = 0.5;
 const HARBOUR_DRY = 84;
 /** Other track this close to the yard (mm: its discs' radius, as in `findOverlap`) runs through it. */
 const TRACK_RADIUS = 14;
+/** The most any part pads that (`trackPad`), for the quick distance checks before the exact ones. */
+const TRACK_PAD_MAX = 6;
+/** A track point this far outside a yard's box can't be in it. */
+const PAD = TRACK_RADIUS + TRACK_PAD_MAX;
 /** Other track this far above or below the depot's base (mm) passes clear of its yard: two levels. */
 const HEADROOM = TRAIN_CLEARANCE;
 
@@ -90,7 +96,7 @@ function shapeOf(role: DepotRole): YardShape | null {
 /** A kit's footprint beside its track: its rectangles, all of them pad (checked against everything). */
 function kitShape(kit: KitDef): YardShape | null {
   return shapeFrom(
-    kit.footprint.map((r) => ({ cx: r.t, cz: r.l, hw: r.w / 2, hd: r.d / 2, crane: false, post: false, ...(r.overhead ? { overhead: true } : {}) })),
+    kit.footprint.map((r) => ({ cx: r.t, cz: r.l, hw: r.w / 2, hd: r.d / 2, crane: false, post: false, ...(r.overhead ? { overhead: true } : {}), ...(r.trackPad ? { trackPad: r.trackPad } : {}) })),
     Infinity,
   );
 }
@@ -335,7 +341,7 @@ function piecesInYard(layout: Layout, type: PieceTypeId, shape: YardShape, pose:
     const them = pieceShape(other.type, other.flipped);
     const dx = other.pose.x - pose.x;
     const dz = other.pose.z - pose.z;
-    const near = me.reach + them.reach + TRACK_RADIUS;
+    const near = me.reach + them.reach + TRACK_RADIUS + TRACK_PAD_MAX;
     if (dx * dx + dz * dz > near * near) continue;
     const theirs = them.yard;
     // Their track through my yard.
@@ -346,7 +352,7 @@ function piecesInYard(layout: Layout, type: PieceTypeId, shape: YardShape, pose:
       if (Math.abs(other.y + pts[i + 2] - y) >= HEADROOM) continue;
       const x = other.pose.x + pts[i] * oc - pts[i + 1] * os;
       const z = other.pose.z + pts[i] * os + pts[i + 1] * oc;
-      for (const part of shape.parts) if (part.crane === crane && !part.post && !part.overhead && inFootprint(part, pose, x, z, TRACK_RADIUS)) return WHAT.track;
+      for (const part of shape.parts) if (part.crane === crane && !part.post && !part.overhead && inFootprint(part, pose, x, z, TRACK_RADIUS + (part.trackPad ?? 0))) return WHAT.track;
     }
     if (!theirs) continue;
     // Their yard and mine; my track through their yard.
@@ -357,7 +363,7 @@ function piecesInYard(layout: Layout, type: PieceTypeId, shape: YardShape, pose:
     for (let i = 0; i < mine.length; i += 3) {
       const x = pose.x + mine[i] * c - mine[i + 1] * s;
       const z = pose.z + mine[i] * s + mine[i + 1] * c;
-      for (const b of theirs.parts) if (!b.post && !b.overhead && inFootprint(b, other.pose, x, z, TRACK_RADIUS)) return footprintPhrase(other.type);
+      for (const b of theirs.parts) if (!b.post && !b.overhead && inFootprint(b, other.pose, x, z, TRACK_RADIUS + (b.trackPad ?? 0))) return footprintPhrase(other.type);
     }
   }
   return null;
@@ -437,7 +443,7 @@ export function placedYard(pieceId: number, type: PieceTypeId, pose: Pose, y: nu
 export function trackInYards(yards: readonly PlacedYard[], type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignore: Ignore): PlacedYard | null {
   if (yards.length === 0) return null;
   const me = pieceShape(type, flipped);
-  const r = me.reach + TRACK_RADIUS;
+  const r = me.reach + TRACK_RADIUS + TRACK_PAD_MAX;
   let c = NaN;
   let s = NaN;
   for (const yard of yards) {
@@ -452,8 +458,8 @@ export function trackInYards(yards: readonly PlacedYard[], type: PieceTypeId, fl
       if (Math.abs(y + pts[i + 2] - yard.y) >= HEADROOM) continue;
       const x = pose.x + pts[i] * c - pts[i + 1] * s;
       const z = pose.z + pts[i] * s + pts[i + 1] * c;
-      if (x < yard.x0 - TRACK_RADIUS || x > yard.x1 + TRACK_RADIUS || z < yard.z0 - TRACK_RADIUS || z > yard.z1 + TRACK_RADIUS) continue;
-      for (const part of yard.parts) if (!part.post && !part.overhead && inFootprint(part, yard.pose, x, z, TRACK_RADIUS)) return yard;
+      if (x < yard.x0 - PAD || x > yard.x1 + PAD || z < yard.z0 - PAD || z > yard.z1 + PAD) continue;
+      for (const part of yard.parts) if (!part.post && !part.overhead && inFootprint(part, yard.pose, x, z, TRACK_RADIUS + (part.trackPad ?? 0))) return yard;
     }
   }
   return null;
