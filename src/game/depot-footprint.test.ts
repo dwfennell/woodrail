@@ -259,4 +259,19 @@ describe("the flip hint (yard the other side of the line)", () => {
   it("turned round, its track refused for something else (not its yard): no hint", () => {
     expect(flipHint("depot-workshop", AT, () => "building")).toBeNull();
   });
+
+  it("refused for anything as held (too few trees, the river), it says Flip whenever it'd fit turned round (QA)", () => {
+    // A Harvester short of trees as held ("Needs trees nearby: 4 of 5"), fine turned round: the Flip hint, as for
+    // its yard (QA: one pair at a joint said Flip, the other only how many trees).
+    const turned = turnedRound("depot-forest", AT);
+    const asked: Pose[] = [];
+    expect(flipHint("depot-forest", AT, (pose) => (asked.push(pose), null), "site")).toBe(YARD_FLIP_HINT);
+    expect(asked).toEqual([turned]);
+    expect(flipHint("depot-workshop", AT, () => null, "river")).toBe(YARD_FLIP_HINT);
+    // Turned round its yard won't go: what's said for where it's held stands (not "No room for the yard here").
+    expect(flipHint("depot-forest", AT, () => "yard-hill", "site")).toBeNull();
+    expect(flipHint("depot-forest", AT, () => "site", "site")).toBeNull();
+    // Refused for its yard both ways: no room.
+    expect(flipHint("depot-forest", AT, () => "yard-water", "yard-hill")).toBe(YARD_NO_ROOM);
+  });
 });

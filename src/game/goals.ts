@@ -26,6 +26,12 @@ export interface GoalGuide {
   /** The tray tab to open, and a shelf in it. */
   tab?: "track" | "trains" | "industries";
   shelf?: string;
+  /**
+   * A piece the goal asks for, and the way round it fits at the guided spot: taken from the tray after "Show me", it
+   * comes out turned that way (held so, a depot takes the straight's place that way round), not as the view would
+   * turn it (QA: the workshop's spot was refused, its building over the river, in the starting view).
+   */
+  held?: { type: PieceTypeId; heading: number };
 }
 
 /** What a goal may ask beyond the world: the player's progress (blueprints learned). */
@@ -322,7 +328,7 @@ export const GOALS: readonly Goal[] = [
       // A straight of the line where the workshop fits, yard and all: nearest the map's stations and depots.
       const near = [...w.depots.values(), ...w.stations.values()].map((id) => piecePoint(w, id));
       const spot = depotSpot(w, "depot-workshop", near);
-      if (spot) return { ...guide, points: [{ x: spot.x, z: spot.z }], towns: [], marks: [{ x: spot.x, z: spot.z }] };
+      if (spot) return { ...guide, points: [{ x: spot.x, z: spot.z }], towns: [], marks: [{ x: spot.x, z: spot.z }], held: { type: "depot-workshop", heading: spot.heading } };
       // No straight where it fits yet: still a marker, on the line where it's nearest the stations and depots (with
       // no line yet, the towns' stations are ringed).
       const line = closest(trackPoints(w), near, (p) => p);

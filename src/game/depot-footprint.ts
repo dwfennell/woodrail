@@ -453,13 +453,14 @@ export function noRoomMessage(type: PieceTypeId): string {
 }
 
 /**
- * A depot at `pose` refused for its yard: what to say about turning it right round (Flip), given `why`, the full
- * placement check (its track's and its yard's) of a pose. The flip hint only if turned round it passes it all; "No
- * room for the yard here" if its yard is refused that way too; else nothing (what's said for where it's held stands).
+ * A depot at `pose` refused (for `held`, its yard by default): what to say about turning it right round (Flip), given
+ * `why`, the full placement check (its track's, its yard's, its site's) of a pose. The flip hint whenever turned round
+ * it passes it all, whatever kept it out as held (its yard, too few trees by it, the river under its building: QA);
+ * "No room for the yard here" if its yard is refused both ways; else nothing (what's said for where it's held stands).
  */
-export function flipHint(type: PieceTypeId, pose: Pose, why: (pose: Pose) => string | null): string | null {
+export function flipHint(type: PieceTypeId, pose: Pose, why: (pose: Pose) => string | null, held: string = "yard-ground"): string | null {
   const turned = why(turnedRound(type, pose));
-  return turned === null ? flipHintMessage(type) : isYardBlock(turned) ? noRoomMessage(type) : null;
+  return turned === null ? flipHintMessage(type) : isYardBlock(held) && isYardBlock(turned) ? noRoomMessage(type) : null;
 }
 
 /** A straight depot at `pose` turned right round on the same track: the same ends, its yard on the other side. */

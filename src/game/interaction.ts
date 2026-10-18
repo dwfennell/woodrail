@@ -528,6 +528,17 @@ export class Interaction {
     }
   }
 
+  /**
+   * A goal's "Show me" pointed at a spot for a piece (the workshop's straight), and the way round it fits there: one
+   * taken from the tray comes out turned that way, not as the view would turn it, so held over the spot it fits as
+   * guided. Until one is put down, the tray's Turn or Flip is pressed (the player's own choice), or another guide.
+   */
+  private guided: { type: PieceTypeId; heading: number } | null = null;
+
+  guideHeld(held: { type: PieceTypeId; heading: number } | null): void {
+    this.guided = held;
+  }
+
   /** A new piece taken from the tray, held (not yet drawn: the first pointer move places it). */
   private pieceFromTray(item: Extract<TrayItem, { kind: "piece" }>, pointerId: number): Extract<Mode, { kind: "drag-piece" }> {
     {
@@ -542,7 +553,11 @@ export class Interaction {
         flipped,
         heldFlipped: flipped,
         // A depot can't mirror: Flip turns it right round instead, so its building is on the other side of the line.
-        heading: this.cameraHeading() + (this.trayTurns * Math.PI) / 4 + (this.trayFlipped && this.splices(item.type) ? Math.PI : 0),
+        // A goal's guided piece comes out the way it fits at the guided spot (see `guideHeld`).
+        heading:
+          this.guided?.type === item.type
+            ? this.guided.heading
+            : this.cameraHeading() + (this.trayTurns * Math.PI) / 4 + (this.trayFlipped && this.splices(item.type) ? Math.PI : 0),
         pieceId: -1,
         tray: item,
         auto: item.auto,
@@ -877,6 +892,7 @@ export class Interaction {
     else if (this.roadReady) this.roads.turnHeld(this.roadReady.drag);
     const was = this.cameraHeading() + (this.trayTurns * Math.PI) / 4;
     this.trayTurns = (this.trayTurns + 1) % 8;
+    this.guided = null;
     // Nothing in hand: the next piece shows for a moment, turning, so you see which way it'll come out.
     if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(was);
     this.onTurned?.();
@@ -939,6 +955,7 @@ export class Interaction {
     const holding = this.mode.kind === "drag-piece";
     if (holding) this.flipSelected();
     this.trayFlipped = !this.trayFlipped;
+    this.guided = null;
     // Nothing in hand: the next piece shows for a moment, mirrored as it'll come out.
     if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(this.nextShown?.heading ?? this.cameraHeading() + (this.trayTurns * Math.PI) / 4);
     this.onTurned?.();
@@ -2031,20 +2048,23 @@ export class Interaction {
   private yardWhy = "";
 
   /**
-   * A depot refused for want of room for its yard: would it go turned right round (Flip), its yard on the other side
-   * of the line? Worked out only while it's refused, once per spot.
+   * A depot refused (`reason`: no room for its yard, too few trees by it, the river under it): would it go turned right
+   * round (Flip), its yard on the other side of the line? Worked out only while it's refused, once per spot.
    */
-  private yardHint(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore): string | null {
+  private depotFlipHint(type: PieceTypeId, flipped: boolean, pose: Pose, y: number, ignoreId: Ignore, reason: PlaceBlock): string | null {
     const ignoreKey = typeof ignoreId === "number" ? ignoreId : [...ignoreId].join(",");
-    const key = `yard|${type}|${flipped}|${pose.x}|${pose.z}|${pose.heading}|${y}|${ignoreKey}|${this.game.layout.pieceCount}`;
+    const key = `flip|${type}|${flipped}|${pose.x}|${pose.z}|${pose.heading}|${y}|${ignoreKey}|${reason}|${this.game.layout.pieceCount}`;
     if (this.hintFor?.key === key) return this.hintFor.hint;
-    const memo = this.yardMemo;
-    const why = this.yardWhy;
+    const said = { memo: this.yardMemo, yard: this.yardWhy, site: this.siteWhy, hill: this.hillWhy, town: this.townWhy, inYard: this.inYardWhy };
     // Turned right round on the same track (where the splice puts it held the other way), all of it checked.
-    const hint = this.splices(type) ? flipHint(type, pose, (turned) => this.placement(type, flipped, turned, y, ignoreId).reason) : null;
+    const hint = this.splices(type) ? flipHint(type, pose, (turned) => this.placement(type, flipped, turned, y, ignoreId).reason, reason) : null;
     // (The turned-round check mustn't take the place of what's said, or remembered, for where it's held.)
-    this.yardMemo = memo;
-    this.yardWhy = why;
+    this.yardMemo = said.memo;
+    this.yardWhy = said.yard;
+    this.siteWhy = said.site;
+    this.hillWhy = said.hill;
+    this.townWhy = said.town;
+    this.inYardWhy = said.inYard;
     this.hintFor = { key, hint };
     return hint;
   }
@@ -2944,8 +2964,10 @@ export class Interaction {
       m.hint =
         !reason || reason === spliceWhy
           ? null
-          : isYardBlock(reason)
-            ? this.yardHint(m.type, m.flipped, pose, py, this.ignoreFor(m))
+          : isYardBlock(reason) || (m.covers && this.splices(m.type))
+            ? // A depot taking straights' place, refused for anything (its yard, its trees, the river): Flip, if it'd
+              // fit turned right round (QA: a Harvester short of trees said nothing of Flip, though it fit flipped).
+              this.depotFlipHint(m.type, m.flipped, pose, py, this.ignoreFor(m), reason)
             : m.snap.kind === "snapped"
               ? m.covers
                 ? null // (taking straights' place: there's no end it's seated on to turn about)
@@ -3080,6 +3102,7 @@ export class Interaction {
           g.flourishes.add(dustPuff(g.scene, pose.x + c.x * ch - c.z * sh, y, pose.z + c.x * sh + c.z * ch));
         }
         if (isNew) this.onTrayPieceDropped?.(true);
+        if (isNew && this.guided?.type === m.type) this.guided = null;
         this.onPlaced?.(snapped);
         // The next is likely the same kind: it stays ready, waiting at this one's free end for a tap. (Not while
         // drawing: a press there draws.)

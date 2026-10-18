@@ -757,6 +757,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.follow(-1);
     editor = makeEditor();
     interaction.clearSelection();
+    interaction.guideHeld(null);
     hud.hideCards();
     onChange();
   }
@@ -2675,6 +2676,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (!goal) return;
     const guide = goal.guide(game.world);
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
+    // The piece it asks for comes out of the tray the way it fits at the spot shown.
+    interaction.guideHeld(guide.held ?? null);
     if (guide.points.length > 0) {
       // The places along the screen's long side, with room round them for their surroundings (and for the goals card
       // and the tray, which cover the top and the bottom of the screen).
