@@ -45,8 +45,8 @@ import { MAX_SHEDS, SHED_CAP, type RouteStopDef, type StopAction } from "./econo
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { keepsPlanks, learnAuto, needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
-import { attachResearch, canResearch, detachResearch, lacking as researchLacking, tick as researchTick } from "./game/research";
-import { researchCard, researchLine, schoolCard, schoolCardKey, tapResearch } from "./game/research-text";
+import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, tick as researchTick } from "./game/research";
+import { cardState, goalPick, pillKey, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
@@ -183,6 +183,11 @@ let reports: Reporter | null = null;
 function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<typeof initialWorld>): void {
   const game = new Game(canvas, opening.world);
   let mode = opening.mode;
+  /** The research pill as last drawn: its key (`pillKey`) and the progress it was for (a new game starts a new one). */
+  let pillKeyShown = "";
+  let pillFor: unknown = null;
+  /** What the open Research picker was last drawn from (`boardKey`). */
+  let boardKeyShown = "";
   // Stations and depots never move (to take up joint play, or to close a near miss).
   const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
   /** Has the train lift's first-time tip been shown (on this device)? */
@@ -1035,7 +1040,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (gift.length > 0) hud.refreshTrayBadges();
       const offered = progress.offers.length;
       offerOnGrowth(progress, town.name, Math.random, status.level);
-      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Claim your reward in Blueprints" : ""].filter(Boolean);
+      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Claim your reward in Research" : ""].filter(Boolean);
       const grew = built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`;
       const where = built.length > 0 ? placeOf(built) : here;
       if (extras.length > 0) {
@@ -1302,6 +1307,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined)) game.invalidate();
     }
     hud.refreshTrayBadges();
+    // A school placed or taken up: the pill shows (or says to pick research), or goes.
+    refreshPill();
   }
   let rateKeyShown = "";
 
@@ -1337,8 +1344,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       refreshBoard();
       save();
     },
-    // (A stopgap till the Research picker: the board's tap picks a research.)
-    learn: (id) => picked(id),
+    pick: (id) => picked(id),
     close: () => setBoardOpen(false),
     picture: (key) => thumbnails.get(key),
     // A kit's, a prop's or a car's picture is drawn on demand if it isn't yet, as for the tray (the cars' and the other
@@ -1375,17 +1381,42 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const d = game.economy.allDepots().find((x) => x.role === "school");
     return d ? depotName(game.world, d) : null;
   }
+  /** Is a school placed (a lookup over the depots, which are kept in a list till the track changes)? */
+  function hasSchool(): boolean {
+    return game.economy.allDepots().some((x) => x.role === "school");
+  }
 
-  /** A research picked on the board (the stopgap tap): it starts, or waits in Next up. Says so in a toast. */
+  /**
+   * A research picked in the picker (its one button): it starts, or waits in Next up, or (the one up next) swaps with
+   * the one under way. The card and the pill show it; no toast.
+   */
   function picked(id: string): void {
-    const said = tapResearch(progress, id, schoolName());
-    if (!said) return;
+    if (!hasSchool() || !pickResearch(progress, id)) return;
     // What schools take has changed: routed trains plan again.
     game.economy.acceptsChanged();
     hud.setCoins(progress.coins);
-    hud.toast(said, true, 4200);
     refreshBoard();
+    refreshPill();
     scheduleSave();
+  }
+
+  /**
+   * The HUD's research pill, redrawn only when what it shows may have changed (a pick, a delivery, a second of study,
+   * a school placed, coins while one waits for them): asked on the workshop's clock and on those events, never per frame.
+   */
+  function refreshPill(): void {
+    if (mode !== "game") {
+      pillKeyShown = "";
+      pillFor = null;
+      hud.setResearchPill(null);
+      return;
+    }
+    const school = hasSchool();
+    const key = pillKey(progress, school);
+    if (key === pillKeyShown && pillFor === progress) return;
+    pillKeyShown = key;
+    pillFor = progress;
+    hud.setResearchPill(pillView(progress, school));
   }
 
   /** A research finished: learned, with what it brings, and the next one started if it could be. */
@@ -1400,9 +1431,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** The school's card: the research's goods (got of needed), and what it's at. Its key changes with the research. */
   interaction.schoolCard = { key: () => schoolCardKey(progress), show: () => schoolCard(progress) };
 
-  function setBoardOpen(open: boolean): void {
+  /** Open or close the Research picker; `on`: open on that card ("Show me" for a goal's research). */
+  function setBoardOpen(open: boolean, on?: string): void {
     if (open && mapView.open) closeMap(false);
     board.setOpen(open);
+    if (open && on) board.focus(on);
     hud.root.classList.toggle("board-open", open);
     if (open) {
       interaction.clearSelection();
@@ -1418,8 +1451,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (refreshOffers(progress, Math.random)) scheduleSave();
     hud.setBoardButton(board.open, progress.offers.length);
     if (!board.open) return;
+    boardKeyShown = boardKey();
     const school = schoolName();
-    const offerOf = (id: string) => progress.offers.findIndex((o) => o.ids.includes(id));
+    // The goal's research: the picker opens on it while nothing is under way, its button ringed (never picked for you).
+    const goalTech = goals.current()?.blueprint;
     const seen = seenOf(progress, new Set(progress.offers.flatMap((o) => o.ids)));
     const stations: Station[] = TECHS.map((t) => {
       // Pieces (kits and industries among them) and props as their tray pictures, as the tray shows them (a thing's id
@@ -1437,17 +1472,18 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
       // Its price is its research: goods brought to a school, and from tier 2 coins.
       const cost = t.research;
-      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price: costTag(cost.goods as Bag, cost.coins) || "free", planks: 0, requires };
-      if (progress.learned.has(t.id)) return { ...base, state: "learned" as const };
-      if (t.plan) return { ...base, state: "soon" as const, waits: PLAN_WORDS[t.plan] };
-      const offer = offerOf(t.id);
-      if (offer !== -1) return { ...base, state: "offered" as const, offer };
-      if (canResearch(progress, t.id)) return { ...base, state: "ready" as const, affordable: true, ...researchCard(progress, t.id, school) };
+      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price: costTag(cost.goods as Bag, cost.coins) || "free", requires };
+      const state = cardState(progress, t.id);
+      if (state === "learned") return { ...base, state };
+      if (state === "soon") return { ...base, state, waits: PLAN_WORDS[t.plan!] };
+      // (A town's offer of it, till the growth menu: the offer at the top of the picker; the card is its research.)
+      const research = researchCard(progress, t.id, school);
+      if (research) return { ...base, state, research, ...(t.id === goalTech && state !== "researching" ? { goal: true } : {}) };
       const missing = t.needs.filter((n) => !progress.learned.has(n));
       const unmet = t.requires.filter((n) => !needMet(progress, n));
       const waits =
         missing.length > 0
-          ? `Learn ${missing.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")} first`
+          ? `Research ${missing.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")} first`
           : unmet.length > 0
             ? `Needs ${unmet.map(describeNeed).join(" and ")}`
             : t.learn === "auto"
@@ -1455,13 +1491,21 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
               : "A town will offer it as it grows";
       return { ...base, state: "locked" as const, waits };
     });
+    const focus = goalPick(progress, goalTech, school !== null);
     board.show({
       stations,
       branches: BRANCHES.map((b) => ({ id: b.id, label: b.label, color: b.color })),
       offers: progress.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: describeThings(o.crate) } : {}) })),
-      planks: null,
-      stock: researchLine(progress, school),
+      ...(focus ? { focus } : {}),
     });
+  }
+  /**
+   * What the open picker shows depends on (beyond a tray picture coming): the research (a pick, a delivery, a second of
+   * study), coins, what's learned, the towns' offers, riders (a requirement's count), a school placed and the goal. The
+   * workshop's clock redraws it only when this changes.
+   */
+  function boardKey(): string {
+    return `${progress.research.version}|${progress.coins}|${progress.learned.size}|${progress.offers.length}|${progress.riders}|${hasSchool()}|${goals.current()?.id ?? ""}`;
   }
 
   // The workshop's clock: a few times a second, not every frame (it runs while nothing on screen moves).
@@ -1475,7 +1519,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     learnAuto(progress);
   }
   setInterval(() => {
-    if (mode === "game" && board.open) refreshBoard();
+    if (mode === "game" && board.open && boardKey() !== boardKeyShown) refreshBoard();
+    if (mode === "game") refreshPill();
     // Schools have ideas while the game runs.
     if (mode === "game" && playing && !game.paused) {
       // A college: ideas twice as often.
@@ -1580,7 +1625,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     applyCranes(game.economy, progress);
     attachEngines(game.world);
     // Goods brought to a school go into the research (saved soon after: a train brings them in a burst).
-    attachResearch(game.economy, () => progress, () => scheduleSave());
+    attachResearch(game.economy, () => progress, () => {
+      refreshPill();
+      scheduleSave();
+    });
     attachPassengers(game.world, () => progress, () => {
       hud.setCoins(progress.coins);
       for (const id of learnAuto(progress)) {
@@ -2725,6 +2773,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function showGoal(): void {
     const goal = goals.current();
     if (!goal) return;
+    // A goal after a blueprint, with a school placed: the picker, open on it (where to place the school, or the school
+    // its goods go to, otherwise).
+    const pick = showMePick(progress, goal.blueprint, hasSchool());
+    if (pick) {
+      setBoardOpen(true, pick);
+      return;
+    }
     const guide = goal.guide(game.world);
     interaction.guideSpots = guide.marks.map((p) => ({ x: p.x, z: p.z }));
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
@@ -2759,6 +2814,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     crafting.setProgress(progress);
     saveProgress(progress.toJSON());
     refreshBoard();
+    refreshPill();
     goals = new GoalTracker();
     saveGoals([]);
     journal.clear();
@@ -2851,6 +2907,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.paused = pausedBeforeTitle;
     hud.setPaused(game.paused);
     hud.setMode(mode);
+    refreshPill();
     // Town houses and placed models can be moved in Sandbox only.
     interaction.propsEditable = mode === "sandbox";
     hud.setVisible(true);

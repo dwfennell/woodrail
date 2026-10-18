@@ -136,28 +136,31 @@ one research plus Next up, coins from tier 2).
 
 **Depends on:** P1. **Ships:** the Research picker and the HUD pill on a phone.
 **Removes:** the stopgap tap, and the board's "offered" and pay-at-price card text.
+**Built (research-p2):** as below, with one change for the phone: while the pill shows, it stands in for the Research
+button on a phone (same tap, and the button's glow and dot), as the 390 px bar can't hold both beside the coins. "Needs a
+school beside a city" waits for P4.
 
 ### Task 2.1: the board becomes the Research picker
-- [ ] Rename the Blueprints button and title to Research. In `blueprint-board.ts`, the `Station.state` values
+- [x] Rename the Blueprints button and title to Research. In `blueprint-board.ts`, the `Station.state` values
   become `learned | researching | next | ready | locked | soon`.
-- [ ] A card shows:
+- [x] A card shows:
   - goods chips "🪵 6/10 · 🌾 0/6", plus the coins chip from tier 2, red when short;
   - its study time;
   - one button, Research or Next up, at least 44 px.
-- [ ] `why` lines: "Needs a school", "Waiting for 20🪙", "Needs a school beside a city" (from P4).
-- [ ] Tests (`blueprint-board.test.ts`): states, chips, button label, swap.
+- [x] `why` lines: "Needs a school", "Waiting for 20🪙", "Needs a school beside a city" (from P4).
+- [x] Tests (`blueprint-board.test.ts`): states, chips, button label, swap.
 
 ### Task 2.2: the HUD pill
-- [ ] Add a pill, for example "📘 Bridges 6/10🪵". While studying it shows a bar; when idle it says "Pick
+- [x] Add a pill, for example "📘 Bridges 6/10🪵". While studying it shows a bar; when idle it says "Pick
   research". Tap it to open the picker.
-- [ ] It redraws only when the research state changes, using a signature key.
-- [ ] Tests (`hud-board.test.ts`): the pill text for each state, and no redraw on an unchanged state.
+- [x] It redraws only when the research state changes, using a signature key.
+- [x] Tests (`hud-board.test.ts`): the pill text for each state, and no redraw on an unchanged state.
 
 ### Task 2.3: the goal pre-pick
-- [ ] When a goal with `blueprint` is current and research is idle, the picker opens on that card with Research
+- [x] When a goal with `blueprint` is current and research is idle, the picker opens on that card with Research
   highlighted. Nothing is picked without a tap.
-- [ ] "Show me" for a research goal points at the school, or at the picker if one is placed.
-- [ ] Tests (`goals.test.ts`).
+- [x] "Show me" for a research goal points at the school, or at the picker if one is placed.
+- [x] Tests (`goals.test.ts`).
 
 ---
 

@@ -1,17 +1,78 @@
 import { COIN_ICON, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { iconCounts } from "../economy/goods";
 import type { Progress } from "./progress";
-import { coinsShort, costOf, lacks, pick, studying, studyLeft } from "./research";
+import { canResearch, coinsShort, costOf, lacks, studying, studyLeft, studyTime } from "./research";
 import { techOf } from "./tech";
 
 /**
- * Research in words, for the blueprint board's stopgap (P1: its tap picks a research; the Research picker comes in
- * P2), the toast that says so, and the school's card. Short: they're read on a phone. `school` is the name of the
- * school goods go to ("Larkfield school"), or null if none is placed yet.
+ * Research in words and states, for the Research picker (the board's web), the HUD's pill and the school's card.
+ * Short: they're read on a phone. `school` is the name of the school goods go to ("Larkfield school"), or null if none
+ * is placed yet. Pure: the UI draws from these, tests check them.
  */
 
 const coins = (n: number) => `${n}${COIN_ICON}`;
 const label = (id: string) => techOf(id)?.label ?? id;
+
+/** A blueprint's name cut short for the pill: "Bridges and ramps" → "Bridges", "Diesel (Trains tab)" → "Diesel". */
+export const shortLabel = (id: string): string => label(id).replace(/\s*\(.*\)$/, "").split(" and ")[0];
+
+/**
+ * A blueprint's card in the picker. learned: done. researching: under way (`current`). next: up next. ready: can be
+ * picked now. locked: later (needs another blueprint first, or something done). soon: not in the game yet.
+ */
+export type CardState = "learned" | "researching" | "next" | "ready" | "locked" | "soon";
+
+export function cardState(p: Progress, id: string): CardState {
+  if (p.learned.has(id)) return "learned";
+  if (techOf(id)?.plan) return "soon";
+  const r = p.research;
+  if (r.current === id) return "researching";
+  if (r.next === id) return "next";
+  return canResearch(p, id) ? "ready" : "locked";
+}
+
+/** One chip of a card's cost: "🪵 6/10" (got of needed), or "🪙 20"; `short` when the coins aren't in hand. */
+export interface Chip {
+  text: string;
+  short?: boolean;
+}
+
+/** Goods got so far toward a research: the current one's, or what a set-aside one kept (none otherwise). */
+function gotOf(p: Progress, id: string): Partial<Record<CargoKind, number>> {
+  const r = p.research;
+  if (r.current === id) return r.got;
+  return r.held.get(id)?.got ?? {};
+}
+
+/** Its coins are paid already: it's under way, or was started and set aside. */
+const paid = (p: Progress, id: string) => p.research.current === id || p.research.held.has(id);
+
+/** A research's cost as chips: each good got of needed, then its coins (from tier 2) unless they're paid. */
+export function researchChips(p: Progress, id: string): Chip[] {
+  const cost = costOf(id);
+  const got = gotOf(p, id);
+  const chips: Chip[] = (Object.keys(cost.goods) as CargoKind[]).map((k) => ({ text: `${GOODS_ICON[k]} ${Math.min(got[k] ?? 0, cost.goods[k]!)}/${cost.goods[k]}` }));
+  const c = cost.coins ?? 0;
+  if (c > 0 && !paid(p, id)) chips.push(p.coins < c ? { text: `${COIN_ICON} ${c}`, short: true } : { text: `${COIN_ICON} ${c}` });
+  return chips;
+}
+
+/** The chips as one line: "🪵 6/10 · 🌾 0/6 · 🪙 20". */
+export const chipsText = (chips: readonly Chip[]): string => chips.map((c) => c.text).join(" · ");
+
+/** How far a research's goods are in (0–1), or its study once they are. */
+export function researchFill(p: Progress, id: string): number {
+  const goods = costOf(id).goods;
+  const got = gotOf(p, id);
+  let need = 0;
+  let have = 0;
+  for (const k of Object.keys(goods) as CargoKind[]) {
+    need += goods[k]!;
+    have += Math.min(got[k] ?? 0, goods[k]!);
+  }
+  if (p.research.current === id && studying(p)) return Math.min(1, p.research.study / studyTime(id));
+  return need > 0 ? have / need : 0;
+}
 
 /** What the current research waits for: "bring 4🪵 to Larkfield school", "studying: 12 s", "place a school by a town". */
 export function researchWants(p: Progress, school: string | null): string {
@@ -19,36 +80,104 @@ export function researchWants(p: Progress, school: string | null): string {
   return school ? `bring ${iconCounts(lacks(p))} to ${school}` : "place a school by a town";
 }
 
-/**
- * The board's tap on a ready blueprint (the stopgap): pick it for research, and say what happened in a toast:
- * "Researching Switches: bring 4🪵 to Larkfield school", "Next up: Bridges", "Next up: Routes (20🪙 short)". Null if
- * it can't be researched (nothing changes).
- */
-export function tapResearch(p: Progress, id: string, school: string | null): string | null {
-  const where = pick(p, id);
-  if (!where) return null;
-  if (where === "current") return `Researching ${label(id)}: ${researchWants(p, school)}`;
-  const short = coinsShort(p);
-  return short > 0 ? `Next up: ${label(id)} (${coins(short)} short)` : `Next up: ${label(id)}`;
+/** A card the picker can act on (researching, next or ready): its chips, study time, line, and its one button. */
+export interface ResearchCardView {
+  chips: Chip[];
+  /** "20 s study". */
+  study: string;
+  /** How it stands, in a short line ("bring 4🪵 to Larkfield school", "Next up, after Switches", "Needs a school"). */
+  why?: string;
+  /** Its button: "Research", "Next up" or "Research now" (the swap); none while it's the research under way. */
+  action?: string;
+  /** The button can't be used now (`why` says why). */
+  blocked?: boolean;
+  /** Goods in (or study done), 0–1, for the one under way. */
+  fill?: number;
 }
 
-/** A ready blueprint's card on the board: how its research stands, and its button's word. */
-export function researchCard(p: Progress, id: string, school: string | null): { why?: string; research?: "current" | "next"; action: string } {
+/**
+ * A card's research view (null for learned, locked and soon). A ready card: Research when nothing is under way, else
+ * Next up. The one up next: Research now (tapping it swaps the two), held back while its coins are short. The one
+ * under way: live progress, no button. With no school placed nothing can be picked: "Needs a school".
+ */
+export function researchCard(p: Progress, id: string, school: string | null): ResearchCardView | null {
+  const state = cardState(p, id);
+  if (state !== "ready" && state !== "researching" && state !== "next") return null;
   const r = p.research;
-  if (r.current === id) return { why: researchWants(p, school), research: "current", action: "Researching" };
-  if (r.next === id) {
+  const base = { chips: researchChips(p, id), study: `${studyTime(id)} s study` };
+  if (state === "researching") return { ...base, why: researchWants(p, school), fill: researchFill(p, id) };
+  if (state === "next") {
     const short = coinsShort(p);
-    return { why: short > 0 ? `Waiting for ${coins(short)}` : "Up next", research: "next", action: r.current ? "Research now" : "Research" };
+    const after = r.current ? `Next up, after ${shortLabel(r.current)}` : "Next up";
+    const why = short === 0 ? after : r.current ? `After ${shortLabel(r.current)} · ${coins(short)} short` : `Waiting for ${coins(short)}`;
+    return short > 0 ? { ...base, why, action: "Research now", blocked: true } : { ...base, why, action: "Research now" };
   }
   const action = r.current ? "Next up" : "Research";
-  return school ? { action } : { why: "Needs a school", action };
+  return school ? { ...base, action } : { ...base, why: "Needs a school", action, blocked: true };
 }
 
-/** The board's line about research: what's under way, or what to do. */
-export function researchLine(p: Progress, school: string | null): string {
-  const id = p.research.current;
-  if (id) return `Researching ${label(id)}: ${researchWants(p, school)}`;
-  return school ? "Tap a blueprint to research it" : "Place your school by a town";
+/** The pill on the HUD: a name and a count (shown as "📘 Bridges 6/10🪵"), how far along, and whether to pick one. */
+export interface PillView {
+  name: string;
+  count: string;
+  fill: number;
+  /** Nothing picked: "Pick research". */
+  idle: boolean;
+}
+
+/**
+ * The HUD's research pill: the research under way and its first good still lacking ("Bridges", "6/10🪵"), its study
+ * time left once the goods are in ("12 s"), the one waiting for coins ("Routes", "5/20🪙"), or "Pick research" with
+ * nothing picked. Hidden (null) with nothing picked and no school placed.
+ */
+export function pillView(p: Progress, hasSchool: boolean): PillView | null {
+  const r = p.research;
+  if (r.current) {
+    const id = r.current;
+    if (studying(p)) return { name: shortLabel(id), count: `${Math.ceil(studyLeft(p))} s`, fill: researchFill(p, id), idle: false };
+    const goods = costOf(id).goods;
+    const k = (Object.keys(goods) as CargoKind[]).find((x) => (r.got[x] ?? 0) < goods[x]!)!;
+    return { name: shortLabel(id), count: `${r.got[k] ?? 0}/${goods[k]}${GOODS_ICON[k]}`, fill: researchFill(p, id), idle: false };
+  }
+  if (r.next) {
+    const need = costOf(r.next).coins ?? 0;
+    const short = coinsShort(p);
+    if (short > 0) return { name: shortLabel(r.next), count: `${need - short}/${coins(need)}`, fill: (need - short) / need, idle: false };
+  }
+  return hasSchool || r.next ? { name: "Pick", count: "research", fill: 0, idle: true } : null;
+}
+
+/** The pill in one line: "📘 Bridges 6/10🪵", "📘 Pick research" ("" when it's hidden). */
+export const pillText = (v: PillView | null): string => (v ? `📘 ${v.name} ${v.count}` : "");
+
+/**
+ * What the pill shows depends on: the research's version (a pick, a delivery, a whole second of study), whether a
+ * school is placed, and the coins while a research waits for them. Asked on the workshop's clock; the pill is redrawn
+ * only when it changes.
+ */
+export function pillKey(p: Progress, hasSchool: boolean): string {
+  const r = p.research;
+  const waiting = r.current === null && r.next !== null && coinsShort(p) > 0;
+  return `${r.version}|${hasSchool ? 1 : 0}|${waiting ? p.coins : ""}`;
+}
+
+/**
+ * The goal's research to open the picker on: the goal's blueprint, while nothing is under way and it can be picked
+ * (null otherwise). Nothing is picked without a tap.
+ */
+export function goalPick(p: Progress, blueprint: string | undefined, hasSchool: boolean): string | null {
+  if (!blueprint || !hasSchool || p.research.current !== null) return null;
+  return canResearch(p, blueprint) ? blueprint : null;
+}
+
+/**
+ * "Show me" for a goal after a blueprint: open the picker on it (the blueprint), once a school is placed and while
+ * it's still to pick (not learned, not under way). Null: show the goal on the map as usual (where to place the school,
+ * or the school the goods go to).
+ */
+export function showMePick(p: Progress, blueprint: string | undefined, hasSchool: boolean): string | null {
+  if (!blueprint || !hasSchool || p.learned.has(blueprint) || p.research.current === blueprint) return null;
+  return canResearch(p, blueprint) ? blueprint : null;
 }
 
 /** A key that changes whenever the school's card would (cheap enough to ask every frame the card is open). */
@@ -59,7 +188,7 @@ export function schoolCard(p: Progress): { piles: { label: string; count: number
   const r = p.research;
   if (!r.current) {
     const short = coinsShort(p);
-    return { piles: [], note: r.next ? `Next up: ${label(r.next)}${short > 0 ? ` (${coins(short)} short)` : ""}` : "Pick research in Blueprints" };
+    return { piles: [], note: r.next ? `Next up: ${label(r.next)}${short > 0 ? ` (${coins(short)} short)` : ""}` : "Pick research: tap 📘" };
   }
   const goods = costOf(r.current).goods;
   const piles = (Object.keys(goods) as CargoKind[]).map((k) => ({ label: GOODS_ICON[k], count: r.got[k] ?? 0, cap: goods[k]! }));

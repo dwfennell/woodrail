@@ -213,7 +213,7 @@ function bridgeTarget(w: World): AcrossRiver | null {
 }
 
 /** The bridge goal's hint when there's a river but nothing across it to reach. */
-export const NOTHING_ACROSS_HINT = "Nothing's across the river yet. Learn bridges, make one and lay it over the water.";
+export const NOTHING_ACROSS_HINT = "Nothing's across the river yet. Research bridges, make one and lay it over the water.";
 
 /**
  * Where a bridge is wanted: where the shortest way from the line to the nearest thing across the river (a town off the
@@ -374,7 +374,7 @@ export const GOALS: readonly Goal[] = [
     id: "learn-switches",
     blueprint: "switches",
     title: "Learn switches",
-    hint: "Tap Switches in Blueprints, then bring 4 planks to your school.",
+    hint: "Pick Switches in Research, then bring 4 planks to your school.",
     check: (w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches"), ...(ctx.learned.has("switches") || schools(w).length > 0 ? {} : { hint: "Place your school beside a town (Industries tab)." }) }),
     guide: guideSchool,
   },
@@ -389,7 +389,7 @@ export const GOALS: readonly Goal[] = [
     id: "build-bridge",
     blueprint: "bridges",
     title: "Build a bridge",
-    hint: "Learn bridges on the blueprint board and make one at your workshop. Then take your track over a river.",
+    hint: "Research bridges, make one at your workshop, then take your track over a river.",
     check: (w) => {
       if (hasPiece(w, (type) => isBridge(type))) return { done: true };
       return riverPoints(w.landscape.grid).length > 0 && !bridgeTarget(w) ? { done: false, hint: NOTHING_ACROSS_HINT } : { done: false };
