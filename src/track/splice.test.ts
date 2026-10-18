@@ -324,7 +324,7 @@ describe("findMerge (a drawn line coming in to a line at 45°)", () => {
       const m = findMerge(l, e, 330, 10);
       expect(m, `${link}`).not.toBeNull();
       if (!m) continue;
-      expect(m.link?.type ?? null).toBe(link ? `straight-${link}` : null);
+      expect(m.links.map((l) => l.type)).toEqual(link ? [`straight-${link}`] : []);
       expect(Math.hypot(m.swap.end.x - b.end.x, m.swap.end.z - b.end.z)).toBeLessThan(10);
     }
   });

@@ -260,7 +260,7 @@ describe("crossing a line (the stroke goes on through it)", () => {
       if (c?.kind !== "crossing") continue;
       expect(c.swap.pieces[0].type).toBe(type);
       // The line goes on from the crossing's far end.
-      const crossedPieces = [...first.placeable().slice(0, c.keep).map((p) => ({ type: p.type, pose: p.pose, y: p.y, flipped: p.flipped })), ...(c.link ? [c.link] : []), ...c.swap.pieces];
+      const crossedPieces = [...first.placeable().slice(0, c.keep).map((p) => ({ type: p.type, pose: p.pose, y: p.y, flipped: p.flipped })), ...c.links, ...c.swap.pieces];
       const on = new DrawLine(c.swap.exit!, s.options(new Set(c.swap.covers)));
       for (; d <= 900; d += 4) on.addPoint(at(d).x, at(d).z);
       on.finish();
@@ -276,6 +276,24 @@ describe("crossing a line (the stroke goes on through it)", () => {
       expect(s.layout.pieceCount).toBe(before);
       expect(s.layout.jointCount).toBe(joints);
     }
+  });
+
+  it("found wherever the stroke crosses, from wherever it starts: 18 mm left over takes up the next straight too, and a gap over 216 mm is two straights (QA)", () => {
+    for (let cx = 180; cx <= 660; cx += 18)
+      for (const off of [300, 400, 291]) {
+        const s = setup();
+        const joints = s.layout.jointCount;
+        const start = { x: cx, z: Z - off, heading: Math.PI / 2, y: 0, kind: "peg" as const };
+        const first = new DrawLine(start, s.options(new Set()));
+        for (let d = 4; d <= 800 && first.stopped === null; d += 4) first.addPoint(cx, Z - off + d);
+        const c = crossingAt(s.junctions, first.start, first.placeable(), new Set(), () => 0);
+        expect(c?.kind, `${cx}, ${off} off`).toBe("crossing");
+        if (c?.kind !== "crossing") continue;
+        const pieces = [...first.placeable().slice(0, c.keep), ...c.links, ...c.swap.pieces];
+        s.editor.replaceRun(c.swap.covers, pieces);
+        // Joined all through: the line to the crossing, the old line through it.
+        expect(s.layout.jointCount, `${cx}, ${off} off`).toBe(joints - c.swap.covers.length + pieces.length);
+      }
   });
 
   it("needs a crossing in the box (Game: the junctions blueprint), and none with a train on the straight", () => {

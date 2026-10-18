@@ -403,7 +403,7 @@ export class DrawHand {
     const ghosts = this.ghosts.splice(0, c.keep).map((g) => g.mesh);
     for (const gh of this.ghosts) this.game.scene.remove(gh.mesh);
     this.ghosts = [];
-    const added = [...(c.link ? [c.link] : []), ...c.swap.pieces];
+    const added = [...c.links, ...c.swap.pieces];
     const meshes = added.map((p) => this.pieceMesh(p));
     for (const m of meshes) this.game.scene.add(m);
     this.crossed.pieces.push(...kept.map((p) => ({ type: p.type, pose: p.pose, y: p.y, flipped: p.flipped })), ...added);
@@ -429,12 +429,12 @@ export class DrawHand {
   /** Show the merge the line would make if let go now, as ghosts, when that changes. */
   private showMerge(): void {
     const m = this.mergeNow();
-    const key = m ? `${m.keep}|${m.swap.covers.join(",")}|${m.swap.pieces.map((p) => `${p.type}${p.pose.x.toFixed(0)},${p.pose.z.toFixed(0)}`).join(";")}|${m.link?.type ?? ""}` : "";
+    const key = m ? `${m.keep}|${m.swap.covers.join(",")}|${m.swap.pieces.map((p) => `${p.type}${p.pose.x.toFixed(0)},${p.pose.z.toFixed(0)}`).join(";")}|${m.links.map((l) => l.type).join(",")}` : "";
     if (key === this.mergeKey) return;
     this.mergeKey = key;
     this.merge = m;
     for (const g of this.mergeGhosts) this.game.scene.remove(g);
-    this.mergeGhosts = m ? [...(m.link ? [m.link] : []), ...m.swap.pieces].map((p) => this.pieceMesh(p)) : [];
+    this.mergeGhosts = m ? [...m.links, ...m.swap.pieces].map((p) => this.pieceMesh(p)) : [];
     for (const g of this.mergeGhosts) this.game.scene.add(g);
     this.outlineCovers();
     this.game.invalidate();

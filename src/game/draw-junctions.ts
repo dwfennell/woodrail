@@ -87,7 +87,7 @@ function swapBlocked(r: JunctionRules, w: PieceSwap, also: ReadonlySet<number> =
 export interface Merge {
   readonly kind: "merge";
   readonly keep: number;
-  readonly link: SwapPiece | null;
+  readonly links: readonly SwapPiece[];
   readonly swap: PieceSwap;
 }
 
@@ -98,6 +98,15 @@ export interface Merge {
  * replaced (a branch's). `switches`: switches the line already uses. Null if none; "short" if the player has no
  * switch for it (what to say).
  */
+/** Why the straights to a swap can't go down (the first one's reason), or null. */
+function linksBlocked(r: JunctionRules, links: readonly SwapPiece[], ignore: ReadonlySet<number>): string | null {
+  for (const l of links) {
+    const why = r.check(l.type, l.flipped, l.pose, l.y, ignore);
+    if (why) return why;
+  }
+  return null;
+}
+
 export function mergeAt(r: JunctionRules, start: DrawEnd, pieces: readonly DrawnPiece[], finger: { x: number; z: number }, taken: ReadonlySet<number>, switches: number): Merge | { readonly kind: "short"; readonly message: string } | null {
   for (const keep of [pieces.length, pieces.length - 1]) {
     if (keep < 0) continue;
@@ -106,9 +115,9 @@ export function mergeAt(r: JunctionRules, start: DrawEnd, pieces: readonly Drawn
     if (!m) continue;
     const short = r.may("switch", switches);
     if (short) return { kind: "short", message: short };
-    const why = swapBlocked(r, m.swap, taken) ?? (m.link ? r.check(m.link.type, m.link.flipped, m.link.pose, m.link.y, new Set([...taken, ...m.swap.covers])) : null);
+    const why = swapBlocked(r, m.swap, taken) ?? linksBlocked(r, m.links, new Set([...taken, ...m.swap.covers]));
     if (why) continue;
-    return { kind: "merge", keep, link: m.link, swap: m.swap };
+    return { kind: "merge", keep, links: m.links, swap: m.swap };
   }
   return null;
 }
@@ -117,7 +126,7 @@ export function mergeAt(r: JunctionRules, start: DrawEnd, pieces: readonly Drawn
 export interface Crossing {
   readonly kind: "crossing";
   readonly keep: number;
-  readonly link: SwapPiece | null;
+  readonly links: readonly SwapPiece[];
   readonly swap: PieceSwap;
 }
 
@@ -142,9 +151,9 @@ export function crossingAt(
     const type = c.swap.pieces[0].type;
     const short = r.may(type, used(type));
     if (short) return { kind: "short", message: short };
-    const why = swapBlocked(r, c.swap, taken) ?? (c.link ? r.check(c.link.type, c.link.flipped, c.link.pose, c.link.y, new Set([...taken, ...c.swap.covers])) : null);
+    const why = swapBlocked(r, c.swap, taken) ?? linksBlocked(r, c.links, new Set([...taken, ...c.swap.covers]));
     if (why) continue;
-    return { kind: "crossing", keep, link: c.link, swap: c.swap };
+    return { kind: "crossing", keep, links: c.links, swap: c.swap };
   }
   return null;
 }
@@ -161,7 +170,7 @@ export function linePlan(
   const out: SwapPiece[] = [...(branch?.pieces ?? []), ...crossed.pieces];
   const line = out.length;
   for (const p of pieces.slice(0, keep)) out.push({ type: p.type, pose: p.pose, y: p.y, flipped: p.flipped });
-  if (merge?.link) out.push(merge.link);
+  if (merge) out.push(...merge.links);
   if (merge) out.push(...merge.swap.pieces);
   return { covers: [...(branch?.covers ?? []), ...crossed.covers, ...(merge?.swap.covers ?? [])], pieces: out, line };
 }

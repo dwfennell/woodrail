@@ -413,13 +413,14 @@ function switchAt(
     last = i;
   }
   if (first === -1) return null;
-  const u0 = run.starts[first];
-  const u1 = run.starts[last] + run.lengths[last];
-  const left = s - u0;
-  const right = u1 - s - SWITCH_LENGTH;
-  const fillLeft = left < LENGTH_SLACK ? [] : straightsFor(left);
-  const fillRight = right < LENGTH_SLACK ? [] : straightsFor(right);
+  const fill = (gap: number) => (gap < LENGTH_SLACK ? [] : straightsFor(gap));
+  let fillLeft = fill(s - run.starts[first]);
+  // What's left over too short for a straight (18 mm): the straight beyond is taken up too, and the two made again.
+  if (!fillLeft && first > 0) fillLeft = fill(s - run.starts[--first]);
+  let fillRight = fill(run.starts[last] + run.lengths[last] - s - SWITCH_LENGTH);
+  if (!fillRight && last < run.ids.length - 1) fillRight = fill(run.starts[++last] + run.lengths[last] - s - SWITCH_LENGTH);
   if (!fillLeft || !fillRight) return null;
+  const u0 = run.starts[first];
   const covers = run.ids.slice(first, last + 1);
   for (const id of covers)
     if (!canTake(id)) {
@@ -550,17 +551,31 @@ export function findBranch(layout: Layout, onto: number, px: number, pz: number,
   return pick.w;
 }
 
-/** A merge: the switch swap, and the straight (if any) from the line's end to its branch end. */
+/** A merge: the switch swap, and the straights (none, one or two) from the line's end to its branch end. */
 export interface MergeSwap {
   readonly swap: PieceSwap;
-  readonly link: SwapPiece | null;
+  readonly links: readonly SwapPiece[];
 }
+
+/**
+ * The plain straights that span a gap along the line's heading: one (36 to 216 mm in 18 mm steps, as the Auto piece
+ * fits), else two (up to 432 mm), by total. A line's pieces are all whole 18 mm steps long, so where its end lies
+ * short of a swap's end by a few mm more than a step, keeping a piece less doesn't help: a gap just over 216 mm needs
+ * two (QA: a crossing stroke started 300 mm off the line found none).
+ */
+const LINK_RUNS: readonly (readonly number[])[] = (() => {
+  const out = new Map<number, number[]>();
+  for (const t of FIT_LENGTHS) out.set(t, [t]);
+  for (const a of FIT_LENGTHS) for (const b of FIT_LENGTHS) if (b <= a && !out.has(a + b)) out.set(a + b, [a, b]);
+  return [...out.keys()].sort((x, y) => x - y).map((k) => out.get(k)!);
+})();
+const LINK_TOTALS = LINK_RUNS.map((r) => r.reduce((a, b) => a + b, 0));
 
 /**
  * A drawn line ending at `end` (heading the way it goes on), its finger let go at (fx, fz) on or close to a plain
  * straight: a switch swapped into that straight's run whose branch end meets the line, arriving at 45° to it, either
- * straight away or through one plain straight on along the line's heading (as the Auto piece fits: 36 to 216 mm in
- * 18 mm steps, to within the joints' play). Null if none does. One pass over the pieces for straights near the finger,
+ * straight away or through plain straights on along the line's heading (one or two: see `LINK_RUNS`, to within the
+ * joints' play). Null if none does. One pass over the pieces for straights near the finger,
  * then for each run two facings, two hands and the two positions either side of where the branch would line up.
  */
 export function findMerge(layout: Layout, end: { x: number; z: number; heading: number; y: number }, fx: number, fz: number, canTake: (id: number) => boolean = () => true): MergeSwap | null {
@@ -574,7 +589,7 @@ export function findMerge(layout: Layout, end: { x: number; z: number; heading: 
   }, { x: fx, z: fz, reach: MERGE_REACH });
 }
 
-/** A crossing at the line's end: the swap (its `exit`, the far end of its path the line takes on), and the straight to it. */
+/** A crossing at the line's end: the swap (its `exit`, the far end of its path the line takes on), and the straights to it. */
 export type CrossingSwap = MergeSwap;
 
 /** A drawn line crosses a plain straight's run at about 90° or 45° when it's this close (mm) to it along its heading, at most. */
@@ -607,7 +622,7 @@ export function findCrossing(layout: Layout, end: { x: number; z: number; headin
 /**
  * The swap, among those `kinds` (a piece type, the end the line comes in to, and the one it goes on from or −1) at
  * each facing and hand, put into a run of plain straights near `near` (and `onRun` says the run may be used), whose
- * end `port` meets the line's end facing it, straight away or through one plain straight on the line's heading:
+ * end `port` meets the line's end facing it, straight away or through one or two plain straights on the line's heading:
  * the nearest fit within the joints' play, or null.
  */
 function findPortSwap(
@@ -654,13 +669,20 @@ function findPortSwap(
             if (s < 0 || s + SWITCH_LENGTH > run.length + LENGTH_SLACK) continue;
             const along = (bx + ch * s) * ex + (bz + sh * s) * ez;
             const across = across0 + rate * s;
-            const link = Math.abs(along) <= JOINT_POS_TOLERANCE ? 0 : FIT_LENGTHS.reduce((q, t) => (Math.abs(t - along) < Math.abs(q - along) ? t : q), FIT_LENGTHS[0] as number);
+            let k = -1;
+            if (Math.abs(along) > JOINT_POS_TOLERANCE) for (let i = 0; i < LINK_TOTALS.length; i++) if (k < 0 || Math.abs(LINK_TOTALS[i] - along) < Math.abs(LINK_TOTALS[k] - along)) k = i;
+            const link = k < 0 ? 0 : LINK_TOTALS[k];
             const err = Math.hypot(along - link, across);
             if (err > JOINT_POS_TOLERANCE || (best && err >= best.err)) continue;
             const w = switchAt(run, s, facing, flipped, canTake, busy, kind.type, kind.port, kind.exit);
             if (!w) continue;
-            const linkPiece: SwapPiece | null = link === 0 ? null : { type: `straight-${link}` as PieceTypeId, pose: { x: end.x, z: end.z, heading: normalizeAngle(end.heading) }, y: end.y, flipped: false };
-            best = { m: { swap: w, link: linkPiece }, err };
+            const links: SwapPiece[] = [];
+            let at = 0;
+            for (const t of k < 0 ? [] : LINK_RUNS[k]) {
+              links.push({ type: `straight-${t}` as PieceTypeId, pose: { x: end.x + ex * at, z: end.z + ez * at, heading: normalizeAngle(end.heading) }, y: end.y, flipped: false });
+              at += t;
+            }
+            best = { m: { swap: w, links }, err };
           }
         }
       }
