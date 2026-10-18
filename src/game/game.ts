@@ -10,11 +10,14 @@ import { ClockView } from "../render/clock-view";
 import {
   ACESFilmicToneMapping,
   Clock,
+  Frustum,
+  Matrix4,
   type Fog,
   PCFShadowMap,
   PerspectiveCamera,
   Scene,
   SRGBColorSpace,
+  Sphere,
   Spherical,
   Vector3,
   WebGLRenderer,
@@ -965,12 +968,38 @@ export class Game {
     return i !== -1 && (g.surface[i] === SURF_LANE || g.road[i] !== 0);
   };
 
-  /** A train's route sets switches as it goes: show their levers where they now point. */
+  /**
+   * A train's route sets switches as it goes: show their levers where they now point. One in view swings over (with its
+   * chevrons sliding across), as if thrown by hand, so a switch never changes with nothing showing it; one out of view
+   * is just set.
+   */
   private watchSwitches(): void {
-    this.economy.onSwitch = () => {
-      this.trackView.syncSwitches();
-      this.invalidate();
-    };
+    this.economy.onSwitch = (pieceId) => this.switchesChanged((id) => id === pieceId && this.inView(id));
+  }
+
+  /**
+   * Switches were thrown or pinned: their levers, chevrons and pegs are redrawn (nothing else is rebuilt). Those `swing`
+   * says swing over, a flourish (drawn till it settles, then the frames stop).
+   */
+  switchesChanged(swing?: (pieceId: number) => boolean): void {
+    const f = this.trackView.syncSwitches(swing);
+    if (f) this.flourishes.add(f);
+    this.invalidate();
+  }
+
+  private readonly viewFrustum = new Frustum();
+  private readonly viewMatrix = new Matrix4();
+  private readonly viewSphere = new Sphere();
+
+  /** Is this piece in the camera's view (as last drawn)? */
+  private inView(pieceId: number): boolean {
+    const p = this.layout.getPiece(pieceId);
+    if (!p) return false;
+    const c = this.camera;
+    this.viewFrustum.setFromProjectionMatrix(this.viewMatrix.multiplyMatrices(c.projectionMatrix, c.matrixWorldInverse));
+    this.viewSphere.center.set(p.pose.x, p.y, p.pose.z);
+    this.viewSphere.radius = 120;
+    return this.viewFrustum.intersectsSphere(this.viewSphere);
   }
 
     invalidate(): void {

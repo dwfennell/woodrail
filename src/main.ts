@@ -545,6 +545,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   interaction.onTurned = () => audio.rotate();
   interaction.onDepart = () => audio.bell();
   interaction.onSwitched = () => scheduleSave();
+  interaction.onLeverThrown = () => audio.switchClunk(0.7, 0);
   // A halt held (Game mode): each town's reach shows as a ring on the ground, built once, shown and hidden after.
   const haltReach = new HaltReachView(game.scene, HALT_REACH);
   interaction.onHeld = (type) => {

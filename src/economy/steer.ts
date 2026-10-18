@@ -169,32 +169,45 @@ export function steer(
   follow?: AvoidTest,
   occupied?: (pieceId: number) => boolean,
 ): boolean {
+  return steerSwitch(layout, train, forward, target, avoid, follow, occupied) !== -1;
+}
+
+/** `steer`, saying which switch it threw (its piece id), or −1 if none (for showing it thrown: its lever swings). */
+export function steerSwitch(
+  layout: Layout,
+  train: Train,
+  forward: boolean,
+  target: number,
+  avoid?: AvoidTest,
+  follow?: AvoidTest,
+  occupied?: (pieceId: number) => boolean,
+): number {
   // The cursor at the train's front, pointing the way it goes.
   const b = forward ? train.bogies[0] : train.bogies[train.bogies.length - 1];
   const c: Cursor = { ...b };
   if (!forward) flipCursor(layout, c);
   const piece = layout.getPiece(c.pieceId);
-  if (!piece || c.pieceId === target) return false;
+  if (!piece || c.pieceId === target) return -1;
   const def = getPieceDef(piece.type, piece.flipped);
   const path = def.paths[c.pathIndex];
   let exit = c.reversed ? path.from : (path.to ?? -1);
   let at = c.pieceId;
   for (let k = 0; k < LOOK_AHEAD; k++) {
     const n = next(layout, at, exit);
-    if (!n || n.pieceId === target) return false;
+    if (!n || n.pieceId === target) return -1;
     const ways = waysFrom(layout, n.pieceId, n.entry);
     if (ways.length > 1) {
       const followed = follow ? ways.filter((w) => follow(n.pieceId, w.path)) : [];
       const best = followed.length === 1 ? followed[0].option : chooseWay(layout, n.pieceId, ways, target, avoid);
-      if (best === -1 || layout.switchState(n.pieceId) % ways.length === best) return false;
+      if (best === -1 || layout.switchState(n.pieceId) % ways.length === best) return -1;
       // (Never under a train: its cars behind would take the other road.)
-      if (occupied?.(n.pieceId)) return false;
+      if (occupied?.(n.pieceId)) return -1;
       layout.setSwitchState(n.pieceId, best);
-      return true;
+      return n.pieceId;
     }
-    if (ways.length === 0) return false;
+    if (ways.length === 0) return -1;
     at = n.pieceId;
     exit = ways[0].exit;
   }
-  return false;
+  return -1;
 }

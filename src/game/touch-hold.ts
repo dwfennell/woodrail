@@ -19,6 +19,14 @@ export const HOLD_MS = 380;
 export const HOLD_SLOP = 10;
 
 /**
+ * Long-press on a switch's lever to pin it (or unpin it), with a mouse as well as a finger: PIN_HOLD_MS, 450 ms. A
+ * little longer than a pickup's hold, since a lever is tapped often (a tap flips it) and a slow tap mustn't pin, and
+ * nothing lifts under the finger to say it's coming; still short of the phone's own long-press menus. Decided as a
+ * pickup's hold is (`decideHold`, `undoesHold` with this time).
+ */
+export const PIN_HOLD_MS = 450;
+
+/**
  * What can be picked up with a long press: track, a train, an industry, cargo off a pile or a wagon (props and roads
  * still want selecting first).
  */
@@ -37,10 +45,10 @@ export type HoldOutcome = "wait" | "hold" | "pan" | "cancel";
  * the view). If it strayed before `HOLD_MS` it's a pan, whenever that move is delivered; if it rested `HOLD_MS` first
  * it's a hold, even if it has moved since (it was picked up, then dragged) or the timer that checks it ran late.
  */
-export function decideHold(strayedAt: number | null, elapsed: number, touches: number): HoldOutcome {
+export function decideHold(strayedAt: number | null, elapsed: number, touches: number, ms = HOLD_MS): HoldOutcome {
   if (touches > 1) return "cancel";
-  if (strayedAt !== null && strayedAt < HOLD_MS) return "pan";
-  if (elapsed >= HOLD_MS || strayedAt !== null) return "hold";
+  if (strayedAt !== null && strayedAt < ms) return "pan";
+  if (elapsed >= ms || strayedAt !== null) return "hold";
   return "wait";
 }
 
@@ -49,6 +57,6 @@ export function decideHold(strayedAt: number | null, elapsed: number, touches: n
  * hold after all? Yes if it happened (`at`, ms after the press, by its own timestamp) before `HOLD_MS` and the finger
  * had then strayed past the slop (a pan) or been lifted (a tap).
  */
-export function undoesHold(at: number, travel: number, lifted: boolean): boolean {
-  return at < HOLD_MS && (lifted || travel >= HOLD_SLOP);
+export function undoesHold(at: number, travel: number, lifted: boolean, ms = HOLD_MS): boolean {
+  return at < ms && (lifted || travel >= HOLD_SLOP);
 }
