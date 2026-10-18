@@ -119,9 +119,24 @@ export function lotFor(land: Landscape, id: number, cell: number, checker: LotCh
     return checker.checkLot([i], !green);
   };
   const lot = (cells: number[]): TownLot | TownMoveBlock => {
-    const front = cells.map((i) => streetEdge(land, i)).find((e) => e !== undefined);
+    // Its front onto a street: along a two-square lot's long side (it would stand end-on to the street otherwise).
+    const across = cells.length === 2 ? (g.rowOf(cells[0]) === g.rowOf(cells[1]) ? [1, 3] : [0, 2]) : [0, 1, 2, 3];
+    let front: Building["front"];
+    let street = -1;
+    for (const i of cells) {
+      for (const e of across) {
+        const nb = g.index(g.colOf(i) + EDGES[e][0], g.rowOf(i) + EDGES[e][1]);
+        if (nb !== -1 && g.surface[nb] === SURF_ROAD) {
+          front = e as Building["front"];
+          street = nb;
+          break;
+        }
+      }
+      if (front !== undefined) break;
+    }
     if (front === undefined) return "no-street";
-    if (cells.some((i) => g.height[i] !== g.height[cells[0]])) return "uneven";
+    // Level, and level with its street (not up on a step beside it).
+    if (cells.some((i) => g.height[i] !== g.height[cells[0]]) || g.height[street] !== g.height[cells[0]]) return "uneven";
     return { cells, front, corner: cells.some((i) => streetsBeside(land, i) >= 2) };
   };
   const first = free(cell);

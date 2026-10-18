@@ -302,7 +302,7 @@ type Mode =
        * Game mode, a town's house being moved about its town: it snaps to its town's lots (see town-moves.ts). Its
        * building, its town look, the lot under the hand (worked out again only when the square under it changes).
        */
-      town?: { building: number; look: Look; editor: LandEditor; cell: number; start: number; lot: TownLot | TownMoveBlock | null; preview: number };
+      town?: { building: number; look: Look; editor: LandEditor; cell: number; start: number; lot: TownLot | TownMoveBlock | null; preview: number; told: Set<TownMoveBlock> };
     }
   | { kind: "drag-road"; pointerId: number; drag: RoadDrag; overTray: boolean }
   /** Drawing a line of track (the Draw chip on): see `DrawHand`. */
@@ -2852,7 +2852,10 @@ export class Interaction {
     const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
     // A drag coming up out of the tray passes through the bottom band: only pan once it has left the band. (Over the
     // tray, no pan: a town's house carried there, which can't go in, doesn't send the map away either.)
-    this.game.director.setEdgePointer(overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
+    // (Nor with a town's house in hand: it goes about its town, in view, and a finger held still near an edge mustn't
+    // drift it onto another lot.)
+    const house = m.kind === "drag-prop" && !!m.town;
+    this.game.director.setEdgePointer(overTray || house ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
     const ground = this.groundAt(x, y);
     if (m.kind === "drag-prop") {
       this.updatePropDrag(m, x, y);
@@ -3585,7 +3588,7 @@ export class Interaction {
     this.mode = this.propDrag(p.asset, propId, pointerId, p.heading, from, { x: p.x - ground.x, z: p.z - ground.z }, p.variant);
     this.mode.overTray = false;
     const found = this.townHouse(propId) && p.building !== undefined ? findBuilding(g.landscape, p.building) : null;
-    if (found) this.mode.town = { building: p.building!, look: looksOf(g.landscape, found.town).get(p.building!) ?? "house", editor: this.landEditor(), cell: -2, start: -2, lot: null, preview: -1 };
+    if (found) this.mode.town = { building: p.building!, look: looksOf(g.landscape, found.town).get(p.building!) ?? "house", editor: this.landEditor(), cell: -2, start: -2, lot: null, preview: -1, told: new Set() };
     // Drawn by the hand while it moves, not where it stood.
     g.propsChanged(propId);
     this.onPickup?.();
@@ -3594,7 +3597,8 @@ export class Interaction {
   private updatePropDrag(m: Extract<Mode, { kind: "drag-prop" }>, x: number, y: number): void {
     const g = this.game;
     const touch = this.lastPointerWasTouch;
-    const sy = touch ? y - TOUCH_LIFT_PX : y;
+    // (A town's house, snapped to its lot as it is, is lifted less: it starts nearer its own lot.)
+    const sy = touch ? y - (m.town ? TOUCH_LIFT_PX / 2 : TOUCH_LIFT_PX) : y;
     const hills = hillsOf(g.landscape.grid);
     // On touch, by its middle as drawn (a barn stands tall), as a held piece is; a mouse keeps the grab point.
     const mid = objectMiddle(m.ghost);
@@ -3663,10 +3667,12 @@ export class Interaction {
       blocked ??= this.propInYard(fp, pose);
     }
     if (m.town) {
-      // (Told once per reason, as it changes.)
+      // (Each reason told once a carry, not on every square it crosses.)
       const why = typeof m.town.lot === "string" ? m.town.lot : null;
-      if (why && (blocked !== m.blocked || why !== this.houseWhy)) this.hud.toast(townMoveMessage(why));
-      this.houseWhy = why;
+      if (why && !m.town.told.has(why)) {
+        m.town.told.add(why);
+        this.hud.toast(townMoveMessage(why));
+      }
     } else if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(this.propMessage(blocked));
     m.blocked = blocked;
     m.pose = { ...pose, y: ground };
@@ -3865,9 +3871,6 @@ export class Interaction {
   }
 
   /** Move a town building's prop: it leaves its squares (they become street) and is an ordinary prop from now on. */
-  /** The last reason a held town house was refused (to say it once). */
-  private houseWhy: TownMoveBlock | null = null;
-
   /**
    * Game mode: a town's house put down on a lot of its town (`lot`, from `lotFor`), at `pose`: its record and squares
    * move with it (see `moveBuilding`), and, swapping, the other building's prop goes to the lot it left. One undo step.

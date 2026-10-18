@@ -200,6 +200,29 @@ describe("moving a town's houses (Game mode)", () => {
     expect(moved).toBeGreaterThanOrEqual(12);
   });
 
+  it("not up on a step beside its street (QA: N4), and a two-square house faces its street along its long side (N6)", () => {
+    const { land, editor } = world();
+    const { town, a, b } = houses(land);
+    const free = green(land, town, [a, b]);
+    expect(lotFor(land, a, free, editor)).toMatchObject({ cells: [free] });
+    land.grid.height[free] += 1;
+    expect(lotFor(land, a, free, editor)).toBe("uneven");
+    land.grid.height[free] -= 1;
+    // Every lot offered to a two-square house: its street on a long side.
+    const g = land.grid;
+    let seen = 0;
+    for (const t of land.towns)
+      for (const two of t.buildings.filter((x) => x.cells.length === 2 && !x.landmark))
+        for (let i = 0; i < g.cellCount; i++) {
+          const r = lotFor(land, two.id, i, editor);
+          if (typeof r === "string" || r.swap !== undefined || r.cells.length !== 2) continue;
+          seen++;
+          const alongX = g.rowOf(r.cells[0]) === g.rowOf(r.cells[1]);
+          expect(alongX ? [1, 3] : [0, 2]).toContain(r.front);
+        }
+    expect(seen).toBeGreaterThan(0);
+  });
+
   it("a house's new place saves", () => {
     const { w, land, editor } = world();
     const { town, a, b } = houses(land);

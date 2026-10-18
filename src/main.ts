@@ -214,10 +214,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     };
     ed.onLandChange = (slots) => {
       game.editLand(slots);
-      // (A land edit can move props with it, a town's house carrying its squares: they're drawn where they now stand.
-      // QA: an undone house move put the record back but left the picture.)
-      game.propsChanged();
-      hud.setHistory(ed.canUndo, ed.canRedo);
       scheduleSave();
     };
     ed.onRoadsChange = (slots, trees) => {
