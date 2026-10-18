@@ -32,8 +32,8 @@ import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { routeStops } from "./game/route-stops";
 import { editLine, lineOf, moveStop } from "./game/lines";
-import { aheadRuns, legFromCursor, lineLegs } from "./game/route-path";
-import { RouteView, type DiscSpec, type RibbonSpec } from "./render/route-view";
+import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pointOnPath, stopCursors } from "./game/route-path";
+import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { engineStatus, trainsForReport, type CantMove } from "./game/engine-status";
 import { MAX_SHEDS, SHED_CAP, type RouteStopDef, type StopAction } from "./economy";
@@ -53,7 +53,7 @@ import { qualityFor, saveQualityOverride } from "./render/quality";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { connectorRef, createWorldConnector, getPieceDef, kitOf, PIECE_TYPES, type Anchor, type Layout, type PieceTypeId } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, kitOf, pathLength, PIECE_TYPES, type Anchor, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
@@ -90,6 +90,23 @@ const STATUS_HOLD_MS = 600;
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const loading = document.querySelector<HTMLDivElement>("#loading");
+
+/** A one-off flag kept in the browser (a hint seen); false where storage isn't there. */
+function loadFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveFlag(key: string): void {
+  try {
+    localStorage.setItem(key, "1");
+  } catch {
+    // No storage: shown again next time.
+  }
+}
 
 /** A map asked for in the link (`#seed-12345`), to share or replay a particular map. */
 function linkedSeed(): number | null {
@@ -1655,6 +1672,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let planning = false;
   /** The stop whose chip was tapped (its actions shown), or −1. */
   let stopPicked = -1;
+  /** "Tap a stop for options" is shown until a stop's chip is first tapped (remembered). */
+  const STOP_HINT_KEY = "woodrail.hint.stopOptions";
+  let stopHintSeen = loadFlag(STOP_HINT_KEY);
   const INTENTS: Record<StopAction, { label: string; tip: string }> = {
     auto: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
     both: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
@@ -1813,7 +1833,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const stops = routeStops(game.world);
     const line = lineOf(game.economy, carId);
     const r = game.economy.routeOf(carId);
-    const key = `${carId}:${stops.length}:${planning}:${stopPicked}:${cantReachText}:${line ? `${line.id}|${line.colour}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}`).join(",")}` : "-"}`;
+    const key = `${carId}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${cantReachText}:${line ? `${line.id}|${line.colour}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}`).join(",")}` : "-"}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -1871,6 +1891,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       line.stops.forEach((st, k) => {
         const chip = button(`${r?.next === k ? "▶" : k + 1} ${nameOf(st.depotId)}`, "route-chip", "Tap for this stop's options", () => {
           stopPicked = stopPicked === k ? -1 : k;
+          if (!stopHintSeen) {
+            stopHintSeen = true;
+            saveFlag(STOP_HINT_KEY);
+          }
           showRoute();
         });
         chip.classList.toggle("next", r?.next === k);
@@ -1881,6 +1905,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         strip.append(chip);
       });
       box.append(strip);
+      // The first time, a word on what a chip does (till one is tapped).
+      if (!stopHintSeen && stopPicked === -1) {
+        const hint = document.createElement("div");
+        hint.className = "route-hint";
+        hint.textContent = "Tap a stop for options";
+        box.append(hint);
+      }
       const k = stopPicked;
       if (k >= 0 && k < line.stops.length) {
         const st = line.stops[k];
@@ -1899,16 +1930,24 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           ...(st.action === "drop"
             ? []
             : [
-                button(st.waitFill ? "Waits till full" : "Doesn't wait", `route-wait${st.waitFill ? " on" : ""}`, "Wait here till the wagons are full (of goods a later stop wants)", () =>
+                button(st.waitFill ? "Wait till full: on" : "Wait till full: off", `route-wait${st.waitFill ? " on" : ""}`, "Wait here till the wagons are full (of goods a later stop wants)", () =>
                   edit((l) => (l[k].waitFill = !l[k].waitFill)),
                 ),
               ]),
           button("✕", "route-remove", "Take this stop off the route", () => edit((l) => (l.splice(k, 1), (stopPicked = -1)))),
         );
+        // (Nor where it would put the same place twice in a row: that's one visit.)
+        const twiceAfter = (to: number) => {
+          const ids = line.stops.map((x) => x.depotId);
+          ids.splice(to, 0, ids.splice(k, 1)[0]);
+          return ids.some((id, i) => i > 0 && ids[i - 1] === id);
+        };
         const moves = tools.querySelectorAll<HTMLButtonElement>(".route-move");
         if (moves.length === 2) {
-          moves[0].disabled = k === 0;
-          moves[1].disabled = k === line.stops.length - 1;
+          moves[0].disabled = k === 0 || twiceAfter(k - 1);
+          moves[1].disabled = k === line.stops.length - 1 || twiceAfter(k + 1);
+          // Neither way: no arrows at all.
+          if (moves[0].disabled && moves[1].disabled) for (const m of moves) m.remove();
         }
         box.append(tools);
       }
@@ -1956,27 +1995,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           showRoute();
           routeChanged();
           scheduleSave();
+          // Its disc stays in view (the bar may have grown under it).
+          const spot = pieceSpot(game.economy.depot(depotId)?.pieceId ?? -1);
+          if (spot) requestAnimationFrame(() => keepInView([spot.clone().setY(spot.y + 70)]));
           return true;
         }
       : null;
     showRoute();
   }
 
-  /** Frame the open engine's train and its line's places in the room above the (slimmed) card. */
-  function framePlanning(): void {
-    const carId = interaction.openEngineCarId;
-    const found = carId !== -1 ? game.sim.findCar(carId) : undefined;
-    if (!found) return;
-    const points: Vector3[] = [];
-    const w = found.train.world[2 * found.index];
-    if (w) points.push(new Vector3(w.x, 0, w.z));
-    for (const st of lineOf(game.economy, carId)?.stops ?? []) {
-      const d = game.economy.depot(st.depotId);
-      const p = d && game.layout.getPiece(d.pieceId);
-      if (p) points.push(new Vector3(p.pose.x, 0, p.pose.z));
-    }
-    // A train alone: frame a little room round it, its station and what's near.
-    if (points.length === 1) points.push(points[0].clone().add(new Vector3(250, 0, 250)), points[0].clone().add(new Vector3(-250, 0, -250)));
+  /** The room the map has on screen (canvas pixels): below the top bar (and the goals), above the engine's card. */
+  function mapRoom(): { top: number; bottom: number; width: number; height: number } {
     const r = game.canvas.getBoundingClientRect();
     let top = 0;
     for (const e of document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")) {
@@ -1985,10 +2014,75 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const card = document.querySelector(".engine-card")?.getBoundingClientRect();
     const bottom = card && card.height > 0 ? card.top - r.top : r.height;
+    return { top, bottom, width: r.width, height: r.height };
+  }
+
+  /** A piece's middle, on the ground. */
+  const pieceSpot = (pieceId: number): Vector3 | null => {
+    const p = game.layout.getPiece(pieceId);
+    return p ? new Vector3(p.pose.x, p.y, p.pose.z) : null;
+  };
+
+  /** Glide the view to show `points` in the map's room (above the card), at the camera's angle; `minDistance` mm. */
+  function frameInRoom(points: Vector3[], minDistance: number): void {
+    const room = mapRoom();
     const now = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
-    const fit = fitToRect(points, game.camera, now.phi, now.theta, { left: 0, top, right: r.width, bottom }, r.width, r.height, 32);
+    const fit = fitToRect(points, game.camera, now.phi, now.theta, { left: 0, top: room.top, right: room.width, bottom: room.bottom }, room.width, room.height, 32);
     game.follow(-1);
-    game.director.glideTo(fit.target, Math.min(Math.max(fit.distance, 600), game.controls.maxDistance), { theta: now.theta, duration: 0.7 });
+    game.director.glideTo(fit.target, Math.min(Math.max(fit.distance, minDistance), game.controls.maxDistance), { theta: now.theta, duration: 0.7 });
+  }
+
+  /** Are these points on screen in the map's room (with a margin), as the camera is now? */
+  function inRoom(points: readonly Vector3[], margin = 24): boolean {
+    const room = mapRoom();
+    const v = new Vector3();
+    return points.every((p) => {
+      v.copy(p).project(game.camera);
+      const x = ((v.x + 1) / 2) * room.width;
+      const y = ((1 - v.y) / 2) * room.height;
+      return v.z < 1 && x >= margin && x <= room.width - margin && y >= room.top + margin && y <= room.bottom - margin;
+    });
+  }
+
+  /** Keep these points in view: if any is off screen or under the card, glide just enough to show them all. */
+  function keepInView(points: Vector3[]): void {
+    if (points.length === 0 || inRoom(points)) return;
+    const d = game.camera.position.distanceTo(game.controls.target);
+    frameInRoom([...points, game.controls.target.clone()], Math.min(d, 900));
+  }
+
+  /** The open engine's train's middle, on the ground. */
+  function trainSpot(carId: number): Vector3 | null {
+    const found = carId !== -1 ? game.sim.findCar(carId) : undefined;
+    const w = found?.train.world[2 * found.index];
+    return w ? new Vector3(w.x, 0, w.z) : null;
+  }
+
+  /** How near (mm) a place is to the train to be framed with it when planning starts, and how many such places. */
+  const NEAR_PLACES = 1100;
+  const NEAR_COUNT = 3;
+
+  /** Planning starts: frame the train, its line's places, and the places nearest it (the likely first stops). */
+  function framePlanning(): void {
+    const carId = interaction.openEngineCarId;
+    const train = trainSpot(carId);
+    if (!train) return;
+    const points: Vector3[] = [train];
+    for (const st of lineOf(game.economy, carId)?.stops ?? []) {
+      const d = game.economy.depot(st.depotId);
+      const p = d && pieceSpot(d.pieceId);
+      if (p) points.push(p);
+    }
+    const near = game.economy
+      .allDepots()
+      .map((d) => pieceSpot(d.pieceId))
+      .filter((p): p is Vector3 => !!p && p.distanceTo(train) <= NEAR_PLACES)
+      .sort((a, b) => a.distanceTo(train) - b.distanceTo(train))
+      .slice(0, NEAR_COUNT);
+    points.push(...near);
+    // Nothing near: a little room round the train.
+    if (points.length === 1) points.push(train.clone().add(new Vector3(250, 0, 250)), train.clone().add(new Vector3(-250, 0, -250)));
+    frameInRoom(points, 600);
   }
 
   /** Why the open engine's line can't be run as it stands (a stop no track leads to), or null: see `showRibbon`. */
@@ -2018,6 +2112,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         cantReachText = null;
         game.invalidate();
       }
+      ribbonFor = { carId: -1, stops: "", next: -1 };
       return;
     }
     // The way the engine's train is going (or, standing, the way its front faces).
@@ -2057,6 +2152,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const n = line.stops.length;
       // A stop is out of reach when no way leads into it (from the train, for the next; else from the stop before).
       const unreachable = (k: number) => (k === next ? toNext === null : n > 1 && legs[(k - 1 + n) % n] === null);
+      // Where its way runs out, a red dashed gap across to it.
+      const gaps: GapSpec[] = [];
+      line.stops.forEach((_, k) => {
+        if (!unreachable(k) || pieces[k] === -1) return;
+        const to = pointOnPath(game.layout, pieces[k], 0, pathLengthOf(pieces[k]) / 2);
+        const starts = k === next ? [front] : stopCursors(game.layout, pieces[(k - 1 + n) % n]);
+        const from = to && nearestAhead(game.layout, starts, GAP_SEARCH, to.x, to.z);
+        if (to && from && Math.hypot(from.x - to.x, from.z - to.z) > 20) gaps.push({ from, to });
+      });
       // One disc a place: a place visited twice (A → B → A) shows both its numbers ("1·3").
       const discs = new Map<number, DiscSpec>();
       line.stops.forEach((_, k) => {
@@ -2069,14 +2173,49 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           if (state === "unreachable" || (state === "next" && d.state === "stop")) d.state = state;
         }
       });
-      routeView.show(ribbons, [...discs.values()]);
+      routeView.show(ribbons, [...discs.values()], gaps);
+      // A stop just added pops in; the next stop pulses when it becomes the next (or the card opens).
+      const now = performance.now() / 1000;
+      const stopsKey = line.stops.map((st) => st.depotId).join(",");
+      if (ribbonFor.carId === carId && stopsKey.startsWith(ribbonFor.stops) && line.stops.length === ribbonFor.stops.split(",").filter(Boolean).length + 1) routeView.pop(line.stops.length - 1, now);
+      if (ribbonFor.carId !== carId || ribbonFor.next !== next) routeView.pulse(now);
+      ribbonFor = { carId, stops: stopsKey, next };
       const out = line.stops.findIndex((_, k) => unreachable(k));
       if (out !== -1) {
         const name = names.find((st) => st.depotId === line.stops[out].depotId)?.name ?? "a stop";
         cantReachText = `Can't reach ${name}: no track leads there`;
+        // With the card open (not planning), the stop that can't be reached is shown, once: not left off screen or
+        // under the card.
+        const spot = pieceSpot(pieces[out]);
+        const train = trainSpot(carId);
+        if (!planning && nudgedFor !== carId && spot && train) {
+          nudgedFor = carId;
+          requestAnimationFrame(() => keepInView([train, spot.clone().setY(spot.y + 70)]));
+        }
       }
     }
+    if (!line || !r) ribbonFor = { carId, stops: "", next: -1 };
     game.invalidate();
+  }
+
+  /** What the ribbon last showed (to tell a stop just added, and a new next stop). */
+  let ribbonFor = { carId: -1, stops: "", next: -1 };
+  /** The engine whose card last nudged the view to show a stop it can't reach (once per opening). */
+  let nudgedFor = -1;
+  /** How far on (mm) a way is followed to find where it runs out, for a stop it can't reach. */
+  const GAP_SEARCH = 3000;
+  const pathLengthOf = (pieceId: number): number => {
+    const p = game.layout.getPiece(pieceId);
+    return p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 0;
+  };
+  /** Discs: fanned out where they'd overlap, and the pulse and pop, each frame the card shows a route (cheap). */
+  let discsMoving = false;
+  function animateDiscs(): void {
+    if (!routeView || ribbonKey === "") return;
+    if (routeView.fan(game.camera, game.canvas.clientHeight)) game.invalidate();
+    const moving = routeView.animate(performance.now() / 1000);
+    if (moving || discsMoving) game.invalidate();
+    discsMoving = moving;
   }
 
   // The map view (Game mode): the whole land from above, with what each town wants and each depot holds.
@@ -2550,6 +2689,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       checkGoals(true);
     }
     showRibbon();
+    animateDiscs();
     showRoute();
     showEngineView();
     let derailed = false;

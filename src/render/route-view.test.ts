@@ -1,7 +1,7 @@
-import { Color, Mesh, MeshStandardMaterial, Sprite } from "three";
+import { Color, Mesh, MeshStandardMaterial, PerspectiveCamera, Sprite } from "three";
 import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, Layout, TRACK_THICKNESS, type PieceTypeId } from "../track";
-import { aheadRuns, lineLegs } from "../game/route-path";
+import { aheadRuns, lineLegs, nearestAhead, stopCursors } from "../game/route-path";
 import type { Materials } from "./materials";
 import { RouteView } from "./route-view";
 
@@ -40,10 +40,11 @@ describe("RouteView", () => {
       ],
     );
     const meshes = view.group.children.filter((o) => (o as Mesh).isMesh && o.name.startsWith("route-"));
-    expect(meshes.map((m) => m.name).sort()).toEqual(["route-dots", "route-ribbon"]);
+    // The dotted way: dark dashes under light ones (so they read on light wood), each colour one mesh.
+    expect(meshes.map((m) => m.name).sort()).toEqual(["route-dots", "route-dots", "route-ribbon"]);
     const discs = view.group.children.filter((o) => (o as Sprite).isSprite);
-    expect(discs.map((d) => d.userData)).toEqual(stops.map((pieceId, index) => ({ kind: "route-stop", pieceId, index })));
-    expect(view.group.children).toHaveLength(2 + 3 * 2);
+    expect(discs.map((d) => d.userData)).toMatchObject(stops.map((pieceId, index) => ({ kind: "route-stop", pieceId, index })));
+    expect(view.group.children).toHaveLength(3 + 3 * 2);
     // The ribbon lies just over the track's top (all flat here).
     const ribbon = meshes.find((m) => m.name === "route-ribbon") as Mesh;
     ribbon.geometry.computeBoundingBox();
@@ -61,5 +62,72 @@ describe("RouteView", () => {
     view.clear();
     expect(view.group.children).toHaveLength(0);
     view.dispose();
+  });
+
+  it("a gap no track crosses is red dashes, from where the way runs out", () => {
+    const { layout, ids } = line();
+    const view = new RouteView(layout, stubMaterials());
+    // A stop off the track, 300 mm out to the side of the line's end: the nearest the way comes is its far end.
+    const end = layout.getPiece(ids[6])!.pose;
+    const from = nearestAhead(layout, stopCursors(layout, ids[4]), 3000, end.x + 100, end.z + 300)!;
+    expect(from).not.toBe(null);
+    view.show([], [], [{ from, to: { x: end.x + 100, y: from.y, z: end.z + 300 } }]);
+    const dots = view.group.children.filter((o) => o.name === "route-dots") as Mesh[];
+    expect(dots).toHaveLength(1);
+    expect(dots[0].geometry.getAttribute("position").count).toBeGreaterThan(6);
+  });
+
+  it("the next disc pulses for a while and a new one pops, then they rest (nothing more to draw)", () => {
+    const { layout, ids } = line();
+    const view = new RouteView(layout, stubMaterials());
+    view.show(
+      [],
+      [
+        { pieceId: ids[0], label: "1", colour: "#3a7bd5", state: "stop" },
+        { pieceId: ids[4], label: "2", colour: "#3a7bd5", state: "next" },
+      ],
+    );
+    const [first, next] = view.group.children.filter((o) => (o as Sprite).isSprite);
+    const size = next.scale.x;
+    view.pulse(10);
+    view.pop(0, 10);
+    expect(view.animate(10.1)).toBe(true);
+    expect(first.scale.x).toBeLessThan(first.userData.size);
+    expect(view.animate(10.3)).toBe(true);
+    expect(next.scale.x).toBeGreaterThan(size);
+    // Past the pulse's few beats: back to size, at rest.
+    expect(view.animate(20)).toBe(false);
+    expect(next.scale.x).toBeCloseTo(size);
+    expect(first.scale.x).toBeCloseTo(first.userData.size);
+  });
+
+  it("discs that would overlap on screen (seen from far) are fanned out side by side; near, they stay over their stops", () => {
+    const { layout, ids } = line();
+    const view = new RouteView(layout, stubMaterials());
+    view.show(
+      [],
+      [
+        { pieceId: ids[4], label: "1", colour: "#3a7bd5", state: "stop" },
+        { pieceId: ids[5], label: "2", colour: "#3a7bd5", state: "stop" },
+      ],
+    );
+    const [a, b] = view.group.children.filter((o) => (o as Sprite).isSprite);
+    const look = (d: number) => {
+      const cam = new PerspectiveCamera(30, 390 / 844, 10, 50000);
+      const t = a.userData.base;
+      cam.position.set(t.x, t.y + d, t.z + d * 0.6);
+      cam.lookAt(t);
+      cam.updateMatrixWorld();
+      return cam;
+    };
+    const apart = () => a.position.distanceTo(b.position);
+    const base = a.userData.base.distanceTo(b.userData.base);
+    expect(view.fan(look(600), 844)).toBe(true);
+    expect(apart()).toBeCloseTo(base);
+    // Far off: fanned (further apart than their stops), and asked again for the same view, nothing to do.
+    const far = look(12000);
+    expect(view.fan(far, 844)).toBe(true);
+    expect(apart()).toBeGreaterThan(base);
+    expect(view.fan(far, 844)).toBe(false);
   });
 });

@@ -634,6 +634,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-wait.on { background: #e6b52c; }
 .route-chip[data-wait]::before { content: "⏳ "; }
 .route-warn { font-size: 0.85em; color: #b0391f; font-weight: 700; }
+/* Planning, the bar stays slim: the stops one row, scrolled sideways if they don't fit; a picked stop's tools compact. */
+.planning .route-stops { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.planning .route-stops::-webkit-scrollbar { display: none; }
+.planning .route-chip, .planning .route-tools button { flex: 0 0 auto; }
+.planning .route-tools button { padding-inline: 8px; font-size: 13px; min-width: 36px; }
+.planning .engine-extra.route { gap: 4px; }
+/* (The tray's away: the bar sits at the bottom, full width, so the map has the rest.) */
+.planning .engine-card { width: min(calc(100vw - 32px), 440px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); padding: 10px 12px; }
 
 /* "Show me": a goal town's name over it for a few seconds (positioned by the game each frame), in a layer over the
    canvas that clips them, so one off screen never widens the page. */

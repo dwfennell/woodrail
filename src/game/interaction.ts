@@ -1033,6 +1033,8 @@ export class Interaction {
    * selected)? Picking several, only a picked piece moves. Cargo is fetched from its pile with a drag either way.
    */
   private dragsWhatsPressed(press: Press, pointerType: string): boolean {
+    // Planning a route, nothing moves: any drag pans (a tap adds a stop).
+    if (this.onPickPlace) return false;
     switch (press.kind) {
       case "piece":
         if (this.picking) return this.picked.has(press.pieceId);
@@ -1156,7 +1158,7 @@ export class Interaction {
    */
   private armHold(m: Extract<Mode, { kind: "press" }>, t: number): void {
     const target = m.press.kind === "piece" ? "piece" : m.press.kind === "car" ? "car" : m.press.kind === "depot" ? "depot" : null;
-    if (!target || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType)) return;
+    if (!target || this.onPickPlace || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType)) return;
     // Drawing is its own tool: a finger resting there neither picks anything up nor starts a line (Rail and road's).
     if (this.drawing) return;
     if (m.press.kind === "piece" && (this.picking || this.fixedLabel(m.press.pieceId))) return;
