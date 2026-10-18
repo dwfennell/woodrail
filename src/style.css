@@ -96,10 +96,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* Labels wrap to two lines at most within their item (long catalogue names), cut short with an ellipsis after that. */
 .tray-item .label { font-size: 11.5px; font-weight: 700; line-height: 1.12; max-width: calc(100% - 6px); text-align: center; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: normal; word-break: normal; hyphens: manual; }
 /* Lines break between words only (no "Warehous/e", no "Grandparen/t"): a label too long for its tile (a long word, or
-   more than two lines) is set smaller instead, with room for a third line (the HUD marks it when the tray is drawn),
-   and smaller still if it doesn't fit even then. */
+   more than two lines) is set smaller instead, with room for a third line (the HUD marks it when the tray is drawn).
+   9.5 px is as small as it goes on a phone: a name too long even then has a shorter one for the tray (`trayLabel`). */
 .tray-item .label.squeeze { font-size: 9.5px; letter-spacing: -0.03em; -webkit-line-clamp: 3; line-clamp: 3; }
-.tray-item .label.squeeze.tight { font-size: 8.5px; letter-spacing: -0.05em; }
 .tray-item .icon { flex: 1 1 auto; min-height: 0; }
 /* A group: a little tab in the corner says how many pieces are inside. */
 .tray-group { position: relative; }
@@ -232,7 +231,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 }
 
 /* ---- motion ---------------------------------------------------------------------------------------------- */
-@keyframes card-in { from { opacity: 0; transform: translate(-50%, 14px) scale(0.96); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+/* Cards pop in where they stand (`scale`, not `transform`, which places them): rising from below, one would sit
+   over the tray's tabs as it came in. */
+@keyframes card-in { from { opacity: 0; scale: 0.96; } }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: none; } }
 .card:not([hidden]) { animation: card-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.15); }
 .menu:not([hidden]) { animation: pop-in 0.18s ease-out; transform-origin: top right; }
@@ -322,9 +323,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .title-screen.over-opening { z-index: 60; background: none; justify-content: flex-start; animation: none; }
 .title-screen.over-opening .title-head { display: none; }
 /* The choices fade in, rising a little, one after the other. */
-.title-screen.over-opening .title-card { animation: card-in 0.6s ease-out backwards; }
+.title-screen.over-opening .title-card { animation: title-card-in 0.6s ease-out backwards; }
 .title-screen.over-opening .title-card + .title-card { animation-delay: 0.15s; }
-@keyframes card-in { from { opacity: 0; translate: 0 14px; } }
+@keyframes title-card-in { from { opacity: 0; translate: 0 14px; } }
 @media (prefers-reduced-motion: reduce) { .title-screen.over-opening .title-card { animation: card-fade 0.4s ease-out backwards; } }
 @keyframes card-fade { from { opacity: 0; } }
 #loading.behind-title .load-bar, #loading.behind-title p { visibility: hidden; }

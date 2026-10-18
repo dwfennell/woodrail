@@ -954,6 +954,7 @@ const mechanisms: Asset[] = [
   {
     id: "mech-whistle-post",
     name: "Whistle post and bell",
+    trayLabel: "Whistle post",
     category: "Mechanisms",
     tags: ["whistle", "sound", "bell", "sign", "post"],
     notes: "A white post marked W with a little bell on a bracket. Drop it before a crossing or a tunnel and passing engines toot; the bell could ring for every train that goes by.",

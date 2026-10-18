@@ -7,6 +7,8 @@ export interface Asset {
   /** Unique, kebab-case. */
   id: string;
   name: string;
+  /** A shorter name for the tray, when `name` won't fit a tile in three lines ("Signalman"). */
+  trayLabel?: string;
   category: Category;
   /** Short words to search by. */
   tags: string[];

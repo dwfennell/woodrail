@@ -1266,6 +1266,7 @@ const town: Asset[] = [
   {
     id: "scene-market-stall",
     name: "Market umbrella stall",
+    trayLabel: "Umbrella stall",
     category: "Town & road",
     tags: ["market", "stall", "umbrella", "fruit", "town"],
     notes: "A trestle table of fruit and veg crates under a big striped umbrella, a stallholder peg behind. Market day could need fresh produce brought in by goods train.",
