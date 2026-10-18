@@ -19,6 +19,7 @@ import { rng } from "../../lib/rng";
 import { FEAT_TREE, forEachInPlot, PLOT_DEPTH, PLOT_WIDTH, treeSeed, type Landscape } from "../../landscape";
 import { byTile, setCullBox } from "./tiles";
 import type { Materials } from "../materials";
+import { nonIndexed } from "../non-indexed";
 
 export const MAX_LEAN = 0.05;
 const JITTER = 14;
@@ -186,7 +187,7 @@ function birchCrown(segments: number, lowDetail: boolean): BufferGeometry {
 function birchTrunk(lowDetail: boolean): BufferGeometry {
   const radial = 8;
   const rows = lowDetail ? 1 : 18;
-  const g = new CylinderGeometry(3, 3.6, BIRCH_H, radial, rows, true).toNonIndexed();
+  const g = nonIndexed(new CylinderGeometry(3, 3.6, BIRCH_H, radial, rows, true));
   g.translate(0, BASE_H + BIRCH_H / 2, 0);
   const n = g.getAttribute("position").count;
   const col = new Float32Array(n * 3);
