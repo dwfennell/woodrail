@@ -81,7 +81,13 @@ export class Spacing {
     const s = this.of(lineId, stops);
     const mine = s.at.get(engine);
     // Another of its trains came here first and is still here: it goes first.
-    const behind = [...s.at].some(([e, a]) => e !== engine && a.index === index && live.includes(e) && (!mine || a.tick < mine.tick || (a.tick === mine.tick && e < engine)));
+    let behind = false;
+    for (const [e, a] of s.at) {
+      if (e !== engine && a.index === index && live.includes(e) && (!mine || a.tick < mine.tick || (a.tick === mine.tick && e < engine))) {
+        behind = true;
+        break;
+      }
+    }
     if (!behind) {
       const last = s.lastDepart.get(index);
       if (!last || last.engine === engine || !live.includes(last.engine)) return false;

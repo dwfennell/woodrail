@@ -10,7 +10,7 @@ import { DEFAULT_HEADWAY_S, MAX_HOLD_S, Spacing } from "./spacing";
  * An oval with a forest on one side and a sawmill on the other, and `count` timber trains standing bunched up just
  * behind the forest, all set going. The forest's logs are kept topped up, so every train has work at both.
  */
-function oval(count: number, cars: CarKind[] = ["engine", "timber"]) {
+function oval(count: number, cars: CarKind[] = ["engine", "timber"], topUp = true) {
   const layout = new Layout();
   const half: PieceTypeId[] = ["depot-forest", "straight-216", "straight-216", ...Array<PieceTypeId>(4).fill("curve-large")];
   const types: PieceTypeId[] = [...half, "depot-sawmill", "straight-216", "straight-216", ...Array<PieceTypeId>(4).fill("curve-large")];
@@ -50,7 +50,7 @@ function oval(count: number, cars: CarKind[] = ["engine", "timber"]) {
   };
   let t = 0;
   const step = () => {
-    forest.piles[CARGO.log.index] = Math.max(forest.piles[CARGO.log.index], 4);
+    if (topUp) forest.piles[CARGO.log.index] = Math.max(forest.piles[CARGO.log.index], 4);
     const before = engines.map((e) => economy.routeOf(e)?.next);
     sim.tick();
     economy.tick();
@@ -175,5 +175,48 @@ describe("auto-spacing on a line", () => {
     w.economy.lineIdOf.clear();
     w.run(300);
     expect(w.holds).toHaveLength(0);
+  });
+
+  it("new work during a hold ends it: the train is served, then holds only for what's left (by its first hold + MAX_HOLD_S)", () => {
+    // No logs at the forest: a train there has nothing to do, and is held (spacing) while the other has just left.
+    const w = oval(2, ["engine", "timber"], false);
+    w.forest.piles[CARGO.log.index] = 0;
+    w.forest.rate = 0;
+    let held = -1;
+    let holdStart = -1;
+    for (let i = 0; i < 600 * SIM_HZ && held === -1; i++) {
+      const n = w.holds.length;
+      w.step();
+      const h = w.holds.at(-1);
+      // (A headway hold: the other train has left the forest, so the logs are this one's.)
+      const other = h && w.engines.find((e) => e !== h.engine)!;
+      const gone = other !== undefined && !w.sim.findCar(other)!.train.bogies.some((b) => b.pieceId === w.forest.pieceId);
+      if (w.holds.length > n && h && gone && w.economy.routeOf(h.engine)!.stops[w.economy.routeOf(h.engine)!.next].depotId === w.forest.id) {
+        held = h.engine;
+        holdStart = h.tick;
+      }
+    }
+    expect(held).not.toBe(-1);
+    const wagon = w.sim.findCar(held)!.train.cars[1].id;
+    expect(w.economy.cargoOf(wagon).count).toBe(0);
+    // Mid-hold, logs on the forest's pile: the train is served (loads), not held, while there's work.
+    w.run(0.5);
+    w.forest.piles[CARGO.log.index] = 3;
+    let served = false;
+    let heldWhileWorked = false;
+    for (let i = 0; i < 30 * SIM_HZ && w.economy.routeOf(held)!.next === 0; i++) {
+      const n = w.holds.length;
+      w.step();
+      const worked = w.economy.servicedCar(w.forest.id) === wagon;
+      if (worked) served = true;
+      if (worked && w.holds.length > n && w.holds.at(-1)!.engine === held) heldWhileWorked = true;
+    }
+    expect(served).toBe(true);
+    expect(heldWhileWorked).toBe(false);
+    expect(w.economy.cargoOf(wagon).count).toBeGreaterThan(0);
+    // It's gone (left the forest) by its first hold's start + MAX_HOLD_S, with any hold after the work inside that.
+    const last = w.holds.filter((h) => h.engine === held).at(-1)!;
+    expect((last.tick - holdStart) * SIM_DT).toBeLessThanOrEqual(MAX_HOLD_S);
+    expect(w.economy.routeOf(held)!.next).toBe(1);
   });
 });
