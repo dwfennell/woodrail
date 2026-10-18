@@ -60,6 +60,69 @@ export function frameAlong(
 }
 
 /**
+ * Where to look from, and how far back, so that `points` (in the world, mm) all show inside `rect` (px on a
+ * `width`×`height` view: the part of the screen not under the HUD) with `margin` px to spare, the camera at polar angle
+ * `phi` and heading `theta` (as three's Spherical has them) about the point it looks at, `camera` giving the lens. By
+ * the points' own projections, so a tilted view's near and far ends and the HUD's bars are allowed for (a guess from
+ * the field of view alone left a long line off the ends of a phone). A few rounds of moving and zooming to suit.
+ */
+export function fitToRect(
+  points: readonly Vector3[],
+  camera: PerspectiveCamera,
+  phi: number,
+  theta: number,
+  rect: { left: number; top: number; right: number; bottom: number },
+  width: number,
+  height: number,
+  margin: number,
+): { target: Vector3; distance: number } {
+  const cam = camera.clone();
+  const target = new Vector3();
+  for (const p of points) target.add(p);
+  target.divideScalar(Math.max(1, points.length)).setY(0);
+  // Start from a guess, the points' spread at a distance that shows it whole, then correct it.
+  let spread = 1;
+  for (const p of points) spread = Math.max(spread, p.distanceTo(target));
+  let distance = frameDistance(spread, cam.fov, cam.aspect);
+  const v = new Vector3();
+  const place = () => {
+    cam.position.setFromSpherical(new Spherical(distance, phi, theta)).add(target);
+    cam.lookAt(target);
+    cam.updateMatrixWorld();
+  };
+  const goalW = Math.max(1, rect.right - rect.left - 2 * margin);
+  const goalH = Math.max(1, rect.bottom - rect.top - 2 * margin);
+  for (let round = 0; round < 6; round++) {
+    place();
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let y0 = Infinity;
+    let y1 = -Infinity;
+    for (const p of points) {
+      v.copy(p).project(cam);
+      const x = ((v.x + 1) / 2) * width;
+      const y = ((1 - v.y) / 2) * height;
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      y0 = Math.min(y0, y);
+      y1 = Math.max(y1, y);
+    }
+    // Zoom so the spread fills the room (on screen, size goes as one over distance)...
+    distance *= Math.max((x1 - x0) / goalW, (y1 - y0) / goalH, 0.05);
+    // ...and move so its middle is the room's: by the ground under the two, as seen from here.
+    const ground = (sx: number, sy: number): Vector3 | null => {
+      v.set((sx / width) * 2 - 1, 1 - (sy / height) * 2, 0.5).unproject(cam).sub(cam.position);
+      if (v.y >= -1e-9) return null;
+      return cam.position.clone().addScaledVector(v, -cam.position.y / v.y);
+    };
+    const from = ground((x0 + x1) / 2, (y0 + y1) / 2);
+    const to = ground((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
+    if (from && to) target.add(from.sub(to)).setY(0);
+  }
+  return { target, distance };
+}
+
+/**
  * Near clipping plane for a camera `distance` from what it looks at. Depth precision falls with the square of
  * distance over the near plane, so a fixed close plane makes the felt's hem, the rivers and the blocks' painted tops
  * shimmer against what's under them in wide views. Scaling it with distance keeps that steady while staying well
