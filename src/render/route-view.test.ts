@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, Layout, TRACK_THICKNESS, type PieceTypeId } from "../track";
 import { aheadRuns, lineLegs, nearestAhead, stopCursors } from "../game/route-path";
 import type { Materials } from "./materials";
-import { RouteView } from "./route-view";
+import { discLabel, RouteView } from "./route-view";
 
 /** Plain stand-ins for the game's materials (theirs need a canvas for textures). */
 function stubMaterials(): Materials {
@@ -129,5 +129,23 @@ describe("RouteView", () => {
     expect(view.fan(far, 844)).toBe(true);
     expect(apart()).toBeGreaterThan(base);
     expect(view.fan(far, 844)).toBe(false);
+  });
+});
+
+describe("discLabel: a stop disc's number fits inside it (QA: a place visited four times, '4·6·8·1', was clipped)", () => {
+  // Bold digits are about 0.6 of the size wide, a "·" about 0.3.
+  const width = (text: string, size: number) => [...text].reduce((w, c) => w + (c === "·" ? 0.3 : 0.6) * size, 0);
+  const r = 40;
+  it("one or two visits as they were", () => {
+    expect(discLabel("3", r, width)).toEqual({ text: "3", size: r * 1.25 });
+    expect(discLabel("1·3", r, width)).toEqual({ text: "1·3", size: r * 0.72 });
+  });
+  it("more, smaller, inside the disc; past what reads, the first two and +", () => {
+    for (const label of ["1·3·5", "4·6·8·1", "1·2·3·4·5·6", "10·12·14·16"]) {
+      const fit = discLabel(label, r, width);
+      expect(width(fit.text, fit.size), label).toBeLessThanOrEqual(r * 1.5 + 1e-9);
+      expect(fit.size, label).toBeGreaterThanOrEqual(r * 0.5);
+    }
+    expect(discLabel("1·2·3·4·5·6", r, width).text).toBe("1·2+");
   });
 });
