@@ -54,8 +54,9 @@ export interface BlueprintBoardHandlers {
   /** A thing's tray picture (an image URL) by its key, if drawn. */
   picture?(key: string): string | undefined;
   /**
-   * The ticket shows things whose pictures aren't drawn yet (their SVG stands in): draw them if they can be (a kit's
-   * or a prop's model), calling `pictureCame` with each as it comes.
+   * The ticket shows things whose pictures aren't drawn yet (their SVG stands in): draw them if they can be (a kit's,
+   * a prop's or a car's model), first, calling `pictureCame` with each as it comes. Each call replaces the last: the
+   * ticket showing's (none, [], once it's left or the board's shut).
    */
   needPictures?(keys: string[]): void;
 }
@@ -219,19 +220,24 @@ export class BlueprintBoard {
     if (!open) {
       this.shownKey = "";
       this.selected = "";
+      // Its pictures not drawn yet aren't waited for any more.
+      if (this.wanted.size > 0) {
+        this.wanted = new Set();
+        this.handlers.needPictures?.([]);
+      }
     }
   }
 
   /**
-   * A tray picture was drawn: if the ticket showing is waiting for it (`needPictures`), it's rebuilt to show it (once
-   * for pictures that come together).
+   * A tray picture was drawn: if the ticket showing is waiting for it (`needPictures`), the ticket is rebuilt to show
+   * it (once for pictures that come together; the web isn't).
    */
   pictureCame(key: string): void {
     if (!this.open || !this.wanted.has(key) || this.redraw) return;
     this.redraw = true;
     queueMicrotask(() => {
       this.redraw = false;
-      if (this.open) this.render();
+      if (this.open && this.view) this.renderSheet(this.view);
     });
   }
 
@@ -316,10 +322,7 @@ export class BlueprintBoard {
         html += `<div class="bp-list-band"><span class="bp-band-label" style="border-left-color:${br.color}">${esc(br.label)}</span><div class="bp-list">${mine.map((s) => node(s, null)).join("")}</div></div>`;
       }
     } else html += `<div class="bp-web-scroll"><div class="bp-web" style="width:${web.width}px;height:${web.height}px">${bands}<svg class="bp-links" width="${web.width}" height="${web.height}" aria-hidden="true">${svg}</svg>${tags}</div></div>`;
-    const s = byId.get(this.selected);
-    this.wanted = new Set();
-    const sheet = s ? this.ticket(s, v, byId) : "";
-    if (this.sheet.innerHTML !== sheet) this.sheet.innerHTML = sheet;
+    this.renderSheet(v, byId);
     const scroll = this.body.querySelector(".bp-web-scroll");
     const kept = scroll ? { left: scroll.scrollLeft, top: scroll.scrollTop } : null;
     this.body.innerHTML = html;
@@ -333,6 +336,18 @@ export class BlueprintBoard {
       pane.scrollLeft = Math.max(0, sel.offsetLeft - 100);
       pane.scrollTop = Math.max(0, sel.offsetTop - 60);
     }
+  }
+
+  /**
+   * The ticket under the web (alone when a picture it waits for comes: the web is as it was), and the pictures it
+   * waits for asked for (none, so the last ticket's stop being waited for).
+   */
+  private renderSheet(v: BoardView, byId = new Map(v.stations.filter((s) => s.seen !== "unseen").map((s) => [s.id, s]))): void {
+    const s = byId.get(this.selected);
+    this.wanted = new Set();
+    const sheet = s ? this.ticket(s, v, byId) : "";
+    if (this.sheet.innerHTML !== sheet) this.sheet.innerHTML = sheet;
+    this.handlers.needPictures?.([...this.wanted]);
   }
 
   /** The ticket for a tag: what it is, what it brings, what it needs, and how to get it. */
@@ -351,7 +366,6 @@ export class BlueprintBoard {
       })
       .join("");
     this.wanted = wanted;
-    if (wanted.size > 0) this.handlers.needPictures?.([...wanted]);
     // What it needs and what it opens, in words (on a phone the list draws no links between them).
     const needs = s.needs.map((n) => {
       const x = byId.get(n);
