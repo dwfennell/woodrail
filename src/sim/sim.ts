@@ -85,7 +85,7 @@ export type SimEvent =
   /** A train was lifted and turned round at a turnback buffer (it has a new id; its cars keep theirs). */
   | { readonly kind: "turned"; readonly trainId: number; readonly newTrainId: number }
   /** A train came onto a lift too long to fit on its platform: it runs to the platform's end and turns back. */
-  | { readonly kind: "lift-refused"; readonly trainId: number; readonly pieceId: number }
+  | { readonly kind: "lift-refused"; readonly trainId: number; readonly pieceId: number; readonly carIds: readonly number[] }
   /** An axle rolled over a joint between pieces (the toy's clickety-clack). */
   | { readonly kind: "joint"; readonly trainId: number; readonly bogie: number };
 
@@ -831,7 +831,7 @@ export class Sim {
       if (trainLength(train) > len - 2 * LIFT_FACE_GAP) {
         if (record && !this.liftRefused.has(train.id)) {
           this.liftRefused.add(train.id);
-          this.events.push({ kind: "lift-refused", trainId: train.id, pieceId: lead.pieceId });
+          this.events.push({ kind: "lift-refused", trainId: train.id, pieceId: lead.pieceId, carIds: train.cars.map((c) => c.id) });
         }
         return Infinity;
       }

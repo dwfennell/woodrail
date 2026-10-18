@@ -168,8 +168,12 @@ describe("the train lift", () => {
 
   it("refuses a train too long for the platform: it's told once, runs to the end and turns back; the lift stays", () => {
     const w = line(["engine", "passenger", "passenger", "passenger"], 200);
+    const carIds = w.train().cars.map((c) => c.id);
     expect(w.until(() => w.events.some((e) => e.kind === "turned"), 40)).toBe(true);
-    expect(w.events.filter((e) => e.kind === "lift-refused")).toHaveLength(1);
+    const refused = w.events.filter((e) => e.kind === "lift-refused");
+    expect(refused).toHaveLength(1);
+    // The refusal names the train's cars (the toast is keyed by them, the train gone by then, turned round).
+    expect(refused[0].kind === "lift-refused" && refused[0].carIds).toEqual(carIds);
     expect(w.layout.switchState(w.lift)).toBe(0);
     expect(w.sim.liftPosition(w.lift)).toBe(0);
     // Off again the way it came, on the rails.

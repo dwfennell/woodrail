@@ -2951,8 +2951,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // A train too long for a lift's platform: it turns back at the end, and the player is told why (once).
       // (Once a train, not on each approach: by its cars, as it comes back from turning round a new train.)
       if (e.kind === "lift-refused") {
-        const cars = game.sim.getTrain(e.trainId)?.cars.map((c) => c.id) ?? [];
-        if (tooLong.shouldTell(cars, now)) hud.toast(TOO_LONG_MESSAGE);
+        if (tooLong.shouldTell(e.carIds, now, e.trainId)) hud.toast(TOO_LONG_MESSAGE);
       }
       if (e.kind === "buffer" && !loopTipShown && game.sim.getTrain(e.trainId)?.lastTurn?.cause === "train") showLoopTip();
       const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);
