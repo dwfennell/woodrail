@@ -631,7 +631,14 @@ const LINK_TOTALS = LINK_RUNS.map((r) => r.reduce((a, b) => a + b, 0));
  * joints' play). Null if none does. One pass over the pieces for straights near the finger,
  * then for each run two facings, two hands and the two positions either side of where the branch would line up.
  */
-export function findMerge(layout: Layout, end: { x: number; z: number; heading: number; y: number }, fx: number, fz: number, canTake: (id: number) => boolean = () => true): MergeSwap | null {
+export function findMerge(
+  layout: Layout,
+  end: { x: number; z: number; heading: number; y: number },
+  fx: number,
+  fz: number,
+  canTake: (id: number) => boolean = () => true,
+  miss?: SwapMiss,
+): MergeSwap | null {
   return findPortSwap(layout, end, canTake, [{ type: "switch", port: 2, exit: -1 }], (run) => {
     // The finger let go on or close to the run.
     const ch = Math.cos(run.h);
@@ -639,7 +646,7 @@ export function findMerge(layout: Layout, end: { x: number; z: number; heading: 
     const fu = (fx - run.x) * ch + (fz - run.z) * sh;
     const fv = -(fx - run.x) * sh + (fz - run.z) * ch;
     return Math.abs(fv) <= MERGE_REACH && fu >= -MERGE_REACH && fu <= run.length + MERGE_REACH;
-  }, { x: fx, z: fz, reach: MERGE_REACH });
+  }, { x: fx, z: fz, reach: MERGE_REACH }, miss);
 }
 
 /** A crossing at the line's end: the swap (its `exit`, the far end of its path the line takes on), and the straights to it. */
@@ -654,7 +661,7 @@ export const CROSS_REACH = 300;
  * cross path, straight away or through one plain straight on its heading, and going on from the other (`exit`). Null
  * if none fits. As `findMerge`: one pass over the pieces near the line's end, then two facings, two hands, both ends.
  */
-export function findCrossing(layout: Layout, end: { x: number; z: number; heading: number; y: number }, canTake: (id: number) => boolean = () => true): CrossingSwap | null {
+export function findCrossing(layout: Layout, end: { x: number; z: number; heading: number; y: number }, canTake: (id: number) => boolean = () => true, miss?: SwapMiss): CrossingSwap | null {
   const ax = end.x + Math.cos(end.heading) * (CROSS_REACH / 2);
   const az = end.z + Math.sin(end.heading) * (CROSS_REACH / 2);
   return findPortSwap(
@@ -669,7 +676,19 @@ export function findCrossing(layout: Layout, end: { x: number; z: number; headin
     ],
     () => true,
     { x: ax, z: az, reach: CROSS_REACH / 2 },
+    miss,
   );
+}
+
+/**
+ * How far a search for a merge or crossing got before it found none (the furthest it got, over every run it looked
+ * at), so the line can say why: 0, nothing facing the line's way (the angle's wrong); 1, facing it, but there it
+ * would hang off the run (its end too near); 2, on the run, but no straights fit the gap from the line's end; 3, the
+ * gap fits (passed on to the next); 4, but what's left of the straights either side can't be made again (a joint, or
+ * the run's end, too near); 5, a train is on the straights it would take up. Only for saying why: the search is the same.
+ */
+export interface SwapMiss {
+  stage: 0 | 1 | 2 | 3 | 4 | 5;
 }
 
 /**
@@ -685,7 +704,11 @@ function findPortSwap(
   kinds: readonly { type: PieceTypeId; port: number; exit: number }[],
   onRun: (run: Run) => boolean,
   near: { x: number; z: number; reach: number },
+  miss?: SwapMiss,
 ): MergeSwap | null {
+  const got = (stage: SwapMiss["stage"]) => {
+    if (miss && stage > miss.stage) miss.stage = stage;
+  };
   const seen = new Set<number>();
   const busy = { onto: -1 };
   const ex = Math.cos(end.heading);
@@ -711,6 +734,7 @@ function findPortSwap(
           const base: Pose = facing === 1 ? { x: run.x, z: run.z, heading: run.h } : { x: run.x + ch * SWITCH_LENGTH, z: run.z + sh * SWITCH_LENGTH, heading: normalizeAngle(run.h + Math.PI) };
           transformPose(base, c, swapEnd);
           if (Math.abs(normalizeAngle(end.heading - swapEnd.heading - Math.PI)) > JOINT_ANGLE_TOLERANCE) continue;
+          got(1);
           // That end moves along the run with the piece: where it's straight ahead of the line's end.
           const bx = swapEnd.x - end.x;
           const bz = swapEnd.z - end.z;
@@ -720,6 +744,7 @@ function findPortSwap(
           const sStar = -across0 / rate;
           for (const s of [Math.floor(sStar / SWAP_STEP) * SWAP_STEP, Math.ceil(sStar / SWAP_STEP) * SWAP_STEP]) {
             if (s < 0 || s + SWITCH_LENGTH > run.length + LENGTH_SLACK) continue;
+            got(2);
             const along = (bx + ch * s) * ex + (bz + sh * s) * ez;
             const across = across0 + rate * s;
             let k = -1;
@@ -727,8 +752,13 @@ function findPortSwap(
             const link = k < 0 ? 0 : LINK_TOTALS[k];
             const err = Math.hypot(along - link, across);
             if (err > JOINT_POS_TOLERANCE || (best && err >= best.err)) continue;
+            got(3);
+            busy.onto = -1;
             const w = switchAt(run, s, facing, flipped, canTake, busy, kind.type, kind.port, kind.exit);
-            if (!w) continue;
+            if (!w) {
+              got(busy.onto !== -1 ? 5 : 4);
+              continue;
+            }
             const links: SwapPiece[] = [];
             let at = 0;
             for (const t of k < 0 ? [] : LINK_RUNS[k]) {

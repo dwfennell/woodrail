@@ -1,4 +1,4 @@
-import { createSample, findBranch, findCrossing, findCurveSwap, findMerge, findThreeWay, getPieceDef, pathLength, samplePath, transformPose, type DrawEnd, type DrawnPiece, type Layout, type PieceSwap, type PieceTypeId, type Pose, type SwapPiece } from "../track";
+import { createSample, findBranch, findCrossing, findCurveSwap, findMerge, findOverlap, findThreeWay, getPieceDef, isPlainStraight, MERGE_REACH, normalizeAngle, type SwapMiss, pathLength, samplePath, transformPose, type DrawEnd, type DrawnPiece, type Layout, type PieceSwap, type PieceTypeId, type Pose, type SwapPiece } from "../track";
 
 /**
  * Junctions in a drawn line (Draw N2 phase 2, docs/superpowers/specs/2026-10-17-draw-junctions-ramps-bridges-design.md
@@ -173,4 +173,74 @@ export function linePlan(
   if (merge) out.push(...merge.links);
   if (merge) out.push(...merge.swap.pieces);
   return { covers: [...(branch?.covers ?? []), ...crossed.covers, ...(merge?.swap.covers ?? [])], pieces: out, line };
+}
+
+/** Why a junction couldn't be made where a drawn line ran into a line (see `junctionWhy`). */
+export const JUNCTION_STRAIGHT = "A junction can only go into a straight piece";
+export const JUNCTION_ANGLE = "Meet the line at 45° to join it, or square on to cross it";
+export const JUNCTION_END = "Too near the end of that line for a junction";
+export const JUNCTION_GAP = "Can't line up a junction just there: try a little further along";
+export const JUNCTION_JOINT = "Too near a joint or the line's end for a junction: try a little further along";
+export const NO_ROOM_CROSSING = "No room for a crossing there";
+export const GO_ACROSS = "Go on across the line to cross it";
+
+/** Track a drawn line could have met to make a junction (a merge or crossing goes into a plain straight of it). */
+const TRACK = /^(straight|curve|s-curve|switch|crossing|bridge|ramp|double)/;
+/** Within this (radians) of 45° or 90° to the line it meets, a junction was what the stroke was after. */
+const SHAPE_SLACK = (12 * Math.PI) / 180;
+
+/**
+ * The line (`pieces`, its last one stopped by another piece) was let go with no merge, and no crossing it went on
+ * through: why there's no junction where it ran into a line, from what the searches found, or null if nothing
+ * junction-shaped was tried (it ran into something that isn't track, or met it at no angle a junction takes), when
+ * the plain "in the way" stands. `finger`: where it was let go; `taken`: straights already being replaced; `used`:
+ * how many of each piece the line's swaps already use. Asked once, when the finger lifts.
+ */
+export function junctionWhy(
+  r: JunctionRules,
+  start: DrawEnd,
+  pieces: readonly DrawnPiece[],
+  finger: { x: number; z: number },
+  taken: ReadonlySet<number>,
+  used: (type: PieceTypeId) => number,
+): string | null {
+  const last = pieces[pieces.length - 1];
+  if (!last?.blocked || last.blockedBy !== "piece") return null;
+  const hit = findOverlap(r.layout, last.type, last.flipped, last.pose, last.y, taken);
+  const q = hit === -1 ? undefined : r.layout.getPiece(hit);
+  if (!q || !TRACK.test(q.type)) return null;
+  const placeable = pieces.slice(0, -1).filter((p) => !p.blocked);
+  const e = placeable.length ? placeable[placeable.length - 1].end : start;
+  // The angle between the line's way and the one it ran into (either way along it): 0 to 90°.
+  let a = Math.abs(normalizeAngle(e.heading - q.pose.heading));
+  if (a > Math.PI / 2) a = Math.PI - a;
+  const square = Math.abs(a - Math.PI / 2) <= SHAPE_SLACK;
+  const slant = Math.abs(a - Math.PI / 4) <= SHAPE_SLACK;
+  if (!isPlainStraight(q.type)) return square || slant ? JUNCTION_STRAIGHT : null;
+  if (!square && !slant) return JUNCTION_ANGLE;
+  if (r.occupied(hit)) return BUSY_MESSAGE;
+  // A crossing if it was let go past the line (or met it square: a merge comes in at 45°), else a merge.
+  const nx = -Math.sin(q.pose.heading);
+  const nz = Math.cos(q.pose.heading);
+  const side = (p: { x: number; z: number }) => (p.x - q.pose.x) * nx + (p.z - q.pose.z) * nz;
+  const across = square || (side(e) * side(finger) < 0 && Math.abs(side(finger)) > MERGE_REACH);
+  const type: PieceTypeId = !across ? "switch" : square ? "crossing" : "crossing-45";
+  const short = r.may(type, used(type));
+  if (short) return short;
+  // Where the line's way meets that line: a merge is looked for there (as if let go on it).
+  const dn = Math.cos(e.heading) * nx + Math.sin(e.heading) * nz;
+  const t = Math.abs(dn) < 1e-6 ? 0 : -side(e) / dn;
+  const meet = { x: e.x + Math.cos(e.heading) * t, z: e.z + Math.sin(e.heading) * t };
+  const canTake = (id: number) => !r.occupied(id) && !taken.has(id);
+  const miss: SwapMiss = { stage: 0 };
+  for (const keep of [placeable.length, placeable.length - 1]) {
+    if (keep < 0) continue;
+    const from = keep > 0 ? placeable[keep - 1].end : start;
+    const m = across ? findCrossing(r.layout, from, canTake, miss) : findMerge(r.layout, from, meet.x, meet.z, canTake, miss);
+    if (!m) continue;
+    if (swapBlocked(r, m.swap, taken) ?? linksBlocked(r, m.links, new Set([...taken, ...m.swap.covers]))) return across ? NO_ROOM_CROSSING : NO_ROOM_MESSAGE;
+    // It would have gone in: a crossing, had the finger gone on across; a merge, had it been let go on the line.
+    return across ? GO_ACROSS : null;
+  }
+  return [JUNCTION_ANGLE, JUNCTION_END, JUNCTION_GAP, JUNCTION_JOINT, JUNCTION_JOINT, BUSY_MESSAGE][miss.stage];
 }

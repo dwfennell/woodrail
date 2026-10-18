@@ -3,7 +3,7 @@ import { Editor } from "../editor/editor";
 import { gridWithPlots, hillsOf, type Landscape } from "../landscape";
 import { Sim } from "../sim";
 import { appendPiece, connectorRef, DrawLine, Layout, type DrawOptions, type PieceTypeId } from "../track";
-import { branchFrom, BUSY_MESSAGE, crossingAt, linePlan, mergeAt, type JunctionRules } from "./draw-junctions";
+import { branchFrom, BUSY_MESSAGE, crossingAt, GO_ACROSS, JUNCTION_ANGLE, JUNCTION_END, JUNCTION_GAP, JUNCTION_JOINT, JUNCTION_STRAIGHT, junctionWhy, linePlan, mergeAt, NO_ROOM_CROSSING, type JunctionRules } from "./draw-junctions";
 import { Progress } from "./progress";
 import { pieceStock, pieceUnlearned } from "./supply";
 import { drawMessage, drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
@@ -349,5 +349,76 @@ describe("junctions' cost", () => {
     let worst = run();
     for (let k = 0; k < 4 && worst >= 1; k++) worst = Math.min(worst, run());
     expect(worst).toBeLessThan(1);
+  });
+});
+
+describe("why no junction went in where a stroke met a line (QA sweep 4)", () => {
+  /** A stroke from (x, z) at `deg`° for `length` mm, finished (let go there): the line, and where it was let go. */
+  function stroke(s: Setup, x: number, z: number, deg: number, length: number) {
+    const a = (deg * Math.PI) / 180;
+    const line = new DrawLine({ x, z, heading: a, y: 0, kind: "peg" }, s.options(new Set()));
+    for (let d = 4; d <= length; d += 4) line.addPoint(x + Math.cos(a) * d, z + Math.sin(a) * d);
+    line.finish();
+    return { line, finger: line.tip };
+  }
+  const why = (s: Setup, r: ReturnType<typeof stroke>, rules: JunctionRules = s.junctions) => junctionWhy(rules, r.line.start, r.line.pieces, r.finger, new Set(), () => 0);
+
+  it("square on to a straight, let go short of its far side: go on across to cross it", () => {
+    const s = setup();
+    const r = stroke(s, 432, Z - 360, 90, 420);
+    expect(r.line.pieces.at(-1)?.blockedBy).toBe("piece");
+    expect(why(s, r)).toBe(GO_ACROSS);
+  });
+
+  it("a train on the straight", () => {
+    const s = setup(null, (ids) => ids);
+    expect(why(s, stroke(s, 432, Z - 360, 90, 420))).toBe(BUSY_MESSAGE);
+  });
+
+  it("out of crossings (or switches, for a merge), as the box says", () => {
+    const s = setup({ crossing: 0, switch: 0 });
+    expect(why(s, stroke(s, 432, Z - 360, 90, 420))).toBe("Out of crossing");
+    // In at 45°, let go on the line: a merge, which needs a switch.
+    expect(why(s, stroke(s, 432 - 300, Z - 300, 45, 300 * Math.SQRT2))).toBe("Out of switch");
+  });
+
+  it("met at an angle no junction takes", () => {
+    const s = setup();
+    const r = stroke(s, 300, Z - 300, 67.5, 360);
+    expect(r.line.pieces.at(-1)?.blockedBy).toBe("piece");
+    expect(why(s, r)).toBe(JUNCTION_ANGLE);
+  });
+
+  it("too near the line's end: a crossing there would hang off it, or leave too little of a straight", () => {
+    const s = setup();
+    expect(why(s, stroke(s, 18, Z - 360, 90, 420))).toBe(JUNCTION_END);
+    expect(why(s, stroke(s, 90, Z - 360, 90, 420))).toBe(JUNCTION_JOINT);
+  });
+
+  it("too close in to line a junction up (no straights fit the gap left)", () => {
+    const s = setup();
+    // The crossing's near end 18 mm from where the line starts: too short for a straight, and nothing laid before it.
+    const r = stroke(s, 432, Z - 72 - 18, 90, 120);
+    expect(r.line.placeable().length).toBe(0);
+    expect(why(s, r)).toBe(JUNCTION_GAP);
+  });
+
+  it("something else where the crossing would go", () => {
+    const s = setup();
+    // A second line close beside the first, under the crossing's far side.
+    s.layout.addPiece("straight-216", { x: 324, z: Z + 70, heading: 0 }, 0);
+    expect(why(s, stroke(s, 432, Z - 360, 90, 420))).toBe(NO_ROOM_CROSSING);
+  });
+
+  it("not a straight: a junction goes only into one", () => {
+    const s = setup();
+    const sw = appendPiece(s.layout, "switch", false, connectorRef(s.ids[3], 1));
+    const p = s.layout.getPiece(sw)!.pose;
+    expect(why(s, stroke(s, p.x + 60, Z - 360, 90, 420))).toBe(JUNCTION_STRAIGHT);
+  });
+
+  it("nothing junction-shaped: not stopped by a line, or stopped by what isn't track", () => {
+    const s = setup();
+    expect(why(s, stroke(s, 432, Z - 600, -90, 300))).toBeNull();
   });
 });

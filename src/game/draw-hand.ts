@@ -33,7 +33,7 @@ import {
 import type { Game } from "./game";
 import { DrawNotice } from "./draw-notice";
 import { drawMessage, drawRefusal } from "./track-rules";
-import { branchFrom, BUSY_MESSAGE, crossingAt, linePlan, mergeAt, type JunctionRules, type Merge } from "./draw-junctions";
+import { branchFrom, BUSY_MESSAGE, crossingAt, junctionWhy, linePlan, mergeAt, type JunctionRules, type Merge } from "./draw-junctions";
 import { TRACK_ITEMS } from "../ui/tray-catalogue";
 
 /** A piece's name as the tray shows it, in lower case ("long", "curve"). */
@@ -290,7 +290,13 @@ export class DrawHand {
     if (busy) this.hooks.toast(BUSY_MESSAGE);
     else {
       // (Merged, it's closed onto that line: nothing past it to say.)
-      const say = this.notice.lifted(line, pieces.length, !!merge);
+      let say = this.notice.lifted(line, pieces.length, !!merge);
+      // Stopped by a line it met: why no junction went in there, if one was what it was after (QA sweep 4).
+      const last = line.pieces[line.pieces.length - 1];
+      if (say && !merge && last?.blocked === say) {
+        const swaps = [...(branch?.pieces ?? []), ...this.crossed.pieces];
+        say = junctionWhy(this.junctions, line.start, line.pieces, line.tip, this.taken(), (t) => swaps.filter((q) => q.type === t).length) ?? say;
+      }
       if (say) this.hooks.toast(say);
     }
     this.clear();
