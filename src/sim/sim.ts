@@ -34,7 +34,7 @@ const TURN_CLEARANCE = 0.05;
 // Motion tuning (mm, s).
 export const ENGINE_SPEED = 120;
 /** How quickly (mm/s²) a train gets up to speed, or stops: half a second either way. */
-const ACCELERATION = ENGINE_SPEED * 2;
+export const ACCELERATION = ENGINE_SPEED * 2;
 const SIDE_HIT_DISTANCE = 12;
 /** How far ahead (mm) a train looks for a signal at red, and in what steps: well past its stopping distance. */
 const SIGNAL_LOOK = 300;

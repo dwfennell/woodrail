@@ -1062,6 +1062,9 @@ export class Interaction {
   }
 
   private onMove(e: PointerEvent): void {
+    // A floor press that has moved past the slop is a drag (the camera's), not a tap, wherever it's let go.
+    const f = this.floorDown;
+    if (f && f.id === e.pointerId && !f.moved && Math.hypot(e.clientX - f.x, e.clientY - f.y) >= dragSlop(e.pointerType)) f.moved = true;
     const m = this.mode;
     if (m.kind === "idle" && this.landCursor && e.pointerType === "mouse" && e.target === this.game.canvas) this.showSquare(this.squareAt(e.clientX, e.clientY));
     // A ready road's outline follows the mouse (not while the camera's being dragged).
@@ -1257,7 +1260,7 @@ export class Interaction {
       this.floorDown = null;
       // A tap is a press that stays put (a finger wobbles more than a mouse), let go within FLOOR_TAP_MS: a slow phone,
       // or a careful child, takes its time.
-      const still = Math.hypot(e.clientX - f.x, e.clientY - f.y) < dragSlop(e.pointerType);
+      const still = !f.moved && Math.hypot(e.clientX - f.x, e.clientY - f.y) < dragSlop(e.pointerType);
       if (still && e.timeStamp - f.t < FLOOR_TAP_MS && this.touches.size <= 1) {
         // Planning, on a place (or a disc, or a train at its station): that's the tap.
         if (f.press) {
@@ -1335,7 +1338,7 @@ export class Interaction {
     else this.dropTrain(m);
   }
 
-  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; press?: Press } | null = null;
+  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; press?: Press; moved?: boolean } | null = null;
 
   private somethingSelected(): boolean {
     return this.selectedPiece !== -1 || this.selectedProp !== -1 || this.selectedCar !== -1 || this.selectedDepot !== -1 || this.selectedScenery !== null;

@@ -54,6 +54,8 @@ export interface HudHandlers {
   resetStarter(): void;
   /** Game mode: start the goals again on the starter map. */
   newGame(): void;
+  /** Open the Lines view (every line: its colour, name and trains). */
+  openLines(): void;
   /** Back to the title screen. */
   titleScreen(): void;
   /** The brand tapped: back to the player's railway (the view frames their track). */
@@ -208,6 +210,8 @@ export class Hud {
   private readonly followBtn: HTMLButtonElement;
   /** The engine's lever as last shown, and the way Go will send it (+1: its own front first). */
   private engineLever = 0;
+  /** The train is held at its stop for spacing: Go reads "Go now" (see `setGoNow`). */
+  private goNow = false;
   private engineWay: 1 | -1 = 1;
   /** Shown status and arrow angle (degrees), to touch the page only when they change. */
   private shownStatus = "";
@@ -221,6 +225,8 @@ export class Hud {
   private readonly modeTag = el("span", "mode-tag");
   /** Game mode's coins, by the logo. */
   private readonly coinTag = el("span", "coins");
+  /** The menu's Lines item (see `setLinesAvailable`). */
+  private linesItem!: HTMLButtonElement;
   /** Menu items for each mode's maps. */
   private readonly reportItem = button("Send to Claude…", "Send what you see, your railway and a note to Claude, for debugging", () => {
     this.menu.hidden = true;
@@ -344,7 +350,13 @@ export class Hud {
     this.redoItem = narrow("Redo", "Redo what was undone", h.redo);
     this.landItem = narrow("Add land", "Choose land to add to the map", h.toggleExpand);
     this.menu.append(this.redoItem, this.landItem, this.soundItem);
+    this.linesItem = button("Lines", "Every line: its colour, its name, its trains", () => {
+      this.menu.hidden = true;
+      h.openLines();
+    }, "menu-item");
+    this.linesItem.hidden = true;
     this.menu.append(
+      this.linesItem,
       button("Title screen", "Save and go back to the title screen", () => {
         this.menu.hidden = true;
         h.titleScreen();
@@ -374,7 +386,8 @@ export class Hud {
     this.engineCard.appendChild(this.engineStatus);
     const controls = el("div", "engine-controls");
     // One big button: Go (the way the arrow shows) or Stop.
-    this.goBtn = button("", "Go", () => h.lever(this.engineLever !== 0 ? 0 : this.engineWay), "chip go");
+    // (Held at its stop for spacing: "Go now" sends it on with one tap, the lever as it is.)
+    this.goBtn = button("", "Go", () => h.lever(this.goNow && this.engineLever !== 0 ? (this.engineLever as -1 | 1) : this.engineLever !== 0 ? 0 : this.engineWay), "chip go");
     // Which way: the arrow points where the train will go on screen; a tap turns it round (at once, if it's moving).
     this.wayBtn = button("", "Which way it goes: tap to change", () => {
       this.engineWay = this.engineWay === 1 ? -1 : 1;
@@ -1049,12 +1062,20 @@ export class Hud {
     }
   }
 
+  /** The open engine's train is (or isn't) held at its stop for spacing: Go reads "Go now", and one tap sends it on. */
+  setGoNow(on: boolean): void {
+    if (on === this.goNow) return;
+    this.goNow = on;
+    this.drawEngine();
+  }
+
   private drawEngine(): void {
     const moving = this.engineLever !== 0;
-    this.goBtn.classList.toggle("stop", moving);
+    const now = moving && this.goNow;
+    this.goBtn.classList.toggle("stop", moving && !now);
     // Go goes the way the arrow beside it shows (no triangle of its own pointing elsewhere).
-    this.goBtn.innerHTML = moving ? `<span class="go-icon">■</span>Stop` : "Go";
-    this.goBtn.title = moving ? "Stop" : "Go";
+    this.goBtn.innerHTML = now ? "Go now" : moving ? `<span class="go-icon">■</span>Stop` : "Go";
+    this.goBtn.title = now ? "Go now, without waiting to space out" : moving ? "Stop" : "Go";
     // The arrow's angle depends on the way chosen: redrawn on the next view update.
     this.shownAngle = NaN;
   }
@@ -1062,6 +1083,16 @@ export class Hud {
   /** Planning a train's route: the engine card slims to its route, and the tray is put away (see style.css). */
   setPlanning(on: boolean): void {
     this.root.classList.toggle("planning", on);
+  }
+
+  /** The Lines view open (the tray goes, as when planning: the map wants the room). */
+  setLinesOpen(on: boolean): void {
+    this.root.classList.toggle("lines-open", on);
+  }
+
+  /** The menu's Lines item, where there are lines to show (and routes are allowed). */
+  setLinesAvailable(on: boolean): void {
+    this.linesItem.hidden = !on;
   }
 
   get engineCardOpen(): boolean {
