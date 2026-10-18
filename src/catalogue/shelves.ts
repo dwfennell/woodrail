@@ -228,6 +228,8 @@ export const PROP_TABS: readonly PropTab[] = [
           "mech-whistle-post",
           "mech-ticket-barrier",
           "mech-lighthouse-beacon",
+          // A show piece: a 216 straight, a toy copy of an engine crossing it running the loop beside it.
+          "mech-loop-the-loop",
           "mech-gantry-crane",
           "mech-harbour-crane",
           "mech-log-loader",
@@ -276,7 +278,6 @@ export const RAIL_HELD_BACK: readonly string[] = [
   // are crossing styles: src/landscape/crossing-styles.ts.)
   "mech-train-lift",
   "mech-track-cleaner",
-  "mech-loop-the-loop",
   "mech-stone-arch-bridge",
   "mech-viaduct",
   "mech-truss-bridge",
