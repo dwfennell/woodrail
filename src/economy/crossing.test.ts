@@ -309,3 +309,83 @@ describe("trains that wait for each other (crossing)", () => {
     expect(said).toBe("The Red line needs a passing loop");
   });
 });
+
+describe("crossing: claims kept true to the track", () => {
+  /** Run till A has left X with its claim to M; A's front still short of west[1]. */
+  function leftX() {
+    const w = line("loop");
+    const { a, b } = twoTrains(w, [w.dx.id, w.dm!.id, w.dy.id], 0, 2);
+    const r = runner(w, [a, b]);
+    for (let i = 0; i < 120 * SIM_HZ; i++) {
+      r.step();
+      const ro = w.economy.routeOf(a)!;
+      if (ro.next === 1 && !ro.at && w.economy.crossing.claimOf(a)) break;
+    }
+    return { w, a, b, r };
+  }
+
+  it("a straight in a claim spliced into a switch and a straight (new piece ids): the claim runs over the new pieces", () => {
+    const { w, a } = leftX();
+    const old = w.west[1];
+    expect(w.sim.findCar(a)!.train.bogies.some((x) => x.pieceId === old)).toBe(false);
+    expect(w.economy.crossing.claimOf(a)!.map((c) => c.pieceId)).toContain(old);
+    // As junction drawing does: the straight taken up, a switch and a short straight laid in its place.
+    const piece = w.layout.getPiece(old)!;
+    w.layout.removePiece(old);
+    const sw = w.layout.addPiece("switch", piece.pose, piece.y, false);
+    const rest = appendPiece(w.layout, "straight-72", false, connectorRef(sw, 1));
+    expect(w.layout.joinedConnector(connectorRef(rest, 1))).not.toBe(-1);
+    w.sim.trackChanged();
+    w.economy.prune();
+    const claim = w.economy.crossing.claimOf(a)!.map((c) => c.pieceId);
+    expect(claim).not.toContain(old);
+    expect(claim).toEqual(expect.arrayContaining([sw, rest, w.s1, w.m]));
+  });
+
+  it("a train off its claimed way (a switch thrown under it) claims its way afresh from its tail", () => {
+    const { w, a, r } = leftX();
+    // The player throws the loop's first switch to the main road just ahead of it, and steering can't throw it back.
+    w.layout.setSwitchState(w.s1, 0);
+    const set = w.layout.setSwitchState.bind(w.layout);
+    w.layout.setSwitchState = (id, state) => (id === w.s1 ? undefined : set(id, state));
+    const before = w.economy.crossing.claimOf(a)!.map((c) => c.pieceId);
+    expect(before).toContain(w.m);
+    const main = Math.floor(w.layout.joinedConnector(connectorRef(w.s1, 1)) / 8);
+    // Till its whole train is on the main road: none of its axles on any piece it claimed.
+    for (let i = 0; i < 60 * SIM_HZ; i++) {
+      r.step();
+      const t = w.sim.findCar(a)!.train;
+      if (t.bogies.every((x) => x.pieceId === main)) break;
+    }
+    const t = w.sim.findCar(a)!.train;
+    expect(t.bogies.every((x) => x.pieceId === main)).toBe(true);
+    const now = w.economy.crossing.claimOf(a)!;
+    // Its claim now starts under it, on the main road, not where it was going to run.
+    expect(now[0].pieceId).toBe(main);
+    expect(now.map((c) => c.pieceId)).not.toContain(Math.floor(w.layout.joinedConnector(connectorRef(w.s1, 2)) / 8));
+  });
+
+  it("a mutual wait's status clears once the first-ready train is let go", () => {
+    const w = line("plain");
+    const { a, b } = twoTrains(w, [w.dx.id, w.dy.id], 0, 1);
+    const r = runner(w, [a, b]);
+    let loopAt = -1;
+    for (let i = 0; i < 60 * SIM_HZ && loopAt < 0; i++) {
+      r.step();
+      if (w.economy.crossWait(a)?.wait.kind === "needs-loop" && w.economy.crossWait(b)?.wait.kind === "needs-loop") loopAt = r.now();
+    }
+    expect(loopAt).toBeGreaterThan(0);
+    // Till one is let go (it starts moving): from then on, neither says the line needs a passing loop.
+    let gone = -1;
+    for (let i = 0; i < (LOOP_WAIT_S + 5) * SIM_HZ && gone < 0; i++) {
+      r.step();
+      for (const e of [a, b]) if (w.sim.findCar(e)!.train.speed > 1) gone = e;
+    }
+    expect(gone).not.toBe(-1);
+    for (let i = 0; i < 2 * SIM_HZ; i++) {
+      r.step();
+      for (const e of [a, b]) expect(w.economy.crossWait(e)?.wait.kind).not.toBe("needs-loop");
+    }
+    expect(w.economy.crossWait(gone)).toBe(null);
+  });
+});

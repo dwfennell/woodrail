@@ -360,14 +360,21 @@ export class Crossing {
       res = this.reservations.get(engine)!;
       if (turned) res.made = sim.ticks + 1;
     }
-    if (!res.free) {
-      // Let go behind its tail: the first claim still under one of its axles (none: off its way, so all kept).
-      for (let k = res.from; k < res.claims.length; k++) {
+    if (!res.free && res.claims.length > 0) {
+      // Let go behind its tail: the first claim still under one of its axles. None: it's off its way (a switch thrown
+      // under it, say), so its way is worked out again from where its tail is.
+      let on = false;
+      for (let k = res.from; k < res.claims.length && !on; k++) {
         const id = res.claims[k].pieceId;
         if (train.bogies.some((b) => b.pieceId === id)) {
           res.from = k;
-          break;
+          on = true;
         }
+      }
+      if (!on && target >= 0) {
+        const claims = r.at ? this.pending(engine, train, target) : this.fromTail(train, target);
+        this.reserve(engine, claims ?? [], claims === null, target);
+        res = this.reservations.get(engine)!;
       }
     }
     return res;

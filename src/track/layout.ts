@@ -211,7 +211,7 @@ export class Layout {
     this.switchStates.set(pieceId, state);
     this.switchesVersion++;
     if (this.pinned.has(pieceId)) this.routingVersion++;
-    else if (this.pieces.size > 0) {
+    else {
       const p = this.pieces.get(pieceId);
       if (p && getPieceDef(p.type, p.flipped).gated) this.routingVersion++;
     }
