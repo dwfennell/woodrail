@@ -39,7 +39,7 @@ const check = (name, ok, detail = "") => {
 };
 
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const p = await b.newPage({ viewport: { width: 1200, height: 800 } });
+let p = await b.newPage({ viewport: { width: 1200, height: 800 } });
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 
@@ -55,6 +55,8 @@ const boot = async (page, tries = 3) => {
   }
 };
 const bootOnce = async (page) => {
+  // (From another page first: going to the URL the page is already on, hash and all, doesn't load it again.)
+  if (page.url() !== "about:blank") await page.goto("about:blank");
   await page.goto(URL);
   await page.waitForFunction(() => !!window.woodrail && [...document.querySelectorAll("button")].some((b) => /let.s play/i.test(b.textContent ?? "")), null, { timeout: 180000 });
   await page.evaluate(() => [...document.querySelectorAll("button")].find((b) => /let.s play/i.test(b.textContent ?? ""))?.click());
@@ -192,7 +194,7 @@ if (ONLY_SPECIALS) {
 
 /** Only the junctions (N2 phase 2: a branch, a merge) and the planning guard (E2E_ONLY=junctions). */
 if (process.env.E2E_ONLY === "junctions") {
-  await junctions();
+  await junctions(false);
   await finishRun();
 }
 
@@ -960,9 +962,15 @@ async function qaReplay() {
  * guard: while a train's route is planned (`onPickPlace` set), a press draws nothing and branches nothing, the Draw
  * chip can't be pressed, and a station tapped is a stop.
  */
-async function junctions() {
-  // A fresh map (earlier cases leave track about, which a branch's press could land on).
-  await boot(p);
+async function junctions(fresh = true) {
+  // A fresh map (earlier cases leave track about, which a branch's press could land on, and their autosave): a page of
+  // its own, in a context of its own, as when run alone.
+  if (fresh) {
+    await p.close();
+    p = await b.newPage({ viewport: { width: 1200, height: 800 } });
+    p.on("pageerror", (e) => errors.push(e.message));
+    await boot(p);
+  }
   await installD(p);
   const open = await p.evaluate(() => {
     const w = window.woodrail;
