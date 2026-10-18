@@ -20,7 +20,19 @@ export type Leg = PathRun[] | null;
 export interface WalkOptions {
   avoid?: AvoidTest;
   on?: ReadonlyMap<number, number>;
+  /**
+   * A train lift goes through, whichever end its platform stands at: in at one end, carried, out at the other (the
+   * sim calls the platform and carries the train). For crossing's claims (economy/crossing.ts), which hold the lift and
+   * the track either side as one stretch; the ribbon and steering leave it as the platform stands.
+   */
+  throughLifts?: boolean;
 }
+
+/** Is this piece a train lift's platform? */
+const isLift = (layout: Layout, pieceId: number): boolean => {
+  const p = layout.getPiece(pieceId);
+  return !!p && !!getPieceDef(p.type, p.flipped).lift;
+};
 
 /** Where a walk along the track stands: on a path, going one way, from `s` (the path's own geometry). */
 interface At {
@@ -69,8 +81,12 @@ function walkTo(layout: Layout, start: At, target: number, opts?: WalkOptions): 
     visited.add(key);
     if (at.s !== end) runs.push({ pieceId: at.pieceId, pathIndex: at.pathIndex, s0: at.s, s1: end });
     const exit = at.reversed ? path.from : (path.to ?? -1);
-    const n = next(layout, at.pieceId, exit);
-    const ways = n ? waysFrom(layout, n.pieceId, n.entry) : [];
+    let n = next(layout, at.pieceId, exit);
+    // (Through a lift: carried to its other end, it runs on out of that.)
+    if (!n && opts?.throughLifts && def.lift && !at.reversed) n = next(layout, at.pieceId, 1 - path.from);
+    let ways = n ? waysFrom(layout, n.pieceId, n.entry) : [];
+    // (Into a lift whose platform is at its other end: it's called down, or up, for the train.)
+    if (n && ways.length === 0 && opts?.throughLifts && isLift(layout, n.pieceId)) ways = [{ option: 0, path: n.entry, exit: -1 }];
     if (!n || ways.length === 0) {
       // The end of the line: the train comes back along this path.
       at = { pieceId: at.pieceId, pathIndex: at.pathIndex, reversed: !at.reversed, s: end };
