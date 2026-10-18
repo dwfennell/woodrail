@@ -241,6 +241,8 @@ export class DrawHand {
   }
 
   private warmed = false;
+  /** `warm` has done all its jobs (for tests that time a first stroke). */
+  ready = false;
 
   /**
    * Get ready for a line meeting the river or a hill, once, a job at a time when idle (`idle`): the river's outline
@@ -260,19 +262,25 @@ export class DrawHand {
             return;
           }
       },
+      // A crossing's pieces: a ramp up and down (on the ground, and on arches a level up), bridges a level or two up.
+      // (A ramp down, flipped, was built on the move that laid it: 18 to 28 ms in QA's replay.)
       ...(
         [
-          ["bridge", false],
-          ["bridge-curve", false],
-          ["bridge-curve", true],
-          ["ramp", false],
-          ["ramp", true],
+          ["ramp", false, 0],
+          ["ramp", true, 0],
+          ["bridge", false, 1],
+          ["ramp", false, 1],
+          ["ramp", true, 1],
+          ["bridge", false, 2],
         ] as const
-      ).map(([type, flipped]) => () => void pieceGeometry(type, flipped, 1)),
+      ).map(([type, flipped, levels]) => () => void pieceGeometry(type, flipped, levels)),
     ];
     const next = () => {
       const job = jobs.shift();
-      if (!job) return;
+      if (!job) {
+        this.ready = true;
+        return;
+      }
       job();
       idle(next);
     };

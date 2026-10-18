@@ -813,6 +813,8 @@ async function qaReplay() {
       };
     });
     await q.tap(".tray-draw");
+    // (Drawing switched on gets ready when idle, a job at a time: a player's finger comes later than a script's.)
+    await q.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
     const cdp = await ctx.newCDPSession(q);
     const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
     // The terrace: QA's search (one lane) for a level up then another, at 135°.
@@ -931,6 +933,9 @@ async function qaReplay() {
     if (!c.terrace) {
       const ok = got.types.includes("bridge") && !got.types.includes("bridge-curve") && got.ends.length === 2 && got.ends.every((y) => y <= 1);
       check(`QA replay, ${c.name}: crosses, no curved bridge, both ends on the ground`, ok, what);
+      // And no hitch on the moves that laid it (QA: 17.5 to 25 ms on one move each crossing; about 4 ms wanted at 1×,
+      // generous here for software GL under load).
+      check(`QA replay, ${c.name}: no move over 16 ms`, got.worst < 16, what);
     } else {
       check(`QA replay, ${c.name}: climbs (a ramp), and no move over 16 ms`, got.types.includes("ramp") && got.worst < 16, what);
     }
