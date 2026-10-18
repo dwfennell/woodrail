@@ -1013,6 +1013,12 @@ export class Interaction {
       this.mode = { kind: "draw-track", pointerId: e.pointerId };
       return;
     }
+    // Planning a route: nothing is taken hold of, so the camera has every drag from its start, even one on a station
+    // or a disc (handled as a floor tap: a tap there adds the place, see `onUp`).
+    if (hit && this.onPickPlace) {
+      this.floorDown = this.touches.size <= 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, press: hit } : null;
+      return;
+    }
     if (!hit) {
       // Empty floor: the camera pans; a tap here deselects (but not the pieces being picked: Done lets them go), and a
       // double tap focuses on that spot.
@@ -1247,6 +1253,12 @@ export class Interaction {
       // or a careful child, takes its time.
       const still = Math.hypot(e.clientX - f.x, e.clientY - f.y) < dragSlop(e.pointerType);
       if (still && e.timeStamp - f.t < FLOOR_TAP_MS && this.touches.size <= 1) {
+        // Planning, on a place (or a disc, or a train at its station): that's the tap.
+        if (f.press) {
+          this.tap(f.press);
+          this.lastTap = null;
+          return;
+        }
         const ground = this.groundAt(e.clientX, e.clientY);
         if (f.road && this.roadReady) {
           const r = this.roadReady;
@@ -1317,7 +1329,7 @@ export class Interaction {
     else this.dropTrain(m);
   }
 
-  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean } | null = null;
+  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; press?: Press } | null = null;
 
   private somethingSelected(): boolean {
     return this.selectedPiece !== -1 || this.selectedProp !== -1 || this.selectedCar !== -1 || this.selectedDepot !== -1 || this.selectedScenery !== null;

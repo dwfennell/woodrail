@@ -625,6 +625,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-tools { display: flex; gap: 4px; }
 .route-tools .route-action { flex: 1 0 auto; }
 .route-tools button { white-space: nowrap; padding-inline: 10px; }
+.route-tools .route-move, .route-tools .route-remove { min-width: 44px; min-height: 44px; }
 /* Planning a route: the map wants the room. The engine card slims to its route, and the tray goes. */
 .planning .engine-card .card-title, .planning .engine-card .engine-status, .planning .engine-card .engine-controls,
 .planning .engine-card .corner, .planning .engine-card > .close, .planning .engine-card .engine-more { display: none; }
@@ -642,7 +643,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .planning .route-stops.more-left { mask-image: linear-gradient(90deg, transparent, #000 28px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); }
 .planning .route-stops.more-left.more-right { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); }
 .planning .route-chip, .planning .route-tools button { flex: 0 0 auto; }
-.planning .route-tools button { padding-inline: 8px; font-size: 13px; min-width: 36px; }
+.planning .route-tools button { padding-inline: 8px; font-size: 13px; min-width: 44px; }
 .planning .engine-extra.route { gap: 4px; }
 /* (The tray's away: the bar sits at the bottom, full width, so the map has the rest.) */
 .planning .engine-card { width: min(calc(100vw - 32px), 440px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); padding: 10px 12px; }
