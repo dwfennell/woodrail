@@ -1286,6 +1286,9 @@ export class Economy {
     }
   }
 
+  /** Is a (railed) train on this piece? A switch steering mustn't throw under it. */
+  private readonly occupied = (pieceId: number): boolean => this.sim.pieceOccupied(pieceId);
+
   /** Set the switches ahead of each routed train toward its next stop. */
   private steerTrains(): void {
     for (const [engine, r] of this.routes) {
@@ -1294,7 +1297,7 @@ export class Economy {
       const net = this.drive(found.train);
       const d = this.depots[r.stops[r.next % r.stops.length].depotId];
       if (net === 0 || !d || !this.onMap(d)) continue;
-      if (steer(this.layout, found.train, net > 0, d.pieceId)) this.onSwitch?.(d.pieceId);
+      if (steer(this.layout, found.train, net > 0, d.pieceId, undefined, undefined, this.occupied)) this.onSwitch?.(d.pieceId);
     }
   }
 
