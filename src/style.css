@@ -232,7 +232,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 }
 
 /* ---- motion ---------------------------------------------------------------------------------------------- */
-@keyframes card-in { from { opacity: 0; transform: translate(-50%, 14px) scale(0.96); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+/* Cards pop in where they stand (`scale`, not `transform`, which places them): rising from below, one would sit
+   over the tray's tabs as it came in. */
+@keyframes card-in { from { opacity: 0; scale: 0.96; } }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: none; } }
 .card:not([hidden]) { animation: card-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.15); }
 .menu:not([hidden]) { animation: pop-in 0.18s ease-out; transform-origin: top right; }
@@ -322,9 +324,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .title-screen.over-opening { z-index: 60; background: none; justify-content: flex-start; animation: none; }
 .title-screen.over-opening .title-head { display: none; }
 /* The choices fade in, rising a little, one after the other. */
-.title-screen.over-opening .title-card { animation: card-in 0.6s ease-out backwards; }
+.title-screen.over-opening .title-card { animation: title-card-in 0.6s ease-out backwards; }
 .title-screen.over-opening .title-card + .title-card { animation-delay: 0.15s; }
-@keyframes card-in { from { opacity: 0; translate: 0 14px; } }
+@keyframes title-card-in { from { opacity: 0; translate: 0 14px; } }
 @media (prefers-reduced-motion: reduce) { .title-screen.over-opening .title-card { animation: card-fade 0.4s ease-out backwards; } }
 @keyframes card-fade { from { opacity: 0; } }
 #loading.behind-title .load-bar, #loading.behind-title p { visibility: hidden; }
