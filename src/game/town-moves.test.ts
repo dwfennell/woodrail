@@ -3,7 +3,7 @@ import { buildStarterWorld } from "./world";
 import { FEAT_BUILDING, FEAT_NONE, FEAT_STATION, SURF_GRASS, SURF_ROAD, SURF_TOWN, type Landscape, type Town } from "../landscape";
 import { LandEditor } from "../landscape/edit";
 import { looksOf, releaseBuilding } from "../props/towns";
-import { lotFor, moveBuilding, movableBuilding, type TownLot } from "./town-moves";
+import { lotFor, moveBuilding, movableBuilding, townMoveMessage, type TownLot } from "./town-moves";
 import { MAX_REACH } from "./town-growth";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { nextLots } from "./town-growth";
@@ -221,6 +221,8 @@ describe("moving a town's houses (Game mode)", () => {
           expect(alongX ? [1, 3] : [0, 2]).toContain(r.front);
         }
     expect(seen).toBeGreaterThan(0);
+    // A green whose only street is at a two-square house's end: said so.
+    expect(townMoveMessage("end-on")).toBe("The street must run along its long side");
   });
 
   it("a house's new place saves", () => {
