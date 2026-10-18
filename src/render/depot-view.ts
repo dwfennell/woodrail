@@ -1023,6 +1023,33 @@ export class DepotView {
     return false;
   }
 
+  /**
+   * The depot (economy id) whose yard a ground point is on (a little past its edge counts), −1 if none: what a tap on
+   * a depot's building or yard means. By the yard itself, not by nearness to its crane or piles: those sit at one end,
+   * and a tap on a workshop's far end went to the town's station beside it (QA). The nearest yard's middle wins.
+   */
+  depotAt(x: number, z: number, edge = 8): number {
+    let best = -1;
+    let bestD = Infinity;
+    for (const site of this.sites) {
+      const pad = site.layout.pad;
+      if (!pad) continue;
+      const c = Math.cos(site.pose.heading);
+      const s = Math.sin(site.pose.heading);
+      const dx = x - site.pose.x;
+      const dz = z - site.pose.z;
+      const t = c * dx + s * dz - pad.t;
+      const l = -s * dx + c * dz - pad.l;
+      if (Math.abs(t) > pad.w / 2 + edge || Math.abs(l) > pad.d / 2 + edge) continue;
+      const d = Math.hypot(t, l);
+      if (d < bestD) {
+        bestD = d;
+        best = site.depot.id;
+      }
+    }
+    return best;
+  }
+
   /** The depot (economy id) whose yard is nearest a ground point, within `range` mm; −1 if none. */
   depotNear(x: number, z: number, range = 140): number {
     let best = -1;

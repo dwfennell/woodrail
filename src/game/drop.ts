@@ -23,6 +23,17 @@ export function refusalText(why: string | null | undefined): string {
 }
 
 /**
+ * What to say when a new piece's drag ends without a drop (the browser took the touch back, a second finger came, Esc):
+ * why it couldn't go where it was held, if it couldn't (`blocked`), through `refusalText`; else nothing here (the
+ * game says it's back in the box, and what was made for it is given back). A piece being moved floats back unsaid; one
+ * over the tray was put back on purpose.
+ */
+export function letGoRefusal(d: { isNew: boolean; overTray: boolean; blocked: string | null }, message: (blocked: string) => string): string | null {
+  if (!d.isNew || d.overTray || !d.blocked) return null;
+  return refusalText(message(d.blocked));
+}
+
+/**
  * Why a depot held over a line can't go there, from the placement check's reason (`placed`) and what's said over the
  * line (`splice`: "splice-busy", a train on the straight; "splice-fit"; "splice-onto"), or null if it can go. On other
  * track, the line's reason says what would work. A train on the straight is said whatever else is in the way (a house

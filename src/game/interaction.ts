@@ -19,7 +19,7 @@ import type { PropPose } from "../props/store";
 import { FootprintOutline } from "../render/props/outline";
 import { modelKey } from "../render/props/library";
 import { isDoubleTap, type TapRecord } from "./camera-director";
-import { dropOutcome, heldReason, onwardEnds, refusalText } from "./drop";
+import { dropOutcome, heldReason, letGoRefusal, onwardEnds, refusalText } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
 import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
@@ -336,6 +336,8 @@ export class Interaction {
   onDepart: (() => void) | null = null;
   /** A switch was thrown (it's saved; nothing else changed). */
   onSwitched: (() => void) | null = null;
+  /** Planning a train's route: a tap on another train (not at a place) ends it, here, before that train's card opens. */
+  onLeavePlanning: (() => void) | null = null;
   /** Planning a train's route: a tap on a station or depot is offered here (its economy depot); true if taken. */
   onPickPlace: ((depotId: number) => boolean) | null = null;
   /** Planning a train's route: its stop discs (the route view's group), a tap on one handed here (the stop's index). */
@@ -1392,7 +1394,12 @@ export class Interaction {
     if (m.kind === "drag-piece") {
       this.dropHeld(m.ghost);
       if (m.pieceId !== -1 && m.from) this.game.layout.dropPiece(m.pieceId, m.from.pose, m.from.y);
-      if (m.pieceId === -1) this.onTrayPieceDropped?.(false);
+      if (m.pieceId === -1) {
+        // Let go of where it couldn't go: why, as a drop says it (then the game says it's back in the box).
+        const why = letGoRefusal({ isNew: true, overTray: m.overTray, blocked: m.blocked }, (b) => m.hint || this.blockMessage(b as PlaceBlock));
+        if (why) this.hud.refuse(why);
+        this.onTrayPieceDropped?.(false);
+      }
       if (INDUSTRY_ROLE[m.type]) this.game.depotView.setWorld(this.game.economy, this.game.layout);
       this.treeKey = "";
       this.game.previewTrees(null);
@@ -1452,9 +1459,15 @@ export class Interaction {
         return undefined;
       };
       const depot = p.kind === "depot" ? g.economy.depot(p.depotId) : p.kind === "piece" ? g.economy.depotAtPiece(p.pieceId) : p.kind === "car" ? standsAt(p.carId) : undefined;
-      if (depot) this.onPickPlace(depot.id);
-      // Anything else tapped while planning does nothing (the engine's card stays open: Done ends planning).
-      return;
+      if (depot) {
+        this.onPickPlace(depot.id);
+        return;
+      }
+      // Another train, out on the line: planning ends and its card opens, as a tap on it does (QA: it did nothing).
+      const other = p.kind === "car" && g.sim.findCar(p.carId)?.train !== g.sim.findCar(this.selectedCar)?.train;
+      if (!other) return;
+      // (Anything else tapped while planning does nothing: the engine's card stays open, Done ends planning.)
+      this.onLeavePlanning?.();
     }
     if (p.kind === "lever") {
       this.throwLever(p.pieceId, p.road);
@@ -1577,6 +1590,18 @@ export class Interaction {
   /** The car whose card is open (an engine's or a wagon's), or −1. */
   get selectedCarId(): number {
     return this.selectedCar;
+  }
+
+  /** Open an engine's card (as a tap on it would, with nothing else): planning its route goes on after the map. */
+  openEngineCard(carId: number): void {
+    const found = this.game.sim.findCar(carId);
+    const car = found?.train.cars[found.index];
+    if (!car || car.kind !== "engine" || found!.train.derailed) return;
+    this.clearSelection();
+    this.selectedCar = car.id;
+    this.game.trainView.setSelected(car.id);
+    this.game.invalidate();
+    this.hud.showEngineCard(car.lever, this.game.following === car.id);
   }
 
   /** The engine whose card is open, or −1. */
@@ -2926,7 +2951,7 @@ export class Interaction {
                 ? null // (taking straights' place: there's no end it's seated on to turn about)
                 : this.fitHint(m.type, m.flipped, m.snap, m.pieceId)
               : this.turnHint(holdType, m.heldFlipped, m.pose, m.looseY, m.pieceId);
-      if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? (m.hint ?? this.blockMessage(reason)) : null);
+      if (m !== this.preview) this.hud.setRefusal(reason && !m.overTray ? (m.hint || this.blockMessage(reason)) : null);
       m.blocked = reason;
       m.risers = risers;
       // Trees hop out of the way of where the piece would go (and back when it moves on); a ramp shows its cutting.
@@ -3011,7 +3036,7 @@ export class Interaction {
     this.yardMemo = [];
     // The reason it couldn't go (if it can't) stays up long enough to read; else the held one goes.
     this.hud.setRefusal(null);
-    if (final && !m.overTray) this.hud.refuse(m.hint ?? this.blockMessage(final === "piece" ? m.blocked ?? final : final));
+    if (final && !m.overTray) this.hud.refuse(m.hint || this.blockMessage(final === "piece" ? m.blocked ?? final : final));
     const mesh = m.ghost;
     const shown: PiecePose = { x: m.shown.x, y: m.shown.y, z: m.shown.z, heading: m.shown.heading };
     const industry = !!INDUSTRY_ROLE[m.type];
@@ -3853,7 +3878,9 @@ export class Interaction {
         if (cargo) return { kind: "cargo", slot, cargo };
       }
       if (g.depotView.isDepotPart(h.object)) {
-        const depotId = g.depotView.depotNear(h.point.x, h.point.z);
+        // (The yard it's on, else the nearest crane, pile or loading point.)
+        const on = g.depotView.depotAt(h.point.x, h.point.z);
+        const depotId = on !== -1 ? on : g.depotView.depotNear(h.point.x, h.point.z);
         if (depotId !== -1) return { kind: "depot", depotId };
         continue;
       }

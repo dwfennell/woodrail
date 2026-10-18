@@ -150,6 +150,17 @@ const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
  * they know and what's next to it; further on is a "?", and beyond that nothing yet. Tapping a tag opens its ticket:
  * what it brings, what it costs, what it needs, and Learn. Rebuilt only when what it shows changed.
  */
+/**
+ * What a town's offer says it did: "grew!", or, for its second offer in the list, "grew again!" (two in a row both
+ * headed "Larkfield grew!" read as a repeat); a school "has an idea!".
+ */
+export function offerSaid(offers: readonly { from: string }[], k: number): string {
+  const from = offers[k].from;
+  const again = offers.slice(0, k).some((o) => o.from === from);
+  if (from.endsWith(" school")) return again ? "has another idea!" : "has an idea!";
+  return again ? "grew again!" : "grew!";
+}
+
 export class BlueprintBoard {
   readonly root = document.createElement("div");
   private readonly body = document.createElement("div");
@@ -281,7 +292,7 @@ export class BlueprintBoard {
       if (o.crate) choices.push(`<button class="chip text bp-crate" data-act="crate" data-offer="${k}" title="Into your toy box; the blueprints go on the board">📦 ${esc(o.crate)}</button>`);
       const buttons = choices.join(`<span class="or">or</span>`);
       const ask = o.crate ? (o.ids.length > 0 ? "Learn one free, or take a crate:" : "Take a crate:") : "Learn one free:";
-      const said = o.from.endsWith(" school") ? "has an idea!" : "grew!";
+      const said = offerSaid(v.offers, k);
       html += `<div class="bp-offer"><span>${esc(o.from)} ${said} ${ask}</span><span class="bp-offer-row">${buttons}</span></div>`;
     });
 
