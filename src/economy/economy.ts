@@ -301,7 +301,7 @@ export class Economy {
       route: (engine) => this.routes.get(engine),
       stopPiece: (depotId) => {
         const d = this.depots[depotId];
-        return d && layout.getPiece(d.pieceId) ? d.pieceId : -1;
+        return d && this.onMap(d) ? d.pieceId : -1;
       },
       drive: (train) => this.drive(train),
       busy: (train, engine) => this.servingDepot(train.id) !== undefined || this.spacing.holding(engine),
@@ -333,8 +333,27 @@ export class Economy {
     return this.byPiece.get(pieceId);
   }
 
+  /**
+   * The depots on the map: those whose piece is on the layout. A depot whose piece is taken up (its placement undone,
+   * the piece removed) is kept, piles and all, under its id and piece, and is back here when the piece is (redo); while
+   * it's gone it makes nothing, no train is served or steered there, and nothing counts it (QA: an undone Harvester
+   * stayed listed). Worked out again only when pieces come or go.
+   */
   allDepots(): readonly DepotState[] {
-    return this.depots;
+    if (this.liveVersion !== this.layout.piecesVersion || this.liveOf !== this.depots.length) {
+      this.liveVersion = this.layout.piecesVersion;
+      this.liveOf = this.depots.length;
+      this.live = this.depots.filter((d) => this.layout.getPiece(d.pieceId));
+    }
+    return this.live;
+  }
+  private live: DepotState[] = [];
+  private liveVersion = -1;
+  private liveOf = -1;
+
+  /** Is this depot on the map (its piece on the layout), not one whose piece was taken up? */
+  onMap(d: DepotState): boolean {
+    return this.layout.getPiece(d.pieceId) !== undefined;
   }
 
   cargoOf(carId: number): Readonly<CarCargo> {
@@ -1137,7 +1156,7 @@ export class Economy {
         this.services.delete(s.trainId);
         continue;
       }
-      if (train.derailed || !d || !d.auto || !this.sim.findCar(s.carId)) {
+      if (train.derailed || !d || !d.auto || !this.onMap(d) || !this.sim.findCar(s.carId)) {
         this.endVisit(s);
         continue;
       }
@@ -1203,7 +1222,8 @@ export class Economy {
       else if (this.crossing.steerSoon.size > 0) this.steerTrains(this.crossing.steerSoon);
       this.crossing.steerSoon.clear();
     }
-    for (const d of this.depots) {
+    // (Only depots on the map: one whose piece was taken up makes nothing till it's back.)
+    for (const d of this.allDepots()) {
       if (!this.working(d)) {
         d.timer = 0;
         continue;
@@ -1353,7 +1373,7 @@ export class Economy {
       if (!found || found.train.derailed) continue;
       const net = this.drive(found.train);
       const d = this.depots[r.stops[r.next % r.stops.length].depotId];
-      if (net === 0 || !d) continue;
+      if (net === 0 || !d || !this.onMap(d)) continue;
       if (steer(this.layout, found.train, net > 0, d.pieceId, this.crossing.steerAvoid(engine, found.train))) this.onSwitch?.(d.pieceId);
     }
   }
