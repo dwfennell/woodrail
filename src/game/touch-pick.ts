@@ -51,3 +51,26 @@ export function deckTapWins(deck: number, exact: { kind: string; pieceId?: numbe
   if (exact.kind === "car" && selectedPiece === deck) return deck;
   return -1;
 }
+
+/** A train lift's platform, in its piece's frame (see `liftTap`): how far either side of the line it reaches (its guard rails). */
+const LIFT_PLATFORM_HALF = 27;
+/** How high over its floor the platform reaches (its guard rails' tops), and how far under its floor a tap still finds it. */
+const LIFT_PLATFORM_TOP = 40;
+const LIFT_PLATFORM_UNDER = 4;
+/** A lift's own parts reach this far past its ends (its tower's posts, its stop boards): a few mm. */
+const LIFT_END_SLACK = 4;
+
+/**
+ * A tap whose ray met a train lift's piece (its platform, its tower or frame, or the unseen track it's picked by) at
+ * piece-local (t along it from its low end, l across, y up from its base), its platform's floor at `platformY`
+ * (`Sim.liftPosition` × its rise: between its ends while it rides), `length` its platform's length. On the platform
+ * (its floor and rails, up to its guard rails): "send" (a tap sends it, as a tap on a turntable's deck turns it); on
+ * its tower, frame or base: "select" (its piece's card); past its ends (the unseen track runs on under the next
+ * piece's end): "pass" (to what's behind). Down, the platform's floor and the felt-level track it's picked by lie at
+ * the same height, so which mesh the ray met first was a coin toss: the point decides, not the mesh.
+ */
+export function liftTap(t: number, l: number, y: number, platformY: number, length: number): "send" | "select" | "pass" {
+  if (t < -LIFT_END_SLACK || t > length + LIFT_END_SLACK) return "pass";
+  const on = t >= 0 && t <= length && Math.abs(l) <= LIFT_PLATFORM_HALF && y >= platformY - LIFT_PLATFORM_UNDER && y <= platformY + LIFT_PLATFORM_TOP;
+  return on ? "send" : "select";
+}

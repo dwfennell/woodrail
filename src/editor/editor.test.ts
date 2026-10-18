@@ -164,6 +164,30 @@ describe("Editor", () => {
     editor.remove(a);
     expect(sim.getTrain(r.trainId)!.derailed).toBe(true);
   });
+
+  it("a switch's pin is carried through undo and redo of its removal (and of a group's)", () => {
+    const { layout, editor } = setup();
+    const sw = editor.place("switch", { x: 0, z: 0, heading: 0 }, 0, false);
+    const other = editor.place("switch", { x: 600, z: 0, heading: 0 }, 0, false);
+    layout.setPinned(sw, true);
+    layout.setPinned(other, true);
+    editor.remove(sw);
+    expect(layout.isPinned(sw)).toBe(false);
+    editor.undo();
+    expect(layout.isPinned(sw)).toBe(true);
+    editor.redo();
+    expect(layout.getPiece(sw)).toBeUndefined();
+    expect(layout.isPinned(sw)).toBe(false);
+    editor.undo();
+    expect(layout.isPinned(sw)).toBe(true);
+    editor.removeGroup([sw, other]);
+    expect(layout.pinnedCount).toBe(0);
+    editor.undo();
+    expect(layout.isPinned(sw) && layout.isPinned(other)).toBe(true);
+    // A flip takes the piece up and puts it down mirrored: the pin stays.
+    editor.flip(sw);
+    expect(layout.isPinned(sw)).toBe(true);
+  });
 });
 
 describe("Editor edits under trains", () => {

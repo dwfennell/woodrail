@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CELL, FEAT_BUILDING, FEAT_NONE, SURF_GRASS, SURF_RIVER, type LandscapeGrid } from "../landscape";
 import { buildStarterWorld } from "../game/world";
 import { appendPiece, connectorRef, Layout } from "../track";
-import { checkProp, footprintsOverlap, pieceHitsProp, TrackIndex, type Footprint } from "./placement";
+import { checkProp, footprintsOverlap, pieceHitsProp, propsInRect, scaleFootprint, TrackIndex, type Footprint } from "./placement";
 import { PropStore } from "./store";
 
 const SMALL: Footprint = { cx: 0, cz: 0, hw: 10, hd: 10 };
@@ -106,5 +106,18 @@ describe("footprintsOverlap", () => {
     // Turned a quarter: a long thin one crossing the other.
     expect(footprintsOverlap(a, { x: 0, z: 0, heading: 0 }, a, { x: 0, z: 15, heading: Math.PI / 2 })).toBe(true);
     expect(footprintsOverlap(a, { x: 0, z: 0, heading: 0 }, a, { x: 30, z: 15, heading: Math.PI / 2 })).toBe(false);
+  });
+});
+
+describe("a prop drawn at its own scale (a landmark on a smaller lot)", () => {
+  it("has its footprint scaled too: outlines, overlaps and rectangle checks use the size it's drawn", () => {
+    const fp: Footprint = { cx: 10, cz: -4, hw: 60, hd: 30 };
+    expect(scaleFootprint(fp, undefined)).toBe(fp);
+    expect(scaleFootprint(fp, 0.8)).toEqual({ cx: 8, cz: -3.2, hw: 48, hd: 24 });
+    const props = new PropStore();
+    props.add("bldg-market-hall", { x: 0, z: 0, heading: 0, y: 0 }, undefined, { scale: 0.8 });
+    // Its full-size footprint would reach x = 70; drawn at 0.8 it reaches 56.
+    expect(propsInRect(props, () => fp, 60, -5, 80, 5)).toBe(false);
+    expect(propsInRect(props, () => fp, 50, -5, 80, 5)).toBe(true);
   });
 });

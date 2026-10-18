@@ -1,7 +1,7 @@
 import type { DepotRole } from "../economy";
 import { normalizeAngle, type Pose } from "./math";
 import type { PieceDef, PieceTypeId } from "./pieces";
-import { BUFFER_LENGTH } from "./constants";
+import { BUFFER_LENGTH, RISER_HEIGHT } from "./constants";
 import { pose, straight } from "./shapes";
 
 /**
@@ -61,6 +61,13 @@ export interface KitDef {
   /** Trains crawl over it at this speed (mm/s) while any of their axles is on it (a weighbridge). */
   readonly crawl?: number;
   /**
+   * A show put on for a train's engine, drawn only (nothing in the sim changes): "loop", a toy copy of the engine runs
+   * the model's loop while the train crawls over the kit (`LoopShowView`, src/render/loop-show.ts).
+   */
+  readonly show?: "loop";
+  /** Parts of the asset (by node name) its model leaves out: the loop's own little car, whose place the show takes. */
+  readonly without?: readonly string[];
+  /**
    * It's a cargo stop: registered as an economy depot of this role (`syncIndustries`, as industries' pieces are), so
    * trains stop to load and unload as at an industry. Sandbox's roles: an endless loader of one good, or an unloader
    * whose goods vanish (`KitDepotRole`). Its depot isn't drawn by `DepotView`: the kit's model is, its crane moving.
@@ -88,6 +95,11 @@ const TRACK_HALF = 20;
 const ROADS = 72;
 /** How far each leg of the signal gantry stands from its middle (mm): clear of both roads. */
 const GANTRY_LEG = 70;
+/**
+ * How far beside its line the loop-the-loop's model stands (l of its middle, mm): its trestles' feet (56 out from the
+ * loop's plane) just clear of the track's edge.
+ */
+export const LOOP_BESIDE = 80;
 /** Where a platform `depth` deep stands beside a track, its edge just off the track's (l of its middle, mm). */
 const beside = (depth: number) => TRACK_HALF + PLATFORM_GAP + depth / 2;
 
@@ -165,6 +177,45 @@ function turntable(type: PieceTypeId): PieceDef {
     geom: { kind: "line" as const, start: pose(connectors[k].pose.x, connectors[k].pose.z, normalizeAngle(at(k) + Math.PI)), length: 2 * PIT, y0: 0, rise: 0 },
   }));
   return { type, connectors, paths, flippable: false, isSwitch: false, supportHeight: 0, gated: true };
+}
+
+/** The train lift's platform: as long as an engine and two cars (mm), and how far it rises (one level). */
+export const LIFT_LENGTH = 288;
+export const LIFT_RISE = RISER_HEIGHT;
+/**
+ * The lift's frame in plan (its footprint): it reaches this far either side of the line (its counterweights, l ±41.4;
+ * its posts ±36: `mech-train-lift` in src/catalogue/assets/mechanisms.ts). Its side bands run from `LIFT_BAND_IN` out,
+ * and the middle between them stops `LIFT_END_NOTCH` short of each end, clear of the track joined there.
+ */
+const LIFT_FRAME_HALF = 42;
+const LIFT_BAND_IN = 22;
+const LIFT_END_NOTCH = 16;
+/** How long the lift takes to carry a train from one end to the other (s). */
+export const LIFT_SECONDS = 3;
+
+/**
+ * A train lift's track: its low end (connector 0) and its high end `LIFT_RISE` up (connector 1, straight on, the same
+ * way), and two ways the platform can stand (`gated`, `lift`): path 0 the platform down, from the low end into the
+ * piece; path 1 the platform up, from the high end back into it. Each runs the whole platform and ends there, so a
+ * train carried from one to the other stands on the same spot, running the same way: out at the far end.
+ */
+function trainLift(type: PieceTypeId): PieceDef {
+  return {
+    type,
+    connectors: [
+      { kind: "socket", pose: pose(0, 0, Math.PI), y: 0 },
+      { kind: "peg", pose: pose(LIFT_LENGTH, 0, 0), y: LIFT_RISE },
+    ],
+    paths: [
+      { from: 0, to: null, geom: { kind: "line", start: pose(0, 0, 0), length: LIFT_LENGTH, y0: 0, rise: 0 } },
+      { from: 1, to: null, geom: { kind: "line", start: pose(LIFT_LENGTH, 0, Math.PI), length: LIFT_LENGTH, y0: LIFT_RISE, rise: 0 } },
+    ],
+    flippable: false,
+    isSwitch: false,
+    supportHeight: 0,
+    gated: true,
+    lift: { seconds: LIFT_SECONDS },
+  };
 }
 
 /** Every kit, by piece type. */
@@ -486,6 +537,26 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     crawl: 30,
     moves: "occupied",
   },
+  // The loop-the-loop: a show, not track. A 216 straight trains crawl over, the loop standing beside it on its
+  // trestles; while an engine crosses, a toy copy of it runs the loop (src/render/loop-show.ts) and the engine comes
+  // back at the far end.
+  "kit-loop-the-loop": {
+    asset: "mech-loop-the-loop",
+    name: "loop-the-loop",
+    track: straight("kit-loop-the-loop", 216),
+    rails: "track",
+    // The model's loop stands in its x/y plane (running radius 54, its ring 40 deep, its trestles' feet 56 either side
+    // of it): beside the line, its plane along the track and its middle at the piece's. (Over the line, the ring
+    // would cross the track.) Its own slabs of track either side are left out, and its little car (the show's copy
+    // runs instead).
+    place: { t: 108, l: LOOP_BESIDE },
+    footprint: [{ t: 108, l: LOOP_BESIDE, w: 128, d: 116 }],
+    splices: true,
+    // 216 at 40 mm/s: the show lasts 5.4 s.
+    crawl: 40,
+    show: "loop",
+    without: ["car"],
+  },
   // A turntable: eight roads round a pit (radius 92), an eighth of a turn apart, and a deck across it that joins two
   // opposite ones. A tap turns the deck to the next road (not with a train on it); trains run on to a road the deck
   // doesn't lie along as to the end of the line (they turn back). Its model draws the deck's rails.
@@ -510,6 +581,27 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     // The model's origin is the pit's middle.
     place: { t: 60, l: 0 },
     footprint: [{ t: 60, l: 0, w: 116, d: 196 }],
+    moves: "state",
+  },
+  // A train lift: a tower over a platform as long as an engine and two cars, its low end on one level and its high
+  // end a level up, straight on. A train that comes onto the platform halts there; after a moment it's carried up (or
+  // down) with it, and drives off the far end. A tap sends the platform to the other end (empty, or with a train
+  // standing on it). The model draws the platform's rails.
+  "kit-train-lift": {
+    asset: "mech-train-lift",
+    name: "train lift",
+    track: trainLift("kit-train-lift"),
+    rails: "model",
+    // The model's origin is the platform's middle.
+    place: { t: LIFT_LENGTH / 2, l: 0 },
+    // Its whole frame (posts, braces and counterweights: t 0 to 288, l ±42), but for a notch at each end over the line
+    // so the track joined there stays clear (its discs reach 14 mm: `TRACK_RADIUS` in src/game/depot-footprint.ts): a
+    // band along each side the full length, and the middle between them stopping short of each end.
+    footprint: [
+      { t: LIFT_LENGTH / 2, l: (LIFT_FRAME_HALF + LIFT_BAND_IN) / 2, w: LIFT_LENGTH, d: LIFT_FRAME_HALF - LIFT_BAND_IN },
+      { t: LIFT_LENGTH / 2, l: -(LIFT_FRAME_HALF + LIFT_BAND_IN) / 2, w: LIFT_LENGTH, d: LIFT_FRAME_HALF - LIFT_BAND_IN },
+      { t: LIFT_LENGTH / 2, l: 0, w: LIFT_LENGTH - 2 * LIFT_END_NOTCH, d: 2 * LIFT_BAND_IN },
+    ],
     moves: "state",
   },
   // A drive-through wash on a 108 straight: trains crawl through while its brushes spin and its sprays drip.
@@ -597,6 +689,9 @@ const byType = new Map<string, KitDef>(Object.entries(KITS));
 
 /** The kit a piece type is, or undefined (a map lookup: cheap enough for every piece on every move). */
 export const kitOf = (type: PieceTypeId): KitDef | undefined => byType.get(type);
+
+/** Is this piece type a train lift (its track a `lift`)? */
+export const isLift = (type: PieceTypeId): boolean => !!byType.get(type)?.track.lift;
 
 /** Is this piece type a kit? */
 export const isKit = (type: PieceTypeId): type is KitTypeId => byType.has(type);

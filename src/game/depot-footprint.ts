@@ -1,6 +1,6 @@
 import type { DepotRole } from "../economy";
 import { checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, hillsOf, isWater, onFixedSite, SURF_LANE, SURF_ROAD, SURF_TOWN, type Landscape } from "../landscape";
-import { footprintCorners, footprintsOverlap, inFootprint, standsAside, type Footprint } from "../props/placement";
+import { footprintCorners, footprintsOverlap, inFootprint, scaleFootprint, standsAside, type Footprint } from "../props/placement";
 import type { PropStore } from "../props/store";
 import { DEPOT_LAYOUT } from "../render/depot-view";
 import { createSample, findOverlap, findSplice, getPieceDef, ignores, isPlainStraight, kitOf, straightLength, normalizeAngle, pathLength, samplePath, TRAIN_CLEARANCE, type Ignore, type KitDef, type Layout, type PieceTypeId, type Pose } from "../track";
@@ -229,7 +229,7 @@ function propsInYard(ctx: YardCheck, shape: YardShape, pose: Pose, crane: boolea
   if (ctx.props.size === 0) return false;
   for (const prop of ctx.props.all()) {
     // (A crossing prop stands on its crossing's track: it's the crossing's look, not in anything's way.)
-    const fp = standsAside(prop.asset) ? undefined : ctx.footprint(prop.asset);
+    const fp = standsAside(prop.asset) ? undefined : scaleFootprint(ctx.footprint(prop.asset), prop.scale);
     if (!fp) continue;
     if (Math.hypot(prop.x - pose.x, prop.z - pose.z) > shape.reach + Math.hypot(Math.abs(fp.cx) + fp.hw, Math.abs(fp.cz) + fp.hd)) continue;
     for (const part of shape.parts) if (part.crane === crane && footprintsOverlap(part, pose, fp, prop)) return true;

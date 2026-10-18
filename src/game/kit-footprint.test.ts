@@ -163,3 +163,46 @@ describe("a kit dropped onto a line: the flip hint", () => {
     expect(flipHint(KIT, AT, () => "building")).toBeNull();
   });
 });
+
+describe("the train lift's footprint: its whole frame", () => {
+  const LIFT = "kit-train-lift" as const;
+  it("covers its posts, braces and counterweights (l ±42, t 0 to 288), a notch at each end over the line", () => {
+    const parts = yardParts(LIFT)!;
+    const inside = (t: number, l: number) => parts.some((p) => Math.abs(t - p.cx) <= p.hw && Math.abs(l - p.cz) <= p.hd);
+    // A post at each end and the middle, each side; a counterweight; the platform's middle.
+    for (const t of [2, 10, 144, 278, 286]) for (const l of [-36, -28, 28, 36]) expect(inside(t, l), `post t ${t} l ${l}`).toBe(true);
+    for (const l of [-41, 41]) expect(inside(216, l)).toBe(true);
+    expect(inside(144, 0)).toBe(true);
+    // Not the line at its ends (the track joined there), nor past its frame.
+    expect(inside(2, 0)).toBe(false);
+    expect(inside(286, 0)).toBe(false);
+    expect(inside(144, 46)).toBe(false);
+  });
+
+  it("a tree by a leg or a counterweight is refused; the line joined at both ends (felt and a level up) is clear", () => {
+    const small = () => ({ ...setup(), footprint: () => ({ cx: 0, cz: 0, hw: 3, hd: 3 }) });
+    for (const [x, z] of [
+      [216, 41],
+      [216, -41],
+      [3, 33],
+      [285, -33],
+    ]) {
+      const ctx = small();
+      ctx.props.add("tree-oak", { x, z, heading: 0, y: 0 });
+      expect(checkYard(ctx, LIFT, AT, 0, -1), `tree at ${x}, ${z}`).toBe("yard-ground");
+    }
+    const ctx = small();
+    ctx.props.add("tree-oak", { x: 144, z: 50, heading: 0, y: 0 });
+    expect(checkYard(ctx, LIFT, AT, 0, -1)).toBeNull();
+    // The straights it splices between: one on the felt ending at its low end, one a level up from its high end.
+    ctx.layout.addPiece("straight-216", P(-216, 0));
+    ctx.layout.addPiece("straight-216", P(288, 0), 48);
+    expect(checkYard(ctx, LIFT, AT, 0, -1)).toBeNull();
+    const yards = [placedYard(9, LIFT, AT, 0)!];
+    expect(trackInYards(yards, "straight-216", false, P(-216, 0), 0, -1)).toBeNull();
+    expect(trackInYards(yards, "straight-216", false, P(288, 0), 48, -1)).toBeNull();
+    // Track across it is in its way.
+    expect(trackInYards(yards, "straight-216", false, P(144, -108, Math.PI / 2), 0, -1)?.pieceId).toBe(9);
+    expect(inYardMessage(LIFT)).toBe("That's the train lift");
+  });
+});

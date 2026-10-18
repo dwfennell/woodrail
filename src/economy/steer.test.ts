@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Sim, SIM_HZ } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, Layout, type PieceTypeId } from "../track";
 import { Economy } from "./economy";
+import { distanceTo, steer, waysFrom } from "./steer";
 
 /** Lay `type` on free end `ref` (seated by an end of the other kind); returns its id. */
 function lay(layout: Layout, ref: number, type: PieceTypeId): number {
@@ -121,5 +122,65 @@ describe("routes steer", () => {
     });
     const visits = j.run(90);
     expect(visits.slice(0, 2)).toEqual([j.b, j.a]);
+  });
+});
+
+describe("pinned switches", () => {
+  it("a routed engine leaves a pinned switch alone; a stop only the other route reaches is out of reach", () => {
+    const j = junction();
+    j.layout.setPinned(j.sw, true); // set to its straight way, toward A
+    j.economy.setRoute(j.engine().id, { stops: [{ depotId: j.depotB.id, action: "both" }], next: 0 });
+    const train = j.sim.getTrain(j.sim.trainIds()[0])!;
+    expect(steer(j.layout, train, true, j.b)).toBe(false);
+    expect(distanceTo(j.layout, { pieceId: j.sw, entry: 0 }, j.b)).toBe(-1);
+    expect(distanceTo(j.layout, { pieceId: j.sw, entry: 0 }, j.a)).toBeGreaterThan(0);
+    expect(j.run(20)[0]).toBe(j.a);
+    expect(j.layout.switchState(j.sw)).toBe(0);
+    // Pinned to the curve, B is reached that way (and the switch is still never thrown).
+    const k = junction();
+    k.layout.setSwitchState(k.sw, 1);
+    k.layout.setPinned(k.sw, true);
+    k.economy.setRoute(k.engine().id, { stops: [{ depotId: k.depotA.id, action: "both" }], next: 0 });
+    expect(distanceTo(k.layout, { pieceId: k.sw, entry: 0 }, k.b)).toBeGreaterThan(0);
+    expect(k.run(20)[0]).toBe(k.b);
+    expect(k.layout.switchState(k.sw)).toBe(1);
+  });
+
+  it("a caller can ask what if a switch weren't pinned, without touching the layout", () => {
+    const j = junction();
+    j.layout.setPinned(j.sw, true); // toward A: B is out of reach
+    const version = j.layout.switchesVersion;
+    const unpinned = (id: number) => id !== j.sw && j.layout.isPinned(id);
+    expect(distanceTo(j.layout, { pieceId: j.sw, entry: 0 }, j.b)).toBe(-1);
+    expect(distanceTo(j.layout, { pieceId: j.sw, entry: 0 }, j.b, unpinned)).toBeGreaterThan(0);
+    expect(waysFrom(j.layout, j.sw, 0, unpinned).length).toBe(2);
+    expect(waysFrom(j.layout, j.sw, 0).length).toBe(1);
+    expect(j.layout.isPinned(j.sw)).toBe(true);
+    expect(j.layout.switchesVersion).toBe(version);
+  });
+
+  it("steers at the next switch beyond a pinned one, along the route it's pinned to", () => {
+    // Trunk → S (pinned to its curve) → S2, whose straight way runs to depot C and curve to depot D.
+    const layout = new Layout();
+    const t0 = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
+    const t1 = lay(layout, connectorRef(t0, 1), "straight-216");
+    const sw = lay(layout, otherEnd(layout, t1), "switch");
+    lay(layout, otherEnd(layout, lay(layout, connectorRef(sw, 1), "straight-216")), "depot-farm");
+    const b1 = lay(layout, connectorRef(sw, 2), "straight-216");
+    const sw2 = lay(layout, otherEnd(layout, b1), "switch");
+    const c = lay(layout, otherEnd(layout, lay(layout, connectorRef(sw2, 1), "straight-216")), "depot-mill");
+    const d = lay(layout, otherEnd(layout, lay(layout, connectorRef(sw2, 2), "straight-216")), "depot-farm");
+    layout.setSwitchState(sw, 1);
+    layout.setPinned(sw, true);
+    const sim = new Sim(layout);
+    const placed = sim.addTrain(["engine"], { pieceId: t1, pathIndex: 0, reversed: false, s: 200 });
+    if (placed.kind !== "placed") throw new Error("no room");
+    const train = sim.getTrain(placed.trainId)!;
+    expect(steer(layout, train, true, d)).toBe(true);
+    expect(layout.switchState(sw)).toBe(1);
+    expect(layout.switchState(sw2)).toBe(1);
+    expect(steer(layout, train, true, c)).toBe(true);
+    expect(layout.switchState(sw2)).toBe(0);
+    expect(layout.switchState(sw)).toBe(1);
   });
 });

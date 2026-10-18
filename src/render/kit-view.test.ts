@@ -1,6 +1,7 @@
 import { Color, MeshStandardMaterial, PerspectiveCamera } from "three";
 import { describe, expect, it } from "vitest";
-import { Layout } from "../track";
+import { Sim, SIM_HZ } from "../sim";
+import { Layout, LIFT_RISE, LIFT_SECONDS } from "../track";
 import { KitView } from "./kit-view";
 import type { Materials } from "./materials";
 import { kitModelKey, PropLibrary } from "./props/library";
@@ -143,5 +144,102 @@ describe("KitView's decks (kits that move with their state)", () => {
       expect(view.animating).toBe(false);
       expect(deck.position.z).toBeCloseTo(l);
     }
+  });
+});
+
+describe("KitView's train lift (a kit whose state is a ride)", () => {
+  /** A lift with an engine on its platform, its view following the sim's ride, and a camera on it (or away). */
+  async function setup() {
+    const lib = new PropLibrary(stubMaterials());
+    await lib.load(kitModelKey("kit-train-lift"));
+    const layout = new Layout();
+    const lift = layout.addPiece("kit-train-lift", { x: 0, z: 0, heading: 0 });
+    const sim = new Sim(layout);
+    expect(sim.addTrain(["engine"], { pieceId: lift, pathIndex: 0, reversed: false, s: 200 }).kind).toBe("placed");
+    const view = new KitView(lib);
+    view.ridePosition = (id) => sim.liftPosition(id);
+    view.sync(layout);
+    const platform = view.group.children.find((c) => c.name === "movers")!.getObjectByName("lift")!;
+    const camera = new PerspectiveCamera(50, 390 / 844, 10, 100000);
+    const look = (x: number, z: number) => {
+      camera.position.set(x, 900, z + 700);
+      camera.lookAt(x, 0, z);
+      camera.updateMatrixWorld();
+    };
+    look(144, 0);
+    /** As the game's frame loop asks: only when the sim's ride moved on, or the view says it's still animating. */
+    let seen = sim.ridesVersion;
+    const frame = (paused = false) => {
+      if (!paused) sim.tick();
+      if (sim.ridesVersion === seen && !view.animating) return "not asked";
+      seen = sim.ridesVersion;
+      return view.update(() => false, 1 / 120, paused, camera);
+    };
+    return { layout, sim, lift, view, platform, look, frame };
+  }
+
+  it("still, it's never asked and draws nothing; riding, it's drawn moving with the sim's ride, up to the top", async () => {
+    const w = await setup();
+    expect(w.platform.position.y).toBe(0);
+    // Still: no frames asked for at all (30 s of ticks).
+    const still = new Set<string>();
+    for (let i = 0; i < 30 * SIM_HZ; i++) still.add(w.frame());
+    expect(still).toEqual(new Set(["not asked"]));
+    expect(w.view.animating).toBe(false);
+    // Sent up: drawn moving every tick it rises, never down, then still at the top.
+    expect(w.sim.toggleSwitch(w.lift)).toBe(true);
+    const seen: string[] = [];
+    let last = 0;
+    for (let i = 0; i < (LIFT_SECONDS + 1) * SIM_HZ; i++) {
+      seen.push(w.frame());
+      expect(w.platform.position.y).toBeGreaterThanOrEqual(last);
+      last = w.platform.position.y;
+    }
+    expect(seen.slice(0, LIFT_SECONDS * SIM_HZ - 1).every((r) => r === "moving")).toBe(true);
+    expect(seen.at(-1)).toBe("not asked");
+    expect(w.platform.position.y).toBeCloseTo(LIFT_RISE, 6);
+    // The engine's drawn up there with it.
+    expect(w.sim.getTrain(w.sim.trainIds()[0])!.world[0].y).toBeCloseTo(LIFT_RISE, 6);
+  });
+
+  it("paused mid-ride, it holds and asks for no frames; off screen it moves on unseen; back in view it's drawn", async () => {
+    const w = await setup();
+    expect(w.sim.toggleSwitch(w.lift)).toBe(true);
+    for (let i = 0; i < SIM_HZ; i++) w.frame();
+    const y = w.platform.position.y;
+    expect(y).toBeGreaterThan(0);
+    expect(y).toBeLessThan(LIFT_RISE);
+    // Paused (30 s): no frames, the platform where it was.
+    const paused = new Set<string>();
+    for (let i = 0; i < 30 * SIM_HZ; i++) paused.add(w.frame(true));
+    expect(paused).toEqual(new Set(["not asked"]));
+    expect(w.platform.position.y).toBe(y);
+    // Running again, off screen: it carries on rising, asking for no frame.
+    w.look(30000, 30000);
+    expect(w.frame()).toBe("still");
+    expect(w.platform.position.y).toBeGreaterThan(y);
+    // In view again: drawn moving.
+    w.look(144, 0);
+    expect(w.frame()).toBe("moving");
+  });
+
+  it("its stop boards show at the end its platform's away from (both while it moves), set only as it poses", async () => {
+    const w = await setup();
+    // Woken (drawn live) by a ride's first tick: going up, both ends closed.
+    expect(w.sim.toggleSwitch(w.lift)).toBe(true);
+    w.frame();
+    const movers = w.view.group.children.find((c) => c.name === "movers")!;
+    const board = (n: 0 | 1) => movers.getObjectByName(`stop${n}`)!;
+    expect([board(0).visible, board(1).visible]).toEqual([true, true]);
+    for (let i = 0; i < (LIFT_SECONDS + 1) * SIM_HZ; i++) w.frame();
+    // Up: trains are held at the low end; the high end's open.
+    expect([board(0).visible, board(1).visible]).toEqual([true, false]);
+    // Still there: no frames asked, the boards as they were (nothing is posed).
+    for (let i = 0; i < 10 * SIM_HZ; i++) expect(w.frame()).toBe("not asked");
+    expect([board(0).visible, board(1).visible]).toEqual([true, false]);
+    // Sent down (the engine on it), and down: the high end's board shows.
+    expect(w.sim.toggleSwitch(w.lift)).toBe(true);
+    for (let i = 0; i < (LIFT_SECONDS + 1) * SIM_HZ; i++) w.frame();
+    expect([board(0).visible, board(1).visible]).toEqual([false, true]);
   });
 });

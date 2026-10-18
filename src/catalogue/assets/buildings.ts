@@ -1,6 +1,7 @@
 import type { Object3D } from "three";
 import type { Kit } from "../kit";
 import { catalogueModel, loadModelSet, modelOf } from "../../render/blender-models";
+import { scaleOf } from "../scale";
 import type { Asset } from "../types";
 
 /**
@@ -11,7 +12,12 @@ import type { Asset } from "../types";
 
 /** The models, made in Blender (tools/blender/bldg.py): waited for when this file loads. */
 const MODELS = await loadModelSet("buildings", true);
-const model = (id: string) => (k: Kit) => catalogueModel(modelOf(MODELS, id), k);
+/** A model, drawn at its scale (see `catalogue/scale.ts`). */
+const model = (id: string) => (k: Kit) => {
+  const o = catalogueModel(modelOf(MODELS, id), k);
+  o.scale.multiplyScalar(scaleOf(id));
+  return o;
+};
 
 const CAT = "Stations & buildings" as const;
 
