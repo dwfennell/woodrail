@@ -598,6 +598,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .icon-btn-alert::after { content: ""; position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #c8442f; box-shadow: 0 0 0 2px #fbf3e4; animation: alert-pulse 1.2s ease-in-out infinite; }
 @keyframes alert-pulse { 50% { transform: scale(1.3); } }
 @media (prefers-reduced-motion: reduce) { .icon-btn-alert::after { animation: none; } }
+/* The Blueprints button, till the board is first opened, while a reward waits: a glow round the whole button. */
+.board-new { animation: board-glow 1.4s ease-in-out infinite; }
+@keyframes board-glow { 50% { box-shadow: 0 0 0 7px rgba(224, 165, 38, 0.6), 0 0 18px 6px rgba(224, 165, 38, 0.45); } }
+@media (prefers-reduced-motion: reduce) { .board-new { animation: none; box-shadow: 0 0 0 4px rgba(224, 165, 38, 0.7); } }
 
 /* Game mode's coins, by the logo: a stack of toy coins and the count. */
 .coins { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 800; color: #5a3f24; font-variant-numeric: tabular-nums; padding: 2px 9px 2px 4px; border-radius: 999px; background: #f3e1b6; }
