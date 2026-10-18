@@ -1183,7 +1183,7 @@ class Playthrough {
     const P = this.p;
     const w = P.w;
     const pick = P.rows.filter((r) => r.minute <= 10 || r.minute % 5 === 0);
-    const table = pick.map((r) => `${String(r.minute).padStart(4)} | ${String(r.coins).padStart(5)} | ${String(r.planks).padStart(3)} | ${String(r.goals).padStart(2)}/17 | ${String(r.blueprints).padStart(2)} | ${r.levels.join(",")} | ${r.trains} | ${r.riders}`);
+    const table = pick.map((r) => `${String(r.minute).padStart(4)} | ${String(r.coins).padStart(5)} | ${String(r.planks).padStart(3)} | ${String(r.goals).padStart(2)}/${GOALS.length} | ${String(r.blueprints).padStart(2)} | ${r.levels.join(",")} | ${r.trains} | ${r.riders}`);
     const status = w.landscape.towns.map((t) => `${t.name} ${P.town.status(t.id).name.toLowerCase()} [${[...townLandmarks(t)].join(", ")}] had ${describeGoods(receivedBy(w, t.id))}`);
     const out = [
       "balance play-through:",

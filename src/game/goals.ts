@@ -2,6 +2,7 @@ import { connectedPairs, SURF_RIVER, type LandscapeGrid } from "../landscape";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
 import { workshops, workshopStock } from "./crafting";
 import { depotSpot } from "./depot-footprint";
+import { loopOnLine } from "./passing-loop";
 import { receivedBy } from "./town-life";
 import { townStatus } from "./towns";
 import type { World } from "./world";
@@ -333,9 +334,18 @@ export const GOALS: readonly Goal[] = [
     guide: (w) => guideDepot(w, "sawmill"),
   },
   {
+    id: "lay-loop",
+    title: "Lay a passing loop",
+    hint: "Two tracks side by side let trains pass.",
+    // Two switches and two roads between them, on a line a train runs: where its trains will wait for each other.
+    needs: ["junctions"],
+    check: (w) => ({ done: loopOnLine(w.economy) }),
+    guide: (w) => guideTrains(w, "track", "Switch"),
+  },
+  {
     id: "two-trains",
     title: "Run two trains at once",
-    hint: "Lay a passing loop with signals so they can pass.",
+    hint: "Put a second train on your line: they pass at the loop.",
     // On one line two trains only turn each other back: this goal waits till the player can build a passing loop.
     needs: ["signals", "junctions"],
     check: (w) => {
