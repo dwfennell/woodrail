@@ -1,3 +1,5 @@
+import type { PieceDef } from "../track/pieces";
+
 /** What happens to a dragged piece when it's let go. */
 export type DropOutcome = "place" | "return" | "to-tray" | "delete";
 
@@ -21,4 +23,22 @@ export function dropOutcome(d: { blocked: boolean; overTray: boolean; isNew: boo
 export function heldReason<R extends string>(placed: R | null, splice: R | null): R | null {
   if (!placed || !splice) return placed;
   return placed === "piece" || splice === "splice-busy" ? splice : placed;
+}
+
+/**
+ * A piece just put down: its free ends a line runs on from (where the next of its kind waits for a tap), by connector
+ * index. `joined[i]`: is end i joined to other track. An end is onward if a path runs to it from a joined end; put down
+ * on its own, if a path runs through it to another end. A terminus (its roads end at buffers) and a buffer stop have
+ * none, nor a turntable (its roads lead to stalls and lines, never on to another turntable).
+ */
+export function onwardEnds(def: Pick<PieceDef, "paths" | "gated">, joined: readonly boolean[]): number[] {
+  if (def.gated) return [];
+  const alone = !joined.some(Boolean);
+  const out = new Set<number>();
+  for (const p of def.paths) {
+    if (p.to === null) continue;
+    if ((alone || joined[p.from]) && !joined[p.to]) out.add(p.to);
+    if ((alone || joined[p.to]) && !joined[p.from]) out.add(p.from);
+  }
+  return [...out].sort((a, b) => a - b);
 }

@@ -652,6 +652,21 @@ export class Sim {
   }
 
   /** Is a train standing on this deck (one it would carry round if it turned)? */
+  /**
+   * The deck (a turntable's: a gated piece) the train with this car stands still wholly on, or -1: moving or waiting to
+   * turn back, partly on, derailed, or on ordinary track. (A tap there is the deck's: see `Interaction.pick`.)
+   */
+  deckUnder(carId: number): number {
+    const found = this.findCar(carId);
+    if (!found) return -1;
+    const t = found.train;
+    if (t.derailed || t.speed > 0 || t.turnback >= 0 || t.bogies.length === 0) return -1;
+    const pieceId = t.bogies[0].pieceId;
+    if (t.bogies.some((b) => b.pieceId !== pieceId)) return -1;
+    const piece = this.layout.getPiece(pieceId);
+    return piece && getPieceDef(piece.type, piece.flipped).gated ? pieceId : -1;
+  }
+
   deckCarries(pieceId: number): boolean {
     for (const t of this.trains.values()) if (!t.derailed && t.bogies.some((b) => b.pieceId === pieceId)) return true;
     return false;
