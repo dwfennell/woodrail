@@ -408,6 +408,36 @@ async function redrawnControl(ctx, p) {
   }
 }
 
+/**
+ * A flick out of the tray (QA): one move between the finger coming down on a piece and lifting, the browser running a
+ * fast swipe's moves into it. The piece is put down where the finger lifted, or refused with a word why, never dropped
+ * back in the box without a word.
+ */
+async function flickOut(ctx, p, tapOn) {
+  const cdp = await ctx.newCDPSession(p);
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  await p.keyboard.press("Escape");
+  const index = await p.evaluate(() => [...document.querySelectorAll(".scroller .tray-group")].findIndex((b) => b.querySelector(".label")?.textContent === "Straight"));
+  await tapOn(`.scroller .tray-group:nth-child(${index + 1 + (await p.evaluate(() => document.querySelectorAll(".scroller > :not(.tray-group)").length))})`);
+  const item = await p.evaluate(() => { const e = document.querySelector(".scroller .tray-item:not(.tray-back):not(.tray-group)"); const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+  await p.evaluate(() => {
+    const h = window.woodrail.hud;
+    window.__said = [];
+    const toast = h.toast.bind(h);
+    h.toast = (m, ...a) => (window.__said.push(m), toast(m, ...a));
+    const refuse = h.setRefusal.bind(h);
+    h.setRefusal = (m, ...a) => (m && window.__said.push(m), refuse(m, ...a));
+  });
+  const before = await p.evaluate(() => window.woodrail.layout.pieceCount);
+  await touch("touchStart", item[0], item[1]);
+  await touch("touchMove", 195, 380);
+  await touch("touchEnd", 0, 0);
+  await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  await frames(p);
+  const after = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, mode: window.woodrail.interaction.mode.kind, said: window.__said }));
+  check("a flick out of the tray (one move, then lift) puts the piece down, or says why not", after.mode === "idle" && (after.pieces === before + 1 || after.said.length > 0), `pieces ${before} → ${after.pieces}; said ${JSON.stringify(after.said)}`);
+}
+
 for (const mode of ["sandbox", "game"]) {
   try {
     await runMode(mode);
@@ -461,6 +491,7 @@ async function runMode(mode) {
     await mapTaps(p);
     await selectThenDrag(ctx, p);
     await redrawnControl(ctx, p);
+    await flickOut(ctx, p, tapOn);
   }
   await ctx.close();
 }
