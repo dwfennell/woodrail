@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { getPieceDef, RISER_HEIGHT } from "../track";
-import { BLOCK_MESSAGES, checkPlacement, hillMessage, inRiver, levelsAbove } from "./clearance";
+import { BLOCK_MESSAGES, checkPlacement, hillMessage, inRiver, levelsAbove, RIVER_GRACE, surfaceOutlines } from "./clearance";
+import { insideLoops, type Loop } from "./outline";
+import { CELL, isWater, SURF_SEA } from "./grid";
 import { FEAT_BUILDING, FEAT_TREE, gridWithPlots, PLOT_WIDTH, SURF_RIVER, SURF_TOWN } from "./grid";
 import { generateLandscape, stationEnds, type Landscape } from "./generate";
 
@@ -134,5 +136,58 @@ describe("how far up a hill in the way is", () => {
     expect(hillMessage(1)).toContain("a ramp");
     // On top of it: nothing higher.
     expect(levelsAbove(land, "straight-144", false, { x: 400, z: 36, heading: 0 }, 2 * RISER_HEIGHT)).toBe(0);
+  });
+});
+
+describe("inRiver (bucketed)", () => {
+  /** As it was: every loop's every point, for each call. */
+  function slow(land: Landscape, x: number, z: number): boolean {
+    const g = land.grid;
+    let near = false;
+    for (let dr = -1; dr <= 1 && !near; dr++)
+      for (let dc = -1; dc <= 1 && !near; dc++) {
+        const i = g.index(Math.floor(x / CELL) + dc, Math.floor(z / CELL) + dr);
+        near = i !== -1 && isWater(g.surface[i]);
+      }
+    if (!near) return false;
+    const loops: Loop[] = surfaceOutlines(g, [SURF_RIVER, SURF_SEA]);
+    const u = x / CELL;
+    const v = z / CELL;
+    let best = Infinity;
+    for (const loop of loops)
+      for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
+        const a = loop[j];
+        const b = loop[i];
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const t = Math.max(0, Math.min(1, ((u - a.x) * dx + (v - a.z) * dz) / (dx * dx + dz * dz || 1)));
+        best = Math.min(best, Math.hypot(a.x + dx * t - u, a.z + dz * t - v));
+      }
+    return insideLoops(loops, u, v) && best * CELL > RIVER_GRACE;
+  }
+
+  it("says what it said before, everywhere near the water on a generated map, and is quick", () => {
+    const land = generateLandscape(7);
+    const g = land.grid;
+    let seed = 3;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const pts: [number, number][] = [];
+    for (let i = 0; i < g.cellCount && pts.length < 3000; i++) {
+      if (!isWater(g.surface[i])) continue;
+      for (let k = 0; k < 3; k++) pts.push([g.centreX(g.colOf(i)) + (rnd() - 0.5) * 3 * CELL, g.centreZ(g.rowOf(i)) + (rnd() - 0.5) * 3 * CELL]);
+    }
+    expect(pts.length).toBeGreaterThan(300);
+    let wet = 0;
+    for (const [x, z] of pts.slice(0, 600)) {
+      const got = inRiver(g, x, z);
+      expect(got, `${x}, ${z}`).toBe(slow(land, x, z));
+      if (got) wet++;
+    }
+    expect(wet).toBeGreaterThan(50);
+    inRiver(g, pts[0][0], pts[0][1]);
+    const t0 = performance.now();
+    for (const [x, z] of pts) inRiver(g, x, z);
+    // About a microsecond a call (it was a few tenths of a millisecond by a big river).
+    expect((performance.now() - t0) / pts.length).toBeLessThan(0.02);
   });
 });

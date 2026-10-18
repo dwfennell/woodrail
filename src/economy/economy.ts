@@ -1,8 +1,9 @@
-import { getPieceDef, pathLength, type Layout } from "../track";
+import { getPieceDef, isKit, pathLength, type Layout } from "../track";
 import { SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
 import type { Bag } from "./goods";
+import { KitStops } from "./kit-stops";
 import { steer } from "./steer";
 
 /** How often (sim ticks) the switches ahead of routed trains are set. */
@@ -33,7 +34,16 @@ interface Service {
   readonly done: Set<number>;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour";
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | KitDepotRole;
+
+/**
+ * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
+ * and an unloader whose goods vanish into it. Sandbox has no industries to feed, so one of each makes a goods line.
+ */
+export type KitDepotRole = "loader-log" | "loader-grain" | "loader-coal" | "loader-planks" | "unloader";
+
+/** The kit depot roles (for saves, and to tell them from industries'). */
+export const KIT_DEPOT_ROLES: readonly KitDepotRole[] = ["loader-log", "loader-grain", "loader-coal", "loader-planks", "unloader"];
 
 /**
  * What a kind of depot does: the goods trains bring it (unloaded onto its piles), the goods it gives them, and what it
@@ -51,6 +61,10 @@ export interface Recipe {
   readonly cap?: number;
   /** Serves only routed trains, at their stops (it takes and gives the same goods: a train must say which). */
   readonly routedOnly?: boolean;
+  /** Its piles of what it gives never run down (a Sandbox loader's endless heap): kept full. */
+  readonly endless?: boolean;
+  /** What it takes vanishes into it (a Sandbox unloader): its piles stay empty, so it always has room. */
+  readonly sink?: boolean;
 }
 
 export const RECIPES: Record<DepotRole, Recipe> = {
@@ -76,6 +90,12 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   harbour: { takes: [...CARGO_KINDS], gives: [] },
   // Keeps goods for later: everything, more of it. Routed trains drop or pick up there as their stops say.
   warehouse: { takes: [...CARGO_KINDS], gives: [...CARGO_KINDS], cap: 24, routedOnly: true },
+  // Sandbox's cargo machines: an endless heap of one good, and somewhere goods vanish.
+  "loader-log": { takes: [], gives: ["log"], endless: true },
+  "loader-grain": { takes: [], gives: ["grain"], endless: true },
+  "loader-coal": { takes: [], gives: ["coal"], endless: true },
+  "loader-planks": { takes: [], gives: ["planks"], endless: true },
+  unloader: { takes: [...CARGO_KINDS], gives: [], sink: true },
 };
 
 /** The piles a kind of depot keeps: what it takes and what it gives. */
@@ -118,8 +138,11 @@ export interface DepotState {
   readonly id: number;
   readonly pieceId: number;
   readonly role: DepotRole;
-  /** The town a station depot belongs to (−1 for goods depots). */
-  readonly townId: number;
+  /**
+   * The town a station depot belongs to (−1 for goods depots); a halt's, the town nearest it (set again when it moves:
+   * `syncHalts`).
+   */
+  townId: number;
   /** Load and unload trains by itself. */
   auto: boolean;
   /** Trains wait under the crane until each wagon is full. */
@@ -191,11 +214,15 @@ export class Economy {
   private events: EconomyEvent[] = [];
   /** The other half of the event double buffer (no new array each drain). */
   private drained: EconomyEvent[] = [];
+  /** Trains stopping at kit pieces' stops (a platform's dwell: see `KitStops`). */
+  readonly kitStops: KitStops;
 
   constructor(
     readonly layout: Layout,
     readonly sim: Sim,
   ) {
+    // A kit with a depot on it (Game mode's halts) stops trains as the depot does, for its work: not for its dwell too.
+    this.kitStops = new KitStops(layout, sim, (pieceId) => this.byPiece.has(pieceId));
     sim.speedCap = (train) => this.capFor(train);
   }
 
@@ -204,6 +231,8 @@ export class Economy {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
     const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0 };
+    // An endless heap is full from the start.
+    if (RECIPES[role].endless) for (const k of RECIPES[role].gives) d.piles[CARGO[k].index] = capAt(d);
     this.depots.push(d);
     this.byPiece.set(pieceId, d);
     return d;
@@ -255,19 +284,35 @@ export class Economy {
   /** Would someone on this coach get off here: a town's station other than where they got on (a stop to drop at)? */
   private canAlight(d: DepotState, carId: number): boolean {
     const r = this.riders.get(carId);
-    if (!r || d.role !== "town" || r.from === d.id) return false;
+    // (A town's halts are its stops too: no one gets off in the town they got on in.)
+    if (!r || d.role !== "town" || this.townOf(r.from) === d.townId) return false;
     const route = this.routeOfCar(carId);
     return !route || stopAt(route, d.id, "drop");
   }
 
-  /** Would someone waiting here get on this coach: a free seat, and no one aboard bound from elsewhere? */
+  /** Would someone waiting here get on this coach: a free seat, and no one aboard bound from another town? */
   private canBoard(d: DepotState, carId: number): boolean {
     if (d.role !== "town" || d.waiting <= 0 || !this.seatsOf) return false;
     const r = this.riders.get(carId);
-    if (r && (r.from !== d.id || r.count >= this.seatsOf(carId))) return false;
+    if (r && (this.townOf(r.from) !== d.townId || r.count >= this.seatsOf(carId))) return false;
     if (!r && this.seatsOf(carId) <= 0) return false;
     const route = this.routeOfCar(carId);
     return !route || stopAt(route, d.id, "pick");
+  }
+
+  /** The town a passenger stop (a station's depot, or a halt's) is for, by its depot id: −1 for none. */
+  private townOf(depotId: number): number {
+    return this.depots[depotId]?.townId ?? -1;
+  }
+
+  /**
+   * Is this a halt: a town's passenger stop on a kit piece (Game mode's halts and small stations, `HALT_KITS`), not
+   * its station? People get on and off there as at the station, but it takes no goods.
+   */
+  isHalt(d: DepotState): boolean {
+    if (d.role !== "town") return false;
+    const p = this.layout.getPiece(d.pieceId);
+    return !!p && isKit(p.type);
   }
 
   setAuto(depotId: number, on: boolean): void {
@@ -362,13 +407,16 @@ export class Economy {
   }
 
   private take(slot: CargoSlot, kind: CargoKind): void {
-    if (slot.kind === "pile") this.depots[slot.depotId].piles[CARGO[kind].index]--;
-    else this.setCargo(slot.carId, kind, this.cargoOf(slot.carId).count - 1);
+    if (slot.kind === "pile") {
+      const d = this.depots[slot.depotId];
+      if (!RECIPES[d.role].endless) d.piles[CARGO[kind].index]--;
+    } else this.setCargo(slot.carId, kind, this.cargoOf(slot.carId).count - 1);
   }
 
   private put(slot: CargoSlot, kind: CargoKind): void {
     if (slot.kind === "pile") {
       const d = this.depots[slot.depotId];
+      if (RECIPES[d.role].sink) return;
       d.piles[CARGO[kind].index] = Math.min(capAt(d), d.piles[CARGO[kind].index] + 1);
       if (d.role === "town" && kind === "planks") this.delivered.set(d.townId, (this.delivered.get(d.townId) ?? 0) + 1);
       if (d.role === "town") {
@@ -424,6 +472,8 @@ export class Economy {
   private canUnload(d: DepotState, carId: number): boolean {
     const c = this.cargoOf(carId);
     if (c.kind === null || c.count <= 0 || !RECIPES[d.role].takes.includes(c.kind)) return false;
+    // A halt is for people only: goods trains run through.
+    if (this.isHalt(d)) return false;
     // Goods landed here for trains to take away aren't taken back (from any car, nor a car that took them here).
     if ((this.landed.get(d.id)?.[CARGO[c.kind].index] ?? 0) > 0 || this.landedFrom.get(carId) === d.id) return false;
     if (this.accepts) {
@@ -466,13 +516,21 @@ export class Economy {
     return null;
   }
 
+  /**
+   * May this car's train pick up goods at this depot? A routed train only at its stops that say so (at a warehouse,
+   * only where it says Pick up); an unrouted one anywhere but a warehouse.
+   */
+  private picksUpAt(d: DepotState, carId: number): boolean {
+    const route = this.routeOfCar(carId);
+    if (!route) return !RECIPES[d.role].routedOnly;
+    return stopAt(route, d.id, "pick") && !(RECIPES[d.role].routedOnly && stopAt(route, d.id, "drop"));
+  }
+
   /** What the crane would load onto this car here: goods the depot gives, the car carries and has room for, or null. */
   private loadKind(d: DepotState, carId: number): CargoKind | null {
     const c = this.cargoOf(carId);
     if (c.count >= this.wagonCapacity) return null;
-    // A routed train picks up goods only at its stops that say so (at a warehouse, only where it says Pick up).
-    const route = this.routeOfCar(carId);
-    if (route ? !stopAt(route, d.id, "pick") || (RECIPES[d.role].routedOnly && stopAt(route, d.id, "drop")) : RECIPES[d.role].routedOnly) return null;
+    if (!this.picksUpAt(d, carId)) return null;
     const found = this.sim.findCar(carId);
     if (!found) return null;
     const car = found.train.cars[found.index].kind;
@@ -496,11 +554,12 @@ export class Economy {
    * With "wait for a full load", a wagon that could take more of the depot's goods waits for them, but only while
    * more are coming: goods on the pile, or the depot making them. (A sawmill out of logs isn't, so a train never waits
    * there for planks that would need the logs on its own later wagons.) Not while another wagon still has goods to
-   * unload here: that goes first (the wagon waits its turn again once the crane is done with the others).
+   * unload here: that goes first (the wagon waits its turn again once the crane is done with the others). Nor where
+   * its train may not pick up (a routed train's Drop stop, or a depot that isn't one of its stops).
    */
   private waitsForLoad(d: DepotState, carId: number): boolean {
     const c = this.cargoOf(carId);
-    if (!d.waitFull || c.count >= this.wagonCapacity || this.canUnload(d, carId)) return false;
+    if (!d.waitFull || c.count >= this.wagonCapacity || this.canUnload(d, carId) || !this.picksUpAt(d, carId)) return false;
     const found = this.sim.findCar(carId);
     if (!found) return false;
     const done = this.services.get(found.train.id)?.done;
@@ -548,10 +607,70 @@ export class Economy {
     return false;
   }
 
+  /**
+   * Counts trains halting, at a depot's crane or a kit's stop: it changes when one halts (a train standing still
+   * changes nothing the frame loop sees otherwise; a kit's moving parts start then).
+   */
+  get halts(): number {
+    return this.depotHalts + this.kitStops.halts;
+  }
+  private depotHalts = 0;
+
+  /** Is a train standing at this piece now: at its depot's crane (working on it), or at its kit's stop? */
+  standingAt(pieceId: number): boolean {
+    if (this.kitStops.haltedAt(pieceId)) return true;
+    const d = this.byPiece.get(pieceId);
+    return !!d && this.cranePhase(d.id) >= 0;
+  }
+
   /** The depot whose crane is working this train now (it's crawling to, or halted at, the crane), if any. */
   servingDepot(trainId: number): DepotState | undefined {
     const s = this.services.get(trainId);
     return s && s.phase !== NONE && s.depotId !== -1 ? this.depots[s.depotId] : undefined;
+  }
+
+  /**
+   * What the crane is doing for this train at this depot, as far as its cars still need: unloading (goods it takes,
+   * riders getting off) and/or loading (goods it may pick up, riders getting on). With nothing left to do (a moment
+   * as it finishes), what the depot does that this train may have done: a Drop stop only unloads.
+   */
+  workFor(trainId: number, d: DepotState): { load: boolean; unload: boolean } | null {
+    const train = this.sim.getTrain(trainId);
+    if (!train) return null;
+    const left = this.workLeft(train, d);
+    if (left.load || left.unload) return left;
+    const route = this.routeOfTrain(train);
+    const r = RECIPES[d.role];
+    return {
+      load: r.gives.length > 0 && (route ? stopAt(route, d.id, "pick") : !r.routedOnly),
+      unload: r.takes.length > 0 && (route ? stopAt(route, d.id, "drop") : true),
+    };
+  }
+
+  /** Has the crane anything left to do for this train at this depot (this visit)? */
+  hasWorkAt(trainId: number, d: DepotState): boolean {
+    const train = this.sim.getTrain(trainId);
+    if (!train) return false;
+    const left = this.workLeft(train, d);
+    return left.load || left.unload;
+  }
+
+  /** What the crane has left to do for this train's cars at this depot (this visit). */
+  private workLeft(train: Train, d: DepotState): { load: boolean; unload: boolean } {
+    const done = this.services.get(train.id)?.done;
+    let load = false;
+    let unload = false;
+    for (const car of train.cars) {
+      if (done?.has(car.id)) continue;
+      if (car.kind === "passenger") {
+        unload ||= this.canAlight(d, car.id);
+        load ||= this.canBoard(d, car.id);
+      } else if (canCarry(car.kind)) {
+        unload ||= this.canUnload(d, car.id);
+        load ||= this.loadKind(d, car.id) !== null || this.waitsForLoad(d, car.id);
+      }
+    }
+    return { load, unload };
   }
 
   private service(trainId: number): Service {
@@ -579,11 +698,20 @@ export class Economy {
   }
 
   /**
-   * The sim's speed limit for a powered train: on an automatic depot where one of its wagons has work, crawl, and slow
-   * so the next wagon needing the crane stops exactly under it, then hold it there (0) while the crane works. A train
-   * with nothing to do there runs through at full speed.
+   * The sim's speed limit for a powered train: a depot's (see `depotCap`), and a kit's stop's (a platform: see
+   * `KitStops`), whichever is lower.
    */
   private capFor(train: Train): number {
+    const depot = this.depotCap(train);
+    return depot === 0 ? 0 : Math.min(depot, this.kitStops.cap(train));
+  }
+
+  /**
+   * The speed limit a depot puts on a powered train: on an automatic depot where one of its wagons has work, crawl,
+   * and slow so the next wagon needing the crane stops exactly under it, then hold it there (0) while the crane works.
+   * A train with nothing to do there runs through at full speed.
+   */
+  private depotCap(train: Train): number {
     const d = this.depotUnder(train);
     const s = this.service(train.id);
     if (!d) {
@@ -595,15 +723,19 @@ export class Economy {
       s.depotId = d.id;
       s.phase = CRAWLING;
     }
-    // Reversing the lever sends the train on: nothing more for it here this visit.
+    // Reversing the lever sends the train on: nothing more for it here this visit (and it isn't being worked).
     if (this.drive(train) < 0) {
       for (const car of train.cars) s.done.add(car.id);
-      s.phase = CRAWLING;
+      s.phase = NONE;
       return Infinity;
     }
     if (s.phase === HALTED) return 0;
-    // Nothing for the crane in this train (this visit): it won't stop, so it needn't slow.
-    if (!train.cars.some((car) => !s.done.has(car.id) && this.needsService(d, car.id))) return Infinity;
+    // Nothing for the crane in this train (this visit): it won't stop, so it needn't slow (nor is it being worked:
+    // `servingDepot`).
+    if (!train.cars.some((car) => !s.done.has(car.id) && this.needsService(d, car.id))) {
+      s.phase = NONE;
+      return Infinity;
+    }
     s.phase = CRAWLING;
     let cap = CRAWL_SPEED;
     const len = this.depotLength(d);
@@ -652,6 +784,7 @@ export class Economy {
 
   /** Stop the train for the crane to work on this car. */
   private halt(s: Service, carId: number): number {
+    if (s.phase !== HALTED) this.depotHalts++;
     s.phase = HALTED;
     s.carId = carId;
     s.ticks = 0;
@@ -712,7 +845,7 @@ export class Economy {
           if (from) this.onAlight?.(from, d, s.carId);
         } else {
           d.waiting--;
-          this.setRiders(s.carId, (r?.count ?? 0) + 1, d.id);
+          this.setRiders(s.carId, (r?.count ?? 0) + 1, r?.from ?? d.id);
         }
         continue;
       }
@@ -741,9 +874,10 @@ export class Economy {
     }
   }
 
-  /** One sim tick of production, use and crane work. */
+  /** One sim tick of production, use and crane work (and trains' dwells at kits' stops). */
   tick(): void {
     this.work();
+    this.kitStops.tick();
     if (this.routes.size > 0) {
       this.advanceRoutes();
       // Switches ahead of routed trains, a few times a second (a train covers a few mm a tick).
@@ -873,6 +1007,7 @@ export class Economy {
     for (const id of this.riders.keys()) if (!this.sim.findCar(id)) this.riders.delete(id);
     for (const id of this.routes.keys()) if (!this.sim.findCar(id)) this.routes.delete(id);
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);
+    this.kitStops.prune();
   }
 }
 

@@ -1727,6 +1727,7 @@ export const ASSETS: Asset[] = [
   {
     id: "veh-space-shuttle",
     name: "Space shuttle on transporter",
+    trayLabel: "Space shuttle",
     category: "Vehicles",
     tags: ["shuttle", "space", "orbiter", "transporter", "bay doors"],
     notes: "A winged orbiter riding on a low wheeled transporter, its cargo-bay doors opening. A special flat wagon could carry it from the factory to the launch pad.",

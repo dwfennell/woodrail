@@ -211,9 +211,10 @@ def town_hall(k):
 
 
 def castle_gate(k):
+    # The line runs through on a 108 straight (the game's kit piece, kit-castle-gate), the gate across its middle.
     g = Node()
     stone = k.paint(STONE)
-    g.add(k.trackSlab(80))
+    g.add(k.trackSlab(108))
     s = [(-40, 0), (-25, 0), (-25, 38)]
     s += _arc(0, 38, 25, math.pi, 0)[1:]  # over the top, clockwise, from (-25, 38) to (25, 38)
     s += [(25, 0), (40, 0), (40, 80), (-40, 80)]

@@ -1,18 +1,18 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
-import { depotPieceType, INDUSTRY_ROLE, STATION_CRANE_AT, type World } from "../game/world";
+import { depotPieceType, HALT_KITS, INDUSTRY_ROLE, STATION_CRANE_AT, type World } from "../game/world";
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
 import { ADV_OK, advanceCursor, ALL_CAR_LOOKS, CAR_KINDS, CAR_LOOKS, createAdvance, flipCursor, Sim, type AddTrainResult, type CarKind, type CarLook, type Cursor } from "../sim";
 import type { Bag } from "../economy/goods";
-import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, type StopAction, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
+import { canCarry, capAt, CARGO, CARGO_KINDS, Economy, KIT_DEPOT_ROLES, type StopAction, PILE_CAP, pilesOf, RECIPES, MAX_SHEDS, MAX_WAGON_CAPACITY, type CargoKind } from "../economy";
 
 /** The biggest pile any depot keeps (a warehouse's). */
 const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?? 0));
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
-import { getPieceDef, Layout, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
+import { getPieceDef, kitOf, Layout, MAX_CONNECTORS, pathLength, PIECE_TYPES, RISER_HEIGHT, type PieceTypeId } from "../track";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
 /**
@@ -72,14 +72,14 @@ const saveSchema = z.object({
   landscape: landscapeSchema,
   towns: z.array(z.object({ id: z.number().int().min(0), stationPieceId: z.number().int().positive() })),
   pieces: z.array(pieceSchema),
-  switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(2)])),
+  switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])),
   trains: z.array(trainSchema),
   /** Economy depots, in id order: the piece each works on and what it does. */
   depots: z.array(
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour"]),
+      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", ...KIT_DEPOT_ROLES]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
@@ -230,14 +230,20 @@ export function deserializeWorld(data: unknown): Result<World, string> {
   // Besides the map's own: industries the player placed (Game mode), each on a piece of its kind.
   for (const d of save.depots) {
     const piece = layout.getPiece(d.pieceId);
-    if (!expected.has(d.pieceId) && piece && INDUSTRY_ROLE[piece.type] === d.role && ![...depots.values()].includes(d.pieceId)) expected.set(d.pieceId, { role: d.role, townId: -1 });
+    // (Or a kit piece that's a cargo stop: Sandbox's loaders and unloaders.)
+    const role = piece ? (INDUSTRY_ROLE[piece.type] ?? kitOf(piece.type)?.depot) : undefined;
+    if (!expected.has(d.pieceId) && role === d.role && ![...depots.values()].includes(d.pieceId)) expected.set(d.pieceId, { role: d.role, townId: -1 });
+    // (Or a halt, Game mode's: a passenger stop of a town's on a kit piece.)
+    if (!expected.has(d.pieceId) && piece && HALT_KITS.has(piece.type) && d.role === "town" && landscape.towns.some((t) => t.id === d.townId)) expected.set(d.pieceId, { role: "town", townId: d.townId });
   }
   if (save.depots.length !== expected.size) return err("invalid save: wrong number of economy depots");
   for (const [i, d] of save.depots.entries()) {
     const want = expected.get(d.pieceId);
     if (d.id !== i || !want || want.role !== d.role || want.townId !== d.townId) return err(`invalid save: economy depot ${d.id} doesn't match the landscape`);
     expected.delete(d.pieceId);
-    const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId);
+    // A town's station stops wagons by its crane; a halt's coaches stop along its platform (its middle).
+    const halt = d.role === "town" && HALT_KITS.has(layout.getPiece(d.pieceId)?.type ?? "straight-216");
+    const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, halt ? undefined : STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId);
     state.auto = d.auto;
     state.waitFull = d.waitFull;
     if (d.role === "harbour") state.sheds = d.sheds ?? 0;

@@ -103,14 +103,19 @@ describe("findSplice", () => {
     expect(t.kind === "splice" && t.covers).toEqual([ids[0], ids[1]]);
   });
 
-  it("says when no run of straights there is its length (too short a straight between curves, too long a one)", () => {
+  it("says when no run of straights there is its length (too short a straight between curves)", () => {
     const l = new Layout();
     const [s144] = line(l, ["straight-144"]);
     appendPiece(l, "curve-large", false, connectorRef(s144, 1));
     expect(findSplice(l, "depot-workshop", false, { x: 72, z: 0 }, 0, 40)).toEqual({ kind: "misfit", onto: s144 });
+  });
+
+  it("on too long a straight, takes its length of it and a shorter straight fills the rest (a 216 depot on a 288: a 72)", () => {
     const m = new Layout();
     const [s288] = line(m, ["straight-288"]);
-    expect(findSplice(m, "depot-workshop", false, { x: 144, z: 0 }, 0, 40)).toEqual({ kind: "misfit", onto: s288 });
+    const s = findSplice(m, "depot-workshop", false, { x: 100, z: 0 }, 0, 40);
+    expect(s.kind === "splice" && s.covers).toEqual([s288]);
+    expect(s.kind === "splice" && s.rest?.map((r) => r.type)).toEqual(["straight-72"]);
   });
 
   it("won't take up a straight a train stands on, nor reach past one", () => {
@@ -333,5 +338,33 @@ describe("findMerge (a drawn line coming in to a line at 45°)", () => {
     expect(findMerge(l, e, 330, 200)).toBeNull();
     expect(findMerge(l, { ...e, heading: -Math.PI / 2 }, 330, 10)).toBeNull();
     expect(findMerge(l, e, 330, 10, () => false)).toBeNull();
+  });
+});
+
+describe("findSplice: a short kit on a longer straight", () => {
+  it("takes the half of a 216 nearer where it's held, and a 108 straight fills the other half", () => {
+    const l = new Layout();
+    const [, mid] = line(l, ["straight-216", "straight-216", "straight-216"]);
+    // The middle straight runs 216..432. Held over its first half: the kit there, the rest from 324.
+    const s = findSplice(l, "kit-water-tower", false, { x: 260, z: 6 }, 0, 40);
+    expect(s.kind).toBe("splice");
+    if (s.kind !== "splice") return;
+    expect(s.covers).toEqual([mid]);
+    expect(s.pose.x).toBeCloseTo(216, 3);
+    expect(s.rest?.map((r) => r.type)).toEqual(["straight-108"]);
+    expect(s.rest![0].pose.x).toBeCloseTo(324, 3);
+    // Held over its second half: the rest at the start, the kit from 324.
+    const t = findSplice(l, "kit-water-tower", false, { x: 400, z: 6 }, 0, 40);
+    expect(t.kind === "splice" && t.rest![0].pose.x).toBeCloseTo(216, 3);
+    expect(t.kind === "splice" && t.pose.x).toBeCloseTo(324, 3);
+    // Neither overlaps the other: kit and rest end to end over the straight.
+    if (t.kind === "splice") expect(findOverlap(l, "kit-water-tower", false, t.pose, 0, mid)).toBe(-1);
+  });
+
+  it("a kit as long as a run still takes the run (no rest)", () => {
+    const l = new Layout();
+    line(l, ["straight-108", "straight-108", "straight-108"]);
+    const s = findSplice(l, "kit-water-tower", false, { x: 160, z: 0 }, 0, 40);
+    expect(s.kind === "splice" && s.rest).toBeUndefined();
   });
 });

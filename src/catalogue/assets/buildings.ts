@@ -63,6 +63,7 @@ export const ASSETS: Asset[] = [
   {
     id: "bldg-two-platform-station",
     name: "Two-platform station with footbridge",
+    trayLabel: "Footbridge station",
     category: CAT,
     tags: ["station", "footbridge", "double track", "platform", "canopy"],
     notes: "Two through tracks between a platform each side, joined by a covered footbridge. A good passing place: one train waits at the platform while the other runs through.",
@@ -129,6 +130,7 @@ export const ASSETS: Asset[] = [
   {
     id: "bldg-platform-furnished",
     name: "Platform with benches and lamps",
+    trayLabel: "Busy platform",
     category: CAT,
     tags: ["platform", "bench", "lamp", "clock", "bin", "straight"],
     notes: "A long plain platform dressed with lamps, benches, a hanging clock and a bin. Lay several end to end beside a straight to build any length of station.",
@@ -477,6 +479,7 @@ export const ASSETS: Asset[] = [
   {
     id: "bldg-control-tower",
     name: "Airport control tower",
+    trayLabel: "Control tower",
     category: CAT,
     tags: ["airport", "control tower", "radar", "aviation", "tall", "animated"],
     notes: "A slender control tower with a glass cab and a spinning radar dish. An airport station: planes in the sky, trains connecting to town.",
@@ -528,6 +531,7 @@ export const ASSETS: Asset[] = [
   {
     id: "bldg-timber-house",
     name: "Timber-framed house",
+    trayLabel: "Tudor house",
     category: CAT,
     tags: ["house", "timber", "half-timbered", "tudor", "town"],
     notes: "Cream walls criss-crossed with dark oak beams, an upper floor jutting out over the street and a steep red roof. Fits one town square.",
@@ -552,6 +556,7 @@ export const ASSETS: Asset[] = [
   {
     id: "bldg-narrow-house",
     name: "Narrow gabled house",
+    trayLabel: "Gabled house",
     category: CAT,
     tags: ["house", "narrow", "canal house", "gable", "town", "tall"],
     notes: "A slim house with a stepped gable to the street, like the canal houses of an old port. Three floors on one town square; a row of them in different colours is a postcard.",
@@ -560,6 +565,7 @@ export const ASSETS: Asset[] = [
   {
     id: "bldg-brick-house",
     name: "Brick house with bay window",
+    trayLabel: "Brick house",
     category: CAT,
     tags: ["house", "brick", "bay window", "town", "victorian"],
     notes: "A red-brick house with a white bay window on the ground floor, a slate roof and a chimney at each end. Fits one town square.",
@@ -576,6 +582,7 @@ export const ASSETS: Asset[] = [
   {
     id: "bldg-semi-detached",
     name: "Semi-detached pair",
+    trayLabel: "Pair of houses",
     category: CAT,
     tags: ["houses", "semi-detached", "pair", "town", "suburb"],
     notes: "Two mirror-image houses sharing a wall, each with a porch and a front garden hedge. Fits two town squares, front along the long side.",

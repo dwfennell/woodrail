@@ -1,6 +1,6 @@
 import { createSample, getPieceDef, isBridge, pathLength, RISER_HEIGHT, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
 import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, isWater, SURF_RIVER, SURF_ROAD, SURF_SEA, SURF_TOWN, type LandscapeGrid } from "./grid";
-import { insideLoops, smoothLoop, traceRegions, type Loop } from "./outline";
+import { smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
 import { cutsHills, hillsOf } from "./hill-shape";
 import { pieceOf, turnOf } from "../roads/pieces";
@@ -180,6 +180,55 @@ export function surfaceOutlines(g: LandscapeGrid, surface: number | readonly num
 }
 
 /**
+ * The river's outline segments (square units, as x0, z0, x1, z1 in fours), bucketed for quick lookups: by row (each
+ * segment in every row its z-span touches: a ray along x from a point meets only those of its row), and by square
+ * (each in every square its box, padded by the grace, touches: any segment within the grace of a point is in its
+ * square's list). Built once per map revision; `inRiver` is asked for every sample of every piece near water, on every
+ * pointer move (it walked every point of every loop each time: a few tenths of a millisecond a call by a big river).
+ */
+interface RiverIndex {
+  segs: Float64Array;
+  rows: Map<number, number[]>;
+  cells: Map<number, number[]>;
+}
+const riverIndexes = new WeakMap<LandscapeGrid, { revision: number; index: RiverIndex }>();
+const cellKey = (c: number, r: number): number => c * 65536 + r;
+
+function riverIndex(g: LandscapeGrid): RiverIndex {
+  let cached = riverIndexes.get(g);
+  if (!cached || cached.revision !== g.revision) {
+    const loops = riverOutline(g).map((o) => o.loop);
+    const n = loops.reduce((t, l) => t + l.length, 0);
+    const segs = new Float64Array(4 * n);
+    const rows = new Map<number, number[]>();
+    const cells = new Map<number, number[]>();
+    const pad = RIVER_GRACE / CELL;
+    const add = (m: Map<number, number[]>, k: number, i: number) => {
+      const list = m.get(k);
+      if (list) list.push(i);
+      else m.set(k, [i]);
+    };
+    let k = 0;
+    for (const loop of loops) {
+      for (let i = 0, j = loop.length - 1; i < loop.length; j = i++, k++) {
+        const a = loop[i];
+        const b = loop[j];
+        segs[4 * k] = a.x;
+        segs[4 * k + 1] = a.z;
+        segs[4 * k + 2] = b.x;
+        segs[4 * k + 3] = b.z;
+        for (let r = Math.floor(Math.min(a.z, b.z)); r <= Math.floor(Math.max(a.z, b.z)); r++) add(rows, r, k);
+        for (let c = Math.floor(Math.min(a.x, b.x) - pad); c <= Math.floor(Math.max(a.x, b.x) + pad); c++)
+          for (let r = Math.floor(Math.min(a.z, b.z) - pad); r <= Math.floor(Math.max(a.z, b.z) + pad); r++) add(cells, cellKey(c, r), k);
+      }
+    }
+    cached = { revision: g.revision, index: { segs, rows, cells } };
+    riverIndexes.set(g, cached);
+  }
+  return cached.index;
+}
+
+/**
  * Is a point over the river as it's drawn (its felt has smoothed banks, inside or past its squares), more than
  * RIVER_GRACE in from the bank?
  */
@@ -197,29 +246,30 @@ export function inRiver(g: LandscapeGrid, x: number, z: number): boolean {
   if (!near) return false;
   const u = x / CELL;
   const v = z / CELL;
-  // Only loops around the point can count (a loop the point is outside adds an even number of crossings), and only
-  // those, padded by the grace, can be nearest.
-  const pad = RIVER_GRACE / CELL;
-  const loops = riverOutline(g)
-    .filter((o) => u >= o.x0 - pad && u <= o.x1 + pad && v >= o.z0 - pad && v <= o.z1 + pad)
-    .map((o) => o.loop);
-  return insideLoops(loops, u, v) && distanceToLoops(loops, u, v) * CELL > RIVER_GRACE;
+  const { segs, rows, cells } = riverIndex(g);
+  // Inside: a ray along +x crosses the outline an odd number of times (only segments of this row can cross it).
+  let inside = false;
+  for (const k of rows.get(Math.floor(v)) ?? []) {
+    const ax = segs[4 * k];
+    const az = segs[4 * k + 1];
+    const bx = segs[4 * k + 2];
+    const bz = segs[4 * k + 3];
+    if (az > v !== bz > v && u < ((bx - ax) * (v - az)) / (bz - az) + ax) inside = !inside;
+  }
+  if (!inside) return false;
+  // More than the grace in from the bank: no segment of the outline that near (only those listed for this square can be).
+  const grace = RIVER_GRACE / CELL;
+  for (const k of cells.get(cellKey(Math.floor(u), Math.floor(v))) ?? []) {
+    const ax = segs[4 * k];
+    const az = segs[4 * k + 1];
+    const dx = segs[4 * k + 2] - ax;
+    const dz = segs[4 * k + 3] - az;
+    const t = Math.max(0, Math.min(1, ((u - ax) * dx + (v - az) * dz) / (dx * dx + dz * dz || 1)));
+    if (Math.hypot(ax + dx * t - u, az + dz * t - v) <= grace) return false;
+  }
+  return true;
 }
 
-function distanceToLoops(loops: readonly Loop[], x: number, z: number): number {
-  let best = Infinity;
-  for (const loop of loops) {
-    for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
-      const a = loop[j];
-      const b = loop[i];
-      const dx = b.x - a.x;
-      const dz = b.z - a.z;
-      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1)));
-      best = Math.min(best, Math.hypot(a.x + dx * t - x, a.z + dz * t - z));
-    }
-  }
-  return best;
-}
 
 /** Can a piece be placed here? Called on every pointer move while dragging. */
 /**

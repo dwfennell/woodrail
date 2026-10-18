@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { Sim } from "../sim";
 import { connectorRef, findSplice, fitAutoStraight, gapFill, getPieceDef, Layout, solveParentPose } from "../track";
 import { Editor, pieceCentre } from "./editor";
+import { Progress } from "../game/progress";
+import type { World } from "../game/world";
+import { PropStore } from "../props/store";
 
 function setup() {
   const layout = new Layout();
@@ -553,5 +556,116 @@ describe("a depot moved off a line, the gap it leaves filled", () => {
     expect(layout.getPiece(filled)).toBeUndefined();
     expect(layout.getPiece(other)!.type).toBe("straight-216");
     expect(layout.joinedConnector(connectorRef(depot, 1))).toBe(connectorRef(b, 0));
+  });
+});
+
+describe("a kit piece (the furnished platform) dropped onto a line, as a depot is", () => {
+  const KIT = "kit-platform-furnished" as const;
+  function threeStraights() {
+    const s = setup();
+    const ids = [0, 1, 2].map((i) => s.editor.place("straight-216", { x: 216 * i, z: 0, heading: 0 }, 0, false));
+    s.editor.clearHistory();
+    return { ...s, ids };
+  }
+
+  it("splices onto the middle straight, joined both ends, in one undo step; undo puts the straight back joined", () => {
+    const { layout, editor, ids } = threeStraights();
+    const s = findSplice(layout, KIT, false, { x: 324, z: 6 }, 0.2, 40);
+    expect(s.kind).toBe("splice");
+    if (s.kind !== "splice") return;
+    expect(s.covers).toEqual([ids[1]]);
+    const kit = editor.replace(s.covers, KIT, s.pose, s.y, false);
+    expect(layout.getPiece(kit)!.type).toBe(KIT);
+    expect(layout.getPiece(ids[1])).toBeUndefined();
+    expect(layout.joinedConnector(connectorRef(kit, 0))).toBe(connectorRef(ids[0], 1));
+    expect(layout.joinedConnector(connectorRef(kit, 1))).toBe(connectorRef(ids[2], 0));
+    editor.undo();
+    expect(layout.getPiece(kit)).toBeUndefined();
+    expect(layout.getPiece(ids[1])!.type).toBe("straight-216");
+    expect(layout.joinedConnector(connectorRef(ids[1], 0))).toBe(connectorRef(ids[0], 1));
+    expect(layout.joinedConnector(connectorRef(ids[1], 1))).toBe(connectorRef(ids[2], 0));
+    expect(editor.canUndo).toBe(false);
+    editor.redo();
+    expect(layout.getPiece(kit)!.type).toBe(KIT);
+    expect(layout.jointCount).toBe(2);
+  });
+
+  it("held turned right round (its Flip), it lies the other way along the line, still joined both ends", () => {
+    const { layout, editor, ids } = threeStraights();
+    const s = findSplice(layout, KIT, false, { x: 324, z: 0 }, Math.PI, 40);
+    if (s.kind !== "splice") throw new Error(s.kind);
+    expect(s.pose.heading).toBeCloseTo(Math.PI);
+    const kit = editor.replace(s.covers, KIT, s.pose, s.y, false);
+    expect(layout.joinedConnector(connectorRef(kit, 0))).toBe(connectorRef(ids[2], 0));
+    expect(layout.joinedConnector(connectorRef(kit, 1))).toBe(connectorRef(ids[0], 1));
+  });
+
+  it("isn't spliced onto another kit (only plain straights are taken up)", () => {
+    const { layout, editor, ids } = threeStraights();
+    const s = findSplice(layout, KIT, false, { x: 324, z: 0 }, 0, 40);
+    if (s.kind !== "splice") throw new Error(s.kind);
+    editor.replace(s.covers, KIT, s.pose, s.y, false);
+    // Held over the kit now in the middle: it reaches for the straights either side instead, or nothing.
+    const again = findSplice(layout, KIT, false, { x: 324, z: 0 }, 0, 10);
+    expect(again.kind === "splice" ? again.covers : []).not.toContain(ids[1]);
+  });
+
+  it("moved off the line: a straight closes the gap, in the same undo step", () => {
+    const { layout, editor } = setup();
+    const a = editor.place("straight-216", { x: 0, z: 0, heading: 0 }, 0, false);
+    const kit = editor.place(KIT, { x: 216, z: 0, heading: 0 }, 0, false);
+    const b = editor.place("straight-216", { x: 432, z: 0, heading: 0 }, 0, false);
+    editor.clearHistory();
+    const ends = [layout.joinedConnector(connectorRef(kit, 0)), layout.joinedConnector(connectorRef(kit, 1))] as const;
+    const from = { pose: { ...layout.getPiece(kit)!.pose }, y: 0 };
+    layout.liftPiece(kit);
+    const fill = gapFill(layout, ends[0], ends[1])!;
+    expect(fill.map((f) => f.type)).toEqual(["straight-216"]);
+    editor.move(kit, { x: 0, z: 900, heading: 0 }, 0, from, [], false, fill.map((f) => ({ ...f })));
+    const filled = [...layout.pieceIds()].find((id) => layout.getPiece(id)!.type === "straight-216" && id !== a && id !== b)!;
+    expect(layout.joinedConnector(connectorRef(filled, 0))).toBe(connectorRef(a, 1));
+    expect(layout.joinedConnector(connectorRef(filled, 1))).toBe(connectorRef(b, 0));
+    editor.undo();
+    expect(editor.canUndo).toBe(false);
+    expect(layout.getPiece(filled)).toBeUndefined();
+    expect(layout.joinedConnector(connectorRef(kit, 0))).toBe(connectorRef(a, 1));
+    expect(layout.joinedConnector(connectorRef(kit, 1))).toBe(connectorRef(b, 0));
+  });
+});
+
+describe("props edits (Game mode's tray counts follow them)", () => {
+  it("placing, moving and removing a prop, and undo and redo, each tell onPropsChange once: a made prop, placed, is none left", () => {
+    const { layout, sim, editor, changes } = setup();
+    const store = new PropStore();
+    const world = { layout, sim, props: store, depots: new Map() } as unknown as World;
+    const p = Progress.fresh();
+    const box = "prop:bldg-signal-box";
+    // One made at the workshop, not yet put down.
+    p.add(box);
+    // As main.ts's hook does: every props edit works the tray's counts out again from the toy box.
+    let heard = 0;
+    let badge = p.available(world, box);
+    editor.onPropsChange = () => {
+      heard++;
+      badge = p.available(world, box);
+    };
+    expect(badge).toBe(1);
+    const at = (x: number) => ({ x, z: 0, heading: 0, y: 0 });
+    let id = -1;
+    editor.editProps({ do: () => (id = store.add("bldg-signal-box", at(0), id === -1 ? undefined : id).id), undo: () => store.remove(id) });
+    expect([heard, badge]).toEqual([1, 0]);
+    editor.editProps({ do: () => store.move(id, at(50)), undo: () => store.move(id, at(0)) });
+    expect([heard, badge]).toEqual([2, 0]);
+    editor.editProps({ do: () => store.remove(id), undo: () => store.add("bldg-signal-box", at(50), id) });
+    expect([heard, badge]).toEqual([3, 1]);
+    editor.undo();
+    expect([heard, badge]).toEqual([4, 0]);
+    editor.undo();
+    editor.undo();
+    expect([heard, badge]).toEqual([6, 1]);
+    editor.redo();
+    expect([heard, badge]).toEqual([7, 0]);
+    // Props only: the track's onChange (and its badge refresh) never ran.
+    expect(changes()).toBe(0);
   });
 });

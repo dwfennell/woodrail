@@ -28,7 +28,6 @@ import {
   shoreDistance,
   shoreLine,
   heldCut,
-  type HillCut,
   hillsOf,
   PLOT_COLS,
   PLOT_DEPTH,
@@ -688,14 +687,6 @@ export class LandscapeView {
     this.clearance.setLayout(layout);
     this.cuts.sync(heldCut(this.land, this.held));
     return this.retarget(this.clearance.spots(this.held ?? undefined), animate);
-  }
-
-  /**
-   * Show a cutting not yet in the layout (a drawn line's ramp, while it's drawn), or none (undefined): the held piece's
-   * own, if one is held. Rebuilds only the blocks it cuts.
-   */
-  previewCut(cut: HillCut | undefined): void {
-    this.cuts.sync(cut ?? heldCut(this.land, this.held));
   }
 
   /** Trees hop aside for a piece held over the mat, and back when it moves on (null: nothing held). */

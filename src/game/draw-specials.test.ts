@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { gridWithPlots, hillMessage, hillsOf, SURF_RIVER, syncCuttings, type BlockReason, type Landscape } from "../landscape";
+import { PerspectiveCamera, Plane, Raycaster, Vector2, Vector3 } from "three";
+import { gridWithPlots, hillMessage, hillsOf, inRiver, SURF_RIVER, syncCuttings, type BlockReason, type Landscape } from "../landscape";
 import { DrawLine, isBridge, Layout, RISER_HEIGHT, type DrawEnd, type DrawOptions, type PieceTypeId } from "../track";
+import { createWorld } from "./world";
 import { drawMessage, drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
 
 /**
@@ -36,6 +38,8 @@ function options(land: Landscape, layout = new Layout(), extra: Partial<DrawOpti
       return why ? { reason: why.reason, message: drawMessage(why.reason, why.levels, (r) => trackMessage(r as BlockReason, why.levels)), levels: why.levels } : null;
     },
     groundAt: (x, z) => hills.groundAt(x, z),
+    wet: (x, z) => inRiver(land.grid, x, z),
+    onMap: (x, z) => land.grid.cellAtWorld(x, z) !== -1,
     outOf: (t) => `Out of ${t}`,
     ...extra,
   };
@@ -154,6 +158,81 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
         expect(line.end.y, why).toBe(0);
       }
     }
+  });
+
+  it("a swipe straight up (or down) the screen at the default camera, about 23° off the grid, crosses the river", () => {
+    // The default view: a swipe up the screen runs about 23° off the grid on the map, and a point on the screen is seen
+    // about 2 mm nearer the camera for each mm higher (looking down at about 26°).
+    const K = 2;
+    let crossed = 0;
+    let all = 0;
+    const fails: string[] = [];
+    for (const deg of [23, -23, 157, -157, 20, 30]) {
+      const a = (deg * Math.PI) / 180;
+      const dx = Math.cos(a);
+      const dz = Math.sin(a);
+      for (const up of [1, -1]) {
+        for (const [ox, oz] of [[0, 0], [30, 50], [-40, 20], [60, -70], [10, 130]]) {
+          // A river band across x (both ways across it), the stroke from 500 mm before it.
+          const land = paint(flat(), 576, 720, -2000, 2000, "river");
+          const x0 = dx > 0 ? 576 - 500 * dx + ox : 720 - 500 * dx + ox;
+          const z0 = Z + oz;
+          const start: DrawEnd = { x: Math.round(x0 / 18) * 18, z: Math.round(z0 / 18) * 18, heading: Math.round(a / (Math.PI / 4)) * (Math.PI / 4), y: 0, kind: "peg" };
+          const line = new DrawLine(start, options(land));
+          // Up the screen: away from the camera (seen higher, a point is nearer it: back along the swipe); down: toward it.
+          for (let d = 4; d <= 1300; d += 4) line.addSeen((h) => ({ x: start.x + d * dx - up * K * h * dx, z: start.z + d * dz - up * K * h * dz }));
+          line.finish();
+          all++;
+          const why = `${deg}° ${up > 0 ? "up" : "down"} from (${start.x}, ${start.z}): ${name(line)}`;
+          const ok = !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => isBridge(p.type)) && !line.pieces.some((p) => p.type === "bridge-curve") && line.end.y === 0;
+          if (ok) crossed++;
+          else fails.push(why);
+        }
+      }
+    }
+    expect(fails, fails.join("\n")).toEqual([]);
+    expect(crossed).toBe(all);
+  });
+
+  it("a swipe up the screen across a river that runs slantwise (as the map's do), from a little way off it, crosses", () => {
+    const K = 2;
+    const fails: string[] = [];
+    let all = 0;
+    for (const [rdeg, width] of [[45, 1.5], [-45, 1.5], [30, 2], [60, 1], [45, 2.5]]) {
+      // A river band through (600, 0) running at `rdeg`, `width` squares across.
+      const land = flat();
+      const g = land.grid;
+      const ra = (rdeg * Math.PI) / 180;
+      for (let x = -2196; x < 2232; x += 72)
+        for (let z = -1620; z < 1656; z += 72) {
+          const across = -(x - 600) * Math.sin(ra) + z * Math.cos(ra);
+          if (Math.abs(across) < (width * 72) / 2) g.surface[g.cellAtWorld(x, z)] = SURF_RIVER;
+        }
+      g.revision++;
+      for (const deg of [23, -23, 157, -157, 67, -113]) {
+        for (const up of [1, -1]) {
+          for (const lead of [250, 350, 500]) {
+            const a = (deg * Math.PI) / 180;
+            const dx = Math.cos(a);
+            const dz = Math.sin(a);
+            // Where the stroke meets the river's middle line, and `lead` mm before (along the stroke) it starts.
+            const cross = Math.sin(a - ra);
+            // (Room for a ramp before the bank, along the stroke: else it's red, rightly.)
+            if (Math.abs(cross) < 0.5 || lead - (width * 36) / Math.abs(cross) < 200) continue;
+            const sx = 600 - lead * dx;
+            const sz = 0 - lead * dz;
+            const start: DrawEnd = { x: Math.round(sx / 18) * 18, z: Math.round(sz / 18) * 18, heading: Math.round(a / (Math.PI / 4)) * (Math.PI / 4), y: 0, kind: "peg" };
+            const line = new DrawLine(start, options(land));
+            for (let d = 4; d <= 2 * lead + 300; d += 4) line.addSeen((h) => ({ x: start.x + d * dx - up * K * h * dx, z: start.z + d * dz - up * K * h * dz }));
+            line.finish();
+            all++;
+            const ok = !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => isBridge(p.type)) && !line.pieces.some((p) => p.type === "bridge-curve") && line.end.y === 0;
+            if (!ok) fails.push(`river ${rdeg}° w${width}, swipe ${deg}° ${up > 0 ? "up" : "down"} from ${lead} mm off: ${name(line)}`);
+          }
+        }
+      }
+    }
+    expect(fails, `${fails.length}/${all}\n${fails.join("\n")}`).toEqual([]);
   });
 
   it("up on a hill, the finger is read at the hilltop's height: the stroke moves once, as the ramp's top end lands", () => {
@@ -302,5 +381,80 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
     }
     // And at the same cost: one check for each piece laid, as before.
     expect(checks).toBe(before.join(" ").split(" ").length);
+  });
+
+  it("QA's slanted river strokes on seed 7 (their exact world lines and camera) cross square, with straight bridges, and come down", () => {
+    const world = createWorld(7);
+    const land = world.landscape;
+    const G = land.grid;
+    // QA's exact world lines (seed 7, fresh): start, heading, length, which way the finger went, and QA's camera (its
+    // target and distance; phi 0.95 from straight down, theta −1.1659).
+    const runs: [string, number, number, number, number, boolean, number, number, number][] = [
+      ["slant 23 there", -36, -1620, 2.7576202181510405, 972, false, -481, -1440.2, 3662.2],
+      ["slant 30 back", -252, -1620, 2.0943951023931953, 972, true, -492, -1204.3, 4760.9],
+      ["slant 10 back", -180, -1620, 2.5307274153917776, 852, true, -524, -1379.1, 3662.2],
+      ["slant -23 back", -36, -1620, 2.7401669256310974, 972, true, -477.8, -1432.4, 3662.2],
+      ["slant 10 there", -180, -1620, 2.5307274153917776, 852, false, -524, -1379.1, 3662.2],
+      ["slant 40 back (clean)", -252, -1620, 2.2689280275926285, 852, true, -522, -1298.3, 3662.2],
+    ];
+    const W = 390;
+    const H = 844;
+    const fails: string[] = [];
+    for (const [label, x0, z0, h, total, back, tx, tz, dist] of runs) {
+      // The game's camera, as `Game.lookAt` places it, on a 390 × 844 screen.
+      const camera = new PerspectiveCamera(30, W / H, 5, 40000);
+      const phi = 0.95;
+      const theta = -1.1659;
+      camera.position.set(tx + Math.sin(theta) * Math.sin(phi) * dist, Math.cos(phi) * dist, tz + Math.cos(theta) * Math.sin(phi) * dist);
+      camera.lookAt(tx, 0, tz);
+      camera.updateMatrixWorld();
+      const ray = new Raycaster();
+      const level = new Plane(new Vector3(0, 1, 0), 0);
+      // DrawHand's `planeAt`: a screen point (px) seen on the level plane at a height.
+      const planeAt = (sx: number, sy: number, y: number) => {
+        ray.setFromCamera(new Vector2((sx / W) * 2 - 1, -(sy / H) * 2 + 1), camera);
+        level.constant = -y;
+        const v = ray.ray.intersectPlane(level, new Vector3());
+        return v ? { x: v.x, z: v.z } : null;
+      };
+      // QA's finger: each world point every 15 mm, seen at the ground's height there, on the screen; touch moves every 10 px.
+      const pts: [number, number][] = [];
+      for (let d = 0; d <= total; d += 15) {
+        const x = x0 + Math.cos(h) * d;
+        const z = z0 + Math.sin(h) * d;
+        const v = new Vector3(x, G.groundY(G.cellAtWorld(x, z)), z).project(camera);
+        pts.push([((v.x + 1) / 2) * W, ((1 - v.y) / 2) * H]);
+      }
+      if (back) pts.reverse();
+      const screen: [number, number][] = [pts[0]];
+      for (let i = 1; i < pts.length; i++) {
+        const [ax, ay] = pts[i - 1];
+        const [bx, by] = pts[i];
+        const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
+        for (let k = 1; k <= n; k++) screen.push([ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n]);
+      }
+      // As DrawHand starts a line on open ground: once the finger has gone 30 mm, on the grid, its way in eighths.
+      const origin = planeAt(screen[0][0], screen[0][1], 0)!;
+      let line: DrawLine | null = null;
+      for (const [sx, sy] of screen.slice(1)) {
+        if (!line) {
+          const p = planeAt(sx, sy, 0)!;
+          if (Math.hypot(p.x - origin.x, p.z - origin.z) < 30) continue;
+          const heading = Math.round(Math.atan2(p.z - origin.z, p.x - origin.x) / (Math.PI / 4)) * (Math.PI / 4);
+          const sx0 = Math.round(origin.x / 18) * 18;
+          const sz0 = Math.round(origin.z / 18) * 18;
+          line = new DrawLine({ x: sx0, z: sz0, heading, y: 0, kind: "peg" }, options(land, world.layout));
+        }
+        line.addSeen((y) => planeAt(sx, sy, y));
+      }
+      if (!line) {
+        fails.push(`${label}: no line`);
+        continue;
+      }
+      line.finish();
+      const ok = !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => p.type === "bridge") && !line.pieces.some((p) => p.type === "bridge-curve") && line.end.y === 0;
+      if (!ok) fails.push(`${label}: ${name(line)} [${line.pieces.at(-1)?.blockedBy} ${line.pieces.at(-1)?.blocked}]`);
+    }
+    expect(fails, fails.join("\n")).toEqual([]);
   });
 });

@@ -73,8 +73,12 @@ export function nearestCursor(layout: Layout, x: number, z: number, maxDistance:
     const s = Math.sin(piece.pose.heading);
     const lx = dx * c + dz * s;
     const lz = -dx * s + dz * c;
-    const paths = getPieceDef(piece.type, piece.flipped).paths;
+    const def = getPieceDef(piece.type, piece.flipped);
+    const paths = def.paths;
+    // A deck (a turntable's): only the way it lies now (none while it turns).
+    const open = def.gated ? (layout.deckTurning(id) ? paths.length : layout.switchState(id) % paths.length) : -1;
     for (let i = 0; i < paths.length; i++) {
+      if (open !== -1 && i !== open) continue;
       const g = paths[i].geom;
       const along = closestS(g, lx, lz);
       samplePath(g, along, sample);

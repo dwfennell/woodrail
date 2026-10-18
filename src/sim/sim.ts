@@ -1,4 +1,4 @@
-import { connectorRef, getPieceDef, indexOfRef, pieceOfRef, type Layout } from "../track";
+import { connectorRef, createSample, DECK_GLIDE_S, getPieceDef, indexOfRef, MAX_CONNECTORS, normalizeAngle, pathLength, pieceOfRef, samplePath, TRACK_WIDTH, type Layout, type PieceDef } from "../track";
 import { CAR_SPECS, COUPLER_GAP, opposite, type CarKind, type CarLook, type Pole } from "./cars";
 import {
   ADV_BUFFER,
@@ -148,9 +148,12 @@ export class Sim {
   /** Optional: how quickly a powered train gets up to speed and stops, against the usual (2: twice as quick). */
   quickness: ((train: Train) => number) | null = null;
 
-  /** The signal pieces on the layout (found again after the track changes: see `trackChanged`). */
+  /**
+   * The signals on the layout, as keys (`signalKey`: a signal piece and one of its roads), found again after the track
+   * changes (see `trackChanged`).
+   */
   private signals: number[] | null = null;
-  /** Each signal's aspect as of this tick: true at clear (its block's free), false at red. */
+  /** Each signal's aspect as of this tick, by key (`signalKey`): true at clear (its block's free), false at red. */
   private readonly aspects = new Map<number, boolean>();
   /** Goes up whenever a signal's aspect changes, so the view redraws only then. */
   signalsVersion = 0;
@@ -305,6 +308,8 @@ export class Sim {
     const found = this.findCar(engineCarId);
     if (!found || found.train.derailed) return "none";
     const t = found.train;
+    // Riding a turning deck: it's moving.
+    if (this.rides.size > 0 && this.riding(t)) return "moving";
     const n = t.cars.length;
     const i = found.index;
     const engine = t.cars[i];
@@ -362,6 +367,8 @@ export class Sim {
     const found = this.findCar(carId);
     if (!found || found.train.derailed) return { kind: "none" };
     const t = found.train;
+    // Riding a turning deck: it's moving.
+    if (this.rides.size > 0 && this.riding(t)) return { kind: "moving" };
     const n = t.cars.length;
     const i = found.index;
     let k: number;
@@ -488,23 +495,204 @@ export class Sim {
     return -1;
   }
 
-  /** Step a switch to its next route (two-way switches flip; a three-way steps round its three). */
-  toggleSwitch(pieceId: number): void {
+  /**
+   * Step a switch to its next route (two-way switches flip; a three-way steps round its three; a turntable's deck turns
+   * to its next road). False if it can't: a deck doesn't turn with a train on it.
+   */
+  toggleSwitch(pieceId: number): boolean {
     const piece = this.layout.getPiece(pieceId);
-    const routes = piece ? getPieceDef(piece.type, piece.flipped).paths.filter((p) => p.from === 0).length : 2;
-    this.layout.setSwitchState(pieceId, (this.layout.switchState(pieceId) + 1) % Math.max(2, routes));
+    const def = piece ? getPieceDef(piece.type, piece.flipped) : null;
+    // A signal piece's lever holds its (first) signal at red, or lets it go.
+    if (def?.signal) {
+      this.toggleSignal(pieceId, 0);
+      return true;
+    }
+    if (def?.gated && this.deckRefusal(pieceId)) return false;
+    const routes = !def ? 2 : def.gated ? def.paths.length : def.paths.filter((p) => p.from === 0).length;
+    const was = this.layout.switchState(pieceId);
+    this.layout.setSwitchState(pieceId, (was + 1) % Math.max(2, routes));
+    // A deck joins nothing till it's turned to its next road, and carries round any train standing on it.
+    if (def?.gated) {
+      this.layout.setDeckTurning(pieceId, true);
+      const done = this.ticks + Math.round(DECK_GLIDE_S * SIM_HZ);
+      this.decksTurning.set(pieceId, done);
+      this.startRide(pieceId, was % def.paths.length, this.layout.switchState(pieceId), done);
+    }
     // A signal held or let go shows it at once (even paused).
     this.updateSignals();
+    return true;
+  }
+
+  /**
+   * Why a deck (a turntable's) can't turn now: a train partly on it (it would be torn apart), or one on it that's
+   * moving or waiting to turn back, or it's still carrying one round. Null if it can: empty, or carrying trains
+   * standing wholly on it (they turn with it: an engine turned round).
+   */
+  deckRefusal(pieceId: number): "partly" | "moving" | "turning" | null {
+    // (Points and signals are thrown whatever stands on them.)
+    const piece = this.layout.getPiece(pieceId);
+    if (!piece || !getPieceDef(piece.type, piece.flipped).gated) return null;
+    if (this.rides.has(pieceId)) return "turning";
+    for (const t of this.trains.values()) {
+      if (t.derailed) continue;
+      let on = 0;
+      for (const b of t.bogies) if (b.pieceId === pieceId) on++;
+      if (on === 0) continue;
+      if (on < t.bogies.length) return "partly";
+      if (t.speed > 0 || t.turnback >= 0) return "moving";
+    }
+    return null;
   }
 
   /** Ticks run so far (for how long ago something happened). */
   ticks = 0;
 
+  /** Decks turning (see `toggleSwitch`): the tick each is at its next road. */
+  private readonly decksTurning = new Map<number, number>();
+
+  /**
+   * Trains riding a turning deck, by deck: held still, set on the deck's new road at once (their axles), but drawn
+   * carried round from where they stood (`world`), over the deck's glide: a turn by `angle` about (cx, cz), or a slide
+   * by (dx, dz) where the deck slides.
+   */
+  private readonly rides = new Map<
+    number,
+    { trainIds: number[]; from: WorldSample[][]; angle: number; cx: number; cz: number; dx: number; dz: number; start: number; done: number }
+  >();
+
+  /**
+   * A deck turned from road `from` to `to`: the trains standing on it go with it. Each axle goes to the same place on
+   * the new road (its start is the old one's turned or slid there); on a turntable turned past half round the new road
+   * points the other way, so the train runs along it the other way.
+   */
+  private startRide(pieceId: number, from: number, to: number, done: number): void {
+    const piece = this.layout.getPiece(pieceId)!;
+    const def = getPieceDef(piece.type, piece.flipped);
+    const riders = [...this.trains.values()].filter((t) => !t.derailed && t.bogies.length > 0 && t.bogies.every((b) => b.pieceId === pieceId));
+    if (riders.length === 0 || from === to) return;
+    const a = def.paths[from].geom;
+    const b = def.paths[to].geom;
+    if (a.kind !== "line" || b.kind !== "line") return;
+    // The old road's start, turned onto the new road's: by the angle between them, or half round more if that's
+    // nearer (then the new road runs the other way).
+    let angle = normalizeAngle(b.start.heading - a.start.heading);
+    const flip = Math.abs(angle) > Math.PI / 2;
+    if (flip) angle = normalizeAngle(angle + Math.PI);
+    const from0 = riders.map((t) => t.world.map((w) => ({ ...w })));
+    for (const t of riders) {
+      for (const c of t.bogies) {
+        c.pathIndex = to;
+        // (A cursor's `s` is from where it starts travelling: the same distance from the turned start, on the new
+        // road run the other way.)
+        if (flip) c.reversed = !c.reversed;
+      }
+      t.memory.clear();
+      this.refreshWorld(t);
+    }
+    // The move as the world sees it: one axle from where it stood to where it is now gives the turn's centre (or, no
+    // turn, the slide).
+    const p = from0[0][0];
+    const q = riders[0].world[0];
+    const ch = Math.cos(angle);
+    const sh = Math.sin(angle);
+    let cx = 0;
+    let cz = 0;
+    if (Math.abs(angle) > 1e-9) {
+      // q − c = R(p − c): c = (I − R)⁻¹ (q − R p).
+      const rx = q.x - (ch * p.x - sh * p.z);
+      const rz = q.z - (sh * p.x + ch * p.z);
+      const m00 = 1 - ch;
+      const m01 = sh;
+      const m10 = -sh;
+      const m11 = 1 - ch;
+      const det = m00 * m11 - m01 * m10;
+      cx = (m11 * rx - m01 * rz) / det;
+      cz = (-m10 * rx + m00 * rz) / det;
+    }
+    this.rides.set(pieceId, { trainIds: riders.map((t) => t.id), from: from0, angle, cx, cz, dx: q.x - p.x, dz: q.z - p.z, start: this.ticks, done });
+    for (let i = 0; i < riders.length; i++) this.carry(riders[i], from0[i], 0, angle, cx, cz, q.x - p.x, q.z - p.z);
+  }
+
+  /** A riding train drawn `e` (0 to 1) of the way round (or across) from where it stood. */
+  private carry(t: Train, from: readonly WorldSample[], e: number, angle: number, cx: number, cz: number, dx: number, dz: number): void {
+    const turn = Math.abs(angle) > 1e-9;
+    const ch = Math.cos(angle * e);
+    const sh = Math.sin(angle * e);
+    for (let i = 0; i < t.world.length && i < from.length; i++) {
+      const f = from[i];
+      const w = t.world[i];
+      if (turn) {
+        w.x = cx + ch * (f.x - cx) - sh * (f.z - cz);
+        w.z = cz + sh * (f.x - cx) + ch * (f.z - cz);
+        w.heading = normalizeAngle(f.heading + angle * e);
+      } else {
+        w.x = f.x + dx * e;
+        w.z = f.z + dz * e;
+        w.heading = f.heading;
+      }
+      w.y = f.y;
+      w.slope = f.slope;
+    }
+  }
+
+  /** Riding trains carried on with their decks; a ride over, they're drawn where they now stand. */
+  private updateRides(): void {
+    for (const [id, r] of this.rides) {
+      const over = this.ticks >= r.done;
+      const u = over ? 1 : (this.ticks - r.start) / (r.done - r.start);
+      const e = u * u * (3 - 2 * u);
+      r.trainIds.forEach((tid, i) => {
+        const t = this.trains.get(tid);
+        if (!t) return;
+        if (over) this.refreshWorld(t);
+        else this.carry(t, r.from[i], e, r.angle, r.cx, r.cz, r.dx, r.dz);
+      });
+      if (over) this.rides.delete(id);
+    }
+  }
+
+  /** Is a train standing on this deck (one it would carry round if it turned)? */
+  /**
+   * The deck (a turntable's: a gated piece) the train with this car stands still wholly on, or -1: moving or waiting to
+   * turn back, partly on, derailed, or on ordinary track. (A tap there is the deck's: see `Interaction.pick`.)
+   */
+  deckUnder(carId: number): number {
+    const found = this.findCar(carId);
+    if (!found) return -1;
+    const t = found.train;
+    if (t.derailed || t.speed > 0 || t.turnback >= 0 || t.bogies.length === 0) return -1;
+    const pieceId = t.bogies[0].pieceId;
+    if (t.bogies.some((b) => b.pieceId !== pieceId)) return -1;
+    const piece = this.layout.getPiece(pieceId);
+    return piece && getPieceDef(piece.type, piece.flipped).gated ? pieceId : -1;
+  }
+
+  deckCarries(pieceId: number): boolean {
+    for (const t of this.trains.values()) if (!t.derailed && t.bogies.some((b) => b.pieceId === pieceId)) return true;
+    return false;
+  }
+
+  /** Is this train riding a turning deck (held still)? */
+  private riding(train: Train): boolean {
+    for (const r of this.rides.values()) if (r.trainIds.includes(train.id)) return true;
+    return false;
+  }
+
   tick(): void {
     this.ticks++;
+    if (this.rides.size > 0) this.updateRides();
+    if (this.decksTurning.size > 0) {
+      for (const [id, done] of this.decksTurning)
+        if (done <= this.ticks) {
+          this.layout.setDeckTurning(id, false);
+          this.decksTurning.delete(id);
+        }
+    }
     this.updateSignals();
     for (const train of this.trains.values()) {
       if (train.derailed) continue;
+      // Riding a turning deck: held where it stands till the deck's there.
+      if (this.rides.size > 0 && this.riding(train)) continue;
       // Waiting at the end of the line beside a crane with work for it (a depot at the line's end): the wait holds
       // until the crane's done (it's asked each tick, as when moving, so it can see the train has stopped).
       const craneHolds = train.turnback >= 0 && this.speedCap !== null && this.speedCap(train) === 0;
@@ -529,9 +717,32 @@ export class Sim {
 
   // ---- signals: block working -----------------------------------------------------------------------------
 
-  /** Is this signal at clear (true), or red (false)? A signal not yet worked out shows clear. */
-  signalClear(pieceId: number): boolean {
-    return this.aspects.get(pieceId) ?? true;
+  /**
+   * Is this signal at clear (true), or red (false)? `road`: which of a signal piece's paths it guards (a gantry has one
+   * on each of its roads; a plain signal just the one). A signal not yet worked out shows clear.
+   */
+  signalClear(pieceId: number, road = 0): boolean {
+    return this.aspects.get(signalKey(pieceId, road)) ?? true;
+  }
+
+  /**
+   * A signal piece's aspects as one number: a bit for each of its roads at red (road 0's is 1), so 0 when all are clear
+   * (a signal skin's model shows it: `KitStateMotion.source`). 0 for any other piece.
+   */
+  redSignals(pieceId: number): number {
+    const p = this.layout.getPiece(pieceId);
+    const def = p && getPieceDef(p.type, p.flipped);
+    if (!def?.signal) return 0;
+    let red = 0;
+    for (let road = 0; road < def.paths.length; road++) if (!this.signalClear(pieceId, road)) red += 1 << road;
+    return red;
+  }
+
+  /** Hold one of a signal piece's signals at red by hand, or let it go (each road's hold is a bit of its state). */
+  toggleSignal(pieceId: number, road = 0): void {
+    this.layout.setSwitchState(pieceId, this.layout.switchState(pieceId) ^ (1 << road));
+    // Shown at once (even paused).
+    this.updateSignals();
   }
 
   /**
@@ -556,49 +767,63 @@ export class Sim {
     return !!t && !t.derailed && t.speed < 1 && this.signalCap(t) === 0;
   }
 
-  /** Held at red by hand (a tap; saved with the switch states), whatever the line ahead. */
-  signalHeld(pieceId: number): boolean {
-    return this.layout.switchState(pieceId) % 2 === 1;
+  /** Held at red by hand (a tap; saved with the switch states: a bit for each road), whatever the line ahead. */
+  signalHeld(pieceId: number, road = 0): boolean {
+    return ((this.layout.switchState(pieceId) >> road) & 1) === 1;
   }
 
   /**
    * Each signal's aspect: red while it's held, or while any train stands on its block, the track from its far end up
    * to and including the next signal, switch or crossing (or to the end of the line). Worked out once a tick.
+   *
+   * A signal piece has a signal on each of its paths (`PieceDef.signal`): a plain signal one, a gantry over two roads
+   * two, each guarding its own road from the path's `from` end to its `to` end, with a block of its own beyond.
    */
   private updateSignals(): void {
     if (this.signals === null) {
       this.signals = [];
       for (const id of this.layout.pieceIds()) {
         const p = this.layout.getPiece(id)!;
-        if (getPieceDef(p.type, p.flipped).signal) this.signals.push(id);
+        const def = getPieceDef(p.type, p.flipped);
+        if (def.signal) for (let road = 0; road < def.paths.length; road++) this.signals.push(signalKey(id, road));
       }
-      for (const id of this.aspects.keys()) if (!this.layout.getPiece(id)) this.aspects.delete(id);
+      for (const key of this.aspects.keys()) if (!this.signals.includes(key)) this.aspects.delete(key);
     }
     if (this.signals.length === 0) return;
-    const occupied = new Set<number>();
-    for (const t of this.trains.values()) for (const b of t.bogies) occupied.add(b.pieceId);
-    for (const id of this.signals) {
+    // Pieces with a train on them: which of their paths (a bit each).
+    const occupied = new Map<number, number>();
+    for (const t of this.trains.values()) for (const b of t.bogies) occupied.set(b.pieceId, (occupied.get(b.pieceId) ?? 0) | (1 << b.pathIndex));
+    for (const key of this.signals) {
+      const id = signalPiece(key);
+      const road = signalRoad(key);
       if (!this.layout.getPiece(id) || this.layout.isLifted(id)) continue;
-      const clear = !this.signalHeld(id) && !this.blockOccupied(id, occupied);
-      if (this.aspects.get(id) !== clear) {
-        this.aspects.set(id, clear);
+      const clear = !this.signalHeld(id, road) && !this.blockOccupied(id, road, occupied);
+      if (this.aspects.get(key) !== clear) {
+        this.aspects.set(key, clear);
         this.signalsVersion++;
       }
     }
   }
 
-  /** Is any train on the block beyond this signal (see `updateSignals`)? */
-  private blockOccupied(signalId: number, occupied: ReadonlySet<number>): boolean {
-    let ref = connectorRef(signalId, 1);
+  /** Is any train on the block beyond this signal (a signal piece's road: see `updateSignals`)? */
+  private blockOccupied(signalId: number, road: number, occupied: ReadonlyMap<number, number>): boolean {
+    const p0 = this.layout.getPiece(signalId)!;
+    const far = getPieceDef(p0.type, p0.flipped).paths[road]?.to;
+    // A road that ends at a buffer in the piece has no block beyond it.
+    if (far === null || far === undefined) return false;
+    let ref = connectorRef(signalId, far);
     for (let n = 0; n < MAX_BLOCK; n++) {
       const next = this.layout.joinedConnector(ref);
       if (next === -1) return false;
       const id = pieceOfRef(next);
       if (id === signalId) return false;
-      if (occupied.has(id)) return true;
       const p = this.layout.getPiece(id);
       if (!p) return false;
       const def = getPieceDef(p.type, p.flipped);
+      const on = occupied.get(id);
+      // A train on the piece the block runs into holds it; on double track (roads side by side that never meet), only
+      // one on the road the block runs onto does: a train on the other line is on another block.
+      if (on !== undefined && (!pathsApart(def) || (on & pathsAt(def, indexOfRef(next))) !== 0)) return true;
       // The block ends here: at the next signal, or at a switch or crossing (where lines meet).
       if (def.signal || def.connectors.length !== 2) return false;
       ref = connectorRef(id, 1 - indexOfRef(next));
@@ -638,7 +863,7 @@ export class Sim {
       }
       const p = this.layout.getPiece(c.pieceId);
       const stopAt = p ? getPieceDef(p.type, p.flipped).signal?.stopAt : undefined;
-      if (stopAt !== undefined && !c.reversed && this.aspects.get(c.pieceId) === false) {
+      if (stopAt !== undefined && !c.reversed && this.aspects.get(signalKey(c.pieceId, c.pathIndex)) === false) {
         // Short of the stop point: brake to it. Stepped onto the piece already past it: it was within this step.
         // (Already past it where the axle stands: that signal's behind; look on.)
         let dist = -1;
@@ -820,11 +1045,13 @@ export class Sim {
   }
 
   private resolveContacts(): void {
+    const riding = this.rides.size > 0;
     for (const a of this.trains.values()) {
       if (a.derailed || a.speed <= 0) continue;
       this.endFace(a, true, face);
       for (const b of this.trains.values()) {
-        if (b === a || b.derailed || !this.trains.has(a.id)) continue;
+        // (A train riding a turning deck is swept round past the roads' ends: nothing couples to it till it's there.)
+        if (b === a || b.derailed || !this.trains.has(a.id) || (riding && this.riding(b))) continue;
         const reach = Math.max(4, a.speed * SIM_DT + 2);
         // End to end (meeting, or touching as they part): not a blow to b's side.
         let ends = false;
@@ -905,4 +1132,50 @@ export class Sim {
     this.trains.delete(a.id);
     this.events.push({ kind: "coupled", trainId: b.id, absorbedTrainId: a.id });
   }
+}
+
+/** A signal's key: its piece and which of the piece's paths (roads) it guards (as many as it has connectors, at most). */
+export const signalKey = (pieceId: number, road: number): number => pieceId * MAX_CONNECTORS + road;
+const signalPiece = (key: number): number => Math.floor(key / MAX_CONNECTORS);
+const signalRoad = (key: number): number => key % MAX_CONNECTORS;
+
+/** The paths (a bit each) that end at a piece's connector. */
+function pathsAt(def: PieceDef, connector: number): number {
+  let bits = 0;
+  def.paths.forEach((p, i) => {
+    if (p.from === connector || p.to === connector) bits |= 1 << i;
+  });
+  return bits;
+}
+
+const apartCache = new WeakMap<PieceDef, boolean>();
+const apartA = createSample();
+const apartB = createSample();
+
+/**
+ * Is a piece double track (or more): not a switch, with several paths that stay at least a track's width apart all
+ * along (a double straight, a gantry's roads; not a crossing, whose lines meet)? Worked out once per piece def.
+ */
+function pathsApart(def: PieceDef): boolean {
+  if (def.isSwitch || def.paths.length < 2) return false;
+  let apart = apartCache.get(def);
+  if (apart !== undefined) return apart;
+  apart = true;
+  const step = 8;
+  for (let i = 0; i < def.paths.length && apart; i++)
+    for (let j = i + 1; j < def.paths.length && apart; j++) {
+      const a = def.paths[i].geom;
+      const b = def.paths[j].geom;
+      const la = pathLength(a);
+      const lb = pathLength(b);
+      for (let s = 0; s <= la && apart; s += step) {
+        samplePath(a, Math.min(s, la), apartA);
+        for (let t = 0; t <= lb && apart; t += step) {
+          samplePath(b, Math.min(t, lb), apartB);
+          if (Math.hypot(apartA.x - apartB.x, apartA.z - apartB.z) < TRACK_WIDTH) apart = false;
+        }
+      }
+    }
+  apartCache.set(def, apart);
+  return apart;
 }

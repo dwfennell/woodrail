@@ -38,3 +38,16 @@ export function carNearTap(x: number, y: number, cars: readonly CarOnScreen[], s
 export function nearCarWins(under: "piece" | "road" | "station" | "car" | "depot" | "cargo" | "prop" | "lever" | null): boolean {
   return under === null || under === "piece" || under === "road" || under === "station";
 }
+
+/**
+ * A tap that finds a car whose train stands still wholly on a turntable's deck (`deck`, its piece; else −1): is it the
+ * deck's (its piece id), or the car's (−1)? The deck's if what's exactly under the tap is that deck (the car came by a
+ * fingertip's slack), or is the car itself with that turntable selected (the player is working it: a tap anywhere on
+ * the deck turns it). Else the car's: with the turntable not selected, a tap on the engine still takes the engine.
+ */
+export function deckTapWins(deck: number, exact: { kind: string; pieceId?: number; deck?: boolean } | null, selectedPiece: number): number {
+  if (deck === -1 || !exact) return -1;
+  if (exact.kind === "piece" && exact.deck && exact.pieceId === deck) return deck;
+  if (exact.kind === "car" && selectedPiece === deck) return deck;
+  return -1;
+}
