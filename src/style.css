@@ -286,7 +286,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A narrow phone: Draw as its pencil (Turn and Flip are icons already) and the tabs a little tighter, so every tab
    still shows beside the tools (Game's Industries, where a goal sends you). */
 @media (max-width: 400px) {
-  .tray-tools .draw-word { display: none; }
+  /* (Its word goes only while a shelf is open, Turn and Flip beside it; at the top there's room: QA, a bare ✎.) */
+  .tray.in-group .tray-tools .draw-word { display: none; }
   .tray-head { gap: 4px; }
   .tray-head .tabs { padding: 0 4px; }
   .tray-head .tab { padding-left: 8px; padding-right: 8px; font-size: 13px; }
@@ -356,6 +357,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .goals-show-icon::before { content: ""; position: absolute; inset: 5px; z-index: -1; border-radius: 50%; background: linear-gradient(180deg, #f6e3c1, #e8c992); box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.25); }
 .goals-show-icon:hover::before { filter: brightness(1.05); }
 .goals.collapsed .goals-show-icon { display: grid; }
+/* Its word beside the ⌖ (QA: unlabelled): a pill, not a dot. */
+.goals.collapsed .goals-show-icon { display: inline-flex; align-items: center; gap: 4px; width: auto; padding: 0 13px 0 11px; font: inherit; font-weight: 800; font-size: 13px; white-space: nowrap; }
+.goals.collapsed .goals-show-icon::before { border-radius: 17px; }
+/* (Where the word would cut the goal's title short: the round ⌖ alone, as before.) */
+.goals.collapsed.show-tight .goals-show-icon { width: 44px; padding: 0; justify-content: center; }
+.goals.collapsed.show-tight .goals-show-word { display: none; }
 .goals-show { margin-top: 6px; height: 40px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
 .goals-body { display: none; }
 .goals.collapsed .goals-head { padding-bottom: 10px; }
@@ -435,6 +442,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .map-dot { flex: none; width: 16px; height: 16px; border-radius: 50%; background: #c8442f; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.2); }
 .map-marker.kind-forest .map-dot { background: #3f8f4a; border-radius: 4px; }
 .map-marker.kind-sawmill .map-dot { background: #d8961f; border-radius: 4px; }
+/* An industry the player put down (a workshop): a square, in its own colour. */
+.map-marker:not(.kind-town):not(.kind-forest):not(.kind-sawmill) .map-dot { background: #7a5ab8; border-radius: 4px; }
 .map-text { display: flex; flex-direction: column; min-width: 0; }
 .map-text b { font-size: 14px; line-height: 1.15; }
 .map-text span { font-size: 12px; font-weight: 700; color: #6a5340; line-height: 1.25; }

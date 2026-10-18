@@ -18,4 +18,15 @@ describe("map markers", () => {
     expect(markers.find((m) => m.kind === "sawmill")!.detail).toBe("🌲 Logs 0 · 🪵 Planks 0");
     expect(new Set(markers.map((m) => m.key)).size).toBe(markers.length);
   });
+
+  it("point out an industry the player put down (a workshop) too, but nothing twice (QA: the map had no workshop)", () => {
+    const w = buildStarterWorld();
+    const before = mapMarkers(w, (id) => townStatus(receivedBy(w, id)));
+    const at = w.layout.addPiece("depot-workshop", { x: 900, z: -400, heading: 0 });
+    w.economy.addDepot("workshop", at);
+    const after = mapMarkers(w, (id) => townStatus(receivedBy(w, id)));
+    expect(after).toHaveLength(before.length + 1);
+    expect(after.find((m) => m.kind === "workshop")).toMatchObject({ title: "Workshop", x: 900, z: -400 });
+    expect(new Set(after.map((m) => m.key)).size).toBe(after.length);
+  });
 });

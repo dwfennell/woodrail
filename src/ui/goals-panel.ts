@@ -80,7 +80,13 @@ export class GoalsPanel {
     });
     // Folded up, a small round button beside the goal's title; unfolded, "Show me" sits under the goal's hint.
     this.showBtn.className = "goals-show-icon";
-    this.showBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/></svg>`;
+    // (The room for the word changes as the phone turns.)
+    let refit = 0;
+    addEventListener("resize", () => {
+      cancelAnimationFrame(refit);
+      refit = requestAnimationFrame(() => this.fitShow());
+    });
+    this.showBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/></svg><span class="goals-show-word">Show me</span>`;
     this.showBtn.title = "Show me where to do this goal";
     this.showBtn.setAttribute("aria-label", "Show me where to do this goal");
     this.showBtn.addEventListener("click", (e) => {
@@ -168,6 +174,18 @@ export class GoalsPanel {
   private setOpen(open: boolean): void {
     this.root.classList.toggle("collapsed", !open);
     this.syncNews();
+    this.fitShow();
+  }
+
+  /**
+   * Folded, "Show me" has its word beside its ⌖ where the goal's title still fits beside it (QA: unlabelled), and is
+   * the round ⌖ alone where the word would cut the title short (a long one on a narrow phone). Measured when the title
+   * or the room changes, not per frame.
+   */
+  private fitShow(): void {
+    this.root.classList.remove("show-tight");
+    if (!this.root.classList.contains("collapsed") || this.now.clientWidth === 0) return;
+    if (this.now.scrollWidth > this.now.clientWidth + 1) this.root.classList.add("show-tight");
   }
 
   private setTab(tab: "goals" | "news"): void {
@@ -312,6 +330,7 @@ export class GoalsPanel {
     this.count.textContent = goalsCountText(done, total, lockedCount);
     this.now.textContent = current?.title ?? locked ?? "All done!";
     this.showBtn.hidden = !current;
+    this.fitShow();
     // A goal still to come waits for blueprints: said in a line of its own ("Learn Signals to unlock a goal").
     const lockedRow = locked ? `<div class="goal upcoming locked"><span class="goal-box">🔒</span><span>${locked}</span></div>` : "";
     if (!current && locked) {
