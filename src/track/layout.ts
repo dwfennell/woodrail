@@ -51,6 +51,19 @@ export class Layout {
     return this.pieces.size;
   }
 
+  /**
+   * Bumped whenever the track changes: a piece added, taken up, lifted or put down, or a joint made or parted (not a
+   * nudge, which keeps the joints). With `routingVersion`, what a cache of ways along the track is keyed on.
+   */
+  revision = 0;
+
+  /**
+   * Bumped when the ways a routed train can be sent change without the track changing: a switch pinned or unpinned, a
+   * pinned switch or a deck set, a deck starting or ending a turn. (Not an unpinned switch thrown: `switchesVersion`
+   * counts those too, and steering throws them all the time.)
+   */
+  routingVersion = 0;
+
   get jointCount(): number {
     return this.jointMap.size;
   }
@@ -69,6 +82,7 @@ export class Layout {
 
   addPiece(type: PieceTypeId, pose: Pose, y = 0, flipped = false): number {
     const id = this.nextId++;
+    this.revision++;
     this.pieces.set(id, { id, type, flipped, pose: { ...pose }, y });
     this.seatAll(id);
     return id;
@@ -77,6 +91,7 @@ export class Layout {
   /** Re-add a piece under a specific id (undo, loading saves). Returns false if the id is taken. */
   restorePiece(id: number, type: PieceTypeId, pose: Pose, y: number, flipped: boolean): boolean {
     if (this.pieces.has(id)) return false;
+    this.revision++;
     this.pieces.set(id, { id, type, flipped, pose: { ...pose }, y });
     if (id >= this.nextId) this.nextId = id + 1;
     this.seatAll(id);
@@ -87,12 +102,14 @@ export class Layout {
 
   removePiece(id: number): boolean {
     if (!this.pieces.has(id)) return false;
+    this.revision++;
     if (!this.lifted.delete(id)) this.detachAll(id);
     this.pieces.delete(id);
     this.switchStates.delete(id);
     if (this.pinned.delete(id)) {
       this.unpinned.add(id);
       this.switchesVersion++;
+      this.routingVersion++;
     }
     return true;
   }
@@ -106,6 +123,7 @@ export class Layout {
   liftPiece(id: number): boolean {
     if (!this.pieces.has(id)) return false;
     if (this.lifted.has(id)) return true;
+    this.revision++;
     this.detachAll(id);
     this.lifted.add(id);
     return true;
@@ -115,6 +133,7 @@ export class Layout {
   dropPiece(id: number, pose: Pose, y: number, flipped?: boolean): boolean {
     const piece = this.pieces.get(id);
     if (!piece) return false;
+    this.revision++;
     if (!this.lifted.has(id)) this.detachAll(id);
     this.lifted.delete(id);
     this.pieces.set(id, { ...piece, pose: { ...pose }, y, flipped: flipped ?? piece.flipped });
@@ -191,6 +210,11 @@ export class Layout {
   setSwitchState(pieceId: number, state: number): void {
     this.switchStates.set(pieceId, state);
     this.switchesVersion++;
+    if (this.pinned.has(pieceId)) this.routingVersion++;
+    else if (this.pieces.size > 0) {
+      const p = this.pieces.get(pieceId);
+      if (p && getPieceDef(p.type, p.flipped).gated) this.routingVersion++;
+    }
   }
 
   /** Bumped whenever a switch state is set, or a switch is pinned or unpinned (a turntable's deck follows it: `KitView`). */
@@ -218,6 +242,7 @@ export class Layout {
       this.pinned.add(pieceId);
     } else if (!this.pinned.delete(pieceId)) return;
     this.switchesVersion++;
+    this.routingVersion++;
   }
 
   /** The pinned switches' ids (for saving). */
@@ -233,8 +258,10 @@ export class Layout {
   }
 
   setDeckTurning(pieceId: number, on: boolean): void {
+    if (on ? this.turning.has(pieceId) : !this.turning.has(pieceId)) return;
     if (on) this.turning.add(pieceId);
     else this.turning.delete(pieceId);
+    this.routingVersion++;
   }
 
   /** Seat a free connector on a free one within the joint tolerance, if there is one (a near miss just closed). */
@@ -249,6 +276,7 @@ export class Layout {
   unseat(ref: number): void {
     const partner = this.joinedTo.get(ref);
     if (partner === undefined) return;
+    this.revision++;
     this.joinedTo.delete(ref);
     this.joinedTo.delete(partner);
     this.jointMap.delete(Math.min(ref, partner));
@@ -321,6 +349,7 @@ export class Layout {
       return;
     }
     this.freeConnectors.remove(best);
+    this.revision++;
     this.joinedTo.set(ref, best);
     this.joinedTo.set(best, ref);
     const a = Math.min(ref, best);

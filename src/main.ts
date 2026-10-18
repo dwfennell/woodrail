@@ -1883,8 +1883,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const lever = found.train.cars[found.index].lever;
     // The train changed its lever by itself (sent back from the end of the line): the card follows.
     if (lever !== hud.engineLeverShown) hud.updateEngineCard(lever, game.following === carId);
-    // Held at its stop for spacing: one tap ("Go now") sends it on.
-    hud.setGoNow(lever !== 0 && game.economy.spacingWait(carId) !== null);
+    // Held at its stop for spacing, or for a train of its line coming the other way: one tap ("Go now") sends it on.
+    hud.setGoNow(lever !== 0 && (game.economy.spacingWait(carId) !== null || game.economy.crossWait(carId) !== null));
     const opened = carId !== viewCar;
     viewCar = carId;
     // Stopped (just opened on it, or come to a stand with the card open) with its front up against a buffer: Go

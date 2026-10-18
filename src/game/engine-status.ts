@@ -21,6 +21,11 @@ export type TrainState =
   | { kind: "stopped" }
   /** Held at its stop a moment so its line's trains spread out (auto-spacing): `left` seconds at most, or not known. */
   | { kind: "spacing"; line: string; left: number | null }
+  /**
+   * Held at its stop till the way on is clear of its line's trains coming the other way: waiting for one (coming from
+   * `depotId`, or standing at it), or in a mutual wait (`needsLoop`: the line needs a passing loop).
+   */
+  | { kind: "crossing"; line: string; depotId: number; moving: boolean; needsLoop: boolean }
   | { kind: "held-up" }
   | { kind: "starting" }
   | { kind: "running" };
@@ -70,10 +75,17 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
   if (lift) return { kind: "lift", riding: lift === "riding" };
   if (sim.atRedSignal(train.id)) return { kind: "red-signal", signalId: sim.redSignalAhead(train.id) };
   if (lever === 0) return train.speed > 1 ? { kind: "slowing" } : { kind: "stopped" };
-  // Held a moment at its stop so its line's trains spread out.
+  // Held a moment at its stop so its line's trains spread out, or till the way on is clear of them.
   for (const car of train.cars) {
     const wait = economy.spacingWait(car.id);
     if (wait) return { kind: "spacing", line: wait.line.name, left: wait.left };
+    const cross = economy.crossWait(car.id);
+    if (cross) {
+      const w = cross.wait;
+      return w.kind === "needs-loop"
+        ? { kind: "crossing", line: cross.line.name, depotId: -1, moving: false, needsLoop: true }
+        : { kind: "crossing", line: cross.line.name, depotId: w.depotId, moving: w.moving, needsLoop: false };
+    }
   }
   if (train.speed < 1) {
     const why = cantMove?.(train) ?? null;
@@ -126,6 +138,9 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
     case "spacing":
       // (A countdown, in whole seconds, where it's known: behind another train it waits for that one to go.)
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
+    case "crossing":
+      if (s.needsLoop) return `The ${s.line} needs a passing loop`;
+      return `Waiting for the ${s.line} train ${s.moving ? "from" : "at"} ${nameOf(s.depotId)}`;
     case "held-up":
       return "Waiting: something's in the way";
     case "running": {

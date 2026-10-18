@@ -1094,7 +1094,7 @@ export class Hud {
     this.goBtn.classList.toggle("stop", moving && !now);
     // Go goes the way the arrow beside it shows (no triangle of its own pointing elsewhere).
     this.goBtn.innerHTML = now ? "Go now" : moving ? `<span class="go-icon">■</span>Stop` : "Go";
-    this.goBtn.title = now ? "Go now, without waiting to space out" : moving ? "Stop" : "Go";
+    this.goBtn.title = now ? "Go now, without waiting" : moving ? "Stop" : "Go";
     // The arrow's angle depends on the way chosen: redrawn on the next view update.
     this.shownAngle = NaN;
   }

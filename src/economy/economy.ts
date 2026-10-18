@@ -1,8 +1,9 @@
 import { getPieceDef, isKit, pathLength, type Layout } from "../track";
-import { ACCELERATION, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, CAR_SPECS, SIM_DT, type Cursor, type Sim, type Train } from "../sim";
 import { CARGO, CARGO_KINDS, canCarry, type CargoKind } from "./cargo";
 import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./constants";
 import { Spacing } from "./spacing";
+import { Crossing, type CrossWait } from "./crossing";
 import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
 import { steer } from "./steer";
@@ -294,6 +295,28 @@ export class Economy {
     // A kit with a depot on it (Game mode's halts) stops trains as the depot does, for its work: not for its dwell too.
     this.kitStops = new KitStops(layout, sim, (pieceId) => this.byPiece.has(pieceId));
     sim.speedCap = (train) => this.capFor(train);
+    this.crossing = new Crossing({
+      layout,
+      sim,
+      route: (engine) => this.routes.get(engine),
+      stopPiece: (depotId) => {
+        const d = this.depots[depotId];
+        return d && layout.getPiece(d.pieceId) ? d.pieceId : -1;
+      },
+      drive: (train) => this.drive(train),
+      busy: (train, engine) => this.servingDepot(train.id) !== undefined || this.spacing.holding(engine),
+      skipTo: (engine, index, turn) => {
+        const r = this.routes.get(engine);
+        const found = sim.findCar(engine);
+        if (!r || !found) return;
+        const line = this.lines.get(this.lineIdOf.get(engine) ?? -1);
+        if (line && r.at) this.spacing.departed(line.id, stopsKey(line), engine, r.next % r.stops.length, this.ticksRun);
+        r.next = index % r.stops.length;
+        r.at = false;
+        // Turned round: its engines' levers the other way (as at the end of the line).
+        if (turn) for (const car of found.train.cars) if (CAR_SPECS[car.kind].powered && car.lever !== 0) sim.setLever(car.id, car.lever === 1 ? -1 : 1);
+      },
+    });
   }
 
   /** Register a depot on a piece. `craneAt` defaults to the middle of the piece's track. */
@@ -940,8 +963,10 @@ export class Economy {
       // take them stops under the crane), while a wagon could take some.
       if (!this.waitsHere(train, d)) {
         s.phase = NONE;
-        // Its work here done (or none): it waits a moment longer if another train of its line left here just now.
-        return this.spacingCap(train, d);
+        // Its work here done (or none): it waits a moment longer if another train of its line left here just now, and
+        // then till the way to its next stop is clear of its line's trains coming the other way.
+        const spaced = this.spacingCap(train, d);
+        return spaced !== Infinity ? spaced : this.crossCap(train, d);
       }
     }
     s.phase = CRAWLING;
@@ -1016,16 +1041,9 @@ export class Economy {
    * lets it go.
    */
   private spacingCap(train: Train, d: DepotState): number {
-    let cap = 0;
-    let clean = true;
-    if (train.speed > CRAWL_SPEED + 1e-6) {
-      const front = train.bogies[0];
-      if (front.pieceId !== d.pieceId) return Infinity;
-      const len = this.depotLength(d);
-      const room = (front.reversed ? along(front, len) : len - along(front, len)) - STOP_SHORT;
-      cap = room > 0 ? Math.sqrt(2 * ACCELERATION * room) : 0;
-      clean = train.speed <= cap + 1e-6;
-    }
+    const brake = this.holdBrake(train, d);
+    if (!brake) return Infinity;
+    const { cap, clean } = brake;
     for (const car of train.cars) {
       const lineId = this.lineIdOf.get(car.id);
       const r = lineId === undefined ? undefined : this.routes.get(car.id);
@@ -1035,13 +1053,51 @@ export class Economy {
       if (r.stops[index].depotId !== d.id) return Infinity;
       // (Braking for a hold already begun, it carries on: only a new hold needs room to stop in.)
       if (!clean && !this.spacing.holding(car.id)) return Infinity;
-      const live: number[] = [];
-      for (const [engine, id] of this.lineIdOf) {
-        if (id !== line.id) continue;
-        const found = this.sim.findCar(engine);
-        if (found && !found.train.derailed) live.push(engine);
-      }
-      return this.spacing.holds(line.id, stopsKey(line), car.id, index, live, this.ticksRun, train.leverTick ?? 0) ? cap : Infinity;
+      return this.spacing.holds(line.id, stopsKey(line), car.id, index, this.liveOn(line.id), this.ticksRun, train.leverTick ?? 0) ? cap : Infinity;
+    }
+    return Infinity;
+  }
+
+  /**
+   * How a train at its stop with nothing (more) to do there is held (`spacingCap`, `crossCap`): stopped there, it stays
+   * where it is (0); running in it brakes as for a signal, to stop by the stop's far end (`clean`: it can stop in that
+   * room). Null: running in, its front not on the stop yet.
+   */
+  private holdBrake(train: Train, d: DepotState): { cap: number; clean: boolean } | null {
+    if (train.speed <= CRAWL_SPEED + 1e-6) return { cap: 0, clean: true };
+    const front = train.bogies[0];
+    if (front.pieceId !== d.pieceId) return null;
+    const len = this.depotLength(d);
+    const room = (front.reversed ? along(front, len) : len - along(front, len)) - STOP_SHORT;
+    const cap = room > 0 ? Math.sqrt(2 * ACCELERATION * room) : 0;
+    return { cap, clean: train.speed <= cap + 1e-6 };
+  }
+
+  /** The engines running line `lineId` now: on the track, not derailed. */
+  private liveOn(lineId: number): number[] {
+    const live: number[] = [];
+    for (const [engine, id] of this.lineIdOf) {
+      if (id !== lineId) continue;
+      const found = this.sim.findCar(engine);
+      if (found && !found.train.derailed) live.push(engine);
+    }
+    return live;
+  }
+
+  /**
+   * Trains that wait for each other (see crossing.ts): is this routed train, at the stop it's heading for, ready to go,
+   * held there till the way to its next stop is clear of its line's trains coming the other way? Its speed limit if
+   * so (braking as `holdBrake`), else Infinity. Its lever set (the player sends it on) lets it go.
+   */
+  private crossCap(train: Train, d: DepotState): number {
+    for (const car of train.cars) {
+      const lineId = this.lineIdOf.get(car.id);
+      const r = lineId === undefined ? undefined : this.routes.get(car.id);
+      if (lineId === undefined || !r || !this.lines.has(lineId)) continue;
+      if (r.stops[r.next % r.stops.length].depotId !== d.id) return Infinity;
+      const brake = this.holdBrake(train, d);
+      if (!brake || (!brake.clean && !this.crossing.holding(car.id))) return Infinity;
+      return this.crossing.holds(car.id, train, lineId, () => this.liveOn(lineId), this.ticksRun, train.leverTick ?? 0) ? brake.cap : Infinity;
     }
     return Infinity;
   }
@@ -1228,10 +1284,22 @@ export class Economy {
     return w && line ? { line, waited: w.waited, left: w.left } : null;
   }
 
+  /**
+   * Is this engine's train waiting at its stop for a train of its line coming the other way, or in a mutual wait that
+   * needs a passing loop (see crossing.ts)? Its line, and why, for its card.
+   */
+  crossWait(engineCarId: number): { line: Line; wait: CrossWait } | null {
+    const wait = this.crossing.waitOf(engineCarId, this.ticksRun);
+    const line = wait && this.lines.get(wait.lineId);
+    return wait && line ? { line, wait } : null;
+  }
+
   /** Ticks run (sim time: a pause stops it), for spacing the trains on a line (`spacing`). */
   private ticksRun = 0;
   /** Auto-spacing of the trains on a line (see spacing.ts). */
   readonly spacing = new Spacing();
+  /** Trains of a line waiting for each other at stops (see crossing.ts). */
+  readonly crossing: Crossing;
 
   /** A routed train that has been at its next stop and left it heads for the one after. */
   private advanceRoutes(): void {
@@ -1252,11 +1320,13 @@ export class Economy {
       if (on) {
         // Come to it (for spacing: the first here goes first).
         if (!r.at && line) this.spacing.arrived(line.id, stopsKey(line), engine, r.next % r.stops.length, this.ticksRun);
+        if (!r.at) this.crossing.arrived(engine, found.train.leverTick ?? 0);
         r.at = true;
       } else if (r.at) {
         // Left it: on past it, and past any stops after it at the same depot (they were the same visit).
         r.at = false;
         if (line) this.spacing.departed(line.id, stopsKey(line), engine, r.next % r.stops.length, this.ticksRun);
+        this.crossing.departed(engine);
         for (let k = 0; k < r.stops.length; k++) {
           r.next = (r.next + 1) % r.stops.length;
           if (r.stops[r.next].depotId !== stop.depotId) break;
@@ -1296,6 +1366,7 @@ export class Economy {
     const run = new Set(this.lineIdOf.values());
     for (const id of this.lines.keys()) if (!run.has(id)) this.lines.delete(id);
     this.spacing.prune(run, new Set(this.lineIdOf.keys()));
+    this.crossing.prune(new Set(this.lineIdOf.keys()), (engine) => !!this.sim.findCar(engine)?.train.derailed);
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);
     this.kitStops.prune();
   }
