@@ -8,12 +8,12 @@ const SEGMENTS = 128;
 /** Above the ground (mm), so it isn't lost in the grass. */
 const LIFT = 3;
 /** A warm gold (as "Show me"'s rings), apart from the pale lanes and roads. */
-const COLOUR = [1, 0.7, 0.16, 1];
+const COLOUR = [1, 0.6, 0.08, 1];
 /** Across the ring, from inside out: how far in from the reach (× `WIDTH`, negative is past it) and how opaque. */
 const BANDS: readonly [number, number][] = [
   [1, 0],
-  [0.25, 0.4],
-  [0, 0.85],
+  [0.25, 0.6],
+  [0, 0.95],
   [-0.1, 0],
 ];
 
