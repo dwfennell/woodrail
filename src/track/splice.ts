@@ -69,8 +69,9 @@ export type HeldCentre = { x: number; z: number } | ((y: number) => { x: number;
  * it)? It takes the place of that straight, or of a run of straights joined in line with it whose
  * lengths add up to its own, and lies along the line, whichever way round is nearer to how it's held (so turning it
  * right round puts its building on the other side).
- * `canTake` says which straights may be taken up (none a train stands on). Called on pointer move while a depot is
- * held: one pass over the pieces, then a short walk along the line.
+ * `canTake` says which straights may be taken up (none a train stands on); `skip`, straights not to drop it onto at all
+ * (as if not there). Called on pointer move while a depot is held: one pass over the pieces, then a short walk along
+ * the line.
  */
 export function findSplice(
   layout: Layout,
@@ -80,6 +81,7 @@ export function findSplice(
   heading: number,
   reach: number,
   canTake: (pieceId: number) => boolean = () => true,
+  skip?: ReadonlySet<number>,
 ): Splice {
   const length = straightLength(type, flipped);
   if (length === 0) return NONE;
@@ -96,7 +98,7 @@ export function findSplice(
   for (const id of layout.pieceIds()) {
     const p = layout.getPiece(id)!;
     const l = plainLength(p.type);
-    if (l === 0 || layout.isLifted(id)) continue;
+    if (l === 0 || layout.isLifted(id) || skip?.has(id)) continue;
     const c = at(p.y);
     if (!c) continue;
     const dx = c.x - p.pose.x;
@@ -147,7 +149,7 @@ export function findSplice(
       const id = pieceOfRef(partner);
       const p = layout.getPiece(id);
       const l = p ? plainLength(p.type) : 0;
-      if (!p || l === 0 || id === onto || ids.includes(id) || !canTake(id)) break;
+      if (!p || l === 0 || id === onto || ids.includes(id) || !canTake(id) || skip?.has(id)) break;
       if (Math.abs(p.y - here.y) > SAME_HEIGHT || angleDiff(2 * p.pose.heading, 2 * here.pose.heading) > 2 * LINE_ANGLE) break;
       ids.push(id);
       lengths.push(l);
@@ -186,6 +188,57 @@ export function findSplice(
   const h = Math.atan2(b.z - a.z, b.x - a.x);
   const pose = angleDiff(h, heading - TIE_TURN) < Math.PI / 2 ? { x: a.x, z: a.z, heading: normalizeAngle(h) } : { x: b.x, z: b.z, heading: normalizeAngle(h + Math.PI) };
   return { kind: "splice", covers, pose, y: here.y };
+}
+
+/** Held this near (mm) the joint between two straights, it's as much over the one as the other (unless told). */
+const JOINT_REACH = 36;
+
+/**
+ * `findSplice`, but held at a joint between straights where the one it picks won't do (`fits` says no: too few trees
+ * by it, no room for its yard), the straight on the other side of the joint, if it fits there. Only at the joint:
+ * the two places share an end, and the held centre or `near` (the finger: on touch the piece is drawn above it) is
+ * within `jointReach` of it. So a piece held over the middle of a straight never hops along the line to the next, nor
+ * onto another line. `fits` is asked of the first splice, and of the other only when the first won't do and it's at
+ * the joint (a few placement checks, on pointer move while a depot is held).
+ */
+export function findSpliceThatFits(
+  layout: Layout,
+  type: PieceTypeId,
+  flipped: boolean,
+  centre: HeldCentre,
+  heading: number,
+  reach: number,
+  canTake: (pieceId: number) => boolean,
+  fits: (s: Extract<Splice, { kind: "splice" }>) => boolean,
+  near: HeldCentre = centre,
+  jointReach = JOINT_REACH,
+): Splice {
+  const s = findSplice(layout, type, flipped, centre, heading, reach, canTake);
+  if (s.kind !== "splice" || fits(s)) return s;
+  const length = straightLength(type, flipped);
+  const ends = (f: Pose) => [
+    { x: f.x, z: f.z },
+    { x: f.x + Math.cos(f.heading) * length, z: f.z + Math.sin(f.heading) * length },
+  ];
+  const close = (h: HeldCentre, at: { x: number; z: number }) => {
+    const c = typeof h === "function" ? h(s.y) : h;
+    return !!c && Math.hypot(c.x - at.x, c.z - at.z) <= jointReach;
+  };
+  const [a, b] = ends(s.pose);
+  for (const [joint, from] of [
+    [a, b],
+    [b, a],
+  ]) {
+    if (!close(near, joint) && !close(centre, joint)) continue;
+    // Held half its length on along the line, past that joint: what's there, end to end with this one.
+    const k = length / 2 / Math.max(1e-9, Math.hypot(joint.x - from.x, joint.z - from.z));
+    const past = { x: joint.x + (joint.x - from.x) * k, z: joint.z + (joint.z - from.z) * k };
+    const other = findSplice(layout, type, flipped, past, heading, reach, canTake, new Set(s.covers));
+    if (other.kind !== "splice" || Math.abs(other.y - s.y) > SAME_HEIGHT) continue;
+    if (!ends(other.pose).some((e) => Math.hypot(e.x - joint.x, e.z - joint.z) < LENGTH_SLACK)) continue;
+    if (fits(other)) return other;
+  }
+  return s;
 }
 
 /**

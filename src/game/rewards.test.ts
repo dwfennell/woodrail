@@ -62,8 +62,8 @@ describe("town rewards", () => {
     expect(firstTimeGift(p, 1)).toEqual([]);
     p.learned.add("farming");
     p.learned.add("harvesters");
-    // A town: the cheapest industry you know (a harvester, 20 coins).
-    expect(firstTimeGift(p, 2)[0]).toEqual(["piece:depot-forest", 1]);
+    // A town: the cheapest industry you know (a farm yard, 90 coins; a harvester is 150).
+    expect(firstTimeGift(p, 2)[0]).toEqual(["piece:depot-farm", 1]);
     // Straight to a city from a village: the town's present too.
     const q = Progress.fresh();
     q.learned.add("farming");

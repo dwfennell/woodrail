@@ -1,4 +1,5 @@
-import { describe as describeGoods, type Bag } from "../economy/goods";
+import { COIN_ICON } from "../economy/cargo";
+import { iconCounts, type Bag } from "../economy/goods";
 import type { CarKind, CarLook } from "../sim";
 import type { PieceTypeId } from "../track";
 
@@ -59,9 +60,9 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   // Industry buildings cost coins as well as goods: what towns pay you builds the economy.
   "piece:depot-sawmill": { label: "Sawmill", cost: { planks: 10 }, coins: 300, tech: "sawmills" },
   "piece:depot-forest": { label: "Harvester", cost: { planks: 5 }, coins: 150, tech: "harvesters" },
-  "piece:depot-farm": { label: "Farm yard", cost: { planks: 6 }, coins: 180, tech: "farming" },
-  "piece:depot-mill": { label: "Mill", cost: { planks: 8 }, coins: 240, tech: "mills" },
-  "piece:depot-quarry": { label: "Quarry", cost: { planks: 7 }, coins: 240, tech: "quarries" },
+  "piece:depot-farm": { label: "Farm yard", cost: { planks: 6 }, coins: 90, tech: "farming" },
+  "piece:depot-mill": { label: "Mill", cost: { planks: 8 }, coins: 280, tech: "mills" },
+  "piece:depot-quarry": { label: "Quarry", cost: { planks: 7 }, coins: 180, tech: "quarries" },
   "piece:depot-mine": { label: "Mine", cost: { planks: 10 }, coins: 310, tech: "mines" },
   "piece:depot-foundry": { label: "Foundry", cost: { planks: 15 }, coins: 480, tech: "foundry" },
   "piece:depot-carpenter": { label: "Carpenter's yard", cost: { planks: 7 }, coins: 210, tech: "carpentry" },
@@ -116,10 +117,9 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
  */
 export const LOOK_TECH: Partial<Record<CarLook, string>> = { dining: "dining", "first-class": "first-class", "double-decker": "double-decker", express: "express", tank: "tank", diesel: "diesel", electric: "electric", goods: "goods-engine" };
 
-/** A thing's whole price, for cards: "12 planks + 30 coins". */
+/** A thing's whole price, for cards, by icon as tickets show it: "12🪵 30🪙" ("free" if nothing). */
 export function costText(rule: ThingRule): string {
-  const goods = describeGoods(rule.cost);
-  return rule.coins ? `${goods === "nothing" ? "" : `${goods} + `}${rule.coins} coins` : goods;
+  return [iconCounts(rule.cost), rule.coins ? `${rule.coins}${COIN_ICON}` : ""].filter(Boolean).join(" ") || "free";
 }
 
 /** What a new game's toy box holds: enough for a first timber train, its turnbacks and a workshop. */

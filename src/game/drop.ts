@@ -14,6 +14,14 @@ export function dropOutcome(d: { blocked: boolean; overTray: boolean; isNew: boo
   return "place";
 }
 
+/** Said for a refusal with no reason of its own to give: a piece is never refused in silence. */
+export const REFUSED_FALLBACK = "It can't go there";
+
+/** What to say for a refused drop: its own reason, or `REFUSED_FALLBACK` if it has none (blank). */
+export function refusalText(why: string | null | undefined): string {
+  return why && why.trim() ? why : REFUSED_FALLBACK;
+}
+
 /**
  * Why a depot held over a line can't go there, from the placement check's reason (`placed`) and what's said over the
  * line (`splice`: "splice-busy", a train on the straight; "splice-fit"; "splice-onto"), or null if it can go. On other
