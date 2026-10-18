@@ -41,3 +41,13 @@ export function cargoDropTarget(d: CargoDropInput): CargoSlot | null {
   }
   return best;
 }
+
+/**
+ * Was a unit with nowhere to go (`cargoDropTarget` null) let go back on what it came from (the wagon it was lifted off,
+ * or within reach of its own pile)? Then it's simply put back, with no "this goes on…" to say.
+ */
+export function putsBack(d: Pick<CargoDropInput, "from" | "x" | "z" | "carId" | "piles">): boolean {
+  const from = d.from;
+  if (from.kind === "car") return d.carId === from.carId;
+  return d.piles.some((p) => p.depotId === from.depotId && p.cargo === from.cargo && Math.hypot(p.x - d.x, p.z - d.z) < PILE_DROP_RANGE);
+}

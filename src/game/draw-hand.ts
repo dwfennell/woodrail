@@ -11,7 +11,6 @@ import {
   candidatesFrom,
   canStandOnArches,
   createWorldConnector,
-  DRAW_LOOKAHEAD,
   DrawLine,
   findOverlap,
   fitAutoStraight,
@@ -32,6 +31,7 @@ import {
   type Pose,
 } from "../track";
 import type { Game } from "./game";
+import { DrawNotice } from "./draw-notice";
 import { drawMessage, drawRefusal } from "./track-rules";
 import { branchFrom, BUSY_MESSAGE, crossingAt, linePlan, mergeAt, type JunctionRules, type Merge } from "./draw-junctions";
 import { TRACK_ITEMS } from "../ui/tray-catalogue";
@@ -45,9 +45,6 @@ function pieceName(type: PieceTypeId): string {
 
 /** The most points the pencil line ahead of the track shows. */
 const TRAIL_POINTS = 1024;
-
-/** The finger this far (mm) on with the line not growing (and nothing in its way): it's stuck, and says why. */
-const STALL_MM = 2 * DRAW_LOOKAHEAD + 100;
 
 /** A press this close (screen px) to a free end of track continues the line from it. */
 const END_REACH_PX = 44;
@@ -93,11 +90,12 @@ export class DrawHand {
   /** Game mode: what to say of a piece the player hasn't learned yet ("Ramp: not learned yet"), or null if they have. */
   unlearned: ((type: PieceTypeId) => string | null) | null = null;
   private line: DrawLine | null = null;
-  /** This stroke's "too sharp" (or "out of") said already. */
-  private toldStalled = false;
-  /** How far the finger has gone (mm) since the line last grew, and where it was. */
-  private sinceGrown = 0;
-  private last: { x: number; z: number } | null = null;
+  /** What the line says as it goes, and when it's lifted ("Too sharp", a piece it may not use, where it's blocked). */
+  private readonly notice = new DrawNotice(
+    (type) => this.outOf(type),
+    pieceName,
+    (type) => this.unlearned?.(type) ?? null,
+  );
   /** A new line on empty ground, before the finger has moved far enough to know which way it goes. */
   private origin: Vector3 | null = null;
   private ghosts: { mesh: Mesh; key: string }[] = [];
@@ -259,20 +257,13 @@ export class DrawHand {
     const before = line.pieces.length;
     const { p, changed } = line.addSeen((h) => this.hooks.planeAt(x, y, h));
     if (!p) return;
-    if (this.last) this.sinceGrown += Math.hypot(p.x - this.last.x, p.z - this.last.z);
-    this.last = { x: p.x, z: p.z };
     if (changed) this.sync(line.pieces.length > before);
     this.showMerge();
     this.goOnAcross();
-    // (Grown or taken back: not stuck. Nor while going back over the line.)
-    if (line.pieces.length !== before || line.goingBack) this.sinceGrown = 0;
     // Stuck behind the finger (a corner no piece can turn, a circle too tight, or no piece left that fits): say why,
-    // once a stroke, rather than the line just stopping. (Not where it's blocked: that ghost shows red.)
-    const stuck = line.stalled || (this.sinceGrown > STALL_MM && !line.stopped && !line.pieces.some((q) => q.blocked));
-    if (stuck && !this.toldStalled) {
-      this.toldStalled = true;
-      this.hooks.toast(line.refused ? this.outOf(line.refused) : "Too sharp: draw a wider bend");
-    }
+    // once a stroke, rather than the line just stopping (see `DrawNotice`).
+    const say = this.notice.moved(line, p, before);
+    if (say) this.hooks.toast(say);
     this.drawTrail();
   }
 
@@ -294,13 +285,14 @@ export class DrawHand {
     const branch = this.branch;
     const plan = linePlan(branch, pieces, merge, this.crossed);
     const ghosts = this.ghosts.splice(0, merge ? merge.keep : pieces.length);
-    // (A closed line has nothing past where it closed: nothing to say. Merged, it's closed onto that line.)
-    const blocked = line.stopped === "closed" || merge ? null : line.pieces.find((p) => p.blocked)?.blocked;
     // A train come onto the straights a switch would take the place of meanwhile: nothing goes down.
     const busy = plan.covers.some((id) => this.hooks.occupied(id));
     if (busy) this.hooks.toast(BUSY_MESSAGE);
-    else if (blocked) this.hooks.toast(blocked);
-    else if (line.refused) this.hooks.toast(`No ${pieceName(line.refused)} left${pieces.length > 0 ? ": the line used other pieces" : ""}`);
+    else {
+      // (Merged, it's closed onto that line: nothing past it to say.)
+      const say = this.notice.lifted(line, pieces.length, !!merge);
+      if (say) this.hooks.toast(say);
+    }
     this.clear();
     // A branch with no line after it (let go before a piece followed): nothing.
     if (busy || plan.pieces.length === (branch?.pieces.length ?? 0)) return;
@@ -498,13 +490,11 @@ export class DrawHand {
   }
 
   private start(end: DrawEnd): void {
-    this.toldStalled = false;
     this.toldShort = false;
     this.branchCovers = this.taken();
     for (const id of this.swapIds) this.own.removePiece(id);
     this.swapIds = [...(this.branch?.pieces ?? []), ...this.crossed.pieces].map((p) => this.own.addPiece(p.type, p.pose, p.y, p.flipped));
-    this.sinceGrown = 0;
-    this.last = null;
+    this.notice.start();
     const hills = hillsOf(this.game.landscape.grid);
     this.line = new DrawLine(end, {
       check: (c, line) => this.check(c, line),

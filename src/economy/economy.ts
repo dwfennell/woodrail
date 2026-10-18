@@ -316,8 +316,27 @@ export class Economy {
     return this.byPiece.get(pieceId);
   }
 
+  /**
+   * The depots on the map: those whose piece is on the layout. A depot whose piece is taken up (its placement undone,
+   * the piece removed) is kept, piles and all, under its id and piece, and is back here when the piece is (redo); while
+   * it's gone it makes nothing, no train is served or steered there, and nothing counts it (QA: an undone Harvester
+   * stayed listed). Worked out again only when pieces come or go.
+   */
   allDepots(): readonly DepotState[] {
-    return this.depots;
+    if (this.liveVersion !== this.layout.piecesVersion || this.liveOf !== this.depots.length) {
+      this.liveVersion = this.layout.piecesVersion;
+      this.liveOf = this.depots.length;
+      this.live = this.depots.filter((d) => this.layout.getPiece(d.pieceId));
+    }
+    return this.live;
+  }
+  private live: DepotState[] = [];
+  private liveVersion = -1;
+  private liveOf = -1;
+
+  /** Is this depot on the map (its piece on the layout), not one whose piece was taken up? */
+  onMap(d: DepotState): boolean {
+    return this.layout.getPiece(d.pieceId) !== undefined;
   }
 
   cargoOf(carId: number): Readonly<CarCargo> {
@@ -1087,7 +1106,7 @@ export class Economy {
         this.services.delete(s.trainId);
         continue;
       }
-      if (train.derailed || !d || !d.auto || !this.sim.findCar(s.carId)) {
+      if (train.derailed || !d || !d.auto || !this.onMap(d) || !this.sim.findCar(s.carId)) {
         this.endVisit(s);
         continue;
       }
@@ -1148,7 +1167,8 @@ export class Economy {
       // Switches ahead of routed trains, a few times a second (a train covers a few mm a tick).
       if (++this.steerTicks % STEER_TICKS === 0) this.steerTrains();
     }
-    for (const d of this.depots) {
+    // (Only depots on the map: one whose piece was taken up makes nothing till it's back.)
+    for (const d of this.allDepots()) {
       if (!this.working(d)) {
         d.timer = 0;
         continue;
@@ -1176,7 +1196,7 @@ export class Economy {
   accepts: ((d: DepotState, kind: CargoKind) => boolean) | null = null;
 
   /**
-   * Goods a mode keeps for a workshop (Game mode: planks, while the workshop is short of what the cheapest blueprint
+   * Goods a mode keeps for a workshop (Game mode: planks, while the workshop holds fewer than the dearest blueprint ready
    * on the board needs): towns don't take them from unrouted trains, which carry them on to the workshop.
    */
   reserved: ((kind: CargoKind) => boolean) | null = null;
@@ -1272,7 +1292,7 @@ export class Economy {
       if (!found || found.train.derailed) continue;
       const net = this.drive(found.train);
       const d = this.depots[r.stops[r.next % r.stops.length].depotId];
-      if (net === 0 || !d) continue;
+      if (net === 0 || !d || !this.onMap(d)) continue;
       if (steer(this.layout, found.train, net > 0, d.pieceId)) this.onSwitch?.(d.pieceId);
     }
   }

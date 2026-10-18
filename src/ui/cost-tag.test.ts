@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { badgeEms, costTag, costTagSize, trayCostTag } from "./cost-tag";
+import { badgeEms, costTag, costTagSize, refundText, trayCostTag } from "./cost-tag";
 
 describe("tray cost badges", () => {
   it("are counts and icons only, goods in cargo order, then coins", () => {
@@ -38,5 +38,13 @@ describe("tray cost badges", () => {
       expect(px).toBeGreaterThanOrEqual(9);
       if (costTagSize(t) !== null) expect(badgeEms(t) * px).toBeLessThanOrEqual(60);
     }
+  });
+});
+
+describe("a refund", () => {
+  it("names the piece and what's given back", () => {
+    expect(refundText("Switch", { planks: 3 })).toBe("Switch back in the box, 3🪵 returned");
+    expect(refundText("crossing", { planks: 4, iron: 1 }, 20)).toBe("Crossing back in the box, 4🪵 1🔩 20🪙 returned");
+    expect(refundText("Switch", {})).toBe("Switch back in the box");
   });
 });

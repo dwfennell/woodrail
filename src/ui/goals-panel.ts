@@ -8,6 +8,14 @@ const SMALL_SCREEN = "(max-width: 640px), (max-height: 520px)";
 /** Where the open Journal is a bottom sheet (keep in step with style.css). */
 const SHEET = "(max-width: 560px), (max-height: 520px)";
 
+/**
+ * The panel's count: the goals done of all of them, those waiting for blueprints too ("16 / 17" beside "🔒 Learn
+ * Signals to unlock a goal", never "16 / 16", which reads as all done).
+ */
+export function goalsCountText(done: number, total: number, locked: number): string {
+  return `${done} / ${total + locked}`;
+}
+
 export interface GoalsPanelHandlers {
   /** All goals done: start a new game. */
   newGame(): void;
@@ -292,13 +300,16 @@ export class GoalsPanel {
     this.syncNews();
   }
 
-  /** Show the current goal (null when all are done) and its progress. */
-  show(done: number, current: Goal | null, progress: GoalProgress | null, next: Goal | null, total = GOALS.length, locked: string | null = null): void {
-    const key = `${done}|${total}|${current?.id}|${progress?.count}|${next?.id}|${locked}`;
+  /**
+   * Show the current goal (null when all are done) and its progress. `total`: the goals open or done; `lockedCount` more
+   * wait for blueprints (`locked` says which to learn).
+   */
+  show(done: number, current: Goal | null, progress: GoalProgress | null, next: Goal | null, total = GOALS.length, locked: string | null = null, lockedCount = 0): void {
+    const key = `${done}|${total}|${lockedCount}|${current?.id}|${progress?.count}|${next?.id}|${locked}`;
     if (key === this.shownKey) return;
     const fresh = this.shownKey !== "" && !this.shownKey.startsWith(`${done}|`);
     this.shownKey = key;
-    this.count.textContent = `${done} / ${total}`;
+    this.count.textContent = goalsCountText(done, total, lockedCount);
     this.now.textContent = current?.title ?? locked ?? "All done!";
     this.showBtn.hidden = !current;
     // A goal still to come waits for blueprints: said in a line of its own ("Learn Signals to unlock a goal").

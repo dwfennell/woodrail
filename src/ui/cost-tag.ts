@@ -6,6 +6,13 @@ export function costTag(cost: Bag, coins = 0): string {
   return [iconCounts(cost), coins > 0 ? `${coins}${COIN_ICON}` : ""].filter(Boolean).join(" ");
 }
 
+/** A piece made from the tray but not put down, given back: "Switch back in the box, 3🪵 returned". */
+export function refundText(name: string, cost: Bag, coins = 0): string {
+  const back = costTag(cost, coins);
+  const named = name.charAt(0).toUpperCase() + name.slice(1);
+  return back ? `${named} back in the box, ${back} returned` : `${named} back in the box`;
+}
+
 /**
  * About how wide `text` is in the badge's bold type, in ems: an emoji 1.3, a digit or letter 0.58, a space 0.27 (within
  * a few percent of Nunito's, measured in the game).

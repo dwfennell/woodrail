@@ -323,33 +323,8 @@ describe("closing a near miss", () => {
   });
 });
 
-describe("stations giving a little", () => {
-  it("a station shifts up to its reach to meet track that closes on it a little short, and says so", () => {
-    const layout = new Layout();
-    const sim = new Sim(layout);
-    const start = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
-    // The station's hole is 30 mm beyond where two straights end: more than loose track alone may take up here.
-    const home = { x: 216 * 3 + 30, z: 0, heading: 0 };
-    const station = layout.addPiece("station", home);
-    const fixed = (id: number) => id === start || id === station;
-    const give = (id: number) => (id === station ? { home, reach: 36, turn: (4 * Math.PI) / 180 } : null);
-    const editor = new Editor(layout, sim, () => {}, fixed, give);
-    const nudged: number[][] = [];
-    editor.onNudge = (ids) => nudged.push(ids);
-    const a = editor.place("straight-216", { x: 216, z: 0, heading: 0 }, 0, false);
-    const b = editor.place("straight-216", { x: 432, z: 0, heading: 0 }, 0, false);
-    expect(layout.joinedConnector(connectorRef(b, 1))).toBe(connectorRef(station, 0));
-    const moved = layout.getPiece(station)!.pose;
-    expect(Math.hypot(moved.x - home.x, moved.z - home.z)).toBeGreaterThan(0);
-    expect(Math.hypot(moved.x - home.x, moved.z - home.z)).toBeLessThanOrEqual(36 + 1e-6);
-    expect(nudged.flat()).toContain(station);
-    // Undo puts the station back home.
-    editor.undo();
-    expect(layout.getPiece(station)!.pose.x).toBeCloseTo(home.x);
-    void a;
-  });
-
-  it("without give, the same gap stays open", () => {
+describe("stations never giving", () => {
+  it("a station closed on 30 mm short stays put, and the gap stays open (see station-hold.test.ts)", () => {
     const layout = new Layout();
     const sim = new Sim(layout);
     const start = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
@@ -365,24 +340,23 @@ describe("pushing a run (nudge)", () => {
   it("pushing a line's free end up to a near miss closes it; undo parts it again", () => {
     const layout = new Layout();
     const sim = new Sim(layout);
+    // A loose run, and a station 70 mm beyond its end (the station never moves: the run comes to it).
     const start = layout.addPiece("straight-216", { x: 0, z: 0, heading: 0 });
-    const end = layout.addPiece("straight-216", { x: 216 * 3 + 70, z: 0, heading: 0 });
-    // Both ends are stations, which give a little (as in the game).
-    const homes = new Map([start, end].map((id) => [id, { ...layout.getPiece(id)!.pose }]));
-    const give = (id: number) => (homes.has(id) ? { home: homes.get(id)!, reach: 36, turn: (4 * Math.PI) / 180 } : null);
-    const editor = new Editor(layout, sim, () => {}, (id) => id === start || id === end, give);
+    const end = layout.addPiece("station", { x: 216 * 3 + 70, z: 0, heading: 0 });
+    const editor = new Editor(layout, sim, () => {}, (id) => id === end);
     const a = editor.place("straight-216", { x: 216, z: 0, heading: 0 }, 0, false);
     const b = editor.place("straight-216", { x: 432, z: 0, heading: 0 }, 0, false);
     expect(layout.joinedConnector(connectorRef(b, 1))).toBe(-1);
-    // 70 mm short: too far. Push the last piece 30 mm on: 40 mm short, within the near-miss reach.
-    const before = new Map([[b, { ...layout.getPiece(b)!.pose }]]);
-    const after = new Map([[b, { x: 432 + 30, z: 0, heading: 0 }]]);
+    // 70 mm short: too far. Push the run 50 mm on: 20 mm short, within the near-miss reach.
+    const ids = [start, a, b];
+    const before = new Map(ids.map((id) => [id, { ...layout.getPiece(id)!.pose }]));
+    const after = new Map(ids.map((id) => [id, { ...layout.getPiece(id)!.pose, x: layout.getPiece(id)!.pose.x + 50 }]));
     editor.nudge(before, after);
     expect(layout.joinedConnector(connectorRef(b, 1))).toBe(connectorRef(end, 0));
+    expect(layout.getPiece(end)!.pose).toEqual({ x: 216 * 3 + 70, z: 0, heading: 0 });
     editor.undo();
     expect(layout.joinedConnector(connectorRef(b, 1))).toBe(-1);
     expect(layout.getPiece(b)!.pose.x).toBeCloseTo(432);
-    void a;
   });
 });
 

@@ -51,6 +51,9 @@ export class Layout {
     return this.pieces.size;
   }
 
+  /** Bumped whenever a piece is added or taken away (not moved): for caches of which pieces are on the map. */
+  piecesVersion = 0;
+
   get jointCount(): number {
     return this.jointMap.size;
   }
@@ -70,6 +73,7 @@ export class Layout {
   addPiece(type: PieceTypeId, pose: Pose, y = 0, flipped = false): number {
     const id = this.nextId++;
     this.pieces.set(id, { id, type, flipped, pose: { ...pose }, y });
+    this.piecesVersion++;
     this.seatAll(id);
     return id;
   }
@@ -78,6 +82,7 @@ export class Layout {
   restorePiece(id: number, type: PieceTypeId, pose: Pose, y: number, flipped: boolean): boolean {
     if (this.pieces.has(id)) return false;
     this.pieces.set(id, { id, type, flipped, pose: { ...pose }, y });
+    this.piecesVersion++;
     if (id >= this.nextId) this.nextId = id + 1;
     this.seatAll(id);
     // A pin taken up with the piece comes back with it (undoing its removal), if it's still a switch.
@@ -89,6 +94,7 @@ export class Layout {
     if (!this.pieces.has(id)) return false;
     if (!this.lifted.delete(id)) this.detachAll(id);
     this.pieces.delete(id);
+    this.piecesVersion++;
     this.switchStates.delete(id);
     if (this.pinned.delete(id)) {
       this.unpinned.add(id);
