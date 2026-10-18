@@ -21,6 +21,8 @@ export const SIM_DT = 1 / SIM_HZ;
 export const TURNBACK_TICKS = 2 * SIM_HZ;
 /** How far back (mm) an engine following another train's engine holds. */
 const FOLLOW_GAP = 10;
+/** Slower than this (mm/s) a train is standing: it doesn't move (or ask for frames) at all. */
+const MIN_SPEED = 0.01;
 const hasEngine = (t: Train): boolean => t.cars.some((c) => c.kind === "engine");
 
 /** How far along the track (mm) a re-railed train may be slid to find room, and in what steps. */
@@ -134,6 +136,8 @@ const adv = createAdvance();
 const lookAdv = createAdvance();
 const face = { x: 0, y: 0, z: 0 };
 const otherFace = { x: 0, y: 0, z: 0 };
+const followFace = { x: 0, y: 0, z: 0 };
+const followOther = { x: 0, y: 0, z: 0 };
 
 export class Sim {
   private nextTrainId = 1;
@@ -1202,6 +1206,11 @@ export class Sim {
       this.flipTrain(train);
       v = -v;
     }
+    // Behind another train's engine, it closes up only to the gap it holds back at (else it would step into it each
+    // tick and be stopped after: a creep that reads as standing still).
+    if (v > 0 && this.trains.size > 1 && hasEngine(train)) v = Math.min(v, this.followRoom(train, v) / SIM_DT);
+    // (Too slow to see: standing.)
+    if (v < MIN_SPEED) v = 0;
     train.speed = v;
     if (v === 0) return;
 
@@ -1371,6 +1380,25 @@ export class Sim {
         if (!ends && this.hitsSide(b)) this.meet(a);
       }
     }
+  }
+
+  /**
+   * How far (mm) this train may go before its front comes within `FOLLOW_GAP` of the back of another train with an
+   * engine (the gap `resolveContacts` holds a follower at), looking no further than this tick's move at speed `v`.
+   */
+  private followRoom(train: Train, v: number): number {
+    this.endFace(train, true, followFace);
+    // (As far as `resolveContacts` reaches after this tick's move.)
+    const look = FOLLOW_GAP + Math.max(4, v * SIM_DT + 2) + v * SIM_DT;
+    let room = Infinity;
+    for (const b of this.trains.values()) {
+      if (b === train || b.derailed || !hasEngine(b)) continue;
+      this.endFace(b, false, followOther);
+      if (Math.abs(followFace.y - followOther.y) > 20) continue;
+      const d = Math.hypot(followFace.x - followOther.x, followFace.z - followOther.z);
+      if (d <= look) room = Math.min(room, Math.max(0, d - FOLLOW_GAP));
+    }
+    return room;
   }
 
   /** A train stopped by another meeting it head on: it waits, then turns back (as at the end of the line). */
