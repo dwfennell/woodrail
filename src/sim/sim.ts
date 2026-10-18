@@ -770,6 +770,36 @@ export class Sim {
     return 1 - at + (2 * at - 1) * e;
   }
 
+  private readonly ridingOut: number[] = [];
+
+  /**
+   * The lifts riding now (carrying a train, or going empty), for their sound: none (a comparison) while nothing rides.
+   * The list is reused: read it before the next call.
+   */
+  ridingLifts(): readonly number[] {
+    this.ridingOut.length = 0;
+    if (this.rides.size === 0) return this.ridingOut;
+    for (const id of this.rides.keys()) if (this.liftDef(id)) this.ridingOut.push(id);
+    return this.ridingOut;
+  }
+
+  /**
+   * May this lift be taken up, moved, turned or flipped now? Not while it's carrying a train or going (it would leave
+   * the train in mid-air), nor with a train on it: false then. True for any other piece.
+   */
+  liftFree(pieceId: number): boolean {
+    if (!this.liftDef(pieceId)) return true;
+    return !this.rides.has(pieceId) && !this.layout.deckTurning(pieceId) && !this.pieceOccupied(pieceId);
+  }
+
+  /** The lifts that mustn't be taken up or moved now (`liftFree`): none, at once, on a layout without a lift. */
+  heldLifts(): number[] {
+    if (this.lifts !== null && this.lifts.length === 0) return [];
+    const out: number[] = [];
+    for (const id of this.lifts ?? this.layout.pieceIds()) if (this.liftDef(id) && !this.liftFree(id)) out.push(id);
+    return out;
+  }
+
   /** A train at a lift, for its engine's card: being carried, waiting at it (held at its far end, or on it), or null. */
   liftState(trainId: number): "riding" | "waiting" | null {
     const t = this.trains.get(trainId);

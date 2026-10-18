@@ -105,7 +105,7 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return `Calling at the ${(type && kitOf(type)?.name) ?? "stop"}`;
     }
     case "lift":
-      return s.riding ? "Riding the lift" : "Waiting for the lift";
+      return s.riding ? "Riding the train lift" : "Waiting for the train lift";
     case "too-heavy":
       return "Too heavy for its engine: take a car off, or add an engine";
     case "no-power":

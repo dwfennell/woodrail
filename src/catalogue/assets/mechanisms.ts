@@ -504,7 +504,7 @@ const mechanisms: Asset[] = [
   },
   {
     id: "mech-train-lift",
-    name: "Train lift tower",
+    name: "Train lift",
     category: "Mechanisms",
     tags: ["lift", "elevator", "vertical", "tower", "level"],
     notes: "A lift tower that carries a train up a level to a high line and back down: an engine and two cars stand on its platform while it rises. A space-saving way between the felt and a hilltop, with a satisfying wait at the top.",
@@ -531,6 +531,10 @@ const mechanisms: Asset[] = [
       // The winding gear on top.
       g.add(k.box(yellow, 30, 8, 12, 1, 0, top + 8, 0));
       g.add(named(k.cylZ(k.paint(TOY.red), 14, 6, 0, top + 22, 0, 16), "gear"));
+      // A red stop board on each end post, facing trains coming in: shown at an end while the platform's away from it
+      // (or moving), where trains are held.
+      const red = k.paint(TOY.red);
+      g.add(named(k.box(red, 2, 14, 16, 1, -half - 1, 16, -32), "stop0"), named(k.box(red, 2, 14, 16, 1, half + 1, LIFT_RISE + 16, -32), "stop1"));
       g.add(
         pivot(
           "lift",
@@ -554,6 +558,8 @@ const mechanisms: Asset[] = [
       part(root, "cw0").position.y = -LIFT_RISE * f;
       part(root, "cw1").position.y = -LIFT_RISE * f;
       part(root, "gear").rotation.z = f * 6;
+      part(root, "stop0").visible = f > 0;
+      part(root, "stop1").visible = f < 1;
     },
   },
   {

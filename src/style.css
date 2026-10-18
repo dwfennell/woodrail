@@ -616,7 +616,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-head .route-plan { margin-left: auto; }
 .route-plan.on { background: #3c9a5f; color: #fff; }
 .route-hint { font-size: 0.85em; opacity: 0.75; }
-.route-stops { display: flex; flex-wrap: wrap; gap: 4px; }
+.route-stops { display: flex; flex-wrap: wrap; gap: 4px; position: relative; }
 .route-chip { border-left: 5px solid var(--line, #888); padding-inline: 8px; }
 .route-chip.next { font-weight: 800; }
 .route-chip.picked { outline: 2px solid #3a2a1c; outline-offset: 1px; }
@@ -625,6 +625,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-tools { display: flex; gap: 4px; }
 .route-tools .route-action { flex: 1 0 auto; }
 .route-tools button { white-space: nowrap; padding-inline: 10px; }
+.route-tools .route-move, .route-tools .route-remove { min-width: 44px; min-height: 44px; }
 /* Planning a route: the map wants the room. The engine card slims to its route, and the tray goes. */
 .planning .engine-card .card-title, .planning .engine-card .engine-status, .planning .engine-card .engine-controls,
 .planning .engine-card .corner, .planning .engine-card > .close, .planning .engine-card .engine-more { display: none; }
@@ -634,6 +635,18 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .route-wait.on { background: #e6b52c; }
 .route-chip[data-wait]::before { content: "⏳ "; }
 .route-warn { font-size: 0.85em; color: #b0391f; font-weight: 700; }
+/* Planning, the bar stays slim: the stops one row, scrolled sideways if they don't fit; a picked stop's tools compact. */
+.planning .route-stops { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.planning .route-stops::-webkit-scrollbar { display: none; }
+.planning .route-tools { flex-wrap: nowrap; }
+.planning .route-stops.more-right { mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent); }
+.planning .route-stops.more-left { mask-image: linear-gradient(90deg, transparent, #000 28px); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); }
+.planning .route-stops.more-left.more-right { mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 40px), transparent); }
+.planning .route-chip, .planning .route-tools button { flex: 0 0 auto; }
+.planning .route-tools button { padding-inline: 8px; font-size: 13px; min-width: 44px; }
+.planning .engine-extra.route { gap: 4px; }
+/* (The tray's away: the bar sits at the bottom, full width, so the map has the rest.) */
+.planning .engine-card { width: min(calc(100vw - 32px), 440px); box-sizing: border-box; align-items: stretch; bottom: max(10px, env(safe-area-inset-bottom)); padding: 10px 12px; }
 
 /* "Show me": a goal town's name over it for a few seconds (positioned by the game each frame), in a layer over the
    canvas that clips them, so one off screen never widens the page. */

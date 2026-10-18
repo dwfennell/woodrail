@@ -222,4 +222,24 @@ describe("KitView's train lift (a kit whose state is a ride)", () => {
     w.look(144, 0);
     expect(w.frame()).toBe("moving");
   });
+
+  it("its stop boards show at the end its platform's away from (both while it moves), set only as it poses", async () => {
+    const w = await setup();
+    // Woken (drawn live) by a ride's first tick: going up, both ends closed.
+    expect(w.sim.toggleSwitch(w.lift)).toBe(true);
+    w.frame();
+    const movers = w.view.group.children.find((c) => c.name === "movers")!;
+    const board = (n: 0 | 1) => movers.getObjectByName(`stop${n}`)!;
+    expect([board(0).visible, board(1).visible]).toEqual([true, true]);
+    for (let i = 0; i < (LIFT_SECONDS + 1) * SIM_HZ; i++) w.frame();
+    // Up: trains are held at the low end; the high end's open.
+    expect([board(0).visible, board(1).visible]).toEqual([true, false]);
+    // Still there: no frames asked, the boards as they were (nothing is posed).
+    for (let i = 0; i < 10 * SIM_HZ; i++) expect(w.frame()).toBe("not asked");
+    expect([board(0).visible, board(1).visible]).toEqual([true, false]);
+    // Sent down (the engine on it), and down: the high end's board shows.
+    expect(w.sim.toggleSwitch(w.lift)).toBe(true);
+    for (let i = 0; i < (LIFT_SECONDS + 1) * SIM_HZ; i++) w.frame();
+    expect([board(0).visible, board(1).visible]).toEqual([false, true]);
+  });
 });

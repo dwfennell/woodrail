@@ -32,10 +32,11 @@ import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { routeStops } from "./game/route-stops";
 import { editLine, lineOf, moveStop } from "./game/lines";
-import { aheadRuns, legFromCursor, lineLegs } from "./game/route-path";
-import { RouteView, type DiscSpec, type RibbonSpec } from "./render/route-view";
+import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pointOnPath, stopCursors } from "./game/route-path";
+import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
 import { engineStatus, trainsForReport, type CantMove } from "./game/engine-status";
+import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { MAX_SHEDS, SHED_CAP, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
@@ -54,7 +55,7 @@ import type { PropModel } from "./render/props/library";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { connectorRef, createWorldConnector, getPieceDef, kitOf, PIECE_TYPES, type Anchor, type Layout, type PieceTypeId } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, isLift, kitOf, pathLength, PIECE_TYPES, type Anchor, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
@@ -102,6 +103,23 @@ function carPictureKey(kind: CarKind): string | undefined {
 
 const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
 const loading = document.querySelector<HTMLDivElement>("#loading");
+
+/** A one-off flag kept in the browser (a hint seen); false where storage isn't there. */
+function loadFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveFlag(key: string): void {
+  try {
+    localStorage.setItem(key, "1");
+  } catch {
+    // No storage: shown again next time.
+  }
+}
 
 /** A map asked for in the link (`#seed-12345`), to share or replay a particular map. */
 function linkedSeed(): number | null {
@@ -192,12 +210,29 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.editLand([...slots]);
     game.depotView.setWorld(game.economy, game.layout);
   };
+  /** Has the train lift's first-time tip been shown (on this device)? */
+  let liftTipShown = liftTipSeen();
   const makeEditor = () => {
     const ed = new Editor(game.layout, game.sim, () => onChange(), isFixedPiece, stationGive);
     ed.onNudge = stationsNudged;
     ed.onTrackEdit = (ids) => {
       const id = ids.find((i) => game.layout.getPiece(i));
       if (id !== undefined) saveLastBuilt(mode, pieceCentre(game.layout, id));
+      // A train lift put down for the first time on this device: how to work it.
+      const lift = (i: number) => {
+        const p = game.layout.getPiece(i);
+        return !!p && isLift(p.type);
+      };
+      if (!liftTipShown && ids.some(lift)) {
+        liftTipShown = true;
+        markLiftTipSeen();
+        hud.toast(LIFT_TIP, false, 4000);
+      }
+    };
+    // An edit, undo or redo refused: it would take up or move a train lift that's carrying a train or has one on it.
+    ed.onHeld = (liftId) => {
+      hud.toast(liftHeldMessage(game.sim.pieceOccupied(liftId)));
+      audio.refuse();
     };
     ed.onLandChange = (slots) => {
       game.editLand(slots);
@@ -1718,6 +1753,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let planning = false;
   /** The stop whose chip was tapped (its actions shown), or −1. */
   let stopPicked = -1;
+  /** "Tap a stop for options" is shown until a stop's chip is first tapped (remembered). */
+  const STOP_HINT_KEY = "woodrail.hint.stopOptions";
+  let stopHintSeen = loadFlag(STOP_HINT_KEY);
   const INTENTS: Record<StopAction, { label: string; tip: string }> = {
     auto: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
     both: { label: "Automatic", tip: "Drops what this stop takes, and picks up what a later stop wants" },
@@ -1876,7 +1914,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const stops = routeStops(game.world);
     const line = lineOf(game.economy, carId);
     const r = game.economy.routeOf(carId);
-    const key = `${carId}:${stops.length}:${planning}:${stopPicked}:${cantReachText}:${line ? `${line.id}|${line.colour}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}`).join(",")}` : "-"}`;
+    const key = `${carId}:${stops.length}:${planning}:${stopPicked}:${stopHintSeen}:${cantReachText}:${line ? `${line.id}|${line.colour}|${r?.next}|${line.stops.map((st) => `${st.depotId}${st.action}${st.waitFill ? "w" : ""}`).join(",")}` : "-"}`;
     if (key === routeShown) return;
     routeShown = key;
     const box = hud.engineExtra;
@@ -1934,6 +1972,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       line.stops.forEach((st, k) => {
         const chip = button(`${r?.next === k ? "▶" : k + 1} ${nameOf(st.depotId)}`, "route-chip", "Tap for this stop's options", () => {
           stopPicked = stopPicked === k ? -1 : k;
+          if (!stopHintSeen) {
+            stopHintSeen = true;
+            saveFlag(STOP_HINT_KEY);
+          }
           showRoute();
         });
         chip.classList.toggle("next", r?.next === k);
@@ -1944,6 +1986,25 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         strip.append(chip);
       });
       box.append(strip);
+      // Stops beyond the edge (scrolled sideways, planning): the edge fades, as the tray's does.
+      const edges = () => {
+        strip.classList.toggle("more-right", strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 2);
+        strip.classList.toggle("more-left", strip.scrollLeft > 2);
+      };
+      strip.addEventListener("scroll", edges, { passive: true });
+      requestAnimationFrame(() => {
+        // The picked stop (else the last, just added) scrolled into view.
+        const chip = (strip.querySelector<HTMLElement>(".route-chip.picked") ?? (planning ? strip.lastElementChild : null)) as HTMLElement | null;
+        if (chip && (chip.offsetLeft < strip.scrollLeft || chip.offsetLeft + chip.offsetWidth > strip.scrollLeft + strip.clientWidth)) strip.scrollLeft = chip.offsetLeft + chip.offsetWidth / 2 - strip.clientWidth / 2;
+        edges();
+      });
+      // The first time, a word on what a chip does (till one is tapped).
+      if (!stopHintSeen && stopPicked === -1) {
+        const hint = document.createElement("div");
+        hint.className = "route-hint";
+        hint.textContent = "Tap a stop for options";
+        box.append(hint);
+      }
       const k = stopPicked;
       if (k >= 0 && k < line.stops.length) {
         const st = line.stops[k];
@@ -1962,16 +2023,24 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           ...(st.action === "drop"
             ? []
             : [
-                button(st.waitFill ? "Waits till full" : "Doesn't wait", `route-wait${st.waitFill ? " on" : ""}`, "Wait here till the wagons are full (of goods a later stop wants)", () =>
+                button(st.waitFill ? "Wait: on" : "Wait: off", `route-wait${st.waitFill ? " on" : ""}`, "Wait here till the wagons are full (of goods a later stop wants)", () =>
                   edit((l) => (l[k].waitFill = !l[k].waitFill)),
                 ),
               ]),
           button("✕", "route-remove", "Take this stop off the route", () => edit((l) => (l.splice(k, 1), (stopPicked = -1)))),
         );
+        // (Nor where it would put the same place twice in a row: that's one visit.)
+        const twiceAfter = (to: number) => {
+          const ids = line.stops.map((x) => x.depotId);
+          ids.splice(to, 0, ids.splice(k, 1)[0]);
+          return ids.some((id, i) => i > 0 && ids[i - 1] === id);
+        };
         const moves = tools.querySelectorAll<HTMLButtonElement>(".route-move");
         if (moves.length === 2) {
-          moves[0].disabled = k === 0;
-          moves[1].disabled = k === line.stops.length - 1;
+          moves[0].disabled = k === 0 || twiceAfter(k - 1);
+          moves[1].disabled = k === line.stops.length - 1 || twiceAfter(k + 1);
+          // Neither way: no arrows at all.
+          if (moves[0].disabled && moves[1].disabled) for (const m of moves) m.remove();
         }
         box.append(tools);
       }
@@ -2019,27 +2088,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           showRoute();
           routeChanged();
           scheduleSave();
+          // Its disc stays in view (the bar may have grown under it).
+          const spot = pieceSpot(game.economy.depot(depotId)?.pieceId ?? -1);
+          if (spot) requestAnimationFrame(() => keepInView([spot.clone().setY(spot.y + 70)]));
           return true;
         }
       : null;
     showRoute();
   }
 
-  /** Frame the open engine's train and its line's places in the room above the (slimmed) card. */
-  function framePlanning(): void {
-    const carId = interaction.openEngineCarId;
-    const found = carId !== -1 ? game.sim.findCar(carId) : undefined;
-    if (!found) return;
-    const points: Vector3[] = [];
-    const w = found.train.world[2 * found.index];
-    if (w) points.push(new Vector3(w.x, 0, w.z));
-    for (const st of lineOf(game.economy, carId)?.stops ?? []) {
-      const d = game.economy.depot(st.depotId);
-      const p = d && game.layout.getPiece(d.pieceId);
-      if (p) points.push(new Vector3(p.pose.x, 0, p.pose.z));
-    }
-    // A train alone: frame a little room round it, its station and what's near.
-    if (points.length === 1) points.push(points[0].clone().add(new Vector3(250, 0, 250)), points[0].clone().add(new Vector3(-250, 0, -250)));
+  /** The room the map has on screen (canvas pixels): below the top bar (and the goals), above the engine's card. */
+  function mapRoom(): { top: number; bottom: number; width: number; height: number } {
     const r = game.canvas.getBoundingClientRect();
     let top = 0;
     for (const e of document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")) {
@@ -2048,10 +2107,87 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     const card = document.querySelector(".engine-card")?.getBoundingClientRect();
     const bottom = card && card.height > 0 ? card.top - r.top : r.height;
+    return { top, bottom, width: r.width, height: r.height };
+  }
+
+  /** A piece's middle, on the ground. */
+  const pieceSpot = (pieceId: number): Vector3 | null => {
+    const p = game.layout.getPiece(pieceId);
+    return p ? new Vector3(p.pose.x, p.y, p.pose.z) : null;
+  };
+
+  /**
+   * Glide the view to show `points` in the map's room (above the card), at the camera's angle, `minDistance` to
+   * `maxDistance` mm away (the furthest of `points`, last, are left out where they'd need it further).
+   */
+  function frameInRoom(points: Vector3[], minDistance: number, maxDistance = game.controls.maxDistance): void {
+    const room = mapRoom();
     const now = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
-    const fit = fitToRect(points, game.camera, now.phi, now.theta, { left: 0, top, right: r.width, bottom }, r.width, r.height, 32);
+    const fitOf = (ps: Vector3[]) => fitToRect(ps, game.camera, now.phi, now.theta, { left: 0, top: room.top, right: room.width, bottom: room.bottom }, room.width, room.height, 32);
+    // Too far out to show them all: the last (furthest) points go, down to the first two, so what's shown is near.
+    let shown = points;
+    let fit = fitOf(shown);
+    while (fit.distance > maxDistance && shown.length > 2) fit = fitOf((shown = shown.slice(0, -1)));
     game.follow(-1);
-    game.director.glideTo(fit.target, Math.min(Math.max(fit.distance, 600), game.controls.maxDistance), { theta: now.theta, duration: 0.7 });
+    game.director.glideTo(fit.target, Math.min(Math.max(fit.distance, minDistance), maxDistance, game.controls.maxDistance), { theta: now.theta, duration: 0.7 });
+  }
+
+  /** Are these points on screen in the map's room (with a margin), as the camera is now? */
+  function inRoom(points: readonly Vector3[], margin = 24): boolean {
+    const room = mapRoom();
+    const v = new Vector3();
+    return points.every((p) => {
+      v.copy(p).project(game.camera);
+      const x = ((v.x + 1) / 2) * room.width;
+      const y = ((1 - v.y) / 2) * room.height;
+      return v.z < 1 && x >= margin && x <= room.width - margin && y >= room.top + margin && y <= room.bottom - margin;
+    });
+  }
+
+  /** Keep these points in view: if any is off screen or under the card, glide just enough to show them all. */
+  function keepInView(points: Vector3[]): void {
+    if (points.length === 0 || inRoom(points)) return;
+    const d = game.camera.position.distanceTo(game.controls.target);
+    frameInRoom([...points, game.controls.target.clone()], Math.min(d, 900));
+  }
+
+  /** The open engine's train's middle, on the ground. */
+  function trainSpot(carId: number): Vector3 | null {
+    const found = carId !== -1 ? game.sim.findCar(carId) : undefined;
+    const w = found?.train.world[2 * found.index];
+    return w ? new Vector3(w.x, 0, w.z) : null;
+  }
+
+  /**
+   * Planning starts framing the train with its nearest places: those within `NEAR_PLACES` mm (up to `NEAR_COUNT`), and
+   * at least the nearest `NEAR_MIN` however far, the view no further out than `FRAME_MAX` mm.
+   */
+  const NEAR_PLACES = 1100;
+  const NEAR_COUNT = 3;
+  const NEAR_MIN = 2;
+  const FRAME_MAX = 4200;
+
+  /** Planning starts: frame the train, its line's places, and the places nearest it (the likely first stops). */
+  function framePlanning(): void {
+    const carId = interaction.openEngineCarId;
+    const train = trainSpot(carId);
+    if (!train) return;
+    const points: Vector3[] = [train];
+    for (const st of lineOf(game.economy, carId)?.stops ?? []) {
+      const d = game.economy.depot(st.depotId);
+      const p = d && pieceSpot(d.pieceId);
+      if (p) points.push(p);
+    }
+    const near = game.economy
+      .allDepots()
+      .map((d) => pieceSpot(d.pieceId))
+      .filter((p): p is Vector3 => !!p && p.distanceTo(train) > 1)
+      .sort((a, b) => a.distanceTo(train) - b.distanceTo(train))
+      .filter((p, k) => k < NEAR_MIN || (k < NEAR_COUNT && p.distanceTo(train) <= NEAR_PLACES));
+    points.push(...near);
+    // Nothing near: a little room round the train.
+    if (points.length === 1) points.push(train.clone().add(new Vector3(250, 0, 250)), train.clone().add(new Vector3(-250, 0, -250)));
+    frameInRoom(points, 600, FRAME_MAX);
   }
 
   /** Why the open engine's line can't be run as it stands (a stop no track leads to), or null: see `showRibbon`. */
@@ -2081,6 +2217,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         cantReachText = null;
         game.invalidate();
       }
+      ribbonFor = { carId: -1, stops: "", next: -1 };
       return;
     }
     // The way the engine's train is going (or, standing, the way its front faces).
@@ -2120,6 +2257,15 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const n = line.stops.length;
       // A stop is out of reach when no way leads into it (from the train, for the next; else from the stop before).
       const unreachable = (k: number) => (k === next ? toNext === null : n > 1 && legs[(k - 1 + n) % n] === null);
+      // Where its way runs out, a red dashed gap across to it.
+      const gaps: GapSpec[] = [];
+      line.stops.forEach((_, k) => {
+        if (!unreachable(k) || pieces[k] === -1) return;
+        const to = pointOnPath(game.layout, pieces[k], 0, pathLengthOf(pieces[k]) / 2);
+        const starts = k === next ? [front] : stopCursors(game.layout, pieces[(k - 1 + n) % n]);
+        const from = to && nearestAhead(game.layout, starts, GAP_SEARCH, to.x, to.z);
+        if (to && from && Math.hypot(from.x - to.x, from.z - to.z) > 20) gaps.push({ from, to });
+      });
       // One disc a place: a place visited twice (A → B → A) shows both its numbers ("1·3").
       const discs = new Map<number, DiscSpec>();
       line.stops.forEach((_, k) => {
@@ -2132,14 +2278,49 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           if (state === "unreachable" || (state === "next" && d.state === "stop")) d.state = state;
         }
       });
-      routeView.show(ribbons, [...discs.values()]);
+      routeView.show(ribbons, [...discs.values()], gaps);
+      // A stop just added pops in; the next stop pulses when it becomes the next (or the card opens).
+      const now = performance.now() / 1000;
+      const stopsKey = line.stops.map((st) => st.depotId).join(",");
+      if (ribbonFor.carId === carId && stopsKey.startsWith(ribbonFor.stops) && line.stops.length === ribbonFor.stops.split(",").filter(Boolean).length + 1) routeView.pop(line.stops.length - 1, now);
+      if (ribbonFor.carId !== carId || ribbonFor.next !== next) routeView.pulse(now);
+      ribbonFor = { carId, stops: stopsKey, next };
       const out = line.stops.findIndex((_, k) => unreachable(k));
       if (out !== -1) {
         const name = names.find((st) => st.depotId === line.stops[out].depotId)?.name ?? "a stop";
         cantReachText = `Can't reach ${name}: no track leads there`;
+        // With the card open (not planning), the stop that can't be reached is shown, once: not left off screen or
+        // under the card.
+        const spot = pieceSpot(pieces[out]);
+        const train = trainSpot(carId);
+        if (!planning && nudgedFor !== carId && spot && train) {
+          nudgedFor = carId;
+          requestAnimationFrame(() => keepInView([train, spot.clone().setY(spot.y + 70)]));
+        }
       }
     }
+    if (!line || !r) ribbonFor = { carId, stops: "", next: -1 };
     game.invalidate();
+  }
+
+  /** What the ribbon last showed (to tell a stop just added, and a new next stop). */
+  let ribbonFor = { carId: -1, stops: "", next: -1 };
+  /** The engine whose card last nudged the view to show a stop it can't reach (once per opening). */
+  let nudgedFor = -1;
+  /** How far on (mm) a way is followed to find where it runs out, for a stop it can't reach. */
+  const GAP_SEARCH = 3000;
+  const pathLengthOf = (pieceId: number): number => {
+    const p = game.layout.getPiece(pieceId);
+    return p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 0;
+  };
+  /** Discs: fanned out where they'd overlap, and the pulse and pop, each frame the card shows a route (cheap). */
+  let discsMoving = false;
+  function animateDiscs(): void {
+    if (!routeView || ribbonKey === "") return;
+    if (routeView.fan(game.camera, game.canvas.clientHeight)) game.invalidate();
+    const moving = routeView.animate(performance.now() / 1000);
+    if (moving || discsMoving) game.invalidate();
+    discsMoving = moving;
   }
 
   // The map view (Game mode): the whole land from above, with what each town wants and each depot holds.
@@ -2530,6 +2711,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       return false;
     }
   })();
+  /** A train too long for a lift is told so once (for a few minutes), not on every approach. */
+  const tooLong = new TooLongNotice();
+  /** The lifts heard riding (for the clunk as each gets there), and where. */
+  const liftsHeard = new Map<number, { x: number; z: number }>();
   function showLoopTip(): void {
     loopTipShown = true;
     try {
@@ -2557,7 +2742,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     whistles.sync(game.layout, game.props, game.trackVersion);
     for (const e of game.events) {
       // A train too long for a lift's platform: it turns back at the end, and the player is told why (once).
-      if (e.kind === "lift-refused") hud.toast("That train's too long for the lift: an engine and two cars fit");
+      // (Once a train, not on each approach: by its cars, as it comes back from turning round a new train.)
+      if (e.kind === "lift-refused") {
+        const cars = game.sim.getTrain(e.trainId)?.cars.map((c) => c.id) ?? [];
+        if (tooLong.shouldTell(cars, now)) hud.toast(TOO_LONG_MESSAGE);
+      }
       if (e.kind === "buffer" && !loopTipShown && game.sim.getTrain(e.trainId)?.lastTurn?.cause === "train") showLoopTip();
       const p = carPoint(e.kind === "turned" ? e.newTrainId : e.trainId, e.kind === "joint" ? e.bogie : 0);
       if (!p) continue;
@@ -2581,6 +2770,28 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hum += listen(t.world[0].x, t.world[0].z)[0];
     }
     audio.setHum(game.paused ? 0 : hum);
+    // Train lifts: a clunk as one sets off and as it gets there, and its gear winding while it rides (paused, its ride
+    // holds, quiet). Nothing riding and none heard riding: one comparison.
+    const riding = game.sim.ridingLifts();
+    if (riding.length > 0 || liftsHeard.size > 0) {
+      let wind = 0;
+      for (const id of riding) {
+        const at = game.layout.getPiece(id) ? pieceCentre(game.layout, id) : null;
+        if (!at) continue;
+        const [v, pan] = listen(at.x, at.z);
+        if (!liftsHeard.has(id)) {
+          liftsHeard.set(id, at);
+          audio.liftClunk(v, pan);
+        }
+        wind = Math.max(wind, v);
+      }
+      for (const [id, at] of liftsHeard) {
+        if (riding.includes(id)) continue;
+        liftsHeard.delete(id);
+        audio.liftClunk(...listen(at.x, at.z));
+      }
+      audio.setWinding(game.paused ? 0 : wind);
+    }
 
     // Cranes: a clunk per unit, and a chime when planks reach a town. Saws buzz while they cut.
     for (const e of game.economy.drainEvents()) {
@@ -2616,6 +2827,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       checkGoals(true);
     }
     showRibbon();
+    animateDiscs();
     showRoute();
     showEngineView();
     let derailed = false;
