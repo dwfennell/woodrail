@@ -302,7 +302,7 @@ type Mode =
        * Game mode, a town's house being moved about its town: it snaps to its town's lots (see town-moves.ts). Its
        * building, its town look, the lot under the hand (worked out again only when the square under it changes).
        */
-      town?: { building: number; look: Look; editor: LandEditor; cell: number; lot: TownLot | TownMoveBlock | null; preview: number };
+      town?: { building: number; look: Look; editor: LandEditor; cell: number; start: number; lot: TownLot | TownMoveBlock | null; preview: number };
     }
   | { kind: "drag-road"; pointerId: number; drag: RoadDrag; overTray: boolean }
   /** Drawing a line of track (the Draw chip on): see `DrawHand`. */
@@ -1270,7 +1270,8 @@ export class Interaction {
     const branch = this.drawsNow && m.branch !== undefined;
     if (!branch && (!target || this.onPickPlace || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType))) return;
     // Drawing is its own tool: a finger resting there neither picks anything up nor starts a line (Rail and road's).
-    if (this.drawing && !branch) return;
+    // (But a town's house, which no line is drawn from, lifts as it does with drawing off.)
+    if (this.drawing && !branch && !house) return;
     if (m.press.kind === "piece" && (this.picking || this.fixedLabel(m.press.pieceId))) return;
     if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) === -1) return;
     m.hold = { timer: window.setTimeout(() => this.holdFired(m), HOLD_MS), t, strayedAt: null };
@@ -2845,11 +2846,13 @@ export class Interaction {
     this.lastX = x;
     this.lastY = y;
     // (A town's house in Game mode can't go back in the box: it's the town's, not the player's.)
-    m.overTray = this.hud.isOverTray(x, y) && !(m.kind === "drag-prop" && m.town);
+    const overTray = this.hud.isOverTray(x, y);
+    m.overTray = overTray && !(m.kind === "drag-prop" && m.town);
     const r = this.game.canvas.getBoundingClientRect();
     const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
-    // A drag coming up out of the tray passes through the bottom band: only pan once it has left the band.
-    this.game.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
+    // A drag coming up out of the tray passes through the bottom band: only pan once it has left the band. (Over the
+    // tray, no pan: a town's house carried there, which can't go in, doesn't send the map away either.)
+    this.game.director.setEdgePointer(overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
     const ground = this.groundAt(x, y);
     if (m.kind === "drag-prop") {
       this.updatePropDrag(m, x, y);
@@ -3582,7 +3585,7 @@ export class Interaction {
     this.mode = this.propDrag(p.asset, propId, pointerId, p.heading, from, { x: p.x - ground.x, z: p.z - ground.z }, p.variant);
     this.mode.overTray = false;
     const found = this.townHouse(propId) && p.building !== undefined ? findBuilding(g.landscape, p.building) : null;
-    if (found) this.mode.town = { building: p.building!, look: looksOf(g.landscape, found.town).get(p.building!) ?? "house", editor: this.landEditor(), cell: -2, lot: null, preview: -1 };
+    if (found) this.mode.town = { building: p.building!, look: looksOf(g.landscape, found.town).get(p.building!) ?? "house", editor: this.landEditor(), cell: -2, start: -2, lot: null, preview: -1 };
     // Drawn by the hand while it moves, not where it stood.
     g.propsChanged(propId);
     this.onPickup?.();
@@ -3632,7 +3635,11 @@ export class Interaction {
       const cell = g.landscape.grid.cellAtWorld(pose.x, pose.z);
       if (cell !== t.cell) {
         t.cell = cell;
-        t.lot = lotFor(g.landscape, t.building, cell, t.editor);
+        // Until the hand leaves the square it was lifted over, the house stays on its own lot (lifted above the finger,
+        // it starts over its street, say: not a refusal the moment it's picked up).
+        if (t.start === -2) t.start = cell;
+        const own = cell === t.start ? findBuilding(g.landscape, t.building)?.building : undefined;
+        t.lot = own ? { cells: [...own.cells], front: own.front, corner: !!own.corner } : lotFor(g.landscape, t.building, cell, t.editor);
         // Swapping: the other house shows where it would go (the held one's lot), so it reads as a swap, not a stack.
         const swap = typeof t.lot === "object" && t.lot?.swap !== undefined ? this.swapPartner(t.building, t.lot) : null;
         if (t.preview !== -1 && t.preview !== swap?.id) g.previewProp(t.preview, null);
