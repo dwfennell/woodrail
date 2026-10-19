@@ -5,6 +5,9 @@ import { checkYard } from "./depot-footprint";
 import { BRIDGE_KNOWN_HINT, GOALS, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN } from "./goals";
 import { buildStarterWorld, createWorld, STARTER_SEED, syncIndustries, type World } from "./world";
 import { CARGO } from "../economy/cargo";
+import { Progress } from "./progress";
+import { pick } from "./research";
+import { goalPick, showMePick } from "./research-text";
 
 const goal = (id: string) => GOALS.find((g) => g.id === id)!;
 
@@ -465,5 +468,23 @@ describe("place-workshop guide", () => {
     expect(t.current()?.id).toBe("two-trains");
     expect(t.total).toBe(GOALS.length);
     expect(t.lockedHint()).toBeNull();
+  });
+});
+
+describe("goals after a blueprint pre-pick its research", () => {
+  it("Learn switches and Build a bridge name their blueprint; the picker opens on it while the school is idle", () => {
+    expect(goal("learn-switches").blueprint).toBe("switches");
+    expect(goal("build-bridge").blueprint).toBe("bridges");
+    const p = Progress.fresh();
+    expect(goalPick(p, goal("learn-switches").blueprint, true)).toBe("switches");
+    expect(goalPick(p, goal("build-bridge").blueprint, true)).toBe("bridges");
+    // Nothing picked for you; with a research under way, none.
+    expect(p.research.current).toBeNull();
+    pick(p, "switches");
+    expect(goalPick(p, goal("build-bridge").blueprint, true)).toBeNull();
+    // Show me still opens the picker on it (to put it up next), till it's learned.
+    expect(showMePick(p, goal("build-bridge").blueprint, true)).toBe("bridges");
+    p.learned.add("bridges");
+    expect(showMePick(p, goal("build-bridge").blueprint, true)).toBeNull();
   });
 });

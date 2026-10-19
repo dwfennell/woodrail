@@ -36,6 +36,21 @@ describe("a depot's yard", () => {
     expect(yardParts("straight-216")).toBeNull();
   });
 
+  it("a school's is a depot's like the others: the same pad, spliced into a straight, kept off the town's lots", () => {
+    expect(yardParts("depot-school")).toEqual(yardParts("depot-workshop"));
+    const ctx = setup();
+    expect(checkYard(ctx, "depot-school", AT, 0, -1)).toBeNull();
+    expect(inYardMessage("depot-school")).toBe("That's the school's yard");
+    // Into a straight of the line, as a workshop goes.
+    for (const x of [0, 216, 432]) ctx.layout.addPiece("straight-216", P(x, 0));
+    const s = findSplice(ctx.layout, "depot-school", false, { x: 324, z: 0 }, 0, 40);
+    expect(s.kind).toBe("splice");
+    if (s.kind === "splice") expect(checkYard(ctx, "depot-school", s.pose, s.y, new Set(s.covers))).toBeNull();
+    // Beside a town, never on it: its yard on the town's squares is refused.
+    setCells(ctx.land, 10, 206, 30, 114, (i) => (ctx.land.grid.surface[i] = SURF_TOWN));
+    expect(checkYard(ctx, "depot-school", AT, 0, -1)).not.toBeNull();
+  });
+
   it("goes on clear ground", () => {
     const ctx = setup();
     for (const t of ["depot-workshop", "depot-sawmill", "depot-forest", "depot-mill", "depot-harbour"] as PieceTypeId[]) expect(checkYard(ctx, t, AT, 0, -1), t).toBeNull();
