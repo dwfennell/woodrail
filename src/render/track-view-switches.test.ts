@@ -1,9 +1,9 @@
 import { Color, Matrix4, Mesh, MeshBasicMaterial, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 import { Flourishes } from "./flourishes";
-import { getPieceDef, Layout, type PieceTypeId } from "../track";
+import { createSample, getPieceDef, Layout, pathLength, samplePath, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
-import { SWITCH_ARROW_AT, SWITCH_ARROW_CREAM, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
+import { setRoute, SWITCH_ARROW_AT, SWITCH_ARROW_CLEAR, SWITCH_ARROW_CREAM, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
 
 const plain = () => new MeshBasicMaterial();
 const mats = { track: plain(), trackCut: plain(), bridgePaint: plain(), lacquer: plain, naturalWood: plain(), magnet: plain() } as unknown as Materials;
@@ -110,6 +110,32 @@ describe("switch chevrons", () => {
       // Along a quarter turn from the trunk at x 0: off to one side, pointing away from the trunk end.
       for (const a of arrows) expect(Math.hypot(a.x, a.z)).toBeGreaterThan(20);
       expect(Math.sign(arrows[2].z)).toBe(s === 0 ? 1 : -1);
+    }
+  });
+
+  it("the chevrons start past where the routes part: none lies over another route's groove near the trunk", () => {
+    const q = createSample();
+    for (const type of ["switch", "switch-y", "switch-3way", "wye", "crossover"] as const) {
+      for (const flipped of [false, true]) {
+        const def = getPieceDef(type, flipped);
+        for (let state = 0; state < trunkRoutes(def).length; state++) {
+          const route = setRoute(def, state)!;
+          const arrows = arrowsOf(oneSwitch(type, state, flipped).view);
+          expect(arrows, `${type} ${state}`).toHaveLength(N);
+          for (const a of arrows) {
+            // Every other track through the piece (its other routes, a wye's straight across, a crossover's other line).
+            let nearest = Infinity;
+            for (const p of def.paths) {
+              if (p === route) continue;
+              for (let d = 0; d <= pathLength(p.geom); d += 1) {
+                samplePath(p.geom, d, q);
+                nearest = Math.min(nearest, Math.hypot(q.x - a.x, q.z - a.z));
+              }
+            }
+            expect(nearest, `${type}${flipped ? " flipped" : ""} state ${state}: chevron at ${a.x.toFixed(0)}, ${a.z.toFixed(0)}`).toBeGreaterThanOrEqual(SWITCH_ARROW_CLEAR - 0.5);
+          }
+        }
+      }
     }
   });
 

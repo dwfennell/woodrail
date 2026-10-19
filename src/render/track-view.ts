@@ -380,11 +380,15 @@ function switchLeverGeometry(): BufferGeometry {
 }
 
 /**
- * The set route's painted chevrons: this many along it, at these fractions of its length from the trunk (where the
- * routes have parted enough to tell apart), pointing away from the trunk.
+ * The set route's painted chevrons: this many along it, pointing away from the trunk. They lie where the route has
+ * parted from the switch's other track (`switchArrowPoses`); these fractions of its length are the fallback.
  */
 export const SWITCH_ARROW_AT = [0.42, 0.62, 0.82] as const;
-/** Chevron colours: cream, like toy track's stencilled arrows; a warmer orange on a pinned switch. */
+/**
+ * How far (mm) a chevron's middle stands from the centre line of any other track through the switch: clear of that
+ * track's groove (13 mm out, 6 wide) by its own half-width (4.6) and a little more.
+ */
+export const SWITCH_ARROW_CLEAR = 22;
 export const SWITCH_ARROW_CREAM = "#f3e4bf";
 export const SWITCH_ARROW_PINNED = "#f08a3a";
 const arrowCream = new Color(SWITCH_ARROW_CREAM);
@@ -437,14 +441,70 @@ export function setRoute(def: PieceDef, state: number): PathDef | null {
 }
 
 /** Where a route's chevrons lie on its piece (piece-local x, z and heading, pointing away from the trunk). */
-export function switchArrowPoses(route: PathDef): { x: number; z: number; heading: number }[] {
+export function switchArrowPoses(route: PathDef, def?: PieceDef): { x: number; z: number; heading: number }[] {
   const len = pathLength(route.geom);
+  const back = route.to === 0;
   const s = createSample();
-  return SWITCH_ARROW_AT.map((f) => {
-    const back = route.to === 0;
-    samplePath(route.geom, back ? len * (1 - f) : len * f, s);
+  /** The pose `d` mm from the trunk along the route. */
+  const at = (d: number) => {
+    samplePath(route.geom, back ? len - d : d, s);
     return { x: s.x, z: s.z, heading: back ? s.heading + Math.PI : s.heading };
+  };
+  const span = def ? clearSpan(route, def) : null;
+  if (!span) return SWITCH_ARROW_AT.map((f) => at(len * f));
+  const [a, b] = span;
+  const n = SWITCH_ARROW_AT.length;
+  return SWITCH_ARROW_AT.map((_, i) => at(a + ((b - a) * i) / (n - 1)));
+}
+
+const clearSpans = new WeakMap<PathDef, [number, number] | null>();
+
+/**
+ * The first stretch of a switch's route (mm from the trunk) where it's parted from every other track through the piece
+ * (`SWITCH_ARROW_CLEAR` from their centre lines), its chevrons' middles kept inside it, ending short of the far end;
+ * null if there's no stretch long enough. Worked out once for each route (piece definitions are shared).
+ */
+function clearSpan(route: PathDef, def: PieceDef): [number, number] | null {
+  if (clearSpans.has(route)) return clearSpans.get(route)!;
+  const STEP = 2;
+  const ARROW_HALF = 3.5;
+  const END_MARGIN = 10;
+  const len = pathLength(route.geom);
+  const back = route.to === 0;
+  const others = def.paths.filter((p) => p !== route).map((p) => {
+    const l = pathLength(p.geom);
+    const pts: number[] = [];
+    const q = createSample();
+    for (let d = 0; d <= l; d += STEP) {
+      samplePath(p.geom, d, q);
+      pts.push(q.x, q.z);
+    }
+    return pts;
   });
+  const s = createSample();
+  const clear = (d: number) => {
+    samplePath(route.geom, back ? len - d : d, s);
+    for (const pts of others) for (let i = 0; i < pts.length; i += 2) if (Math.hypot(pts[i] - s.x, pts[i + 1] - s.z) < SWITCH_ARROW_CLEAR) return false;
+    return true;
+  };
+  let from = -1;
+  let span: [number, number] | null = null;
+  const last = len - END_MARGIN - ARROW_HALF;
+  for (let d = 0; d <= last + STEP / 2; d += STEP) {
+    const ok = d <= last && clear(d);
+    if (ok && from === -1) from = d;
+    if ((!ok || d + STEP > last) && from !== -1) {
+      const to = ok ? d : d - STEP;
+      // Long enough for the row to read as a row (the chevrons at least a chevron's length apart).
+      if (to - from >= 4 * ARROW_HALF * (SWITCH_ARROW_AT.length - 1)) {
+        span = [from + ARROW_HALF, to];
+        break;
+      }
+      from = -1;
+    }
+  }
+  clearSpans.set(route, span);
+  return span;
 }
 
 /** A switch's lever lean (radians about the piece's x) for a state: toward the route set (a three-way's upright for straight on). */
@@ -974,7 +1034,7 @@ export class TrackView {
       // lie along the route set; the semaphore's arm is level for the first route, raised for any other.
       const state = this.layout.switchState(id);
       const route = setRoute(def, state);
-      const arrows = route ? switchArrowPoses(route).flatMap((a) => [a.x, a.z, a.heading]) : [];
+      const arrows = route ? switchArrowPoses(route, def).flatMap((a) => [a.x, a.z, a.heading]) : [];
       const was = this.shown.get(id);
       const next: SwitchShown = { first: -1, piece, leverAt, state, lean: leverLean(def, state), arm: state !== 0 ? -SIGNAL_RAISED : 0, arrows, pinned: this.layout.isPinned(id) };
       const swinging = this.swings.get(id);
