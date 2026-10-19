@@ -36,7 +36,7 @@ import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
 import { archFloors, bridgeLevels, findCrossings, styleCrossings, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape } from "../landscape";
-import type { Prop } from "../props/store";
+import type { Prop, PropPose } from "../props/store";
 import type { PropSource } from "../render/props/props-view";
 import { setHazeLand, setHazeReach } from "../render/haze";
 import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
@@ -466,18 +466,38 @@ export class Game {
   /** The props drawn by `propsView`: all but the linked crossing props. Its version: see `shownProps`. */
   private readonly drawnProps = {
     version: 0,
-    get: (id: number): Prop | undefined => (this.linkedProps.has(id) ? undefined : this.props.get(id)),
+    get: (id: number): Prop | undefined => (this.linkedProps.has(id) ? undefined : this.previewed(this.props.get(id))),
     all: (): Iterable<Prop> => this.unlinkedProps(),
   };
   private drawnFor = "";
 
   private *unlinkedProps(): Iterable<Prop> {
-    for (const p of this.props.all()) if (!this.linkedProps.has(p.id)) yield p;
+    for (const p of this.props.all()) if (!this.linkedProps.has(p.id)) yield this.previewed(p)!;
   }
 
-  /** The props to draw (see `drawnProps`), its version brought up to date with the store's and the links'. */
+  /**
+   * Props drawn somewhere other than where they stand, for a moment (a town's house about to swap places with the one
+   * in the hand shows at its new lot: see `previewProp`). Only drawn so: the store, and so saves, keep where it stands.
+   */
+  private readonly previews = new Map<number, PropPose>();
+  private previewVersion = 0;
+
+  private previewed(p: Prop | undefined): Prop | undefined {
+    const at = p && this.previews.get(p.id);
+    return at ? { ...p, ...at } : p;
+  }
+
+  /** Draw prop `id` at `pose` for now (null: where it stands again). */
+  previewProp(id: number, pose: PropPose | null): void {
+    if (pose) this.previews.set(id, pose);
+    else if (!this.previews.delete(id)) return;
+    this.previewVersion++;
+    this.propsChanged();
+  }
+
+  /** The props to draw (see `drawnProps`), its version brought up to date with the store's, the links' and previews'. */
   private shownProps(): PropSource {
-    const key = `${this.props.version}|${this.linkedVersion}`;
+    const key = `${this.props.version}|${this.linkedVersion}|${this.previewVersion}`;
     if (key !== this.drawnFor) {
       this.drawnFor = key;
       this.drawnProps.version++;

@@ -12,7 +12,7 @@ export interface Footprint {
 }
 
 /** Why a prop can't stand somewhere. */
-export type PropBlock = "off-land" | "river" | "dry" | "building" | "station" | "depot" | "track" | "prop" | "uneven" | "yard" | "no-crossing";
+export type PropBlock = "off-land" | "river" | "dry" | "building" | "station" | "depot" | "track" | "prop" | "uneven" | "yard" | "no-crossing" | "town";
 
 export const PROP_MESSAGES: Record<PropBlock, string> = {
   "off-land": "That's past the edge of your land",
@@ -26,6 +26,8 @@ export const PROP_MESSAGES: Record<PropBlock, string> = {
   uneven: "Needs level ground — not over a hill's edge",
   yard: "That's a depot's yard",
   "no-crossing": "Drop it where the track crosses a road",
+  // (A town's house in Game mode is told why by town-moves.ts: this is only its outline's red.)
+  town: "A house goes on one of its town's lots",
 };
 
 /**
