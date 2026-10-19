@@ -193,9 +193,9 @@ describe("build-bridge guide", () => {
     const known = goal("build-bridge").check(w, { learned: new Set(["bridges"]) });
     expect(known.done).toBe(false);
     if (known.hint !== NOTHING_ACROSS_KNOWN) expect(known.hint).toBe(BRIDGE_KNOWN_HINT);
-    expect(known.hint).not.toMatch(/learn/i);
-    // Not learned: its own hint, which says to learn them.
-    expect(goal("build-bridge").hint).toMatch(/Learn bridges/);
+    expect(known.hint).not.toMatch(/learn|research/i);
+    // Not learned: its own hint, which says to research them.
+    expect(goal("build-bridge").hint).toMatch(/Research bridges/);
   });
 
   it("frames the crossing toward a town across the river, both banks in view", () => {
