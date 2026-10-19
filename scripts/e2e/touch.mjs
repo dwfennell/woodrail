@@ -116,14 +116,20 @@ async function selectThenDrag(ctx, p) {
    * A one-finger drag from (x, y), `dx` px across, in small steps; then the scene is let settle. Returns what the
    * interaction was doing halfway (a drag of a piece or train, or "idle": the camera has the gesture).
    */
+  // (Each event stamped with when it happens, 16 ms apart: a quick drag. A loaded machine delivers them late, and
+  // unstamped, a quick drag would look like a finger resting first, which picks the piece up: QA saw it flake.)
+  const at = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
   const drag = async (x, y, dx) => {
-    await touch("touchStart", x, y);
+    const t0 = Date.now() / 1000;
+    await at("touchStart", x, y, t0);
     let mid = "";
     for (let k = 1; k <= 12; k++) {
-      await touch("touchMove", x + (dx * k) / 12, y);
+      await at("touchMove", x + (dx * k) / 12, y, t0 + k * 0.016);
       if (k === 6) mid = await p.evaluate(() => window.woodrail.interaction.mode.kind);
     }
-    await touch("touchEnd", 0, 0);
+    // (Still a moment before lifting, as a finger that means to stop does: no fling carries the view on.)
+    await at("touchMove", x + dx, y, t0 + 12 * 0.016 + 0.15);
+    await at("touchEnd", 0, 0, t0 + 12 * 0.016 + 0.16);
     await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
     return mid;
   };
@@ -152,6 +158,22 @@ async function selectThenDrag(ctx, p) {
       const r = w.canvas.getBoundingClientRect();
       return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
     }, id);
+  const onPiece = () =>
+    p.evaluate((id) => {
+      const w = window.woodrail;
+      const piece = w.layout.getPiece(id);
+      const r = w.canvas.getBoundingClientRect();
+      let first = null;
+      for (const f of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+        const d = 216 * f;
+        const c = new w.camera.position.constructor(piece.pose.x + Math.cos(piece.pose.heading) * d, piece.y, piece.pose.z + Math.sin(piece.pose.heading) * d).project(w.camera);
+        const xy = [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
+        first ??= xy;
+        const hit = w.interaction.pick(xy[0], xy[1], true);
+        if (hit?.kind === "piece" && hit.pieceId === id) return xy;
+      }
+      return first;
+    }, id);
   // 1. Not selected: the drag pans, the piece stays.
   const a0 = await where();
   let [sx, sy] = await onScreen();
@@ -160,12 +182,14 @@ async function selectThenDrag(ctx, p) {
   check("a drag that starts on an unselected piece pans the view", aMid === "idle" && (a1.view[0] !== a0.view[0] || a1.view[1] !== a0.view[1]), `mid-drag ${aMid}, view ${a0.view} → ${a1.view}`);
   check("…and leaves the piece where it was", JSON.stringify(a1.piece) === JSON.stringify(a0.piece), `piece ${a0.piece} → ${a1.piece}`);
   // 2. Tapped (selected), then dragged: it moves.
-  [sx, sy] = await onScreen();
+  // (Where a tap takes the piece: its middle, or along it if a tree or a house stands in front of its middle there,
+  // as one may once the view's been panned: then the tap selects that, rightly.)
+  [sx, sy] = await onPiece();
   await p.touchscreen.tap(sx, sy);
   await p.waitForFunction(() => !document.querySelector(".piece-card").hidden, null, { timeout: 60000 });
   // (A short drag along the piece's own line, so it lands where it can go.)
   const bMid = await drag(sx, sy, -40);
-  check("tap a piece to select it, then a drag picks it up and moves it", bMid === "drag-piece", `mid-drag ${bMid}`);
+  check("tap a piece to select it, then a drag picks it up and moves it", bMid === "drag-piece", `mid-drag ${bMid}; tapped ${await p.evaluate(([x, y]) => JSON.stringify(window.woodrail.interaction.pick(x, y, true)), [sx, sy])}`);
   await p.keyboard.press("Escape");
   // 2b. Long-press to pick up: let go of it first (nothing selected), then a finger resting on it picks it up into a drag.
   await p.keyboard.press("Escape");
