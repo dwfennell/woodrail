@@ -7,14 +7,13 @@ import { craftNow, craftShort, Crafting, lacking, workshops, workshopStock } fro
 import { attachEngines } from "../game/engines";
 import { GOALS, GoalTracker } from "../game/goals";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
-import { landmarksOf, townLandmarks } from "../game/landmarks";
+import { landmarksAt, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { inUse, Progress } from "../game/progress";
-import { firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas, takeBlueprint, takeCrate } from "../game/rewards";
-import { keepsPlanks, learnAuto, priceOf, techOf, TECHS } from "../game/tech";
+import { cardView, firstTimeGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
+import { keepsPlanks, learnAuto, techOf, TECHS } from "../game/tech";
 import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, pick as pickResearch, studying, tick as researchTick } from "../game/research";
-import { describePrice } from "../game/blueprints";
 import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "../game/things";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { applyCranes, boostOf, Counters } from "../game/upgrades";
@@ -31,9 +30,9 @@ import { endOn, rulesFor, schoolOn } from "./rules";
 
 /**
  * A balance and pacing play-through of Game mode, on the game's own rules and none of the tours' shortcuts: every
- * blueprint is researched at a school (goods brought by train, coins from tier 2) or chosen from a town's offer,
- * every piece, car and industry that costs anything is made from the workshop's yard (as the tray does), schools
- * think only while their town is supplied, and passengers come and pay. A simulated new player follows the goals,
+ * blueprint is researched at a school (goods brought by train, coins from tier 2), every piece, car and industry that
+ * costs anything is made from the workshop's yard (as the tray does), a growing town offers three cards (never a
+ * blueprint) and the player takes the one it most needs, and passengers come and pay. A simulated new player follows the goals,
  * joins towns, runs trains, places its school beside a town as soon as it has one, builds what the blueprints allow,
  * and picks research in its wish order (what its railway can bring the goods for, keeping a few planks in the
  * workshop to build with). The log is a timeline in minutes of play; the SUMMARY research line has the first
@@ -112,7 +111,6 @@ class Player {
   counters = new Counters();
   tick = 0;
   readonly random = rng(Number(ENV.BALANCE_SEED ?? 2027));
-  readonly school = { seconds: 0 };
   readonly people = new Map<number, number>();
   readonly lastDelivered = new Map<number, number>();
   fixed = new Set<number>();
@@ -156,9 +154,8 @@ class Player {
         if (built.length === 0) this.findings.push(`${t.name} grew to ${status.name} with no room to build (minute ${this.minute.toFixed(1)}).`);
         const gift = firstTimeGift(this.progress, status.level);
         if (gift.length > 0) this.note(`  present: ${gift.map(([id, n]) => `${n} ${ruleOf(id)!.label}`).join(", ")}`);
-        const offer = offerOnGrowth(this.progress, t.name, this.random, status.level);
-        const crate = this.progress.offers.at(-1)?.crate;
-        this.note(`  offers ${offer.map((id) => techOf(id)!.label).join(" or ") || "no blueprint"}${crate ? `, or a crate of ${crate.map(([id, n]) => `${n} ${ruleOf(id)!.label}`).join(", ")}` : ""}`);
+        const offer = offerOnGrowth(this.progress, this.w, t.name, status.level, this.random);
+        this.note(`  offers ${offer ? offer.cards.map((c) => cardView(this.progress, this.w, c).amount).join(" or ") : "nothing"}`);
         this.growing = { town: t.name, level: status.name, built: built.length };
       },
     });
@@ -179,6 +176,8 @@ class Player {
   /** When goods last went into the research, or a research started (ticks); the longest wait for goods (s). */
   researchFed = 0;
   researchStall = 0;
+  /** Growth cards taken, by kind. */
+  readonly cardsTaken: Record<string, number> = {};
   /** Researches finished, by minute. */
   readonly researchedAt: number[] = [];
 
@@ -199,7 +198,7 @@ class Player {
 
   syncLandmarks(): void {
     this.progress.landmarks.clear();
-    for (const id of landmarksOf(this.w.landscape)) this.progress.landmarks.add(id);
+    for (const id of landmarksAt(this.w)) this.progress.landmarks.add(id);
     for (const id of learnAuto(this.progress)) this.learned(id, "came with a landmark", "free");
   }
 
@@ -282,12 +281,6 @@ class Player {
       this.research();
       if (made) this.note(`workshop made a ${ruleOf(made)!.label.toLowerCase()}`);
       this.counters.collect(this.w.economy, this.progress);
-      const supplied = (town: number) => this.tick - (this.lastDelivered.get(town) ?? -Infinity) < 180 * SIM_HZ;
-      const idea = schoolIdeas(this.progress, this.w.landscape, this.school, this.progress.learned.has("college") ? 2 : 1, this.random, supplied);
-      if (idea) {
-        this.happened++;
-        this.note(`${idea.from}: ${techOf(idea.id)!.label} is on the board (${describePrice(priceOf(this.progress, techOf(idea.id)!))})`);
-      }
       peopleArrive(this.w, this.progress, 1, this.people);
       for (const engine of this.w.economy.lineIdOf.keys()) if (this.w.economy.spacing.holding(engine)) this.heldSeconds++;
       for (const g of this.goals.update(this.w, { learned: this.progress.learned })) {
@@ -804,16 +797,30 @@ class Playthrough {
       P.note("STALL: no planks sawn for 5 minutes");
       P.trains();
     }
-    // Rewards: a blueprint from what a town offers (the one wanted most), or the crate if no blueprint.
+    // Rewards: the card from a town's offer the player most needs (spec §5): a research boost while a research waits
+    // on goods, else planks before Farming, else coins (else whatever can be taken).
     while (s.offers.length > 0) {
       const o = s.offers[0];
-      const rank = (id: string) => (WISH.indexOf(id) === -1 ? 99 : WISH.indexOf(id));
-      const pick = [...o.ids].sort((a, b) => rank(a) - rank(b))[0];
-      if (pick && takeBlueprint(s, 0, pick, P.random)) {
-        P.learned(pick, `chosen from ${o.from}'s offer`, `free; the other (${o.ids.filter((x) => x !== pick).map((x) => techOf(x)!.label).join("") || "none"}) to the board`);
-      } else if (o.crate && takeCrate(s, 0)) {
-        P.note(`took ${o.from}'s crate`);
-      } else s.offers.shift();
+      const ok = o.cards.map((c) => cardView(s, w, c).ok);
+      const find = (kind: string) => o.cards.findIndex((c, i) => c.kind === kind && ok[i]);
+      let i = s.research.current !== null && !studying(s) ? find("boost") : -1;
+      if (i === -1 && !s.learned.has("farming")) i = find("planks");
+      if (i === -1) i = find("coins");
+      if (i === -1) i = ok.indexOf(true);
+      const card = o.cards[i];
+      const took = i === -1 ? null : takeCard(s, w, 0, i);
+      if (!took) {
+        s.offers.shift();
+        continue;
+      }
+      P.happened++;
+      P.cardsTaken[card.kind] = (P.cardsTaken[card.kind] ?? 0) + 1;
+      if (card.kind === "boost" || card.kind === "rare") {
+        // Goods into the research: schools take less now.
+        w.economy.acceptsChanged();
+        P.researchFed = P.tick;
+      }
+      P.note(`took ${o.from}'s ${card.kind} card: ${took.amount} (of ${o.cards.map((c) => c.kind).join(", ")})`);
     }
     // Research (once there's a school): the most wanted blueprint first, and the next most wanted up next. (A sensible
     // player waits for the most wanted one rather than starting lesser ones.) Others, and the wished-for ones with no
@@ -857,7 +864,7 @@ class Playthrough {
     }
     // Key moments, for the summary.
     for (const id of ["farming", "mills", "quarries", "routes", "passengers", "halts", "carpentry", "mines", "foundry"])
-      if (!(id in this.firsts) && (canResearch(s, id) || s.learned.has(id) || s.offers.some((o) => o.ids.includes(id)))) this.firsts[id] = Math.round(P.minute);
+      if (!(id in this.firsts) && (canResearch(s, id) || s.learned.has(id))) this.firsts[id] = Math.round(P.minute);
     const best = P.bestLevel();
     for (let l = 1; l <= best; l++) if (!(`level ${l}` in this.firsts)) this.firsts[`level ${l}`] = Math.round(P.minute);
   }
@@ -876,6 +883,8 @@ class Playthrough {
       if (typeof id === "number") {
         this.school = id;
         P.settle();
+        // (The school blueprint comes with it: towns don't build schools.)
+        P.syncLandmarks();
         P.happened++;
         const d = w.economy.depotAtPiece(id)!;
         P.note(`placed the school on the line beside ${w.landscape.towns.find((t) => t.id === d.townId)?.name ?? "?"}`);
@@ -1310,6 +1319,7 @@ class Playthrough {
       `firsts: ${JSON.stringify(this.firsts)}`,
       `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min`,
       `SUMMARY research first ${P.researchedAt[0] ?? "-"} at60 ${P.researchedAt.filter((m) => m <= 60).length} at120 ${P.researchedAt.filter((m) => m <= 120).length} at180 ${P.researchedAt.filter((m) => m <= 180).length} stall ${(P.researchStall / 60).toFixed(1)}min school ${this.firsts["school"] ?? "-"} blueprints ${P.progress.learned.size}`,
+      `SUMMARY cards ${Object.entries(P.cardsTaken).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`,
       `research: ${P.researchedAt.map((m, k) => `${m} ${P.learnedAt.filter((b) => b.how === "researched")[k]?.id}`).join(" · ")}`,
       `findings:\n- ${P.findings.join("\n- ") || "none"}`,
     ].join("\n");

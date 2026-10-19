@@ -1,8 +1,8 @@
 // End-to-end Research picker on a phone (`npm run e2e:research [-- <out dir>]`), at 390×844 with touch: a new game's
 // line laid and its school placed; the pill in the top bar says "Pick research"; a goal after a blueprint (Learn
 // switches) opens the picker on it from Show me and from the pill, nothing picked; Research, then Next up (and the
-// swap); deliveries move the pill; every card state's ticket; the pill fits the bar beside the coins and buttons (also
-// with the Research button's glow); and no frames drawn in 30 s with the pill showing while nothing changes.
+// swap); deliveries move the pill; every card state's ticket; the pill fits the bar beside the coins and buttons; and no
+// frames drawn in 30 s with the pill showing while nothing changes.
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
 // Starts its own dev server (on 5381, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -213,8 +213,8 @@ check("the web's tag for the one up next", /\bnext\b/.test(coinChip ?? ""), Stri
 await shot("10-picker-web");
 await tap(".board-head .close");
 
-// 7. The bar with the pill under way (it stands in for the Research button on a phone), with a four-figure purse, and
-// with the glow of a town's reward waiting (on the pill, as the button's hidden).
+// 7. The bar with the pill under way (it stands in for the Research button on a phone), with a four-figure purse. (A
+// town's reward no longer glows here: it waits in the growth sheet, with its own badge. See e2e:growth.)
 m = await bar();
 check("the pill under way fits the bar, its name whole", fits(m) && !m.clipped, JSON.stringify(m));
 const button = await p.evaluate(() => getComputedStyle(document.querySelector(".research-btn")).display);
@@ -227,14 +227,6 @@ await p.evaluate(() => {
 await p.waitForTimeout(300);
 m = await bar();
 check("…with 1250 coins showing", fits(m) && !m.clipped, JSON.stringify(m));
-await p.evaluate(() => window.woodrail.hud.setBoardButton(false, 1));
-await p.waitForTimeout(300);
-m = await bar();
-const glow = await p.evaluate(() => document.querySelector(".research-pill").classList.contains("board-new"));
-check("…and glowing for a town's reward", fits(m) && glow, JSON.stringify({ ...m, glow }));
-await shot("11-pill-with-glow");
-await p.evaluate(() => window.woodrail.hud.setBoardButton(true, 1));
-await p.evaluate(() => window.woodrail.hud.setBoardButton(false, 0));
 
 // 8. Idle with the pill showing (research waiting on goods, no trains): no frames in 30 s.
 const idle = await p.evaluate(async () => {

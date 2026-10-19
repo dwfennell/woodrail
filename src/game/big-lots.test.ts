@@ -34,8 +34,8 @@ describe("big landmarks on 2×2 lots", () => {
       expect(isBlock(w.landscape, b.cells), id).toBe(true);
       expect(props.find((p) => p.building === b.id)!.asset, id).toBe(LANDMARKS.find((l) => l.id === id)!.models.four![0]);
     }
-    // The school isn't one of the biggest: two squares or one.
-    expect(t.buildings.find((x) => x.landmark === "school")!.cells.length).toBeLessThan(4);
+    // (Towns don't build schools: the player places theirs, a depot beside a town.)
+    expect(t.buildings.some((x) => x.landmark === "school")).toBe(false);
   });
 
   it("with no room for a block, on two squares, still itself (drawn as large as fits there); growth never waits", () => {
@@ -46,7 +46,7 @@ describe("big landmarks on 2×2 lots", () => {
       growToCity(w, t);
       vi.restoreAllMocks();
       const props = townProps(w.landscape, t);
-      for (const id of ["school", "market", "library"]) {
+      for (const id of ["market", "library"]) {
         const b = t.buildings.find((x) => x.landmark === id)!;
         expect(b, `${t.name} ${id}`).toBeDefined();
         expect(b.cells.length, id).toBeLessThan(4);

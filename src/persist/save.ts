@@ -20,13 +20,14 @@ import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
 /**
- * Save format, version 12 (research: the school is a depot beside a town, saved with its town's id; 11: town
+ * Save format, version 13 (the growth menu: a town's offer is three cards, never a blueprint, saved with the progress;
+ * 12: research, the school a depot beside a town, saved with its town's id; 11: town
  * buildings at their new sizes, the biggest landmarks on 2×2 lots; 10: lines, routes with a colour and a name). Plain JSON validated with Zod; only this module
  * (and `landscape-data`) knows its shape. The landscape is saved square by square (see `landscape-data.ts`): loading
  * never regenerates it. No backward compatibility until the game reaches v1: an older save is turned away
  * (`OLDER_SAVE`), and the game starts afresh.
  */
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 
 /** The error an older save gets (the title says so kindly). */
 export const OLDER_SAVE = "older version";

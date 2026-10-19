@@ -37,16 +37,11 @@ export interface BoardView {
   stations: Station[];
   /** The web's bands, in order. */
   branches: { id: string; label: string; color: string }[];
-  /** Choices from towns that grew: pick one of each pair, free (until the growth menu, P3). */
-  offers: { from: string; ids: string[]; crate?: string }[];
   /** The card to open on when the picker opens (the current goal's research), if any. */
   focus?: string;
 }
 
 export interface BlueprintBoardHandlers {
-  choose(offer: number, id: string): void;
-  /** Take an offer's crate instead of a blueprint. */
-  crate(offer: number): void;
   /** Pick it for research: it starts if nothing is under way, else waits up next (the one up next: the two swap). */
   pick(id: string): void;
   close(): void;
@@ -150,17 +145,6 @@ const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
  * beyond that nothing yet. Tapping a tag opens its ticket: what it brings, its goods and study time, what it needs, and
  * one button (Research, or Next up). Rebuilt only when what it shows changed.
  */
-/**
- * What a town's offer says it did: "grew!", or, for its second offer in the list, "grew again!" (two in a row both
- * headed "Larkfield grew!" read as a repeat); a school "has an idea!".
- */
-export function offerSaid(offers: readonly { from: string }[], k: number): string {
-  const from = offers[k].from;
-  const again = offers.slice(0, k).some((o) => o.from === from);
-  if (from.endsWith(" school")) return again ? "has another idea!" : "has an idea!";
-  return again ? "grew again!" : "grew!";
-}
-
 /** The small tag on a card in the web, by its state. */
 const NODE_TAG: Partial<Record<CardState, (s: Station) => string>> = {
   researching: () => `<span class="bp-tag now">📘 Researching</span>`,
@@ -222,9 +206,7 @@ export class BlueprintBoard {
       if (act === "select") {
         this.selected = b.dataset.id!;
         this.render();
-      } else if (act === "choose") handlers.choose(Number(b.dataset.offer), b.dataset.id!);
-      else if (act === "crate") handlers.crate(Number(b.dataset.offer));
-      else if (act === "pick") handlers.pick(b.dataset.id!);
+      } else if (act === "pick") handlers.pick(b.dataset.id!);
     };
     this.body.addEventListener("click", onClick);
     this.sheet.addEventListener("click", onClick);
@@ -310,20 +292,6 @@ export class BlueprintBoard {
     for (const s of drawn) if (s.needs.includes(this.selected)) path.add(s.id);
 
     let html = "";
-    // A town's choice, at the top: it's free, and the other goes on the board.
-    v.offers.forEach((o, k) => {
-      const choices = o.ids
-        .map((id) => v.stations.find((s) => s.id === id))
-        .filter((s): s is Station => !!s)
-        .map((s) => `<button class="chip text primary" data-act="choose" data-offer="${k}" data-id="${s.id}">${esc(s.label)}</button>`);
-      // Or a crate of things for the toy box (the blueprints then wait on the board).
-      if (o.crate) choices.push(`<button class="chip text bp-crate" data-act="crate" data-offer="${k}" title="Into your toy box">📦 ${esc(o.crate)}</button>`);
-      const buttons = choices.join(`<span class="or">or</span>`);
-      const ask = o.crate ? (o.ids.length > 0 ? "Learn one free, or take a crate:" : "Take a crate:") : "Learn one free:";
-      const said = offerSaid(v.offers, k);
-      html += `<div class="bp-offer"><span>${esc(o.from)} ${said} ${ask}</span><span class="bp-offer-row">${buttons}</span></div>`;
-    });
-
     let svg = `<defs><marker id="bp-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/></marker></defs>`;
     for (const s of drawn) {
       const to = web.at.get(s.id)!;

@@ -5,7 +5,7 @@ import { Sim, SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, Layout, type PieceTypeId } from "../track";
 import { attachPassengers, detachPassengers, fareFor, peopleArrive, RIDER_SECONDS, SEATS, WAITING_CAP } from "./passengers";
 import { Progress } from "./progress";
-import { learnAuto, offerFor, ready, TECHS } from "./tech";
+import { learnAuto, ready, TECHS } from "./tech";
 import { buildStarterWorld, STATION_CRANE_AT, type World } from "./world";
 
 /** Lay `type` on free end `ref` (seated by an end of the other kind); returns its id. */
@@ -180,6 +180,5 @@ describe("the passenger line of blueprints", () => {
     p.riders = 70;
     expect(learnAuto(p)).toEqual(["dining", "first-class"]);
     expect(ready(p, "stations")).toBe(false);
-    for (let i = 0; i < 20; i++) for (const id of offerFor(p, Math.random)) expect(line.some((t) => t.id === id)).toBe(false);
   });
 });

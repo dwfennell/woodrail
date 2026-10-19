@@ -168,32 +168,46 @@ school beside a city" waits for P4.
 
 **Depends on:** P1 (the research boost card needs research state). It can come before or alongside P2.
 **Ships:** "Larkfield grew! Pick one", with 3 cards.
+**Built (research-p3, checkpoint; paused before the balance guard was met):** cards in `growth-cards.ts`, drawn and
+applied in `rewards.ts` (`offerOnGrowth`, `cardFor`, `cardView`, `takeCard`); the sheet and its 🎁 badge in
+`ui/growth-sheet.ts` (opens on growth unless a finger is on the map or a panel is open; the growth toast "Larkfield is a
+town! Pick a reward" opens it on a tap); save v13; school ideas and the town school landmark gone (the school blueprint
+now comes with your placed school depot, `landmarksAt`). A card that can't apply now (boost with nothing short, rare
+cargo the research no longer needs, a full yard) is held, saying why, and the offer keeps. Rare cargo: a good the
+current research lacks that none of your depots makes. `npm run e2e:growth` (tools/e2e/growth-menu.mjs): 26 of 27 pass.
+**Left:**
+- The balance guard fails (spec rule, 180 min): City 2027 105 (P2 73, +44%); seed 5 research stall 29.4 min (a plank
+  famine: no planks sawn for 30 min). Growth no longer hands out Passengers, Routes, Farming, Quarries free. Taking
+  planks until the farm is built (`BALANCE_CARDS` experiment, not committed) gives City 93 and stall 22.8: still over.
+  Needs a decision (accept for P5, or tune the card amounts or the harness).
+- e2e: "tap the growth toast reopens the sheet" fails headless: a goal tick's toast replaces the growth toast before
+  the tap (the toast's `tap` is wired; the badge reopen passes).
 
 **Removes:**
 - `offerFor`, `choose`, `takeBlueprint`, `refreshOffers`, and blueprint ids in `p.offers`;
 - `schoolIdeas`, `SCHOOL_BOARD_CAP`, `SCHOOL_IDEA_SECONDS`, and the school's ideas clock in `main.ts`.
 
 ### Task 3.1: the offer cards (`rewards.ts`)
-- [ ] `offerOnGrowth` draws 3 different kinds from the pool, with amounts by level (spec §3 table):
+- [x] `offerOnGrowth` draws 3 different kinds from the pool, with amounts by level (spec §3 table):
   - planks to the workshop's yard;
   - coins;
   - a crate (`crateFor`);
   - a wagon, or an engine at city level and up;
   - a research boost (only while `current` is set);
   - rare cargo at the school (from town level, and only with a school).
-- [ ] `takeCard(p, world, k, card)` applies it. The planks card offers only what fits in the yards (the card shows
+- [x] `takeCard(p, world, k, card)` applies it. The planks card offers only what fits in the yards (the card shows
   that amount), so nothing is lost. Rare cargo counts only toward what `current` lacks.
-- [ ] Save `p.offers` as cards. This is a schema change, so bump `SAVE_VERSION` to 13. Older saves are turned away
+- [x] Save `p.offers` as cards. This is a schema change, so bump `SAVE_VERSION` to 13. Older saves are turned away
   as in P1.
-- [ ] Tests (`rewards.test.ts`): 3 distinct kinds; amounts by level; no boost card when idle; each card applies.
+- [x] Tests (`rewards.test.ts`): 3 distinct kinds; amounts by level; no boost card when idle; each card applies.
 
 ### Task 3.2: the bottom sheet
-- [ ] A sheet titled "Larkfield grew! Pick one" with 3 large cards (icon, amount, one line each). One tap takes a
+- [x] A sheet titled "Larkfield grew! Pick one" with 3 large cards (icon, amount, one line each). One tap takes a
   card. Closing the sheet keeps the offer waiting, with a badge on the town's sign.
-- [ ] Tests (`hud-board.test.ts`): it renders 3 cards; one tap applies; closing keeps the offer.
+- [x] Tests (`hud-board.test.ts`): it renders 3 cards; one tap applies; closing keeps the offer.
 
 ### Task 3.3: remove school ideas
-- [ ] Delete the ideas code and its tests. The school landmark's blurb goes, and towns no longer build a school
+- [x] Delete the ideas code and its tests. The school landmark's blurb goes, and towns no longer build a school
   landmark: the player's school depot replaces it.
 - [ ] Update the harness to take the card the spec names (a boost when waiting on goods, else planks before Farming,
   else coins). Measure the seed table.

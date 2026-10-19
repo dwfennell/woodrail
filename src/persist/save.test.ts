@@ -80,10 +80,10 @@ describe("save format", () => {
     ]);
   });
 
-  it("is at version 12 (research: the school depot), and turns older saves away, saying so", () => {
-    expect(SAVE_VERSION).toBe(12);
+  it("is at version 13 (the growth menu's cards), and turns older saves away, saying so (v12: research's first save)", () => {
+    expect(SAVE_VERSION).toBe(13);
     const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
-    data.version = 11;
+    data.version = 12;
     const r = deserializeWorld(data);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toBe(OLDER_SAVE);
@@ -144,8 +144,8 @@ describe("save format", () => {
     vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
     try {
       const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
-      // (A v11 save, from before research: turned away kindly, kept aside.)
-      data.version = 11;
+      // (A v12 save, from before the growth menu: turned away kindly, kept aside.)
+      data.version = 12;
       const raw = JSON.stringify(data);
       store.set("woodrail.game.v2", raw);
       expect(hasOlderSave("game")).toBe(true);
@@ -153,11 +153,11 @@ describe("save format", () => {
       const r = loadFromStorage("game");
       expect(r?.ok).toBe(false);
       if (r && !r.ok) expect(r.error).toBe(OLDER_SAVE);
-      expect(store.get(backupKey("game", 11))).toBe(raw);
+      expect(store.get(backupKey("game", 12))).toBe(raw);
       // The fresh map saves over the autosave; the backup stays.
       expect(saveToStorage(worldWithTrain(), "game")).toBe(true);
       expect(hasOlderSave("game")).toBe(false);
-      expect(store.get(backupKey("game", 11))).toBe(raw);
+      expect(store.get(backupKey("game", 12))).toBe(raw);
     } finally {
       vi.unstubAllGlobals();
     }

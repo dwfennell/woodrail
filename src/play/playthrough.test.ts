@@ -5,9 +5,9 @@ import { describe as describeGoods } from "../economy/goods";
 import { Crafting, workshops, workshopStock } from "../game/crafting";
 import { GOALS, GoalTracker } from "../game/goals";
 import { inUse, Progress } from "../game/progress";
-import { firstTimeGift, offerOnGrowth, payDelivery } from "../game/rewards";
+import { cardView, firstTimeGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
 import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, pick as pickResearch, tick as researchTick } from "../game/research";
-import { choose, techOf } from "../game/tech";
+import { techOf } from "../game/tech";
 import type { Bag } from "../economy/goods";
 import { isFree, ruleOf, thingsFor, type ThingId } from "../game/things";
 import { TownLife, type TownLifeHost } from "../game/town-life";
@@ -83,8 +83,8 @@ class Playthrough {
         this.note(`${t.name} grew into a ${status.name.toLowerCase()} (+${built.length} buildings)`);
         const gift = firstTimeGift(this.progress, status.level);
         if (gift.length > 0) this.note(`  present: ${gift.map(([id, n]) => `${n} ${ruleOf(id)!.label}`).join(", ")}`);
-        const offer = offerOnGrowth(this.progress, t.name, this.random, status.level);
-        if (offer.length > 0) this.note(`  ${t.name} offers: ${offer.join(" or ")}`);
+        const offer = offerOnGrowth(this.progress, this.w, t.name, status.level, this.random);
+        if (offer) this.note(`  ${t.name} offers: ${offer.cards.map((c) => c.kind).join(" or ")}`);
       },
     });
     this.town.reset();
@@ -237,7 +237,6 @@ describe("a Game-mode playthrough", () => {
     P.note("timber train set going; the toy box has no more engines");
 
     // 3. Play: react each minute as a player would.
-    const prefer = ["bridges", "switches", "passengers", "sawmills", "heights", "loops", "junctions", "harvesters", "farming", "mills"];
     const wanted: ThingId[] = ["piece:switch", "piece:bridge", "car:engine", "car:timber"];
     const done = new Set<string>();
     let extended = false;
@@ -261,13 +260,16 @@ describe("a Game-mode playthrough", () => {
         const finding = `A derailed train couldn't be re-railed (first at minute ${minute}): ${w().sim.trainIds().length} trains on the line, ${w().sim.trainIds().filter((t) => w().sim.getTrain(t)!.derailed).length} derailed.`;
         if (!ok && !P.findings.some((f) => f.startsWith("A derailed train couldn't"))) P.findings.push(finding);
       }
-      // Choose from what towns offer (one free).
+      // Take a card from what towns offer as they grow (never a blueprint): a research boost if there's one, else coins.
       while (P.progress.offers.length > 0) {
         const o = P.progress.offers[0];
-        const pick = prefer.find((t) => o.ids.includes(t)) ?? o.ids[0];
-        choose(P.progress, pick, o.ids);
-        P.progress.offers.shift();
-        P.note(`chose ${techOf(pick)!.label} from ${o.from}'s offer (${o.ids.map((t) => techOf(t)!.label).join(" / ")})`);
+        const ok = o.cards.map((c) => cardView(P.progress, w(), c).ok);
+        const want = ["boost", "coins"].map((k) => o.cards.findIndex((c, i) => c.kind === k && ok[i])).find((i) => i !== -1) ?? ok.indexOf(true);
+        const took = want === -1 ? null : takeCard(P.progress, w(), 0, want);
+        if (took) {
+          w().economy.acceptsChanged();
+          P.note(`took ${took.amount} from ${o.from}'s offer`);
+        } else P.progress.offers.shift();
       }
       // The school (the first village's present), where Show me points: beside a town, on the line.
       if (school === -1 && P.progress.available(w(), "piece:depot-school") > 0) {
