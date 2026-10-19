@@ -2248,7 +2248,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const now = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
     // (Facing as asked: along a goal's places, as Show me does.)
     if (theta !== undefined) now.theta = theta;
-    const fitOf = (ps: Vector3[]) => fitToRect(ps, game.camera, now.phi, now.theta, room, room.width, room.height, 32);
+    const fitOf = (ps: Vector3[], min = minDistance, max = game.controls.maxDistance) => fitToRect(ps, game.camera, now.phi, now.theta, room, room.width, room.height, 32, min, max);
     // Too far out to show them all: the last (furthest) points go, down to the first two, so what's shown is near. The
     // first `mustShow` never go: they're shown however far out that takes (a line's stops: QA, planning zoomed in on
     // the train and left them off screen).
@@ -2256,8 +2256,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     let fit = fitOf(shown);
     while (fit.distance > maxDistance && shown.length > Math.max(2, mustShow)) fit = fitOf((shown = shown.slice(0, -1)));
     const cap = mustShow > 0 && shown.length <= mustShow ? Math.max(maxDistance, fit.distance) : maxDistance;
+    const distance = Math.min(Math.max(fit.distance, minDistance), cap, game.controls.maxDistance);
+    // (Held back from the fit's distance: where to look worked out again at the distance it's glided to.)
+    if (Math.abs(distance - fit.distance) > 1) fit = fitOf(shown, distance, distance);
     game.follow(-1);
-    game.director.glideTo(fit.target, Math.min(Math.max(fit.distance, minDistance), cap, game.controls.maxDistance), { theta: now.theta, duration: 0.7 });
+    game.director.glideTo(fit.target, distance, { theta: now.theta, duration: 0.7 });
   }
 
   /** Are these points on screen in the map's room (with a margin), as the camera is now? */
@@ -2286,6 +2289,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const ends = found ? [found.train.world[2 * found.index], found.train.world[2 * found.index + 1]].filter((w) => w) : [];
     const engine = ends.flatMap((w) => [new Vector3(w.x, 0, w.z), new Vector3(w.x, ENGINE_TOP, w.z)]);
     const all = [...engine, ...points];
+    // (Followed, the camera keeps it in the room and goes on following: the way ahead isn't worth stopping that for.
+    // QA: opening its card in landscape stopped following it, the Follow button still lit.)
+    if (game.following === carId) return;
     if (all.length === 0 || inRoom(all)) return;
     frameInRoom(all, Math.min(game.camera.position.distanceTo(game.controls.target), 900));
   }
