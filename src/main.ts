@@ -46,7 +46,7 @@ import { MAX_SHEDS, SHED_CAP, type RouteStopDef, type StopAction } from "./econo
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { keepsPlanks, learnAuto, needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
-import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, tick as researchTick } from "./game/research";
+import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
 import { cardState, goalPick, pillKey, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
@@ -800,6 +800,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function restoreSession(m: GameMode, fromSave: boolean): void {
     const s = fromSave ? loadSession(m) : null;
     game.simSeconds = s?.clock ?? 0;
+    // A loaded clock is another session's time, not study done here.
+    studyClock.at = null;
     if (s) journal.restore(s.journal);
     else journal.clear();
     if (s) {
@@ -1513,6 +1515,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // The workshop's clock: a few times a second, not every frame (it runs while nothing on screen moves).
   const CRAFT_STEP = 0.25;
   const schoolClock = { seconds: 0 };
+  /** The research's study clock, on the world's game time (see `simElapsed`). */
+  const studyClock: StudyClock = { at: null };
   /** The landmarks your towns have, from the map (a blueprint may need a library). */
   function syncLandmarks(): void {
     progress.landmarks.clear();
@@ -1536,11 +1540,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         scheduleSave();
       }
     }
-    // Research: the study clock, and Next up starting once its coins are in (a few lookups when nothing happens).
+    // Research: the study clock, and Next up starting once its coins are in (a few lookups when nothing happens). Study
+    // runs on game time (the trains' clock), not this timer's; read on every step so time off the game isn't counted.
+    const studied = simElapsed(studyClock, game.simSeconds);
     if (mode === "game" && playing && !game.paused) {
       const coins = progress.coins;
       const was = progress.research.current;
-      const done = researchTick(progress, CRAFT_STEP);
+      const done = researchTick(progress, studied);
       if (progress.coins !== coins) hud.setCoins(progress.coins);
       if (done) researched(done);
       else if (progress.research.current !== was) {
