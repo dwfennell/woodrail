@@ -14,6 +14,7 @@ import { GoalTracker } from "./game/goals";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
 import { GoalsPanel } from "./ui/goals-panel";
+import { dateText } from "./game/calendar";
 import { Journal, type JournalEntry, type JournalPlace, type NoteInput } from "./game/journal";
 import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
@@ -793,6 +794,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (mode === "game") saveProgress(progress.toJSON());
   }
 
+  /** The railway's date in the top bar (Game mode), from the game's clock: shown as it turns (asked about once a second). */
+  function showDate(): void {
+    hud.setDate(mode === "game" ? dateText(game.simSeconds) : null);
+  }
+
   /**
    * The world just loaded is the mode's saved one (`fromSave`): its clock, pause and Journal back as they were saved
    * with it; else (a fresh map) they start afresh, the pause as it was.
@@ -800,6 +806,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function restoreSession(m: GameMode, fromSave: boolean): void {
     const s = fromSave ? loadSession(m) : null;
     game.simSeconds = s?.clock ?? 0;
+    showDate();
     if (s) journal.restore(s.journal);
     else journal.clear();
     if (s) {
@@ -1523,6 +1530,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   setInterval(() => {
     if (mode === "game" && board.open && boardKey() !== boardKeyShown) refreshBoard();
     if (mode === "game") refreshPill();
+    showDate();
     // Schools have ideas while the game runs.
     if (mode === "game" && playing && !game.paused) {
       // A college: ideas twice as often.
@@ -2908,6 +2916,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.paused = pausedBeforeTitle;
     hud.setPaused(game.paused);
     hud.setMode(mode);
+    showDate();
     refreshPill();
     // Town houses and placed models can be moved in Sandbox only.
     interaction.propsEditable = mode === "sandbox";

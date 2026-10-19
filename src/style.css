@@ -222,6 +222,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 }
 @media (max-width: 400px) {
   .brand:has(.coins:not([hidden])) .brand-block { display: none; }
+  /* The date goes under the coins: side by side they need more than the buttons leave at 360 px. */
+  .brand:has(.game-date:not([hidden])) { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 4px 8px; }
+  .game-date { font-size: 11px; padding: 0 7px; }
 }
 
 /* A phone on its side (short screens): a little less tray, and a card or the menu never runs off the screen. A card
@@ -641,6 +644,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .coins { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 800; color: #5a3f24; font-variant-numeric: tabular-nums; padding: 2px 9px 2px 4px; border-radius: 999px; background: #f3e1b6; }
 .coins i { width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffe08a, #e2a12b 70%); box-shadow: inset 0 0 0 2px #c98a1c, 0 2px 0 #b07a1a; }
 .coins.pop { animation: goal-pop 0.6s ease-out; }
+/* The railway's date, beside the coins (Game mode). */
+.game-date { font-size: 13px; font-weight: 800; color: #5a3f24; font-variant-numeric: tabular-nums; padding: 2px 8px; border-radius: 999px; background: #f3e1b6; white-space: nowrap; }
 /* The research pill (Game mode): what's being researched and how far ("📘 Bridges 6/10🪵"); tap for the picker. */
 .research-pill { position: relative; overflow: hidden; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 4px 9px; border: none; border-radius: 14px; background: rgba(250, 243, 230, 0.9); box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); font: inherit; font-weight: 800; font-size: 14px; color: #3a2a1c; cursor: pointer; text-align: left; }
 .research-pill[hidden] { display: none; }
