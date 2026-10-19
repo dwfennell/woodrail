@@ -12,7 +12,9 @@ import { connectorRef, gapFill, isKit, kitOf, Layout, findLowCrossing, findSnapA
 import type { Hud, TrayItem } from "../ui/hud";
 import { trayKey } from "../ui/tray-catalogue";
 import { checkProp, propsInRect, PROP_MESSAGES, scaleFootprint, standsAside, TrackIndex, type Footprint, type PropBlock } from "../props/placement";
-import { buildingCells, findBuilding, releaseBuilding } from "../props/towns";
+import { buildingCells, buildingPose, findBuilding, looksOf, releaseBuilding } from "../props/towns";
+import { lotFor, movableBuilding, moveBuilding, townMoveMessage, type TownLot, type TownMoveBlock } from "./town-moves";
+import type { Look } from "../render/dressing/buildings";
 import { LAND_MESSAGES, LandEditor, moveScenery, plotSlotOf, removeScenery, restore, sceneryAt, sceneryCells, snapshot, type LandBlock, type Scenery } from "../landscape/edit";
 import { placeOn } from "../props/kinds";
 import type { PropPose } from "../props/store";
@@ -21,7 +23,7 @@ import { modelKey } from "../render/props/library";
 import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason, letGoRefusal, onwardEnds, refusalText } from "./drop";
 import type { Game } from "./game";
-import { DEPOT_NAMES, INDUSTRY_ROLE } from "./world";
+import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
 import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
@@ -32,7 +34,7 @@ import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
 import { PinHint } from "./switch-pin";
-import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
+import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
@@ -192,6 +194,8 @@ type Mode =
        * picks the piece up, a tap is a tap on it.
        */
       branch?: number;
+      /** With `branch`: the line's way across, on screen (a unit normal), to tell a finger leaving it (see `branchStrayed`). */
+      across?: [number, number];
       /** On touch, a press on something not selected that a long press would pick up (see touch-hold.ts). */
       hold?: {
         timer: number;
@@ -299,6 +303,11 @@ type Mode =
       overTray: boolean;
       /** The track, sampled once for the drag (it doesn't change meanwhile). */
       track: TrackIndex;
+      /**
+       * Game mode, a town's house being moved about its town: it snaps to its town's lots (see town-moves.ts). Its
+       * building, its town look, the lot under the hand (worked out again only when the square under it changes).
+       */
+      town?: { building: number; look: Look; editor: LandEditor; cell: number; start: number; lot: TownLot | TownMoveBlock | null; preview: number; told: Set<string> };
     }
   | { kind: "drag-road"; pointerId: number; drag: RoadDrag; overTray: boolean }
   /** Drawing a line of track (the Draw chip on): see `DrawHand`. */
@@ -1055,8 +1064,8 @@ export class Interaction {
     // (Planning a route, a station or depot is tapped from any zoom.)
     const place = !!this.onPickPlace && hit?.kind === "piece" && !!this.game.economy.depotAtPiece(hit.pieceId);
     if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) hit = null;
-    // (In Game mode, only the player's own: lineside furniture, not the town's houses.)
-    if (hit?.kind === "prop" && ((!this.propsEditable && this.game.props.get(hit.propId)?.building !== undefined) || !this.propWithinReach(hit.propId))) hit = null;
+    // (In Game mode, the town's houses only to move them about their town: a landmark not at all.)
+    if (hit?.kind === "prop" && ((this.townHouse(hit.propId) && !movableBuilding(this.game.landscape, this.game.props.get(hit.propId)?.building)) || !this.propWithinReach(hit.propId))) hit = null;
     if (hit?.kind === "road" && !this.roadWithinReach(hit.cell)) hit = null;
     const ground = this.groundAt(e.clientX, e.clientY) ?? new Vector3();
     // By a free end, on nothing that can be taken hold of from here after all: it draws straight away.
@@ -1088,7 +1097,10 @@ export class Interaction {
     // branches off it.
     if (this.drawsNow && !drawsFromEnd && !this.picking && hit.kind === "piece" && this.fixedLabel(hit.pieceId) === null) {
       const p = this.game.layout.getPiece(hit.pieceId);
-      if (p && branchesOff(p.type)) press.branch = hit.pieceId;
+      if (p && branchesOff(p.type)) {
+        press.branch = hit.pieceId;
+        press.across = this.screenAcross(ground, p.pose.heading);
+      }
     }
     this.mode = press;
     this.armHold(press, e.timeStamp);
@@ -1112,6 +1124,8 @@ export class Interaction {
       case "depot":
         return dragMoves("depot", press.depotId === this.selectedDepot, pointerType);
       case "prop":
+        // (A town's house in Game mode is never selected: a finger rests on it to pick it up, a mouse drags it.)
+        if (this.townHouse(press.propId)) return pointerType === "mouse";
         return dragMoves("prop", press.propId === this.selectedProp, pointerType);
       case "road":
         return dragMoves("road", press.cell === this.roads.selected, pointerType);
@@ -1147,6 +1161,8 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (this.vetoHold(e)) return;
     if (m.kind === "draw-track") {
+      // (A branch waiting for its way: the moves a slow phone ran together, in order, so it faces the way it set off.)
+      if (this.draw.branchPending) for (const c of coalesced(e)) this.draw.feel(c.clientX, c.clientY);
       this.updateDraw(e.clientX, e.clientY);
       return;
     }
@@ -1173,7 +1189,7 @@ export class Interaction {
         let at = e.timeStamp - h.t;
         for (const c of coalesced(e)) {
           at = c.timeStamp - h.t;
-          if (h.strayedAt === null && Math.hypot(c.clientX - m.x, c.clientY - m.y) >= HOLD_SLOP) h.strayedAt = at;
+          if (h.strayedAt === null && this.strayed(m, c.clientX - m.x, c.clientY - m.y)) h.strayedAt = at;
         }
         const outcome = decideHold(h.strayedAt, at, this.touches.size);
         // Still waiting, or held and not moved yet (the timer's frame picks it up; a held train waits for a move).
@@ -1272,13 +1288,16 @@ export class Interaction {
    */
   private armHold(m: Extract<Mode, { kind: "press" }>, t: number): void {
     const k = m.press.kind;
-    const target = k === "piece" || k === "car" || k === "depot" || k === "cargo" ? k : null;
+    // (A town's house in Game mode is picked up as a piece is: a finger resting on it.)
+    const house = m.press.kind === "prop" && this.townHouse(m.press.propId);
+    const target = k === "piece" || k === "car" || k === "depot" || k === "cargo" ? k : house ? "piece" : null;
     // Drawing, on a line's body: a drag draws a branch, so a long press (a mouse's too) is how the piece is picked up.
     // (Never while planning a route: then a press draws nothing, `drawsNow`, and a hold picks nothing up.)
     const branch = this.drawsNow && m.branch !== undefined;
     if (!branch && (!target || this.onPickPlace || !holdPicksUp(target, m.pointerType) || this.dragsWhatsPressed(m.press, m.pointerType))) return;
     // Drawing is its own tool: a finger resting there neither picks anything up nor starts a line (Rail and road's).
-    if (this.drawing && !branch) return;
+    // (But a town's house, which no line is drawn from, lifts as it does with drawing off.)
+    if (this.drawing && !branch && !house) return;
     if (m.press.kind === "piece" && (this.picking || this.fixedLabel(m.press.pieceId))) return;
     if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) === -1) return;
     m.hold = { timer: window.setTimeout(() => this.holdFired(m), HOLD_MS), t, strayedAt: null };
@@ -1394,7 +1413,7 @@ export class Interaction {
       m.hold = undefined;
       if (!this.startDrag(m)) return;
       this.heldStill = { pointerId: m.pointerId, x: m.x, y: m.y, press: m.press };
-      this.heldUnsure = { pointerId: m.pointerId, x: m.x, y: m.y, t: h.t };
+      this.heldUnsure = { pointerId: m.pointerId, x: m.x, y: m.y, t: h.t, press: m };
       this.updateDrag(m.x, m.y);
       // (The buzz waits a frame: moves a slow phone delivers late may yet undo the pickup, and it shouldn't buzz then.)
       const drag = this.mode;
@@ -1407,7 +1426,27 @@ export class Interaction {
    * If the first moves to come say the finger had strayed before the hold's time was up, it was a pan: put it back.
    * Settled (null) by the first move from after that time.
    */
-  private heldUnsure: { pointerId: number; x: number; y: number; t: number } | null = null;
+  private heldUnsure: { pointerId: number; x: number; y: number; t: number; press: Extract<Mode, { kind: "press" }> } | null = null;
+
+  /** Has a press's finger strayed from where it came down (a pan; drawing, on a line's body, a branch): see `armHold`. */
+  private strayed(m: Extract<Mode, { kind: "press" }>, dx: number, dy: number): boolean {
+    return m.branch !== undefined && this.drawsNow ? branchStrayed(dx, dy, m.across) : Math.hypot(dx, dy) >= HOLD_SLOP;
+  }
+
+  /** The screen's unit normal to a line through world point `at` running at `heading` (for `branchStrayed`), or undefined. */
+  private screenAcross(at: Vector3, heading: number): [number, number] | undefined {
+    const cam = this.game.camera;
+    const a = at.clone().project(cam);
+    const b = new Vector3(at.x + Math.cos(heading) * 50, at.y, at.z + Math.sin(heading) * 50).project(cam);
+    // (Screen y runs down; the normal's sign doesn't matter.)
+    const dx = b.x - a.x;
+    const dy = -(b.y - a.y);
+    const r = this.game.canvas.getBoundingClientRect();
+    const sx = (dx * r.width) / 2;
+    const sy = (dy * r.height) / 2;
+    const l = Math.hypot(sx, sy);
+    return l < 1e-6 ? undefined : [-sy / l, sx / l];
+  }
 
   /** True if the late moves undid a pickup that was really a pan (the view takes the gesture from here). */
   private vetoHold(e: PointerEvent): boolean {
@@ -1416,10 +1455,19 @@ export class Interaction {
     for (const c of coalesced(e)) {
       const at = c.timeStamp - u.t;
       if (at >= HOLD_MS) break;
-      if (undoesHold(at, Math.hypot(c.clientX - u.x, c.clientY - u.y), false)) {
+      // (Drawing, on a line's body: a few pixels across it is enough, and it was a branch, not a pan.)
+      const strayed = at < HOLD_MS && this.strayed(u.press, c.clientX - u.x, c.clientY - u.y);
+      if (strayed || undoesHold(at, Math.hypot(c.clientX - u.x, c.clientY - u.y), false)) {
         this.heldUnsure = null;
         this.heldStill = null;
         this.cancel();
+        const b = u.press.branch;
+        if (b !== undefined && this.drawsNow && this.touches.size <= 1 && this.draw.beginBranch(u.x, u.y, b)) {
+          this.clearSelection();
+          this.game.controls.enabled = false;
+          this.mode = { kind: "draw-track", pointerId: e.pointerId };
+          this.updateDraw(e.clientX, e.clientY);
+        }
         return true;
       }
     }
@@ -1593,6 +1641,7 @@ export class Interaction {
       this.game.depotView.dragging = null;
     } else if (m.kind === "drag-prop") {
       this.game.scene.remove(m.ghost);
+      if (m.town && m.town.preview !== -1) this.game.previewProp(m.town.preview, null);
       this.propOutline.hide();
       this.game.propsChanged(-1);
     } else if (m.kind === "drag-scenery") {
@@ -1671,7 +1720,11 @@ export class Interaction {
       return;
     }
     if (p.kind === "prop") {
-      this.selectProp(p.propId);
+      // (A town's house in Game mode isn't selected: a tap there is a tap on the map.)
+      if (this.townHouse(p.propId)) {
+        this.hud.hideCards();
+        this.clearSelection();
+      } else this.selectProp(p.propId);
       return;
     }
     if (p.kind === "road") {
@@ -1801,7 +1854,7 @@ export class Interaction {
     const d = this.game.economy.depot(depotId);
     if (!d) return "";
     if (d.role === "town") return `${this.game.landscape.towns.find((t) => t.id === d.townId)?.name ?? ""} goods`;
-    return DEPOT_NAMES[d.role];
+    return depotName(this.game, d);
   }
 
   /** Counts the cards opened: a check for one that's been replaced since does nothing. */
@@ -1873,6 +1926,12 @@ export class Interaction {
     if (this.movableIndustry(depotId) !== -1) this.hintDrag();
   }
 
+  /**
+   * A school's card (Game mode): `key` changes whenever what it shows does (cheap: called every frame while it's open);
+   * `show` gives its rows, the research's goods (got of needed) and a line about it.
+   */
+  schoolCard: { key(): number; show(): { piles: { label: string; count: number; cap: number }[]; note: string } } | null = null;
+
   /** Keep the open depot card's pile counts current (call every frame). */
   refreshDepotCard(): void {
     if (this.selectedDepot === -1 || !this.hud.depotCardOpen) return;
@@ -1880,7 +1939,8 @@ export class Interaction {
     if (!d) return;
     // Only redraw the card when something on it changed (this runs every frame).
     // (A harbour's dock sheds change what its piles hold: they count here too.)
-    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.sheds;
+    // A school's card shows its research (Game mode), redrawn when that changes (its key: a counter, no allocation).
+    const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.sheds;
     const shown = this.shownDepot;
     // Every pile's count hashed into one number (a warehouse's or harbour's piles hold more than 15): no allocation on
     // this per-frame check.
@@ -1892,6 +1952,11 @@ export class Interaction {
     shown.auto = d.auto;
     shown.wait = d.waitFull;
     shown.delivered = delivered0;
+    if (d.role === "school") {
+      const r = this.schoolCard?.show() ?? { piles: [], note: "" };
+      this.hud.updateDepotCard(r.piles, d.auto, null, r.note);
+      return;
+    }
     let piles = pilesOf(d.role).map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
     // A harbour's quay takes any good: it lists only what's there.
     if (d.role === "harbour") piles = piles.filter((p) => p.count > 0);
@@ -2101,7 +2166,7 @@ export class Interaction {
     if (yard) return { reason: yard, risers: [] };
     const s = trackSupport(this.rules, type, flipped, pose, y, ignoreId);
     if (s.reason) return { reason: s.reason, risers: [] };
-    const site = this.siteRule?.(type, pose) ?? null;
+    const site = this.siteRule?.(type, pose, ignoreId) ?? null;
     if (site) {
       this.siteWhy = site;
       return { reason: "site", risers: [] };
@@ -2111,9 +2176,10 @@ export class Interaction {
 
   /**
    * A mode's own rule for where a piece may go, beyond the track's (Game mode: an industry stands near its resource),
-   * as the message to show, or null. Runs on every move while a piece is held: keep it cheap.
+   * as the message to show, or null. `ignoreId`: the piece being moved (it doesn't count against itself). Runs on
+   * every move while a piece is held: keep it cheap.
    */
-  siteRule: ((type: PieceTypeId, pose: Pose) => string | null) | null = null;
+  siteRule: ((type: PieceTypeId, pose: Pose, ignoreId: Ignore) => string | null) | null = null;
   /** The message for the last "site" refusal. */
   private siteWhy = "";
 
@@ -2202,6 +2268,11 @@ export class Interaction {
   }
 
   /** What to say for a prop that can't go somewhere. */
+  /** Is this prop a town's building in Game mode (moved only about its town: see town-moves.ts)? */
+  private townHouse(propId: number): boolean {
+    return !this.propsEditable && this.game.props.get(propId)?.building !== undefined;
+  }
+
   private propMessage(reason: PropBlock): string {
     return reason === "yard" ? this.inYardWhy : PROP_MESSAGES[reason];
   }
@@ -2932,11 +3003,17 @@ export class Interaction {
     if (m.kind !== "drag-piece" && m.kind !== "drag-train" && m.kind !== "drag-cargo" && m.kind !== "drag-prop" && m.kind !== "drag-road") return;
     this.lastX = x;
     this.lastY = y;
-    m.overTray = this.hud.isOverTray(x, y);
+    // (A town's house in Game mode can't go back in the box: it's the town's, not the player's.)
+    const overTray = this.hud.isOverTray(x, y);
+    m.overTray = overTray && !(m.kind === "drag-prop" && m.town);
     const r = this.game.canvas.getBoundingClientRect();
     const trayTop = this.hud.tray.getBoundingClientRect().top - r.top;
-    // A drag coming up out of the tray passes through the bottom band: only pan once it has left the band.
-    this.game.director.setEdgePointer(m.overTray ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
+    // A drag coming up out of the tray passes through the bottom band: only pan once it has left the band. (Over the
+    // tray, no pan: a town's house carried there, which can't go in, doesn't send the map away either.)
+    // (Nor with a town's house in hand: it goes about its town, in view, and a finger held still near an edge mustn't
+    // drift it onto another lot.)
+    const house = m.kind === "drag-prop" && !!m.town;
+    this.game.director.setEdgePointer(overTray || house ? null : { x: x - r.left, y: y - r.top, touch: this.lastPointerWasTouch, bottom: trayTop, waitForExit: true });
     const ground = this.groundAt(x, y);
     if (m.kind === "drag-prop") {
       this.updatePropDrag(m, x, y);
@@ -3668,6 +3745,8 @@ export class Interaction {
     const from: PropPose = { x: p.x, z: p.z, heading: p.heading, y: p.y };
     this.mode = this.propDrag(p.asset, propId, pointerId, p.heading, from, { x: p.x - ground.x, z: p.z - ground.z }, p.variant);
     this.mode.overTray = false;
+    const found = this.townHouse(propId) && p.building !== undefined ? findBuilding(g.landscape, p.building) : null;
+    if (found) this.mode.town = { building: p.building!, look: looksOf(g.landscape, found.town).get(p.building!) ?? "house", editor: this.landEditor(), cell: -2, start: -2, lot: null, preview: -1, told: new Set() };
     // Drawn by the hand while it moves, not where it stood.
     g.propsChanged(propId);
     this.onPickup?.();
@@ -3676,7 +3755,8 @@ export class Interaction {
   private updatePropDrag(m: Extract<Mode, { kind: "drag-prop" }>, x: number, y: number): void {
     const g = this.game;
     const touch = this.lastPointerWasTouch;
-    const sy = touch ? y - TOUCH_LIFT_PX : y;
+    // (A town's house, snapped to its lot as it is, is lifted less: it starts nearer its own lot.)
+    const sy = touch ? y - (m.town ? TOUCH_LIFT_PX / 2 : TOUCH_LIFT_PX) : y;
     const hills = hillsOf(g.landscape.grid);
     // On touch, by its middle as drawn (a barn stands tall), as a held piece is; a mouse keeps the grab point.
     const mid = objectMiddle(m.ghost);
@@ -3711,6 +3791,32 @@ export class Interaction {
         for (const other of g.props.all())
           if (other.id !== m.propId && standsAside(other.asset) && nearestCrossing(crossings, other.x, other.z) === i) blocked = "prop";
       }
+    } else if (m.town) {
+      // A town's house: onto the lot under it, as its town would stand it there (or, red, where it's held).
+      const t = m.town;
+      const cell = g.landscape.grid.cellAtWorld(pose.x, pose.z);
+      if (cell !== t.cell) {
+        t.cell = cell;
+        // Until the hand leaves the square it was lifted over, the house stays on its own lot (lifted above the finger,
+        // it starts over its street, say: not a refusal the moment it's picked up).
+        if (t.start === -2) t.start = cell;
+        const own = cell === t.start ? findBuilding(g.landscape, t.building)?.building : undefined;
+        t.lot = own ? { cells: [...own.cells], front: own.front, corner: !!own.corner } : lotFor(g.landscape, t.building, cell, t.editor);
+        // Swapping: the other house shows where it would go (the held one's lot), so it reads as a swap, not a stack.
+        const swap = typeof t.lot === "object" && t.lot?.swap !== undefined ? this.swapPartner(t.building, t.lot) : null;
+        if (t.preview !== -1 && t.preview !== swap?.id) g.previewProp(t.preview, null);
+        t.preview = swap?.id ?? -1;
+        if (swap) g.previewProp(swap.id, swap.to);
+      }
+      const found = findBuilding(g.landscape, t.building);
+      if (typeof t.lot === "string" || !t.lot || !found) blocked = "town";
+      else {
+        const at = buildingPose(g.landscape, found.town, { ...found.building, cells: t.lot.cells, front: t.lot.front }, t.look, m.asset, g.props.get(m.propId)?.scale ?? 1);
+        pose.x = at.x;
+        pose.z = at.z;
+        pose.heading = at.heading;
+        ground = g.landscape.grid.groundY(t.lot.cells[0]);
+      }
     } else if (fp) {
       const own = new Set(buildingCells(g.landscape, m.propId === -1 ? undefined : g.props.get(m.propId)?.building));
       const c = checkProp({ land: g.landscape, track: m.track, props: g.props, footprint: g.propLibrary.footprint }, fp, pose, placeOn(m.asset), m.propId, own);
@@ -3718,7 +3824,15 @@ export class Interaction {
       else blocked = c.reason;
       blocked ??= this.propInYard(fp, pose);
     }
-    if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(this.propMessage(blocked));
+    if (m.town) {
+      // (Each reason told once a carry, not on every square it crosses.)
+      // (By what's said: several reasons share a line.)
+      const said = typeof m.town.lot === "string" ? townMoveMessage(m.town.lot) : null;
+      if (said && !m.town.told.has(said)) {
+        m.town.told.add(said);
+        this.hud.toast(said);
+      }
+    } else if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(this.propMessage(blocked));
     m.blocked = blocked;
     m.pose = { ...pose, y: ground };
     m.ghost.visible = !m.overTray;
@@ -3730,6 +3844,7 @@ export class Interaction {
 
   private dropProp(m: Extract<Mode, { kind: "drag-prop" }>): void {
     const g = this.game;
+    if (m.town && m.town.preview !== -1) g.previewProp(m.town.preview, null);
     g.director.setEdgePointer(null);
     this.mode = { kind: "idle" };
     g.scene.remove(m.ghost);
@@ -3744,8 +3859,8 @@ export class Interaction {
     if (m.blocked || !fp) {
       this.onRefused?.();
       g.propsChanged(-1);
-      // A moved prop stays where it was, still selected.
-      if (m.propId !== -1) this.selectProp(m.propId);
+      // A moved prop stays where it was, still selected (a town's house in Game mode is never selected).
+      if (m.propId !== -1 && !m.town) this.selectProp(m.propId);
       return;
     }
     const store = g.props;
@@ -3767,13 +3882,14 @@ export class Interaction {
       const id = m.propId;
       const from = m.from!;
       const building = store.get(id)?.building;
-      if (building === undefined) this.editor().editProps({ do: () => store.move(id, pose), undo: () => store.move(id, from) });
+      if (m.town && typeof m.town.lot === "object" && m.town.lot) this.moveTownHouse(id, m.town.building, m.town.lot, pose, from);
+      else if (building === undefined) this.editor().editProps({ do: () => store.move(id, pose), undo: () => store.move(id, from) });
       else this.moveTownProp(id, building, pose, from);
     }
     g.propsChanged(-1);
     this.onPlaced?.(false);
-    // It stays selected, to nudge or turn again straight away.
-    this.selectProp(placed);
+    // It stays selected, to nudge or turn again straight away (a town's house in Game mode is never selected).
+    if (!m.town) this.selectProp(placed);
   }
 
   private selectProp(id: number): void {
@@ -3917,6 +4033,52 @@ export class Interaction {
   }
 
   /** Move a town building's prop: it leaves its squares (they become street) and is an ordinary prop from now on. */
+  /**
+   * Game mode: a town's house put down on a lot of its town (`lot`, from `lotFor`), at `pose`: its record and squares
+   * move with it (see `moveBuilding`), and, swapping, the other building's prop goes to the lot it left. One undo step.
+   */
+  private moveTownHouse(id: number, building: number, lot: TownLot, pose: PropPose, from: PropPose): void {
+    const g = this.game;
+    const land = g.landscape;
+    const found = findBuilding(land, building);
+    if (!found) return;
+    // The other building's prop, swapping: where it stands now, and where it goes (onto this house's lot).
+    const swap = lot.swap === undefined ? null : this.swapPartner(building, lot);
+    const partner = swap ? g.props.get(swap.id) : undefined;
+    const partnerFrom = partner && { x: partner.x, z: partner.z, heading: partner.heading, y: partner.y };
+    const partnerTo = swap?.to;
+    const changed = [...new Set([...found.building.cells, ...lot.cells].map(plotSlotOf))];
+    let putBack = () => {};
+    const doIt = () => {
+      putBack = moveBuilding(land, building, lot);
+      g.props.move(id, pose);
+      if (partner && partnerTo) g.props.move(partner.id, partnerTo);
+    };
+    doIt();
+    g.editLand(changed);
+    this.editor().recordLand({
+      do: doIt,
+      undo: () => {
+        putBack();
+        g.props.move(id, from);
+        if (partner && partnerFrom) g.props.move(partner.id, partnerFrom);
+      },
+      slots: () => changed,
+    });
+  }
+
+  /** Swapping town building `building` onto `lot`: the other building's prop, and where it goes (the first's lot). */
+  private swapPartner(building: number, lot: TownLot): { id: number; to: PropPose } | null {
+    const g = this.game;
+    const land = g.landscape;
+    const found = findBuilding(land, building);
+    const other = lot.swap === undefined ? undefined : findBuilding(land, lot.swap);
+    const prop = other && [...g.props.all()].find((p) => p.building === lot.swap);
+    if (!found || !other || !prop) return null;
+    const at = buildingPose(land, other.town, { ...other.building, cells: found.building.cells, front: found.building.front }, looksOf(land, other.town).get(other.building.id) ?? "house", prop.asset, prop.scale ?? 1);
+    return { id: prop.id, to: { ...at, y: land.grid.groundY(found.building.cells[0]) } };
+  }
+
   private moveTownProp(id: number, building: number, pose: PropPose, from: PropPose): void {
     const g = this.game;
     const land = g.landscape;

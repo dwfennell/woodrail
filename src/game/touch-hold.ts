@@ -60,3 +60,20 @@ export function decideHold(strayedAt: number | null, elapsed: number, touches: n
 export function undoesHold(at: number, travel: number, lifted: boolean, ms = HOLD_MS): boolean {
   return at < ms && (lifted || travel >= HOLD_SLOP);
 }
+
+/**
+ * Drawing, a press on a line's body (a branch's start): a few pixels off the line, across it, and it's begun to
+ * leave it (a slow-starting branch stroke), not a hold. Along the line it's still a finger's wobble.
+ */
+export const BRANCH_SLOP = 3;
+
+/**
+ * Drawing, a press on a line's body, the finger now (dx, dy) screen px from where it came down: has it strayed (begun
+ * to leave the line: `BRANCH_SLOP` across it, `across` being the line's screen normal; or `HOLD_SLOP` any way)?
+ * Strayed before `HOLD_MS`, it draws a branch rather than picking the piece up (QA: a branch stroke started slowly,
+ * a few pixels a frame, picked the straight up and moved it).
+ */
+export function branchStrayed(dx: number, dy: number, across: readonly [number, number] | undefined): boolean {
+  if (Math.hypot(dx, dy) >= HOLD_SLOP) return true;
+  return !!across && Math.abs(dx * across[0] + dy * across[1]) >= BRANCH_SLOP;
+}

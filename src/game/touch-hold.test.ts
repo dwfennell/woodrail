@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch-hold";
+import { branchStrayed, BRANCH_SLOP, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch-hold";
 
 describe("long-press to pick up", () => {
   it("a finger that rests long enough picks it up", () => {
@@ -57,5 +57,20 @@ describe("long-press to pick up", () => {
     expect(undoesHold(40, HOLD_SLOP - 1, false)).toBe(false);
     expect(undoesHold(HOLD_MS, HOLD_SLOP + 5, false)).toBe(false);
     expect(undoesHold(HOLD_MS + 100, 0, true)).toBe(false);
+  });
+});
+
+describe("drawing, a press on a line's body (a branch's start)", () => {
+  // The line runs across the screen (along x): its normal is up and down.
+  const across: [number, number] = [0, 1];
+  it("a few pixels off the line, across it, has begun to leave it: a branch, not a hold (QA: slow start picked the straight up)", () => {
+    expect(branchStrayed(0, BRANCH_SLOP, across)).toBe(true);
+    expect(branchStrayed(2, -3, across)).toBe(true);
+    expect(branchStrayed(0, 2, across)).toBe(false);
+  });
+  it("along the line it's a wobble till the hold's own slop", () => {
+    expect(branchStrayed(8, 1, across)).toBe(false);
+    expect(branchStrayed(HOLD_SLOP, 0, across)).toBe(true);
+    expect(branchStrayed(4, 0, undefined)).toBe(false);
   });
 });

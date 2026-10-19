@@ -48,6 +48,8 @@ export interface TownLifeEvents {
   received(town: Town, kind: CargoKind, n: number, before: TownStatus): void;
   /** Is this blueprint learned? (A landmark that comes with one, like the college, waits for it.) */
   knows?(tech: string): boolean;
+  /** Does a school take `kind` from trains now (the research still lacks some)? A lookup: the crane asks per unit. */
+  school?(kind: CargoKind): boolean;
 }
 
 /**
@@ -75,7 +77,8 @@ export class TownLife {
     this.statuses.clear();
     // A town takes from trains only what it still wants for its next level: the rest rides on to the next town.
     // (Made goods, furniture and tools, are always welcome: towns pay for them, wanted or not.)
-    this.game.economy.accepts = (d, kind) => d.role !== "town" || this.wants(d.townId, kind) || LUXURIES.has(kind);
+    // A school takes only what its research still lacks (`TownLifeEvents.school`; none: nothing).
+    this.game.economy.accepts = (d, kind) => (d.role === "school" ? !!this.events.school?.(kind) : d.role !== "town" || this.wants(d.townId, kind) || LUXURIES.has(kind));
     for (const t of this.game.landscape.towns) {
       const received = receivedBy(this.game, t.id);
       this.levels.set(t.id, townStatus(received).level);

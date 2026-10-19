@@ -14,6 +14,9 @@ export const pieceThing = (type: PieceTypeId): ThingId => `piece:${type}`;
 export const carThing = (kind: CarKind): ThingId => `car:${kind}`;
 export const propThing = (asset: string): ThingId => `prop:${asset}`;
 
+/** A school after the one your first village gives you: coins only. */
+export const SCHOOL_COINS = 40;
+
 /** What it takes to have one: made at the workshop from `cost`, once `tech` is learned. */
 export interface ThingRule {
   readonly label: string;
@@ -70,6 +73,8 @@ export const THING_RULES: Partial<Record<ThingId, ThingRule>> = {
   "piece:depot-power": { label: "Power station", cost: { planks: 12, iron: 6 }, coins: 380, tech: "electricity" },
   "piece:depot-warehouse": { label: "Warehouse", cost: { planks: 9 }, coins: 280, tech: "warehouses" },
   "piece:depot-harbour": { label: "Harbour", cost: { planks: 15, stone: 10 }, coins: 480, tech: "harbours" },
+  // The school, where blueprints are researched (src/game/research.ts): beside a town, one per town.
+  "piece:depot-school": { label: "School", cost: {}, coins: SCHOOL_COINS },
 
   // Railway kits (src/track/kits.ts) and lineside furniture in Game mode: each row names the blueprint that unlocks it
   // (docs/superpowers/specs/2026-10-17-track-props-design.md, "Game mode availability"). Priced against the pieces

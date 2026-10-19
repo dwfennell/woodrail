@@ -152,6 +152,14 @@ export const DEPOT_LAYOUT: Record<DepotRole, DepotLayout> = {
   },
   // A harbour (Phase D): a pile of each good along the quay, waiting for the boats; the water is past the yard's far
   // side (l > 114), where the boats tie up.
+  // A school (Game mode's research): goods are set down at its door and go into the research (it keeps no piles: one
+  // drop spot for every good, no pallets). The schoolhouse stands at the far end of the yard.
+  school: {
+    pad: { t: 108, l: 72, w: 196, d: 84 },
+    crane: { kind: "jib", t: 60, l: 40, height: 72 },
+    piles: Object.fromEntries(CARGO_KINDS.map((k) => [k, { t: 60, l: 80, y: PAD_H, across: 1, axis: "t", show: 0 }])),
+    trackT: 60,
+  },
   harbour: {
     pad: { t: 108, l: 72, w: 196, d: 84 },
     crane: { kind: "jib", t: 60, l: 40, height: 72 },
@@ -453,6 +461,12 @@ export class DepotView {
    */
   extras: ((role: DepotRole) => readonly string[]) | null = null;
 
+  /**
+   * A catalogue building for a kind of yard (Game mode: the school's schoolhouse), as baked parts in its own frame;
+   * null or none: a stand-in is drawn. Set it, then `setWorld` to draw it.
+   */
+  building: ((role: DepotRole) => { parts: readonly { geometry: BufferGeometry; material: Material }[] } | null | undefined) | null = null;
+
   /** Rebuild for a world: one site per economy depot. */
   setWorld(economy: Economy, layout: Layout): void {
     for (const child of [...this.group.children]) {
@@ -539,7 +553,7 @@ export class DepotView {
     // The yard: an industry's own ground and props, or the plain beech pad; then a pallet under each pile.
     const add = (m: Material, g: BufferGeometry, t: number, l: number, y: number) => b.add(m, place(g, t, l, y));
     if (layout.pad && !dressIndustry(site.depot.role, add, mats)) b.add(mats.blockWood, place(new RoundedBoxGeometry(layout.pad.w, PAD_H, layout.pad.d, 2, 1.5), layout.pad.t, layout.pad.l, PAD_H / 2));
-    if (layout.pad) {
+    if (layout.pad && site.depot.role !== "school") {
       for (const kind of CARGO_KINDS) {
         const spot = layout.piles[kind];
         if (!spot) continue;
@@ -575,6 +589,25 @@ export class DepotView {
         b.add(mats.blockWood, place(new RoundedBoxGeometry(30, 18, 20, 2, 2), t, 100, PAD_H + 9));
         b.add(mats.lacquer("#7a5a3a"), place(new RoundedBoxGeometry(34, 3, 24, 1, 1.2), t, 100, PAD_H + 19));
       }
+    }
+    if (site.depot.role === "school") {
+      // The town's schoolhouse (the catalogue's model, when the game has it built), its front to the track; else a
+      // stand-in.
+      const house = this.building?.("school");
+      if (house) {
+        for (const p of house.parts) b.add(p.material, place(p.geometry.clone().rotateY(Math.PI / 2), 150, 80, PAD_H));
+        return;
+      }
+      b.add(mats.lacquer("#e6b52c"), place(new RoundedBoxGeometry(70, 34, 40, 2, 3), 150, 84, PAD_H + 17));
+      for (const side of [-1, 1]) {
+        const slope = new RoundedBoxGeometry(76, 4, 26, 1, 1.5);
+        slope.translate(0, 0, (side * 22) / 2);
+        slope.rotateX(side * 0.45);
+        b.add(mats.lacquer("#c8442f"), place(slope, 150, 84, PAD_H + 40));
+      }
+      b.add(mats.blockWood, place(new RoundedBoxGeometry(12, 14, 12, 1, 1.5), 150, 84, PAD_H + 52));
+      b.add(mats.lacquer("#2f6db5"), place(new RoundedBoxGeometry(14, 22, 3, 1, 1), 150, 63.5, PAD_H + 11));
+      return;
     }
     const model = INDUSTRY_MODELS[site.depot.role];
     if (model && hasPart(model.part)) {

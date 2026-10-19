@@ -35,7 +35,7 @@ interface Service {
   readonly done: Set<number>;
 }
 
-export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | KitDepotRole;
+export type DepotRole = "forest" | "sawmill" | "town" | "workshop" | "farm" | "mill" | "quarry" | "warehouse" | "mine" | "foundry" | "carpenter" | "smithy" | "power" | "harbour" | "school" | KitDepotRole;
 
 /**
  * Sandbox's cargo machines (kit pieces with a `depot`: src/track/kits.ts): a loader with an endless heap of one good,
@@ -96,6 +96,9 @@ export const RECIPES: Record<DepotRole, Recipe> = {
   power: { takes: ["coal"], gives: [], cycle: { uses: { coal: 1 }, makes: {}, seconds: 60 } },
   // A harbour (Game mode) takes any good onto its quay for the boats that call by themselves (`src/game/harbours.ts`).
   harbour: { takes: [...CARGO_KINDS], gives: [] },
+  // A school (Game mode's research): goods go into the research, not onto piles. What it takes is the mode's say
+  // (`accepts`: only what the research still lacks); each unit is handed to `intoSink` as it lands.
+  school: { takes: CARGO_KINDS.filter((k) => k !== "log"), gives: [], cap: WORKSHOP_CAP, sink: true },
   // Keeps goods for later: everything, more of it. Routed trains drop or pick up there as their stops say.
   warehouse: { takes: [...CARGO_KINDS], gives: [...CARGO_KINDS], cap: 24, routedOnly: true },
   // Sandbox's cargo machines: an endless heap of one good, and somewhere goods vanish.
@@ -420,6 +423,8 @@ export class Economy {
   /** Can a pile hold this cargo (it is the depot's input or output) and is there room? */
   pileAccepts(d: DepotState, kind: CargoKind): boolean {
     const r = RECIPES[d.role];
+    // A sink the mode has a say in (a school) takes by hand only what it would take from a train: nothing is lost in it.
+    if (r.sink && this.intoSink && this.accepts && !this.accepts(d, kind)) return false;
     return (r.takes.includes(kind) || r.gives.includes(kind)) && d.piles[CARGO[kind].index] < capAt(d);
   }
 
@@ -508,7 +513,14 @@ export class Economy {
   private put(slot: CargoSlot, kind: CargoKind): void {
     if (slot.kind === "pile") {
       const d = this.depots[slot.depotId];
-      if (RECIPES[d.role].sink) return;
+      if (RECIPES[d.role].sink) {
+        if (this.intoSink) {
+          this.intoSink(d, kind);
+          // What it takes next may have changed (a school's research needs one fewer).
+          this.wantsStamp++;
+        }
+        return;
+      }
       d.piles[CARGO[kind].index] = Math.min(capAt(d), d.piles[CARGO[kind].index] + 1);
       if (d.role === "town" && kind === "planks") this.delivered.set(d.townId, (this.delivered.get(d.townId) ?? 0) + 1);
       if (d.role === "town") {
@@ -901,20 +913,30 @@ export class Economy {
 
   /**
    * The automatic depot under this train's axles, if any. A train beside two (industries end to end) is served where
-   * a wagon has work: the one whose crane is working on it, else the first with work, else the first.
+   * a wagon has work: the one whose crane is working on it, else the first where a wagon standing on it has work
+   * there (so a school just before a station isn't passed by for the station ahead, where the engine is), else the
+   * first where any of its wagons has work (it's coming up to the crane), else the first.
    */
   private depotUnder(train: Train): DepotState | undefined {
     const s = this.services.get(train.id);
     let first: DepotState | undefined;
+    let here: DepotState | undefined;
     let work: DepotState | undefined;
-    for (const b of train.bogies) {
-      const d = this.byPiece.get(b.pieceId);
-      if (!d || !d.auto || d === first || d === work) continue;
+    /** The depot last asked whether any wagon has work there (bogies on one depot come together: asked once). */
+    let asked: DepotState | undefined;
+    const undone = (d: DepotState, carId: number) => !(s && s.depotId === d.id && s.done.has(carId)) && this.needsService(d, carId);
+    for (let k = 0; k < train.bogies.length; k++) {
+      const d = this.byPiece.get(train.bogies[k].pieceId);
+      if (!d || !d.auto) continue;
       if (s && s.phase === HALTED && s.depotId === d.id) return d;
       first ??= d;
-      if (!work && train.cars.some((c) => !(s && s.depotId === d.id && s.done.has(c.id)) && this.needsService(d, c.id))) work = d;
+      if (!here && undone(d, train.cars[k >> 1].id)) here = d;
+      if (!work && d !== asked) {
+        asked = d;
+        if (train.cars.some((c) => undone(d, c.id))) work = d;
+      }
     }
-    return work ?? first;
+    return here ?? work ?? first;
   }
 
   /**
@@ -1194,6 +1216,20 @@ export class Economy {
    * wants for its next level, so the rest rides on to the next town). Null: everything its recipe takes.
    */
   accepts: ((d: DepotState, kind: CargoKind) => boolean) | null = null;
+
+  /**
+   * A unit landed at a sink depot (Game mode: goods into a school's research, `src/game/research.ts`). Null: it just
+   * vanishes (Sandbox's unloader).
+   */
+  intoSink: ((d: DepotState, kind: CargoKind) => void) | null = null;
+
+  /**
+   * What `accepts` says changed without goods reaching a town or a sink (Game mode: a research picked): routed trains'
+   * plans are worked out again.
+   */
+  acceptsChanged(): void {
+    this.wantsStamp++;
+  }
 
   /**
    * Goods a mode keeps for a workshop (Game mode: planks, while the workshop holds fewer than the cheapest blueprint
