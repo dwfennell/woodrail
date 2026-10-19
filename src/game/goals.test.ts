@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, findSplice, Layout } from "../track";
 import { checkPlacement, connectedPairs, FEAT_TREE, SURF_GRASS, SURF_RIVER } from "../landscape";
 import { checkYard } from "./depot-footprint";
-import { GOALS, GoalTracker, NOTHING_ACROSS_HINT } from "./goals";
+import { BRIDGE_KNOWN_HINT, GOALS, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN } from "./goals";
 import { buildStarterWorld, createWorld, STARTER_SEED, syncIndustries, type World } from "./world";
 import { CARGO } from "../economy/cargo";
 import { Progress } from "./progress";
@@ -182,7 +182,20 @@ describe("build-bridge guide", () => {
     g.surface[g.cellAtWorld(end.x + 150, end.z + 150)] = SURF_RIVER;
     g.touch();
     expect(goal("build-bridge").check(w)).toEqual({ done: false, hint: NOTHING_ACROSS_HINT });
+    // Bridges learned already: nothing said about learning them.
+    expect(goal("build-bridge").check(w, { learned: new Set(["bridges"]) })).toEqual({ done: false, hint: NOTHING_ACROSS_KNOWN });
+    expect(NOTHING_ACROSS_KNOWN).not.toMatch(/learn/i);
     expect(goal("build-bridge").guide(w).marks).toHaveLength(1);
+  });
+
+  it("with bridges learned, its hint skips learning them", () => {
+    const { w } = joined();
+    const known = goal("build-bridge").check(w, { learned: new Set(["bridges"]) });
+    expect(known.done).toBe(false);
+    if (known.hint !== NOTHING_ACROSS_KNOWN) expect(known.hint).toBe(BRIDGE_KNOWN_HINT);
+    expect(known.hint).not.toMatch(/learn|research/i);
+    // Not learned: its own hint, which says to research them.
+    expect(goal("build-bridge").hint).toMatch(/Research bridges/);
   });
 
   it("frames the crossing toward a town across the river, both banks in view", () => {

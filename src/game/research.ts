@@ -165,6 +165,22 @@ export function studyLeft(p: Progress, speed = 1): number {
   return r.current === null ? 0 : Math.max(0, (studyTime(r.current) - r.study) / speed);
 }
 
+/** The study's clock on game time: where the world's clock (`Game.simSeconds`) stood when it was last read. */
+export interface StudyClock {
+  at: number | null;
+}
+
+/**
+ * Seconds of play since `clock` last read the world's clock (`now`: `Game.simSeconds`), and moves it on: so study stands
+ * still while the game is paused or stalled and keeps the trains' pace, whatever the wall clock does. 0 on the first
+ * read and when the clock went back (another session loaded).
+ */
+export function simElapsed(clock: StudyClock, now: number): number {
+  const was = clock.at;
+  clock.at = now;
+  return was === null || now < was ? 0 : now - was;
+}
+
 /**
  * Advance `seconds` of play at a school speed of `speed`: start `next` if nothing is current (coins may have come in),
  * study once the goods are in, and when the study is done learn it (and what comes by itself with it) and start

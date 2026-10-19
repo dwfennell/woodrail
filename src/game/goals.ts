@@ -214,6 +214,10 @@ function bridgeTarget(w: World): AcrossRiver | null {
 
 /** The bridge goal's hint when there's a river but nothing across it to reach. */
 export const NOTHING_ACROSS_HINT = "Nothing's across the river yet. Research bridges, make one and lay it over the water.";
+/** The same, with bridges learned already: nothing to say about learning them. */
+export const NOTHING_ACROSS_KNOWN = "Nothing's across the river yet. Make a bridge at your workshop and lay it over the water.";
+/** The bridge goal's hint with bridges learned. */
+export const BRIDGE_KNOWN_HINT = "Make a bridge at your workshop, then take your track over a river.";
 
 /**
  * Where a bridge is wanted: where the shortest way from the line to the nearest thing across the river (a town off the
@@ -390,9 +394,12 @@ export const GOALS: readonly Goal[] = [
     blueprint: "bridges",
     title: "Build a bridge",
     hint: "Research bridges, make one at your workshop, then take your track over a river.",
-    check: (w) => {
+    check: (w, ctx = NO_CONTEXT) => {
       if (hasPiece(w, (type) => isBridge(type))) return { done: true };
-      return riverPoints(w.landscape.grid).length > 0 && !bridgeTarget(w) ? { done: false, hint: NOTHING_ACROSS_HINT } : { done: false };
+      // (Bridges learned already: the hints skip the learning.)
+      const known = ctx.learned.has("bridges");
+      if (riverPoints(w.landscape.grid).length > 0 && !bridgeTarget(w)) return { done: false, hint: known ? NOTHING_ACROSS_KNOWN : NOTHING_ACROSS_HINT };
+      return known ? { done: false, hint: BRIDGE_KNOWN_HINT } : { done: false };
     },
     guide: guideBridge,
   },

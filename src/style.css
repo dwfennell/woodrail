@@ -365,6 +365,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* (Where the word would cut the goal's title short: the round ⌖ alone, as before.) */
 .goals.collapsed.show-tight .goals-show-icon { width: 44px; padding: 0; justify-content: center; }
 .goals.collapsed.show-tight .goals-show-word { display: none; }
+.goals.collapsed.title-small .goals-now { font-size: 13px; letter-spacing: -0.01em; }
 .goals-show { margin-top: 6px; height: 40px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
 .goals-body { display: none; }
 .goals.collapsed .goals-head { padding-bottom: 10px; }
@@ -734,7 +735,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A long name ends in "…" rather than wrapping the card's head. */
 .route-line-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .route-head .route-plan, .route-head .route-leave { flex: 0 0 auto; }
-.route-leave.asking { background: #b0391f; color: #fff; }
+.route-leave.asking, .goals-new.asking { background: #b0391f; color: #fff; }
 .route-join-line:disabled { opacity: 0.45; }
 .route-riders { font-weight: 600; opacity: 0.7; }
 .route-head .route-leave { padding-inline: 10px; }

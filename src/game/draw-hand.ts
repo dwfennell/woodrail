@@ -33,15 +33,8 @@ import {
 import type { Game } from "./game";
 import { DrawNotice } from "./draw-notice";
 import { drawMessage, drawRefusal } from "./track-rules";
-import { branchFrom, BUSY_MESSAGE, crossingAt, junctionWhy, linePlan, mergeAt, type JunctionRules, type Merge } from "./draw-junctions";
-import { TRACK_ITEMS } from "../ui/tray-catalogue";
-
-/** A piece's name as the tray shows it, in lower case ("long", "curve"). */
-function pieceName(type: PieceTypeId): string {
-  const item = TRACK_ITEMS.find((i) => i.kind === "piece" && i.type === type && !i.auto);
-  const name = (item?.label ?? type).toLowerCase();
-  return name + (name.includes("curve") ? "s" : " pieces");
-}
+import { BRANCH_FACING, branchFrom, busyOn, crossingAt, junctionWhy, linePlan, mergeAt, mergePast, type JunctionRules, type Merge } from "./draw-junctions";
+import { pieceName } from "./piece-name";
 
 /** The pencil line starts at the line's end if that's this close (mm) to the stroke ahead. */
 const TRAIL_JOIN = 40;
@@ -105,7 +98,7 @@ export class DrawHand {
    * A press on a line's body (a plain straight), waiting for the finger to go off the line to know which way the
    * branch leaves: the straight, and where it was pressed (on the track, at its height).
    */
-  private pending: { onto: number; press: { x: number; z: number }; y: number } | null = null;
+  private pending: { onto: number; press: { x: number; z: number }; y: number; way: number | null } | null = null;
   /** The switch the line branches off through (swapped into the line it started on), or null. */
   private branch: PieceSwap | null = null;
   /** The switch the line would merge through if let go now (shown), or null; and its key, so it's shown afresh only when it changes. */
@@ -199,11 +192,28 @@ export class DrawHand {
     const at = p && this.hooks.planeAt(x, y, p.y);
     if (!p || !at) return false;
     if (this.hooks.occupied(onto)) {
-      this.hooks.toast(BUSY_MESSAGE);
+      this.hooks.toast(busyOn(p.type));
       return false;
     }
-    this.pending = { onto, press: { x: at.x, z: at.z }, y: p.y };
+    this.pending = { onto, press: { x: at.x, z: at.z }, y: p.y, way: null };
     return true;
+  }
+
+  /** Waiting to see which way a branch leaves the line it was pressed on (see `feel`)? */
+  get branchPending(): boolean {
+    return this.pending !== null;
+  }
+
+  /**
+   * The finger at screen point (x, y), one of the moves the browser ran together into one event, while a branch waits:
+   * the first one `BRANCH_FACING` from the press sets the way the switch faces, so a stroke that has bent by the time
+   * a slow phone delivers it still faces the way it set off (one plane hit; nothing else).
+   */
+  feel(x: number, y: number): void {
+    const pending = this.pending;
+    if (!pending || pending.way !== null) return;
+    const f = this.hooks.planeAt(x, y, pending.y);
+    if (f && Math.hypot(f.x - pending.press.x, f.z - pending.press.z) >= BRANCH_FACING) pending.way = Math.atan2(f.z - pending.press.z, f.x - pending.press.x);
   }
 
   /** The rules the junctions are found by (see `JunctionRules`). */
@@ -226,7 +236,8 @@ export class DrawHand {
     if (pending) {
       const f = this.hooks.planeAt(x, y, pending.y);
       if (!f) return;
-      const b = branchFrom(this.junctions, pending.onto, pending.press, f);
+      this.feel(x, y);
+      const b = branchFrom(this.junctions, pending.onto, pending.press, f, pending.way ?? undefined);
       if (b.kind === "wait") return;
       this.pending = null;
       if (b.kind === "refused") {
@@ -274,14 +285,19 @@ export class DrawHand {
    * through, and the one it merges through if it was let go on a line it comes in to at 45° (all one undo step).
    */
   end(): void {
-    const line = this.line;
+    let line = this.line;
     if (!line) {
       this.clear();
       return;
     }
     line.finish();
     this.sync(false);
-    const merge = this.mergeNow();
+    let merge = this.mergeNow();
+    // Let go a little past a line it ran into (beyond a merge's reach, short of where the stroke goes on across):
+    // across it if the finger's past the crossing's far end, else in to it where the stroke meets it (QA: about 70 mm
+    // past a line, it laid nothing at all).
+    if (!merge && this.goOnAcross(true)) line = this.line!;
+    else if (!merge) merge = this.mergeAtLine();
     const pieces = line.placeable();
     const g = this.game;
     const branch = this.branch;
@@ -289,7 +305,7 @@ export class DrawHand {
     const ghosts = this.ghosts.splice(0, merge ? merge.keep : pieces.length);
     // A train come onto the straights a switch would take the place of meanwhile: nothing goes down.
     const busy = plan.covers.some((id) => this.hooks.occupied(id));
-    if (busy) this.hooks.toast(BUSY_MESSAGE);
+    if (busy) this.hooks.toast(busyOn(g.layout.getPiece(plan.covers.find((id) => this.hooks.occupied(id))!)?.type ?? "straight-216"));
     else {
       // (Merged, it's closed onto that line: nothing past it to say.)
       let say = this.notice.lifted(line, pieces.length, !!merge);
@@ -370,6 +386,19 @@ export class DrawHand {
     return m;
   }
 
+  /** Let go a little past a line it ran into: the merge where the stroke meets that line (see `mergePast`), or null. */
+  private mergeAtLine(): Merge | null {
+    const line = this.line;
+    if (!line || line.stopped !== "blocked") return null;
+    const m = mergePast(this.junctions, line.start, line.pieces, line.tip, this.taken(), this.branch ? 1 : 0);
+    if (m?.kind === "short") {
+      if (!this.toldShort) this.hooks.toast(m.message);
+      this.toldShort = true;
+      return null;
+    }
+    return m;
+  }
+
   /** The straights the line's swaps take the place of so far (a branch's, and its crossings'). */
   private taken(): Set<number> {
     return new Set([...(this.branch?.covers ?? []), ...this.crossed.covers]);
@@ -380,10 +409,10 @@ export class DrawHand {
    * crossing's far end): a crossing swapped in there (see `crossingAt`), the line so far kept with it, and a new line
    * drawn on from its far end. Looked for once each time the line stops so.
    */
-  private goOnAcross(): void {
+  private goOnAcross(lifted = false): boolean {
     const line = this.line;
     const last = line?.pieces[line.pieces.length - 1];
-    if (!line || line.stopped !== "blocked" || last?.blockedBy !== "piece") return;
+    if (!line || line.stopped !== "blocked" || last?.blockedBy !== "piece") return false;
     if (this.crossLooked !== last) {
       this.crossLooked = last;
       const c = crossingAt(this.junctions, line.start, line.placeable(), this.taken(), (t) => this.crossed.used.get(t) ?? 0);
@@ -394,11 +423,12 @@ export class DrawHand {
       this.crossing = c?.kind === "crossing" ? c : null;
     }
     const c = this.crossing;
-    if (!c) return;
-    // Gone on across it, the finger well past its far end: until then, it may yet stop on the line (a merge).
+    if (!c) return false;
+    // Gone on across it, the finger well past its far end: until then, it may yet stop on the line (a merge). Let go,
+    // past its far end at all.
     const ex = c.swap.exit!;
     const tip = line.tip;
-    if ((tip.x - ex.x) * Math.cos(ex.heading) + (tip.z - ex.z) * Math.sin(ex.heading) < CROSS_ON) return;
+    if ((tip.x - ex.x) * Math.cos(ex.heading) + (tip.z - ex.z) * Math.sin(ex.heading) < (lifted ? 0 : CROSS_ON)) return false;
     const kept = line.placeable().slice(0, c.keep);
     const ghosts = this.ghosts.splice(0, c.keep).map((g) => g.mesh);
     for (const gh of this.ghosts) this.game.scene.remove(gh.mesh);
@@ -417,6 +447,7 @@ export class DrawHand {
     this.start(ex);
     this.hooks.onGrow();
     this.game.invalidate();
+    return true;
   }
 
   /** The crossing the line would go on through (once the finger's past it), and the stopped piece it was looked for at. */
@@ -509,6 +540,8 @@ export class DrawHand {
       allow: this.stock ? (type, line) => line.filter((p) => p.type === type).length < this.stock!(type) : undefined,
       meet: (e) => this.meet(e),
       closes: (e) => this.closes(e),
+      // (Other track only: back round to its own start is `closeOnStart`'s.)
+      nearTrack: (e, reach) => this.game.layout.queryFreeConnectors(e.x, e.z, reach, this.nearScratch) > 0,
       groundAt: (x, z) => hills.groundAt(x, z),
       wet: (x, z) => inRiver(this.game.landscape.grid, x, z),
       onMap: (x, z) => this.game.landscape.grid.cellAtWorld(x, z) !== -1,
@@ -589,6 +622,9 @@ export class DrawHand {
     const w = transformPose(fit.pose, def.connectors[exit].pose, { x: 0, z: 0, heading: 0 });
     return { type: fit.type, flipped: fit.flipped, pose: fit.pose, y: e.y, entry: seated, exit, length: fit.length, end: { x: w.x, z: w.z, heading: w.heading, y: e.y, kind: def.connectors[exit].kind } };
   }
+
+  /** (Kept for `nearTrack`'s look: nothing made on a pointer move.) */
+  private readonly nearScratch: number[] = [];
 
   /** Does the line end seated on a free end of other track here (any kind: any two ends join)? */
   private closes(e: DrawEnd): boolean {

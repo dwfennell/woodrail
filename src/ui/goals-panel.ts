@@ -12,6 +12,9 @@ const SHEET = "(max-width: 560px), (max-height: 520px)";
  * The panel's count: the goals done of all of them, those waiting for blueprints too ("16 / 17" beside "🔒 Learn
  * Signals to unlock a goal", never "16 / 16", which reads as all done).
  */
+/** How long New game asks before it goes back to itself (ms): as the menu's (see hud.ts). */
+const ASK_MS = 4000;
+
 export function goalsCountText(done: number, total: number, locked: number): string {
   return `${done} / ${total + locked}`;
 }
@@ -151,7 +154,21 @@ export class GoalsPanel {
     });
     this.body.addEventListener("click", (e) => {
       const t = e.target as HTMLElement;
-      if (t.closest(".goals-new")) handlers.newGame();
+      const again = t.closest<HTMLElement>(".goals-new");
+      if (again) {
+        // Starting over loses the game's progress: the first tap asks, a second (while it asks) does it.
+        e.stopPropagation();
+        if (!again.classList.contains("asking")) {
+          again.classList.add("asking");
+          again.textContent = "Start over? Tap again";
+          window.setTimeout(() => {
+            again.classList.remove("asking");
+            again.textContent = "New game";
+          }, ASK_MS);
+          return;
+        }
+        handlers.newGame();
+      }
       if (t.closest(".goals-show")) {
         e.stopPropagation();
         // Folded up, so the panel doesn't cover what it shows.
@@ -183,9 +200,12 @@ export class GoalsPanel {
    * or the room changes, not per frame.
    */
   private fitShow(): void {
-    this.root.classList.remove("show-tight");
+    this.root.classList.remove("show-tight", "title-small");
     if (!this.root.classList.contains("collapsed") || this.now.clientWidth === 0) return;
-    if (this.now.scrollWidth > this.now.clientWidth + 1) this.root.classList.add("show-tight");
+    const cut = () => this.now.scrollWidth > this.now.clientWidth + 1;
+    if (cut()) this.root.classList.add("show-tight");
+    // (Cut even then, "Bring planks to the workshop" at 390 px (QA): the title a little smaller.)
+    if (cut()) this.root.classList.add("title-small");
   }
 
   private setTab(tab: "goals" | "news"): void {

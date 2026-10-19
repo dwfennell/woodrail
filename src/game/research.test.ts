@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { techOf, TECHS, built } from "./tech";
 import { Progress } from "./progress";
-import { canResearch, coinsShort, costOf, deliver, lacking, lacks, pick, STUDY_SECONDS, studyLeft, studying, studyTime, tick } from "./research";
+import { canResearch, coinsShort, costOf, deliver, lacking, lacks, pick, simElapsed, type StudyClock, STUDY_SECONDS, studyLeft, studying, studyTime, tick } from "./research";
 
 /** A player who knows switches (so tier-2 Routes, 10🪵 20🪙, can be researched too). */
 function player(coins = 0): Progress {
@@ -166,6 +166,49 @@ describe("goods into the research", () => {
     expect(p.research.version).toBe(v + 1);
     tick(p, 0.5);
     expect(p.research.version).toBe(v + 2);
+  });
+});
+
+describe("study on game time", () => {
+  /** The game's workshop clock: every 250 ms of wall time it reads the world's clock and ticks the research by it. */
+  function step(p: Progress, clock: StudyClock, simSeconds: number): string | null {
+    return tick(p, simElapsed(clock, simSeconds));
+  }
+
+  it("stands still while the sim is paused, however long the wall clock runs", () => {
+    const p = player();
+    pick(p, "signals");
+    deliver(p, "planks", 8);
+    const clock: StudyClock = { at: null };
+    // 10 minutes of 250 ms steps with the world's clock stopped at 42 s.
+    for (let k = 0; k < 2400; k++) step(p, clock, 42);
+    expect(p.research.study).toBe(0);
+    expect(studyLeft(p)).toBe(20);
+  });
+
+  it("N seconds of sim are N seconds of study, whatever the wall clock did", () => {
+    const p = player();
+    pick(p, "signals");
+    deliver(p, "planks", 8);
+    const clock: StudyClock = { at: null };
+    let sim = 100;
+    step(p, clock, sim);
+    // Under load: 250 ms steps in which the sim gets only 1/16 s, for 160 steps (40 s of wall time, 10 s of play).
+    for (let k = 0; k < 160; k++) step(p, clock, (sim += 1 / 16));
+    expect(p.research.study).toBeCloseTo(10, 6);
+    expect(p.research.current).toBe("signals");
+    // A stall: one step after the sim ran 9.5 s; then the last half second.
+    expect(step(p, clock, (sim += 9.5))).toBeNull();
+    expect(studyLeft(p)).toBeCloseTo(0.5, 6);
+    expect(step(p, clock, (sim += 0.5))).toBe("signals");
+  });
+
+  it("counts nothing on the first read or when the clock goes back (another session loaded)", () => {
+    const clock: StudyClock = { at: null };
+    expect(simElapsed(clock, 500)).toBe(0);
+    expect(simElapsed(clock, 501.5)).toBe(1.5);
+    expect(simElapsed(clock, 3)).toBe(0);
+    expect(simElapsed(clock, 4)).toBe(1);
   });
 });
 

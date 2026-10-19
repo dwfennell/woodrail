@@ -1,4 +1,4 @@
-import { createSample, findBranch, findCrossing, findCurveSwap, findMerge, findOverlap, findThreeWay, getPieceDef, isPlainStraight, MERGE_REACH, normalizeAngle, type SwapMiss, pathLength, samplePath, transformPose, type DrawEnd, type DrawnPiece, type Layout, type PieceSwap, type PieceTypeId, type Pose, type SwapPiece } from "../track";
+import { createSample, findBranch, findCrossing, findCurveSwap, findMerge, findOverlap, findThreeWay, getPieceDef, isPlainStraight, MERGE_REACH, straightLength, normalizeAngle, type SwapMiss, pathLength, samplePath, transformPose, type DrawEnd, type DrawnPiece, type Layout, type PieceSwap, type PieceTypeId, type Pose, type SwapPiece } from "../track";
 
 /**
  * Junctions in a drawn line (Draw N2 phase 2, docs/superpowers/specs/2026-10-17-draw-junctions-ramps-bridges-design.md
@@ -23,6 +23,17 @@ export const BRANCH_WAY = 50;
 
 /** What it says when a train is on the straight a switch would go in place of. */
 export const BUSY_MESSAGE = "A train is on that straight";
+/** What it says when a train is on the piece a junction would go in place of (a straight, a curve, a switch). */
+export function busyOn(type: PieceTypeId): string {
+  if (/^straight-\d+$/.test(type)) return BUSY_MESSAGE;
+  if (type.startsWith("curve")) return "A train is on that curve";
+  if (type.startsWith("switch")) return "A train is on that switch";
+  return "A train is on that piece";
+}
+/** What it says when a stroke off a switch leaves it on its branch's side (or back), where no three-way leg goes. */
+export const THREE_WAY_SIDE = "For a three-way, draw off the switch's other side";
+/** The switch a branch goes through faces the way the finger set off: its first this far (mm) from the press. */
+export const BRANCH_FACING = 40;
 /** What it says when no switch fits there. */
 export const NO_ROOM_MESSAGE = "No room for a switch there";
 /** Can a drag that starts on this piece draw a branch off it (with a switch, Y or three-way swapped in)? */
@@ -35,20 +46,21 @@ export type BranchStart = { readonly kind: "wait" } | { readonly kind: "refused"
  * has gone `BRANCH_MOVE` off the line, then the switch it branches through (see `findBranch`), checked where it goes
  * (the straights it replaces left out), or why not.
  */
-export function branchFrom(r: JunctionRules, onto: number, press: { x: number; z: number }, finger: { x: number; z: number }): BranchStart {
+export function branchFrom(r: JunctionRules, onto: number, press: { x: number; z: number }, finger: { x: number; z: number }, facing?: number): BranchStart {
   const p = r.layout.getPiece(onto);
   if (!p) return { kind: "refused", message: NO_ROOM_MESSAGE };
   const off = offTrack(p.type, p.flipped, p.pose, finger);
   // (And its way is taken over its first 50 mm: which way the switch faces is the leg nearer that way.)
   if (off < BRANCH_MOVE || Math.hypot(finger.x - press.x, finger.z - press.z) < BRANCH_WAY) return { kind: "wait" };
-  const way = Math.atan2(finger.z - press.z, finger.x - press.x);
+  // (The way it set off, if that's known: see `DrawHand.feel`.)
+  const way = facing ?? Math.atan2(finger.z - press.z, finger.x - press.x);
   const canTake = (id: number) => !r.occupied(id);
   // Off a straight: a switch in part of its run. Off a large curve: a switch (or Y) in its place. Off a switch's open
   // side: a three-way in its place.
   const w =
     p.type === "curve-large" ? findCurveSwap(r.layout, onto, press.x, press.z, way, canTake) : p.type === "switch" ? findThreeWay(r.layout, onto, way, canTake) : findBranch(r.layout, onto, press.x, press.z, way, canTake);
-  if (w.kind === "busy") return { kind: "refused", message: BUSY_MESSAGE };
-  if (w.kind === "none") return { kind: "refused", message: NO_ROOM_MESSAGE };
+  if (w.kind === "busy") return { kind: "refused", message: busyOn(p.type) };
+  if (w.kind === "none") return { kind: "refused", message: p.type === "switch" ? THREE_WAY_SIDE : NO_ROOM_MESSAGE };
   const short = r.may(w.pieces[0].type, 0);
   if (short) return { kind: "refused", message: short };
   const why = swapBlocked(r, w);
@@ -175,6 +187,73 @@ export function linePlan(
   return { covers: [...(branch?.covers ?? []), ...crossed.covers, ...(merge?.swap.covers ?? [])], pieces: out, line };
 }
 
+/**
+ * Let go at most this far (mm) to either side of a line the stroke ran into, beyond a merge's reach (see `mergeAt`)
+ * and short of going on across it: still a merge, where the stroke meets the line (see `mergePast`).
+ */
+export const MERGE_PAST = 150;
+
+/**
+ * The line (`pieces`, its last one stopped by a plain straight) let go a little past that straight, beyond a merge's
+ * reach of the finger but short of going on across: the merge it makes where the stroke's way meets the straight's
+ * line, as if let go there (QA: let go about 70 mm past a line, it laid nothing at all). Null if none, or "short".
+ */
+export function mergePast(
+  r: JunctionRules,
+  start: DrawEnd,
+  pieces: readonly DrawnPiece[],
+  finger: { x: number; z: number },
+  taken: ReadonlySet<number>,
+  switches: number,
+): ReturnType<typeof mergeAt> {
+  const stop = pieces.findIndex((p) => p.blocked);
+  const last = stop === -1 ? undefined : pieces[stop];
+  if (!last || last.blockedBy !== "piece") return null;
+  const hit = ranInto(r.layout, last, taken);
+  const q = hit === -1 ? undefined : r.layout.getPiece(hit);
+  if (!q || !isPlainStraight(q.type)) return null;
+  const placeable = pieces.slice(0, stop);
+  const e = placeable.length ? placeable[placeable.length - 1].end : start;
+  const nx = -Math.sin(q.pose.heading);
+  const nz = Math.cos(q.pose.heading);
+  const side = (p: { x: number; z: number }) => (p.x - q.pose.x) * nx + (p.z - q.pose.z) * nz;
+  if (Math.abs(side(finger)) > MERGE_PAST) return null;
+  const dn = Math.cos(e.heading) * nx + Math.sin(e.heading) * nz;
+  if (Math.abs(dn) < 0.2) return null;
+  const t = -side(e) / dn;
+  const meet = { x: e.x + Math.cos(e.heading) * t, z: e.z + Math.sin(e.heading) * t };
+  return mergeAt(r, start, placeable, meet, taken, switches);
+}
+
+/** A piece stopped "in the way" this close (mm) to a straight's line by its free end ran into it (not overlapping it). */
+const RAN_INTO = 60;
+
+/**
+ * The piece a drawn piece stopped "in the way" ran into: one it overlaps, else the plain straight its free end comes
+ * within `RAN_INTO` of (the rules keep track a little apart, not only from overlapping), or −1. `taken` left out.
+ */
+function ranInto(layout: Layout, p: DrawnPiece, taken: ReadonlySet<number>): number {
+  const hit = findOverlap(layout, p.type, p.flipped, p.pose, p.y, taken);
+  if (hit !== -1) return hit;
+  let best = -1;
+  let bestD = RAN_INTO;
+  for (const id of layout.pieceIds()) {
+    const q = layout.getPiece(id)!;
+    if (taken.has(id) || !isPlainStraight(q.type) || Math.abs(q.y - p.y) > 20) continue;
+    const l = straightLength(q.type, q.flipped);
+    const ux = Math.cos(q.pose.heading);
+    const uz = Math.sin(q.pose.heading);
+    const dx = p.end.x - q.pose.x;
+    const dz = p.end.z - q.pose.z;
+    const along = dx * ux + dz * uz;
+    const d = Math.abs(-dx * uz + dz * ux);
+    if (along < -RAN_INTO || along > l + RAN_INTO || d >= bestD) continue;
+    best = id;
+    bestD = d;
+  }
+  return best;
+}
+
 /** Why a junction couldn't be made where a drawn line ran into a line (see `junctionWhy`). */
 export const JUNCTION_STRAIGHT = "A junction can only go into a straight piece";
 export const JUNCTION_ANGLE = "Meet the line at 45° to join it, or square on to cross it";
@@ -206,7 +285,7 @@ export function junctionWhy(
 ): string | null {
   const last = pieces[pieces.length - 1];
   if (!last?.blocked || last.blockedBy !== "piece") return null;
-  const hit = findOverlap(r.layout, last.type, last.flipped, last.pose, last.y, taken);
+  const hit = ranInto(r.layout, last, taken);
   const q = hit === -1 ? undefined : r.layout.getPiece(hit);
   if (!q || !TRACK.test(q.type)) return null;
   const placeable = pieces.slice(0, -1).filter((p) => !p.blocked);
