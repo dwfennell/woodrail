@@ -42,6 +42,8 @@ import { endOn, rulesFor, schoolOn } from "./rules";
  *   BALANCE=1 npx vitest run src/play/balance.test.ts
  * BALANCE_TRAINS_PER_LINE=n puts up to n trains on the line once routes are learned (default 1). BALANCE_JSON=1 also
  * prints the timeline as one line of JSON; BALANCE_MINUTES caps the play (default 180).
+ *
+ * At 180 min with 1 train a line, the run checks spec §5's bands (`checkBands`): each miss is listed, and any fails it.
  */
 
 /** The environment (Node's, under Vitest), without Node's types. */
@@ -91,6 +93,19 @@ const RESEARCH_SPARE = Number(ENV.BALANCE_SPARE ?? 10);
 
 /** Wished for, but of no use to this player till much later: bought only with planks and coins to spare. */
 const LATER: ReadonlySet<string> = new Set(["warehouses", "sawmills", "junctions", "college"]);
+
+/**
+ * Main's figures before research (17dbc6f; main at 5add1ea gives the same), by seed: the minute of the first City and the
+ * blueprints learned by 180 (spec §5).
+ */
+const MAIN_BY_SEED: Readonly<Record<number, { city: number; blueprints: number }>> = {
+  2027: { city: 73, blueprints: 23 },
+  1: { city: 112, blueprints: 23 },
+  2: { city: 92, blueprints: 22 },
+  3: { city: 110, blueprints: 25 },
+  4: { city: 84, blueprints: 22 },
+  5: { city: 87, blueprints: 21 },
+};
 
 interface Row {
   minute: number;
@@ -656,6 +671,7 @@ describe.skipIf(!RUN)("balance play-through", () => {
       P.report();
     }
     expect(P.p.rows.length).toBeGreaterThan(0);
+    if (MAX_MINUTES === 180 && PER_LINE === 1) P.checkBands();
   }, 3_600_000);
 });
 
@@ -1293,6 +1309,34 @@ class Playthrough {
         this.why = `a quarry (${describeGoods(ruleOf("piece:depot-quarry")!.cost)} + ${ruleOf("piece:depot-quarry")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
       }
     }
+  }
+
+  /**
+   * Spec §5's bands at 180 min with 1 train a line (P5): first research by minute 8; no research stall over 15 min;
+   * coins at 180 at least 100; no stretch of 45 min or more with no planks into a town; and, for the seed table's
+   * seeds, the City within ±15% of main's (so never more than 20% later) and at least main's blueprints by 180. Each
+   * miss is listed (soft), and any fails the run. What's only nice to have (a research stall under 10 min, coins at
+   * 180 within 150–600) is printed.
+   */
+  checkBands(): void {
+    const P = this.p;
+    const coins = P.rows.at(-1)?.coins ?? 0;
+    const stall = P.researchStall / 60;
+    const gap = P.townGap / 60;
+    expect.soft(P.researchedAt[0] ?? Infinity, "first research by minute 8").toBeLessThanOrEqual(8);
+    expect.soft(stall, "no research stall over 15 min").toBeLessThanOrEqual(15);
+    expect.soft(coins, "coins at 180 at least 100").toBeGreaterThanOrEqual(100);
+    expect.soft(gap, "no planks into a town for 45 min").toBeLessThan(45);
+    const main = MAIN_BY_SEED[Number(ENV.BALANCE_SEED ?? 2027)];
+    if (main) {
+      const city = this.firsts["level 3"] ?? Infinity;
+      expect.soft(city, `City no more than 20% later than main's ${main.city}`).toBeLessThanOrEqual(main.city * 1.2);
+      expect.soft(city, `City within 15% of main's ${main.city}`).toBeGreaterThanOrEqual(main.city * 0.85);
+      expect.soft(city, `City within 15% of main's ${main.city}`).toBeLessThanOrEqual(main.city * 1.15);
+      expect.soft(P.progress.learned.size, `blueprints by 180 at least main's ${main.blueprints}`).toBeGreaterThanOrEqual(main.blueprints);
+    }
+    const nice = [stall >= 10 && `research stall ${stall.toFixed(1)} min (under 10)`, (coins < 150 || coins > 600) && `coins ${coins} (150-600)`].filter(Boolean);
+    console.log(`BANDS nice to have: ${nice.join("; ") || "all met"}`);
   }
 
   /** Minutes from learning a blueprint to building what it brings ("-": not both). */
