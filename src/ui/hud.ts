@@ -1415,6 +1415,8 @@ export class Hud {
     this.depotTitle.textContent = title;
     this.depotExtra.hidden = true;
     this.depotExtra.innerHTML = "";
+    // (Back to a depot's own: a town's ledger, once drawn here, marks it.)
+    this.depotExtra.className = "depot-extra";
     this.depotCard.hidden = false;
     this.root.classList.add("card-open");
   }
