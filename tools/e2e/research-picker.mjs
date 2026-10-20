@@ -133,9 +133,11 @@ const bar = async () =>
     const coins = document.querySelector(".brand");
     const pill = document.querySelector(".research-pill");
     const buttons = [...document.querySelectorAll(".topbar .actions > .chip")].filter((x) => x.getBoundingClientRect().width > 0);
-    return { coins: r(coins), pill: r(pill), first: r(buttons[0]), last: r(buttons.at(-1)), width: innerWidth, clipped: pill.querySelector(".rp-name").scrollWidth > pill.querySelector(".rp-name").clientWidth };
+    // (Every button at least 44 x 44 drawn, Pause among them: QA had it at 40 x 40.)
+    const small = buttons.filter((x) => x.getBoundingClientRect().width < 44 || x.getBoundingClientRect().height < 44).map((x) => x.title);
+    return { coins: r(coins), pill: r(pill), first: r(buttons[0]), last: r(buttons.at(-1)), width: innerWidth, small, clipped: pill.querySelector(".rp-name").scrollWidth > pill.querySelector(".rp-name").clientWidth };
   });
-const fits = (m) => m.pill.l >= m.coins.r + 4 && m.pill.r <= m.first.l - 4 && m.pill.h >= 44 && m.last.r <= m.width;
+const fits = (m) => m.pill.l >= m.coins.r + 4 && m.pill.r <= m.first.l - 4 && m.pill.h >= 44 && m.last.r <= m.width && m.small.length === 0;
 let m = await bar();
 check("the pill sits between the coins and the buttons, 44 px tall", fits(m), JSON.stringify(m));
 await shot("01-pill-pick-research");

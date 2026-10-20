@@ -205,16 +205,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .brand-name, .mode-tag { display: none; }
   /* The buttons never shrink (the menu must stay on screen): the brand gives way, and from 400 px its W goes while
      the coins show. */
-  .actions { flex-wrap: nowrap; gap: 5px; flex: none; }
+  .actions { flex-wrap: nowrap; gap: 2px; flex: none; }
   .brand { min-width: 0; overflow: hidden; }
   /* The bar keeps what's used most; the rest are in the menu. Re-rail, when it shows, sits under the bar. */
   .actions .wide-only { display: none; }
   /* Redo, though, beside Undo after an Undo (till a new edit leaves nothing to redo): a finger can't find it in the menu. */
   .actions .wide-only.can-redo { display: block; }
-  .actions > .chip { min-width: 40px; height: 40px; padding: 0 8px; }
-  /* (They stay 40 px drawn, to fit a 360 px screen with the coins showing, but take a tap 2 px around: 44 px.) */
-  .actions > .chip:not(.attention) { position: relative; }
-  .actions > .chip::after { content: ""; position: absolute; inset: -2px; }
+  /* A finger's size, drawn (QA: Pause was 40 x 40, with a tap 2 px around it): 44 x 44, set 2 px apart rather than 5
+     so the bar still fits a 360 px screen beside the coins and the research pill. */
+  .actions > .chip { min-width: 44px; height: 44px; padding: 0 8px; }
   /* Re-rail, under the bar at the right, level with the goals bar (and as tall), which gives it room while it shows:
      over the goals' right end it took the taps meant for it (QA). */
   .actions > .chip.attention { position: absolute; top: 60px; right: 0; height: 44px; }
