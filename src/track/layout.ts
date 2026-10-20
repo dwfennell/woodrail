@@ -57,6 +57,9 @@ export class Layout {
   /** Bumped whenever a piece is added, taken away or put down somewhere (moved or nudged): for caches of where track is. */
   revision = 0;
 
+  /** Bumped whenever a joint is made or parted: for caches of which pieces are joined (`Economy`'s track networks). */
+  jointsVersion = 0;
+
   get jointCount(): number {
     return this.jointMap.size;
   }
@@ -266,6 +269,7 @@ export class Layout {
     this.joinedTo.delete(ref);
     this.joinedTo.delete(partner);
     this.jointMap.delete(Math.min(ref, partner));
+    this.jointsVersion++;
     for (const r of [ref, partner]) {
       const w = this.worldConnector(r, scratchA);
       this.freeConnectors.insert(r, w.x, w.z);
@@ -339,6 +343,7 @@ export class Layout {
     this.joinedTo.set(best, ref);
     const a = Math.min(ref, best);
     this.jointMap.set(a, { a, b: Math.max(ref, best), posError: bestPos, angleError: bestAngle });
+    this.jointsVersion++;
   }
 
   private detachAll(id: number): void {
@@ -357,6 +362,7 @@ export class Layout {
       this.joinedTo.delete(ref);
       this.joinedTo.delete(partner);
       this.jointMap.delete(Math.min(ref, partner));
+      this.jointsVersion++;
       partners.push(partner);
     }
     // Freed partners may now meet another free connector at the same spot (overlapping pieces).
