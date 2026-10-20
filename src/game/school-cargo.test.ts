@@ -175,7 +175,7 @@ describe("goods into a school", () => {
 
 describe("the school and the towns share a pass's planks (QA P4: the school took every plank while research ran)", () => {
   // Bridges lack 10 planks, more than the train's 9: before, the school had all 9 and a town on the way none.
-  it("school, then a town that wants planks: the school takes half the load, the town the rest", () => {
+  it("school, then a town that wants planks: the school takes its share of the load, the town the rest", () => {
     const p = researching("bridges");
     const w = line(["depot-school", "station"], p);
     w.run(90);
@@ -187,8 +187,8 @@ describe("the school and the towns share a pass's planks (QA P4: the school took
     const p = researching("bridges");
     const w = line(["station", "depot-school"], p);
     w.run(90);
-    expect(p.research.got).toEqual({ planks: 5 });
-    expect(w.economy.delivered.get(0)).toBe(4);
+    expect(p.research.got).toEqual({ planks: Math.ceil(9 * SCHOOL_SHARE) });
+    expect(w.economy.delivered.get(0)).toBe(9 - Math.ceil(9 * SCHOOL_SHARE));
   });
 
   it("a routed line the same way: a later town that wants planks caps the school's take", () => {
@@ -196,8 +196,8 @@ describe("the school and the towns share a pass's planks (QA P4: the school took
     const w = line(["depot-school", "station"], p);
     w.economy.setRoute(w.train().cars[0].id, { stops: w.depots.map((d) => ({ depotId: d.id, action: "auto" as const })), next: 0 });
     w.run(90);
-    expect(p.research.got).toEqual({ planks: 5 });
-    expect(w.economy.delivered.get(0)).toBe(4);
+    expect(p.research.got).toEqual({ planks: Math.ceil(9 * SCHOOL_SHARE) });
+    expect(w.economy.delivered.get(0)).toBe(9 - Math.ceil(9 * SCHOOL_SHARE));
   });
 
   it("with no town on the way wanting planks, the school takes all it lacks", () => {

@@ -89,7 +89,7 @@ And later: "I think the research building should be placed near a town though, m
   `planksWanted` / `keepsPlanks` in their current form.
 - **What replaces them:**
   - The workshop keeps planks only for the tray order waiting to be made (`Crafting`'s order).
-  - The school takes only what its research still lacks, and (QA P4) at most half a pass's load while a town the
+  - The school takes only what its research still lacks, and (QA P4) at most 3/5 of a pass's load while a town the
     train goes on to wants the good too (`SCHOOL_SHARE`, §5).
   - No plank is counted by both. Whatever neither of them asks for goes to towns, as it does today.
 - `WORKSHOP_CAP` 30 stays. The college's −20% planks discount goes; its speed-up replaces it.
@@ -439,40 +439,46 @@ B, C or D is built, and the harness keeps `unstick` and `shopThrough`.
 
 ### QA's P4 notes, on P5 (2026-10-20)
 
-Four fixes, one commit each: the tray rings the goal's piece (the school during "Place a school by a town"); "Make a
-switch" in place of "Bring planks to the workshop" (§4); a first village's three cards (the crate gives way to the
-wagon card, §3); and **the school's share of a pass (below)**. The harness also waits for planks before running the
-line to a farther third town (with few planks the nearest was short of its ramps, and the farther town's line left the
-farm on a branch an unrouted train never takes: Mills waited on grain all game on 7 of 9 seeds).
+Four fixes, one commit each, and follow-ups: the tray rings the goal's piece (the school during "Place a school by a
+town"); "Make a switch" in place of "Bring planks to the workshop" (§4; Show me opens the workshop's card); a first
+village's three cards (when coins, a crate and the flatbed are all it can offer, the crate is drawn again without the
+flatbed, §3); and **the school's share of a pass (below)**. The harness also waits for planks before running the line
+to a farther third town (with few planks the nearest was short of its ramps, and the farther town's line left the farm
+on a branch an unrouted train never takes: Mills waited on grain all game on 7 of 9 seeds).
 
 **The school's share.** QA saw coins freeze for about 9 game-min while research ran, towns getting nothing. The cause:
 while a research lacked as many planks as the train carried or more (Bridges, 10, against 6–9 a pass), the hold-back
 (`keptForSchool`) kept the whole load on the train past every town, and the school took all of it. So towns got no plank
 until the research was full. Seed 2027 shows it: Switches then Bridges from minute 4 to 8.3, coins 20 at minute 5,
 Larkfield at 1/8 planks. Now, while a town the train goes on to wants the good too, the school takes at most
-`SCHOOL_SHARE` (half) of a pass's load, and a town leaves on the train no more than what's left of that share. A pass's
-load is what the train had on board as it last loaded the good. With no town on the way wanting it, the school takes
-all it lacks, as before. `src/economy/economy.ts` (`SCHOOL_SHARE`, `schoolShareLeft`, `townWantsAhead`).
+`SCHOOL_SHARE` (three fifths) of a pass's load, and a town leaves on the train no more than what's left of that share.
+A pass's load is what the train had on board as it last loaded the good. With no town on the way wanting it, the school
+takes all it lacks, as before. `src/economy/economy.ts` (`SCHOOL_SHARE`, `schoolShareLeft`, `townWantsAhead`).
+
+All of QA's fixes in, main efabc62 merged; before: no share (`SCHOOL_SHARE` 1, the old rule); after: 0.6.
 
 | Seed | Research stall | Town gap | City | City★ | Researched (main) | Coins at 10 / 30 / 60 / 120 / 180 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2027 | 13.2 → 12.8 | 34.4 → 15.6 | 60 → 66 | 140 → 153 | 15 → 14 (9) | 66/184/84/179/139 → 78/208/0/293/1251 |
-| 1 | 7.3 → 9.1 | 30.7 → 15.9 | 78 → 70 | - → 155 | 25 → 15 (9) | 66/202/62/627/1043 → 102/452/348/598/1141 |
-| 2 | 6.8 → 7.0 | 27.5 → 12.1 | 73 → 70 | 121 → 147 | 23 → 15 (8) | 36/238/129/184/692 → 48/316/212/465/1806 |
-| 3 | 7.3 → 12.9 | 31.6 → 17.9 | 78 → 64 | - → 163 | 23 → 15 (11) | 66/202/8/670/1219 → 102/290/125/784/1194 |
-| 4 | 8.6 → 10.8 | 30.1 → 18.3 | 65 → 62 | 116 → 167 | 15 → 12 (7) | 36/342/137/580/2152 → 128/364/236/1190/1439 |
-| 5 | **16.4** → 8.7 | 30.6 → 13.7 | 75 → 81 | 113 → - | 16 → 14 (8) | 36/238/127/694/943 → 48/124/24/330/764 |
-| 6 | 12.5 → 11.4 | 24.4 → 16.5 | 65 → 72 | 139 → 162 | 15 → 16 (7) | 66/184/14/370/594 → 78/372/239/671/869 |
-| 9 | 13.4 → 10.0 | 34.7 → 16.7 | 81 → 69 | 151 → - | 15 → 14 (7) | 36/172/2/377/1119 → 128/376/266/716/1051 |
-| 10 | 11.5 → 8.2 | 39.4 → 14.8 | 60 → 83 | 145 → - | 14 → 15 (7) | 66/184/284/356/375 → 78/178/34/370/505 |
+| 2027 | 11.4 → 9.0 | 39.4 → 24.0 | 60 → 80 | 145 → 135 | 14 → 15 (9) | 66/184/284/356/779 → 74/108/85/105/674 |
+| 1 | **45.0** → 6.4 | 25.6 → 27.4 | **54** → 79 | 130 → 122 | 13 → 21 (9) | 66/322/308/234/910 → 74/212/139/268/914 |
+| 2 | 6.8 → 15.1 (exempt: plank famine, 22 stops) | 27.5 → 15.8 | 73 → 74 | 121 → 123 | 23 → 15 (8) | 36/238/129/184/692 → 44/373/269/346/749 |
+| 3 | 7.3 → 7.4 | 31.6 → 17.3 | 78 → 67 | - → 177 | 19 → 14 (11) | 66/202/8/670/1735 → 74/186/10/294/884 |
+| 4 | 8.6 → 8.7 | 30.6 → 27.9 | 77 → 83 | 156 → 148 | 14 → 14 (7) | 36/172/73/7/885 → 44/156/98/118/1064 |
+| 5 | 6.8 → 13.6 | 38.8 → 14.3 | 65 → 71 | 136 → 120 | 16 → 14 (8) | 36/342/137/140/1606 → 44/343/209/671/1148 |
+| 6 | 6.8 → 12.6 | 32.0 → 18.6 | 77 → 71 | - → 115 | 20 → 15 (7) | 66/202/103/763/1708 → 74/186/8/97/1000 |
+| 9 | 6.8 → 8.7 | 30.6 → 28.1 | 77 → 83 | 132 → 138 | 13 → 15 (7) | 36/172/73/7/1403 → 44/156/96/135/841 |
+| 10 | 10.6 → 8.2 | 20.9 → 23.7 | 70 → 79 | 159 → 122 | 14 → 17 (7) | 66/402/308/145/937 → 74/212/219/148/1884 |
 
-(Before: QA items 1–3 and the harness's wait for planks; after: with the share. First research at 5.6 on every seed,
-before and after.) Against P5 before QA's notes (the fourth pass's table): town gaps 24–35 → 12–18 min, research
-stalls 6.8–13.1 → 7.0–12.9, City 60–78 → 62–83, coins at 30 min 68–208 → 124–376.
-- **`BALANCE=1` passes on all nine** (before the share, seed 5 missed the stall guard: Mines' last stone, 16.4 min).
-- **The cost:** fewer researched by 180 where research had run ahead (seeds 1, 2, 3: 23–25 → 15), as towns now get half
-  of what the school took; every seed stays above main's floor. City★ by 180 on six seeds (seven before).
-- Nice to have: research stalls under 10 min on 1, 2, 5, 10; coins within 150–600 on 10 only (764–1806 elsewhere).
+First research at 5.6 on every seed, before and after.
+- **`BALANCE=1` passes on all nine with the share** (without it, seed 1 fails: a 45 min stall and a City at 54).
+- Town gaps 20.9–39.4 → 14.3–28.1 min; City 54–78 → 67–83; City★ on all nine (seven without).
+- **The cost:** research stalls longer on 2, 5, 6 (6.8 → 12.6–15.1, seed 2's exempt as a plank famine); fewer
+  researched by 180 where research ran ahead (2, 3, 6: 19–23 → 14–15), all above main's floor.
+- **The harness is chaotic, so read one share's table as one sample.** Any change to what's drawn or when shifts
+  every later choice: the same code at a share of 0.5 failed City-too-early on two seeds (55, 53; gaps 12–27), at 2/3
+  on seven (City 51–57 on five, gaps of 50 on two). 0.6 is the one tried that meets every band; it isn't a tuned
+  optimum.
+- Nice to have: research stalls under 10 min on 2027, 1, 3, 4, 9, 10; coins within 150–600 on none (674–1884).
 
 ## 6. Saves
 

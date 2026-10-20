@@ -79,9 +79,10 @@ export const WORKSHOP_CAP = 30;
  * The share of a train's load of a good (as it left the last depot it loaded that good at) a school may take on that
  * pass while a town on its way wants the good too, and so the most a town leaves on the train for a school. QA (P4):
  * while research ran, the school took every plank; with a research short of a whole trainload or more (Bridges, 10),
- * towns got none for minutes and coins froze. Half each: the research still fills, a pass at a time, and towns earn.
+ * towns got none for minutes and coins froze. Three fifths (6 of a 9-plank load): the research still fills, a pass at a
+ * time, and towns earn. (Half made Cities come before minute 60 on two seeds of the balance run; spec §5.)
  */
-export const SCHOOL_SHARE = 0.5;
+export const SCHOOL_SHARE = 0.6;
 
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
