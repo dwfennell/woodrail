@@ -142,3 +142,11 @@ describe("town landmarks", () => {
     expect(payDelivery(p, "planks", 2, before, t)).toBe(12);
   });
 });
+
+describe("what a landmark's news says", () => {
+  it("names Research, not the board (the board is the Research picker now: QA)", () => {
+    for (const m of LANDMARKS) expect(m.blurb, m.id).not.toMatch(/\bboard\b/i);
+    for (const t of TECHS) expect(t.blurb, t.id).not.toMatch(/\bthe board\b/i);
+    expect(LANDMARKS.find((m) => m.id === "school")!.blurb).toMatch(/Research/);
+  });
+});
