@@ -116,14 +116,20 @@ async function selectThenDrag(ctx, p) {
    * A one-finger drag from (x, y), `dx` px across, in small steps; then the scene is let settle. Returns what the
    * interaction was doing halfway (a drag of a piece or train, or "idle": the camera has the gesture).
    */
+  // (Each event stamped with when it happens, 16 ms apart: a quick drag. A loaded machine delivers them late, and
+  // unstamped, a quick drag would look like a finger resting first, which picks the piece up: QA saw it flake.)
+  const at = (type, x, y, t) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
   const drag = async (x, y, dx) => {
-    await touch("touchStart", x, y);
+    const t0 = Date.now() / 1000;
+    await at("touchStart", x, y, t0);
     let mid = "";
     for (let k = 1; k <= 12; k++) {
-      await touch("touchMove", x + (dx * k) / 12, y);
+      await at("touchMove", x + (dx * k) / 12, y, t0 + k * 0.016);
       if (k === 6) mid = await p.evaluate(() => window.woodrail.interaction.mode.kind);
     }
-    await touch("touchEnd", 0, 0);
+    // (Still a moment before lifting, as a finger that means to stop does: no fling carries the view on.)
+    await at("touchMove", x + dx, y, t0 + 12 * 0.016 + 0.15);
+    await at("touchEnd", 0, 0, t0 + 12 * 0.016 + 0.16);
     await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
     return mid;
   };
@@ -152,6 +158,22 @@ async function selectThenDrag(ctx, p) {
       const r = w.canvas.getBoundingClientRect();
       return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
     }, id);
+  const onPiece = () =>
+    p.evaluate((id) => {
+      const w = window.woodrail;
+      const piece = w.layout.getPiece(id);
+      const r = w.canvas.getBoundingClientRect();
+      let first = null;
+      for (const f of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+        const d = 216 * f;
+        const c = new w.camera.position.constructor(piece.pose.x + Math.cos(piece.pose.heading) * d, piece.y, piece.pose.z + Math.sin(piece.pose.heading) * d).project(w.camera);
+        const xy = [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height];
+        first ??= xy;
+        const hit = w.interaction.pick(xy[0], xy[1], true);
+        if (hit?.kind === "piece" && hit.pieceId === id) return xy;
+      }
+      return first;
+    }, id);
   // 1. Not selected: the drag pans, the piece stays.
   const a0 = await where();
   let [sx, sy] = await onScreen();
@@ -160,12 +182,14 @@ async function selectThenDrag(ctx, p) {
   check("a drag that starts on an unselected piece pans the view", aMid === "idle" && (a1.view[0] !== a0.view[0] || a1.view[1] !== a0.view[1]), `mid-drag ${aMid}, view ${a0.view} → ${a1.view}`);
   check("…and leaves the piece where it was", JSON.stringify(a1.piece) === JSON.stringify(a0.piece), `piece ${a0.piece} → ${a1.piece}`);
   // 2. Tapped (selected), then dragged: it moves.
-  [sx, sy] = await onScreen();
+  // (Where a tap takes the piece: its middle, or along it if a tree or a house stands in front of its middle there,
+  // as one may once the view's been panned: then the tap selects that, rightly.)
+  [sx, sy] = await onPiece();
   await p.touchscreen.tap(sx, sy);
   await p.waitForFunction(() => !document.querySelector(".piece-card").hidden, null, { timeout: 60000 });
   // (A short drag along the piece's own line, so it lands where it can go.)
   const bMid = await drag(sx, sy, -40);
-  check("tap a piece to select it, then a drag picks it up and moves it", bMid === "drag-piece", `mid-drag ${bMid}`);
+  check("tap a piece to select it, then a drag picks it up and moves it", bMid === "drag-piece", `mid-drag ${bMid}; tapped ${await p.evaluate(([x, y]) => JSON.stringify(window.woodrail.interaction.pick(x, y, true)), [sx, sy])}`);
   await p.keyboard.press("Escape");
   // 2b. Long-press to pick up: let go of it first (nothing selected), then a finger resting on it picks it up into a drag.
   await p.keyboard.press("Escape");
@@ -173,16 +197,23 @@ async function selectThenDrag(ctx, p) {
   /** Touch down at (x, y), rest `ms` (with a 3 px wobble), maybe put a second finger down, then report the mode. */
   // (The mode is read in the page, `ms` after the finger came down by the page's own clock: a slow machine's round
   // trips mustn't stretch a short press into a long one.)
-  const holdAt = async (x, y, ms, second = false) => {
+  // (Its events stamped with when they were sent: on a loaded machine one delivered late would otherwise come after the
+  // hold's time, its nudge then a finger leaving after a pickup.)
+  const holdAt = async (x, y, ms, second = false, [nx, ny] = [3, 2]) => {
     await p.evaluate(() => window.addEventListener("pointerdown", () => (window.__downAt = performance.now()), { capture: true, once: true }));
-    await touch("touchStart", x, y);
-    await touch("touchMove", x + 3, y + 2);
-    if (second) await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x + 3, y: y + 2, id: 1 }, { x: x + 80, y: y + 40, id: 2 }] });
-    // (A hold is taken up a frame after its time: let a frame or two by, unless checking that a short press isn't one.)
-    return p.evaluate(([ms, frames]) => new Promise((r) => setTimeout(() => {
-      const read = () => r(window.woodrail.interaction.mode.kind);
-      if (!frames) return read();
-      requestAnimationFrame(() => requestAnimationFrame(read));
+    const t0 = Date.now() / 1000;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: t0, touchPoints: [{ x, y, id: 1 }] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", timestamp: t0 + 0.03, touchPoints: [{ x: x + nx, y: y + ny, id: 1 }] });
+    if (second) await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: t0 + 0.05, touchPoints: [{ x: x + nx, y: y + ny, id: 1 }, { x: x + 80, y: y + 40, id: 2 }] });
+    // (A hold is taken up a frame after its time, and on a loaded machine its timer and that frame run late: past its
+    // time, what it became once it's no longer a press (or, if it stays one, 3 s on), unless checking that a short
+    // press isn't one.)
+    return p.evaluate(([ms, hold]) => new Promise((r) => setTimeout(() => {
+      const kind = () => window.woodrail.interaction.mode.kind;
+      if (!hold) return r(kind());
+      const until = performance.now() + 3000;
+      const wait = () => (kind() !== "press" || performance.now() > until ? r(kind()) : requestAnimationFrame(wait));
+      requestAnimationFrame(() => requestAnimationFrame(wait));
     }, Math.max(0, window.__downAt + ms - performance.now()))), [ms, ms >= 380]);
   };
   const lift = async () => {
@@ -216,30 +247,45 @@ async function selectThenDrag(ctx, p) {
   await lift();
   await p.keyboard.press("Escape");
   // Held, then dragged: it moves.
+  // (Stamped with when they were sent, no earlier than the finger's own pace: late, the moves would read as faster.)
   [sx, sy] = await onScreen();
-  await touch("touchStart", sx, sy);
+  const hs = Date.now() / 1000;
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: hs, touchPoints: [{ x: sx, y: sy, id: 1 }] });
   await new Promise((r) => setTimeout(r, 520));
   let hMid = "";
   for (let k = 1; k <= 12; k++) {
-    await touch("touchMove", sx - (40 * k) / 12, sy);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", timestamp: Math.max(Date.now() / 1000, hs + 0.52 + k * 0.016), touchPoints: [{ x: sx - (40 * k) / 12, y: sy, id: 1 }] });
     if (k === 6) hMid = await p.evaluate(() => window.woodrail.interaction.mode.kind);
   }
   // Where it's held (QA I5): its middle just above the fingertip, by a set amount, however it was taken hold of.
-  await new Promise((r) => setTimeout(r, 800));
-  const off = await p.evaluate(([fx, fy]) => {
-    const w = window.woodrail;
-    const m = w.interaction.mode;
-    if (m.kind !== "drag-piece") return null;
-    m.ghost.geometry.computeBoundingBox();
-    const c = m.ghost.geometry.boundingBox.getCenter(new w.camera.position.constructor());
-    m.ghost.updateMatrixWorld();
-    m.ghost.localToWorld(c);
-    // (Loose, a piece steps on an 18 mm grid: it can be up to half a step off where it's aimed, on screen this much.)
-    const px = (v) => { const q = v.clone().project(w.camera); return [((q.x + 1) / 2) * innerWidth, ((1 - q.y) / 2) * innerHeight]; };
-    const [cx, cy] = px(c);
-    const step = Math.max(...[[18, 0], [0, 18]].map(([dx, dz]) => { const [x, y] = px(c.clone().add(new c.constructor(dx, 0, dz))); return Math.hypot(x - cx, y - cy); }));
-    return [Math.round(cx - fx), Math.round(cy - fy), m.snap.kind, Math.round(step / 2)];
-  }, [sx - 40, sy]);
+  // (Read once it has caught up with the last move: on a loaded machine a frame can take most of a second, so wait
+  // until it's stood still three frames running, 10 s at most.)
+  const off = await p.evaluate(([fx, fy]) => new Promise((done) => {
+    const read = () => {
+      const w = window.woodrail;
+      const m = w.interaction.mode;
+      if (m.kind !== "drag-piece") return null;
+      m.ghost.geometry.computeBoundingBox();
+      const c = m.ghost.geometry.boundingBox.getCenter(new w.camera.position.constructor());
+      m.ghost.updateMatrixWorld();
+      m.ghost.localToWorld(c);
+      // (Loose, a piece steps on an 18 mm grid: it can be up to half a step off where it's aimed, on screen this much.)
+      const px = (v) => { const q = v.clone().project(w.camera); return [((q.x + 1) / 2) * innerWidth, ((1 - q.y) / 2) * innerHeight]; };
+      const [cx, cy] = px(c);
+      const step = Math.max(...[[18, 0], [0, 18]].map(([dx, dz]) => { const [x, y] = px(c.clone().add(new c.constructor(dx, 0, dz))); return Math.hypot(x - cx, y - cy); }));
+      return [Math.round(cx - fx), Math.round(cy - fy), m.snap.kind, Math.round(step / 2)];
+    };
+    const until = performance.now() + 10000;
+    let last = "", same = 0;
+    const tick = () => {
+      const o = read();
+      same = JSON.stringify(o) === last ? same + 1 : 0;
+      last = JSON.stringify(o);
+      if (same >= 3 || performance.now() > until) done(o);
+      else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }), [sx - 40, sy]);
   await lift();
   check("held, then dragged: it moves with the finger", hMid === "drag-piece", `mid-drag ${hMid}`);
   check("…its middle held just above the fingertip (QA I5)", !!off && (off[2] === "snapped" || (Math.abs(off[0]) <= 20 + off[3] && off[1] <= -40 + off[3] && off[1] >= -80 - off[3])), off ? `dx ${off[0]}, dy ${off[1]} (${off[2]}; grid ±${off[3]} px)` : "not held");
@@ -278,9 +324,10 @@ async function selectThenDrag(ctx, p) {
   await p.keyboard.press("Escape");
   await p.evaluate(() => (document.querySelector(".tray-orient").style.display = "flex"));
   [sx, sy] = await onScreen();
-  await touch("touchStart", sx, sy);
+  const ts = Date.now() / 1000;
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: ts, touchPoints: [{ x: sx, y: sy, id: 1 }] });
   await new Promise((r) => setTimeout(r, 520));
-  for (let k = 1; k <= 4; k++) await touch("touchMove", sx - 6 * k, sy);
+  for (let k = 1; k <= 4; k++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", timestamp: Math.max(Date.now() / 1000, ts + 0.52 + k * 0.016), touchPoints: [{ x: sx - 6 * k, y: sy, id: 1 }] });
   const turn = await p.evaluate(() => { const b = [...document.querySelectorAll(".tray-orient .chip")].find((e) => /Turn/.test(e.textContent)); const r = b.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
   const h0 = await p.evaluate(() => window.woodrail.interaction.mode.heading);
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: sx - 24, y: sy, id: 1 }, { x: turn[0], y: turn[1], id: 2 }] });
@@ -292,14 +339,32 @@ async function selectThenDrag(ctx, p) {
   const turned = typeof h0 === "number" && typeof h1 === "number" && Math.abs(Math.abs(h1 - h0) - Math.PI / 4) < 0.01;
   check("a second finger on Turn turns the piece in hand, still held (QA)", kind2 === "drag-piece" && turned, `mode ${kind2}; heading ${h0?.toFixed?.(2)} → ${h1?.toFixed?.(2)}`);
   await p.keyboard.press("Escape");
-  // 2c. Drawing on: a finger resting on a piece neither picks it up nor starts a line.
+  // 2c. Drawing on, a press on a line's body (Draw N1): edged across the line (BRANCH_SLOP, 3 px) before the hold's
+  // time, it's a branch setting off: no pickup, and nothing drawn till it goes on. Resting still, it picks the piece up.
   await p.evaluate(() => window.woodrail.interaction.setDrawing(true));
   [sx, sy] = await onScreen();
+  // (5 px across the line as it lies on screen: past BRANCH_SLOP, short of HOLD_SLOP.)
+  const across = await p.evaluate((id) => {
+    const w = window.woodrail;
+    const piece = w.layout.getPiece(id);
+    const r = w.canvas.getBoundingClientRect();
+    const px = (d) => { const c = new w.camera.position.constructor(piece.pose.x + Math.cos(piece.pose.heading) * d, piece.y, piece.pose.z + Math.sin(piece.pose.heading) * d).project(w.camera); return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height]; };
+    const [a, b] = [px(58), px(158)];
+    const n = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    return [Math.round((-(b[1] - a[1]) / n) * 5), Math.round(((b[0] - a[0]) / n) * 5)];
+  }, id);
   const pieces0 = await p.evaluate(() => window.woodrail.layout.pieceCount);
-  const drawHold = await holdAt(sx, sy, 520);
+  const drawHold = await holdAt(sx, sy, 520, false, across);
   await lift();
   const pieces1 = await p.evaluate(() => window.woodrail.layout.pieceCount);
-  check("drawing on: a long press on a piece doesn't pick it up or draw", drawHold !== "drag-piece" && pieces1 === pieces0, `after 520 ms: ${drawHold}; pieces ${pieces0} → ${pieces1}`);
+  check("drawing on: a press on a line's body edged across it doesn't pick it up or draw (Draw N1)", drawHold !== "drag-piece" && pieces1 === pieces0, `nudged ${across}; after 520 ms: ${drawHold}; pieces ${pieces0} → ${pieces1}`);
+  await p.keyboard.press("Escape");
+  [sx, sy] = await onScreen();
+  const c2 = await where();
+  const stillHold = await holdAt(sx, sy, 520, false, [0, 0]);
+  await lift();
+  const c3 = await where();
+  check("…resting still there, it picks the piece up (put back where it was)", stillHold === "drag-piece" && JSON.stringify(c3.piece) === JSON.stringify(c2.piece), `after 520 ms: ${stillHold}; ${c2.piece} → ${c3.piece}`);
   await p.evaluate(() => window.woodrail.interaction.setDrawing(false));
   await p.keyboard.press("Escape");
   // 2d. A placed industry (one the player may move: the playthrough's workshop) is picked up with a hold too.
@@ -314,8 +379,18 @@ async function selectThenDrag(ctx, p) {
       if (id < 0) continue;
       syncIndustries(w);
       w.invalidate();
+      // (A point a finger there takes the workshop: across its yard, as pick finds it, not just where its piece starts.)
+      const depot = w.economy.depotAtPiece(id)?.id;
       const piece = w.layout.getPiece(id);
-      const v = new w.camera.position.constructor(piece.pose.x, piece.y + 10, piece.pose.z).project(w.camera);
+      const V = w.camera.position.constructor;
+      const c = Math.cos(piece.pose.heading), s = Math.sin(piece.pose.heading);
+      for (const [t, l] of [[108, 72], [108, 40], [60, 72], [160, 72], [108, 0], [0, 0]]) {
+        const v = new V(piece.pose.x + c * t - s * l, piece.y + 10, piece.pose.z + s * t + c * l).project(w.camera);
+        const x = ((v.x + 1) / 2) * innerWidth, y = ((1 - v.y) / 2) * innerHeight;
+        const hit = w.interaction.pick(x, y, true);
+        if ((hit?.kind === "depot" && hit.depotId === depot) || (hit?.kind === "piece" && hit.pieceId === id)) return { id, x, y };
+      }
+      const v = new V(piece.pose.x, piece.y + 10, piece.pose.z).project(w.camera);
       return { id, x: ((v.x + 1) / 2) * innerWidth, y: ((1 - v.y) / 2) * innerHeight };
     }
     return null;
