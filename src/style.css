@@ -277,7 +277,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
    placed above; on a phone (QA U3, N6) they share the tab row at its right, as icons, and the tabs scroll in the room
    left: nothing floats over the map where the track is being laid, and the tools never cover a tab. */
 .tray-head, .tray-tools { display: contents; }
-@media (max-width: 640px), (max-height: 520px) {
+@media (max-width: 640px), (max-height: 520px) and (max-width: 780px) {
   .tray-head { display: flex; align-items: flex-start; gap: 6px; }
   .tray-head .tabs { flex: 1 1 auto; min-width: 0; }
   /* (Over the shelf below, so the chips' taps reach just past them, not through to a tile's favourite star.) */
@@ -658,8 +658,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .actions { flex-wrap: nowrap; }
 }
 /* On a phone the date goes under the coins, smaller (beside them, the two took the pill's room at 360 px; on its side
-   at 667 px, QA: the pill's name was cut to "📘 … 9/10"). */
-@media (max-width: 640px), (max-height: 520px) {
+   at 667 px, QA: the pill's name was cut to "📘 … 9/10"; from 780 px there's room beside them). */
+@media (max-width: 640px), (max-height: 520px) and (max-width: 780px) {
   .brand:has(.game-date:not([hidden])) { flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 3px 6px; overflow: visible; }
   .brand:has(.game-date:not([hidden])) .coins { padding: 1px 7px 1px 2px; }
   .game-date { font-size: 11px; padding: 0 4px; background: none; }
@@ -673,6 +673,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .research-pill .rp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .research-pill .rp-count { font-variant-numeric: tabular-nums; color: #1f4f8a; }
 .research-pill .rp-bar { position: absolute; left: 0; bottom: 0; height: 4px; width: var(--fill, 0%); background: #2f6db5; border-radius: 0 2px 2px 0; }
+/* (Fitted by `fitPill`: a name that's cut goes a little smaller, then over two lines.) */
+.research-pill.rp-small .rp-name { font-size: 0.875em; letter-spacing: -0.01em; }
+.research-pill.rp-wrap .rp-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; line-height: 1.05; }
 .research-pill.idle { background: #fff1c2; box-shadow: 0 0 0 2px #e2a12b, 0 4px 18px rgba(60, 40, 20, 0.18); }
 .research-pill.idle .rp-count { color: inherit; }
 .research-pill.active { box-shadow: 0 0 0 3px #3a2a1c, 0 4px 18px rgba(60, 40, 20, 0.18); }

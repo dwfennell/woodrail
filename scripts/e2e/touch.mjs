@@ -626,6 +626,11 @@ async function leverPins(ctx, p) {
   const said2 = await p.evaluate(() => window.__pinSaid.filter((m) => /^Pinned: trains on a route/.test(m)).length);
   check("held again, it's unpinned (its peg goes); and pinned once more", !s4.pinned && !s4.peg && s5.pinned && s4.way === s3.way && s5.way === s3.way, `${JSON.stringify(s4)} then ${JSON.stringify(s5)}`);
   check("…the pin's toast is only said the first time", said2 === 1, `${said2} times`);
+  {
+    const words = await p.evaluate(() => window.__pinSaid.slice());
+    check("an unpin says so (QA N3)", words.includes("Unpinned"), JSON.stringify(words));
+    check("…and how to pin was said once, at the first tap on a lever, before the first pin (QA N3)", words.filter((m) => /^Hold a switch's lever to pin it/.test(m)).length === 1 && words.findIndex((m) => /^Hold a switch's lever/.test(m)) < words.findIndex((m) => /^Pinned: trains/.test(m)), JSON.stringify(words));
+  }
   [lx, ly] = await screenOf("lever");
   // 5. A slow phone: a short press (200 ms by its own times) delivered late is a tap, a flip, not a pin.
   {
@@ -636,6 +641,19 @@ async function leverPins(ctx, p) {
     await settled();
     const s6 = await state();
     check("slow phone: a short press delivered late flips the switch, doesn't unpin it", s6.way !== s5.way && s6.pinned, JSON.stringify(s6));
+  }
+  // 5b. A fingertip's slack (QA N2): a tap on the floor 14 px out from the lever (away from the track) throws it.
+  {
+    const s7 = await state();
+    const [cx, cy] = await screenOf("piece");
+    [lx, ly] = await screenOf("lever");
+    const len = Math.hypot(lx - cx, ly - cy) || 1;
+    const [tx, ty] = [lx + ((lx - cx) / len) * 14, ly + ((ly - cy) / len) * 14];
+    const exact = await p.evaluate(([x, y]) => window.woodrail.interaction.pickExact(x, y)?.kind ?? null, [tx, ty]);
+    await tapped(p, () => p.touchscreen.tap(tx, ty));
+    await settled();
+    const s8 = await state();
+    check("a tap on the floor a fingertip from a lever throws it (QA N2)", exact !== "lever" && s8.way !== s7.way, `exactly under: ${exact}; way ${s7.way} → ${s8.way}`);
   }
   // 6. A long press on the switch piece itself (not its lever) still picks the piece up.
   await p.evaluate((id) => window.woodrail.layout.setPinned(id, false), id);

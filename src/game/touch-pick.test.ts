@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carNearTap, deckTapWins, liftTap, liftTapAlong } from "./touch-pick";
+import { carNearTap, deckTapWins, fingertipWinner, LEVER_ON_TRACK_PX, LEVER_SLACK_PX, liftTap, liftTapAlong, nearestOnScreen, nearLeverWins } from "./touch-pick";
 
 // Two short cars end to end along y = 100 (a train 10–20 px a car, as at the default zoom on a phone).
 const cars = [
@@ -115,5 +115,43 @@ describe("a tap's ray through a train lift (`liftTapAlong`): the first of its pa
     expect(liftTapAlong([liftTap(-20, 0, 6, 0, L), liftTap(6, 0, 4, 0, L)])).toBe("send");
     expect(liftTapAlong([liftTap(-20, 0, 6, 0, L)])).toBe("pass");
     expect(liftTapAlong([])).toBe("pass");
+  });
+});
+
+describe("a fingertip's slack for switch levers and semaphores (QA N2)", () => {
+  // A lever 24 px tall on screen, standing at (100, 100) up to (100, 76).
+  const lever = [{ id: 7, ax: 100, ay: 100, bx: 100, by: 76 }];
+
+  it("a tap within half a 44 px target of a lever finds it, and how far it was", () => {
+    expect(nearestOnScreen(115, 90, lever, LEVER_SLACK_PX)).toEqual({ id: 7, d: 15 });
+    expect(nearestOnScreen(100 + LEVER_SLACK_PX + 1, 90, lever, LEVER_SLACK_PX).id).toBe(-1);
+    // Past its top or below its base, measured to the end.
+    expect(nearestOnScreen(100, 60, lever, LEVER_SLACK_PX)).toEqual({ id: 7, d: 16 });
+  });
+
+  it("takes a tap on bare floor or a road beside it; on its own switch's track only right by it; never over other things", () => {
+    expect(nearLeverWins(null, 20, false, false)).toBe(true);
+    expect(nearLeverWins("road", 20, false, false)).toBe(true);
+    expect(nearLeverWins(null, LEVER_SLACK_PX + 0.5, false, false)).toBe(false);
+    // Its own switch piece: a tap on the track still selects the piece, unless it's within the lever's own few pixels.
+    expect(nearLeverWins("piece", LEVER_ON_TRACK_PX, true, false)).toBe(true);
+    expect(nearLeverWins("piece", LEVER_ON_TRACK_PX + 1, true, false)).toBe(false);
+    // Other track, a car, a building, cargo, a prop, a station: theirs.
+    expect(nearLeverWins("piece", 2, false, false)).toBe(false);
+    for (const under of ["car", "depot", "cargo", "prop", "station"] as const) expect(nearLeverWins(under, 2, false, false), under).toBe(false);
+  });
+
+  it("never while drawing (a stroke may start on the ground beside it) or planning a route", () => {
+    expect(nearLeverWins(null, 2, false, true)).toBe(false);
+    expect(nearLeverWins("piece", 2, true, true)).toBe(false);
+  });
+
+  it("a car and a lever both near: the nearer wins; neither: what's exactly under the tap", () => {
+    expect(fingertipWinner({ id: 3, d: 10 }, { id: 7, d: 4 })).toBe("lever");
+    expect(fingertipWinner({ id: 3, d: 4 }, { id: 7, d: 10 })).toBe("car");
+    expect(fingertipWinner({ id: 3, d: 10 }, { id: -1, d: Infinity })).toBe("car");
+    expect(fingertipWinner(null, { id: 7, d: 21 })).toBe("lever");
+    expect(fingertipWinner(null, { id: -1, d: Infinity })).toBe("exact");
+    expect(fingertipWinner({ id: -1, d: Infinity }, null)).toBe("exact");
   });
 });
