@@ -32,7 +32,7 @@ import { ResolutionGovernor } from "../render/resolution";
 import { detectQuality, type QualitySettings } from "../render/quality";
 import { createStage, type Stage } from "../render/stage";
 import { shadowRadiusForView, shouldRefit } from "../render/shadow-fit";
-import { onPiecesBuilt, TrackView } from "../render/track-view";
+import { arrowScaleFor, onPiecesBuilt, TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
 import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
@@ -760,6 +760,8 @@ export class Game {
       this.mats.setFar(far);
       this.dirty = true;
     }
+    // The switches' chevrons are drawn bigger further out (a step in the zoom places them afresh, nothing else).
+    if (this.trackView.setArrowScale(arrowScaleFor(dist, this.trackView.arrowScaleNow))) this.dirty = true;
     const near = nearPlaneFor(dist);
     if (Math.abs(near - this.camera.near) > 0.5) {
       this.camera.near = near;
@@ -994,8 +996,15 @@ export class Game {
    * is just set.
    */
   private watchSwitches(): void {
-    this.economy.onSwitch = (pieceId) => this.switchesChanged((id) => id === pieceId && this.inView(id));
+    this.economy.onSwitch = (pieceId) => {
+      const seen = this.inView(pieceId);
+      this.switchesChanged((id) => id === pieceId && seen);
+      if (seen) this.onThrownInView?.(pieceId);
+    };
   }
+
+  /** A routed train threw a switch in view (its lever swung over): for its soft clunk, and the hint how to pin one. */
+  onThrownInView: ((pieceId: number) => void) | null = null;
 
   /**
    * Switches were thrown or pinned: their levers, chevrons and pegs are redrawn (nothing else is rebuilt). Those `swing`

@@ -7,12 +7,16 @@ import { BLUEPRINTS, BRANCHES, describeNeed } from "../src/game/blueprints.ts";
 const here = new URL(".", import.meta.url);
 const template = readFileSync(new URL("blueprint-page.template.html", here), "utf8");
 
-/** The page's cost tokens: p planks, c coins, g: goods, f: something achieved, b: a building. */
+/**
+ * The page's cost tokens, from its research (goods brought to a school, and from tier 2 coins): p planks, c coins,
+ * g: goods, f: something achieved, b: a building.
+ */
 function costTokens(b) {
   const t = [];
-  if (b.price.planks) t.push(`p${b.price.planks}`);
-  for (const [good, n] of Object.entries(b.price.goods ?? {})) t.push(`g:${n} ${good}`);
-  if (b.price.coins) t.push(`c${b.price.coins}`);
+  const { goods, coins } = b.research;
+  if (goods.planks) t.push(`p${goods.planks}`);
+  for (const [good, n] of Object.entries(goods)) if (good !== "planks") t.push(`g:${n} ${good}`);
+  if (coins) t.push(`c${coins}`);
   for (const n of b.requires) t.push(`${n.kind === "landmark" ? "b" : "f"}:${describeNeed(n)}`);
   return t.join(" ");
 }
@@ -28,7 +32,6 @@ const data = {
     cost: costTokens(b),
     does: b.blurb,
     brings: b.brings,
-    auto: b.learn === "auto" && b.requires.some((n) => n.kind === "landmark"),
   })),
   key: BLUEPRINTS.filter((b) => b.key).map((b) => b.id),
 };

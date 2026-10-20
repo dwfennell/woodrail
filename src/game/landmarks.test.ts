@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { townProps } from "../props/towns";
-import { landmarksAt, landmarksOf, LANDMARKS, townLandmarks } from "./landmarks";
+import { CITY_SCHOOL_ID } from "./blueprints";
+import { TECHS } from "./tech";
+import { landmarksAt, LANDMARKS, placedSchools, researchSpeed, schoolGrade, schoolGradesKey, townLandmarks } from "./landmarks";
 import { Progress } from "./progress";
+import { pick, setSpeed, studyLeft, tick } from "./research";
 import { payDelivery } from "./rewards";
-import { learnAuto, TECHS } from "./tech";
+import { canResearch } from "./research";
 import { TownLife, type TownLifeHost } from "./town-life";
 import { townStatus } from "./towns";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
@@ -17,7 +20,7 @@ function life(w: World) {
 }
 
 describe("town landmarks", () => {
-  it("go up as a town reaches their level: a market for a town, a library for a city (none for a village: no school)", () => {
+  it("a market goes up as a town reaches town level; a city builds no library, and no town a school or college", () => {
     const w = buildStarterWorld();
     const { town } = life(w);
     const t = w.landscape.towns[0];
@@ -29,20 +32,15 @@ describe("town landmarks", () => {
     deliver({ planks: 4 });
     expect([...townLandmarks(t)]).toEqual([]);
     deliver({ planks: 12 });
-    expect([...townLandmarks(t)].sort()).toEqual(["market"]);
-    // Flour alone (no new planks) still grows it: a city, with its library.
-    deliver({ planks: 26 });
+    expect([...townLandmarks(t)]).toEqual(["market"]);
     deliver({ planks: 26, flour: 6 });
     expect(townStatus({ planks: 26, flour: 6 }).level).toBe(3);
-    expect(landmarksOf(w.landscape).has("library")).toBe(true);
-    // Each is a building of the town, with its own model (or a stand-in from the catalogue).
-    const props = townProps(w.landscape, t);
-    for (const id of ["market", "library"]) {
-      const b = t.buildings.find((x) => x.landmark === id)!;
-      const asset = props.find((p) => p.building === b.id)!.asset;
-      const mark = LANDMARKS.find((l) => l.id === id)!;
-      expect([...mark.models.two, ...mark.models.one], id).toContain(asset);
-    }
+    expect([...townLandmarks(t)]).toEqual(["market"]);
+    expect(LANDMARKS.map((m) => m.id)).toEqual(["market"]);
+    // Its market has its own model (or a stand-in from the catalogue).
+    const b = t.buildings.find((x) => x.landmark === "market")!;
+    const asset = townProps(w.landscape, t).find((p) => p.building === b.id)!.asset;
+    expect([...LANDMARKS[0].models.two, ...LANDMARKS[0].models.one]).toContain(asset);
   });
 
   it("a town that grows by more than one level at once gets every landmark it passed", () => {
@@ -52,29 +50,85 @@ describe("town landmarks", () => {
     w.economy.delivered.set(t.id, 26);
     w.economy.deliveredGoods.set(t.id, { planks: 26, flour: 6 });
     town.update();
-    expect([...townLandmarks(t)].sort()).toEqual(["library", "market"]);
+    expect([...townLandmarks(t)]).toEqual(["market"]);
   });
+});
 
-  it("towns don't build schools: the school blueprint comes with your school depot, placed beside a town", () => {
+describe("a school that grows with its town", () => {
+  /** The starter map with a school placed beside its first town, and a way to grow that town to a level. */
+  function withSchool() {
     const w = buildStarterWorld();
-    const { town } = life(w);
     const t = w.landscape.towns[0];
-    w.economy.delivered.set(t.id, 26);
-    w.economy.deliveredGoods.set(t.id, { planks: 26, flour: 6 });
-    town.update();
-    expect(townLandmarks(t).has("school")).toBe(false);
-    expect(landmarksAt(w).has("school")).toBe(false);
-    const p = Progress.fresh();
-    for (const id of landmarksAt(w)) p.landmarks.add(id);
-    expect(learnAuto(p)).not.toContain("school");
-    // Your school, the first village's present, placed (beside a town): the school blueprint (College and more need it).
     w.layout.addPiece("depot-school", { x: t.station.x + 400, z: t.station.z, heading: 0 });
     syncIndustries(w, true);
-    expect(landmarksAt(w).has("school")).toBe(true);
+    const school = placedSchools(w)[0];
+    const grow = (planks: number, flour = 0) => {
+      w.economy.delivered.set(t.id, planks);
+      w.economy.deliveredGoods.set(t.id, { planks, flour });
+    };
+    return { w, t, school, grow };
+  }
+
+  it("is a schoolhouse by a village; a college by a town once College is learned (study 2×); a library wing by a city (tier 3)", () => {
+    const { w, t, school, grow } = withSchool();
+    expect(school.townId).toBe(t.id);
+    const learned = new Set<string>();
+    grow(4);
+    expect(schoolGrade(w, school, learned)).toEqual({ college: false, wing: false });
+    expect(researchSpeed(w, learned)).toBe(1);
+    // A town: no college till College is learned.
+    grow(12);
+    expect(schoolGrade(w, school, learned)).toEqual({ college: false, wing: false });
+    learned.add("college");
+    expect(schoolGrade(w, school, learned)).toEqual({ college: true, wing: false });
+    expect(researchSpeed(w, learned)).toBe(2);
+    // College learned, but beside a village: still a schoolhouse.
+    grow(4);
+    expect(researchSpeed(w, learned)).toBe(1);
+    expect(landmarksAt(w).has(CITY_SCHOOL_ID)).toBe(false);
+    // A city: the library wing, which opens tier-3 research.
+    grow(26, 6);
+    expect(schoolGrade(w, school, learned)).toEqual({ college: true, wing: true });
+    expect(landmarksAt(w).has(CITY_SCHOOL_ID)).toBe(true);
+    const p = Progress.fresh();
+    for (const id of ["farming", "mills"]) p.learned.add(id);
+    expect(canResearch(p, "quarries")).toBe(false);
     for (const id of landmarksAt(w)) p.landmarks.add(id);
-    expect(learnAuto(p)).toContain("school");
+    expect(canResearch(p, "quarries")).toBe(true);
+    // Taken up: no school, nothing opened.
+    w.layout.removePiece(school.pieceId);
+    expect(landmarksAt(w).has(CITY_SCHOOL_ID)).toBe(false);
+    expect(researchSpeed(w, learned)).toBe(1);
   });
 
+  it("its model is drawn again only when its grade changes (the key holds through deliveries)", () => {
+    const { w, grow } = withSchool();
+    const learned = new Set(["college"]);
+    grow(4);
+    const village = schoolGradesKey(w, learned);
+    grow(8);
+    expect(schoolGradesKey(w, learned)).toBe(village);
+    grow(12);
+    const town = schoolGradesKey(w, learned);
+    expect(town).not.toBe(village);
+    grow(20);
+    expect(schoolGradesKey(w, learned)).toBe(town);
+    grow(26, 6);
+    expect(schoolGradesKey(w, learned)).not.toBe(town);
+  });
+
+  it("a college studies twice as fast: half the study time left, and done in half the seconds", () => {
+    const p = Progress.fresh();
+    expect(pick(p, "switches")).toBe("current");
+    p.research.got = { planks: 4 };
+    setSpeed(p, 2);
+    expect(studyLeft(p)).toBe(10);
+    expect(tick(p, 9)).toBe(null);
+    expect(tick(p, 1)).toBe("switches");
+  });
+});
+
+describe("markets", () => {
   it("a market pays half again", () => {
     const w = buildStarterWorld();
     const t = w.landscape.towns[0];
@@ -87,11 +141,9 @@ describe("town landmarks", () => {
 });
 
 describe("what a landmark's news says", () => {
-  it("names Research, not the board (the board is the Research picker now: QA)", () => {
+  it("never names the board (it is the Research picker now: QA)", () => {
     for (const m of LANDMARKS) expect(m.blurb, m.id).not.toMatch(/\bboard\b/i);
     for (const t of TECHS) expect(t.blurb, t.id).not.toMatch(/\bthe board\b/i);
-    // (P3: a school is placed, not raised by a village, and its blurb says Research.)
-    expect(TECHS.find((t) => t.id === "school")!.blurb).toMatch(/research/i);
   });
 
   it("promises no free blueprints (P3: no school ideas, no blueprint offers)", () => {

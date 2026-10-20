@@ -66,6 +66,50 @@ describe("goods into a school", () => {
     expect(w.economy.delivered.get(0)).toBe(5);
   });
 
+  it("a school past a station gets what the research lacks: the town before it leaves those for it (QA)", () => {
+    const p = researching("switches");
+    const w = line(["station", "depot-school"], p);
+    w.run(90);
+    expect(p.research.got).toEqual({ planks: 4 });
+    // The town took the rest, and only the rest (before, it took all 9 and the school none).
+    expect(w.economy.delivered.get(0)).toBe(5);
+  });
+
+  it("a routed train's Automatic stop at a town leaves for a later school what its research lacks", () => {
+    const p = researching("switches");
+    const w = line(["station", "depot-school"], p);
+    const engine = w.train().cars[0].id;
+    w.economy.setRoute(engine, { stops: [{ depotId: w.depots[0].id, action: "auto" }, { depotId: w.depots[1].id, action: "auto" }], next: 0 });
+    w.run(90);
+    expect(p.research.got).toEqual({ planks: 4 });
+    expect(w.economy.delivered.get(0)).toBe(5);
+  });
+
+  it("a school on other track (not joined to the train's) keeps nothing from the town", () => {
+    const p = researching("switches");
+    const w = line(["station"], p);
+    w.economy.addDepot("school", w.layout.addPiece("depot-school", { x: 5000, z: 5000, heading: 0 }));
+    w.run(90);
+    expect(w.economy.delivered.get(0)).toBe(9);
+  });
+
+  it("a routed line that comes to the workshop before the school: the town takes its planks (the workshop would)", () => {
+    const p = researching("switches");
+    const w = line(["station", "depot-workshop", "depot-school"], p);
+    const engine = w.train().cars[0].id;
+    w.economy.setRoute(engine, { stops: w.depots.map((d) => ({ depotId: d.id, action: "auto" as const })), next: 0 });
+    w.run(90);
+    expect(w.economy.delivered.get(0)).toBe(9);
+  });
+
+  it("once the research has all it lacks, the town before the school takes planks again", () => {
+    const p = researching("switches");
+    p.research.got.planks = 4;
+    const w = line(["station", "depot-school"], p);
+    w.run(90);
+    expect(w.economy.delivered.get(0)).toBe(9);
+  });
+
   it("with nothing picked, a school takes nothing (the town gets it all)", () => {
     const p = Progress.fresh();
     const w = line(["depot-school", "station"], p);

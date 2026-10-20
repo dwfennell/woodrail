@@ -46,7 +46,7 @@ export interface TownLifeEvents {
   grew(town: Town, status: TownStatus, built: { x: number; z: number }[]): void;
   /** Goods reached a town in play (not on loading): `n` units of `kind`, with the town as it was before them. */
   received(town: Town, kind: CargoKind, n: number, before: TownStatus): void;
-  /** Is this blueprint learned? (A landmark that comes with one, like the college, waits for it.) */
+  /** Is this blueprint learned? (A landmark that comes with one waits for it.) */
   knows?(tech: string): boolean;
   /** Does a school take `kind` from trains now (the research still lacks some)? A lookup: the crane asks per unit. */
   school?(kind: CargoKind): boolean;
@@ -144,7 +144,7 @@ export class TownLife {
     for (const mark of [...big, ...due.filter((m) => !big.includes(m))]) {
       const free = lots.filter((l) => !l.landmark);
       const of = (n: number) => free.find((l) => l.cells.length === n);
-      // One that comes with a blueprint (the college) has a big building of its own: it waits for two squares or more
+      // One that comes with a blueprint has a big building of its own: it waits for two squares or more
       // (here when it next grows, or in the next town to grow).
       const lot = (big.includes(mark) ? of(4) : undefined) ?? of(2) ?? (mark.tech ? of(4) : free.find((l) => l.cells.length < 4) ?? free[0]);
       if (lot) lot.landmark = mark.id;

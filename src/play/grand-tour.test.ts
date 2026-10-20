@@ -7,7 +7,8 @@ import { landmarksAt, landmarksOf, townLandmarks } from "../game/landmarks";
 import { Progress } from "../game/progress";
 import { cardView, describeThings, firstTimeGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
 import { attachEngines, powered, topSpeed } from "../game/engines";
-import { learnAuto, needMet, ready, techOf } from "../game/tech";
+import { CITY_SCHOOL_ID } from "../game/blueprints";
+import { needMet, ready, techOf } from "../game/tech";
 import { describeNeed } from "../game/blueprints";
 import { applyCranes, Counters } from "../game/upgrades";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
@@ -23,11 +24,11 @@ import { endOn, rulesFor } from "./rules";
 /**
  * The grand tour: one game on the starter map through all of Game mode's content, on the game's own code. Planks grow
  * Larkfield to a town (its market goes up); the line runs on to a farm yard and mill by the fields, and one
- * mixed train's flour makes it a city (its library opens Quarries); a quarry on a branch off the line, joined by a
+ * mixed train's flour makes it a city (a school beside a city opens Quarries); a quarry on a branch off the line, joined by a
  * switch, and a routed stone train that sets that switch itself, make it a city ★; a warehouse keeps flour for a
  * routed van. Then Phase C: a mine on a branch with a foundry and a power station; a goods train that brings iron to
  * Larkfield, behind an electric engine once the power station has coal; a carpenter's yard for furniture; the
- * college. Iron, furniture and more stone make Larkfield a city ★★. Saved and loaded on the way. Shortcuts, to keep to what's new: blueprints are learned outright (the
+ * college (the schools in towns become colleges). Iron, furniture and more stone make Larkfield a city ★★. Saved and loaded on the way. Shortcuts, to keep to what's new: blueprints are learned outright (the
  * workshop and the board are the main playthrough's), and pieces aren't drawn from the toy box.
  */
 
@@ -101,9 +102,9 @@ class Tour {
   syncLandmarks(): void {
     this.progress.landmarks.clear();
     for (const id of landmarksAt(this.w)) this.progress.landmarks.add(id);
-    // (A shortcut: the tour places no school depot, but learns as if it had one. College and more need the school.)
-    this.progress.landmarks.add("school");
-    learnAuto(this.progress);
+    // (A shortcut: the tour places no school depot, but learns as if it had one beside its biggest town: a city's opens
+    // tier 3.)
+    if (Math.max(...this.w.landscape.towns.map((t) => this.town.status(t.id).level)) >= 3) this.progress.landmarks.add(CITY_SCHOOL_ID);
   }
 
   note(s: string): void {
@@ -326,10 +327,10 @@ describe("the grand tour", () => {
       const got = receivedBy(w(), larkfield().id);
       T.note(`Larkfield has had ${describeGoods(got)}`);
       expect(T.level(larkfield()), T.log.join("\n")).toBeGreaterThanOrEqual(3);
-      expect(townLandmarks(larkfield()).has("library"), "a city has a library").toBe(true);
+      expect(T.progress.landmarks.has(CITY_SCHOOL_ID), "a city opens tier 3 (its school's library wing)").toBe(true);
       T.saveAndLoad();
 
-      // 3. Stone: quarries (the library opened them), on a branch off the line by a switch; a routed stone train.
+      // 3. Stone: quarries (the city's school opened them), on a branch off the line by a switch; a routed stone train.
       T.learn("quarries");
       // (Switches with planks at the workshop: schools no longer hand out blueprints free.)
       T.learn("switches");
@@ -641,20 +642,18 @@ describe("the grand tour", () => {
         if (found) w().sim.removeTrain(found.train.id);
       }
       T.saveAndLoad();
-      // The mixed train runs the line again: towns keep growing (the college goes up in the next to grow). The routed
+      // The mixed train runs the line again: towns keep growing. The routed
       // trains left the switches set toward their branches; a train with no route follows them, so they go back to
       // the main line.
       for (const id of [...w().sim.trainIds()]) w().sim.removeTrain(id);
       for (const id of w().layout.pieceIds()) if (w().layout.getPiece(id)!.type === "switch") w().layout.setSwitchState(id, 0);
       if (!w().layout.getPiece(between)) between = middle();
       T.train(["engine", "timber", "timber", "hopper", "van"], between, -1);
-      T.run(20 * 60, () => T.level(larkfield()) >= 5 && w().landscape.towns.some((t) => townLandmarks(t).has("college")));
-      const colleges = w().landscape.towns.filter((t) => townLandmarks(t).has("college")).map((t) => t.name);
-      T.note(`Larkfield is a ${T.town.status(larkfield().id).name.toLowerCase()}; colleges: ${colleges.join(", ") || "none"}`);
+      T.run(20 * 60, () => T.level(larkfield()) >= 5);
+      T.note(`Larkfield is a ${T.town.status(larkfield().id).name.toLowerCase()}`);
       const s5 = T.town.status(larkfield().id);
       const short = Object.entries(s5.wants).map(([k, n]) => `${s5.got[k as keyof typeof s5.got] ?? 0}/${n} ${k}`).join(", ");
       if (T.level(larkfield()) < 5) T.findings.push(`Larkfield didn't reach City ★★: ${short}`);
-      if (colleges.length === 0) T.findings.push("No college went up after College was learned.");
     } finally {
       const status = w().landscape.towns.map((t) => `${t.name} ${T.town.status(t.id).name.toLowerCase()} [${[...townLandmarks(t)].join(", ")}] ${describeGoods(receivedBy(w(), t.id))}`);
       console.log(

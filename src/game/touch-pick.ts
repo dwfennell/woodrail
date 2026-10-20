@@ -8,13 +8,13 @@ export interface CarOnScreen {
 }
 
 /**
- * The car a fingertip at (x, y) means: the one whose line end to end on screen passes nearest the tap, if that's within
- * `slack` px; else −1. (Cars at the default zoom are only 10–20 px long, so a tap meant for one often misses it.)
+ * The thing on screen (a car end to end, a lever or post base to top) whose line passes nearest a fingertip at (x, y),
+ * if that's within `slack` px: its id and how far (px); else id −1.
  */
-export function carNearTap(x: number, y: number, cars: readonly CarOnScreen[], slack: number): number {
+export function nearestOnScreen(x: number, y: number, things: readonly CarOnScreen[], slack: number): { id: number; d: number } {
   let best = -1;
   let bestD = slack * slack;
-  for (const c of cars) {
+  for (const c of things) {
     const dx = c.bx - c.ax;
     const dy = c.by - c.ay;
     const len = dx * dx + dy * dy;
@@ -27,15 +27,54 @@ export function carNearTap(x: number, y: number, cars: readonly CarOnScreen[], s
       best = c.id;
     }
   }
-  return best;
+  return { id: best, d: best === -1 ? Infinity : Math.sqrt(bestD) };
 }
+
+/**
+ * The car a fingertip at (x, y) means: the one whose line end to end on screen passes nearest the tap, if that's within
+ * `slack` px; else −1. (Cars at the default zoom are only 10–20 px long, so a tap meant for one often misses it.)
+ */
+export function carNearTap(x: number, y: number, cars: readonly CarOnScreen[], slack: number): number {
+  return nearestOnScreen(x, y, cars, slack).id;
+}
+
+/** A tap on touch takes a lever or semaphore post this near it on screen (px): half a 44 px target. */
+export const LEVER_SLACK_PX = 22;
+/** …but over its own switch's track (a tap there selects the piece), only this near: the lever's own few pixels. */
+export const LEVER_ON_TRACK_PX = 8;
+
+/**
+ * Whether a lever or semaphore post `d` px from a tap (the nearest: `nearestOnScreen`) takes it over what's exactly
+ * under the tap (`under`, null for nothing; `ownPiece`: that's the lever's own switch piece). Over bare floor or a road,
+ * within `LEVER_SLACK_PX` (QA N2: an exact hit was a 14×24 px target at the default zoom); over its own switch's track,
+ * only within `LEVER_ON_TRACK_PX` (a tap on the track still selects the piece); over anything else (other track, a car,
+ * a building, a prop), never. Never while drawing (a stroke may start on the ground beside a lever) or planning a route
+ * (a lever does nothing then).
+ */
+export function nearLeverWins(under: TapUnder, d: number, ownPiece: boolean, drawingOrPlanning: boolean): boolean {
+  if (drawingOrPlanning) return false;
+  if (under === null || under === "road") return d <= LEVER_SLACK_PX;
+  if (under === "piece" && ownPiece) return d <= LEVER_ON_TRACK_PX;
+  return false;
+}
+
+/** What a tap meant, on touch: what's exactly under it, or a car or a lever within a fingertip's slack (the nearer). */
+export function fingertipWinner(car: { id: number; d: number } | null, lever: { id: number; d: number } | null): "car" | "lever" | "exact" {
+  const c = car && car.id !== -1 ? car.d : Infinity;
+  const l = lever && lever.id !== -1 ? lever.d : Infinity;
+  if (c === Infinity && l === Infinity) return "exact";
+  return l < c ? "lever" : "car";
+}
+
+/** What's exactly under a tap, as far as a fingertip's slack cares (null: nothing, bare floor). */
+export type TapUnder = "piece" | "road" | "station" | "car" | "depot" | "cargo" | "prop" | "lever" | null;
 
 /**
  * Whether a car within a fingertip of a tap wins over what's exactly under it (`kind`, or null for nothing): over track,
  * a road, a town's footprint (its padded pick) or bare floor, yes; over something solid of its own (a depot's buildings,
  * cargo, a prop, a switch lever) or a car tapped exactly, no.
  */
-export function nearCarWins(under: "piece" | "road" | "station" | "car" | "depot" | "cargo" | "prop" | "lever" | null): boolean {
+export function nearCarWins(under: TapUnder): boolean {
   return under === null || under === "piece" || under === "road" || under === "station";
 }
 

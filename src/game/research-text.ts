@@ -104,7 +104,7 @@ export function researchCard(p: Progress, id: string, school: string | null): Re
   const state = cardState(p, id);
   if (state !== "ready" && state !== "researching" && state !== "next") return null;
   const r = p.research;
-  const base = { chips: researchChips(p, id), study: `${studyTime(id)} s study` };
+  const base = { chips: researchChips(p, id), study: `${Math.ceil(studyTime(id) / p.research.speed)} s study` };
   if (state === "researching") return { ...base, why: researchWants(p, school), fill: researchFill(p, id) };
   if (state === "next") {
     const short = coinsShort(p);
@@ -167,10 +167,9 @@ let coinPrices: number[] | null = null;
 /**
  * What the Research picker shows depends on, as a key: the research's version (a pick, a delivery, a second of study),
  * the coins only as far as the picker shows them (which prices they reach, and what the one up next is short), what's
- * learned and what's on the board, each requirement met or not (and riders while one counts them), the school's name
- * and the goal (a town's offers are growth cards, in their own sheet, so not here). The picker is rebuilt only when
- * this changes, not on every coin or counted load (QA: it rebuilt every second while trains ran). A lookup over the
- * blueprints: cheap enough for the workshop's clock.
+ * learned, each requirement met or not (a school beside a city among them; riders while one counts them),
+ * the school's name and the goal. The picker is rebuilt only when this changes, not on every coin or counted load (QA:
+ * it rebuilt every second while trains ran). A lookup over the blueprints: cheap enough for the workshop's clock.
  */
 export function pickerKey(p: Progress, school: string | null, goal: string): string {
   coinPrices ??= [...new Set(TECHS.map((t) => t.research.coins ?? 0).filter((c) => c > 0))].sort((a, b) => a - b);
@@ -185,7 +184,7 @@ export function pickerKey(p: Progress, school: string | null, goal: string): str
       riders ||= n.kind === "count" && n.stat === "riders";
     }
   }
-  return `${p.research.version}|${reached}|${coinsShort(p)}|${p.learned.size}|${p.board.size}|${met}|${riders ? p.riders : ""}|${school ?? ""}|${goal}`;
+  return `${p.research.version}|${reached}|${coinsShort(p)}|${p.learned.size}|${met}|${riders ? p.riders : ""}|${school ?? ""}|${goal}`;
 }
 
 /**
@@ -219,5 +218,7 @@ export function schoolCard(p: Progress): { piles: { label: string; count: number
   }
   const goods = costOf(r.current).goods;
   const piles = (Object.keys(goods) as CargoKind[]).map((k) => ({ label: GOODS_ICON[k], count: r.got[k] ?? 0, cap: goods[k]! }));
-  return { piles, note: studying(p) ? `Studying ${label(r.current)}: ${Math.ceil(studyLeft(p))} s` : `Researching ${label(r.current)}` };
+  // (A college studies twice as fast: said while it matters, the goods all in.)
+  const fast = r.speed > 1 ? " (college: 2×)" : "";
+  return { piles, note: studying(p) ? `Studying ${label(r.current)}: ${Math.ceil(studyLeft(p))} s${fast}` : `Researching ${label(r.current)}` };
 }

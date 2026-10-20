@@ -161,6 +161,11 @@ const TOAST_QUEUE = 3;
 const TOAST_ANSWER_MS = 600;
 /** A toast that came on less than this before a refusal pushed it off (ms) shows again after the refusal. */
 const REFUSAL_BUMP_MS = 1000;
+/**
+ * A toast up this long (ms) has been read: a card opening over it puts it away for good, not back to wait (QA: a goal's
+ * tick shown, then shown again whole once the workshop's card closed).
+ */
+const TOAST_SEEN_MS = 1500;
 /** The help card's tips drawn with tray pictures: the picture's key, and the tip's art. */
 const HELP_ART: Record<string, string> = { "piece:curve-large": ".art-build", "train:Full train": ".art-run" };
 
@@ -312,6 +317,14 @@ export class Hud {
     this.researchPill.innerHTML = `<span class="rp-text"><span class="rp-line"><span class="rp-icon" aria-hidden="true">📘</span><span class="rp-name"></span></span><span class="rp-count"></span></span><span class="rp-bar"></span>`;
     this.researchPill.addEventListener("click", () => h.toggleBoard());
     top.appendChild(this.researchPill);
+    // (Refitted when its room changes: the coins or the date grow, the screen turns. Not per frame.)
+    let pillRefit = 0;
+    const fitPill = () => {
+      cancelAnimationFrame(pillRefit);
+      pillRefit = requestAnimationFrame(() => this.fitPill());
+    };
+    new ResizeObserver(fitPill).observe(this.researchPill);
+    addEventListener("resize", fitPill);
     const actions = el("div", "actions");
     this.undoBtn = button(uiIcon("undo"), "Undo (Ctrl+Z)", h.undo);
     this.redoBtn = button(uiIcon("redo"), "Redo (Ctrl+Shift+Z)", h.redo);
@@ -964,6 +977,21 @@ export class Hud {
     this.researchPill.classList.toggle("idle", v.idle);
     this.researchPill.title = v.idle ? "Pick research" : `${text.slice(3)}: tap for Research`;
     this.researchPill.setAttribute("aria-label", v.idle ? "Pick research" : `Research: ${text.slice(3)}`);
+    this.fitPill();
+  }
+
+  /**
+   * The pill's name whole where it can be (QA: "Train ro…" at 360 px): a little smaller if it's cut, and then over two
+   * lines if it's still cut (shortened with "…" only past that). Measured when the name or its room changes.
+   */
+  private fitPill(): void {
+    const p = this.researchPill;
+    p.classList.remove("rp-small", "rp-wrap");
+    const n = p.querySelector<HTMLElement>(".rp-name")!;
+    if (p.hidden || n.clientWidth === 0) return;
+    const cut = () => n.scrollWidth > n.clientWidth + 1 || n.scrollHeight > n.clientHeight + 1;
+    if (cut()) p.classList.add("rp-small");
+    if (cut()) p.classList.add("rp-wrap");
   }
 
   /** Show the railway's date (null: hide it, outside Game mode). The page is touched only when the text changes. */
@@ -1543,8 +1571,9 @@ export class Hud {
   }
 
   /**
-   * A card changed size under the toast showing: move it clear, or (a hint, with no room left) put it back to wait for
-   * the cards to close.
+   * A card changed size under the toast showing: move it clear, or, with no room left, put it back to wait for the
+   * cards to close if it had only just come on; one up long enough to read (`TOAST_SEEN_MS`) just goes, so it isn't
+   * shown twice.
    */
   private refitToast(): void {
     const t = this.toastShowing;
@@ -1554,6 +1583,10 @@ export class Hud {
     this.toastEl.classList.remove("show");
     this.toastShowing = null;
     this.toastHeldUntil = 0;
+    if (performance.now() - this.toastShownAt >= TOAST_SEEN_MS) {
+      this.flushToasts();
+      return;
+    }
     this.toastQueue.unshift(t);
     this.toastWaitsForCard = true;
   }

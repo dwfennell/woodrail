@@ -412,7 +412,7 @@ describe("a Game-mode playthrough", () => {
         "",
         `goals done ${goalsDone.length}/${GOALS.length}: ${goalsDone.join(" · ")}`,
         `goals left: ${goalsLeft.join(" · ")}`,
-        `toy box: ${JSON.stringify([...P.progress.owned])}; learned ${[...P.progress.learned].join(", ")}; board ${[...P.progress.board].join(", ")}`,
+        `toy box: ${JSON.stringify([...P.progress.owned])}; learned ${[...P.progress.learned].join(", ")}`,
         `findings:\n- ${P.findings.join("\n- ") || "none"}`,
       ].join("\n"),
     );

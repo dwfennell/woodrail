@@ -7,10 +7,11 @@ import { workshopStock } from "./crafting";
 import { CARD_KINDS, type GrowthCard } from "./growth-cards";
 import { Progress } from "./progress";
 import { deliver, pick, tick } from "./research";
-import { boostGoods, cardFor, cardView, crateFor, firstTimeGift, learnGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
+import { boostGoods, carIcon, cardFor, cardView, crateFor, firstTimeGift, learnGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
 import { TECHS } from "./tech";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
 import { rng } from "../lib/rng";
+import { trainIcon } from "../ui/icons";
 
 /** A starter world with a workshop (its yard empty) and, if asked, a school (both placed straight on the layout). */
 function world(opts: { school?: boolean; farm?: boolean } = {}): World {
@@ -134,13 +135,14 @@ describe("the research boost", () => {
     expect(boostGoods(p, 0.25)).toEqual({ planks: 2 });
     p.offers.push({ from: "Larkfield", level: 1, cards: [{ kind: "boost", share: 0.25 }] });
     expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+2🪵" });
-    expect(takeCard(p, w, 0, 0)).not.toBeNull();
+    // The toast says where the goods went (QA: "+3🪵" alone didn't).
+    expect(takeCard(p, w, 0, 0)).toMatchObject({ amount: "+2🪵", taken: "+2🪵 to Bridges and ramps" });
     expect(p.research.got).toEqual({ planks: 6 });
     expect(p.offers).toEqual([]);
     // Mills: 12 planks and 6 grain: a town's 40% is 5 planks and 3 grain.
     const q = researching();
     q.offers.push({ from: "Elderwick", level: 2, cards: [{ kind: "boost", share: 0.4 }] });
-    takeCard(q, w, 0, 0);
+    expect(takeCard(q, w, 0, 0)).toMatchObject({ taken: "+5🪵 3🌾 to Mills" });
     expect(q.research.got).toEqual({ planks: 5, grain: 3 });
     expect(q.research.current).toBe("mills");
   });
@@ -176,8 +178,24 @@ describe("rare cargo", () => {
     deliver(p, "grain", 2);
     p.offers.push({ from: "Larkfield", level: 3, cards: [{ kind: "rare", good: "grain", n: 12 }] });
     expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+4 grain" });
-    takeCard(p, w, 0, 0);
+    expect(takeCard(p, w, 0, 0)).toMatchObject({ taken: "+4 grain to Mills" });
     expect(p.research.got).toEqual({ grain: 6 });
+  });
+});
+
+describe("the wagon card's picture", () => {
+  it("is the car it gives, as the toy box draws it (QA: always 🚃)", () => {
+    const p = Progress.fresh();
+    const w = world();
+    const icons = new Set<string>();
+    for (const id of ["car:timber", "car:hopper", "car:passenger", "car:van", "car:caboose", "car:engine"] as const) {
+      const v = cardView(p, w, { kind: "wagon", id });
+      expect(v.icon, id).toBe(carIcon(id));
+      expect(v.icon, id).toContain(trainIcon([id.slice(4) as "timber"]));
+      expect(v.icon, id).not.toMatch(/🚃|🚂/);
+      icons.add(v.icon);
+    }
+    expect(icons.size).toBe(6);
   });
 });
 
@@ -249,6 +267,35 @@ describe("growth never teaches a blueprint", () => {
   it("an old save's blueprint offers are dropped", () => {
     const p = Progress.fromJSON({ owned: [], learned: [], offers: [{ from: "Larkfield", ids: ["bridges", "switches"] }, { from: "Elderwick", level: 2, cards: [{ kind: "coins", n: 80 }, { kind: "planks", n: -3 }, { kind: "coins", n: 5 }] }] });
     expect(p.offers).toEqual([{ from: "Elderwick", level: 2, cards: [{ kind: "coins", n: 80 }] }]);
+  });
+});
+
+describe("three real choices", () => {
+  it("a crate never holds the wagon card's car, so neither card is the other and more (QA)", () => {
+    let both = 0;
+    let crates = 0;
+    const w = world();
+    for (let seed = 1; seed < 400; seed++) {
+      for (const level of [1, 2, 3]) {
+        const p = Progress.fresh();
+        if (seed % 3 === 0) p.learned.add("farming");
+        if (seed % 5 === 0) p.learned.add("passengers");
+        const offer = offerOnGrowth(p, w, "Larkfield", level, rng(seed))!;
+        const wagon = offer.cards.find((c) => c.kind === "wagon");
+        const crate = offer.cards.find((c) => c.kind === "crate");
+        // (The crate keeps its size by level, 2, 3, 4 things, or all you know if that's fewer.)
+        if (crate) {
+          crates++;
+          expect(crate.things.length, `seed ${seed} level ${level}`).toBe(Math.min(level + 1, crateFor(p, 99, rng(1)).length));
+        }
+        if (!wagon || !crate) continue;
+        both++;
+        expect(crate.things.map(([id]) => id), `seed ${seed} level ${level}`).not.toContain(wagon.id);
+      }
+    }
+    // (Both shown together often enough for the check to mean something.)
+    expect(both).toBeGreaterThan(50);
+    expect(crates).toBeGreaterThan(200);
   });
 });
 

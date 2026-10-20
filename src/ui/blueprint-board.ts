@@ -275,8 +275,8 @@ export class BlueprintBoard {
       const pick = shown.find((s) => s.id === v.focus) ?? shown.find((s) => s.state === "researching") ?? shown.find((s) => s.state === "ready") ?? shown[0];
       this.selected = pick?.id ?? "";
     }
-    // The web shows each tag's name, state and price: when only a ticket's words changed (a second of study, a
-    // delivery's chips), only the ticket is drawn again.
+    // The web shows each tag's name, state and price: when only a ticket's words changed (a second of
+    // study, a delivery's chips), only the ticket is drawn again.
     const web = JSON.stringify([v.stations.map((s) => [s.id, s.state, s.seen, s.label, s.price, s.branch, s.needs]), v.branches]);
     if (web === this.webKey && was === this.selected && this.body.childElementCount > 0) this.renderSheet(v);
     else this.render();

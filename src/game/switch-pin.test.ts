@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sim } from "../sim";
 import { Layout } from "../track";
-import { PIN_HINT, PinHint } from "./switch-pin";
+import { PIN_HINT, PIN_HOW_HINT, PinHint, UNPINNED } from "./switch-pin";
 import { decideHold, HOLD_MS, HOLD_SLOP, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 
 function fakeStorage(): Storage {
@@ -36,15 +36,36 @@ describe("pinning a switch with a long press on its lever", () => {
     expect(undoesHold(PIN_HOLD_MS + 5, 0, true, PIN_HOLD_MS)).toBe(false);
   });
 
-  it("the hint is said the first time a switch is pinned, never again (not for an unpin, nor on this device later)", () => {
+  it("what a pin does is said the first time a switch is pinned, never again (nor on this device later)", () => {
     vi.stubGlobal("localStorage", fakeStorage());
     const hint = new PinHint();
-    expect(hint.next(false)).toBeNull();
     expect(hint.next(true)).toBe(PIN_HINT);
-    expect(hint.next(false)).toBeNull();
     expect(hint.next(true)).toBeNull();
     // Another visit on this device: seen.
     expect(new PinHint().next(true)).toBeNull();
+  });
+
+  it("an unpin says so, every time (QA N3: it was only a buzz)", () => {
+    vi.stubGlobal("localStorage", fakeStorage());
+    const hint = new PinHint();
+    expect(hint.next(false)).toBe(UNPINNED);
+    hint.next(true);
+    expect(hint.next(false)).toBe(UNPINNED);
+    expect(hint.next(false)).toBe(UNPINNED);
+  });
+
+  it("how to pin is said once before the first pin (a lever tapped, or a train's throw in view), never after a pin", () => {
+    vi.stubGlobal("localStorage", fakeStorage());
+    const hint = new PinHint();
+    expect(hint.how()).toBe(PIN_HOW_HINT);
+    expect(hint.how()).toBeNull();
+    expect(new PinHint().how()).toBeNull();
+    // A player who pins before ever being told: not told afterwards.
+    vi.stubGlobal("localStorage", fakeStorage());
+    const pinner = new PinHint();
+    pinner.next(true);
+    expect(pinner.how()).toBeNull();
+    expect(new PinHint().how()).toBeNull();
   });
 
   it("a tap still flips a pinned switch by hand, and it stays pinned", () => {
