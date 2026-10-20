@@ -1,3 +1,5 @@
+import { isDoubleTap, type TapRecord } from "./camera-director";
+
 /** A car as it shows on screen: its two ends (px). */
 export interface CarOnScreen {
   id: number;
@@ -55,6 +57,63 @@ export function nearLeverWins(under: TapUnder, d: number, ownPiece: boolean, dra
   if (drawingOrPlanning) return false;
   if (under === null || under === "road") return d <= LEVER_SLACK_PX;
   if (under === "piece" && ownPiece) return d <= LEVER_ON_TRACK_PX;
+  return false;
+}
+
+/**
+ * A press on a lever found by a fingertip's slack (not on the lever itself): may it have the slack? Not when it's the
+ * second tap of a double tap (`last`, the tap before; `now`, this press): that zooms, as on bare floor (QA: a double tap
+ * on the grass by a lever threw it twice and never zoomed). A tap right on the lever doesn't ask.
+ */
+export function leverSlackOnPress(last: TapRecord | null, now: TapRecord): boolean {
+  return !isDoubleTap(last, now);
+}
+
+/** A long press pins a switch only if it came down this near its lever (px), or on it: the slack is for taps. */
+export const PIN_SLACK_PX = 7;
+
+/**
+ * May a long press pin the switch? Only one that came down on its lever, or within `PIN_SLACK_PX` of it (`slack`: how
+ * far off it the press was, found by a fingertip's slack; undefined: right on it). A finger resting on the grass a
+ * fingertip away, a pan slow to start, never pins (QA: one 14 px off, held 700 ms, did).
+ */
+export function pressPins(slack: number | undefined): boolean {
+  return slack === undefined || slack <= PIN_SLACK_PX;
+}
+
+/**
+ * Is an upright (a lever, a semaphore post) on screen to be tapped: both its ends in front of the camera (projected
+ * depth within the view: one behind it projects back through, onto the screen, mirrored)?
+ */
+export function inFrontOfCamera(az: number, bz: number): boolean {
+  return az >= -1 && az <= 1 && bz >= -1 && bz <= 1;
+}
+
+/**
+ * Is the line from the camera at `from` to a point `to` (a lever's middle) hidden by the hills: does the ground
+ * (`groundAt`, the hill's top under a spot, mm) rise above it anywhere on the way? Walked from the point toward the
+ * camera in `step` mm steps, as far as the line is under `highest` (no hill reaches above it). For the one lever a tap
+ * would take, not every lever every frame.
+ */
+export function hiddenByHills(
+  from: { x: number; y: number; z: number },
+  to: { x: number; y: number; z: number },
+  groundAt: (x: number, z: number) => number,
+  highest: number,
+  step: number,
+): boolean {
+  const dx = from.x - to.x;
+  const dy = from.y - to.y;
+  const dz = from.z - to.z;
+  const len = Math.hypot(dx, dy, dz);
+  if (len === 0) return false;
+  // (The first step off the point itself: the ground it stands on doesn't hide it.)
+  for (let d = step; d < len; d += step) {
+    const k = d / len;
+    const y = to.y + dy * k;
+    if (y > highest) return false;
+    if (groundAt(to.x + dx * k, to.z + dz * k) > y) return true;
+  }
   return false;
 }
 

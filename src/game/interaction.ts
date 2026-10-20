@@ -38,7 +38,7 @@ import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
-import { deckTapWins, fingertipWinner, LEVER_SLACK_PX, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, type CarOnScreen, type TapUnder } from "./touch-pick";
+import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
@@ -158,7 +158,7 @@ const SPLICE_MESSAGES = {
 type Press =
   | { kind: "car"; carId: number }
   /** A switch's lever or a signal (`road`: which of a signal piece's signals, a gantry's road; else 0). */
-  | { kind: "lever"; pieceId: number; road?: number }
+  | { kind: "lever"; pieceId: number; road?: number; slack?: number }
   /** A stop disc of the route being planned (its index in the route). */
   | { kind: "route-stop"; index: number }
   /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
@@ -1057,6 +1057,8 @@ export class Interaction {
       }
     }
     let hit = this.pick(e.clientX, e.clientY, e.pointerType === "touch");
+    // A lever found by a fingertip's slack, on a double tap's second tap: that's the floor's (it zooms), not the lever's.
+    if (hit?.kind === "lever" && hit.slack !== undefined && !leverSlackOnPress(this.lastTap, { t: e.timeStamp, x: e.clientX, y: e.clientY })) hit = null;
     // Pressing on anything else puts the ready piece away.
     if (hit && this.armed) this.arm(null);
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
@@ -1310,7 +1312,7 @@ export class Interaction {
    * and never while planning a route (a press there is a floor tap: nothing comes to this).
    */
   private armPin(m: Extract<Mode, { kind: "press" }>, t: number): void {
-    if (m.press.kind !== "lever" || m.press.road || this.onPickPlace) return;
+    if (m.press.kind !== "lever" || m.press.road || this.onPickPlace || !pressPins(m.press.slack)) return;
     const piece = this.game.layout.getPiece(m.press.pieceId);
     const def = piece && getPieceDef(piece.type, piece.flipped);
     if (!def?.isSwitch || def.gated || def.signal) return;
@@ -1575,6 +1577,8 @@ export class Interaction {
         return;
       }
       // (Cargo is tapped again and again, a unit a tap: never a double tap.)
+      // (A lever taken by a fingertip's slack is a tap on the grass too: a second tap there zooms. See `onCanvasDown`.)
+      if (m.press.kind === "lever" && m.press.slack !== undefined) this.noteTap(e);
       if (m.press.kind !== "lever" && m.press.kind !== "cargo" && this.noteTap(e)) this.focusOn(m.press);
       else this.tap(m.press, m.add);
       return;
@@ -4182,9 +4186,9 @@ export class Interaction {
     const car = nearCarWins(under) ? nearestOnScreen(x, y, this.carsOnScreen(), TOUCH_SLACK_PX) : null;
     let lever = nearestOnScreen(x, y, this.leversOnScreen(), LEVER_SLACK_PX);
     const own = exact?.kind === "piece" && exact.pieceId === lever.id;
-    if (lever.id === -1 || !nearLeverWins(under, lever.d, own, this.drawsNow || !!this.onPickPlace)) lever = { id: -1, d: Infinity };
+    if (lever.id === -1 || !nearLeverWins(under, lever.d, own, this.drawsNow || !!this.onPickPlace) || this.leverHidden(lever.id)) lever = { id: -1, d: Infinity };
     const won = fingertipWinner(car, lever);
-    if (won === "lever") return { kind: "lever", pieceId: lever.id };
+    if (won === "lever") return { kind: "lever", pieceId: lever.id, slack: lever.d };
     return this.deckOverTrain(won === "car" ? { kind: "car", carId: car!.id } : exact, exact);
   }
 
@@ -4192,15 +4196,34 @@ export class Interaction {
   private leversOnScreen(): CarOnScreen[] {
     const r = this.game.canvas.getBoundingClientRect();
     const v = new Vector3();
-    const toScreen = (x: number, y: number, z: number): [number, number] => {
+    const toScreen = (x: number, y: number, z: number): [number, number, number] => {
       v.set(x, y, z).project(this.game.camera);
-      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height, v.z];
     };
-    return this.game.trackView.leverPosts().map((p) => {
-      const [ax, ay] = toScreen(p.x, p.y, p.z);
-      const [bx, by] = toScreen(p.x, p.y + p.height, p.z);
-      return { id: p.pieceId, ax, ay, bx, by };
-    });
+    const out: CarOnScreen[] = [];
+    for (const p of this.game.trackView.leverPosts()) {
+      const [ax, ay, az] = toScreen(p.x, p.y, p.z);
+      const [bx, by, bz] = toScreen(p.x, p.y + p.height, p.z);
+      // (Behind the camera, it would project back onto the screen, mirrored.)
+      if (inFrontOfCamera(az, bz)) out.push({ id: p.pieceId, ax, ay, bx, by });
+    }
+    return out;
+  }
+
+  /**
+   * Is this lever (and its semaphore) hidden behind a hill from here? Asked of the one a fingertip's slack would take
+   * (a tap on the grass in front of a hill mustn't throw a lever behind it).
+   */
+  private leverHidden(pieceId: number): boolean {
+    const g = this.game;
+    const grid = g.landscape.grid;
+    const ground = (x: number, z: number) => {
+      const i = grid.cellAtWorld(x, z);
+      return i === -1 ? 0 : grid.groundY(i);
+    };
+    const posts = g.trackView.leverPosts().filter((p) => p.pieceId === pieceId);
+    const eye = g.camera.position;
+    return posts.length > 0 && posts.every((p) => hiddenByHills(eye, { x: p.x, y: p.y + p.height / 2, z: p.z }, ground, MAX_HEIGHT * RISER_HEIGHT, CELL / 4));
   }
 
   /**
