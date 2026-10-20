@@ -199,6 +199,7 @@ async function selectThenDrag(ctx, p) {
   // trips mustn't stretch a short press into a long one.)
   // (Its events stamped with when they were sent: on a loaded machine one delivered late would otherwise come after the
   // hold's time, its nudge then a finger leaving after a pickup.)
+  let holdWhy = "";
   const holdAt = async (x, y, ms, second = false, [nx, ny] = [3, 2]) => {
     await p.evaluate(() => window.addEventListener("pointerdown", () => (window.__downAt = performance.now()), { capture: true, once: true }));
     const t0 = Date.now() / 1000;
@@ -208,13 +209,21 @@ async function selectThenDrag(ctx, p) {
     // (A hold is taken up a frame after its time, and on a loaded machine its timer and that frame run late: past its
     // time, what it became once it's no longer a press (or, if it stays one, 3 s on), unless checking that a short
     // press isn't one.)
-    return p.evaluate(([ms, hold]) => new Promise((r) => setTimeout(() => {
+    const kind = await p.evaluate(([ms, hold]) => new Promise((r) => setTimeout(() => {
       const kind = () => window.woodrail.interaction.mode.kind;
       if (!hold) return r(kind());
       const until = performance.now() + 3000;
       const wait = () => (kind() !== "press" || performance.now() > until ? r(kind()) : requestAnimationFrame(wait));
       requestAnimationFrame(() => requestAnimationFrame(wait));
     }, Math.max(0, window.__downAt + ms - performance.now()))), [ms, ms >= 380]);
+    // What the hold was at the end (its state, the touches, the mode), for a failing check to say why.
+    holdWhy = await p.evaluate(() => {
+      const i = window.woodrail.interaction;
+      const m = i.mode;
+      const h = m.hold;
+      return JSON.stringify({ mode: m.kind, press: m.press?.kind, branch: m.branch ?? null, hold: h ? { strayedAt: h.strayedAt, armed: !!h.armed, since: Math.round(performance.now() - h.t) } : null, touches: i.touches?.size, drawing: i.drawing, downAgo: Math.round(performance.now() - window.__downAt) });
+    });
+    return kind;
   };
   const lift = async () => {
     await touch("touchEnd", 0, 0);
@@ -225,7 +234,7 @@ async function selectThenDrag(ctx, p) {
   const held = await holdAt(sx, sy, 520);
   await lift();
   const c1 = await where();
-  check("a long press on an unselected piece picks it up", held === "drag-piece", `after 520 ms: ${held}`);
+  check("a long press on an unselected piece picks it up", held === "drag-piece", `after 520 ms: ${held} ${holdWhy}`);
   check("…and letting go without moving puts it back where it was (and selects it)", JSON.stringify(c1.piece) === JSON.stringify(c0.piece) && (await p.evaluate(() => !document.querySelector(".piece-card").hidden)), `${c0.piece} → ${c1.piece}`);
   await p.keyboard.press("Escape");
   // (Stamped with when it happened, as the slow-phone cases below: a busy machine delivers the lift late.)
@@ -364,7 +373,7 @@ async function selectThenDrag(ctx, p) {
   const stillHold = await holdAt(sx, sy, 520, false, [0, 0]);
   await lift();
   const c3 = await where();
-  check("…resting still there, it picks the piece up (put back where it was)", stillHold === "drag-piece" && JSON.stringify(c3.piece) === JSON.stringify(c2.piece), `after 520 ms: ${stillHold}; ${c2.piece} → ${c3.piece}`);
+  check("…resting still there, it picks the piece up (put back where it was)", stillHold === "drag-piece" && JSON.stringify(c3.piece) === JSON.stringify(c2.piece), `after 520 ms: ${stillHold}; ${c2.piece} → ${c3.piece} ${holdWhy}`);
   await p.evaluate(() => window.woodrail.interaction.setDrawing(false));
   await p.keyboard.press("Escape");
   // 2d. A placed industry (one the player may move: the playthrough's workshop) is picked up with a hold too.
@@ -399,7 +408,7 @@ async function selectThenDrag(ctx, p) {
   if (shop) {
     const shopHold = await holdAt(shop.x, shop.y, 520);
     await lift();
-    check("a long press on a placed workshop picks it up", shopHold === "drag-piece", `after 520 ms: ${shopHold}`);
+    check("a long press on a placed workshop picks it up", shopHold === "drag-piece", `after 520 ms: ${shopHold} ${holdWhy}`);
   } else check("a workshop goes down for the hold check", false, "nowhere to put it");
   await p.keyboard.press("Escape");
   // 3. A train, not selected: the drag pans, the train stays.
