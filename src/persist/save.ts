@@ -496,27 +496,25 @@ export function loadProgress(): unknown {
  * What goes on beside a mode's railway, saved with it (not in the save format: nothing in the world depends on it): the
  * game's clock (seconds played, the Journal's times are on it), whether it was paused, and the Journal.
  */
+const sessionEntry = z.object({
+  kind: z.enum(["event", "milestone"]),
+  text: z.string().max(2000),
+  place: z.object({ x: z.number().finite(), z: z.number().finite(), points: z.array(z.object({ x: z.number().finite(), z: z.number().finite() })).max(64).optional() }).optional(),
+  time: z.number().finite(),
+  key: z.string().max(500).optional(),
+  count: z.number().int().min(1),
+  qty: z.number().finite(),
+  seq: z.number().int().min(0),
+});
+const sessionJournal = z.object({
+  entries: z.array(sessionEntry).max(JOURNAL_CAP),
+  seq: z.number().int().min(0),
+  readSeq: z.number().int().min(0),
+});
 const sessionSchema = z.object({
   clock: z.number().min(0).finite(),
   paused: z.boolean(),
-  journal: z.object({
-    entries: z
-      .array(
-        z.object({
-          kind: z.enum(["event", "milestone"]),
-          text: z.string().max(2000),
-          place: z.object({ x: z.number().finite(), z: z.number().finite(), points: z.array(z.object({ x: z.number().finite(), z: z.number().finite() })).max(64).optional() }).optional(),
-          time: z.number().finite(),
-          key: z.string().max(500).optional(),
-          count: z.number().int().min(1),
-          qty: z.number().finite(),
-          seq: z.number().int().min(0),
-        }),
-      )
-      .max(JOURNAL_CAP),
-    seq: z.number().int().min(0),
-    readSeq: z.number().int().min(0),
-  }),
+  journal: sessionJournal,
 });
 
 export type SessionData = z.infer<typeof sessionSchema>;
@@ -536,8 +534,21 @@ export function loadSession(mode: GameMode): SessionData | null {
   try {
     const raw = localStorage.getItem(sessionKey(mode));
     if (raw === null) return null;
-    const parsed = sessionSchema.safeParse(JSON.parse(raw));
-    return parsed.success ? parsed.data : null;
+    const data: unknown = JSON.parse(raw);
+    const parsed = sessionSchema.safeParse(data);
+    if (parsed.success) return parsed.data;
+    // Something in it doesn't read (a Journal entry, most likely): keep the clock and the pause if they do, with the
+    // entries that read (QA: one bad entry lost the whole session, so the date went back to Jan 2000).
+    const head = z.object({ clock: sessionSchema.shape.clock, paused: sessionSchema.shape.paused }).safeParse(data);
+    if (!head.success) return null;
+    const j = (data as { journal?: { entries?: unknown; seq?: unknown; readSeq?: unknown } }).journal;
+    const entries = (Array.isArray(j?.entries) ? j.entries : []).flatMap((e) => {
+      const r = sessionEntry.safeParse(e);
+      return r.success ? [r.data] : [];
+    });
+    const counts = z.object({ seq: sessionJournal.shape.seq, readSeq: sessionJournal.shape.readSeq }).safeParse(j);
+    const seq = counts.success ? counts.data.seq : entries.reduce((m, e) => Math.max(m, e.seq), 0);
+    return { ...head.data, journal: { entries: entries.slice(-JOURNAL_CAP), seq, readSeq: counts.success ? counts.data.readSeq : seq } };
   } catch {
     return null;
   }
