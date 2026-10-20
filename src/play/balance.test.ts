@@ -111,6 +111,15 @@ const MAIN_BY_SEED: Readonly<Record<number, { city: number; researched: number }
 /** The City's band on every seed (spec §5, the CoS's of 2026-10-20), in minutes. */
 const CITY_BAND = [60, 90] as const;
 
+/**
+ * The research-stall guard's one exemption (spec §5): the plank famine of one goods train on a long line. A research
+ * waiting on planks while the only goods train saws a few a pass on a line of this many stops or more (seed 2027's
+ * Carpenter's bench, 22 stops) is the harness's one train, not the research's costs. Told by its cause, not its seed.
+ */
+const FAMINE_STOPS = 20;
+/** Cars that carry goods: a train with one is a goods train (the passenger train has only coaches). */
+const GOODS_CARS: ReadonlySet<CarKind> = new Set<CarKind>(["timber", "hopper", "van"]);
+
 interface Row {
   minute: number;
   coins: number;
@@ -200,6 +209,8 @@ class Player {
   researchStall = 0;
   /** The research the longest wait was on, and when it began. */
   researchStallOn = "-";
+  /** At the longest wait's end: goods trains on the map, the most stops on a line, and whether the research lacked planks. */
+  researchStallCause = { goodsTrains: 0, stops: 0, planks: false };
   /** Growth cards taken, by kind. */
   readonly cardsTaken: Record<string, number> = {};
   /** Researches finished, by minute. */
@@ -262,8 +273,23 @@ class Player {
       if (wait > this.researchStall) {
         this.researchStall = wait;
         this.researchStallOn = `${s.research.current} (from ${minutes(this.researchFed).toFixed(1)})`;
+        // (Only as the longest grows: a look over the trains and lines, not every second.)
+        this.researchStallCause = { goodsTrains: this.goodsTrains(), stops: Math.max(0, ...[...this.w.economy.lines.values()].map((l) => l.stops.length)), planks: researchLacking(s, "planks") > 0 };
       }
     } else this.researchFed = this.tick;
+  }
+
+  /** Trains on the map with a goods car (a timber wagon, a hopper, a van). */
+  goodsTrains(): number {
+    let n = 0;
+    for (const id of this.w.sim.trainIds()) if (this.w.sim.getTrain(id)?.cars.some((c) => GOODS_CARS.has(c.kind))) n++;
+    return n;
+  }
+
+  /** Is the longest research stall the one-goods-train plank famine on a long line (`FAMINE_STOPS`)? */
+  plankFamine(): boolean {
+    const c = this.researchStallCause;
+    return c.goodsTrains === 1 && c.stops >= FAMINE_STOPS && c.planks;
   }
 
   /** Seconds planks were kept for the workshop; the longest stretch (s) with no planks into any town, after the first. */
@@ -1334,7 +1360,8 @@ class Playthrough {
    * at least main's researched count by 180 (7 on a seed main has no figure for); the City at minute 60-90; no stretch
    * of 45 min or more with no planks into a town; and the guard: no research stall over 15 min, coins at 180 at least
    * 100, no City more than 20% later than main's. Each miss is listed (soft), and any fails the run. What's only nice
-   * to have (a research stall under 10 min, coins at 180 within 150-600) is printed.
+   * to have (a research stall under 10 min, coins at 180 within 150-600) is printed. The stall guard's one exemption:
+   * the one-goods-train plank famine on a line of `FAMINE_STOPS` stops or more (`plankFamine`), printed as exempt.
    */
   checkBands(): void {
     const P = this.p;
@@ -1350,11 +1377,14 @@ class Playthrough {
     expect.soft(city, `City at minute ${CITY_BAND[0]} or later`).toBeGreaterThanOrEqual(CITY_BAND[0]);
     expect.soft(city, `City by minute ${CITY_BAND[1]}`).toBeLessThanOrEqual(CITY_BAND[1]);
     expect.soft(gap, "no planks into a town for 45 min").toBeLessThan(45);
-    expect.soft(stall, "no research stall over 15 min").toBeLessThanOrEqual(15);
+    const famine = P.plankFamine();
+    if (!famine) expect.soft(stall, "no research stall over 15 min").toBeLessThanOrEqual(15);
     expect.soft(coins, "coins at 180 at least 100").toBeGreaterThanOrEqual(100);
     if (main) expect.soft(city, `City no more than 20% later than main's ${main.city}`).toBeLessThanOrEqual(main.city * 1.2);
     const nice = [stall >= 10 && `research stall ${stall.toFixed(1)} min (under 10)`, (coins < 150 || coins > 600) && `coins ${coins} (150-600)`].filter(Boolean);
-    console.log(`BANDS researched ${researched} (floor ${floor}), City ${city}, gap ${gap.toFixed(1)} min, stall ${stall.toFixed(1)} min, coins ${coins}; nice to have: ${nice.join("; ") || "all met"}`);
+    const c = P.researchStallCause;
+    const exempt = famine && stall > 15 ? ` (exempt: plank famine, ${c.goodsTrains} goods train on a ${c.stops}-stop line)` : "";
+    console.log(`BANDS researched ${researched} (floor ${floor}), City ${city}, gap ${gap.toFixed(1)} min, stall ${stall.toFixed(1)} min${exempt}, coins ${coins}; nice to have: ${nice.join("; ") || "all met"}`);
   }
 
   /** Minutes from learning a blueprint to building what it brings ("-": not both). */
@@ -1403,7 +1433,7 @@ class Playthrough {
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
       `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min`,
-      `SUMMARY research first ${P.researchedAt[0] ?? "-"} at60 ${P.researchedAt.filter((m) => m <= 60).length} at120 ${P.researchedAt.filter((m) => m <= 120).length} at180 ${P.researchedAt.filter((m) => m <= 180).length} stall ${(P.researchStall / 60).toFixed(1)}min on ${P.researchStallOn} school ${this.firsts["school"] ?? "-"} blueprints ${P.progress.learned.size}`,
+      `SUMMARY research first ${P.researchedAt[0] ?? "-"} at60 ${P.researchedAt.filter((m) => m <= 60).length} at120 ${P.researchedAt.filter((m) => m <= 120).length} at180 ${P.researchedAt.filter((m) => m <= 180).length} stall ${(P.researchStall / 60).toFixed(1)}min on ${P.researchStallOn} (${P.researchStallCause.goodsTrains} goods train(s), ${P.researchStallCause.stops} stops${P.researchStallCause.planks ? ", short of planks" : ""}) school ${this.firsts["school"] ?? "-"} blueprints ${P.progress.learned.size}`,
       `SUMMARY cards ${Object.entries(P.cardsTaken).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`,
       `research: ${P.researchedAt.map((m, k) => `${m} ${P.learnedAt.filter((b) => b.how === "researched")[k]?.id}`).join(" · ")}`,
       `findings:\n- ${P.findings.join("\n- ") || "none"}`,
