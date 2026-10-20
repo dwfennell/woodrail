@@ -281,18 +281,27 @@ export class BlueprintBoard {
   }
 
   show(v: BoardView): void {
-    const key = JSON.stringify(v);
+    // (A tag's `makes` is fixed per blueprint, and its drawings are most of the view: left out of the key.)
+    const key = JSON.stringify(v, (k, x) => (k === "makes" ? undefined : x));
     if (key === this.shownKey) return;
     this.shownKey = key;
     this.view = v;
+    const was = this.selected;
     // Keep the ticket that's showing; else open on the goal's research, or the one under way, or one to pick.
     const shown = v.stations.filter((s) => s.seen === "shown");
     if (!shown.some((s) => s.id === this.selected)) {
       const pick = shown.find((s) => s.id === v.focus) ?? shown.find((s) => s.state === "researching") ?? shown.find((s) => s.state === "ready") ?? shown[0];
       this.selected = pick?.id ?? "";
     }
-    this.render();
+    // The web shows each tag's name, state and price, and the offers: when only a ticket's words changed (a second of
+    // study, a delivery's chips), only the ticket is drawn again.
+    const web = JSON.stringify([v.stations.map((s) => [s.id, s.state, s.seen, s.label, s.price, s.branch, s.needs]), v.branches, v.offers]);
+    if (web === this.webKey && was === this.selected && this.body.childElementCount > 0) this.renderSheet(v);
+    else this.render();
+    this.webKey = web;
   }
+  /** What the web was last drawn from (see `show`). */
+  private webKey = "";
 
   private render(): void {
     const v = this.view;
