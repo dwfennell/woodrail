@@ -25,6 +25,8 @@ import { fieldPrice, fieldSpot, plantField } from "../game/fields";
 import { rng } from "../lib/rng";
 import { SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, indexOfRef, pieceOfRef, type PieceTypeId, type Pose } from "../track";
+import { lineLegs } from "../game/route-path";
+import { trainLength } from "../economy/sections";
 import { play, type Blocked } from "./player";
 import { endOn, rulesFor, schoolOn } from "./rules";
 
@@ -50,6 +52,8 @@ const RUN = !!ENV.BALANCE;
 const MAX_MINUTES = Number(ENV.BALANCE_MINUTES ?? 180);
 /** Most trains on the line once routes are learned (1: only the goods train). */
 const PER_LINE = Number(ENV.BALANCE_TRAINS_PER_LINE ?? 1);
+/** Passing loops laid on the line once it's to have more than one train (default: one per extra train; BALANCE_NOLOOP=1: none). */
+const LOOPS = ENV.BALANCE_NOLOOP ? 0 : Number(ENV.BALANCE_LOOPS ?? Math.max(0, PER_LINE - 1));
 /** The target: a town that's a City ★★ (the sixth rung: hamlet, village, town, city, city ★, city ★★). */
 const TARGET_LEVEL = 5;
 
@@ -125,6 +129,19 @@ class Player {
   /** Town growths, and how long each `TownLife.update` that grew one took (ms). */
   /** Train-seconds held at stops by auto-spacing. */
   heldSeconds = 0;
+  /** Train-seconds held by sections (waiting for a section or slot; held for want of a loop: `roomSeconds`). */
+  sectionSeconds = 0;
+  roomSeconds = 0;
+  /** Head-on meetings (a train turned back by another), and arrivals of line trains at their stops. */
+  headOn = 0;
+  /** Of them, meetings of two trains of one line (each pair once). */
+  headOnLine = 0;
+  arrivals = 0;
+  private readonly turnsSeen = new Set<string>();
+  private readonly atStop = new Map<number, boolean>();
+  private readonly lastAt = new Map<number, number>();
+  /** The longest (minutes) a train on a line went without being at a stop. */
+  lineStall = 0;
   readonly growths: { minute: number; town: string; level: string; ms: number; built: number }[] = [];
   private growing: { town: string; level: string; built: number } | null = null;
   /** Each blueprint learned: when, how, and what it cost. */
@@ -166,6 +183,9 @@ class Player {
     this.syncLandmarks();
     this.counters.reset(w.economy);
     applyCranes(w.economy, this.progress);
+    // BALANCE_SECTIONS=off: trains of a line don't wait for each other (main as it was, for comparison).
+    w.economy.sections.enabled = ENV.BALANCE_SECTIONS !== "off";
+    w.economy.sections.timing = !!ENV.BALANCE_TIMING;
     attachEngines(w);
     attachPassengers(w, () => this.progress, () => {
       for (const id of learnAuto(this.progress)) this.learned(id, "carried passengers", "free");
@@ -270,6 +290,26 @@ class Player {
     return workshopStock(this.w).planks ?? 0;
   }
 
+  /**
+   * Sections trace (BALANCE_XTRACE=from-to, minutes): each line train's pieces (and switch states), speed, drive, route,
+   * slot or section, move and wait every game second. For root-causing jams; off by default.
+   */
+  xtrace(): void {
+    const [from, to] = ENV.BALANCE_XTRACE!.split("-").map(Number);
+    if (this.minute < from || this.minute > to) return;
+    const ec = this.w.economy;
+    for (const engine of ec.lineIdOf.keys()) {
+      const f = this.w.sim.findCar(engine);
+      if (!f) continue;
+      const t = f.train;
+      const r = ec.routeOf(engine);
+      const L = this.w.layout;
+      const sw = (id: number) => (L.getPiece(id) && getPieceDef(L.getPiece(id)!.type, L.getPiece(id)!.flipped).isSwitch ? `/${L.switchState(id)}` : "");
+      const pcs = [...new Set(t.bogies.map((b) => `${b.pieceId}${sw(b.pieceId)}`))].join(",");
+      this.note(`X e${engine} t${t.id} [${pcs}] v${t.speed.toFixed(0)} ${r ? `${r.at ? "AT" : "->"}${r.next}` : ""} ${JSON.stringify(ec.sections.stateOf(engine))} ${JSON.stringify(ec.sectionWait(engine))}${t.lastTurn ? ` turn ${t.lastTurn.cause}@${t.lastTurn.tick}` : ""}`);
+    }
+  }
+
   /** Play `secs` seconds: the sim and economy each tick; what the game does each second (towns, workshop, schools, people, goals). */
   run(secs: number): void {
     const end = this.tick + secs * SIM_HZ;
@@ -295,6 +335,40 @@ class Player {
       this.counters.collect(this.w.economy, this.progress);
       peopleArrive(this.w, this.progress, 1, this.people);
       for (const engine of this.w.economy.lineIdOf.keys()) if (this.w.economy.spacing.holding(engine)) this.heldSeconds++;
+      if (ENV.BALANCE_XTRACE) this.xtrace();
+      for (const engine of this.w.economy.lineIdOf.keys()) {
+        const sw = this.w.economy.sectionWait(engine);
+        if (sw) this.sectionSeconds++;
+        if (sw?.kind === "room") this.roomSeconds++;
+        const at = !!this.w.economy.routeOf(engine)?.at;
+        if (at && this.atStop.get(engine) === false) this.arrivals++;
+        this.atStop.set(engine, at);
+        // (The longest any train on a line went without coming to a stop: a lock-up shows here.)
+        if (!this.w.sim.findCar(engine) || !this.w.economy.routeOf(engine)) {
+          this.lastAt.delete(engine);
+          continue;
+        }
+        if (at || !this.lastAt.has(engine)) this.lastAt.set(engine, this.tick);
+        this.lineStall = Math.max(this.lineStall, (this.tick - this.lastAt.get(engine)!) / SIM_HZ / 60);
+      }
+      for (const id of this.w.sim.trainIds()) {
+        const t = this.w.sim.getTrain(id)!;
+        const turn = t.lastTurn;
+        const key = turn && `${turn.tick}:${turn.pieceId}:${t.cars[0].id}`;
+        if (turn?.cause === "train" && key && !this.turnsSeen.has(key)) {
+          this.turnsSeen.add(key);
+          this.headOn++;
+          // (Two trains of one line meeting: each turns back in the same tick.)
+          const mine = t.cars.find((c) => this.w.economy.lineIdOf.has(c.id));
+          const line = mine ? this.w.economy.lineIdOf.get(mine.id) : undefined;
+          if (line !== undefined)
+            for (const [e2, l2] of this.w.economy.lineIdOf) {
+              const t2 = l2 === line && e2 !== mine!.id ? this.w.sim.findCar(e2)?.train : undefined;
+              if (t2 && t2 !== t && t2.lastTurn?.cause === "train" && t2.lastTurn.tick === turn.tick && t.id < t2.id) this.headOnLine++;
+            }
+          if (ENV.BALANCE_HEADON) this.note(`head-on: engine ${t.cars.find((c) => c.kind === "engine")?.id} on ${this.w.layout.getPiece(turn.pieceId)?.type} (piece ${turn.pieceId})`);
+        }
+      }
       for (const g of this.goals.update(this.w, { learned: this.progress.learned })) {
         this.happened++;
         this.note(`GOAL ${this.goals.doneCount}/${GOALS.length} ✓ ${g.title}`);
@@ -537,6 +611,96 @@ function branchOff(P: Player, type: PieceTypeId, cells: number[], after?: PieceT
   return null;
 }
 
+/**
+ * A passing loop spliced into the line mid-way between two of its stops, as a player would lay one for a second train
+ * (routes Phase 3b: trains of the line cross there): four (or three) straights in a row on the way between the stops
+ * become a switch, the main road (straights), the other road round beside it (a curve, straights, a curve) and a
+ * switch, made at the workshop. The loop's pieces, or null with everything put back.
+ */
+function spliceLoop(P: Player, stopPieces: readonly number[], longest = 0, avoid: ReadonlySet<number> = new Set()): number[] | null {
+  const w = P.w;
+  const L = w.layout;
+  if (!P.canMake(new Map([["piece:switch", 2]]))) return null;
+  /** The main road and the other road's straights for a run of n straight-216s (the loop's switches are 144 long). */
+  const ROADS: Record<number, { main: PieceTypeId[]; side: PieceTypeId[] }> = {
+    4: { main: ["straight-216", "straight-216", "straight-144"], side: ["straight-216", "straight-144"] },
+    3: { main: ["straight-216", "straight-144"], side: ["straight-144"] },
+  };
+  // Runs of straights on the line's ways between stops: first where the main road holds the line's longest train
+  // (`longest`, mm) clear of both switches, then clear of the stops, then longest, then nearest the middle.
+  const runs: { ids: number[]; mid: number; clear: boolean; fits: boolean }[] = [];
+  for (const n of [4, 3])
+    for (const leg of lineLegs(L, stopPieces)) {
+      const ids: number[] = [];
+      for (const r of leg ?? []) if (ids.at(-1) !== r.pieceId) ids.push(r.pieceId);
+      for (let k = 0; k + n <= ids.length; k++) {
+        const run = ids.slice(k, k + n);
+        if (run.some((id) => P.fixed.has(id) || avoid.has(id) || L.getPiece(id)!.type !== "straight-216" || w.sim.pieceOccupied(id))) continue;
+        // (Clear of the stops at either end by two pieces: a long train worked at a stop creeps on past it.)
+        runs.push({ ids: run, mid: Math.abs(k + n / 2 - ids.length / 2), clear: k >= 3 && k + n <= ids.length - 3, fits: (n === 4 ? 576 : 360) >= longest + 12 });
+      }
+    }
+  runs.sort((a, b) => Number(b.fits) - Number(a.fits) || Number(b.clear) - Number(a.clear) || b.ids.length - a.ids.length || a.mid - b.mid);
+  const rules = P.rules();
+  /** The end joined to piece `id` other than by piece `not`. */
+  const outer = (id: number, not: number): number => {
+    for (const c of [0, 1]) {
+      const j = L.joinedConnector(connectorRef(id, c));
+      if (j !== -1 && pieceOfRef(j) !== not) return j;
+    }
+    return -1;
+  };
+  /** Straights put back after a try, under new ids: runs found before it that share them follow. */
+  const renamed = new Map<number, number>();
+  for (const run of runs.slice(0, 12)) {
+    const ids = run.ids.map((id) => {
+      while (renamed.has(id)) id = renamed.get(id)!;
+      return id;
+    });
+    const n = ids.length;
+    const before = outer(ids[0], ids[1]);
+    const after = outer(ids[n - 1], ids[n - 2]);
+    if (before === -1 || after === -1) continue;
+    const was = ids.map((id) => ({ ...L.getPiece(id)! }));
+    for (const side of [false, true]) {
+      for (const id of ids) P.editor.remove(id);
+      const placed: number[] = [];
+      const put = (type: PieceTypeId, flipped: boolean, ref: number, via?: number): number => {
+        const tmp = appendPiece(L, type, flipped, ref, via);
+        const p = L.getPiece(tmp)!;
+        L.removePiece(tmp);
+        const id = P.editor.place(type, p.pose, p.y, flipped);
+        placed.push(id);
+        return id;
+      };
+      const s1 = put("switch", side, before, 0);
+      let at = s1;
+      for (const t of ROADS[n].main) at = put(t, false, connectorRef(at, 1));
+      const mainEnd = at;
+      at = put("curve-large", !side, connectorRef(s1, 2));
+      for (const t of ROADS[n].side) at = put(t, false, connectorRef(at, 1));
+      at = put("curve-large", !side, connectorRef(at, 1));
+      const s2 = put("switch", !side, connectorRef(at, 1), 2);
+      const closes =
+        L.joinedConnector(connectorRef(s2, 1)) === connectorRef(mainEnd, 1) &&
+        L.joinedConnector(connectorRef(s2, 0)) === after &&
+        L.joinedConnector(connectorRef(s1, 0)) === before;
+      const allowed = placed.every((id) => {
+        const p = L.getPiece(id)!;
+        return !rules(p.type, p.flipped, p.pose, p.y, id);
+      });
+      if (closes && allowed && P.settle()) return placed;
+      for (const id of placed) P.editor.remove(id);
+      // The straights back as they were, as one edit: put back one by one, each was shifted to take up the play left
+      // by the ones not yet back (Editor's takeUpPlay), and the run came back bent, open in the middle.
+      const back = P.editor.placeRun(was.map((p) => ({ type: p.type, pose: p.pose, y: p.y, flipped: p.flipped })));
+      for (let k = 0; k < n; k++) renamed.set(ids[k], back[k]);
+      ids.splice(0, n, ...back);
+    }
+  }
+  return null;
+}
+
 function industryAt(P: Player, type: PieceTypeId, ref: number): number {
   const id = placeOn(P, ref, type);
   const p = P.w.layout.getPiece(id)!;
@@ -690,6 +854,10 @@ class Playthrough {
   perLine = 0;
   jamCut = 0;
   extraAt = -99;
+  /** When each passing loop was laid on the line (minutes), and when one was last tried. */
+  readonly loopsAt: number[] = [];
+  readonly loopPieces = new Set<number>();
+  loopTry = -99;
   recomposed = -99;
   /** Minutes in a row with nothing new. */
   idle = 0;
@@ -799,7 +967,7 @@ class Playthrough {
     if (sawn !== this.sawn) {
       this.sawn = sawn;
       this.sawnAt = P.minute;
-    } else if ((this.stall = Math.max(this.stall, Math.round(P.minute - this.sawnAt))) && (this.trains.size < 2 || (this.jamStall = Math.max(this.jamStall, Math.round(P.minute - this.sawnAt)))) && P.minute - this.sawnAt >= 4 && this.trains.size >= 2) {
+    } else if ((this.stall = Math.max(this.stall, Math.round(P.minute - this.sawnAt))) && (this.trains.size < 2 || (this.jamStall = Math.max(this.jamStall, Math.round(P.minute - this.sawnAt)))) && P.minute - this.sawnAt >= 4 && this.trains.size >= 2 && !ENV.BALANCE_NOJAMCUT) {
       const [e, kind] = [...this.trains].find(([id]) => id !== this.timber) ?? [];
       if (e !== undefined) {
         P.lift(e);
@@ -1168,9 +1336,29 @@ class Playthrough {
       this.routeGoods();
       P.happened++;
     }
+    // With more than one train for the line, passing loops on it first (one per extra train, mid-way between two
+    // stops), once switches are learned and can be made (BALANCE_NOLOOP=1: none; BALANCE_LOOPS=n: n).
+    if (this.lines && this.lineId >= 0 && PER_LINE > 1 && this.loopsAt.length < LOOPS && P.progress.knows("piece:switch") && P.minute - this.loopTry >= 3) {
+      this.loopTry = P.minute;
+      const line = w.economy.lines.get(this.lineId);
+      const stops = line ? [...new Set(line.stops.map((st) => w.economy.depot(st.depotId)!.pieceId))] : [];
+      const longest = Math.max(0, ...[...w.economy.lineIdOf].filter(([, id]) => id === this.lineId).map(([e]) => (w.sim.findCar(e) ? trainLength(w.sim.findCar(e)!.train) : 0)));
+      const loop = spliceLoop(P, stops, Math.max(longest, 450), this.loopPieces);
+      // (A splice must leave every way between the line's stops joined: one left open strands the line's trains.)
+      if (loop && lineLegs(w.layout, stops).some((leg) => leg === null)) P.findings.push(`Minute ${P.minute.toFixed(0)}: a passing loop left the line open (a way between its stops is broken).`);
+      if (loop) {
+        P.happened++;
+        this.loopsAt.push(Math.round(P.minute));
+        for (const id of loop) this.loopPieces.add(id);
+        P.note(`laid a passing loop on the line (${loop.length} pieces): ${this.loopsAt.length} now`);
+      } else this.why ||= "a passing loop for the line (no room, or 2 switches to make)";
+    }
     // More trains on the line as they become affordable (an engine and two flatbeds), up to BALANCE_TRAINS_PER_LINE,
-    // a few minutes apart; one fewer for each that jammed the line.
-    if (this.lines && this.lineId >= 0 && this.trains.size < PER_LINE - this.jamCut && P.minute - this.extraAt >= 3) {
+    // a few minutes apart; one fewer for each that jammed the line. (With loops scripted, the next train waits for its
+    // loop, as a player who knows the line needs one would.)
+    const loopFirst = this.loopsAt.length < Math.min(LOOPS, this.trains.size);
+    if (loopFirst && this.lines && this.trains.size < PER_LINE - this.jamCut) this.why ||= "another train for the line, once it has a passing loop";
+    if (!loopFirst && this.lines && this.lineId >= 0 && this.trains.size < PER_LINE - this.jamCut && P.minute - this.extraAt >= 3) {
       const cars: CarKind[] = ["engine", "timber", "timber"];
       if (P.canMake(thingsFor({ kind: "train", cars }))) {
         const e = P.train(cars, -1, 1);
@@ -1341,7 +1529,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
-      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min loops ${this.loopsAt.join("/") || "-"} headOn ${P.headOn} lineHeadOn ${P.headOnLine} lineStall ${P.lineStall.toFixed(1)} arrivals ${P.arrivals} sectionWait ${(P.sectionSeconds / 60).toFixed(1)}min roomWait ${(P.roomSeconds / 60).toFixed(1)}min releases ${w.economy.sections.released}${ENV.BALANCE_TIMING ? ` capUs ${w.economy.sections.capCalls ? ((1000 * w.economy.sections.capMs) / w.economy.sections.capCalls).toFixed(2) : "-"} capCalls ${w.economy.sections.capCalls}` : ""}`,
       `SUMMARY research first ${P.researchedAt[0] ?? "-"} at60 ${P.researchedAt.filter((m) => m <= 60).length} at120 ${P.researchedAt.filter((m) => m <= 120).length} at180 ${P.researchedAt.filter((m) => m <= 180).length} stall ${(P.researchStall / 60).toFixed(1)}min on ${P.researchStallOn} school ${this.firsts["school"] ?? "-"} blueprints ${P.progress.learned.size}`,
       `SUMMARY cards ${Object.entries(P.cardsTaken).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`,
       `research: ${P.researchedAt.map((m, k) => `${m} ${P.learnedAt.filter((b) => b.how === "researched")[k]?.id}`).join(" · ")}`,
