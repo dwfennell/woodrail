@@ -65,6 +65,9 @@ export function offerOnGrowth(p: Progress, townName: string, random: () => numbe
   return offer;
 }
 
+/** The school's piece (the first village's present). */
+const SCHOOL: ThingId = "piece:depot-school";
+
 /** Industry buildings (and the workshop): never in a crate. */
 const isBuilding = (id: ThingId) => id.startsWith("piece:depot-");
 
@@ -143,7 +146,7 @@ export function takeBlueprint(p: Progress, k: number, id: string, random: () => 
 }
 
 /**
- * The first time any of your towns reaches a level, a present: a second train for your first village, an industry
+ * The first time any of your towns reaches a level, a present: a second train and a school for your first village, an industry
  * building for your first town, an engine and the grandest industry you know for your first city. Returns what was
  * given (into the toy box), or empty if that level was reached before.
  */
@@ -157,10 +160,11 @@ export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
 }
 
 function giftFor(p: Progress, level: number): [ThingId, number][] {
-  // Industry buildings you know, cheapest first (by the coins they'd cost).
-  const industries = (Object.keys(THING_RULES) as ThingId[]).filter((id) => isBuilding(id) && THING_RULES[id]!.coins && p.knows(id));
+  // Industry buildings you know, cheapest first (by the coins they'd cost). (Not the school: the first village's.)
+  const industries = (Object.keys(THING_RULES) as ThingId[]).filter((id) => isBuilding(id) && id !== SCHOOL && THING_RULES[id]!.coins && p.knows(id));
   industries.sort((a, b) => THING_RULES[a]!.coins! - THING_RULES[b]!.coins!);
-  if (level === 1) return [["car:engine", 1], ["car:timber", 1]];
+  // The first village: a second train, and a school to research blueprints at (beside a town).
+  if (level === 1) return [["car:engine", 1], ["car:timber", 1], [SCHOOL, 1]];
   if (level === 2) return industries.length > 0 ? [[industries[0], 1], ["piece:buffer-turnback", 2]] : [["piece:depot-workshop", 1], ["piece:buffer-turnback", 2]];
   return [["car:engine", 1], ...(industries.length > 0 ? [[industries[industries.length - 1], 1] as [ThingId, number]] : [])];
 }

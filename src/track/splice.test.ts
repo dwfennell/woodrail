@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { connectorRef, Layout } from "./layout";
-import { type Pose } from "./math";
+import { normalizeAngle, type Pose } from "./math";
 import { findOverlap } from "./overlap";
 import { appendPiece } from "./snap";
-import { findSplice, findSpliceThatFits, gapFill, isPlainStraight, straightLength, straightsFor } from "./splice";
-import type { PieceTypeId } from "./pieces";
+import { findBranch, findCrossing, findCurveSwap, findMerge, findThreeWay, findSplice, findSpliceThatFits, gapFill, isPlainStraight, straightLength, straightsFor, type PieceSwap } from "./splice";
+import { getPieceDef, type PieceTypeId } from "./pieces";
 
 const P = (x: number, z: number, heading = 0): Pose => ({ x, z, heading });
 
@@ -245,6 +245,102 @@ describe("gapFill (the gap a depot leaves in a line)", () => {
   });
 });
 
+/** Put a swap down in a copy of what it's in: covers up, its pieces down (to see that it joins up). */
+function apply(l: Layout, w: PieceSwap): number[] {
+  for (const id of w.covers) l.removePiece(id);
+  return w.pieces.map((p) => l.addPiece(p.type, p.pose, p.y, p.flipped));
+}
+
+describe("findBranch (a switch swapped into a line, for a drawn branch)", () => {
+  it("off a straight, its branch to the side the stroke leaves (both hands), facing the way it goes, joined in", () => {
+    for (const [deg, side, facing] of [[45, 1, 1], [-45, -1, 1], [135, 1, -1], [-135, -1, -1], [60, 1, 1], [-30, -1, 1]] as const) {
+      const l = new Layout();
+      line(l, ["straight-216", "straight-216", "straight-216"]);
+      const joints = l.jointCount;
+      const w = findBranch(l, 1, 324, 0, (deg * Math.PI) / 180);
+      expect(w.kind, `${deg}°`).toBe("swap");
+      if (w.kind !== "swap") continue;
+      expect(w.pieces[0].type).toBe("switch");
+      // The branch end is to the stroke's side, its leg running off at 45° the stroke's way.
+      expect(Math.sign(w.end.z), `${deg}°`).toBe(side);
+      expect(Math.sign(Math.cos(w.end.heading)), `${deg}°`).toBe(facing);
+      expect(Math.abs(Math.abs(w.end.heading) - (facing === 1 ? Math.PI / 4 : (3 * Math.PI) / 4))).toBeLessThan(1e-6);
+      // Put down, the run is whole again: every joint as before, and the branch end free.
+      const ids = apply(l, w);
+      expect(ids.length).toBe(w.pieces.length);
+      expect(l.jointCount, `${deg}°`).toBe(joints + 1 - w.covers.length + w.pieces.length - 1);
+    }
+  });
+
+  it("covers whole straights where that's nearly as near, and fills what's left with plain straights otherwise", () => {
+    const l = new Layout();
+    line(l, ["straight-144", "straight-144", "straight-144"]);
+    const w = findBranch(l, 1, 216, 0, Math.PI / 4);
+    expect(w.kind).toBe("swap");
+    if (w.kind !== "swap") return;
+    expect(w.pieces.map((p) => p.type)).toEqual(["switch"]);
+    const m = new Layout();
+    line(m, ["straight-216", "straight-216", "straight-216"]);
+    const v = findBranch(m, 1, 300, 0, Math.PI / 4);
+    if (v.kind !== "swap") throw new Error(v.kind);
+    // Lengths left over are plain straights, 36 mm or more.
+    for (const p of v.pieces.slice(1)) expect(isPlainStraight(p.type)).toBe(true);
+    const total = v.pieces.slice(1).reduce((t, p) => t + straightLength(p.type, false), 144);
+    expect(total).toBe(v.covers.length * 216);
+  });
+
+  it("square off the line, it faces the line's nearer free end", () => {
+    for (const far of [1, -1]) {
+      const l = new Layout();
+      const ids = line(l, ["straight-216", "straight-216", "straight-216"]);
+      // More track beyond one end (curves: not part of the run), so the other end is nearer.
+      let ref = far === 1 ? connectorRef(ids[2], 1) : connectorRef(ids[0], 0);
+      for (let k = 0; k < 3; k++) {
+        const id = appendPiece(l, "curve-large", false, ref, far === 1 ? 0 : 1);
+        ref = connectorRef(id, far === 1 ? 1 : 0);
+      }
+      const w = findBranch(l, ids[1], 324, 0, Math.PI / 2);
+      if (w.kind !== "swap") throw new Error(w.kind);
+      expect(Math.sign(Math.cos(w.end.heading)), `more track ${far === 1 ? "on" : "back"}`).toBe(-far);
+    }
+  });
+
+  it("is refused when a train is on the straight it would take up", () => {
+    const l = new Layout();
+    line(l, ["straight-216", "straight-216", "straight-216"]);
+    expect(findBranch(l, 1, 324, 0, Math.PI / 4, (id) => id !== 1)).toEqual({ kind: "busy", onto: 1 });
+  });
+});
+
+describe("findMerge (a drawn line coming in to a line at 45°)", () => {
+  it("meets the branch end of a switch swapped in there, straight away or through a straight on the line's heading", () => {
+    for (const link of [0, 36, 108, 216]) {
+      const l = new Layout();
+      line(l, ["straight-216", "straight-216", "straight-216", "straight-216"]);
+      const b = findBranch(l, 1, 324, 0, Math.PI / 4);
+      if (b.kind !== "swap") throw new Error(b.kind);
+      // A line's end that far out along the branch, coming in.
+      const e = { x: b.end.x + Math.cos(b.end.heading) * link + 3, z: b.end.z + Math.sin(b.end.heading) * link - 2, heading: b.end.heading + Math.PI, y: 0 };
+      const m = findMerge(l, e, 330, 10);
+      expect(m, `${link}`).not.toBeNull();
+      if (!m) continue;
+      expect(m.links.map((l) => l.type)).toEqual(link ? [`straight-${link}`] : []);
+      expect(Math.hypot(m.swap.end.x - b.end.x, m.swap.end.z - b.end.z)).toBeLessThan(10);
+    }
+  });
+
+  it("not when the finger was let go away from the line, or the line comes in square to it", () => {
+    const l = new Layout();
+    line(l, ["straight-216", "straight-216", "straight-216"]);
+    const b = findBranch(l, 1, 324, 0, Math.PI / 4);
+    if (b.kind !== "swap") throw new Error(b.kind);
+    const e = { x: b.end.x + Math.cos(b.end.heading) * 72, z: b.end.z + Math.sin(b.end.heading) * 72, heading: b.end.heading + Math.PI, y: 0 };
+    expect(findMerge(l, e, 330, 200)).toBeNull();
+    expect(findMerge(l, { ...e, heading: -Math.PI / 2 }, 330, 10)).toBeNull();
+    expect(findMerge(l, e, 330, 10, () => false)).toBeNull();
+  });
+});
+
 describe("findSplice: a short kit on a longer straight", () => {
   it("takes the half of a 216 nearer where it's held, and a 108 straight fills the other half", () => {
     const l = new Layout();
@@ -270,6 +366,104 @@ describe("findSplice: a short kit on a longer straight", () => {
     line(l, ["straight-108", "straight-108", "straight-108"]);
     const s = findSplice(l, "kit-water-tower", false, { x: 160, z: 0 }, 0, 40);
     expect(s.kind === "splice" && s.rest).toBeUndefined();
+  });
+});
+
+describe("findCrossing (a drawn line going on across a line at 90° or 45°)", () => {
+  it("swaps a crossing into the line where the drawn line meets it, the drawn line in at one end of its cross path and on from the other", () => {
+    for (const [deg, type] of [[90, "crossing"], [-90, "crossing"], [45, "crossing-45"], [135, "crossing-45"], [-45, "crossing-45"]] as const) {
+      for (const gap of [72, 144, 216]) {
+        const l = new Layout();
+        line(l, ["straight-216", "straight-216", "straight-216", "straight-216"]);
+        const a = (deg * Math.PI) / 180;
+        // The line's end `gap` mm short of the crossing's near end (half the crossing short of where its heading meets
+        // the run's centre line).
+        const hit = { x: 432 + 7, z: 0 };
+        const back = gap + 72;
+        const e = { x: hit.x - Math.cos(a) * back, z: hit.z - Math.sin(a) * back, heading: a, y: 0 };
+        const c = findCrossing(l, e);
+        expect(c, `${deg}° ${gap}`).not.toBeNull();
+        if (!c) continue;
+        expect(c.swap.pieces[0].type, `${deg}° ${gap}`).toBe(type);
+        // In facing the line's end; out the far side, the same way.
+        expect(Math.abs(normalizeAngle(c.swap.end.heading - a - Math.PI)), `${deg}° ${gap}`).toBeLessThan(0.05);
+        expect(Math.abs(normalizeAngle(c.swap.exit!.heading - a)), `${deg}° ${gap}`).toBeLessThan(0.05);
+        expect(Math.sign(c.swap.exit!.z * Math.sign(Math.sin(a)))).toBe(1);
+        // Put down with its straights, the old line and the drawn line are both whole.
+        const ids = apply(l, c.swap);
+        expect(ids.length).toBe(c.swap.pieces.length);
+      }
+    }
+  });
+
+  it("not along the line, nor where it would take up a straight a train is on", () => {
+    const l = new Layout();
+    line(l, ["straight-216", "straight-216", "straight-216"]);
+    expect(findCrossing(l, { x: 0, z: 100, heading: 0, y: 0 })).toBeNull();
+    expect(findCrossing(l, { x: 324, z: -150, heading: Math.PI / 2, y: 0 }, () => false)).toBeNull();
+  });
+});
+
+describe("findCurveSwap (a branch off a large curve) and findThreeWay (off a switch's open side)", () => {
+  /** A straight, a large curve (either hand), a straight: the curve's id. */
+  function curved(l: Layout, flipped: boolean): number {
+    const a = l.addPiece("straight-216", P(0, 0), 0);
+    const c = appendPiece(l, "curve-large", flipped, connectorRef(a, 1));
+    appendPiece(l, "straight-216", false, connectorRef(c, 1));
+    return c;
+  }
+
+  it("a curve becomes a switch (the new line straight on) or a Y (the new line curving the other way), joints kept, set to the old line", () => {
+    for (const flipped of [false, true]) {
+      const turn = flipped ? -1 : 1;
+      // Straight on from where the curve starts: a switch, its branch the old curve.
+      let l = new Layout();
+      let c = curved(l, flipped);
+      const joints = l.jointCount;
+      const w = findCurveSwap(l, c, 260, 0, 0);
+      if (w.kind !== "swap") throw new Error(w.kind);
+      expect(w.pieces[0].type).toBe("switch");
+      expect(w.pieces[0].state).toBe(1);
+      expect(Math.abs(normalizeAngle(w.end.heading))).toBeLessThan(1e-6);
+      apply(l, w);
+      expect(l.jointCount).toBe(joints);
+      // Curving the other way: a Y, one leg the old curve.
+      l = new Layout();
+      c = curved(l, flipped);
+      const y = findCurveSwap(l, c, 260, -turn * 20, (-turn * Math.PI) / 4);
+      if (y.kind !== "swap") throw new Error(y.kind);
+      expect(y.pieces[0].type).toBe("switch-y");
+      expect(Math.sign(normalizeAngle(y.end.heading))).toBe(-turn);
+      apply(l, y);
+      expect(l.jointCount).toBe(joints);
+    }
+  });
+
+  it("a switch becomes a three-way when the stroke leaves on its open side, joints kept, set as it was", () => {
+    for (const flipped of [false, true]) {
+      for (const state of [0, 1]) {
+        const l = new Layout();
+        const a = l.addPiece("straight-216", P(0, 0), 0);
+        const sw = appendPiece(l, "switch", flipped, connectorRef(a, 1));
+        appendPiece(l, "straight-216", false, connectorRef(sw, 1));
+        appendPiece(l, "curve-large", flipped, connectorRef(sw, 2));
+        l.setSwitchState(sw, state);
+        const joints = l.jointCount;
+        const open = flipped ? Math.PI / 4 : -Math.PI / 4;
+        // Not on the branch's own side.
+        expect(findThreeWay(l, sw, -open).kind).toBe("none");
+        const w = findThreeWay(l, sw, open);
+        if (w.kind !== "swap") throw new Error(w.kind);
+        expect(w.pieces[0].type).toBe("switch-3way");
+        expect(Math.abs(normalizeAngle(w.end.heading - open))).toBeLessThan(1e-6);
+        // Set as it was: straight on, or the same curve.
+        const id = apply(l, w)[0];
+        if (w.pieces[0].state) l.setSwitchState(id, w.pieces[0].state);
+        expect(l.jointCount).toBe(joints);
+        const path = getPieceDef("switch-3way", false).paths[l.switchState(id)];
+        expect(path.to).toBe(state === 0 ? 1 : flipped ? 3 : 2);
+      }
+    }
   });
 });
 

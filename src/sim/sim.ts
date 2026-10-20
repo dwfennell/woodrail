@@ -21,6 +21,8 @@ export const SIM_DT = 1 / SIM_HZ;
 export const TURNBACK_TICKS = 2 * SIM_HZ;
 /** How far back (mm) an engine following another train's engine holds. */
 const FOLLOW_GAP = 10;
+/** For this long (2 s) after coming off a lift, a train still has the right of way over one coming toward it. */
+const LIFT_GRACE = 2 * SIM_HZ;
 /** Slower than this (mm/s) a train is standing: it doesn't move (or ask for frames) at all. */
 const MIN_SPEED = 0.01;
 const hasEngine = (t: Train): boolean => t.cars.some((c) => c.kind === "engine");
@@ -885,10 +887,16 @@ export class Sim {
     return brakeTo(room);
   }
 
-  /** Is this train standing at a lift's end, held there for it (`liftState` "waiting", not on it)? */
-  private waitsForLift(t: Train): boolean {
-    return drive(t) !== 0 && !this.onLift(t) && this.liftCap(t, false) === 0;
+  /** Is this train coming off a lift: on its platform, or off it within the last `LIFT_GRACE` ticks? */
+  private comingOffLift(t: Train): boolean {
+    if (!this.lifts || this.lifts.length === 0) return false;
+    if (this.onLift(t)) return true;
+    const off = this.offLift.get(t.id);
+    return off !== undefined && this.ticks - off < LIFT_GRACE;
   }
+
+  /** When each train was last on a lift (`Sim.ticks`), for `comingOffLift`: kept a moment, then forgotten. */
+  private readonly offLift = new Map<number, number>();
 
   /** Is any of this train on a lift's platform? */
   private onLift(t: Train): boolean {
@@ -978,7 +986,12 @@ export class Sim {
   tick(): void {
     this.ticks++;
     if (this.rides.size > 0) this.updateRides();
-    if (this.lifts === null || this.lifts.length > 0) this.updateLifts();
+    if (this.lifts === null || this.lifts.length > 0) {
+      this.updateLifts();
+      // (Who's on a lift now, for `comingOffLift`; those long off it forgotten.)
+      for (const t of this.trains.values()) if (!t.derailed && this.onLift(t)) this.offLift.set(t.id, this.ticks);
+      for (const [id, at] of this.offLift) if (this.ticks - at >= LIFT_GRACE || !this.trains.has(id)) this.offLift.delete(id);
+    }
     if (this.decksTurning.size > 0) {
       for (const [id, done] of this.decksTurning)
         if (done <= this.ticks) {
@@ -1371,12 +1384,17 @@ export class Sim {
           const closing = a.speed + (front ? b.speed : -b.speed);
           if (closing <= 0) continue;
           if (front && hasEngine(a) && hasEngine(b)) {
-            // Coming off a lift into a train standing at its end, waiting for it: the one waiting gives way (it turns
-            // back, and the other comes off). Else the one coming off would turn back onto the lift and ride round
-            // again, and the one waiting never get on.
-            if (b.speed === 0 && this.waitsForLift(b) && this.onLift(a)) {
-              a.speed = 0;
-              this.meet(b);
+            // One of them coming off a lift (on it, or just off it): the other gives way (it turns back) and the one
+            // coming off waits a moment, then comes on. Else both would turn back, and the one coming off would go
+            // back onto the lift and ride round again, never getting off it (QA: 35 rides, 2 stops reached).
+            const aOff = this.comingOffLift(a);
+            if (aOff !== this.comingOffLift(b)) {
+              const yields = aOff ? b : a;
+              const keeps = aOff ? a : b;
+              keeps.speed = 0;
+              // (Waiting for the other to turn back, it keeps its right of way however long that takes.)
+              if (this.offLift.has(keeps.id)) this.offLift.set(keeps.id, this.ticks);
+              this.meet(yields);
               continue;
             }
             // Head on, engine against engine: like the end of the line, each stops, waits, and turns back (coupled,

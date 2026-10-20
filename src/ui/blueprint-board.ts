@@ -1,3 +1,5 @@
+import type { CardState, ResearchCardView } from "../game/research-text";
+
 /** One blueprint, as a tag on the board's web. */
 export interface Station {
   id: string;
@@ -11,24 +13,22 @@ export interface Station {
    */
   makes: { label: string; icon: string; picture?: string }[];
   /**
-   * learned: painted. offered: a town that grew offers it, free. ready: on the board, to learn at its price.
-   * locked: later (needs another blueprint first, or something done, or a town to offer it). soon: not in the game yet.
+   * learned: painted. researching: under way at the schools. next: up next. ready: can be picked for research now.
+   * locked: later (needs another blueprint first, or something done). soon: not in the game yet.
    */
-  state: "learned" | "offered" | "ready" | "locked" | "soon";
+  state: CardState;
   /** How much of it a player sees: all of it, a "?" (it's next to something they know), or nothing yet. */
   seen: "shown" | "hint" | "unseen";
   /** Blueprints to learn first. */
   needs: string[];
-  /** Its price in words ("16 planks + 40 coins"), the planks of it, and can it be paid now. */
+  /** What researching it takes, in a few words ("10🪵 20🪙"), or "free". */
   price: string;
-  planks: number;
-  affordable?: boolean;
-  /** For `ready` and not affordable: why not, in one short line ("6🪵 needed at workshop (2 there)"). */
-  why?: string;
+  /** For researching, next and ready: its goods chips, study time, how it stands and its one button. */
+  research?: ResearchCardView;
+  /** The current goal asks for it (its card's button is lit for the goal). */
+  goal?: boolean;
   /** What must be done first, in words, and whether it is. */
   requires: { text: string; met: boolean }[];
-  /** For `offered`: which offer (to choose it). */
-  offer?: number;
   /** For `locked`: what it waits for. For `soon`: when (next, coming soon, someday). */
   waits?: string;
 }
@@ -37,19 +37,18 @@ export interface BoardView {
   stations: Station[];
   /** The web's bands, in order. */
   branches: { id: string; label: string; color: string }[];
-  /** Choices from towns that grew: pick one of each pair, free. */
+  /** Choices from towns that grew: pick one of each pair, free (until the growth menu, P3). */
   offers: { from: string; ids: string[]; crate?: string }[];
-  /** Planks in the workshop's yard (or null: no workshop yet). */
-  planks: number | null;
-  /** "The workshop's yard has 7 planks" (or how to get one). */
-  stock: string;
+  /** The card to open on when the picker opens (the current goal's research), if any. */
+  focus?: string;
 }
 
 export interface BlueprintBoardHandlers {
   choose(offer: number, id: string): void;
   /** Take an offer's crate instead of a blueprint. */
   crate(offer: number): void;
-  learn(id: string): void;
+  /** Pick it for research: it starts if nothing is under way, else waits up next (the one up next: the two swap). */
+  pick(id: string): void;
   close(): void;
   /** A thing's tray picture (an image URL) by its key, if drawn. */
   picture?(key: string): string | undefined;
@@ -144,11 +143,12 @@ export function layoutWeb(stations: readonly Station[], branches: readonly strin
 const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /**
- * The blueprint board (Game mode), drawn as a web: a band for each branch (track, trains, industry, food…), each
- * blueprint a tag, an arrow from each to what it opens in its branch. Painted tags are learned, lit ones can be learned
- * now (gold: free, a town's choice), plain ones come later, dashed ones are coming soon to the game. A player sees what
- * they know and what's next to it; further on is a "?", and beyond that nothing yet. Tapping a tag opens its ticket:
- * what it brings, what it costs, what it needs, and Learn. Rebuilt only when what it shows changed.
+ * The Research picker (Game mode), the blueprint board drawn as a web: a band for each branch (track, trains,
+ * industry, food…), each blueprint a tag, an arrow from each to what it opens in its branch. Painted tags are learned,
+ * the blue one is under way at the schools (another is up next), lit ones can be picked now, plain ones come later,
+ * dashed ones are coming soon to the game. A player sees what they know and what's next to it; further on is a "?", and
+ * beyond that nothing yet. Tapping a tag opens its ticket: what it brings, its goods and study time, what it needs, and
+ * one button (Research, or Next up). Rebuilt only when what it shows changed.
  */
 /**
  * What a town's offer says it did: "grew!", or, for its second offer in the list, "grew again!" (two in a row both
@@ -159,6 +159,28 @@ export function offerSaid(offers: readonly { from: string }[], k: number): strin
   const again = offers.slice(0, k).some((o) => o.from === from);
   if (from.endsWith(" school")) return again ? "has another idea!" : "has an idea!";
   return again ? "grew again!" : "grew!";
+}
+
+/** The small tag on a card in the web, by its state. */
+const NODE_TAG: Partial<Record<CardState, (s: Station) => string>> = {
+  researching: () => `<span class="bp-tag now">📘 Researching</span>`,
+  next: () => `<span class="bp-tag next">Next up</span>`,
+  ready: (s) => `<span class="bp-tag">${esc(s.price)}</span>`,
+  soon: () => `<span class="bp-tag soon">Soon</span>`,
+};
+
+/**
+ * A research card's foot: its goods as chips ("🪵 6/10", the coins red while short) and its study time, a bar for the
+ * one under way, how it stands, and its one button (Research, Next up, or Research now to swap), 44 px tall.
+ */
+export function researchFoot(id: string, r: ResearchCardView, goal: boolean): string {
+  const chips = r.chips.map((c) => `<span class="bp-chip${c.short ? " short" : ""}">${esc(c.text)}</span>`).join("") + `<span class="bp-chip study">⏱ ${esc(r.study)}</span>`;
+  const bar = r.fill !== undefined ? `<span class="bp-gauge"><span class="bp-gauge-fill" style="width:${Math.round(r.fill * 100)}%"></span></span>` : "";
+  const why = r.why ? `<span class="${r.blocked ? "bp-why" : "bp-gauge-text"}">${esc(r.why)}</span>` : "";
+  const button = r.action
+    ? `<button class="chip text${r.blocked ? "" : " primary"}${goal && !r.blocked ? " bp-goal" : ""}" data-act="pick" data-id="${id}"${r.blocked ? ` aria-disabled="true" title="${esc(r.why ?? "")}"` : ""}>${esc(r.action)}</button>`
+    : `<span class="bp-now">📘 Researching</span>`;
+  return `<span class="bp-cost"><span class="bp-chips">${chips}</span>${bar}${why}</span>${button}`;
 }
 
 export class BlueprintBoard {
@@ -179,7 +201,7 @@ export class BlueprintBoard {
     this.root.hidden = true;
     const head = document.createElement("div");
     head.className = "board-head";
-    head.innerHTML = `<h2>Blueprints</h2><span class="board-sub">Learn one to make what it brings</span><details class="bp-legend-box"><summary aria-label="What the colours mean">ⓘ</summary><div class="bp-legend"><span class="bp-key learned"></span>Learned<span class="bp-key ready"></span>Can learn<span class="bp-key offered"></span>Free<span class="bp-key locked"></span>Later<span class="bp-key soon"></span>Soon<span class="bp-key hint">?</span>Not found yet</div></details>`;
+    head.innerHTML = `<h2>Research</h2><span class="board-sub">Pick one; trains bring its goods to your school</span><details class="bp-legend-box"><summary aria-label="What the colours mean">ⓘ</summary><div class="bp-legend"><span class="bp-key learned"></span>Learned<span class="bp-key researching"></span>Researching<span class="bp-key next"></span>Next up<span class="bp-key ready"></span>Can research<span class="bp-key locked"></span>Later<span class="bp-key soon"></span>Soon<span class="bp-key hint">?</span>Not found yet</div></details>`;
     const close = document.createElement("button");
     close.className = "close";
     close.textContent = "✕";
@@ -194,7 +216,7 @@ export class BlueprintBoard {
     this.root.append(head, this.body, this.sheet);
     const onClick = (e: MouseEvent) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
-      if (!b || (b as HTMLButtonElement).disabled) return;
+      if (!b || (b as HTMLButtonElement).disabled || b.getAttribute("aria-disabled") === "true") return;
       e.stopPropagation();
       const act = b.dataset.act;
       if (act === "select") {
@@ -202,7 +224,7 @@ export class BlueprintBoard {
         this.render();
       } else if (act === "choose") handlers.choose(Number(b.dataset.offer), b.dataset.id!);
       else if (act === "crate") handlers.crate(Number(b.dataset.offer));
-      else if (act === "learn") handlers.learn(b.dataset.id!);
+      else if (act === "pick") handlers.pick(b.dataset.id!);
     };
     this.body.addEventListener("click", onClick);
     this.sheet.addEventListener("click", onClick);
@@ -239,6 +261,12 @@ export class BlueprintBoard {
     }
   }
 
+  /** Open on this card ("Show me" for a goal's research): its ticket shows, whatever was showing before. */
+  focus(id: string): void {
+    this.selected = id;
+    if (this.open && this.view) this.render();
+  }
+
   /**
    * A tray picture was drawn: if the ticket showing is waiting for it (`needPictures`), the ticket is rebuilt to show
    * it (once for pictures that come together; the web isn't).
@@ -257,10 +285,10 @@ export class BlueprintBoard {
     if (key === this.shownKey) return;
     this.shownKey = key;
     this.view = v;
-    // Keep the ticket that's showing; else open on what's most worth doing (a free choice, then what can be paid).
+    // Keep the ticket that's showing; else open on the goal's research, or the one under way, or one to pick.
     const shown = v.stations.filter((s) => s.seen === "shown");
     if (!shown.some((s) => s.id === this.selected)) {
-      const pick = shown.find((s) => s.state === "offered") ?? shown.find((s) => s.state === "ready" && s.affordable) ?? shown.find((s) => s.state === "ready") ?? shown[0];
+      const pick = shown.find((s) => s.id === v.focus) ?? shown.find((s) => s.state === "researching") ?? shown.find((s) => s.state === "ready") ?? shown[0];
       this.selected = pick?.id ?? "";
     }
     this.render();
@@ -289,7 +317,7 @@ export class BlueprintBoard {
         .filter((s): s is Station => !!s)
         .map((s) => `<button class="chip text primary" data-act="choose" data-offer="${k}" data-id="${s.id}">${esc(s.label)}</button>`);
       // Or a crate of things for the toy box (the blueprints then wait on the board).
-      if (o.crate) choices.push(`<button class="chip text bp-crate" data-act="crate" data-offer="${k}" title="Into your toy box; the blueprints go on the board">📦 ${esc(o.crate)}</button>`);
+      if (o.crate) choices.push(`<button class="chip text bp-crate" data-act="crate" data-offer="${k}" title="Into your toy box">📦 ${esc(o.crate)}</button>`);
       const buttons = choices.join(`<span class="or">or</span>`);
       const ask = o.crate ? (o.ids.length > 0 ? "Learn one free, or take a crate:" : "Take a crate:") : "Learn one free:";
       const said = offerSaid(v.offers, k);
@@ -318,8 +346,8 @@ export class BlueprintBoard {
     });
     const node = (s: Station, p: { x: number; y: number } | null) => {
       const hint = s.seen === "hint";
-      const tag = hint ? "" : s.state === "offered" ? `<span class="bp-tag free">Free</span>` : s.state === "ready" ? `<span class="bp-tag">${esc(s.price)}</span>` : s.state === "soon" ? `<span class="bp-tag soon">Soon</span>` : "";
-      const cls = `bp-node ${hint ? "hint" : s.state}${s.state === "ready" && s.affordable ? " can" : ""}${s.id === this.selected ? " selected" : ""}`;
+      const tag = hint ? "" : (NODE_TAG[s.state]?.(s) ?? "");
+      const cls = `bp-node ${hint ? "hint" : s.state}${s.id === this.selected ? " selected" : ""}`;
       const at = p ? `left:${p.x}px;top:${p.y}px;` : "";
       return `<button class="${cls}" style="${at}--c:${color.get(s.branch)}" data-act="select" data-id="${s.id}" aria-label="${hint ? "Not found yet" : esc(s.label)}"><span class="bp-dot">${s.state === "learned" && !hint ? "✓" : ""}</span><span class="bp-name">${hint ? "?" : esc(s.label)}</span>${tag}</button>`;
     };
@@ -386,20 +414,8 @@ export class BlueprintBoard {
     const reqs = s.requires.map((r) => `<span class="bp-req${r.met ? " met" : ""}">${r.met ? "✓ " : ""}${esc(r.text)}</span>`).join("");
     let foot = "";
     if (s.state === "learned") foot = `<span class="bp-done">Learned</span>`;
-    else if (s.state === "offered") foot = `<button class="chip text primary" data-act="choose" data-offer="${s.offer}" data-id="${s.id}">Learn free</button>`;
-    else if (s.state === "ready") {
-      const have = v.planks ?? 0;
-      const need = s.planks;
-      const gauge =
-        v.planks === null
-          ? `<span class="bp-gauge-text">${esc(v.stock)}</span>`
-          : need > 0
-            ? `<span class="bp-gauge"><span class="bp-gauge-fill" style="width:${Math.min(100, (have / need) * 100)}%"></span></span><span class="bp-gauge-text">${Math.min(have, need)} of ${need}🪵 in the yard</span>`
-            : "";
-      // Not yet: why, in place of the count (so a greyed Learn always says why).
-      const cost = s.why ? `<span class="bp-why">${esc(s.why)}</span>` : gauge;
-      foot = `<span class="bp-cost">${cost}</span><button class="chip text${s.affordable ? " primary" : ""}" data-act="learn" data-id="${s.id}" ${s.affordable ? "" : `aria-disabled="true" title="${esc(s.why ?? "")}"`}>Learn · ${esc(s.price)}</button>`;
-    } else foot = `<span class="bp-waits">${esc(s.waits ?? "Later")}</span>`;
-    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b><span>${esc(s.blurb)}</span></div>${makes ? `<div class="bp-makes">${makes}</div>` : ""}<div class="bp-ticket-needs">${needs.length ? `<span>Needs: ${esc(needs.join(" + "))}</span>` : ""}${opens.length ? `<span>Opens: ${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}</span>` : ""}${s.state !== "learned" && (s.price !== "free" || reqs) ? `<span>${s.price !== "free" ? `Price: ${esc(s.price)}` : ""}</span>${reqs}` : ""}</div><div class="bp-ticket-foot">${foot}</div></div>`;
+    else if (s.research) foot = researchFoot(s.id, s.research, !!s.goal);
+    else foot = `<span class="bp-waits">${esc(s.waits ?? "Later")}</span>`;
+    return `<div class="bp-ticket ${s.state}" style="--c:${v.branches.find((b) => b.id === s.branch)?.color ?? "#b8a68c"}"><div class="bp-ticket-head"><b>${esc(s.label)}</b>${s.goal ? `<span class="bp-tag goal">🎯 Goal</span>` : ""}<span>${esc(s.blurb)}</span></div>${makes ? `<div class="bp-makes">${makes}</div>` : ""}<div class="bp-ticket-needs">${needs.length ? `<span>Needs: ${esc(needs.join(" + "))}</span>` : ""}${opens.length ? `<span>Opens: ${esc(opens.slice(0, 2).join(", "))}${opens.length > 2 ? "…" : ""}</span>` : ""}${s.state !== "learned" && ((!s.research && s.price !== "free") || reqs) ? `<span>${!s.research && s.price !== "free" ? `Cost: ${esc(s.price)}` : ""}</span>${reqs}` : ""}</div><div class="bp-ticket-foot">${foot}</div></div>`;
   }
 }

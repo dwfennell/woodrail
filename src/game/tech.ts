@@ -17,12 +17,6 @@ export type Tech = Blueprint;
 /** Every blueprint, built or planned. */
 export const TECHS: readonly Tech[] = BLUEPRINTS;
 
-/**
- * On the board from a new game's start, to be learned with goods. Farming and mills are here (not left to a town's
- * offer) because a town wants flour to grow past a town: without them in reach a game could stall there for an hour.
- */
-export const STARTING_BOARD: readonly string[] = ["switches", "bridges", "farming", "mills"];
-
 const BY_ID = new Map(TECHS.map((t) => [t.id, t]));
 export const techOf = (id: string): Tech | undefined => BY_ID.get(id);
 
@@ -70,7 +64,7 @@ export function ready(p: Progress, id: string): boolean {
  */
 export function seenOf(p: Progress, offered: ReadonlySet<string> = new Set()): Map<string, "shown" | "hint" | "unseen"> {
   const all = p.learned.has("university");
-  const shown = new Set(TECHS.filter((t) => all || t.key || p.learned.has(t.id) || offered.has(t.id) || p.board.has(t.id) || t.needs.some((n) => p.learned.has(n))).map((t) => t.id));
+  const shown = new Set(TECHS.filter((t) => all || t.key || p.learned.has(t.id) || offered.has(t.id) || p.board.has(t.id) || p.research.current === t.id || p.research.next === t.id || t.needs.some((n) => p.learned.has(n))).map((t) => t.id));
   return new Map(TECHS.map((t) => [t.id, shown.has(t.id) ? "shown" : t.needs.some((n) => shown.has(n)) ? "hint" : "unseen"]));
 }
 
@@ -82,27 +76,19 @@ export function priceOf(p: Progress, t: Tech): Price {
 
 /**
  * Planks the workshop keeps (towns don't take them from unrouted trains, which carry them on to it) until its yard
- * holds this many: enough for the cheapest blueprint ready on the board, or, if more, for the one the current goal is
- * after (`aim`: Bridges for "Build a bridge"). With only the cheapest, a 10-plank Bridges waited at 9 while an 8-plank
- * one was ready (QA); keeping for the dearest starved the towns (the balance play-through: a City up to 76 minutes
- * later). No more than the yard holds. 0: nothing to keep for.
+ * holds this many: the planks of the tray order waiting to be made (the workshop only makes things now; blueprints
+ * are researched at a school, which takes its own goods: src/game/research.ts). No more than the yard holds. 0:
+ * nothing to keep for. (Before research, it kept planks for the board's blueprints too, which starved towns.)
  */
-export function planksWanted(p: Progress, aim: string | null = null, yardCap = WORKSHOP_CAP): number {
-  const open = (t: Tech) => p.board.has(t.id) && !p.learned.has(t.id) && ready(p, t.id);
-  let cheapest = Infinity;
-  for (const t of TECHS) {
-    const planks = open(t) ? (priceOf(p, t).planks ?? 0) : 0;
-    if (planks > 0) cheapest = Math.min(cheapest, planks);
-  }
-  const goal = aim ? techOf(aim) : undefined;
-  const aimed = goal && open(goal) ? (priceOf(p, goal).planks ?? 0) : 0;
-  const want = Math.max(cheapest === Infinity ? 0 : cheapest, aimed);
-  return Math.min(want, yardCap);
+export function planksWanted(p: Progress, yardCap = WORKSHOP_CAP): number {
+  const id = p.making ? undefined : p.orders[0];
+  const planks = id ? (THING_RULES[id]?.cost.planks ?? 0) : 0;
+  return Math.min(planks, yardCap);
 }
 
 /** Does the workshop keep planks now, holding `stock`? (See `planksWanted`.) */
-export function keepsPlanks(p: Progress, stock: number, aim: string | null = null): boolean {
-  return stock < planksWanted(p, aim);
+export function keepsPlanks(p: Progress, stock: number): boolean {
+  return stock < planksWanted(p);
 }
 
 /** The goods a price takes from the workshop's yard (planks and others; coins aside). */

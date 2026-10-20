@@ -2,7 +2,13 @@ import type { DepotRole } from "../economy";
 import { CELL, FEAT_FIELD, FEAT_TREE, isWater, type Landscape } from "../landscape";
 import { harbourWhy } from "./harbours";
 import type { PieceTypeId, Pose } from "../track";
-import { INDUSTRY_ROLE, type World } from "./world";
+import { INDUSTRY_ROLE, isTownLot, SCHOOL_REACH, schoolTown, type World } from "./world";
+
+/** Does a town have a school on the map already, other than the piece `ignore` (one being moved)? */
+export function schoolOf(world: World, townId: number, ignore: (pieceId: number) => boolean = () => false): boolean {
+  for (const d of world.economy.allDepots()) if (d.role === "school" && d.townId === townId && !ignore(d.pieceId)) return true;
+  return false;
+}
 
 /**
  * What an industry must stand near, as data: which squares count, how far from its yard they may be, and how many it
@@ -30,7 +36,12 @@ export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
   mine: { what: "hillside", counts: (land, i) => land.grid.height[i] > 0, reach: 250, need: 12 },
   // A harbour's quay is on the water, past the yard's far side.
   harbour: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 110, need: 8, l: 150 },
+  // A school stands beside a town: one of its lots near the yard (see `schoolTown`, which also says which town).
+  school: { what: "a town", counts: isTownLot, reach: SCHOOL_REACH, need: 1 },
 };
+
+/** Not beside any town's lots. */
+export const SCHOOL_TOO_FAR = "Needs to be beside a town";
 
 /** The fastest an industry works, however much is around it (against its recipe). */
 const MAX_RATE = 1.5;
@@ -67,9 +78,17 @@ export function rateFor(count: number, need: number): number {
   return Math.min(MAX_RATE, count / need);
 }
 
-/** Why a piece can't stand here for want of its resource ("Needs trees nearby: 3 of 5"), or null. */
-export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose): string | null {
+/**
+ * Why a piece can't stand here for want of its resource ("Needs trees nearby: 3 of 5"), or null. A school must be
+ * beside a town, and one a town: `hasSchool` says whether a town has one already (not counting the one being moved).
+ */
+export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchool: (townId: number) => boolean = () => false): string | null {
   const role = INDUSTRY_ROLE[type];
+  if (role === "school") {
+    const at = schoolTown(land, pose);
+    if (!at) return SCHOOL_TOO_FAR;
+    return hasSchool(at.town.id) ? `${at.town.name} has a school` : null;
+  }
   const r = role && resourceAt(land, role, pose);
   if (!r) return null;
   const least = Math.ceil(r.need / 2);
@@ -90,7 +109,8 @@ export function updateRates(world: World, boost: (role: DepotRole) => number = (
     const piece = world.layout.getPiece(d.pieceId);
     if (!piece) continue;
     // Upgrades (Game mode's Harvesters II and the like) speed up every industry of their kind, the map's own too.
-    const r = own.has(d.pieceId) ? null : resourceAt(world.landscape, d.role, piece.pose);
+    // (A school makes nothing: its town is a place to stand, not a speed.)
+    const r = own.has(d.pieceId) || d.role === "school" ? null : resourceAt(world.landscape, d.role, piece.pose);
     const rate = (r ? rateFor(r.count, r.need) : 1) * boost(d.role);
     if (rate !== d.rate) {
       d.rate = rate;

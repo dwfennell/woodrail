@@ -108,6 +108,8 @@ export function fitToRect(
   width: number,
   height: number,
   margin: number,
+  minDistance = 0,
+  maxDistance = Infinity,
 ): { target: Vector3; distance: number } {
   const cam = camera.clone();
   const target = new Vector3();
@@ -141,7 +143,9 @@ export function fitToRect(
       y1 = Math.max(y1, y);
     }
     // Zoom so the spread fills the room (on screen, size goes as one over distance)...
-    distance *= Math.max((x1 - x0) / goalW, (y1 - y0) / goalH, 0.05);
+    // (Within the distances it may be glided to: the move into the room is worked out at the distance it ends at. A
+    // lone point has no spread, so its fit closes right in, and a shift made there was lost when moved back: QA.)
+    distance = Math.min(maxDistance, Math.max(minDistance, distance * Math.max((x1 - x0) / goalW, (y1 - y0) / goalH, 0.05)));
     // ...and move so its middle is the room's: by the ground under the two, as seen from here.
     const ground = (sx: number, sy: number): Vector3 | null => {
       v.set((sx / width) * 2 - 1, 1 - (sy / height) * 2, 0.5).unproject(cam).sub(cam.position);

@@ -384,80 +384,126 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
   });
 
   it("QA's slanted river strokes on seed 7 (their exact world lines and camera) cross square, with straight bridges, and come down", () => {
-    const world = createWorld(7);
-    const land = world.landscape;
-    const G = land.grid;
-    // QA's exact world lines (seed 7, fresh): start, heading, length, which way the finger went, and QA's camera (its
-    // target and distance; phi 0.95 from straight down, theta −1.1659).
-    const runs: [string, number, number, number, number, boolean, number, number, number][] = [
-      ["slant 23 there", -36, -1620, 2.7576202181510405, 972, false, -481, -1440.2, 3662.2],
-      ["slant 30 back", -252, -1620, 2.0943951023931953, 972, true, -492, -1204.3, 4760.9],
-      ["slant 10 back", -180, -1620, 2.5307274153917776, 852, true, -524, -1379.1, 3662.2],
-      ["slant -23 back", -36, -1620, 2.7401669256310974, 972, true, -477.8, -1432.4, 3662.2],
-      ["slant 10 there", -180, -1620, 2.5307274153917776, 852, false, -524, -1379.1, 3662.2],
-      ["slant 40 back (clean)", -252, -1620, 2.2689280275926285, 852, true, -522, -1298.3, 3662.2],
-    ];
-    const W = 390;
-    const H = 844;
     const fails: string[] = [];
-    for (const [label, x0, z0, h, total, back, tx, tz, dist] of runs) {
-      // The game's camera, as `Game.lookAt` places it, on a 390 × 844 screen.
-      const camera = new PerspectiveCamera(30, W / H, 5, 40000);
-      const phi = 0.95;
-      const theta = -1.1659;
-      camera.position.set(tx + Math.sin(theta) * Math.sin(phi) * dist, Math.cos(phi) * dist, tz + Math.cos(theta) * Math.sin(phi) * dist);
-      camera.lookAt(tx, 0, tz);
-      camera.updateMatrixWorld();
-      const ray = new Raycaster();
-      const level = new Plane(new Vector3(0, 1, 0), 0);
-      // DrawHand's `planeAt`: a screen point (px) seen on the level plane at a height.
-      const planeAt = (sx: number, sy: number, y: number) => {
-        ray.setFromCamera(new Vector2((sx / W) * 2 - 1, -(sy / H) * 2 + 1), camera);
-        level.constant = -y;
-        const v = ray.ray.intersectPlane(level, new Vector3());
-        return v ? { x: v.x, z: v.z } : null;
-      };
-      // QA's finger: each world point every 15 mm, seen at the ground's height there, on the screen; touch moves every 10 px.
-      const pts: [number, number][] = [];
-      for (let d = 0; d <= total; d += 15) {
-        const x = x0 + Math.cos(h) * d;
-        const z = z0 + Math.sin(h) * d;
-        const v = new Vector3(x, G.groundY(G.cellAtWorld(x, z)), z).project(camera);
-        pts.push([((v.x + 1) / 2) * W, ((1 - v.y) / 2) * H]);
-      }
-      if (back) pts.reverse();
-      const screen: [number, number][] = [pts[0]];
-      for (let i = 1; i < pts.length; i++) {
-        const [ax, ay] = pts[i - 1];
-        const [bx, by] = pts[i];
-        const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
-        for (let k = 1; k <= n; k++) screen.push([ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n]);
-      }
-      // As DrawHand starts a line on open ground: once the finger has gone 30 mm, on the grid, its way in eighths.
-      const origin = planeAt(screen[0][0], screen[0][1], 0)!;
-      let line: DrawLine | null = null;
-      for (const [sx, sy] of screen.slice(1)) {
-        if (!line) {
-          const p = planeAt(sx, sy, 0)!;
-          if (Math.hypot(p.x - origin.x, p.z - origin.z) < 30) continue;
-          const heading = Math.round(Math.atan2(p.z - origin.z, p.x - origin.x) / (Math.PI / 4)) * (Math.PI / 4);
-          const sx0 = Math.round(origin.x / 18) * 18;
-          const sz0 = Math.round(origin.z / 18) * 18;
-          line = new DrawLine({ x: sx0, z: sz0, heading, y: 0, kind: "peg" }, options(land, world.layout));
-        }
-        line.addSeen((y) => planeAt(sx, sy, y));
-      }
-      if (!line) {
-        fails.push(`${label}: no line`);
-        continue;
-      }
-      line.finish();
-      const ok = !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => p.type === "bridge") && !line.pieces.some((p) => p.type === "bridge-curve") && line.end.y === 0;
-      if (!ok) fails.push(`${label}: ${name(line)} [${line.pieces.at(-1)?.blockedBy} ${line.pieces.at(-1)?.blocked}]`);
+    for (const run of QA_RUNS) {
+      const { line } = replayQA(run);
+      const ok = !!line && !line.pieces.some((p) => p.blocked) && line.pieces.some((p) => p.type === "bridge") && !line.pieces.some((p) => p.type === "bridge-curve") && line.end.y === 0;
+      if (!ok) fails.push(`${run[0]}: ${line ? name(line) : "no line"} [${line?.pieces.at(-1)?.blockedBy} ${line?.pieces.at(-1)?.blocked}]`);
     }
     expect(fails, fails.join("\n")).toEqual([]);
   });
+
+  it("QA's second terrace (seed 7, a level up for a square, then another): a ramp at the first rise, and never 'too sharp'", () => {
+    const { line, stalled } = replayQA(["terrace 2", -1764, -1620, Math.PI, 480, false, -2004, -1620, 3662.2]);
+    const why = line ? `${name(line)} [${line.pieces.at(-1)?.blockedBy} ${line.pieces.at(-1)?.blocked}]` : "no line";
+    expect(line?.pieces.some((p) => p.type === "ramp"), why).toBe(true);
+    expect(line?.pieces.some((p) => p.type.startsWith("curve")), why).toBe(false);
+    expect(stalled, why).toBe(false);
+  });
+
+  it("after QA's crossings, the line steers back to the finger on dry land: its end within about 40 px of where it lifted", () => {
+    const report: string[] = [];
+    const px: Record<string, number> = {};
+    for (const run of QA_RUNS) {
+      const r = replayQA(run);
+      if (!r.line) continue;
+      report.push(`${run[0]}: ${r.px.toFixed(0)} px · ${name(r.line)}`);
+      px[run[0]] = r.px;
+    }
+    const why = report.join("\n");
+    // Two of QA's strokes can't come back: "10 back" runs along the map's edge, where the only eighth that crosses
+    // takes the line off the finger's way, and "−23 there" is let go at the far bank, so the crossing ends past the
+    // finger (it's finished, on the ground, rather than left raised). The rest come back to the finger.
+    for (const [label, d] of Object.entries(px)) if (label !== "slant 10 back" && label !== "slant -23 there") expect(d, `${label}\n${why}`).toBeLessThan(55);
+    expect(Object.values(px).filter((d) => d < 40).length, why).toBeGreaterThanOrEqual(4);
+  });
 });
+
+/** QA's exact world lines (seed 7, fresh): name, start, heading, length, back, and QA's camera's target and distance. */
+type QARun = [string, number, number, number, number, boolean, number, number, number];
+const QA_RUNS: QARun[] = [
+  ["slant 23 there", -36, -1620, 2.7576202181510405, 972, false, -481, -1440.2, 3662.2],
+  ["slant 23 back", -36, -1620, 2.7576202181510405, 972, true, -481, -1440.2, 3662.2],
+  ["slant 30 back", -252, -1620, 2.0943951023931953, 972, true, -492, -1204.3, 4760.9],
+  ["slant 10 back", -180, -1620, 2.5307274153917776, 852, true, -524, -1379.1, 3662.2],
+  ["slant -23 back", -36, -1620, 2.7401669256310974, 972, true, -477.8, -1432.4, 3662.2],
+  ["slant -23 there", -36, -1620, 2.7401669256310974, 972, false, -477.8, -1432.4, 3662.2],
+  ["slant 10 there", -180, -1620, 2.5307274153917776, 852, false, -524, -1379.1, 3662.2],
+  ["slant 40 back (clean)", -252, -1620, 2.2689280275926285, 852, true, -522, -1298.3, 3662.2],
+];
+
+/**
+ * Replay one of QA's strokes as the game sees it: the game's camera (PerspectiveCamera 30°, placed as `Game.lookAt`
+ * places it with QA's target and distance, phi 0.95, theta −1.1659) on a 390 × 844 screen, QA's world points every
+ * 15 mm projected at the ground's height, touch moves every 10 px, each read on the plane at the line's height as
+ * DrawHand does, the line started as DrawHand starts one on open ground. The line, and how far (px) its end is on
+ * the screen from where the finger lifted.
+ */
+function replayQA([, x0, z0, h, total, back, tx, tz, dist]: QARun): { line: DrawLine | null; px: number; stalled: boolean } {
+  const world = qaWorld();
+  const land = world.landscape;
+  const G = land.grid;
+  const W = 390;
+  const H = 844;
+  const camera = new PerspectiveCamera(30, W / H, 5, 40000);
+  const phi = 0.95;
+  const theta = -1.1659;
+  camera.position.set(tx + Math.sin(theta) * Math.sin(phi) * dist, Math.cos(phi) * dist, tz + Math.cos(theta) * Math.sin(phi) * dist);
+  camera.lookAt(tx, 0, tz);
+  camera.updateMatrixWorld();
+  const ray = new Raycaster();
+  const level = new Plane(new Vector3(0, 1, 0), 0);
+  const planeAt = (sx: number, sy: number, y: number) => {
+    ray.setFromCamera(new Vector2((sx / W) * 2 - 1, -(sy / H) * 2 + 1), camera);
+    level.constant = -y;
+    const v = ray.ray.intersectPlane(level, new Vector3());
+    return v ? { x: v.x, z: v.z } : null;
+  };
+  const toScreen = (x: number, y: number, z: number): [number, number] => {
+    const v = new Vector3(x, y, z).project(camera);
+    return [((v.x + 1) / 2) * W, ((1 - v.y) / 2) * H];
+  };
+  const pts: [number, number][] = [];
+  for (let d = 0; d <= total; d += 15) {
+    const x = x0 + Math.cos(h) * d;
+    const z = z0 + Math.sin(h) * d;
+    pts.push(toScreen(x, G.groundY(G.cellAtWorld(x, z)), z));
+  }
+  if (back) pts.reverse();
+  const screen: [number, number][] = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, ay] = pts[i - 1];
+    const [bx, by] = pts[i];
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
+    for (let k = 1; k <= n; k++) screen.push([ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n]);
+  }
+  const origin = planeAt(screen[0][0], screen[0][1], 0)!;
+  let line: DrawLine | null = null;
+  let stalled = false;
+  for (const [sx, sy] of screen.slice(1)) {
+    if (!line) {
+      const p = planeAt(sx, sy, 0)!;
+      if (Math.hypot(p.x - origin.x, p.z - origin.z) < 30) continue;
+      const heading = Math.round(Math.atan2(p.z - origin.z, p.x - origin.x) / (Math.PI / 4)) * (Math.PI / 4);
+      line = new DrawLine({ x: Math.round(origin.x / 18) * 18, z: Math.round(origin.z / 18) * 18, heading, y: 0, kind: "peg" }, options(land, world.layout));
+    }
+    line.addSeen((y) => planeAt(sx, sy, y));
+    // (What DrawHand says "Too sharp: draw a wider bend" of, the line stuck behind the finger.)
+    stalled ||= line.stalled;
+  }
+  if (!line) return { line, px: Infinity, stalled: false };
+  line.finish();
+  const e = line.end;
+  const [ex, ey] = toScreen(e.x, e.y, e.z);
+  const [fx, fy] = screen[screen.length - 1];
+  return { line, px: Math.hypot(ex - fx, ey - fy), stalled };
+}
+
+let qaWorldMemo: ReturnType<typeof createWorld> | null = null;
+/** Seed 7, fresh (made once: the strokes don't change it). */
+function qaWorld(): ReturnType<typeof createWorld> {
+  return (qaWorldMemo ??= createWorld(7));
+}
 
 describe("QA sweep: ramps not learned (Game mode)", () => {
   it("a stroke between hills that a flat line can follow lays it, rather than stopping red for a ramp (item 1d)", () => {
@@ -478,5 +524,54 @@ describe("QA sweep: ramps not learned (Game mode)", () => {
     expect(ramps(line, true) + ramps(line, false)).toBe(0);
     expect(line.end.x).toBeGreaterThan(1000);
     expectJoined(line);
+  });
+});
+
+describe("QA junction notes N6: a U-turn that runs into a hill", () => {
+  it("no move slow (at most a piece a move): U-turns of 80 to 140 mm radius into a hill a level or two up, ramps or none", () => {
+    const strokes: { opts: DrawOptions; pts: { x: number; z: number }[] }[] = [];
+    for (const noRamp of [false, true])
+      for (const h of [1, 2])
+        for (const r of [80, 90, 110, 140])
+          for (const hx of [72, 144, 216, 288])
+            for (const lead of [100, 200]) {
+              const land = paint(flat(), hx, hx + 216, Z + 36, Z + 324, h);
+              const opts = options(land, new Layout(), noRamp ? { allow: (t) => t !== "ramp" && !isBridge(t), outOf: () => "Ramp: not learned yet" } : {});
+              const pts: { x: number; z: number }[] = [];
+              for (let x = 4; x <= lead; x += 6) pts.push({ x, z: Z });
+              for (let a = 6 / r; a <= Math.PI; a += 6 / r) pts.push({ x: lead + r * Math.sin(a), z: Z + r - r * Math.cos(a) });
+              for (let x = lead; x >= lead - 200; x -= 6) pts.push({ x, z: Z + 2 * r });
+              strokes.push({ opts, pts });
+            }
+    // (As the other timing guards: the slowest few moves left out, a loaded machine stalls one now and then.)
+    const SPARED = 4;
+    const run = () => {
+      const slowest: number[] = [];
+      let most = 0;
+      for (const { opts, pts } of strokes) {
+        const line = new DrawLine(at(0), opts);
+        for (const p of pts) {
+          const n = line.pieces.length;
+          const t0 = performance.now();
+          line.addPoint(p.x, p.z);
+          const t = performance.now() - t0;
+          if (slowest.length <= SPARED || t > slowest[SPARED]) {
+            slowest.push(t);
+            slowest.sort((a, b) => b - a);
+            slowest.length = Math.min(slowest.length, SPARED + 1);
+          }
+          most = Math.max(most, line.pieces.length - n);
+        }
+        line.finish();
+      }
+      return { worst: slowest[Math.min(SPARED, slowest.length - 1)] ?? 0, most };
+    };
+    run();
+    const { worst: first, most } = run();
+    expect(most).toBe(1);
+    // About 0.5 ms at worst in Node (the move that lays the first piece); generous for a slow CI, best of up to five.
+    let worst = first;
+    for (let k = 0; k < 4 && worst >= 4; k++) worst = Math.min(worst, run().worst);
+    expect(worst).toBeLessThan(4);
   });
 });

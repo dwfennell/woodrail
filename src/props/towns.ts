@@ -146,6 +146,21 @@ export function townProps(land: Landscape, town: Town): TownProp[] {
   });
 }
 
+/**
+ * Where a town building's prop stands on its squares as they are now, facing its street (as the town was dressed: see
+ * `townProps`), for model `asset` drawn at `fit` of its size. `look` is the building's town look (`townLooks`), worked
+ * out once by the caller (it doesn't change while the building moves: it goes by its place in the town's list).
+ */
+export function buildingPose(land: Landscape, town: Town, b: Building, look: Look, asset: string, fit = 1): { x: number; z: number; heading: number } {
+  return poseFor(land, town, b, look, asset, fit);
+}
+
+/** The town look of each of a town's buildings (see `townLooks`), by building id. */
+export function looksOf(land: Landscape, town: Town): Map<number, Look> {
+  const looks = townLooks(land.seed, town);
+  return new Map(town.buildings.map((b, k) => [b.id, looks[k]]));
+}
+
 /** `Building.front`'s grid edges as directions: +col, +row, −col, −row. */
 const EDGES = [
   { x: 1, z: 0 },

@@ -7,6 +7,7 @@ import { depotSpot } from "./depot-footprint";
 import { loopOnLine, loopOnLineId } from "./passing-loop";
 import { lineLegs } from "./route-path";
 import { next } from "../economy/steer";
+import { schoolOf, siteWhy } from "./industries";
 import { receivedBy } from "./town-life";
 import { townStatus } from "./towns";
 import type { World } from "./world";
@@ -58,7 +59,7 @@ export interface Goal {
   guide(world: World): GoalGuide;
   /** Blueprints to learn before it shows or counts (till then it's passed over). */
   readonly needs?: readonly string[];
-  /** The blueprint it's after, if any: while it's the current goal the workshop keeps planks for it (`planksWanted`). */
+  /** The blueprint it's after, if any (to research at a school). */
   readonly blueprint?: string;
 }
 
@@ -200,6 +201,29 @@ function nextTowns(w: World): number[] {
 
 const guideTowns = (w: World, ids: number[]): GoalGuide => ({ points: ids.map((id) => townAt(w, id)), towns: ids, marks: [] });
 
+/** The schools on the map. */
+const schools = (w: World) => w.economy.allDepots().filter((d) => d.role === "school");
+
+/**
+ * Where research goes on: the school (and the sawmill, for its planks); with none on the map yet, a straight of the
+ * line beside the town that's grown most (its station first), where the school fits.
+ */
+export function guideSchool(w: World): GoalGuide {
+  const school = schools(w)[0];
+  if (school) {
+    const at = piecePoint(w, school.pieceId);
+    return { points: [at, ...guideDepot(w, "sawmill").points.slice(0, 1)], towns: [], marks: [at] };
+  }
+  const guide: GoalGuide = { ...guideTrains(w), tab: "industries", shelf: "Industries" };
+  const town = [...w.landscape.towns].sort((a, b) => townStatus(receivedBy(w, b.id)).fill - townStatus(receivedBy(w, a.id)).fill)[0];
+  const station = town && w.stations.get(town.id);
+  if (station === undefined) return guide;
+  const fits = (pose: { x: number; z: number; heading: number }) => !siteWhy(w.landscape, "depot-school", pose, (id) => schoolOf(w, id));
+  const spot = depotSpot(w, "depot-school", [piecePoint(w, station)], fits);
+  if (spot) return { ...guide, points: [{ x: spot.x, z: spot.z }], towns: [], marks: [{ x: spot.x, z: spot.z }], held: { type: "depot-school", heading: spot.heading } };
+  return { ...guide, ...guideTowns(w, [town.id]), tab: "industries", shelf: "Industries" };
+}
+
 /** Look at what's on the board: the trains (or failing that the track, or the first towns) and reach for a tab. */
 function guideTrains(w: World, tab?: GoalGuide["tab"], shelf?: string): GoalGuide {
   const trains = trainPoints(w);
@@ -258,7 +282,11 @@ function bridgeTarget(w: World): AcrossRiver | null {
 }
 
 /** The bridge goal's hint when there's a river but nothing across it to reach. */
-export const NOTHING_ACROSS_HINT = "Nothing's across the river yet. Learn bridges, make one and lay it over the water.";
+export const NOTHING_ACROSS_HINT = "Nothing's across the river yet. Research bridges, make one and lay it over the water.";
+/** The same, with bridges learned already: nothing to say about learning them. */
+export const NOTHING_ACROSS_KNOWN = "Nothing's across the river yet. Make a bridge at your workshop and lay it over the water.";
+/** The bridge goal's hint with bridges learned. */
+export const BRIDGE_KNOWN_HINT = "Make a bridge at your workshop, then take your track over a river.";
 
 /**
  * Where a bridge is wanted: where the shortest way from the line to the nearest thing across the river (a town off the
@@ -419,9 +447,9 @@ export const GOALS: readonly Goal[] = [
     id: "learn-switches",
     blueprint: "switches",
     title: "Learn switches",
-    hint: "Open Blueprints and tap Switches.",
-    check: (_w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches") }),
-    guide: (w) => guideTrains(w),
+    hint: "Pick Switches in Research, then bring 4 planks to your school.",
+    check: (w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches"), ...(ctx.learned.has("switches") || schools(w).length > 0 ? {} : { hint: "Place your school beside a town (Industries tab)." }) }),
+    guide: guideSchool,
   },
   {
     id: "lay-switch",
@@ -434,10 +462,13 @@ export const GOALS: readonly Goal[] = [
     id: "build-bridge",
     blueprint: "bridges",
     title: "Build a bridge",
-    hint: "Learn bridges on the blueprint board and make one at your workshop. Then take your track over a river.",
-    check: (w) => {
+    hint: "Research bridges, make one at your workshop, then take your track over a river.",
+    check: (w, ctx = NO_CONTEXT) => {
       if (hasPiece(w, (type) => isBridge(type))) return { done: true };
-      return riverPoints(w.landscape.grid).length > 0 && !bridgeTarget(w) ? { done: false, hint: NOTHING_ACROSS_HINT } : { done: false };
+      // (Bridges learned already: the hints skip the learning.)
+      const known = ctx.learned.has("bridges");
+      if (riverPoints(w.landscape.grid).length > 0 && !bridgeTarget(w)) return { done: false, hint: known ? NOTHING_ACROSS_KNOWN : NOTHING_ACROSS_HINT };
+      return known ? { done: false, hint: BRIDGE_KNOWN_HINT } : { done: false };
     },
     guide: guideBridge,
   },

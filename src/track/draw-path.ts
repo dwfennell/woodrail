@@ -81,6 +81,8 @@ export interface DrawOptions {
   meet?: (end: DrawEnd, line: readonly DrawnPiece[]) => DrawCandidate | null;
   /** Does the line end on other track here (seated, so it's finished)? */
   closes?: (end: DrawEnd) => boolean;
+  /** Is a free end of other track within `reach` (mm) of this end (a piece from here might close onto it)? */
+  nearTrack?: (end: DrawEnd, reach: number) => boolean;
   /** The ground's height (mm) at a plan point: where a ramp's far end will land (see `DrawLine.lands`). */
   groundAt?: (x: number, z: number) => number;
   /**
@@ -96,6 +98,8 @@ export interface DrawOptions {
 
 /** Stroke points closer than this (mm) to the last are skipped. */
 const STEP = 6;
+/** Other track's free end this near (mm) the line's end: a piece that closes onto it is looked for (see `closeOnto`). */
+const CLOSE_REACH = 300;
 /** The next piece is chosen once the stroke reaches this far (mm) past the line's end, so the look-ahead sees it. */
 export const DRAW_LOOKAHEAD = 250;
 /**
@@ -308,6 +312,8 @@ export class DrawLine {
    * bridges), then a ramp down; and how many bridges are down.
    */
   private crossing: { heading: number; phase: "turn" | "run" | "over"; bridges: number } | null = null;
+  /** Come off a crossing and not yet back in a straight stroke's band (see `chooseFlat`). */
+  private offBand = false;
   /** The special piece the piece being placed needed but may not use (see `want`), or null. */
   private wanted: PieceTypeId | null = null;
 
@@ -348,6 +354,12 @@ export class DrawLine {
     return this.pieces.length ? this.pieces[this.pieces.length - 1].end : this.start;
   }
 
+  /** Where the stroke has got to: the finger's last point in it. */
+  get tip(): { x: number; z: number } {
+    const n = this.xs.length - 1;
+    return { x: this.xs[n], z: this.zs[n] };
+  }
+
   /** The stroke's length so far (mm). */
   get strokeLength(): number {
     return this.ss[this.ss.length - 1];
@@ -356,6 +368,13 @@ export class DrawLine {
   /** The finger has moved to (x, z): extend the stroke, take pieces off if it's retracing, and grow behind it. True if the pieces changed. */
   addPoint(x: number, z: number): boolean {
     if (Math.hypot(x - this.fx, z - this.fz) < STEP) return false;
+    // The stroke's first points short of where the line starts (a branch's: the finger still by the line it left, the
+    // switch's branch end ahead of it): waited out, as if the stroke began there. Taken as the stroke's way, they bent
+    // it into an S-jog of two tight curves to come back onto the finger's line (QA: switch, curve, reversed curve).
+    if (this.xs.length === 1) {
+      const s = this.start;
+      if ((x - s.x) * Math.cos(s.heading) + (z - s.z) * Math.sin(s.heading) < STEP) return false;
+    }
     const before = this.pieces.length;
     const trimmed = this.retrace(x, z);
     const mx = x - this.fx;
@@ -465,13 +484,30 @@ export class DrawLine {
   addSeen(read: (height: number) => { x: number; z: number } | null): { p: { x: number; z: number } | null; changed: boolean } {
     const e = this.end;
     if (e.y !== this.seen && this.resting(e)) {
-      const was = read(this.seen);
-      const now = read(e.y);
+      const was = this.onGround(read, this.seen);
+      const now = this.onGround(read, e.y);
       if (was && now) this.shiftAhead(now.x - was.x, now.z - was.z);
       this.seen = e.y;
     }
-    const p = read(this.seen);
+    const p = this.onGround(read, this.seen);
     return { p, changed: p ? this.addPoint(p.x, p.z) : false };
+  }
+
+  /**
+   * The finger read at a height, or on the ground under it where that's higher (a hill ahead of the line, the finger
+   * over its top: read on the plane at the line's height, it was seen beyond the hill, and the stroke doubled back
+   * where it crossed onto it, a "too sharp" stall, QA N2). Two steps of looking at the ground under the point.
+   */
+  private onGround(read: (height: number) => { x: number; z: number } | null, height: number): { x: number; z: number } | null {
+    const groundAt = this.options.groundAt;
+    let p = read(height);
+    for (let k = 0; k < 2 && p && groundAt; k++) {
+      const g = groundAt(p.x, p.z);
+      if (g <= height + 1) break;
+      height = g;
+      p = read(height);
+    }
+    return p;
   }
 
   /** Does the line's end rest on the ground (not up on arches, a ramp's own support, or risers)? Yes if the ground isn't known. */
@@ -585,6 +621,10 @@ export class DrawLine {
       }
       // Back round to its own start: a piece that closes the loop there goes down, rather than one on past it.
       if (this.closeOnStart(end)) return;
+      // A piece that closes onto other track's free end here, its far end on the stroke: that, rather than a piece on
+      // first (QA N5: 5 mm short of a station's end, a straight then a curve into the house beside it, where the one
+      // curve closed).
+      if (this.closeOnto(end)) return;
       // Finishing a loop that has come round to just short of its start, running its way: that's where it ends (a piece
       // more would go on across its first piece, and say so).
       if (finishing && this.backAtStart(end)) return;
@@ -622,6 +662,28 @@ export class DrawLine {
       this.pieces.pop();
       this.progress = progress;
       this.stopped = null;
+    }
+    return false;
+  }
+
+  /**
+   * Other track's free end within a piece of the line's end: lay the piece that seats on it (`closes` says so), if one
+   * does and its far end is on the stroke, and the line is closed. True if it closed. Only near track (one look for a
+   * free end, `nearTrack`, before trying the pieces).
+   */
+  private closeOnto(end: DrawEnd): boolean {
+    const closes = this.options.closes;
+    if (!closes || !this.options.nearTrack?.(end, CLOSE_REACH)) return false;
+    const allow = this.options.allow;
+    const check = this.options.check;
+    for (const c of candidatesFrom(end, allow ? DRAW_TYPES.filter((t) => allow(t, this.pieces)) : DRAW_TYPES)) {
+      if (!closes(c.end)) continue;
+      const near = this.nearest(c.end.x, c.end.z, this.progress - 10, this.progress + c.length * 1.6 + 40);
+      if (near.d >= MEET_REACH || near.s > this.strokeLength + MEET_REACH) continue;
+      if (check?.(c, this.pieces)) continue;
+      this.lay(c, near.s);
+      if (!this.stopped) this.stopped = "closed";
+      return true;
     }
     return false;
   }
@@ -903,6 +965,7 @@ export class DrawLine {
     if (c.bridges > 0 && down && dry(RAMP_LENGTH + APPROACH_SLACK + 48) && !check(down)) {
       this.lay(down, this.alongStroke(down), false, null);
       this.crossing = null;
+      this.offBand = true;
       return true;
     }
     const b = candidatesFrom(e, ["bridge"])[0];
@@ -1190,6 +1253,10 @@ export class DrawLine {
     // starting tilts the chord a little, so not quite its way).
     const y0 = (end.z - c.z) * c.ux - (end.x - c.x) * c.uz;
     if (Math.abs(normalizeAngle(end.heading - theta)) < FLAT_ON_H && Math.abs(y0) < FLAT_ON_D) return undefined;
+    // Out of the band altogether, come off a river crossing (which keeps to its eighth): the usual scoring steers it
+    // back to the finger (the band's plans would sooner stop, finishing, than pay to come back in).
+    if (this.offBand && Math.abs(y0) > BAND) return undefined;
+    this.offBand = false;
     let atLo: boolean;
     if (Math.abs(normalizeAngle(end.heading - lo)) < 0.01) atLo = true;
     else if (Math.abs(normalizeAngle(end.heading - lo - EIGHTH)) < 0.01) atLo = false;

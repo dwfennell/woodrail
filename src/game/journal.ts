@@ -148,11 +148,3 @@ export class Journal {
 }
 
 const shown = (text: string, count: number): string => (count > 1 ? `${text} (×${count})` : text);
-
-/** "just now", "2 min ago", "3 h ago": how long ago, for the feed. */
-export function ago(ms: number): string {
-  const min = Math.floor(Math.max(0, ms) / 60_000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min} min ago`;
-  return `${Math.floor(min / 60)} h ago`;
-}

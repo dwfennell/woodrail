@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { FEAT_FIELD, FEAT_NONE, FEAT_TREE, SURF_GRASS } from "../landscape";
+import { FEAT_FIELD, FEAT_NONE, FEAT_TREE, SURF_GRASS, SURF_TOWN } from "../landscape";
 import type { PieceTypeId } from "../track";
-import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates } from "./industries";
-import { buildStarterWorld, INDUSTRY_ROLE, syncIndustries } from "./world";
+import { rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates } from "./industries";
+import { buildStarterWorld, depotName, INDUSTRY_ROLE, schoolTown, syncIndustries } from "./world";
 
 /** An open patch of grass on the starter map, cleared of features, and a pose for a depot whose yard sits on it. */
 function openPatch() {
@@ -74,7 +74,36 @@ describe("industries near their resource", () => {
       "depot-quarry": "Needs hillside nearby: 0 of 6",
       "depot-mine": "Needs hillside nearby: 0 of 6",
       "depot-harbour": "Needs water nearby: 0 of 4",
+      "depot-school": "Needs to be beside a town",
     });
+  });
+
+  it("a school goes beside a town (a lot within 300 mm of its yard), takes its name, and one a town", () => {
+    const w = buildStarterWorld();
+    const land = w.landscape;
+    const town = land.towns[0];
+    const g = land.grid;
+    // A square of the town's, and a pose whose yard's middle is 200 mm off it (along +x, clear of the town).
+    const lot = town.cells.find((i) => g.surface[i] === SURF_TOWN)!;
+    const [lx, lz] = [g.centreX(g.colOf(lot)), g.centreZ(g.rowOf(lot))];
+    const beside = { x: lx + 200 - 108, z: lz - 72, heading: 0 };
+    expect(schoolTown(land, beside)?.town).toBe(town);
+    expect(siteWhy(land, "depot-school", beside)).toBeNull();
+    // Far from every town: refused, saying why.
+    const { pose } = openPatch();
+    expect(siteWhy(land, "depot-school", pose)).toBe("Needs to be beside a town");
+    // Placed, it's that town's school, by name.
+    const id = w.layout.addPiece("depot-school", beside);
+    syncIndustries(w, true);
+    const d = w.economy.depotAtPiece(id)!;
+    expect([d.role, d.townId, depotName(w, d)]).toEqual(["school", town.id, `${town.name} school`]);
+    // A second at the same town is refused; the one being moved doesn't count against itself.
+    const has = (t: number) => schoolOf(w, t);
+    expect(siteWhy(land, "depot-school", beside, has)).toBe(`${town.name} has a school`);
+    expect(siteWhy(land, "depot-school", beside, (t) => schoolOf(w, t, (p) => p === id))).toBeNull();
+    // A school makes nothing: its town doesn't set a speed.
+    updateRates(w);
+    expect(d.rate).toBe(1);
   });
 
   it("a farm yard needs farm fields", () => {

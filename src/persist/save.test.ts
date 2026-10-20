@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildStarterWorld, syncIndustries, unlockPlot, type World } from "../game/world";
+import { buildStarterWorld, schoolTown, syncIndustries, unlockPlot, type World } from "../game/world";
 import { appendPiece, connectorRef, LIFT_RISE } from "../track";
 import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape";
 import { encodeRoad, pieceOf } from "../roads";
@@ -80,10 +80,10 @@ describe("save format", () => {
     ]);
   });
 
-  it("is at version 11 (buildings resized, big landmarks on 2×2 lots), and turns older saves away, saying so", () => {
-    expect(SAVE_VERSION).toBe(11);
+  it("is at version 12 (research: the school depot), and turns older saves away, saying so", () => {
+    expect(SAVE_VERSION).toBe(12);
     const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
-    data.version = 10;
+    data.version = 11;
     const r = deserializeWorld(data);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toBe(OLDER_SAVE);
@@ -144,21 +144,41 @@ describe("save format", () => {
     vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
     try {
       const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
-      data.version = 10;
+      // (A v11 save, from before research: turned away kindly, kept aside.)
+      data.version = 11;
       const raw = JSON.stringify(data);
       store.set("woodrail.game.v2", raw);
       expect(hasOlderSave("game")).toBe(true);
       expect(hasOlderSave("sandbox")).toBe(false);
       const r = loadFromStorage("game");
       expect(r?.ok).toBe(false);
-      expect(store.get(backupKey("game", 10))).toBe(raw);
+      if (r && !r.ok) expect(r.error).toBe(OLDER_SAVE);
+      expect(store.get(backupKey("game", 11))).toBe(raw);
       // The fresh map saves over the autosave; the backup stays.
       expect(saveToStorage(worldWithTrain(), "game")).toBe(true);
       expect(hasOlderSave("game")).toBe(false);
-      expect(store.get(backupKey("game", 10))).toBe(raw);
+      expect(store.get(backupKey("game", 11))).toBe(raw);
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("keeps a school depot with the id of the town it's beside (and turns away one whose town doesn't match)", () => {
+    const world = worldWithTrain();
+    // On the line's far end from the station, beside a town.
+    const end = appendPiece(world.layout, "depot-school", false, connectorRef([...world.layout.pieceIds()].at(-1)!, 1));
+    syncIndustries(world, true);
+    const school = world.economy.depotAtPiece(end)!;
+    const town = schoolTown(world.landscape, world.layout.getPiece(end)!.pose)!.town;
+    expect(school.role).toBe("school");
+    expect(school.townId).toBe(town.id);
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.economy.depotAtPiece(end)).toMatchObject({ role: "school", townId: town.id });
+    data.depots.find((d) => d.role === "school")!.townId = 99;
+    expect(deserializeWorld(data).ok).toBe(false);
   });
 
   it("keeps lines: their colour, name and stops (wait to fill too), shared by the trains that run them", () => {
