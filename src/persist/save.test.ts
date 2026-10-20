@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildStarterWorld, schoolTown, syncIndustries, unlockPlot, type World } from "../game/world";
-import { appendPiece, connectorRef, LIFT_RISE } from "../track";
+import { appendPiece, connectorRef, createWorldConnector, JOINT_ANGLE_TOLERANCE, LIFT_RISE, type Layout } from "../track";
 import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape";
 import { encodeRoad, pieceOf } from "../roads";
 import { SIM_DT, SIM_HZ } from "../sim";
@@ -335,6 +335,53 @@ describe("save format", () => {
     const r = deserializeWorld(JSON.parse(JSON.stringify(data)));
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.sim.trainCount).toBe(0);
+  });
+
+  it("keeps the joints it was saved with, even one joint play took past the tolerance; an older save's come back too", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const s1 = appendPiece(world.layout, "straight-216", false, connectorRef(station, 1));
+    const s2 = appendPiece(world.layout, "straight-216", false, connectorRef(s1, 1));
+    const s3 = appendPiece(world.layout, "straight-216", false, connectorRef(s2, 1));
+    // s2 and s3 turned 7° together about the s1-s2 joint (as relax could leave a joint before): joined, though past
+    // the 4° that seating a joint afresh allows.
+    const at = world.layout.worldConnector(connectorRef(s1, 1), createWorldConnector());
+    const turn = (7 * Math.PI) / 180;
+    const turned = new Map(
+      [s2, s3].map((id) => {
+        const p = world.layout.getPiece(id)!.pose;
+        const x = p.x - at.x;
+        const z = p.z - at.z;
+        return [id, { x: at.x + x * Math.cos(turn) - z * Math.sin(turn), z: at.z + x * Math.sin(turn) + z * Math.cos(turn), heading: p.heading + turn }];
+      }),
+    );
+    world.layout.nudgePieces(turned);
+    const joint = world.layout.jointAt(connectorRef(s1, 1))!;
+    expect(joint.angleError).toBeGreaterThan(JOINT_ANGLE_TOLERANCE);
+    const pairs = (l: Layout) => [...l.joints()].map((j) => `${j.a}-${j.b}`).sort();
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    expect(data.joints?.length).toBe(world.layout.jointCount);
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(pairs(r.value.layout)).toEqual(pairs(world.layout));
+    expect(r.value.layout.jointAt(connectorRef(s1, 1))!.angleError).toBeCloseTo(joint.angleError, 9);
+    // A save's joint between ends that don't meet isn't made (s3's far end and the station's other end).
+    const bogus = JSON.parse(JSON.stringify(data)) as SaveData;
+    bogus.joints!.push([s3, 1, station, 0]);
+    const b = deserializeWorld(bogus);
+    expect(b.ok).toBe(true);
+    if (b.ok) expect(pairs(b.value.layout)).toEqual(pairs(world.layout));
+    // An older save (no joints): the ends that meet within the tolerance's reach and 10° are joined again, and the
+    // loose track relaxed to bring the joint within the tolerance (the station stays put).
+    delete data.joints;
+    const old = deserializeWorld(data);
+    expect(old.ok).toBe(true);
+    if (!old.ok) return;
+    expect(pairs(old.value.layout)).toEqual(pairs(world.layout));
+    for (const j of old.value.layout.joints()) expect(j.angleError).toBeLessThanOrEqual(JOINT_ANGLE_TOLERANCE);
+    expect(old.value.layout.getPiece(station)!.pose).toEqual(world.layout.getPiece(station)!.pose);
   });
 
   it("round-trips pinned switches; a save without them loads with none", () => {
