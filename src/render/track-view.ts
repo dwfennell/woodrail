@@ -35,6 +35,7 @@ import { nonIndexed } from "./non-indexed";
 const geometryCache = new Map<string, BufferGeometry>();
 const scratch = new Matrix4();
 const scratch2 = new Matrix4();
+const arrowScaleVec = new Vector3();
 /** Selection outline colours: selected, about to join track, can't go there. */
 export const OUTLINE_TONES = { select: "#ffe489", snap: "#86ec7a", blocked: "#ff7461" } as const;
 export type OutlineTone = keyof typeof OUTLINE_TONES;
@@ -471,10 +472,23 @@ export function arrowEnds(def: PieceDef): number[] {
  * pointing away from it. Two ends set along the same route (a crossover set over) each keep to the half of it nearer
  * them, so the two rows don't lie on each other.
  */
-export function switchArrows(def: PieceDef, state: number): { x: number; z: number; heading: number }[] {
+export function switchArrows(def: PieceDef, state: number, far = false): { x: number; z: number; heading: number }[] {
   const sets = arrowEnds(def).map((end) => ({ end, route: setRoute(def, state, end)! }));
-  return sets.flatMap(({ end, route }) => switchArrowPoses(route, def, end, sets.filter((o) => o.route === route).length > 1));
+  return sets.flatMap(({ end, route }) => switchArrowPoses(route, far ? undefined : def, end, sets.filter((o) => o.route === route).length > 1));
 }
+
+/**
+ * How big the chevrons are drawn for a camera this far off (mm): their own size close to, and up to the track's width
+ * from the usual high camera (QA N1: at the default zoom a chevron was a pixel or two, whatever its colour). Bigger,
+ * they lie at fixed fractions of the route (`switchArrows` far): from up there the grooves they'd cross don't show.
+ * `was` is the scale drawn now, for a margin either side of each step (no flip-flopping while hovering at one).
+ */
+export function arrowScaleFor(distance: number, was = 1): number {
+  const step = (at: number, k: number) => distance > (was >= k ? at - 200 : at);
+  return step(3400, ARROW_FAR_SCALES[1]) ? ARROW_FAR_SCALES[1] : step(1800, ARROW_FAR_SCALES[0]) ? ARROW_FAR_SCALES[0] : 1;
+}
+/** The chevrons' scales further out (see `arrowScaleFor`): the bigger one makes a chevron the track's full width. */
+export const ARROW_FAR_SCALES = [1.8, 2.6] as const;
 
 /**
  * Where a route's chevrons lie on its piece (piece-local x, z and heading, pointing away from end `end`), along the
@@ -490,7 +504,7 @@ export function switchArrowPoses(route: PathDef, def?: PieceDef, end = 0, half =
     return { x: s.x, z: s.z, heading: back ? s.heading + Math.PI : s.heading };
   };
   const span = def ? clearSpan(route, def, back) : null;
-  if (!span) return SWITCH_ARROW_AT.map((f) => at(len * f));
+  if (!span) return SWITCH_ARROW_AT.map((f) => at(len * (half ? f / 2 : f)));
   const a = span[0];
   // (Sharing the route with another end's row: kept to this end's half of it, a gap short of the middle.)
   const b = half ? Math.max(a, Math.min(span[1], len / 2 - ARROW.half - ARROW.rim - 1)) : span[1];
@@ -1078,7 +1092,7 @@ export class TrackView {
       // Two-way: leans toward the route set. Three-way: upright for straight on, leaning toward a curve. The chevrons
       // lie along the route set; the semaphore's arm is level for the first route, raised for any other.
       const state = this.layout.switchState(id);
-      const arrows = switchArrows(def, state).flatMap((a) => [a.x, a.z, a.heading]);
+      const arrows = switchArrows(def, state, this.arrowScale > 1).flatMap((a) => [a.x, a.z, a.heading]);
       const was = this.shown.get(id);
       const next: SwitchShown = { first: -1, piece, leverAt, state, lean: leverLean(def, state), arm: state !== 0 ? -SIGNAL_RAISED : 0, arrows, pinned: this.layout.isPinned(id) };
       const swinging = this.swings.get(id);
@@ -1179,6 +1193,24 @@ export class TrackView {
     return this.arrowMesh;
   }
 
+  /** How big the chevrons are drawn (see `arrowScaleFor`). */
+  private arrowScale = 1;
+
+  /**
+   * Draw the chevrons this big (`arrowScaleFor` the camera's distance): they're placed afresh only when it changes (a
+   * step in the camera's zoom), as `syncSwitches` would. True if it changed (draw a frame).
+   */
+  setArrowScale(k: number): boolean {
+    if (k === this.arrowScale) return false;
+    this.arrowScale = k;
+    this.syncLevers();
+    return true;
+  }
+
+  get arrowScaleNow(): number {
+    return this.arrowScale;
+  }
+
   /** Is a lever swinging over now? */
   get swinging(): boolean {
     return this.swings.size > 0;
@@ -1239,8 +1271,9 @@ export class TrackView {
     const w = this.swings.get(id);
     const arrows = w ? this.swingPose(w).arrows : s.arrows;
     const top = TRACK_THICKNESS + ARROW_LIFT;
+    const k = this.arrowScale;
     for (let i = 0; i < arrows.length / 3; i++) {
-      scratch.makeRotationY(-arrows[i * 3 + 2]).setPosition(arrows[i * 3], top, arrows[i * 3 + 1]);
+      scratch.makeRotationY(-arrows[i * 3 + 2]).scale(arrowScaleVec.set(k, 1, k)).setPosition(arrows[i * 3], top, arrows[i * 3 + 1]);
       mesh.setMatrixAt(s.first + i, scratch2.copy(s.piece).multiply(scratch));
     }
     mesh.instanceMatrix.needsUpdate = true;

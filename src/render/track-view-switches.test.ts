@@ -11,7 +11,7 @@ vi.mock("./track-geometry", async (importOriginal) => {
 import { Flourishes } from "./flourishes";
 import { createSample, getPieceDef, Layout, pathLength, samplePath, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
-import { arrowEnds, setRoute, SWITCH_ARROW_AT, SWITCH_ARROW_CLEAR, SWITCH_ARROW_CREAM, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
+import { ARROW_FAR_SCALES, arrowEnds, arrowScaleFor, setRoute, SWITCH_ARROW_AT, SWITCH_ARROW_CLEAR, SWITCH_ARROW_CREAM, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
 
 const plain = () => new MeshBasicMaterial();
 const mats = { track: plain(), trackCut: plain(), bridgePaint: plain(), lacquer: plain, naturalWood: plain(), magnet: plain() } as unknown as Materials;
@@ -182,6 +182,35 @@ describe("switch chevrons", () => {
     const hits: unknown[] = [];
     rim.raycast({} as never, hits as never);
     expect(hits).toHaveLength(0);
+  });
+
+  it("further out they're drawn bigger, in steps (with a margin), placed afresh only when the step changes", () => {
+    expect(arrowScaleFor(1000)).toBe(1);
+    expect(arrowScaleFor(2500)).toBe(ARROW_FAR_SCALES[0]);
+    expect(arrowScaleFor(4018)).toBe(ARROW_FAR_SCALES[1]);
+    // Hovering at a step doesn't flip-flop.
+    expect(arrowScaleFor(3300, ARROW_FAR_SCALES[1])).toBe(ARROW_FAR_SCALES[1]);
+    expect(arrowScaleFor(3300, ARROW_FAR_SCALES[0])).toBe(ARROW_FAR_SCALES[0]);
+    expect(arrowScaleFor(1700, ARROW_FAR_SCALES[0])).toBe(ARROW_FAR_SCALES[0]);
+    expect(arrowScaleFor(1500, ARROW_FAR_SCALES[0])).toBe(1);
+    // Biggest, a chevron (rim and all) is no wider than the track.
+    const { view } = oneSwitch("switch", 1);
+    const mesh = view.switchArrows!;
+    const rim = mesh.children[0] as InstancedMesh;
+    rim.geometry.computeBoundingBox();
+    const half = rim.geometry.boundingBox!.max.z;
+    expect(view.setArrowScale(ARROW_FAR_SCALES[1])).toBe(true);
+    expect(view.setArrowScale(ARROW_FAR_SCALES[1])).toBe(false);
+    expect(view.switchArrows).toBe(mesh);
+    const m = new Matrix4();
+    mesh.getMatrixAt(0, m);
+    expect(new Vector3(0, 0, half).applyMatrix4(m).sub(new Vector3().setFromMatrixPosition(m)).length()).toBeLessThanOrEqual(20);
+    expect(new Vector3(0, 0, 1).applyMatrix4(m).sub(new Vector3().setFromMatrixPosition(m)).length()).toBeCloseTo(ARROW_FAR_SCALES[1], 5);
+    // Still on the set route, pointing away from the trunk.
+    for (const a of arrowsOf(view)) expect(Math.sign(a.z)).toBe(Math.sign(getPieceDef("switch", false).connectors[2].pose.z));
+    view.setArrowScale(1);
+    mesh.getMatrixAt(0, m);
+    expect(new Vector3(0, 0, 1).applyMatrix4(m).sub(new Vector3().setFromMatrixPosition(m)).length()).toBeCloseTo(1, 5);
   });
 
   it("the chevrons follow the piece (turned and moved)", () => {

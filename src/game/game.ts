@@ -32,7 +32,7 @@ import { ResolutionGovernor } from "../render/resolution";
 import { detectQuality, type QualitySettings } from "../render/quality";
 import { createStage, type Stage } from "../render/stage";
 import { shadowRadiusForView, shouldRefit } from "../render/shadow-fit";
-import { onPiecesBuilt, TrackView } from "../render/track-view";
+import { arrowScaleFor, onPiecesBuilt, TrackView } from "../render/track-view";
 import { TrainView } from "../render/train-view";
 import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
@@ -760,6 +760,8 @@ export class Game {
       this.mats.setFar(far);
       this.dirty = true;
     }
+    // The switches' chevrons are drawn bigger further out (a step in the zoom places them afresh, nothing else).
+    if (this.trackView.setArrowScale(arrowScaleFor(dist, this.trackView.arrowScaleNow))) this.dirty = true;
     const near = nearPlaneFor(dist);
     if (Math.abs(near - this.camera.near) > 0.5) {
       this.camera.near = near;
