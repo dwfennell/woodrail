@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { unlocksOf } from "./tech";
 import { ruleOf } from "./things";
 import { makesLine, plural } from "./learn-text";
-import { offerSaid } from "../ui/blueprint-board";
 
 describe("what a learned blueprint lets you make", () => {
   it("reads as a natural list", () => {
@@ -19,12 +18,5 @@ describe("what a learned blueprint lets you make", () => {
       expect(line).not.toMatch(/ and .* and /);
       expect(line).toMatch(/^Make /);
     }
-  });
-});
-
-describe("a town's offers in a row", () => {
-  it("the second from the same town says so", () => {
-    const offers = [{ from: "Larkfield" }, { from: "Larkfield" }, { from: "Elderwick" }, { from: "Larkfield school" }];
-    expect(offers.map((_, k) => offerSaid(offers, k))).toEqual(["grew!", "grew again!", "grew!", "has an idea!"]);
   });
 });

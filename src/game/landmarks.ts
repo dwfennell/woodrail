@@ -1,4 +1,5 @@
 import type { Landscape, Town } from "../landscape";
+import type { World } from "./world";
 
 /**
  * A town's landmarks: a special building that goes up as it reaches a level, and what it does for you. A table, so a
@@ -23,13 +24,6 @@ export interface Landmark {
 
 export const LANDMARKS: readonly Landmark[] = [
   {
-    id: "school",
-    name: "School",
-    level: 1,
-    blurb: "Its pupils have ideas: a new blueprint in Research now and then, while the town is supplied.",
-    models: { two: ["bldg-school", "bldg-church"], one: ["bldg-corner-shop"] },
-  },
-  {
     id: "market",
     name: "Market",
     level: 2,
@@ -48,7 +42,7 @@ export const LANDMARKS: readonly Landmark[] = [
     name: "College",
     level: 2,
     tech: "college",
-    blurb: "Ideas come twice as often, and blueprints cost a fifth fewer planks.",
+    blurb: "A seat of learning for your towns.",
     models: { four: ["bldg-college"], two: ["bldg-college", "bldg-library", "bldg-school"], one: [] },
   },
 ];
@@ -73,15 +67,23 @@ export function townLandmarks(town: Town): Set<string> {
   return new Set(town.buildings.flatMap((b) => (b.landmark ? [b.landmark] : [])));
 }
 
+/**
+ * What your railway has that a blueprint can require: every landmark on the map (a blueprint that needs a library
+ * needs one somewhere), and "school" once a school depot stands beside a town (towns don't build schools: you place
+ * yours, the first village's present).
+ */
+export function landmarksAt(world: World): Set<string> {
+  const out = landmarksOf(world.landscape);
+  if (world.economy.allDepots().some((d) => d.role === "school" && world.layout.getPiece(d.pieceId))) out.add("school");
+  return out;
+}
+
 /** Every landmark on the map (a blueprint that needs a library needs one somewhere). */
 export function landmarksOf(land: Landscape): Set<string> {
   const out = new Set<string>();
   for (const t of land.towns) for (const id of townLandmarks(t)) out.add(id);
   return out;
 }
-
-/** How long (seconds of play) a school takes to come up with a blueprint idea. */
-export const SCHOOL_IDEA_SECONDS = 480;
 
 /** Coins for goods delivered to a town with a market: half again. */
 export const MARKET_BONUS = 1.5;

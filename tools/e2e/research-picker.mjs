@@ -1,8 +1,8 @@
 // End-to-end Research picker on a phone (`npm run e2e:research [-- <out dir>]`), at 390×844 with touch: a new game's
 // line laid and its school placed; the pill in the top bar says "Pick research"; a goal after a blueprint (Learn
 // switches) opens the picker on it from Show me and from the pill, nothing picked; Research, then Next up (and the
-// swap); deliveries move the pill; every card state's ticket; the pill fits the bar beside the coins and buttons (also
-// with the Research button's glow); the date and the pill both read at 360, 414 and 844×390 (a phone on its side); and
+// swap); deliveries move the pill; every card state's ticket; the pill fits the bar beside the coins and buttons;
+// the date and the pill both read at 360, 414 and 844×390 (a phone on its side); and
 // no frames drawn in 30 s with the pill showing while nothing changes.
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
@@ -67,19 +67,34 @@ const ticket = () => p.evaluate(() => {
   const t = document.querySelector(".board-sheet .bp-ticket");
   return t ? { state: [...t.classList].find((c) => c !== "bp-ticket"), name: t.querySelector("b")?.textContent, foot: t.querySelector(".bp-ticket-foot")?.textContent.replace(/\s+/g, " ").trim(), buttons: [...t.querySelectorAll(".bp-ticket-foot button")].map((x) => ({ text: x.textContent, h: x.getBoundingClientRect().height, goal: x.classList.contains("bp-goal") })) } : null;
 });
-/** Select a card in the picker by its name. */
+/**
+ * Select a card in the picker by its name. The tap waits till nothing lies over the card (a toast, such as a goal's
+ * tick as a research is learned, can cover a card at the top of the list), and is tried again if the ticket doesn't
+ * show it.
+ */
 const select = async (name) => {
-  const box = await p.evaluate((name) => {
-    const el = [...document.querySelectorAll(".board-body .bp-node")].find((n) => n.querySelector(".bp-name")?.textContent === name);
-    if (!el) return null;
-    el.scrollIntoView({ block: "center" });
-    const r = el.getBoundingClientRect();
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-  }, name);
-  if (!box) return false;
-  await p.touchscreen.tap(box.x, box.y);
-  await p.waitForTimeout(400);
-  return true;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const box = await p
+      .waitForFunction(
+        (name) => {
+          const el = [...document.querySelectorAll(".board-body .bp-node")].find((n) => n.querySelector(".bp-name")?.textContent === name);
+          if (!el) return null;
+          el.scrollIntoView({ block: "center" });
+          const r = el.getBoundingClientRect();
+          const at = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+          return el.contains(document.elementFromPoint(at.x, at.y)) ? at : null;
+        },
+        name,
+        { timeout: 10000, polling: 200 },
+      )
+      .then((h) => h.jsonValue())
+      .catch(() => null);
+    if (!box) return false;
+    await p.touchscreen.tap(box.x, box.y);
+    await p.waitForTimeout(400);
+    if ((await ticket())?.name === name) return true;
+  }
+  return false;
 };
 
 // 1. A new game: the line between the first two towns laid, and the school placed where Show me points.
@@ -241,8 +256,8 @@ check("open, coins and loads coming in: the picker isn't rebuilt", rebuilt.web =
 await shot("10-picker-web");
 await tap(".board-head .close");
 
-// 7. The bar with the pill under way (it stands in for the Research button on a phone), with a four-figure purse, and
-// with the glow of a town's reward waiting (on the pill, as the button's hidden).
+// 7. The bar with the pill under way (it stands in for the Research button on a phone), with a four-figure purse. (A
+// town's reward no longer glows here: it waits in the growth sheet, with its own badge. See e2e:growth.)
 m = await bar();
 check("the pill under way fits the bar, its name whole", fits(m) && !m.clipped, JSON.stringify(m));
 const button = await p.evaluate(() => getComputedStyle(document.querySelector(".research-btn")).display);
@@ -255,14 +270,6 @@ await p.evaluate(() => {
 await p.waitForTimeout(300);
 m = await bar();
 check("…with 1250 coins showing", fits(m) && !m.clipped, JSON.stringify(m));
-await p.evaluate(() => window.woodrail.hud.setBoardButton(false, 1));
-await p.waitForTimeout(300);
-m = await bar();
-const glow = await p.evaluate(() => document.querySelector(".research-pill").classList.contains("board-new"));
-check("…and glowing for a town's reward", fits(m) && glow, JSON.stringify({ ...m, glow }));
-await shot("11-pill-with-glow");
-await p.evaluate(() => window.woodrail.hud.setBoardButton(true, 1));
-await p.evaluate(() => window.woodrail.hud.setBoardButton(false, 0));
 
 // 7b. The date beside the coins with the pill showing, on a small phone, a large one and a phone on its side: the date
 // whole (not cut by the brand's edge), the pill clear of the brand and the buttons, its count whole, the name whole (at 360,

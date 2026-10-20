@@ -4,7 +4,7 @@ import { appendPiece, connectorRef, createWorldConnector, JOINT_ANGLE_TOLERANCE,
 import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape";
 import { encodeRoad, pieceOf } from "../roads";
 import { SIM_DT, SIM_HZ } from "../sim";
-import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, loadSession, OLDER_SAVE, SAVE_VERSION, saveSession, saveToStorage, serializeWorld, type SaveData } from "./save";
+import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, loadSession, MIGRATES_FROM, OLDER_SAVE, SAVE_VERSION, saveSession, saveToStorage, serializeWorld, type SaveData } from "./save";
 import { Journal } from "../game/journal";
 import { editLine, lineOf } from "../game/lines";
 import { CARGO_KINDS } from "../economy";
@@ -80,9 +80,12 @@ describe("save format", () => {
     ]);
   });
 
-  it("is at version 12 (research: the school depot), and turns older saves away, saying so", () => {
-    expect(SAVE_VERSION).toBe(12);
+  it("is at version 13 (the growth menu's cards), loads a v12 map as it is, and turns older saves away, saying so", () => {
+    expect(SAVE_VERSION).toBe(13);
+    expect(MIGRATES_FROM).toBe(12);
     const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
+    data.version = 12;
+    expect(deserializeWorld(data).ok).toBe(true);
     data.version = 11;
     const r = deserializeWorld(data);
     expect(r.ok).toBe(false);

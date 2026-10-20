@@ -66,10 +66,9 @@ describe("the blueprint catalogue", () => {
   });
 
   it("an old save's risers and loops come back as bridges and junctions", () => {
-    const p = Progress.fromJSON({ owned: [], learned: ["switches", "heights", "loops"], board: ["loops"], offers: [{ from: "Larkfield", ids: ["heights", "bridges"] }] });
+    const p = Progress.fromJSON({ owned: [], learned: ["switches", "heights", "loops"], board: ["loops"] });
     expect([...p.learned].sort()).toEqual(["bridges", "junctions", "switches"]);
     expect([...p.board]).toEqual([]);
-    expect(p.offers[0].ids).toEqual(["bridges"]);
   });
 
   it("describes prices and requirements in words", () => {

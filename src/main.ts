@@ -21,8 +21,9 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
-import { describeThings, firstTimeGift, offerOnGrowth, payDelivery, refreshOffers, schoolIdeas, takeBlueprint, takeCrate } from "./game/rewards";
-import { landmarkOf, landmarksOf } from "./game/landmarks";
+import { cardView, describeThings, firstTimeGift, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
+import { landmarkOf, landmarksAt } from "./game/landmarks";
+import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
@@ -41,7 +42,7 @@ import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pinnedBlocking, point
 import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
-import { engineStatus, trainsForReport, type CantMove } from "./game/engine-status";
+import { engineStatus, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { MAX_SHEDS, SHED_CAP, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
@@ -812,6 +813,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showDate();
     if (s) journal.restore(s.journal);
     else journal.clear();
+    // A v12 Game save's offers: drawn again as cards on its own map.
+    if (m === "game" && fromSave && redrawOldOffers(progress, game.world, Math.random)) saveProgress(progress.toJSON());
     if (s) {
       game.paused = s.paused;
       pausedBeforeTitle = s.paused;
@@ -953,6 +956,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function showTitle(): void {
     closeMap(false);
     setBoardOpen(false);
+    sheet.show(null);
+    sheet.setWaiting(0);
     save();
     playing = false;
     clearTimeout(saveTimer);
@@ -1019,16 +1024,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return p ? { x: p.x, z: p.z } : undefined;
   };
 
-  /** When each town last had a delivery (performance.now): its school thinks only while it's supplied. */
-  const lastDelivered = new Map<number, number>();
-  const SCHOOL_SUPPLIED_MS = 180_000;
   // Game mode's towns: they want things, and grow when they get them.
   const townLife = new TownLife(game, {
     knows: (tech) => progress.learned.has(tech),
     // A school takes only what the research still lacks (a lookup: the crane asks for every unit).
     school: (kind) => researchLacking(progress, kind) > 0,
     received: (town, kind, n, before) => {
-      lastDelivered.set(town.id, performance.now());
       payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
       // Logged quietly, one entry per town and kind for a burst of deliveries.
@@ -1042,17 +1043,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const before = new Set(progress.landmarks);
       syncLandmarks();
       // Folded into the growth's own line, after it: one new landmark with what it does, several by name.
-      const raised = [...progress.landmarks].filter((id) => !before.has(id)).map((id) => landmarkOf(id)!);
+      const raised = [...progress.landmarks].filter((id) => !before.has(id)).flatMap((id) => landmarkOf(id) ?? []);
       const landmarks =
         raised.length === 1 ? `New ${raised[0].name.toLowerCase()}: ${raised[0].blurb}` : raised.length > 1 ? `New ${raised.map((m) => m.name.toLowerCase()).join(", ")}` : "";
       const level = aOrAn(status.name.toLowerCase());
-      // The first village, town and city each bring a present; a town that grows offers two blueprints suited to its
-      // new size (one learned free), or a crate of things.
+      // The first village, town and city each bring a present; a town that grows offers three cards to pick one from
+      // (planks, coins, a crate, a wagon, a research boost, rare cargo: never a blueprint).
       const gift = firstTimeGift(progress, status.level);
       if (gift.length > 0) hud.refreshTrayBadges();
-      const offered = progress.offers.length;
-      offerOnGrowth(progress, town.name, Math.random, status.level);
-      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Claim your reward in Research" : ""].filter(Boolean);
+      const offer = offerOnGrowth(progress, game.world, town.name, status.level, Math.random);
+      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", offer ? "Pick a reward" : ""].filter(Boolean);
       const grew = built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`;
       const where = built.length > 0 ? placeOf(built) : here;
       if (extras.length > 0) {
@@ -1060,7 +1060,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         // ticks joins that entry.
         const entry = note({ kind: "milestone", text: `${grew} ${extras.join(" · ")}`, place: where }, 5200, true);
         growth = entry ? { entry, at: game.simSeconds, wallAt: performance.now() } : null;
-        if (entry) hud.toast(built.length > 0 ? `${town.name} is ${level}!` : grew, true, 3200);
+        // ("Larkfield is a town! Pick a reward": a tap on it opens the sheet.)
+        if (entry) hud.toast(`${built.length > 0 ? `${town.name} is ${level}!` : grew}${offer ? " Pick a reward" : ""}`, true, 3200, offer ? () => openRewards() : undefined);
         checkGoals(true);
         growth = entry ? { entry, at: game.simSeconds, wallAt: performance.now() } : null;
       } else {
@@ -1068,10 +1069,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         checkGoals(true); // (its tick is logged after the growth)
       }
       audio.chime();
-      if (gift.length > 0 || progress.offers.length > offered) {
+      if (gift.length > 0 || offer) {
         refreshBoard();
         scheduleSave();
       }
+      // The sheet comes up for it, unless a finger's on the map (a drag isn't cut short) or a panel's open: then the
+      // toast and the badge wait for a tap.
+      if (offer && !interaction.busy && !board.open && !mapView.open && !sheet.open) openRewards();
+      else refreshRewards();
       game.flourishes.add(game.landscapeView.flash([town.id]));
       const grid = game.landscape.grid;
       const marks = goalMarks(
@@ -1319,7 +1324,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined)) game.invalidate();
     }
     hud.refreshTrayBadges();
-    // A school placed or taken up: the pill shows (or says to pick research), or goes.
+    // A school placed (or taken up): the school blueprint comes with your first (towns don't build schools), and the
+    // pill shows (or says to pick research), or goes.
+    if (mode === "game") {
+      const learnedBefore = progress.learned.size;
+      syncLandmarks();
+      if (progress.learned.size !== learnedBefore && board.open) refreshBoard();
+    }
     refreshPill();
   }
   let rateKeyShown = "";
@@ -1336,26 +1347,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       scheduleSave();
     },
   });
-  // The blueprint board: choices from towns that grew, blueprints to learn with planks, and the rest of the tree.
+  // The Research picker: the whole tree, each blueprint researched at a school.
   const board = new BlueprintBoard(document.body, {
-    choose: (k, id) => {
-      if (takeBlueprint(progress, k, id)) learned(id);
-      else {
-        // Learned meanwhile: the card was stale. Say so, and show the refreshed offers.
-        hud.toast(`${techOf(id)?.label ?? "That"} is already learned`);
-        refreshBoard();
-        scheduleSave();
-      }
-    },
-    crate: (k) => {
-      const crate = progress.offers[k]?.crate;
-      if (!crate || !takeCrate(progress, k)) return;
-      note({ kind: "milestone", text: `Into your toy box: ${describeThings(crate)}` }, 3800);
-      audio.chime();
-      hud.refreshTrayBadges();
-      refreshBoard();
-      save();
-    },
     pick: (id) => picked(id),
     close: () => setBoardOpen(false),
     picture: (key) => thumbnails.get(key),
@@ -1373,10 +1366,68 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       ),
   });
 
+  /**
+   * The growth menu: a bottom sheet with the first town's offer waiting ("Larkfield grew! Pick one", three cards), one
+   * tap to take a card. Closed, the offer keeps (the badge and the growth toast open it again).
+   */
+  const sheet = new GrowthSheet(document.body, {
+    take: (i) => {
+      const o = progress.offers[0];
+      const card = o?.cards[i];
+      if (!card) return;
+      const took = takeCard(progress, game.world, 0, i);
+      if (!took) return;
+      if (card.kind === "boost" || card.kind === "rare") {
+        // Goods into the research: schools take less now (routed trains plan again), and the pill moves.
+        game.economy.acceptsChanged();
+        refreshPill();
+      }
+      if (card.kind === "planks") game.invalidate(); // (the yard's pile grows)
+      if (card.kind === "crate" || card.kind === "wagon") hud.refreshTrayBadges();
+      hud.setCoins(progress.coins);
+      note({ kind: "milestone", text: `${o.from}'s reward: ${took.amount}${card.kind === "crate" ? ` (${took.line})` : ""}` }, 3200);
+      audio.chime();
+      if (board.open) refreshBoard();
+      save();
+      // The next offer waiting, if any; else the sheet closes.
+      if (progress.offers.length > 0) refreshRewards();
+      else closeRewards();
+    },
+    close: () => closeRewards(),
+    reopen: () => openRewards(),
+  });
+  /** Open the growth sheet on the first offer waiting (none: nothing). */
+  function openRewards(): void {
+    if (mode !== "game" || progress.offers.length === 0) return;
+    if (board.open) setBoardOpen(false);
+    if (mapView.open) closeMap(false);
+    interaction.clearSelection();
+    hud.hideCards();
+    sheetView();
+  }
+  function closeRewards(): void {
+    sheet.show(null);
+    sheet.setWaiting(mode === "game" ? progress.offers.length : 0);
+  }
+  /** The sheet (if open) and the badge, as the offers stand now. */
+  function refreshRewards(): void {
+    if (sheet.open) sheetView();
+    else sheet.setWaiting(mode === "game" ? progress.offers.length : 0);
+  }
+  function sheetView(): void {
+    if (progress.offers.length === 0) return closeRewards();
+    const o = progress.offers[0];
+    sheet.show({ title: sheetTitle(progress.offers), cards: o.cards.map((c) => cardView(progress, game.world, c)), more: progress.offers.length - 1 });
+    sheet.setWaiting(progress.offers.length);
+  }
+
   function learned(id: string): void {
     const makes = unlocksOf(id).map((t) => ruleOf(t)!.label);
     const t = techOf(id)!;
-    note({ kind: "milestone", text: makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.blurb}` }, 3800);
+    // Signals bring a second engine (into the toy box): a passing loop with signals lets two trains share the line.
+    const gift = learnGift(progress, id);
+    const present = gift.length > 0 ? ` · Present: ${describeThings(gift)}` : "";
+    note({ kind: "milestone", text: (makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.blurb}`) + present }, 3800);
     // An upgrade takes effect at once: industries' rates and the cranes.
     applyCranes(game.economy, progress);
     industriesChanged();
@@ -1482,15 +1533,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const PLAN_WORDS: Record<Plan, string> = { next: "Coming soon: next on the list", soon: "Coming soon", later: "Coming one day", ending: "The ending: coming one day" };
 
   function refreshBoard(): void {
-    // A blueprint another card taught may still sit on a pending offer: swap it out before anything is shown.
-    if (refreshOffers(progress, Math.random)) scheduleSave();
-    hud.setBoardButton(board.open, progress.offers.length);
+    hud.setBoardButton(board.open);
     if (!board.open) return;
     boardKeyShown = boardKey();
     const school = schoolName();
     // The goal's research: the picker opens on it while nothing is under way, its button ringed (never picked for you).
     const goalTech = goals.current()?.blueprint;
-    const seen = seenOf(progress, new Set(progress.offers.flatMap((o) => o.ids)));
+    const seen = seenOf(progress);
     const stations: Station[] = TECHS.map((t) => {
       const makes = makesOf(t);
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
@@ -1500,7 +1549,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const state = cardState(progress, t.id);
       if (state === "learned") return { ...base, state };
       if (state === "soon") return { ...base, state, waits: PLAN_WORDS[t.plan!] };
-      // (A town's offer of it, till the growth menu: the offer at the top of the picker; the card is its research.)
       const research = researchCard(progress, t.id, school);
       if (research) return { ...base, state, research, ...(t.id === goalTech && state !== "researching" ? { goal: true } : {}) };
       const missing = t.needs.filter((n) => !progress.learned.has(n));
@@ -1512,14 +1560,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
             ? `Needs ${unmet.map(describeNeed).join(" and ")}`
             : t.learn === "auto"
               ? "Comes by itself"
-              : "A town will offer it as it grows";
+              : "Later";
       return { ...base, state: "locked" as const, waits };
     });
     const focus = goalPick(progress, goalTech, school !== null);
     board.show({
       stations,
       branches: BRANCHES.map((b) => ({ id: b.id, label: b.label, color: b.color })),
-      offers: progress.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: describeThings(o.crate) } : {}) })),
       ...(focus ? { focus } : {}),
     });
   }
@@ -1533,13 +1580,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // The workshop's clock: a few times a second, not every frame (it runs while nothing on screen moves).
   const CRAFT_STEP = 0.25;
-  const schoolClock = { seconds: 0 };
   /** The research's study clock, on the world's game time (see `simElapsed`). */
   const studyClock: StudyClock = { at: null };
-  /** The landmarks your towns have, from the map (a blueprint may need a library). */
+  /** The landmarks your towns have, from the map (a blueprint may need a library), and your school if it's placed. */
   function syncLandmarks(): void {
     progress.landmarks.clear();
-    for (const id of landmarksOf(game.landscape)) progress.landmarks.add(id);
+    for (const id of landmarksAt(game.world)) progress.landmarks.add(id);
     // The school and library blueprints come with the buildings.
     learnAuto(progress);
   }
@@ -1547,19 +1593,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (mode === "game" && board.open && boardKey() !== boardKeyShown) refreshBoard();
     if (mode === "game") refreshPill();
     showDate();
-    // Schools have ideas while the game runs.
-    if (mode === "game" && playing && !game.paused) {
-      // A college: ideas twice as often.
-      // A school thinks only while its town has had a delivery lately.
-      const supplied = (town: number) => performance.now() - (lastDelivered.get(town) ?? -Infinity) < SCHOOL_SUPPLIED_MS;
-      const idea = schoolIdeas(progress, game.landscape, schoolClock, CRAFT_STEP * (progress.learned.has("college") ? 2 : 1), Math.random, supplied);
-      // (No note: with research, anything ready can be picked, so the board putting one on it says nothing new. The
-      // ideas themselves go in P3.)
-      if (idea) {
-        refreshBoard();
-        scheduleSave();
-      }
-    }
+    // The growth sheet, while it's open: its cards say what they'd give now (the yards fill, the research moves on);
+    // closed, the badge's count. (Written only when what they show changes.)
+    if (mode === "game") refreshRewards();
     // Research: the study clock, and Next up starting once its coins are in (a few lookups when nothing happens). Study
     // runs on game time (the trains' clock), not this timer's; read on every step so time off the game isn't counted.
     const studied = simElapsed(studyClock, game.simSeconds);
@@ -2847,6 +2883,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     saveProgress(progress.toJSON());
     refreshBoard();
     refreshPill();
+    closeRewards();
     goals = new GoalTracker();
     saveGoals([]);
     journal.clear();
@@ -2983,6 +3020,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       hud.setCoins(null);
     }
     industriesChanged();
+    // Rewards waiting from before (Game mode): the badge, the sheet shut.
+    closeRewards();
     checkGoals(false);
     hud.firstVisitHelp();
   }
@@ -3161,8 +3200,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     } catch {
       // storage unavailable: it may show again next visit
     }
-    const canSwitch = mode !== "game" || progress.learned.has("switches");
-    hud.toast(canSwitch ? "Trains met head on. Add a passing loop (two switches) so they can pass" : "Trains met head on. Learn Switches to build a passing loop", false, 6000);
+    hud.toast(headOnTip(mode !== "game" ? null : progress.learned), false, 6000);
   }
 
   game.onFrame = (dt) => {
