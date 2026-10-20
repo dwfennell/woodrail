@@ -32,11 +32,12 @@ import { endOn, rulesFor, schoolOn } from "./rules";
  * A balance and pacing play-through of Game mode, on the game's own rules and none of the tours' shortcuts: every
  * blueprint is researched at a school (goods brought by train, coins from tier 2), every piece, car and industry that
  * costs anything is made from the workshop's yard (as the tray does), a growing town offers three cards (never a
- * blueprint) and the player takes the one it most needs, and passengers come and pay. A simulated new player follows the goals,
- * joins towns, runs trains, places its school beside a town as soon as it has one, builds what the blueprints allow,
- * and picks research in its wish order (what its railway can bring the goods for, keeping a few planks in the
- * workshop to build with). The log is a timeline in minutes of play; the SUMMARY research line has the first
- * research's minute, how many were done by minutes 60, 120 and 180, and the longest wait for a research's goods.
+ * blueprint) and the player takes one of those that make sense now (at random, seeded per run), and passengers come
+ * and pay. A simulated new player follows the goals, joins towns, runs trains, places its school beside a town as
+ * soon as it has one, builds what the blueprints allow, and picks research in its wish order (what its railway can
+ * bring the goods for, keeping a few planks in the workshop to build with). The log is a timeline in minutes of play;
+ * the SUMMARY research line has the first research's minute, how many were done by minutes 60, 120 and 180, and the
+ * longest wait for a research's goods.
  *
  * Slow (minutes of play are simulated tick by tick), so skipped unless asked for:
  *   BALANCE=1 npx vitest run src/play/balance.test.ts
@@ -132,6 +133,8 @@ class Player {
   counters = new Counters();
   tick = 0;
   readonly random = rng(Number(ENV.BALANCE_SEED ?? 2027));
+  /** The player's own pick among the cards that make sense (seeded per run, apart from the offers' draws). */
+  readonly picks = rng(Number(ENV.BALANCE_SEED ?? 2027) * 7919 + 1);
   readonly people = new Map<number, number>();
   readonly lastDelivered = new Map<number, number>();
   fixed = new Set<number>();
@@ -833,15 +836,25 @@ class Playthrough {
       P.note("STALL: no planks sawn for 5 minutes");
       P.trains();
     }
-    // Rewards: the card from a town's offer the player most needs (spec §5): a research boost while a research waits
-    // on goods, else planks before Farming, else coins (else whatever can be taken).
+    // Rewards: one of the cards that make sense now, picked at random (seeded per run: spec §5, P5), as a player who
+    // likes more than one of them would: a research boost or rare cargo while a research waits on goods; planks before
+    // Farming, or with the workshop short of planks to spare; coins; a crate while there's no workshop to make things;
+    // a wagon while the goods train waits on cars. Nothing sensible on offer: coins, else whatever can be taken.
     while (s.offers.length > 0) {
       const o = s.offers[0];
       const ok = o.cards.map((c) => cardView(s, w, c).ok);
-      const find = (kind: string) => o.cards.findIndex((c, i) => c.kind === kind && ok[i]);
-      let i = s.research.current !== null && !studying(s) ? find("boost") : -1;
-      if (i === -1 && !s.learned.has("farming")) i = find("planks");
-      if (i === -1) i = find("coins");
+      const waiting = s.research.current !== null && !studying(s);
+      const sensible: Record<string, boolean> = {
+        boost: waiting,
+        rare: waiting,
+        planks: !s.learned.has("farming") || P.planks() < RESEARCH_SPARE,
+        coins: true,
+        crate: this.shop === -1,
+        wagon: this.carsWait,
+      };
+      const choices = o.cards.map((_, k) => k).filter((k) => ok[k] && sensible[o.cards[k].kind]);
+      let i = choices.length > 0 ? choices[Math.floor(P.picks() * choices.length)] : -1;
+      if (i === -1) i = o.cards.findIndex((c, k) => c.kind === "coins" && ok[k]);
       if (i === -1) i = ok.indexOf(true);
       const card = o.cards[i];
       const took = i === -1 ? null : takeCard(s, w, 0, i);
