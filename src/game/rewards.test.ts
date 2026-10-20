@@ -245,6 +245,35 @@ describe("growth never teaches a blueprint", () => {
   });
 });
 
+describe("three real choices", () => {
+  it("a crate never holds the wagon card's car, so neither card is the other and more (QA)", () => {
+    let both = 0;
+    let crates = 0;
+    const w = world();
+    for (let seed = 1; seed < 400; seed++) {
+      for (const level of [1, 2, 3]) {
+        const p = Progress.fresh();
+        if (seed % 3 === 0) p.learned.add("farming");
+        if (seed % 5 === 0) p.learned.add("passengers");
+        const offer = offerOnGrowth(p, w, "Larkfield", level, rng(seed))!;
+        const wagon = offer.cards.find((c) => c.kind === "wagon");
+        const crate = offer.cards.find((c) => c.kind === "crate");
+        // (The crate keeps its size by level, 2, 3, 4 things, or all you know if that's fewer.)
+        if (crate) {
+          crates++;
+          expect(crate.things.length, `seed ${seed} level ${level}`).toBe(Math.min(level + 1, crateFor(p, 99, rng(1)).length));
+        }
+        if (!wagon || !crate) continue;
+        both++;
+        expect(crate.things.map(([id]) => id), `seed ${seed} level ${level}`).not.toContain(wagon.id);
+      }
+    }
+    // (Both shown together often enough for the check to mean something.)
+    expect(both).toBeGreaterThan(50);
+    expect(crates).toBeGreaterThan(200);
+  });
+});
+
 describe("crates and presents", () => {
   it("a crate holds things you know, no buildings; a city's is bigger", () => {
     const p = Progress.fresh();

@@ -177,13 +177,31 @@ export function cardFor(p: Progress, world: World, kind: CardKind, level: number
 }
 
 /**
+ * Cards that are each a real choice: the wagon card's car is never in the crate beside it (QA: a crate with the wagon's
+ * car and more made the wagon card no choice). The crate keeps its size; the wagon card takes another known wagon not
+ * in the crate, or goes from the pool if there's none. (The other kinds aren't counted in things: none holds another.)
+ */
+function apart(p: Progress, pool: GrowthCard[], random: () => number): GrowthCard[] {
+  const crate = pool.find((c) => c.kind === "crate");
+  const k = pool.findIndex((c) => c.kind === "wagon");
+  if (!crate || k === -1) return pool;
+  const inCrate = new Set(crate.things.map(([id]) => id));
+  const wagon = pool[k] as Extract<GrowthCard, { kind: "wagon" }>;
+  if (!inCrate.has(wagon.id)) return pool;
+  const others = wagonsKnown(p).filter((id) => !inCrate.has(id));
+  if (others.length > 0) pool[k] = { kind: "wagon", id: others[Math.floor(random() * others.length)] };
+  else pool.splice(k, 1);
+  return pool;
+}
+
+/**
  * A town grew to `level` (1 a village, 2 a town, 3 a city…): it offers three cards of different kinds, drawn from those
  * that can be offered now, with amounts by its level. Never a blueprint. The offer waits in `p.offers` till one is
  * taken. Returns it (null if none could be offered, or the level is unknown).
  */
 export function offerOnGrowth(p: Progress, world: World, townName: string, level: number, random: () => number): Offer | null {
   if (level <= 0) return null;
-  const pool = CARD_KINDS.map((k) => cardFor(p, world, k, level, random)).filter((c): c is GrowthCard => c !== null);
+  const pool = apart(p, CARD_KINDS.map((k) => cardFor(p, world, k, level, random)).filter((c): c is GrowthCard => c !== null), random);
   const cards: GrowthCard[] = [];
   while (cards.length < CARDS_PER_OFFER && pool.length > 0) cards.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
   if (cards.length === 0) return null;
