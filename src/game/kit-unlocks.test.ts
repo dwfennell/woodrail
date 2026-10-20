@@ -56,7 +56,7 @@ describe("railway kits in Game mode", () => {
     expect([techOf("signals")!.tier, techOf("junctions")!.tier, techOf("engine-shed")!.tier, techOf("turntable")!.tier, techOf("scenery")!.tier]).toEqual([1, 1, 2, 2, 1]);
     for (const id of ["tunnels", "viaduct", "lift-bridge"]) expect(techOf(id)!.plan, id).toBeDefined();
     const halts = techOf("halts")!;
-    expect([halts.branch, halts.learn, halts.needs]).toEqual(["passengers", "board", ["passengers"]]);
+    expect([halts.branch, halts.needs]).toEqual(["passengers", ["passengers"]]);
     expect(BLUEPRINTS.filter((b) => b.id === "halts")).toHaveLength(1);
   });
 

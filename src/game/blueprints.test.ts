@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BLUEPRINTS, BRANCHES, describeNeed, describePrice } from "./blueprints";
 import { Progress } from "./progress";
-import { built, learnAuto, ready, seenOf, techOf, unlocksOf } from "./tech";
+import { built, ready, seenOf, techOf, unlocksOf } from "./tech";
 import { THING_RULES } from "./things";
 
 describe("the blueprint catalogue", () => {
@@ -40,14 +40,12 @@ describe("the blueprint catalogue", () => {
     for (const b of BLUEPRINTS.filter((x) => !built(x))) expect(ready(p, b.id), b.id).toBe(false);
   });
 
-  it("the school and library come with the buildings; quarries then wait only for mills", () => {
+  it("quarries wait for mills and a school beside a city (no school or library blueprint any more)", () => {
     const p = Progress.fresh();
     p.learned.add("farming");
     p.learned.add("mills");
     expect(ready(p, "quarries")).toBe(false);
-    p.landmarks.add("school");
-    p.landmarks.add("library");
-    expect(learnAuto(p)).toEqual(["school", "library"]);
+    p.landmarks.add("city-school");
     expect(ready(p, "quarries")).toBe(true);
   });
 
@@ -66,9 +64,10 @@ describe("the blueprint catalogue", () => {
   });
 
   it("an old save's risers and loops come back as bridges and junctions", () => {
-    const p = Progress.fromJSON({ owned: [], learned: ["switches", "heights", "loops"], board: ["loops"] });
+    // (An old save's board, and its school and library blueprints, are dropped.)
+    const p = Progress.fromJSON({ owned: [], learned: ["switches", "heights", "loops", "school", "library"], board: ["loops"] });
     expect([...p.learned].sort()).toEqual(["bridges", "junctions", "switches"]);
-    expect([...p.board]).toEqual([]);
+    expect("board" in p.toJSON()).toBe(false);
   });
 
   it("describes prices and requirements in words", () => {

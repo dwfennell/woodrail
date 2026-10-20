@@ -104,7 +104,7 @@ export function researchCard(p: Progress, id: string, school: string | null): Re
   const state = cardState(p, id);
   if (state !== "ready" && state !== "researching" && state !== "next") return null;
   const r = p.research;
-  const base = { chips: researchChips(p, id), study: `${studyTime(id)} s study` };
+  const base = { chips: researchChips(p, id), study: `${Math.ceil(studyTime(id) / p.research.speed)} s study` };
   if (state === "researching") return { ...base, why: researchWants(p, school), fill: researchFill(p, id) };
   if (state === "next") {
     const short = coinsShort(p);
@@ -192,5 +192,7 @@ export function schoolCard(p: Progress): { piles: { label: string; count: number
   }
   const goods = costOf(r.current).goods;
   const piles = (Object.keys(goods) as CargoKind[]).map((k) => ({ label: GOODS_ICON[k], count: r.got[k] ?? 0, cap: goods[k]! }));
-  return { piles, note: studying(p) ? `Studying ${label(r.current)}: ${Math.ceil(studyLeft(p))} s` : `Researching ${label(r.current)}` };
+  // (A college studies twice as fast: said while it matters, the goods all in.)
+  const fast = r.speed > 1 ? " (college: 2×)" : "";
+  return { piles, note: studying(p) ? `Studying ${label(r.current)}: ${Math.ceil(studyLeft(p))} s${fast}` : `Researching ${label(r.current)}` };
 }

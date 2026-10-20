@@ -1,6 +1,7 @@
 /**
- * Every blueprint in Game mode, built or planned: the one list the blueprint board, the towns' offers, the rules for
- * learning (`tech.ts`) and the roadmap page (`npm run blueprints:page`) all read. A blueprint not built yet has a
+ * Every blueprint in Game mode, built or planned: the one list the Research picker, the rules for researching
+ * (`tech.ts`, `research.ts`) and the roadmap page (`npm run blueprints:page`) all read. Every built one is researched
+ * at a school. A blueprint not built yet has a
  * `plan`: the board shows it as "coming soon" and nothing can learn it. To add one, add a row; to build one, take its
  * `plan` away (and give it its things in `THING_RULES`, or its feature in the game).
  *
@@ -56,12 +57,15 @@ export type Need =
   | { readonly kind: "delivered"; readonly good: string; readonly n: number }
   /** One of your towns at this level (1 a village, 2 a town, 3 a city, 4 a city ★), or `towns` of them. */
   | { readonly kind: "level"; readonly level: number; readonly towns?: number }
-  /** A building in one of your towns: a landmark (school, market, library) or, later, a city's major building. */
+  /**
+   * Something on your map: a town's landmark (a market) or, later, a city's major building; or your school's growth
+   * (`CITY_SCHOOL`: a school beside a city, its library wing).
+   */
   | { readonly kind: "landmark"; readonly id: string; readonly label: string }
   /** Something about the map ("a town by water"): shown, but not yet checked by the game. */
   | { readonly kind: "place"; readonly text: string };
 
-/** What learning it costs: planks and goods from the workshop's yard, and coins. */
+/** Its price in planks, goods and coins: what researching it costs is worked out from it (`researchFrom`). */
 export interface Price {
   readonly planks?: number;
   readonly coins?: number;
@@ -82,13 +86,8 @@ export interface Blueprint {
   /** What you must have done first, beyond the blueprints it needs. */
   readonly requires: readonly Need[];
   /**
-   * board: offered by towns and schools, and learned on the board at its price. auto: learned by itself once what it
-   * requires is done (the passenger line, by people carried; the school and library, when a town builds one).
-   */
-  readonly learn: "board" | "auto";
-  /**
-   * Which size of town offers it when it grows (1 a village, 2 a town, 3 a city): a growing town offers its own tier
-   * first.
+   * Its tier: how long its study takes (`STUDY_SECONDS`), coins from tier 2, and from tier 3 a school beside a city
+   * (`CITY_SCHOOL`). None: tier 1.
    */
   readonly tier?: 1 | 2 | 3;
   /** Not built yet: shown as coming soon (see `Plan`). */
@@ -124,12 +123,16 @@ const delivered = (good: string, n: number): Need => ({ kind: "delivered", good,
 const level = (l: number, towns?: number): Need => ({ kind: "level", level: l, ...(towns ? { towns } : {}) });
 const landmark = (id: string, label: string): Need => ({ kind: "landmark", id, label });
 const place = (text: string): Need => ({ kind: "place", text });
+/** A school of yours beside a city (its library wing): every tier-3 research needs one. */
+export const CITY_SCHOOL_ID = "city-school";
+const CITY_SCHOOL = landmark(CITY_SCHOOL_ID, "a school beside a city");
 const TOWN = level(2);
 const CITY = level(3);
 const CITY_STAR = level(4);
 
-type Row = Omit<Blueprint, "learn" | "requires" | "price" | "research"> & { learn?: "board" | "auto"; requires?: readonly Need[]; price?: Price; research?: ResearchCost };
-const row = (r: Row): Blueprint => ({ learn: "board", requires: [], price: {}, ...r, research: r.research ?? researchFrom(r.price ?? {}, r.tier ?? 1) });
+type Row = Omit<Blueprint, "requires" | "price" | "research"> & { requires?: readonly Need[]; price?: Price; research?: ResearchCost };
+/** A row: its research from its price, and from tier 3 a school beside a city among what it requires. */
+const row = (r: Row): Blueprint => ({ price: {}, ...r, requires: [...(r.requires ?? []), ...(r.tier === 3 ? [CITY_SCHOOL] : [])], research: r.research ?? researchFrom(r.price ?? {}, r.tier ?? 1) });
 /** A research cost of goods (and coins), for the rows that ask for a good of the chain before them. */
 const study = (goods: Record<string, number>, coins?: number): ResearchCost => ({ goods, ...(coins ? { coins } : {}) });
 
@@ -175,7 +178,7 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "sawmills", label: "Sawmills", branch: "industry", tier: 2, key: true, needs: [], price: { planks: 15, coins: 20 }, blurb: "Build your own sawmill, wherever you like.", brings: "Sawmill" }),
   row({ id: "sawmills2", label: "Sawmills II", branch: "industry", tier: 2, needs: ["sawmills"], price: { planks: 14, coins: 40 }, requires: [count("planksSawn", 100)], blurb: "Sawmills work 1.5× as fast.", brings: "A second saw", feature: { label: "Sawmills 1.5× as fast", icon: "🪚" } }),
   row({ id: "sawmills3", label: "Sawmills III", branch: "industry", tier: 3, needs: ["sawmills2"], price: { planks: 24, coins: 100 }, requires: [count("planksSawn", 400)], blurb: "Sawmills work twice as fast.", brings: "A steam saw house", feature: { label: "Sawmills twice as fast", icon: "🪚" } }),
-  row({ id: "quarries", label: "Quarries", branch: "industry", tier: 3, key: true, needs: ["mills", "library"], price: { planks: 24, coins: 40 }, research: study({ planks: 16, flour: 10 }, 40), blurb: "Cut stone from the hills, for growing cities.", brings: "Quarry" }),
+  row({ id: "quarries", label: "Quarries", branch: "industry", tier: 3, key: true, needs: ["mills"], price: { planks: 24, coins: 40 }, research: study({ planks: 16, flour: 10 }, 40), blurb: "Cut stone from the hills, for growing cities.", brings: "Quarry" }),
   row({ id: "quarries2", label: "Quarries II", branch: "industry", tier: 3, needs: ["quarries"], price: { planks: 24, coins: 100 }, requires: [count("stoneCut", 60)], blurb: "Quarries work 1.5× as fast.", brings: "A stone crusher", feature: { label: "Quarries 1.5× as fast", icon: "⛏️" } }),
   row({ id: "brickworks", label: "Brickworks", branch: "industry", tier: 3, plan: "later", needs: ["quarries"], price: { planks: 20, coins: 60 }, blurb: "Clay from the riverbank makes bricks; brick towns grow taller.", brings: "Brickworks, brick houses" }),
   row({ id: "mines", label: "Mines", branch: "industry", tier: 3, needs: ["quarries", "goods-engine"], price: { planks: 20, coins: 80 }, research: study({ planks: 12, stone: 10 }, 80), requires: [delivered("stone", 20)], blurb: "A pithead in the hills brings up coal and iron ore, for a foundry.", brings: "Mine" }),
@@ -206,18 +209,17 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "clockmaker", label: "Clockmaker", branch: "craft", tier: 3, plan: "later", needs: ["smithy", "college"], price: { planks: 20, coins: 100, goods: { iron: 10 } }, blurb: "Clocks for every station: trains keep a timetable.", brings: "Station clocks, timetables" }),
 
   // Learning
-  row({ id: "school", label: "School", branch: "learning", key: true, learn: "auto", needs: [], requires: [landmark("school", "a school")], blurb: "Comes with your first school, placed on your line beside a town. Trains bring it the goods for research.", brings: "Research", feature: { label: "Research", icon: "🏫" } }),
-  row({ id: "library", label: "Library", branch: "learning", key: true, learn: "auto", needs: ["school"], requires: [landmark("library", "a library")], blurb: "Goes up in a town that becomes a city. Opens the advanced blueprints.", brings: "Advanced blueprints", feature: { label: "Advanced blueprints", icon: "📚" } }),
-  row({ id: "college", label: "College", branch: "learning", tier: 2, needs: ["school", "routes"], price: { planks: 20, coins: 60 }, requires: [count("blueprints", 10)], blurb: "A college goes up in your next town to grow.", brings: "A college", feature: { label: "College in a town", icon: "🎓" } }),
-  row({ id: "telegraph", label: "Telegraph", branch: "learning", tier: 2, plan: "soon", needs: ["signals", "school"], price: { planks: 14, coins: 50 }, blurb: "Wires along the line: see every train on the map, and call one home.", brings: "Telegraph poles" }),
+  // (The school is the building you place, not a blueprint; beside a city it grows a library wing, for tier 3.)
+  row({ id: "college", label: "College", branch: "learning", tier: 2, needs: ["routes"], price: { planks: 20, coins: 60 }, requires: [count("blueprints", 10)], blurb: "Schools by towns become colleges: research 2× as fast.", brings: "Colleges", feature: { label: "Research 2× at a town's school", icon: "🎓" } }),
+  row({ id: "telegraph", label: "Telegraph", branch: "learning", tier: 2, plan: "soon", needs: ["signals"], price: { planks: 14, coins: 50 }, blurb: "Wires along the line: see every train on the map, and call one home.", brings: "Telegraph poles" }),
   row({ id: "electricity", label: "Electricity", branch: "learning", tier: 3, needs: ["mines", "college"], price: { planks: 24, coins: 120, goods: { iron: 10 } }, research: study({ iron: 10, coal: 10 }, 120), blurb: "A power station burns coal: electric engines run while it has some.", brings: "Power station, colour-light signal" }),
-  row({ id: "university", label: "University", branch: "learning", tier: 3, plan: "soon", needs: ["college", "library"], price: { planks: 30, coins: 120 }, requires: [count("blueprints", 20)], blurb: "Shows every blueprint left to find; learn two at once.", brings: "A university" }),
+  row({ id: "university", label: "University", branch: "learning", tier: 3, plan: "soon", needs: ["college"], price: { planks: 30, coins: 120 }, requires: [count("blueprints", 20)], blurb: "Shows every blueprint left to find; learn two at once.", brings: "A university" }),
   row({ id: "wind", label: "Wind farm", branch: "learning", tier: 3, plan: "later", needs: ["electricity"], price: { planks: 20, coins: 100, goods: { iron: 10 } }, blurb: "Windmills on the hills make power without coal.", brings: "Wind turbines" }),
   row({ id: "radio", label: "Radio mast", branch: "learning", tier: 3, plan: "later", needs: ["electricity", "telegraph"], price: { planks: 16, coins: 80, goods: { iron: 6 } }, blurb: "Stations announce the trains: more people travel.", brings: "Radio mast" }),
   row({ id: "observatory", label: "Observatory", branch: "learning", tier: 3, plan: "soon", needs: ["university", "foundry"], price: { planks: 30, coins: 150, goods: { iron: 20 } }, blurb: "A telescope on the hill: the first step toward the rocket.", brings: "Observatory" }),
 
   // Town life
-  row({ id: "town-hall", label: "Town hall", branch: "civic", tier: 2, key: true, plan: "soon", needs: ["school"], price: { planks: 20, coins: 60 }, requires: [TOWN], blurb: "Name your towns, and nudge what each one grows toward.", brings: "Town hall" }),
+  row({ id: "town-hall", label: "Town hall", branch: "civic", tier: 2, key: true, plan: "soon", needs: [], price: { planks: 20, coins: 60 }, requires: [TOWN], blurb: "Name your towns, and nudge what each one grows toward.", brings: "Town hall" }),
   row({ id: "post-office", label: "Post office", branch: "civic", tier: 2, plan: "soon", needs: ["routes", "town-hall"], price: { planks: 16, coins: 40 }, blurb: "Mail between every pair of towns.", brings: "Post office" }),
   row({ id: "fire-station", label: "Fire station", branch: "civic", tier: 2, plan: "later", needs: ["town-hall"], price: { planks: 16, coins: 60 }, blurb: "A fire engine on the roads; towns with one grow a level bigger.", brings: "Fire station, fire engine" }),
   row({ id: "police", label: "Police station", branch: "civic", tier: 2, plan: "later", needs: ["town-hall"], price: { planks: 16, coins: 60 }, blurb: "A police car on the roads, and a lost-property office for stray wagons.", brings: "Police station, police car" }),
@@ -253,16 +255,16 @@ export const BLUEPRINTS: readonly Blueprint[] = [
   row({ id: "airport", label: "Airport", branch: "water", tier: 3, plan: "later", needs: ["electricity", "trade"], price: { planks: 40, coins: 300, goods: { iron: 30 } }, blurb: "Planes carry passengers between far cities; trains bring them to the terminal.", brings: "Airport, plane" }),
   row({ id: "airship", label: "Airship", branch: "water", tier: 3, plan: "later", needs: ["airport"], price: { planks: 20, coins: 150 }, blurb: "A slow, grand airship over your railway.", brings: "Airship mast" }),
 
-  // Passengers: learned by themselves as you carry people (after Passengers itself).
+  // Passengers: researched, each once you've carried enough people (placeholder costs: P5 tunes them).
   row({ id: "passengers", label: "Passengers", branch: "passengers", tier: 1, key: true, needs: [], price: { planks: 10 }, blurb: "Coaches carry people between towns: they pay a fare by how far they ride.", brings: "Coach, caboose" }),
   row({ id: "halts", label: "Halts", branch: "passengers", tier: 1, needs: ["passengers"], price: { planks: 12, coins: 20 }, blurb: "Halts and small stations on your lines near a town: more places for its people to get on and off.", brings: "Country halt, mountain station, harbour station, platform" }),
-  row({ id: "dining", label: "Dining car", branch: "passengers", key: true, learn: "auto", needs: ["passengers"], requires: [count("riders", 20)], blurb: "Everyone on a train with a dining car pays half as much again.", brings: "Dining car", feature: { label: "Dining car (Trains tab)", icon: "🍽️" } }),
-  row({ id: "first-class", label: "First class", branch: "passengers", learn: "auto", needs: ["dining"], requires: [count("riders", 60)], blurb: "A first-class coach: three seats, each paying double.", brings: "First-class coach", feature: { label: "First-class coach (Trains tab)", icon: "🥇" } }),
-  row({ id: "stations", label: "Busy stations", branch: "passengers", learn: "auto", needs: ["first-class"], requires: [count("riders", 100)], blurb: "Twice as many people come to each station, and more can wait.", brings: "More people at stations", feature: { label: "More people at stations", icon: "🚉" } }),
-  row({ id: "double-decker", label: "Double-decker", branch: "passengers", learn: "auto", needs: ["stations"], requires: [count("riders", 160)], blurb: "A coach with eight seats.", brings: "Double-decker coach", feature: { label: "Double-decker coach (Trains tab)", icon: "🚃" } }),
-  row({ id: "express", label: "Express engine", branch: "passengers", learn: "auto", needs: ["double-decker"], requires: [count("riders", 250)], blurb: "An engine that runs half as fast again.", brings: "Express engine", feature: { label: "Express engine (Trains tab)", icon: "⚡" } }),
-  row({ id: "sleeper", label: "Night sleepers", branch: "passengers", learn: "auto", plan: "later", needs: ["first-class", "telegraph"], requires: [count("riders", 400)], blurb: "Sleeper trains between far cities: big fares.", brings: "Sleeper coach" }),
-  row({ id: "observation", label: "Observation car", branch: "passengers", learn: "auto", plan: "later", needs: ["first-class", "beach"], requires: [count("riders", 300)], blurb: "Glass-roofed sightseeing: resort visitors pay double.", brings: "Observation car" }),
+  row({ id: "dining", label: "Dining car", branch: "passengers", tier: 1, key: true, needs: ["passengers"], price: { planks: 8 }, requires: [count("riders", 20)], blurb: "Everyone on a train with a dining car pays half as much again.", brings: "Dining car", feature: { label: "Dining car (Trains tab)", icon: "🍽️" } }),
+  row({ id: "first-class", label: "First class", branch: "passengers", tier: 2, needs: ["dining"], price: { planks: 12, coins: 30 }, requires: [count("riders", 60)], blurb: "A first-class coach: three seats, each paying double.", brings: "First-class coach", feature: { label: "First-class coach (Trains tab)", icon: "🥇" } }),
+  row({ id: "stations", label: "Busy stations", branch: "passengers", tier: 2, needs: ["first-class"], price: { planks: 14, coins: 40 }, requires: [count("riders", 100)], blurb: "Twice as many people come to each station, and more can wait.", brings: "More people at stations", feature: { label: "More people at stations", icon: "🚉" } }),
+  row({ id: "double-decker", label: "Double-decker", branch: "passengers", tier: 2, needs: ["stations"], price: { planks: 16, coins: 50 }, requires: [count("riders", 160)], blurb: "A coach with eight seats.", brings: "Double-decker coach", feature: { label: "Double-decker coach (Trains tab)", icon: "🚃" } }),
+  row({ id: "express", label: "Express engine", branch: "passengers", tier: 2, needs: ["double-decker"], price: { planks: 18, coins: 60 }, requires: [count("riders", 250)], blurb: "An engine that runs half as fast again.", brings: "Express engine", feature: { label: "Express engine (Trains tab)", icon: "⚡" } }),
+  row({ id: "sleeper", label: "Night sleepers", branch: "passengers", tier: 3, plan: "later", needs: ["first-class", "telegraph"], requires: [count("riders", 400)], blurb: "Sleeper trains between far cities: big fares.", brings: "Sleeper coach" }),
+  row({ id: "observation", label: "Observation car", branch: "passengers", tier: 3, plan: "later", needs: ["first-class", "beach"], requires: [count("riders", 300)], blurb: "Glass-roofed sightseeing: resort visitors pay double.", brings: "Observation car" }),
 
   // The ending
   row({ id: "rocket", label: "Rocket works", branch: "ending", key: true, plan: "ending", needs: ["observatory", "trade", "express", "cranes3", "electricity"], requires: [level(4, 3)], blurb: "Build the rocket from parts brought by train. Not designed yet.", brings: "Rocket works" }),
@@ -274,7 +276,7 @@ export const RENAMED: Readonly<Record<string, string>> = { heights: "bridges", l
 
 const LEVEL_NAMES = ["", "a village", "a town", "a city", "a city ★"];
 
-/** A requirement in words, for cards and the roadmap: "200 loads moved", "a library", "3 cities ★". */
+/** A requirement in words, for cards and the roadmap: "200 loads moved", "a school beside a city", "3 cities ★". */
 export function describeNeed(n: Need): string {
   switch (n.kind) {
     case "count":

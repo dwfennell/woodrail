@@ -225,6 +225,41 @@ followed the growth's and took it over) and holds the growth toast up for the ta
 
 **Depends on:** P1. For the tutorial text, P2 and P3 too. **Ships:** the tree as the spec has it, and the new
 opening.
+**Built (research-p4):** as below. The workshop keeps planks only for its waiting tray order (`orderPlanks` /
+`keepsForOrder` in `crafting.ts`); the blueprint-payment code, `priceOf`, `p.board` and `learn` are gone (an old save's
+`board` and its school and library blueprints are dropped on load: no save bump, the shape only lost fields). A school
+grows with its town (`schoolGrade`, `researchSpeed`, `schoolGradesKey` in `landmarks.ts`): a college once College is
+learned and its town is a town (study 2×: `Research.speed`, from the map, not saved), and a library wing beside a city
+(the `CITY_SCHOOL_ID` requirement every tier-3 row gets in `row()`). The yards are drawn again only when a school's grade
+changes (it's in `industriesChanged`' key); the town's growth toast says so ("Its school is now a college…", "…has a
+library wing…"). The library and college landmarks are gone; the market stays. Passenger rows are research (placeholder
+costs: Dining 8🪵; First class, Busy stations, Double-decker, Express 12–18🪵 and 30–60🪙) gated by riders. The new
+opening's goal "Place a school by a town" (`place-school`) uses `guideSchool`; "Research switches" keeps its id
+`learn-switches`. `npm run e2e:school` (tools/e2e/school-growth.mjs) walks the opening and the school's grades.
+Choices made here (no product decision in the spec): **every** tier-3 research needs a school beside a city, not only
+what the library gated before (Harvesters III, Sawmills III, Harbours and Dock sheds are now gated too); the library wing
+is drawn as the library model in the school's place (the yard has no room for two buildings), the college as the
+college model, both scaled to fit the yard; with several schools, study runs at the fastest one's speed.
+**Balance (P3 → P4, 180 min, 1 train a line):** see the table below. The new opening (the workshop after research)
+sends early planks to towns: City comes earlier on every seed and coins at 180 are higher. Fewer blueprints by 180
+(10–13 against 16–20): the school and library rows are gone, and the passenger line is no longer free (the simulated
+player only picks it with planks and coins to spare). Not tuned here (P5).
+
+| Seed | Coins@180 | City min (main → P3 → P4) | Longest plank stall | First research | Research at 60/120/180 | Longest research stall | Blueprints |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2027 | 680 → 1116 | 73 → 73 → 62 | 6 → 6 | 5.6 → 5.6 | 6/9/14 → 6/8/10 | 7.6 → 10.1 (Quarries) | 20 → 10 |
+| 1 | 220 → 925 | 112 → 61 → 61 | 7 → 6 | 5.6 → 5.6 | 6/9/12 → 6/8/10 | 10.0 → 10.1 (Quarries) | 18 → 10 |
+| 2 | 592 → 838 | 92 → 73 → 62 | 6 → 6 | 5.6 → 5.6 | 6/9/14 → 6/8/10 | 7.6 → 10.0 (Quarries) | 20 → 10 |
+| 3 | 220 → 1192 | 110 → 61 → 61 | 7 → 6 | 5.6 → 5.6 | 6/9/12 → 6/8/10 | 10.0 → 7.5 (Quicker cranes) | 18 → 10 |
+| 4 | 366 → 710 | 84 → 54 → 61 | 8 → 8 | 5.6 → 5.6 | 6/8/11 → 6/9/12 | 11.9 → 10.8 (Carpenter's bench) | 16 → 12 |
+| 5 | 545 → 708 | 87 → 73 → 64 | 9 → 6 | 5.6 → 5.6 | 6/10/14 → 6/11/13 | 10.3 → **36.3** (Goods engine) | 20 → 13 |
+
+**Over P3's guard (for P5):** seed 5's research stall, 36.3 min on the Goods engine from minute 144 to the end of the run:
+its 12 planks are in, its 6th flour never comes (the one train on a 22-stop line stops bringing grain to the mill;
+P3 stalled on the same research there for 10.3 min). Seed 4's City is 13% later than P3's (61 against 54), still 27%
+earlier than main's. Coins at 180 are now over the spec's 150–600 band on every seed (none under 100).
+**Left (P5):** the passenger line's research costs are placeholders; blueprints by 180 are fewer; coins over the band;
+the flour stall above.
 
 **Removes:**
 - `learnWithGoods`, `goodsOf`, `planksWanted`, `keepsPlanks`, `priceOf`'s college discount, `STARTING_BOARD` and
@@ -233,22 +268,22 @@ opening.
 - `learn: "auto"` (the passenger line is researched, gated by `requires`).
 
 ### Task 4.1: the workshop only makes things
-- [ ] Delete the blueprint-payment code and its tests. Holding planks becomes "for the waiting tray order" only, in
+- [x] Delete the blueprint-payment code and its tests. Holding planks becomes "for the waiting tray order" only, in
   `crafting.ts`. The balance `kept` column measures it.
-- [ ] Tests (`crafting.test.ts`, `tech.test.ts`).
+- [x] Tests (`crafting.test.ts`, `tech.test.ts`).
 
 ### Task 4.2: a school that grows with its town
-- [ ] Research speed is ×2 at a school whose town is at town level or above, once College is learned. Its model
+- [x] Research speed is ×2 at a school whose town is at town level or above, once College is learned. Its model
   becomes the college.
-- [ ] A school beside a city gets a library wing (a model change). Tier-3 research `requires` "a school beside a
+- [x] A school beside a city gets a library wing (a model change). Tier-3 research `requires` "a school beside a
   city", replacing `landmark("library")`.
-- [ ] The model swaps on the town's level-up only, not per frame.
-- [ ] Tests (`landmarks.test.ts`, `research.test.ts`): speed by town level; the tier-3 gate; College needs Routes.
+- [x] The model swaps on the town's level-up only, not per frame.
+- [x] Tests (`landmarks.test.ts`, `research.test.ts`): speed by town level; the tier-3 gate; College needs Routes.
 
 ### Task 4.3: the tree, and the tutorial order
-- [ ] Remove the school and library rows. Passenger blueprints become research with their riders `requires`.
+- [x] Remove the school and library rows. Passenger blueprints become research with their riders `requires`.
   `seenOf` stays.
-- [ ] Goals, in this order:
+- [x] Goals, in this order:
   1. deliver planks
   2. grow a village
   3. **place a school by a town** (new; "Show me" uses `depotSpot` by the village's station)
@@ -257,9 +292,9 @@ opening.
   6. bring it planks
   7. lay a switch
   8. build a bridge (research bridges)
-- [ ] Rewrite the goal hints for research.
-- [ ] Tests (`goals.test.ts`, `goal-ticks.test.ts`, `starter-line.test.ts`): the order, checks and guides.
-- [ ] `npm run blueprints:page` regenerates `docs/blueprints.html` with research costs.
+- [x] Rewrite the goal hints for research.
+- [x] Tests (`goals.test.ts`, `goal-ticks.test.ts`, `starter-line.test.ts`): the order, checks and guides.
+- [x] `npm run blueprints:page` regenerates `docs/blueprints.html` with research costs.
 
 ---
 

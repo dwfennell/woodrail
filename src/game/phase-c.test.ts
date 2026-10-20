@@ -6,7 +6,7 @@ import { appendPiece, connectorRef, Layout } from "../track";
 import { tooHeavy, topSpeed } from "./engines";
 import { dueLandmarks } from "./landmarks";
 import { Progress } from "./progress";
-import { priceOf, ready, techOf } from "./tech";
+import { ready, techOf } from "./tech";
 import { TownLife, type TownLifeHost } from "./town-life";
 import { applyCranes } from "./upgrades";
 import { buildStarterWorld, type World } from "./world";
@@ -39,25 +39,19 @@ describe("Phase C, the rest", () => {
     expect(w.economy.accepts!(station, "iron")).toBe(false); // not wanted by a hamlet
   });
 
-  it("a college goes up once learned, in one town only, and makes blueprints a fifth cheaper in planks", () => {
+  it("towns build no college (your school becomes one), and College makes nothing cheaper", () => {
     const w = buildStarterWorld();
-    const [a, b] = w.landscape.towns;
-    const ids = (t: typeof a, knows: boolean) => dueLandmarks(w.landscape, t, 2, () => knows).map((m) => m.id);
-    expect(ids(a, false)).not.toContain("college");
-    expect(ids(a, true)).toContain("college");
-    a.buildings[0].landmark = "college";
-    expect(ids(b, true)).not.toContain("college");
-    const p = Progress.fresh();
-    expect(priceOf(p, techOf("junctions")!).planks).toBe(12);
-    p.learned.add("college");
-    expect(priceOf(p, techOf("junctions")!).planks).toBe(10);
+    const [a] = w.landscape.towns;
+    expect(dueLandmarks(w.landscape, a, 3, () => true).map((m) => m.id)).toEqual(["market"]);
+    expect(techOf("junctions")!.research).toEqual({ goods: { planks: 12 } });
   });
 
   it("the smithy's heavy wagons hold 5; the grab cranes need it", () => {
     const w = buildStarterWorld();
     const p = Progress.fresh();
-    for (const t of ["cranes1", "cranes2", "harvesters", "sawmills", "farming", "mills", "library", "school", "quarries", "tank", "goods-engine", "mines", "foundry", "carpentry"]) p.learned.add(t);
+    for (const t of ["cranes1", "cranes2", "harvesters", "sawmills", "farming", "mills", "quarries", "tank", "goods-engine", "mines", "foundry", "carpentry"]) p.learned.add(t);
     p.bestLevel = 4;
+    p.landmarks.add("city-school");
     expect(ready(p, "cranes3")).toBe(false);
     p.learned.add("smithy");
     expect(ready(p, "cranes3")).toBe(true);

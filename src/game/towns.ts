@@ -17,7 +17,7 @@ export const TOWN_LEVELS: readonly TownLevel[] = [
   { name: "Village", wants: { planks: 8 }, houses: 3 },
   // A town wants flour to become a city: the farm chain (Harvesters → Farming → Mills) is the mid-game.
   { name: "Town", wants: { planks: 14, flour: 6 }, houses: 3 },
-  // A city wants stone to grow on (the quarry needs a city's library to learn).
+  // A city wants stone to grow on (quarries are researched at a school beside a city: its library wing).
   { name: "City", wants: { planks: 22, flour: 12, stone: 10 }, houses: 4 },
 ];
 

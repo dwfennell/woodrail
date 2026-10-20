@@ -1,14 +1,11 @@
-import { WORKSHOP_CAP } from "../economy/economy";
-import type { Bag } from "../economy/goods";
-import { BLUEPRINTS, type Blueprint, type Need, type Price } from "./blueprints";
-import { takeFromWorkshops } from "./crafting";
+import { BLUEPRINTS, type Blueprint, type Need } from "./blueprints";
 import type { Progress } from "./progress";
 import { THING_RULES, type ThingId } from "./things";
-import type { World } from "./world";
 
 /**
- * The rules for learning blueprints (Game mode), on the catalogue in `blueprints.ts`: what can be learned now, what a
- * school researches, and the ones learned by themselves. (A growing town offers resources, never a blueprint.)
+ * The rules for learning blueprints (Game mode), on the catalogue in `blueprints.ts`: what can be researched now, and
+ * what a player sees. Every built blueprint is researched at a school (`research.ts`); the workshop only makes things.
+ * (A growing town offers resources, never a blueprint.)
  */
 
 /** A blueprint (see `Blueprint`). */
@@ -58,70 +55,12 @@ export function ready(p: Progress, id: string): boolean {
 }
 
 /**
- * How much of each blueprint a player sees: "shown" if it's a key one, learned, offered, on the board, or next to
- * something learned; a "?" (hint) one step further on; beyond that nothing yet, so the web grows as you learn. A
+ * How much of each blueprint a player sees: "shown" if it's a key one, learned, being researched or up next, or next
+ * to something learned; a "?" (hint) one step further on; beyond that nothing yet, so the web grows as you learn. A
  * university shows everything.
  */
 export function seenOf(p: Progress, offered: ReadonlySet<string> = new Set()): Map<string, "shown" | "hint" | "unseen"> {
   const all = p.learned.has("university");
-  const shown = new Set(TECHS.filter((t) => all || t.key || p.learned.has(t.id) || offered.has(t.id) || p.board.has(t.id) || p.research.current === t.id || p.research.next === t.id || t.needs.some((n) => p.learned.has(n))).map((t) => t.id));
+  const shown = new Set(TECHS.filter((t) => all || t.key || p.learned.has(t.id) || offered.has(t.id) || p.research.current === t.id || p.research.next === t.id || t.needs.some((n) => p.learned.has(n))).map((t) => t.id));
   return new Map(TECHS.map((t) => [t.id, shown.has(t.id) ? "shown" : t.needs.some((n) => shown.has(n)) ? "hint" : "unseen"]));
-}
-
-/** What it costs this player: its price, a fifth fewer planks once a college is learned. */
-export function priceOf(p: Progress, t: Tech): Price {
-  if (!p.learned.has("college") || !t.price.planks) return t.price;
-  return { ...t.price, planks: Math.ceil(t.price.planks * 0.8) };
-}
-
-/**
- * Planks the workshop keeps (towns don't take them from unrouted trains, which carry them on to it) until its yard
- * holds this many: the planks of the tray order waiting to be made (the workshop only makes things now; blueprints
- * are researched at a school, which takes its own goods: src/game/research.ts). No more than the yard holds. 0:
- * nothing to keep for. (Before research, it kept planks for the board's blueprints too, which starved towns.)
- */
-export function planksWanted(p: Progress, yardCap = WORKSHOP_CAP): number {
-  const id = p.making ? undefined : p.orders[0];
-  const planks = id ? (THING_RULES[id]?.cost.planks ?? 0) : 0;
-  return Math.min(planks, yardCap);
-}
-
-/** Does the workshop keep planks now, holding `stock`? (See `planksWanted`.) */
-export function keepsPlanks(p: Progress, stock: number): boolean {
-  return stock < planksWanted(p);
-}
-
-/** The goods a price takes from the workshop's yard (planks and others; coins aside). */
-export function goodsOf(t: Tech, price: Price = t.price): Bag {
-  return { ...(price.planks ? { planks: price.planks } : {}), ...price.goods } as Bag;
-}
-
-/**
- * Learn the blueprints that come by themselves once what they require is done (the passenger line, by people carried;
- * the school and library, when a town builds one). Returns the ones learned now, in order.
- */
-export function learnAuto(p: Progress): string[] {
-  const out: string[] = [];
-  for (const t of TECHS) {
-    if (t.learn !== "auto" || !ready(p, t.id)) continue;
-    p.learned.add(t.id);
-    out.push(t.id);
-  }
-  return out;
-}
-
-/**
- * Learn a blueprint from the board at its price: planks (and goods) from the workshops' yards, and coins. False, taking
- * nothing, if it can't be (yet).
- */
-export function learnWithGoods(world: World, p: Progress, id: string): boolean {
-  if (!ready(p, id) || !p.board.has(id)) return false;
-  const t = techOf(id)!;
-  const price = priceOf(p, t);
-  const coins = price.coins ?? 0;
-  if (p.coins < coins || !takeFromWorkshops(world, goodsOf(t, price))) return false;
-  p.coins -= coins;
-  p.learned.add(id);
-  p.board.delete(id);
-  return true;
 }

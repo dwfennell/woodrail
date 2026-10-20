@@ -3,7 +3,7 @@ import type { Economy } from "../economy/economy";
 import type { Bag } from "../economy/goods";
 import type { ResearchCost } from "./blueprints";
 import type { Progress } from "./progress";
-import { built, learnAuto, ready, techOf } from "./tech";
+import { built, ready, techOf } from "./tech";
 
 /**
  * Research (Game mode): every blueprint is learned at a school, a depot beside a town that trains bring goods to (spec:
@@ -28,11 +28,17 @@ export interface Research {
   readonly held: Map<string, { got: Bag; study: number }>;
   /** Goes up whenever anything a card shows changes (not saved): cards redraw on a change of it, never per frame. */
   version: number;
+  /**
+   * How fast study goes: the fastest of your schools (2 at a college: a school beside a town or city once College is
+   * learned; else 1). From the map, not saved: set when schools, towns' levels or what's learned change
+   * (`researchSpeed` in landmarks.ts), never per frame.
+   */
+  speed: number;
 }
 
-export const newResearch = (): Research => ({ current: null, next: null, got: {}, study: 0, held: new Map(), version: 0 });
+export const newResearch = (): Research => ({ current: null, next: null, got: {}, study: 0, held: new Map(), version: 0, speed: 1 });
 
-/** Seconds of study once a research's goods are in, by tier, at a school's speed of 1 (a college: faster, from P4). */
+/** Seconds of study once a research's goods are in, by tier, at a school's speed of 1 (a college's is 2). */
 export const STUDY_SECONDS: Readonly<Record<1 | 2 | 3, number>> = { 1: 20, 2: 45, 3: 90 };
 
 const NONE: ResearchCost = { goods: {} };
@@ -42,15 +48,22 @@ export function costOf(id: string): ResearchCost {
   return techOf(id)?.research ?? NONE;
 }
 
+/** Set how fast study goes (see `Research.speed`): cards and the pill redraw if it changed. */
+export function setSpeed(p: Progress, speed: number): void {
+  if (p.research.speed === speed) return;
+  p.research.speed = speed;
+  p.research.version++;
+}
+
 /** Seconds of study a blueprint takes (at speed 1). */
 export function studyTime(id: string): number {
   return STUDY_SECONDS[techOf(id)?.tier ?? 1];
 }
 
-/** Can it be researched now: built, not learned, what it needs learned and what it requires done, and not by itself? */
+/** Can it be researched now: built, not learned, what it needs learned and what it requires done? */
 export function canResearch(p: Progress, id: string): boolean {
   const t = techOf(id);
-  return !!t && built(t) && t.learn === "board" && ready(p, id);
+  return !!t && built(t) && ready(p, id);
 }
 
 /**
@@ -159,8 +172,8 @@ export function coinsShort(p: Progress): number {
   return Math.max(0, (costOf(r.next).coins ?? 0) - p.coins);
 }
 
-/** Seconds of study left for the current research (its whole study time until its goods are in). */
-export function studyLeft(p: Progress, speed = 1): number {
+/** Seconds of study left for the current research (its whole study time until its goods are in), at the schools' speed. */
+export function studyLeft(p: Progress, speed = p.research.speed): number {
   const r = p.research;
   return r.current === null ? 0 : Math.max(0, (studyTime(r.current) - r.study) / speed);
 }
@@ -183,10 +196,10 @@ export function simElapsed(clock: StudyClock, now: number): number {
 
 /**
  * Advance `seconds` of play at a school speed of `speed`: start `next` if nothing is current (coins may have come in),
- * study once the goods are in, and when the study is done learn it (and what comes by itself with it) and start
+ * study once the goods are in, and when the study is done learn it and start
  * `next`. Returns the blueprint learned, or null. Cheap: a few lookups when nothing happens.
  */
-export function tick(p: Progress, seconds: number, speed = 1): string | null {
+export function tick(p: Progress, seconds: number, speed = p.research.speed): string | null {
   const r = p.research;
   // Learned some other way meanwhile (a town's offer): set it aside, goods and all (they're used up).
   if (r.current !== null && p.learned.has(r.current)) {
@@ -208,12 +221,10 @@ export function tick(p: Progress, seconds: number, speed = 1): string | null {
     return null;
   }
   p.learned.add(id);
-  p.board.delete(id);
   r.current = null;
   r.got = {};
   r.study = 0;
   r.version++;
-  learnAuto(p);
   promote(p);
   return id;
 }
