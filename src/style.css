@@ -641,11 +641,29 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .coins { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 800; color: #5a3f24; font-variant-numeric: tabular-nums; padding: 2px 9px 2px 4px; border-radius: 999px; background: #f3e1b6; }
 .coins i { width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffe08a, #e2a12b 70%); box-shadow: inset 0 0 0 2px #c98a1c, 0 2px 0 #b07a1a; }
 .coins.pop { animation: goal-pop 0.6s ease-out; }
+/* The railway's date, beside the coins (Game mode). */
+.game-date { font-size: 13px; font-weight: 800; color: #5a3f24; font-variant-numeric: tabular-nums; padding: 2px 8px; border-radius: 999px; background: #f3e1b6; white-space: nowrap; }
+/* The date and the research pill both read beside the buttons. The brand keeps its width while the date shows (the
+   pill gives way, its name shortening); up to a tablet's width the pill takes the W, the name and the mode tag's room. */
+.brand:has(.game-date:not([hidden])) { flex-shrink: 0; }
+@media (max-width: 1024px) {
+  .topbar:has(.research-pill:not([hidden])) :is(.brand-name, .mode-tag, .brand-block) { display: none; }
+}
+/* A phone on its side: the pill stands in for the Research button, as on a phone held upright. */
+@media (max-height: 520px) {
+  .topbar:has(.research-pill:not([hidden])) .actions > .research-btn { display: none; }
+}
+/* On a phone the date goes under the coins, smaller (beside them, the two took the pill's room at 360 px). */
+@media (max-width: 640px) {
+  .brand:has(.game-date:not([hidden])) { flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 3px 6px; overflow: visible; }
+  .brand:has(.game-date:not([hidden])) .coins { padding: 1px 7px 1px 2px; }
+  .game-date { font-size: 11px; padding: 0 4px; background: none; }
+}
 /* The research pill (Game mode): what's being researched and how far ("📘 Bridges 6/10🪵"); tap for the picker. */
 .research-pill { position: relative; overflow: hidden; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 4px 9px; border: none; border-radius: 14px; background: rgba(250, 243, 230, 0.9); box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); font: inherit; font-weight: 800; font-size: 14px; color: #3a2a1c; cursor: pointer; text-align: left; }
 .research-pill[hidden] { display: none; }
-.research-pill .rp-text { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; white-space: nowrap; }
-.research-pill .rp-line { display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.research-pill .rp-text { display: flex; align-items: center; gap: 5px; min-width: 0; white-space: nowrap; }
+.research-pill .rp-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .research-pill .rp-icon { flex: none; font-size: 16px; line-height: 1; }
 .research-pill .rp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .research-pill .rp-count { font-variant-numeric: tabular-nums; color: #1f4f8a; }
@@ -655,7 +673,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .research-pill.active { box-shadow: 0 0 0 3px #3a2a1c, 0 4px 18px rgba(60, 40, 20, 0.18); }
 .research-pill:active { transform: scale(0.96); }
 /* (Wider, the Research button beside it has the glow and the dot.) */
-@media (min-width: 641px) {
+@media (min-width: 641px) and (min-height: 521px) {
   .research-pill.board-new { outline: none; animation: none; margin-inline: 0 auto; }
   .research-pill.icon-btn-alert::after { display: none; }
 }
@@ -671,6 +689,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .research-pill.icon-btn-alert::after { top: 3px; right: 3px; width: 7px; height: 7px; }
   .research-pill .rp-text { flex-direction: column; align-items: flex-start; gap: 1px; }
   .research-pill .rp-icon { font-size: 13px; }
+}
+/* At 360 px (the date beside it) the pill's name has the whole top line, the book beside the count under it. */
+@media (max-width: 400px) {
+  .research-pill { padding-inline: 7px 6px; }
+  .research-pill .rp-text { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "name name" "icon count"; column-gap: 3px; row-gap: 1px; }
+  .research-pill .rp-line { display: contents; }
+  .research-pill .rp-icon { grid-area: icon; font-size: 11px; }
+  .research-pill .rp-name { grid-area: name; }
+  .research-pill .rp-count { grid-area: count; }
 }
 
 /* Tooltips for the HUD's controls (see ui/tooltip.ts). */
