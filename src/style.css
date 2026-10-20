@@ -365,6 +365,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* (Where the word would cut the goal's title short: the round ⌖ alone, as before.) */
 .goals.collapsed.show-tight .goals-show-icon { width: 44px; padding: 0; justify-content: center; }
 .goals.collapsed.show-tight .goals-show-word { display: none; }
+.goals.collapsed.title-small .goals-now { font-size: 13px; letter-spacing: -0.01em; }
 .goals-show { margin-top: 6px; height: 40px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
 .goals-body { display: none; }
 .goals.collapsed .goals-head { padding-bottom: 10px; }
@@ -533,8 +534,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-tag.free { color: #5a3d06; background: #ffd88a; }
 .learned .bp-dot { background: linear-gradient(180deg, #8fd08a, #5aa35a); box-shadow: 0 0 0 2px #3f7d3c; }
 .ready .bp-dot { background: #fff6dc; box-shadow: 0 0 0 2px #d9a441; }
-.ready.can .bp-dot { background: #ffe9a8; box-shadow: 0 0 0 2px #d9a441, 0 0 10px 3px rgba(255, 196, 70, 0.75); animation: bp-lamp 1.8s ease-in-out infinite; }
-.offered .bp-dot { background: #ffd88a; box-shadow: 0 0 0 2px #e2a12b, 0 0 10px 3px rgba(255, 196, 70, 0.8); animation: bp-lamp 1.4s ease-in-out infinite; }
+.researching .bp-dot { background: #cfe0f7; box-shadow: 0 0 0 2px #2f6db5, 0 0 10px 3px rgba(47, 109, 181, 0.45); animation: bp-lamp 1.8s ease-in-out infinite; }
+.next .bp-dot { background: #fffaf0; box-shadow: 0 0 0 2px #2f6db5; }
 .locked .bp-dot, .soon .bp-dot { background: #f7eedd; box-shadow: 0 0 0 2px #b8a68c; }
 .locked .bp-name { color: #6a5340; }
 @keyframes bp-lamp { 50% { filter: brightness(1.12); } }
@@ -563,7 +564,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-key:first-child { margin-left: 0; }
 .bp-key.learned { background: #5aa35a; }
 .bp-key.ready { background: #fff6dc; box-shadow: 0 0 0 2px #d9a441; }
-.bp-key.offered { background: #ffd88a; box-shadow: 0 0 0 2px #e2a12b; }
+.bp-key.researching { background: #cfe0f7; box-shadow: 0 0 0 2px #2f6db5; }
+.bp-key.next { background: #fffaf0; box-shadow: 0 0 0 2px #2f6db5; }
 .bp-key.locked { background: #f7eedd; box-shadow: 0 0 0 2px #b8a68c; }
 .bp-key.soon { border: 2px dashed #b8a68c; }
 .bp-key.hint { width: auto; height: auto; border-radius: 0; font-weight: 900; color: #b8a68c; }
@@ -578,7 +580,19 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .bp-ticket::after { bottom: 10px; }
 .bp-ticket.learned { border-left-color: #5aa35a; }
 .bp-ticket.ready { border-left-color: #d9a441; }
-.bp-ticket.offered { border-left-color: #e2a12b; }
+.bp-ticket.researching, .bp-ticket.next { border-left-color: #2f6db5; }
+.bp-tag.now, .bp-tag.next { color: #1f4f8a; background: #dde9f8; }
+.bp-tag.goal { align-self: center; color: #5a3d06; background: #ffd88a; }
+/* A research card's cost: a chip a good ("🪵 6/10"), the coins red while short, and its study time. */
+.bp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.bp-chip { padding: 2px 8px; border-radius: 9px; background: #f1e1c2; font-size: 13px; font-weight: 800; color: #5a3d22; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bp-chip.short { background: #f8d9cc; color: #a33a1a; }
+.bp-chip.study { background: transparent; color: #7a6650; padding-inline: 2px; }
+.bp-now { font-size: 14px; font-weight: 800; color: #1f4f8a; }
+.bp-ticket.researching .bp-gauge-fill { background: linear-gradient(180deg, #6f9fd8, #2f6db5); }
+.bp-ticket-foot .chip.text { min-width: 112px; }
+/* The goal's research: its button ringed (nothing is picked without a tap). */
+.chip.bp-goal { box-shadow: 0 0 0 3px #ffc21f; }
 .bp-ticket-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .bp-ticket-head b { font-size: 17px; }
 .bp-ticket-head span { font-size: 13.5px; color: #6a5340; }
@@ -610,7 +624,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .bp-tag { font-size: 10px; }
   .bp-ticket { padding: 10px 12px; }
 }
-@media (prefers-reduced-motion: reduce) { .ready.can .bp-dot, .offered .bp-dot { animation: none; } .bp-node { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .researching .bp-dot { animation: none; } .bp-node { transition: none; } }
 .icon-btn-alert { position: relative; }
 .icon-btn-alert::after { content: ""; position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #c8442f; box-shadow: 0 0 0 2px #fbf3e4; animation: alert-pulse 1.2s ease-in-out infinite; }
 @keyframes alert-pulse { 50% { transform: scale(1.3); } }
@@ -627,6 +641,64 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .coins { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 800; color: #5a3f24; font-variant-numeric: tabular-nums; padding: 2px 9px 2px 4px; border-radius: 999px; background: #f3e1b6; }
 .coins i { width: 16px; height: 16px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #ffe08a, #e2a12b 70%); box-shadow: inset 0 0 0 2px #c98a1c, 0 2px 0 #b07a1a; }
 .coins.pop { animation: goal-pop 0.6s ease-out; }
+/* The railway's date, beside the coins (Game mode). */
+.game-date { font-size: 13px; font-weight: 800; color: #5a3f24; font-variant-numeric: tabular-nums; padding: 2px 8px; border-radius: 999px; background: #f3e1b6; white-space: nowrap; }
+/* The date and the research pill both read beside the buttons. The brand keeps its width while the date shows (the
+   pill gives way, its name shortening); up to a tablet's width the pill takes the W, the name and the mode tag's room. */
+.brand:has(.game-date:not([hidden])) { flex-shrink: 0; }
+@media (max-width: 1024px) {
+  .topbar:has(.research-pill:not([hidden])) :is(.brand-name, .mode-tag, .brand-block) { display: none; }
+}
+/* A phone on its side: the pill stands in for the Research button, as on a phone held upright. */
+@media (max-height: 520px) {
+  .topbar:has(.research-pill:not([hidden])) .actions > .research-btn { display: none; }
+}
+/* On a phone the date goes under the coins, smaller (beside them, the two took the pill's room at 360 px). */
+@media (max-width: 640px) {
+  .brand:has(.game-date:not([hidden])) { flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 3px 6px; overflow: visible; }
+  .brand:has(.game-date:not([hidden])) .coins { padding: 1px 7px 1px 2px; }
+  .game-date { font-size: 11px; padding: 0 4px; background: none; }
+}
+/* The research pill (Game mode): what's being researched and how far ("📘 Bridges 6/10🪵"); tap for the picker. */
+.research-pill { position: relative; overflow: hidden; display: flex; align-items: center; min-width: 44px; min-height: 44px; margin-right: auto; padding: 4px 12px 4px 9px; border: none; border-radius: 14px; background: rgba(250, 243, 230, 0.9); box-shadow: 0 4px 18px rgba(60, 40, 20, 0.18); font: inherit; font-weight: 800; font-size: 14px; color: #3a2a1c; cursor: pointer; text-align: left; }
+.research-pill[hidden] { display: none; }
+.research-pill .rp-text { display: flex; align-items: center; gap: 5px; min-width: 0; white-space: nowrap; }
+.research-pill .rp-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.research-pill .rp-icon { flex: none; font-size: 16px; line-height: 1; }
+.research-pill .rp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.research-pill .rp-count { font-variant-numeric: tabular-nums; color: #1f4f8a; }
+.research-pill .rp-bar { position: absolute; left: 0; bottom: 0; height: 4px; width: var(--fill, 0%); background: #2f6db5; border-radius: 0 2px 2px 0; }
+.research-pill.idle { background: #fff1c2; box-shadow: 0 0 0 2px #e2a12b, 0 4px 18px rgba(60, 40, 20, 0.18); }
+.research-pill.idle .rp-count { color: inherit; }
+.research-pill.active { box-shadow: 0 0 0 3px #3a2a1c, 0 4px 18px rgba(60, 40, 20, 0.18); }
+.research-pill:active { transform: scale(0.96); }
+/* (Wider, the Research button beside it has the glow and the dot.) */
+@media (min-width: 641px) and (min-height: 521px) {
+  .research-pill.board-new { outline: none; animation: none; margin-inline: 0 auto; }
+  .research-pill.icon-btn-alert::after { display: none; }
+}
+@media (max-width: 640px) {
+  /* The pill on a phone: the name over the count, in the room between the coins and the buttons (it gives way first:
+     the name shortens). */
+  /* While the pill shows it stands in for the Research button (same tap, the button's glow and dot with it): the bar
+     can't hold both beside the coins at 390 px. */
+  .topbar:has(.research-pill:not([hidden])) .actions > .research-btn { display: none; }
+  .research-pill { flex: 0 1 auto; max-width: 140px; height: 44px; padding: 3px 9px 3px 8px; font-size: 12px; line-height: 1.2; }
+  .research-pill.board-new { margin: 0 auto 0 4px; }
+  /* (Its dot in the corner, clear of the name.) */
+  .research-pill.icon-btn-alert::after { top: 3px; right: 3px; width: 7px; height: 7px; }
+  .research-pill .rp-text { flex-direction: column; align-items: flex-start; gap: 1px; }
+  .research-pill .rp-icon { font-size: 13px; }
+}
+/* At 360 px (the date beside it) the pill's name has the whole top line, the book beside the count under it. */
+@media (max-width: 400px) {
+  .research-pill { padding-inline: 7px 6px; }
+  .research-pill .rp-text { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "name name" "icon count"; column-gap: 3px; row-gap: 1px; }
+  .research-pill .rp-line { display: contents; }
+  .research-pill .rp-icon { grid-area: icon; font-size: 11px; }
+  .research-pill .rp-name { grid-area: name; }
+  .research-pill .rp-count { grid-area: count; }
+}
 
 /* Tooltips for the HUD's controls (see ui/tooltip.ts). */
 .tooltip { position: fixed; left: 0; top: 0; z-index: 100; max-width: 240px; padding: 5px 10px; border-radius: 9px; background: #3a2a1c; color: #fbf3e4; font: 700 13px/1.3 Nunito, system-ui, sans-serif; box-shadow: 0 4px 14px rgba(30, 20, 10, 0.3); pointer-events: none; }
@@ -710,7 +782,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A long name ends in "…" rather than wrapping the card's head. */
 .route-line-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .route-head .route-plan, .route-head .route-leave { flex: 0 0 auto; }
-.route-leave.asking { background: #b0391f; color: #fff; }
+.route-leave.asking, .goals-new.asking { background: #b0391f; color: #fff; }
 .route-join-line:disabled { opacity: 0.45; }
 .route-riders { font-weight: 600; opacity: 0.7; }
 .route-head .route-leave { padding-inline: 10px; }

@@ -494,9 +494,10 @@ const spots = new WeakMap<World, { key: string; spot: Pose | null }>();
 /**
  * A straight of the player's line where a depot of `type` could be dropped and fit, yard and all (either way round):
  * the middle of that straight and the line's heading there, or null. The straights nearest `near` are tried first, at
- * most `SPOT_TRIES` of them; the answer is kept until the layout, the land or the props change.
+ * most `SPOT_TRIES` of them; the answer is kept until the layout, the land or the props change. `fits`: the mode's
+ * own rule for the spot too (a school beside a town), which must depend on nothing else.
  */
-export function depotSpot(w: World, type: PieceTypeId, near: readonly { x: number; z: number }[]): Pose | null {
+export function depotSpot(w: World, type: PieceTypeId, near: readonly { x: number; z: number }[], fits?: (pose: Pose) => boolean): Pose | null {
   const layout = w.layout;
   const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
   const straights: { id: number; x: number; z: number; heading: number; d: number }[] = [];
@@ -527,7 +528,8 @@ export function depotSpot(w: World, type: PieceTypeId, near: readonly { x: numbe
       if (checkPlacement(w.landscape, type, false, s.pose, s.y).kind !== "clear") continue;
       if (findOverlap(layout, type, false, s.pose, s.y, ignore) !== -1) continue;
       if (checkYard(ctx, type, s.pose, s.y, ignore)) continue;
-      spot = { x: st.x, z: st.z, heading: s.pose.heading };
+      if (fits && !fits(s.pose)) continue;
+      spot ={ x: st.x, z: st.z, heading: s.pose.heading };
       break;
     }
     if (spot) break;

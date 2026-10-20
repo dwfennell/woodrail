@@ -3,7 +3,7 @@ import { Editor } from "../editor/editor";
 import { gridWithPlots, hillsOf, type Landscape } from "../landscape";
 import { Sim } from "../sim";
 import { appendPiece, connectorRef, DrawLine, Layout, type DrawOptions, type PieceTypeId } from "../track";
-import { branchFrom, BUSY_MESSAGE, crossingAt, GO_ACROSS, JUNCTION_ANGLE, JUNCTION_END, JUNCTION_GAP, JUNCTION_JOINT, JUNCTION_STRAIGHT, junctionWhy, linePlan, mergeAt, NO_ROOM_CROSSING, type JunctionRules } from "./draw-junctions";
+import { branchFrom, BUSY_MESSAGE, busyOn, crossingAt, MERGE_PAST, mergePast, THREE_WAY_SIDE, GO_ACROSS, JUNCTION_ANGLE, JUNCTION_END, JUNCTION_GAP, JUNCTION_JOINT, JUNCTION_STRAIGHT, junctionWhy, linePlan, mergeAt, NO_ROOM_CROSSING, type JunctionRules } from "./draw-junctions";
 import { Progress } from "./progress";
 import { pieceStock, pieceUnlearned } from "./supply";
 import { drawMessage, drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
@@ -336,19 +336,29 @@ describe("junctions' cost", () => {
     expect(layout.pieceCount).toBe(400);
     const junctions: JunctionRules = { layout, check: () => null, occupied: () => false, may: () => null };
     const start = { x: 0, z: 400, heading: -Math.PI / 4, y: 0, kind: "peg" as const };
+    // (As the draw-path timing guards: the slowest few looks left out of `worst`, since a loaded machine (the whole
+    // suite running) stalls one now and then, while a slow look comes back every time and the fifth slowest still
+    // catches it. Warmed up first; the best of up to five runs counts; the very slowest only within a looser bound.)
+    const SPARED = 4;
     const run = () => {
-      let worst = 0;
+      const times: number[] = [];
       for (let k = 0; k < 200; k++) {
         const t0 = performance.now();
         mergeAt(junctions, start, [], { x: (k * 37) % 3000 - 1500, z: (k * 53) % 3000 - 1500 }, new Set(), 0);
-        worst = Math.max(worst, performance.now() - t0);
+        times.push(performance.now() - t0);
       }
-      return worst;
+      times.sort((a, b) => b - a);
+      return { worst: times[SPARED], slowest: times[0], median: times[times.length >> 1] };
     };
     run();
-    let worst = run();
-    for (let k = 0; k < 4 && worst >= 1; k++) worst = Math.min(worst, run());
-    expect(worst).toBeLessThan(1);
+    let r = run();
+    for (let k = 0; k < 4 && r.worst >= 1; k++) {
+      const next = run();
+      if (next.worst < r.worst) r = next;
+    }
+    expect(r.worst).toBeLessThan(1);
+    expect(r.median).toBeLessThan(1);
+    expect(r.slowest).toBeLessThan(20);
   });
 });
 
@@ -420,5 +430,65 @@ describe("why no junction went in where a stroke met a line (QA sweep 4)", () =>
   it("nothing junction-shaped: not stopped by a line, or stopped by what isn't track", () => {
     const s = setup();
     expect(why(s, stroke(s, 432, Z - 600, -90, 300))).toBeNull();
+  });
+});
+
+describe("QA's junction notes", () => {
+  it("N2: a straight 45° branch stroke goes on in straights, no S-jog after the switch (its first points are short of the branch end)", () => {
+    for (const deg of [45, -45])
+      for (const px of [250, 300, 340, 400]) {
+        const s = setup();
+        const { b, line: drawn } = branchStroke(s, s.ids[1], px, deg, 700);
+        expect(b.kind, `${deg}° at ${px}`).toBe("branch");
+        const types = drawn!.pieces.map((p) => p.type);
+        expect(types.slice(0, 2).some((t) => t.startsWith("curve")), `${deg}° at ${px}: ${types.join(" ")}`).toBe(false);
+      }
+  });
+
+  it("N3: let go a little past a line (beyond a merge's reach, short of going across), it merges where the stroke meets the line", () => {
+    for (const deg of [40, 45, 50])
+      for (const len of [330, 360, 390]) {
+        const s = setup();
+        const a = (deg * Math.PI) / 180;
+        const sx = Math.round((432 - Math.cos(a) * 260) / 18) * 18;
+        const sz = Math.round((Z - Math.sin(a) * 260) / 18) * 18;
+        const line = new DrawLine({ x: sx, z: sz, heading: Math.PI / 4, y: 0, kind: "peg" }, s.options(new Set()));
+        for (let d = 4; d <= len; d += 4) line.addPoint(sx + Math.cos(a) * d, sz + Math.sin(a) * d);
+        line.finish();
+        const m = mergePast(s.junctions, line.start, line.pieces, line.tip, new Set(), 0);
+        expect(m?.kind, `${deg}° ${len} mm, ${(line.tip.z - Z).toFixed(0)} mm past`).toBe("merge");
+      }
+    // Well past the line (beyond MERGE_PAST): not a merge.
+    const s = setup();
+    const line = new DrawLine({ x: 252, z: -144, heading: Math.PI / 4, y: 0, kind: "peg" }, s.options(new Set()));
+    for (let d = 4; d <= 330; d += 4) line.addPoint(252 + d * Math.SQRT1_2, -144 + d * Math.SQRT1_2);
+    line.finish();
+    expect(mergePast(s.junctions, line.start, line.pieces, { x: line.tip.x, z: Z + MERGE_PAST + 20 }, new Set(), 0)).toBeNull();
+  });
+
+  it("N4: a train on a curve or a switch says so; off a switch's branch side, where no three-way leg goes, it says to draw off the other side", () => {
+    expect(busyOn("straight-108")).toBe(BUSY_MESSAGE);
+    expect(busyOn("curve-large")).toBe("A train is on that curve");
+    expect(busyOn("switch")).toBe("A train is on that switch");
+    const layout = new Layout();
+    const a = layout.addPiece("straight-216", { x: 0, z: Z, heading: 0 }, 0);
+    const sw = appendPiece(layout, "switch", false, connectorRef(a, 1));
+    const rules = (busy: boolean): JunctionRules => ({ layout, check: () => null, occupied: () => busy, may: () => null });
+    const p = layout.getPiece(sw)!.pose;
+    const press = { x: p.x + 70, z: p.z + 5 };
+    // The switch branches to + (not mirrored): off that side, no three-way.
+    expect(branchFrom(rules(false), sw, press, { x: press.x + 20, z: press.z + 70 })).toEqual({ kind: "refused", message: THREE_WAY_SIDE });
+    expect(branchFrom(rules(true), sw, press, { x: press.x + 50, z: press.z - 50 })).toEqual({ kind: "refused", message: "A train is on that switch" });
+  });
+
+  it("facing: the way the finger set off decides which way the switch faces, not where it has got to", () => {
+    const s = setup();
+    const press = { x: 300, z: Z };
+    // Set off at +45°, the finger since bent round to −45° by the time the branch is decided.
+    const bent = { x: 300 + 60, z: Z - 60 };
+    const b = branchFrom(s.junctions, s.ids[1], press, bent, Math.PI / 4);
+    const plain = branchFrom(s.junctions, s.ids[1], press, bent);
+    expect(b.kind === "branch" && Math.sign(b.swap.end.z - Z)).toBe(1);
+    expect(plain.kind === "branch" && Math.sign(plain.swap.end.z - Z)).toBe(-1);
   });
 });

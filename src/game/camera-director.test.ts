@@ -312,3 +312,22 @@ describe("aimInRoom: the game's glides show their target in the middle of what t
     expect(look.distanceTo(target)).toBeLessThan(1e-6);
   });
 });
+
+describe("fitToRect with a lone point (QA: Show me's one marker sat at the screen's middle, behind a card)", () => {
+  it("at the least distance given, the point shows in the room's middle", () => {
+    const W = 844;
+    const H = 390;
+    const room = { left: 0, top: 116, right: 414, bottom: 246 };
+    const camera = new PerspectiveCamera(30, W / H, 5, 40000);
+    const point = new Vector3(300, 0, -200);
+    const fit = fitToRect([point], camera, 1.0, 0.4, room, W, H, 32, 1100);
+    expect(fit.distance).toBeCloseTo(1100, 6);
+    const cam = new PerspectiveCamera(30, W / H, 5, 40000);
+    cam.position.setFromSpherical(new Spherical(fit.distance, 1.0, 0.4)).add(fit.target);
+    cam.lookAt(fit.target);
+    cam.updateMatrixWorld();
+    const v = point.clone().project(cam);
+    expect(((v.x + 1) / 2) * W).toBeCloseTo((room.left + room.right) / 2, 0);
+    expect(((1 - v.y) / 2) * H).toBeCloseTo((room.top + room.bottom) / 2, 0);
+  });
+});

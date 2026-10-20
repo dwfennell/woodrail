@@ -1,7 +1,12 @@
+import boardSrc from "./blueprint-board.ts?raw";
+import mainSrc from "../main.ts?raw";
 import { describe, expect, it } from "vitest";
-import { layoutWeb, TAG_W, type Station } from "./blueprint-board";
+import { Progress } from "../game/progress";
+import { deliver, pick } from "../game/research";
+import { researchCard } from "../game/research-text";
+import { layoutWeb, researchFoot, TAG_W, type Station } from "./blueprint-board";
 
-const st = (id: string, branch: string, needs: string[] = []): Station => ({ id, label: id, blurb: "", branch, makes: [], state: "locked", seen: "shown", needs, price: "free", planks: 0, requires: [] });
+const st = (id: string, branch: string, needs: string[] = []): Station => ({ id, label: id, blurb: "", branch, makes: [], state: "locked", seen: "shown", needs, price: "free", requires: [] });
 
 describe("the blueprint web", () => {
   it("puts each blueprint a column right of its furthest prerequisite, branches in bands, nothing overlapping", () => {
@@ -22,5 +27,51 @@ describe("the blueprint web", () => {
     const spots = stations.map((s) => `${at(s.id).x},${at(s.id).y}`);
     expect(new Set(spots).size).toBe(stations.length);
     expect(web.width).toBeGreaterThanOrEqual(Math.max(...stations.map((s) => at(s.id).x)) + TAG_W);
+  });
+});
+
+describe("a research card's foot in the picker", () => {
+  const SCHOOL = "Larkfield school";
+
+  it("a ready card: its goods as chips, its study time, and one button, Research or Next up", () => {
+    const p = Progress.fresh();
+    p.learned.add("farming");
+    const html = researchFoot("mills", researchCard(p, "mills", SCHOOL)!, false);
+    expect(html).toContain(`<span class="bp-chip">🪵 0/12</span><span class="bp-chip">🌾 0/6</span><span class="bp-chip short">🪙 20</span>`);
+    expect(html).toContain("⏱ 45 s study");
+    expect(html.match(/<button/g)).toHaveLength(1);
+    expect(html).toContain(`data-act="pick" data-id="mills">Research</button>`);
+    pick(p, "switches");
+    expect(researchFoot("mills", researchCard(p, "mills", SCHOOL)!, false)).toContain(">Next up</button>");
+  });
+
+  it("the one under way: a bar and how it stands, no button; one up next: Research now (the swap)", () => {
+    const p = Progress.fresh();
+    pick(p, "bridges");
+    deliver(p, "planks", 6);
+    const now = researchFoot("bridges", researchCard(p, "bridges", SCHOOL)!, false);
+    expect(now).not.toContain("<button");
+    expect(now).toContain(`style="width:60%"`);
+    expect(now).toContain("bring 4🪵 to Larkfield school");
+    pick(p, "switches");
+    const next = researchFoot("switches", researchCard(p, "switches", SCHOOL)!, true);
+    expect(next).toContain("Next up, after Bridges");
+    // The goal's research: its button ringed.
+    expect(next).toContain(`class="chip text primary bp-goal" data-act="pick" data-id="switches">Research now</button>`);
+  });
+
+  it("with no school the button is held and says why", () => {
+    const html = researchFoot("switches", researchCard(Progress.fresh(), "switches", null)!, true);
+    expect(html).toContain(`aria-disabled="true" title="Needs a school"`);
+    expect(html).toContain(`<span class="bp-why">Needs a school</span>`);
+    expect(html).not.toContain("bp-goal");
+  });
+});
+
+describe("the P1 stopgap is gone", () => {
+  it("the board has no pay-or-learn path: its handlers pick, and no card is offered or priced in planks", () => {
+    expect(boardSrc).not.toMatch(/handlers\.learn|data-act="learn"|"offered"|affordable|planks/);
+    expect(boardSrc).toContain(`handlers.pick(`);
+    expect(mainSrc).not.toMatch(/tapResearch|researchLine|learn: \(id\) => picked/);
   });
 });

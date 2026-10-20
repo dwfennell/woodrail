@@ -124,7 +124,7 @@ export class MapView {
       nudges[k] = edgeNudge(left, w, window.innerWidth);
       lifts[k] = rangeNudge(Math.round(p.y) - 14, sizes[k].h, lo, hi);
       idx.push(k);
-      boxes.push({ x: left + nudges[k], y: Math.round(p.y) - 14 + lifts[k], w, h: sizes[k].h, priority: this.markers[k].kind === "town" ? 1 : 0 });
+      boxes.push({ x: left + nudges[k], y: Math.round(p.y) - 14 + lifts[k], w, h: sizes[k].h, priority: this.markers[k].key.startsWith("site:") ? 2 : this.markers[k].kind === "town" ? 1 : 0 });
     });
     const spots = declutterLabels(boxes);
     this.markers.forEach((m, k) => {

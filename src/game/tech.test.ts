@@ -4,14 +4,15 @@ import { capOf } from "../economy/economy";
 import { appendPiece, connectorRef } from "../track";
 import { GOALS } from "./goals";
 import { Progress } from "./progress";
-import { built, choose, keepsPlanks, learnWithGoods, offerFor, planksWanted, priceOf, ready, techOf, TECHS } from "./tech";
+import { built, choose, keepsPlanks, learnWithGoods, offerFor, planksWanted, ready, TECHS } from "./tech";
 import { THING_RULES } from "./things";
 import { buildStarterWorld, syncIndustries } from "./world";
 
 describe("blueprints", () => {
-  it("start with switches, bridges, farming and mills on the board; junctions wait for switches, mills for farming", () => {
+  it("start with nothing on the board (anything ready can be researched); junctions wait for switches, mills for farming", () => {
     const p = Progress.fresh();
-    expect([...p.board].sort()).toEqual(["bridges", "farming", "mills", "switches"]);
+    expect([...p.board]).toEqual([]);
+    expect(ready(p, "switches") && ready(p, "farming")).toBe(true);
     expect(ready(p, "mills")).toBe(false);
     expect(ready(p, "junctions")).toBe(false);
     p.learned.add("switches");
@@ -41,6 +42,8 @@ describe("blueprints", () => {
     syncIndustries(w);
     const d = w.economy.depotAtPiece(piece)!;
     const p = Progress.fresh();
+    // (No longer the game's way, research is: the old path stays till P4 takes it out.)
+    p.board.add("switches");
     d.piles[CARGO.planks.index] = 3;
     expect(learnWithGoods(w, p, "switches")).toBe(false);
     d.piles[CARGO.planks.index] = 5;
@@ -63,38 +66,25 @@ describe("blueprints", () => {
 });
 
 describe("planks kept for the workshop (no route needed)", () => {
-  it("fills to the current goal's blueprint: Bridges (10) for \"Build a bridge\" isn't left waiting at 9", () => {
+  it("never for blueprints (a school researches them): not for the board's, nor the goal's", () => {
     const p = Progress.fresh();
     p.learned.add("switches");
-    p.board.clear();
     for (const id of ["bridges", "signals", "junctions"]) p.board.add(id);
     expect(ready(p, "signals") && ready(p, "bridges") && ready(p, "junctions")).toBe(true);
-    expect(priceOf(p, techOf("signals")!).planks).toBe(8);
-    const aim = GOALS.find((g) => g.id === "build-bridge")!.blueprint!;
-    expect(aim).toBe("bridges");
-    expect(planksWanted(p, aim)).toBe(10);
-    expect(keepsPlanks(p, 9, aim)).toBe(true);
-    expect(keepsPlanks(p, 10, aim)).toBe(false);
-  });
-
-  it("with no goal after one, the cheapest ready blueprint (never the dearest: the towns would go short)", () => {
-    const p = Progress.fresh();
-    p.learned.add("switches");
-    p.board.clear();
-    for (const id of ["bridges", "signals", "junctions"]) p.board.add(id);
-    expect(planksWanted(p)).toBe(8);
-    expect(keepsPlanks(p, 9)).toBe(false);
-    // A goal's blueprint not ready, or learned: the cheapest.
-    p.learned.add("bridges");
-    expect(planksWanted(p, "bridges")).toBe(8);
-  });
-
-  it("never more than the yard holds, and nothing kept with nothing ready", () => {
-    const p = Progress.fresh();
-    p.board.clear();
+    expect(GOALS.find((g) => g.id === "build-bridge")!.blueprint).toBe("bridges");
     expect(planksWanted(p)).toBe(0);
     expect(keepsPlanks(p, 0)).toBe(false);
-    p.board.add("bridges");
-    expect(planksWanted(p, null, 6)).toBe(6);
+  });
+
+  it("only for the tray order waiting to be made, no more than the yard holds", () => {
+    const p = Progress.fresh();
+    p.orders.push("piece:depot-workshop");
+    expect(planksWanted(p)).toBe(THING_RULES["piece:depot-workshop"]!.cost.planks);
+    expect(keepsPlanks(p, 11)).toBe(true);
+    expect(keepsPlanks(p, 12)).toBe(false);
+    expect(planksWanted(p, 6)).toBe(6);
+    // Once it's being made (its planks taken), nothing is kept for it.
+    p.making = true;
+    expect(planksWanted(p)).toBe(0);
   });
 });

@@ -1,5 +1,7 @@
 import type { Editor } from "../editor/editor";
-import type { World } from "../game/world";
+import { guideSchool } from "../game/goals";
+import { schoolOf, siteWhy } from "../game/industries";
+import { syncIndustries, type World } from "../game/world";
 import { checkPlacement, checkSupport } from "../landscape";
 import { appendPiece, connectorRef, findLowCrossing, findOverlap, getPieceDef, type Layout, type PieceTypeId } from "../track";
 import type { Blocked } from "./player";
@@ -38,6 +40,35 @@ export function layOn(w: World, editor: Editor, ref: number, type: PieceTypeId, 
   const id = editor.place(type, pose, y, flipped);
   const other = def.connectors.findIndex((_, k) => k !== via);
   return { id, next: other === -1 ? -1 : connectorRef(id, other) };
+}
+
+/**
+ * Drop the school where Game mode's Show me points (`guideSchool`: a straight of the line beside a town, the way round
+ * its yard fits), spliced in for that straight as the drop does, if the rules and its site rule allow. Returns its
+ * piece's id, or why not (everything put back).
+ */
+export function schoolOn(w: World, editor: Editor, fixed: ReadonlySet<number>): number | { why: string } {
+  const guide = guideSchool(w);
+  const spot = guide.held ? guide.marks[0] : undefined;
+  if (!spot) return { why: "no spot beside a town" };
+  const straight = [...w.layout.pieceIds()].find((id) => {
+    const p = w.layout.getPiece(id)!;
+    return p.type === "straight-216" && !fixed.has(id) && Math.hypot(p.pose.x + 108 * Math.cos(p.pose.heading) - spot.x, p.pose.z + 108 * Math.sin(p.pose.heading) - spot.z) < 2 && !w.sim.pieceOccupied(id);
+  });
+  if (straight === undefined) return { why: "its straight is taken" };
+  const p = w.layout.getPiece(straight)!;
+  const was = { pose: { ...p.pose }, y: p.y, flipped: p.flipped };
+  const h = guide.held!.heading;
+  const pose = { x: spot.x - 108 * Math.cos(h), z: spot.z - 108 * Math.sin(h), heading: h };
+  editor.remove(straight);
+  const id = editor.place("depot-school", pose, was.y, false);
+  if (rulesFor(w)("depot-school", false, pose, was.y, id) || siteWhy(w.landscape, "depot-school", pose, (t) => schoolOf(w, t, (x) => x === id))) {
+    editor.remove(id);
+    editor.place("straight-216", was.pose, was.y, was.flipped);
+    return { why: "it won't go where its guide points" };
+  }
+  syncIndustries(w, true);
+  return id;
 }
 
 /** Put a buffer (or turnback) on free end `ref` (flipped only if it won't go as it is). */

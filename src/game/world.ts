@@ -1,4 +1,4 @@
-import { adoptRegion, CELL, generateLandscape, generatePlot, PLOT_DEPTH, plotKey, seaPlot, type DepotKind, type Landscape, type PlotCoord } from "../landscape";
+import { adoptRegion, CELL, generateLandscape, generatePlot, PLOT_DEPTH, plotKey, seaPlot, SURF_TOWN, type DepotKind, type Landscape, type PlotCoord, type Town } from "../landscape";
 import { Economy, type DepotRole } from "../economy";
 import { Sim } from "../sim";
 import { kitOf, Layout, type PieceTypeId } from "../track";
@@ -21,6 +21,8 @@ export const DEPOT_NAMES: Record<Exclude<DepotRole, "town">, string> = {
   smithy: "Smithy",
   power: "Power station",
   harbour: "Harbour",
+  // (Named after its town: see `depotName`.)
+  school: "School",
   // Sandbox's cargo machines (kit pieces): their own names are their kits' (`KitDef.name`).
   "loader-log": "Log loader",
   "loader-grain": "Grain loader",
@@ -44,7 +46,68 @@ export const INDUSTRY_ROLE: Partial<Record<PieceTypeId, DepotRole>> = {
   "depot-smithy": "smithy",
   "depot-power": "power",
   "depot-harbour": "harbour",
+  "depot-school": "school",
 };
+
+/** A depot's name for cards, stops and the map: its kind's ("Workshop"), a school by its town ("Larkfield school"). */
+export function depotName(world: Pick<World, "landscape">, d: { role: DepotRole; townId: number }): string {
+  if (d.role === "school") {
+    const town = world.landscape.towns.find((t) => t.id === d.townId);
+    return town ? `${town.name} school` : DEPOT_NAMES.school;
+  }
+  return d.role === "town" ? (world.landscape.towns.find((t) => t.id === d.townId)?.name ?? "") : DEPOT_NAMES[d.role];
+}
+
+/** How far (mm) from a school's yard a town's lots may be: it stands beside the town (see `schoolTown`). */
+export const SCHOOL_REACH = 300;
+
+/** Is square `i` one of a town's lots (its buildings, its station, its built-up ground)? */
+export const isTownLot = (land: Landscape, i: number): boolean => land.grid.surface[i] === SURF_TOWN;
+
+/**
+ * The town a school at `pose` (its piece's origin) stands beside: the town of the nearest of its lots within
+ * `SCHOOL_REACH` of the yard's middle (as `yardMiddle` puts it), and how many lots are that near; null if none. A
+ * hundred-odd squares: cheap enough for every move of a held piece.
+ */
+export function schoolTown(land: Landscape, pose: { x: number; z: number; heading: number }): { town: Town; count: number } | null {
+  const g = land.grid;
+  const c = Math.cos(pose.heading);
+  const s = Math.sin(pose.heading);
+  const mx = pose.x + c * 108 - s * 72;
+  const mz = pose.z + s * 108 + c * 72;
+  const r = Math.ceil(SCHOOL_REACH / CELL);
+  const col = g.colAt(mx);
+  const row = g.rowAt(mz);
+  let count = 0;
+  let best = Infinity;
+  let at: { x: number; z: number } | null = null;
+  for (let dr = -r; dr <= r; dr++) {
+    for (let dc = -r; dc <= r; dc++) {
+      const i = g.index(col + dc, row + dr);
+      if (i === -1 || !isTownLot(land, i)) continue;
+      const x = g.centreX(col + dc);
+      const z = g.centreZ(row + dr);
+      const d = Math.hypot(x - mx, z - mz);
+      if (d > SCHOOL_REACH) continue;
+      count++;
+      if (d < best) {
+        best = d;
+        at = { x, z };
+      }
+    }
+  }
+  if (!at) return null;
+  let town: Town | null = null;
+  let near = Infinity;
+  for (const t of land.towns) {
+    const d = Math.hypot(t.centre.x - at.x, t.centre.z - at.z);
+    if (d < near) {
+      near = d;
+      town = t;
+    }
+  }
+  return town ? { town, count } : null;
+}
 
 /**
  * Give every industry piece on the map an economy depot (one the player has just placed). A depot whose piece is
@@ -70,8 +133,15 @@ export function syncIndustries(world: World, halts = false): boolean {
     }
     // An industry's piece, or a kit piece that's a cargo stop (Sandbox's loaders and unloaders).
     const role = INDUSTRY_ROLE[type] ?? kitOf(type)?.depot;
-    if (!role || world.economy.depotAtPiece(id)) continue;
-    world.economy.addDepot(role, id);
+    if (!role) continue;
+    // A school belongs to the town it's beside (kept as it moves: it's renamed with it).
+    const school = role === "school" ? (schoolTown(world.landscape, piece.pose)?.town.id ?? -1) : -1;
+    const have = world.economy.depotAtPiece(id);
+    if (have) {
+      if (role === "school" && have.townId !== school) have.townId = school;
+      continue;
+    }
+    world.economy.addDepot(role, id, school);
     added = true;
   }
   return added;

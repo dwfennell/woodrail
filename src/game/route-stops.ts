@@ -1,6 +1,6 @@
 import { kitOf } from "../track";
 import type { DepotState } from "../economy";
-import { DEPOT_NAMES, type World } from "./world";
+import { depotName, type World } from "./world";
 
 /** A place a train's route can stop at: any depot on the map (a town's station, an industry). */
 export interface RouteStop {
@@ -28,7 +28,7 @@ export function routeStops(w: World): RouteStop[] {
   // An industry by its kind's name; a kit piece's cargo stop (Sandbox's loaders) by its kit's ("Log loader").
   const nameOf = (d: DepotState) => {
     const kit = kitOf(w.layout.getPiece(d.pieceId)!.type);
-    return kit ? kit.name[0].toUpperCase() + kit.name.slice(1) : DEPOT_NAMES[d.role as keyof typeof DEPOT_NAMES];
+    return kit ? kit.name[0].toUpperCase() + kit.name.slice(1) : depotName(w, d);
   };
   for (const d of others) {
     const base = nameOf(d);

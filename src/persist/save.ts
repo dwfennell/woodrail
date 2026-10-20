@@ -20,13 +20,13 @@ import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
 /**
- * Save format, version 11 (town buildings at their new sizes, the biggest landmarks on 2×2 lots; 10: lines, routes
- * with a colour and a name). Plain JSON validated with Zod; only this module
+ * Save format, version 12 (research: the school is a depot beside a town, saved with its town's id; 11: town
+ * buildings at their new sizes, the biggest landmarks on 2×2 lots; 10: lines, routes with a colour and a name). Plain JSON validated with Zod; only this module
  * (and `landscape-data`) knows its shape. The landscape is saved square by square (see `landscape-data.ts`): loading
  * never regenerates it. No backward compatibility until the game reaches v1: an older save is turned away
  * (`OLDER_SAVE`), and the game starts afresh.
  */
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 
 /** The error an older save gets (the title says so kindly). */
 export const OLDER_SAVE = "older version";
@@ -83,7 +83,7 @@ const saveSchema = z.object({
     z.object({
       id: z.number().int().min(0),
       pieceId: z.number().int().positive(),
-      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", ...KIT_DEPOT_ROLES]),
+      role: z.enum(["forest", "sawmill", "town", "workshop", "farm", "mill", "quarry", "warehouse", "mine", "foundry", "carpenter", "smithy", "power", "harbour", "school", ...KIT_DEPOT_ROLES]),
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
@@ -265,7 +265,9 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     const piece = layout.getPiece(d.pieceId);
     // (Or a kit piece that's a cargo stop: Sandbox's loaders and unloaders.)
     const role = piece ? (INDUSTRY_ROLE[piece.type] ?? kitOf(piece.type)?.depot) : undefined;
-    if (!expected.has(d.pieceId) && role === d.role && ![...depots.values()].includes(d.pieceId)) expected.set(d.pieceId, { role: d.role, townId: -1 });
+    // (A school keeps the id of the town it's beside.)
+    const townId = role === "school" && landscape.towns.some((t) => t.id === d.townId) ? d.townId : -1;
+    if (!expected.has(d.pieceId) && role === d.role && ![...depots.values()].includes(d.pieceId)) expected.set(d.pieceId, { role: d.role, townId });
     // (Or a halt, Game mode's: a passenger stop of a town's on a kit piece.)
     if (!expected.has(d.pieceId) && piece && HALT_KITS.has(piece.type) && d.role === "town" && landscape.towns.some((t) => t.id === d.townId)) expected.set(d.pieceId, { role: "town", townId: d.townId });
   }
@@ -276,7 +278,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     expected.delete(d.pieceId);
     // A town's station stops wagons by its crane; a halt's coaches stop along its platform (its middle).
     const halt = d.role === "town" && HALT_KITS.has(layout.getPiece(d.pieceId)?.type ?? "straight-216");
-    const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, halt ? undefined : STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId);
+    const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, halt ? undefined : STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId, d.townId);
     state.auto = d.auto;
     state.waitFull = d.waitFull;
     if (d.role === "harbour") state.sheds = d.sheds ?? 0;

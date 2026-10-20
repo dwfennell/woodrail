@@ -5,8 +5,10 @@ import { describe as describeGoods } from "../economy/goods";
 import { Crafting, workshops, workshopStock } from "../game/crafting";
 import { GOALS, GoalTracker } from "../game/goals";
 import { inUse, Progress } from "../game/progress";
-import { offerOnGrowth, payDelivery } from "../game/rewards";
-import { choose, goodsOf, learnWithGoods, ready, techOf } from "../game/tech";
+import { firstTimeGift, offerOnGrowth, payDelivery } from "../game/rewards";
+import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, pick as pickResearch, tick as researchTick } from "../game/research";
+import { choose, techOf } from "../game/tech";
+import type { Bag } from "../economy/goods";
 import { isFree, ruleOf, thingsFor, type ThingId } from "../game/things";
 import { TownLife, type TownLifeHost } from "../game/town-life";
 import { plotPrice, townStatus } from "../game/towns";
@@ -17,7 +19,7 @@ import { SIM_HZ, type CarKind } from "../sim";
 import { looseHeight } from "../landscape";
 import { connectorRef, getPieceDef, type PieceTypeId } from "../track";
 import { play, type Blocked } from "./player";
-import { endOn, layOn, rulesFor } from "./rules";
+import { endOn, layOn, rulesFor, schoolOn } from "./rules";
 
 /**
  * A whole Game-mode playthrough, headless, using the game's own pieces: a simulated player lays the starter line
@@ -75,13 +77,18 @@ class Playthrough {
       received: (_t, kind, n, before) => {
         payDelivery(this.progress, kind, n, before);
       },
+      // A school takes what the research lacks; goods into it go into the research (as in the game).
+      school: (kind) => researchLacking(this.progress, kind) > 0,
       grew: (t, status, built) => {
         this.note(`${t.name} grew into a ${status.name.toLowerCase()} (+${built.length} buildings)`);
+        const gift = firstTimeGift(this.progress, status.level);
+        if (gift.length > 0) this.note(`  present: ${gift.map(([id, n]) => `${n} ${ruleOf(id)!.label}`).join(", ")}`);
         const offer = offerOnGrowth(this.progress, t.name, this.random, status.level);
         if (offer.length > 0) this.note(`  ${t.name} offers: ${offer.join(" or ")}`);
       },
     });
     this.town.reset();
+    attachResearch(world.economy, () => this.progress);
     this.progress.coverMap(world);
   }
 
@@ -105,6 +112,10 @@ class Playthrough {
       this.town.update();
       const made = this.crafting.tick(this.w, 1);
       if (made) this.note(`workshop made a ${ruleOf(made)!.label.toLowerCase()} (${this.progress.available(this.w, made)} in the box)`);
+      const was = this.progress.research.current;
+      const learned = researchTick(this.progress, 1);
+      if (learned) this.note(`researched ${techOf(learned)!.label}`);
+      if (this.progress.research.current !== was) this.w.economy.acceptsChanged();
       for (const g of this.goals.update(this.w)) this.note(`GOAL ✓ ${g.title}`);
     }
   }
@@ -119,6 +130,7 @@ class Playthrough {
       learned: [...this.progress.learned].sort().join(","),
       orders: this.progress.orders.join(","),
       offers: JSON.stringify(this.progress.offers),
+      research: JSON.stringify(this.progress.toJSON().research),
       stock: describeGoods(workshopStock(this.w)),
       trains: this.w.sim.trainIds().length,
       pieces: this.w.layout.pieceCount,
@@ -137,6 +149,7 @@ class Playthrough {
       learned: [...this.progress.learned].sort().join(","),
       orders: this.progress.orders.join(","),
       offers: JSON.stringify(this.progress.offers),
+      research: JSON.stringify(this.progress.toJSON().research),
       stock: describeGoods(workshopStock(this.w)),
       trains: this.w.sim.trainIds().length,
       pieces: this.w.layout.pieceCount,
@@ -232,6 +245,7 @@ describe("a Game-mode playthrough", () => {
     let secondAt = -1;
     let deliveredAtSecond = 0;
     let secondTrain = false;
+    let school = -1;
     const saves = new Set([10, 22, 40]);
     for (let minute = 1; minute <= 60; minute++) {
       P.run(60);
@@ -255,9 +269,22 @@ describe("a Game-mode playthrough", () => {
         P.progress.offers.shift();
         P.note(`chose ${techOf(pick)!.label} from ${o.from}'s offer (${o.ids.map((t) => techOf(t)!.label).join(" / ")})`);
       }
-      // Learn from the board with planks, when the workshop has them.
+      // The school (the first village's present), where Show me points: beside a town, on the line.
+      if (school === -1 && P.progress.available(w(), "piece:depot-school") > 0) {
+        const r = schoolOn(w(), P.editor, P.fixed);
+        if (typeof r === "number") {
+          school = r;
+          P.note(`placed the school beside ${w().landscape.towns.find((t) => t.id === w().economy.depotAtPiece(r)!.townId)!.name}`);
+        } else P.note(`the school: ${r.why}`);
+      }
+      // Research switches and bridges there (the trains bring the planks).
       for (const t of ["switches", "bridges"]) {
-        if (P.progress.board.has(t) && ready(P.progress, t) && learnWithGoods(w(), P.progress, t)) P.note(`learned ${techOf(t)!.label} with ${describeGoods(goodsOf(techOf(t)!))}`);
+        if (school === -1 || !canResearch(P.progress, t) || P.progress.research.current === t || P.progress.research.next === t) continue;
+        const where = pickResearch(P.progress, t);
+        if (where) {
+          w().economy.acceptsChanged();
+          P.note(`research: ${techOf(t)!.label} ${where === "current" ? "started" : "up next"} (${describeGoods(researchCost(t).goods as Bag)})`);
+        }
       }
       // Order what's wanted, once each, when known.
       for (const id of wanted) {

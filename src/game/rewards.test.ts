@@ -57,17 +57,19 @@ describe("town rewards", () => {
   it("first village, town and city each bring a present, once", () => {
     const p = Progress.fresh();
     const engines = p.owned.get("car:engine") ?? 0;
-    expect(firstTimeGift(p, 1)).toEqual([["car:engine", 1], ["car:timber", 1]]);
+    // The first village: a second train, and a school to research blueprints at.
+    expect(firstTimeGift(p, 1)).toEqual([["car:engine", 1], ["car:timber", 1], ["piece:depot-school", 1]]);
     expect(p.owned.get("car:engine")).toBe(engines + 1);
+    expect(p.owned.get("piece:depot-school")).toBe(1);
     expect(firstTimeGift(p, 1)).toEqual([]);
     p.learned.add("farming");
     p.learned.add("harvesters");
-    // A town: the cheapest industry you know (a farm yard, 90 coins; a harvester is 150).
+    // A town: the cheapest industry you know (a farm yard, 90 coins; a harvester is 150; never the 40-coin school).
     expect(firstTimeGift(p, 2)[0]).toEqual(["piece:depot-farm", 1]);
     // Straight to a city from a village: the town's present too.
     const q = Progress.fresh();
     q.learned.add("farming");
-    expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:engine", "car:timber", "piece:depot-farm", "piece:buffer-turnback", "car:engine", "piece:depot-farm"]);
+    expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:engine", "car:timber", "piece:depot-school", "piece:depot-farm", "piece:buffer-turnback", "car:engine", "piece:depot-farm"]);
     expect(q.bestLevel).toBe(3);
   });
 

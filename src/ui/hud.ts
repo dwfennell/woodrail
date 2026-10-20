@@ -9,6 +9,7 @@ import { isKit } from "../track";
 import { crossingStyleOf } from "../landscape/crossing-styles";
 import { canFavourite, DEFAULT_FAVOURITES, favouriteItems, propGroups, shownGroups, toggleFavourite, trayKey, trayTabs, type LandTool, type TrayGroup, type TrayItem, type TrayTab } from "./tray-catalogue";
 import { loadFavourites, saveFavourites } from "./prefs";
+import { pillText, type PillView } from "../game/research-text";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
 
@@ -47,7 +48,7 @@ export interface HudHandlers {
   toggleExpand(): void;
   /** Game mode: open or close the map view. */
   toggleMap(): void;
-  /** Game mode: open or close the blueprint board. */
+  /** Game mode: open or close the Research picker (the blueprint board). */
   toggleBoard(): void;
   /** Add the plot chosen on the land card. */
   buyLand(): void;
@@ -228,6 +229,12 @@ export class Hud {
   private readonly modeTag = el("span", "mode-tag");
   /** Game mode's coins, by the logo. */
   private readonly coinTag = el("span", "coins");
+  /** Game mode: the railway's date ("Mar 2001", see game/calendar.ts). */
+  private readonly dateTag = el("span", "game-date");
+  /** Game mode: the research under way and how far ("📘 Bridges 6/10🪵"), or "Pick research"; tap: the picker. */
+  private readonly researchPill = el("button", "research-pill") as HTMLButtonElement;
+  /** What the pill shows now (its whole text and fill): it's redrawn only when this changes. */
+  private pillShown = "";
   /** The menu's Lines item (see `setLinesAvailable`). */
   private linesItem!: HTMLButtonElement;
   /** Menu items for each mode's maps. */
@@ -285,6 +292,9 @@ export class Hud {
     this.coinTag.hidden = true;
     this.coinTag.title = "Coins: towns pay them for deliveries; they buy land";
     brand.appendChild(this.coinTag);
+    this.dateTag.hidden = true;
+    this.dateTag.title = "The date on your railway: a month every two minutes of play";
+    brand.appendChild(this.dateTag);
     // Tapped: back to my railway (after a pinch or a pan out over empty land, the way home).
     brand.setAttribute("role", "button");
     brand.tabIndex = 0;
@@ -297,6 +307,11 @@ export class Hud {
       }
     });
     top.appendChild(brand);
+    this.researchPill.type = "button";
+    this.researchPill.hidden = true;
+    this.researchPill.innerHTML = `<span class="rp-text"><span class="rp-line"><span class="rp-icon" aria-hidden="true">📘</span><span class="rp-name"></span></span><span class="rp-count"></span></span><span class="rp-bar"></span>`;
+    this.researchPill.addEventListener("click", () => h.toggleBoard());
+    top.appendChild(this.researchPill);
     const actions = el("div", "actions");
     this.undoBtn = button(uiIcon("undo"), "Undo (Ctrl+Z)", h.undo);
     this.redoBtn = button(uiIcon("redo"), "Redo (Ctrl+Shift+Z)", h.redo);
@@ -307,7 +322,7 @@ export class Hud {
     this.landBtn = button(uiIcon("land"), "Add land", h.toggleExpand);
     this.mapBtn = button(uiIcon("map"), "Map: what's where", h.toggleMap);
     this.mapBtn.hidden = true;
-    this.boardBtn = button(uiIcon("blueprint"), "Blueprints: learn new things", h.toggleBoard);
+    this.boardBtn = button(uiIcon("blueprint"), "Research: learn new things", h.toggleBoard, "chip research-btn");
     this.boardBtn.hidden = true;
     // On a phone the bar can't hold them all: these move into the menu (see `.narrow-menu`).
     for (const b of [this.landBtn, this.redoBtn, this.soundBtn]) b.classList.add("wide-only");
@@ -925,6 +940,34 @@ export class Hud {
     if (goalsHelp) goalsHelp.hidden = mode !== "game";
     this.mapBtn.hidden = mode !== "game";
     this.boardBtn.hidden = mode !== "game";
+    if (mode !== "game") this.setResearchPill(null);
+  }
+
+  /**
+   * The research pill: shown with what's being researched ("📘 Bridges 6/10🪵", a bar for how far), "Pick research"
+   * with nothing picked, or hidden (null). Called when the research changes (`pillKey`); the DOM is touched only when
+   * what it shows does.
+   */
+  setResearchPill(v: PillView | null): void {
+    const text = pillText(v);
+    const key = v ? `${text}|${Math.round(v.fill * 100)}` : "";
+    if (key === this.pillShown) return;
+    this.pillShown = key;
+    this.researchPill.hidden = !v;
+    if (!v) return;
+    this.researchPill.querySelector(".rp-name")!.textContent = v.name;
+    this.researchPill.querySelector(".rp-count")!.textContent = v.count;
+    this.researchPill.style.setProperty("--fill", `${Math.round(v.fill * 100)}%`);
+    this.researchPill.classList.toggle("idle", v.idle);
+    this.researchPill.title = v.idle ? "Pick research" : `${text.slice(3)}: tap for Research`;
+    this.researchPill.setAttribute("aria-label", v.idle ? "Pick research" : `Research: ${text.slice(3)}`);
+  }
+
+  /** Show the railway's date (null: hide it, outside Game mode). The page is touched only when the text changes. */
+  setDate(text: string | null): void {
+    const hidden = text === null;
+    if (this.dateTag.hidden !== hidden) this.dateTag.hidden = hidden;
+    if (text !== null && this.dateTag.textContent !== text) this.dateTag.textContent = text;
   }
 
   /** Show the coins (null: hide them, outside Game mode). A rise pops the count. */
@@ -945,13 +988,18 @@ export class Hud {
     }
   }
 
-  /** The blueprint board's button: lit while open, a pulsing dot while a town's choice waits. */
+  /** The Research button: lit while the picker's open, a pulsing dot while a town's choice waits. */
   setBoardButton(open: boolean, rewards: number): void {
     this.boardBtn.classList.toggle("active", open);
+    this.researchPill.classList.toggle("active", open);
     this.boardBtn.classList.toggle("icon-btn-alert", rewards > 0);
     // A new reward makes the whole button pulse (its icon has no label) until the board is opened.
     if (open || rewards < this.rewardsSeen) this.rewardsSeen = rewards;
-    this.boardBtn.classList.toggle("board-new", rewards > this.rewardsSeen);
+    const fresh = rewards > this.rewardsSeen;
+    this.boardBtn.classList.toggle("board-new", fresh);
+    // (On a phone the pill stands in for the button while it shows: the glow goes with it. See the CSS.)
+    this.researchPill.classList.toggle("board-new", fresh);
+    this.researchPill.classList.toggle("icon-btn-alert", rewards > 0);
   }
 
   /** Rewards waiting when the board was last open: one more since then makes the button pulse. */

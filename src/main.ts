@@ -1,7 +1,8 @@
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
 import { Editor, pieceCentre, TRAIN_ON_TRACK } from "./editor/editor";
-import { fitToRect, frameAlong, frameDistance } from "./game/camera-director";
+import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
+import { viewRoom } from "./ui/view-room";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
@@ -13,6 +14,7 @@ import { GoalTracker } from "./game/goals";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
 import { GoalsPanel } from "./ui/goals-panel";
+import { dateText } from "./game/calendar";
 import { Journal, type JournalEntry, type JournalPlace, type NoteInput } from "./game/journal";
 import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
@@ -27,10 +29,10 @@ import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, lacking, uncraft, workshops, workshopStock } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
-import { DEPOT_NAMES, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
+import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
 import { HaltReachView } from "./render/halt-reach-view";
 import { WhistleCalls, WhistlePosts } from "./game/lineside";
-import { rateFor, resourceAt, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
+import { rateFor, resourceAt, schoolOf, SITE_RULES, siteWhy, updateRates, yardMiddle } from "./game/industries";
 import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { routeStops } from "./game/route-stops";
@@ -44,14 +46,16 @@ import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice,
 import { MAX_SHEDS, SHED_CAP, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
-import { goodsOf, keepsPlanks, learnAuto, priceOf, needMet, seenOf, learnWithGoods, ready, TECHS, techOf, unlocksOf } from "./game/tech";
+import { keepsPlanks, learnAuto, needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
+import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
+import { cardState, goalPick, pillKey, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
-import { BRANCHES, describeNeed as describeNeedWords, type Need, type Plan, type Price } from "./game/blueprints";
+import { BRANCHES, describeNeed as describeNeedWords, type Need, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
-import { aOrAn, describe as describeGoods, kindsOf, minus, total, type Bag } from "./economy/goods";
+import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
 import { costTag, refundText, trayCostTag } from "./ui/cost-tag";
 import { GOODS_ICON, type CargoKind } from "./economy/cargo";
 import { qualityFor, saveQualityOverride } from "./render/quality";
@@ -59,7 +63,7 @@ import type { PropModel } from "./render/props/library";
 import { renderThumbnails, ThumbnailStudio, type ThumbnailSubject } from "./render/thumbnails";
 import { loadCached, saveCached } from "./render/piece-cache";
 import { onPiecesBuilt, TrackView } from "./render/track-view";
-import { connectorRef, createWorldConnector, getPieceDef, isLift, kitOf, pathLength, PIECE_TYPES, type Layout, type PieceTypeId } from "./track";
+import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
@@ -181,6 +185,11 @@ let reports: Reporter | null = null;
 function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<typeof initialWorld>): void {
   const game = new Game(canvas, opening.world);
   let mode = opening.mode;
+  /** The research pill as last drawn: its key (`pillKey`) and the progress it was for (a new game starts a new one). */
+  let pillKeyShown = "";
+  let pillFor: unknown = null;
+  /** What the open Research picker was last drawn from (`boardKey`). */
+  let boardKeyShown = "";
   // Stations and depots never move (to take up joint play, or to close a near miss).
   const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
   /** Has the train lift's first-time tip been shown (on this device)? */
@@ -785,6 +794,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (mode === "game") saveProgress(progress.toJSON());
   }
 
+  /** The railway's date in the top bar (Game mode), from the game's clock: shown as it turns (asked about once a second). */
+  function showDate(): void {
+    hud.setDate(mode === "game" ? dateText(game.simSeconds) : null);
+  }
+
   /**
    * The world just loaded is the mode's saved one (`fromSave`): its clock, pause and Journal back as they were saved
    * with it; else (a fresh map) they start afresh, the pause as it was.
@@ -792,6 +806,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function restoreSession(m: GameMode, fromSave: boolean): void {
     const s = fromSave ? loadSession(m) : null;
     game.simSeconds = s?.clock ?? 0;
+    // A loaded clock is another session's time, not study done here.
+    studyClock.at = null;
+    showDate();
     if (s) journal.restore(s.journal);
     else journal.clear();
     if (s) {
@@ -965,9 +982,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showMe: () => showGoal(),
       fly: (place) => {
         // Several spots (new houses, two stations) are framed together, closer than a lone spot.
-        const f = frameAlong(place.points ?? [place], game.camera.fov, game.camera.aspect, place.points ? PLACE_MARGIN : GOAL_MARGIN);
-        game.follow(-1);
-        game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 1, inRoom: true });
+        const spots = place.points ?? [place];
+        const f = frameAlong(spots, game.camera.fov, game.camera.aspect, place.points ? PLACE_MARGIN : GOAL_MARGIN);
+        const pts = spots.map((q) => new Vector3(q.x, 0, q.z));
+        frameInRoom(pts, Math.min(f.distance, game.controls.maxDistance), game.controls.maxDistance, pts.length);
       },
     },
     journal,
@@ -1006,6 +1024,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // Game mode's towns: they want things, and grow when they get them.
   const townLife = new TownLife(game, {
     knows: (tech) => progress.learned.has(tech),
+    // A school takes only what the research still lacks (a lookup: the crane asks for every unit).
+    school: (kind) => researchLacking(progress, kind) > 0,
     received: (town, kind, n, before) => {
       lastDelivered.set(town.id, performance.now());
       payDelivery(progress, kind, n, before, town);
@@ -1031,7 +1051,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (gift.length > 0) hud.refreshTrayBadges();
       const offered = progress.offers.length;
       offerOnGrowth(progress, town.name, Math.random, status.level);
-      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Claim your reward in Blueprints" : ""].filter(Boolean);
+      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", progress.offers.length > offered ? "Claim your reward in Research" : ""].filter(Boolean);
       const grew = built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`;
       const where = built.length > 0 ? placeOf(built) : here;
       if (extras.length > 0) {
@@ -1109,7 +1129,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   // Game mode's toy box and workshop: what you own (worked out against what's on the map), and what's being made.
-  let progress = loadProgress() === undefined ? Progress.fresh() : Progress.fromJSON(loadProgress());
+  // (A Game-mode map from an older version is turned away: its progress goes with it.)
+  let progress = loadProgress() === undefined || hasOlderSave("game") ? Progress.fresh() : Progress.fromJSON(loadProgress());
   const crafting = new Crafting(progress);
   crafting.setProgress(progress);
   const thingLabel = (id: ThingId) => ruleOf(id)?.label ?? id;
@@ -1256,6 +1277,25 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     return { text: String(n), empty: n === 0, ...(attention ? { attention } : {}) };
   }
 
+  /**
+   * A school's yard wears the towns' schoolhouse (the catalogue's model, built on first ask; the yards are drawn again
+   * once it's in, a stand-in till then).
+   */
+  const SCHOOL_HOUSE = "bldg-school";
+  function schoolHouse(role: string): PropModel | null | undefined {
+    if (role !== "school") return null;
+    const m = game.propLibrary.model(SCHOOL_HOUSE);
+    if (m === undefined)
+      void game.propLibrary.load(SCHOOL_HOUSE).then(
+        () => {
+          game.depotView.setWorld(game.economy, game.layout);
+          game.invalidate();
+        },
+        () => {},
+      );
+    return m;
+  }
+
   /** Industries placed or moved: give new ones their depots, and redraw the yards where they stand. */
   let industryKey = "";
   function industriesChanged(): void {
@@ -1268,6 +1308,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Upgrades put a machine in their yards (Game mode): the yards are drawn again when one is learned.
     key += `#${mode === "game" ? upgradeKey(progress) : ""}`;
     game.depotView.extras = mode === "game" ? (role) => machinesFor(progress, role) : null;
+    game.depotView.building = schoolHouse;
     if (added || key !== industryKey) game.depotView.setWorld(game.economy, game.layout);
     industryKey = key;
     // Industries work as fast as what's around them allows: recounted when they move or the land changes.
@@ -1277,6 +1318,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined)) game.invalidate();
     }
     hud.refreshTrayBadges();
+    // A school placed or taken up: the pill shows (or says to pick research), or goes.
+    refreshPill();
   }
   let rateKeyShown = "";
 
@@ -1312,10 +1355,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       refreshBoard();
       save();
     },
-    learn: (id) => {
-      // (Not yet: the card's reason line beside the button already says why.)
-      if (learnWithGoods(game.world, progress, id)) learned(id);
-    },
+    pick: (id) => picked(id),
     close: () => setBoardOpen(false),
     picture: (key) => thumbnails.get(key),
     // A kit's, a prop's or a car's picture is drawn on demand if it isn't yet, as for the tray (the cars' and the other
@@ -1347,9 +1387,66 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     save();
   }
 
-  function setBoardOpen(open: boolean): void {
+  /** The school research goods go to: one beside a town, by name ("Larkfield school"), or null if none is placed. */
+  function schoolName(): string | null {
+    const d = game.economy.allDepots().find((x) => x.role === "school");
+    return d ? depotName(game.world, d) : null;
+  }
+  /** Is a school placed (a lookup over the depots, which are kept in a list till the track changes)? */
+  function hasSchool(): boolean {
+    return game.economy.allDepots().some((x) => x.role === "school");
+  }
+
+  /**
+   * A research picked in the picker (its one button): it starts, or waits in Next up, or (the one up next) swaps with
+   * the one under way. The card and the pill show it; no toast.
+   */
+  function picked(id: string): void {
+    if (!hasSchool() || !pickResearch(progress, id)) return;
+    // What schools take has changed: routed trains plan again.
+    game.economy.acceptsChanged();
+    hud.setCoins(progress.coins);
+    refreshBoard();
+    refreshPill();
+    scheduleSave();
+  }
+
+  /**
+   * The HUD's research pill, redrawn only when what it shows may have changed (a pick, a delivery, a second of study,
+   * a school placed, coins while one waits for them): asked on the workshop's clock and on those events, never per frame.
+   */
+  function refreshPill(): void {
+    if (mode !== "game") {
+      pillKeyShown = "";
+      pillFor = null;
+      hud.setResearchPill(null);
+      return;
+    }
+    const school = hasSchool();
+    const key = pillKey(progress, school);
+    if (key === pillKeyShown && pillFor === progress) return;
+    pillKeyShown = key;
+    pillFor = progress;
+    hud.setResearchPill(pillView(progress, school));
+  }
+
+  /** A research finished: learned, with what it brings, and the next one started if it could be. */
+  function researched(id: string): void {
+    game.economy.acceptsChanged();
+    hud.setCoins(progress.coins);
+    learned(id);
+    const next = progress.research.current;
+    if (next) hud.toast(`Learned ${techOf(id)!.label}! Next: ${techOf(next)!.label}`, true, 3800);
+  }
+
+  /** The school's card: the research's goods (got of needed), and what it's at. Its key changes with the research. */
+  interaction.schoolCard = { key: () => schoolCardKey(progress), show: () => schoolCard(progress) };
+
+  /** Open or close the Research picker; `on`: open on that card ("Show me" for a goal's research). */
+  function setBoardOpen(open: boolean, on?: string): void {
     if (open && mapView.open) closeMap(false);
     board.setOpen(open);
+    if (open && on) board.focus(on);
     hud.root.classList.toggle("board-open", open);
     if (open) {
       interaction.clearSelection();
@@ -1358,37 +1455,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     refreshBoard();
   }
 
-  /** A blueprint's price as the tray shows costs: "16🪵 40🪙" ("free" for nothing). */
-  function priceTag(p: Price): string {
-    return costTag({ planks: p.planks, ...(p.goods as Bag | undefined) }, p.coins) || "free";
-  }
-
   const PLAN_WORDS: Record<Plan, string> = { next: "Coming soon: next on the list", soon: "Coming soon", later: "Coming one day", ending: "The ending: coming one day" };
-
-  /**
-   * Why a blueprint can't be learned now, in one short line (null if it can): the goods it takes must be in the
-   * workshop's yard (planks at the sawmill, on a train or delivered to a town don't count), and the coins in hand.
-   */
-  function learnWhy(goods: Bag, coins: number, stock: Bag): string | null {
-    const kinds = kindsOf(goods);
-    if (kinds.length > 0 && workshops(game.world).length === 0) return "Place your workshop (Industries tab)";
-    for (const k of kinds) {
-      const have = stock[k] ?? 0;
-      if (have >= goods[k]!) continue;
-      if (have === 0 && k === "planks") return "Bring planks from the sawmill by train";
-      return `${costTag({ [k]: goods[k] })} needed at workshop (${have} there)`;
-    }
-    if (progress.coins < coins) return `${costTag({}, coins)} needed (${progress.coins} now)`;
-    return null;
-  }
 
   function refreshBoard(): void {
     // A blueprint another card taught may still sit on a pending offer: swap it out before anything is shown.
     if (refreshOffers(progress, Math.random)) scheduleSave();
     hud.setBoardButton(board.open, progress.offers.length);
     if (!board.open) return;
-    const stock = workshopStock(game.world);
-    const offerOf = (id: string) => progress.offers.findIndex((o) => o.ids.includes(id));
+    boardKeyShown = boardKey();
+    const school = schoolName();
+    // The goal's research: the picker opens on it while nothing is under way, its button ringed (never picked for you).
+    const goalTech = goals.current()?.blueprint;
     const seen = seenOf(progress, new Set(progress.offers.flatMap((o) => o.ids)));
     const stations: Station[] = TECHS.map((t) => {
       // Pieces (kits and industries among them) and props as their tray pictures, as the tray shows them (a thing's id
@@ -1404,21 +1481,20 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (t.feature) makes.push({ label: t.feature.label, icon: `<span class="bp-feature">${t.feature.icon}</span>` });
       if (makes.length === 0) makes.push({ label: t.brings, icon: `<span class="bp-feature">✨</span>` });
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
-      const price = priceOf(progress, t);
-      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price: priceTag(price), planks: price.planks ?? 0, requires };
-      if (progress.learned.has(t.id)) return { ...base, state: "learned" as const };
-      if (t.plan) return { ...base, state: "soon" as const, waits: PLAN_WORDS[t.plan] };
-      const offer = offerOf(t.id);
-      if (offer !== -1) return { ...base, state: "offered" as const, offer };
-      if (progress.board.has(t.id) && ready(progress, t.id)) {
-        const why = learnWhy(goodsOf(t, price), price.coins ?? 0, stock);
-        return { ...base, state: "ready" as const, affordable: why === null, ...(why ? { why } : {}) };
-      }
+      // Its price is its research: goods brought to a school, and from tier 2 coins.
+      const cost = t.research;
+      const base = { id: t.id, label: t.label, blurb: t.blurb, branch: t.branch, makes, needs: [...t.needs], seen: seen.get(t.id)!, price: costTag(cost.goods as Bag, cost.coins) || "free", requires };
+      const state = cardState(progress, t.id);
+      if (state === "learned") return { ...base, state };
+      if (state === "soon") return { ...base, state, waits: PLAN_WORDS[t.plan!] };
+      // (A town's offer of it, till the growth menu: the offer at the top of the picker; the card is its research.)
+      const research = researchCard(progress, t.id, school);
+      if (research) return { ...base, state, research, ...(t.id === goalTech && state !== "researching" ? { goal: true } : {}) };
       const missing = t.needs.filter((n) => !progress.learned.has(n));
       const unmet = t.requires.filter((n) => !needMet(progress, n));
       const waits =
         missing.length > 0
-          ? `Learn ${missing.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")} first`
+          ? `Research ${missing.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")} first`
           : unmet.length > 0
             ? `Needs ${unmet.map(describeNeed).join(" and ")}`
             : t.learn === "auto"
@@ -1426,19 +1502,28 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
               : "A town will offer it as it grows";
       return { ...base, state: "locked" as const, waits };
     });
-    const hasWorkshop = workshops(game.world).length > 0;
+    const focus = goalPick(progress, goalTech, school !== null);
     board.show({
       stations,
       branches: BRANCHES.map((b) => ({ id: b.id, label: b.label, color: b.color })),
       offers: progress.offers.map((o) => ({ from: o.from, ids: [...o.ids], ...(o.crate ? { crate: describeThings(o.crate) } : {}) })),
-      planks: hasWorkshop ? stock.planks ?? 0 : null,
-      stock: hasWorkshop ? `The workshop's yard has ${describeGoods(stock)}` : "Place your workshop (Industries tab)",
+      ...(focus ? { focus } : {}),
     });
+  }
+  /**
+   * What the open picker shows depends on (beyond a tray picture coming): the research (a pick, a delivery, a second of
+   * study), coins, what's learned, the towns' offers, riders (a requirement's count), a school placed and the goal. The
+   * workshop's clock redraws it only when this changes.
+   */
+  function boardKey(): string {
+    return `${progress.research.version}|${progress.coins}|${progress.learned.size}|${progress.offers.length}|${progress.riders}|${hasSchool()}|${goals.current()?.id ?? ""}`;
   }
 
   // The workshop's clock: a few times a second, not every frame (it runs while nothing on screen moves).
   const CRAFT_STEP = 0.25;
   const schoolClock = { seconds: 0 };
+  /** The research's study clock, on the world's game time (see `simElapsed`). */
+  const studyClock: StudyClock = { at: null };
   /** The landmarks your towns have, from the map (a blueprint may need a library). */
   function syncLandmarks(): void {
     progress.landmarks.clear();
@@ -1447,17 +1532,34 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     learnAuto(progress);
   }
   setInterval(() => {
-    if (mode === "game" && board.open) refreshBoard();
+    if (mode === "game" && board.open && boardKey() !== boardKeyShown) refreshBoard();
+    if (mode === "game") refreshPill();
+    showDate();
     // Schools have ideas while the game runs.
     if (mode === "game" && playing && !game.paused) {
       // A college: ideas twice as often.
       // A school thinks only while its town has had a delivery lately.
       const supplied = (town: number) => performance.now() - (lastDelivered.get(town) ?? -Infinity) < SCHOOL_SUPPLIED_MS;
       const idea = schoolIdeas(progress, game.landscape, schoolClock, CRAFT_STEP * (progress.learned.has("college") ? 2 : 1), Math.random, supplied);
+      // (No note: with research, anything ready can be picked, so the board putting one on it says nothing new. The
+      // ideas themselves go in P3.)
       if (idea) {
-        const school = game.landscape.towns.find((t) => t.name === idea.from);
-        note({ kind: "event", text: `${idea.from}: ${techOf(idea.id)!.label} is on the board`, place: school && { x: school.station.x, z: school.station.z } });
         refreshBoard();
+        scheduleSave();
+      }
+    }
+    // Research: the study clock, and Next up starting once its coins are in (a few lookups when nothing happens). Study
+    // runs on game time (the trains' clock), not this timer's; read on every step so time off the game isn't counted.
+    const studied = simElapsed(studyClock, game.simSeconds);
+    if (mode === "game" && playing && !game.paused) {
+      const coins = progress.coins;
+      const was = progress.research.current;
+      const done = researchTick(progress, studied);
+      if (progress.coins !== coins) hud.setCoins(progress.coins);
+      if (done) researched(done);
+      else if (progress.research.current !== was) {
+        // Next up started (its coins came in): schools take its goods now.
+        game.economy.acceptsChanged();
         scheduleSave();
       }
     }
@@ -1538,6 +1640,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     counters.reset(game.economy);
     applyCranes(game.economy, progress);
     attachEngines(game.world);
+    // Goods brought to a school go into the research (saved soon after: a train brings them in a burst).
+    attachResearch(game.economy, () => progress, () => {
+      refreshPill();
+      scheduleSave();
+    });
     attachPassengers(game.world, () => progress, () => {
       hud.setCoins(progress.coins);
       for (const id of learnAuto(progress)) {
@@ -1549,7 +1656,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       scheduleSave();
     });
   }
-  /** Planks kept for the workshop: it holds fewer than the board's cheapest ready blueprint, or the current goal's, needs (`planksWanted`; worked out once a second). */
+  /** Planks kept for the workshop: it holds fewer than its waiting tray order needs (`planksWanted`; worked out once a second). */
   let planksKept = false;
   const keepPlanks = (kind: string) => kind === "planks" && planksKept;
   function updatePlanksKept(): void {
@@ -1558,7 +1665,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       planksKept = false;
       return;
     }
-    planksKept = keepsPlanks(progress, workshopStock(game.world).planks ?? 0, goals.current()?.blueprint ?? null);
+    planksKept = keepsPlanks(progress, workshopStock(game.world).planks ?? 0);
   }
 
   setInterval(() => {
@@ -2210,21 +2317,25 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showRoute();
   }
 
-  /** The room the map has on screen (canvas pixels): below the top bar (and the goals), above the engine's card. */
-  function mapRoom(): { top: number; bottom: number; width: number; height: number } {
+  /**
+   * The room the map has on screen (canvas pixels): below the top bar (and the goals), above the tray or a card, or
+   * beside a card docked at the right (see `viewRoom`); the whole view where too little is left. One measure for every
+   * framing (the director's too: `roomOf`).
+   */
+  function measureRoom(): (ViewRoom & { width: number; height: number }) | null {
     const r = game.canvas.getBoundingClientRect();
-    let top = 0;
-    for (const e of document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")) {
+    const rel = (e: Element) => {
       const b = e.getBoundingClientRect();
-      if (b.height > 0 && b.top < r.height / 3) top = Math.max(top, b.bottom - r.top);
-    }
-    // (Above the engine's card, or the Lines view, whichever is up.)
-    let bottom = r.height;
-    for (const e of document.querySelectorAll(".engine-card, .lines-view")) {
-      const b = e.getBoundingClientRect();
-      if (b.height > 0) bottom = Math.min(bottom, b.top - r.top);
-    }
-    return { top, bottom, width: r.width, height: r.height };
+      return { left: b.left - r.left, top: b.top - r.top, right: b.right - r.left, bottom: b.bottom - r.top };
+    };
+    const room = viewRoom(r.width, r.height, [...document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")].map(rel), [...document.querySelectorAll(".hud .tray, .hud .tray-draw, .hud .tray-orient, .hud .card")].map(rel));
+    return room && { ...room, width: r.width, height: r.height };
+  }
+  function mapRoom(): ViewRoom & { width: number; height: number } {
+    const room = measureRoom();
+    if (room) return room;
+    const r = game.canvas.getBoundingClientRect();
+    return { left: 0, top: 0, right: r.width, bottom: r.height, width: r.width, height: r.height };
   }
 
   /** A piece's middle, on the ground. */
@@ -2237,10 +2348,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * Glide the view to show `points` in the map's room (above the card), at the camera's angle, `minDistance` to
    * `maxDistance` mm away (the furthest of `points`, last, are left out where they'd need it further).
    */
-  function frameInRoom(points: Vector3[], minDistance: number, maxDistance = game.controls.maxDistance, mustShow = 0): void {
+  function frameInRoom(points: Vector3[], minDistance: number, maxDistance = game.controls.maxDistance, mustShow = 0, theta?: number): void {
     const room = mapRoom();
     const now = new Spherical().setFromVector3(game.camera.position.clone().sub(game.controls.target));
-    const fitOf = (ps: Vector3[]) => fitToRect(ps, game.camera, now.phi, now.theta, { left: 0, top: room.top, right: room.width, bottom: room.bottom }, room.width, room.height, 32);
+    // (Facing as asked: along a goal's places, as Show me does.)
+    if (theta !== undefined) now.theta = theta;
+    const fitOf = (ps: Vector3[], min = minDistance, max = game.controls.maxDistance) => fitToRect(ps, game.camera, now.phi, now.theta, room, room.width, room.height, 32, min, max);
     // Too far out to show them all: the last (furthest) points go, down to the first two, so what's shown is near. The
     // first `mustShow` never go: they're shown however far out that takes (a line's stops: QA, planning zoomed in on
     // the train and left them off screen).
@@ -2248,8 +2361,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     let fit = fitOf(shown);
     while (fit.distance > maxDistance && shown.length > Math.max(2, mustShow)) fit = fitOf((shown = shown.slice(0, -1)));
     const cap = mustShow > 0 && shown.length <= mustShow ? Math.max(maxDistance, fit.distance) : maxDistance;
+    const distance = Math.min(Math.max(fit.distance, minDistance), cap, game.controls.maxDistance);
+    // (Held back from the fit's distance: where to look worked out again at the distance it's glided to.)
+    if (Math.abs(distance - fit.distance) > 1) fit = fitOf(shown, distance, distance);
     game.follow(-1);
-    game.director.glideTo(fit.target, Math.min(Math.max(fit.distance, minDistance), cap, game.controls.maxDistance), { theta: now.theta, duration: 0.7 });
+    game.director.glideTo(fit.target, distance, { theta: now.theta, duration: 0.7 });
   }
 
   /** Are these points on screen in the map's room (with a margin), as the camera is now? */
@@ -2260,7 +2376,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       v.copy(p).project(game.camera);
       const x = ((v.x + 1) / 2) * room.width;
       const y = ((1 - v.y) / 2) * room.height;
-      return v.z < 1 && x >= margin && x <= room.width - margin && y >= room.top + margin && y <= room.bottom - margin;
+      return v.z < 1 && x >= room.left + margin && x <= room.right - margin && y >= room.top + margin && y <= room.bottom - margin;
     });
   }
 
@@ -2278,6 +2394,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const ends = found ? [found.train.world[2 * found.index], found.train.world[2 * found.index + 1]].filter((w) => w) : [];
     const engine = ends.flatMap((w) => [new Vector3(w.x, 0, w.z), new Vector3(w.x, ENGINE_TOP, w.z)]);
     const all = [...engine, ...points];
+    // (Followed, the camera keeps it in the room and goes on following: the way ahead isn't worth stopping that for.
+    // QA: opening its card in landscape stopped following it, the Follow button still lit.)
+    if (game.following === carId) return;
     if (all.length === 0 || inRoom(all)) return;
     frameInRoom(all, Math.min(game.camera.position.distanceTo(game.controls.target), 900));
   }
@@ -2502,22 +2621,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   // What the map shows (between the top bar and the tray, beside or above an open card or sheet): the game's glides
   // and a followed train centre their target there, not behind a card (QA: an engine glided to sat under the card
   // that was open). Measured when any of these changes size, never per frame.
-  game.director.roomOf = () => {
-    const r = game.canvas.getBoundingClientRect();
-    const room = { left: 0, top: 0, right: r.width, bottom: r.height };
-    for (const e of document.querySelectorAll(".hud .brand, .hud .actions, .hud .goals")) {
-      const b = e.getBoundingClientRect();
-      if (b.height > 0 && b.top - r.top < r.height / 3) room.top = Math.max(room.top, b.bottom - r.top);
-    }
-    for (const e of document.querySelectorAll(".hud .tray, .hud .tray-draw, .hud .tray-orient, .hud .card")) {
-      const b = e.getBoundingClientRect();
-      if (b.height === 0 || b.width === 0) continue;
-      // Docked at the right (a phone on its side): the room is beside it. Otherwise it's below the room.
-      if (b.left - r.left > r.width * 0.4 && b.top - r.top < r.height / 2) room.right = Math.min(room.right, b.left - r.left);
-      else if (b.top - r.top > room.top) room.bottom = Math.min(room.bottom, b.top - r.top);
-    }
-    return room.bottom - room.top > 80 && room.right - room.left > 80 ? room : null;
-  };
+  game.director.roomOf = () => measureRoom();
   {
     const changed = new ResizeObserver(() => game.director.roomChanged());
     for (const e of document.querySelectorAll(".hud .tray, .hud .card, .hud .goals, .topbar")) changed.observe(e);
@@ -2682,6 +2786,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function showGoal(): void {
     const goal = goals.current();
     if (!goal) return;
+    // A goal after a blueprint, with a school placed: the picker, open on it (where to place the school, or the school
+    // its goods go to, otherwise).
+    const pick = showMePick(progress, goal.blueprint, hasSchool());
+    if (pick) {
+      setBoardOpen(true, pick);
+      return;
+    }
     const guide = goal.guide(game.world);
     interaction.guideSpots = guide.marks.map((p) => ({ x: p.x, z: p.z }));
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
@@ -2690,9 +2801,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (guide.points.length > 0) {
       // The places along the screen's long side, with room round them for their surroundings (and for the goals card
       // and the tray, which cover the top and the bottom of the screen).
+      // Fitted in the room the map has (QA: in landscape a marker sat behind the card, and a bridge's line under the
+      // goals); facing along the places, and no closer than their surroundings want (a lone spot).
       const f = frameAlong(guide.points, game.camera.fov, game.camera.aspect, GOAL_MARGIN);
-      game.follow(-1);
-      game.director.glideTo(new Vector3(f.x, 0, f.z), Math.min(f.distance, game.controls.maxDistance), { duration: 1, inRoom: true, ...(f.theta === null ? {} : { theta: f.theta }) });
+      const pts = guide.points.map((q) => new Vector3(q.x, 0, q.z));
+      frameInRoom(pts, Math.min(f.distance, game.controls.maxDistance), game.controls.maxDistance, pts.length, f.theta ?? undefined);
     }
     if (guide.towns.length > 0) game.flourishes.add(game.landscapeView.flash(guide.towns));
     const grid = game.landscape.grid;
@@ -2716,6 +2829,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     crafting.setProgress(progress);
     saveProgress(progress.toJSON());
     refreshBoard();
+    refreshPill();
     goals = new GoalTracker();
     saveGoals([]);
     journal.clear();
@@ -2757,6 +2871,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh && next === "game") resetGoals();
     if (fresh) saveLastBuilt(next, null);
     if (fresh) {
+      // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
+      if (hasOlderSave(next)) loadFromStorage(next);
       setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
       restoreSession(next, false);
     } else if (next !== mode) {
@@ -2808,6 +2924,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.paused = pausedBeforeTitle;
     hud.setPaused(game.paused);
     hud.setMode(mode);
+    showDate();
+    refreshPill();
     // Town houses and placed models can be moved in Sandbox only.
     interaction.propsEditable = mode === "sandbox";
     hud.setVisible(true);
@@ -2815,7 +2933,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     save();
     goalsPanel.setVisible(mode === "game");
     // An industry you place must stand near what it works with (trees, fields): Game mode's rule.
-    interaction.siteRule = mode === "game" ? (type, pose) => siteWhy(game.landscape, type, pose) ?? haltWhy(game.landscape, type, pose) : null;
+    // (A school stands beside a town, one a town: the one being moved doesn't count against itself.)
+    interaction.siteRule =
+      mode === "game" ? (type, pose, ignoreId) => siteWhy(game.landscape, type, pose, (town) => schoolOf(game.world, town, (id) => ignores(ignoreId, id))) ?? haltWhy(game.landscape, type, pose) : null;
     // A drawn line uses only the pieces in the toy box (Game mode).
     interaction.draw.stock = mode === "game" ? pieceStock : null;
     interaction.draw.unlearned = mode === "game" ? pieceUnlearned : null;
@@ -2833,6 +2953,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       refreshBoard();
     } else {
       townLife.clear();
+      detachResearch(game.economy);
       detachPassengers(game.world);
       detachEngines(game.world);
       game.economy.craneTicks = CRANE_TICKS;

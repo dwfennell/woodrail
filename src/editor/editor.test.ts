@@ -667,3 +667,22 @@ describe("props edits (Game mode's tray counts follow them)", () => {
     expect(changes()).toBe(0);
   });
 });
+
+describe("a land edit undone or redone", () => {
+  it("tells the props too, so props it carried (a town's house) are redrawn and the undo buttons follow (QA: B1)", () => {
+    const { editor } = setup();
+    let land = 0;
+    let props = 0;
+    editor.onLandChange = () => land++;
+    editor.onPropsChange = () => props++;
+    let at = 0;
+    editor.recordLand({ do: () => (at = 1), undo: () => (at = 0), slots: () => [3] });
+    const recorded = props;
+    editor.undo();
+    expect(at).toBe(0);
+    expect([land, props - recorded]).toEqual([1, 1]);
+    editor.redo();
+    expect(at).toBe(1);
+    expect([land, props - recorded]).toEqual([2, 2]);
+  });
+});

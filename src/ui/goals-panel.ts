@@ -1,8 +1,7 @@
+import { dateText } from "../game/calendar";
 import { GOALS, type Goal, type GoalProgress } from "../game/goals";
-import { ago, type Journal, type JournalEntry, type JournalPlace } from "../game/journal";
+import { type Journal, type JournalEntry, type JournalPlace } from "../game/journal";
 
-/** How often the news times ("2 min ago") are refreshed, only while the News tab is open. */
-const NEWS_TICK_MS = 30_000;
 /** A small screen (a phone, either way up): the card starts folded up. */
 const SMALL_SCREEN = "(max-width: 640px), (max-height: 520px)";
 /** Where the open Journal is a bottom sheet (keep in step with style.css). */
@@ -12,6 +11,12 @@ const SHEET = "(max-width: 560px), (max-height: 520px)";
  * The panel's count: the goals done of all of them, those waiting for blueprints too ("16 / 17" beside "🔒 Learn
  * Signals to unlock a goal", never "16 / 16", which reads as all done).
  */
+/** How long New game asks before it goes back to itself (ms): as the menu's (see hud.ts). */
+const ASK_MS = 4000;
+
+/** When a News entry happened, as the railway's date ("Mar 2001": its time is on the game's clock, in ms). */
+const when = (e: JournalEntry): string => dateText(e.time / 1000);
+
 export function goalsCountText(done: number, total: number, locked: number): string {
   return `${done} / ${total + locked}`;
 }
@@ -44,7 +49,6 @@ export class GoalsPanel {
   private readonly bell = document.createElement("span");
   private readonly newsBadge = document.createElement("span");
   private tab: "goals" | "news" = "goals";
-  private newsTimer = 0;
   /** The journal entry each News row shows, and the newest entry seq drawn, so a new entry adds to the list in place. */
   private readonly rowEntry = new WeakMap<HTMLElement, JournalEntry>();
   private drawnSeq = 0;
@@ -151,7 +155,21 @@ export class GoalsPanel {
     });
     this.body.addEventListener("click", (e) => {
       const t = e.target as HTMLElement;
-      if (t.closest(".goals-new")) handlers.newGame();
+      const again = t.closest<HTMLElement>(".goals-new");
+      if (again) {
+        // Starting over loses the game's progress: the first tap asks, a second (while it asks) does it.
+        e.stopPropagation();
+        if (!again.classList.contains("asking")) {
+          again.classList.add("asking");
+          again.textContent = "Start over? Tap again";
+          window.setTimeout(() => {
+            again.classList.remove("asking");
+            again.textContent = "New game";
+          }, ASK_MS);
+          return;
+        }
+        handlers.newGame();
+      }
       if (t.closest(".goals-show")) {
         e.stopPropagation();
         // Folded up, so the panel doesn't cover what it shows.
@@ -183,9 +201,12 @@ export class GoalsPanel {
    * or the room changes, not per frame.
    */
   private fitShow(): void {
-    this.root.classList.remove("show-tight");
+    this.root.classList.remove("show-tight", "title-small");
     if (!this.root.classList.contains("collapsed") || this.now.clientWidth === 0) return;
-    if (this.now.scrollWidth > this.now.clientWidth + 1) this.root.classList.add("show-tight");
+    const cut = () => this.now.scrollWidth > this.now.clientWidth + 1;
+    if (cut()) this.root.classList.add("show-tight");
+    // (Cut even then, "Bring planks to the workshop" at 390 px (QA): the title a little smaller.)
+    if (cut()) this.root.classList.add("title-small");
   }
 
   private setTab(tab: "goals" | "news"): void {
@@ -207,16 +228,12 @@ export class GoalsPanel {
     this.syncNews();
   }
 
-  /** Badge and list; the 30 s time tick runs only while the News tab is showing in a visible Journal. */
+  /** Badge and list (each entry dated as it happened: nothing on a timer). */
   private syncNews(): void {
     const showing = !this.root.hidden && !this.root.classList.contains("collapsed") && this.tab === "news";
     if (showing) {
       this.journal.markRead();
       this.updateNews();
-      this.newsTimer ||= window.setInterval(() => this.refreshTimes(), NEWS_TICK_MS);
-    } else if (this.newsTimer) {
-      clearInterval(this.newsTimer);
-      this.newsTimer = 0;
     }
     const n = this.journal.unread;
     this.bell.hidden = n === 0;
@@ -225,17 +242,17 @@ export class GoalsPanel {
     this.newsBadge.textContent = String(n);
   }
 
-  private row(e: JournalEntry, now: number): HTMLElement {
+  private row(e: JournalEntry): HTMLElement {
     const el = document.createElement(e.place ? "button" : "div");
-    this.fillRow(el, e, now);
+    this.fillRow(el, e);
     return el;
   }
 
-  private fillRow(el: HTMLElement, e: JournalEntry, now: number): void {
+  private fillRow(el: HTMLElement, e: JournalEntry): void {
     el.className = `news-item${e.kind === "milestone" ? " milestone" : ""}${e.place ? " go" : ""}`;
     // One mark per row: a star for a milestone, unless its text has its own (a goal's "✓", maybe joined onto a growth).
     const star = e.kind === "milestone" && !e.text.includes("✓") ? `<i>★</i> ` : "";
-    el.innerHTML = `<span class="news-text">${star}${escapeHtml(e.text)}</span><span class="news-time">${ago(now - e.time)}</span>${e.place ? `<span class="news-go" aria-hidden="true">›</span>` : ""}`;
+    el.innerHTML = `<span class="news-text">${star}${escapeHtml(e.text)}</span><span class="news-time">${when(e)}</span>${e.place ? `<span class="news-go" aria-hidden="true">›</span>` : ""}`;
     this.rowEntry.set(el, e);
   }
 
@@ -244,7 +261,6 @@ export class GoalsPanel {
    * merged one moves up to the top, and the first showing draws everything.
    */
   private updateNews(): void {
-    const now = this.journal.now();
     if (this.pressed && this.drawnSeq !== 0) return;
     const entries = this.journal.entries;
     const pane = this.newsPane;
@@ -254,7 +270,7 @@ export class GoalsPanel {
       return;
     }
     if (this.drawnSeq === 0 || pane.firstElementChild?.classList.contains("news-empty")) {
-      pane.replaceChildren(...entries.map((e) => this.row(e, now)));
+      pane.replaceChildren(...entries.map((e) => this.row(e)));
       this.drawnSeq = entries[0].seq;
       return;
     }
@@ -273,8 +289,8 @@ export class GoalsPanel {
     const top: HTMLElement[] = [];
     for (const e of fresh) {
       const el = have.get(e);
-      if (el) this.fillRow(el, e, now);
-      top.push(el ?? this.row(e, now));
+      if (el) this.fillRow(el, e);
+      top.push(el ?? this.row(e));
     }
     if (top.length > 0) pane.prepend(...top);
     // Entries that fell off the end of the journal.
@@ -282,18 +298,8 @@ export class GoalsPanel {
     for (const [e, el] of have) if (!keep.has(e)) el.remove();
     // A row for every entry and no more: should the list ever disagree (QA once saw an entry's row twice, not
     // reproduced), it's drawn again whole rather than left wrong.
-    if (pane.children.length !== entries.length) pane.replaceChildren(...entries.map((e) => this.row(e, now)));
+    if (pane.children.length !== entries.length) pane.replaceChildren(...entries.map((e) => this.row(e)));
     this.drawnSeq = entries[0].seq;
-  }
-
-  /** Only the "2 min ago" texts change on the timer. */
-  private refreshTimes(): void {
-    const now = this.journal.now();
-    for (const el of Array.from(this.newsPane.children) as HTMLElement[]) {
-      const e = this.rowEntry.get(el);
-      const t = el.querySelector(".news-time");
-      if (e && t) t.textContent = ago(now - e.time);
-    }
   }
 
   /** A goal was just done: pop the count. */

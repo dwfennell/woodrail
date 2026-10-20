@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hillsOf, inRiver, type BlockReason } from "../landscape";
-import { createWorldConnector, DrawLine, fitAutoStraight, getPieceDef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, normalizeAngle, solveParentPose, transformPose, type DrawCandidate, type DrawEnd, type DrawOptions, type PieceTypeId } from "../track";
+import { connectorRef, createWorldConnector, DrawLine, fitAutoStraight, getPieceDef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, normalizeAngle, solveParentPose, transformPose, type DrawCandidate, type DrawEnd, type DrawOptions, type PieceTypeId } from "../track";
 import { DrawNotice, TOO_SHARP } from "./draw-notice";
 import { Progress } from "./progress";
 import { isFree, ruleOf, thingsFor } from "./things";
@@ -64,6 +64,7 @@ function drawOptions(world: World, game: ReturnType<typeof gameStock> | null): D
       }
       return false;
     },
+    nearTrack: (e, reach) => layout.queryFreeConnectors(e.x, e.z, reach, []) > 0,
     groundAt: (x, z) => hills.groundAt(x, z),
     wet: (x, z) => inRiver(land.grid, x, z),
     onMap: (x, z) => land.grid.cellAtWorld(x, z) !== -1,
@@ -184,5 +185,48 @@ describe("drawing: what the line says (QA sweep item 1)", () => {
       const { line, toasts, lift } = uTurn(70, lead);
       expect([...toasts, lift].filter(Boolean), `r 70, lead ${lead}: ${line.pieces.map((p) => p.type).join(" ")}`).toEqual([TOO_SHARP]);
     }
+  });
+});
+
+describe("QA junction notes N5: a loose end just short of a station, an arc into its end", () => {
+  /**
+   * QA's exact case (Sandbox, `#seed-7`): two long straights at −45° whose free end is `back` mm short of where one
+   * curve closes onto Gorsemoor's south end (828, −360) (negative: past it, to the other side); the stroke from there,
+   * an arc into that end (a from 42° down to 0° in 3° steps), then `over` mm on past it.
+   */
+  function stroke(back: number, over: number) {
+    const world = createWorld(7);
+    const x0 = 775.3 - back * Math.SQRT1_2;
+    const z0 = -232.7 - back * Math.SQRT1_2;
+    const d = 216 * Math.SQRT1_2;
+    world.layout.addPiece("straight-216", { x: x0 - 2 * d, z: z0 + 2 * d, heading: -Math.PI / 4 }, 0);
+    const near = world.layout.addPiece("straight-216", { x: x0 - d, z: z0 + d, heading: -Math.PI / 4 }, 0);
+    const c = createWorldConnector();
+    world.layout.worldConnector(connectorRef(near, 1), c);
+    const start: DrawEnd = { x: c.x, z: c.z, heading: c.heading, y: c.y, kind: c.kind };
+    const pts: { x: number; z: number }[] = [];
+    for (let a = 42; a >= 0; a -= 3) pts.push({ x: 828 - 180 * (1 - Math.cos((a * Math.PI) / 180)), z: -360 + 180 * Math.sin((a * Math.PI) / 180) });
+    for (let o = 4; o <= over; o += 4) pts.push({ x: 828, z: -360 - o });
+    // (DrawHand's finger moves come every few mm: the points between, every 4 mm.)
+    const dense: { x: number; z: number }[] = [];
+    let prev = { x: x0, z: z0 };
+    for (const p of pts) {
+      const n = Math.max(1, Math.ceil(Math.hypot(p.x - prev.x, p.z - prev.z) / 4));
+      for (let k = 1; k <= n; k++) dense.push({ x: prev.x + ((p.x - prev.x) * k) / n, z: prev.z + ((p.z - prev.z) * k) / n });
+      prev = p;
+    }
+    return drawStroke(start, drawOptions(world, null), dense, null);
+  }
+
+  it("5 mm short (and 5 mm past), it closes with the one curve that fits, not a straight first and a curve into the house beside it", () => {
+    for (const back of [5, -5])
+      for (const over of [0, 32, 60]) {
+        const { line, lift } = stroke(back, over);
+        const why = `${back} mm back, ${over} mm over: ${line.pieces.map((p) => p.type + (p.blocked ? `[${p.blocked}]` : "")).join(" ")}, ${line.stopped}, ${lift}`;
+        expect(line.stopped, why).toBe("closed");
+        expect(line.pieces.length, why).toBe(1);
+        expect(line.pieces[0].type.startsWith("curve"), why).toBe(true);
+        expect(lift, why).toBeNull();
+      }
   });
 });
