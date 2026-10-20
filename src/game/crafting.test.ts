@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
 import { appendPiece, connectorRef } from "../track";
-import { costOf, craftNow, craftShort, Crafting, CRAFT_SECONDS, ENGINE_NOTE, lacking, makeNote, uncraft, workshopStock } from "./crafting";
+import { costOf, craftNow, craftShort, Crafting, CRAFT_SECONDS, ENGINE_NOTE, lacking, madeText, makeNote, uncraft, workshopStock } from "./crafting";
 import { makeRowHtml } from "../ui/workshop-panel";
 import type { ThingId } from "./things";
 import { Progress } from "./progress";
@@ -190,6 +190,27 @@ describe("a second engine before Signals (QA: the workshop could make the one th
     expect(makeNote(q, "car:engine")).toBe(ENGINE_NOTE);
     expect(craftNow(w, q, new Map([["car:engine" as ThingId, 1]]))).toBeNull();
     expect(q.owned.get("car:engine")).toBe(2);
+  });
+
+  it("an engine ordered on the workshop's card says it too as it's made (QA P5: only the tray's said it)", () => {
+    const { w } = withWorkshop(12);
+    const p = Progress.fresh();
+    const c = new Crafting(p);
+    c.order("car:engine");
+    let made: ThingId | null = null;
+    for (let i = 0; i < 10 && !made; i++) made = c.tick(w, 1);
+    expect(made).toBe("car:engine");
+    expect(p.owned.get("car:engine")).toBe(2);
+    expect(madeText(p, made!, "Engine")).toBe(`+1 Engine in your toy box. ${ENGINE_NOTE}`);
+    // A wagon: no note.
+    expect(madeText(p, "car:timber", "Flatbed wagon")).toBe("+1 Flatbed wagon in your toy box");
+    // The first engine (none before it), or with Signals learned: none either.
+    const q = Progress.fresh();
+    q.owned.delete("car:engine");
+    q.add("car:engine");
+    expect(madeText(q, "car:engine", "Engine")).toBe("+1 Engine in your toy box");
+    p.learned.add("signals");
+    expect(madeText(p, "car:engine", "Engine")).toBe("+1 Engine in your toy box");
   });
 
   it("the workshop's card shows the note under the engine's name, beside its + button", () => {

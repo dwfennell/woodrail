@@ -27,7 +27,7 @@ import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, makeNote, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
+import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
@@ -1647,7 +1647,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Planks leave the yard when an order starts: draw the pile going down (only then, not on every step).
     if (made || progress.making !== wasMaking) game.invalidate();
     if (!made) return;
-    hud.toast(`+1 ${thingLabel(made)} in your toy box`, true, 2400);
+    // (A second engine before Signals: what it can't do yet, as when it's made from the tray.)
+    const said = madeText(progress, made, thingLabel(made));
+    hud.toast(said, true, said.length > 40 ? 3600 : 2400);
     audio.chime();
     hud.refreshTrayBadges();
     scheduleSave();

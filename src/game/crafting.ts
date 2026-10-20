@@ -72,12 +72,22 @@ export function yardKeeps(p: Progress, spare = WORKSHOP_SPARE): number {
 export const ENGINE_NOTE = "Needs Signals to share a line";
 
 /**
- * A note on making `id`, or null: an engine before Signals, with one owned already, "Needs Signals to share a line"
+ * A note on making `id`, or null: an engine before Signals, with one owned already (`owned`: how many before it), "Needs Signals to share a line"
  * (QA: the workshop made the second engine the presents hold back till Signals). Not a gate: a second engine on a
  * line of its own runs fine.
  */
-export function makeNote(p: Progress, id: ThingId): string | null {
-  return id === "car:engine" && !p.learned.has("signals") && (p.owned.get("car:engine") ?? 0) >= 1 ? ENGINE_NOTE : null;
+export function makeNote(p: Progress, id: ThingId, owned = p.owned.get(id) ?? 0): string | null {
+  return id === "car:engine" && !p.learned.has("signals") && owned >= 1 ? ENGINE_NOTE : null;
+}
+
+/**
+ * The toast as the workshop finishes an order of `id` (now in the toy box): "+1 Engine in your toy box", and for a
+ * second engine before Signals its note (QA P5: said when made from the tray, not when ordered on the workshop's card).
+ * Asked after it's made, so the one just made isn't counted as owned before.
+ */
+export function madeText(p: Progress, id: ThingId, label: string): string {
+  const note = makeNote(p, id, (p.owned.get(id) ?? 0) - 1);
+  return `+1 ${label} in your toy box${note ? `. ${note}` : ""}`;
 }
 
 /**
