@@ -95,17 +95,20 @@ const RESEARCH_SPARE = Number(ENV.BALANCE_SPARE ?? 10);
 const LATER: ReadonlySet<string> = new Set(["warehouses", "sawmills", "junctions", "college"]);
 
 /**
- * Main's figures before research (17dbc6f; main at 5add1ea gives the same), by seed: the minute of the first City and the
- * blueprints learned by 180 (spec §5).
+ * Main's figures before research (17dbc6f; main at 5add1ea gives the same), by seed: the minute of the first City (the
+ * guard: never more than 20% later) and how many blueprints it researched by 180 (the floor; its other 13-15 came free
+ * from growth, riders and landmarks, which research now earns). Other seeds: the lowest, 7.
  */
-const MAIN_BY_SEED: Readonly<Record<number, { city: number; blueprints: number }>> = {
-  2027: { city: 73, blueprints: 23 },
-  1: { city: 112, blueprints: 23 },
-  2: { city: 92, blueprints: 22 },
-  3: { city: 110, blueprints: 25 },
-  4: { city: 84, blueprints: 22 },
-  5: { city: 87, blueprints: 21 },
+const MAIN_BY_SEED: Readonly<Record<number, { city: number; researched: number }>> = {
+  2027: { city: 73, researched: 9 },
+  1: { city: 112, researched: 9 },
+  2: { city: 92, researched: 8 },
+  3: { city: 110, researched: 11 },
+  4: { city: 84, researched: 7 },
+  5: { city: 87, researched: 8 },
 };
+/** The City's band on every seed (spec §5, the CoS's of 2026-10-20), in minutes. */
+const CITY_BAND = [60, 90] as const;
 
 interface Row {
   minute: number;
@@ -1312,31 +1315,31 @@ class Playthrough {
   }
 
   /**
-   * Spec §5's bands at 180 min with 1 train a line (P5): first research by minute 8; no research stall over 15 min;
-   * coins at 180 at least 100; no stretch of 45 min or more with no planks into a town; and, for the seed table's
-   * seeds, the City within ±15% of main's (so never more than 20% later) and at least main's blueprints by 180. Each
-   * miss is listed (soft), and any fails the run. What's only nice to have (a research stall under 10 min, coins at
-   * 180 within 150–600) is printed.
+   * Spec §5's bands at 180 min with 1 train a line (P5, as the CoS set them on 2026-10-20): first research by minute 8;
+   * at least main's researched count by 180 (7 on a seed main has no figure for); the City at minute 60-90; no stretch
+   * of 45 min or more with no planks into a town; and the guard: no research stall over 15 min, coins at 180 at least
+   * 100, no City more than 20% later than main's. Each miss is listed (soft), and any fails the run. What's only nice
+   * to have (a research stall under 10 min, coins at 180 within 150-600) is printed.
    */
   checkBands(): void {
     const P = this.p;
     const coins = P.rows.at(-1)?.coins ?? 0;
     const stall = P.researchStall / 60;
     const gap = P.townGap / 60;
+    const city = this.firsts["level 3"] ?? Infinity;
+    const researched = P.researchedAt.filter((m) => m <= 180).length;
+    const main = MAIN_BY_SEED[Number(ENV.BALANCE_SEED ?? 2027)];
+    const floor = main?.researched ?? 7;
     expect.soft(P.researchedAt[0] ?? Infinity, "first research by minute 8").toBeLessThanOrEqual(8);
+    expect.soft(researched, `researched by 180 at least main's ${floor}`).toBeGreaterThanOrEqual(floor);
+    expect.soft(city, `City at minute ${CITY_BAND[0]} or later`).toBeGreaterThanOrEqual(CITY_BAND[0]);
+    expect.soft(city, `City by minute ${CITY_BAND[1]}`).toBeLessThanOrEqual(CITY_BAND[1]);
+    expect.soft(gap, "no planks into a town for 45 min").toBeLessThan(45);
     expect.soft(stall, "no research stall over 15 min").toBeLessThanOrEqual(15);
     expect.soft(coins, "coins at 180 at least 100").toBeGreaterThanOrEqual(100);
-    expect.soft(gap, "no planks into a town for 45 min").toBeLessThan(45);
-    const main = MAIN_BY_SEED[Number(ENV.BALANCE_SEED ?? 2027)];
-    if (main) {
-      const city = this.firsts["level 3"] ?? Infinity;
-      expect.soft(city, `City no more than 20% later than main's ${main.city}`).toBeLessThanOrEqual(main.city * 1.2);
-      expect.soft(city, `City within 15% of main's ${main.city}`).toBeGreaterThanOrEqual(main.city * 0.85);
-      expect.soft(city, `City within 15% of main's ${main.city}`).toBeLessThanOrEqual(main.city * 1.15);
-      expect.soft(P.progress.learned.size, `blueprints by 180 at least main's ${main.blueprints}`).toBeGreaterThanOrEqual(main.blueprints);
-    }
+    if (main) expect.soft(city, `City no more than 20% later than main's ${main.city}`).toBeLessThanOrEqual(main.city * 1.2);
     const nice = [stall >= 10 && `research stall ${stall.toFixed(1)} min (under 10)`, (coins < 150 || coins > 600) && `coins ${coins} (150-600)`].filter(Boolean);
-    console.log(`BANDS nice to have: ${nice.join("; ") || "all met"}`);
+    console.log(`BANDS researched ${researched} (floor ${floor}), City ${city}, gap ${gap.toFixed(1)} min, stall ${stall.toFixed(1)} min, coins ${coins}; nice to have: ${nice.join("; ") || "all met"}`);
   }
 
   /** Minutes from learning a blueprint to building what it brings ("-": not both). */
