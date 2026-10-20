@@ -69,8 +69,13 @@ describe("town rewards", () => {
     // Straight to a city from a village: the town's present too.
     const q = Progress.fresh();
     q.learned.add("farming");
-    expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:timber", "piece:depot-school", "piece:depot-farm", "piece:buffer-turnback", "car:engine", "piece:depot-farm"]);
+    // (No engine for the city before Signals.)
+    expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:timber", "piece:depot-school", "piece:depot-farm", "piece:buffer-turnback", "piece:depot-farm"]);
     expect(q.bestLevel).toBe(3);
+    const r = Progress.fresh();
+    r.learned.add("signals");
+    r.bestLevel = 2;
+    expect(firstTimeGift(r, 3).map(([id]) => id)).toEqual(["car:engine"]);
   });
 
   it("learning Signals brings a second engine, once, unless you've two", () => {
