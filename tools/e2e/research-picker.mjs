@@ -211,6 +211,33 @@ const coinChip = await p.evaluate(() => {
   return node?.className;
 });
 check("the web's tag for the one up next", /\bnext\b/.test(coinChip ?? ""), String(coinChip));
+// Open, with coins and counted loads coming in (what running trains do) short of anything it shows: the picker isn't
+// rebuilt (QA: it was, every second).
+const rebuilt = await p.evaluate(async () => {
+  const w = window.woodrail;
+  let web = 0;
+  let sheet = 0;
+  const a = new MutationObserver(() => web++);
+  const b = new MutationObserver(() => sheet++);
+  a.observe(document.querySelector(".board-body"), { childList: true });
+  b.observe(document.querySelector(".board-sheet"), { childList: true });
+  const p = w.progress();
+  // (Above every price: what the one up next is short doesn't change either.)
+  p.coins = 1000;
+  w.hud.setCoins(1000);
+  await new Promise((r) => setTimeout(r, 1200));
+  web = sheet = 0;
+  for (let i = 0; i < 8; i++) {
+    p.coins += 1;
+    w.hud.setCoins(p.coins);
+    w.economy.loadsMoved++;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  a.disconnect();
+  b.disconnect();
+  return { web, sheet };
+});
+check("open, coins and loads coming in: the picker isn't rebuilt", rebuilt.web === 0 && rebuilt.sheet === 0, JSON.stringify(rebuilt));
 await shot("10-picker-web");
 await tap(".board-head .close");
 
