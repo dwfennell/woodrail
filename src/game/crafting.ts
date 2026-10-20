@@ -52,6 +52,18 @@ export function keepsForOrder(p: Progress, stock: number): boolean {
   return stock < orderPlanks(p);
 }
 
+/** Said beside a second engine before Signals (see `makeNote`). */
+export const ENGINE_NOTE = "Needs Signals to share a line";
+
+/**
+ * A note on making `id`, or null: an engine before Signals, with one owned already, "Needs Signals to share a line"
+ * (QA: the workshop made the second engine the presents hold back till Signals). Not a gate: a second engine on a
+ * line of its own runs fine.
+ */
+export function makeNote(p: Progress, id: ThingId): string | null {
+  return id === "car:engine" && !p.learned.has("signals") && (p.owned.get("car:engine") ?? 0) >= 1 ? ENGINE_NOTE : null;
+}
+
 /**
  * The goods and coins to make `wants` (how many of each thing), from the tray (Game mode).
  */

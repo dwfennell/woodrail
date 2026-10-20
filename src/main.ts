@@ -10,7 +10,7 @@ import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Land
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, OLDER_SAVE, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
-import { GoalTracker } from "./game/goals";
+import { GoalTracker, secondEngineTip } from "./game/goals";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
 import { GoalsPanel } from "./ui/goals-panel";
@@ -27,7 +27,7 @@ import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, uncraft, workshops, workshopStock } from "./game/crafting";
+import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, makeNote, uncraft, workshops, workshopStock } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
@@ -1176,6 +1176,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // One thing short: by its own name; more (a train's wagons): by the tray item's.
     const one = lack.size === 1 ? [...lack.values()][0] : 0;
     const label = one === 1 ? ruleOf([...lack.keys()][0])!.label : "label" in item && typeof item.label === "string" ? item.label : "That";
+    // (A second engine before Signals: what it can't do yet, said as it's made. Asked before it's owned.)
+    const engineNote = lack.has("car:engine") ? makeNote(progress, "car:engine") : null;
     const why = make ? craftNow(game.world, progress, lack) : craftShort(game.world, progress, lack);
     if (why === "no-workshop") {
       hud.toast(`No ${label.toLowerCase()} left. Place your workshop (Industries tab) to make more`, false, 3600);
@@ -1195,7 +1197,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     pieceRefund = pieceMade ? refundText(one === 1 ? label : describeThings([...lack]), cost.goods, cost.coins) : "";
     // "a switch", "3 flatbed wagons", or a whole train by its name.
     const made = one === 1 ? aOrAn(label.toLowerCase()) : one > 1 ? describeThings([...lack]).toLowerCase() : label.toLowerCase();
-    const said = `Made ${made}: ${[total(cost.goods) > 0 ? `${costTag(cost.goods)} from the workshop` : "", cost.coins > 0 ? costTag({}, cost.coins) : ""].filter(Boolean).join(" and ")}`;
+    const said = `Made ${made}: ${[total(cost.goods) > 0 ? `${costTag(cost.goods)} from the workshop` : "", cost.coins > 0 ? costTag({}, cost.coins) : ""].filter(Boolean).join(" and ")}${engineNote ? `. ${engineNote}` : ""}`;
     // A train's is said once it's on the track (dropped off it, nothing's made after all).
     if (trainMade) trainSaid = said;
     else if (pieceMade) pieceSaid = said;
@@ -1433,7 +1435,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Signals bring a second engine (into the toy box): a passing loop with signals lets two trains share the line.
     const gift = learnGift(progress, id);
     const present = gift.length > 0 ? ` · Present: ${describeThings(gift)}` : "";
-    note({ kind: "milestone", text: (makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.blurb}`) + present }, 3800);
+    // A goal it opens is named ("Run two trains at once" opened unseen behind the current goal), with where the
+    // second engine is, or that one's to be made.
+    const opened = goals.openedBy(id, progress.learned);
+    const tip = opened.some((g) => g.id === "two-trains") ? secondEngineTip(progress.available(game.world, "car:engine"), progress.owned.get("car:engine") ?? 0) : "";
+    const goalLine = opened.length > 0 ? ` · New goal: ${opened.map((g) => g.title).join(", ")}${tip ? `. ${tip}` : ""}` : "";
+    note({ kind: "milestone", text: (makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.blurb}`) + present + goalLine }, opened.length > 0 ? 5200 : 3800);
     // An upgrade takes effect at once: industries' rates and the cranes.
     applyCranes(game.economy, progress);
     industriesChanged();
@@ -1442,6 +1449,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.trayLearned();
     game.invalidate();
     refreshBoard();
+    // The goals card at once: a goal it opened counts (and "Research Signals to unlock a goal" goes).
+    if (opened.length > 0) checkGoals(true);
     save();
   }
 
@@ -1913,6 +1922,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
         have: progress.available(game.world, tid),
         queued: progress.orders.filter((o) => o === tid).length,
         shelf: tid.startsWith("car:") ? "Trains" : tid.includes("depot-") ? "Industries" : RAILWAY_THINGS.has(tid) ? "Railway" : "Track",
+        // A second engine before Signals: said, not barred (on a line of its own it runs fine).
+        note: makeNote(progress, tid),
       });
     }
     rows.sort((a, b) => SHELVES.indexOf(a.shelf) - SHELVES.indexOf(b.shelf));

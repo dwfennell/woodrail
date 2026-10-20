@@ -271,6 +271,19 @@ const hasPiece = (w: World, test: (type: PieceTypeId, flipped: boolean) => boole
 const stationPieces = (w: World) => new Set(w.stations.values());
 
 /** The Game mode's goals, worked through in order. */
+/** "Run two trains at once" with one train on the map. */
+export const TWO_TRAINS_HINT = "Put a second engine on the track, then lay a passing loop with signals.";
+
+/**
+ * What to say of the second engine when "Run two trains at once" opens: where it is (one free in the toy box), or to
+ * make one (fewer than two owned); nothing if both are on the map already.
+ */
+export function secondEngineTip(free: number, owned: number): string {
+  if (free > 0) return "Engine in the Trains tab";
+  if (owned < 2) return "Make an engine at the workshop";
+  return "";
+}
+
 export const GOALS: readonly Goal[] = [
   {
     id: "join-two",
@@ -443,9 +456,11 @@ export const GOALS: readonly Goal[] = [
     needs: ["signals"],
     check: (w) => {
       const n = running(w).length;
-      return { done: n >= 2, count: Math.min(n, 2), target: 2, unit: "trains" };
+      // One train on the map: the second engine first (QA: what to do wasn't said).
+      const p: GoalProgress = { done: n >= 2, count: Math.min(n, 2), target: 2, unit: "trains" };
+      return n < 2 && w.sim.trainIds().length < 2 ? { ...p, hint: TWO_TRAINS_HINT } : p;
     },
-    guide: (w) => guideTrains(w, "trains"),
+    guide: (w) => guideTrains(w, "trains", "Engines"),
   },
   {
     id: "join-all",
@@ -543,6 +558,14 @@ export class GoalTracker {
     if (!g) return null;
     const names = g.needs!.filter((id) => !this.learned.has(id)).map((id) => BLUEPRINTS.find((b) => b.id === id)?.label ?? id);
     return `Research ${names.join(" and ")} to unlock a goal`;
+  }
+
+  /**
+   * The goals learning blueprint `tech` opens (all their blueprints now in `learned`), not yet done: for the "Learned"
+   * news to name (QA: "Run two trains at once" opened unseen behind the current goal).
+   */
+  openedBy(tech: string, learned: ReadonlySet<string>): Goal[] {
+    return GOALS.filter((g) => !this.done.has(g.id) && !!g.needs?.includes(tech) && g.needs.every((id) => learned.has(id)));
   }
 
   /** The goals to save: those done, and those met and waiting (they're ticked off after a reload). */

@@ -3,7 +3,8 @@ import { appendPiece, connectorRef, findSplice, Layout } from "../track";
 import { checkPlacement, connectedPairs, FEAT_TREE, SURF_GRASS, SURF_RIVER } from "../landscape";
 import { checkYard } from "./depot-footprint";
 import { siteWhy } from "./industries";
-import { BRIDGE_KNOWN_HINT, GOALS, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN } from "./goals";
+import { BRIDGE_KNOWN_HINT, GOALS, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, secondEngineTip, TWO_TRAINS_HINT } from "./goals";
+import mainSrc from "../main.ts?raw";
 import { buildStarterWorld, createWorld, STARTER_SEED, syncIndustries, type World } from "./world";
 import { CARGO } from "../economy/cargo";
 import { Progress } from "./progress";
@@ -517,6 +518,33 @@ describe("place-workshop guide", () => {
     expect(t.current()?.id).toBe("two-trains");
     expect(t.total).toBe(GOALS.length);
     expect(t.lockedHint()).toBeNull();
+  });
+
+  it("learning Signals names the goal it opens, and where the second engine is (QA: it opened unseen)", () => {
+    const t = new GoalTracker(["join-two", "place-train"]);
+    // Signals open "Run two trains at once"; Switches open none (no goal waits for them alone).
+    expect(t.openedBy("signals", new Set(["switches", "signals"])).map((g) => g.title)).toEqual(["Run two trains at once"]);
+    expect(t.openedBy("switches", new Set(["switches"]))).toEqual([]);
+    // Already done (an old save): nothing to say.
+    expect(new GoalTracker(["two-trains"]).openedBy("signals", new Set(["signals"]))).toEqual([]);
+    // The second engine: in the toy box (the Signals present, or one made), to be made (one owned), or both on the map.
+    expect(secondEngineTip(1, 2)).toBe("Engine in the Trains tab");
+    expect(secondEngineTip(0, 1)).toBe("Make an engine at the workshop");
+    expect(secondEngineTip(0, 2)).toBe("");
+    // The game's "Learned" note folds them in.
+    expect(mainSrc).toMatch(/goals\.openedBy\(id, progress\.learned\)/);
+    expect(mainSrc).toMatch(/present \+ goalLine/);
+  });
+
+  it("two trains at once, with one train on the map, says to put the second engine on first; Show me opens Engines", () => {
+    const { w, straights } = joined();
+    const t = trainOn(w, straights[1], ["engine", "timber"]);
+    t.speed = 80;
+    expect(goal("two-trains").check(w)).toMatchObject({ done: false, count: 1, hint: TWO_TRAINS_HINT });
+    expect(goal("two-trains").guide(w)).toMatchObject({ tab: "trains", shelf: "Engines" });
+    // Two on the map, one standing: the goal's own hint (the passing loop).
+    trainOn(w, w.stations.get(w.landscape.towns[0].id)!);
+    expect(goal("two-trains").check(w).hint).toBeUndefined();
   });
 });
 

@@ -11,6 +11,14 @@ export interface MakeRow {
   /** Ordered and not yet made. */
   queued: number;
   shelf: string;
+  /** A short line under its name ("Needs Signals to share a line"). */
+  note?: string | null;
+}
+
+/** One row of the workshop's card. */
+export function makeRowHtml(r: MakeRow): string {
+  const note = r.note ? `<span class="make-note">${r.note}</span>` : "";
+  return `<div class="make-row"><span><b>${r.label}</b> <span class="cost">${r.cost}</span>${note}</span><span class="box">${r.have} in box${r.queued ? ` · ${r.queued} to make` : ""}</span>${r.queued ? `<button class="chip text" data-make="${r.id}" data-less="1" title="Make one fewer">−</button>` : "<span></span>"}<button class="chip text primary" data-make="${r.id}" title="Make one more">+</button></div>`;
 }
 
 export interface MakeNow {
@@ -70,7 +78,7 @@ export class WorkshopPanel {
     let shelf = "";
     for (const r of rows) {
       if (r.shelf !== shelf) body += `<div class="make-head">${(shelf = r.shelf)}</div>`;
-      body += `<div class="make-row"><span><b>${r.label}</b> <span class="cost">${r.cost}</span></span><span class="box">${r.have} in box${r.queued ? ` · ${r.queued} to make` : ""}</span>${r.queued ? `<button class="chip text" data-make="${r.id}" data-less="1" title="Make one fewer">−</button>` : "<span></span>"}<button class="chip text primary" data-make="${r.id}" title="Make one more">+</button></div>`;
+      body += makeRowHtml(r);
     }
     this.root.innerHTML = head + body;
     this.bar = this.root.querySelector<HTMLElement>(".make-now .bar > i");

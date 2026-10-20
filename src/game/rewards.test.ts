@@ -7,8 +7,9 @@ import { workshopStock } from "./crafting";
 import { CARD_KINDS, type GrowthCard } from "./growth-cards";
 import { Progress } from "./progress";
 import { deliver, pick, tick } from "./research";
-import { boostGoods, carIcon, cardFor, cardView, crateFor, firstTimeGift, learnGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
+import { boostGoods, carIcon, cardFor, cardView, crateFor, describeThings, firstTimeGift, learnGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
 import { TECHS } from "./tech";
+import { THING_RULES } from "./things";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
 import { rng } from "../lib/rng";
 import { trainIcon } from "../ui/icons";
@@ -347,13 +348,39 @@ describe("crates and presents", () => {
     // Straight to a city from a village: the town's present too.
     const q = Progress.fresh();
     q.learned.add("farming");
-    // (No engine for the city before Signals.)
-    expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:timber", "piece:depot-school", "piece:depot-farm", "piece:buffer-turnback", "piece:depot-farm"]);
+    // (No engine for the city before Signals: two flatbed wagons in its place.)
+    expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:timber", "piece:depot-school", "piece:depot-farm", "piece:buffer-turnback", "car:timber", "piece:depot-farm"]);
     expect(q.bestLevel).toBe(3);
     const r = Progress.fresh();
     r.learned.add("signals");
     r.bestLevel = 2;
     expect(firstTimeGift(r, 3).map(([id]) => id)).toEqual(["car:engine"]);
+  });
+
+  it("the first city's present is never empty before Signals: a stand-in worth the engine takes its place (QA)", () => {
+    // No industry known and no Signals: the present was empty and the news said only "Pick a reward".
+    const p = Progress.fresh();
+    p.bestLevel = 2;
+    const gift = firstTimeGift(p, 3);
+    expect(gift).toEqual([["car:timber", 2]]);
+    expect(`Present: ${describeThings(gift)}`).toBe("Present: 2 Flatbed wagons");
+    expect(p.owned.get("car:engine")).toBe(1);
+    // Switches learned: two switches, toward the passing loop Signals will need (6 planks, as the engine is).
+    const q = Progress.fresh();
+    q.bestLevel = 2;
+    q.learned.add("switches");
+    expect(describeThings(firstTimeGift(q, 3))).toBe("2 Switches");
+    expect(2 * (THING_RULES["piece:switch"]!.cost.planks ?? 0)).toBe(THING_RULES["car:engine"]!.cost.planks);
+    // With an industry known: the stand-in and the industry.
+    q.bestLevel = 2;
+    q.learned.add("farming");
+    expect(firstTimeGift(q, 3)).toEqual([["piece:switch", 2], ["piece:depot-farm", 1]]);
+    // With Signals: the engine, no stand-in.
+    const r = Progress.fresh();
+    r.bestLevel = 2;
+    r.learned.add("switches");
+    r.learned.add("signals");
+    expect(firstTimeGift(r, 3)).toEqual([["car:engine", 1]]);
   });
 
   it("learning Signals brings a second engine, once, unless you've two", () => {

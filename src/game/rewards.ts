@@ -63,8 +63,8 @@ function plural(label: string): string {
 
 /**
  * The first time any of your towns reaches a level, a present: a timber wagon and a school for your first village, an
- * industry building for your first town, an engine (once Signals are learned) and the grandest industry you know for
- * your first city. Returns what was given (into the toy box), or empty if that level was reached before. (No second
+ * industry building for your first town, an engine (once Signals are learned; before, two switches or wagons in its
+ * place) and the grandest industry you know for your first city. Returns what was given (into the toy box), or empty if that level was reached before. (No second
  * engine before Signals: on one line two trains only turn each other back. It comes with Signals: see `learnGift`.)
  */
 export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
@@ -93,9 +93,19 @@ function giftFor(p: Progress, level: number): [ThingId, number][] {
   // The first village: a wagon, and a school to research blueprints at (beside a town).
   if (level === 1) return [["car:timber", 1], [SCHOOL, 1]];
   if (level === 2) return industries.length > 0 ? [[industries[0], 1], ["piece:buffer-turnback", 2]] : [["piece:depot-workshop", 1], ["piece:buffer-turnback", 2]];
-  // The first city: an engine only once Signals are learned (till then it would only meet the first train head on).
-  const engine: [ThingId, number][] = p.learned.has("signals") ? [["car:engine", 1]] : [];
-  return [...engine, ...(industries.length > 0 ? [[industries[industries.length - 1], 1] as [ThingId, number]] : [])];
+  // The first city: an engine only once Signals are learned (till then it would only meet the first train head on);
+  // before, a stand-in worth as much (QA: with no industry known yet, the present was empty).
+  const engine: [ThingId, number] = p.learned.has("signals") ? ["car:engine", 1] : standIn(p);
+  return [engine, ...(industries.length > 0 ? [[industries[industries.length - 1], 1] as [ThingId, number]] : [])];
+}
+
+/**
+ * The first city's present in the engine's place before Signals, worth what it is (6 planks): two switches toward the
+ * passing loop Signals will need, once Switches are learned; till then two flatbed wagons (a longer train for the one
+ * engine).
+ */
+function standIn(p: Progress): [ThingId, number] {
+  return p.knows("piece:switch") ? ["piece:switch", 2] : ["car:timber", 2];
 }
 
 /** Room for planks left in the workshops' yards (each up to its cap). */
