@@ -4,7 +4,9 @@ import { Editor } from "../editor/editor";
 import { hillsOf, inRiver, type BlockReason } from "../landscape";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { SIM_DT } from "../sim";
+import { rng } from "../lib/rng";
 import {
+  angleDiff,
   connectorRef,
   createWorldConnector,
   DrawLine,
@@ -279,9 +281,59 @@ describe("QA: a save from before saves listed their joints (the line it split)",
       if (!loaded.ok) throw new Error(loaded.error);
       const larkfield = world.stations.get(world.landscape.towns[0].id)!;
       const why = `${shift} mm, ${turn} rad\n${report(loaded.value.layout)}`;
+      // Nothing shifted far for joints that stay apart (QA: 25 to 30 mm before the repair was capped).
+      for (const p of data.pieces as { id: number; x: number; z: number; heading: number }[]) {
+        const q = loaded.value.layout.getPiece(p.id)!.pose;
+        expect(Math.hypot(q.x - p.x, q.z - p.z), why).toBeLessThanOrEqual(20 + 1e-6);
+        expect(angleDiff(q.heading, p.heading), why).toBeLessThanOrEqual((7 * Math.PI) / 180 + 1e-9);
+      }
       if (shift) expect(loaded.value.layout.joinedConnector(connectorRef(13, 1)), why).toBe(-1);
       else expect(joinedThrough(loaded.value.layout, 10, 11) && loaded.value.layout.jointAt(connectorRef(10, 1))?.b === connectorRef(11, 0), why).toBe(false);
       expect(joinedThrough(loaded.value.layout, 6, larkfield), why).toBe(false);
     }
   });
+});
+
+describe("QA: a big older save, its joints brought back within bounds", () => {
+  it("1,607 pieces, 700 joints of 4° to 7°: all joined, no piece shifted past 20 mm or 7°, loaded well under a second", () => {
+    // QA's recipe: 40 chains of 40 straight-144s on the starter map, each joint turned up to ±7° (one rng(9) stream),
+    // saved without joints (sha256 3ce387e0…ba163 of the JSON on 0e51f2e).
+    const world = createWorld(7, true);
+    const r = rng(9);
+    let id = 1000;
+    for (let c = 0; c < 40; c++) {
+      let x = -3000 + (c % 8) * 700;
+      let z = 1200 + Math.floor(c / 8) * 500;
+      let h = 0;
+      for (let k = 0; k < 40; k++) {
+        world.layout.restorePiece(id++, "straight-144", { x, z, heading: h }, 0, false);
+        x += Math.cos(h) * 144;
+        z += Math.sin(h) * 144;
+        h += (r() < 0.5 ? -1 : 1) * r() * ((7 * Math.PI) / 180);
+      }
+    }
+    const data = JSON.parse(JSON.stringify(serializeWorld(world)));
+    delete data.joints;
+    expect(data.pieces.length).toBe(1607);
+    // (Seated afresh, 860 of the chains' 1,560 joints.)
+    expect(world.layout.jointCount).toBe(860);
+    const t0 = performance.now();
+    const loaded = deserializeWorld(data);
+    const ms = performance.now() - t0;
+    if (!loaded.ok) throw new Error(loaded.error);
+    const layout = loaded.value.layout;
+    expect(layout.jointCount).toBe(1560);
+    let worst = 0;
+    let worstTurn = 0;
+    for (const p of data.pieces as { id: number; x: number; z: number; heading: number }[]) {
+      const q = layout.getPiece(p.id)!.pose;
+      worst = Math.max(worst, Math.hypot(q.x - p.x, q.z - p.z));
+      worstTurn = Math.max(worstTurn, angleDiff(q.heading, p.heading));
+    }
+    const why = `worst ${worst.toFixed(1)} mm, ${((worstTurn * 180) / Math.PI).toFixed(2)}°, ${ms.toFixed(0)} ms`;
+    expect(worst, why).toBeLessThanOrEqual(20 + 1e-6);
+    expect(worstTurn, why).toBeLessThanOrEqual((7 * Math.PI) / 180 + 1e-9);
+    // (About 0.15 s here; 2.9 s before the work was bounded. Generous: a loaded machine.)
+    expect(ms, why).toBeLessThan(1500);
+  }, 60_000);
 });

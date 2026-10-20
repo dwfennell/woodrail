@@ -1,9 +1,12 @@
 // End-to-end: a drawn line's joints hold through a reload (`npm run e2e:joints [-- <out dir>]`). QA's repro: seed 7, a
-// fresh Game on a 360×740 touch screen, Draw on, the camera on (-1062, 18) at 1900 mm (tilt 0.95; theta −1.4 lays QA's line); one stroke from the sawmill's
-// end to Larkfield station's west end. Every joint of the line must be within the joint tolerance, and after a reload
-// and Continue the same joints must hold: the track unbroken from the sawmill to Larkfield (QA: 8.1° and 6.3° joints
-// held while playing, then were refused on load, and the line split).
-// Starts its own dev server. Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium if present, else Playwright's own.
+// fresh Game on a 360×740 touch screen, Draw on, the camera on (-1062, 18) at 1900 mm (tilt 0.95; in the browser,
+// theta −1.4 lays QA's line: the unit replay in joint-hold.test.ts reads the moves its own way and lays it at −2); one
+// stroke from the sawmill's end to Larkfield station's west end. Every joint of the line must be within the joint
+// tolerance, and after a reload and Continue the same joints must hold: the track unbroken from the sawmill to
+// Larkfield (QA: 8.1° and 6.3° joints held while playing, then were refused on load, and the line split).
+// Then an older build's save of that line (its live poses, no `joints` list) is loaded with Continue: it must come
+// back joined, every joint within the tolerance.
+// Starts its own dev server (on 5391, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium if present, else Playwright's own.
 import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
@@ -12,7 +15,7 @@ import { createServer } from "vite";
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const OUT = process.argv[2] ?? "e2e-out/joints";
 mkdirSync(OUT, { recursive: true });
-const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 0, strictPort: false }, logLevel: "warn" });
+const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 5391, strictPort: false }, logLevel: "warn" });
 await server.listen();
 await server.warmupRequest("/src/main.ts");
 // (No #seed- link: that opens Sandbox. A new Game is on the starter map, seed 7.)
@@ -20,7 +23,7 @@ const PAGE = server.resolvedUrls.local[0];
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const ctx = await b.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-const p = await ctx.newPage();
+let p = await ctx.newPage();
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
@@ -105,8 +108,9 @@ const stroke = async (theta, step) => {
 // hundredth of a turn, so a few close to it are tried (each stroke undone) until one lays such a line.
 let line = [];
 let tried = [];
-// (θ −1.4 lays it: on main, QA's joints exactly, 8.149° at the sawmill and 6.338°.)
-for (const [theta, step] of [[-1.4, 10], [-2, 10], [-1.3, 10], [-2.2, 10], [-1.4, 7], [-2, 7], [-1.3, 7], [-2.2, 7]]) {
+// (θ −1.4 lays it: on de7fd9c at 10 px, QA's joints exactly, 8.149° at the sawmill and 6.338°; since the draw
+// junction changes, at 7 px.)
+for (const [theta, step] of [[-1.4, 7], [-1.4, 10], [-2, 10]]) {
   line = await stroke(theta, step);
   tried.push(`θ ${theta}, ${step} px: ${line.map((x) => x.type).join(" ")}`);
   if (line.length >= 4 && line.every((x) => x.joined) && !line.some((x) => /^(join|fit)-/.test(x.type))) break;
@@ -131,6 +135,46 @@ check("after a reload and Continue, the same joints hold", keys(after) === keys(
 const reloaded = await laid();
 check("…and the track is unbroken from the sawmill to Larkfield", reloaded.length === line.length && reloaded.every((x) => x.joined), reloaded.map((x) => `${x.id}${x.joined ? "" : " (open)"}`).join(", "));
 await shot("joints-2-reloaded");
+
+// An older build's save: QA's line as main laid it (its live poses), saved without `joints`, so seating it afresh
+// parted the sawmill joint (8.149°) and 10-11 (6.338°). Continue must bring them back.
+const { createWorld } = await server.ssrLoadModule("/src/game/world.ts");
+const { serializeWorld } = await server.ssrLoadModule("/src/persist/save.ts");
+const QA_LINE = [
+  ["straight-54", false, -1474.82136001023, -71.81197803187507, 1.4285617612548278],
+  ["curve-small", true, -1465.9882092722885, -18.16943831057526, 1.3893997557748223],
+  ["curve-wide", true, -1427.4013016877939, 39.85794598990954, 0.6667587358107459],
+  ["straight-216", false, -1227.2856270410823, 95.9700965295593, -0.00802620568061186],
+  ["straight-144", false, -1010.1134451490739, 94.41579872082777, 0.03263674638071597],
+  ["straight-216", false, -865.0107362523145, 99.29026086462507, 0.03952016712254344],
+];
+const old = createWorld(7, true);
+QA_LINE.forEach(([type, flipped, x, z, heading], i) => old.layout.restorePiece(8 + i, type, { x, z, heading }, 0, flipped));
+const oldSave = serializeWorld(old);
+delete oldSave.joints;
+const ctx2 = await b.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+const q = await ctx2.newPage();
+q.on("pageerror", (e) => errors.push(e.message));
+await q.addInitScript((raw) => {
+  localStorage.setItem("woodrail.helpSeen", "1");
+  // (Once: the page's own autosave on leaving isn't overwritten.)
+  if (!sessionStorage.getItem("seeded")) {
+    localStorage.setItem("woodrail.game.v2", raw);
+    sessionStorage.setItem("seeded", "1");
+  }
+}, JSON.stringify(oldSave));
+p = q;
+await q.goto(PAGE);
+await enterGame();
+const back = await joints();
+const oldLine = await laid();
+check(
+  "an older build's save of QA's line comes back joined from the sawmill to Larkfield",
+  oldLine.length === 6 && oldLine.every((x) => x.joined) && back.some((j) => j.pieces === "6-8") && back.some((j) => j.pieces === "10-11"),
+  `${oldLine.map((x) => `${x.id} ${x.type}${x.joined ? "" : " (open)"}`).join(", ")}; ${say(back)}`,
+);
+check("…every joint within the joint tolerance", back.every((j) => !j.over), say(back));
+await shot("joints-3-old-save");
 
 check("no page errors", errors.length === 0, errors.join(" | "));
 await b.close();

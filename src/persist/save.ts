@@ -14,7 +14,7 @@ const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?
 const MAX_SAVED_SPEED = 1000;
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
-import { connectorRef, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
+import { connectorRef, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, angleDiff, isLift, type PieceTypeId, type Pose, type RelaxOptions } from "../track";
 import { joinSavedLine, LINE_COLOURS } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
@@ -231,29 +231,61 @@ export function serializeWorld(world: World): SaveData {
 }
 
 /**
+ * How far (mm) and how far round any piece may shift while an older save's joints are brought back in (QA's starter
+ * line needs 16.9 mm and 6.04°, its curve-wide turning most).
+ */
+const LOAD_SHIFT = 20;
+const LOAD_TURN = (7 * Math.PI) / 180;
+/**
+ * The work an older save's repair may take: at most this many relaxes, of at most 100 sweeps each (QA: a big old
+ * save of 1,607 pieces, 700 joints past the tolerance, took 2.9 s unbounded; about 0.15 s now). Joints left over
+ * stay joined as they were saved.
+ */
+const LOAD_RELAXES = 32;
+const LOAD_RELAX: RelaxOptions = { sweeps: 100 };
+
+/**
  * A save from before saves listed their joints: joints that joint play had taken a little past the tolerance were
  * parted by seating afresh (QA: a drawn line split after Continue). Ends that meet within the position tolerance and
- * `SAVED_JOINT_ANGLE` are joined again, then the loose track around each such joint is relaxed to bring it within
- * the tolerance (stations and depots, `fixed`, stay put). One the relax can't bring within it stays joined anyway:
- * better a joint a little past the tolerance that holds than a split line (the next save lists it).
+ * `SAVED_JOINT_ANGLE` are joined again (`Layout.seatNearMisses`, before the trains go back on); then the loose track
+ * round each such joint past the tolerance is relaxed to bring it within it. Pinned (`pinned`): stations, depots,
+ * lifts and track under a train. A relax that would shift any piece further than `LOAD_SHIFT` or `LOAD_TURN` from
+ * where it was saved isn't applied, and the work is bounded (`LOAD_RELAXES`): a joint not brought in stays joined
+ * as saved, better a little past the tolerance and holding than a split line (the next save lists it). Returns
+ * whether any piece moved.
  */
-function bringBackJoints(layout: Layout, fixed: ReadonlySet<number>): void {
-  const made = layout.seatNearMisses();
-  const pinned = (id: number) => fixed.has(id);
+function relaxBroughtBack(layout: Layout, made: readonly number[], pinned: (id: number) => boolean): boolean {
   const loose = (ref: number) => {
     const j = layout.jointAt(ref);
     return !!j && (j.angleError > JOINT_ANGLE_TOLERANCE || j.posError > JOINT_POS_TOLERANCE);
   };
+  const saved = new Map<number, Pose>();
+  const fits = (moved: ReadonlyMap<number, Pose>) => {
+    for (const [id, pose] of moved) {
+      const from = saved.get(id) ?? layout.getPiece(id)!.pose;
+      if (Math.hypot(pose.x - from.x, pose.z - from.z) > LOAD_SHIFT || angleDiff(pose.heading, from.heading) > LOAD_TURN) return false;
+    }
+    return moved.size > 0;
+  };
+  let budget = LOAD_RELAXES;
   // (Twice round: relaxing one joint can leave room to bring a neighbour in.)
   for (let pass = 0; pass < 2; pass++)
     for (const ref of made) {
+      if (budget <= 0) return saved.size > 0;
       if (!loose(ref)) continue;
       const seeds = [pieceOfRef(ref), pieceOfRef(layout.joinedConnector(ref))];
-      let moved = relaxJoints(layout, seeds, pinned, [], true);
+      budget--;
+      let moved = relaxJoints(layout, seeds, pinned, [], { ...LOAD_RELAX, strict: true });
       // (Not all within the tolerance: as near it as the relax gets without turning any joint further.)
-      if (moved.size === 0) moved = relaxJoints(layout, seeds, pinned);
+      if (!fits(moved)) {
+        budget--;
+        moved = relaxJoints(layout, seeds, pinned, [], LOAD_RELAX);
+      }
+      if (!fits(moved)) continue;
+      for (const id of moved.keys()) if (!saved.has(id)) saved.set(id, { ...layout.getPiece(id)!.pose });
       layout.nudgePieces(moved);
     }
+  return saved.size > 0;
 }
 
 /** Rebuild a world from saved data. Never throws on bad input. */
@@ -297,7 +329,8 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     if (!piece) return err(`invalid save: depot ${depot.id} is missing`);
     depots.set(depot.id, piece.id);
   }
-  if (!save.joints) bringBackJoints(layout, new Set([...stations.values(), ...depots.values()]));
+  // An older save's joints past the tolerance (parted by seating afresh), joined again before the trains go on.
+  const broughtBack = save.joints ? [] : layout.seatNearMisses();
   const sim = new Sim(layout);
   // The economy's depots as they were, in order: one on each depot piece and station.
   const economy = new Economy(layout, sim);
@@ -373,6 +406,12 @@ export function deserializeWorld(data: unknown): Result<World, string> {
       const riders = t.cars[i].riders;
       if (riders && car.kind === "passenger" && economy.depot(riders.from)?.role === "town") economy.setRiders(car.id, riders.count, riders.from);
     });
+  }
+  if (broughtBack.length > 0) {
+    // (Pinned as the editor pins: map pieces, lifts, and track under a train.)
+    const fixed = new Set([...stations.values(), ...depots.values()]);
+    const pinned = (id: number) => fixed.has(id) || isLift(layout.getPiece(id)!.type) || sim.pieceOccupied(id) || !sim.liftFree(id);
+    if (relaxBroughtBack(layout, broughtBack, pinned)) sim.trackChanged();
   }
   const props = new PropStore();
   for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}) });

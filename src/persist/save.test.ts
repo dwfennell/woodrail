@@ -384,6 +384,40 @@ describe("save format", () => {
     expect(old.value.layout.getPiece(station)!.pose).toEqual(world.layout.getPiece(station)!.pose);
   });
 
+  it("an older save's repair never moves a lift, or track under a train (pinned, as the editor pins them)", () => {
+    const world = buildStarterWorld();
+    const [a] = world.landscape.towns;
+    const station = world.stations.get(a.id)!;
+    const s1 = appendPiece(world.layout, "straight-216", false, connectorRef(station, 1));
+    const lift = appendPiece(world.layout, "kit-train-lift", false, connectorRef(s1, 1));
+    const s2 = appendPiece(world.layout, "straight-216", false, connectorRef(lift, 1));
+    const s3 = appendPiece(world.layout, "straight-216", false, connectorRef(s2, 1));
+    // The lift and on turned 6° about the s1-lift joint: past the tolerance, so an older build's load parted it.
+    const at = world.layout.worldConnector(connectorRef(s1, 1), createWorldConnector());
+    const turn = (6 * Math.PI) / 180;
+    world.layout.nudgePieces(
+      new Map(
+        [lift, s2, s3].map((id) => {
+          const p = world.layout.getPiece(id)!.pose;
+          const x = p.x - at.x;
+          const z = p.z - at.z;
+          return [id, { x: at.x + x * Math.cos(turn) - z * Math.sin(turn), z: at.z + x * Math.sin(turn) + z * Math.cos(turn), heading: p.heading + turn }];
+        }),
+      ),
+    );
+    expect(world.sim.addTrain(["engine"], { pieceId: s3, pathIndex: 0, reversed: false, s: 100 }).kind).toBe("placed");
+    const data = JSON.parse(JSON.stringify(serializeWorld(world))) as SaveData;
+    delete data.joints;
+    const r = deserializeWorld(data);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const l = r.value.layout;
+    // Joined again (at its saved angle, or relaxed: only s1, between the station and the lift, may give).
+    expect(l.joinedConnector(connectorRef(s1, 1))).toBe(connectorRef(lift, 0));
+    for (const id of [station, lift, s3]) expect(l.getPiece(id)!.pose).toEqual(world.layout.getPiece(id)!.pose);
+    expect(r.value.sim.getTrain(r.value.sim.trainIds()[0])!.derailed).toBe(false);
+  });
+
   it("round-trips pinned switches; a save without them loads with none", () => {
     const world = buildStarterWorld();
     const [a] = world.landscape.towns;

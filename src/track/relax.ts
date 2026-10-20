@@ -37,14 +37,23 @@ const wb = createWorldConnector();
  * Returns the new poses of the pieces that moved (empty when every nearby joint is already snug, or when spreading
  * would not help, or can't within the tolerance). Pure: the layout is not changed — apply with `layout.nudgePieces`.
  */
+export interface RelaxOptions {
+  /** Every joint must end within the tolerance, even one already past it (an older save's, being brought back in). */
+  strict?: boolean;
+  /** At most this many sweeps a fit (a bound on the work: loading an older save). */
+  sweeps?: number;
+  /** How many joints away from the change pieces may shift. */
+  depth?: number;
+}
+
 export function relaxJoints(
   layout: Layout,
   seeds: readonly number[],
   pinned: (pieceId: number) => boolean,
   near: readonly (readonly [number, number])[] = [],
-  /** Every joint must end within the tolerance, even one already past it (an older save's, being brought back in). */
-  strict = false,
+  opts: RelaxOptions = {},
 ): Map<number, Pose> {
+  const { strict = false, sweeps = MAX_SWEEPS, depth: maxDepth = RELAX_DEPTH } = opts;
   const result = new Map<number, Pose>();
   // Near misses to close (pairs of free ends): fitted as if joined, so the loose track gives a little at every joint.
   extra.clear();
@@ -67,7 +76,7 @@ export function relaxJoints(
   for (let i = 0; i < order.length; i++) {
     const id = order[i];
     const d = depth.get(id)!;
-    if (d >= RELAX_DEPTH) continue;
+    if (d >= maxDepth) continue;
     forPartners(layout, id, (other) => {
       if (depth.has(other)) return;
       depth.set(other, d + 1);
@@ -88,7 +97,7 @@ export function relaxJoints(
   // goes on from where the last left the pieces. If none does, nothing moves: a near miss being closed stays open.
   let fitted = false;
   for (const weight of TWIST_WEIGHTS) {
-    settle(layout, free, poses, REACH * weight);
+    settle(layout, free, poses, REACH * weight, sweeps);
     const after = worstSlack(layout, free, poses);
     if (after >= before || after > JOINT_POS_TOLERANCE / 2) {
       // (Seated worse or no better: weighing the heading more only seats it worse still.)
@@ -109,10 +118,10 @@ export function relaxJoints(
 }
 
 /** Gauss–Seidel: fit each loose piece in turn to where its neighbours are now, until nothing moves. */
-function settle(layout: Layout, free: readonly number[], poses: Map<number, Pose>, reach: number): void {
+function settle(layout: Layout, free: readonly number[], poses: Map<number, Pose>, reach: number, sweeps: number): void {
   const ps = psScratch;
   const qs = qsScratch;
-  for (let sweep = 0; sweep < MAX_SWEEPS; sweep++) {
+  for (let sweep = 0; sweep < sweeps; sweep++) {
     let moved = 0;
     for (const id of free) {
       ps.length = 0;
