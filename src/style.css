@@ -820,6 +820,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .gs-card { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; min-height: 148px; padding: 14px 8px 12px; border: 2px solid #d8c6a6; border-radius: 16px; background: #fffaf0; box-shadow: 0 3px 0 rgba(120, 80, 40, 0.25); font: inherit; color: inherit; text-align: center; cursor: pointer; touch-action: manipulation; }
 .gs-card:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(120, 80, 40, 0.25); }
 .gs-card .gs-icon { font-size: 38px; line-height: 1.1; }
+/* A wagon card's car, drawn as the tray draws it (an SVG side view), the height of the other cards' icons. */
+.gs-card .gs-car { display: flex; align-items: flex-end; height: 42px; }
+.gs-card .gs-car svg { display: block; height: 100%; width: auto; max-width: 100%; }
 .gs-card .gs-amount { font-size: 16px; font-weight: 900; line-height: 1.2; overflow-wrap: anywhere; }
 .gs-card .gs-line { font-size: 12.5px; font-weight: 700; line-height: 1.25; color: #6a4f34; overflow-wrap: anywhere; }
 .gs-card.gs-boost { border-color: #8fb3df; }

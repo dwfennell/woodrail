@@ -11,6 +11,8 @@ import { techOf } from "./tech";
 import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
 import { payFor, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
+import type { CarKind } from "../sim";
+import { trainIcon } from "../ui/icons";
 
 /**
  * What Game mode gives for what happens on the railway, in one place for the game and for headless playthroughs:
@@ -214,6 +216,11 @@ export interface CardView {
   why?: string;
 }
 
+/** A car's picture, as the toy box and the tray draw it ("car:hopper" → a hopper's side view). */
+export function carIcon(id: ThingId): string {
+  return `<span class="gs-car">${trainIcon([id.slice(4) as CarKind])}</span>`;
+}
+
 /** "4🪵 3🌾". */
 const goodsLine = (bag: Bag) =>
   kindsOf(bag)
@@ -234,7 +241,8 @@ export function cardView(p: Progress, world: World, card: GrowthCard): CardView 
     case "crate":
       return { kind: card.kind, icon: "📦", amount: `A crate: ${card.things.length} things`, line: describeThings(card.things), ok: true };
     case "wagon":
-      return { kind: card.kind, icon: card.id === "car:engine" ? "🚂" : "🚃", amount: `1 ${ruleOf(card.id)?.label ?? card.id}`, line: "Into your toy box", ok: true };
+      // The car itself, drawn as the toy box and the tray draw it (QA: it was always 🚃).
+      return { kind: card.kind, icon: carIcon(card.id), amount: `1 ${ruleOf(card.id)?.label ?? card.id}`, line: "Into your toy box", ok: true };
     case "boost": {
       const bag = boostGoods(p, card.share);
       const id = p.research.current;

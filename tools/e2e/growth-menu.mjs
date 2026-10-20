@@ -53,7 +53,8 @@ const sheet = () =>
       title: root?.querySelector("h2")?.textContent ?? null,
       cards: [...(root?.querySelectorAll(".gs-card") ?? [])].map((c) => ({
         kind: [...c.classList].find((k) => k.startsWith("gs-") && k !== "gs-card").slice(3),
-        icon: c.querySelector(".gs-icon").textContent,
+        // (A wagon card's icon is the car's drawing, as the toy box draws it: an SVG, named by its first rect's colours.)
+        icon: c.querySelector(".gs-icon svg") ? `svg:${[...c.querySelectorAll(".gs-icon svg rect")].map((r) => r.getAttribute("fill")).join(",")}` : c.querySelector(".gs-icon").textContent,
         amount: c.querySelector(".gs-amount").textContent,
         line: c.querySelector(".gs-line").textContent,
         held: c.getAttribute("aria-disabled") === "true",
@@ -233,6 +234,7 @@ check(
   taken.crate && taken.crate.after.owned["piece:buffer-turnback"] === (taken.crate.before.owned["piece:buffer-turnback"] ?? 0) + 2 && taken.crate.after.owned["car:timber"] === (taken.crate.before.owned["car:timber"] ?? 0) + 1,
 );
 check("wagon: a flatbed into the toy box", taken.wagon && taken.wagon.after.owned["car:timber"] === (taken.wagon.before.owned["car:timber"] ?? 0) + 1);
+check("…its card shows the flatbed's drawing, not 🚃 (QA)", taken.wagon && taken.wagon.card.icon.startsWith("svg:") && taken.wagon.card.icon.includes("#c8442f"), JSON.stringify(taken.wagon?.card.icon));
 check("boost: 40% of Bridges' 10 planks into the research", taken.boost && taken.boost.card.amount === "+4🪵" && taken.boost.after.got.planks === 4 && taken.boost.after.current === "bridges", JSON.stringify(taken.boost && { card: taken.boost.card, got: taken.boost.after.got }));
 // Rare cargo: Mills (12 planks, 6 grain; no farm yard to make grain), swapped in for Bridges.
 await p.evaluate(async () => {

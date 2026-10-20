@@ -6,10 +6,11 @@ import { workshopStock } from "./crafting";
 import { CARD_KINDS, type GrowthCard } from "./growth-cards";
 import { Progress } from "./progress";
 import { deliver, pick } from "./research";
-import { boostGoods, cardFor, cardView, crateFor, firstTimeGift, learnGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
+import { boostGoods, carIcon, cardFor, cardView, crateFor, firstTimeGift, learnGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
 import { TECHS } from "./tech";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
 import { rng } from "../lib/rng";
+import { trainIcon } from "../ui/icons";
 
 /** A starter world with a workshop (its yard empty) and, if asked, a school (both placed straight on the layout). */
 function world(opts: { school?: boolean; farm?: boolean } = {}): World {
@@ -153,6 +154,22 @@ describe("rare cargo", () => {
     expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+4 grain" });
     takeCard(p, w, 0, 0);
     expect(p.research.got).toEqual({ grain: 6 });
+  });
+});
+
+describe("the wagon card's picture", () => {
+  it("is the car it gives, as the toy box draws it (QA: always 🚃)", () => {
+    const p = Progress.fresh();
+    const w = world();
+    const icons = new Set<string>();
+    for (const id of ["car:timber", "car:hopper", "car:passenger", "car:van", "car:caboose", "car:engine"] as const) {
+      const v = cardView(p, w, { kind: "wagon", id });
+      expect(v.icon, id).toBe(carIcon(id));
+      expect(v.icon, id).toContain(trainIcon([id.slice(4) as "timber"]));
+      expect(v.icon, id).not.toMatch(/🚃|🚂/);
+      icons.add(v.icon);
+    }
+    expect(icons.size).toBe(6);
   });
 });
 
