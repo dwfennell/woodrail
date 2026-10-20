@@ -1,4 +1,4 @@
-import { createSample, findBranch, findCrossing, findCurveSwap, findMerge, findOverlap, findThreeWay, getPieceDef, isPlainStraight, MERGE_REACH, straightLength, normalizeAngle, type SwapMiss, pathLength, samplePath, transformPose, type DrawEnd, type DrawnPiece, type Layout, type PieceSwap, type PieceTypeId, type Pose, type SwapPiece } from "../track";
+import { createSample, findBranch, findCrossing, findCurveSwap, findMerge, findOverlap, findThreeWay, getPieceDef, isPlainStraight, MERGE_REACH, straightLength, normalizeAngle, type SwapMiss, pathLength, samplePath, transformPose, type DrawEnd, type DrawLine, type DrawnPiece, type Layout, type PieceSwap, type PieceTypeId, type Pose, type SwapPiece } from "../track";
 
 /**
  * Junctions in a drawn line (Draw N2 phase 2, docs/superpowers/specs/2026-10-17-draw-junctions-ramps-bridges-design.md
@@ -65,6 +65,37 @@ export function branchFrom(r: JunctionRules, onto: number, press: { x: number; z
   if (short) return { kind: "refused", message: short };
   const why = swapBlocked(r, w);
   return why ? { kind: "refused", message: why } : { kind: "branch", swap: w };
+}
+
+/**
+ * The way the finger set off from a branch's press: its first point `BRANCH_FACING` from the press (radians), or
+ * null if none is that far yet. (DrawHand asks it of each move a slow phone ran together, in order.)
+ */
+export function facingFrom(press: { x: number; z: number }, points: readonly { x: number; z: number }[]): number | null {
+  for (const f of points) if (Math.hypot(f.x - press.x, f.z - press.z) >= BRANCH_FACING) return Math.atan2(f.z - press.z, f.x - press.x);
+  return null;
+}
+
+/**
+ * A branch faced the way the finger set off, and the line from it laid nothing (the finger bent back across, QA:
+ * 100° then 45°, 80° then 135°): the other way of facing it, where the finger went, with the stroke drawn again from
+ * there (`draw` makes the line from an end, as DrawHand does). Null if that's no different, or lays nothing either.
+ */
+export function branchAgain(
+  r: JunctionRules,
+  onto: number,
+  press: { x: number; z: number },
+  finger: { x: number; z: number },
+  tried: PieceSwap,
+  stroke: readonly { x: number; z: number }[],
+  draw: (end: DrawEnd, swap: PieceSwap) => DrawLine,
+): { swap: PieceSwap; line: DrawLine } | null {
+  const b = branchFrom(r, onto, press, finger);
+  if (b.kind !== "branch" || Math.hypot(b.swap.end.x - tried.end.x, b.swap.end.z - tried.end.z) < 1) return null;
+  const line = draw(b.swap.end, b.swap);
+  for (const p of stroke) line.addPoint(p.x, p.z);
+  line.finish();
+  return line.placeable().length ? { swap: b.swap, line } : null;
 }
 
 const offSample = createSample();
