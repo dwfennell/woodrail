@@ -182,7 +182,8 @@ describe("the growth sheet", () => {
 /** A Hud with only its research pill (a stand-in counting what's written to it). */
 function pillHud() {
   const writes: string[] = [];
-  const part = (name: string) => ({ set textContent(t: string) { writes.push(`${name}=${t}`); } });
+  // (No layout here: the name measures 0 wide, so `fitPill` leaves it be.)
+  const part = (name: string) => ({ clientWidth: 0, set textContent(t: string) { writes.push(`${name}=${t}`); } });
   const parts: Record<string, ReturnType<typeof part>> = { ".rp-name": part("name"), ".rp-count": part("count") };
   const classes = new Set<string>();
   const pill = {
@@ -190,7 +191,11 @@ function pillHud() {
     title: "",
     querySelector: (sel: string) => parts[sel],
     style: { setProperty: (k: string, v: string) => writes.push(`${k}=${v}`) },
-    classList: { toggle: (c: string, on?: boolean) => ((on ?? !classes.has(c)) ? classes.add(c) : classes.delete(c)) },
+    classList: {
+      toggle: (c: string, on?: boolean) => ((on ?? !classes.has(c)) ? classes.add(c) : classes.delete(c)),
+      add: (...cs: string[]) => cs.forEach((c) => classes.add(c)),
+      remove: (...cs: string[]) => cs.forEach((c) => classes.delete(c)),
+    },
     setAttribute: () => {},
   };
   const hud = Object.create(Hud.prototype) as Hud;

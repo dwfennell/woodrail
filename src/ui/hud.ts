@@ -312,6 +312,14 @@ export class Hud {
     this.researchPill.innerHTML = `<span class="rp-text"><span class="rp-line"><span class="rp-icon" aria-hidden="true">📘</span><span class="rp-name"></span></span><span class="rp-count"></span></span><span class="rp-bar"></span>`;
     this.researchPill.addEventListener("click", () => h.toggleBoard());
     top.appendChild(this.researchPill);
+    // (Refitted when its room changes: the coins or the date grow, the screen turns. Not per frame.)
+    let pillRefit = 0;
+    const fitPill = () => {
+      cancelAnimationFrame(pillRefit);
+      pillRefit = requestAnimationFrame(() => this.fitPill());
+    };
+    new ResizeObserver(fitPill).observe(this.researchPill);
+    addEventListener("resize", fitPill);
     const actions = el("div", "actions");
     this.undoBtn = button(uiIcon("undo"), "Undo (Ctrl+Z)", h.undo);
     this.redoBtn = button(uiIcon("redo"), "Redo (Ctrl+Shift+Z)", h.redo);
@@ -964,6 +972,21 @@ export class Hud {
     this.researchPill.classList.toggle("idle", v.idle);
     this.researchPill.title = v.idle ? "Pick research" : `${text.slice(3)}: tap for Research`;
     this.researchPill.setAttribute("aria-label", v.idle ? "Pick research" : `Research: ${text.slice(3)}`);
+    this.fitPill();
+  }
+
+  /**
+   * The pill's name whole where it can be (QA: "Train ro…" at 360 px): a little smaller if it's cut, and then over two
+   * lines if it's still cut (shortened with "…" only past that). Measured when the name or its room changes.
+   */
+  private fitPill(): void {
+    const p = this.researchPill;
+    p.classList.remove("rp-small", "rp-wrap");
+    const n = p.querySelector<HTMLElement>(".rp-name")!;
+    if (p.hidden || n.clientWidth === 0) return;
+    const cut = () => n.scrollWidth > n.clientWidth + 1 || n.scrollHeight > n.clientHeight + 1;
+    if (cut()) p.classList.add("rp-small");
+    if (cut()) p.classList.add("rp-wrap");
   }
 
   /** Show the railway's date (null: hide it, outside Game mode). The page is touched only when the text changes. */
