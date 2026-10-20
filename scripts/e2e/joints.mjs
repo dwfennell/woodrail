@@ -15,7 +15,8 @@ mkdirSync(OUT, { recursive: true });
 const server = await createServer({ root: ROOT, configFile: `${ROOT}/vite.config.ts`, server: { port: 0, strictPort: false }, logLevel: "warn" });
 await server.listen();
 await server.warmupRequest("/src/main.ts");
-const PAGE = `${server.resolvedUrls.local[0].replace(/\/$/, "")}/#seed-7`;
+// (No #seed- link: that opens Sandbox. A new Game is on the starter map, seed 7.)
+const PAGE = server.resolvedUrls.local[0];
 const CHROMIUM = process.env.CHROMIUM_PATH ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const b = await chromium.launch({ executablePath: CHROMIUM, headless: false, args: ["--headless=new", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const ctx = await b.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
