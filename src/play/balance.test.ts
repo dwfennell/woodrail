@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
-import { CARGO, type CargoKind } from "../economy/cargo";
-import { RECIPES } from "../economy/economy";
+import { CARGO, canCarry, type CargoKind } from "../economy/cargo";
+import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
 import { describe as describeGoods } from "../economy/goods";
 import { craftNow, craftShort, Crafting, keepsForOrder, lacking, workshops, workshopStock } from "../game/crafting";
 import { attachEngines } from "../game/engines";
@@ -36,14 +36,19 @@ import { endOn, rulesFor, schoolOn } from "./rules";
  * blueprint) and the player takes one of those that make sense now (at random, seeded per run), and passengers come
  * and pay. A simulated new player follows the goals, joins towns, runs trains, places its school beside a town as
  * soon as it has one, builds what the blueprints allow, and picks research in its wish order (what its railway can
- * bring the goods for, keeping a few planks in the workshop to build with). The log is a timeline in minutes of play;
+ * bring the goods for, keeping a few planks in the workshop to build with). When cargo is stuck it does what a player
+ * can on the engine and depot cards: picks a good up only on the way to where it's taken, if its cars come to another
+ * good's full pile loaded with it (`unstick`), and switches the workshop's crane off while a town past it starves
+ * (`shopThrough`). The log is a timeline in minutes of play;
  * the SUMMARY research line has the first research's minute, how many were done by minutes 60, 120 and 180, and the
  * longest wait for a research's goods.
  *
  * Slow (minutes of play are simulated tick by tick), so skipped unless asked for:
  *   BALANCE=1 npx vitest run src/play/balance.test.ts
  * BALANCE_TRAINS_PER_LINE=n puts up to n trains on the line once routes are learned (default 1). BALANCE_JSON=1 also
- * prints the timeline as one line of JSON; BALANCE_MINUTES caps the play (default 180).
+ * prints the timeline as one line of JSON; BALANCE_MINUTES caps the play (default 180). BALANCE_CARGO=a-b logs the
+ * trains' loads from minute a to b (`cargoTrace`). For comparison, BALANCE_NOUNSTICK=1 leaves stuck cargo be
+ * (`unstick`, `shopThrough`) and BALANCE_NOFILL=1 leaves a goods engine's spare pull empty.
  *
  * At 180 min with 1 train a line, the run checks spec §5's bands (`checkBands`): each miss is listed, and any fails it.
  */
@@ -126,6 +131,10 @@ const FAMINE_STOPS = 20;
  * picked up again, and on seed 2 the pinned loop left the goods train unable to reach the sawmill (spec §5).
  */
 const SECOND_GOODS_STOPS = Number(ENV.BALANCE_SECOND_GOODS ?? 0) || Infinity;
+/** A town wanting planks that has had none for this many minutes is starved (see `Playthrough.shopThrough`). */
+const STARVED = 15;
+/** Planks in the workshop's yard that are plenty to build with: past this, a starved town's come first. */
+const SHOP_FULL = 20;
 /** Cars that carry goods: a train with one is a goods train (the passenger train has only coaches). */
 const GOODS_CARS: ReadonlySet<CarKind> = new Set<CarKind>(["timber", "hopper", "van"]);
 
@@ -336,6 +345,7 @@ class Player {
       this.tick++;
       if (this.tick % SIM_HZ !== 0) continue;
       this.updatePlanksKept();
+      if (ENV.BALANCE_CARGO) this.cargoTrace();
       if (this.planksKept) this.keptSeconds++;
       this.townsFed();
       const t0 = performance.now();
@@ -359,6 +369,35 @@ class Player {
       if (this.tick % (SIM_HZ * 30) === 0) updateRates(this.w, (role) => boostOf(this.progress, role));
     }
   }
+
+  /**
+   * BALANCE_CARGO=a-b (minutes): each second from a to b, a log line (`C`) for every train whose cars' loads or the
+   * depots under it changed: its cars and loads, the depots under it with their piles, its next stop, its speed. What
+   * showed the hoppers full of grain at the quarry (spec §5, P5's fourth pass).
+   */
+  cargoTrace(): void {
+    const [from, to] = ENV.BALANCE_CARGO!.split("-").map(Number);
+    if (this.minute < from || this.minute > to) return;
+    const e = this.w.economy;
+    for (const id of this.w.sim.trainIds()) {
+      const t = this.w.sim.getTrain(id)!;
+      const engine = t.cars.find((c) => c.kind === "engine");
+      const r = engine && e.routeOf(engine.id);
+      const under = [...new Set(t.bogies.map((b) => e.depotAtPiece(b.pieceId)).filter((d) => !!d))];
+      const loads = t.cars
+        .map((c) => {
+          const g = e.cargoOf(c.id);
+          return `${c.kind}${g.kind ? `:${g.count}${g.kind}` : ""}`;
+        })
+        .join(",");
+      const key = `${under.map((d) => d!.id).join("+")}|${loads}`;
+      if (this.traced.get(id) === key) continue;
+      this.traced.set(id, key);
+      const piles = under.map((d) => `${d!.role}#${d!.id}[${Object.entries(CARGO).filter(([, c]) => d!.piles[c.index] > 0).map(([k, c]) => `${d!.piles[c.index]}${k}`).join(" ")}]`);
+      this.note(`  C ${loads} @ ${piles.join(" ") || "-"} next ${r ? `${r.next}:${e.depot(r.stops[r.next].depotId)?.role}` : "-"} v${Math.round(t.speed)}`);
+    }
+  }
+  private readonly traced = new Map<number, string>();
 
   /** Where each train is and what it carries, and the depots' piles (for the log). */
   trains(): void {
@@ -803,6 +842,30 @@ function lineOrder(P: Player): number[] {
   return out;
 }
 
+/**
+ * On a line's stops, `kind` picked up only at the visits to a depot giving it that come nearest before a stop that
+ * takes it (fewest stops on); that depot's other visits become "Only drop" (they still drop, but pick nothing up). On a
+ * line there and back: the farm on the way to the mill, not on the way out.
+ */
+function onlyNearestPickup(w: World, stops: RouteStopDef[], kind: CargoKind): void {
+  const n = stops.length;
+  const role = (i: number) => w.economy.depot(stops[i].depotId)?.role;
+  const gives = stops.map((_, i) => !!role(i) && RECIPES[role(i)!].gives.includes(kind));
+  const ahead = stops.map((_, i) => {
+    if (!gives[i]) return Infinity;
+    for (let k = 1; k < n; k++) {
+      const r = role((i + k) % n);
+      if (r && RECIPES[r].takes.includes(kind)) return k;
+    }
+    return Infinity;
+  });
+  for (let i = 0; i < n; i++) {
+    if (!gives[i]) continue;
+    const best = Math.min(...ahead.filter((_, j) => stops[j].depotId === stops[i].depotId));
+    if (ahead[i] > best && stops[i].action !== "pick") stops[i].action = "drop";
+  }
+}
+
 describe.skipIf(!RUN)("balance play-through", () => {
   it("a new player's Game-mode game, from the start to a city ★★", () => {
     const P = new Playthrough();
@@ -870,6 +933,13 @@ class Playthrough {
   /** The longest stretch with no planks sawn while two trains share the line (they turn each other back). */
   jamStall = 0;
   quarryTry = -99;
+  /**
+   * Goods the player picks up only at the visit nearest before where they're taken (`onlyNearestPickup`), since the
+   * cars carrying them kept another good from loading (P5: hoppers full of grain at the quarry); and how many minutes
+   * in a row cargo has been stuck so (`unstick`).
+   */
+  readonly nearestPickup = new Set<CargoKind>();
+  stuckFor = 0;
 
   play(): void {
     const P = this.p;
@@ -1046,6 +1116,7 @@ class Playthrough {
       if (r.current === null && r.next !== null) this.why = `saving for ${techOf(r.next)!.label}'s research (${researchCost(r.next).coins} coins; have ${s.coins})`;
     }
     this.build();
+    this.unstick();
     if (!this.why) {
       // Nothing to save for: say what's in the way (an empty board, what the towns want).
       const wants = w.landscape.towns
@@ -1296,7 +1367,9 @@ class Playthrough {
     if (this.quarry >= 0) want.push("hopper");
     if (s.learned.has("passengers")) want.push("passenger", "passenger");
     if (this.farm < 0 && !s.learned.has("passengers")) want.push("timber");
-    const kinds: CarKind[] = ["engine", ...want.slice(0, pulls)];
+    // (A goods engine's spare pull, once it has one: a third flatbed, for more logs a lap. P5: the one train saws only
+    // what its flatbeds bring, round a line of 20 stops or more.)
+    if (!ENV.BALANCE_NOFILL && goodsLook && want.length < pulls) want.push("timber");    const kinds: CarKind[] = ["engine", ...want.slice(0, pulls)];
     const found = w.sim.findCar(this.timber);
     const current = found?.train.cars.map((c) => c.kind).sort().join(",");
     const look = found ? w.sim.lookOf(this.timber) : "classic";
@@ -1535,6 +1608,81 @@ class Playthrough {
     console.log(`BANDS researched ${researched} (floor ${floor}), City ${city}, gap ${gap.toFixed(1)} min, stall ${stall.toFixed(1)} min${exempt}, coins ${coins}; nice to have: ${nice.join("; ") || "all met"}`);
   }
 
+  /**
+   * Cargo stuck on the goods train, as a player sees it (P5): a depot's pile of a good some stop on the line takes is
+   * full (the quarry's stone, for a city that wants only stone), the train has cars that carry it, and every one of
+   * them comes by loaded with something else (hoppers of grain). After 3 minutes of that the player edits the line (the
+   * engine card's stops, as the game does it): what those cars carry is picked up only on the visit nearest before a
+   * stop that takes it (the farm on the way to the mill), its other visits set to "Only drop". The cars then leave the
+   * mill empty and reach the quarry with room. Kept when the line is laid out again (`routeGoods`).
+   */
+  unstick(): void {
+    const P = this.p;
+    const w = P.w;
+    const line = this.lineId >= 0 ? w.economy.lines.get(this.lineId) : undefined;
+    const found = w.sim.findCar(this.timber);
+    if (!line || !found || ENV.BALANCE_NOUNSTICK) return;
+    const takers = line.stops.map((s) => w.economy.depot(s.depotId)).filter((d) => !!d);
+    this.shopThrough(takers.filter((d) => d!.role === "town").map((d) => d!.townId));
+    // (Wanted by a town or the research, not only by an industry: the stone a city waits on.)
+    const wanted = (k: CargoKind) => takers.some((d) => (d!.role === "town" || d!.role === "school") && RECIPES[d!.role].takes.includes(k) && (!w.economy.accepts || w.economy.accepts(d!, k)));
+    const blocking = new Set<CargoKind>();
+    for (const d of takers) {
+      for (const k of RECIPES[d!.role].gives) {
+        if (d!.piles[CARGO[k].index] < capAt(d!) || !wanted(k)) continue;
+        const loads = found.train.cars.filter((c) => canCarry(c.kind, k)).map((c) => w.economy.cargoOf(c.id).kind);
+        if (loads.length === 0 || loads.some((g) => g === null || g === k)) continue;
+        for (const g of loads) if (g && !this.nearestPickup.has(g)) blocking.add(g);
+      }
+    }
+    if (blocking.size === 0) {
+      this.stuckFor = 0;
+      return;
+    }
+    if (++this.stuckFor < 3) return;
+    this.stuckFor = 0;
+    for (const g of blocking) this.nearestPickup.add(g);
+    editLine(w.economy, this.timber, (stops) => {
+      for (const g of blocking) onlyNearestPickup(w, stops, g);
+    });
+    P.happened++;
+    P.note(`STUCK: the goods train's cars come by full of ${[...blocking].join(", ")}; now picked up only on the way to where it's taken (its other visits "Only drop")`);
+  }
+
+  /**
+   * A town on the line that wants planks and has had none for `STARVED` minutes while the workshop's yard holds
+   * `SHOP_FULL` or more (P5: Elderwick, past the workshop, starved while the yard filled 4 → 24): the player switches
+   * the workshop's crane off (its card's Automatic, as the game does it), so trains run through with the planks for
+   * the towns past it. Back on once the yard is down to `RESEARCH_SPARE`, a tray order waits on planks, or no town on
+   * the line wants planks.
+   */
+  shopThrough(towns: number[]): void {
+    const P = this.p;
+    const w = P.w;
+    const shop = w.economy.depotAtPiece(this.shop);
+    if (!shop) return;
+    for (const t of towns) {
+      const n = w.economy.delivered.get(t) ?? 0;
+      if (this.planksIn.get(t)?.n !== n) this.planksIn.set(t, { n, at: P.minute });
+    }
+    const wanting = towns.filter((t) => P.town.wants(t, "planks"));
+    const starved = wanting.some((t) => P.minute - (this.planksIn.get(t)?.at ?? P.minute) >= STARVED);
+    if (shop.auto && starved && P.planks() >= SHOP_FULL && !P.planksKept) {
+      w.economy.setAuto(shop.id, false);
+      this.shopShut++;
+      P.happened++;
+      P.note(`the workshop's yard is full (${P.planks()} planks) and a town past it has had none for ${STARVED} min: crane off, trains run through`);
+    } else if (!shop.auto && (P.planks() <= RESEARCH_SPARE || P.planksKept || wanting.length === 0)) {
+      w.economy.setAuto(shop.id, true);
+      P.happened++;
+      P.note(`the workshop's crane on again (${P.planks()} planks in its yard)`);
+    }
+  }
+  /** Each town's planks delivered, and the minute that last changed. */
+  private readonly planksIn = new Map<number, { n: number; at: number }>();
+  /** Times the workshop's crane was switched off for the towns past it. */
+  shopShut = 0;
+
   /** Minutes from learning a blueprint to building what it brings ("-": not both). */
   wait(blueprint: string, built: string): string {
     const learned = this.p.learnedAt.find((b) => b.id === blueprint)?.minute;
@@ -1549,7 +1697,8 @@ class Playthrough {
     const order = lineOrder(P);
     if (order.length < 2) return;
     const back = order.slice(1, -1).reverse();
-    const stops = [...order, ...back].map((depotId) => ({ depotId, action: "auto" as const }));
+    const stops: RouteStopDef[] = [...order, ...back].map((depotId) => ({ depotId, action: "auto" as const }));
+    for (const kind of this.nearestPickup) onlyNearestPickup(w, stops, kind);
     // One line for every train (with routes-lines' auto-spacing to spread them out); its stops follow the track.
     const live = [...this.trains.keys()].filter((e) => w.sim.findCar(e));
     if (live.length === 0) return;
@@ -1580,7 +1729,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
-      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} loop ${this.loop ? "yes" : "-"} goods2 ${this.goods2At < 0 ? "-" : Math.round(this.goods2At)}${this.goods2Cut ? " (jammed)" : ""} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} loop ${this.loop ? "yes" : "-"} goods2 ${this.goods2At < 0 ? "-" : Math.round(this.goods2At)}${this.goods2Cut ? " (jammed)" : ""} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min onlyNearest ${[...this.nearestPickup].join("+") || "-"} shopOff ${this.shopShut} townGap ${(P.townGap / 60).toFixed(1)}min`,
       `SUMMARY research first ${P.researchedAt[0] ?? "-"} at60 ${P.researchedAt.filter((m) => m <= 60).length} at120 ${P.researchedAt.filter((m) => m <= 120).length} at180 ${P.researchedAt.filter((m) => m <= 180).length} stall ${(P.researchStall / 60).toFixed(1)}min on ${P.researchStallOn} (${P.researchStallCause.goodsTrains} goods train(s), ${P.researchStallCause.stops} stops${P.researchStallCause.planks ? ", short of planks" : ""}) school ${this.firsts["school"] ?? "-"} blueprints ${P.progress.learned.size}`,
       `SUMMARY cards ${Object.entries(P.cardsTaken).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`,
       `research: ${P.researchedAt.map((m, k) => `${m} ${P.learnedAt.filter((b) => b.how === "researched")[k]?.id}`).join(" · ")}`,
