@@ -977,6 +977,8 @@ async function qaReplay() {
     check(`QA replay, ${c.name}: cold, no move over 50 ms`, got.worst < 50, what);
     await ctx.close();
   }
+  await terraceRepeat();
+
 }
 
 /**
@@ -1110,4 +1112,66 @@ async function finishRun() {
   const failed = results.filter((r) => !r.ok).length;
   console.log(`\n${results.length - failed}/${results.length} passed`);
   process.exit(failed ? 1 : 0);
+}
+
+/**
+ * QA's terrace 2 drawn again on the same page (QA: the second time, after an undo or any stroke, it laid straight-144
+ * and a ramp and said "The hill is a level up here"; Node's replay is the same both times): QA's own screen path at
+ * QA's camera, three times on one page, undoing between, with QA's lookAt put back before each. The same line each
+ * time; a toast about the hill only if the first said it too.
+ */
+async function terraceRepeat() {
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const q = await ctx.newPage();
+  q.on("pageerror", (e) => errors.push(e.message));
+  await boot(q);
+  await q.evaluate(() => {
+    const w = window.woodrail;
+    window.__toasts = [];
+    const orig = w.hud.toast.bind(w.hud);
+    w.hud.toast = (m, ...a) => {
+      window.__toasts.push(m);
+      return orig(m, ...a);
+    };
+  });
+  await q.tap(".tray-draw");
+  await q.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
+  const cdp = await ctx.newCDPSession(q);
+  const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
+  const path = [[234, 369], [195, 422], [152, 480]];
+  const once = async () => {
+    await q.evaluate(() => {
+      const w = window.woodrail;
+      w.lookAt(new w.camera.position.constructor(-2004, 0, -1620), 3662.2, 0.95, -1.1659);
+      window.__toasts.splice(0);
+    });
+    await settled(q);
+    const ids0 = await q.evaluate(() => [...window.woodrail.layout.pieceIds()]);
+    await touch("touchStart", path[0][0], path[0][1]);
+    for (let i = 1; i < path.length; i++) {
+      const [ax, ay] = path[i - 1];
+      const [bx, by] = path[i];
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
+      for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+    }
+    await touch("touchEnd", 0, 0);
+    await settled(q);
+    return q.evaluate(([ids0]) => {
+      const w = window.woodrail;
+      const was = new Set(ids0);
+      return { types: [...w.layout.pieceIds()].filter((id) => !was.has(id)).map((id) => w.layout.getPiece(id).type), toasts: window.__toasts.splice(0) };
+    }, [ids0]);
+  };
+  const runs = [];
+  for (let k = 0; k < 3; k++) {
+    if (k > 0) {
+      await q.evaluate(() => window.woodrail.interaction.undo());
+      await settled(q);
+    }
+    runs.push(await once());
+  }
+  const what = runs.map((r) => `${r.types.join(" ")}${r.toasts.length ? ` [${r.toasts.join(" | ")}]` : ""}`).join(" / ");
+  check("QA replay, terrace 2 again on the same page (QA's screen path, lookAt put back, after an undo): the same line each time", runs.every((r) => r.types.join(" ") === runs[0].types.join(" ")), what);
+  check("…and no 'a level up here' the first time didn't say", runs.every((r) => r.toasts.some((t) => /level up/i.test(t)) === runs[0].toasts.some((t) => /level up/i.test(t))), what);
+  await ctx.close();
 }
