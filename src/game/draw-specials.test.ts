@@ -439,7 +439,7 @@ const QA_RUNS: QARun[] = [
  * DrawHand does, the line started as DrawHand starts one on open ground. The line, and how far (px) its end is on
  * the screen from where the finger lifted.
  */
-function replayQA([, x0, z0, h, total, back, tx, tz, dist]: QARun): { line: DrawLine | null; px: number; stalled: boolean } {
+function replayQA([, x0, z0, h, total, back, tx, tz, dist]: QARun, startMove = 30): { line: DrawLine | null; px: number; stalled: boolean } {
   const world = qaWorld();
   const land = world.landscape;
   const G = land.grid;
@@ -483,7 +483,7 @@ function replayQA([, x0, z0, h, total, back, tx, tz, dist]: QARun): { line: Draw
   for (const [sx, sy] of screen.slice(1)) {
     if (!line) {
       const p = planeAt(sx, sy, 0)!;
-      if (Math.hypot(p.x - origin.x, p.z - origin.z) < 30) continue;
+      if (Math.hypot(p.x - origin.x, p.z - origin.z) < startMove) continue;
       const heading = Math.round(Math.atan2(p.z - origin.z, p.x - origin.x) / (Math.PI / 4)) * (Math.PI / 4);
       line = new DrawLine({ x: Math.round(origin.x / 18) * 18, z: Math.round(origin.z / 18) * 18, heading, y: 0, kind: "peg" }, options(land, world.layout));
     }
@@ -573,5 +573,22 @@ describe("QA junction notes N6: a U-turn that runs into a hill", () => {
     let worst = first;
     for (let k = 0; k < 4 && worst >= 4; k++) worst = Math.min(worst, run().worst);
     expect(worst).toBeLessThan(4);
+  });
+});
+
+
+describe("QA's terrace 2 drawn again (the camera a hair off after an undo)", () => {
+  it("lays the same line, both ramps, wherever the camera is to within a millimetre, and wherever the line begins along the stroke", () => {
+    const run: QARun = ["terrace 2", -1764, -1620, Math.PI, 480, false, -2004, -1620, 3662.2];
+    // (Two straights covering the same ground tie exactly: a camera 1e-9 mm off took the long one first, and found no
+    // room for its second ramp: "The hill is a level up here".)
+    for (const e of [0, 1e-9, -1e-9, 1e-7, 1e-5, -1e-3, 1e-3, 0.01, -0.1, 0.5, -1]) {
+      const { line } = replayQA([run[0], run[1], run[2], run[3], run[4], run[5], run[6] + e, run[7] + e, run[8] + e]);
+      expect(line && name(line), `camera ${e} mm off`).toBe("straight-54@0 straight-54@0 ramp↑@0 straight-54@48 ramp↑@48");
+    }
+    for (const sm of [20, 30, 31, 45]) {
+      const { line } = replayQA(run, sm);
+      expect(line && name(line), `begun ${sm} mm along`).toBe("straight-54@0 straight-54@0 ramp↑@0 straight-54@48 ramp↑@48");
+    }
   });
 });

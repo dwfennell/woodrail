@@ -93,6 +93,8 @@ export class DrawHand {
   );
   /** A new line on empty ground, before the finger has moved far enough to know which way it goes. */
   private origin: Vector3 | null = null;
+  /** The finger's points (on the ground) since `origin`, before the line began (see `move`). */
+  private originPts: { x: number; z: number }[] = [];
   private ghosts: { mesh: Mesh; key: string }[] = [];
   /**
    * A press on a line's body (a plain straight), waiting for the finger to go off the line to know which way the
@@ -263,7 +265,10 @@ export class DrawHand {
       if (!p) return;
       const dx = p.x - this.origin.x;
       const dz = p.z - this.origin.z;
-      if (Math.hypot(dx, dz) < START_MOVE) return;
+      if (Math.hypot(dx, dz) < START_MOVE) {
+        if (this.originPts.length < 64) this.originPts.push({ x: p.x, z: p.z });
+        return;
+      }
       // A new line: its first end on the grid, pointing the way the finger set off (in eighths of a turn).
       const heading = Math.round(Math.atan2(dz, dx) / (Math.PI / 4)) * (Math.PI / 4);
       const sx = Math.round(this.origin.x / START_GRID) * START_GRID;
@@ -271,6 +276,11 @@ export class DrawHand {
       const y0 = looseHeight(this.game.landscape, this.game.layout, "straight-54", false, { x: sx, z: sz, heading }, -1);
       this.origin = null;
       this.start({ x: sx, z: sz, heading, y: y0, kind: "peg" });
+      // The finger's way before the line began goes into its stroke too: so where the line begins along it (a move
+      // either side of `START_MOVE`, a hair's difference in the camera after an undo) doesn't change the line (QA:
+      // terrace 2 drawn again laid a long straight and then stopped short of the second level).
+      for (const q of this.originPts) this.line!.addPoint(q.x, q.z);
+      this.originPts = [];
     }
     const line = this.line;
     if (!line) return;
@@ -793,6 +803,7 @@ export class DrawHand {
     this.ghosts = [];
     this.line = null;
     this.origin = null;
+    this.originPts = [];
     this.trail.visible = false;
     this.game.invalidate();
   }
