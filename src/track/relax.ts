@@ -1,7 +1,7 @@
-import { JOINT_POS_TOLERANCE } from "./constants";
+import { JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE } from "./constants";
 import type { Layout } from "./layout";
 import { connectorRef, createWorldConnector, indexOfRef, pieceOfRef } from "./layout";
-import type { Pose } from "./math";
+import { angleDiff, type Pose } from "./math";
 import { getPieceDef } from "./pieces";
 
 /** Joints seated worse than this (mm, or the angle's sideways reach at REACH) are worth taking up. */
@@ -12,6 +12,13 @@ const REACH = 30;
 const RELAX_DEPTH = 8;
 const MAX_SWEEPS = 400;
 const SETTLED = 0.005;
+/**
+ * How much more the heading is weighed on each try after the first, when the fit leaves a joint turned past the joint
+ * tolerance (`JOINT_ANGLE_TOLERANCE`): the turn is spread over more of the loose run's joints, each shifting a little
+ * more sideways instead. (QA: with stations and depots fixed, a drawn line closing between two of them took 8.1° at
+ * one joint, which loading then refused.)
+ */
+const TWIST_WEIGHTS = [1, 3, 8];
 
 const wa = createWorldConnector();
 const extra = new Map<number, number>();
@@ -24,8 +31,11 @@ const wb = createWorldConnector();
  * joints away each shift and turn a little so that no one joint is left gaping. Pieces for which `pinned` is true
  * (stations, depots, track under a train) and pieces beyond the reach stay put and the others fit to them.
  *
+ * No joint (nor near miss closed) is left turned past the joint tolerance, as seating it afresh on loading would part
+ * it: a fit that would is tried again with the heading weighed more, spreading the turn over more of the loose run.
+ *
  * Returns the new poses of the pieces that moved (empty when every nearby joint is already snug, or when spreading
- * would not help). Pure: the layout is not changed — apply with `layout.nudgePieces`.
+ * would not help, or can't within the tolerance). Pure: the layout is not changed — apply with `layout.nudgePieces`.
  */
 export function relaxJoints(
   layout: Layout,
@@ -69,10 +79,37 @@ export function relaxJoints(
   for (const id of order) poses.set(id, { ...layout.getPiece(id)!.pose });
   const before = worstSlack(layout, free, poses);
   if (before <= SLACK_EPSILON) return result;
+  const turnedBefore = jointTurns(layout, free, null);
 
-  // Gauss–Seidel: fit each loose piece in turn to where its neighbours are now, until nothing moves.
-  const ps: number[] = [];
-  const qs: number[] = [];
+  // Fit, weighing the heading more on each try, until the result helps and leaves every joint well seated and none
+  // turned past the joint tolerance (one already past it, from an older build's save, may not turn further). Each try
+  // goes on from where the last left the pieces. If none does, nothing moves: a near miss being closed stays open.
+  let fitted = false;
+  for (const weight of TWIST_WEIGHTS) {
+    settle(layout, free, poses, REACH * weight);
+    const after = worstSlack(layout, free, poses);
+    if (after >= before || after > JOINT_POS_TOLERANCE / 2) {
+      // (Seated worse or no better: weighing the heading more only seats it worse still.)
+      if (weight === TWIST_WEIGHTS[0]) break;
+      continue;
+    }
+    if (!withinTurn(layout, free, poses, turnedBefore)) continue;
+    fitted = true;
+    break;
+  }
+  if (!fitted) return result;
+  for (const id of free) {
+    const old = layout.getPiece(id)!.pose;
+    const now = poses.get(id)!;
+    if (Math.hypot(now.x - old.x, now.z - old.z) > 1e-6 || Math.abs(now.heading - old.heading) > 1e-9) result.set(id, now);
+  }
+  return result;
+}
+
+/** Gauss–Seidel: fit each loose piece in turn to where its neighbours are now, until nothing moves. */
+function settle(layout: Layout, free: readonly number[], poses: Map<number, Pose>, reach: number): void {
+  const ps = psScratch;
+  const qs = qsScratch;
   for (let sweep = 0; sweep < MAX_SWEEPS; sweep++) {
     let moved = 0;
     for (const id of free) {
@@ -90,29 +127,56 @@ export function relaxJoints(
         // The connector's mouth, and a point a little way along the track either side of it: each should meet the
         // same point carried along the partner's line. Both pieces of a joint weigh the same three pairs (were each to
         // weigh only a point inside itself, the two would pull toward different fits, and a joint that must bend
-        // sideways would swing wider every sweep).
+        // sideways would swing wider every sweep). The further along those points, the more the heading weighs.
         const ca = Math.cos(wa.heading);
         const sa = Math.sin(wa.heading);
         const cb = Math.cos(wb.heading);
         const sb = Math.sin(wb.heading);
-        ps.push(wa.x, wa.z, wa.x - REACH * ca, wa.z - REACH * sa, wa.x + REACH * ca, wa.z + REACH * sa);
-        qs.push(wb.x, wb.z, wb.x + REACH * cb, wb.z + REACH * sb, wb.x - REACH * cb, wb.z - REACH * sb);
+        ps.push(wa.x, wa.z, wa.x - reach * ca, wa.z - reach * sa, wa.x + reach * ca, wa.z + reach * sa);
+        qs.push(wb.x, wb.z, wb.x + reach * cb, wb.z + reach * sb, wb.x - reach * cb, wb.z - reach * sb);
       }
       if (ps.length === 0) continue;
       moved = Math.max(moved, fitRigid(poses.get(id)!, ps, qs));
     }
     if (moved < SETTLED) break;
   }
+}
 
-  // Keep the result only if it helps and leaves every joint well seated.
-  const after = worstSlack(layout, free, poses);
-  if (after >= before || after > JOINT_POS_TOLERANCE / 2) return result;
-  for (const id of free) {
-    const old = layout.getPiece(id)!.pose;
-    const now = poses.get(id)!;
-    if (Math.hypot(now.x - old.x, now.z - old.z) > 1e-6 || Math.abs(now.heading - old.heading) > 1e-9) result.set(id, now);
+const psScratch: number[] = [];
+const qsScratch: number[] = [];
+
+/**
+ * How far each joint of `ids` (and each near miss being closed) is turned off true, by its lower connector ref: where
+ * the pieces are in `poses`, or (null) where the layout has them.
+ */
+function jointTurns(layout: Layout, ids: readonly number[], poses: Map<number, Pose> | null): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const id of ids) {
+    const piece = layout.getPiece(id)!;
+    const count = getPieceDef(piece.type, piece.flipped).connectors.length;
+    for (let i = 0; i < count; i++) {
+      const ref = connectorRef(id, i);
+      const partner = partnerOf(ref);
+      if (partner === -1) continue;
+      const otherId = pieceOfRef(partner);
+      connectorAt(layout, ref, poses?.get(id) ?? piece.pose, wa);
+      connectorAt(layout, partner, poses?.get(otherId) ?? layout.getPiece(otherId)!.pose, wb);
+      out.set(Math.min(ref, partner), angleDiff(wa.heading, wb.heading + Math.PI));
+    }
   }
-  return result;
+  return out;
+}
+
+/**
+ * Is every joint of `ids` (and near miss being closed) turned within the joint tolerance at `poses`, or, if it was
+ * already past it (`before`: an older build's joint, loaded as it was saved), no further?
+ */
+function withinTurn(layout: Layout, ids: readonly number[], poses: Map<number, Pose>, before: ReadonlyMap<number, number>): boolean {
+  for (const [a, turn] of jointTurns(layout, ids, poses)) {
+    const was = layout.joinedConnector(a) !== -1 ? (before.get(a) ?? 0) : 0;
+    if (turn > Math.max(JOINT_ANGLE_TOLERANCE, was) + 1e-9) return false;
+  }
+  return true;
 }
 
 function forPartners(layout: Layout, id: number, visit: (other: number) => void): void {

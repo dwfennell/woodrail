@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { rng } from "../lib/rng";
 import { Sim } from "../sim";
-import { connectorRef, Layout } from "../track";
+import { connectorRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, Layout } from "../track";
 import { play } from "./player";
 
 /**
@@ -11,7 +11,7 @@ import { play } from "./player";
  * either kind (peg or hole), 0.4 to 1.6 m apart, on flat felt. The player is a casual one: near the end it tries two
  * pieces in hand (about fifty tries), then Auto. The rate is the number to raise; the floor below is today's.
  */
-function trial(seed: number): ReturnType<typeof play> {
+function trial(seed: number): ReturnType<typeof play> & { over: number } {
   const r = rng(seed);
   const layout = new Layout();
   const quarter = () => (Math.floor(r() * 4) * Math.PI) / 2;
@@ -26,7 +26,10 @@ function trial(seed: number): ReturnType<typeof play> {
   const to = connectorRef(b, r() < 0.5 ? 0 : 1);
   // (Stations and depots never move: the track laid to them takes up the play.)
   const editor = new Editor(layout, new Sim(layout), () => {}, (id) => id === a || id === b);
-  return play(layout, editor, from, to);
+  const result = play(layout, editor, from, to);
+  // Joints left past the joint tolerance (held while playing, but a fresh seating, as an older save's load, parts them).
+  const over = [...layout.joints()].filter((j) => j.angleError > JOINT_ANGLE_TOLERANCE + 1e-9 || j.posError > JOINT_POS_TOLERANCE).length;
+  return { ...result, over };
 }
 
 describe("buildability (a simulated player joining two ends)", () => {
@@ -41,7 +44,10 @@ describe("buildability (a simulated player joining two ends)", () => {
     console.log(`buildability: ${(rate * 100).toFixed(1)}% joined (${ok.length}/${N}), ${pieces.toFixed(1)} pieces on average; ${JSON.stringify(Object.fromEntries(how))}`);
     const failed = results.filter((r) => !r.ok).map((r) => ({ how: r.how, ...r.miss }));
     console.log("not joined (how it ended, distance mm, degrees from facing, ends alike):", JSON.stringify(failed.slice(0, 12)));
-    // Today's rate (91.7% for a casual player trying two pieces in hand, stations never moving): it may only go up.
-    expect(rate).toBeGreaterThanOrEqual(0.88);
+    // Today's rate (95.7% for a casual player trying two pieces in hand, stations never moving, the play spread over
+    // the loose run so no joint passes the tolerance; 91.7% before, and 94.7% when stations gave): it may only go up.
+    expect(rate).toBeGreaterThanOrEqual(0.947);
+    // And no joint past the tolerance (14 before, over the 300).
+    expect(results.reduce((n, r) => n + r.over, 0)).toBe(0);
   }, 120_000);
 });

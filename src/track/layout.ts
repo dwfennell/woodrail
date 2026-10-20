@@ -33,6 +33,13 @@ export interface WorldConnector {
 
 export const createWorldConnector = (): WorldConnector => ({ x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
 
+/**
+ * How far off facing (radians) a joint a save recorded may be and still be joined again on loading: past the joint
+ * tolerance (`JOINT_ANGLE_TOLERANCE`), for joints older builds let joint play take past it (up to about 8.6°), but not
+ * so far that a save could join ends that never met.
+ */
+export const SAVED_JOINT_ANGLE = (10 * Math.PI) / 180;
+
 const scratchA = createWorldConnector();
 const scratchB = createWorldConnector();
 const candidates: number[] = [];
@@ -137,7 +144,9 @@ export class Layout {
 
   /**
    * Shift seated pieces by small amounts (joint play taken up) without changing which joints are seated: poses are
-   * replaced, free connectors re-indexed and the seating errors of their joints recomputed.
+   * replaced, free connectors re-indexed and the seating errors of their joints recomputed. Joints aren't checked
+   * against the tolerance here: callers move pieces rigidly together (a group) or as `relaxJoints` fits them, which
+   * never turns a joint past it.
    */
   nudgePieces(poses: ReadonlyMap<number, Pose>): void {
     if (poses.size > 0) this.revision++;
@@ -257,6 +266,39 @@ export class Layout {
     this.freeConnectors.remove(ref);
     this.seatConnector(ref);
     return this.joinedTo.has(ref);
+  }
+
+  /**
+   * Join two connectors as a save had them (loading): each parted from any other it was seated on, and seated together
+   * if they meet within the joint's position tolerance and `SAVED_JOINT_ANGLE` (any parted partner then seats wherever
+   * it meets a free end). False, and nothing changed, if they don't (or either isn't there).
+   */
+  restoreJoint(a: number, b: number): boolean {
+    const pa = this.pieces.get(pieceOfRef(a));
+    const pb = this.pieces.get(pieceOfRef(b));
+    if (!pa || !pb || pa === pb || this.lifted.has(pa.id) || this.lifted.has(pb.id)) return false;
+    if (indexOfRef(a) >= getPieceDef(pa.type, pa.flipped).connectors.length || indexOfRef(b) >= getPieceDef(pb.type, pb.flipped).connectors.length) return false;
+    if (this.joinedTo.get(a) === b) return true;
+    const w = this.worldConnector(a, scratchA);
+    const o = this.worldConnector(b, scratchB);
+    const pos = Math.hypot(o.x - w.x, o.z - w.z);
+    const angle = angleDiff(w.heading, o.heading + Math.PI);
+    if (pos > JOINT_POS_TOLERANCE || Math.abs(o.y - w.y) > JOINT_POS_TOLERANCE || angle > SAVED_JOINT_ANGLE) return false;
+    const parted: number[] = [];
+    for (const ref of [a, b]) {
+      const partner = this.joinedTo.get(ref);
+      if (partner === undefined) continue;
+      this.unseat(ref);
+      parted.push(partner);
+    }
+    this.freeConnectors.remove(a);
+    this.freeConnectors.remove(b);
+    this.joinedTo.set(a, b);
+    this.joinedTo.set(b, a);
+    const lo = Math.min(a, b);
+    this.jointMap.set(lo, { a: lo, b: Math.max(a, b), posError: pos, angleError: angle });
+    for (const ref of parted) this.seatFree(ref);
+    return true;
   }
 
   /** Part a joint (undoing a near miss closed): both ends become free where they are. */

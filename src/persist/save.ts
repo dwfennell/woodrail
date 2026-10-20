@@ -14,7 +14,7 @@ const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?
 const MAX_SAVED_SPEED = 1000;
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
-import { getPieceDef, kitOf, Layout, MAX_CONNECTORS, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
+import { connectorRef, getPieceDef, indexOfRef, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
 import { joinSavedLine, LINE_COLOURS } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
@@ -75,6 +75,11 @@ const saveSchema = z.object({
   towns: z.array(z.object({ id: z.number().int().min(0), stationPieceId: z.number().int().positive() })),
   pieces: z.array(pieceSchema),
   switches: z.array(z.tuple([z.number().int(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])),
+  /**
+   * The joints, each as two ends (piece id, connector index): loaded joined as they were, even one joint play took a
+   * little past the joint tolerance (optional: older saves are seated afresh, by the tolerance alone).
+   */
+  joints: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1), z.number().int().positive(), z.number().int().min(0).max(MAX_CONNECTORS - 1)])).optional(),
   /** Pinned switches, by piece id: routed engines don't throw them (optional: older saves load with none). */
   pinned: z.array(z.number().int().positive()).optional(),
   trains: z.array(trainSchema),
@@ -207,6 +212,7 @@ export function serializeWorld(world: World): SaveData {
     towns: [...world.stations].map(([id, stationPieceId]) => ({ id, stationPieceId })),
     pieces,
     switches,
+    joints: [...layout.joints()].map((j) => [pieceOfRef(j.a), indexOfRef(j.a), pieceOfRef(j.b), indexOfRef(j.b)] as [number, number, number, number]),
     ...(layout.pinnedCount > 0 ? { pinned: [...layout.pinnedIds()] } : {}),
     trains,
     depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
@@ -234,6 +240,9 @@ export function deserializeWorld(data: unknown): Result<World, string> {
       return err(`invalid save: duplicate piece id ${p.id}`);
     }
   }
+  // Joined as they were when saved (QA: joints a drawn line closed a little past the tolerance held while playing,
+  // then were refused on loading, and the line split). Pieces that meet within it, and aren't in the list, seat anyway.
+  for (const [pa, ia, pb, ib] of save.joints ?? []) layout.restoreJoint(connectorRef(pa, ia), connectorRef(pb, ib));
   for (const [id, state] of save.switches) if (layout.getPiece(id)) layout.setSwitchState(id, state);
   for (const id of save.pinned ?? []) layout.setPinned(id, true);
   const land = deserializeLandscape(save.landscape);
