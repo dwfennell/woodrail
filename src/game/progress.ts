@@ -18,6 +18,8 @@ export class Progress {
   readonly board = new Set<string>();
   /** Choices waiting: the cards a town offered when it grew, one to take (see `growth-cards.ts`). Never a blueprint. */
   readonly offers: Offer[] = [];
+  /** A v12 save's offers (two blueprints or a crate), by town: drawn again as cards once its map is in (`redrawOldOffers`). */
+  readonly oldOffers: string[] = [];
   /** The workshop's orders, in order (see `Crafting`). */
   readonly orders: ThingId[] = [];
   /** The first order's goods are taken and it's being made. */
@@ -86,7 +88,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: this.offers.map(offerToJSON), coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, counts: [...this.counts], research: researchToJSON(this.research) };
+    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, counts: [...this.counts], research: researchToJSON(this.research) };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -108,6 +110,11 @@ export class Progress {
       for (const o of d.offers) {
         const offer = offerFromJSON(o);
         if (offer) p.offers.push(offer);
+        // (v12: blueprints and a crate, no cards. Its town's kept, to draw again.)
+        else if (o && typeof o === "object" && !("cards" in o) && (Array.isArray((o as { ids?: unknown }).ids) || Array.isArray((o as { crate?: unknown }).crate))) {
+          const from = (o as { from?: unknown }).from;
+          p.oldOffers.push(typeof from === "string" ? from : "");
+        }
       }
     }
     if (d && Array.isArray(d.orders)) for (const o of d.orders) if (typeof o === "string" && o in THING_RULES) p.orders.push(o as ThingId);

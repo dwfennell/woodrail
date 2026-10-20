@@ -21,7 +21,7 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
-import { cardView, describeThings, firstTimeGift, offerOnGrowth, payDelivery, takeCard } from "./game/rewards";
+import { cardView, describeThings, firstTimeGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
@@ -812,6 +812,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showDate();
     if (s) journal.restore(s.journal);
     else journal.clear();
+    // A v12 Game save's offers: drawn again as cards on its own map.
+    if (m === "game" && fromSave && redrawOldOffers(progress, game.world, Math.random)) saveProgress(progress.toJSON());
     if (s) {
       game.paused = s.paused;
       pausedBeforeTitle = s.paused;

@@ -172,7 +172,8 @@ school beside a city" waits for P4.
 applied in `rewards.ts` (`offerOnGrowth`, `cardFor`, `cardView`, `takeCard`); the sheet and its 🎁 badge in
 `ui/growth-sheet.ts` (opens on growth unless a finger is on the map or a panel is open; the growth toast "Larkfield is a
 town! Pick a reward" opens it on a tap); save v13; school ideas and the town school landmark gone (the school blueprint
-now comes with your placed school depot, `landmarksAt`). A card that can't apply now (boost with nothing short, rare
+now comes with your placed school depot, `landmarksAt`). A v12 save still loads (`MIGRATES_FROM` 12): its offers are drawn again as cards at
+its towns' levels (`redrawOldOffers`); older saves are turned away as before. A card that can't apply now (boost with nothing short, rare
 cargo the research no longer needs, a full yard) is held, saying why, and the offer keeps. Rare cargo: a good the
 current research lacks that none of your depots makes. `npm run e2e:growth` (tools/e2e/growth-menu.mjs).
 **Balance (tuning pass, done):** the card amounts stay as spec §3 has them. The guard (180 min, against main 17dbc6f:

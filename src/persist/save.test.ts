@@ -4,7 +4,7 @@ import { appendPiece, connectorRef, LIFT_RISE } from "../track";
 import { connectedPairs, PLOT_CELLS, SURF_GRASS, SURF_LANE } from "../landscape";
 import { encodeRoad, pieceOf } from "../roads";
 import { SIM_DT, SIM_HZ } from "../sim";
-import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, loadSession, OLDER_SAVE, SAVE_VERSION, saveSession, saveToStorage, serializeWorld, type SaveData } from "./save";
+import { backupKey, deserializeWorld, hasOlderSave, loadFromStorage, loadSession, MIGRATES_FROM, OLDER_SAVE, SAVE_VERSION, saveSession, saveToStorage, serializeWorld, type SaveData } from "./save";
 import { Journal } from "../game/journal";
 import { editLine, lineOf } from "../game/lines";
 import { CARGO_KINDS } from "../economy";
@@ -80,10 +80,13 @@ describe("save format", () => {
     ]);
   });
 
-  it("is at version 13 (the growth menu's cards), and turns older saves away, saying so (v12: research's first save)", () => {
+  it("is at version 13 (the growth menu's cards), loads a v12 map as it is, and turns older saves away, saying so", () => {
     expect(SAVE_VERSION).toBe(13);
+    expect(MIGRATES_FROM).toBe(12);
     const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
     data.version = 12;
+    expect(deserializeWorld(data).ok).toBe(true);
+    data.version = 11;
     const r = deserializeWorld(data);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toBe(OLDER_SAVE);
@@ -144,8 +147,8 @@ describe("save format", () => {
     vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
     try {
       const data = serializeWorld(worldWithTrain()) as unknown as { version: number };
-      // (A v12 save, from before the growth menu: turned away kindly, kept aside.)
-      data.version = 12;
+      // (A v11 save, from before research: turned away kindly, kept aside.)
+      data.version = 11;
       const raw = JSON.stringify(data);
       store.set("woodrail.game.v2", raw);
       expect(hasOlderSave("game")).toBe(true);
@@ -153,11 +156,11 @@ describe("save format", () => {
       const r = loadFromStorage("game");
       expect(r?.ok).toBe(false);
       if (r && !r.ok) expect(r.error).toBe(OLDER_SAVE);
-      expect(store.get(backupKey("game", 12))).toBe(raw);
+      expect(store.get(backupKey("game", 11))).toBe(raw);
       // The fresh map saves over the autosave; the backup stays.
       expect(saveToStorage(worldWithTrain(), "game")).toBe(true);
       expect(hasOlderSave("game")).toBe(false);
-      expect(store.get(backupKey("game", 12))).toBe(raw);
+      expect(store.get(backupKey("game", 11))).toBe(raw);
     } finally {
       vi.unstubAllGlobals();
     }
