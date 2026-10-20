@@ -1496,7 +1496,9 @@ export class Economy {
       // (Holding a move (sections): its way, aimed past it into the slot it goes to, so a stop on the way doesn't end the
       // look ahead short of the switch beyond it.)
       const held = this.sections.steerHint(engine);
-      const thrown = steerSwitch(this.layout, found.train, net > 0, held?.aim ?? d.pieceId, undefined, held?.follow, this.occupied);
+      // (Nor a switch on another train's granted way: it would send that train onto a road it doesn't hold.)
+      const occupied = (pieceId: number) => this.occupied(pieceId) || this.sections.switchHeld(engine, pieceId);
+      const thrown = steerSwitch(this.layout, found.train, net > 0, held?.aim ?? d.pieceId, undefined, held?.follow, occupied);
       if (thrown !== -1) this.onSwitch?.(thrown);
     }
   }
