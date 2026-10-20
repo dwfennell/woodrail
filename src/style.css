@@ -657,8 +657,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .brand-name, .mode-tag { display: none; }
   .actions { flex-wrap: nowrap; }
 }
-/* On a phone the date goes under the coins, smaller (beside them, the two took the pill's room at 360 px). */
-@media (max-width: 640px) {
+/* On a phone the date goes under the coins, smaller (beside them, the two took the pill's room at 360 px; on its side
+   at 667 px, QA: the pill's name was cut to "📘 … 9/10"). */
+@media (max-width: 640px), (max-height: 520px) {
   .brand:has(.game-date:not([hidden])) { flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 3px 6px; overflow: visible; }
   .brand:has(.game-date:not([hidden])) .coins { padding: 1px 7px 1px 2px; }
   .game-date { font-size: 11px; padding: 0 4px; background: none; }
