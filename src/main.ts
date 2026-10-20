@@ -21,7 +21,7 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
-import { cardView, describeThings, firstTimeGift, offerOnGrowth, payDelivery, takeCard } from "./game/rewards";
+import { cardView, describeThings, firstTimeGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
@@ -812,6 +812,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     showDate();
     if (s) journal.restore(s.journal);
     else journal.clear();
+    // A v12 Game save's offers: drawn again as cards on its own map.
+    if (m === "game" && fromSave && redrawOldOffers(progress, game.world, Math.random)) saveProgress(progress.toJSON());
     if (s) {
       game.paused = s.paused;
       pausedBeforeTitle = s.paused;
@@ -1581,10 +1583,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   setInterval(() => {
     if (mode === "game" && board.open && boardKey() !== boardKeyShown) refreshBoard();
     if (mode === "game") refreshPill();
+    showDate();
     // The growth sheet, while it's open: its cards say what they'd give now (the yards fill, the research moves on);
     // closed, the badge's count. (Written only when what they show changes.)
     if (mode === "game") refreshRewards();
-    showDate();
     // Research: the study clock, and Next up starting once its coins are in (a few lookups when nothing happens). Study
     // runs on game time (the trains' clock), not this timer's; read on every step so time off the game isn't counted.
     const studied = simElapsed(studyClock, game.simSeconds);
@@ -2903,6 +2905,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh && next === "game") resetGoals();
     if (fresh) saveLastBuilt(next, null);
     if (fresh) {
+      // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
+      if (hasOlderSave(next)) loadFromStorage(next);
       setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
       restoreSession(next, false);
     } else if (next !== mode) {

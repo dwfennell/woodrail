@@ -9,7 +9,7 @@ import type { Progress } from "./progress";
 import { deliver, lacking, lacks } from "./research";
 import { techOf } from "./tech";
 import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
-import { payFor, type TownStatus } from "./towns";
+import { payFor, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
 
 /**
@@ -175,6 +175,20 @@ export function offerOnGrowth(p: Progress, world: World, townName: string, level
   const offer: Offer = { from: townName, level, cards };
   p.offers.push(offer);
   return offer;
+}
+
+/**
+ * A v12 save's offers (`p.oldOffers`), now its map is in: each drawn again as a growing town's cards, at its town's
+ * level now (a village's if the town's not found). True if any were.
+ */
+export function redrawOldOffers(p: Progress, world: World, random: () => number): boolean {
+  if (p.oldOffers.length === 0) return false;
+  for (const from of p.oldOffers.splice(0)) {
+    const town = world.landscape.towns.find((t) => t.name === from);
+    const level = town ? townStatus({ ...world.economy.deliveredGoods.get(town.id), planks: world.economy.delivered.get(town.id) ?? 0 }).level : 0;
+    offerOnGrowth(p, world, from, Math.max(1, level), random);
+  }
+  return true;
 }
 
 /** A card as the growth sheet shows it: a big icon, its amount, one line, and whether it can be taken now (if not, why). */

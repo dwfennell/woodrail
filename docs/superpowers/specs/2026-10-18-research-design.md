@@ -179,6 +179,10 @@ stalls are 7.6–11.9 min against "under 10".
   with today's kind toast.
 - Mapping learned blueprints across would be cheap (the ids stay), but an old map has no school and its board and
   offers mean nothing now. As agreed, we discard old saves instead.
+- P3 (the growth menu) goes to 13, and a v12 save carries over (`MIGRATES_FROM`): the map's shape didn't change, so it
+  loads as it is; in the progress, each waiting town offer (two blueprints, a crate) is drawn again as three cards for
+  its town's level now, once the map is in (`redrawOldOffers`). Coins, learned, the board, research, the toy box and
+  orders stay. Older than 12: turned away and kept aside as before.
 
 ## 7. The research picker on a phone
 
