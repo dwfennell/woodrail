@@ -26,6 +26,7 @@ import { rng } from "../lib/rng";
 import { SIM_HZ, type CarKind } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, indexOfRef, pieceOfRef, type PieceTypeId, type Pose } from "../track";
 import { play, type Blocked } from "./player";
+import { pathLength } from "../track/path";
 import { endOn, rulesFor, schoolOn } from "./rules";
 
 /**
@@ -117,6 +118,14 @@ const CITY_BAND = [60, 90] as const;
  * Carpenter's bench, 22 stops) is the harness's one train, not the research's costs. Told by its cause, not its seed.
  */
 const FAMINE_STOPS = 20;
+/**
+ * P5 (h), off unless asked for (BALANCE_SECOND_GOODS=15): a line of this many stops (there and back) or more gets a
+ * passing loop and a second goods train once Signals are learned, since one train saws only a few planks a pass round
+ * it. Off by default: on every seed tried the two goods trains still turned each other back within minutes (routed
+ * trains don't wait at a loop for each other, and a signal's block ends at the loop's switch), so the second was
+ * picked up again, and on seed 2 the pinned loop left the goods train unable to reach the sawmill (spec §5).
+ */
+const SECOND_GOODS_STOPS = Number(ENV.BALANCE_SECOND_GOODS ?? 0) || Infinity;
 /** Cars that carry goods: a train with one is a goods train (the passenger train has only coaches). */
 const GOODS_CARS: ReadonlySet<CarKind> = new Set<CarKind>(["timber", "hopper", "van"]);
 
@@ -502,6 +511,104 @@ function placeOn(P: Player, ref: number, type: PieceTypeId): number {
   return P.editor.place(type, p.pose, p.y, false);
 }
 
+/** A passing loop's main road (switch to switch, mm): room for a long goods train, and not much more. */
+const LOOP_MIN = 520;
+const LOOP_MAX = 1600;
+
+/**
+ * A passing loop on the line (P5 (h)), as a player lays one for two trains on a line: two straights of the line a
+ * train's length or more apart, with no stop, switch or crossing between them, each made a switch (and a short
+ * straight: a straight's length in all), and a side road laid from one switch's branch to the other's. The line between
+ * them is the main road. The switch at the end trains running down the line come in by (from piece `a`'s side) is
+ * pinned to the main road and the other to the side road, so trains running down the line keep to the main road and
+ * trains running back to the side road (a switch run through from a branch is passed whichever way it's set), and they
+ * pass there. The switches' ids, or null if no two straights take one (the pieces as they were). Straights nearest
+ * `near` are tried first.
+ */
+function passingLoop(P: Player, near: { x: number; z: number }): [number, number] | null {
+  const w = P.w;
+  const L = w.layout;
+  const plain = (id: number) => {
+    const p = L.getPiece(id);
+    return !!p && p.type === "straight-216" && !P.fixed.has(id) && !w.sim.pieceOccupied(id);
+  };
+  const len = (id: number) => {
+    const p = L.getPiece(id)!;
+    return pathLength(getPieceDef(p.type, p.flipped).paths[0].geom);
+  };
+  // Pairs of straights: from `a`, out of its peg end (connector 1) along plain two-ended track (no stop: a stop on the
+  // main road would be out of reach of trains on the side road) to a straight `b` entered by its hole end.
+  const pairs: { a: number; b: number; d: number }[] = [];
+  for (const a of L.pieceIds()) {
+    if (!plain(a) || L.joinedConnector(connectorRef(a, 0)) === -1) continue;
+    let ref = connectorRef(a, 1);
+    let d = 0;
+    for (let k = 0; k < 12 && d < LOOP_MAX; k++) {
+      const j = L.joinedConnector(ref);
+      if (j === -1) break;
+      const id = pieceOfRef(j);
+      const p = L.getPiece(id)!;
+      const def = getPieceDef(p.type, p.flipped);
+      if (def.connectors.length !== 2 || w.economy.depotAtPiece(id) || w.stations.size === 0 || [...w.stations.values()].includes(id) || p.type.startsWith("kit-")) break;
+      if (d >= LOOP_MIN - 216 && plain(id) && indexOfRef(j) === 0 && L.joinedConnector(connectorRef(id, 1)) !== -1) pairs.push({ a, b: id, d });
+      d += len(id);
+      ref = connectorRef(id, 1 - indexOfRef(j));
+    }
+  }
+  const at = (id: number) => L.getPiece(id)!.pose;
+  const far = (q: { a: number; b: number }) => Math.hypot((at(q.a).x + at(q.b).x) / 2 - near.x, (at(q.a).z + at(q.b).z) / 2 - near.z);
+  pairs.sort((x, y) => far(x) - far(y));
+  if (ENV.BALANCE_LOOP_TRACE) P.note(`loop pairs: ${pairs.length}`);
+  const had = new Set<number>();
+  for (const pair of pairs.slice(0, 10)) {
+    let { a, b } = pair;
+    for (const side of [false, true]) {
+      // (`b`'s neighbour beyond is taken up while the side road is laid, and put back after: the track layer joins a
+      // piece with no other joints.)
+      const nj = L.getPiece(a) && L.getPiece(b) ? L.joinedConnector(connectorRef(b, 1)) : -1;
+      const nb = nj === -1 ? -1 : pieceOfRef(nj);
+      const pn = nb === -1 ? undefined : L.getPiece(nb);
+      if (!pn || getPieceDef(pn.type, pn.flipped).connectors.length !== 2 || w.economy.depotAtPiece(nb) || [...w.stations.values()].includes(nb) || pn.type.startsWith("kit-") || w.sim.pieceOccupied(nb) || P.fixed.has(nb)) break;
+      const pa = L.getPiece(a)!;
+      const pb = L.getPiece(b)!;
+      const [poseA, yA, poseB, yB] = [{ ...pa.pose }, pa.y, { ...pb.pose }, pb.y];
+      const nbWas = { type: pn.type, pose: { ...pn.pose }, y: pn.y, flipped: pn.flipped };
+      had.clear();
+      for (const id of L.pieceIds()) had.add(id);
+      P.editor.remove(a);
+      P.editor.remove(b);
+      P.editor.remove(nb);
+      // `a`'s switch: its trunk where `a`'s hole end was. `b`'s: its trunk where `b`'s peg end was, facing back.
+      const sa = P.editor.place("switch", poseA, yA, side);
+      placeOn(P, connectorRef(sa, 1), "straight-72");
+      const endB = { x: poseB.x + Math.cos(poseB.heading) * 216, z: poseB.z + Math.sin(poseB.heading) * 216, heading: poseB.heading + Math.PI };
+      const sb = P.editor.place("switch", endB, yB, !side);
+      const r = play(L, P.editor, connectorRef(sa, 2), connectorRef(sb, 2), { blocked: P.rules(), maxPieces: 24, fiddle: 3 });
+      const road = r.ok && L.joinedConnector(connectorRef(sb, 2)) !== -1;
+      if (road) {
+        placeOn(P, connectorRef(sb, 1), "straight-72");
+        P.editor.place(nbWas.type, nbWas.pose, nbWas.y, nbWas.flipped);
+      }
+      const joined = [0, 1, 2].every((c) => L.joinedConnector(connectorRef(sa, c)) !== -1 && L.joinedConnector(connectorRef(sb, c)) !== -1);
+      if (ENV.BALANCE_LOOP_TRACE) P.note(`loop try ${a}→${b} ${side ? "right" : "left"}: side road ${r.how} (${r.pieces} pieces), all joined ${joined}`);
+      if (road && joined && P.settle()) {
+        L.setSwitchState(sa, 0);
+        L.setPinned(sa, true);
+        L.setSwitchState(sb, 1);
+        L.setPinned(sb, true);
+        w.sim.trackChanged();
+        return [sa, sb];
+      }
+      // Back as it was.
+      for (const id of [...L.pieceIds()]) if (!had.has(id)) P.editor.remove(id);
+      a = P.editor.place("straight-216", poseA, yA, false);
+      b = P.editor.place("straight-216", poseB, yB, false);
+      P.editor.place(nbWas.type, nbWas.pose, nbWas.y, nbWas.flipped);
+    }
+  }
+  return null;
+}
+
 function freeEnd(P: Player, id: number): number {
   const p = P.w.layout.getPiece(id)!;
   const n = getPieceDef(p.type, p.flipped).connectors.length;
@@ -738,6 +845,12 @@ class Playthrough {
   lineId = -1;
   perLine = 0;
   jamCut = 0;
+  /** The second goods train (P5 (h)): when it was set going, and how often it was picked up for a jam. */
+  goods2At = -1;
+  goods2Cut = 0;
+  /** The passing loop's switches (west, east), once laid; when it was last tried. */
+  loop: [number, number] | null = null;
+  loopTry = -99;
   extraAt = -99;
   recomposed = -99;
   /** Minutes in a row with nothing new. */
@@ -849,11 +962,13 @@ class Playthrough {
       this.sawn = sawn;
       this.sawnAt = P.minute;
     } else if ((this.stall = Math.max(this.stall, Math.round(P.minute - this.sawnAt))) && (this.trains.size < 2 || (this.jamStall = Math.max(this.jamStall, Math.round(P.minute - this.sawnAt)))) && P.minute - this.sawnAt >= 4 && this.trains.size >= 2) {
-      const [e, kind] = [...this.trains].find(([id]) => id !== this.timber) ?? [];
+      // (The newest first: a second goods train before the people train, which came before it.)
+      const [e, kind] = [...this.trains].find(([, k]) => k === "goods 2") ?? [...this.trains].find(([id]) => id !== this.timber) ?? [];
       if (e !== undefined) {
         P.lift(e);
         this.trains.delete(e);
-        this.lifted++;
+        if (kind === "goods 2") this.goods2Cut++;
+        else this.lifted++;
         if (this.lines) this.jamCut++;
         P.findings.push(`Minute ${P.minute.toFixed(0)}: no planks sawn for 4 minutes with ${this.trains.size + 1} trains on one line (they turn each other back; the goods train never reached the forest). Picked the ${kind} train up.`);
         P.note(`JAM: no planks sawn for 4 min; picked the ${kind} train up`);
@@ -1241,6 +1356,39 @@ class Playthrough {
         }
       } else this.why ||= `another train for the line (engine 6🪵 + 2 flatbeds 6🪵; have ${P.planks()} planks)`;
     }
+    // A second goods train on a long line (P5 (h), only with BALANCE_SECOND_GOODS: see `SECOND_GOODS_STOPS`): one
+    // train saws only a few planks a pass round 15 stops or more, and the research and the towns wait on them. As the
+    // game has it, only with Signals learned (the goal "Run two trains at once" waits for them, and their present is
+    // the second engine) and a passing loop on the line, where trains running opposite ways can pass (laid first,
+    // halfway along the line: two trains spaced half a lap apart on a line there and back meet about halfway); not
+    // again once it has jammed the line.
+    const stops = this.lineId >= 0 ? (w.economy.lines.get(this.lineId)?.stops.length ?? 0) : 0;
+    const wantsSecond = this.lines && stops >= SECOND_GOODS_STOPS && s.learned.has("signals") && this.goods2At < 0 && this.goods2Cut === 0;
+    if (wantsSecond && !this.loop && P.minute - this.loopTry >= 10) {
+      this.loopTry = P.minute;
+      if (P.canMake(new Map<ThingId, number>([["piece:switch", 2]]))) {
+        const order = lineOrder(P);
+        const half = w.economy.depot(order[Math.floor(order.length / 2)]);
+        const at = half && w.layout.getPiece(half.pieceId)?.pose;
+        this.loop = at ? passingLoop(P, at) : null;
+        if (this.loop) {
+          P.happened++;
+          P.note(`laid a passing loop (2 switches, pinned) halfway along the ${stops}-stop line`);
+        } else P.note("COULDN'T lay a passing loop on the line");
+      } else this.why ||= `a passing loop (2 switches; have ${P.planks()} planks)`;
+    }
+    if (wantsSecond && this.loop && ![...this.trains.values()].includes("goods 2")) {
+      const cars: CarKind[] = ["engine", "timber", "timber"];
+      if (P.canMake(thingsFor({ kind: "train", cars }))) {
+        const e = P.train(cars, -1, 1);
+        if (typeof e === "number") {
+          this.trains.set(e, "goods 2");
+          joinLine(w.economy, e, this.lineId);
+          this.goods2At = P.minute;
+          P.note(`second goods train (engine, 2 flatbeds) on the ${stops}-stop line: ${trainsOn(w.economy, this.lineId).length} trains on it now`);
+        }
+      } else this.why ||= `a second goods train for the ${stops}-stop line (engine and 2 flatbeds; have ${P.planks()} planks)`;
+    }
     if (this.lineId >= 0) this.perLine = Math.max(this.perLine, trainsOn(w.economy, this.lineId).filter((e) => w.sim.findCar(e)).length);
 
     // A harvester (a forest yard of the player's own) by trees at a line end, for more logs.
@@ -1432,7 +1580,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
-      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} (from ${this.stallFrom}) jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} loop ${this.loop ? "yes" : "-"} goods2 ${this.goods2At < 0 ? "-" : Math.round(this.goods2At)}${this.goods2Cut ? " (jammed)" : ""} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min`,
       `SUMMARY research first ${P.researchedAt[0] ?? "-"} at60 ${P.researchedAt.filter((m) => m <= 60).length} at120 ${P.researchedAt.filter((m) => m <= 120).length} at180 ${P.researchedAt.filter((m) => m <= 180).length} stall ${(P.researchStall / 60).toFixed(1)}min on ${P.researchStallOn} (${P.researchStallCause.goodsTrains} goods train(s), ${P.researchStallCause.stops} stops${P.researchStallCause.planks ? ", short of planks" : ""}) school ${this.firsts["school"] ?? "-"} blueprints ${P.progress.learned.size}`,
       `SUMMARY cards ${Object.entries(P.cardsTaken).map(([k, n]) => `${k} ${n}`).join(", ") || "none"}`,
       `research: ${P.researchedAt.map((m, k) => `${m} ${P.learnedAt.filter((b) => b.how === "researched")[k]?.id}`).join(" · ")}`,
