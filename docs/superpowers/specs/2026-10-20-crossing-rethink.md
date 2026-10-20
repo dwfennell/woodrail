@@ -206,3 +206,26 @@ occupancy from bogies (where trains' wheels are), not from predicted ways.
   - `Economy.sectionWait(engine)` returns a `BlockWait`: `section`, `slot` or `room`.
 - **A lone train, or a line whose ways touch no slot,** gets `Infinity` from one map lookup, and is steered exactly as
   on main.
+
+## As built: P2
+
+- **A line with too few loops keeps running.** A train the line has no room for is held where it stands, and never
+  let go. The trains with room treat it as the end of the line:
+  - If it holds a line end, the section before that end becomes a dead end for the others. A train runs in, stands
+    short of the last switch, and turns back (`Sim.turnBack`, turn cause `short`).
+  - If that section is only switches, the train turns in its own slot instead. Its route passes over the stops it
+    can't reach (`SectionsHost.skipStops`).
+  - A held train standing in a section makes the stretch short of it a dead end the same way.
+  - A train sent round a loop by the free road, with its stop on the other road, passes that stop this time.
+  - Trains wait for the road their stop is on, unless the train on it waits for them.
+- **Trains put down face to face in one slot:** one gives way. The one heading for the line end turns back (it then
+  leads out); otherwise the one that joined the line later does. The other holds meanwhile (wait kind `facing`).
+- **Card text** (engine-status.ts):
+  - "Waiting for the Red line train" (waits of kind section, slot or facing);
+  - "Waiting: lay 1 more passing loop for 3 trains" (room; "loops" when it's more than one);
+  - "Turning back early: the end of the line is taken" (a short turn).
+- **Signals:** a section or slot is granted only when no line-mate is in it, so a train with a move never runs up to
+  a red signal set by a line-mate. In the signalled convoy no train stood at red with sections on; on main they stood
+  at red for 584 s.
+- **The 30 s safety net:** only trains with room, in a section, in a mutual wait. It didn't fire in any scenario or
+  play-through run.
