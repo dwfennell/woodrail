@@ -184,6 +184,18 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .help-card li { margin-bottom: 4px; }
 .help-keys { font-size: 13px; opacity: 0.7; }
 .help-card .chip { align-self: flex-end; margin-top: 6px; }
+/* A phone on its side: the help a screen high at most (it was 430 px on a 375 px screen, "Let's play" below it), a
+   little tighter, scrolling inside if it must, with "Let's play" always showing at its foot. */
+@media (max-height: 520px) {
+  .help { padding: 8px; }
+  .help-card { max-width: min(640px, 100%); max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain; padding: 12px 18px 10px; gap: 4px; box-sizing: border-box; }
+  .help-card h2 { font-size: 20px; margin: 0; }
+  .tips { gap: 8px; margin: 2px 0 4px; }
+  .tip { padding: 6px 8px 8px; font-size: 12.5px; gap: 2px; }
+  .tip b { font-size: 14px; }
+  .tip-art { width: 64px; height: 40px; }
+  .help-card .chip.primary { position: sticky; bottom: 0; margin-top: 4px; box-shadow: 0 -6px 14px rgba(250, 243, 230, 0.9), 0 3px 10px rgba(60, 40, 20, 0.22); }
+}
 
 .perf { position: absolute; left: 12px; top: calc(max(10px, env(safe-area-inset-top)) + 56px); font: 12px ui-monospace, monospace; background: rgba(20, 14, 8, 0.7); color: #e9ffe0; padding: 6px 9px; border-radius: 8px; pointer-events: none; }
 
@@ -652,6 +664,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A phone on its side: the pill stands in for the Research button, as on a phone held upright. */
 @media (max-height: 520px) {
   .topbar:has(.research-pill:not([hidden])) .actions > .research-btn { display: none; }
+  /* The bar's buttons in one row, as held upright (QA: at 667 px they wrapped to a second, pushing the brand onto the
+     goals): the brand is its W, coins and date, without the name and the mode tag. */
+  .brand-name, .mode-tag { display: none; }
+  .actions { flex-wrap: nowrap; }
 }
 /* On a phone the date goes under the coins, smaller (beside them, the two took the pill's room at 360 px). */
 @media (max-width: 640px) {

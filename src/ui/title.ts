@@ -102,8 +102,29 @@ function button(label: string, title: string, cls: string, onClick: () => void):
   b.className = cls;
   b.textContent = label;
   b.title = title;
+  // A tap that came down on it acts as it lifts, wherever the button has got to: the cards still settle (they slide
+  // in; a phone's bar coming or going moves them), and a click whose press and lift fell on different things goes to
+  // the card round them, which did nothing (QA: Continue's first tap, now and then). The click after it isn't twice.
+  let down: { id: number; x: number; y: number } | null = null;
+  let actedAt = -Infinity;
+  b.addEventListener("pointerdown", (e) => {
+    down = { id: e.pointerId, x: e.clientX, y: e.clientY };
+  });
+  window.addEventListener("pointerup", (e) => {
+    if (!down || e.pointerId !== down.id) return;
+    const tap = Math.hypot(e.clientX - down.x, e.clientY - down.y) < 10;
+    down = null;
+    if (!tap || b.disabled || !b.isConnected || b.closest("[hidden]")) return;
+    actedAt = e.timeStamp;
+    onClick();
+  });
+  window.addEventListener("pointercancel", (e) => {
+    if (down && e.pointerId === down.id) down = null;
+  });
+  // (A click with no tap before it: the keyboard's, or a test's.)
   b.addEventListener("click", (e) => {
     e.stopPropagation();
+    if (e.timeStamp - actedAt < 1000) return;
     onClick();
   });
   return b;
