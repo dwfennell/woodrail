@@ -5,6 +5,7 @@ import { editLine, joinLine } from "../game/lines";
 import { Economy } from "./economy";
 import { chain, loopOn, runner, train, type World } from "./loop-fixtures";
 import { topologyOf, trainLength } from "./sections";
+import { engineStatus } from "../game/engine-status";
 
 /**
  * A single line from depot X to depot Y, buffers at both ends, with `loops` bare passing loops in a row between them
@@ -132,7 +133,7 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
     }
   });
 
-  it("trains turn only in slots (at the line's ends), never in a section", () => {
+  it("trains turn only in slots (at the line's ends), never in a section, on a line with room for them all", () => {
     for (const l of [line(1), line(2), line(1, { station: true })]) {
       const es = trains(l, l.middle.length > 0 ? [{ piece: l.middle[1], back: true, next: 0 }] : []);
       const topo = topologyOf(l.layout, Math.max(...es.map((e) => trainLength(l.sim.findCar(e)!.train))));
@@ -247,5 +248,59 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
     // (They come to Y apart, taking turns: never one straight behind the other.)
     expect(gaps.length).toBeGreaterThan(10);
     expect(Math.min(...gaps)).toBeGreaterThan(10);
+  });
+
+  it("an under-built line keeps running: the trains it has room for turn back short of the one held, which keeps its reason", () => {
+    const cases: [Line, { piece: number; back: boolean; next: number }[], CarKind[] | undefined][] = [];
+    const bare = line(1);
+    cases.push([bare, [{ piece: bare.east[1], back: true, next: 1 }], undefined]);
+    const station = line(1, { station: true });
+    cases.push([station, [{ piece: station.east[1], back: true, next: 1 }], undefined]);
+    cases.push([line(0), [], undefined]);
+    const plain3 = line(0);
+    cases.push([plain3, [{ piece: plain3.east[1], back: true, next: 1 }], undefined]);
+    cases.push([line(1, { shortRoads: true }), [], ["engine", "timber", "timber", "timber"]]);
+    for (const [l, more, cars] of cases) {
+      const es = trains(l, more, cars);
+      const r = runner(l.w, es);
+      r.run(10 * 60);
+      const held = es.filter((e) => l.economy.sectionWait(e)?.kind === "room");
+      const running = es.filter((e) => !held.includes(e));
+      expect(held.length).toBe(es.length - 1 - l.loops.filter(() => !cars).length);
+      for (const e of running) expect(r.arrivals.get(e)!, `running train ${e}`).toBeGreaterThan(10);
+      expect(r.meetings).toEqual([]);
+      expect(l.economy.sections.released).toBe(0);
+    }
+  });
+
+  it("two trains put down face to face in one line end: one gives way (turns back), no meeting", () => {
+    // (Two loops: room for all three.)
+    const l = line(2);
+    // B on Y's line end facing in, C deeper in it facing out: B turns back and leads out.
+    const es = trains(l, [{ piece: l.east[1], back: true, next: 0 }]);
+    const r = runner(l.w, es);
+    r.run(5 * 60);
+    expect(r.meetings).toEqual([]);
+    expect(l.economy.sections.gaveWay).toBeGreaterThan(0);
+    for (const e of es) expect(r.arrivals.get(e)!).toBeGreaterThan(3);
+  });
+
+  it("the engine card says why: waiting for the line's other train, or how many passing loops to lay", () => {
+    const texts = (l: Line, es: readonly number[], seconds: number) => {
+      const r = runner(l.w, es);
+      const seen = new Set<string>();
+      for (let i = 0; i < seconds * SIM_HZ; i++) {
+        r.step();
+        if (i % 30 === 0) for (const e of es) seen.add(engineStatus(l.sim, l.economy, e, () => "Larkfield"));
+      }
+      return seen;
+    };
+    const two = line(1);
+    expect(texts(two, trains(two), 120)).toContain("Waiting for the Red line train");
+    const three = line(1);
+    expect(texts(three, trains(three, [{ piece: three.east[1], back: true, next: 1 }]), 60)).toContain("Waiting: lay 1 more passing loop for 3 trains");
+    const plain = line(0);
+    const seen = texts(plain, trains(plain, [{ piece: plain.east[1], back: true, next: 1 }]), 60);
+    expect(seen).toContain("Waiting: lay 2 more passing loops for 3 trains");
   });
 });

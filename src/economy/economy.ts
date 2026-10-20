@@ -340,6 +340,20 @@ export class Economy {
         return out;
       },
       drive: (train) => this.drive(train),
+      skipStops: (engine, pieces) => {
+        const r = this.routes.get(engine);
+        if (!r || r.stops.length === 0 || r.at) return;
+        // (On to the first stop not on those pieces; all of them on it: as it was.)
+        let i = r.next % r.stops.length;
+        for (let k = 0; k < r.stops.length; k++) {
+          const d = this.depots[r.stops[i].depotId];
+          if (!d || !pieces.has(d.pieceId)) {
+            r.next = i;
+            return;
+          }
+          i = (i + 1) % r.stops.length;
+        }
+      },
     });
   }
 

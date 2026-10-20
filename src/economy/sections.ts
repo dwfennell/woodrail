@@ -74,7 +74,9 @@ export type BlockWait =
   /** The slot ahead (a loop road, a line end) is full or on another's way: waiting for that train. */
   | { kind: "slot"; engine: number }
   /** The line has more trains than places to pass: `trains`, `loops` passing loops; lay `more` more (or take a train off). */
-  | { kind: "room"; lineId: number; trains: number; loops: number; more: number };
+  | { kind: "room"; lineId: number; trains: number; loops: number; more: number }
+  /** That train of its line was put down facing it in the same slot: one gives way (this one turns back, or waits). */
+  | { kind: "facing"; engine: number };
 
 /** What sections read of the economy. */
 export interface SectionsHost {
@@ -88,6 +90,8 @@ export interface SectionsHost {
   stopPieces(lineId: number): readonly number[];
   /** The net drive of a train toward its front (only the sign matters). */
   drive(train: Train): number;
+  /** Move an engine's route on past its stops on these pieces (they can't be reached now). */
+  skipStops(engine: number, pieces: ReadonlySet<number>): void;
 }
 
 /** One step of a move's way: a piece, the path along it, and the end it comes in by. */
@@ -111,6 +115,25 @@ interface Move {
   free: boolean;
   /** When (sim tick) it was granted or let go. */
   since: number;
+  /**
+   * A dead end (`dest` is `DEAD_END`): the line end ahead is held by a train its line has no room for, so the move runs
+   * to the section's far end, short of that line end, and turns back there (the section is its alone). The line end's
+   * pieces: the stops on it are passed over.
+   */
+  deadEnd?: ReadonlySet<number>;
+}
+
+/** A move's `dest` when it ends at a dead end (see `Move.deadEnd`). */
+const DEAD_END = -2;
+
+/** A way through a section (`Sections.wayOn`): its steps, the slot it ends at (or −1: full; `DEAD_END`), and why not. */
+interface Way {
+  steps: Step[];
+  section: number;
+  dest: number;
+  outBy: number;
+  blockedBy: number;
+  deadEnd?: ReadonlySet<number>;
 }
 
 interface TrainState {
@@ -134,6 +157,11 @@ interface TrainState {
   outBy: number;
   /** The topology its slot and move are on (another: worked out afresh). */
   topo: Topology;
+  /** In a slot: the pieces from its front on to the slot's end (to see a train put down facing it). */
+  ahead: Set<number>;
+  /** When it last looked for a train facing it, and whether it's holding for one. */
+  facedAt: number;
+  faceHold: boolean;
 }
 
 // --- Topology ---------------------------------------------------------------------------------------------------
@@ -353,6 +381,9 @@ export class Sections {
   readonly steerSoon = new Set<number>();
   /** Safety-net releases (a mutual wait with a train in a section and no move), for the play-through and tests. */
   released = 0;
+  /** Turns back short of a line end held by a train with no room (`deadEndCap`), and give-ways to a train put down facing. */
+  turnedShort = 0;
+  gaveWay = 0;
   /** Moves granted, and asks refused (counters for tests and the play-through). */
   granted = 0;
   refused = 0;
@@ -399,10 +430,11 @@ export class Sections {
       return Infinity;
     }
     const net = this.host.drive(train);
-    if (net === 0) return Infinity;
+    // (Turning back: the sim counts it down standing; a limit of 0 then would read as a crane holding it.)
+    if (net === 0 || train.turnback >= 0) return Infinity;
     let st = this.states.get(engine);
     if (!st) {
-      st = { engine, trainId: train.id, frontKey: -1, tailPiece: -1, slot: -1, beyond: Infinity, exitPiece: -1, exitEntry: -1, move: null, wait: null, askedAt: -Infinity, waitSince: -1, outBy: -1, topo: info.topo };
+      st = { engine, trainId: train.id, frontKey: -1, tailPiece: -1, slot: -1, beyond: Infinity, exitPiece: -1, exitEntry: -1, move: null, wait: null, askedAt: -Infinity, waitSince: -1, outBy: -1, topo: info.topo, ahead: new Set(), facedAt: -Infinity, faceHold: false };
       this.states.set(engine, st);
     }
     const topo = info.topo;
@@ -424,11 +456,14 @@ export class Sections {
     const now = this.sim.ticks;
     // In a section.
     if (st.slot === -1) {
+      if (st.move?.dest === DEAD_END) return this.deadEndCap(st, info, train, front, net < 0);
       if (st.move) return Infinity;
       if (now - st.askedAt < CHECK_TICKS) return st.wait ? 0 : Infinity;
       st.askedAt = now;
       return this.recover(st, info, train, front) ? Infinity : 0;
     }
+    // In a slot, with a train of its line put down facing it on the way to the slot's end: one gives way.
+    if (this.facing(st, info, train)) return 0;
     // In a slot, with its move on from it granted.
     if (this.ownsAhead(st)) return Infinity;
     if (st.beyond === Infinity) return Infinity;
@@ -443,6 +478,74 @@ export class Sections {
       }
     }
     return room > 0 ? Math.sqrt(2 * ACCELERATION * room) : 0;
+  }
+
+  /**
+   * Running to a dead end (see `Move.deadEnd`): it brakes to stand short of the line end held there, then, its route
+   * moved on past the stops on that line end, turns back once the way back has a slot for it (in the section it holds).
+   */
+  private deadEndCap(st: TrainState, info: LineInfo, train: Train, front: Cursor, back: boolean): number {
+    const m = st.move!;
+    const { layout } = this;
+    const i = m.steps.findIndex((x) => x.pieceId === front.pieceId);
+    if (i === -1) {
+      st.move = null;
+      return 0;
+    }
+    let beyond = -STAND_SHORT;
+    for (let k = i + 1; k < m.steps.length; k++) beyond += lengthOfPath(layout, m.steps[k].pieceId, m.steps[k].path);
+    const lead = back ? train.cars[train.cars.length - 1] : train.cars[0];
+    const room = lengthOfPath(layout, front.pieceId, front.pathIndex) - front.s + beyond - CAR_SPECS[lead.kind].bogieInset;
+    if (room > 1 || train.speed >= 1) return room > 0 ? Math.sqrt(2 * ACCELERATION * room) : 0;
+    const now = this.sim.ticks;
+    if (now - st.askedAt < CHECK_TICKS) return 0;
+    st.askedAt = now;
+    this.host.skipStops(st.engine, m.deadEnd!);
+    // The way back from where its tail is, facing back.
+    const c = this.front(train, !back);
+    const piece = layout.getPiece(c.pieceId);
+    if (!piece) return 0;
+    const path = getPieceDef(piece.type, piece.flipped).paths[c.pathIndex];
+    const way = this.wayOn(st, info, { pieceId: c.pieceId, entry: c.reversed ? (path.to ?? -1) : path.from }, c.pathIndex);
+    if (!way || way.dest < 0) {
+      this.hold(st, { kind: "slot", engine: way?.blockedBy ?? -1 });
+      return 0;
+    }
+    this.grant(st, way);
+    this.sim.turnBack(train.id);
+    this.turnedShort++;
+    return 0;
+  }
+
+  /**
+   * A train of its line put down facing it in its slot, on the way to the slot's end (looked at every `CHECK_TICKS`):
+   * one gives way. The one heading for the line end turns back (it then heads out, ahead of the other), else the one
+   * that came to the line later; the other waits till it's turned. True: it's held.
+   */
+  private facing(st: TrainState, info: LineInfo, train: Train): boolean {
+    const now = this.sim.ticks;
+    if (now - st.facedAt < CHECK_TICKS) return st.faceHold;
+    st.facedAt = now;
+    st.faceHold = false;
+    const slotPieces = st.topo.slots[st.slot].pieces;
+    for (const u of info.engines) {
+      if (u === st.engine) continue;
+      const tu = this.sim.findCar(u)?.train;
+      if (!tu || !tu.bogies.some((b) => slotPieces.has(b.pieceId))) continue;
+      const su = this.states.get(u);
+      if (!su || su.slot !== st.slot) continue;
+      const mineOn = train.bogies.map((b) => b.pieceId);
+      const ahead = tu.bogies.some((b) => st.ahead.has(b.pieceId) && !mineOn.includes(b.pieceId));
+      // (Facing: each on the other's way. One behind the other the same way only follows.)
+      if (!ahead || !mineOn.some((p) => su.ahead.has(p))) continue;
+      const give = st.exitPiece === -1 ? true : su.exitPiece === -1 ? false : (this.firstSeen.get(st.engine) ?? 0) > (this.firstSeen.get(u) ?? 0);
+      if (give && train.speed < 1 && this.sim.turnBack(train.id)) this.gaveWay++;
+      st.faceHold = true;
+      this.hold(st, { kind: "facing", engine: u });
+      return true;
+    }
+    if (st.wait?.kind === "facing") st.wait = null;
+    return false;
   }
 
   /** Does it hold the move on from the slot it's in (granted at this slot's end)? */
@@ -481,13 +584,25 @@ export class Sections {
         if (!m.steps.some((s) => s.pieceId === front.pieceId && s.entry === entry)) st.move = null;
       }
     }
+    st.ahead.clear();
     if (slot === undefined) return;
+    // (On a loop's road with its stop on the other road (it was sent round by the free road): it can't call there
+    // this time; its route goes on to the stop after.)
+    const sl = topo.slots[slot];
+    if (sl.kind === "road") {
+      const loop = topo.loops[sl.loop];
+      const other = topo.slots[loop.roads[0] === slot ? loop.roads[1] : loop.roads[0]].pieces;
+      const target = this.host.target(st.engine);
+      if (target >= 0 && other.has(target) && !sl.pieces.has(target)) this.host.skipStops(st.engine, other);
+    }
+    st.ahead.add(front.pieceId);
     let exit = front.reversed ? path.from : (path.to ?? -1);
     let beyond = -STAND_SHORT;
     let at = front.pieceId;
     for (let k = 0; k < SEARCH; k++) {
       const n = next(layout, at, exit);
       if (!n) return;
+      if (topo.slotOf.get(n.pieceId) === slot) st.ahead.add(n.pieceId);
       if (topo.slotOf.get(n.pieceId) !== slot) {
         st.beyond = beyond;
         st.exitPiece = n.pieceId;
@@ -513,7 +628,7 @@ export class Sections {
    * next slot, choosing at each switch as steering would (for its stop), and at a loop's facing switch a road with
    * room. Null if it reaches no slot. `dest` −1: the slot ahead is full (`blockedBy` is in it, or on its way there).
    */
-  private wayOn(st: TrainState, info: LineInfo, start: { pieceId: number; entry: number }, firstPath = -1): { steps: Step[]; section: number; dest: number; outBy: number; blockedBy: number } | null {
+  private wayOn(st: TrainState, info: LineInfo, start: { pieceId: number; entry: number }, firstPath = -1, short: ReadonlySet<number> | null = null): Way | null {
     const { layout } = this;
     const topo = info.topo;
     const target = this.host.target(st.engine);
@@ -526,13 +641,24 @@ export class Sections {
     };
     const steps: Step[] = [];
     const section = topo.sectionOf.get(start.pieceId) ?? -1;
+    // (A switch under the train itself goes the way it lies: steering never throws one under a train.)
+    const under = new Map<number, number>();
+    const own = this.sim.findCar(st.engine)?.train;
+    if (own) for (const b of own.bogies) under.set(b.pieceId, b.pathIndex);
     let at: { pieceId: number; entry: number } | null = start;
     for (let k = 0; at && k < SEARCH; k++) {
+      // A train with no room standing ahead: a dead end short of it (the rest of the way on, and its stops, passed over).
+      if (short?.has(at.pieceId)) {
+        return { steps: this.shortOfSwitch(steps), section, dest: DEAD_END, outBy: -1, blockedBy: -1, deadEnd: this.beyondOf(info, at) };
+      }
       const slot = topo.slotOf.get(at.pieceId);
       if (slot !== undefined) {
         const s = topo.slots[slot];
         if (s.kind === "end") {
           const u = this.slotUser(info, slot, st.engine);
+          // (Held there for want of room on the line: it won't move, so the section before it is a dead end, turned
+          // back in.)
+          if (u !== -1 && !info.admitted.has(u)) return { steps: this.shortOfSwitch(steps), section, dest: DEAD_END, outBy: -1, blockedBy: u, deadEnd: s.pieces };
           return { steps, section, dest: u === -1 ? slot : -1, outBy: -1, blockedBy: u };
         }
         const loop = topo.loops[s.loop];
@@ -541,7 +667,15 @@ export class Sections {
         let blockedBy = -1;
         // The road steering takes, else the other one, if it has room and the facing switch can send it there; and
         // never a second train into a loop going out the same way as the one there (a loop holds two only to pass).
-        for (const r of s.road === 0 ? loop.roads : [loop.roads[1], loop.roads[0]]) {
+        // (Its stop on one of the roads: that road, or wait for it. It would only run past its stop on the other.)
+        // (Unless the one on it waits for this one: then either road, so they don't wait on each other for good.)
+        let calls = loop.roads.find((r) => topo.slots[r].pieces.has(target));
+        if (calls !== undefined) {
+          const u = this.slotUser(info, calls, st.engine);
+          const w = u === -1 ? null : this.states.get(u)?.wait;
+          if (w && w.kind !== "room" && w.engine === st.engine) calls = undefined;
+        }
+        for (const r of calls !== undefined ? [calls] : s.road === 0 ? loop.roads : [loop.roads[1], loop.roads[0]]) {
           const u = this.slotUser(info, r, st.engine);
           if (u !== -1) {
             blockedBy = u;
@@ -554,6 +688,7 @@ export class Sections {
             continue;
           }
           if (prev && r !== slot) {
+            if (under.has(prev.pieceId)) continue;
             const w = waysFrom(layout, prev.pieceId, prev.entry).find((x) => {
               const n = next(layout, prev.pieceId, x.exit);
               return !!n && topo.slotOf.get(n.pieceId) === r;
@@ -569,6 +704,10 @@ export class Sections {
       if (ways.length === 0) return null;
       let w = ways[0];
       if (k === 0 && firstPath !== -1) w = ways.find((x) => x.path === firstPath) ?? w;
+      else if (ways.length > 1 && under.has(at.pieceId)) {
+        const p = under.get(at.pieceId);
+        w = ways.find((x) => x.path === p) ?? w;
+      }
       else if (ways.length > 1) {
         const best = wayToward(layout, at.pieceId, ways, target, dist);
         w = best === -1 ? (ways[layout.switchState(at.pieceId) % ways.length] ?? ways[0]) : ways[best];
@@ -577,6 +716,59 @@ export class Sections {
       at = next(layout, at.pieceId, w.exit);
     }
     return null;
+  }
+
+  /** A dead end's way, ending short of its last switch (a train turns back clear of switches, its way back open). */
+  private shortOfSwitch(steps: Step[]): Step[] {
+    let j = steps.length;
+    for (let k = steps.length - 1; k >= 0; k--)
+      if (branches(this.layout, steps[k].pieceId)) {
+        j = k;
+        break;
+      }
+    return steps.slice(0, j);
+  }
+
+  /** The pieces from `at` on (as steering goes, through to the slot after and that slot's own): a dead end's far side. */
+  private beyondOf(info: LineInfo, at: { pieceId: number; entry: number }): Set<number> {
+    const { layout } = this;
+    const out = new Set<number>();
+    let n: { pieceId: number; entry: number } | null = at;
+    for (let k = 0; n && k < SEARCH && !out.has(n.pieceId); k++) {
+      out.add(n.pieceId);
+      const slot = info.topo.slotOf.get(n.pieceId);
+      if (slot !== undefined) {
+        for (const p of info.topo.slots[slot].pieces) out.add(p);
+        break;
+      }
+      const ways = waysFrom(layout, n.pieceId, n.entry);
+      if (ways.length === 0) break;
+      n = next(layout, n.pieceId, ways[layout.switchState(n.pieceId) % ways.length]?.exit ?? ways[0].exit);
+    }
+    return out;
+  }
+
+  /**
+   * The pieces trains of the line with no room stand on in a section, if they're all there is in it (no other train
+   * on it, or holding it); null otherwise.
+   */
+  private heldIn(info: LineInfo, section: number, engine: number): Set<number> | null {
+    const out = new Set<number>();
+    for (const u of info.engines) {
+      if (u === engine) continue;
+      const m = this.states.get(u)?.move;
+      if (m && !m.free && m.section === section) return null;
+      const t = this.sim.findCar(u)?.train;
+      if (!t || !t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section)) continue;
+      if (info.admitted.has(u) || t.speed >= 1) return null;
+      for (const b of t.bogies) out.add(b.pieceId);
+    }
+    return out.size > 0 ? out : null;
+  }
+
+  private roomWait(st: TrainState, info: LineInfo): BlockWait {
+    const loops = Math.max(0, info.loops);
+    return { kind: "room", lineId: this.host.lineOf(st.engine), trains: info.engines.length, loops, more: info.engines.length - 1 - loops };
   }
 
   /** The train of the line (other than `engine`) on a slot, or on its way there; −1 if none. */
@@ -618,16 +810,29 @@ export class Sections {
     const section = topo.sectionOf.get(st.exitPiece);
     if (section === undefined) return true;
     if (!info.admitted.has(st.engine)) {
-      const loops = Math.max(0, info.loops);
-      this.hold(st, { kind: "room", lineId: this.host.lineOf(st.engine), trains: info.engines.length, loops, more: info.engines.length - 1 - loops });
+      this.hold(st, this.roomWait(st, info));
       return false;
     }
     const u = this.sectionUser(info, section, st.engine);
-    if (u !== -1) {
+    // (Only trains the line has no room for standing in it: it's a dead end short of them, for this one alone.)
+    const short = u === -1 ? null : this.heldIn(info, section, st.engine);
+    if (u !== -1 && !short) {
       this.hold(st, { kind: "section", engine: u });
       return false;
     }
-    const way = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry });
+    const way = this.wayOn(st, info, { pieceId: st.exitPiece, entry: st.exitEntry }, -1, short);
+    if (short && way?.dest !== DEAD_END) {
+      this.hold(st, { kind: "section", engine: u });
+      return false;
+    }
+    // A dead end straight past its slot's end: it turns back here, in its slot, its route on past the stops beyond.
+    if (way?.dest === DEAD_END && way.steps.length === 0) {
+      const train = this.sim.findCar(st.engine)?.train;
+      this.host.skipStops(st.engine, way.deadEnd!);
+      if (train && train.speed < 1 && this.sim.turnBack(train.id)) this.turnedShort++;
+      this.hold(st, { kind: "slot", engine: way.blockedBy });
+      return false;
+    }
     // (No slot ahead on this way: not one of the line's ways; left alone.)
     if (!way) return true;
     if (way.dest === -1) {
@@ -654,18 +859,23 @@ export class Sections {
       const t = this.sim.findCar(u)?.train;
       if (!t) continue;
       // On its way ahead.
-      if (t.bogies.some((b) => ahead.has(b.pieceId) && !mine.has(b.pieceId))) return this.recoverWait(st, u);
+      if (t.bogies.some((b) => ahead.has(b.pieceId) && !mine.has(b.pieceId))) return this.recoverWait(st, u, info);
       // Coming the other way through it (its move's way runs over where this one stands, the other way round).
       const m = this.states.get(u)?.move;
-      if (m && !m.free && m.section === way.section && m.steps.some((s) => mine.has(s.pieceId) && way.steps.some((w) => w.pieceId === s.pieceId && w.entry !== s.entry))) return this.recoverWait(st, u);
+      if (m && !m.free && m.section === way.section && m.steps.some((s) => mine.has(s.pieceId) && way.steps.some((w) => w.pieceId === s.pieceId && w.entry !== s.entry))) return this.recoverWait(st, u, info);
     }
-    if (way.dest === -1) return this.recoverWait(st, way.blockedBy);
+    if (way.dest === -1) return this.recoverWait(st, way.blockedBy, info);
     this.grant(st, way);
     return true;
   }
 
   /** A train in a section waits for `u`; a mutual wait that lasts is let go (the safety net, logged). */
-  private recoverWait(st: TrainState, u: number): boolean {
+  private recoverWait(st: TrainState, u: number, info?: LineInfo): boolean {
+    // (A train the line has no room for stays where it is, held: the others treat it as the end of the line.)
+    if (info && !info.admitted.has(st.engine)) {
+      this.hold(st, this.roomWait(st, info));
+      return false;
+    }
     this.hold(st, { kind: "section", engine: u });
     const other = this.states.get(u)?.wait;
     const mutual = !!other && other.kind !== "room" && other.engine === st.engine;
@@ -686,14 +896,15 @@ export class Sections {
     this.refused++;
   }
 
-  private grant(st: TrainState, way: { steps: Step[]; section: number; dest: number; outBy: number }): void {
+  private grant(st: TrainState, way: Way): void {
     const keys = new Set(way.steps.map((s) => s.pieceId * 8 + s.path));
-    let aim = -1;
-    for (const p of st.topo.slots[way.dest].pieces) {
-      aim = p;
-      break;
-    }
-    st.move = { section: way.section, dest: way.dest, outBy: way.outBy, steps: way.steps, follow: (pieceId, path) => keys.has(pieceId * 8 + path), aim, free: false, since: this.sim.ticks };
+    let aim = way.steps.length > 0 ? way.steps[way.steps.length - 1].pieceId : -1;
+    if (way.dest >= 0)
+      for (const p of st.topo.slots[way.dest].pieces) {
+        aim = p;
+        break;
+      }
+    st.move = { section: way.section, dest: way.dest, outBy: way.outBy, steps: way.steps, follow: (pieceId, path) => keys.has(pieceId * 8 + path), aim, free: false, since: this.sim.ticks, deadEnd: way.deadEnd };
     st.wait = null;
     st.waitSince = -1;
     this.granted++;
