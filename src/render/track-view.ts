@@ -399,7 +399,11 @@ export const SWITCH_ARROW_CLEAR = 24;
  * that makes them read against the light wood from the usual high camera (QA N1: cream alone was ~1.3:1 on birch).
  */
 export const SWITCH_ARROW_CREAM = "#fff3d2";
-export const SWITCH_ARROW_PINNED = "#ffa236";
+/**
+ * A pinned switch's: a vivid red-orange, well away from the birch's own yellow-orange in hue and saturation (QA: the
+ * softer #f08a3a rendered at the wood's hue, 0.08 against its 0.1, and read only by its rim).
+ */
+export const SWITCH_ARROW_PINNED = "#ff5f14";
 export const SWITCH_ARROW_RIM = "#3b2311";
 const arrowCream = new Color(SWITCH_ARROW_CREAM);
 const arrowPinned = new Color(SWITCH_ARROW_PINNED);
