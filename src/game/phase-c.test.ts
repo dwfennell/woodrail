@@ -43,7 +43,7 @@ describe("Phase C, the rest", () => {
     const w = buildStarterWorld();
     const [a] = w.landscape.towns;
     expect(dueLandmarks(w.landscape, a, 3, () => true).map((m) => m.id)).toEqual(["market"]);
-    expect(techOf("junctions")!.research).toEqual({ goods: { planks: 12 } });
+    expect(techOf("junctions")!.research).toEqual({ goods: { planks: 6 } });
   });
 
   it("the smithy's heavy wagons hold 5; the grab cranes need it", () => {

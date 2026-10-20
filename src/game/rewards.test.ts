@@ -112,11 +112,11 @@ describe("the research boost", () => {
     expect(takeCard(p, w, 0, 0)).not.toBeNull();
     expect(p.research.got).toEqual({ planks: 6 });
     expect(p.offers).toEqual([]);
-    // Mills: 12 planks and 6 grain: a town's 40% is 5 planks and 3 grain.
+    // Mills: 6 planks and 6 grain: a town's 40% is 3 planks and 3 grain (rounded up).
     const q = researching();
     q.offers.push({ from: "Elderwick", level: 2, cards: [{ kind: "boost", share: 0.4 }] });
     takeCard(q, w, 0, 0);
-    expect(q.research.got).toEqual({ planks: 5, grain: 3 });
+    expect(q.research.got).toEqual({ planks: 3, grain: 3 });
     expect(q.research.current).toBe("mills");
   });
 
@@ -171,7 +171,7 @@ describe("taking a card", () => {
     const crate = take({ kind: "crate", things: [["piece:buffer-turnback", 2], ["car:timber", 1]] }).p;
     expect([crate.owned.get("piece:buffer-turnback"), crate.owned.get("car:timber")]).toEqual([2 + 2, 3 + 1]);
     expect(take({ kind: "wagon", id: "car:engine" }).p.owned.get("car:engine")).toBe(2);
-    expect(take({ kind: "boost", share: 0.6 }, researching()).p.research.got).toEqual({ planks: 8, grain: 4 });
+    expect(take({ kind: "boost", share: 0.6 }, researching()).p.research.got).toEqual({ planks: 4, grain: 4 });
     expect(take({ kind: "rare", good: "grain", n: 6 }, researching()).p.research.got).toEqual({ grain: 6 });
   });
 

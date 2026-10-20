@@ -32,14 +32,14 @@ describe("a card's chips", () => {
     p.learned.add("farming");
     expect(chipsText(researchChips(p, "bridges"))).toBe("🪵 0/10");
     // Mills: planks and grain, and 20 coins (none in hand: short).
-    expect(researchChips(p, "mills")).toEqual([{ text: "🪵 0/12" }, { text: "🌾 0/6" }, { text: "🪙 20", short: true }]);
-    expect(chipsText(researchChips(p, "mills"))).toBe("🪵 0/12 · 🌾 0/6 · 🪙 20");
+    expect(researchChips(p, "mills")).toEqual([{ text: "🪵 0/6" }, { text: "🌾 0/6" }, { text: "🪙 20", short: true }]);
+    expect(chipsText(researchChips(p, "mills"))).toBe("🪵 0/6 · 🌾 0/6 · 🪙 20");
     p.coins = 30;
     expect(researchChips(p, "mills")[2]).toEqual({ text: "🪙 20" });
     // Started: its coins are paid (no chip), its goods count up.
     pick(p, "mills");
-    deliver(p, "planks", 6);
-    expect(chipsText(researchChips(p, "mills"))).toBe("🪵 6/12 · 🌾 0/6");
+    deliver(p, "planks", 4);
+    expect(chipsText(researchChips(p, "mills"))).toBe("🪵 4/6 · 🌾 0/6");
   });
 
   it("a ready card: Research when idle, else Next up; the one up next swaps with Research now", () => {
