@@ -251,13 +251,13 @@ export class Hud {
   private newGameAsk = 0;
   readonly perf = el("div", "perf");
   private toastTimer = 0;
-  private readonly toastQueue: { message: string; celebrate: boolean; ms: number; urgent: boolean }[] = [];
+  private readonly toastQueue: { message: string; celebrate: boolean; ms: number; urgent: boolean; tap?: () => void }[] = [];
   /** When a button of the HUD was last pressed: a toast soon after answers it (it shows even over a card). */
   private lastButtonAt = -Infinity;
   /** A toast waits for an open card to close (there was no room for it above the card). */
   private toastWaitsForCard = false;
   /** The toast on screen, from the queue (null: none, or a held piece's refusal). */
-  private toastShowing: { message: string; celebrate: boolean; ms: number; urgent: boolean } | null = null;
+  private toastShowing: { message: string; celebrate: boolean; ms: number; urgent: boolean; tap?: () => void } | null = null;
   /** Until when (performance.now) the message showing may not be replaced. */
   private toastHeldUntil = 0;
   /** When (performance.now) the toast showing came on. */
@@ -757,10 +757,13 @@ export class Hud {
 
     // Beside the HUD, not in it, so a toast shows over the panels opened over the HUD too (the Blueprints board).
     this.root.after(this.toastEl);
-    // A tap dismisses a toast early (and the next waiting comes on).
+    // A tap dismisses a toast early (and the next waiting comes on); one with something to open opens it.
     this.toastEl.addEventListener("click", (e) => {
       e.stopPropagation();
+      const t = this.toastShowing;
+      const tap = t && this.toastEl.textContent === t.message ? t.tap : undefined;
       this.dismissToast();
+      tap?.();
     });
 
     this.help.hidden = true;
@@ -988,22 +991,11 @@ export class Hud {
     }
   }
 
-  /** The Research button: lit while the picker's open, a pulsing dot while a town's choice waits. */
-  setBoardButton(open: boolean, rewards: number): void {
+  /** The Research button (and the pill standing in for it on a phone): lit while the picker's open. */
+  setBoardButton(open: boolean): void {
     this.boardBtn.classList.toggle("active", open);
     this.researchPill.classList.toggle("active", open);
-    this.boardBtn.classList.toggle("icon-btn-alert", rewards > 0);
-    // A new reward makes the whole button pulse (its icon has no label) until the board is opened.
-    if (open || rewards < this.rewardsSeen) this.rewardsSeen = rewards;
-    const fresh = rewards > this.rewardsSeen;
-    this.boardBtn.classList.toggle("board-new", fresh);
-    // (On a phone the pill stands in for the button while it shows: the glow goes with it. See the CSS.)
-    this.researchPill.classList.toggle("board-new", fresh);
-    this.researchPill.classList.toggle("icon-btn-alert", rewards > 0);
   }
-
-  /** Rewards waiting when the board was last open: one more since then makes the button pulse. */
-  private rewardsSeen = 0;
 
   /**
    * A newer build is out: offered in the menu (its button gets a dot) and said once in a toast. Nothing new on the map
@@ -1465,8 +1457,8 @@ export class Hud {
    * Show a message. Toasts come one at a time, each up long enough to read; celebrations go ahead of plain ones
    * waiting, a few wait at most, and the same message isn't queued twice.
    */
-  toast(message: string, celebrate = false, ms = 2200): void {
-    this.queueToast(message, celebrate, ms, performance.now() - this.lastButtonAt < TOAST_ANSWER_MS);
+  toast(message: string, celebrate = false, ms = 2200, tap?: () => void): void {
+    this.queueToast(message, celebrate, ms, performance.now() - this.lastButtonAt < TOAST_ANSWER_MS, tap);
   }
 
   /** Is toast `message` showing, or waiting its turn (not yet gone)? */
@@ -1502,11 +1494,11 @@ export class Hud {
    * `urgent`: it answers what the player just did (a refusal, a button's "can't"): it shows at once, even over an open
    * card. Anything else (a hint, news of the world) waits while an open card leaves it no room (see `placeToast`).
    */
-  private queueToast(message: string, celebrate: boolean, ms: number, urgent: boolean): void {
+  private queueToast(message: string, celebrate: boolean, ms: number, urgent: boolean, tap?: () => void): void {
     note("toast", message);
     const showing = this.toastHeldUntil > performance.now() && this.toastEl.textContent === message;
     if (showing || this.toastQueue.some((t) => t.message === message)) return;
-    const t = { message, celebrate, ms, urgent };
+    const t = { message, celebrate, ms, urgent, ...(tap ? { tap } : {}) };
     // (Never ahead of a refusal: that answers what was just done.)
     const plain = celebrate ? this.toastQueue.findIndex((q) => !q.celebrate && !q.urgent) : -1;
     if (plain !== -1) this.toastQueue.splice(plain, 0, t);

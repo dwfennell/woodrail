@@ -354,7 +354,8 @@ export const GOALS: readonly Goal[] = [
     id: "place-workshop",
     title: "Place your workshop",
     hint: "Drop it from the Industries tab onto a straight on your line.",
-    check: (w, ctx = NO_CONTEXT) => ({ done: workshops(w).length > 0 || ctx.learned.has("switches") }),
+    // (Only the workshop itself: switches are researched at the school, so knowing them says nothing of a workshop.)
+    check: (w) => ({ done: workshops(w).length > 0 }),
     guide: (w) => {
       const guide: GoalGuide = { ...guideTrains(w), tab: "industries", shelf: "Industries" };
       // A straight of the line where the workshop fits, yard and all: nearest the map's stations and depots.
@@ -371,7 +372,7 @@ export const GOALS: readonly Goal[] = [
     id: "workshop-planks",
     title: "Bring planks to the workshop",
     hint: "Run planks from the sawmill to it.",
-    check: (w, ctx = NO_CONTEXT) => ({ done: (workshopStock(w).planks ?? 0) > 0 || ctx.learned.has("switches") }),
+    check: (w) => ({ done: (workshopStock(w).planks ?? 0) > 0 }),
     guide: (w) => {
       const shop = workshops(w)[0];
       const saw = guideDepot(w, "sawmill");

@@ -3,11 +3,11 @@ import { Editor } from "../editor/editor";
 import { CARGO } from "../economy";
 import { describe as describeGoods } from "../economy/goods";
 import { siteWhy, updateRates } from "../game/industries";
-import { landmarksOf, townLandmarks } from "../game/landmarks";
+import { landmarksAt, landmarksOf, townLandmarks } from "../game/landmarks";
 import { Progress } from "../game/progress";
-import { describeThings, firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas } from "../game/rewards";
+import { cardView, describeThings, firstTimeGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
 import { attachEngines, powered, topSpeed } from "../game/engines";
-import { choose, learnAuto, needMet, ready, techOf } from "../game/tech";
+import { learnAuto, needMet, ready, techOf } from "../game/tech";
 import { describeNeed } from "../game/blueprints";
 import { applyCranes, Counters } from "../game/upgrades";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
@@ -22,7 +22,7 @@ import { endOn, rulesFor } from "./rules";
 
 /**
  * The grand tour: one game on the starter map through all of Game mode's content, on the game's own code. Planks grow
- * Larkfield to a town (its school and market go up); the line runs on to a farm yard and mill by the fields, and one
+ * Larkfield to a town (its market goes up); the line runs on to a farm yard and mill by the fields, and one
  * mixed train's flour makes it a city (its library opens Quarries); a quarry on a branch off the line, joined by a
  * switch, and a routed stone train that sets that switch itself, make it a city ★; a warehouse keeps flour for a
  * routed van. Then Phase C: a mine on a branch with a foundry and a power station; a goods train that brings iron to
@@ -41,7 +41,6 @@ class Tour {
   town!: TownLife;
   tick = 0;
   coins = { market: 0 };
-  readonly school = { seconds: 0 };
   readonly log: string[] = [];
   readonly findings: string[] = [];
   readonly random = rng(2026);
@@ -72,8 +71,8 @@ class Tour {
         this.syncLandmarks();
         const gift = firstTimeGift(this.progress, status.level);
         if (gift.length > 0) this.note(`  first ${status.name.toLowerCase()}: a present of ${describeThings(gift)}`);
-        const offer = offerOnGrowth(this.progress, t.name, this.random, status.level);
-        if (offer.length > 0) this.note(`  ${t.name} offers ${offer.map((id) => techOf(id)!.label).join(" or ")}`);
+        const offer = offerOnGrowth(this.progress, this.w, t.name, status.level, this.random);
+        if (offer) this.note(`  ${t.name} offers ${offer.cards.map((c) => cardView(this.progress, this.w, c).amount).join(" or ")}`);
       },
       knows: (id) => this.progress.learned.has(id),
     });
@@ -101,7 +100,9 @@ class Tour {
 
   syncLandmarks(): void {
     this.progress.landmarks.clear();
-    for (const id of landmarksOf(this.w.landscape)) this.progress.landmarks.add(id);
+    for (const id of landmarksAt(this.w)) this.progress.landmarks.add(id);
+    // (A shortcut: the tour places no school depot, but learns as if it had one. College and more need the school.)
+    this.progress.landmarks.add("school");
     learnAuto(this.progress);
   }
 
@@ -119,14 +120,6 @@ class Tour {
       if (this.tick % SIM_HZ !== 0) continue;
       this.town.update();
       this.counters.collect(this.w.economy, this.progress);
-      // (The tour's towns are kept supplied.) A school's idea goes on the board; the tour learns it (a shortcut for
-      // paying its planks at the workshop).
-      const idea = schoolIdeas(this.progress, this.w.landscape, this.school, 1, this.random);
-      if (idea) {
-        this.note(`${idea.from} has an idea: ${techOf(idea.id)!.label} on the board`);
-        this.progress.learned.add(idea.id);
-        this.progress.board.delete(idea.id);
-      }
       this.chooseOffers();
       if (this.tick % (SIM_HZ * 30) === 0) updateRates(this.w);
       if (this.tick % (SIM_HZ * this.reportEvery) === 0) this.trains();
@@ -134,13 +127,15 @@ class Tour {
     }
   }
 
-  /** Choose from what towns and schools offer, the industry and logistics lines first. */
+  /** Take a card from what towns offer as they grow: coins if offered, else the first that can be taken now. */
   chooseOffers(): void {
-    const prefer = ["harvesters", "farming", "mills", "routes", "warehouses", "quarries", "switches", "bridges"];
     while (this.progress.offers.length > 0) {
-      const o = this.progress.offers.shift()!;
-      const pick = prefer.find((t) => o.ids.includes(t)) ?? o.ids[0];
-      if (choose(this.progress, pick, o.ids)) this.note(`chose ${techOf(pick)!.label} (from ${o.from})`);
+      const o = this.progress.offers[0];
+      const coins = o.cards.findIndex((c) => c.kind === "coins");
+      const i = coins !== -1 ? coins : o.cards.findIndex((c) => cardView(this.progress, this.w, c).ok);
+      const took = i === -1 ? null : takeCard(this.progress, this.w, 0, i);
+      if (took) this.note(`took ${took.amount} (from ${o.from})`);
+      else this.progress.offers.shift();
     }
   }
 
@@ -286,7 +281,7 @@ describe("the grand tour", () => {
       T.note("timber train set going");
       T.run(30 * 60, () => T.level(larkfield()) >= 2);
       expect(T.level(larkfield()), T.log.join("\n")).toBeGreaterThanOrEqual(2);
-      expect([...townLandmarks(larkfield())].sort(), "a town has a school and a market").toEqual(["market", "school"]);
+      expect([...townLandmarks(larkfield())].sort(), "a town has a market (no school: the player places theirs)").toEqual(["market"]);
       T.note(`Larkfield is a town: coins ${T.progress.coins} (${T.coins.market} from its market)`);
 
       // 2. The farm chain: a farm yard by a field and a mill after it, the line run on to them from the forest yard.

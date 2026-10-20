@@ -20,13 +20,20 @@ import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
 
 /**
- * Save format, version 12 (research: the school is a depot beside a town, saved with its town's id; 11: town
+ * Save format, version 13 (the growth menu: a town's offer is three cards, never a blueprint, saved with the progress;
+ * 12: research, the school a depot beside a town, saved with its town's id; 11: town
  * buildings at their new sizes, the biggest landmarks on 2×2 lots; 10: lines, routes with a colour and a name). Plain JSON validated with Zod; only this module
  * (and `landscape-data`) knows its shape. The landscape is saved square by square (see `landscape-data.ts`): loading
- * never regenerates it. No backward compatibility until the game reaches v1: an older save is turned away
- * (`OLDER_SAVE`), and the game starts afresh.
+ * never regenerates it. No backward compatibility until the game reaches v1: a save older than `MIGRATES_FROM` is
+ * turned away (`OLDER_SAVE`), and the game starts afresh.
  */
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
+
+/**
+ * The oldest save that still loads. A v12 map is a v13 map (v13 changed only the progress's offers, beside the save:
+ * `Progress.fromJSON` keeps a v12 offer's town, and `redrawOldOffers` draws it again as cards).
+ */
+export const MIGRATES_FROM = 12;
 
 /** The error an older save gets (the title says so kindly). */
 export const OLDER_SAVE = "older version";
@@ -219,9 +226,10 @@ export function serializeWorld(world: World): SaveData {
 
 /** Rebuild a world from saved data. Never throws on bad input. */
 export function deserializeWorld(data: unknown): Result<World, string> {
-  // An older save: turned away (not migrated).
+  // An older save: turned away (not migrated); a v12 one is read as it is (the same shape).
   const version = (data as { version?: unknown } | null)?.version;
-  if (typeof version === "number" && version < SAVE_VERSION) return err(OLDER_SAVE);
+  if (typeof version === "number" && version < MIGRATES_FROM) return err(OLDER_SAVE);
+  if (typeof version === "number" && version < SAVE_VERSION) data = { ...(data as object), version: SAVE_VERSION };
   const parsed = saveSchema.safeParse(data);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -397,7 +405,7 @@ export function hasOlderSave(mode: GameMode): boolean {
   }
 }
 
-/** The version of a save older than this game's, or null (this version's, or not a save at all). */
+/** The version of a save too old to load (`MIGRATES_FROM`), or null (one that loads, or not a save at all). */
 function olderVersion(raw: string): number | null {
   let v: unknown;
   try {
@@ -405,7 +413,7 @@ function olderVersion(raw: string): number | null {
   } catch {
     return null;
   }
-  return typeof v === "number" && v < SAVE_VERSION ? v : null;
+  return typeof v === "number" && v < MIGRATES_FROM ? v : null;
 }
 
 export function hasSave(mode: GameMode): boolean {

@@ -1,14 +1,21 @@
-import type { CargoKind } from "../economy/cargo";
-import type { Landscape, Town } from "../landscape";
-import { MARKET_BONUS, SCHOOL_IDEA_SECONDS, townLandmarks } from "./landmarks";
+import { CARGO, GOODS_ICON, type CargoKind } from "../economy/cargo";
+import { capOf, RECIPES } from "../economy/economy";
+import { kindsOf, type Bag } from "../economy/goods";
+import type { Town } from "../landscape";
+import { workshops } from "./crafting";
+import { amountAt, CARD_AMOUNTS, CARD_KINDS, CARDS_PER_OFFER, type CardKind, type GrowthCard, type Offer } from "./growth-cards";
+import { MARKET_BONUS, townLandmarks } from "./landmarks";
 import type { Progress } from "./progress";
-import { choose, offerFor, ready, techOf, TECHS } from "./tech";
+import { deliver, lacking, lacks } from "./research";
+import { techOf } from "./tech";
 import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
-import { payFor, type TownStatus } from "./towns";
+import { payFor, townStatus, type TownStatus } from "./towns";
+import type { World } from "./world";
 
 /**
  * What Game mode gives for what happens on the railway, in one place for the game and for headless playthroughs:
- * coins for goods a town receives, and a choice of blueprints when a town grows.
+ * coins for goods a town receives, and when a town grows a choice of three cards (planks, coins, a crate, a wagon, a
+ * research boost, rare cargo), never a blueprint: blueprints are researched at a school.
  */
 
 /** A town received `n` units of `kind` (it was `before` then): pay for them. Returns the coins paid. */
@@ -18,51 +25,6 @@ export function payDelivery(p: Progress, kind: CargoKind, n: number, before: Tow
   const paid = Math.round(payFor(kind, before) * n * bonus);
   p.coins += paid;
   return paid;
-}
-
-/** No school ideas while this many blueprints already wait on the board to be learned (there's plenty to do). */
-export const SCHOOL_BOARD_CAP = 3;
-
-/**
- * Schools have ideas: every `SCHOOL_IDEA_SECONDS` of play, a school puts a blueprint on the board, to learn at its
- * price (not free: delivering goods and paying planks stay the way forward). A school only thinks while its town is
- * supplied (`supplied`: a delivery lately); two or more schools think half again as fast, no faster. No ideas while
- * `SCHOOL_BOARD_CAP` blueprints wait on the board. `clock` carries the time between calls. Returns the school and the
- * blueprint, or null.
- */
-export function schoolIdeas(
-  p: Progress,
-  land: Landscape,
-  clock: { seconds: number },
-  seconds: number,
-  random: () => number,
-  supplied: (townId: number) => boolean = () => true,
-): { from: string; id: string } | null {
-  const schools = land.towns.filter((t) => townLandmarks(t).has("school") && supplied(t.id));
-  if (schools.length === 0) return null;
-  const waiting = TECHS.filter((t) => p.board.has(t.id) && !p.learned.has(t.id) && ready(p, t.id)).length;
-  if (waiting >= SCHOOL_BOARD_CAP) return null;
-  clock.seconds += seconds * (schools.length > 1 ? 1.5 : 1);
-  if (clock.seconds < SCHOOL_IDEA_SECONDS) return null;
-  // (offerFor gives only blueprints ready to learn.) Nothing new to put on the board: the idea keeps until there is.
-  const id = offerFor(p, random).find((x) => !p.board.has(x));
-  if (!id) return null;
-  clock.seconds = 0;
-  p.board.add(id);
-  const town = schools[Math.floor(random() * schools.length)];
-  return { from: `${town.name} school`, id };
-}
-
-/**
- * A town grew to `level` (1 a village, 2 a town, 3 a city; 0: unknown): it offers two blueprints suited to its new size,
- * one to learn free, or instead a crate of things for the toy box. Returns the blueprints (none left: empty; the crate
- * may still be offered).
- */
-export function offerOnGrowth(p: Progress, townName: string, random: () => number, level = 0): string[] {
-  const offer = offerFor(p, random, Math.min(level, 3));
-  const crate = level > 0 ? crateFor(p, level, random) : [];
-  if (offer.length > 0 || crate.length > 0) p.offers.push({ from: townName, ids: offer, ...(crate.length > 0 ? { crate } : {}) });
-  return offer;
 }
 
 /** The school's piece (the first village's present). */
@@ -93,56 +55,6 @@ export function describeThings(things: readonly [ThingId, number][]): string {
 /** "Turnbacks", "Switches", "Flatbed wagons". */
 function plural(label: string): string {
   return /(s|x|ch|sh)$/.test(label) ? `${label}es` : `${label}s`;
-}
-
-/**
- * Take the crate instead of a blueprint: its things go into the toy box, and the blueprints offered go on the board (to
- * learn later at their own price). False if that offer has no crate.
- */
-export function takeCrate(p: Progress, k: number): boolean {
-  const o = p.offers[k];
-  if (!o?.crate) return false;
-  for (const [id, n] of o.crate) p.add(id, n);
-  for (const id of o.ids) if (ready(p, id)) p.board.add(id);
-  p.offers.splice(k, 1);
-  return true;
-}
-
-/**
- * Pending offers can go stale: another card (or the board) taught a blueprint they still list. Take every blueprint
- * you can no longer learn off the offers and re-roll a replacement (not one the offer already lists); if none is left
- * the choice is dropped, and a whole offer with nothing in it (no crate either) goes. True if anything changed.
- */
-export function refreshOffers(p: Progress, random: () => number): boolean {
-  let changed = false;
-  for (let k = p.offers.length - 1; k >= 0; k--) {
-    const o = p.offers[k];
-    const stale = o.ids.filter((id) => !ready(p, id));
-    if (stale.length === 0) continue;
-    changed = true;
-    const keep = o.ids.filter((id) => ready(p, id));
-    const tier = techOf(stale[0])?.tier ?? 1;
-    const fresh = offerFor(p, random, tier).filter((id) => !keep.includes(id));
-    o.ids = [...keep, ...fresh.slice(0, stale.length)];
-    if (o.ids.length === 0 && !o.crate) p.offers.splice(k, 1);
-  }
-  return changed;
-}
-
-/**
- * Choose a blueprint from an offer: learned free; the other goes on the board. False if it can't be; an offer gone
- * stale (the blueprint was learned meanwhile) is refreshed then, so no card lists it any more.
- */
-export function takeBlueprint(p: Progress, k: number, id: string, random: () => number = Math.random): boolean {
-  const o = p.offers[k];
-  if (!o || !o.ids.includes(id)) return false;
-  if (!choose(p, id, o.ids)) {
-    refreshOffers(p, random);
-    return false;
-  }
-  p.offers.splice(k, 1);
-  refreshOffers(p, random);
-  return true;
 }
 
 /**
@@ -180,4 +92,199 @@ function giftFor(p: Progress, level: number): [ThingId, number][] {
   // The first city: an engine only once Signals are learned (till then it would only meet the first train head on).
   const engine: [ThingId, number][] = p.learned.has("signals") ? [["car:engine", 1]] : [];
   return [...engine, ...(industries.length > 0 ? [[industries[industries.length - 1], 1] as [ThingId, number]] : [])];
+}
+
+/** Room for planks left in the workshops' yards (each up to its cap). */
+export function plankRoom(world: World): number {
+  let n = 0;
+  for (const d of workshops(world)) n += Math.max(0, capOf(d.role) - d.piles[CARGO.planks.index]);
+  return n;
+}
+
+/** Put up to `n` planks into the workshops' yards, first workshop first. Returns how many went in. */
+function plankYards(world: World, n: number): number {
+  let left = n;
+  for (const d of workshops(world)) {
+    const i = CARGO.planks.index;
+    const put = Math.min(left, Math.max(0, capOf(d.role) - d.piles[i]));
+    d.piles[i] += put;
+    left -= put;
+  }
+  return n - left;
+}
+
+/** Is a school on the map? */
+function schoolPlaced(world: World): boolean {
+  return world.economy.allDepots().some((d) => d.role === "school" && world.layout.getPiece(d.pieceId));
+}
+
+/** What a research boost of `share` puts into the current research now: that share of each good it lacks (rounded up). */
+export function boostGoods(p: Progress, share: number): Bag {
+  const out: Bag = {};
+  const short = lacks(p);
+  for (const k of kindsOf(short)) out[k] = Math.min(short[k]!, Math.ceil(short[k]! * share));
+  return out;
+}
+
+/**
+ * A rare good for the current research: one it lacks that none of your depots makes (grain before a farm, stone before
+ * a quarry). Null if there's none.
+ */
+export function rareGood(p: Progress, world: World): CargoKind | null {
+  const short = kindsOf(lacks(p));
+  if (short.length === 0) return null;
+  const made = new Set<CargoKind>();
+  for (const d of world.economy.allDepots()) if (world.layout.getPiece(d.pieceId)) for (const k of RECIPES[d.role].gives) made.add(k);
+  return short.find((k) => !made.has(k)) ?? null;
+}
+
+/** Wagons a card can give (known ones; not the engine, which a city gives, nor the track cleaner). */
+function wagonsKnown(p: Progress): ThingId[] {
+  return (Object.keys(THING_RULES) as ThingId[]).filter((id) => id.startsWith("car:") && id !== "car:engine" && id !== "car:cleaner" && p.knows(id));
+}
+
+/** A card of `kind` for a town that grew to `level`, or null if that kind can't be offered now. */
+export function cardFor(p: Progress, world: World, kind: CardKind, level: number, random: () => number): GrowthCard | null {
+  switch (kind) {
+    case "planks": {
+      // Only what fits in the yards (the card says so), so none is lost.
+      const n = Math.min(amountAt(CARD_AMOUNTS.planks, level), plankRoom(world));
+      return n > 0 ? { kind, n } : null;
+    }
+    case "coins":
+      return { kind, n: amountAt(CARD_AMOUNTS.coins, level) };
+    case "crate": {
+      const things = crateFor(p, amountAt(CARD_AMOUNTS.crate, level) - 1, random);
+      return things.length > 0 ? { kind, things } : null;
+    }
+    case "wagon": {
+      // A city's is an engine, but only once Signals are learned (before, a second train only meets the first head on).
+      if (level >= 3 && p.learned.has("signals")) return { kind, id: "car:engine" };
+      const known = wagonsKnown(p);
+      return known.length > 0 ? { kind, id: known[Math.floor(random() * known.length)] } : null;
+    }
+    case "boost":
+      // Only while a research is picked and short of goods.
+      return kindsOf(lacks(p)).length > 0 ? { kind, share: amountAt(CARD_AMOUNTS.boost, level) } : null;
+    case "rare": {
+      // From a town up, with a school to bring it to, and only a good the research lacks that you can't make.
+      const n = amountAt(CARD_AMOUNTS.rare, level);
+      const good = n > 0 && schoolPlaced(world) ? rareGood(p, world) : null;
+      return good ? { kind, good, n } : null;
+    }
+  }
+}
+
+/**
+ * A town grew to `level` (1 a village, 2 a town, 3 a city…): it offers three cards of different kinds, drawn from those
+ * that can be offered now, with amounts by its level. Never a blueprint. The offer waits in `p.offers` till one is
+ * taken. Returns it (null if none could be offered, or the level is unknown).
+ */
+export function offerOnGrowth(p: Progress, world: World, townName: string, level: number, random: () => number): Offer | null {
+  if (level <= 0) return null;
+  const pool = CARD_KINDS.map((k) => cardFor(p, world, k, level, random)).filter((c): c is GrowthCard => c !== null);
+  const cards: GrowthCard[] = [];
+  while (cards.length < CARDS_PER_OFFER && pool.length > 0) cards.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
+  if (cards.length === 0) return null;
+  const offer: Offer = { from: townName, level, cards };
+  p.offers.push(offer);
+  return offer;
+}
+
+/**
+ * A v12 save's offers (`p.oldOffers`), now its map is in: each drawn again as a growing town's cards, at its town's
+ * level now (a village's if the town's not found). True if any were.
+ */
+export function redrawOldOffers(p: Progress, world: World, random: () => number): boolean {
+  if (p.oldOffers.length === 0) return false;
+  for (const from of p.oldOffers.splice(0)) {
+    const town = world.landscape.towns.find((t) => t.name === from);
+    const level = town ? townStatus({ ...world.economy.deliveredGoods.get(town.id), planks: world.economy.delivered.get(town.id) ?? 0 }).level : 0;
+    offerOnGrowth(p, world, from, Math.max(1, level), random);
+  }
+  return true;
+}
+
+/** A card as the growth sheet shows it: a big icon, its amount, one line, and whether it can be taken now (if not, why). */
+export interface CardView {
+  kind: CardKind;
+  icon: string;
+  amount: string;
+  line: string;
+  ok: boolean;
+  why?: string;
+}
+
+/** "4🪵 3🌾". */
+const goodsLine = (bag: Bag) =>
+  kindsOf(bag)
+    .map((k) => `${bag[k]}${GOODS_ICON[k]}`)
+    .join(" ");
+
+/** How a card reads now (what it gives depends on the yards and the research as they are now). */
+export function cardView(p: Progress, world: World, card: GrowthCard): CardView {
+  switch (card.kind) {
+    case "planks": {
+      const n = Math.min(card.n, plankRoom(world));
+      const line = "Into your workshop's yard";
+      if (n > 0) return { kind: card.kind, icon: GOODS_ICON.planks, amount: `+${n} planks`, line, ok: true };
+      return { kind: card.kind, icon: GOODS_ICON.planks, amount: `+${card.n} planks`, line, ok: false, why: workshops(world).length === 0 ? "Place your workshop first" : "Your workshop's yard is full" };
+    }
+    case "coins":
+      return { kind: card.kind, icon: "🪙", amount: `+${card.n} coins`, line: "To spend as you like", ok: true };
+    case "crate":
+      return { kind: card.kind, icon: "📦", amount: `A crate: ${card.things.length} things`, line: describeThings(card.things), ok: true };
+    case "wagon":
+      return { kind: card.kind, icon: card.id === "car:engine" ? "🚂" : "🚃", amount: `1 ${ruleOf(card.id)?.label ?? card.id}`, line: "Into your toy box", ok: true };
+    case "boost": {
+      const bag = boostGoods(p, card.share);
+      const id = p.research.current;
+      const pct = `${Math.round(card.share * 100)}%`;
+      if (id && kindsOf(bag).length > 0) return { kind: card.kind, icon: "📘", amount: `+${goodsLine(bag)}`, line: `${pct} of what ${techOf(id)!.label} still needs`, ok: true };
+      return { kind: card.kind, icon: "📘", amount: `${pct} research boost`, line: "Goods into your research", ok: false, why: "Pick a research that needs goods" };
+    }
+    case "rare": {
+      const label = CARGO[card.good].label.toLowerCase();
+      const n = Math.min(card.n, lacking(p, card.good));
+      const line = "Rare cargo for your research";
+      if (n > 0) return { kind: card.kind, icon: GOODS_ICON[card.good], amount: `+${n} ${label}`, line, ok: true };
+      return { kind: card.kind, icon: GOODS_ICON[card.good], amount: `+${card.n} ${label}`, line, ok: false, why: `Your research needs no ${label} now` };
+    }
+  }
+}
+
+/**
+ * Take card `i` of offer `k`: it's applied (planks into the yards, coins, things into the toy box, goods into the
+ * research) and the offer is done. Returns how it read (for the toast), or null if it can't be taken now (the offer
+ * keeps waiting). Goods into the research change what schools take: the caller tells the economy.
+ */
+export function takeCard(p: Progress, world: World, k: number, i: number): CardView | null {
+  const card = p.offers[k]?.cards[i];
+  if (!card) return null;
+  const view = cardView(p, world, card);
+  if (!view.ok) return null;
+  switch (card.kind) {
+    case "planks":
+      plankYards(world, card.n);
+      break;
+    case "coins":
+      p.coins += card.n;
+      break;
+    case "crate":
+      for (const [id, n] of card.things) p.add(id, n);
+      break;
+    case "wagon":
+      p.add(card.id, 1);
+      break;
+    case "boost": {
+      const bag = boostGoods(p, card.share);
+      for (const g of kindsOf(bag)) deliver(p, g, bag[g]!);
+      break;
+    }
+    case "rare":
+      deliver(p, card.good, card.n);
+      break;
+  }
+  p.offers.splice(k, 1);
+  return view;
 }

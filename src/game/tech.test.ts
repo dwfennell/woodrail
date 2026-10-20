@@ -4,7 +4,7 @@ import { capOf } from "../economy/economy";
 import { appendPiece, connectorRef } from "../track";
 import { GOALS } from "./goals";
 import { Progress } from "./progress";
-import { built, choose, keepsPlanks, learnWithGoods, offerFor, planksWanted, ready, TECHS } from "./tech";
+import { built, keepsPlanks, learnWithGoods, planksWanted, ready, TECHS } from "./tech";
 import { THING_RULES } from "./things";
 import { buildStarterWorld, syncIndustries } from "./world";
 
@@ -22,17 +22,6 @@ describe("blueprints", () => {
   it("one workshop's yard holds the planks for any blueprint or building (it once held 12: a mill could never be paid)", () => {
     const most = Math.max(...TECHS.filter(built).map((t) => t.price.planks ?? 0), ...Object.values(THING_RULES).map((r) => r!.cost.planks ?? 0));
     expect(capOf("workshop")).toBeGreaterThanOrEqual(most);
-  });
-
-  it("a growing town offers two ready blueprints, new ones first; choosing one learns it and boards the other", () => {
-    const p = Progress.fresh();
-    const offer = offerFor(p, () => 0);
-    expect(offer).toHaveLength(2);
-    for (const o of offer) expect(p.board.has(o)).toBe(false);
-    expect(choose(p, offer[0], offer)).toBe(true);
-    expect(p.learned.has(offer[0])).toBe(true);
-    expect(p.board.has(offer[1])).toBe(true);
-    expect(choose(p, offer[0], offer)).toBe(false);
   });
 
   it("learn from the board with planks from the workshop's yard", () => {

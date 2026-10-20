@@ -330,6 +330,19 @@ describe("GoalTracker", () => {
     expect(goal("workshop-planks").guide(w).marks).toEqual([w.layout.getPiece(piece)!.pose]);
   });
 
+  it("switches learned by research tick neither workshop goal (QA: both ticked with no workshop placed)", () => {
+    const w = buildStarterWorld();
+    const ctx = { learned: new Set(["switches"]) };
+    expect(goal("place-workshop").check(w, ctx).done).toBe(false);
+    expect(goal("workshop-planks").check(w, ctx).done).toBe(false);
+    // The tracker, at the workshop goal with switches researched: it stays there, and learn-switches waits its turn.
+    const upTo = GOALS.slice(0, GOALS.findIndex((g) => g.id === "place-workshop")).map((g) => g.id);
+    const tracker = new GoalTracker(upTo);
+    for (let k = 0; k < 3; k++) expect(tracker.update(w, ctx).map((g) => g.id)).not.toContain("place-workshop");
+    expect(tracker.current()?.id).toBe("place-workshop");
+    expect(tracker.ids()).not.toContain("workshop-planks");
+  });
+
   it("restores from saved ids, ignoring ones it doesn't know", () => {
     const tracker = new GoalTracker(["join-two", "no-such-goal"]);
     expect(tracker.ids()).toEqual(["join-two"]);

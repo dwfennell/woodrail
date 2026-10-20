@@ -8,7 +8,7 @@ import type { World } from "./world";
 
 /**
  * The rules for learning blueprints (Game mode), on the catalogue in `blueprints.ts`: what can be learned now, what a
- * growing town offers, learning one free or at its price, and the ones learned by themselves.
+ * school researches, and the ones learned by themselves. (A growing town offers resources, never a blueprint.)
  */
 
 /** A blueprint (see `Blueprint`). */
@@ -108,37 +108,6 @@ export function learnAuto(p: Progress): string[] {
     out.push(t.id);
   }
   return out;
-}
-
-/**
- * Two blueprints a growing town offers: of its own `tier` first (a village track, a town industries, a city the
- * advanced ones; 0: any), then any other; within each, ready ones not yet on the board before ones that are. Picked by
- * `random` (0–1). Fewer when fewer are left.
- */
-export function offerFor(p: Progress, random: () => number, tier = 0): string[] {
-  const can = TECHS.filter((t) => t.learn === "board" && ready(p, t.id));
-  const mine = (t: Tech) => tier === 0 || (t.tier ?? 1) === tier;
-  const pools = [
-    can.filter((t) => mine(t) && !p.board.has(t.id)),
-    can.filter((t) => mine(t) && p.board.has(t.id)),
-    can.filter((t) => !mine(t) && !p.board.has(t.id)),
-    can.filter((t) => !mine(t) && p.board.has(t.id)),
-  ].map((pool) => pool.map((t) => t.id));
-  const out: string[] = [];
-  for (const pool of pools) {
-    const left = [...pool];
-    while (out.length < 2 && left.length > 0) out.push(left.splice(Math.floor(random() * left.length), 1)[0]);
-  }
-  return out;
-}
-
-/** Learn a blueprint chosen when a town grew: free. The other one offered goes on the board. */
-export function choose(p: Progress, id: string, offered: readonly string[]): boolean {
-  if (!ready(p, id)) return false;
-  p.learned.add(id);
-  p.board.delete(id);
-  for (const o of offered) if (o !== id && ready(p, o)) p.board.add(o);
-  return true;
 }
 
 /**
