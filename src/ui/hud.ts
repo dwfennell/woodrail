@@ -229,6 +229,8 @@ export class Hud {
   private readonly modeTag = el("span", "mode-tag");
   /** Game mode's coins, by the logo. */
   private readonly coinTag = el("span", "coins");
+  /** Game mode: the railway's date ("Mar 2001", see game/calendar.ts). */
+  private readonly dateTag = el("span", "game-date");
   /** Game mode: the research under way and how far ("📘 Bridges 6/10🪵"), or "Pick research"; tap: the picker. */
   private readonly researchPill = el("button", "research-pill") as HTMLButtonElement;
   /** What the pill shows now (its whole text and fill): it's redrawn only when this changes. */
@@ -290,6 +292,9 @@ export class Hud {
     this.coinTag.hidden = true;
     this.coinTag.title = "Coins: towns pay them for deliveries; they buy land";
     brand.appendChild(this.coinTag);
+    this.dateTag.hidden = true;
+    this.dateTag.title = "The date on your railway: a month every two minutes of play";
+    brand.appendChild(this.dateTag);
     // Tapped: back to my railway (after a pinch or a pan out over empty land, the way home).
     brand.setAttribute("role", "button");
     brand.tabIndex = 0;
@@ -959,6 +964,13 @@ export class Hud {
     this.researchPill.classList.toggle("idle", v.idle);
     this.researchPill.title = v.idle ? "Pick research" : `${text.slice(3)}: tap for Research`;
     this.researchPill.setAttribute("aria-label", v.idle ? "Pick research" : `Research: ${text.slice(3)}`);
+  }
+
+  /** Show the railway's date (null: hide it, outside Game mode). The page is touched only when the text changes. */
+  setDate(text: string | null): void {
+    const hidden = text === null;
+    if (this.dateTag.hidden !== hidden) this.dateTag.hidden = hidden;
+    if (text !== null && this.dateTag.textContent !== text) this.dateTag.textContent = text;
   }
 
   /** Show the coins (null: hide them, outside Game mode). A rise pops the count. */

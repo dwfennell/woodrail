@@ -1,8 +1,9 @@
 // End-to-end Research picker on a phone (`npm run e2e:research [-- <out dir>]`), at 390×844 with touch: a new game's
 // line laid and its school placed; the pill in the top bar says "Pick research"; a goal after a blueprint (Learn
 // switches) opens the picker on it from Show me and from the pill, nothing picked; Research, then Next up (and the
-// swap); deliveries move the pill; every card state's ticket; the pill fits the bar beside the coins and buttons; and no
-// frames drawn in 30 s with the pill showing while nothing changes.
+// swap); deliveries move the pill; every card state's ticket; the pill fits the bar beside the coins and buttons; the date
+// and the pill both read at 360, 414 and 844×390 (a phone on its side); and no frames drawn in 30 s with the pill showing
+// while nothing changes.
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
 // Starts its own dev server (on 5381, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -242,6 +243,26 @@ await p.evaluate(() => {
 await p.waitForTimeout(300);
 m = await bar();
 check("…with 1250 coins showing", fits(m) && !m.clipped, JSON.stringify(m));
+
+// 7b. The date beside the coins with the pill showing, on a small phone, a large one and a phone on its side: the date
+// whole (not cut by the brand's edge), the pill clear of the brand and the buttons, the name whole (at 360, if it's cut, 50 px of it).
+for (const [width, height, whole] of [[360, 740, false], [414, 896, true], [844, 390, true]]) {
+  await p.setViewportSize({ width, height });
+  await p.waitForTimeout(1500);
+  const d = await p.evaluate(() => {
+    const brand = document.querySelector(".brand").getBoundingClientRect();
+    const date = document.querySelector(".game-date");
+    const r = date.getBoundingClientRect();
+    const name = document.querySelector(".research-pill .rp-name");
+    return { text: date.textContent, shown: !date.hidden && r.width > 0, cut: r.left < brand.left || r.right > brand.right + 0.5 || date.scrollWidth > date.clientWidth, name: name.clientWidth, nameClipped: name.scrollWidth > name.clientWidth };
+  });
+  m = await bar();
+  const ok = d.shown && /^[A-Z][a-z]{2} \d{4}$/.test(d.text) && !d.cut && fits(m) && (!d.nameClipped || (!whole && d.name >= 50));
+  check(`at ${width}×${height} the date and the pill both read`, ok, JSON.stringify({ ...d, ...m }));
+  await shot(`11b-date-pill-${width}x${height}`);
+}
+await p.setViewportSize({ width: 390, height: 844 });
+await p.waitForTimeout(800);
 
 // 8. Idle with the pill showing (research waiting on goods, no trains): no frames in 30 s.
 const idle = await p.evaluate(async () => {

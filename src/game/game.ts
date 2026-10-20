@@ -145,7 +145,7 @@ export class Game {
   /** A prop being moved by hand: not drawn where it stood. */
   private hiddenProp = -1;
   paused = false;
-  /** Seconds the world has run (it stops while paused): game time, for "2 min ago". */
+  /** Seconds the world has run (it stops while paused): game time: the date (calendar.ts) and the Journal's times. */
   simSeconds = 0;
   /** Called once per frame after the simulation steps, before rendering. */
   onFrame: ((dt: number) => void) | null = null;
