@@ -334,7 +334,7 @@ describe("save format", () => {
     if (r.ok) expect(r.value.sim.trainCount).toBe(0);
   });
 
-  it("keeps the joints it was saved with, even one joint play took past the tolerance (an older build's)", () => {
+  it("keeps the joints it was saved with, even one joint play took past the tolerance; an older save's come back too", () => {
     const world = buildStarterWorld();
     const [a] = world.landscape.towns;
     const station = world.stations.get(a.id)!;
@@ -370,13 +370,15 @@ describe("save format", () => {
     const b = deserializeWorld(bogus);
     expect(b.ok).toBe(true);
     if (b.ok) expect(pairs(b.value.layout)).toEqual(pairs(world.layout));
-    // An older save (no joints): seated afresh by the tolerance, so the turned joint parts, as it used to.
+    // An older save (no joints): the ends that meet within the tolerance's reach and 10° are joined again, and the
+    // loose track relaxed to bring the joint within the tolerance (the station stays put).
     delete data.joints;
     const old = deserializeWorld(data);
     expect(old.ok).toBe(true);
     if (!old.ok) return;
-    expect(old.value.layout.joinedConnector(connectorRef(s1, 1))).toBe(-1);
-    expect(old.value.layout.jointCount).toBe(world.layout.jointCount - 1);
+    expect(pairs(old.value.layout)).toEqual(pairs(world.layout));
+    for (const j of old.value.layout.joints()) expect(j.angleError).toBeLessThanOrEqual(JOINT_ANGLE_TOLERANCE);
+    expect(old.value.layout.getPiece(station)!.pose).toEqual(world.layout.getPiece(station)!.pose);
   });
 
   it("round-trips pinned switches; a save without them loads with none", () => {

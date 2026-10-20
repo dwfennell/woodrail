@@ -301,6 +301,43 @@ export class Layout {
     return true;
   }
 
+  /**
+   * Join every two free ends that meet within the joint's position tolerance and `SAVED_JOINT_ANGLE` (loading a save
+   * from before saves listed their joints: joints joint play took a little past the tolerance were joined when it was
+   * saved). Each end joins the nearest such end. Returns the joints made, by one of their ends.
+   */
+  seatNearMisses(): number[] {
+    const made: number[] = [];
+    const ends: number[] = [];
+    for (const [id, piece] of this.pieces) {
+      if (this.lifted.has(id)) continue;
+      const count = getPieceDef(piece.type, piece.flipped).connectors.length;
+      for (let i = 0; i < count; i++) if (!this.joinedTo.has(connectorRef(id, i))) ends.push(connectorRef(id, i));
+    }
+    for (const ref of ends) {
+      if (this.joinedTo.has(ref)) continue;
+      const w = this.worldConnector(ref, scratchA);
+      const wx = w.x;
+      const wz = w.z;
+      const n = this.freeConnectors.query(wx, wz, JOINT_POS_TOLERANCE, candidates);
+      let best = -1;
+      let bestPos = Infinity;
+      for (let k = 0; k < n; k++) {
+        const other = candidates[k];
+        if (pieceOfRef(other) === pieceOfRef(ref) || this.joinedTo.has(other)) continue;
+        const o = this.worldConnector(other, scratchB);
+        const pos = Math.hypot(o.x - wx, o.z - wz);
+        if (pos < bestPos) {
+          best = other;
+          bestPos = pos;
+        }
+      }
+      // (restoreJoint checks the height, the position and the facing.)
+      if (best !== -1 && this.restoreJoint(ref, best)) made.push(ref);
+    }
+    return made;
+  }
+
   /** Part a joint (undoing a near miss closed): both ends become free where they are. */
   unseat(ref: number): void {
     const partner = this.joinedTo.get(ref);

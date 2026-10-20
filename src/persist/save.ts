@@ -14,7 +14,7 @@ const MAX_PILE = Math.max(PILE_CAP, ...Object.values(RECIPES).map((r) => r.cap ?
 const MAX_SAVED_SPEED = 1000;
 /** Most people saved riding one coach, or waiting at one station. */
 const MAX_RIDERS = 24;
-import { connectorRef, getPieceDef, indexOfRef, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
+import { connectorRef, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, kitOf, Layout, MAX_CONNECTORS, pieceOfRef, relaxJoints, pathLength, PIECE_TYPES, type PieceTypeId } from "../track";
 import { joinSavedLine, LINE_COLOURS } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
@@ -223,6 +223,32 @@ export function serializeWorld(world: World): SaveData {
   };
 }
 
+/**
+ * A save from before saves listed their joints: joints that joint play had taken a little past the tolerance were
+ * parted by seating afresh (QA: a drawn line split after Continue). Ends that meet within the position tolerance and
+ * `SAVED_JOINT_ANGLE` are joined again, then the loose track around each such joint is relaxed to bring it within
+ * the tolerance (stations and depots, `fixed`, stay put). One the relax can't bring within it stays joined anyway:
+ * better a joint a little past the tolerance that holds than a split line (the next save lists it).
+ */
+function bringBackJoints(layout: Layout, fixed: ReadonlySet<number>): void {
+  const made = layout.seatNearMisses();
+  const pinned = (id: number) => fixed.has(id);
+  const loose = (ref: number) => {
+    const j = layout.jointAt(ref);
+    return !!j && (j.angleError > JOINT_ANGLE_TOLERANCE || j.posError > JOINT_POS_TOLERANCE);
+  };
+  // (Twice round: relaxing one joint can leave room to bring a neighbour in.)
+  for (let pass = 0; pass < 2; pass++)
+    for (const ref of made) {
+      if (!loose(ref)) continue;
+      const seeds = [pieceOfRef(ref), pieceOfRef(layout.joinedConnector(ref))];
+      let moved = relaxJoints(layout, seeds, pinned, [], true);
+      // (Not all within the tolerance: as near it as the relax gets without turning any joint further.)
+      if (moved.size === 0) moved = relaxJoints(layout, seeds, pinned);
+      layout.nudgePieces(moved);
+    }
+}
+
 /** Rebuild a world from saved data. Never throws on bad input. */
 export function deserializeWorld(data: unknown): Result<World, string> {
   // An older save: turned away (not migrated).
@@ -263,6 +289,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     if (!piece) return err(`invalid save: depot ${depot.id} is missing`);
     depots.set(depot.id, piece.id);
   }
+  if (!save.joints) bringBackJoints(layout, new Set([...stations.values(), ...depots.values()]));
   const sim = new Sim(layout);
   // The economy's depots as they were, in order: one on each depot piece and station.
   const economy = new Economy(layout, sim);

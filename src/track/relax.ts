@@ -42,6 +42,8 @@ export function relaxJoints(
   seeds: readonly number[],
   pinned: (pieceId: number) => boolean,
   near: readonly (readonly [number, number])[] = [],
+  /** Every joint must end within the tolerance, even one already past it (an older save's, being brought back in). */
+  strict = false,
 ): Map<number, Pose> {
   const result = new Map<number, Pose>();
   // Near misses to close (pairs of free ends): fitted as if joined, so the loose track gives a little at every joint.
@@ -93,7 +95,7 @@ export function relaxJoints(
       if (weight === TWIST_WEIGHTS[0]) break;
       continue;
     }
-    if (!withinTurn(layout, free, poses, turnedBefore)) continue;
+    if (!withinTurn(layout, free, poses, strict ? null : turnedBefore)) continue;
     fitted = true;
     break;
   }
@@ -169,11 +171,12 @@ function jointTurns(layout: Layout, ids: readonly number[], poses: Map<number, P
 
 /**
  * Is every joint of `ids` (and near miss being closed) turned within the joint tolerance at `poses`, or, if it was
- * already past it (`before`: an older build's joint, loaded as it was saved), no further?
+ * already past it (`before`: an older build's joint, loaded as it was saved), no further? (No `before`: every one
+ * within the tolerance.)
  */
-function withinTurn(layout: Layout, ids: readonly number[], poses: Map<number, Pose>, before: ReadonlyMap<number, number>): boolean {
+function withinTurn(layout: Layout, ids: readonly number[], poses: Map<number, Pose>, before: ReadonlyMap<number, number> | null): boolean {
   for (const [a, turn] of jointTurns(layout, ids, poses)) {
-    const was = layout.joinedConnector(a) !== -1 ? (before.get(a) ?? 0) : 0;
+    const was = before && layout.joinedConnector(a) !== -1 ? (before.get(a) ?? 0) : 0;
     if (turn > Math.max(JOINT_ANGLE_TOLERANCE, was) + 1e-9) return false;
   }
   return true;
