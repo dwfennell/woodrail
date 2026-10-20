@@ -3,7 +3,7 @@ import { townProps } from "../props/towns";
 import { landmarksAt, landmarksOf, LANDMARKS, townLandmarks } from "./landmarks";
 import { Progress } from "./progress";
 import { payDelivery } from "./rewards";
-import { learnAuto } from "./tech";
+import { learnAuto, TECHS } from "./tech";
 import { TownLife, type TownLifeHost } from "./town-life";
 import { townStatus } from "./towns";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
@@ -83,5 +83,19 @@ describe("town landmarks", () => {
     expect(payDelivery(p, "planks", 2, before, t)).toBe(8);
     t.buildings[0].landmark = "market";
     expect(payDelivery(p, "planks", 2, before, t)).toBe(12);
+  });
+});
+
+describe("what a landmark's news says", () => {
+  it("names Research, not the board (the board is the Research picker now: QA)", () => {
+    for (const m of LANDMARKS) expect(m.blurb, m.id).not.toMatch(/\bboard\b/i);
+    for (const t of TECHS) expect(t.blurb, t.id).not.toMatch(/\bthe board\b/i);
+    // (P3: a school is placed, not raised by a village, and its blurb says Research.)
+    expect(TECHS.find((t) => t.id === "school")!.blurb).toMatch(/research/i);
+  });
+
+  it("promises no free blueprints (P3: no school ideas, no blueprint offers)", () => {
+    for (const m of LANDMARKS) expect(m.blurb, m.id).not.toMatch(/ideas|new blueprint|free|claim/i);
+    for (const t of TECHS) expect(t.blurb, t.id).not.toMatch(/ideas come|new blueprint in|learn one free|claim your reward/i);
   });
 });

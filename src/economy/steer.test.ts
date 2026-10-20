@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Sim, SIM_HZ } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, Layout, type PieceTypeId } from "../track";
 import { Economy } from "./economy";
-import { distanceTo, steer, waysFrom } from "./steer";
+import { distanceTo, steer, steerSwitch, waysFrom } from "./steer";
 
 /** Lay `type` on free end `ref` (seated by an end of the other kind); returns its id. */
 function lay(layout: Layout, ref: number, type: PieceTypeId): number {
@@ -182,6 +182,9 @@ describe("pinned switches", () => {
     expect(steer(layout, train, true, c)).toBe(true);
     expect(layout.switchState(sw2)).toBe(0);
     expect(layout.switchState(sw)).toBe(1);
+    // Which switch it threw (for its lever to swing): the one beyond the pin; none when it's already set.
+    expect(steerSwitch(layout, train, true, d)).toBe(sw2);
+    expect(steerSwitch(layout, train, true, d)).toBe(-1);
   });
 });
 

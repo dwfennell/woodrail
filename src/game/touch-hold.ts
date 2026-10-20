@@ -19,6 +19,14 @@ export const HOLD_MS = 380;
 export const HOLD_SLOP = 10;
 
 /**
+ * Long-press on a switch's lever to pin it (or unpin it), with a mouse as well as a finger: PIN_HOLD_MS, 450 ms. A
+ * little longer than a pickup's hold, since a lever is tapped often (a tap flips it) and a slow tap mustn't pin, and
+ * nothing lifts under the finger to say it's coming; still short of the phone's own long-press menus. Decided as a
+ * pickup's hold is (`decideHold`, `undoesHold` with this time).
+ */
+export const PIN_HOLD_MS = 450;
+
+/**
  * What can be picked up with a long press: track, a train, an industry, cargo off a pile or a wagon (props and roads
  * still want selecting first).
  */
@@ -37,10 +45,10 @@ export type HoldOutcome = "wait" | "hold" | "pan" | "cancel";
  * the view). If it strayed before `HOLD_MS` it's a pan, whenever that move is delivered; if it rested `HOLD_MS` first
  * it's a hold, even if it has moved since (it was picked up, then dragged) or the timer that checks it ran late.
  */
-export function decideHold(strayedAt: number | null, elapsed: number, touches: number): HoldOutcome {
+export function decideHold(strayedAt: number | null, elapsed: number, touches: number, ms = HOLD_MS): HoldOutcome {
   if (touches > 1) return "cancel";
-  if (strayedAt !== null && strayedAt < HOLD_MS) return "pan";
-  if (elapsed >= HOLD_MS || strayedAt !== null) return "hold";
+  if (strayedAt !== null && strayedAt < ms) return "pan";
+  if (elapsed >= ms || strayedAt !== null) return "hold";
   return "wait";
 }
 
@@ -49,15 +57,17 @@ export function decideHold(strayedAt: number | null, elapsed: number, touches: n
  * hold after all? Yes if it happened (`at`, ms after the press, by its own timestamp) before `HOLD_MS` and the finger
  * had then strayed past the slop (a pan) or been lifted (a tap).
  */
-export function undoesHold(at: number, travel: number, lifted: boolean): boolean {
-  return at < HOLD_MS && (lifted || travel >= HOLD_SLOP);
+export function undoesHold(at: number, travel: number, lifted: boolean, ms = HOLD_MS): boolean {
+  return at < ms && (lifted || travel >= HOLD_SLOP);
 }
 
 /**
- * Drawing, a press on a line's body (a branch's start): a few pixels off the line, across it, and it's begun to
- * leave it (a slow-starting branch stroke), not a hold. Along the line it's still a finger's wobble.
+ * Drawing, a press on a line's body (a branch's start): this far (px) off the line, across it, and it's begun to leave
+ * it (a slow-starting branch stroke), not a hold. A resting finger wobbles 4 to 6 px (QA: a 4 px wobble across the
+ * line drew a switch and a curve); a slow start, a few pixels a frame, is past 7 within a few frames of the hold's 380
+ * ms. Along the line, a wobble up to the hold's own slop.
  */
-export const BRANCH_SLOP = 3;
+export const BRANCH_SLOP = 7;
 
 /**
  * Drawing, a press on a line's body, the finger now (dx, dy) screen px from where it came down: has it strayed (begun

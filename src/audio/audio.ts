@@ -129,6 +129,12 @@ export class ToyAudio {
     this.knock(volume * 0.35, 260 * this.vary(1), 0.08, pan);
   }
 
+  /** A switch's lever thrown over: the wooden clunk, with a lower knock under it (the points coming home). */
+  switchClunk(volume: number, pan: number): void {
+    this.clunk(volume, pan);
+    this.knock(volume * 0.55, 72 * this.vary(1), 0.16, pan);
+  }
+
   /** A short buzz of the sawmill's blade cutting (call about twice a second while it works). */
   saw(volume: number, pan: number): void {
     const ctx = this.ctx;

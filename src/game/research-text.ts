@@ -2,7 +2,7 @@ import { COIN_ICON, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { iconCounts } from "../economy/goods";
 import type { Progress } from "./progress";
 import { canResearch, coinsShort, costOf, lacks, studying, studyLeft, studyTime } from "./research";
-import { techOf } from "./tech";
+import { needMet, TECHS, techOf } from "./tech";
 
 /**
  * Research in words and states, for the Research picker (the board's web), the HUD's pill and the school's card.
@@ -159,6 +159,33 @@ export function pillKey(p: Progress, hasSchool: boolean): string {
   const r = p.research;
   const waiting = r.current === null && r.next !== null && coinsShort(p) > 0;
   return `${r.version}|${hasSchool ? 1 : 0}|${waiting ? p.coins : ""}`;
+}
+
+/** Every research's coins, lowest first, each once: a card's coins chip goes red below its price. */
+let coinPrices: number[] | null = null;
+
+/**
+ * What the Research picker shows depends on, as a key: the research's version (a pick, a delivery, a second of study),
+ * the coins only as far as the picker shows them (which prices they reach, and what the one up next is short), what's
+ * learned and what's on the board, each requirement met or not (and riders while one counts them), the school's name
+ * and the goal (a town's offers are growth cards, in their own sheet, so not here). The picker is rebuilt only when
+ * this changes, not on every coin or counted load (QA: it rebuilt every second while trains ran). A lookup over the
+ * blueprints: cheap enough for the workshop's clock.
+ */
+export function pickerKey(p: Progress, school: string | null, goal: string): string {
+  coinPrices ??= [...new Set(TECHS.map((t) => t.research.coins ?? 0).filter((c) => c > 0))].sort((a, b) => a - b);
+  let reached = 0;
+  while (reached < coinPrices.length && coinPrices[reached] <= p.coins) reached++;
+  let met = "";
+  let riders = false;
+  for (const t of TECHS) {
+    if (p.learned.has(t.id)) continue;
+    for (const n of t.requires) {
+      met += needMet(p, n) ? "1" : "0";
+      riders ||= n.kind === "count" && n.stat === "riders";
+    }
+  }
+  return `${p.research.version}|${reached}|${coinsShort(p)}|${p.learned.size}|${p.board.size}|${met}|${riders ? p.riders : ""}|${school ?? ""}|${goal}`;
 }
 
 /**

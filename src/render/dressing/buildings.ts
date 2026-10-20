@@ -1,7 +1,7 @@
 import { BoxGeometry, ConeGeometry, CylinderGeometry, ExtrudeGeometry, Shape, SphereGeometry, type BufferGeometry, type Material } from "three";
 import { rng } from "../../lib/rng";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { CELL, FEAT_BUILDING, FEAT_NONE, FEAT_STATION, SURF_ROAD, type Landscape, type Shed, type Town } from "../../landscape";
+import { CELL, FEAT_BUILDING, FEAT_NONE, FEAT_STATION, SURF_ROAD, SURF_TOWN, type Landscape, type Shed, type Town } from "../../landscape";
 import { STATION_ROOF_TOP } from "../../landscape/sign";
 import { TRACK_WIDTH } from "../../track";
 import { addPart } from "../blender-models";
@@ -238,7 +238,39 @@ export function buildTown(land: Landscape, town: Town, mats: Materials, b: Batch
     return { x: fp.cx + fp.front.x * half, z: fp.cz + fp.front.z * half };
   });
   for (const p of townFurniture(land, town, doors)) furniture(b, mats, p);
+  for (const i of townGreens(land, town)) green(land, i, mats, b);
   return [];
+}
+
+/** A town's greens: its squares with nothing on them (a house moved away, or not yet built on). */
+export function townGreens(land: Landscape, town: Town): number[] {
+  const g = land.grid;
+  return town.cells.filter((i) => g.surface[i] === SURF_TOWN && g.feature[i] === FEAT_NONE);
+}
+
+const LAWN_INSET = 5;
+const LAWN_H = 1.4;
+
+/**
+ * A town green: a painted lawn a little lighter than the fields' felt, with a few flowers in its corners. Low and flat,
+ * so a prop stood on it stands clear.
+ */
+function green(land: Landscape, i: number, mats: Materials, b: Batcher): void {
+  const g = land.grid;
+  const x = g.centreX(g.colOf(i));
+  const z = g.centreZ(g.rowOf(i));
+  const y = g.groundY(i);
+  const size = CELL - 2 * LAWN_INSET;
+  b.add(mats.lacquer("#4e8f34"), new RoundedBoxGeometry(size, LAWN_H, size, 2, 0.7).translate(x, y + LAWN_H / 2, z));
+  // In each corner a little clump of one colour, three flowers stepping in from the corner.
+  const r = rng(land.seed * 31 + i * 7 + 5);
+  const reach = size / 2 - 5;
+  for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    const flower = mats.lacquer(pick(FLOWER_COLORS, Math.floor(r() * FLOWER_COLORS.length)));
+    for (const [ox, oz] of [[0, 0], [5, 2], [2, 5]]) {
+      b.add(flower, new SphereGeometry(1.8, 6, 4).translate(x + sx * (reach - ox), y + LAWN_H + 1.2, z + sz * (reach - oz)));
+    }
+  }
 }
 
 /**

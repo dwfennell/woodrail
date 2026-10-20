@@ -38,7 +38,7 @@ import { fieldPrice, fieldSpot, plantField } from "./game/fields";
 import { WorkshopPanel, type MakeRow } from "./ui/workshop-panel";
 import { routeStops } from "./game/route-stops";
 import { editLine, joinLine, LINE_COLOURS, LINE_NAME_MAX, lineOf, moveStop, recolourLine, renameLine, stopLine, trainsOn } from "./game/lines";
-import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pointOnPath, stopCursors } from "./game/route-path";
+import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pinnedBlocking, pointOnPath, stopCursors } from "./game/route-path";
 import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
@@ -49,7 +49,7 @@ import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { keepsPlanks, learnAuto, needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
-import { cardState, goalPick, pillKey, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
+import { cardState, goalPick, pickerKey, pillKey, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
@@ -555,6 +555,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   interaction.onTurned = () => audio.rotate();
   interaction.onDepart = () => audio.bell();
   interaction.onSwitched = () => scheduleSave();
+  interaction.onLeverThrown = () => audio.switchClunk(0.7, 0);
   // A halt held (Game mode): each town's reach shows as a ring on the ground, built once, shown and hidden after.
   const haltReach = new HaltReachView(game.scene, HALT_REACH);
   interaction.onHeld = (type) => {
@@ -1503,6 +1504,29 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     refreshBoard();
   }
 
+  /**
+   * What a blueprint makes, as the picker's ticket shows it: worked out once per blueprint (it never changes, and its
+   * drawings are the bulk of the picker's view). Pieces (kits and industries among them) and props as their tray
+   * pictures, as the tray shows them (a thing's id is its tray key); their drawings stand in till those are drawn. A car
+   * as its tray card's picture (the car on its own, in its own look), its drawing standing in.
+   */
+  const makesCache = new Map<string, Station["makes"]>();
+  function makesOf(t: (typeof TECHS)[number]): Station["makes"] {
+    let makes = makesCache.get(t.id);
+    if (makes) return makes;
+    makes = unlocksOf(t.id).map((x) =>
+      x.startsWith("piece:")
+        ? { label: ruleOf(x)!.label, icon: pieceIcon(x.slice(6) as PieceTypeId), picture: x }
+        : x.startsWith("prop:")
+          ? { label: ruleOf(x)!.label, icon: `<span class="bp-pending"></span>`, picture: x }
+          : { label: ruleOf(x)!.label, icon: trainIcon([x.slice(4) as CarKind]), picture: carPictureKey(x.slice(4) as CarKind) },
+    );
+    if (t.feature) makes.push({ label: t.feature.label, icon: `<span class="bp-feature">${t.feature.icon}</span>` });
+    if (makes.length === 0) makes.push({ label: t.brings, icon: `<span class="bp-feature">✨</span>` });
+    makesCache.set(t.id, makes);
+    return makes;
+  }
+
   const PLAN_WORDS: Record<Plan, string> = { next: "Coming soon: next on the list", soon: "Coming soon", later: "Coming one day", ending: "The ending: coming one day" };
 
   function refreshBoard(): void {
@@ -1514,18 +1538,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const goalTech = goals.current()?.blueprint;
     const seen = seenOf(progress);
     const stations: Station[] = TECHS.map((t) => {
-      // Pieces (kits and industries among them) and props as their tray pictures, as the tray shows them (a thing's id
-      // is its tray key); their drawings stand in till those are drawn. A car as its tray card's picture (the car on its
-      // own, in its own look), its drawing standing in.
-      const makes: Station["makes"] = unlocksOf(t.id).map((x) =>
-        x.startsWith("piece:")
-          ? { label: ruleOf(x)!.label, icon: pieceIcon(x.slice(6) as PieceTypeId), picture: x }
-          : x.startsWith("prop:")
-            ? { label: ruleOf(x)!.label, icon: `<span class="bp-pending"></span>`, picture: x }
-            : { label: ruleOf(x)!.label, icon: trainIcon([x.slice(4) as CarKind]), picture: carPictureKey(x.slice(4) as CarKind) },
-      );
-      if (t.feature) makes.push({ label: t.feature.label, icon: `<span class="bp-feature">${t.feature.icon}</span>` });
-      if (makes.length === 0) makes.push({ label: t.brings, icon: `<span class="bp-feature">✨</span>` });
+      const makes = makesOf(t);
       const requires = t.requires.map((n) => ({ text: describeNeed(n) + (n.kind === "count" && n.stat === "riders" ? ` (${progress.riders} so far)` : ""), met: needMet(progress, n) }));
       // Its price is its research: goods brought to a school, and from tier 2 coins.
       const cost = t.research;
@@ -1555,12 +1568,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     });
   }
   /**
-   * What the open picker shows depends on (beyond a tray picture coming): the research (a pick, a delivery, a second of
-   * study), coins, what's learned, riders (a requirement's count), a school placed and the goal. The
-   * workshop's clock redraws it only when this changes.
+   * What the open picker shows depends on (beyond a tray picture coming): see `pickerKey`. The workshop's clock rebuilds
+   * it only when this changes.
    */
   function boardKey(): string {
-    return `${progress.research.version}|${progress.coins}|${progress.learned.size}|${progress.riders}|${hasSchool()}|${goals.current()?.id ?? ""}`;
+    return pickerKey(progress, schoolName(), goals.current()?.id ?? "");
   }
 
   // The workshop's clock: a few times a second, not every frame (it runs while nothing on screen moves).
@@ -1723,7 +1735,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       }
     }
     // What's been done (logs cut, loads moved, goods delivered) toward the blueprints that ask for it.
-    if (counters.collect(game.economy, progress) && board.open) refreshBoard();
+    // (The picker shows the counts only as requirements met, or riders: the workshop's clock sees those in its key.)
+    counters.collect(game.economy, progress);
     // A train set going that's too heavy for its engines says so, once.
     for (const id of game.sim.trainIds()) {
       const t = game.sim.getTrain(id)!;
@@ -2569,12 +2582,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // A stop is out of reach when no way leads into it (from the train, for the next; else from the stop before).
       const unreachable = (k: number) => (k === next ? toNext === null : n > 1 && legs[(k - 1 + n) % n] === null);
       // Where its way runs out, a red dashed gap across to it.
+      // (Or, where a pinned switch is what keeps it away, from that switch: set the other way, it would lead there.)
       const gaps: GapSpec[] = [];
+      const pinnedFor = new Map<number, number>();
       line.stops.forEach((_, k) => {
         if (!unreachable(k) || pieces[k] === -1) return;
         const to = pointOnPath(game.layout, pieces[k], 0, pathLengthOf(pieces[k]) / 2);
         const starts = k === next ? [front] : stopCursors(game.layout, pieces[(k - 1 + n) % n]);
-        const from = to && nearestAhead(game.layout, starts, GAP_SEARCH, to.x, to.z);
+        const pin = pinnedBlocking(game.layout, starts, pieces[k]);
+        if (pin !== -1) pinnedFor.set(k, pin);
+        const from = to && (pin !== -1 ? pointOnPath(game.layout, pin, 0, pathLengthOf(pin) / 2) : nearestAhead(game.layout, starts, GAP_SEARCH, to.x, to.z));
         if (to && from && Math.hypot(from.x - to.x, from.z - to.z) > 20) gaps.push({ from, to });
       });
       // One disc a place: a place visited twice (A → B → A) shows both its numbers ("1·3").
@@ -2599,7 +2616,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const out = line.stops.findIndex((_, k) => unreachable(k));
       if (out !== -1) {
         const name = names.find((st) => st.depotId === line.stops[out].depotId)?.name ?? "a stop";
-        cantReachText = `Can't reach ${name}: no track leads there`;
+        cantReachText = pinnedFor.has(out) ? `Can't reach ${name}: a pinned switch sends trains the other way. Hold its lever to unpin it` : `Can't reach ${name}: no track leads there`;
         // With the card open (not planning), the stop that can't be reached is shown, once: not left off screen or
         // under the card.
         const spot = pieceSpot(pieces[out]);

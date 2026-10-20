@@ -31,9 +31,9 @@ import {
   type Pose,
 } from "../track";
 import type { Game } from "./game";
-import { DrawNotice } from "./draw-notice";
+import { DrawNotice, TOO_SHARP } from "./draw-notice";
 import { drawMessage, drawRefusal } from "./track-rules";
-import { BRANCH_FACING, branchFrom, busyOn, crossingAt, junctionWhy, linePlan, mergeAt, mergePast, type JunctionRules, type Merge } from "./draw-junctions";
+import { branchAgain, branchFrom, facingFrom, busyOn, crossingAt, junctionWhy, linePlan, mergeAt, mergePast, type JunctionRules, type Merge } from "./draw-junctions";
 import { pieceName } from "./piece-name";
 
 /** The pencil line starts at the line's end if that's this close (mm) to the stroke ahead. */
@@ -99,6 +99,13 @@ export class DrawHand {
    * branch leaves: the straight, and where it was pressed (on the track, at its height).
    */
   private pending: { onto: number; press: { x: number; z: number }; y: number; way: number | null } | null = null;
+  /** The press the branch was decided from (to face it the other way if the line from it laid nothing: `end`). */
+  private branchStart: { onto: number; press: { x: number; z: number } } | null = null;
+  /**
+   * The finger's points (on the ground) since the branch was decided, while its line has laid nothing (it waits for the
+   * finger to get ahead of its start, so it may have taken none): to draw it again from the other facing (`end`).
+   */
+  private branchStroke: { x: number; z: number }[] = [];
   /** The switch the line branches off through (swapped into the line it started on), or null. */
   private branch: PieceSwap | null = null;
   /** The switch the line would merge through if let go now (shown), or null; and its key, so it's shown afresh only when it changes. */
@@ -213,7 +220,7 @@ export class DrawHand {
     const pending = this.pending;
     if (!pending || pending.way !== null) return;
     const f = this.hooks.planeAt(x, y, pending.y);
-    if (f && Math.hypot(f.x - pending.press.x, f.z - pending.press.z) >= BRANCH_FACING) pending.way = Math.atan2(f.z - pending.press.z, f.x - pending.press.x);
+    if (f) pending.way = facingFrom(pending.press, [f]);
   }
 
   /** The rules the junctions are found by (see `JunctionRules`). */
@@ -247,6 +254,7 @@ export class DrawHand {
       }
       // The switch shows as a ghost over the straights it takes the place of (outlined), and the line goes on from its branch.
       this.branch = b.swap;
+      this.branchStart = { onto: pending.onto, press: pending.press };
       this.swapGhosts = this.showSwap(b.swap);
       this.start(b.swap.end);
     }
@@ -270,6 +278,8 @@ export class DrawHand {
     const before = line.pieces.length;
     const { p, changed } = line.addSeen((h) => this.hooks.planeAt(x, y, h));
     if (!p) return;
+    // (Kept only while a branch's line has laid nothing, and no more than a stroke's worth.)
+    if (this.branchStart && before === 0 && this.branchStroke.length < 2048) this.branchStroke.push({ x: p.x, z: p.z });
     if (changed) this.sync(line.pieces.length > before);
     this.showMerge();
     this.goOnAcross();
@@ -298,6 +308,32 @@ export class DrawHand {
     // past a line, it laid nothing at all).
     if (!merge && this.goOnAcross(true)) line = this.line!;
     else if (!merge) merge = this.mergeAtLine();
+    // A branch faced the way the finger set off, and the finger bent back across so the line laid nothing: faced the
+    // way it went instead, if a line from there lays something (QA F2: 100° then 45°, nothing laid, nothing said).
+    const tried = this.branch;
+    let unlaid = false;
+    if (tried && this.branchStart && !merge && this.crossed.covers.length === 0 && line.placeable().length === 0) {
+      const old = line;
+      const pts = this.branchStroke;
+      const finger = pts[pts.length - 1] ?? line.tip;
+      const again = branchAgain(this.junctions, this.branchStart.onto, this.branchStart.press, finger, tried, pts, (e, swap) => {
+        this.branch = swap;
+        this.start(e);
+        return this.line!;
+      });
+      if (again) {
+        line = again.line;
+        this.branch = again.swap;
+        for (const m of this.swapGhosts) this.game.scene.remove(m);
+        this.swapGhosts = [];
+        this.sync(false);
+        merge = this.mergeNow();
+      } else {
+        this.branch = tried;
+        line = old;
+        unlaid = true;
+      }
+    }
     const pieces = line.placeable();
     const g = this.game;
     const branch = this.branch;
@@ -315,6 +351,8 @@ export class DrawHand {
         const swaps = [...(branch?.pieces ?? []), ...this.crossed.pieces];
         say = junctionWhy(this.junctions, line.start, line.pieces, line.tip, this.taken(), (t) => swaps.filter((q) => q.type === t).length) ?? say;
       }
+      // (A branch that laid nothing either way: why, rather than nothing.)
+      if (!say && unlaid) say = TOO_SHARP;
       if (say) this.hooks.toast(say);
     }
     this.clear();
@@ -748,6 +786,8 @@ export class DrawHand {
     this.merge = null;
     this.mergeKey = "";
     this.pending = null;
+    this.branchStart = null;
+    this.branchStroke = [];
     for (const id of this.swapIds) this.own.removePiece(id);
     this.swapIds = [];
     this.ghosts = [];

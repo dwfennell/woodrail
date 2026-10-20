@@ -134,8 +134,23 @@ describe("save format", () => {
       back.add({ kind: "event", text: "More" });
       expect(back.unread).toBe(2);
       expect(back.entries[0].text).toBe("More");
+      // One entry that doesn't read (QA: a note of a kind the Journal hasn't): the clock, the pause and the other
+      // entries stay; only that entry goes.
+      const saved = JSON.parse(store.get("woodrail.game.v2.session")!);
+      saved.journal.entries.splice(1, 0, { ...saved.journal.entries[0], kind: "news", qty: null });
+      store.set("woodrail.game.v2.session", JSON.stringify(saved));
+      const kept = loadSession("game")!;
+      expect(kept.clock).toBe(2240.5);
+      expect(kept.paused).toBe(true);
+      expect(kept.journal.entries.length).toBe(s.journal.entries.length);
+      expect([kept.journal.seq, kept.journal.readSeq]).toEqual([s.journal.seq, s.journal.readSeq]);
+      // A bad journal altogether: the clock and pause still come back, with no news.
+      store.set("woodrail.game.v2.session", JSON.stringify({ clock: 600, paused: false, journal: "?" }));
+      expect(loadSession("game")).toEqual({ clock: 600, paused: false, journal: { entries: [], seq: 0, readSeq: 0 } });
       // Damaged: none (start afresh), not a throw.
       store.set("woodrail.game.v2.session", "{");
+      expect(loadSession("game")).toBeNull();
+      store.set("woodrail.game.v2.session", JSON.stringify({ clock: -1, paused: false }));
       expect(loadSession("game")).toBeNull();
     } finally {
       vi.unstubAllGlobals();
