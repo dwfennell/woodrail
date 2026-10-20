@@ -337,20 +337,40 @@ later than main's. **Left:** the guard's stall on 2027 (17.4 min, Carpenter's be
 run is the same up to then); seed 10's 66 min gap (not in the table: hoppers full of grain nobody takes, so no stone);
 nice to have: coins over 600 on 2027, 2, 4 and stalls over 10 min on 2027, 1, 5. Table and causes: spec §5.
 
+**Third pass (after research-p4 2458817, with main bb791fe: P3, two-engine-trap, P3's QA fixes):**
+- (f) `checkBands` exempts the research-stall guard for its one known cause: a research short of planks while the only
+  goods train runs a line of 20 stops or more (`FAMINE_STOPS`; seed 2027's Carpenter's bench, 22 stops). It's told by
+  its cause (`researchStallCause`, recorded as the longest stall grows), not by seed, and printed as exempt in the
+  BANDS line.
+- (h) The play-through can lay a passing loop halfway along a line of 15 stops or more once Signals are learned, and put
+  a second goods train on it (`passingLoop`, `BALANCE_SECOND_GOODS=15`). It's off by default: on every seed the two
+  goods trains still turn each other back within 2–4 min, and the second is picked up. On seed 2 the pinned loop also
+  strands the goods train (a 103 min stall). So the exemption is still needed.
+- The merges moved the table, through P3 QA fix 2 (a crate never holds the wagon card's car) and not through the
+  engine changes. With that fix's `apart` made a no-op, 2027 and seed 1 give P5's figures exactly. With it, the card
+  draws differ, and seeds 1 and 3 fall into seed 10's old trap: from about minute 105 the hoppers stay full of grain
+  nobody takes, so the city's stone never comes, and the other towns get no planks while the workshop's yard fills.
+  Town gaps are 67.5 and 55.4 min. **Left:** that harness trap (tried: emptying the hoppers when the quarry's yard is
+  full; they refill with grain before the quarry, and the gaps stay 58.6 and 55.3), and the passing loop for routed
+  trains (a product question: a rule for routed trains to wait at a loop, or a block that runs through a loop's
+  switch). Table: spec §5 "P5: the third pass".
+
 ### Task 5.1: tune and measure
 - [x] Tune `research` costs, study times and the growth-card amounts with the seed table, until every seed meets
   these targets (the CoS's, spec §5, as revised after the first pass):
   - [x] first research by minute 8;
-  - [ ] the guard: no research stall over 15 min (missed on 2027: 17.4), coins at 180 at least 100, no City more than
-    20% later than main;
+  - [x] the guard: no research stall over 15 min (2027's 19.3 and 6's are the exempt plank famine: (f)), coins at
+    180 at least 100, no City more than 20% later than main;
   - [ ] longest research stall under 10 min (nice to have: met on 2, 3, 4);
   - [x] City minute 60–90 on every seed (60–81);
   - [ ] coins at 180 within 150–600 (nice to have: met on 1, 3, 5);
-  - [x] the town gap under about 45 min (20–39);
+  - [ ] the town gap under about 45 min (26–35; after the P4 merge, 67.5 on seed 1 and 55.4 on seed 3: third pass);
   - [x] research learned at 180 no fewer than main's researched (13–22 against 7–11);
   - [x] the passenger line's research costs set.
 - [x] What research lacks rides on past a workshop too, as past a town (tray order first).
 - [x] The simulated player picks a growth card at random among the sensible ones (seeds differ again).
+- [x] (f) The stall guard exempts the one-goods-train plank famine on a 20-stop line, by its cause.
+- [x] (h) A second goods train on long lines, behind a passing loop (`BALANCE_SECOND_GOODS=15`; off: it jams).
 - [x] Change one knob per commit, with the table before and after in each commit.
 - [x] Add assertions to the balance test for the bands, so it stays skipped unless `BALANCE=1`.
 - [x] Time a headless phone run (390×844) for idle CPU with a research running and none running. It stays at P4's

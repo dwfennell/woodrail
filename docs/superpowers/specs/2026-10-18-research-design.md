@@ -168,7 +168,8 @@ Signals come right after Halts in its `WISH` order: the goal "Run two trains at 
 train is the one that carries people (the coins at 180 come mostly from it).
 
 P3's guard (180 min, 1 train per line; measured against main 17dbc6f, P2, with the same harness): no seed's City more
-than 20% later; no research stall over 15 min (the one-goods-train plank famine on a 22-stop line excepted, for P5);
+than 20% later; no research stall over 15 min (except the plank famine of one goods train on a line of 20 stops or more,
+told by its cause: P5's third pass);
 coins at 180 not below 100. P3 meets it on every seed, with no exemption needed:
 
 | Seed | Coins@180 | City min (vs P2) | Longest plank stall | First research | Longest research stall |
@@ -272,6 +273,48 @@ First research at 5.6 on every seed.
   comes, and Larkfield, a city wanting only stone, takes no planks. A harness matter (it never empties a car of goods
   nobody wants).
 - **Nice to have:** coins within 150–600 on 1, 3, 5 only (1387–1574 on 2027, 2 and 4); research stalls under 10 min on 2, 3, 4.
+
+### P5: the third pass (after research-p4 2458817: main bb791fe, P3's QA fixes)
+
+The research-p4 merge brings two-engine-trap (no second engine before Signals, from the village, the city, a wagon
+card or a crate) and P3's QA fixes, among them a crate that never holds the wagon card's car. Then:
+- **(f) The stall guard's exemption, by its cause.** `checkBands` leaves out the research-stall check only when the
+  longest stall was a research short of planks while the only goods train on the map ran a line of 20 stops or more
+  (`FAMINE_STOPS`; recorded as the stall grows, `researchStallCause`), and prints it as exempt in the BANDS line.
+- **(h) A second goods train on long lines, behind a passing loop.** With `BALANCE_SECOND_GOODS=15`, once Signals are
+  learned and the line has 15 stops or more, the player lays a passing loop halfway along it. Two straights a train's
+  length apart, with no stop between, become switches, and a side road joins their branches. Each switch is pinned so
+  that trains running down the line keep to the main road and trains running back take the side road. Then a second
+  goods train goes on the line. It's off by default. The loop goes down on every seed (minute 61–81, an 18-stop line),
+  but the two goods trains turn each other back within 2–4 min every time, and the second is picked up again: routed
+  trains don't wait at a loop for an oncoming train, and a signal's block ends at the loop's switch, so the single line
+  beyond can't be held. On seed 2 the pinned loop also leaves the goods train unable to reach the sawmill (103 min
+  stall, 103.5 min town gap). The other seeds pass with it on, but only by side effects. **The exemption is still
+  needed.**
+
+| Seed | Coins@180 | City | Research stall | Town gap | Researched (main) | Riders | With (h) on: City, stall, gap |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2027 | 1336 | 78 | 19.3 exempt (Carpenter's bench, 1 goods train, 22 stops) | 30.5 | 14 (9) | 516 | 83, 9.7, 35.4 |
+| 1 | 227 | 77 | 11.4 (Junctions) | **67.5** | 15 (9) | 410 | 78, 12.1, 43.3 |
+| 2 | 1288 | 77 | 6.8 (Signals) | 30.6 | 20 (8) | 912 | 77, **103.0**, **103.5** |
+| 3 | 285 | 65 | 9.4 (Carpenter's bench) | **55.4** | 14 (11) | 436 | 65, 12.8, 40.2 |
+| 4 | 260 | 60 | 9.8 (Harvesters) | 26.2 | 15 (7) | 296 | 60, 10.2, 43.0 |
+| 5 | 438 | 61 | 13.1 (Carpenter's bench) | 35.0 | 14 (8) | 306 | 61, 10.9, 32.3 |
+| 6 | 1336 | 78 | 19.3 exempt (as 2027) | 30.5 | 14 (7) | 516 | 83, 9.7, 35.4 |
+| 9 | 260 | 60 | 9.8 | 26.2 | 15 (7) | 296 | 60, 10.2, 43.0 |
+| 10 | 1255 | 78 | 7.3 | 30.5 | 23 (7) | 944 | 83, 9.7, 35.4 |
+
+First research at 5.6 on every seed; coins at 180 at least 227; no City later than main's +20%. Now 2027 = 6 and
+4 = 9 play the same game (before: 2027 = 9).
+- **Met on every seed:** first research by 8, researched at least main's (14–23), City 60–78, coins at least 100, no
+  City later than main's +20%, the stall guard (with the exemption on 2027 and 6). `BALANCE=1` (seed 2027) passes.
+- **Not met: the town gap on seeds 1 and 3 (67.5, 55.4 min).** The merges moved the table through the crate fix, not
+  the engine changes. With `apart` made a no-op, 2027 and 1 give the second pass's figures exactly (1574 coins, City 77,
+  stall 17.4; 187, 63, 12.4) and seed 3 nearly (gap 39.3). With it, other cards are drawn, and seeds 1 and 3 fall into
+  seed 10's old trap: from about minute 105 both hoppers stay full of grain nobody takes, so Larkfield, a city wanting
+  only stone, never gets the quarry's stone. Meanwhile the other two towns get no planks while the workshop's yard fills
+  (12 → 24). Emptying the hoppers when the quarry's yard is full was tried and left out: they fill with grain again
+  before the quarry, and the gaps stay 58.6 and 55.3.
 
 Idle CPU (390×844, headless, 30 s × 3, no trains): P5 the same as P4 with a research running and with none (2.9–3.7%
 against 2.8–3.6%, 0 frames); figures in the plan's P5 note.
