@@ -93,13 +93,33 @@ describe("goods into a school", () => {
     expect(w.economy.delivered.get(0)).toBe(9);
   });
 
-  it("a routed line that comes to the workshop before the school: the town takes its planks (the workshop would)", () => {
+  it("a routed line that comes to a town and the workshop before the school: both leave the research's planks for it (P5)", () => {
     const p = researching("switches");
     const w = line(["station", "depot-workshop", "depot-school"], p);
     const engine = w.train().cars[0].id;
     w.economy.setRoute(engine, { stops: w.depots.map((d) => ({ depotId: d.id, action: "auto" as const })), next: 0 });
     w.run(90);
-    expect(w.economy.delivered.get(0)).toBe(9);
+    const shop = w.depots[1];
+    expect(p.research.got).toEqual({ planks: 4 });
+    expect(w.economy.delivered.get(0)).toBe(5);
+    expect(shop.piles[CARGO.planks.index]).toBe(0);
+  });
+
+  it("an unrouted train passing the workshop before a school leaves it the research's planks; the yard takes the rest (P5)", () => {
+    const p = researching("switches");
+    const w = line(["depot-workshop", "depot-school"], p);
+    w.run(90);
+    expect(p.research.got).toEqual({ planks: 4 });
+    expect(w.depots[0].piles[CARGO.planks.index] + w.onTrain()).toBe(5);
+  });
+
+  it("the workshop still gets the planks it keeps for its waiting tray order, before a school past it", () => {
+    const p = researching("switches");
+    const w = line(["depot-workshop", "depot-school"], p);
+    w.economy.reserved = (kind) => kind === "planks";
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
+    expect(p.research.got).toEqual({});
   });
 
   it("once the research has all it lacks, the town before the school takes planks again", () => {

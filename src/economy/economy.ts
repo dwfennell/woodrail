@@ -243,8 +243,8 @@ interface Later {
   /** Goods a later workshop takes (it has the first claim on them while they're `reserved`). */
   shop: number;
   /**
-   * Goods a later school takes (what its research still lacks) before any later stop but a town's does: a town leaves
-   * them on the train for it, as much as the research lacks (`keptForSchool`).
+   * Goods a later school takes (what its research still lacks) before any later stop but a town's or a workshop's
+   * does: a town or a workshop leaves them on the train for it, as much as the research lacks (`keptForSchool`).
    */
   school: number;
   /** A later stop is a town's station (riders have somewhere to get off). */
@@ -343,12 +343,14 @@ export class Economy {
   private liveOf = -1;
 
   /**
-   * Does this car's train keep its `kind` on board for a school, at a town? While a school takes it from trains (its
-   * research lacks some: `sinkWants`), a train keeps as many as the research lacks and a town takes only the rest
-   * (QA: a school past a station got no planks, the town before it taking them all). A routed train keeps them while
-   * its line comes to a school that takes them before anywhere else but a town that does (`Later.school`); an unrouted
-   * one while an automatic school taking them is on its track (joined to it). Cheap: lookups and the train's cars, only
-   * at a town and only while the research lacks this good.
+   * Does this car's train keep its `kind` on board for a school, at a town or a workshop? While a school takes it from
+   * trains (its research lacks some: `sinkWants`), a train keeps as many as the research lacks and a town or workshop
+   * takes only the rest (QA: a school past a station got no planks, the town before it taking them all; P5: nor past a
+   * workshop, whose yard filled while research waited). A routed train keeps them while its line comes to a school
+   * that takes them before anywhere else but a town or workshop that does (`Later.school`); an unrouted one while an
+   * automatic school taking them is on its track (joined to it). A workshop still gets what it keeps for its waiting
+   * tray order (`reserved`). Cheap: lookups and the train's cars, only at a town or workshop and only while the
+   * research lacks this good.
    */
   private keptForSchool(carId: number, kind: CargoKind, route: Route | null): boolean {
     const want = this.sinkWants?.(kind) ?? 0;
@@ -665,8 +667,9 @@ export class Economy {
     } else if (d.piles[CARGO[c.kind].index] >= capAt(d)) return false;
     // A routed train drops goods only at the stop it's heading for, as it says (or as its line calls for).
     const route = this.routeOfCar(carId);
-    // What a school's research lacks rides on past a town for it, as much as it lacks (the rest is the town's).
-    if (d.role === "town" && this.keptForSchool(carId, c.kind, route)) return false;
+    // What a school's research lacks rides on past a town or a workshop for it, as much as it lacks (the rest is
+    // theirs; a workshop's tray order first).
+    if ((d.role === "town" || (d.role === "workshop" && !this.reserved?.(c.kind))) && this.keptForSchool(carId, c.kind, route)) return false;
     if (route) return this.dropsAt(route, d, c.kind);
     // Goods kept for a workshop: an unrouted train carries them on past the towns.
     if (d.role === "town" && this.reserved?.(c.kind)) return false;
@@ -824,7 +827,7 @@ export class Economy {
         if (role && !RECIPES[role].routedOnly) later.uses |= takes[j];
         if (role === "workshop") later.shop |= takes[j];
         if (role === "school") later.school |= takes[j] & ~taken;
-        if (role && role !== "town") taken |= takes[j];
+        if (role && role !== "town" && role !== "workshop") taken |= takes[j];
         later.town ||= town[j];
       }
       at.push(later);
