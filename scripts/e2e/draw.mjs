@@ -195,6 +195,13 @@ if (ONLY_SPECIALS) {
 /** Only the junctions (N2 phase 2: a branch, a merge) and the planning guard (E2E_ONLY=junctions). */
 if (process.env.E2E_ONLY === "junctions") {
   await junctions(false);
+  await loopOffStraight();
+  await finishRun();
+}
+
+/** Only the passing loop off a straight (E2E_ONLY=loop). */
+if (process.env.E2E_ONLY === "loop") {
+  await loopOffStraight();
   await finishRun();
 }
 
@@ -576,6 +583,7 @@ step("9");
 await qaReplay();
 step("10");
 await junctions();
+await loopOffStraight();
 await finishRun();
 
 /**
@@ -1192,5 +1200,173 @@ async function terraceRepeat() {
   const what = runs.map((r) => `${r.types.join(" ")}${r.toasts.length ? ` [${r.toasts.join(" | ")}]` : ""}`).join(" / ");
   check("QA replay, terrace 2 again on the same page (QA's screen path, lookAt put back, after an undo): the same line each time", runs.every((r) => r.types.join(" ") === runs[0].types.join(" ")), what);
   check("…and no 'a level up here' the first time didn't say", runs.every((r) => r.toasts.some((t) => /level up/i.test(t)) === runs[0].toasts.some((t) => /level up/i.test(t))), what);
+  await ctx.close();
+}
+
+/**
+ * QA's playtest: a passing loop drawn off the middle of the Larkfield–Elderwick straight (seed 7, a 360 × 740
+ * phone, the camera 1300 mm off): pressed on the straight, out to one side, along beside
+ * it, and back in, in one stroke. A switch out, the run beside, and a switch back in (QA: it laid nothing, and said
+ * "Turn it to fit" and "Another piece is in the way").
+ */
+async function loopOffStraight() {
+  const ctx = await b.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  await ctx.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  const q = await ctx.newPage();
+  q.on("pageerror", (e) => errors.push(e.message));
+  // Game mode's start (seed 7's starting map), as e2e:touch starts it: the Game card's main button, then the help closed.
+  await q.goto(URL.replace(/#.*$/, ""), { timeout: 180000 });
+  await q.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: 180000 });
+  await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
+  await q.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null && window.woodrail.mode() === "game", null, { timeout: 180000 });
+  await q.evaluate(() => {
+    const help = document.querySelector(".help");
+    if (help && !help.hidden) help.querySelector("button.primary, .help-card button:last-of-type")?.click();
+  });
+  await q.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 }).catch(() => {});
+  await settled(q);
+  await q.evaluate(() => {
+    const w = window.woodrail;
+    window.__toasts = [];
+    const orig = w.hud.toast.bind(w.hud);
+    w.hud.toast = (m, ...a) => {
+      window.__toasts.push(m);
+      return orig(m, ...a);
+    };
+    const refuse = w.hud.refuse?.bind(w.hud);
+    if (refuse)
+      w.hud.refuse = (m, ...a) => {
+        window.__toasts.push(m);
+        return refuse(m, ...a);
+      };
+  });
+  // The line between Larkfield's station and Elderwick's (as QA had laid it: four long straights, end to end), and
+  // switches learned (the passing-loop goal's).
+  const laid = await q.evaluate(() => {
+    const w = window.woodrail;
+    const at = (name) => {
+      const town = w.landscape.towns.find((t) => t.name === name);
+      const id = town && w.stations.get(town.id);
+      return id === undefined ? null : w.layout.getPiece(id).pose;
+    };
+    const a = at("Larkfield");
+    const c = at("Elderwick");
+    if (!a || !c) return "no stations";
+    w.progress().learned.add("switches");
+    const x0 = a.x + 216;
+    const n = Math.round((c.x - x0) / 216);
+    w.editor().placeRun(Array.from({ length: n }, (_, i) => ({ type: "straight-216", pose: { x: x0 + i * 216, z: a.z, heading: 0 }, y: 0, flipped: false })));
+    return `${n} straights from ${x0} to ${c.x}, ${w.layout.jointCount} joints`;
+  });
+  check("passing loop: the line between Larkfield and Elderwick laid", !/no/.test(laid), laid);
+  await settled(q);
+  // The straight halfway between Larkfield's station and Elderwick's.
+  const site = await q.evaluate(() => {
+    const w = window.woodrail;
+    const at = (name) => {
+      const town = w.landscape.towns.find((t) => t.name === name);
+      const id = town && w.stations.get(town.id);
+      return id === undefined ? null : w.layout.getPiece(id).pose;
+    };
+    const a = at("Larkfield");
+    const c = at("Elderwick");
+    if (!a || !c) return { missing: w.landscape.towns.map((t) => `${t.name}:${w.stations.get(t.id) ?? "-"}`).join(", "), seed: w.landscape.seed };
+    const mx = (a.x + c.x) / 2;
+    const mz = (a.z + c.z) / 2;
+    let best = null;
+    for (const id of w.layout.pieceIds()) {
+      const p = w.layout.getPiece(id);
+      if (!/^straight-\d+$/.test(p.type) || p.type === "straight-54") continue;
+      const l = Number(p.type.slice(9));
+      const cx = p.pose.x + (Math.cos(p.pose.heading) * l) / 2;
+      const cz = p.pose.z + (Math.sin(p.pose.heading) * l) / 2;
+      const d = Math.hypot(cx - mx, cz - mz);
+      if (!best || d < best.d) best = { id, d, x: cx, z: cz, heading: p.pose.heading, y: p.y };
+    }
+    return best ?? { missing: [...w.layout.pieceIds()].map((id) => w.layout.getPiece(id).type).join(" "), a, c };
+  });
+  check("passing loop: found the Larkfield–Elderwick straight", !!site && !site.missing, JSON.stringify(site));
+  if (!site || site.missing) return await ctx.close();
+  // The camera 1300 mm off, over the straight; the straight's way and its side, on the screen.
+  const view = await q.evaluate((s) => {
+    const w = window.woodrail;
+    const V = w.camera.position.constructor;
+    w.director.cancel?.();
+    w.lookAt(new V(s.x, 0, s.z), 1300, 0.95, -1.1659);
+    w.camera.updateMatrixWorld();
+    const r = w.canvas.getBoundingClientRect();
+    const scr = (x, y, z) => {
+      const v = new V(x, y, z).project(w.camera);
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+    };
+    const c = scr(s.x, s.y, s.z);
+    const f = scr(s.x + Math.cos(s.heading) * 100, s.y, s.z + Math.sin(s.heading) * 100);
+    let ux = f[0] - c[0];
+    let uy = f[1] - c[1];
+    const l = Math.hypot(ux, uy);
+    ux /= l;
+    uy /= l;
+    // Across it, toward the bottom of the screen (where the tray isn't: the loop stays above it).
+    let nx = -uy;
+    let ny = ux;
+    if (ny < 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+    return { c, u: [ux, uy], n: [nx, ny], pxPerMm: l / 100, switches: [...w.layout.pieceIds()].filter((id) => w.layout.getPiece(id).type.startsWith("switch")).length, pieces: w.layout.pieceCount };
+  }, site);
+  await settled(q);
+  // (The title can come back over a fresh game while it settles: Continue, as a player would.)
+  const titleAgain = await q.evaluate(() => window.woodrail.title.shown);
+  if (titleAgain) {
+    await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary")?.click());
+    await q.waitForFunction(() => !window.woodrail.title.shown, null, { timeout: 120000 }).catch(() => {});
+    await settled(q);
+    await q.evaluate((s) => {
+      const w = window.woodrail;
+      w.director.cancel?.();
+      w.lookAt(new w.camera.position.constructor(s.x, 0, s.z), 1300, 0.95, -1.1659);
+    }, site);
+    await settled(q);
+  }
+  // (Draw switched on as its chip does: at 360 px in Game mode the chip can be under the goal's card.)
+  const drawOn = await q.evaluate(() => {
+    if (!window.woodrail.interaction.isDrawing) document.querySelector(".tray-draw")?.click();
+    return window.woodrail.interaction.isDrawing;
+  });
+  check("passing loop: Draw is on, nothing over the map", drawOn && !(await q.evaluate(() => window.woodrail.title.shown)), `title came back: ${titleAgain}; now ${await q.evaluate(() => window.woodrail.title.shown)}; pieces ${await q.evaluate(() => window.woodrail.layout.pieceCount)}`);
+  await q.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
+  await shot(q, `${OUT}/draw-10-loop-before.png`);
+  const cdp = await ctx.newCDPSession(q);
+  const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
+  // QA's shape (screen px along the straight, and across it): out 60 along and 92 across, 140 along beside it, and back
+  // in over the last 60, starting on the straight 80 px before its middle.
+  const [cx, cy] = view.c;
+  const pt = (a, b) => [cx + view.u[0] * a + view.n[0] * b, cy + view.u[1] * a + view.n[1] * b];
+  const corners = [pt(-80, 0), pt(-20, 92), pt(120, 92), pt(180, 0)];
+  const modes = [];
+  const mode = () => q.evaluate(() => {
+    const m = window.woodrail.interaction.mode;
+    return `${m.kind}${m.branch !== undefined ? ":branch" + m.branch : ""}${m.press?.kind ? ":" + m.press.kind : ""}`;
+  });
+  await touch("touchStart", corners[0][0], corners[0][1]);
+  modes.push(await mode());
+  for (let i = 1; i < corners.length; i++) {
+    const [ax, ay] = corners[i - 1];
+    const [bx, by] = corners[i];
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 5));
+    for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+    modes.push(await mode());
+  }
+  await touch("touchEnd", 0, 0);
+  await settled(q);
+  await shot(q, `${OUT}/draw-10-loop.png`);
+  const got = await q.evaluate(() => {
+    const w = window.woodrail;
+    return { switches: [...w.layout.pieceIds()].filter((id) => w.layout.getPiece(id).type.startsWith("switch")).length, pieces: w.layout.pieceCount, toasts: window.__toasts.splice(0) };
+  });
+  const what = `${got.switches - view.switches} switches, ${got.pieces - view.pieces} pieces more · ${view.pxPerMm.toFixed(2)} px/mm · modes ${modes.join(" > ")} · press at ${corners[0].map(Math.round)}${got.toasts.length ? " · " + got.toasts.join(" | ") : ""}`;
+  check("passing loop off the straight: a switch out, the run beside it, a switch back in", got.switches - view.switches === 2 && got.pieces > view.pieces, what);
+  check("…and no 'Turn it to fit' while drawing", !got.toasts.some((t) => /turn it to fit/i.test(t)), what);
   await ctx.close();
 }
