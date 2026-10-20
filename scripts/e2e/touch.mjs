@@ -202,11 +202,15 @@ async function selectThenDrag(ctx, p) {
     await touch("touchStart", x, y);
     await touch("touchMove", x + 3, y + 2);
     if (second) await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: x + 3, y: y + 2, id: 1 }, { x: x + 80, y: y + 40, id: 2 }] });
-    // (A hold is taken up a frame after its time: let a frame or two by, unless checking that a short press isn't one.)
-    return p.evaluate(([ms, frames]) => new Promise((r) => setTimeout(() => {
-      const read = () => r(window.woodrail.interaction.mode.kind);
-      if (!frames) return read();
-      requestAnimationFrame(() => requestAnimationFrame(read));
+    // (A hold is taken up a frame after its time, and on a loaded machine its timer and that frame run late: past its
+    // time, what it became once it's no longer a press (or, if it stays one, 3 s on), unless checking that a short
+    // press isn't one.)
+    return p.evaluate(([ms, hold]) => new Promise((r) => setTimeout(() => {
+      const kind = () => window.woodrail.interaction.mode.kind;
+      if (!hold) return r(kind());
+      const until = performance.now() + 3000;
+      const wait = () => (kind() !== "press" || performance.now() > until ? r(kind()) : requestAnimationFrame(wait));
+      requestAnimationFrame(() => requestAnimationFrame(wait));
     }, Math.max(0, window.__downAt + ms - performance.now()))), [ms, ms >= 380]);
   };
   const lift = async () => {
@@ -338,8 +342,18 @@ async function selectThenDrag(ctx, p) {
       if (id < 0) continue;
       syncIndustries(w);
       w.invalidate();
+      // (A point a finger there takes the workshop: across its yard, as pick finds it, not just where its piece starts.)
+      const depot = w.economy.depotAtPiece(id)?.id;
       const piece = w.layout.getPiece(id);
-      const v = new w.camera.position.constructor(piece.pose.x, piece.y + 10, piece.pose.z).project(w.camera);
+      const V = w.camera.position.constructor;
+      const c = Math.cos(piece.pose.heading), s = Math.sin(piece.pose.heading);
+      for (const [t, l] of [[108, 72], [108, 40], [60, 72], [160, 72], [108, 0], [0, 0]]) {
+        const v = new V(piece.pose.x + c * t - s * l, piece.y + 10, piece.pose.z + s * t + c * l).project(w.camera);
+        const x = ((v.x + 1) / 2) * innerWidth, y = ((1 - v.y) / 2) * innerHeight;
+        const hit = w.interaction.pick(x, y, true);
+        if ((hit?.kind === "depot" && hit.depotId === depot) || (hit?.kind === "piece" && hit.pieceId === id)) return { id, x, y };
+      }
+      const v = new V(piece.pose.x, piece.y + 10, piece.pose.z).project(w.camera);
       return { id, x: ((v.x + 1) / 2) * innerWidth, y: ((1 - v.y) / 2) * innerHeight };
     }
     return null;
