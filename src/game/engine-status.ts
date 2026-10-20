@@ -166,3 +166,13 @@ export function trainsForReport(sim: Sim, economy: Economy, layout: Layout, cant
     };
   });
 }
+
+/**
+ * The tip when two trains first meet head on: what lets them pass (a passing loop with signals), or the blueprint to
+ * learn for it first. `learned`: Game mode's blueprints (null in Sandbox, where everything's at hand).
+ */
+export function headOnTip(learned: ReadonlySet<string> | null): string {
+  if (!learned || learned.has("signals")) return "Trains met head on. A passing loop with signals lets them pass";
+  if (learned.has("switches")) return "Trains met head on. Learn Signals so they can pass on a loop";
+  return "Trains met head on. Learn Switches, then Signals, so they can pass";
+}

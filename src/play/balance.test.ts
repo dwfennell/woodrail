@@ -11,7 +11,7 @@ import { landmarksOf, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { inUse, Progress } from "../game/progress";
-import { firstTimeGift, offerOnGrowth, payDelivery, schoolIdeas, takeBlueprint, takeCrate } from "../game/rewards";
+import { firstTimeGift, learnGift, offerOnGrowth, payDelivery, schoolIdeas, takeBlueprint, takeCrate } from "../game/rewards";
 import { keepsPlanks, learnAuto, priceOf, techOf, TECHS } from "../game/tech";
 import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, pick as pickResearch, studying, tick as researchTick } from "../game/research";
 import { describePrice } from "../game/blueprints";
@@ -194,6 +194,8 @@ class Player {
     this.happened++;
     this.learnedAt.push({ minute: +this.minute.toFixed(1), id, how, price });
     this.note(`BLUEPRINT ${techOf(id)!.label} (${how}${price ? `, ${price}` : ""})`);
+    // (As the game does: Signals bring a second engine.)
+    for (const [thing, n] of learnGift(this.progress, id)) this.note(`present: ${n} ${thing}`);
     applyCranes(this.w.economy, this.progress);
   }
 
@@ -982,7 +984,7 @@ class Playthrough {
       } else this.why = `a bridge for the goal: ${why}`;
     }
 
-    // The second train: when the box has an engine again (the first village's present), on the far half of the line.
+    // The second train: when the box has an engine again (Signals' present), on the far half of the line.
     const engines = (s.owned.get("car:engine") ?? 0) - inUse(w, "car:engine");
     if (this.trains.size < 2 && engines > 0 && this.lifted === 0 && goal === "two-trains") {
       const cars: CarKind[] = s.learned.has("passengers") ? ["engine", "passenger", "passenger"] : ["engine", "timber"];

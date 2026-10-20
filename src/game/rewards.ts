@@ -146,9 +146,10 @@ export function takeBlueprint(p: Progress, k: number, id: string, random: () => 
 }
 
 /**
- * The first time any of your towns reaches a level, a present: a second train and a school for your first village, an industry
- * building for your first town, an engine and the grandest industry you know for your first city. Returns what was
- * given (into the toy box), or empty if that level was reached before.
+ * The first time any of your towns reaches a level, a present: a timber wagon and a school for your first village, an
+ * industry building for your first town, an engine and the grandest industry you know for your first city. Returns what
+ * was given (into the toy box), or empty if that level was reached before. (No second engine for the village: on one
+ * line two trains only turn each other back. It comes with Signals: see `learnGift`.)
  */
 export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
   if (level <= p.bestLevel) return [];
@@ -159,12 +160,22 @@ export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
   return gifts;
 }
 
+/**
+ * A present for learning blueprint `id`: Signals bring a second engine (a passing loop with signals is where two trains
+ * can share a line), unless you've two already. Returns what was given (into the toy box), or empty.
+ */
+export function learnGift(p: Progress, id: string): [ThingId, number][] {
+  if (id !== "signals" || (p.owned.get("car:engine") ?? 0) >= 2) return [];
+  p.add("car:engine", 1);
+  return [["car:engine", 1]];
+}
+
 function giftFor(p: Progress, level: number): [ThingId, number][] {
   // Industry buildings you know, cheapest first (by the coins they'd cost). (Not the school: the first village's.)
   const industries = (Object.keys(THING_RULES) as ThingId[]).filter((id) => isBuilding(id) && id !== SCHOOL && THING_RULES[id]!.coins && p.knows(id));
   industries.sort((a, b) => THING_RULES[a]!.coins! - THING_RULES[b]!.coins!);
-  // The first village: a second train, and a school to research blueprints at (beside a town).
-  if (level === 1) return [["car:engine", 1], ["car:timber", 1], [SCHOOL, 1]];
+  // The first village: a wagon, and a school to research blueprints at (beside a town).
+  if (level === 1) return [["car:timber", 1], [SCHOOL, 1]];
   if (level === 2) return industries.length > 0 ? [[industries[0], 1], ["piece:buffer-turnback", 2]] : [["piece:depot-workshop", 1], ["piece:buffer-turnback", 2]];
   return [["car:engine", 1], ...(industries.length > 0 ? [[industries[industries.length - 1], 1] as [ThingId, number]] : [])];
 }

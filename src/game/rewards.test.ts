@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Progress } from "./progress";
-import { crateFor, firstTimeGift, offerOnGrowth, refreshOffers, takeBlueprint, takeCrate } from "./rewards";
+import { crateFor, firstTimeGift, learnGift, offerOnGrowth, refreshOffers, takeBlueprint, takeCrate } from "./rewards";
 import { techOf } from "./tech";
 import { rng } from "../lib/rng";
 
@@ -57,9 +57,9 @@ describe("town rewards", () => {
   it("first village, town and city each bring a present, once", () => {
     const p = Progress.fresh();
     const engines = p.owned.get("car:engine") ?? 0;
-    // The first village: a second train, and a school to research blueprints at.
-    expect(firstTimeGift(p, 1)).toEqual([["car:engine", 1], ["car:timber", 1], ["piece:depot-school", 1]]);
-    expect(p.owned.get("car:engine")).toBe(engines + 1);
+    // The first village: a wagon, and a school to research blueprints at. No second engine (it comes with Signals).
+    expect(firstTimeGift(p, 1)).toEqual([["car:timber", 1], ["piece:depot-school", 1]]);
+    expect(p.owned.get("car:engine")).toBe(engines);
     expect(p.owned.get("piece:depot-school")).toBe(1);
     expect(firstTimeGift(p, 1)).toEqual([]);
     p.learned.add("farming");
@@ -69,8 +69,19 @@ describe("town rewards", () => {
     // Straight to a city from a village: the town's present too.
     const q = Progress.fresh();
     q.learned.add("farming");
-    expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:engine", "car:timber", "piece:depot-school", "piece:depot-farm", "piece:buffer-turnback", "car:engine", "piece:depot-farm"]);
+    expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:timber", "piece:depot-school", "piece:depot-farm", "piece:buffer-turnback", "car:engine", "piece:depot-farm"]);
     expect(q.bestLevel).toBe(3);
+  });
+
+  it("learning Signals brings a second engine, once, unless you've two", () => {
+    const p = Progress.fresh();
+    expect(p.owned.get("car:engine")).toBe(1);
+    expect(learnGift(p, "switches")).toEqual([]);
+    expect(learnGift(p, "signals")).toEqual([["car:engine", 1]]);
+    expect(p.owned.get("car:engine")).toBe(2);
+    // Two already (an old save's village present, or one made in the workshop): nothing more.
+    expect(learnGift(p, "signals")).toEqual([]);
+    expect(p.owned.get("car:engine")).toBe(2);
   });
 
   it("offers with crates are saved", () => {
