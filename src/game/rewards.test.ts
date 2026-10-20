@@ -51,6 +51,9 @@ describe("the growth menu: pick one of three", () => {
 
   it("amounts scale by level: village, town, city and up", () => {
     const p = researching();
+    // With Signals (so a city's wagon card is an engine, and crates may hold one).
+    p.learned.add("switches");
+    p.learned.add("signals");
     const w = world({ school: true });
     const amount = (kind: GrowthCard["kind"], level: number) => {
       const c = cardFor(p, w, kind, level, rng(1));
@@ -67,9 +70,7 @@ describe("the growth menu: pick one of three", () => {
     expect(by("boost")).toEqual([0.25, 0.4, 0.6, 0.6]);
     expect(by("rare")).toEqual([null, 6, 12, 12]);
     // A wagon you know (only the flatbed so far: hoppers come with Farming, learned here), and an engine for a city
-    // once Signals are learned.
-    p.learned.add("switches");
-    p.learned.add("signals");
+    // once Signals are learned (learned above).
     const wagon = by("wagon");
     expect(["car:timber", "car:hopper"]).toContain(wagon[0]);
     expect(["car:timber", "car:hopper"]).toContain(wagon[1]);
@@ -263,7 +264,25 @@ describe("crates and presents", () => {
     }
     expect(crateFor(p, 1, rng(1)).length).toBe(2);
     const bare = new Progress();
-    expect(crateFor(bare, 1, rng(1)).length).toBeGreaterThan(0); // engines, timber wagons, turnbacks need no blueprint
+    expect(crateFor(bare, 1, rng(1)).length).toBeGreaterThan(0); // timber wagons, turnbacks need no blueprint
+  });
+
+  it("a crate holds no engine till Signals are learned; after, it can", () => {
+    let engines = 0;
+    for (let seed = 1; seed < 60; seed++) {
+      for (const level of [1, 2, 3, 5]) {
+        const p = Progress.fresh();
+        p.learned.add("switches");
+        p.learned.add("farming");
+        expect(crateFor(p, level, rng(seed)).map(([id]) => id), `seed ${seed} level ${level}`).not.toContain("car:engine");
+        // The crate card too.
+        const card = cardFor(p, world(), "crate", level, rng(seed));
+        if (card?.kind === "crate") expect(card.things.map(([id]) => id)).not.toContain("car:engine");
+        p.learned.add("signals");
+        if (crateFor(p, level, rng(seed)).some(([id]) => id === "car:engine")) engines++;
+      }
+    }
+    expect(engines).toBeGreaterThan(0);
   });
 
   it("first village, town and city each bring a present, once; the first village's includes the school", () => {

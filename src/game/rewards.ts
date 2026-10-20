@@ -38,7 +38,9 @@ const isBuilding = (id: ThingId) => id.startsWith("piece:depot-");
  * piece of track, one of a car or furniture. Empty if you know nothing that costs anything yet.
  */
 export function crateFor(p: Progress, level: number, random: () => number): [ThingId, number][] {
-  const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => !isBuilding(id) && !isFree(id) && p.knows(id));
+  // No engine before Signals: on one line a second train only meets the first head on (it comes with Signals).
+  const engineOk = p.learned.has("signals");
+  const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => !isBuilding(id) && !isFree(id) && p.knows(id) && (engineOk || id !== "car:engine"));
   const out: [ThingId, number][] = [];
   while (out.length < level + 1 && known.length > 0) {
     const id = known.splice(Math.floor(random() * known.length), 1)[0];
