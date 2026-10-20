@@ -38,7 +38,9 @@ const isBuilding = (id: ThingId) => id.startsWith("piece:depot-");
  * piece of track, one of a car or furniture. Empty if you know nothing that costs anything yet.
  */
 export function crateFor(p: Progress, level: number, random: () => number): [ThingId, number][] {
-  const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => !isBuilding(id) && !isFree(id) && p.knows(id));
+  // No engine before Signals: on one line a second train only meets the first head on (it comes with Signals).
+  const engineOk = p.learned.has("signals");
+  const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => !isBuilding(id) && !isFree(id) && p.knows(id) && (engineOk || id !== "car:engine"));
   const out: [ThingId, number][] = [];
   while (out.length < level + 1 && known.length > 0) {
     const id = known.splice(Math.floor(random() * known.length), 1)[0];
@@ -58,9 +60,10 @@ function plural(label: string): string {
 }
 
 /**
- * The first time any of your towns reaches a level, a present: a second train and a school for your first village, an industry
- * building for your first town, an engine and the grandest industry you know for your first city. Returns what was
- * given (into the toy box), or empty if that level was reached before.
+ * The first time any of your towns reaches a level, a present: a timber wagon and a school for your first village, an
+ * industry building for your first town, an engine (once Signals are learned) and the grandest industry you know for
+ * your first city. Returns what was given (into the toy box), or empty if that level was reached before. (No second
+ * engine before Signals: on one line two trains only turn each other back. It comes with Signals: see `learnGift`.)
  */
 export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
   if (level <= p.bestLevel) return [];
@@ -71,14 +74,26 @@ export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
   return gifts;
 }
 
+/**
+ * A present for learning blueprint `id`: Signals bring a second engine (a passing loop with signals is where two trains
+ * can share a line), unless you've two already. Returns what was given (into the toy box), or empty.
+ */
+export function learnGift(p: Progress, id: string): [ThingId, number][] {
+  if (id !== "signals" || (p.owned.get("car:engine") ?? 0) >= 2) return [];
+  p.add("car:engine", 1);
+  return [["car:engine", 1]];
+}
+
 function giftFor(p: Progress, level: number): [ThingId, number][] {
   // Industry buildings you know, cheapest first (by the coins they'd cost). (Not the school: the first village's.)
   const industries = (Object.keys(THING_RULES) as ThingId[]).filter((id) => isBuilding(id) && id !== SCHOOL && THING_RULES[id]!.coins && p.knows(id));
   industries.sort((a, b) => THING_RULES[a]!.coins! - THING_RULES[b]!.coins!);
-  // The first village: a second train, and a school to research blueprints at (beside a town).
-  if (level === 1) return [["car:engine", 1], ["car:timber", 1], [SCHOOL, 1]];
+  // The first village: a wagon, and a school to research blueprints at (beside a town).
+  if (level === 1) return [["car:timber", 1], [SCHOOL, 1]];
   if (level === 2) return industries.length > 0 ? [[industries[0], 1], ["piece:buffer-turnback", 2]] : [["piece:depot-workshop", 1], ["piece:buffer-turnback", 2]];
-  return [["car:engine", 1], ...(industries.length > 0 ? [[industries[industries.length - 1], 1] as [ThingId, number]] : [])];
+  // The first city: an engine only once Signals are learned (till then it would only meet the first train head on).
+  const engine: [ThingId, number][] = p.learned.has("signals") ? [["car:engine", 1]] : [];
+  return [...engine, ...(industries.length > 0 ? [[industries[industries.length - 1], 1] as [ThingId, number]] : [])];
 }
 
 /** Room for planks left in the workshops' yards (each up to its cap). */
@@ -145,7 +160,8 @@ export function cardFor(p: Progress, world: World, kind: CardKind, level: number
       return things.length > 0 ? { kind, things } : null;
     }
     case "wagon": {
-      if (level >= 3) return { kind, id: "car:engine" };
+      // A city's is an engine, but only once Signals are learned (before, a second train only meets the first head on).
+      if (level >= 3 && p.learned.has("signals")) return { kind, id: "car:engine" };
       const known = wagonsKnown(p);
       return known.length > 0 ? { kind, id: known[Math.floor(random() * known.length)] } : null;
     }
