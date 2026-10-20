@@ -3,7 +3,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { CELL, FEAT_STATION, generateLandscape, SURF_ROAD } from "../../landscape";
 import type { Materials } from "../materials";
 import type { Batcher } from "./batcher";
-import { building, buildStation, buildTown, footprintOf, FURNITURE_CLEARANCE, SPECIAL_LOOKS, townFurniture, townLooks, type Look, type PropKind } from "./buildings";
+import { building, buildStation, buildTown, footprintOf, FURNITURE_CLEARANCE, SPECIAL_LOOKS, townFurniture, townGreens, townLooks, type Look, type PropKind } from "./buildings";
+import { releaseBuilding } from "../../props/towns";
 import { loadBlenderModels } from "../blender-models";
 
 // The cars and the map's building parts are models (public/models): read from disk here.
@@ -125,5 +126,30 @@ describe("townFurniture", () => {
       buildStation(town, mats, m.b);
       expect(m.count()).toBeGreaterThan(50);
     }
+  });
+});
+
+describe("town greens (QA: N7)", () => {
+  it("a square a house left is a green, drawn as a low lawn on it: a fresh town has none", () => {
+    const land = generateLandscape(SEEDS[0]);
+    const town = land.towns.find((t) => t.buildings.some((b) => b.cells.length === 1 && !b.landmark))!;
+    expect(townGreens(land, town)).toEqual([]);
+    const before = measuring();
+    buildTown(land, town, mats, before.b);
+    const house = town.buildings.find((b) => b.cells.length === 1 && !b.landmark)!;
+    const cell = house.cells[0];
+    releaseBuilding(land, house.id);
+    expect(townGreens(land, town)).toEqual([cell]);
+    const after = measuring();
+    buildTown(land, town, mats, after.b);
+    // A lawn and twelve flowers, within the square and no higher than a few mm above the ground.
+    expect(after.count() - before.count()).toBe(13);
+    const g = land.grid;
+    const lawn = measuring();
+    buildTown(land, { ...town, cells: [cell], buildings: [] }, mats, lawn.b);
+    const box = lawn.bounds;
+    expect(box.min.x).toBeGreaterThanOrEqual(g.centreX(g.colOf(cell)) - CELL / 2);
+    expect(box.max.x).toBeLessThanOrEqual(g.centreX(g.colOf(cell)) + CELL / 2);
+    expect(box.max.y - g.groundY(cell)).toBeLessThan(5);
   });
 });

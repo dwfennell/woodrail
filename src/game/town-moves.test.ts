@@ -171,6 +171,63 @@ describe("moving a town's houses (Game mode)", () => {
     throw new Error("no edge square found");
   });
 
+  it("taken to the edge and back, a house leaves the town as it was (QA: N5); undo puts the squares back", () => {
+    const { land, editor } = world();
+    const g = land.grid;
+    for (const town of land.towns) {
+      for (const house of town.buildings.filter((b) => b.cells.length === 1 && !b.landmark)) {
+        const home = house.cells[0];
+        const surfaces = () => [...g.surface];
+        const before = { cells: [...town.cells].sort((x, y) => x - y), surface: surfaces(), front: house.front };
+        for (let i = 0; i < g.cellCount; i++) {
+          if (g.surface[i] !== SURF_GRASS || g.feature[i] !== FEAT_NONE) continue;
+          const out = lotFor(land, house.id, i, editor);
+          if (typeof out === "string") continue;
+          const undoOut = moveBuilding(land, house.id, out);
+          const outCells = [...town.cells];
+          const back = lotFor(land, house.id, home, editor);
+          if (typeof back === "string") {
+            undoOut();
+            continue;
+          }
+          const undoBack = moveBuilding(land, house.id, back);
+          // The edge square it went out to is grass again, outside the town; its home is its own again.
+          expect([g.surface[i], g.feature[i], g.owner[i]]).toEqual([SURF_GRASS, FEAT_NONE, -1]);
+          expect(town.cells).not.toContain(i);
+          expect([...town.cells].sort((x, y) => x - y)).toEqual(before.cells);
+          expect([...g.surface]).toEqual(before.surface);
+          expect(house.cells).toEqual([home]);
+          undoBack();
+          expect(town.cells).toEqual(outCells);
+          expect([g.surface[i], g.owner[i]]).toEqual([SURF_TOWN, house.id]);
+          undoOut();
+          expect([...town.cells].sort((x, y) => x - y)).toEqual(before.cells);
+          expect([...g.surface]).toEqual(before.surface);
+          return;
+        }
+      }
+    }
+    throw new Error("no house with an edge square to go out to and back");
+  });
+
+  it("a square left inside the town (no open grass beside it) stays a green", () => {
+    const { land, editor } = world();
+    const g = land.grid;
+    const { town, a, b } = houses(land);
+    const free = green(land, town, [a, b]);
+    for (const id of [a, b]) {
+      const house = town.buildings.find((x) => x.id === id)!;
+      const old = house.cells[0];
+      const open = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dc, dr]) => g.surface[g.index(g.colOf(old) + dc, g.rowOf(old) + dr)] === SURF_GRASS);
+      if (open) continue;
+      const lot = lotFor(land, id, free, editor) as TownLot;
+      moveBuilding(land, id, lot);
+      expect([g.surface[old], g.feature[old]]).toEqual([SURF_TOWN, FEAT_NONE]);
+      expect(town.cells).toContain(old);
+      return;
+    }
+  });
+
   it("houses pushed out toward a depot don't box a town in: growth still finds as many lots", () => {
     const { w, land, editor } = world();
     const g = land.grid;
@@ -223,6 +280,37 @@ describe("moving a town's houses (Game mode)", () => {
     expect(seen).toBeGreaterThan(0);
     // A green whose only street is at a two-square house's end: said so.
     expect(townMoveMessage("end-on")).toBe("The street must run along its long side");
+  });
+
+  it("the edge squares a house took save with the town: brought back after a Continue, it still gives them back", () => {
+    const { w, land, editor } = world();
+    const g = land.grid;
+    for (const town of land.towns) {
+      for (const house of town.buildings.filter((b) => b.cells.length === 1 && !b.landmark)) {
+        const home = house.cells[0];
+        for (let i = 0; i < g.cellCount; i++) {
+          if (g.surface[i] !== SURF_GRASS || g.feature[i] !== FEAT_NONE) continue;
+          const out = lotFor(land, house.id, i, editor);
+          if (typeof out === "string") continue;
+          moveBuilding(land, house.id, out);
+          expect(town.claimed).toEqual([i]);
+          const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
+          expect(r.ok).toBe(true);
+          if (!r.ok) return;
+          const land2 = r.value.landscape;
+          const t = land2.towns.find((x) => x.id === town.id)!;
+          expect(t.claimed).toEqual([i]);
+          const back = lotFor(land2, house.id, home, new LandEditor(land2, r.value.layout, { inRect: () => false }));
+          if (typeof back === "string") return;
+          moveBuilding(land2, house.id, back);
+          expect(land2.grid.surface[i]).toBe(SURF_GRASS);
+          expect(t.cells).not.toContain(i);
+          expect(t.claimed).toBeUndefined();
+          return;
+        }
+      }
+    }
+    throw new Error("no house with an edge square to go out to");
   });
 
   it("a house's new place saves", () => {
