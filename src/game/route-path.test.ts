@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Economy } from "../economy";
 import { Sim, SIM_HZ } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, Layout, pathLength, type PieceTypeId } from "../track";
-import { aheadRuns, legFromCursor, lineLegs, runsLength, type PathRun } from "./route-path";
+import { aheadRuns, legFromCursor, lineLegs, pinnedBlocking, runsLength, stopCursors, type PathRun } from "./route-path";
 
 /** Lay `types` end to end from a first piece at the origin; their ids. */
 function chain(layout: Layout, types: readonly PieceTypeId[], from = -1): number[] {
@@ -76,6 +76,26 @@ describe("route path", () => {
     // Back from B (the end of its line): up the spur and through the switch to A the short way.
     expect(piecesOf(toA!)).toEqual([j.b, j.spur, j.sw, j.a]);
     expect(toA![toA!.length - 1]).toMatchObject({ pieceId: j.a, s1: 108 });
+  });
+
+  it("a pinned switch set away from a stop: no way there, and the switch is named as what keeps it away", () => {
+    const j = loopWithSpur();
+    expect(pinnedBlocking(j.layout, stopCursors(j.layout, j.a), j.b)).toBe(-1);
+    // Pinned straight on (not down the curve to the spur): B is out of reach from A.
+    j.layout.setSwitchState(j.sw, 0);
+    j.layout.setPinned(j.sw, true);
+    expect(lineLegs(j.layout, [j.a, j.b])[0]).toBeNull();
+    const version = j.layout.switchesVersion;
+    expect(pinnedBlocking(j.layout, stopCursors(j.layout, j.a), j.b)).toBe(j.sw);
+    // Asked without touching the layout: still pinned, nothing to redraw.
+    expect(j.layout.isPinned(j.sw)).toBe(true);
+    expect(j.layout.switchesVersion).toBe(version);
+    // Pinned the way to the spur: B is reached, nothing to blame.
+    j.layout.setSwitchState(j.sw, 1);
+    expect(lineLegs(j.layout, [j.a, j.b])[0]).not.toBeNull();
+    // A stop no track leads to at all: no switch to blame.
+    const lone = j.layout.addPiece("depot-mine", { x: 5000, z: 5000, heading: 0 });
+    expect(pinnedBlocking(j.layout, stopCursors(j.layout, j.a), lone)).toBe(-1);
   });
 
   it("from a train's front, the way a routed train goes, whatever the switch is set to now", () => {
