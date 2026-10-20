@@ -26,7 +26,7 @@ export const LANDMARKS: readonly Landmark[] = [
     id: "school",
     name: "School",
     level: 1,
-    blurb: "Its pupils have ideas: a new blueprint on the board now and then, while the town is supplied.",
+    blurb: "Its pupils have ideas: a new blueprint in Research now and then, while the town is supplied.",
     models: { two: ["bldg-school", "bldg-church"], one: ["bldg-corner-shop"] },
   },
   {
