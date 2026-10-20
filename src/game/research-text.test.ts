@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { Progress } from "./progress";
 import { deliver, pick, tick } from "./research";
 import * as text from "./research-text";
-import { cardState, chipsText, goalPick, pillKey, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
+import { cardState, chipsText, goalPick, pickerKey, pillKey, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
+import { TECHS } from "./tech";
 
 const SCHOOL = "Larkfield school";
 
@@ -205,5 +206,39 @@ describe("the school's card", () => {
     deliver(p, "planks", 1);
     expect(schoolCard(p).note).toBe("Studying Switches: 20 s");
     expect(schoolCardKey(p)).not.toBe(k1);
+  });
+});
+
+describe("the picker's key (it's rebuilt only when this changes)", () => {
+  const lowest = Math.min(...TECHS.map((t) => t.research.coins ?? Infinity));
+  it("changes with the research, not with every coin or counted load (QA: it rebuilt every second)", () => {
+    const p = Progress.fresh();
+    const key = () => pickerKey(p, SCHOOL, "learn-switches");
+    const k0 = key();
+    // Coins below the lowest price, and loads moved short of a requirement: nothing the picker shows.
+    p.coins = lowest - 1;
+    p.counts.set("loadsMoved", 199);
+    expect(key()).toBe(k0);
+    // A price reached: a coins chip stops being red.
+    p.coins = lowest;
+    const k1 = key();
+    expect(k1).not.toBe(k0);
+    // A requirement met (Goods engine's 200 loads).
+    p.counts.set("loadsMoved", 200);
+    const k2 = key();
+    expect(k2).not.toBe(k1);
+    // A pick, a delivery.
+    pick(p, "switches");
+    const k3 = key();
+    expect(k3).not.toBe(k2);
+    deliver(p, "planks", 1);
+    expect(key()).not.toBe(k3);
+  });
+
+  it("names the school and the goal", () => {
+    const p = Progress.fresh();
+    expect(pickerKey(p, SCHOOL, "a")).not.toBe(pickerKey(p, "Elderwick school", "a"));
+    expect(pickerKey(p, null, "a")).not.toBe(pickerKey(p, SCHOOL, "a"));
+    expect(pickerKey(p, SCHOOL, "a")).not.toBe(pickerKey(p, SCHOOL, "b"));
   });
 });

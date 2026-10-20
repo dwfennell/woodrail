@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { townProps } from "../props/towns";
 import { CITY_SCHOOL_ID } from "./blueprints";
+import { TECHS } from "./tech";
 import { landmarksAt, LANDMARKS, placedSchools, researchSpeed, schoolGrade, schoolGradesKey, townLandmarks } from "./landmarks";
 import { Progress } from "./progress";
 import { pick, setSpeed, studyLeft, tick } from "./research";
@@ -136,5 +137,12 @@ describe("markets", () => {
     expect(payDelivery(p, "planks", 2, before, t)).toBe(8);
     t.buildings[0].landmark = "market";
     expect(payDelivery(p, "planks", 2, before, t)).toBe(12);
+  });
+});
+
+describe("what a landmark's news says", () => {
+  it("never names the board (it is the Research picker now: QA)", () => {
+    for (const m of LANDMARKS) expect(m.blurb, m.id).not.toMatch(/\bboard\b/i);
+    for (const t of TECHS) expect(t.blurb, t.id).not.toMatch(/\bthe board\b/i);
   });
 });

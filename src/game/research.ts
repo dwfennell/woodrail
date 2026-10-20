@@ -237,10 +237,12 @@ export function attachResearch(economy: Economy, progress: () => Progress, deliv
   economy.intoSink = (d, kind) => {
     if (d.role === "school" && deliver(progress(), kind, 1) > 0) delivered?.(kind);
   };
+  economy.sinkWants = (kind) => lacking(progress(), kind);
 }
 
 export function detachResearch(economy: Economy): void {
   economy.intoSink = null;
+  economy.sinkWants = null;
 }
 
 /** Saved form (see `Progress.toJSON`). */

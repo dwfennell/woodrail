@@ -489,7 +489,9 @@ export function inYardMessage(type: PieceTypeId): string {
 
 /** Most of the player's straights tried for a spot a depot fits (it runs on a tap: bounded). */
 const SPOT_TRIES = 200;
-const spots = new WeakMap<World, { key: string; spot: Pose | null }>();
+/** Each world's last few spots by key (a school's Show me asks near each town in turn). */
+const spots = new WeakMap<World, Map<string, Pose | null>>();
+const SPOTS_KEPT = 8;
 
 /**
  * A straight of the player's line where a depot of `type` could be dropped and fit, yard and all (either way round):
@@ -514,8 +516,9 @@ export function depotSpot(w: World, type: PieceTypeId, near: readonly { x: numbe
     straights.push({ id, x, z, heading: p.pose.heading, d });
   }
   const key = `${type}|${layout.pieceCount}|${layout.jointCount}|${w.landscape.grid.revision}|${w.props.version}|${sig}|${near.map((q) => `${q.x},${q.z}`).join(";")}`;
-  const known = spots.get(w);
-  if (known?.key === key) return known.spot;
+  let known = spots.get(w);
+  if (!known) spots.set(w, (known = new Map()));
+  if (known.has(key)) return known.get(key)!;
   straights.sort((a, b) => a.d - b.d);
   const ctx: YardCheck = { land: w.landscape, layout, props: w.props, footprint: () => undefined };
   const free = (id: number) => !w.sim.pieceOccupied(id);
@@ -534,7 +537,8 @@ export function depotSpot(w: World, type: PieceTypeId, near: readonly { x: numbe
     }
     if (spot) break;
   }
-  spots.set(w, { key, spot });
+  if (known.size >= SPOTS_KEPT) known.delete(known.keys().next().value!);
+  known.set(key, spot);
   return spot;
 }
 

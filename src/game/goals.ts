@@ -7,7 +7,7 @@ import { depotSpot } from "./depot-footprint";
 import { schoolOf, siteWhy } from "./industries";
 import { receivedBy } from "./town-life";
 import { townStatus } from "./towns";
-import type { World } from "./world";
+import { schoolTown, type World } from "./world";
 
 /** How far along a goal is: done or not, with an optional count toward a target ("2 / 3 towns"). */
 export interface GoalProgress {
@@ -137,7 +137,9 @@ const schools = (w: World) => w.economy.allDepots().filter((d) => d.role === "sc
 
 /**
  * Where research goes on: the school (and the sawmill, for its planks); with none on the map yet, a straight of the
- * line beside the town that's grown most (its station first), where the school fits.
+ * line beside the town that's grown most (its station first), where the school fits and would take that town's name;
+ * else beside the next town grown most. The town is named over its station, so the spot and the school's name agree
+ * (QA: the spot near one town's station was beside another, whose name the school took).
  */
 export function guideSchool(w: World): GoalGuide {
   const school = schools(w)[0];
@@ -146,12 +148,16 @@ export function guideSchool(w: World): GoalGuide {
     return { points: [at, ...guideDepot(w, "sawmill").points.slice(0, 1)], towns: [], marks: [at] };
   }
   const guide: GoalGuide = { ...guideTrains(w), tab: "industries", shelf: "Industries" };
-  const town = [...w.landscape.towns].sort((a, b) => townStatus(receivedBy(w, b.id)).fill - townStatus(receivedBy(w, a.id)).fill)[0];
-  const station = town && w.stations.get(town.id);
-  if (station === undefined) return guide;
-  const fits = (pose: { x: number; z: number; heading: number }) => !siteWhy(w.landscape, "depot-school", pose, (id) => schoolOf(w, id));
-  const spot = depotSpot(w, "depot-school", [piecePoint(w, station)], fits);
-  if (spot) return { ...guide, points: [{ x: spot.x, z: spot.z }], towns: [], marks: [{ x: spot.x, z: spot.z }], held: { type: "depot-school", heading: spot.heading } };
+  const towns = [...w.landscape.towns].sort((a, b) => townStatus(receivedBy(w, b.id)).fill - townStatus(receivedBy(w, a.id)).fill);
+  for (const town of towns) {
+    const station = w.stations.get(town.id);
+    if (station === undefined) continue;
+    const fits = (pose: { x: number; z: number; heading: number }) => schoolTown(w.landscape, pose)?.town.id === town.id && !siteWhy(w.landscape, "depot-school", pose, (id) => schoolOf(w, id));
+    const spot = depotSpot(w, "depot-school", [piecePoint(w, station)], fits);
+    if (spot) return { ...guide, points: [{ x: spot.x, z: spot.z }], towns: [town.id], marks: [{ x: spot.x, z: spot.z }], held: { type: "depot-school", heading: spot.heading } };
+  }
+  const town = towns.find((t) => w.stations.has(t.id));
+  if (!town) return guide;
   return { ...guide, ...guideTowns(w, [town.id]), tab: "industries", shelf: "Industries" };
 }
 
