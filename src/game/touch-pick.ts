@@ -1,4 +1,5 @@
 import { isDoubleTap, type TapRecord } from "./camera-director";
+import { PIN_HOLD_MS } from "./touch-hold";
 
 /** A car as it shows on screen: its two ends (px). */
 export interface CarOnScreen {
@@ -79,6 +80,15 @@ export const PIN_SLACK_PX = 7;
  */
 export function pressPins(slack: number | undefined): boolean {
   return slack === undefined || slack <= PIN_SLACK_PX;
+}
+
+/**
+ * A press on a lever found by a fingertip's slack, let go after `held` ms (by the events' own times): is it a tap that
+ * throws it? Only a quick one, shorter than a pin's hold: one resting longer was a finger on the grass (a pan slow to
+ * start, a hold that's not on the lever), and does nothing (QA: one held 700 ms 14 px off threw it on letting go).
+ */
+export function slackTapThrows(held: number): boolean {
+  return held < PIN_HOLD_MS;
 }
 
 /**

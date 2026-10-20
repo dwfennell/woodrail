@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { carNearTap, deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_ON_TRACK_PX, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearestOnScreen, nearLeverWins, PIN_SLACK_PX, pressPins } from "./touch-pick";
+import { carNearTap, deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_ON_TRACK_PX, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearestOnScreen, nearLeverWins, PIN_SLACK_PX, pressPins, slackTapThrows } from "./touch-pick";
+import { PIN_HOLD_MS } from "./touch-hold";
 
 // Two short cars end to end along y = 100 (a train 10–20 px a car, as at the default zoom on a phone).
 const cars = [
@@ -172,6 +173,14 @@ describe("lever slack: double taps, pins and what can't be seen (QA on switch cl
     expect(pressPins(14)).toBe(false);
     expect(PIN_SLACK_PX).toBeLessThanOrEqual(8);
     expect(PIN_SLACK_PX).toBeGreaterThanOrEqual(6);
+  });
+
+  it("a press a fingertip from a lever throws it only if it's a quick tap; resting longer, nothing (nor a pin)", () => {
+    expect(slackTapThrows(60)).toBe(true);
+    expect(slackTapThrows(PIN_HOLD_MS - 1)).toBe(true);
+    expect(slackTapThrows(PIN_HOLD_MS)).toBe(false);
+    expect(slackTapThrows(700)).toBe(false);
+    expect(pressPins(14)).toBe(false);
   });
 
   it("a lever behind the camera isn't on screen to tap", () => {

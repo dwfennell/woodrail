@@ -38,7 +38,7 @@ import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
-import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, type CarOnScreen, type TapUnder } from "./touch-pick";
+import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
@@ -158,7 +158,8 @@ const SPLICE_MESSAGES = {
 type Press =
   | { kind: "car"; carId: number }
   /** A switch's lever or a signal (`road`: which of a signal piece's signals, a gantry's road; else 0). */
-  | { kind: "lever"; pieceId: number; road?: number; slack?: number }
+  /** (`slack`: found by a fingertip's slack, this far off it, px; `at`: then, when the press came down.) */
+  | { kind: "lever"; pieceId: number; road?: number; slack?: number; at?: number }
   /** A stop disc of the route being planned (its index in the route). */
   | { kind: "route-stop"; index: number }
   /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
@@ -1059,6 +1060,7 @@ export class Interaction {
     let hit = this.pick(e.clientX, e.clientY, e.pointerType === "touch");
     // A lever found by a fingertip's slack, on a double tap's second tap: that's the floor's (it zooms), not the lever's.
     if (hit?.kind === "lever" && hit.slack !== undefined && !leverSlackOnPress(this.lastTap, { t: e.timeStamp, x: e.clientX, y: e.clientY })) hit = null;
+    if (hit?.kind === "lever" && hit.slack !== undefined) hit.at = e.timeStamp;
     // Pressing on anything else puts the ready piece away.
     if (hit && this.armed) this.arm(null);
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
@@ -1578,7 +1580,11 @@ export class Interaction {
       }
       // (Cargo is tapped again and again, a unit a tap: never a double tap.)
       // (A lever taken by a fingertip's slack is a tap on the grass too: a second tap there zooms. See `onCanvasDown`.)
-      if (m.press.kind === "lever" && m.press.slack !== undefined) this.noteTap(e);
+      if (m.press.kind === "lever" && m.press.slack !== undefined) {
+        this.noteTap(e);
+        // (Resting there longer than a tap: a finger on the grass, not a tap on the lever. See `slackTapThrows`.)
+        if (!slackTapThrows(e.timeStamp - (m.press.at ?? e.timeStamp))) return;
+      }
       if (m.press.kind !== "lever" && m.press.kind !== "cargo" && this.noteTap(e)) this.focusOn(m.press);
       else this.tap(m.press, m.add);
       return;
