@@ -55,6 +55,11 @@ export interface Town {
   /** Town area and station cells (flat, locked). */
   cells: number[];
   buildings: Building[];
+  /**
+   * Squares of `cells` a moved house took from the grass at the town's edge (Game mode): left again, each goes back to
+   * grass, so a house taken to the edge and back leaves the town as it was.
+   */
+  claimed?: number[];
 }
 
 export type DepotKind = "forest" | "sawmill";

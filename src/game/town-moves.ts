@@ -164,7 +164,7 @@ export function lotFor(land: Landscape, id: number, cell: number, checker: LotCh
 
 /**
  * Move building `id` to `lot` (from `lotFor`): its record and its squares on the grid (and, swapping, the other's). Its
- * old squares, left free, become a town green. Returns what puts it all back (undo).
+ * old squares, left free, become a town green (or grass again: one it took at the town's edge). Returns what puts it all back (undo).
  */
 export function moveBuilding(land: Landscape, id: number, lot: TownLot): () => void {
   const found = findBuilding(land, id);
@@ -175,7 +175,8 @@ export function moveBuilding(land: Landscape, id: number, lot: TownLot): () => v
   const records = [building, ...(other ? [other] : [])].map((b) => ({ b, cells: b.cells, front: b.front, corner: b.corner }));
   const squares = [...new Set([...building.cells, ...lot.cells])];
   const before = squares.map((i) => [i, g.feature[i], g.owner[i], g.surface[i]] as const);
-  const townCells = town.cells.length;
+  const townCells = [...town.cells];
+  const townClaimed = town.claimed && [...town.claimed];
   const set = (b: Building, cells: number[], front: Building["front"], corner: boolean | undefined) => {
     b.cells = cells;
     if (front === undefined) delete b.front;
@@ -190,21 +191,43 @@ export function moveBuilding(land: Landscape, id: number, lot: TownLot): () => v
     for (const i of other.cells) g.owner[i] = other.id;
     for (const i of building.cells) g.owner[i] = building.id;
   } else {
-    // Its old squares, left: a town green (still the town's).
+    // Its old squares, left: a town green (still the town's); or, one it took from the grass at the town's edge and
+    // still at the edge (open grass beside it), grass again: a house taken to the edge and back leaves the town as it was.
+    const left = building.cells.filter((i) => !lot.cells.includes(i));
+    const after = townSquares(town);
+    for (const i of left) after.delete(i);
+    for (const i of lot.cells) after.add(i);
+    const claimed = new Set(town.claimed);
+    const giveBack = left.filter(
+      (i) =>
+        claimed.has(i) &&
+        EDGES.some(([dc, dr]) => {
+          const nb = g.index(g.colOf(i) + dc, g.rowOf(i) + dr);
+          return nb !== -1 && g.surface[nb] === SURF_GRASS && !after.has(nb);
+        }),
+    );
     for (const i of building.cells) {
       g.feature[i] = FEAT_NONE;
       g.owner[i] = -1;
       g.surface[i] = SURF_TOWN;
       if (!town.cells.includes(i)) town.cells.push(i);
     }
+    for (const i of left) claimed.delete(i);
+    for (const i of giveBack) {
+      g.surface[i] = SURF_GRASS;
+      town.cells.splice(town.cells.indexOf(i), 1);
+    }
     set(building, lot.cells, lot.front, lot.corner);
     for (const i of building.cells) {
       g.feature[i] = FEAT_BUILDING;
       g.owner[i] = building.id;
-      // (Grass at the town's edge: the town's from now on, as when it grows.)
+      // (Grass at the town's edge: the town's while the house stands there, taken back if it leaves.)
+      if (g.surface[i] === SURF_GRASS) claimed.add(i);
       g.surface[i] = SURF_TOWN;
       if (!town.cells.includes(i)) town.cells.push(i);
     }
+    if (claimed.size > 0) town.claimed = [...claimed];
+    else delete town.claimed;
   }
   return () => {
     for (const r of records) set(r.b, r.cells, r.front, r.corner);
@@ -213,7 +236,9 @@ export function moveBuilding(land: Landscape, id: number, lot: TownLot): () => v
       g.owner[i] = o;
       g.surface[i] = s;
     }
-    town.cells.length = townCells;
+    town.cells.splice(0, town.cells.length, ...townCells);
+    if (townClaimed) town.claimed = townClaimed;
+    else delete town.claimed;
   };
 }
 
