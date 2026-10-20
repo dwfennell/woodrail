@@ -438,6 +438,133 @@ async function flickOut(ctx, p, tapOn) {
   check("a flick out of the tray (one move, then lift) puts the piece down, or says why not", after.mode === "idle" && (after.pieces === before + 1 || after.said.length > 0), `pieces ${before} → ${after.pieces}; said ${JSON.stringify(after.said)}`);
 }
 
+/**
+ * A switch's lever (Clearer switches): a tap flips it, the lever swinging over and its chevrons sliding across, and once
+ * that's settled nothing more is drawn; a long press pins it (a red peg; the first time ever, a toast says what that
+ * means), or unpins it; a tap still flips a pinned switch. A long press on the switch piece itself still picks it up.
+ */
+async function leverPins(ctx, p) {
+  const cdp = await ctx.newCDPSession(p);
+  const touch = (type, x, y, timestamp) => cdp.send("Input.dispatchTouchEvent", { type, ...(timestamp ? { timestamp } : {}), touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  const settled = () => p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  await p.keyboard.press("Escape");
+  // A switch in the middle of the screen, framed close.
+  const id = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { poseForCentre } = await import("/src/editor/editor.ts");
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    const g = w.interaction.groundAt(195, 420);
+    const r = w.editor().place("switch", poseForCentre("switch", false, g.x, g.z, 0), 0, false);
+    w.director.glideTo(g, frameDistance(200, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    // (Its own list: an earlier check's spy may still be wrapped round the toast, and says each toast too.)
+    window.__pinSaid = [];
+    const h = w.hud;
+    const toast = h.toast.bind(h);
+    h.toast = (m, ...a) => (window.__pinSaid.push(m), toast(m, ...a));
+    return typeof r === "number" ? r : (r?.id ?? -1);
+  });
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  await settled();
+  if (id < 0) {
+    check("a switch goes down for the lever checks", false);
+    return;
+  }
+  /** Where on screen: the lever's stick, or a point on the piece away from it. */
+  const screenOf = (what) =>
+    p.evaluate(([id, what]) => {
+      const w = window.woodrail;
+      const V = w.camera.position.constructor;
+      let at;
+      if (what === "lever") {
+        const lever = w.trackView.group.children.find((c) => c.userData.kind === "switch-lever" && c.userData.pieceId === id);
+        lever.updateMatrixWorld(true);
+        at = new V(0, 14, 0).applyMatrix4(lever.matrixWorld);
+      } else {
+        const piece = w.layout.getPiece(id);
+        at = new V(piece.pose.x + Math.cos(piece.pose.heading) * 110, piece.y + 12, piece.pose.z + Math.sin(piece.pose.heading) * 110);
+      }
+      const v = at.project(w.camera);
+      return [((v.x + 1) / 2) * innerWidth, ((1 - v.y) / 2) * innerHeight];
+    }, [id, what]);
+  const state = () => p.evaluate((id) => ({ way: window.woodrail.layout.switchState(id), pinned: window.woodrail.layout.isPinned(id), peg: window.woodrail.trackView.pinShown(id) }), id);
+  /** A press on (x, y) resting `ms` (by the page's clock), then let go. */
+  const press = async (x, y, ms) => {
+    const t = Date.now() / 1000;
+    await touch("touchStart", x, y, t);
+    await new Promise((r) => setTimeout(r, ms));
+    // (The pin's frame comes a frame after its time.)
+    await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await touch("touchEnd", 0, 0, Date.now() / 1000);
+    await settled();
+  };
+  // (Where the lever is: found afresh before each press, since it leans the other way once flipped.)
+  let [lx, ly] = await screenOf("lever");
+  // 1. A tap flips it: drawn while it swings, then nothing once it's settled. (Boats held still, as in e2e:draw.)
+  const s0 = await state();
+  const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
+  await tapped(p, () => p.touchscreen.tap(lx, ly));
+  const swung = await p.evaluate(() => window.woodrail.trackView.swinging || window.woodrail.flourishes.count > 0);
+  await settled();
+  const s1 = await state();
+  const [during, idle] = await p.evaluate(async (f0) => {
+    const w = window.woodrail;
+    const during = w.framesDrawn - f0;
+    const sail = w.boats.update;
+    w.boats.update = () => false;
+    await new Promise((r) => setTimeout(r, 1500));
+    const f1 = w.framesDrawn;
+    await new Promise((r) => setTimeout(r, 2000));
+    const idle = w.framesDrawn - f1;
+    w.boats.update = sail;
+    return [during, idle];
+  }, f0);
+  check("a tap on a lever flips the switch", s1.way !== s0.way && !s1.pinned, `way ${s0.way} → ${s1.way}${swung ? " (swinging)" : ""}`);
+  check("…drawn while it swings, then no frames once it's settled", during > 0 && idle === 0, `${during} frames for the flip, then ${idle} in 2 s`);
+  [lx, ly] = await screenOf("lever");
+  // 2. A long press pins it (its peg shows; the first time, a toast says what pinning means), and doesn't flip it.
+  await press(lx, ly, 650);
+  const s2 = await state();
+  const said = await p.evaluate(() => window.__pinSaid.slice());
+  check("a long press on a lever pins the switch (and leaves it set as it was)", s2.pinned && s2.peg && s2.way === s1.way, JSON.stringify(s2));
+  check("…and the first time, a toast says what a pin does", said.filter((m) => /^Pinned: trains on a route/.test(m)).length === 1, JSON.stringify(said));
+  [lx, ly] = await screenOf("lever");
+  // 3. A tap still flips a pinned switch by hand.
+  await tapped(p, () => p.touchscreen.tap(lx, ly));
+  await settled();
+  const s3 = await state();
+  check("a tap still flips a pinned switch (it stays pinned)", s3.way !== s2.way && s3.pinned && s3.peg, JSON.stringify(s3));
+  [lx, ly] = await screenOf("lever");
+  // 4. Held again: unpinned. And pinned once more: the toast isn't said again.
+  await press(lx, ly, 650);
+  const s4 = await state();
+  await press(lx, ly, 650);
+  const s5 = await state();
+  const said2 = await p.evaluate(() => window.__pinSaid.filter((m) => /^Pinned: trains on a route/.test(m)).length);
+  check("held again, it's unpinned (its peg goes); and pinned once more", !s4.pinned && !s4.peg && s5.pinned && s4.way === s3.way && s5.way === s3.way, `${JSON.stringify(s4)} then ${JSON.stringify(s5)}`);
+  check("…the pin's toast is only said the first time", said2 === 1, `${said2} times`);
+  [lx, ly] = await screenOf("lever");
+  // 5. A slow phone: a short press (200 ms by its own times) delivered late is a tap, a flip, not a pin.
+  {
+    const t = Date.now() / 1000;
+    await touch("touchStart", lx, ly, t);
+    await new Promise((r) => setTimeout(r, 700));
+    await touch("touchEnd", 0, 0, t + 0.2);
+    await settled();
+    const s6 = await state();
+    check("slow phone: a short press delivered late flips the switch, doesn't unpin it", s6.way !== s5.way && s6.pinned, JSON.stringify(s6));
+  }
+  // 6. A long press on the switch piece itself (not its lever) still picks the piece up.
+  await p.evaluate((id) => window.woodrail.layout.setPinned(id, false), id);
+  const [bx, by] = await screenOf("piece");
+  await p.evaluate(() => window.addEventListener("pointerdown", () => (window.__downAt = performance.now()), { capture: true, once: true }));
+  await touch("touchStart", bx, by);
+  const held = await p.evaluate(() => new Promise((r) => setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(() => r(window.woodrail.interaction.mode.kind))), Math.max(0, window.__downAt + 520 - performance.now()))));
+  await touch("touchEnd", 0, 0);
+  await settled();
+  check("a long press on the switch piece itself still picks it up", held === "drag-piece", `after 520 ms: ${held}`);
+  await p.keyboard.press("Escape");
+}
+
 for (const mode of ["sandbox", "game"]) {
   try {
     await runMode(mode);
@@ -492,6 +619,7 @@ async function runMode(mode) {
     await selectThenDrag(ctx, p);
     await redrawnControl(ctx, p);
     await flickOut(ctx, p, tapOn);
+    await leverPins(ctx, p);
   }
   await ctx.close();
 }
