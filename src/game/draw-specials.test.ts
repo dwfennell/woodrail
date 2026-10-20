@@ -580,11 +580,17 @@ describe("QA junction notes N6: a U-turn that runs into a hill", () => {
 describe("QA's terrace 2 drawn again (the camera a hair off after an undo)", () => {
   it("lays the same line, both ramps, wherever the camera is to within a millimetre, and wherever the line begins along the stroke", () => {
     const run: QARun = ["terrace 2", -1764, -1620, Math.PI, 480, false, -2004, -1620, 3662.2];
-    // (Two straights covering the same ground tie exactly: a camera 1e-9 mm off took the long one first, and found no
-    // room for its second ramp: "The hill is a level up here".)
+    // (Two plans with straights covering the same ground cost the same to within a few micrometres of stroke: a camera
+    // a hair off took the long one first, and found no room for its second ramp: "The hill is a level up here".)
     for (const e of [0, 1e-9, -1e-9, 1e-7, 1e-5, -1e-3, 1e-3, 0.01, -0.1, 0.5, -1]) {
       const { line } = replayQA([run[0], run[1], run[2], run[3], run[4], run[5], run[6] + e, run[7] + e, run[8] + e]);
       expect(line && name(line), `camera ${e} mm off`).toBe("straight-54@0 straight-54@0 ramp↑@0 straight-54@48 ramp↑@48");
+    }
+    // The stroke itself a few micrometres to one side (the browser's repeat was 6 µm shorter): with the tie to within
+    // rounding only, 39 of 80 such strokes from −0.1 to 0.1 mm took the long straight first.
+    for (const e of [0.0025, 0.006, 0.01, 0.05, -0.05, 0.1]) {
+      const { line } = replayQA([run[0], run[1], run[2] + e, run[3], run[4], run[5], run[6], run[7], run[8]]);
+      expect(line && name(line), `stroke ${e} mm off`).toBe("straight-54@0 straight-54@0 ramp↑@0 straight-54@48 ramp↑@48");
     }
     for (const sm of [20, 30, 31, 45]) {
       const { line } = replayQA(run, sm);

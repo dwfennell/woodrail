@@ -98,8 +98,12 @@ export interface DrawOptions {
 
 /** Stroke points closer than this (mm) to the last are skipped. */
 const STEP = 6;
-/** Plans' costs this close (relative) are a tie: their difference is rounding (see `best`). */
-const TIE = 1e-9;
+/**
+ * Plans' costs this close are a tie (see `best`): what half a millimetre of stroke is worth (`ADVANCE`), less than a
+ * finger can mean. (A camera a hair off after an undo moved QA's terrace 2 stroke by 6 µm, and that alone flipped which
+ * of two equal plans won.)
+ */
+const TIE = 0.5 / 120;
 /** Other track's free end this near (mm) the line's end: a piece that closes onto it is looked for (see `closeOnto`). */
 const CLOSE_REACH = 300;
 /** The next piece is chosen once the stroke reaches this far (mm) past the line's end, so the look-ahead sees it. */
@@ -1111,7 +1115,7 @@ export class DrawLine {
     }
     scored.sort((p, q) => p.costA - q.costA);
     const wins = (cost: number, rank: number, length: number) => {
-      const tie = TIE * (1 + Math.abs(bestCost));
+      const tie = TIE;
       if (cost < bestCost - tie) return true;
       if (cost > bestCost + tie) return false;
       return length < bestLength || (length === bestLength && rank < bestRank);
