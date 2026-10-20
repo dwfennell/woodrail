@@ -148,10 +148,16 @@ check("…the tray rings the School, not the Workshop", rung.length === 1 && /Sc
 await shot("02-show-me-school-spot");
 
 // 4. Placed where Show me points: the goal is Research switches (before the workshop).
-const placed = await p.evaluate(async () => {
-  const { schoolOn } = await import("/src/play/rules.ts");
+// (The module loaded first, then the placing called on its own: a slow evaluate awaiting an import was dropped by the
+// browser at times, "Resulting promise was garbage collected".)
+for (let k = 0; k < 3; k++) {
+  const ok = await p.evaluate(() => import("/src/play/rules.ts").then((m) => ((window.__rules = m), true))).catch(() => false);
+  if (ok) break;
+  await p.waitForTimeout(1000);
+}
+const placed = await p.evaluate(() => {
   const w = window.woodrail;
-  const id = schoolOn(w.world, w.editor(), new Set());
+  const id = window.__rules.schoolOn(w.world, w.editor(), new Set());
   w.invalidate();
   return id;
 });
