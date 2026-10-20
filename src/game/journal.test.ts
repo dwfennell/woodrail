@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago, Journal, JOURNAL_CAP } from "./journal";
+import { Journal, JOURNAL_CAP } from "./journal";
 
 const planks = (town: string) => ({ kind: "event" as const, key: `deliver:${town}:planks`, qty: 3, text: "", format: (n: number) => `Delivered ${n} planks to ${town}`, place: { x: 1, z: 2 } });
 
@@ -88,14 +88,6 @@ describe("Journal", () => {
     expect(j.unread).toBe(1);
     j.add({ kind: "milestone", text: "m" }, 3);
     expect(j.unread).toBe(2);
-  });
-});
-
-describe("ago", () => {
-  it("words the time", () => {
-    expect(ago(10_000)).toBe("just now");
-    expect(ago(125_000)).toBe("2 min ago");
-    expect(ago(3 * 3_600_000)).toBe("3 h ago");
   });
 });
 

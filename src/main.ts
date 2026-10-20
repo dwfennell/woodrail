@@ -14,6 +14,7 @@ import { GoalTracker } from "./game/goals";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
 import { GoalsPanel } from "./ui/goals-panel";
+import { dateText } from "./game/calendar";
 import { Journal, type JournalEntry, type JournalPlace, type NoteInput } from "./game/journal";
 import { loadBlenderModels, loadGameModels, loadModelSet } from "./render/blender-models";
 import { LoadingToys, type Shelf } from "./ui/loading-toys";
@@ -794,6 +795,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (mode === "game") saveProgress(progress.toJSON());
   }
 
+  /** The railway's date in the top bar (Game mode), from the game's clock: shown as it turns (asked about once a second). */
+  function showDate(): void {
+    hud.setDate(mode === "game" ? dateText(game.simSeconds) : null);
+  }
+
   /**
    * The world just loaded is the mode's saved one (`fromSave`): its clock, pause and Journal back as they were saved
    * with it; else (a fresh map) they start afresh, the pause as it was.
@@ -803,6 +809,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.simSeconds = s?.clock ?? 0;
     // A loaded clock is another session's time, not study done here.
     studyClock.at = null;
+    showDate();
     if (s) journal.restore(s.journal);
     else journal.clear();
     if (s) {
@@ -1568,6 +1575,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   setInterval(() => {
     if (mode === "game" && board.open && boardKey() !== boardKeyShown) refreshBoard();
     if (mode === "game") refreshPill();
+    showDate();
     // The growth sheet, while it's open: its cards say what they'd give now (the yards fill, the research moves on);
     // closed, the badge's count. (Written only when what they show changes.)
     if (mode === "game") refreshRewards();
@@ -2895,6 +2903,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh && next === "game") resetGoals();
     if (fresh) saveLastBuilt(next, null);
     if (fresh) {
+      // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
+      if (hasOlderSave(next)) loadFromStorage(next);
       setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
       restoreSession(next, false);
     } else if (next !== mode) {
@@ -2946,6 +2956,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.paused = pausedBeforeTitle;
     hud.setPaused(game.paused);
     hud.setMode(mode);
+    showDate();
     refreshPill();
     // Town houses and placed models can be moved in Sandbox only.
     interaction.propsEditable = mode === "sandbox";
