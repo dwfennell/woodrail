@@ -241,32 +241,31 @@ Choices made here (no product decision in the spec): **every** tier-3 research n
 what the library gated before (Harvesters III, Sawmills III, Harbours and Dock sheds are now gated too); the library wing
 is drawn as the library model in the school's place (the yard has no room for two buildings), the college as the
 college model, both scaled to fit the yard; with several schools, study runs at the fastest one's speed.
-**Balance (P3 → P4, 180 min, 1 train a line):** see the table below. The new opening (the workshop after research)
-sends early planks to towns: City comes earlier on every seed and coins at 180 are higher. Fewer blueprints by 180
-(10–13 against 16–20): the school and library rows are gone, and the passenger line is no longer free (the simulated
-player only picks it with planks and coins to spare). Not tuned here (P5).
+**Balance (P3 → P4, 180 min, 1 train a line):** P3 is 8a3bf8c (its table reproduced exactly); "P4 alone" is P4
+before QA's research fixes (`research-qa-fixes` ae08748) were merged in; "P4" is the branch as it stands, with them.
+P4 alone: the new opening (the workshop after research) sent early planks to towns, so City came earlier and coins
+at 180 rose to 708–1192, and seed 5 stalled 36.3 min on the Goods engine's last flour. QA's fix 1 (goods a school's
+research lacks stay on the train past a station) brings coins back down (229–684), clears seed 5's stall, makes seed 4's
+City later (61 → 72) and widens seed 2027/2's gap with no planks into a town (38/43 → 102 min). Fewer blueprints by 180
+either way (11–14 against 16–20): the school and library rows are gone, and the passenger line is no longer free (the
+simulated player picks it only with planks and coins to spare).
 
-| Seed | Coins@180 | City min (main → P3 → P4) | Longest plank stall | First research | Research at 60/120/180 | Longest research stall | Blueprints |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 2027 | 680 → 1116 | 73 → 73 → 62 | 6 → 6 | 5.6 → 5.6 | 6/9/14 → 6/8/10 | 7.6 → 10.1 (Quarries) | 20 → 10 |
-| 1 | 220 → 925 | 112 → 61 → 61 | 7 → 6 | 5.6 → 5.6 | 6/9/12 → 6/8/10 | 10.0 → 10.1 (Quarries) | 18 → 10 |
-| 2 | 592 → 838 | 92 → 73 → 62 | 6 → 6 | 5.6 → 5.6 | 6/9/14 → 6/8/10 | 7.6 → 10.0 (Quarries) | 20 → 10 |
-| 3 | 220 → 1192 | 110 → 61 → 61 | 7 → 6 | 5.6 → 5.6 | 6/9/12 → 6/8/10 | 10.0 → 7.5 (Quicker cranes) | 18 → 10 |
-| 4 | 366 → 710 | 84 → 54 → 61 | 8 → 8 | 5.6 → 5.6 | 6/8/11 → 6/9/12 | 11.9 → 10.8 (Carpenter's bench) | 16 → 12 |
-| 5 | 545 → 708 | 87 → 73 → 64 | 9 → 6 | 5.6 → 5.6 | 6/10/14 → 6/11/13 | 10.3 → **36.3** (Goods engine) | 20 → 13 |
+| Seed | Coins@180 (P3 → P4 alone → P4) | City min (main → P3 → P4 alone → P4) | Plank stall | First research | Research at 60/120/180 (P3 → P4) | Longest research stall (P3 → P4 alone → P4) | Town gap (P3 → P4) | Blueprints (P3 → P4) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2027 | 680 → 1116 → 447 | 73 → 73 → 62 → 57 | 6 → 10 | 5.6 → 5.6 | 6/9/14 → 6/8/11 | 7.6 → 10.1 → 9.9 (Quicker cranes) | 44 → 102 | 20 → 11 |
+| 1 | 220 → 925 → 229 | 112 → 61 → 61 → 62 | 7 → 8 | 5.6 → 5.6 | 6/9/12 → 6/9/12 | 10.0 → 10.1 → 8.6 (Quarries) | 70 → 73 | 18 → 12 |
+| 2 | 592 → 838 → 367 | 92 → 73 → 62 → 57 | 6 → 10 | 5.6 → 5.6 | 6/9/14 → 6/8/11 | 7.6 → 10.0 → 9.9 (Quicker cranes) | 41 → 102 | 20 → 11 |
+| 3 | 220 → 1192 → 229 | 110 → 61 → 61 → 62 | 7 → 8 | 5.6 → 5.6 | 6/9/12 → 6/9/12 | 10.0 → 7.5 → 8.6 (Quarries) | 70 → 73 | 18 → 12 |
+| 4 | 366 → 710 → 684 | 84 → 54 → 61 → 72 | 8 → 6 | 5.6 → 5.6 | 6/8/11 → 6/9/14 | 11.9 → 10.8 → 6.5 (Signals) | 104 → 61 | 16 → 14 |
+| 5 | 545 → 708 → 232 | 87 → 73 → 64 → 71 | 9 → 6 | 5.6 → 5.6 | 6/10/14 → 6/9/14 | 10.3 → 36.3 → 7.6 (Goods engine) | 27 → 55 | 20 → 14 |
 
-**Over P3's guard (for P5):** seed 5's research stall, 36.3 min on the Goods engine from minute 144 to the end of the run:
-its 12 planks are in, its 6th flour never comes (the one train on a 22-stop line stops bringing grain to the mill;
-P3 stalled on the same research there for 10.3 min). Seed 4's City is 13% later than P3's (61 against 54), still 27%
-earlier than main's. Coins at 180 are now over the spec's 150–600 band on every seed (none under 100).
-**Left (P5):** the passenger line's research costs are placeholders; blueprints by 180 are fewer; coins over the band;
-the flour stall above.
-
-**Removes:**
-- `learnWithGoods`, `goodsOf`, `planksWanted`, `keepsPlanks`, `priceOf`'s college discount, `STARTING_BOARD` and
-  `p.board`;
-- the `school` and `library` blueprint rows and the school and library landmarks;
-- `learn: "auto"` (the passenger line is researched, gated by `requires`).
+**Idle (390×844, swiftshader, 30 s, no trains, main-thread busy time):** P3 with a school by a village 689–717 ms
+(2.3%); P4 the same 702–708 ms (2.35%); P4 after the school became a college with a library wing 637–675 ms (2.2%); 0
+frames drawn in each. Drawing the yards again on a grade change: 39–71 ms, once per change.
+**Against P3's guard:** met on every seed. No City later than main's (seed 4's is 33% later than P3's, 14% earlier than
+main's); no research stall over 15 min; coins at 180 229–684. (Seed 4 reaches a City ★ at 165.)
+**Left (P5):** the passenger line's research costs are placeholders; fewer blueprints by 180; coins over 600 on seed 4;
+the town gap is longer on seeds 2027, 2, 5 (102, 102, 55 against 44, 41, 27); research stalls 6.5–9.9 min.
 
 ### Task 4.1: the workshop only makes things
 - [x] Delete the blueprint-payment code and its tests. Holding planks becomes "for the waiting tray order" only, in
