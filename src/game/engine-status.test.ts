@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CARGO, Economy } from "../economy";
 import { Sim, SIM_DT } from "../sim";
 import { appendPiece, connectorRef, Layout, type PieceTypeId } from "../track";
-import { engineStatus, trainState, trainsForReport } from "./engine-status";
+import { engineStatus, headOnTip, trainState, trainsForReport } from "./engine-status";
 
 function chain(types: PieceTypeId[]): { layout: Layout; ids: number[] } {
   const layout = new Layout();
@@ -300,5 +300,14 @@ describe("a train just told to go", () => {
     expect(engineStatus(sim, economy, engine, () => "?")).toBe("Starting");
     run(sim, 1);
     expect(engineStatus(sim, economy, engine, () => "?")).toBe("Waiting: something's in the way");
+  });
+});
+
+describe("headOnTip", () => {
+  it("points to Signals, or to what comes before them", () => {
+    expect(headOnTip(new Set())).toBe("Trains met head on. Learn Switches, then Signals, so they can pass");
+    expect(headOnTip(new Set(["switches"]))).toBe("Trains met head on. Learn Signals so they can pass on a loop");
+    expect(headOnTip(new Set(["switches", "signals"]))).toBe("Trains met head on. A passing loop with signals lets them pass");
+    expect(headOnTip(null)).toContain("signals");
   });
 });

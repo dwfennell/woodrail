@@ -6,7 +6,7 @@ import { workshopStock } from "./crafting";
 import { CARD_KINDS, type GrowthCard } from "./growth-cards";
 import { Progress } from "./progress";
 import { deliver, pick } from "./research";
-import { boostGoods, cardFor, cardView, crateFor, firstTimeGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
+import { boostGoods, cardFor, cardView, crateFor, firstTimeGift, learnGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
 import { TECHS } from "./tech";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
 import { rng } from "../lib/rng";
@@ -245,9 +245,9 @@ describe("crates and presents", () => {
   it("first village, town and city each bring a present, once; the first village's includes the school", () => {
     const p = Progress.fresh();
     const engines = p.owned.get("car:engine") ?? 0;
-    // The first village: a second train, and a school to research blueprints at.
-    expect(firstTimeGift(p, 1)).toEqual([["car:engine", 1], ["car:timber", 1], ["piece:depot-school", 1]]);
-    expect(p.owned.get("car:engine")).toBe(engines + 1);
+    // The first village: a wagon, and a school to research blueprints at. No second engine (it comes with Signals).
+    expect(firstTimeGift(p, 1)).toEqual([["car:timber", 1], ["piece:depot-school", 1]]);
+    expect(p.owned.get("car:engine")).toBe(engines);
     expect(p.owned.get("piece:depot-school")).toBe(1);
     expect(firstTimeGift(p, 1)).toEqual([]);
     p.learned.add("farming");
@@ -257,7 +257,23 @@ describe("crates and presents", () => {
     // Straight to a city from a village: the town's present too.
     const q = Progress.fresh();
     q.learned.add("farming");
-    expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:engine", "car:timber", "piece:depot-school", "piece:depot-farm", "piece:buffer-turnback", "car:engine", "piece:depot-farm"]);
+    // (No engine for the city before Signals.)
+    expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:timber", "piece:depot-school", "piece:depot-farm", "piece:buffer-turnback", "piece:depot-farm"]);
     expect(q.bestLevel).toBe(3);
+    const r = Progress.fresh();
+    r.learned.add("signals");
+    r.bestLevel = 2;
+    expect(firstTimeGift(r, 3).map(([id]) => id)).toEqual(["car:engine"]);
+  });
+
+  it("learning Signals brings a second engine, once, unless you've two", () => {
+    const p = Progress.fresh();
+    expect(p.owned.get("car:engine")).toBe(1);
+    expect(learnGift(p, "switches")).toEqual([]);
+    expect(learnGift(p, "signals")).toEqual([["car:engine", 1]]);
+    expect(p.owned.get("car:engine")).toBe(2);
+    // Two already (an old save's village present, or one made in the workshop): nothing more.
+    expect(learnGift(p, "signals")).toEqual([]);
+    expect(p.owned.get("car:engine")).toBe(2);
   });
 });
