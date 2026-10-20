@@ -1226,7 +1226,10 @@ class Playthrough {
       const ends = lineEnds(P).map((e) => w.layout.worldConnector(e.ref, peg));
       const dist = (i: number) => Math.min(...ends.map((e) => Math.hypot(w.landscape.towns[i].centre.x - e.x, w.landscape.towns[i].centre.z - e.z)));
       others.sort((a, b) => dist(a) - dist(b));
-      for (const i of others.slice(0, 2)) {
+      // The next nearest only with planks to spare: with few in the workshop's yard the nearest may just be short of
+      // its ramps, and a farther town's line can leave the farm a branch an unrouted train never takes (seen once
+      // "Make a switch" took the yard's planks: Mills waited on grain all game).
+      for (const i of others.slice(0, P.planks() >= RESEARCH_SPARE ? 2 : 1)) {
         const station = st(P, i);
         const r = extend(P, { target: () => [connectorRef(station, 0), connectorRef(station, 1)] });
         if (r) {
