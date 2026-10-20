@@ -68,16 +68,18 @@ And later: "I think the research building should be placed near a town though, m
 - **The cost is mixed goods, so research pulls on the whole economy.** The prices in `blueprints.ts` become research
   costs. From tier 2, each one also asks for a good from the chain that comes before it:
 
-  | Tier | Examples (goods; coins from tier 2 only, at today's prices) |
+  | Tier | Examples (goods; coins from tier 2 only; as tuned in P5, §5) |
   | --- | --- |
-  | 1 | Switches 4🪵 · Signals 8🪵 · Bridges 10🪵 · Farming 12🪵 · Passengers 10🪵 |
-  | 2 | Mills 12🪵 6🌾 · Routes 10🪵 20🪙 · Goods engine 12🪵 6🍞 40🪙 · Diesel 14🪵 8🍞 60🪙 |
-  | 3 | Quarries 16🪵 10🍞 · Mines 12🪵 10🪨 · Foundry 10🪨 10⚫ · Electricity 10🔩 10⚫ 120🪙 |
+  | 1 | Switches 4🪵 · Signals 4🪵 · Bridges 10🪵 · Farming 6🪵 · Passengers 6🪵 |
+  | 2 | Mills 6🪵 6🌾 40🪙 · Routes 5🪵 40🪙 · Goods engine 6🪵 6🍞 80🪙 · Diesel 7🪵 8🍞 120🪙 |
+  | 3 | Quarries 8🪵 6🍞 80🪙 · Mines 6🪵 10🪨 160🪙 · Foundry 10🪨 10⚫ 240🪙 · Electricity 10🔩 10⚫ 240🪙 |
 
-  - **Coins:** tier 1 costs goods only (Halts loses its 20🪙). From tier 2, a research keeps today's coins. They are
-    paid when it starts; a pick you can't pay for yet waits in Next up (its card says how many coins are short).
-    Coins never stand in for goods.
-  - The exact numbers are tuned with the play-through (plan P5).
+  - **Coins:** tier 1 costs goods only (Halts loses its 20🪙). From tier 2, a research takes coins (P5: twice the
+    old prices). They are paid when it starts; a pick you can't pay for yet waits in Next up (its card says how many
+    coins are short). Coins never stand in for goods.
+  - The numbers were tuned with the play-through in P5 (§5): half the old planks (Switches and Bridges kept),
+    Quarries 6 flour instead of 10, twice the old coins, and the passenger line's own costs (Passengers 6🪵, Halts
+    6🪵, Dining car 4🪵, First class 6🪵 120🪙, Busy stations 8🪵 160🪙, Double-decker 8🪵 200🪙, Express 10🪵 240🪙).
 
 ## 2. The workshop makes things, the school learns them
 
@@ -135,14 +137,22 @@ And later: "I think the research building should be placed near a town though, m
 
 ## 5. Balance targets (seed table: 2027 and 1–5, 180 min)
 
-| Measure | Today | Target |
+P5's targets (set by the CoS on 2026-10-20; they replace the first draft's where they differ). "Main" is main before
+research, 17dbc6f (main at 5add1ea gives the same figures, seed for seed):
+
+| Measure | Main | Target |
 | --- | --- | --- |
 | First research done (Switches) | (new) | **by minute 8** |
-| Longest research stall (one picked, no goods into a school) | (new) | **under 10 min** |
-| Research done at minutes 60 / 120 / 180 | (new) | logged; 180: at least as many blueprints as today |
-| City minute | 84–123 | each seed within ±15% of today |
-| Coins at 180 | 124–653 | **150–600**, no seed under 100 |
-| Longest stretch with no planks into a town | 41–77 min | no worse on any seed |
+| Blueprints learned by 180 | 23 / 23 / 22 / 25 / 22 / 21 | **at least main's**, each seed |
+| City minute | 73 / 112 / 92 / 110 / 84 / 87 | **within ±15% of main**, each seed |
+| Longest stretch with no planks into a town | 48 / 41 / 57 / 50 / 57 / 49 min | **under about 45 min**, each seed |
+| The guard (as P3's) | | no City more than 20% later than main; no research stall over 15 min; coins at 180 at least 100 |
+| Longest research stall (one picked, no goods into a school) | (new) | nice to have: under 10 min |
+| Coins at 180 | 1205 / 1563 / 281 / 1001 / 995 / 1224 | nice to have: 150–600 |
+
+(Main's figures by seed 2027, 1, 2, 3, 4, 5.) The first draft asked for City within ±15% of 84–123 and coins within
+150–600 against an older main. `src/play/balance.test.ts` checks the targets and the guard at 180 min with 1 train a
+line (`checkBands`: each miss listed, any fails the run) and prints the nice-to-haves.
 
 The simulated player picks research from today's `WISH` order and takes the growth card it most needs:
 - a research boost while a research is waiting on goods;
@@ -172,6 +182,58 @@ Still off the §5 targets above, for P5: City now comes earlier than ±15% on fo
 (P2: four did); fewer blueprints in all by 180 (16–20 against 21–25: growth gives none free), though more researched;
 the longest gap with no planks into a town is longer on seeds 1, 3 and 4 (70, 70, 104 min against 41, 50, 57); research
 stalls are 7.6–11.9 min against "under 10".
+
+### P5: the tuning
+
+Four knobs, one commit each with its table: the passenger line's costs (they were placeholders); half the planks for
+every other research but Switches and Bridges; Quarries 6 flour instead of 10; twice the coins from tier 2 (costs in
+§1). Study times and the growth cards are unchanged: a bigger boost card (40/60/80%) moved nothing, since the
+simulated player rarely sees one while a research waits. Tried and left out: ×1.5 and ×3 coins and a slower farm
+(Farming 10🪵, Mills 8🪵 9🌾) each broke the guard on some seed (research stalls of 24–52 min, or 95 coins); Mills at
+12 grain left town gaps of 45–50 min on two seeds.
+
+| Seed | Coins@180 (main → P4 → P5) | City (main → P4 → P5) | First research | Research stall (P4 → P5) | Town gap (main → P4 → P5) | Blueprints (main → P4 → P5) | Riders (P4 → P5) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2027 | 1205 → 447 → 274 | 73 → 57 → 69 | 5.6 | 9.9 → 13.1 (Carpenter's bench) | 48 → 102 → 29 | 23 → 11 → 14 | 159 → 274 |
+| 1 | 1563 → 229 → 838 | 112 → 62 → 78 | 5.6 | 8.6 → 7.3 (Signals) | 41 → 73 → 30 | 23 → 12 → 20 | 187 → 821 |
+| 2 | 281 → 367 → 388 | 92 → 57 → 69 | 5.6 | 9.9 → 11.6 (Carpenter's bench) | 57 → 102 → 34 | 22 → 11 → 14 | 159 → 268 |
+| 3 | 1001 → 229 → 983 | 110 → 62 → 78 | 5.6 | 8.6 → 7.3 (Signals) | 50 → 73 → 30 | 25 → 12 → 13 | 187 → 388 |
+| 4 | 995 → 684 → 775 | 84 → 72 → 78 | 5.6 | 6.5 → 7.3 (Signals) | 57 → 61 → 32 | 22 → 14 → 21 | 315 → 866 |
+| 5 | 1224 → 232 → 341 | 87 → 71 → 60 | 5.6 | 7.6 → 11.4 (Carpenter's bench) | 49 → 55 → 39 | 21 → 14 → 14 | 130 → 211 |
+
+Research done by 60/120/180: 6/10/14, 7/13/20, 6/10/14, 7/13/13, 7/13/21, 7/10/14. Seeds 6, 9 and 10 (checked, not
+in the table) meet the guard and the gap too.
+
+- **Met on every seed:** first research by minute 8 (5.6); the guard (stalls 7.3–13.1, coins 274–983, no City later
+  than main's); town gaps under 45 min (29–39, from 55–102 in P4).
+- **Nice to have:** coins within 150–600 on 2027, 2 and 5 (over on 1, 3, 4, whose Goods engine comes by minute 95–106
+  and carries two coaches from then on); research stalls under 10 min on 1, 3, 4 (11.4–13.1 on the others).
+- **Not met: blueprints by 180** (13–21 against 21–25). Research is limited by the one train: one research at a
+  time, fed only while it passes the school, and its goods are mostly in the train's last pass, so research comes at
+  roughly one per 8–15 min late in the game, whatever it costs (halving the planks took 11–14 to 13–21; cheaper still
+  only takes planks the towns need). Main's 21–25 had 13–15 free blueprints from growth, riders and landmarks, which
+  research now has to earn (main researched 7–11). A product change would fix it, for example: a school also takes Next up's goods once current's are
+  in (two researches fed a pass), or a research slot per school.
+- **Not met: City within ±15% of main on 1, 2, 3, 5** (met on 2027 and 4). The City clusters at 60–78 on every seed:
+  see the next point. A slower farm (Farming 10🪵, Mills 8🪵 9🌾) moved it to 75–85 (four seeds in band) but left a
+  seed with a 24 min research stall, against the guard.
+- **Seeds converge (the harness, more than the game).** Since P3 the seed only changes which three growth cards are
+  drawn (and a crate's things); the map is the same starter map and the sim is deterministic. The simulated player
+  takes the same kind of card whenever it's on offer (boost while a research waits, else planks before Farming, else
+  coins), and one of the three nearly always is, at amounts fixed by level, so most seeds play the same game: P4's
+  seeds 1 and 3 were identical, 2027 and 2 nearly so; at P5, seeds 6 and 9 are identical, as are 10 and 2027. On main the
+  seed changed which blueprints towns offered, which changed the whole path (and the City minute, 73–121 over
+  seeds 1–11). So main's per-seed City spread can't be reproduced by costs; a real player, picking cards differently,
+  would see more variety. For the seed table to mean something again, the harness could take a seeded pick among the
+  sensible cards, or play a generated map per seed.
+- **What a long research stall is now:** P5's longest (11.4–13.1 min) are Carpenter's bench, picked after Quarries
+  at minute 107–114, waiting on planks while one train saws a few a pass on a 16–22-stop line. Worse ones (the 24 min
+  that ruled out the slower farm) come when the workshop is ahead of the school from the sawmill: only towns hold back
+  what the research lacks (QA fix 1), so the workshop's yard filled (9 → 21 planks) while Carpenter's bench waited.
+  Keeping what the research lacks on the train past a workshop, as past a town, would fix that.
+
+Idle CPU (390×844, headless, 30 s × 3, no trains): P5 the same as P4 with a research running and with none (2.9–3.7%
+against 2.8–3.6%, 0 frames); figures in the plan's P5 note.
 
 ## 6. Saves
 

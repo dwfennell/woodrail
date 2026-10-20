@@ -301,17 +301,45 @@ the town gap is longer on seeds 2027, 2, 5 (102, 102, 55 against 44, 41, 27); re
 ## P5: balance
 
 **Depends on:** P1–P4. **Ships:** costs tuned to the spec's §5 targets.
+**Built (research-p5):** the targets are the CoS's of 2026-10-20 (spec §5: blueprints at least main's, City within
+±15% of main, town gaps under about 45 min, real passenger costs, and P3's guard; a stall under 10 min and coins
+150–600 only nice to have). Four knobs, a commit each with its table: the passenger line's costs (were placeholders);
+half the planks for every other research but Switches and Bridges; Quarries 6 flour, not 10; twice the coins from
+tier 2. Study times and growth-card amounts are unchanged (a bigger boost moved nothing). The simulated player is
+unchanged (tried: a jam counted from when the second train went on, not before; the people train still jams within 7
+min, and seed 1 stalled 33 min, so it was left out). `checkBands` in the balance test checks the targets and the
+guard at 180 min with 1 train a line (soft: each miss listed, any fails the run; still skipped unless BALANCE=1).
+Seed table and findings: spec §5 "P5: the tuning".
+**Met on every seed:** first research by 8 (5.6); the guard (research stalls 7.3–13.1 min, coins 274–983, no City
+later than main's); town gaps 29–39 min (P4 55–102). Also on seeds 6, 9 and 10.
+**Left (not met by knobs, a product change each):**
+- blueprints by 180: 13–21 against main's 21–25. One research at a time, fed only as the one train passes, gives
+  about one per 8–15 min late on, whatever it costs; main had 13–15 free. A school taking Next up's goods once
+  current's are in (or a research slot per school) would fix it.
+- City within ±15% of main on 1, 2, 3, 5 (60–78 against 73–112; met on 2027 and 4). The seed only changes the card
+  draws now and the simulated player takes the same kind of card, so seeds converge (spec §5); main's spread came from
+  the blueprints towns offered. Mostly a harness matter: a seeded pick among sensible cards, or a generated map per
+  seed, would make the seed table mean something again.
+- nice to have: coins over 600 on 1, 3, 4 (775–983); stalls over 10 min on 2027, 2, 5 (Carpenter's bench, late).
+  When the workshop is ahead of the school from the sawmill its yard fills while research waits: keeping what research
+  lacks on the train past a workshop, as past a town (QA fix 1), would fix that.
+**Idle (390×844, swiftshader, 30 s × 3, no trains, main-thread busy time; P4 cf9355f and P5 on the same machine):**
+a school by a village, nothing picked: P4 959–1072 ms (3.2–3.6%), P5 866–1117 ms (2.9–3.7%); Switches being researched
+(waiting on its planks): P4 839–1035 ms (2.8–3.5%), P5 893–1069 ms (3.0–3.6%). 0 frames drawn in every window. P5
+changes only numbers, so no per-frame work.
 
 ### Task 5.1: tune and measure
-- [ ] Tune `research` costs, study times and the growth-card amounts with the seed table, until every seed meets
-  these targets:
-  - first research by minute 8;
-  - longest research stall under 10 min;
-  - City minute within ±15% of today's (84 / 106 / 102 / 99 / 123 / 98);
-  - coins at 180 within 150–600, and no seed under 100;
-  - the town gap no worse than today's (41–77 min);
-  - research learned at 180 no fewer than today's blueprints learned.
-- [ ] Change one knob per commit, with the table before and after in each commit.
-- [ ] Add assertions to the balance test for the bands, so it stays skipped unless `BALANCE=1`.
-- [ ] Time a phone run of `npm run dev` for idle CPU with a research running and none running. It should stay at
-  today's figure (research adds no per-frame work).
+- [x] Tune `research` costs, study times and the growth-card amounts with the seed table, until every seed meets
+  these targets (the CoS's, spec §5, replace the first list where they differ):
+  - [x] first research by minute 8;
+  - [x] the guard: no research stall over 15 min, coins at 180 at least 100, no City more than 20% later than main;
+  - [ ] longest research stall under 10 min (nice to have: met on 1, 3, 4);
+  - [ ] City minute within ±15% of main's (73 / 112 / 92 / 110 / 84 / 87): met on 2027 and 4 only;
+  - [ ] coins at 180 within 150–600 (nice to have: met on 2027, 2, 5);
+  - [x] the town gap under about 45 min (29–39);
+  - [ ] blueprints learned at 180 no fewer than main's (21–25): 13–21;
+  - [x] the passenger line's research costs set.
+- [x] Change one knob per commit, with the table before and after in each commit.
+- [x] Add assertions to the balance test for the bands, so it stays skipped unless `BALANCE=1`.
+- [x] Time a headless phone run (390×844) for idle CPU with a research running and none running. It stays at P4's
+  figure (research adds no per-frame work).
