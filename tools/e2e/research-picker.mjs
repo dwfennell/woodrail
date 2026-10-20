@@ -265,7 +265,8 @@ await p.evaluate(() => window.woodrail.hud.setBoardButton(true, 1));
 await p.evaluate(() => window.woodrail.hud.setBoardButton(false, 0));
 
 // 7b. The date beside the coins with the pill showing, on a small phone, a large one and a phone on its side: the date
-// whole (not cut by the brand's edge), the pill clear of the brand and the buttons, the name whole (at 360, if it's cut, 50 px of it).
+// whole (not cut by the brand's edge), the pill clear of the brand and the buttons, its count whole, the name whole (at 360,
+// if it's cut, 50 px of it).
 for (const [width, height, whole] of [[360, 740, false], [414, 896, true], [844, 390, true]]) {
   await p.setViewportSize({ width, height });
   await p.waitForTimeout(1500);
@@ -274,10 +275,12 @@ for (const [width, height, whole] of [[360, 740, false], [414, 896, true], [844,
     const date = document.querySelector(".game-date");
     const r = date.getBoundingClientRect();
     const name = document.querySelector(".research-pill .rp-name");
-    return { text: date.textContent, shown: !date.hidden && r.width > 0, cut: r.left < brand.left || r.right > brand.right + 0.5 || date.scrollWidth > date.clientWidth, name: name.clientWidth, nameClipped: name.scrollWidth > name.clientWidth };
+    const count = document.querySelector(".research-pill .rp-count");
+    const pill = document.querySelector(".research-pill").getBoundingClientRect();
+    return { text: date.textContent, shown: !date.hidden && r.width > 0, cut: r.left < brand.left || r.right > brand.right + 0.5 || date.scrollWidth > date.clientWidth, name: name.clientWidth, nameClipped: name.scrollWidth > name.clientWidth, count: count.textContent, countCut: count.getBoundingClientRect().right > pill.right + 0.5 || count.scrollWidth > count.clientWidth + 0.5 };
   });
   m = await bar();
-  const ok = d.shown && /^[A-Z][a-z]{2} \d{4}$/.test(d.text) && !d.cut && fits(m) && (!d.nameClipped || (!whole && d.name >= 50));
+  const ok = d.shown && /^[A-Z][a-z]{2} \d{4}$/.test(d.text) && !d.cut && fits(m) && !d.countCut && (!d.nameClipped || (!whole && d.name >= 50));
   check(`at ${width}×${height} the date and the pill both read`, ok, JSON.stringify({ ...d, ...m }));
   await shot(`11b-date-pill-${width}x${height}`);
 }
