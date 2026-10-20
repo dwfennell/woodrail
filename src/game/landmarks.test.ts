@@ -145,4 +145,9 @@ describe("what a landmark's news says", () => {
     for (const m of LANDMARKS) expect(m.blurb, m.id).not.toMatch(/\bboard\b/i);
     for (const t of TECHS) expect(t.blurb, t.id).not.toMatch(/\bthe board\b/i);
   });
+
+  it("promises no free blueprints (P3: no school ideas, no blueprint offers)", () => {
+    for (const m of LANDMARKS) expect(m.blurb, m.id).not.toMatch(/ideas|new blueprint|free|claim/i);
+    for (const t of TECHS) expect(t.blurb, t.id).not.toMatch(/ideas come|new blueprint in|learn one free|claim your reward/i);
+  });
 });

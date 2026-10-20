@@ -205,16 +205,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .brand-name, .mode-tag { display: none; }
   /* The buttons never shrink (the menu must stay on screen): the brand gives way, and from 400 px its W goes while
      the coins show. */
-  .actions { flex-wrap: nowrap; gap: 5px; flex: none; }
+  .actions { flex-wrap: nowrap; gap: 2px; flex: none; }
   .brand { min-width: 0; overflow: hidden; }
   /* The bar keeps what's used most; the rest are in the menu. Re-rail, when it shows, sits under the bar. */
   .actions .wide-only { display: none; }
   /* Redo, though, beside Undo after an Undo (till a new edit leaves nothing to redo): a finger can't find it in the menu. */
   .actions .wide-only.can-redo { display: block; }
-  .actions > .chip { min-width: 40px; height: 40px; padding: 0 8px; }
-  /* (They stay 40 px drawn, to fit a 360 px screen with the coins showing, but take a tap 2 px around: 44 px.) */
-  .actions > .chip:not(.attention) { position: relative; }
-  .actions > .chip::after { content: ""; position: absolute; inset: -2px; }
+  /* A finger's size, drawn (QA: Pause was 40 x 40, with a tap 2 px around it): 44 x 44, set 2 px apart rather than 5
+     so the bar still fits a 360 px screen beside the coins and the research pill. */
+  .actions > .chip { min-width: 44px; height: 44px; padding: 0 8px; }
   /* Re-rail, under the bar at the right, level with the goals bar (and as tall), which gives it room while it shows:
      over the goals' right end it took the taps meant for it (QA). */
   .actions > .chip.attention { position: absolute; top: 60px; right: 0; height: 44px; }
@@ -657,8 +656,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .brand-name, .mode-tag { display: none; }
   .actions { flex-wrap: nowrap; }
 }
-/* On a phone the date goes under the coins, smaller (beside them, the two took the pill's room at 360 px). */
-@media (max-width: 640px) {
+/* On a phone the date goes under the coins, smaller (beside them, the two took the pill's room at 360 px; on its side
+   at 667 px, QA: the pill's name was cut to "📘 … 9/10"). */
+@media (max-width: 640px), (max-height: 520px) {
   .brand:has(.game-date:not([hidden])) { flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; padding: 3px 6px; overflow: visible; }
   .brand:has(.game-date:not([hidden])) .coins { padding: 1px 7px 1px 2px; }
   .game-date { font-size: 11px; padding: 0 4px; background: none; }
@@ -820,6 +820,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .gs-card { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; min-height: 148px; padding: 14px 8px 12px; border: 2px solid #d8c6a6; border-radius: 16px; background: #fffaf0; box-shadow: 0 3px 0 rgba(120, 80, 40, 0.25); font: inherit; color: inherit; text-align: center; cursor: pointer; touch-action: manipulation; }
 .gs-card:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(120, 80, 40, 0.25); }
 .gs-card .gs-icon { font-size: 38px; line-height: 1.1; }
+/* A wagon card's car, drawn as the tray draws it (an SVG side view), the height of the other cards' icons. */
+.gs-card .gs-car { display: flex; align-items: flex-end; height: 42px; }
+.gs-card .gs-car svg { display: block; height: 100%; width: auto; max-width: 100%; }
 .gs-card .gs-amount { font-size: 16px; font-weight: 900; line-height: 1.2; overflow-wrap: anywhere; }
 .gs-card .gs-line { font-size: 12.5px; font-weight: 700; line-height: 1.25; color: #6a4f34; overflow-wrap: anywhere; }
 .gs-card.gs-boost { border-color: #8fb3df; }

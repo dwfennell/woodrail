@@ -11,6 +11,8 @@ import { techOf } from "./tech";
 import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
 import { payFor, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
+import type { CarKind } from "../sim";
+import { trainIcon } from "../ui/icons";
 
 /**
  * What Game mode gives for what happens on the railway, in one place for the game and for headless playthroughs:
@@ -38,7 +40,9 @@ const isBuilding = (id: ThingId) => id.startsWith("piece:depot-");
  * piece of track, one of a car or furniture. Empty if you know nothing that costs anything yet.
  */
 export function crateFor(p: Progress, level: number, random: () => number): [ThingId, number][] {
-  const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => !isBuilding(id) && !isFree(id) && p.knows(id));
+  // No engine before Signals: on one line a second train only meets the first head on (it comes with Signals).
+  const engineOk = p.learned.has("signals");
+  const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => !isBuilding(id) && !isFree(id) && p.knows(id) && (engineOk || id !== "car:engine"));
   const out: [ThingId, number][] = [];
   while (out.length < level + 1 && known.length > 0) {
     const id = known.splice(Math.floor(random() * known.length), 1)[0];
@@ -58,9 +62,10 @@ function plural(label: string): string {
 }
 
 /**
- * The first time any of your towns reaches a level, a present: a second train and a school for your first village, an industry
- * building for your first town, an engine and the grandest industry you know for your first city. Returns what was
- * given (into the toy box), or empty if that level was reached before.
+ * The first time any of your towns reaches a level, a present: a timber wagon and a school for your first village, an
+ * industry building for your first town, an engine (once Signals are learned) and the grandest industry you know for
+ * your first city. Returns what was given (into the toy box), or empty if that level was reached before. (No second
+ * engine before Signals: on one line two trains only turn each other back. It comes with Signals: see `learnGift`.)
  */
 export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
   if (level <= p.bestLevel) return [];
@@ -71,14 +76,26 @@ export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
   return gifts;
 }
 
+/**
+ * A present for learning blueprint `id`: Signals bring a second engine (a passing loop with signals is where two trains
+ * can share a line), unless you've two already. Returns what was given (into the toy box), or empty.
+ */
+export function learnGift(p: Progress, id: string): [ThingId, number][] {
+  if (id !== "signals" || (p.owned.get("car:engine") ?? 0) >= 2) return [];
+  p.add("car:engine", 1);
+  return [["car:engine", 1]];
+}
+
 function giftFor(p: Progress, level: number): [ThingId, number][] {
   // Industry buildings you know, cheapest first (by the coins they'd cost). (Not the school: the first village's.)
   const industries = (Object.keys(THING_RULES) as ThingId[]).filter((id) => isBuilding(id) && id !== SCHOOL && THING_RULES[id]!.coins && p.knows(id));
   industries.sort((a, b) => THING_RULES[a]!.coins! - THING_RULES[b]!.coins!);
-  // The first village: a second train, and a school to research blueprints at (beside a town).
-  if (level === 1) return [["car:engine", 1], ["car:timber", 1], [SCHOOL, 1]];
+  // The first village: a wagon, and a school to research blueprints at (beside a town).
+  if (level === 1) return [["car:timber", 1], [SCHOOL, 1]];
   if (level === 2) return industries.length > 0 ? [[industries[0], 1], ["piece:buffer-turnback", 2]] : [["piece:depot-workshop", 1], ["piece:buffer-turnback", 2]];
-  return [["car:engine", 1], ...(industries.length > 0 ? [[industries[industries.length - 1], 1] as [ThingId, number]] : [])];
+  // The first city: an engine only once Signals are learned (till then it would only meet the first train head on).
+  const engine: [ThingId, number][] = p.learned.has("signals") ? [["car:engine", 1]] : [];
+  return [...engine, ...(industries.length > 0 ? [[industries[industries.length - 1], 1] as [ThingId, number]] : [])];
 }
 
 /** Room for planks left in the workshops' yards (each up to its cap). */
@@ -145,7 +162,8 @@ export function cardFor(p: Progress, world: World, kind: CardKind, level: number
       return things.length > 0 ? { kind, things } : null;
     }
     case "wagon": {
-      if (level >= 3) return { kind, id: "car:engine" };
+      // A city's is an engine, but only once Signals are learned (before, a second train only meets the first head on).
+      if (level >= 3 && p.learned.has("signals")) return { kind, id: "car:engine" };
       const known = wagonsKnown(p);
       return known.length > 0 ? { kind, id: known[Math.floor(random() * known.length)] } : null;
     }
@@ -162,13 +180,31 @@ export function cardFor(p: Progress, world: World, kind: CardKind, level: number
 }
 
 /**
+ * Cards that are each a real choice: the wagon card's car is never in the crate beside it (QA: a crate with the wagon's
+ * car and more made the wagon card no choice). The crate keeps its size; the wagon card takes another known wagon not
+ * in the crate, or goes from the pool if there's none. (The other kinds aren't counted in things: none holds another.)
+ */
+function apart(p: Progress, pool: GrowthCard[], random: () => number): GrowthCard[] {
+  const crate = pool.find((c) => c.kind === "crate");
+  const k = pool.findIndex((c) => c.kind === "wagon");
+  if (!crate || k === -1) return pool;
+  const inCrate = new Set(crate.things.map(([id]) => id));
+  const wagon = pool[k] as Extract<GrowthCard, { kind: "wagon" }>;
+  if (!inCrate.has(wagon.id)) return pool;
+  const others = wagonsKnown(p).filter((id) => !inCrate.has(id));
+  if (others.length > 0) pool[k] = { kind: "wagon", id: others[Math.floor(random() * others.length)] };
+  else pool.splice(k, 1);
+  return pool;
+}
+
+/**
  * A town grew to `level` (1 a village, 2 a town, 3 a city…): it offers three cards of different kinds, drawn from those
  * that can be offered now, with amounts by its level. Never a blueprint. The offer waits in `p.offers` till one is
  * taken. Returns it (null if none could be offered, or the level is unknown).
  */
 export function offerOnGrowth(p: Progress, world: World, townName: string, level: number, random: () => number): Offer | null {
   if (level <= 0) return null;
-  const pool = CARD_KINDS.map((k) => cardFor(p, world, k, level, random)).filter((c): c is GrowthCard => c !== null);
+  const pool = apart(p, CARD_KINDS.map((k) => cardFor(p, world, k, level, random)).filter((c): c is GrowthCard => c !== null), random);
   const cards: GrowthCard[] = [];
   while (cards.length < CARDS_PER_OFFER && pool.length > 0) cards.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
   if (cards.length === 0) return null;
@@ -199,6 +235,13 @@ export interface CardView {
   line: string;
   ok: boolean;
   why?: string;
+  /** What the toast says once it's taken, where that's more than the amount: "+3🪵 to Bridges" (QA: where it went). */
+  taken?: string;
+}
+
+/** A car's picture, as the toy box and the tray draw it ("car:hopper" → a hopper's side view). */
+export function carIcon(id: ThingId): string {
+  return `<span class="gs-car">${trainIcon([id.slice(4) as CarKind])}</span>`;
 }
 
 /** "4🪵 3🌾". */
@@ -221,19 +264,21 @@ export function cardView(p: Progress, world: World, card: GrowthCard): CardView 
     case "crate":
       return { kind: card.kind, icon: "📦", amount: `A crate: ${card.things.length} things`, line: describeThings(card.things), ok: true };
     case "wagon":
-      return { kind: card.kind, icon: card.id === "car:engine" ? "🚂" : "🚃", amount: `1 ${ruleOf(card.id)?.label ?? card.id}`, line: "Into your toy box", ok: true };
+      // The car itself, drawn as the toy box and the tray draw it (QA: it was always 🚃).
+      return { kind: card.kind, icon: carIcon(card.id), amount: `1 ${ruleOf(card.id)?.label ?? card.id}`, line: "Into your toy box", ok: true };
     case "boost": {
       const bag = boostGoods(p, card.share);
       const id = p.research.current;
       const pct = `${Math.round(card.share * 100)}%`;
-      if (id && kindsOf(bag).length > 0) return { kind: card.kind, icon: "📘", amount: `+${goodsLine(bag)}`, line: `${pct} of what ${techOf(id)!.label} still needs`, ok: true };
+      if (id && kindsOf(bag).length > 0) return { kind: card.kind, icon: "📘", amount: `+${goodsLine(bag)}`, line: `${pct} of what ${techOf(id)!.label} still needs`, ok: true, taken: `+${goodsLine(bag)} to ${techOf(id)!.label}` };
       return { kind: card.kind, icon: "📘", amount: `${pct} research boost`, line: "Goods into your research", ok: false, why: "Pick a research that needs goods" };
     }
     case "rare": {
       const label = CARGO[card.good].label.toLowerCase();
       const n = Math.min(card.n, lacking(p, card.good));
       const line = "Rare cargo for your research";
-      if (n > 0) return { kind: card.kind, icon: GOODS_ICON[card.good], amount: `+${n} ${label}`, line, ok: true };
+      const id = p.research.current;
+      if (n > 0) return { kind: card.kind, icon: GOODS_ICON[card.good], amount: `+${n} ${label}`, line, ok: true, ...(id ? { taken: `+${n} ${label} to ${techOf(id)!.label}` } : {}) };
       return { kind: card.kind, icon: GOODS_ICON[card.good], amount: `+${card.n} ${label}`, line, ok: false, why: `Your research needs no ${label} now` };
     }
   }

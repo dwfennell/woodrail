@@ -12,7 +12,7 @@ export type GrowthCard =
   | { kind: "coins"; n: number }
   /** A crate of things you know how to make (`crateFor`), into the toy box. */
   | { kind: "crate"; things: [ThingId, number][] }
-  /** A wagon you know, or (a city) an engine, into the toy box. */
+  /** A wagon you know, or (a city, once Signals are learned) an engine, into the toy box. */
   | { kind: "wagon"; id: ThingId }
   /** Goods straight into the current research: this share of what it still lacks, of each good, when taken. */
   | { kind: "boost"; share: number }

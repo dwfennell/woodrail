@@ -21,7 +21,7 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
-import { cardView, describeThings, firstTimeGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
+import { cardView, describeThings, firstTimeGift, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
@@ -42,7 +42,7 @@ import { aheadRuns, legFromCursor, lineLegs, nearestAhead, pinnedBlocking, point
 import { LinesView } from "./ui/lines-view";
 import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./render/route-view";
 import { decoupleWords } from "./game/decouple-words";
-import { engineStatus, trainsForReport, type CantMove } from "./game/engine-status";
+import { engineStatus, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
 import { MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
@@ -1391,7 +1391,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (card.kind === "planks") game.invalidate(); // (the yard's pile grows)
       if (card.kind === "crate" || card.kind === "wagon") hud.refreshTrayBadges();
       hud.setCoins(progress.coins);
-      note({ kind: "milestone", text: `${o.from}'s reward: ${took.amount}${card.kind === "crate" ? ` (${took.line})` : ""}` }, 3200);
+      note({ kind: "milestone", text: `${o.from}'s reward: ${took.taken ?? took.amount}${card.kind === "crate" ? ` (${took.line})` : ""}` }, 3200);
       audio.chime();
       if (board.open) refreshBoard();
       save();
@@ -1430,7 +1430,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   function learned(id: string): void {
     const makes = unlocksOf(id).map((t) => ruleOf(t)!.label);
     const t = techOf(id)!;
-    note({ kind: "milestone", text: makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.blurb}` }, 3800);
+    // Signals bring a second engine (into the toy box): a passing loop with signals lets two trains share the line.
+    const gift = learnGift(progress, id);
+    const present = gift.length > 0 ? ` · Present: ${describeThings(gift)}` : "";
+    note({ kind: "milestone", text: (makes.length > 0 ? `Learned ${t.label.toLowerCase()}! ${makesLine(makes)}` : `Learned ${t.label}! ${t.blurb}`) + present }, 3800);
     // An upgrade takes effect at once: industries' rates and the cranes.
     applyCranes(game.economy, progress);
     industriesChanged();
@@ -3197,8 +3200,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     } catch {
       // storage unavailable: it may show again next visit
     }
-    const canSwitch = mode !== "game" || progress.learned.has("switches");
-    hud.toast(canSwitch ? "Trains met head on. Add a passing loop (two switches) so they can pass" : "Trains met head on. Learn Switches to build a passing loop", false, 6000);
+    hud.toast(headOnTip(mode !== "game" ? null : progress.learned), false, 6000);
   }
 
   game.onFrame = (dt) => {
