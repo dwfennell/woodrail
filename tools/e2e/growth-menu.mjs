@@ -255,7 +255,23 @@ after = await state();
 check("rare cargo: 6 grain into Mills (it can't be made yet)", st.current === "mills" && rare?.amount === "+6 grain" && after.got.grain === 6, JSON.stringify({ current: st.current, rare, got: after.got }));
 check("no blueprint learned by any card (farming set by hand for Mills)", after.learned === [...new Set([...learned0.split(","), "farming"].filter(Boolean))].sort().join(","), `${learned0} → ${after.learned}`);
 
-// 5. Larkfield grows to a town: the sheet again, town amounts; closed at once, then reopened from the growth toast.
+// 5. Larkfield grows to a town: the sheet again, town amounts; closed, then reopened from the growth toast.
+// (First 10 planks, short of a town: the goal "Deliver 10 bundles of planks" ticks now, not with the growth, whose toast
+// it would follow and replace before the tap.)
+await p.evaluate(() => {
+  const w = window.woodrail;
+  w.economy.delivered.set(w.world.landscape.towns[0].id, 10);
+  w.invalidate();
+});
+await toastSaid(/Deliver 10 bundles/);
+await p.waitForFunction(() => !document.querySelector(".toast").classList.contains("show"), null, { timeout: 30000, polling: 200 }).catch(() => {});
+// (The growth toast held up for a minute, not its 4 s: headless, each frame drawn takes long enough that checking the
+// sheet and closing it outlasts the toast. What's tested is that a tap on it opens the offer.)
+await p.evaluate(() => {
+  const hud = window.woodrail.hud;
+  const toast = hud.toast.bind(hud);
+  hud.toast = (message, celebrate, ms, tap) => toast(message, celebrate, /Pick a reward/.test(message) ? 60000 : ms, tap);
+});
 toasts.length = 0;
 await grow(12, 2);
 s = await sheet();
@@ -269,8 +285,8 @@ const toastUp = await p.evaluate(() => document.querySelector(".toast").classLis
 if (toastUp) {
   await tap(".toast");
   s = await sheet();
-  check("a tap on the growth toast reopens the offer", s.open && s.title === "Larkfield grew! Pick one", JSON.stringify(s.title));
-} else check("the growth toast up to tap", false);
+  check("a tap on the growth toast reopens the offer", s.open && s.title === "Larkfield grew! Pick one", JSON.stringify({ title: s.title, open: s.open }));
+} else check("the growth toast up to tap", false, JSON.stringify({ toasts, now: await p.evaluate(() => document.querySelector(".toast").textContent) }));
 await shot("07-town-sheet-reopened-from-toast");
 
 // 6. Idle: no frames drawn while the sheet's open, nor while the badge waits.

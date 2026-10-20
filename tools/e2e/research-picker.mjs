@@ -66,19 +66,34 @@ const ticket = () => p.evaluate(() => {
   const t = document.querySelector(".board-sheet .bp-ticket");
   return t ? { state: [...t.classList].find((c) => c !== "bp-ticket"), name: t.querySelector("b")?.textContent, foot: t.querySelector(".bp-ticket-foot")?.textContent.replace(/\s+/g, " ").trim(), buttons: [...t.querySelectorAll(".bp-ticket-foot button")].map((x) => ({ text: x.textContent, h: x.getBoundingClientRect().height, goal: x.classList.contains("bp-goal") })) } : null;
 });
-/** Select a card in the picker by its name. */
+/**
+ * Select a card in the picker by its name. The tap waits till nothing lies over the card (a toast, such as a goal's
+ * tick as a research is learned, can cover a card at the top of the list), and is tried again if the ticket doesn't
+ * show it.
+ */
 const select = async (name) => {
-  const box = await p.evaluate((name) => {
-    const el = [...document.querySelectorAll(".board-body .bp-node")].find((n) => n.querySelector(".bp-name")?.textContent === name);
-    if (!el) return null;
-    el.scrollIntoView({ block: "center" });
-    const r = el.getBoundingClientRect();
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-  }, name);
-  if (!box) return false;
-  await p.touchscreen.tap(box.x, box.y);
-  await p.waitForTimeout(400);
-  return true;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const box = await p
+      .waitForFunction(
+        (name) => {
+          const el = [...document.querySelectorAll(".board-body .bp-node")].find((n) => n.querySelector(".bp-name")?.textContent === name);
+          if (!el) return null;
+          el.scrollIntoView({ block: "center" });
+          const r = el.getBoundingClientRect();
+          const at = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+          return el.contains(document.elementFromPoint(at.x, at.y)) ? at : null;
+        },
+        name,
+        { timeout: 10000, polling: 200 },
+      )
+      .then((h) => h.jsonValue())
+      .catch(() => null);
+    if (!box) return false;
+    await p.touchscreen.tap(box.x, box.y);
+    await p.waitForTimeout(400);
+    if ((await ticket())?.name === name) return true;
+  }
+  return false;
 };
 
 // 1. A new game: the line between the first two towns laid, and the school placed where Show me points.

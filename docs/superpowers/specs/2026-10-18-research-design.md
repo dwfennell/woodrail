@@ -105,6 +105,9 @@ And later: "I think the research building should be placed near a town though, m
   | Research boost: goods into the current research | 25% of it | 40% | 60% |
   | Rare cargo at the school: goods you can't make yet (stone before Quarries) | — | 6 | 12 |
 
+- **Amounts (settled in P3's tuning pass):** the table above, unchanged. The balance guard was met by the simulated
+  player's rule (§5), not by bigger cards: larger planks or coins cards didn't move the late City, which waited on
+  planks the school took before the workshop could make the goods train's cars or the farm yard and mill.
 - First-time presents (`firstTimeGift`) stay. The first village's present now includes the school.
 - **Phone UI:** a bottom sheet titled "Larkfield grew! Pick one" with 3 large cards (icon, amount, one line each).
   Tap a card to take it, with no confirm step. An offer you close stays waiting, as `p.offers` does today.
@@ -145,6 +148,30 @@ The simulated player picks research from today's `WISH` order and takes the grow
 - a research boost while a research is waiting on goods;
 - otherwise planks before Farming;
 - otherwise coins.
+
+It picks research only with planks to spare at the workshop (10), and (P3) not while what the line needs next waits on
+the workshop's planks: cars for the goods train (a hopper, a van), or a farm yard, mill or quarry learned and not yet
+built. A research picked then takes the planks at the school first, as the train passes it before the workshop.
+Signals come right after Halts in its `WISH` order: the goal "Run two trains at once" waits for them, and that second
+train is the one that carries people (the coins at 180 come mostly from it).
+
+P3's guard (180 min, 1 train per line; measured against main 17dbc6f, P2, with the same harness): no seed's City more
+than 20% later; no research stall over 15 min (the one-goods-train plank famine on a 22-stop line excepted, for P5);
+coins at 180 not below 100. P3 meets it on every seed, with no exemption needed:
+
+| Seed | Coins@180 | City min (vs P2) | Longest plank stall | First research | Longest research stall |
+| --- | --- | --- | --- | --- | --- |
+| 2027 | 1205 → 680 | 73 → 73 (0%) | 9 → 6 | 5.6 → 5.6 | 6.9 → 7.6 (Goods engine) |
+| 1 | 1563 → 220 | 112 → 61 (−46%) | 6 → 7 | 7.0 → 5.6 | 6.2 → 10.0 (Quarries) |
+| 2 | 281 → 592 | 92 → 73 (−21%) | 10 → 6 | 5.6 → 5.6 | 8.6 → 7.6 (Goods engine) |
+| 3 | 1001 → 220 | 110 → 61 (−45%) | 4 → 7 | 7.0 → 5.6 | 12.4 → 10.0 (Quarries) |
+| 4 | 995 → 366 | 84 → 54 (−36%) | 10 → 8 | 5.6 → 5.6 | 71.4 → 11.9 (Quicker cranes) |
+| 5 | 1224 → 545 | 87 → 73 (−16%) | 12 → 9 | 5.6 → 5.6 | 5.1 → 10.3 (Goods engine) |
+
+Still off the §5 targets above, for P5: City now comes earlier than ±15% on four seeds; no seed reaches a City★ by 180
+(P2: four did); fewer blueprints in all by 180 (16–20 against 21–25: growth gives none free), though more researched;
+the longest gap with no planks into a town is longer on seeds 1, 3 and 4 (70, 70, 104 min against 41, 50, 57); research
+stalls are 7.6–11.9 min against "under 10".
 
 ## 6. Saves
 

@@ -168,20 +168,27 @@ school beside a city" waits for P4.
 
 **Depends on:** P1 (the research boost card needs research state). It can come before or alongside P2.
 **Ships:** "Larkfield grew! Pick one", with 3 cards.
-**Built (research-p3, checkpoint; paused before the balance guard was met):** cards in `growth-cards.ts`, drawn and
+**Built (research-p3):** cards in `growth-cards.ts`, drawn and
 applied in `rewards.ts` (`offerOnGrowth`, `cardFor`, `cardView`, `takeCard`); the sheet and its 🎁 badge in
 `ui/growth-sheet.ts` (opens on growth unless a finger is on the map or a panel is open; the growth toast "Larkfield is a
 town! Pick a reward" opens it on a tap); save v13; school ideas and the town school landmark gone (the school blueprint
 now comes with your placed school depot, `landmarksAt`). A card that can't apply now (boost with nothing short, rare
 cargo the research no longer needs, a full yard) is held, saying why, and the offer keeps. Rare cargo: a good the
-current research lacks that none of your depots makes. `npm run e2e:growth` (tools/e2e/growth-menu.mjs): 26 of 27 pass.
-**Left:**
-- The balance guard fails (spec rule, 180 min): City 2027 105 (P2 73, +44%); seed 5 research stall 29.4 min (a plank
-  famine: no planks sawn for 30 min). Growth no longer hands out Passengers, Routes, Farming, Quarries free. Taking
-  planks until the farm is built (`BALANCE_CARDS` experiment, not committed) gives City 93 and stall 22.8: still over.
-  Needs a decision (accept for P5, or tune the card amounts or the harness).
-- e2e: "tap the growth toast reopens the sheet" fails headless: a goal tick's toast replaces the growth toast before
-  the tap (the toast's `tap` is wired; the badge reopen passes).
+current research lacks that none of your depots makes. `npm run e2e:growth` (tools/e2e/growth-menu.mjs).
+**Balance (tuning pass, done):** the card amounts stay as spec §3 has them. The guard (180 min, against main 17dbc6f:
+City no more than 20% later, no research stall over 15 min, coins at 180 not below 100) is met on all six seeds by two
+changes to the simulated player (spec §5): it picks no new research while the goods train waits on cars from the
+workshop or a learned farm yard, mill or quarry isn't built yet; and Signals come right after Halts in `WISH` (the
+two-trains goal waits for them; the second train carries people). City 73/61/73/61/54/73 (P2 73/112/92/110/84/87),
+research stalls 7.6–11.9 min, coins 220–680; seed table in spec §5. The balance summary now says what the longest
+research stall was on and where the longest plank stall began (trains, stops).
+Also fixed here: researching Switches ticked "Place your workshop" and "Bring planks to the workshop" (their checks
+took Switches learned as a stand-in for a workshop with planks, from when Switches was paid for at the workshop).
+**Left (P5):** City now earlier than spec §5's ±15% on four seeds; no City★ by 180; fewer blueprints in all by 180
+(none free from growth); longer gaps with no planks into a town on seeds 1, 3, 4.
+e2e (both all pass): `e2e:growth`'s toast reopen ticks the "Deliver 10 bundles" goal before the growth (its toast
+followed the growth's and took it over) and holds the growth toast up for the tap (headless frames outlast its 4 s);
+`e2e:research` waits till nothing (a goal's toast) covers a card before tapping it.
 
 **Removes:**
 - `offerFor`, `choose`, `takeBlueprint`, `refreshOffers`, and blueprint ids in `p.offers`;
