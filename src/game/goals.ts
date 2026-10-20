@@ -58,6 +58,8 @@ export interface Goal {
   readonly needs?: readonly string[];
   /** The blueprint it's after, if any (to research at a school). */
   readonly blueprint?: string;
+  /** The tray item it asks to place: ringed on the tray while it's the goal and none is on the map (see `trayRing`). */
+  readonly ring?: PieceTypeId;
 }
 
 /** Above this speed (mm/s) a train counts as running. */
@@ -159,6 +161,17 @@ export function guideSchool(w: World): GoalGuide {
   const town = towns.find((t) => w.stations.has(t.id));
   if (!town) return guide;
   return { ...guide, ...guideTowns(w, [town.id]), tab: "industries", shelf: "Industries" };
+}
+
+/**
+ * The tray item to ring for this goal (the current one), or null: the piece it asks to place while none is on the map
+ * (QA: during "Place a school by a town" the Workshop was ringed, as it was whenever none was placed).
+ */
+export function trayRing(goal: Goal | null | undefined, w: World): PieceTypeId | null {
+  const type = goal?.ring;
+  if (!type) return null;
+  const role = type === "depot-school" ? "school" : type === "depot-workshop" ? "workshop" : null;
+  return role && w.economy.allDepots().some((d) => d.role === role) ? null : type;
 }
 
 /** Look at what's on the board: the trains (or failing that the track, or the first towns) and reach for a tab. */
@@ -367,12 +380,14 @@ export const GOALS: readonly Goal[] = [
     id: "place-school",
     title: "Place a school by a town",
     hint: "Your village's present: drop it from the Industries tab on a straight beside a town.",
+    ring: "depot-school",
     check: (w) => ({ done: schools(w).length > 0 }),
     guide: guideSchool,
   },
   {
     id: "learn-switches",
     blueprint: "switches",
+    ring: "depot-school",
     title: "Research switches",
     hint: "Pick Switches, then bring 4 planks to the school.",
     check: (w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches"), ...(ctx.learned.has("switches") || schools(w).length > 0 ? {} : { hint: "Place your school beside a town (Industries tab)." }) }),
@@ -382,6 +397,7 @@ export const GOALS: readonly Goal[] = [
     id: "place-workshop",
     title: "Place your workshop",
     hint: "Drop it from the Industries tab onto a straight on your line.",
+    ring: "depot-workshop",
     // (Only the workshop itself: switches are researched at the school, so knowing them says nothing of a workshop.)
     check: (w) => ({ done: workshops(w).length > 0 }),
     guide: (w) => {

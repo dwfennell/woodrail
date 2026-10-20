@@ -141,6 +141,9 @@ const shown = await p.evaluate(() => {
   return { tab, school: !!item };
 });
 check("Show me opens the Industries tab with the school in it", /Industries/i.test(shown.tab ?? "") && shown.school, JSON.stringify(shown));
+// The tray rings the school, the goal's piece, not the workshop (QA P4: the Workshop was ringed).
+const rung = await p.evaluate(() => [...document.querySelectorAll(".tray-item.attention")].map((e) => e.title || e.textContent));
+check("…the tray rings the School, not the Workshop", rung.length === 1 && /School/.test(rung[0]) && !/Workshop/.test(rung[0]), JSON.stringify(rung));
 await shot("02-show-me-school-spot");
 
 // 4. Placed where Show me points: the goal is Research switches (before the workshop).

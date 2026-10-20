@@ -3,7 +3,7 @@ import { appendPiece, connectorRef, findSplice, Layout } from "../track";
 import { checkPlacement, connectedPairs, FEAT_TREE, SURF_GRASS, SURF_RIVER } from "../landscape";
 import { checkYard } from "./depot-footprint";
 import { siteWhy } from "./industries";
-import { BRIDGE_KNOWN_HINT, GOALS, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, secondEngineTip, TWO_TRAINS_HINT } from "./goals";
+import { BRIDGE_KNOWN_HINT, GOALS, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, secondEngineTip, TWO_TRAINS_HINT, trayRing } from "./goals";
 import mainSrc from "../main.ts?raw";
 import { buildStarterWorld, createWorld, STARTER_SEED, syncIndustries, type World } from "./world";
 import { CARGO } from "../economy/cargo";
@@ -344,6 +344,26 @@ describe("GoalTracker", () => {
     expect(g.check(w).done).toBe(true);
     const at = goal("learn-switches").guide(w).marks[0];
     expect(Math.hypot(at.x - spot.x, at.z - spot.z)).toBeLessThan(1);
+  });
+
+  it("the tray rings what the goal asks to place: the school for Place a school, not the workshop (QA P4)", () => {
+    const w = buildStarterWorld();
+    // The workshop is in the starting box, but the goal is the school.
+    expect(trayRing(goal("place-school"), w)).toBe("depot-school");
+    expect(trayRing(goal("learn-switches"), w)).toBe("depot-school");
+    expect(trayRing(goal("grow-town"), w)).toBe(null);
+    expect(trayRing(goal("place-workshop"), w)).toBe("depot-workshop");
+    expect(trayRing(null, w)).toBe(null);
+    // A school on the map: no ring for it any more.
+    const station = w.stations.get(w.landscape.towns[0].id)!;
+    appendPiece(w.layout, "depot-school", false, connectorRef(station, 0));
+    syncIndustries(w);
+    expect(trayRing(goal("place-school"), w)).toBe(null);
+    expect(trayRing(goal("learn-switches"), w)).toBe(null);
+    expect(trayRing(goal("place-workshop"), w)).toBe("depot-workshop");
+    // The tray's ring follows the current goal (not "a workshop while none is placed"), redrawn when one ticks.
+    expect(mainSrc).toMatch(/item\.type === trayRing\(goals\.current\(\), game\.world\)/);
+    expect(mainSrc).not.toMatch(/item\.type === "depot-workshop" && workshops\(game\.world\)\.length === 0/);
   });
 
   it("research switches: done once learned; with no school, the hint says to place one", () => {

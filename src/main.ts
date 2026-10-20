@@ -10,7 +10,7 @@ import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Land
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, OLDER_SAVE, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
-import { GoalTracker, secondEngineTip } from "./game/goals";
+import { GoalTracker, secondEngineTip, trayRing } from "./game/goals";
 import { makesLine } from "./game/learn-text";
 import { GoalTicks, goalsDoneText, GROWTH_JOIN_S, joins, TOAST_TITLES } from "./game/goal-ticks";
 import { GoalsPanel } from "./ui/goals-panel";
@@ -1105,8 +1105,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const ctx = { learned: progress.learned };
     const fresh = goals.update(game.world, ctx);
     if (fresh.length > 0) {
-      // (A goal done: its guide's markers no longer hold a piece.)
+      // (A goal done: its guide's markers no longer hold a piece, and the tray rings what the next one asks for.)
       interaction.guideSpots = [];
+      hud.refreshTrayBadges();
       saveGoals(goals.ids());
       if (announce) {
         const titles = fresh.map((g) => g.title);
@@ -1276,8 +1277,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if ([...needs.keys()].every(isFree)) return null;
     let n = Infinity;
     for (const [id, k] of needs) n = Math.min(n, Math.floor(progress.available(game.world, id) / k));
-    // The workshop, while there's none on the map: it's where planks go to learn blueprints.
-    const attention = n > 0 && "type" in item && item.type === "depot-workshop" && workshops(game.world).length === 0;
+    // What the current goal asks to place, while none is on the map (the school for "Place a school by a town").
+    const attention = n > 0 && "type" in item && item.type === trayRing(goals.current(), game.world);
     // None left, but a workshop to make more: what one costs (taken from its yard on the spot).
     if (n === 0 && workshops(game.world).length > 0) {
       const lack = lacking(game.world, progress, needs);
