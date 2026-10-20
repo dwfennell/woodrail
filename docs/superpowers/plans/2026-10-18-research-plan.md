@@ -355,22 +355,48 @@ nice to have: coins over 600 on 2027, 2, 4 and stalls over 10 min on 2027, 1, 5.
   trains (a product question: a rule for routed trains to wait at a loop, or a block that runs through a loop's
   switch). Table: spec §5 "P5: the third pass".
 
+**Fourth pass (the cargo trap):**
+- **The cause** (traced load by load, `BALANCE_CARGO`). The mill takes the grain every lap. But at the farm, just past
+  the mill on the way out, an Automatic stop picks up grain again, because the mill comes round at the lap's end. Both
+  hoppers fill there and reach the quarry full, so the stone never loads.
+- **The city.** Larkfield, a City with its planks and flour in, takes only stone (a level wants all three; a town
+  takes only what it still wants).
+- **The planks.** One train saws about 6 a lap. The school, Larkfield and then the workshop take them first, and an
+  Automatic workshop stop takes all its yard has room for, so Elderwick, past it, stays at 3/14. Thimble Cross, beyond
+  the sawmill, is passed only with logs aboard.
+- **A real player** with one train, two hoppers and a farm passed on the way out reaches the same trap. Nothing says
+  why: a stone badge, a full quarry, grain heaps on the hoppers.
+- **The harness now unsticks it with game actions.** Grain is picked up only on the way to the mill (the other farm
+  visit set to Only drop) after 3 min of a full, wanted pile with every carrying car loaded with something else. The
+  workshop's crane goes off while a town past it starves and its yard holds 20 or more. A goods engine's spare pull
+  gets a third flatbed.
+- **Result.** `BALANCE=1` passes on 2027, 1–6, 9 and 10, with town gaps 24.4–35.3, City 60–78 and City★ on seven
+  seeds. No seed needs the exemption now.
+- **Game-side, tried locally and not built.** B, a loading rule that keeps a car for a good ahead. C, a City that
+  keeps taking planks toward its next level. B + C passes all nine seeds with the old, passive player. Recommended: B,
+  plus a hint toast and town-card line for what B doesn't cover (D). Numbers and costs: spec §5 "P5: the fourth pass".
+
 ### Task 5.1: tune and measure
 - [x] Tune `research` costs, study times and the growth-card amounts with the seed table, until every seed meets
   these targets (the CoS's, spec §5, as revised after the first pass):
   - [x] first research by minute 8;
-  - [x] the guard: no research stall over 15 min (2027's 19.3 and 6's are the exempt plank famine: (f)), coins at
-    180 at least 100, no City more than 20% later than main;
-  - [ ] longest research stall under 10 min (nice to have: met on 2, 3, 4);
-  - [x] City minute 60–90 on every seed (60–81);
-  - [ ] coins at 180 within 150–600 (nice to have: met on 1, 3, 5);
-  - [ ] the town gap under about 45 min (26–35; after the P4 merge, 67.5 on seed 1 and 55.4 on seed 3: third pass);
-  - [x] research learned at 180 no fewer than main's researched (13–22 against 7–11);
+  - [x] the guard: no research stall over 15 min (the fourth pass: 6.8–13.1, none exempt; the third pass's 19.3 on
+    2027 and 6 was the exempt plank famine: (f)), coins at 180 at least 100, no City more than 20% later than main;
+  - [ ] longest research stall under 10 min (nice to have: met on 1, 2, 3, 10);
+  - [x] City minute 60–90 on every seed (60–78);
+  - [ ] coins at 180 within 150–600 (nice to have: met on 1, 4, 5, 9);
+  - [x] the town gap under about 45 min (24.4–35.3 on all nine seeds since the fourth pass; 67.5 and 55.4 on seeds 1
+    and 3 after the P4 merge, the cargo trap);
+  - [x] research learned at 180 no fewer than main's researched (14–25 against 7–11);
   - [x] the passenger line's research costs set.
 - [x] What research lacks rides on past a workshop too, as past a town (tray order first).
 - [x] The simulated player picks a growth card at random among the sensible ones (seeds differ again).
 - [x] (f) The stall guard exempts the one-goods-train plank famine on a 20-stop line, by its cause.
 - [x] (h) A second goods train on long lines, behind a passing loop (`BALANCE_SECOND_GOODS=15`; off: it jams).
+- [x] The simulated player unsticks cargo with the game's own actions: grain picked up only on the way to the mill,
+  the workshop's crane off while a town past it starves, a third flatbed for a goods engine's spare pull.
+- [ ] Game-side, for the user to choose: B (keep a car for a good ahead), D (a hint naming what's stuck), maybe C (a
+  City keeps taking planks). Spec §5 "P5: the fourth pass".
 - [x] Change one knob per commit, with the table before and after in each commit.
 - [x] Add assertions to the balance test for the bands, so it stays skipped unless `BALANCE=1`.
 - [x] Time a headless phone run (390×844) for idle CPU with a research running and none running. It stays at P4's

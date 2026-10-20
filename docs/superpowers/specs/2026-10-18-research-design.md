@@ -319,6 +319,110 @@ First research at 5.6 on every seed; coins at 180 at least 227; no City later th
 Idle CPU (390×844, headless, 30 s × 3, no trains): P5 the same as P4 with a research running and with none (2.9–3.7%
 against 2.8–3.6%, 0 frames); figures in the plan's P5 note.
 
+### P5: the fourth pass (the cargo trap, diagnosed in the game)
+
+Traced load by load (`BALANCE_CARGO=105-125`, seed 1). The grain isn't refused: the mill takes it every lap. It's
+picked up again at once. The chain, with the line as the harness lays it out after the quarry (mill → farm → forest →
+Elderwick → workshop → halt → Larkfield → school → sawmill → Thimble Cross → quarry, and back):
+1. **The hoppers refill with grain.** The farm sits next to the mill at the line's end. At the farm on the way out
+   (stop 1, just after the mill), an Automatic stop picks up whatever a later stop takes (`picksAt`,
+   src/economy/economy.ts:761–774). The mill takes grain and comes round again at the end of the lap
+   (`laterStops`, :813, counts what a depot takes, not whether it has room). An empty car takes the good its train
+   carries least of (`loadKind`, :852), and the farm gives only grain, so both hoppers fill with 6 grain. Before the
+   quarry this was harmless (one hopper, nothing else for it to carry).
+2. **No stone loads.** The hoppers carry that grain the whole lap and reach the quarry full. The quarry's pile sits at
+   12 (full), and the train runs through it with nothing to do. Back at the mill they drop the 6 grain and refill at the
+   farm right after. So emptying them at the quarry (the third pass's try) didn't help: they refill before they get back.
+3. **The city wants only stone.** A City wants planks 22, flour 12 and stone 10 (src/game/towns.ts:21). It grows only
+   once all three are in (`townStatus`, :51–57), and it takes only what it still wants for its next level
+   (src/game/town-life.ts:81, :103). With its planks in by minute 115 and its flour by 150, Larkfield takes nothing
+   but stone.
+4. **The other towns get no planks.** The one train brings 6 logs a lap (2 flatbeds, about 10–13 min round 20–22
+   stops), so about 6 planks a lap, loaded on the way back from Thimble Cross. Thimble Cross, beyond the sawmill, is
+   passed only with logs aboard: it stays at 2/14 planks all game. On the way in, the school comes first (the research
+   keeps what it lacks: `keptForSchool`, economy.ts:355), then Larkfield, then the workshop. At a workshop an
+   Automatic stop drops all the planks its yard has room for (30), whether or not a town later on wants them
+   (`dropsAt`, :749). Elderwick, past the workshop, stays at 3/14 from minute 40 to 180. Once Larkfield is full, the
+   workshop takes everything (4 → 24) and no town gets a plank for 63–67 min. The timber train isn't blocked, and the
+   planks aren't sent anywhere wrong: there are too few of them, and the depots ahead on the line take them first.
+
+**A real player can reach it.** All it takes is one goods train with two hoppers on a there-and-back line, and a farm
+that the train passes on its way out from the mill, before the quarry. The harness builds exactly that: farm and mill
+at one end, the quarry at the other, and a second hopper added for stone. A player who adds a hopper for the quarry
+gets the same. The other way round (the mill between the farm and the quarry) works by luck. What they'd see:
+- Larkfield's sign badge reads 🪨 0/10, and the map view reads "City · wants planks 22/22, flour 12/12, stone 0/10".
+- The quarry's card shows Stone 12.
+- The engine card says "On its way to …" past the quarry, and "Loading at Farm yard".
+- In 3D, the hoppers carry grain heaps.
+- Elderwick's badge stays at 🪵 3/14, and the workshop's card fills to 30.
+
+Nothing says why. There's no toast, the wagon card shows no load, and grain can't be dragged off a hopper at the
+quarry (it's refused: no pile there takes it). A fix takes a player who reads the heaps. They can make the farm's
+outbound stop Only drop on the engine card (Automatic → Only drop → Only pick up), take the farm stop out, move the
+mill between the farm and the quarry, or run the stone on a train of its own (Signals and a loop). For the planks, they
+can switch the workshop's crane off (its card's Automatic) or make its stop Only pick up.
+
+**The harness now does what a sensible player does** (`Playthrough.unstick`, `shopThrough`; game actions only, no rule
+changed):
+- **The hoppers.** A full pile of a good a town or the research wants, with every car that could carry it loaded with
+  something else, for 3 minutes in a row: the player edits the line. That something is picked up only on the visit
+  nearest before a stop that takes it (the farm on the way to the mill, `onlyNearestPickup`), and its other visits
+  become Only drop. It's kept when the line is laid out again. It fires on seeds 1, 3, 4, 5 and 9 (minute 94–112).
+- **The workshop.** A town on the line has wanted planks and had none for 15 min while the workshop holds 20 or more:
+  the workshop's crane goes off, and comes back on at 10 planks, for a tray order, or when no town wants planks.
+- **The goods engine's spare pull** (7 of 8 cars used) gets a third flatbed.
+- Comparison switches: `BALANCE_NOUNSTICK=1` turns off the hopper and workshop rules, `BALANCE_NOFILL=1` the third
+  flatbed.
+
+| Seed | Coins@180 | City | City★ | Research stall | Town gap | Researched (main) | Riders | Unstuck at |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2027 | 1574 | 78 | 167 | 11.2 (Carpenter's bench) | 30.5 | 15 (9) | 445 | - |
+| 1 | 461 | 77 | 148 | 9.7 | 35.3 | 15 (9) | 409 | 111 (shop off 140) |
+| 2 | 1191 | 77 | - | 6.8 | 30.6 | 23 (8) | 877 | (shop off 105) |
+| 3 | 892 | 65 | 135 | 9.3 | 24.4 | 14 (11) | 422 | 112 |
+| 4 | 567 | 60 | 143 | 12.0 (Mines) | 26.2 | 14 (7) | 286 | 94 (shop off 60) |
+| 5 | 589 | 61 | 142 | 13.1 (Carpenter's bench) | 29.3 | 15 (8) | 311 | 107 (shop off 145) |
+| 6 | 1280 | 78 | 147 | 10.7 | 30.5 | 15 (7) | 433 | - |
+| 9 | 567 | 60 | 143 | 12.0 | 26.2 | 14 (7) | 286 | as 4 |
+| 10 | 833 | 78 | - | 7.3 | 30.5 | 25 (7) | 936 | (shop off 102, 150) |
+
+`BALANCE=1` passes on all nine. First research is at 5.6 on every seed. No seed needs the plank-famine exemption any
+more (2027's stall goes from 19.3 to 11.2), and (f) is kept. Before, seeds 1, 3 and 4 never reached a City★; now
+seven seeds do. Parts alone, on seeds 1 / 3:
+- before: gaps 67.5 / 55.4;
+- the hopper and workshop rules only: 63.4 / 24.4, with a City★ at 146 / 135;
+- the third flatbed only: 35.3 / 34.7, with no City★ (the stone still never comes).
+
+Seed 1 needs both: once Larkfield is a City★ it wants planks again, but the research takes the first 13 (Junctions,
+then Diesel) at 6 planks a lap. Nice to have: research stalls under 10 min on 1, 2, 3, 10 only; coins within 150–600 on
+1, 4, 5, 9.
+
+**Game-side options (not built).** These were tried locally against the old player (`BALANCE_NOUNSTICK=1
+BALANCE_NOFILL=1`, so it does nothing about stuck cargo), not committed:
+- **B. Keep a car for a good ahead (a loading rule).** At an Automatic stop, a second car of a kind isn't filled with a
+  good already aboard while a stop ahead, before the next one that takes that good, gives another good the car carries
+  that a later stop wants. Two hoppers then carry one grain and one stone. It's cheap: a scan of the stops ahead, only
+  when an empty car would load a good already aboard, with `laterOf` cached. Alone it un-traps the city (City★ at 146,
+  144, 169 on seeds 1, 3, 4; 2027 unchanged). Town gaps: 63.4, 28.8, 43.4, 30.5 (seed 1 still misses: too few planks).
+- **C. A city keeps taking planks.** A town at City or above takes planks past its level's 22, up to what its next
+  level wants, and they count toward that level (`townStatus` already counts from all that was received). Alone, it
+  hides the gap (35.3, 24.4, 38.8, 26.2 on 1, 3, 2027, 4) but the city still never grows (no City★ on 1, 3, 4). From
+  every level (not only a City) it broke seeds 3 and 4: towns took the planks the workshop needed, with 4 researched,
+  no City, and a 105 min stall.
+- **B + C** with the old player: all nine seeds pass `checkBands` (City 60–78, gaps 24.4–38.8, researched 12–19).
+  City★ comes on 1, 3, 4, 6, 9 and 2027 (142–168). Seed 1's 18.4 min stall is exempt (the plank famine).
+- **D. A hint.** When a train runs through a depot whose full pile of good X a stop on its line wants, and every car
+  that carries X is full of something else, a toast and a line on the town's card: "Larkfield wants only 🪨 stone: the
+  hoppers reach the quarry full of 🌾 grain. Make the farm stop Only drop on the way out." The same goes for a town
+  starving past a full workshop ("Elderwick gets no planks: the workshop takes them first"). Cheap and event-driven:
+  checked as a train passes a depot, never per frame.
+
+**Recommended: B, with D for what B doesn't cover** (the workshop, a mill with no room). B fixes the cause where the
+player can't see it: a heap on a hopper is all there is. D teaches the fix that's already there (Only drop). C is a
+demand rule that hides the symptom; take it only if the user wants cities to keep taking planks for its own sake, and
+only from City up. B is about a day: the rule, a unit test in `intent.test.ts`, and the table again. D is half a day:
+the check at a depot pass, the toast and the town card line.
+
 ## 6. Saves
 
 - `SAVE_VERSION` goes to 12. Older saves are turned away with `OLDER_SAVE` and kept aside under their backup key,
