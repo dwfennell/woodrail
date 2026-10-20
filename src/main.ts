@@ -2871,6 +2871,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh && next === "game") resetGoals();
     if (fresh) saveLastBuilt(next, null);
     if (fresh) {
+      // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
+      if (hasOlderSave(next)) loadFromStorage(next);
       setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
       restoreSession(next, false);
     } else if (next !== mode) {
