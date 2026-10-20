@@ -185,13 +185,13 @@ const shop = await p.evaluate(() => {
   return w.economy.allDepots().find((d) => d.role === "workshop")?.id ?? null;
 });
 check("the workshop placed: the next goal is Make a switch", shop !== null && (await waitGoal("Make a switch")), String(await goalNow()));
-await p.evaluate((id) => {
-  window.woodrail.interaction.openDepot(id);
-  window.woodrail.invalidate();
-}, shop);
+const hint = await p.evaluate(() => document.querySelector(".goals")?.textContent ?? "");
+check("…its hint: choose Switch first, then trains bring the planks", hint.includes("Tap your workshop and choose Switch. Trains then bring its planks."), hint.slice(0, 200));
+// Show me opens the workshop's card (to choose from), not the sawmill's planks.
+await tap(".goals-show-icon");
 await p.waitForFunction(() => !!document.querySelector(".make-now"), null, { timeout: 15000 }).catch(() => {});
-const card = await p.evaluate(() => document.querySelector(".make-now")?.textContent);
-check("…the workshop's card: choose what to make, then trains bring the planks", card === "Choose what to make: trains bring the planks.", String(card));
+const card = await p.evaluate(() => ({ now: document.querySelector(".make-now")?.textContent, open: window.woodrail.interaction.openDepotId, shop: window.woodrail.economy.allDepots().find((d) => d.role === "workshop")?.id, row: !!document.querySelector('button[data-make="piece:switch"]') }));
+check("…Show me opens the workshop's card: choose what to make, then trains bring the planks", card.open === card.shop && card.row && card.now === "Choose what to make: trains bring the planks.", JSON.stringify(card));
 await shot("04b-workshop-card");
 await tap('button[data-make="piece:switch"]:not([data-less])');
 await p.waitForTimeout(1500);

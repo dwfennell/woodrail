@@ -37,6 +37,8 @@ export interface GoalGuide {
    * turn it (QA: the workshop's spot was refused, its building over the river, in the starting view).
    */
   held?: { type: PieceTypeId; heading: number };
+  /** A depot whose card to open (the workshop's, to choose what to make). */
+  card?: number;
 }
 
 /** What a goal may ask beyond the world: the player's progress (blueprints learned). */
@@ -434,12 +436,12 @@ export const GOALS: readonly Goal[] = [
       const have = Math.min(need, workshopStock(w).planks ?? 0);
       return { done: false, count: have, target: need, unit: "planks", hint: SWITCH_ORDERED_HINT };
     },
+    // The workshop, its card open to choose from (QA P4: it pointed at the sawmill's planks, as if they came first).
     guide: (w) => {
       const shop = workshops(w)[0];
-      const saw = guideDepot(w, "sawmill");
-      if (!shop) return saw;
+      if (!shop) return guideDepot(w, "sawmill");
       const at = piecePoint(w, shop.pieceId);
-      return { points: [at, ...saw.points.slice(0, 1)], towns: [], marks: [at] };
+      return { points: [at], towns: [], marks: [at], card: shop.id };
     },
   },
   {

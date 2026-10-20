@@ -385,7 +385,9 @@ describe("GoalTracker", () => {
     const g = goal("make-switch");
     expect(g.title).toBe("Make a switch");
     expect(g.hint).toBe(MAKE_SWITCH_HINT);
-    expect(g.guide(w).marks).toEqual([w.layout.getPiece(piece)!.pose]);
+    // Show me: the workshop alone, its card opened to choose from (not the sawmill's planks).
+    expect(g.guide(w)).toMatchObject({ points: [w.layout.getPiece(piece)!.pose], marks: [w.layout.getPiece(piece)!.pose], card: w.economy.depotAtPiece(piece)!.id });
+    expect(mainSrc).toMatch(/if \(guide\.card !== undefined\) interaction\.openDepotCard\(guide\.card\);/);
     // Nothing ordered: the workshop keeps no planks, and planks in its yard alone don't tick it.
     const p = Progress.fresh();
     p.learned.add("switches");

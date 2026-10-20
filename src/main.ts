@@ -2864,6 +2864,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const guide = goal.guide(game.world);
     interaction.guideSpots = guide.marks.map((p) => ({ x: p.x, z: p.z }));
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
+    // The card to choose from ("Make a switch": the workshop's, its Switch row there to tap).
+    if (guide.card !== undefined) interaction.openDepotCard(guide.card);
     // The piece it asks for comes out of the tray the way it fits at the spot shown.
     interaction.guideHeld(guide.held ?? null);
     if (guide.points.length > 0) {
