@@ -392,6 +392,8 @@ export class Crossing {
   private readonly tailLegs = new Map<number, CachedLeg>();
   private readonly tailHinted = new Map<number, CachedLeg>();
   private readonly onwardLegs = new Map<number, CachedLeg>();
+  /** Each claim's steering hint (`steerFollow`), for what it held when worked out. */
+  private readonly follows = new WeakMap<Reservation, { from: number; upto: number; hint: { target: number; follow: AvoidTest } }>();
   /** Each way's runs through loops (per claims list, and the revision they were found on). */
   private readonly runCache = new WeakMap<readonly Claim[], { revision: number; runs: readonly ThroughRun[] }>();
   /**
@@ -2008,6 +2010,27 @@ export class Crossing {
     const p = target < 0 ? null : this.pending(engine, train, target);
     if (!p) return undefined;
     return this.avoidOn(engine, p, 0, live, null, -1, [target])?.test;
+  }
+
+  /**
+   * Steering inside a held block (3d): the way the train holds (`follow`: the pieces and paths of its claim from its tail
+   * on, as far as it holds), and the piece to aim at (its block's last stop), so a train running through a stop inside
+   * its block sets the switches beyond it to the way it holds before it gets there. Undefined with no claim held (a lone
+   * train never holds one): steering goes as ever.
+   */
+  steerFollow(engine: number): { target: number; follow: AvoidTest } | undefined {
+    if (!this.enabled || !this.blocking) return undefined;
+    const res = this.reservations.get(engine);
+    if (!res || res.free || res.upto <= res.from || res.target < 0) return undefined;
+    // (Kept on the claim while what it holds is the same: steering asks a few times a second.)
+    let f = this.follows.get(res);
+    if (!f || f.from !== res.from || f.upto !== res.upto) {
+      const held = new Set<number>();
+      for (let k = res.from; k < res.upto; k++) held.add(res.claims[k].pieceId * 8 + res.claims[k].pathIndex);
+      f = { from: res.from, upto: res.upto, hint: { target: res.target, follow: (pieceId, pathIndex) => held.has(pieceId * 8 + pathIndex) } };
+      this.follows.set(res, f);
+    }
+    return f.hint;
   }
 
   /**

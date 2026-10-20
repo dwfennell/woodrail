@@ -1414,7 +1414,9 @@ export class Economy {
       const net = this.drive(found.train);
       const d = this.depots[r.stops[r.next % r.stops.length].depotId];
       if (net === 0 || !d || !this.onMap(d)) continue;
-      if (steer(this.layout, found.train, net > 0, d.pieceId, this.crossing.steerAvoid(engine, found.train), undefined, this.occupied)) this.onSwitch?.(d.pieceId);
+      // (Inside a block it holds: the block's way, aimed at its last stop; see `Crossing.steerFollow`.)
+      const held = this.crossing.steerFollow(engine);
+      if (steer(this.layout, found.train, net > 0, held?.target ?? d.pieceId, this.crossing.steerAvoid(engine, found.train), held?.follow, this.occupied)) this.onSwitch?.(d.pieceId);
     }
   }
 
