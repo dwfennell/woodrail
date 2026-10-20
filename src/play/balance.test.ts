@@ -362,7 +362,7 @@ class Player {
       this.counters.collect(this.w.economy, this.progress);
       peopleArrive(this.w, this.progress, 1, this.people);
       for (const engine of this.w.economy.lineIdOf.keys()) if (this.w.economy.spacing.holding(engine)) this.heldSeconds++;
-      for (const g of this.goals.update(this.w, { learned: this.progress.learned })) {
+      for (const g of this.goals.update(this.w, { learned: this.progress.learned, owned: this.progress.owned, orders: this.progress.orders })) {
         this.happened++;
         this.note(`GOAL ${this.goals.doneCount}/${GOALS.length} ✓ ${g.title}`);
       }
@@ -1186,6 +1186,13 @@ class Playthrough {
         const d = (k: number) => Math.round(Math.hypot(pose.x - w.layout.getPiece(k)!.pose.x, pose.z - w.layout.getPiece(k)!.pose.z));
         P.note(`dropped the workshop on the line where its goal points (${d(st(P, 0))} mm from Larkfield's station, ${d(depotPiece(P, "sawmill"))} mm from the sawmill)`);
       } else this.why = "no spot for the workshop";
+    }
+
+    // The goal "Make a switch": ordered at the workshop's card (its planks are kept for it from then on, as the game does).
+    if (goal === "make-switch" && s.learned.has("switches") && !s.orders.includes("piece:switch") && (s.owned.get("piece:switch") ?? 0) === 0) {
+      P.crafting.order("piece:switch");
+      P.happened++;
+      P.note("ordered a switch at the workshop for the goal");
     }
 
     // The switch goal: a switch on the map (there's nothing to branch to yet: it goes down beside the line).

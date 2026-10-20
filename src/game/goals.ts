@@ -3,6 +3,7 @@ import { acrossRiver, type AcrossRiver } from "./across-river";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
 import { workshops, workshopStock } from "./crafting";
+import { THING_RULES, type ThingId } from "./things";
 import { depotSpot } from "./depot-footprint";
 import { schoolOf, siteWhy } from "./industries";
 import { receivedBy } from "./town-life";
@@ -41,6 +42,9 @@ export interface GoalGuide {
 /** What a goal may ask beyond the world: the player's progress (blueprints learned). */
 export interface GoalContext {
   learned: ReadonlySet<string>;
+  /** The toy box (all owned, on the map or not), and the workshop's orders waiting: for "Make a switch". */
+  owned?: ReadonlyMap<ThingId, number>;
+  orders?: readonly ThingId[];
 }
 
 const NO_CONTEXT: GoalContext = { learned: new Set() };
@@ -285,6 +289,10 @@ const stationPieces = (w: World) => new Set(w.stations.values());
 
 /** The Game mode's goals, worked through in order. */
 /** "Run two trains at once" with one train on the map. */
+/** "Make a switch": choose it first; the workshop keeps planks only for an order (`orderPlanks`). */
+export const MAKE_SWITCH_HINT = "Tap your workshop and choose Switch. Trains then bring its planks.";
+export const SWITCH_ORDERED_HINT = "Ordered: trains bring the workshop its planks.";
+
 export const TWO_TRAINS_HINT = "Put a second engine on the track, then lay a passing loop with signals.";
 
 /**
@@ -413,10 +421,19 @@ export const GOALS: readonly Goal[] = [
     },
   },
   {
-    id: "workshop-planks",
-    title: "Bring planks to the workshop",
-    hint: "Run planks from the sawmill to it.",
-    check: (w) => ({ done: (workshopStock(w).planks ?? 0) > 0 }),
+    // The workshop keeps planks only for an order waiting (`orderPlanks`), so the order comes first and trains then
+    // bring its planks (QA P4: "Bring planks to the workshop" stalled, towns taking every plank with nothing ordered).
+    id: "make-switch",
+    title: "Make a switch",
+    hint: MAKE_SWITCH_HINT,
+    check: (w, ctx = NO_CONTEXT) => {
+      if ((ctx.owned?.get("piece:switch") ?? 0) > 0 || hasPiece(w, (type, flipped) => getPieceDef(type, flipped).isSwitch)) return { done: true };
+      if (!ctx.orders?.includes("piece:switch")) return { done: false };
+      // Ordered: its planks on their way.
+      const need = THING_RULES["piece:switch"]!.cost.planks ?? 0;
+      const have = Math.min(need, workshopStock(w).planks ?? 0);
+      return { done: false, count: have, target: need, unit: "planks", hint: SWITCH_ORDERED_HINT };
+    },
     guide: (w) => {
       const shop = workshops(w)[0];
       const saw = guideDepot(w, "sawmill");
@@ -428,7 +445,7 @@ export const GOALS: readonly Goal[] = [
   {
     id: "lay-switch",
     title: "Lay a switch",
-    hint: "Make one at the workshop, then lay it from the Switch shelf.",
+    hint: "Lay your switch from the Switch shelf on the Track tab.",
     check: (w) => ({ done: hasPiece(w, (type, flipped) => getPieceDef(type, flipped).isSwitch) }),
     guide: (w) => guideTrains(w, "track", "Switch"),
   },

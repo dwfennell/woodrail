@@ -73,7 +73,7 @@ export class WorkshopPanel {
     this.root.hidden = false;
     const head = now
       ? `<div class="make-now">${now.waiting ? `Waiting for ${now.waiting} to make ${aOrAn(now.label.toLowerCase())}` : `Making ${aOrAn(now.label.toLowerCase())}`}<span class="bar"><i style="width:${Math.round(now.fill * 100)}%"></i></span></div>`
-      : `<div class="make-now">Bring planks here, then choose what to make.</div>`;
+      : `<div class="make-now">Choose what to make: trains bring the planks.</div>`;
     let body = "";
     let shelf = "";
     for (const r of rows) {

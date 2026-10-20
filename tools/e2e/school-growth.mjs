@@ -1,7 +1,8 @@
 // End-to-end tutorial order and the school that grows with its town, on a phone (`npm run e2e:school [-- <out dir>]`),
 // at 390×844 with touch:
 // - the opening (spec §4): deliver planks, grow a village (its present is a school), place a school by a town (Show me
-//   marks the spot and opens the Industries tab), research switches, then the workshop;
+//   marks the spot and opens the Industries tab, the tray rings the school), research switches, then the workshop: placed,
+//   a switch ordered (its card: choose, then trains bring the planks) and made, then the goal is to lay it;
 // - the school's model (spec §1): a schoolhouse by a village, a college once College is learned and its town is a town
 //   (study 2×), a library wing by a city (tier 3 opens: Quarries ready); the yards are drawn again only when a school's
 //   grade changes (not on deliveries);
@@ -172,6 +173,35 @@ await p.evaluate(() => {
 await p.waitForFunction(() => window.woodrail.progress().learned.has("switches"), null, { timeout: 60000 }).catch(() => {});
 check("switches researched, the next goal is Place your workshop", await waitGoal("Place your workshop"), String(await goalNow()));
 await shot("04-goal-workshop");
+
+// 5b. The workshop (QA P4: "Bring planks to the workshop" stalled, as the workshop keeps planks only for an order):
+// placed, the goal is Make a switch; its card says to choose first; a switch ordered, its planks come, it's made, and
+// the goal is Lay a switch.
+const shop = await p.evaluate(() => {
+  const w = window.woodrail;
+  const s1 = w.world.layout.getPiece(w.world.stations.get(w.world.landscape.towns[1].id)).pose;
+  w.editor().place("depot-workshop", { x: Math.round(s1.x / 18) * 18, z: Math.round((s1.z + 500) / 18) * 18, heading: 0 }, 0, false);
+  w.invalidate();
+  return w.economy.allDepots().find((d) => d.role === "workshop")?.id ?? null;
+});
+check("the workshop placed: the next goal is Make a switch", shop !== null && (await waitGoal("Make a switch")), String(await goalNow()));
+await p.evaluate((id) => window.woodrail.interaction.openDepot(id), shop);
+await p.waitForTimeout(600);
+const card = await p.evaluate(() => document.querySelector(".make-now")?.textContent);
+check("…the workshop's card: choose what to make, then trains bring the planks", card === "Choose what to make: trains bring the planks.", String(card));
+await shot("04b-workshop-card");
+await tap('button[data-make="piece:switch"]:not([data-less])');
+await p.waitForTimeout(1500);
+const ordered = await p.evaluate(() => ({ orders: [...window.woodrail.progress().orders], goals: document.querySelector(".goals")?.textContent ?? "" }));
+check("…a switch ordered: the goal says its planks are on their way", ordered.orders.includes("piece:switch") && /Ordered: trains bring the workshop its planks/.test(ordered.goals) && /0\s*\/\s*3/.test(ordered.goals), JSON.stringify(ordered).slice(0, 300));
+// The planks a train would bring (the workshop keeps them for the order: towns leave them on the train).
+await p.evaluate((id) => {
+  const w = window.woodrail;
+  w.economy.depot(id).piles[1] = 3; // (planks)
+  w.invalidate();
+}, shop);
+check("…its planks in, the switch is made: the next goal is Lay a switch", await waitGoal("Lay a switch"), String(await goalNow()));
+await p.keyboard.press("Escape");
 
 // 6. The school grows with its town. Count the yards' redraws from here (its models loaded first: a model's first load
 // draws the yards once more, when it's in).

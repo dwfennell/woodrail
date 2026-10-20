@@ -1102,7 +1102,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let ticksEntry: JournalEntry | null = null;
   function checkGoals(announce: boolean): void {
     if (mode !== "game" || !playing) return;
-    const ctx = { learned: progress.learned };
+    const ctx = { learned: progress.learned, owned: progress.owned, orders: progress.orders };
     const fresh = goals.update(game.world, ctx);
     if (fresh.length > 0) {
       // (A goal done: its guide's markers no longer hold a piece, and the tray rings what the next one asks for.)
