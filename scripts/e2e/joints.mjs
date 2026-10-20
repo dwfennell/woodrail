@@ -1,5 +1,5 @@
 // End-to-end: a drawn line's joints hold through a reload (`npm run e2e:joints [-- <out dir>]`). QA's repro: seed 7, a
-// fresh Game on a 360×740 touch screen, Draw on, the camera on (-1062, 18) at 1900 mm (tilt 0.95, theta −2: QA's line); one stroke from the sawmill's
+// fresh Game on a 360×740 touch screen, Draw on, the camera on (-1062, 18) at 1900 mm (tilt 0.95; theta −1.4 lays QA's line); one stroke from the sawmill's
 // end to Larkfield station's west end. Every joint of the line must be within the joint tolerance, and after a reload
 // and Continue the same joints must hold: the track unbroken from the sawmill to Larkfield (QA: 8.1° and 6.3° joints
 // held while playing, then were refused on load, and the line split).
@@ -60,38 +60,8 @@ await enterGame();
 const ids0 = await p.evaluate(() => [...window.woodrail.layout.pieceIds()]);
 await p.tap(".tray-draw");
 await p.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
-// QA's stroke, every 15 mm along its world line, seen on the ground with QA's camera; touch moves every 10 px.
-const screen = await p.evaluate(() => {
-  const w = window.woodrail;
-  const V = w.camera.position.constructor;
-  w.lookAt(new V(-1062, 0, 18), 1900, 0.95, -2);
-  const way = [[-1476, -72], [-1476, 60], [-1300, 108], [-648, 108]];
-  const pts = [way[0]];
-  for (let i = 1; i < way.length; i++) {
-    const [ax, az] = way[i - 1];
-    const [bx, bz] = way[i];
-    const n = Math.ceil(Math.hypot(bx - ax, bz - az) / 15);
-    for (let k = 1; k <= n; k++) pts.push([ax + ((bx - ax) * k) / n, az + ((bz - az) * k) / n]);
-  }
-  const r = w.canvas.getBoundingClientRect();
-  return pts.map(([x, z]) => {
-    const v = new V(x, 0, z).project(w.camera);
-    return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
-  });
-});
 const cdp = await ctx.newCDPSession(p);
 const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
-await touch("touchStart", screen[0][0], screen[0][1]);
-for (let i = 1; i < screen.length; i++) {
-  const [ax, ay] = screen[i - 1];
-  const [bx, by] = screen[i];
-  const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 10));
-  for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
-}
-await touch("touchEnd", 0, 0);
-await settled();
-await shot("joints-1-drawn");
-
 /** The pieces the stroke laid (in id order), and whether each is joined at both ends. */
 const laid = () =>
   p.evaluate(async (ids0) => {
@@ -103,11 +73,53 @@ const laid = () =>
       .sort((a, b) => a - b)
       .map((id) => ({ id, type: w.layout.getPiece(id).type, joined: [0, 1].every((i) => w.layout.joinedConnector(connectorRef(id, i)) !== -1) }));
   }, ids0);
-const line = await laid();
+/**
+ * QA's stroke: its world points seen on the ground with QA's camera (on (-1062, 18) at 1900 mm, tilted 0.95, from
+ * `theta`), touch moves every `step` px between them. What it laid.
+ */
+const stroke = async (theta, step) => {
+  const screen = await p.evaluate((theta) => {
+    const w = window.woodrail;
+    const V = w.camera.position.constructor;
+    w.lookAt(new V(-1062, 0, 18), 1900, 0.95, theta);
+    // (Projected before a frame is drawn: the camera's matrices brought up to date here.)
+    w.camera.updateMatrixWorld();
+    const r = w.canvas.getBoundingClientRect();
+    return [[-1476, -72], [-1476, 60], [-1300, 108], [-648, 108]].map(([x, z]) => {
+      const v = new V(x, 0, z).project(w.camera);
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+    });
+  }, theta);
+  await touch("touchStart", screen[0][0], screen[0][1]);
+  for (let i = 1; i < screen.length; i++) {
+    const [ax, ay] = screen[i - 1];
+    const [bx, by] = screen[i];
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / step));
+    for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+  }
+  await touch("touchEnd", 0, 0);
+  await settled();
+  return laid();
+};
+// QA's line closes on Larkfield by the joints' play alone (no joiner piece): the view QA had isn't known to the last
+// hundredth of a turn, so a few close to it are tried (each stroke undone) until one lays such a line.
+let line = [];
+let tried = [];
+// (θ −1.4 lays it: on main, QA's joints exactly, 8.149° at the sawmill and 6.338°.)
+for (const [theta, step] of [[-1.4, 10], [-2, 10], [-1.3, 10], [-2.2, 10], [-1.4, 7], [-2, 7], [-1.3, 7], [-2.2, 7]]) {
+  line = await stroke(theta, step);
+  tried.push(`θ ${theta}, ${step} px: ${line.map((x) => x.type).join(" ")}`);
+  if (line.length >= 4 && line.every((x) => x.joined) && !line.some((x) => /^(join|fit)-/.test(x.type))) break;
+  await p.evaluate(() => window.woodrail.interaction.undo());
+  await settled();
+}
+console.log(`(strokes: ${tried.join(" | ")})`);
+await shot("joints-1-drawn");
+
 const before = await joints();
 const lineIds = new Set(line.map((x) => x.id));
 const touching = (js) => js.filter((j) => j.pieces.split("-").some((id) => lineIds.has(Number(id))));
-check("the stroke lays a line from the sawmill to Larkfield, joined at every end", line.length >= 4 && line.every((x) => x.joined), line.map((x) => `${x.id} ${x.type}${x.joined ? "" : " (open)"}`).join(", "));
+check("the stroke lays QA's line from the sawmill to Larkfield, joined at every end by the joints' play (no joiner)", line.length >= 4 && line.every((x) => x.joined) && !line.some((x) => /^(join|fit)-/.test(x.type)), line.map((x) => `${x.id} ${x.type}${x.joined ? "" : " (open)"}`).join(", "));
 check("every joint is within the joint tolerance", before.every((j) => !j.over), say(touching(before)));
 
 // Leave (the autosave on pagehide), come back, Continue.
