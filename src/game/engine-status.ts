@@ -21,6 +21,10 @@ export type TrainState =
   | { kind: "stopped" }
   /** Held at its stop a moment so its line's trains spread out (auto-spacing): `left` seconds at most, or not known. */
   | { kind: "spacing"; line: string; left: number | null }
+  /** Waiting in a passing loop or at a line end for a train of its line on the single track ahead (sections). */
+  | { kind: "line-wait"; line: string }
+  /** Held: its line has more trains than passing loops (lay `more` more for `trains` trains). */
+  | { kind: "needs-loop"; more: number; trains: number }
   | { kind: "held-up" }
   | { kind: "starting" }
   | { kind: "running" };
@@ -75,6 +79,16 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     const wait = economy.spacingWait(car.id);
     if (wait) return { kind: "spacing", line: wait.line.name, left: wait.left };
   }
+  // Waiting for a train of its line on the single track ahead, or held for want of a passing loop (sections).
+  if (train.speed < 1)
+    for (const car of train.cars) {
+      const w = economy.sectionWait(car.id);
+      if (!w) continue;
+      if (w.kind === "room") return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains };
+      const lineId = economy.lineIdOf.get(car.id);
+      const line = lineId === undefined ? undefined : economy.lines.get(lineId);
+      return { kind: "line-wait", line: line?.name ?? "line" };
+    }
   if (train.speed < 1) {
     const why = cantMove?.(train) ?? null;
     if (why) return { kind: why };
@@ -104,6 +118,7 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return `${s.work} at ${nameOf(s.depotId)}`;
     case "turning-back":
       if (s.cause === "open-end") return s.done ? "Turned back: the track ends here" : "Turning back: the track ends here";
+      if (s.cause === "short") return "Turning back early: the end of the line is taken";
       return s.cause === "train" ? "Turning back: another train's in the way" : "Turning back at the end of the line";
     case "red-signal":
       return "Waiting at a red signal";
@@ -126,6 +141,10 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
     case "spacing":
       // (A countdown, in whole seconds, where it's known: behind another train it waits for that one to go.)
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
+    case "line-wait":
+      return `Waiting for the ${s.line} train`;
+    case "needs-loop":
+      return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains`;
     case "held-up":
       return "Waiting: something's in the way";
     case "running": {
