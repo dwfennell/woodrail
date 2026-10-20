@@ -160,7 +160,8 @@ export function cardFor(p: Progress, world: World, kind: CardKind, level: number
       return things.length > 0 ? { kind, things } : null;
     }
     case "wagon": {
-      if (level >= 3) return { kind, id: "car:engine" };
+      // A city's is an engine, but only once Signals are learned (before, a second train only meets the first head on).
+      if (level >= 3 && p.learned.has("signals")) return { kind, id: "car:engine" };
       const known = wagonsKnown(p);
       return known.length > 0 ? { kind, id: known[Math.floor(random() * known.length)] } : null;
     }
