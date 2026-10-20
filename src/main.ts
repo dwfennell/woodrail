@@ -49,7 +49,7 @@ import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, setSpeed, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
-import { cardState, goalPick, pickerKey, pillKey, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
+import { cardState, goalPick, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
@@ -337,7 +337,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
       toggleExpand: () => setExpanding(!expanding),
       toggleMap: () => (mapView.open ? closeMap(true, true) : openMap()),
-      toggleBoard: () => setBoardOpen(!board.open),
+      // The pill opens the picker on the research it shows (QA P5: "Routes 10/40🪙", up next, opened on another).
+      toggleBoard: (pill) => setBoardOpen(!board.open, (pill && pillResearch(progress)) || undefined),
       buyLand: () => buyLand(),
       newGame: () => newGame(),
       openLines: () => openLines(),

@@ -147,6 +147,17 @@ export function pillView(p: Progress, hasSchool: boolean): PillView | null {
   return hasSchool || r.next ? { name: "Pick", count: "research", fill: 0, idle: true } : null;
 }
 
+/**
+ * The research the pill shows (`pillView`): the one under way, else the one up next while it waits for coins; null
+ * with "Pick research" (the picker then opens as it would: on the goal's research, or the card showing). A tap on the
+ * pill opens the picker on it.
+ */
+export function pillResearch(p: Progress): string | null {
+  const r = p.research;
+  if (r.current) return r.current;
+  return r.next && coinsShort(p) > 0 ? r.next : null;
+}
+
 /** The pill in one line: "📘 Bridges 6/10🪵", "📘 Pick research" ("" when it's hidden). */
 export const pillText = (v: PillView | null): string => (v ? `📘 ${v.name} ${v.count}` : "");
 

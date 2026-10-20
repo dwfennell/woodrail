@@ -48,8 +48,8 @@ export interface HudHandlers {
   toggleExpand(): void;
   /** Game mode: open or close the map view. */
   toggleMap(): void;
-  /** Game mode: open or close the Research picker (the blueprint board). */
-  toggleBoard(): void;
+  /** Game mode: open or close the Research picker (the blueprint board); `pill`: tapped on the research pill. */
+  toggleBoard(pill?: boolean): void;
   /** Add the plot chosen on the land card. */
   buyLand(): void;
   resetStarter(): void;
@@ -315,7 +315,7 @@ export class Hud {
     this.researchPill.type = "button";
     this.researchPill.hidden = true;
     this.researchPill.innerHTML = `<span class="rp-text"><span class="rp-line"><span class="rp-icon" aria-hidden="true">📘</span><span class="rp-name"></span></span><span class="rp-count"></span></span><span class="rp-bar"></span>`;
-    this.researchPill.addEventListener("click", () => h.toggleBoard());
+    this.researchPill.addEventListener("click", () => h.toggleBoard(true));
     top.appendChild(this.researchPill);
     // (Refitted when its room changes: the coins or the date grow, the screen turns. Not per frame.)
     let pillRefit = 0;
@@ -335,7 +335,7 @@ export class Hud {
     this.landBtn = button(uiIcon("land"), "Add land", h.toggleExpand);
     this.mapBtn = button(uiIcon("map"), "Map: what's where", h.toggleMap);
     this.mapBtn.hidden = true;
-    this.boardBtn = button(uiIcon("blueprint"), "Research: learn new things", h.toggleBoard, "chip research-btn");
+    this.boardBtn = button(uiIcon("blueprint"), "Research: learn new things", () => h.toggleBoard(), "chip research-btn");
     this.boardBtn.hidden = true;
     // On a phone the bar can't hold them all: these move into the menu (see `.narrow-menu`).
     for (const b of [this.landBtn, this.redoBtn, this.soundBtn]) b.classList.add("wide-only");
