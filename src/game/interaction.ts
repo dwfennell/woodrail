@@ -1161,8 +1161,7 @@ export class Interaction {
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (this.vetoHold(e)) return;
     if (m.kind === "draw-track") {
-      // (A branch waiting for its way: the moves a slow phone ran together, in order, so it faces the way it set off.)
-      if (this.draw.branchPending) for (const c of coalesced(e)) this.draw.feel(c.clientX, c.clientY);
+      this.feelBranch(e);
       this.updateDraw(e.clientX, e.clientY);
       return;
     }
@@ -1210,6 +1209,7 @@ export class Interaction {
           this.clearSelection();
           this.game.controls.enabled = false;
           this.mode = { kind: "draw-track", pointerId: m.pointerId };
+          this.feelBranch(e);
           this.updateDraw(e.clientX, e.clientY);
         } else {
           this.mode = { kind: "idle" };
@@ -1428,6 +1428,14 @@ export class Interaction {
    */
   private heldUnsure: { pointerId: number; x: number; y: number; t: number; press: Extract<Mode, { kind: "press" }> } | null = null;
 
+  /**
+   * A branch waiting for its way: the moves a slow phone ran together into this event, in order, so the switch faces
+   * the way the finger set off (see `DrawHand.feel`), on the event that starts the branch as on every one after.
+   */
+  private feelBranch(e: PointerEvent): void {
+    if (this.draw.branchPending) for (const c of coalesced(e)) this.draw.feel(c.clientX, c.clientY);
+  }
+
   /** Has a press's finger strayed from where it came down (a pan; drawing, on a line's body, a branch): see `armHold`. */
   private strayed(m: Extract<Mode, { kind: "press" }>, dx: number, dy: number): boolean {
     return m.branch !== undefined && this.drawsNow ? branchStrayed(dx, dy, m.across) : Math.hypot(dx, dy) >= HOLD_SLOP;
@@ -1466,6 +1474,7 @@ export class Interaction {
           this.clearSelection();
           this.game.controls.enabled = false;
           this.mode = { kind: "draw-track", pointerId: e.pointerId };
+          this.feelBranch(e);
           this.updateDraw(e.clientX, e.clientY);
         }
         return true;

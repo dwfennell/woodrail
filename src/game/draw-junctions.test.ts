@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { gridWithPlots, hillsOf, type Landscape } from "../landscape";
 import { Sim } from "../sim";
-import { appendPiece, connectorRef, DrawLine, Layout, type DrawOptions, type PieceTypeId } from "../track";
-import { branchFrom, BUSY_MESSAGE, busyOn, crossingAt, MERGE_PAST, mergePast, THREE_WAY_SIDE, GO_ACROSS, JUNCTION_ANGLE, JUNCTION_END, JUNCTION_GAP, JUNCTION_JOINT, JUNCTION_STRAIGHT, junctionWhy, linePlan, mergeAt, NO_ROOM_CROSSING, type JunctionRules } from "./draw-junctions";
+import { appendPiece, connectorRef, DrawLine, Layout, type DrawEnd, type DrawOptions, type PieceSwap, type PieceTypeId } from "../track";
+import { branchAgain, branchFrom, BUSY_MESSAGE, facingFrom, busyOn, crossingAt, MERGE_PAST, mergePast, THREE_WAY_SIDE, GO_ACROSS, JUNCTION_ANGLE, JUNCTION_END, JUNCTION_GAP, JUNCTION_JOINT, JUNCTION_STRAIGHT, junctionWhy, linePlan, mergeAt, NO_ROOM_CROSSING, type JunctionRules } from "./draw-junctions";
 import { Progress } from "./progress";
 import { pieceStock, pieceUnlearned } from "./supply";
 import { drawMessage, drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
@@ -490,5 +490,51 @@ describe("QA's junction notes", () => {
     const plain = branchFrom(s.junctions, s.ids[1], press, bent);
     expect(b.kind === "branch" && Math.sign(b.swap.end.z - Z)).toBe(1);
     expect(plain.kind === "branch" && Math.sign(plain.swap.end.z - Z)).toBe(-1);
+  });
+});
+
+describe("QA's junction notes after the pause (F1, F2)", () => {
+  it("F1: the way the finger set off is its first point 40 mm from the press, among moves run together", () => {
+    const press = { x: 0, z: 0 };
+    const at = (deg: number, d: number) => ({ x: Math.cos((deg * Math.PI) / 180) * d, z: Math.sin((deg * Math.PI) / 180) * d });
+    // A slow phone's one event: off at 80° for 50 mm, then bent round to 135°.
+    const pts = [at(80, 20), at(80, 45), at(80, 60), at(135, 90), at(135, 140)];
+    expect(facingFrom(press, pts)).toBeCloseTo((80 * Math.PI) / 180);
+    expect(facingFrom(press, [at(80, 20)])).toBeNull();
+  });
+
+  /** A branch stroke off s.ids[1] at (300, Z): set off at `a0`° for 60 mm, then on at `a1`° for `on` mm. */
+  function bentStroke(a0: number, a1: number, on: number) {
+    const s = setup();
+    const press = { x: 300, z: Z };
+    const r = (deg: number) => (deg * Math.PI) / 180;
+    const pts: { x: number; z: number }[] = [];
+    for (let d = 4; d <= 60; d += 4) pts.push({ x: press.x + Math.cos(r(a0)) * d, z: press.z + Math.sin(r(a0)) * d });
+    const bend = pts[pts.length - 1];
+    for (let d = 4; d <= on; d += 4) pts.push({ x: bend.x + Math.cos(r(a1)) * d, z: bend.z + Math.sin(r(a1)) * d });
+    const way = facingFrom(press, pts)!;
+    let i = 0;
+    let b = branchFrom(s.junctions, s.ids[1], press, pts[i], way);
+    for (; b.kind === "wait" && i < pts.length - 1; ) b = branchFrom(s.junctions, s.ids[1], press, pts[++i], way);
+    if (b.kind !== "branch") throw new Error(b.kind);
+    const draw = (e: DrawEnd, swap: PieceSwap) => new DrawLine(e, s.options(new Set(swap.covers)));
+    const line = draw(b.swap.end, b.swap);
+    for (const p of pts.slice(i + 1)) line.addPoint(p.x, p.z);
+    line.finish();
+    // (The finger's own points since the branch was decided: the line, waiting for the finger to get ahead of its
+    // start, may have taken none of them.)
+    const after = pts.slice(i + 1);
+    return { s, press, b, line, again: line.placeable().length ? null : branchAgain(s.junctions, s.ids[1], press, after[after.length - 1], b.swap, after, draw) };
+  }
+
+  it("F2: faced the way it set off, the finger bent back across so nothing fits: faced the way it went instead, a line goes down", () => {
+    for (const [a0, a1] of [[100, 45], [80, 135], [-100, -45], [-80, -135]]) {
+      const { b, line, again } = bentStroke(a0, a1, 400);
+      const what = `${a0}° then ${a1}°: ${line.pieces.map((p) => p.type).join(" ")}`;
+      if (line.placeable().length > 0) continue;
+      expect(again, what).not.toBeNull();
+      expect(again!.line.placeable().length, what).toBeGreaterThan(0);
+      expect(again!.swap.end.x !== b.swap.end.x || again!.swap.end.z !== b.swap.end.z, what).toBe(true);
+    }
   });
 });

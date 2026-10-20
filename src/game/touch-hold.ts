@@ -62,10 +62,12 @@ export function undoesHold(at: number, travel: number, lifted: boolean, ms = HOL
 }
 
 /**
- * Drawing, a press on a line's body (a branch's start): a few pixels off the line, across it, and it's begun to
- * leave it (a slow-starting branch stroke), not a hold. Along the line it's still a finger's wobble.
+ * Drawing, a press on a line's body (a branch's start): this far (px) off the line, across it, and it's begun to leave
+ * it (a slow-starting branch stroke), not a hold. A resting finger wobbles 4 to 6 px (QA: a 4 px wobble across the
+ * line drew a switch and a curve); a slow start, a few pixels a frame, is past 7 within a few frames of the hold's 380
+ * ms. Along the line, a wobble up to the hold's own slop.
  */
-export const BRANCH_SLOP = 3;
+export const BRANCH_SLOP = 7;
 
 /**
  * Drawing, a press on a line's body, the finger now (dx, dy) screen px from where it came down: has it strayed (begun

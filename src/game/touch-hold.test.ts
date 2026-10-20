@@ -65,8 +65,13 @@ describe("drawing, a press on a line's body (a branch's start)", () => {
   const across: [number, number] = [0, 1];
   it("a few pixels off the line, across it, has begun to leave it: a branch, not a hold (QA: slow start picked the straight up)", () => {
     expect(branchStrayed(0, BRANCH_SLOP, across)).toBe(true);
-    expect(branchStrayed(2, -3, across)).toBe(true);
-    expect(branchStrayed(0, 2, across)).toBe(false);
+    expect(branchStrayed(2, -BRANCH_SLOP, across)).toBe(true);
+    expect(branchStrayed(0, BRANCH_SLOP - 1, across)).toBe(false);
+  });
+  it("a resting finger's wobble across the line, 4 to 6 px, is still a hold; a slow start, 3 px a frame, leaves it in three frames (QA)", () => {
+    for (const d of [4, 5, 6, -6]) expect(branchStrayed(0, d, across), `${d} px`).toBe(false);
+    expect(branchStrayed(0, 3 * 3, across)).toBe(true);
+    expect(branchStrayed(1, 7, across)).toBe(true);
   });
   it("along the line it's a wobble till the hold's own slop", () => {
     expect(branchStrayed(8, 1, across)).toBe(false);
