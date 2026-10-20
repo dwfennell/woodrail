@@ -14,8 +14,9 @@ function player(coins = 0): Progress {
 describe("research costs", () => {
   it("are the blueprints' prices: tier 1 goods only, coins from tier 2, and a chain good where the spec asks", () => {
     expect(costOf("switches")).toEqual({ goods: { planks: 4 } });
-    // Halts is tier 1: its 20 coins go.
-    expect(costOf("halts")).toEqual({ goods: { planks: 12 } });
+    // The passenger line: light on planks, and from tier 2 mostly coins (P5).
+    expect(costOf("halts")).toEqual({ goods: { planks: 6 } });
+    expect(costOf("express")).toEqual({ goods: { planks: 10 }, coins: 120 });
     expect(costOf("routes")).toEqual({ goods: { planks: 10 }, coins: 20 });
     expect(costOf("mills")).toEqual({ goods: { planks: 12, grain: 6 }, coins: 20 });
     expect(costOf("goods-engine")).toEqual({ goods: { planks: 12, flour: 6 }, coins: 40 });
