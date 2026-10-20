@@ -272,6 +272,36 @@ describe("growth never teaches a blueprint", () => {
 });
 
 describe("three real choices", () => {
+  it("a new game's first village offers three cards of different kinds, whatever the seed (QA P4: two, a slot empty)", () => {
+    // As it is when the first village grows: no workshop or school placed, nothing researched, the village's present
+    // in the box. Only coins, a crate and the flatbed can be offered, and the crate knew only the flatbed and turnbacks.
+    const w = buildStarterWorld();
+    for (let seed = 1; seed <= 500; seed++) {
+      const p = Progress.fresh();
+      firstTimeGift(p, 1);
+      const offer = offerOnGrowth(p, w, "Larkfield", 1, rng(seed))!;
+      expect(offer.cards, `seed ${seed}`).toHaveLength(3);
+      expect(new Set(offer.cards.map((c) => c.kind)).size, `seed ${seed}`).toBe(3);
+      const wagon = offer.cards.find((c) => c.kind === "wagon");
+      const crate = offer.cards.find((c) => c.kind === "crate");
+      expect(crate!.things.map(([id]) => id)).not.toContain(wagon!.id);
+      for (const card of offer.cards) expect(cardView(p, w, card).ok, `seed ${seed} ${card.kind}`).toBe(true);
+    }
+    // One thing in the crate reads so.
+    expect(cardView(Progress.fresh(), buildStarterWorld(), { kind: "crate", things: [["piece:buffer-turnback", 2]] }).amount).toBe("A crate: 1 thing");
+  });
+
+  it("a village with a school placed (Switches picked or not), or a workshop: three cards too", () => {
+    const worlds = [buildStarterWorld(), world({ school: true })];
+    for (let seed = 1; seed <= 200; seed++) {
+      const p = Progress.fresh();
+      if (seed % 2) expect(pick(p, "switches")).toBe("current");
+      const w = worlds[seed % 3 ? 1 : 0];
+      const offer = offerOnGrowth(p, w, "Larkfield", 1, rng(seed))!;
+      expect(new Set(offer.cards.map((c) => c.kind)).size, `seed ${seed}`).toBe(3);
+    }
+  });
+
   it("a crate never holds the wagon card's car, so neither card is the other and more (QA)", () => {
     let both = 0;
     let crates = 0;
@@ -284,10 +314,12 @@ describe("three real choices", () => {
         const offer = offerOnGrowth(p, w, "Larkfield", level, rng(seed))!;
         const wagon = offer.cards.find((c) => c.kind === "wagon");
         const crate = offer.cards.find((c) => c.kind === "crate");
-        // (The crate keeps its size by level, 2, 3, 4 things, or all you know if that's fewer.)
+        // (The crate keeps its size by level, 2, 3, 4 things, or all you know if that's fewer; one fewer when it was
+        // drawn again without the wagon card's car, every wagon you know being in it.)
         if (crate) {
           crates++;
-          expect(crate.things.length, `seed ${seed} level ${level}`).toBe(Math.min(level + 1, crateFor(p, 99, rng(1)).length));
+          const all = crateFor(p, 99, rng(1)).length;
+          expect([Math.min(level + 1, all), Math.min(level + 1, all - 1)], `seed ${seed} level ${level}`).toContain(crate.things.length);
         }
         if (!wagon || !crate) continue;
         both++;
