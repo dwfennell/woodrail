@@ -2583,7 +2583,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const out = line.stops.findIndex((_, k) => unreachable(k));
       if (out !== -1) {
         const name = names.find((st) => st.depotId === line.stops[out].depotId)?.name ?? "a stop";
-        cantReachText = pinnedFor.has(out) ? `Can't reach ${name}: a pinned switch sends trains the other way` : `Can't reach ${name}: no track leads there`;
+        cantReachText = pinnedFor.has(out) ? `Can't reach ${name}: a pinned switch sends trains the other way. Hold its lever to unpin it` : `Can't reach ${name}: no track leads there`;
         // With the card open (not planning), the stop that can't be reached is shown, once: not left off screen or
         // under the card.
         const spot = pieceSpot(pieces[out]);
