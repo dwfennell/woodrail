@@ -138,6 +138,9 @@ class Player {
   crossSeconds = 0;
   loopSeconds = 0;
   headOn = 0;
+  /** Arrivals at their stops of trains on lines (each time a routed engine's route says it's at its stop). */
+  arrivals = 0;
+  private readonly atStop = new Map<number, boolean>();
   readonly turnsSeen = new Set<string>();
   readonly growths: { minute: number; town: string; level: string; ms: number; built: number }[] = [];
   private growing: { town: string; level: string; built: number } | null = null;
@@ -278,6 +281,35 @@ class Player {
     return workshopStock(this.w).planks ?? 0;
   }
 
+  /**
+   * Crossing trace (BALANCE_XTRACE=from-to, minutes): each line train's bogie pieces, speed, drive, route, claim and
+   * wait every game second; each new release as it happens. For root-causing jams; off by default.
+   */
+  private xSeen = 0;
+  xtrace(): void {
+    const [from, to] = ENV.BALANCE_XTRACE!.split("-").map(Number);
+    if (this.minute < from || this.minute > to) return;
+    const ec = this.w.economy;
+    const cr = ec.crossing as unknown as { reservations: Map<number, { claims: { pieceId: number; back: boolean }[]; from: number; upto: number; free: boolean; short: boolean; turns: boolean; noLoop?: boolean }>; releases: { tick: number; engine: number; why: string }[] };
+    for (const engine of ec.lineIdOf.keys()) {
+      const f = this.w.sim.findCar(engine);
+      if (!f) continue;
+      const t = f.train;
+      const r = ec.routeOf(engine);
+      const res = cr.reservations.get(engine);
+      const claim = res ? `${res.free ? "FREE" : ""}${res.short ? "S" : ""}${res.noLoop ? "N" : ""}[${res.claims.map((c, k) => `${k === res.from ? "|" : ""}${k === res.upto ? "^" : ""}${c.pieceId}${c.back ? "<" : ">"}`).join(" ")}${res.upto >= res.claims.length ? "^" : ""}]` : "-";
+      const w = ec.crossWait(engine)?.wait;
+      const sw = (id: number) => (this.w.layout.getPiece(id) && getPieceDef(this.w.layout.getPiece(id)!.type, this.w.layout.getPiece(id)!.flipped).isSwitch ? `/${this.w.layout.switchState(id)}` : "");
+      const pcs = [...new Set(t.bogies.map((b) => `${b.pieceId}${sw(b.pieceId)}`))].join(",");
+      this.note(`X e${engine} t${t.id} [${pcs}] v${t.speed.toFixed(0)} d${Math.sign((ec as unknown as { drive(x: typeof t): number }).drive(t))} tb${t.turnback} ${r ? `${r.at ? "AT" : "->"}${r.next}` : ""} ${claim} ${w ? (w.kind === "waiting" ? `wait e${w.engine}${w.atLoop ? " loop" : ""}` : w.kind) : ""} ${t.lastTurn ? `turn ${t.lastTurn.cause}@${t.lastTurn.tick}` : ""}`);
+    }
+    if (this.xSeen > cr.releases.length) this.xSeen = 0;
+    for (; this.xSeen < cr.releases.length; this.xSeen++) {
+      const rl = cr.releases[this.xSeen];
+      this.note(`X RELEASE e${rl.engine} ${rl.why} @${rl.tick}`);
+    }
+  }
+
   /** Play `secs` seconds: the sim and economy each tick; what the game does each second (towns, workshop, schools, people, goals). */
   run(secs: number): void {
     const end = this.tick + secs * SIM_HZ;
@@ -286,6 +318,7 @@ class Player {
       this.w.economy.tick();
       this.tick++;
       if (this.tick % SIM_HZ !== 0) continue;
+      if (ENV.BALANCE_XTRACE) this.xtrace();
       this.updatePlanksKept();
       if (this.planksKept) this.keptSeconds++;
       this.townsFed();
@@ -313,6 +346,9 @@ class Player {
         const c = this.w.economy.crossWait(engine);
         if (c) this.crossSeconds++;
         if (c?.wait.kind === "needs-loop") this.loopSeconds++;
+        const at = !!this.w.economy.routeOf(engine)?.at;
+        if (at && this.atStop.get(engine) === false) this.arrivals++;
+        this.atStop.set(engine, at);
       }
       for (const id of this.w.sim.trainIds()) {
         const t = this.w.sim.getTrain(id)!;
@@ -1451,7 +1487,7 @@ class Playthrough {
       `goals: ${GOALS.map((g) => `${P.goals.isDone(g.id) ? "✓" : "·"} ${g.title}`).join(" | ")}`,
       `counts: ${[...P.progress.counts].map(([k, n]) => `${k} ${n}`).join(", ")}; riders ${P.progress.riders}`,
       `firsts: ${JSON.stringify(this.firsts)}`,
-      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} loop ${this.loopAt ?? "-"} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min crossWait ${(P.crossSeconds / 60).toFixed(1)}min loopWait ${(P.loopSeconds / 60).toFixed(1)}min headOn ${P.headOn} releases ${releasesOf(w.economy.crossing)}`,
+      `SUMMARY coins180 ${P.rows.at(-1)?.coins} planks180 ${P.rows.at(-1)?.planks} stall ${this.stall} jamStall ${this.jamStall} city ${this.firsts["level 3"] ?? "-"} cityStar ${this.firsts["level 4"] ?? "-"} riders ${P.progress.riders} spentCoins ${P.spent.blueprintsCoins + P.spent.buildCoins} perLine ${this.perLine} held ${(P.heldSeconds / 60).toFixed(1)}min jamCut ${this.jamCut} farmWait ${this.wait("farming", "farm built")} quarryWait ${this.wait("quarries", "quarry built")} farmCoinWait ${this.coinWait.farm} quarryCoinWait ${this.coinWait.quarry} loop ${this.loopAt ?? "-"} kept ${(P.keptSeconds / 60).toFixed(0)}min townGap ${(P.townGap / 60).toFixed(1)}min crossWait ${(P.crossSeconds / 60).toFixed(1)}min loopWait ${(P.loopSeconds / 60).toFixed(1)}min headOn ${P.headOn} arrivals ${P.arrivals} releases ${releasesOf(w.economy.crossing)}`,
       `SUMMARY research first ${P.researchedAt[0] ?? "-"} at60 ${P.researchedAt.filter((m) => m <= 60).length} at120 ${P.researchedAt.filter((m) => m <= 120).length} at180 ${P.researchedAt.filter((m) => m <= 180).length} stall ${(P.researchStall / 60).toFixed(1)}min school ${this.firsts["school"] ?? "-"} blueprints ${P.progress.learned.size}`,
       `research: ${P.researchedAt.map((m, k) => `${m} ${P.learnedAt.filter((b) => b.how === "researched")[k]?.id}`).join(" · ")}`,
       `findings:\n- ${P.findings.join("\n- ") || "none"}`,
