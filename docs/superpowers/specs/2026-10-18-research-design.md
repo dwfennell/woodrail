@@ -137,21 +137,23 @@ And later: "I think the research building should be placed near a town though, m
 
 ## 5. Balance targets (seed table: 2027 and 1–5, 180 min)
 
-P5's targets (set by the CoS on 2026-10-20; they replace the first draft's where they differ). "Main" is main before
+P5's targets (set by the CoS on 2026-10-20, and revised the same day after P5's first pass: research counted, not
+blueprints, and a City band for every seed; they replace the first draft's where they differ). "Main" is main before
 research, 17dbc6f (main at 5add1ea gives the same figures, seed for seed):
 
 | Measure | Main | Target |
 | --- | --- | --- |
 | First research done (Switches) | (new) | **by minute 8** |
-| Blueprints learned by 180 | 23 / 23 / 22 / 25 / 22 / 21 | **at least main's**, each seed |
-| City minute | 73 / 112 / 92 / 110 / 84 / 87 | **within ±15% of main**, each seed |
+| Blueprints researched by 180 | 9 / 9 / 8 / 11 / 7 / 8 (of 23 / 23 / 22 / 25 / 22 / 21 learned) | **at least main's researched**, each seed (7 on other seeds) |
+| City minute | 73 / 112 / 92 / 110 / 84 / 87 | **60–90 min** on every seed |
 | Longest stretch with no planks into a town | 48 / 41 / 57 / 50 / 57 / 49 min | **under about 45 min**, each seed |
 | The guard (as P3's) | | no City more than 20% later than main; no research stall over 15 min; coins at 180 at least 100 |
 | Longest research stall (one picked, no goods into a school) | (new) | nice to have: under 10 min |
 | Coins at 180 | 1205 / 1563 / 281 / 1001 / 995 / 1224 | nice to have: 150–600 |
 
 (Main's figures by seed 2027, 1, 2, 3, 4, 5.) The first draft asked for City within ±15% of 84–123 and coins within
-150–600 against an older main. `src/play/balance.test.ts` checks the targets and the guard at 180 min with 1 train a
+150–600 against an older main; the first pass of P5 for blueprints learned at least main's and City within ±15% of
+main (main's other 13–15 blueprints came free from growth, riders and landmarks). `src/play/balance.test.ts` checks the targets and the guard at 180 min with 1 train a
 line (`checkBands`: each miss listed, any fails the run) and prints the nice-to-haves.
 
 The simulated player picks research from today's `WISH` order and takes the growth card it most needs:
@@ -183,7 +185,7 @@ Still off the §5 targets above, for P5: City now comes earlier than ±15% on fo
 the longest gap with no planks into a town is longer on seeds 1, 3 and 4 (70, 70, 104 min against 41, 50, 57); research
 stalls are 7.6–11.9 min against "under 10".
 
-### P5: the tuning
+### P5: the tuning (first pass, against the first targets)
 
 Four knobs, one commit each with its table: the passenger line's costs (they were placeholders); half the planks for
 every other research but Switches and Bridges; Quarries 6 flour instead of 10; twice the coins from tier 2 (costs in
@@ -231,6 +233,45 @@ in the table) meet the guard and the gap too.
   that ruled out the slower farm) come when the workshop is ahead of the school from the sawmill: only towns hold back
   what the research lacks (QA fix 1), so the workshop's yard filled (9 → 21 planks) while Carpenter's bench waited.
   Keeping what the research lacks on the train past a workshop, as past a town, would fix that.
+
+### P5: the second pass (the revised targets)
+
+Three changes after the first pass, each a commit with its table:
+- `checkBands` asks for the revised targets above (researched at least main's, City 60–90). At the first pass's end
+  every band was met on every seed.
+- **Past a workshop too:** what the current research lacks rides on past a workshop, as past a town (QA fix 1's
+  hold-back, the same `keptForSchool` path), except what the workshop keeps for its waiting tray order. It hardly
+  moves the table (the tuned costs rarely put a workshop first while research waits), but in the slower-farm variant
+  above seed 4's 24 min stall became 8.0, with 19 researched instead of 13.
+- **The simulated player picks a growth card at random** (its own seeded generator) among those that make sense now:
+  a boost or rare cargo while a research waits on goods; planks before Farming or with the workshop short of planks
+  to spare; coins; a crate while there's no workshop; a wagon while the goods train waits on cars. So seeds differ
+  again: of 2027 and 1–5 plus 6, 9, 10, only 2027 and 9 still play the same game (before: 6 = 9, 10 = 2027).
+
+| Seed | Coins@180 | City | Research stall | Town gap | Researched (main) | Riders |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2027 | 1574 | 77 | **17.4** (Carpenter's bench) | 31 | 13 (9) | 482 |
+| 1 | 187 | 63 | 12.4 (Carpenter's bench) | 39 | 14 (9) | 330 |
+| 2 | 1406 | 77 | 6.8 (Signals) | 31 | 19 (8) | 913 |
+| 3 | 589 | 60 | 9.3 (Quicker cranes) | 20 | 22 (11) | 576 |
+| 4 | 1387 | 81 | 7.3 (Signals) | 35 | 21 (7) | 997 |
+| 5 | 527 | 60 | 13.1 (Carpenter's bench) | 39 | 14 (8) | 195 |
+| 6 | 1879 | 77 | 6.8 | 31 | 13 (7) | 478 |
+| 9 | 1544 | 77 | **17.4** | 31 | 13 (7) | 482 |
+| 10 | 167 | 74 | 11.9 | **66** | 15 (7) | 411 |
+
+First research at 5.6 on every seed.
+- **Met on 2027 and 1–5:** first research by 8; researched by 180 at least main's (13–22 against 7–11); City 60–81;
+  town gaps 20–39 min; coins at 180 at least 187; no City later than main's; the passenger line's costs.
+- **Not met: the guard's stall on 2027** (and 9, the same game). Carpenter's bench, picked at 146 when a planks card
+  fills the workshop's yard, waits 17.4 min for planks: the one train saws a few a pass, and they head away from the
+  school first, round the 22-stop line. No knob moved it (Carpenter's bench at 4 planks; a planks card of 8/12/20; a
+  boost of 40/60/80%; coins ×1.5): the run is the same up to minute 146. What would: research that takes its goods
+  from the workshop's yard when the yard has them, or a second train on the line (the harness runs one).
+- **Seed 10 (not in the table): a 66 min gap.** Its hoppers carry grain nobody takes, so the quarry's stone never
+  comes, and Larkfield, a city wanting only stone, takes no planks. A harness matter (it never empties a car of goods
+  nobody wants).
+- **Nice to have:** coins within 150–600 on 1, 3, 5 only (1387–1574 on 2027, 2 and 4); research stalls under 10 min on 2, 3, 4.
 
 Idle CPU (390×844, headless, 30 s × 3, no trains): P5 the same as P4 with a research running and with none (2.9–3.7%
 against 2.8–3.6%, 0 frames); figures in the plan's P5 note.

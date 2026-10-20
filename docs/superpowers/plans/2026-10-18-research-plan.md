@@ -328,17 +328,29 @@ a school by a village, nothing picked: P4 959–1072 ms (3.2–3.6%), P5 866–1
 (waiting on its planks): P4 839–1035 ms (2.8–3.5%), P5 893–1069 ms (3.0–3.6%). 0 frames drawn in every window. P5
 changes only numbers, so no per-frame work.
 
+**Second pass (the CoS's revised targets, spec §5):** researched by 180 at least main's researched count (7–11), City
+60–90 on every seed. Built: `checkBands` for them; what research lacks rides on past a workshop too (QA fix 1's
+hold-back, tray order first; `school-cargo.test.ts`); the simulated player picks a growth card at random (seeded)
+among the sensible ones, so seeds differ again. Not built: Next up taking its goods early (the user is asked).
+Met on 2027 and 1–5: first research, researched (13–22), City (60–81), town gaps (20–39), coins at least 187, no City
+later than main's. **Left:** the guard's stall on 2027 (17.4 min, Carpenter's bench from 146; no knob moves it: the
+run is the same up to then); seed 10's 66 min gap (not in the table: hoppers full of grain nobody takes, so no stone);
+nice to have: coins over 600 on 2027, 2, 4 and stalls over 10 min on 2027, 1, 5. Table and causes: spec §5.
+
 ### Task 5.1: tune and measure
 - [x] Tune `research` costs, study times and the growth-card amounts with the seed table, until every seed meets
-  these targets (the CoS's, spec §5, replace the first list where they differ):
+  these targets (the CoS's, spec §5, as revised after the first pass):
   - [x] first research by minute 8;
-  - [x] the guard: no research stall over 15 min, coins at 180 at least 100, no City more than 20% later than main;
-  - [ ] longest research stall under 10 min (nice to have: met on 1, 3, 4);
-  - [ ] City minute within ±15% of main's (73 / 112 / 92 / 110 / 84 / 87): met on 2027 and 4 only;
-  - [ ] coins at 180 within 150–600 (nice to have: met on 2027, 2, 5);
-  - [x] the town gap under about 45 min (29–39);
-  - [ ] blueprints learned at 180 no fewer than main's (21–25): 13–21;
+  - [ ] the guard: no research stall over 15 min (missed on 2027: 17.4), coins at 180 at least 100, no City more than
+    20% later than main;
+  - [ ] longest research stall under 10 min (nice to have: met on 2, 3, 4);
+  - [x] City minute 60–90 on every seed (60–81);
+  - [ ] coins at 180 within 150–600 (nice to have: met on 1, 3, 5);
+  - [x] the town gap under about 45 min (20–39);
+  - [x] research learned at 180 no fewer than main's researched (13–22 against 7–11);
   - [x] the passenger line's research costs set.
+- [x] What research lacks rides on past a workshop too, as past a town (tray order first).
+- [x] The simulated player picks a growth card at random among the sensible ones (seeds differ again).
 - [x] Change one knob per commit, with the table before and after in each commit.
 - [x] Add assertions to the balance test for the bands, so it stays skipped unless `BALANCE=1`.
 - [x] Time a headless phone run (390×844) for idle CPU with a research running and none running. It stays at P4's
