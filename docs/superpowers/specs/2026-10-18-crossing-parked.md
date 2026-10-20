@@ -2,6 +2,9 @@
 
 ## Status: parked, 2026-10-18
 
+**2026-10-20: looked at again, and it needs a rethink.** See `2026-10-20-crossing-rethink.md` for the root causes on
+current main, and a proposed model: sections and slots, owned by the sim.
+
 Branch `routes-blocks` (head at parking: see `git log`), built on `routes-loops` (3b) and kept up to date with main.
 Nothing of it is on main. Design and rules as built: the routes spec, §3.5 "Phase 3c"
 (`2026-10-17-routes-design.md`), and the header of `src/economy/crossing.ts`.
