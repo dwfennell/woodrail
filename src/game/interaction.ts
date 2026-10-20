@@ -1842,6 +1842,13 @@ export class Interaction {
     return this.selectedCar;
   }
 
+  /** Open a depot's card, as a tap on it would ("Show me" opens the workshop's for "Make a switch"). */
+  openDepotCard(depotId: number): void {
+    if (!this.game.economy.depot(depotId)) return;
+    this.openDepot(depotId);
+    this.game.invalidate();
+  }
+
   /** Open an engine's card (as a tap on it would, with nothing else): planning its route goes on after the map. */
   openEngineCard(carId: number): void {
     const found = this.game.sim.findCar(carId);

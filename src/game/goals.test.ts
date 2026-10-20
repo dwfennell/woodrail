@@ -3,7 +3,10 @@ import { appendPiece, connectorRef, findSplice, Layout } from "../track";
 import { checkPlacement, connectedPairs, FEAT_TREE, SURF_GRASS, SURF_RIVER } from "../landscape";
 import { checkYard } from "./depot-footprint";
 import { siteWhy } from "./industries";
-import { BRIDGE_KNOWN_HINT, GOALS, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN } from "./goals";
+import { BRIDGE_KNOWN_HINT, GOALS, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN, MAKE_SWITCH_HINT, secondEngineTip, SWITCH_ORDERED_HINT, TWO_TRAINS_HINT, trayRing } from "./goals";
+import mainSrc from "../main.ts?raw";
+import panelSrc from "../ui/workshop-panel.ts?raw";
+import { Crafting, keepsForOrder } from "./crafting";
 import { buildStarterWorld, createWorld, STARTER_SEED, syncIndustries, type World } from "./world";
 import { CARGO } from "../economy/cargo";
 import { Progress } from "./progress";
@@ -312,7 +315,7 @@ describe("GoalTracker", () => {
   it("research comes right after the first village, before the workshop (spec §4)", () => {
     const ids = GOALS.map((g) => g.id);
     const from = ids.indexOf("deliver-planks");
-    expect(ids.slice(from, from + 8)).toEqual(["deliver-planks", "grow-town", "place-school", "learn-switches", "place-workshop", "workshop-planks", "lay-switch", "build-bridge"]);
+    expect(ids.slice(from, from + 8)).toEqual(["deliver-planks", "grow-town", "place-school", "learn-switches", "place-workshop", "make-switch", "lay-switch", "build-bridge"]);
     expect(goal("learn-switches").title).toBe("Research switches");
     expect(goal("learn-switches").hint).toBe("Pick Switches, then bring 4 planks to the school.");
     expect(goal("learn-switches").blueprint).toBe("switches");
@@ -345,38 +348,87 @@ describe("GoalTracker", () => {
     expect(Math.hypot(at.x - spot.x, at.z - spot.z)).toBeLessThan(1);
   });
 
+  it("the tray rings what the goal asks to place: the school for Place a school, not the workshop (QA P4)", () => {
+    const w = buildStarterWorld();
+    // The workshop is in the starting box, but the goal is the school.
+    expect(trayRing(goal("place-school"), w)).toBe("depot-school");
+    expect(trayRing(goal("learn-switches"), w)).toBe("depot-school");
+    expect(trayRing(goal("grow-town"), w)).toBe(null);
+    expect(trayRing(goal("place-workshop"), w)).toBe("depot-workshop");
+    expect(trayRing(null, w)).toBe(null);
+    // A school on the map: no ring for it any more.
+    const station = w.stations.get(w.landscape.towns[0].id)!;
+    appendPiece(w.layout, "depot-school", false, connectorRef(station, 0));
+    syncIndustries(w);
+    expect(trayRing(goal("place-school"), w)).toBe(null);
+    expect(trayRing(goal("learn-switches"), w)).toBe(null);
+    expect(trayRing(goal("place-workshop"), w)).toBe("depot-workshop");
+    // The tray's ring follows the current goal (not "a workshop while none is placed"), redrawn when one ticks.
+    expect(mainSrc).toMatch(/item\.type === trayRing\(goals\.current\(\), game\.world\)/);
+    expect(mainSrc).not.toMatch(/item\.type === "depot-workshop" && workshops\(game\.world\)\.length === 0/);
+  });
+
   it("research switches: done once learned; with no school, the hint says to place one", () => {
     const w = buildStarterWorld();
     expect(goal("learn-switches").check(w, { learned: new Set() })).toEqual({ done: false, hint: "Place your school beside a town (Industries tab)." });
     expect(goal("learn-switches").check(w, { learned: new Set(["switches"]) }).done).toBe(true);
   });
 
-  it("the workshop after research: place it, bring it planks", () => {
+  it("the workshop after research: place it, order a switch, trains bring its planks, made (QA P4: planks first stalled)", () => {
     const w = buildStarterWorld();
     expect(goal("place-workshop").check(w).done).toBe(false);
     expect(goal("place-workshop").guide(w).tab).toBe("industries");
-    // A workshop placed, then planks in its yard.
     const station = w.stations.get(w.landscape.towns[0].id)!;
     const piece = appendPiece(w.layout, "depot-workshop", false, connectorRef(station, 0));
     syncIndustries(w);
     expect(goal("place-workshop").check(w).done).toBe(true);
-    expect(goal("workshop-planks").check(w).done).toBe(false);
-    w.economy.depotAtPiece(piece)!.piles[CARGO.planks.index] = 2;
-    expect(goal("workshop-planks").check(w).done).toBe(true);
-    expect(goal("workshop-planks").guide(w).marks).toEqual([w.layout.getPiece(piece)!.pose]);
+    const g = goal("make-switch");
+    expect(g.title).toBe("Make a switch");
+    expect(g.hint).toBe(MAKE_SWITCH_HINT);
+    // Show me: the workshop alone, its card opened to choose from (not the sawmill's planks).
+    expect(g.guide(w)).toMatchObject({ points: [w.layout.getPiece(piece)!.pose], marks: [w.layout.getPiece(piece)!.pose], card: w.economy.depotAtPiece(piece)!.id });
+    expect(mainSrc).toMatch(/if \(guide\.card !== undefined\) interaction\.openDepotCard\(guide\.card\);/);
+    // Nothing ordered: the workshop keeps no planks, and planks in its yard alone don't tick it.
+    const p = Progress.fresh();
+    p.learned.add("switches");
+    const ctx = () => ({ learned: p.learned, owned: p.owned, orders: p.orders });
+    expect(keepsForOrder(p, 0)).toBe(false);
+    const yard = w.economy.depotAtPiece(piece)!;
+    yard.piles[CARGO.planks.index] = 2;
+    expect(g.check(w, ctx())).toEqual({ done: false });
+    yard.piles[CARGO.planks.index] = 0;
+    // Ordered: the workshop keeps planks for it (towns leave them on the train), and the goal counts them in.
+    const crafting = new Crafting(p);
+    crafting.order("piece:switch");
+    expect(keepsForOrder(p, 0)).toBe(true);
+    expect(g.check(w, ctx())).toEqual({ done: false, count: 0, target: 3, unit: "planks", hint: SWITCH_ORDERED_HINT });
+    yard.piles[CARGO.planks.index] = 2;
+    expect(g.check(w, ctx())).toMatchObject({ done: false, count: 2, target: 3 });
+    yard.piles[CARGO.planks.index] = 3;
+    for (let k = 0; k < 5; k++) crafting.tick(w, 1);
+    // Made: in the toy box, the goal done (and still done once it's laid).
+    expect(p.owned.get("piece:switch")).toBe(1);
+    expect(g.check(w, ctx()).done).toBe(true);
+    // The workshop's card says the order of things: choose, then trains bring the planks.
+    expect(panelSrc).toContain("Choose what to make: trains bring the planks.");
+    expect(panelSrc).not.toContain("Bring planks here");
+    // The game passes the toy box and the orders to the goals.
+    expect(mainSrc).toContain("const ctx = { learned: progress.learned, owned: progress.owned, orders: progress.orders };");
+    // An order on the card is heard at once (when idle, no frame comes to poll the goals).
+    expect(mainSrc).toMatch(/crafting\.order\(id\);\s*showWorkshop\(true\);\s*checkGoals\(true\);/);
   });
 
   it("switches learned by research tick neither workshop goal (QA: both ticked with no workshop placed)", () => {
     const w = buildStarterWorld();
     const ctx = { learned: new Set(["switches"]) };
     expect(goal("place-workshop").check(w, ctx).done).toBe(false);
-    expect(goal("workshop-planks").check(w, ctx).done).toBe(false);
+    expect(goal("make-switch").check(w, ctx).done).toBe(false);
     // The tracker, at the workshop goal with switches researched (the goal before it): it stays there.
     const upTo = GOALS.slice(0, GOALS.findIndex((g) => g.id === "place-workshop")).map((g) => g.id);
     const tracker = new GoalTracker(upTo);
     for (let k = 0; k < 3; k++) expect(tracker.update(w, ctx).map((g) => g.id)).not.toContain("place-workshop");
     expect(tracker.current()?.id).toBe("place-workshop");
-    expect(tracker.ids()).not.toContain("workshop-planks");
+    expect(tracker.ids()).not.toContain("make-switch");
   });
 
   it("restores from saved ids, ignoring ones it doesn't know", () => {
@@ -517,6 +569,33 @@ describe("place-workshop guide", () => {
     expect(t.current()?.id).toBe("two-trains");
     expect(t.total).toBe(GOALS.length);
     expect(t.lockedHint()).toBeNull();
+  });
+
+  it("learning Signals names the goal it opens, and where the second engine is (QA: it opened unseen)", () => {
+    const t = new GoalTracker(["join-two", "place-train"]);
+    // Signals open "Run two trains at once"; Switches open none (no goal waits for them alone).
+    expect(t.openedBy("signals", new Set(["switches", "signals"])).map((g) => g.title)).toEqual(["Run two trains at once"]);
+    expect(t.openedBy("switches", new Set(["switches"]))).toEqual([]);
+    // Already done (an old save): nothing to say.
+    expect(new GoalTracker(["two-trains"]).openedBy("signals", new Set(["signals"]))).toEqual([]);
+    // The second engine: in the toy box (the Signals present, or one made), to be made (one owned), or both on the map.
+    expect(secondEngineTip(1, 2)).toBe("Engine in the Trains tab");
+    expect(secondEngineTip(0, 1)).toBe("Make an engine at the workshop");
+    expect(secondEngineTip(0, 2)).toBe("");
+    // The game's "Learned" note folds them in.
+    expect(mainSrc).toMatch(/goals\.openedBy\(id, progress\.learned\)/);
+    expect(mainSrc).toMatch(/present \+ goalLine/);
+  });
+
+  it("two trains at once, with one train on the map, says to put the second engine on first; Show me opens Engines", () => {
+    const { w, straights } = joined();
+    const t = trainOn(w, straights[1], ["engine", "timber"]);
+    t.speed = 80;
+    expect(goal("two-trains").check(w)).toMatchObject({ done: false, count: 1, hint: TWO_TRAINS_HINT });
+    expect(goal("two-trains").guide(w)).toMatchObject({ tab: "trains", shelf: "Engines" });
+    // Two on the map, one standing: the goal's own hint (the passing loop).
+    trainOn(w, w.stations.get(w.landscape.towns[0].id)!);
+    expect(goal("two-trains").check(w).hint).toBeUndefined();
   });
 });
 

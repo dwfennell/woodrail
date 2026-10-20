@@ -7,8 +7,9 @@ import { workshopStock } from "./crafting";
 import { CARD_KINDS, type GrowthCard } from "./growth-cards";
 import { Progress } from "./progress";
 import { deliver, pick, tick } from "./research";
-import { boostGoods, carIcon, cardFor, cardView, crateFor, firstTimeGift, learnGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
+import { boostGoods, carIcon, cardFor, cardView, crateFor, describeThings, firstTimeGift, learnGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
 import { TECHS } from "./tech";
+import { THING_RULES } from "./things";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
 import { rng } from "../lib/rng";
 import { trainIcon } from "../ui/icons";
@@ -139,11 +140,11 @@ describe("the research boost", () => {
     expect(takeCard(p, w, 0, 0)).toMatchObject({ amount: "+2🪵", taken: "+2🪵 to Bridges and ramps" });
     expect(p.research.got).toEqual({ planks: 6 });
     expect(p.offers).toEqual([]);
-    // Mills: 12 planks and 6 grain: a town's 40% is 5 planks and 3 grain.
+    // Mills: 6 planks and 6 grain: a town's 40% is 3 planks and 3 grain (rounded up).
     const q = researching();
     q.offers.push({ from: "Elderwick", level: 2, cards: [{ kind: "boost", share: 0.4 }] });
-    expect(takeCard(q, w, 0, 0)).toMatchObject({ taken: "+5🪵 3🌾 to Mills" });
-    expect(q.research.got).toEqual({ planks: 5, grain: 3 });
+    expect(takeCard(q, w, 0, 0)).toMatchObject({ taken: "+3🪵 3🌾 to Mills" });
+    expect(q.research.got).toEqual({ planks: 3, grain: 3 });
     expect(q.research.current).toBe("mills");
   });
 
@@ -214,7 +215,7 @@ describe("taking a card", () => {
     const crate = take({ kind: "crate", things: [["piece:buffer-turnback", 2], ["car:timber", 1]] }).p;
     expect([crate.owned.get("piece:buffer-turnback"), crate.owned.get("car:timber")]).toEqual([2 + 2, 3 + 1]);
     expect(take({ kind: "wagon", id: "car:engine" }).p.owned.get("car:engine")).toBe(2);
-    expect(take({ kind: "boost", share: 0.6 }, researching()).p.research.got).toEqual({ planks: 8, grain: 4 });
+    expect(take({ kind: "boost", share: 0.6 }, researching()).p.research.got).toEqual({ planks: 4, grain: 4 });
     expect(take({ kind: "rare", good: "grain", n: 6 }, researching()).p.research.got).toEqual({ grain: 6 });
   });
 
@@ -271,6 +272,39 @@ describe("growth never teaches a blueprint", () => {
 });
 
 describe("three real choices", () => {
+  it("a new game's first village offers three cards of different kinds, whatever the seed (QA P4: two, a slot empty)", () => {
+    // As it is when the first village grows: no workshop or school placed, nothing researched, the village's present
+    // in the box. Only coins, a crate and the flatbed can be offered, and the crate knew only the flatbed and turnbacks.
+    const w = buildStarterWorld();
+    for (let seed = 1; seed <= 500; seed++) {
+      const p = Progress.fresh();
+      firstTimeGift(p, 1);
+      const offer = offerOnGrowth(p, w, "Larkfield", 1, rng(seed))!;
+      expect(offer.cards, `seed ${seed}`).toHaveLength(3);
+      expect(new Set(offer.cards.map((c) => c.kind)).size, `seed ${seed}`).toBe(3);
+      const wagon = offer.cards.find((c) => c.kind === "wagon");
+      const crate = offer.cards.find((c) => c.kind === "crate");
+      expect(crate!.things.map(([id]) => id)).not.toContain(wagon!.id);
+      for (const card of offer.cards) expect(cardView(p, w, card).ok, `seed ${seed} ${card.kind}`).toBe(true);
+    }
+    // One thing in the crate reads so.
+    expect(cardView(Progress.fresh(), buildStarterWorld(), { kind: "crate", things: [["piece:buffer-turnback", 2]] }).amount).toBe("A crate: 1 thing");
+  });
+
+  it("a village with a school placed (Switches picked or not), or a workshop: three cards too", () => {
+    const worlds = [buildStarterWorld(), world({ school: true })];
+    for (let seed = 1; seed <= 200; seed++) {
+      const p = Progress.fresh();
+      if (seed % 2) expect(pick(p, "switches")).toBe("current");
+      const w = worlds[seed % 3 ? 1 : 0];
+      const offer = offerOnGrowth(p, w, "Larkfield", 1, rng(seed))!;
+      expect(new Set(offer.cards.map((c) => c.kind)).size, `seed ${seed}`).toBe(3);
+      // A crate shown without the wagon card keeps its size (e2e:growth: it lost a thing for a wagon card not shown).
+      const crate = offer.cards.find((c) => c.kind === "crate");
+      if (crate && !offer.cards.some((c) => c.kind === "wagon")) expect(crate.things, `seed ${seed}`).toHaveLength(2);
+    }
+  });
+
   it("a crate never holds the wagon card's car, so neither card is the other and more (QA)", () => {
     let both = 0;
     let crates = 0;
@@ -283,10 +317,12 @@ describe("three real choices", () => {
         const offer = offerOnGrowth(p, w, "Larkfield", level, rng(seed))!;
         const wagon = offer.cards.find((c) => c.kind === "wagon");
         const crate = offer.cards.find((c) => c.kind === "crate");
-        // (The crate keeps its size by level, 2, 3, 4 things, or all you know if that's fewer.)
+        // (The crate keeps its size by level, 2, 3, 4 things, or all you know if that's fewer; one fewer when it was
+        // drawn again without the wagon card's car, every wagon you know being in it.)
         if (crate) {
           crates++;
-          expect(crate.things.length, `seed ${seed} level ${level}`).toBe(Math.min(level + 1, crateFor(p, 99, rng(1)).length));
+          const all = crateFor(p, 99, rng(1)).length;
+          expect([Math.min(level + 1, all), Math.min(level + 1, all - 1)], `seed ${seed} level ${level}`).toContain(crate.things.length);
         }
         if (!wagon || !crate) continue;
         both++;
@@ -347,13 +383,39 @@ describe("crates and presents", () => {
     // Straight to a city from a village: the town's present too.
     const q = Progress.fresh();
     q.learned.add("farming");
-    // (No engine for the city before Signals.)
-    expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:timber", "piece:depot-school", "piece:depot-farm", "piece:buffer-turnback", "piece:depot-farm"]);
+    // (No engine for the city before Signals: two flatbed wagons in its place.)
+    expect(firstTimeGift(q, 3).map(([id]) => id)).toEqual(["car:timber", "piece:depot-school", "piece:depot-farm", "piece:buffer-turnback", "car:timber", "piece:depot-farm"]);
     expect(q.bestLevel).toBe(3);
     const r = Progress.fresh();
     r.learned.add("signals");
     r.bestLevel = 2;
     expect(firstTimeGift(r, 3).map(([id]) => id)).toEqual(["car:engine"]);
+  });
+
+  it("the first city's present is never empty before Signals: a stand-in worth the engine takes its place (QA)", () => {
+    // No industry known and no Signals: the present was empty and the news said only "Pick a reward".
+    const p = Progress.fresh();
+    p.bestLevel = 2;
+    const gift = firstTimeGift(p, 3);
+    expect(gift).toEqual([["car:timber", 2]]);
+    expect(`Present: ${describeThings(gift)}`).toBe("Present: 2 Flatbed wagons");
+    expect(p.owned.get("car:engine")).toBe(1);
+    // Switches learned: two switches, toward the passing loop Signals will need (6 planks, as the engine is).
+    const q = Progress.fresh();
+    q.bestLevel = 2;
+    q.learned.add("switches");
+    expect(describeThings(firstTimeGift(q, 3))).toBe("2 Switches");
+    expect(2 * (THING_RULES["piece:switch"]!.cost.planks ?? 0)).toBe(THING_RULES["car:engine"]!.cost.planks);
+    // With an industry known: the stand-in and the industry.
+    q.bestLevel = 2;
+    q.learned.add("farming");
+    expect(firstTimeGift(q, 3)).toEqual([["piece:switch", 2], ["piece:depot-farm", 1]]);
+    // With Signals: the engine, no stand-in.
+    const r = Progress.fresh();
+    r.bestLevel = 2;
+    r.learned.add("switches");
+    r.learned.add("signals");
+    expect(firstTimeGift(r, 3)).toEqual([["car:engine", 1]]);
   });
 
   it("learning Signals brings a second engine, once, unless you've two", () => {

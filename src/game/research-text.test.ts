@@ -31,15 +31,15 @@ describe("a card's chips", () => {
     const p = Progress.fresh();
     p.learned.add("farming");
     expect(chipsText(researchChips(p, "bridges"))).toBe("🪵 0/10");
-    // Mills: planks and grain, and 20 coins (none in hand: short).
-    expect(researchChips(p, "mills")).toEqual([{ text: "🪵 0/12" }, { text: "🌾 0/6" }, { text: "🪙 20", short: true }]);
-    expect(chipsText(researchChips(p, "mills"))).toBe("🪵 0/12 · 🌾 0/6 · 🪙 20");
-    p.coins = 30;
-    expect(researchChips(p, "mills")[2]).toEqual({ text: "🪙 20" });
+    // Mills: planks and grain, and 40 coins (none in hand: short).
+    expect(researchChips(p, "mills")).toEqual([{ text: "🪵 0/6" }, { text: "🌾 0/6" }, { text: "🪙 40", short: true }]);
+    expect(chipsText(researchChips(p, "mills"))).toBe("🪵 0/6 · 🌾 0/6 · 🪙 40");
+    p.coins = 50;
+    expect(researchChips(p, "mills")[2]).toEqual({ text: "🪙 40" });
     // Started: its coins are paid (no chip), its goods count up.
     pick(p, "mills");
-    deliver(p, "planks", 6);
-    expect(chipsText(researchChips(p, "mills"))).toBe("🪵 6/12 · 🌾 0/6");
+    deliver(p, "planks", 4);
+    expect(chipsText(researchChips(p, "mills"))).toBe("🪵 4/6 · 🌾 0/6");
   });
 
   it("a ready card: Research when idle, else Next up; the one up next swaps with Research now", () => {
@@ -72,8 +72,8 @@ describe("a card's chips", () => {
   it("one up next whose coins are short says so, its button held; with no school nothing can be picked", () => {
     const p = Progress.fresh();
     p.learned.add("switches");
-    pick(p, "routes"); // 20 coins, none in hand: waits up next
-    expect(researchCard(p, "routes", SCHOOL)).toMatchObject({ why: "Waiting for 20🪙", action: "Research now", blocked: true });
+    pick(p, "routes"); // 40 coins, none in hand: waits up next
+    expect(researchCard(p, "routes", SCHOOL)).toMatchObject({ why: "Waiting for 40🪙", action: "Research now", blocked: true });
     expect(researchCard(p, "signals", null)).toMatchObject({ why: "Needs a school", action: "Research", blocked: true });
   });
 });
@@ -99,7 +99,7 @@ describe("the HUD's research pill", () => {
   it("a research with two goods shows the first still lacking; one waiting for coins shows them", () => {
     const p = Progress.fresh();
     p.learned.add("farming");
-    p.coins = 20;
+    p.coins = 40;
     pick(p, "mills");
     deliver(p, "planks", 12);
     expect(pillText(pillView(p, true))).toBe("📘 Mills 0/6🌾");
@@ -107,7 +107,7 @@ describe("the HUD's research pill", () => {
     q.learned.add("switches");
     q.coins = 5;
     pick(q, "routes");
-    expect(pillText(pillView(q, true))).toBe("📘 Train routes 5/20🪙");
+    expect(pillText(pillView(q, true))).toBe("📘 Train routes 5/40🪙");
   });
 
   it("its key changes only when what it shows may: a pick, a delivery, a second of study, a school, coins while waiting", () => {

@@ -3,7 +3,7 @@ import { techOf, TECHS, built } from "./tech";
 import { Progress } from "./progress";
 import { canResearch, coinsShort, costOf, deliver, lacking, lacks, pick, simElapsed, type StudyClock, STUDY_SECONDS, studyLeft, studying, studyTime, tick } from "./research";
 
-/** A player who knows switches (so tier-2 Routes, 10🪵 20🪙, can be researched too). */
+/** A player who knows switches (so tier-2 Routes, with its coins, can be researched too). */
 function player(coins = 0): Progress {
   const p = Progress.fresh();
   p.learned.add("switches");
@@ -14,12 +14,13 @@ function player(coins = 0): Progress {
 describe("research costs", () => {
   it("are the blueprints' prices: tier 1 goods only, coins from tier 2, and a chain good where the spec asks", () => {
     expect(costOf("switches")).toEqual({ goods: { planks: 4 } });
-    // Halts is tier 1: its 20 coins go.
-    expect(costOf("halts")).toEqual({ goods: { planks: 12 } });
-    expect(costOf("routes")).toEqual({ goods: { planks: 10 }, coins: 20 });
-    expect(costOf("mills")).toEqual({ goods: { planks: 12, grain: 6 }, coins: 20 });
-    expect(costOf("goods-engine")).toEqual({ goods: { planks: 12, flour: 6 }, coins: 40 });
-    expect(costOf("electricity")).toEqual({ goods: { iron: 10, coal: 10 }, coins: 120 });
+    // The passenger line: light on planks, and from tier 2 mostly coins (P5).
+    expect(costOf("halts")).toEqual({ goods: { planks: 6 } });
+    expect(costOf("express")).toEqual({ goods: { planks: 10 }, coins: 240 });
+    expect(costOf("routes")).toEqual({ goods: { planks: 5 }, coins: 40 });
+    expect(costOf("mills")).toEqual({ goods: { planks: 6, grain: 6 }, coins: 40 });
+    expect(costOf("goods-engine")).toEqual({ goods: { planks: 6, flour: 6 }, coins: 80 });
+    expect(costOf("electricity")).toEqual({ goods: { iron: 10, coal: 10 }, coins: 240 });
     // Every built blueprint has goods to research it with.
     for (const t of TECHS.filter((x) => built(x))) expect(Object.keys(t.research.goods).length, t.id).toBeGreaterThan(0);
   });
@@ -63,22 +64,24 @@ describe("picking research", () => {
   });
 
   it("tier 2 and up pay their coins when the research starts", () => {
-    const p = player(30);
+    const coins = costOf("routes").coins!;
+    const p = player(coins + 10);
     expect(pick(p, "routes")).toBe("current");
     expect(p.coins).toBe(10);
   });
 
   it("a pick whose coins are short waits in Next up, saying how many are short, and starts once they're in", () => {
+    const coins = costOf("routes").coins!;
     const p = player(5);
     expect(pick(p, "routes")).toBe("next");
     expect(p.research.current).toBeNull();
-    expect(coinsShort(p)).toBe(15);
+    expect(coinsShort(p)).toBe(coins - 5);
     expect(p.coins).toBe(5);
     // A school with nothing current takes nothing meanwhile.
     expect(lacking(p, "planks")).toBe(0);
     tick(p, 1);
     expect(p.research.current).toBeNull();
-    p.coins = 25;
+    p.coins = coins + 5;
     tick(p, 1);
     expect([p.research.current, p.research.next, p.coins]).toEqual(["routes", null, 5]);
     expect(coinsShort(p)).toBe(0);
@@ -90,7 +93,7 @@ describe("picking research", () => {
     pick(p, "routes");
     expect(pick(p, "routes")).toBe("next");
     expect([p.research.current, p.research.next]).toEqual(["signals", "routes"]);
-    expect(coinsShort(p)).toBe(20);
+    expect(coinsShort(p)).toBe(costOf("routes").coins);
   });
 });
 
@@ -98,20 +101,21 @@ describe("goods into the research", () => {
   it("takes only what it still lacks: never more, never a good it doesn't need", () => {
     const p = player();
     pick(p, "signals");
-    expect(lacks(p)).toEqual({ planks: 8 });
+    const need = costOf("signals").goods.planks!;
+    expect(lacks(p)).toEqual({ planks: need });
     expect(lacking(p, "grain")).toBe(0);
     expect(deliver(p, "grain", 3)).toBe(0);
-    expect(deliver(p, "planks", 5)).toBe(5);
-    expect(deliver(p, "planks", 5)).toBe(3);
+    expect(deliver(p, "planks", need - 1)).toBe(need - 1);
+    expect(deliver(p, "planks", 5)).toBe(1);
     expect(lacking(p, "planks")).toBe(0);
-    expect(p.research.got).toEqual({ planks: 8 });
+    expect(p.research.got).toEqual({ planks: need });
   });
 
   it("is studied once its goods are in, then learned, and next up starts at once", () => {
     const p = player(100);
     pick(p, "signals");
     pick(p, "bridges");
-    deliver(p, "planks", 7);
+    deliver(p, "planks", costOf("signals").goods.planks! - 1);
     expect(studying(p)).toBe(false);
     // No study without all the goods.
     expect(tick(p, 60)).toBeNull();
@@ -124,7 +128,7 @@ describe("goods into the research", () => {
     expect(tick(p, 1)).toBe("signals");
     expect(p.learned.has("signals")).toBe(true);
     expect([p.research.current, p.research.next]).toEqual(["bridges", null]);
-    expect(lacks(p)).toEqual({ planks: 10 });
+    expect(lacks(p)).toEqual(costOf("bridges").goods);
   });
 
   it("a faster school studies faster", () => {
@@ -224,7 +228,7 @@ describe("saving research (progress, beside the v12 save)", () => {
     const back = Progress.fromJSON(JSON.parse(JSON.stringify(p.toJSON())));
     expect(back.research.current).toBe("signals");
     expect(back.research.next).toBe("bridges");
-    expect(back.research.got).toEqual({ planks: 8 });
+    expect(back.research.got).toEqual({ planks: costOf("signals").goods.planks });
     expect(back.research.study).toBe(7.5);
     expect([...back.research.held]).toEqual([["bridges", { got: { planks: 4 }, study: 0 }]]);
     // And carries on where it was.
