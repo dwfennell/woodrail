@@ -89,7 +89,8 @@ And later: "I think the research building should be placed near a town though, m
   `planksWanted` / `keepsPlanks` in their current form.
 - **What replaces them:**
   - The workshop keeps planks only for the tray order waiting to be made (`Crafting`'s order).
-  - The school takes only what its research still lacks.
+  - The school takes only what its research still lacks, and (QA P4) at most half a pass's load while a town the
+    train goes on to wants the good too (`SCHOOL_SHARE`, §5).
   - No plank is counted by both. Whatever neither of them asks for goes to towns, as it does today.
 - `WORKSHOP_CAP` 30 stays. The college's −20% planks discount goes; its speed-up replaces it.
 
@@ -423,6 +424,55 @@ player can't see it: a heap on a hopper is all there is. D teaches the fix that'
 demand rule that hides the symptom; take it only if the user wants cities to keep taking planks for its own sake, and
 only from City up. B is about a day: the rule, a unit test in `intent.test.ts`, and the table again. D is half a day:
 the check at a depot pass, the toast and the town card line.
+
+**Known issue (after the play test).** The user chose to leave the stuck-cargo trap above until they play-test; none of
+B, C or D is built, and the harness keeps `unstick` and `shopThrough`.
+- **The trap:** on a there-and-back line with the farm just after the mill, Automatic hoppers refill with grain at the
+  farm and reach the quarry full, so a City wanting only stone never gets it; and towns past an Automatic workshop
+  starve while its yard takes every plank (up to 30).
+- **A real player can reach it** (one goods train, two hoppers, the farm passed on the way out from the mill) and gets
+  no hint: no toast, no load on the wagon card, grain heaps in 3D only.
+- **Options considered:** B, a loading rule (keep a car for a good ahead); C, a City keeps taking planks; D, a hint
+  naming what's stuck and the Only drop fix; and the workshop leaving planks for towns later on the line.
+- **The tables assume a player who unsticks cargo** (`unstick`, `shopThrough`): in the fourth pass, without them
+  (and the third flatbed) seeds 1 and 3 missed the town gap, at 67.5 and 55.4 min.
+
+### QA's P4 notes, on P5 (2026-10-20)
+
+Four fixes, one commit each: the tray rings the goal's piece (the school during "Place a school by a town"); "Make a
+switch" in place of "Bring planks to the workshop" (§4); a first village's three cards (the crate gives way to the
+wagon card, §3); and **the school's share of a pass (below)**. The harness also waits for planks before running the
+line to a farther third town (with few planks the nearest was short of its ramps, and the farther town's line left the
+farm on a branch an unrouted train never takes: Mills waited on grain all game on 7 of 9 seeds).
+
+**The school's share.** QA saw coins freeze for about 9 game-min while research ran, towns getting nothing. The cause:
+while a research lacked as many planks as the train carried or more (Bridges, 10, against 6–9 a pass), the hold-back
+(`keptForSchool`) kept the whole load on the train past every town, and the school took all of it. So towns got no plank
+until the research was full. Seed 2027 shows it: Switches then Bridges from minute 4 to 8.3, coins 20 at minute 5,
+Larkfield at 1/8 planks. Now, while a town the train goes on to wants the good too, the school takes at most
+`SCHOOL_SHARE` (half) of a pass's load, and a town leaves on the train no more than what's left of that share. A pass's
+load is what the train had on board as it last loaded the good. With no town on the way wanting it, the school takes
+all it lacks, as before. `src/economy/economy.ts` (`SCHOOL_SHARE`, `schoolShareLeft`, `townWantsAhead`).
+
+| Seed | Research stall | Town gap | City | City★ | Researched (main) | Coins at 10 / 30 / 60 / 120 / 180 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2027 | 13.2 → 12.8 | 34.4 → 15.6 | 60 → 66 | 140 → 153 | 15 → 14 (9) | 66/184/84/179/139 → 78/208/0/293/1251 |
+| 1 | 7.3 → 9.1 | 30.7 → 15.9 | 78 → 70 | - → 155 | 25 → 15 (9) | 66/202/62/627/1043 → 102/452/348/598/1141 |
+| 2 | 6.8 → 7.0 | 27.5 → 12.1 | 73 → 70 | 121 → 147 | 23 → 15 (8) | 36/238/129/184/692 → 48/316/212/465/1806 |
+| 3 | 7.3 → 12.9 | 31.6 → 17.9 | 78 → 64 | - → 163 | 23 → 15 (11) | 66/202/8/670/1219 → 102/290/125/784/1194 |
+| 4 | 8.6 → 10.8 | 30.1 → 18.3 | 65 → 62 | 116 → 167 | 15 → 12 (7) | 36/342/137/580/2152 → 128/364/236/1190/1439 |
+| 5 | **16.4** → 8.7 | 30.6 → 13.7 | 75 → 81 | 113 → - | 16 → 14 (8) | 36/238/127/694/943 → 48/124/24/330/764 |
+| 6 | 12.5 → 11.4 | 24.4 → 16.5 | 65 → 72 | 139 → 162 | 15 → 16 (7) | 66/184/14/370/594 → 78/372/239/671/869 |
+| 9 | 13.4 → 10.0 | 34.7 → 16.7 | 81 → 69 | 151 → - | 15 → 14 (7) | 36/172/2/377/1119 → 128/376/266/716/1051 |
+| 10 | 11.5 → 8.2 | 39.4 → 14.8 | 60 → 83 | 145 → - | 14 → 15 (7) | 66/184/284/356/375 → 78/178/34/370/505 |
+
+(Before: QA items 1–3 and the harness's wait for planks; after: with the share. First research at 5.6 on every seed,
+before and after.) Against P5 before QA's notes (the fourth pass's table): town gaps 24–35 → 12–18 min, research
+stalls 6.8–13.1 → 7.0–12.9, City 60–78 → 62–83, coins at 30 min 68–208 → 124–376.
+- **`BALANCE=1` passes on all nine** (before the share, seed 5 missed the stall guard: Mines' last stone, 16.4 min).
+- **The cost:** fewer researched by 180 where research had run ahead (seeds 1, 2, 3: 23–25 → 15), as towns now get half
+  of what the school took; every seed stays above main's floor. City★ by 180 on six seeds (seven before).
+- Nice to have: research stalls under 10 min on 1, 2, 5, 10; coins within 150–600 on 10 only (764–1806 elsewhere).
 
 ## 6. Saves
 

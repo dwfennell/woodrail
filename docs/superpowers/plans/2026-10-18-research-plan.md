@@ -397,6 +397,10 @@ nice to have: coins over 600 on 2027, 2, 4 and stalls over 10 min on 2027, 1, 5.
   the workshop's crane off while a town past it starves, a third flatbed for a goods engine's spare pull.
 - [ ] Game-side, for the user to choose: B (keep a car for a good ahead), D (a hint naming what's stuck), maybe C (a
   City keeps taking planks). Spec §5 "P5: the fourth pass".
+- [x] QA's P4 notes (spec §5 "QA's P4 notes, on P5"): the tray rings the goal's piece; "Make a switch" in place of
+  "Bring planks to the workshop"; a first village's three cards; the school takes at most half a pass's load while a
+  town on the way wants it too (`SCHOOL_SHARE`); the harness waits for planks before a farther third town.
+- [ ] The stuck-cargo trap: left until the user's play test (spec §5 "Known issue").
 - [x] Change one knob per commit, with the table before and after in each commit.
 - [x] Add assertions to the balance test for the bands, so it stays skipped unless `BALANCE=1`.
 - [x] Time a headless phone run (390×844) for idle CPU with a research running and none running. It stays at P4's
