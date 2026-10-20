@@ -1,9 +1,17 @@
-import { Color, Matrix4, Mesh, MeshBasicMaterial, Vector3 } from "three";
-import { describe, expect, it } from "vitest";
+import { Color, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Vector3 } from "three";
+import { describe, expect, it, vi } from "vitest";
+
+// These tests are about the switches' chevrons and levers, not the pieces' carved wood: each kind of piece is drawn as
+// its plain body (no CSG), so the suite doesn't spend seconds carving five switches before its first test (it timed out
+// under a loaded full run).
+vi.mock("./track-geometry", async (importOriginal) => {
+  const m = await importOriginal<typeof import("./track-geometry")>();
+  return { ...m, buildPieceGeometry: (def: Parameters<typeof m.buildPieceStandIn>[0]) => m.buildPieceStandIn(def) };
+});
 import { Flourishes } from "./flourishes";
 import { createSample, getPieceDef, Layout, pathLength, samplePath, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
-import { setRoute, SWITCH_ARROW_AT, SWITCH_ARROW_CLEAR, SWITCH_ARROW_CREAM, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
+import { arrowEnds, setRoute, SWITCH_ARROW_AT, SWITCH_ARROW_CLEAR, SWITCH_ARROW_CREAM, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
 
 const plain = () => new MeshBasicMaterial();
 const mats = { track: plain(), trackCut: plain(), bridgePaint: plain(), lacquer: plain, naturalWood: plain(), magnet: plain() } as unknown as Materials;
@@ -48,7 +56,8 @@ describe("switch chevrons", () => {
     for (const [i, t] of (["switch", "switch-y", "switch-3way", "wye", "crossover"] as const).entries()) layout.addPiece(t, P(i * 500, 0));
     const view = new TrackView(layout, mats);
     view.sync();
-    expect(view.switchArrows!.count).toBe(5 * N);
+    // (The crossover shows both its lines' set routes.)
+    expect(view.switchArrows!.count).toBe(6 * N);
     // One draw for all of them: a single mesh, a handful of triangles a chevron.
     expect(view.group.children.filter((c) => c.userData.kind === "switch-arrows")).toHaveLength(1);
     expect(view.switchArrows!.geometry.attributes.position.count / 3).toBe(4);
@@ -119,10 +128,12 @@ describe("switch chevrons", () => {
       for (const flipped of [false, true]) {
         const def = getPieceDef(type, flipped);
         for (let state = 0; state < trunkRoutes(def).length; state++) {
-          const route = setRoute(def, state)!;
-          const arrows = arrowsOf(oneSwitch(type, state, flipped).view);
-          expect(arrows, `${type} ${state}`).toHaveLength(N);
-          for (const a of arrows) {
+          const ends = arrowEnds(def);
+          const all = arrowsOf(oneSwitch(type, state, flipped).view);
+          expect(all, `${type} ${state}`).toHaveLength(N * ends.length);
+          // (Each end's row in turn, along the route set from there.)
+          const rows = ends.map((end, k) => ({ end, route: setRoute(def, state, end)!, arrows: all.slice(k * N, (k + 1) * N) }));
+          for (const { end, route, a } of rows.flatMap((r) => r.arrows.map((a) => ({ ...r, a })))) {
             // Every other track through the piece (its other routes, a wye's straight across, a crossover's other line).
             let nearest = Infinity;
             for (const p of def.paths) {
@@ -132,11 +143,45 @@ describe("switch chevrons", () => {
                 nearest = Math.min(nearest, Math.hypot(q.x - a.x, q.z - a.z));
               }
             }
-            expect(nearest, `${type}${flipped ? " flipped" : ""} state ${state}: chevron at ${a.x.toFixed(0)}, ${a.z.toFixed(0)}`).toBeGreaterThanOrEqual(SWITCH_ARROW_CLEAR - 0.5);
+            expect(nearest, `${type}${flipped ? " flipped" : ""} state ${state} end ${end}: chevron at ${a.x.toFixed(0)}, ${a.z.toFixed(0)}`).toBeGreaterThanOrEqual(SWITCH_ARROW_CLEAR - 0.5);
           }
         }
       }
     }
+  });
+
+  it("a crossover shows both lines' set routes (QA N4): line B's row from its own facing end, never on top of line A's", () => {
+    const def = getPieceDef("crossover", false);
+    expect(arrowEnds(def)).toEqual([0, 3]);
+    const [onA, onB] = [0, 1].map((s) => arrowsOf(oneSwitch("crossover", s).view));
+    // Straight on: line A's row along line A, pointing on; line B's along line B (72 mm over), pointing back toward end 2.
+    for (const a of onA.slice(0, N)) expect([Math.round(a.z), Math.round(Math.cos(a.heading))]).toEqual([0, 1]);
+    for (const a of onA.slice(N)) expect([Math.round(a.z), Math.round(Math.cos(a.heading))]).toEqual([72, -1]);
+    // Over: both rows on the link, each on the half nearer its own end, pointing away from it, apart from each other.
+    const a = onB.slice(0, N);
+    const b = onB.slice(N);
+    expect(Math.max(...a.map((p) => p.x))).toBeLessThan(Math.min(...b.map((p) => p.x)));
+    for (const p of a) expect(Math.cos(p.heading)).toBeGreaterThan(0.7);
+    for (const p of b) expect(Math.cos(p.heading)).toBeLessThan(-0.7);
+    for (const p of a) for (const q of b) expect(Math.hypot(p.x - q.x, p.z - q.z)).toBeGreaterThan(12);
+  });
+
+  it("each chevron has a dark rim under it (QA N1): a second mesh on the same instances, never picked", () => {
+    const { view } = oneSwitch("switch");
+    const face = view.switchArrows!;
+    const rim = face.children[0] as InstancedMesh;
+    expect(rim).toBeInstanceOf(InstancedMesh);
+    expect(rim.instanceMatrix).toBe(face.instanceMatrix);
+    expect(rim.count).toBe(face.count);
+    // A little bigger than the face, a little under it.
+    rim.geometry.computeBoundingBox();
+    face.geometry.computeBoundingBox();
+    expect(rim.geometry.boundingBox!.max.z).toBeGreaterThan(face.geometry.boundingBox!.max.z + 1);
+    expect(rim.geometry.boundingBox!.max.y).toBeLessThan(face.geometry.boundingBox!.min.y);
+    expect(rim.geometry.attributes.position.count / 3).toBe(4);
+    const hits: unknown[] = [];
+    rim.raycast({} as never, hits as never);
+    expect(hits).toHaveLength(0);
   });
 
   it("the chevrons follow the piece (turned and moved)", () => {
@@ -195,6 +240,23 @@ describe("switch chevrons", () => {
     const hits: unknown[] = [];
     view.switchArrows!.raycast({} as never, hits as never);
     expect(hits).toHaveLength(0);
+  });
+});
+
+describe("lever posts (for a fingertip's slack)", () => {
+  it("a switch's lever and semaphore stand beside its trunk, off the track", () => {
+    const layout = new Layout();
+    const sw = layout.addPiece("switch", P(0, 0));
+    const view = new TrackView(layout, mats);
+    view.sync();
+    const posts = view.leverPosts();
+    expect(posts.map((p) => p.pieceId)).toEqual([sw, sw]);
+    for (const p of posts) {
+      expect(Math.abs(p.z)).toBeGreaterThan(20);
+      expect(p.x).toBeGreaterThanOrEqual(0);
+      expect(p.x).toBeLessThan(144);
+      expect(p.height).toBeGreaterThan(30);
+    }
   });
 });
 

@@ -362,6 +362,8 @@ export function endBoardModel(mats: Materials): Group {
 
 const SWITCH_LEVER_OFFSET = TRACK_WIDTH / 2 + 9;
 const SIGNAL_HEIGHT = 54;
+/** A lever's height to the top of its knob (mm). */
+const LEVER_HEIGHT = 36;
 /** Arm angle above level when the switch is set to its branch. */
 const SIGNAL_RAISED = 0.75;
 
@@ -380,29 +382,39 @@ function switchLeverGeometry(): BufferGeometry {
 }
 
 /**
- * The set route's painted chevrons: this many along it, pointing away from the trunk. They lie where the route has
- * parted from the switch's other track (`switchArrowPoses`); these fractions of its length are the fallback.
+ * The set route's painted chevrons: this many along it, pointing away from the end it's set from. They lie where the
+ * route has parted from the switch's other track (`switchArrowPoses`); these fractions of its length are the fallback.
  */
 export const SWITCH_ARROW_AT = [0.42, 0.62, 0.82] as const;
+/** A chevron's size (mm): half its length, half its width, its arms' thickness; and its dark rim's width. */
+const ARROW = { half: 4.4, wide: 6, arm: 2.8, rim: 1.4 } as const;
 /**
  * How far (mm) a chevron's middle stands from the centre line of any other track through the switch: clear of that
- * track's groove (13 mm out, 6 wide) by its own half-width (4.6) and a little more.
+ * track's groove (its far edge 16 mm out) by the chevron's half-width with its rim (7.4), and a little more.
  */
-export const SWITCH_ARROW_CLEAR = 22;
-export const SWITCH_ARROW_CREAM = "#f3e4bf";
+export const SWITCH_ARROW_CLEAR = 24;
+/**
+ * Chevron colours: cream, like toy track's stencilled arrows (a warmer orange on a pinned switch), on a dark brown rim
+ * that makes them read against the light wood from the usual high camera (QA N1: cream alone was ~1.3:1 on birch).
+ */
+export const SWITCH_ARROW_CREAM = "#fff3d2";
 export const SWITCH_ARROW_PINNED = "#f08a3a";
+export const SWITCH_ARROW_RIM = "#3b2311";
 const arrowCream = new Color(SWITCH_ARROW_CREAM);
 const arrowPinned = new Color(SWITCH_ARROW_PINNED);
 /** How long a lever takes to swing over (and the chevrons to slide across), s. */
 export const SWITCH_SWING_S = 0.12;
-/** The chevrons lie this far (mm) above the track's top: painted on, clear of it in depth. */
-const ARROW_LIFT = 0.5;
+/** The chevrons' rims lie this far (mm) above the track's top, their faces a little higher: painted on, clear in depth. */
+const ARROW_LIFT = 0.4;
 
-/** A chevron painted on the track, pointing along +x, flat (4 triangles, facing up). */
-function switchArrowGeometry(): BufferGeometry {
-  const a = 3.5;
-  const w = 4.6;
-  const t = 2.4;
+/**
+ * A chevron painted on the track, pointing along +x, flat (4 triangles, facing up), `grow` mm bigger all round (its
+ * rim), `y` up.
+ */
+function switchArrowGeometry(grow = 0, y = 0): BufferGeometry {
+  const a = ARROW.half + grow;
+  const w = ARROW.wide + grow;
+  const t = ARROW.arm + 2 * grow;
   // Outer tip, outer back corners, and the inner edge (the arms `t` thick).
   const tip = [a, 0];
   const tipIn = [a - t, 0];
@@ -420,7 +432,7 @@ function switchArrowGeometry(): BufferGeometry {
   for (const [p, q, r] of tris) {
     // Wound to face up (+y): flip a triangle whose normal points down.
     const up = (q[1] - p[1]) * (r[0] - p[0]) - (q[0] - p[0]) * (r[1] - p[1]) > 0;
-    for (const v of up ? [p, q, r] : [p, r, q]) pos.push(v[0], 0, v[1]);
+    for (const v of up ? [p, q, r] : [p, r, q]) pos.push(v[0], y, v[1]);
   }
   const g = new BufferGeometry();
   g.setAttribute("position", new BufferAttribute(new Float32Array(pos), 3));
@@ -429,48 +441,79 @@ function switchArrowGeometry(): BufferGeometry {
   return g;
 }
 
-/** The routes a switch sets from its trunk (connector 0), in the order its state picks them, as `routeFrom` does. */
-export function trunkRoutes(def: PieceDef): PathDef[] {
-  return def.paths.filter((p) => p.from === 0 || p.to === 0);
+/** The routes a switch can set from end `end`, in the order its state picks them, as `routeFrom` does. */
+export function routesFrom(def: PieceDef, end: number): PathDef[] {
+  return def.paths.filter((p) => p.from === end || p.to === end);
 }
 
-/** The route a switch's state sets from its trunk (null for a piece with no choice there). */
-export function setRoute(def: PieceDef, state: number): PathDef | null {
-  const routes = trunkRoutes(def);
+/** The routes a switch sets from its trunk (connector 0). */
+export function trunkRoutes(def: PieceDef): PathDef[] {
+  return routesFrom(def, 0);
+}
+
+/** The route a switch's state sets from end `end` (its trunk by default; null for a piece with no choice there). */
+export function setRoute(def: PieceDef, state: number, end = 0): PathDef | null {
+  const routes = routesFrom(def, end);
   return routes.length > 1 ? routes[state % routes.length] : null;
 }
 
-/** Where a route's chevrons lie on its piece (piece-local x, z and heading, pointing away from the trunk). */
-export function switchArrowPoses(route: PathDef, def?: PieceDef): { x: number; z: number; heading: number }[] {
+/**
+ * The ends of a switch whose set route its chevrons show: its trunk; on double track (a crossover), every end with a
+ * choice, so each line shows the way it's set (QA N4). (A wye shows the route from its trunk only.)
+ */
+export function arrowEnds(def: PieceDef): number[] {
+  const ends = def.web ? def.connectors.map((_, i) => i) : [0];
+  return ends.filter((e) => routesFrom(def, e).length > 1);
+}
+
+/**
+ * Every chevron a switch shows in a state: for each end it shows (`arrowEnds`), along the route set from there,
+ * pointing away from it. Two ends set along the same route (a crossover set over) each keep to the half of it nearer
+ * them, so the two rows don't lie on each other.
+ */
+export function switchArrows(def: PieceDef, state: number): { x: number; z: number; heading: number }[] {
+  const sets = arrowEnds(def).map((end) => ({ end, route: setRoute(def, state, end)! }));
+  return sets.flatMap(({ end, route }) => switchArrowPoses(route, def, end, sets.filter((o) => o.route === route).length > 1));
+}
+
+/**
+ * Where a route's chevrons lie on its piece (piece-local x, z and heading, pointing away from end `end`), along the
+ * stretch where it's parted from the piece's other track (`half`: only in the half of the route nearer `end`).
+ */
+export function switchArrowPoses(route: PathDef, def?: PieceDef, end = 0, half = false): { x: number; z: number; heading: number }[] {
   const len = pathLength(route.geom);
-  const back = route.to === 0;
+  const back = route.to === end && route.from !== end;
   const s = createSample();
-  /** The pose `d` mm from the trunk along the route. */
+  /** The pose `d` mm from the end along the route. */
   const at = (d: number) => {
     samplePath(route.geom, back ? len - d : d, s);
     return { x: s.x, z: s.z, heading: back ? s.heading + Math.PI : s.heading };
   };
-  const span = def ? clearSpan(route, def) : null;
+  const span = def ? clearSpan(route, def, back) : null;
   if (!span) return SWITCH_ARROW_AT.map((f) => at(len * f));
-  const [a, b] = span;
+  const a = span[0];
+  // (Sharing the route with another end's row: kept to this end's half of it, a gap short of the middle.)
+  const b = half ? Math.max(a, Math.min(span[1], len / 2 - ARROW.half - ARROW.rim - 1)) : span[1];
   const n = SWITCH_ARROW_AT.length;
   return SWITCH_ARROW_AT.map((_, i) => at(a + ((b - a) * i) / (n - 1)));
 }
 
-const clearSpans = new WeakMap<PathDef, [number, number] | null>();
+const clearSpans = new WeakMap<PathDef, Map<boolean, [number, number] | null>>();
 
 /**
- * The first stretch of a switch's route (mm from the trunk) where it's parted from every other track through the piece
- * (`SWITCH_ARROW_CLEAR` from their centre lines), its chevrons' middles kept inside it, ending short of the far end;
- * null if there's no stretch long enough. Worked out once for each route (piece definitions are shared).
+ * The first stretch of a switch's route (mm from the end it's set from: its `to` end if `back`) where it's parted from
+ * every other track through the piece (`SWITCH_ARROW_CLEAR` from their centre lines), its chevrons kept inside it,
+ * ending short of the far end; null if there's no stretch long enough. Worked out once for each route and way along it
+ * (piece definitions are shared).
  */
-function clearSpan(route: PathDef, def: PieceDef): [number, number] | null {
-  if (clearSpans.has(route)) return clearSpans.get(route)!;
+function clearSpan(route: PathDef, def: PieceDef, back: boolean): [number, number] | null {
+  let cached = clearSpans.get(route);
+  if (!cached) clearSpans.set(route, (cached = new Map()));
+  if (cached.has(back)) return cached.get(back)!;
   const STEP = 2;
-  const ARROW_HALF = 3.5;
-  const END_MARGIN = 10;
+  const ARROW_HALF = ARROW.half + ARROW.rim;
+  const END_MARGIN = 8;
   const len = pathLength(route.geom);
-  const back = route.to === 0;
   const others = def.paths.filter((p) => p !== route).map((p) => {
     const l = pathLength(p.geom);
     const pts: number[] = [];
@@ -495,15 +538,15 @@ function clearSpan(route: PathDef, def: PieceDef): [number, number] | null {
     if (ok && from === -1) from = d;
     if ((!ok || d + STEP > last) && from !== -1) {
       const to = ok ? d : d - STEP;
-      // Long enough for the row to read as a row (the chevrons at least a chevron's length apart).
-      if (to - from >= 4 * ARROW_HALF * (SWITCH_ARROW_AT.length - 1)) {
+      // Long enough for the row (the chevrons, rims and all, a millimetre apart at least).
+      if (to - from >= (2 * ARROW_HALF + 1) * (SWITCH_ARROW_AT.length - 1)) {
         span = [from + ARROW_HALF, to];
         break;
       }
       from = -1;
     }
   }
-  clearSpans.set(route, span);
+  cached.set(back, span);
   return span;
 }
 
@@ -515,7 +558,7 @@ function leverLean(def: PieceDef, state: number): number {
 
 /** A switch's chevrons and lever as drawn: its slot in the chevron mesh, its route poses, the lever's place. */
 interface SwitchShown {
-  /** First chevron instance (each switch with a choice at its trunk has `SWITCH_ARROW_AT.length`), or −1. */
+  /** First chevron instance (`SWITCH_ARROW_AT.length` for each end it shows: `arrowEnds`), or −1. */
   first: number;
   /** The piece's matrix. */
   piece: Matrix4;
@@ -584,7 +627,9 @@ export class TrackView {
    * switches are (`syncSwitches`, after a flip, and on any layout change), moved only while a lever swings.
    */
   private arrowMesh: InstancedMesh | null = null;
-  private readonly arrowGeometry = switchArrowGeometry();
+  /** Each chevron's cream (or orange) face, a little above its dark rim (a second mesh sharing its instances). */
+  private readonly arrowGeometry = switchArrowGeometry(0, 0.3);
+  private readonly arrowRimGeometry = switchArrowGeometry(ARROW.rim);
   /** Each switch as drawn (chevrons, lever), by piece id. */
   private readonly shown = new Map<number, SwitchShown>();
   /** Levers swinging over now, by piece id (see `syncSwitches`). */
@@ -1033,8 +1078,7 @@ export class TrackView {
       // Two-way: leans toward the route set. Three-way: upright for straight on, leaning toward a curve. The chevrons
       // lie along the route set; the semaphore's arm is level for the first route, raised for any other.
       const state = this.layout.switchState(id);
-      const route = setRoute(def, state);
-      const arrows = route ? switchArrowPoses(route, def).flatMap((a) => [a.x, a.z, a.heading]) : [];
+      const arrows = switchArrows(def, state).flatMap((a) => [a.x, a.z, a.heading]);
       const was = this.shown.get(id);
       const next: SwitchShown = { first: -1, piece, leverAt, state, lean: leverLean(def, state), arm: state !== 0 ? -SIGNAL_RAISED : 0, arrows, pinned: this.layout.isPinned(id) };
       const swinging = this.swings.get(id);
@@ -1105,6 +1149,26 @@ export class TrackView {
     peg.visible = pinned;
   }
 
+  /**
+   * Every lever and semaphore post a tap can throw, as world-space uprights (base x, y, z and height, mm): a switch's
+   * lever and its signal, a signal piece's post. For a fingertip's slack (`Interaction.pick`): at the default zoom
+   * they're only a few pixels across.
+   */
+  leverPosts(): { pieceId: number; x: number; y: number; z: number; height: number }[] {
+    const out: { pieceId: number; x: number; y: number; z: number; height: number }[] = [];
+    const v = new Vector3();
+    for (const [id, s] of this.shown) {
+      v.set(0, 0, 0).applyMatrix4(scratch.copy(s.piece).multiply(s.leverAt));
+      out.push({ pieceId: id, x: v.x, y: v.y, z: v.z, height: LEVER_HEIGHT });
+    }
+    for (const [id, signal] of this.signals) {
+      const post = signal.root.children[0];
+      v.copy(post.position).applyMatrix4(signal.root.matrix);
+      out.push({ pieceId: id, x: v.x, y: v.y, z: v.z, height: SIGNAL_HEIGHT });
+    }
+    return out;
+  }
+
   /** Is this switch's pin peg showing? (For tests.) */
   pinShown(id: number): boolean {
     return this.pins.get(id)?.visible ?? false;
@@ -1131,6 +1195,7 @@ export class TrackView {
     let mesh = this.arrowMesh;
     if (mesh && mesh.count !== n) {
       this.group.remove(mesh);
+      (mesh.children[0] as InstancedMesh | undefined)?.dispose();
       mesh.dispose();
       mesh = this.arrowMesh = null;
     }
@@ -1145,6 +1210,14 @@ export class TrackView {
       mesh.frustumCulled = false;
       mesh.raycast = () => {};
       mesh.userData.kind = "switch-arrows";
+      // The dark rim under each: the same instances, drawn first (one more draw, 4 more triangles a chevron).
+      const rim = new InstancedMesh(this.arrowRimGeometry, this.mats.lacquer(SWITCH_ARROW_RIM), n);
+      rim.instanceMatrix = mesh.instanceMatrix;
+      rim.receiveShadow = true;
+      rim.frustumCulled = false;
+      rim.raycast = () => {};
+      rim.userData.kind = "switch-arrows-rim";
+      mesh.add(rim);
       this.group.add(mesh);
       this.arrowMesh = mesh;
     }
@@ -1369,6 +1442,7 @@ export class TrackView {
     this.arrowMesh?.dispose();
     this.arrowMesh = null;
     this.arrowGeometry.dispose();
+    this.arrowRimGeometry.dispose();
     this.pinGeometry.dispose();
     this.outlineMaterial.dispose();
   }

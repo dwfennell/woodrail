@@ -555,6 +555,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   interaction.onDepart = () => audio.bell();
   interaction.onSwitched = () => scheduleSave();
   interaction.onLeverThrown = () => audio.switchClunk(0.7, 0);
+  // A routed train's throw in view: a soft clunk (rate-limited), and, once, how to pin a switch.
+  game.onThrownInView = (pieceId) => {
+    const p = game.layout.getPiece(pieceId);
+    const at = p ? new Vector3(p.pose.x, p.y, p.pose.z).project(game.camera) : null;
+    audio.softSwitchClunk(at ? Math.max(-1, Math.min(1, at.x)) * 0.6 : 0);
+    interaction.hintPinHow();
+  };
   // A halt held (Game mode): each town's reach shows as a ring on the ground, built once, shown and hidden after.
   const haltReach = new HaltReachView(game.scene, HALT_REACH);
   interaction.onHeld = (type) => {

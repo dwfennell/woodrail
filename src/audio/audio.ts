@@ -1,3 +1,20 @@
+/** Routed trains' switch throws are heard at most once in this long (ms). */
+export const SOFT_CLUNK_GAP_MS = 700;
+
+/** Lets something through at most once every `ms` (by the times given). */
+export class Gate {
+  private last = -Infinity;
+
+  constructor(readonly ms: number) {}
+
+  /** May it go at `now` (ms)? If so, the gate shuts for the next `ms`. */
+  open(now: number): boolean {
+    if (now - this.last < this.ms) return false;
+    this.last = now;
+    return true;
+  }
+}
+
 /**
  * Synthesised toy sounds (no audio files): wooden clacks over joints, magnet clicks, crash thuds, snap knocks
  * and a soft motor hum. The AudioContext starts on the first user gesture, as browsers require.
@@ -127,6 +144,19 @@ export class ToyAudio {
   clunk(volume: number, pan: number): void {
     this.knock(volume * 0.8, 120 * this.vary(1), 0.22, pan);
     this.knock(volume * 0.35, 260 * this.vary(1), 0.08, pan);
+  }
+
+  /** Routed trains' throws heard: one in `SOFT_CLUNK_GAP_MS` at most. */
+  private readonly softClunks = new Gate(SOFT_CLUNK_GAP_MS);
+
+  /**
+   * A switch thrown by a routed train, in view (QA N5: it swung over silently): the lever's clunk, soft, and at most one
+   * so often, so a busy layout doesn't clatter. True if it was heard.
+   */
+  softSwitchClunk(pan: number): boolean {
+    if (!this.softClunks.open(performance.now())) return false;
+    this.switchClunk(0.28, pan);
+    return true;
   }
 
   /** A switch's lever thrown over: the wooden clunk, with a lower knock under it (the points coming home). */

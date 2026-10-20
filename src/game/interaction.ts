@@ -38,7 +38,7 @@ import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
-import { carNearTap, deckTapWins, liftTap, liftTapAlong, nearCarWins, type CarOnScreen } from "./touch-pick";
+import { deckTapWins, fingertipWinner, LEVER_SLACK_PX, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
@@ -1356,12 +1356,21 @@ export class Interaction {
     return false;
   }
 
-  /** The pin's one-time hint. */
+  /** The pinning hints (how to, what a pin does, unpinned). */
   private readonly pinHint = new PinHint();
 
   /**
-   * Pin a switch, or unpin it (`cue`: a buzz, and the first time ever it's pinned, a toast saying what pinning does):
-   * its peg shows or goes and its chevrons change colour; it's saved.
+   * Once on this device, before any pin: how to pin a switch (a lever was tapped, or a routed train threw a switch in
+   * view: see `Game.onThrownInView`).
+   */
+  hintPinHow(): void {
+    const how = this.pinHint.how();
+    if (how) this.hud.toast(how, false, 4200);
+  }
+
+  /**
+   * Pin a switch, or unpin it (`cue`: a buzz, and a toast: the first time ever it's pinned, what pinning does; each
+   * unpin, "Unpinned"): its peg shows or goes and its chevrons change colour; it's saved.
    */
   private togglePin(pieceId: number, cue = true): void {
     const g = this.game;
@@ -1372,7 +1381,7 @@ export class Interaction {
     if (!cue) return;
     this.holdCue();
     const hint = this.pinHint.next(on);
-    if (hint) this.hud.toast(hint, false, 4200);
+    if (hint) this.hud.toast(hint, false, on ? 4200 : 1400);
   }
 
   /** The hold's buzz a frame on, if `still()` says the pickup still stands then. */
@@ -3955,7 +3964,10 @@ export class Interaction {
     const def = piece && getPieceDef(piece.type, piece.flipped);
     const points = !!def?.isSwitch && !def.gated;
     g.switchesChanged(points ? (id) => id === pieceId : undefined);
-    if (points) this.onLeverThrown?.(pieceId);
+    if (points) {
+      this.onLeverThrown?.(pieceId);
+      this.hintPinHow();
+    }
     this.onSwitched?.();
   }
 
@@ -4164,9 +4176,31 @@ export class Interaction {
     // (A route's stop disc floats over the cars: it wins. Planning a route, so does a station or depot tapped.)
     if (exact?.kind === "route-stop") return exact;
     if (this.onPickPlace && exact && (exact.kind === "depot" || (exact.kind === "piece" && this.game.economy.depotAtPiece(exact.pieceId)))) return exact;
-    if (!touch || !nearCarWins(exact ? (exact.kind === "depot" && exact.footprint ? "station" : exact.kind) : null)) return this.deckOverTrain(exact, exact);
-    const carId = carNearTap(x, y, this.carsOnScreen(), TOUCH_SLACK_PX);
-    return this.deckOverTrain(carId !== -1 ? { kind: "car", carId } : exact, exact);
+    if (!touch) return this.deckOverTrain(exact, exact);
+    const under: TapUnder = exact ? (exact.kind === "depot" && exact.footprint ? "station" : (exact.kind as TapUnder)) : null;
+    // A car or a lever within a fingertip (see `nearCarWins`, `nearLeverWins`): the nearer of them, where it may.
+    const car = nearCarWins(under) ? nearestOnScreen(x, y, this.carsOnScreen(), TOUCH_SLACK_PX) : null;
+    let lever = nearestOnScreen(x, y, this.leversOnScreen(), LEVER_SLACK_PX);
+    const own = exact?.kind === "piece" && exact.pieceId === lever.id;
+    if (lever.id === -1 || !nearLeverWins(under, lever.d, own, this.drawsNow || !!this.onPickPlace)) lever = { id: -1, d: Infinity };
+    const won = fingertipWinner(car, lever);
+    if (won === "lever") return { kind: "lever", pieceId: lever.id };
+    return this.deckOverTrain(won === "car" ? { kind: "car", carId: car!.id } : exact, exact);
+  }
+
+  /** The levers and semaphore posts on screen, base to top (px), for a fingertip's slack. */
+  private leversOnScreen(): CarOnScreen[] {
+    const r = this.game.canvas.getBoundingClientRect();
+    const v = new Vector3();
+    const toScreen = (x: number, y: number, z: number): [number, number] => {
+      v.set(x, y, z).project(this.game.camera);
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+    };
+    return this.game.trackView.leverPosts().map((p) => {
+      const [ax, ay] = toScreen(p.x, p.y, p.z);
+      const [bx, by] = toScreen(p.x, p.y + p.height, p.z);
+      return { id: p.pieceId, ax, ay, bx, by };
+    });
   }
 
   /**

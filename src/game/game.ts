@@ -994,8 +994,15 @@ export class Game {
    * is just set.
    */
   private watchSwitches(): void {
-    this.economy.onSwitch = (pieceId) => this.switchesChanged((id) => id === pieceId && this.inView(id));
+    this.economy.onSwitch = (pieceId) => {
+      const seen = this.inView(pieceId);
+      this.switchesChanged((id) => id === pieceId && seen);
+      if (seen) this.onThrownInView?.(pieceId);
+    };
   }
+
+  /** A routed train threw a switch in view (its lever swung over): for its soft clunk, and the hint how to pin one. */
+  onThrownInView: ((pieceId: number) => void) | null = null;
 
   /**
    * Switches were thrown or pinned: their levers, chevrons and pegs are redrawn (nothing else is rebuilt). Those `swing`
