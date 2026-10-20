@@ -1846,6 +1846,16 @@ export class Interaction {
     return this.selectedCar;
   }
 
+  /**
+   * Open a depot's card, as a tap on it would ("Show me" opens the workshop's for "Make a switch"; a town's ledger, its
+   * school's).
+   */
+  openDepotCard(depotId: number): void {
+    if (!this.game.economy.depot(depotId)) return;
+    this.openDepot(depotId);
+    this.game.invalidate();
+  }
+
   /** Open an engine's card (as a tap on it would, with nothing else): planning its route goes on after the map. */
   openEngineCard(carId: number): void {
     const found = this.game.sim.findCar(carId);
@@ -1936,11 +1946,6 @@ export class Interaction {
     };
     this.hud.onCardResize = later;
     later();
-  }
-
-  /** Open a depot's card (from another card: a town's ledger opens its school's). */
-  openDepotCard(depotId: number): void {
-    if (this.game.economy.depot(depotId)) this.openDepot(depotId);
   }
 
   private openDepot(depotId: number): void {

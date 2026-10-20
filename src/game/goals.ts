@@ -3,6 +3,7 @@ import { acrossRiver, type AcrossRiver } from "./across-river";
 import { getPieceDef, isBridge, type PieceTypeId } from "../track";
 import { BLUEPRINTS } from "./blueprints";
 import { workshops, workshopStock } from "./crafting";
+import { THING_RULES, type ThingId } from "./things";
 import { depotSpot } from "./depot-footprint";
 import { schoolOf, siteWhy } from "./industries";
 import { receivedBy } from "./town-life";
@@ -36,11 +37,16 @@ export interface GoalGuide {
    * turn it (QA: the workshop's spot was refused, its building over the river, in the starting view).
    */
   held?: { type: PieceTypeId; heading: number };
+  /** A depot whose card to open (the workshop's, to choose what to make). */
+  card?: number;
 }
 
 /** What a goal may ask beyond the world: the player's progress (blueprints learned). */
 export interface GoalContext {
   learned: ReadonlySet<string>;
+  /** The toy box (all owned, on the map or not), and the workshop's orders waiting: for "Make a switch". */
+  owned?: ReadonlyMap<ThingId, number>;
+  orders?: readonly ThingId[];
 }
 
 const NO_CONTEXT: GoalContext = { learned: new Set() };
@@ -58,6 +64,8 @@ export interface Goal {
   readonly needs?: readonly string[];
   /** The blueprint it's after, if any (to research at a school). */
   readonly blueprint?: string;
+  /** The tray item it asks to place: ringed on the tray while it's the goal and none is on the map (see `trayRing`). */
+  readonly ring?: PieceTypeId;
 }
 
 /** Above this speed (mm/s) a train counts as running. */
@@ -159,6 +167,17 @@ export function guideSchool(w: World): GoalGuide {
   const town = towns.find((t) => w.stations.has(t.id));
   if (!town) return guide;
   return { ...guide, ...guideTowns(w, [town.id]), tab: "industries", shelf: "Industries" };
+}
+
+/**
+ * The tray item to ring for this goal (the current one), or null: the piece it asks to place while none is on the map
+ * (QA: during "Place a school by a town" the Workshop was ringed, as it was whenever none was placed).
+ */
+export function trayRing(goal: Goal | null | undefined, w: World): PieceTypeId | null {
+  const type = goal?.ring;
+  if (!type) return null;
+  const role = type === "depot-school" ? "school" : type === "depot-workshop" ? "workshop" : null;
+  return role && w.economy.allDepots().some((d) => d.role === role) ? null : type;
 }
 
 /** Look at what's on the board: the trains (or failing that the track, or the first towns) and reach for a tab. */
@@ -271,6 +290,23 @@ const hasPiece = (w: World, test: (type: PieceTypeId, flipped: boolean) => boole
 const stationPieces = (w: World) => new Set(w.stations.values());
 
 /** The Game mode's goals, worked through in order. */
+/** "Run two trains at once" with one train on the map. */
+/** "Make a switch": choose it first; the workshop keeps planks only for an order (`orderPlanks`). */
+export const MAKE_SWITCH_HINT = "Tap your workshop and choose Switch. Trains then bring its planks.";
+export const SWITCH_ORDERED_HINT = "Ordered: trains bring the workshop its planks.";
+
+export const TWO_TRAINS_HINT = "Put a second engine on the track, then lay a passing loop with signals.";
+
+/**
+ * What to say of the second engine when "Run two trains at once" opens: where it is (one free in the toy box), or to
+ * make one (fewer than two owned); nothing if both are on the map already.
+ */
+export function secondEngineTip(free: number, owned: number): string {
+  if (free > 0) return "Engine in the Trains tab";
+  if (owned < 2) return "Make an engine at the workshop";
+  return "";
+}
+
 export const GOALS: readonly Goal[] = [
   {
     id: "join-two",
@@ -354,12 +390,14 @@ export const GOALS: readonly Goal[] = [
     id: "place-school",
     title: "Place a school by a town",
     hint: "Your village's present: drop it from the Industries tab on a straight beside a town.",
+    ring: "depot-school",
     check: (w) => ({ done: schools(w).length > 0 }),
     guide: guideSchool,
   },
   {
     id: "learn-switches",
     blueprint: "switches",
+    ring: "depot-school",
     title: "Research switches",
     hint: "Pick Switches, then bring 4 planks to the school.",
     check: (w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches"), ...(ctx.learned.has("switches") || schools(w).length > 0 ? {} : { hint: "Place your school beside a town (Industries tab)." }) }),
@@ -369,6 +407,7 @@ export const GOALS: readonly Goal[] = [
     id: "place-workshop",
     title: "Place your workshop",
     hint: "Drop it from the Industries tab onto a straight on your line.",
+    ring: "depot-workshop",
     // (Only the workshop itself: switches are researched at the school, so knowing them says nothing of a workshop.)
     check: (w) => ({ done: workshops(w).length > 0 }),
     guide: (w) => {
@@ -384,22 +423,31 @@ export const GOALS: readonly Goal[] = [
     },
   },
   {
-    id: "workshop-planks",
-    title: "Bring planks to the workshop",
-    hint: "Run planks from the sawmill to it.",
-    check: (w) => ({ done: (workshopStock(w).planks ?? 0) > 0 }),
+    // The workshop keeps planks only for an order waiting (`orderPlanks`), so the order comes first and trains then
+    // bring its planks (QA P4: "Bring planks to the workshop" stalled, towns taking every plank with nothing ordered).
+    id: "make-switch",
+    title: "Make a switch",
+    hint: MAKE_SWITCH_HINT,
+    check: (w, ctx = NO_CONTEXT) => {
+      if ((ctx.owned?.get("piece:switch") ?? 0) > 0 || hasPiece(w, (type, flipped) => getPieceDef(type, flipped).isSwitch)) return { done: true };
+      if (!ctx.orders?.includes("piece:switch")) return { done: false };
+      // Ordered: its planks on their way.
+      const need = THING_RULES["piece:switch"]!.cost.planks ?? 0;
+      const have = Math.min(need, workshopStock(w).planks ?? 0);
+      return { done: false, count: have, target: need, unit: "planks", hint: SWITCH_ORDERED_HINT };
+    },
+    // The workshop, its card open to choose from (QA P4: it pointed at the sawmill's planks, as if they came first).
     guide: (w) => {
       const shop = workshops(w)[0];
-      const saw = guideDepot(w, "sawmill");
-      if (!shop) return saw;
+      if (!shop) return guideDepot(w, "sawmill");
       const at = piecePoint(w, shop.pieceId);
-      return { points: [at, ...saw.points.slice(0, 1)], towns: [], marks: [at] };
+      return { points: [at], towns: [], marks: [at], card: shop.id };
     },
   },
   {
     id: "lay-switch",
     title: "Lay a switch",
-    hint: "Make one at the workshop, then lay it from the Switch shelf.",
+    hint: "Lay your switch from the Switch shelf on the Track tab.",
     check: (w) => ({ done: hasPiece(w, (type, flipped) => getPieceDef(type, flipped).isSwitch) }),
     guide: (w) => guideTrains(w, "track", "Switch"),
   },
@@ -443,9 +491,11 @@ export const GOALS: readonly Goal[] = [
     needs: ["signals"],
     check: (w) => {
       const n = running(w).length;
-      return { done: n >= 2, count: Math.min(n, 2), target: 2, unit: "trains" };
+      // One train on the map: the second engine first (QA: what to do wasn't said).
+      const p: GoalProgress = { done: n >= 2, count: Math.min(n, 2), target: 2, unit: "trains" };
+      return n < 2 && w.sim.trainIds().length < 2 ? { ...p, hint: TWO_TRAINS_HINT } : p;
     },
-    guide: (w) => guideTrains(w, "trains"),
+    guide: (w) => guideTrains(w, "trains", "Engines"),
   },
   {
     id: "join-all",
@@ -543,6 +593,14 @@ export class GoalTracker {
     if (!g) return null;
     const names = g.needs!.filter((id) => !this.learned.has(id)).map((id) => BLUEPRINTS.find((b) => b.id === id)?.label ?? id);
     return `Research ${names.join(" and ")} to unlock a goal`;
+  }
+
+  /**
+   * The goals learning blueprint `tech` opens (all their blueprints now in `learned`), not yet done: for the "Learned"
+   * news to name (QA: "Run two trains at once" opened unseen behind the current goal).
+   */
+  openedBy(tech: string, learned: ReadonlySet<string>): Goal[] {
+    return GOALS.filter((g) => !this.done.has(g.id) && !!g.needs?.includes(tech) && g.needs.every((id) => learned.has(id)));
   }
 
   /** The goals to save: those done, and those met and waiting (they're ticked off after a reload). */

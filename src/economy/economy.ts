@@ -75,6 +75,15 @@ export interface Recipe {
  */
 export const WORKSHOP_CAP = 30;
 
+/**
+ * The share of a train's load of a good (as it left the last depot it loaded that good at) a school may take on that
+ * pass while a town on its way wants the good too, and so the most a town leaves on the train for a school. QA (P4):
+ * while research ran, the school took every plank; with a research short of a whole trainload or more (Bridges, 10),
+ * towns got none for minutes and coins froze. Three fifths (6 of a 9-plank load): the research still fills, a pass at a
+ * time, and towns earn. (Half made Cities come before minute 60 on two seeds of the balance run; spec §5.)
+ */
+export const SCHOOL_SHARE = 0.6;
+
 export const RECIPES: Record<DepotRole, Recipe> = {
   forest: { takes: [], gives: ["log"], cycle: { uses: {}, makes: { log: 1 }, seconds: 15 } },
   sawmill: { takes: ["log"], gives: ["planks"], cycle: { uses: { log: 1 }, makes: { planks: 1 }, seconds: 8 } },
@@ -243,12 +252,14 @@ interface Later {
   /** Goods a later workshop takes (it has the first claim on them while they're `reserved`). */
   shop: number;
   /**
-   * Goods a later school takes (what its research still lacks) before any later stop but a town's does: a town leaves
-   * them on the train for it, as much as the research lacks (`keptForSchool`).
+   * Goods a later school takes (what its research still lacks) before any later stop but a town's or a workshop's
+   * does: a town or a workshop leaves them on the train for it, as much as the research lacks (`keptForSchool`).
    */
   school: number;
   /** A later stop is a town's station (riders have somewhere to get off). */
   town: boolean;
+  /** Goods some later town takes (it wants them): a school takes only its share of them (`SCHOOL_SHARE`). */
+  towns: number;
 }
 
 /** `Later` for each stop of one stop list, and what it was worked out from (see `Economy.laterOf`). */
@@ -343,14 +354,16 @@ export class Economy {
   private liveOf = -1;
 
   /**
-   * Does this car's train keep its `kind` on board for a school, at a town? While a school takes it from trains (its
-   * research lacks some: `sinkWants`), a train keeps as many as the research lacks and a town takes only the rest
-   * (QA: a school past a station got no planks, the town before it taking them all). A routed train keeps them while
-   * its line comes to a school that takes them before anywhere else but a town that does (`Later.school`); an unrouted
-   * one while an automatic school taking them is on its track (joined to it). Cheap: lookups and the train's cars, only
-   * at a town and only while the research lacks this good.
+   * Does this car's train keep its `kind` on board for a school, at a town or a workshop? While a school takes it from
+   * trains (its research lacks some: `sinkWants`), a train keeps as many as the research lacks and a town or workshop
+   * takes only the rest (QA: a school past a station got no planks, the town before it taking them all; P5: nor past a
+   * workshop, whose yard filled while research waited). A routed train keeps them while its line comes to a school
+   * that takes them before anywhere else but a town or workshop that does (`Later.school`); an unrouted one while an
+   * automatic school taking them is on its track (joined to it). A workshop still gets what it keeps for its waiting
+   * tray order (`reserved`). Cheap: lookups and the train's cars, only at a town or workshop and only while the
+   * research lacks this good.
    */
-  private keptForSchool(carId: number, kind: CargoKind, route: Route | null): boolean {
+  private keptForSchool(carId: number, kind: CargoKind, route: Route | null, atTown = false): boolean {
     const want = this.sinkWants?.(kind) ?? 0;
     if (want <= 0) return false;
     const found = this.sim.findCar(carId);
@@ -366,12 +379,56 @@ export class Economy {
       const net = this.networkOf(found.train.bogies[0].pieceId);
       if (!this.schools.some((d) => d.auto && this.networkOf(d.pieceId) === net && (!this.accepts || this.accepts(d, kind)))) return false;
     }
+    // At a town (it wants them), no more than what's left of the school's share this pass (`SCHOOL_SHARE`).
+    const keep = atTown ? Math.min(want, this.schoolShareLeft(found.train, kind)) : want;
+    return this.onBoard(found.train, kind) <= keep;
+  }
+
+  /** How many of `kind` a train has on board. */
+  private onBoard(train: Train, kind: CargoKind): number {
     let on = 0;
-    for (const car of found.train.cars) {
+    for (const car of train.cars) {
       const c = this.cargo.get(car.id);
       if (c?.kind === kind) on += c.count;
     }
-    return on <= want;
+    return on;
+  }
+
+  /**
+   * Per train, by cargo index: how many it had on board as it last loaded that good (its pass's load), and how many of
+   * them schools have taken since. Not saved: after a load it starts from what's on board.
+   */
+  private readonly passes = new Map<number, { loaded: Int32Array; school: Int32Array }>();
+
+  private passOf(train: Train, kind: CargoKind): { loaded: Int32Array; school: Int32Array } {
+    let p = this.passes.get(train.id);
+    if (!p) {
+      p = { loaded: new Int32Array(CARGO_KINDS.length).fill(-1), school: new Int32Array(CARGO_KINDS.length) };
+      this.passes.set(train.id, p);
+    }
+    const i = CARGO[kind].index;
+    if (p.loaded[i] < 0) p.loaded[i] = this.onBoard(train, kind);
+    return p;
+  }
+
+  /** What's left of a school's share (`SCHOOL_SHARE`) of this train's `kind` on this pass. */
+  private schoolShareLeft(train: Train, kind: CargoKind): number {
+    const p = this.passOf(train, kind);
+    const i = CARGO[kind].index;
+    return Math.max(0, Math.ceil(p.loaded[i] * SCHOOL_SHARE) - p.school[i]);
+  }
+
+  /**
+   * Does a town this car's train goes on to want `kind`? A routed train: a later stop of its line is a town taking it;
+   * an unrouted one: an automatic town on its track (joined to it) takes it. Only asked at a school, while its research
+   * lacks the good.
+   */
+  private townWantsAhead(carId: number, kind: CargoKind, route: Route | null): boolean {
+    const found = this.sim.findCar(carId);
+    if (!found) return false;
+    if (route) return !!(this.laterOf(route.stops, route.next % route.stops.length).towns & (1 << CARGO[kind].index));
+    const net = this.networkOf(found.train.bogies[0].pieceId);
+    return this.allDepots().some((d) => d.role === "town" && d.auto && this.networkOf(d.pieceId) === net && (!this.accepts || this.accepts(d, kind)));
   }
   private schools: DepotState[] = [];
   private schoolsOf: readonly DepotState[] | null = null;
@@ -612,6 +669,10 @@ export class Economy {
   /** Unload one unit from a car onto a depot's input pile (crane work). */
   protected unloadOne(d: DepotState, carId: number): void {
     const kind = this.cargoOf(carId).kind!;
+    if (d.role === "school") {
+      const found = this.sim.findCar(carId);
+      if (found) this.passOf(found.train, kind).school[CARGO[kind].index]++;
+    }
     this.take({ kind: "car", carId }, kind);
     this.put({ kind: "pile", depotId: d.id, cargo: kind }, kind);
   }
@@ -627,6 +688,13 @@ export class Economy {
     }
     this.take({ kind: "pile", depotId: d.id, cargo: kind }, kind);
     this.put({ kind: "car", carId }, kind);
+    // A new pass for this good: its load is what's on board now, and no school has had any of it.
+    const found = this.sim.findCar(carId);
+    if (found) {
+      const p = this.passOf(found.train, kind);
+      p.loaded[CARGO[kind].index] = this.onBoard(found.train, kind);
+      p.school[CARGO[kind].index] = 0;
+    }
   }
 
   /**
@@ -665,8 +733,14 @@ export class Economy {
     } else if (d.piles[CARGO[c.kind].index] >= capAt(d)) return false;
     // A routed train drops goods only at the stop it's heading for, as it says (or as its line calls for).
     const route = this.routeOfCar(carId);
-    // What a school's research lacks rides on past a town for it, as much as it lacks (the rest is the town's).
-    if (d.role === "town" && this.keptForSchool(carId, c.kind, route)) return false;
+    // What a school's research lacks rides on past a town or a workshop for it, as much as it lacks (the rest is
+    // theirs; a workshop's tray order first).
+    if ((d.role === "town" || (d.role === "workshop" && !this.reserved?.(c.kind))) && this.keptForSchool(carId, c.kind, route, d.role === "town")) return false;
+    // A school takes only its share of a pass's load while a town the train goes on to wants the good too.
+    if (d.role === "school" && this.townWantsAhead(carId, c.kind, route)) {
+      const found = this.sim.findCar(carId);
+      if (found && this.schoolShareLeft(found.train, c.kind) <= 0) return false;
+    }
     if (route) return this.dropsAt(route, d, c.kind);
     // Goods kept for a workshop: an unrouted train carries them on past the towns.
     if (d.role === "town" && this.reserved?.(c.kind)) return false;
@@ -813,7 +887,7 @@ export class Economy {
     }
     const at: Later[] = [];
     for (let i = 0; i < n; i++) {
-      const later: Later = { takes: 0, uses: 0, shop: 0, school: 0, town: false };
+      const later: Later = { takes: 0, uses: 0, shop: 0, school: 0, town: false, towns: 0 };
       /** Goods some later stop other than a town's takes, so far round the line. */
       let taken = 0;
       for (let k = 1; k < n; k++) {
@@ -824,8 +898,9 @@ export class Economy {
         if (role && !RECIPES[role].routedOnly) later.uses |= takes[j];
         if (role === "workshop") later.shop |= takes[j];
         if (role === "school") later.school |= takes[j] & ~taken;
-        if (role && role !== "town") taken |= takes[j];
+        if (role && role !== "town" && role !== "workshop") taken |= takes[j];
         later.town ||= town[j];
+        if (role === "town") later.towns |= takes[j];
       }
       at.push(later);
     }

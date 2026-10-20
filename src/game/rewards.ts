@@ -39,10 +39,10 @@ const isBuilding = (id: ThingId) => id.startsWith("piece:depot-");
  * A crate for a town that grew to `level`: `level + 1` different things you know how to make (no buildings), two of a
  * piece of track, one of a car or furniture. Empty if you know nothing that costs anything yet.
  */
-export function crateFor(p: Progress, level: number, random: () => number): [ThingId, number][] {
+export function crateFor(p: Progress, level: number, random: () => number, except?: ThingId): [ThingId, number][] {
   // No engine before Signals: on one line a second train only meets the first head on (it comes with Signals).
   const engineOk = p.learned.has("signals");
-  const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => !isBuilding(id) && !isFree(id) && p.knows(id) && (engineOk || id !== "car:engine"));
+  const known = (Object.keys(THING_RULES) as ThingId[]).filter((id) => id !== except && !isBuilding(id) && !isFree(id) && p.knows(id) && (engineOk || id !== "car:engine"));
   const out: [ThingId, number][] = [];
   while (out.length < level + 1 && known.length > 0) {
     const id = known.splice(Math.floor(random() * known.length), 1)[0];
@@ -63,8 +63,8 @@ function plural(label: string): string {
 
 /**
  * The first time any of your towns reaches a level, a present: a timber wagon and a school for your first village, an
- * industry building for your first town, an engine (once Signals are learned) and the grandest industry you know for
- * your first city. Returns what was given (into the toy box), or empty if that level was reached before. (No second
+ * industry building for your first town, an engine (once Signals are learned; before, two switches or wagons in its
+ * place) and the grandest industry you know for your first city. Returns what was given (into the toy box), or empty if that level was reached before. (No second
  * engine before Signals: on one line two trains only turn each other back. It comes with Signals: see `learnGift`.)
  */
 export function firstTimeGift(p: Progress, level: number): [ThingId, number][] {
@@ -93,9 +93,19 @@ function giftFor(p: Progress, level: number): [ThingId, number][] {
   // The first village: a wagon, and a school to research blueprints at (beside a town).
   if (level === 1) return [["car:timber", 1], [SCHOOL, 1]];
   if (level === 2) return industries.length > 0 ? [[industries[0], 1], ["piece:buffer-turnback", 2]] : [["piece:depot-workshop", 1], ["piece:buffer-turnback", 2]];
-  // The first city: an engine only once Signals are learned (till then it would only meet the first train head on).
-  const engine: [ThingId, number][] = p.learned.has("signals") ? [["car:engine", 1]] : [];
-  return [...engine, ...(industries.length > 0 ? [[industries[industries.length - 1], 1] as [ThingId, number]] : [])];
+  // The first city: an engine only once Signals are learned (till then it would only meet the first train head on);
+  // before, a stand-in worth as much (QA: with no industry known yet, the present was empty).
+  const engine: [ThingId, number] = p.learned.has("signals") ? ["car:engine", 1] : standIn(p);
+  return [engine, ...(industries.length > 0 ? [[industries[industries.length - 1], 1] as [ThingId, number]] : [])];
+}
+
+/**
+ * The first city's present in the engine's place before Signals, worth what it is (6 planks): two switches toward the
+ * passing loop Signals will need, once Switches are learned; till then two flatbed wagons (a longer train for the one
+ * engine).
+ */
+function standIn(p: Progress): [ThingId, number] {
+  return p.knows("piece:switch") ? ["piece:switch", 2] : ["car:timber", 2];
 }
 
 /** Room for planks left in the workshops' yards (each up to its cap). */
@@ -181,18 +191,30 @@ export function cardFor(p: Progress, world: World, kind: CardKind, level: number
 
 /**
  * Cards that are each a real choice: the wagon card's car is never in the crate beside it (QA: a crate with the wagon's
- * car and more made the wagon card no choice). The crate keeps its size; the wagon card takes another known wagon not
- * in the crate, or goes from the pool if there's none. (The other kinds aren't counted in things: none holds another.)
+ * car and more made the wagon card no choice). The crate keeps its size where it can; the wagon card takes another
+ * known wagon not in the crate. With none, the wagon card goes if enough other kinds are left for a full offer;
+ * else (a new game's first village knows only the flatbed and turnbacks: coins, a crate and the wagon are all it can
+ * offer) the crate is drawn again without the wagon's car, smaller if nothing else is known, so three cards stay (QA:
+ * a first village offered only two, coins and a crate). The wagon card goes then only if the crate would be empty.
+ * (The other kinds aren't counted in things: none holds another.)
  */
 function apart(p: Progress, pool: GrowthCard[], random: () => number): GrowthCard[] {
-  const crate = pool.find((c) => c.kind === "crate");
-  const k = pool.findIndex((c) => c.kind === "wagon");
-  if (!crate || k === -1) return pool;
+  const c = pool.findIndex((x) => x.kind === "crate");
+  const k = pool.findIndex((x) => x.kind === "wagon");
+  if (c === -1 || k === -1) return pool;
+  const crate = pool[c] as Extract<GrowthCard, { kind: "crate" }>;
   const inCrate = new Set(crate.things.map(([id]) => id));
   const wagon = pool[k] as Extract<GrowthCard, { kind: "wagon" }>;
   if (!inCrate.has(wagon.id)) return pool;
   const others = wagonsKnown(p).filter((id) => !inCrate.has(id));
-  if (others.length > 0) pool[k] = { kind: "wagon", id: others[Math.floor(random() * others.length)] };
+  if (others.length > 0) {
+    pool[k] = { kind: "wagon", id: others[Math.floor(random() * others.length)] };
+    return pool;
+  }
+  // Enough other kinds for a full offer: the wagon card goes, the crate keeps its size. Else (a new game's first
+  // village: coins, a crate, the flatbed) the crate is drawn again without the wagon's car.
+  const things = pool.length > CARDS_PER_OFFER ? [] : crateFor(p, crate.things.length - 1, random, wagon.id);
+  if (things.length > 0) pool[c] = { kind: "crate", things };
   else pool.splice(k, 1);
   return pool;
 }
@@ -262,7 +284,7 @@ export function cardView(p: Progress, world: World, card: GrowthCard): CardView 
     case "coins":
       return { kind: card.kind, icon: "🪙", amount: `+${card.n} coins`, line: "To spend as you like", ok: true };
     case "crate":
-      return { kind: card.kind, icon: "📦", amount: `A crate: ${card.things.length} things`, line: describeThings(card.things), ok: true };
+      return { kind: card.kind, icon: "📦", amount: `A crate: ${card.things.length} ${card.things.length === 1 ? "thing" : "things"}`, line: describeThings(card.things), ok: true };
     case "wagon":
       // The car itself, drawn as the toy box and the tray draw it (QA: it was always 🚃).
       return { kind: card.kind, icon: carIcon(card.id), amount: `1 ${ruleOf(card.id)?.label ?? card.id}`, line: "Into your toy box", ok: true };
