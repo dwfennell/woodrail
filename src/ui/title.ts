@@ -64,7 +64,6 @@ export class TitleScreen {
       if (url) art.style.backgroundImage = `url(${url})`;
       const buttons = card.querySelector(".title-buttons")!;
       const go = button("Continue", `Carry on with your ${c.name.toLowerCase()} railway`, "chip text primary", () => handlers.play(c.mode, false));
-      go.dataset.title = go.title;
       const fresh = button(c.fresh, c.freshTitle, "chip text", () => handlers.play(c.mode, true));
       buttons.append(go, fresh);
       this.continueBtns.set(c.mode, go);
@@ -74,16 +73,15 @@ export class TitleScreen {
   }
 
   /**
-   * Show the title. Continue appears for the modes that have a save; one from an older version of the game (`older`)
-   * can't load, and says so: "Start again" (the old save is kept aside, not lost).
+   * Show the title. Continue appears for the modes that have a save it can load; one from an older version of the
+   * game (`older`) can't, so there's no Continue, only the fresh start (the old save is kept aside, not lost).
    */
   show(saved: Record<GameMode, boolean>, older: Partial<Record<GameMode, boolean>> = {}): void {
     for (const [mode, b] of this.continueBtns) {
-      b.hidden = !saved[mode];
-      b.textContent = older[mode] ? "Start again (old save can't load)" : "Continue";
-      b.title = older[mode] ? "Your saved map is from an older version of the game: it's kept aside, and you start a fresh one" : b.dataset.title ?? b.title;
-      // Without a save, the fresh start is the main button.
-      b.nextElementSibling?.classList.toggle("primary", !saved[mode]);
+      const canContinue = saved[mode] && !older[mode];
+      b.hidden = !canContinue;
+      // Without a save to carry on, the fresh start is the main button.
+      b.nextElementSibling?.classList.toggle("primary", !canContinue);
     }
     this.root.hidden = false;
   }

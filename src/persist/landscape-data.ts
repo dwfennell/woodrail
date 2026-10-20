@@ -68,6 +68,7 @@ export const landscapeSchema = z.object({
           landmark: z.string().optional(),
         }),
       ),
+      claimed: cells.optional(),
     }),
   ),
   depots: z.array(z.object({ id, kind: z.enum(["forest", "sawmill"]), centre: point, piece: pose })),
@@ -116,7 +117,7 @@ export function serializeLandscape(land: Landscape): LandscapeData {
         road: toBase64(g.road.subarray(a, b)),
       };
     }),
-    towns: land.towns.map((t) => ({ ...t, centre: { ...t.centre }, station: { ...t.station }, cells: [...t.cells], buildings: t.buildings.map((b) => ({ ...b, cells: [...b.cells] })) })),
+    towns: land.towns.map((t) => ({ ...t, centre: { ...t.centre }, station: { ...t.station }, cells: [...t.cells], buildings: t.buildings.map((b) => ({ ...b, cells: [...b.cells] })), ...(t.claimed?.length ? { claimed: [...t.claimed] } : {}) })),
     depots: land.depots.map((d) => ({ ...d, centre: { ...d.centre }, piece: { ...d.piece } })),
     fields: land.fields.map((f) => ({ ...f, cells: [...f.cells] })),
     shed: land.shed ? { ...land.shed, cells: [...land.shed.cells] } : null,
