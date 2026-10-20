@@ -33,7 +33,8 @@ import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
 import { warmDrawing } from "../track/draw-path";
 import { dragMoves, dragSlop } from "./drag-rule";
-import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, undoesHold } from "./touch-hold";
+import { PinHint } from "./switch-pin";
+import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
 import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
@@ -205,6 +206,8 @@ type Mode =
         /** A train held: it's picked up only once the finger moves (let go, and it's just selected, still running). */
         armed?: boolean;
       };
+      /** A press on a switch's lever, finger or mouse: a long press pins it or unpins it (see `armPin`). */
+      pin?: { timer: number; t: number; strayedAt: number | null };
     }
   | {
       /** The picked pieces dragged together, rigidly (with the risers under them). */
@@ -352,8 +355,10 @@ export class Interaction {
   onTurned: (() => void) | null = null;
   /** An engine was set going from a standstill. */
   onDepart: (() => void) | null = null;
-  /** A switch was thrown (it's saved; nothing else changed). */
+  /** A switch was thrown, or pinned or unpinned (it's saved; nothing else changed). */
   onSwitched: (() => void) | null = null;
+  /** A switch's points were thrown by hand (its lever swings over: the clunk). */
+  onLeverThrown: ((pieceId: number) => void) | null = null;
   /**
    * Where the current goal's guide marks a piece to go (Show me's rings), till that goal's done. A finger put on one,
    * holding a piece on touch, holds it there: on the marker, as the player means, not floating above the finger (QA:
@@ -1099,6 +1104,7 @@ export class Interaction {
     }
     this.mode = press;
     this.armHold(press, e.timeStamp);
+    this.armPin(press, e.timeStamp);
   }
 
   /**
@@ -1151,6 +1157,7 @@ export class Interaction {
       const off = e.target !== this.game.canvas || this.hud.isOverTray(e.clientX, e.clientY);
       this.roads.update(this.roadReady.drag, off ? -1 : this.squareAt(e.clientX, e.clientY), off);
     }
+    if (this.vetoPin(e)) return;
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     if (this.vetoHold(e)) return;
     if (m.kind === "draw-track") {
@@ -1163,6 +1170,18 @@ export class Interaction {
     if (still && still.pointerId === e.pointerId && Math.hypot(e.clientX - still.x, e.clientY - still.y) >= HOLD_SLOP) this.heldStill = null;
     if (m.kind === "press") {
       const travel = Math.hypot(e.clientX - m.x, e.clientY - m.y);
+      if (m.pin) {
+        // A lever pressed: a finger that strays before the pin's time is a tap (if it's let go near) or a pan, not a pin.
+        const pin = m.pin;
+        for (const c of coalesced(e)) {
+          const at = c.timeStamp - pin.t;
+          if (at < PIN_HOLD_MS && Math.hypot(c.clientX - m.x, c.clientY - m.y) >= HOLD_SLOP) pin.strayedAt ??= at;
+        }
+        if (pin.strayedAt !== null) {
+          clearTimeout(pin.timer);
+          m.pin = undefined;
+        }
+      }
       if (m.hold) {
         // Waiting to see if it's a hold: by the moves' own times (a slow phone delivers them late), each one since the
         // last (the browser may have run several into this event).
@@ -1282,6 +1301,78 @@ export class Interaction {
     if (m.press.kind === "piece" && (this.picking || this.fixedLabel(m.press.pieceId))) return;
     if (m.press.kind === "depot" && this.movableIndustry(m.press.depotId) === -1) return;
     m.hold = { timer: window.setTimeout(() => this.holdFired(m), HOLD_MS), t, strayedAt: null };
+  }
+
+  /**
+   * A press on a switch's lever (or its semaphore), with a finger or a mouse: if it rests `PIN_HOLD_MS`, the switch is
+   * pinned (or unpinned), and letting go doesn't flip it as well; a tap still flips it. Decided as a pickup's hold is,
+   * by when things happened (see `pinFired`, `vetoPin`). Not a signal's lever, nor a deck's (they've nothing to pin),
+   * and never while planning a route (a press there is a floor tap: nothing comes to this).
+   */
+  private armPin(m: Extract<Mode, { kind: "press" }>, t: number): void {
+    if (m.press.kind !== "lever" || m.press.road || this.onPickPlace) return;
+    const piece = this.game.layout.getPiece(m.press.pieceId);
+    const def = piece && getPieceDef(piece.type, piece.flipped);
+    if (!def?.isSwitch || def.gated || def.signal) return;
+    m.pin = { timer: window.setTimeout(() => this.pinFired(m), PIN_HOLD_MS), t, strayedAt: null };
+  }
+
+  /** The pin's time is up: a frame on (moves a slow phone queued are seen first), pin it, if the press still rests. */
+  private pinFired(m: Extract<Mode, { kind: "press" }>): void {
+    requestAnimationFrame(() => {
+      const pin = m.pin;
+      if (this.mode !== m || !pin || m.press.kind !== "lever") return;
+      if (decideHold(pin.strayedAt, performance.now() - pin.t, this.touches.size, PIN_HOLD_MS) !== "hold") return;
+      m.pin = undefined;
+      if (m.hold) clearTimeout(m.hold.timer);
+      // The press is used up: letting go doesn't flip it as well.
+      this.mode = { kind: "idle" };
+      this.game.controls.enabled = true;
+      this.togglePin(m.press.pieceId);
+      this.pinUnsure = { pointerId: m.pointerId, t: pin.t, x: m.x, y: m.y, pieceId: m.press.pieceId };
+    });
+  }
+
+  /**
+   * Pinned by the pin's timer, before any move had been seen: a slow phone may deliver the moves of a pan (or the lift
+   * of a tap) only now. Settled (null) by the first move from after the pin's time.
+   */
+  private pinUnsure: { pointerId: number; t: number; x: number; y: number; pieceId: number } | null = null;
+
+  /** True if late moves showed a pin was really a pan: it's unpinned again (the view has the gesture from here). */
+  private vetoPin(e: PointerEvent): boolean {
+    const u = this.pinUnsure;
+    if (!u || u.pointerId !== e.pointerId) return false;
+    for (const c of coalesced(e)) {
+      const at = c.timeStamp - u.t;
+      if (at >= PIN_HOLD_MS) break;
+      if (undoesHold(at, Math.hypot(c.clientX - u.x, c.clientY - u.y), false, PIN_HOLD_MS)) {
+        this.pinUnsure = null;
+        this.togglePin(u.pieceId, false);
+        return true;
+      }
+    }
+    if (e.timeStamp - u.t >= PIN_HOLD_MS) this.pinUnsure = null;
+    return false;
+  }
+
+  /** The pin's one-time hint. */
+  private readonly pinHint = new PinHint();
+
+  /**
+   * Pin a switch, or unpin it (`cue`: a buzz, and the first time ever it's pinned, a toast saying what pinning does):
+   * its peg shows or goes and its chevrons change colour; it's saved.
+   */
+  private togglePin(pieceId: number, cue = true): void {
+    const g = this.game;
+    const on = !g.layout.isPinned(pieceId);
+    g.layout.setPinned(pieceId, on);
+    g.switchesChanged();
+    this.onSwitched?.();
+    if (!cue) return;
+    this.holdCue();
+    const hint = this.pinHint.next(on);
+    if (hint) this.hud.toast(hint, false, 4200);
   }
 
   /** The hold's buzz a frame on, if `still()` says the pickup still stands then. */
@@ -1425,6 +1516,16 @@ export class Interaction {
         else if (this.noteTap(e) && ground) this.game.director.focus(ground, 260);
       } else this.lastTap = null;
     }
+    // Pinned by the pin's timer, but the lever was let go before its time (its lift delivered late): a tap after all.
+    const pinned = this.pinUnsure;
+    if (pinned && pinned.pointerId === e.pointerId) {
+      this.pinUnsure = null;
+      if (undoesHold(e.timeStamp - pinned.t, 0, true, PIN_HOLD_MS)) {
+        this.togglePin(pinned.pieceId, false);
+        this.tap({ kind: "lever", pieceId: pinned.pieceId });
+      }
+      return;
+    }
     const m = this.mode;
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
     this.game.controls.enabled = true;
@@ -1448,7 +1549,13 @@ export class Interaction {
     }
     if (m.kind === "press") {
       if (m.hold) clearTimeout(m.hold.timer);
+      if (m.pin) clearTimeout(m.pin.timer);
       this.mode = { kind: "idle" };
+      // Rested on a lever its whole time, let go before the timer's frame came round (a slow phone): a pin, not a flip.
+      if (m.pin && m.press.kind === "lever" && decideHold(m.pin.strayedAt, e.timeStamp - m.pin.t, this.touches.size, PIN_HOLD_MS) === "hold") {
+        this.togglePin(m.press.pieceId);
+        return;
+      }
       // (Cargo is tapped again and again, a unit a tap: never a double tap.)
       if (m.press.kind !== "lever" && m.press.kind !== "cargo" && this.noteTap(e)) this.focusOn(m.press);
       else this.tap(m.press, m.add);
@@ -1506,8 +1613,10 @@ export class Interaction {
     this.hud.setRefusal(null);
     const m = this.mode;
     if (m.kind === "press" && m.hold) clearTimeout(m.hold.timer);
+    if (m.kind === "press" && m.pin) clearTimeout(m.pin.timer);
     this.heldStill = null;
     this.heldUnsure = null;
+    this.pinUnsure = null;
     this.game.controls.enabled = true;
     if (m.kind === "drag-piece") {
       this.dropHeld(m.ghost);
@@ -3833,8 +3942,11 @@ export class Interaction {
         return;
       }
     }
-    g.trackView.syncSwitches();
-    g.invalidate();
+    // A switch's points swing over (its chevrons slide across) with a clunk; a signal or a deck just shows how it's set.
+    const def = piece && getPieceDef(piece.type, piece.flipped);
+    const points = !!def?.isSwitch && !def.gated;
+    g.switchesChanged(points ? (id) => id === pieceId : undefined);
+    if (points) this.onLeverThrown?.(pieceId);
     this.onSwitched?.();
   }
 
