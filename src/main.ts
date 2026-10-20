@@ -1345,14 +1345,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   let rateKeyShown = "";
 
   const workshopPanel = new WorkshopPanel(hud.depotExtra, {
+    // (The goals hear of it at once: "Make a switch" says its planks are on their way, with nothing else to redraw.)
     order: (id) => {
       crafting.order(id);
       showWorkshop(true);
+      checkGoals(true);
       scheduleSave();
     },
     cancel: (id) => {
       crafting.cancel(id);
       showWorkshop(true);
+      checkGoals(true);
       scheduleSave();
     },
   });

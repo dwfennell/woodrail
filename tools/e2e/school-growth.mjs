@@ -185,8 +185,11 @@ const shop = await p.evaluate(() => {
   return w.economy.allDepots().find((d) => d.role === "workshop")?.id ?? null;
 });
 check("the workshop placed: the next goal is Make a switch", shop !== null && (await waitGoal("Make a switch")), String(await goalNow()));
-await p.evaluate((id) => window.woodrail.interaction.openDepot(id), shop);
-await p.waitForTimeout(600);
+await p.evaluate((id) => {
+  window.woodrail.interaction.openDepot(id);
+  window.woodrail.invalidate();
+}, shop);
+await p.waitForFunction(() => !!document.querySelector(".make-now"), null, { timeout: 15000 }).catch(() => {});
 const card = await p.evaluate(() => document.querySelector(".make-now")?.textContent);
 check("…the workshop's card: choose what to make, then trains bring the planks", card === "Choose what to make: trains bring the planks.", String(card));
 await shot("04b-workshop-card");

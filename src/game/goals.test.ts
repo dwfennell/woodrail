@@ -412,6 +412,8 @@ describe("GoalTracker", () => {
     expect(panelSrc).not.toContain("Bring planks here");
     // The game passes the toy box and the orders to the goals.
     expect(mainSrc).toContain("const ctx = { learned: progress.learned, owned: progress.owned, orders: progress.orders };");
+    // An order on the card is heard at once (when idle, no frame comes to poll the goals).
+    expect(mainSrc).toMatch(/crafting\.order\(id\);\s*showWorkshop\(true\);\s*checkGoals\(true\);/);
   });
 
   it("switches learned by research tick neither workshop goal (QA: both ticked with no workshop placed)", () => {
