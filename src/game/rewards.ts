@@ -192,10 +192,11 @@ export function cardFor(p: Progress, world: World, kind: CardKind, level: number
 /**
  * Cards that are each a real choice: the wagon card's car is never in the crate beside it (QA: a crate with the wagon's
  * car and more made the wagon card no choice). The crate keeps its size where it can; the wagon card takes another
- * known wagon not in the crate. With none (a new game knows only the flatbed), the crate is drawn again without the
- * wagon's car, smaller if nothing else is known, so both cards stay (QA: a first village offered only two cards, coins
- * and a crate). Only if the crate would then be empty does the wagon card go. (The other kinds aren't counted in
- * things: none holds another.)
+ * known wagon not in the crate. With none, the wagon card goes if enough other kinds are left for a full offer;
+ * else (a new game's first village knows only the flatbed and turnbacks: coins, a crate and the wagon are all it can
+ * offer) the crate is drawn again without the wagon's car, smaller if nothing else is known, so three cards stay (QA:
+ * a first village offered only two, coins and a crate). The wagon card goes then only if the crate would be empty.
+ * (The other kinds aren't counted in things: none holds another.)
  */
 function apart(p: Progress, pool: GrowthCard[], random: () => number): GrowthCard[] {
   const c = pool.findIndex((x) => x.kind === "crate");
@@ -210,7 +211,9 @@ function apart(p: Progress, pool: GrowthCard[], random: () => number): GrowthCar
     pool[k] = { kind: "wagon", id: others[Math.floor(random() * others.length)] };
     return pool;
   }
-  const things = crateFor(p, crate.things.length - 1, random, wagon.id);
+  // Enough other kinds for a full offer: the wagon card goes, the crate keeps its size. Else (a new game's first
+  // village: coins, a crate, the flatbed) the crate is drawn again without the wagon's car.
+  const things = pool.length > CARDS_PER_OFFER ? [] : crateFor(p, crate.things.length - 1, random, wagon.id);
   if (things.length > 0) pool[c] = { kind: "crate", things };
   else pool.splice(k, 1);
   return pool;

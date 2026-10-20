@@ -299,6 +299,9 @@ describe("three real choices", () => {
       const w = worlds[seed % 3 ? 1 : 0];
       const offer = offerOnGrowth(p, w, "Larkfield", 1, rng(seed))!;
       expect(new Set(offer.cards.map((c) => c.kind)).size, `seed ${seed}`).toBe(3);
+      // A crate shown without the wagon card keeps its size (e2e:growth: it lost a thing for a wagon card not shown).
+      const crate = offer.cards.find((c) => c.kind === "crate");
+      if (crate && !offer.cards.some((c) => c.kind === "wagon")) expect(crate.things, `seed ${seed}`).toHaveLength(2);
     }
   });
 
