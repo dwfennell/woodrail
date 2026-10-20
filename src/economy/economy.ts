@@ -5,7 +5,7 @@ import { ticks, CRANE_TICKS, CRAWL_SPEED, PILE_CAP, WAGON_CAPACITY } from "./con
 import { Spacing } from "./spacing";
 import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
-import { steer } from "./steer";
+import { steerSwitch } from "./steer";
 
 /** How often (sim ticks) the switches ahead of routed trains are set. */
 const STEER_TICKS = 8;
@@ -1361,7 +1361,7 @@ export class Economy {
   /** Loads the cranes have moved, since this economy began. */
   loadsMoved = 0;
 
-  /** Called when a route has set a switch (the game redraws its lever). */
+  /** Called when a route has set a switch (its piece id: the game redraws its lever, swinging it over if it's in view). */
   onSwitch: ((pieceId: number) => void) | null = null;
   private steerTicks = 0;
   /**
@@ -1422,7 +1422,8 @@ export class Economy {
       const net = this.drive(found.train);
       const d = this.depots[r.stops[r.next % r.stops.length].depotId];
       if (net === 0 || !d || !this.onMap(d)) continue;
-      if (steer(this.layout, found.train, net > 0, d.pieceId, undefined, undefined, this.occupied)) this.onSwitch?.(d.pieceId);
+      const thrown = steerSwitch(this.layout, found.train, net > 0, d.pieceId, undefined, undefined, this.occupied);
+      if (thrown !== -1) this.onSwitch?.(thrown);
     }
   }
 
