@@ -1391,7 +1391,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (card.kind === "planks") game.invalidate(); // (the yard's pile grows)
       if (card.kind === "crate" || card.kind === "wagon") hud.refreshTrayBadges();
       hud.setCoins(progress.coins);
-      note({ kind: "milestone", text: `${o.from}'s reward: ${took.amount}${card.kind === "crate" ? ` (${took.line})` : ""}` }, 3200);
+      note({ kind: "milestone", text: `${o.from}'s reward: ${took.taken ?? took.amount}${card.kind === "crate" ? ` (${took.line})` : ""}` }, 3200);
       audio.chime();
       if (board.open) refreshBoard();
       save();

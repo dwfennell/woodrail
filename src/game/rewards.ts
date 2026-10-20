@@ -214,6 +214,8 @@ export interface CardView {
   line: string;
   ok: boolean;
   why?: string;
+  /** What the toast says once it's taken, where that's more than the amount: "+3🪵 to Bridges" (QA: where it went). */
+  taken?: string;
 }
 
 /** A car's picture, as the toy box and the tray draw it ("car:hopper" → a hopper's side view). */
@@ -247,14 +249,15 @@ export function cardView(p: Progress, world: World, card: GrowthCard): CardView 
       const bag = boostGoods(p, card.share);
       const id = p.research.current;
       const pct = `${Math.round(card.share * 100)}%`;
-      if (id && kindsOf(bag).length > 0) return { kind: card.kind, icon: "📘", amount: `+${goodsLine(bag)}`, line: `${pct} of what ${techOf(id)!.label} still needs`, ok: true };
+      if (id && kindsOf(bag).length > 0) return { kind: card.kind, icon: "📘", amount: `+${goodsLine(bag)}`, line: `${pct} of what ${techOf(id)!.label} still needs`, ok: true, taken: `+${goodsLine(bag)} to ${techOf(id)!.label}` };
       return { kind: card.kind, icon: "📘", amount: `${pct} research boost`, line: "Goods into your research", ok: false, why: "Pick a research that needs goods" };
     }
     case "rare": {
       const label = CARGO[card.good].label.toLowerCase();
       const n = Math.min(card.n, lacking(p, card.good));
       const line = "Rare cargo for your research";
-      if (n > 0) return { kind: card.kind, icon: GOODS_ICON[card.good], amount: `+${n} ${label}`, line, ok: true };
+      const id = p.research.current;
+      if (n > 0) return { kind: card.kind, icon: GOODS_ICON[card.good], amount: `+${n} ${label}`, line, ok: true, ...(id ? { taken: `+${n} ${label} to ${techOf(id)!.label}` } : {}) };
       return { kind: card.kind, icon: GOODS_ICON[card.good], amount: `+${card.n} ${label}`, line, ok: false, why: `Your research needs no ${label} now` };
     }
   }

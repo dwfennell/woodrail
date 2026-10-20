@@ -110,13 +110,14 @@ describe("the research boost", () => {
     expect(boostGoods(p, 0.25)).toEqual({ planks: 2 });
     p.offers.push({ from: "Larkfield", level: 1, cards: [{ kind: "boost", share: 0.25 }] });
     expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+2🪵" });
-    expect(takeCard(p, w, 0, 0)).not.toBeNull();
+    // The toast says where the goods went (QA: "+3🪵" alone didn't).
+    expect(takeCard(p, w, 0, 0)).toMatchObject({ amount: "+2🪵", taken: "+2🪵 to Bridges and ramps" });
     expect(p.research.got).toEqual({ planks: 6 });
     expect(p.offers).toEqual([]);
     // Mills: 12 planks and 6 grain: a town's 40% is 5 planks and 3 grain.
     const q = researching();
     q.offers.push({ from: "Elderwick", level: 2, cards: [{ kind: "boost", share: 0.4 }] });
-    takeCard(q, w, 0, 0);
+    expect(takeCard(q, w, 0, 0)).toMatchObject({ taken: "+5🪵 3🌾 to Mills" });
     expect(q.research.got).toEqual({ planks: 5, grain: 3 });
     expect(q.research.current).toBe("mills");
   });
@@ -152,7 +153,7 @@ describe("rare cargo", () => {
     deliver(p, "grain", 2);
     p.offers.push({ from: "Larkfield", level: 3, cards: [{ kind: "rare", good: "grain", n: 12 }] });
     expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+4 grain" });
-    takeCard(p, w, 0, 0);
+    expect(takeCard(p, w, 0, 0)).toMatchObject({ taken: "+4 grain to Mills" });
     expect(p.research.got).toEqual({ grain: 6 });
   });
 });
