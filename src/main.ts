@@ -22,12 +22,12 @@ import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
 import { cardView, describeThings, firstTimeGift, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
-import { landmarkOf, landmarksAt } from "./game/landmarks";
+import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { costOf, craftNow, craftShort, Crafting, lacking, uncraft, workshops, workshopStock } from "./game/crafting";
+import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, uncraft, workshops, workshopStock } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
@@ -44,11 +44,11 @@ import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./rende
 import { decoupleWords } from "./game/decouple-words";
 import { engineStatus, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
-import { MAX_SHEDS, SHED_CAP, type RouteStopDef, type StopAction } from "./economy";
+import { MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
-import { keepsPlanks, learnAuto, needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
-import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
+import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
+import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, setSpeed, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
 import { cardState, goalPick, pickerKey, pillKey, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
@@ -1053,13 +1053,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const raised = [...progress.landmarks].filter((id) => !before.has(id)).flatMap((id) => landmarkOf(id) ?? []);
       const landmarks =
         raised.length === 1 ? `New ${raised[0].name.toLowerCase()}: ${raised[0].blurb}` : raised.length > 1 ? `New ${raised.map((m) => m.name.toLowerCase()).join(", ")}` : "";
+      // Its school grows with it: a college (twice as fast), a library wing (tier-3 research).
+      const school = placedSchools(game.world).find((d) => d.townId === town.id);
+      const grade = school && schoolGrade(game.world, school, progress.learned);
+      const schoolNews = !grade ? "" : grade.wing && status.level === 3 ? "Its school has a library wing: advanced research opens" : grade.college && status.level === 2 ? "Its school is now a college: research 2× as fast" : "";
       const level = aOrAn(status.name.toLowerCase());
       // The first village, town and city each bring a present; a town that grows offers three cards to pick one from
       // (planks, coins, a crate, a wagon, a research boost, rare cargo: never a blueprint).
       const gift = firstTimeGift(progress, status.level);
       if (gift.length > 0) hud.refreshTrayBadges();
       const offer = offerOnGrowth(progress, game.world, town.name, status.level, Math.random);
-      const extras = [landmarks, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", offer ? "Pick a reward" : ""].filter(Boolean);
+      const extras = [landmarks, schoolNews, gift.length > 0 ? `Present: ${describeThings(gift)}` : "", offer ? "Pick a reward" : ""].filter(Boolean);
       const grew = built.length > 0 ? `${town.name} grew into ${level}!` : `${town.name} is now ${level}, but has no room to build`;
       const where = built.length > 0 ? placeOf(built) : here;
       if (extras.length > 0) {
@@ -1291,22 +1295,26 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
 
   /**
-   * A school's yard wears the towns' schoolhouse (the catalogue's model, built on first ask; the yards are drawn again
-   * once it's in, a stand-in till then).
+   * A school's yard wears what it has grown into with its town (spec §1): a schoolhouse; a college once College is
+   * learned and its town is a town; a library (its wing) beside a city. Each the catalogue's model, built on first ask
+   * and drawn at a size that fits the yard (the yards are drawn again once it's in, a stand-in till then). The yards are
+   * drawn again when a school's grade changes (`schoolGradesKey`), never per frame.
    */
-  const SCHOOL_HOUSE = "bldg-school";
-  function schoolHouse(role: string): PropModel | null | undefined {
+  const SCHOOL_MODELS = { house: { asset: "bldg-school", scale: 1 }, college: { asset: "bldg-college", scale: 0.84 }, wing: { asset: "bldg-library", scale: 0.8 } };
+  function schoolHouse(role: string, depot?: DepotState): { parts: PropModel["parts"]; scale: number } | null | undefined {
     if (role !== "school") return null;
-    const m = game.propLibrary.model(SCHOOL_HOUSE);
+    const grade = depot && mode === "game" ? schoolGrade(game.world, depot, progress.learned) : null;
+    const { asset, scale } = grade?.wing ? SCHOOL_MODELS.wing : grade?.college ? SCHOOL_MODELS.college : SCHOOL_MODELS.house;
+    const m = game.propLibrary.model(asset);
     if (m === undefined)
-      void game.propLibrary.load(SCHOOL_HOUSE).then(
+      void game.propLibrary.load(asset).then(
         () => {
           game.depotView.setWorld(game.economy, game.layout);
           game.invalidate();
         },
         () => {},
       );
-    return m;
+    return m && { parts: m.parts, scale };
   }
 
   /** Industries placed or moved: give new ones their depots, and redraw the yards where they stand. */
@@ -1320,6 +1328,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     }
     // Upgrades put a machine in their yards (Game mode): the yards are drawn again when one is learned.
     key += `#${mode === "game" ? upgradeKey(progress) : ""}`;
+    // Schools wear what they've grown into (a college, a library wing): drawn again only when that changes.
+    key += `#${mode === "game" ? schoolGradesKey(game.world, progress.learned) : ""}`;
     game.depotView.extras = mode === "game" ? (role) => machinesFor(progress, role) : null;
     game.depotView.building = schoolHouse;
     if (added || key !== industryKey) game.depotView.setWorld(game.economy, game.layout);
@@ -1331,13 +1341,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (updateRates(game.world, mode === "game" ? (role) => boostOf(progress, role) : undefined)) game.invalidate();
     }
     hud.refreshTrayBadges();
-    // A school placed (or taken up): the school blueprint comes with your first (towns don't build schools), and the
-    // pill shows (or says to pick research), or goes.
-    if (mode === "game") {
-      const learnedBefore = progress.learned.size;
-      syncLandmarks();
-      if (progress.learned.size !== learnedBefore && board.open) refreshBoard();
-    }
+    // A school placed (or taken up), or grown with its town: tier 3 may open, study may go faster, and the pill shows
+    // (or says to pick research), or goes.
+    if (mode === "game") syncLandmarks();
     refreshPill();
   }
   let rateKeyShown = "";
@@ -1392,7 +1398,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (card.kind === "planks") game.invalidate(); // (the yard's pile grows)
       if (card.kind === "crate" || card.kind === "wagon") hud.refreshTrayBadges();
       hud.setCoins(progress.coins);
-      note({ kind: "milestone", text: `${o.from}'s reward: ${took.amount}${card.kind === "crate" ? ` (${took.line})` : ""}` }, 3200);
+      note({ kind: "milestone", text: `${o.from}'s reward: ${took.taken ?? took.amount}${card.kind === "crate" ? ` (${took.line})` : ""}` }, 3200);
       audio.chime();
       if (board.open) refreshBoard();
       save();
@@ -1565,9 +1571,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
           ? `Research ${missing.map((n) => techOf(n)!.label.toLowerCase()).join(" and ")} first`
           : unmet.length > 0
             ? `Needs ${unmet.map(describeNeed).join(" and ")}`
-            : t.learn === "auto"
-              ? "Comes by itself"
-              : "Later";
+            : "Later";
       return { ...base, state: "locked" as const, waits };
     });
     const focus = goalPick(progress, goalTech, school !== null);
@@ -1589,12 +1593,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const CRAFT_STEP = 0.25;
   /** The research's study clock, on the world's game time (see `simElapsed`). */
   const studyClock: StudyClock = { at: null };
-  /** The landmarks your towns have, from the map (a blueprint may need a library), and your school if it's placed. */
+  /**
+   * What the map gives research, from the map: the towns' landmarks, a school beside a city (tier 3), and how fast the
+   * schools study (a college: twice as fast). Asked when industries, towns or what's learned change, not per frame.
+   */
   function syncLandmarks(): void {
     progress.landmarks.clear();
     for (const id of landmarksAt(game.world)) progress.landmarks.add(id);
-    // The school and library blueprints come with the buildings.
-    learnAuto(progress);
+    setSpeed(progress, researchSpeed(game.world, progress.learned));
   }
   setInterval(() => {
     if (mode === "game" && board.open && boardKey() !== boardKeyShown) refreshBoard();
@@ -1702,16 +1708,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     });
     attachPassengers(game.world, () => progress, () => {
       hud.setCoins(progress.coins);
-      for (const id of learnAuto(progress)) {
-        note({ kind: "milestone", text: `${progress.riders} passengers carried: you've learned ${techOf(id)!.label}!` }, 4200);
-        audio.chime();
-        hud.refreshTrayBadges();
-        refreshBoard();
-      }
       scheduleSave();
     });
   }
-  /** Planks kept for the workshop: it holds fewer than its waiting tray order needs (`planksWanted`; worked out once a second). */
+  /** Planks kept for the workshop: it holds fewer than its waiting tray order needs (`orderPlanks`; worked out once a second). */
   let planksKept = false;
   const keepPlanks = (kind: string) => kind === "planks" && planksKept;
   function updatePlanksKept(): void {
@@ -1720,7 +1720,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       planksKept = false;
       return;
     }
-    planksKept = keepsPlanks(progress, workshopStock(game.world).planks ?? 0);
+    planksKept = keepsForOrder(progress, workshopStock(game.world).planks ?? 0);
   }
 
   setInterval(() => {

@@ -3,17 +3,17 @@ import { Editor } from "../editor/editor";
 import { CARGO, type CargoKind } from "../economy/cargo";
 import { RECIPES } from "../economy/economy";
 import { describe as describeGoods } from "../economy/goods";
-import { craftNow, craftShort, Crafting, lacking, workshops, workshopStock } from "../game/crafting";
+import { craftNow, craftShort, Crafting, keepsForOrder, lacking, workshops, workshopStock } from "../game/crafting";
 import { attachEngines } from "../game/engines";
 import { GOALS, GoalTracker } from "../game/goals";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
-import { landmarksAt, townLandmarks } from "../game/landmarks";
+import { landmarksAt, researchSpeed, townLandmarks } from "../game/landmarks";
 import { editLine, joinLine, startLine, trainsOn } from "../game/lines";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { inUse, Progress } from "../game/progress";
 import { cardView, firstTimeGift, learnGift, offerOnGrowth, payDelivery, takeCard } from "../game/rewards";
-import { keepsPlanks, learnAuto, techOf, TECHS } from "../game/tech";
-import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, pick as pickResearch, studying, tick as researchTick } from "../game/research";
+import { techOf, TECHS } from "../game/tech";
+import { attachResearch, canResearch, costOf as researchCost, lacking as researchLacking, pick as pickResearch, setSpeed, studying, tick as researchTick } from "../game/research";
 import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "../game/things";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { applyCranes, boostOf, Counters } from "../game/upgrades";
@@ -167,9 +167,7 @@ class Player {
     this.counters.reset(w.economy);
     applyCranes(w.economy, this.progress);
     attachEngines(w);
-    attachPassengers(w, () => this.progress, () => {
-      for (const id of learnAuto(this.progress)) this.learned(id, "carried passengers", "free");
-    });
+    attachPassengers(w, () => this.progress, () => {});
     w.economy.reserved = (kind) => kind === "planks" && this.planksKept;
     // Goods into a school go into the research (as the game does).
     attachResearch(w.economy, () => this.progress, () => (this.researchFed = this.tick));
@@ -201,12 +199,15 @@ class Player {
     // (As the game does: Signals bring a second engine.)
     for (const [thing, n] of learnGift(this.progress, id)) this.note(`present: ${n} ${thing}`);
     applyCranes(this.w.economy, this.progress);
+    // (College: the schools in towns study twice as fast.)
+    this.syncLandmarks();
   }
 
+  /** What the map gives research (as the game does): a school beside a city for tier 3, and the schools' speed. */
   syncLandmarks(): void {
     this.progress.landmarks.clear();
     for (const id of landmarksAt(this.w)) this.progress.landmarks.add(id);
-    for (const id of learnAuto(this.progress)) this.learned(id, "came with a landmark", "free");
+    setSpeed(this.progress, researchSpeed(this.w, this.progress.learned));
   }
 
   /** The workshop keeps planks only for a tray order waiting to be made (as the game does: never for blueprints). */
@@ -216,7 +217,7 @@ class Player {
       this.planksKept = false;
       return;
     }
-    this.planksKept = keepsPlanks(this.progress, workshopStock(this.w).planks ?? 0);
+    this.planksKept = keepsForOrder(this.progress, workshopStock(this.w).planks ?? 0);
   }
 
   /** The research's clock (a second of play), as the game's workshop clock runs it; counts its waits for goods. */
@@ -712,7 +713,7 @@ class Playthrough {
   play(): void {
     const P = this.p;
     const w = () => P.w;
-    P.note(`new game: towns ${w().landscape.towns.map((t) => t.name).join(", ")}; box ${[...P.progress.owned].map(([id, n]) => `${n} ${id}`).join(", ")}; board ${[...P.progress.board].join(", ")}`);
+    P.note(`new game: towns ${w().landscape.towns.map((t) => t.name).join(", ")}; box ${[...P.progress.owned].map(([id, n]) => `${n} ${id}`).join(", ")}`);
 
     // 1. The starter line, as the tutorial goals lead: Larkfield to Elderwick, Larkfield to the sawmill, Elderwick to
     // the forest yard; turnbacks on the ends. (The workshop comes later, when its goal asks.)

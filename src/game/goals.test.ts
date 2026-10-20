@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { appendPiece, connectorRef, findSplice, Layout } from "../track";
 import { checkPlacement, connectedPairs, FEAT_TREE, SURF_GRASS, SURF_RIVER } from "../landscape";
 import { checkYard } from "./depot-footprint";
+import { siteWhy } from "./industries";
 import { BRIDGE_KNOWN_HINT, GOALS, GoalTracker, NOTHING_ACROSS_HINT, NOTHING_ACROSS_KNOWN } from "./goals";
 import { buildStarterWorld, createWorld, STARTER_SEED, syncIndustries, type World } from "./world";
 import { CARGO } from "../economy/cargo";
@@ -308,15 +309,50 @@ describe("GoalTracker", () => {
     expect(tracker.current()?.id).toBe("get-moving");
   });
 
-  it("the workshop comes before switches: place it, bring it planks, learn switches", () => {
+  it("research comes right after the first village, before the workshop (spec §4)", () => {
     const ids = GOALS.map((g) => g.id);
-    const at = (id: string) => ids.indexOf(id);
-    expect(at("place-workshop")).toBeLessThan(at("workshop-planks"));
-    expect(at("workshop-planks")).toBeLessThan(at("learn-switches"));
-    expect(at("learn-switches")).toBeLessThan(at("lay-switch"));
+    const from = ids.indexOf("deliver-planks");
+    expect(ids.slice(from, from + 8)).toEqual(["deliver-planks", "grow-town", "place-school", "learn-switches", "place-workshop", "workshop-planks", "lay-switch", "build-bridge"]);
+    expect(goal("learn-switches").title).toBe("Research switches");
+    expect(goal("learn-switches").hint).toBe("Pick Switches, then bring 4 planks to the school.");
+    expect(goal("learn-switches").blueprint).toBe("switches");
+    expect(goal("build-bridge").blueprint).toBe("bridges");
+  });
+
+  it("place a school by a town: Show me finds a straight beside the village's station where it fits, from the Industries tab", () => {
     const w = buildStarterWorld();
-    expect(goal("learn-switches").check(w, { learned: new Set() }).done).toBe(false);
+    const g = goal("place-school");
+    expect(g.check(w).done).toBe(false);
+    // Larkfield a village (the town that's grown most), with a line out of its station.
+    const t = w.landscape.towns[0];
+    for (const end of [0, 1]) {
+      let last = w.stations.get(t.id)!;
+      for (let i = 0; i < 4; i++) last = appendPiece(w.layout, "straight-216", false, connectorRef(last, i === 0 ? end : 1));
+    }
+    w.economy.delivered.set(t.id, 4);
+    const guide = g.guide(w);
+    expect(guide.tab).toBe("industries");
+    expect(guide.held?.type).toBe("depot-school");
+    expect(guide.marks).toHaveLength(1);
+    const spot = guide.points[0];
+    expect(Math.hypot(spot.x - t.station.x, spot.z - t.station.z)).toBeLessThan(1500);
+    expect(siteWhy(w.landscape, "depot-school", { ...spot, heading: guide.held!.heading })).toBe(null);
+    // Placed there: done, and the switches goal's Show me points at it.
+    w.layout.addPiece("depot-school", { x: spot.x, z: spot.z, heading: guide.held!.heading });
+    syncIndustries(w, true);
+    expect(g.check(w).done).toBe(true);
+    const at = goal("learn-switches").guide(w).marks[0];
+    expect(Math.hypot(at.x - spot.x, at.z - spot.z)).toBeLessThan(1);
+  });
+
+  it("research switches: done once learned; with no school, the hint says to place one", () => {
+    const w = buildStarterWorld();
+    expect(goal("learn-switches").check(w, { learned: new Set() })).toEqual({ done: false, hint: "Place your school beside a town (Industries tab)." });
     expect(goal("learn-switches").check(w, { learned: new Set(["switches"]) }).done).toBe(true);
+  });
+
+  it("the workshop after research: place it, bring it planks", () => {
+    const w = buildStarterWorld();
     expect(goal("place-workshop").check(w).done).toBe(false);
     expect(goal("place-workshop").guide(w).tab).toBe("industries");
     // A workshop placed, then planks in its yard.
@@ -335,7 +371,7 @@ describe("GoalTracker", () => {
     const ctx = { learned: new Set(["switches"]) };
     expect(goal("place-workshop").check(w, ctx).done).toBe(false);
     expect(goal("workshop-planks").check(w, ctx).done).toBe(false);
-    // The tracker, at the workshop goal with switches researched: it stays there, and learn-switches waits its turn.
+    // The tracker, at the workshop goal with switches researched (the goal before it): it stays there.
     const upTo = GOALS.slice(0, GOALS.findIndex((g) => g.id === "place-workshop")).map((g) => g.id);
     const tracker = new GoalTracker(upTo);
     for (let k = 0; k < 3; k++) expect(tracker.update(w, ctx).map((g) => g.id)).not.toContain("place-workshop");
@@ -471,12 +507,12 @@ describe("place-workshop guide", () => {
     expect(t.current()?.id).toBe("join-all");
     expect(t.next()).toBeNull();
     expect(t.total).toBe(GOALS.length - 1);
-    expect(t.lockedHint()).toBe("Learn Signals to unlock a goal");
+    expect(t.lockedHint()).toBe("Research Signals to unlock a goal");
     // Every other goal done: still not the current one.
     const all = new GoalTracker(GOALS.filter((g) => g.id !== "two-trains").map((g) => g.id));
     all.update(w, { learned: new Set() });
     expect(all.current()).toBeNull();
-    expect(all.lockedHint()).toBe("Learn Signals to unlock a goal");
+    expect(all.lockedHint()).toBe("Research Signals to unlock a goal");
     t.update(w, { learned: new Set(["switches", "signals"]) });
     expect(t.current()?.id).toBe("two-trains");
     expect(t.total).toBe(GOALS.length);

@@ -462,10 +462,11 @@ export class DepotView {
   extras: ((role: DepotRole) => readonly string[]) | null = null;
 
   /**
-   * A catalogue building for a kind of yard (Game mode: the school's schoolhouse), as baked parts in its own frame;
-   * null or none: a stand-in is drawn. Set it, then `setWorld` to draw it.
+   * A catalogue building for a yard (Game mode: a school's schoolhouse, or the college or library it grew into with its
+   * town), as baked parts in its own frame, drawn at `scale` (1 if none) so it fits the yard; null or none: a stand-in
+   * is drawn. `depot` is the yard's (only `role` for the held piece's model). Set it, then `setWorld` to draw it.
    */
-  building: ((role: DepotRole) => { parts: readonly { geometry: BufferGeometry; material: Material }[] } | null | undefined) | null = null;
+  building: ((role: DepotRole, depot?: DepotState) => { parts: readonly { geometry: BufferGeometry; material: Material }[]; scale?: number } | null | undefined) | null = null;
 
   /** Rebuild for a world: one site per economy depot. */
   setWorld(economy: Economy, layout: Layout): void {
@@ -591,11 +592,12 @@ export class DepotView {
       }
     }
     if (site.depot.role === "school") {
-      // The town's schoolhouse (the catalogue's model, when the game has it built), its front to the track; else a
-      // stand-in.
-      const house = this.building?.("school");
+      // The school's building (the catalogue's model, when the game has it built: a schoolhouse, or the college or
+      // library it grew into), its front to the track, at the yard's far end; else a stand-in.
+      const house = this.building?.("school", site.depot.id === undefined ? undefined : site.depot);
       if (house) {
-        for (const p of house.parts) b.add(p.material, place(p.geometry.clone().rotateY(Math.PI / 2), 150, 80, PAD_H));
+        const k = house.scale ?? 1;
+        for (const p of house.parts) b.add(p.material, place(p.geometry.clone().scale(k, k, k).rotateY(Math.PI / 2), 150, 80, PAD_H));
         return;
       }
       b.add(mats.lacquer("#e6b52c"), place(new RoundedBoxGeometry(70, 34, 40, 2, 3), 150, 84, PAD_H + 17));

@@ -44,7 +44,7 @@ describe("a v12 Game save carries over into v13", () => {
     });
   });
 
-  it("its progress keeps coins, learned, the board and research; each town's offer is drawn again as cards at its level", () => {
+  it("its progress keeps coins, learned and research (its board goes: anything ready can be researched); each town's offer is drawn again as cards at its level", () => {
     const store = new Map([["woodrail.game.v2", JSON.stringify(v12.save)], ["woodrail.game.progress.v1", JSON.stringify(v12.progress)]]);
     withStorage(store, () => {
       const r = loadFromStorage("game");
@@ -53,7 +53,7 @@ describe("a v12 Game save carries over into v13", () => {
       const p = Progress.fromJSON(loadProgress());
       expect(p.coins).toBe(325);
       expect([...p.learned].sort()).toEqual(["farming", "switches"]);
-      expect([...p.board]).toEqual(["halts"]);
+      expect("board" in p.toJSON()).toBe(false);
       expect(p.research.current).toBe("mills");
       expect(p.owned.get("piece:depot-workshop")).toBe(1);
       // The blueprints and crates are gone; the towns are kept till the map's in.

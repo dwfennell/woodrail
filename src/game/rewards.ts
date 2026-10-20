@@ -11,6 +11,8 @@ import { techOf } from "./tech";
 import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
 import { payFor, townStatus, type TownStatus } from "./towns";
 import type { World } from "./world";
+import type { CarKind } from "../sim";
+import { trainIcon } from "../ui/icons";
 
 /**
  * What Game mode gives for what happens on the railway, in one place for the game and for headless playthroughs:
@@ -178,13 +180,31 @@ export function cardFor(p: Progress, world: World, kind: CardKind, level: number
 }
 
 /**
+ * Cards that are each a real choice: the wagon card's car is never in the crate beside it (QA: a crate with the wagon's
+ * car and more made the wagon card no choice). The crate keeps its size; the wagon card takes another known wagon not
+ * in the crate, or goes from the pool if there's none. (The other kinds aren't counted in things: none holds another.)
+ */
+function apart(p: Progress, pool: GrowthCard[], random: () => number): GrowthCard[] {
+  const crate = pool.find((c) => c.kind === "crate");
+  const k = pool.findIndex((c) => c.kind === "wagon");
+  if (!crate || k === -1) return pool;
+  const inCrate = new Set(crate.things.map(([id]) => id));
+  const wagon = pool[k] as Extract<GrowthCard, { kind: "wagon" }>;
+  if (!inCrate.has(wagon.id)) return pool;
+  const others = wagonsKnown(p).filter((id) => !inCrate.has(id));
+  if (others.length > 0) pool[k] = { kind: "wagon", id: others[Math.floor(random() * others.length)] };
+  else pool.splice(k, 1);
+  return pool;
+}
+
+/**
  * A town grew to `level` (1 a village, 2 a town, 3 a city…): it offers three cards of different kinds, drawn from those
  * that can be offered now, with amounts by its level. Never a blueprint. The offer waits in `p.offers` till one is
  * taken. Returns it (null if none could be offered, or the level is unknown).
  */
 export function offerOnGrowth(p: Progress, world: World, townName: string, level: number, random: () => number): Offer | null {
   if (level <= 0) return null;
-  const pool = CARD_KINDS.map((k) => cardFor(p, world, k, level, random)).filter((c): c is GrowthCard => c !== null);
+  const pool = apart(p, CARD_KINDS.map((k) => cardFor(p, world, k, level, random)).filter((c): c is GrowthCard => c !== null), random);
   const cards: GrowthCard[] = [];
   while (cards.length < CARDS_PER_OFFER && pool.length > 0) cards.push(pool.splice(Math.floor(random() * pool.length), 1)[0]);
   if (cards.length === 0) return null;
@@ -215,6 +235,13 @@ export interface CardView {
   line: string;
   ok: boolean;
   why?: string;
+  /** What the toast says once it's taken, where that's more than the amount: "+3🪵 to Bridges" (QA: where it went). */
+  taken?: string;
+}
+
+/** A car's picture, as the toy box and the tray draw it ("car:hopper" → a hopper's side view). */
+export function carIcon(id: ThingId): string {
+  return `<span class="gs-car">${trainIcon([id.slice(4) as CarKind])}</span>`;
 }
 
 /** "4🪵 3🌾". */
@@ -237,19 +264,21 @@ export function cardView(p: Progress, world: World, card: GrowthCard): CardView 
     case "crate":
       return { kind: card.kind, icon: "📦", amount: `A crate: ${card.things.length} things`, line: describeThings(card.things), ok: true };
     case "wagon":
-      return { kind: card.kind, icon: card.id === "car:engine" ? "🚂" : "🚃", amount: `1 ${ruleOf(card.id)?.label ?? card.id}`, line: "Into your toy box", ok: true };
+      // The car itself, drawn as the toy box and the tray draw it (QA: it was always 🚃).
+      return { kind: card.kind, icon: carIcon(card.id), amount: `1 ${ruleOf(card.id)?.label ?? card.id}`, line: "Into your toy box", ok: true };
     case "boost": {
       const bag = boostGoods(p, card.share);
       const id = p.research.current;
       const pct = `${Math.round(card.share * 100)}%`;
-      if (id && kindsOf(bag).length > 0) return { kind: card.kind, icon: "📘", amount: `+${goodsLine(bag)}`, line: `${pct} of what ${techOf(id)!.label} still needs`, ok: true };
+      if (id && kindsOf(bag).length > 0) return { kind: card.kind, icon: "📘", amount: `+${goodsLine(bag)}`, line: `${pct} of what ${techOf(id)!.label} still needs`, ok: true, taken: `+${goodsLine(bag)} to ${techOf(id)!.label}` };
       return { kind: card.kind, icon: "📘", amount: `${pct} research boost`, line: "Goods into your research", ok: false, why: "Pick a research that needs goods" };
     }
     case "rare": {
       const label = CARGO[card.good].label.toLowerCase();
       const n = Math.min(card.n, lacking(p, card.good));
       const line = "Rare cargo for your research";
-      if (n > 0) return { kind: card.kind, icon: GOODS_ICON[card.good], amount: `+${n} ${label}`, line, ok: true };
+      const id = p.research.current;
+      if (n > 0) return { kind: card.kind, icon: GOODS_ICON[card.good], amount: `+${n} ${label}`, line, ok: true, ...(id ? { taken: `+${n} ${label} to ${techOf(id)!.label}` } : {}) };
       return { kind: card.kind, icon: GOODS_ICON[card.good], amount: `+${card.n} ${label}`, line, ok: false, why: `Your research needs no ${label} now` };
     }
   }

@@ -20,8 +20,8 @@ describe("research costs", () => {
     expect(costOf("mills")).toEqual({ goods: { planks: 12, grain: 6 }, coins: 20 });
     expect(costOf("goods-engine")).toEqual({ goods: { planks: 12, flour: 6 }, coins: 40 });
     expect(costOf("electricity")).toEqual({ goods: { iron: 10, coal: 10 }, coins: 120 });
-    // Every built blueprint learned on the board has goods to research it with.
-    for (const t of TECHS.filter((x) => built(x) && x.learn === "board")) expect(Object.keys(t.research.goods).length, t.id).toBeGreaterThan(0);
+    // Every built blueprint has goods to research it with.
+    for (const t of TECHS.filter((x) => built(x))) expect(Object.keys(t.research.goods).length, t.id).toBeGreaterThan(0);
   });
 
   it("study takes 20, 45 or 90 s by tier", () => {

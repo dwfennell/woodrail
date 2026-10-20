@@ -1,9 +1,9 @@
 // End-to-end Research picker on a phone (`npm run e2e:research [-- <out dir>]`), at 390×844 with touch: a new game's
-// line laid and its school placed; the pill in the top bar says "Pick research"; a goal after a blueprint (Learn
+// line laid and its school placed; the pill in the top bar says "Pick research"; a goal after a blueprint (Research
 // switches) opens the picker on it from Show me and from the pill, nothing picked; Research, then Next up (and the
-// swap); deliveries move the pill; every card state's ticket; the pill fits the bar beside the coins and buttons;
-// the date and the pill both read at 360, 414 and 844×390 (a phone on its side); and
-// no frames drawn in 30 s with the pill showing while nothing changes.
+// swap); deliveries move the pill; every card state's ticket; the pill fits the bar beside the coins and buttons; the date
+// and the pill both read at 360, 414 and 844×390 (a phone on its side); and no frames drawn in 30 s with the pill showing
+// while nothing changes.
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
 // Starts its own dev server (on 5381, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -116,13 +116,13 @@ check("the line laid and the school placed beside a town", placed.joined && type
 await p.waitForTimeout(600);
 check("with a school and nothing picked, the pill says Pick research", (await pill()) === "📘 Pick research", String(await pill()));
 
-// 2. Back with the goals done up to Learn switches (a reload: Continue).
-await p.evaluate(() => localStorage.setItem("woodrail.game.goals.v1", JSON.stringify(["join-two", "place-train", "get-moving", "station-stop", "timber-train", "load-logs", "deliver-planks", "grow-town", "place-workshop", "workshop-planks"])));
+// 2. Back with the goals done up to Research switches (a reload: Continue): right after placing the school (spec §4).
+await p.evaluate(() => localStorage.setItem("woodrail.game.goals.v1", JSON.stringify(["join-two", "place-train", "get-moving", "station-stop", "timber-train", "load-logs", "deliver-planks", "grow-town", "place-school"])));
 await p.reload();
 await enterGame();
 await p.waitForTimeout(600);
 const goalNow = await p.evaluate(() => document.querySelector(".goals-now")?.textContent);
-check("the goal now is Learn switches", goalNow === "Learn switches", String(goalNow));
+check("the goal now is Research switches", goalNow === "Research switches", String(goalNow));
 // The bar, with the pill: nothing overlaps, everything a finger's size.
 const bar = async () =>
   p.evaluate(() => {
@@ -133,14 +133,16 @@ const bar = async () =>
     const coins = document.querySelector(".brand");
     const pill = document.querySelector(".research-pill");
     const buttons = [...document.querySelectorAll(".topbar .actions > .chip")].filter((x) => x.getBoundingClientRect().width > 0);
-    return { coins: r(coins), pill: r(pill), first: r(buttons[0]), last: r(buttons.at(-1)), width: innerWidth, clipped: pill.querySelector(".rp-name").scrollWidth > pill.querySelector(".rp-name").clientWidth };
+    // (Every button at least 44 x 44 drawn, Pause among them: QA had it at 40 x 40.)
+    const small = buttons.filter((x) => x.getBoundingClientRect().width < 44 || x.getBoundingClientRect().height < 44).map((x) => x.title);
+    return { coins: r(coins), pill: r(pill), first: r(buttons[0]), last: r(buttons.at(-1)), width: innerWidth, small, clipped: pill.querySelector(".rp-name").scrollWidth > pill.querySelector(".rp-name").clientWidth };
   });
-const fits = (m) => m.pill.l >= m.coins.r + 4 && m.pill.r <= m.first.l - 4 && m.pill.h >= 44 && m.last.r <= m.width;
+const fits = (m) => m.pill.l >= m.coins.r + 4 && m.pill.r <= m.first.l - 4 && m.pill.h >= 44 && m.last.r <= m.width && m.small.length === 0;
 let m = await bar();
 check("the pill sits between the coins and the buttons, 44 px tall", fits(m), JSON.stringify(m));
 await shot("01-pill-pick-research");
 
-// 3. Show me for Learn switches: the picker, open on Switches, its Research ringed; nothing picked.
+// 3. Show me for Research switches: the picker, open on Switches, its Research ringed; nothing picked.
 await tap(".goals-show-icon");
 await p.waitForTimeout(500);
 let t = await ticket();

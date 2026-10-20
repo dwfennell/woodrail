@@ -337,7 +337,7 @@ export class GoalsPanel {
     this.now.textContent = current?.title ?? locked ?? "All done!";
     this.showBtn.hidden = !current;
     this.fitShow();
-    // A goal still to come waits for blueprints: said in a line of its own ("Learn Signals to unlock a goal").
+    // A goal still to come waits for blueprints: said in a line of its own ("Research Signals to unlock a goal").
     const lockedRow = locked ? `<div class="goal upcoming locked"><span class="goal-box">🔒</span><span>${locked}</span></div>` : "";
     if (!current && locked) {
       this.pane.innerHTML = lockedRow;

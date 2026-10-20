@@ -53,7 +53,8 @@ const sheet = () =>
       title: root?.querySelector("h2")?.textContent ?? null,
       cards: [...(root?.querySelectorAll(".gs-card") ?? [])].map((c) => ({
         kind: [...c.classList].find((k) => k.startsWith("gs-") && k !== "gs-card").slice(3),
-        icon: c.querySelector(".gs-icon").textContent,
+        // (A wagon card's icon is the car's drawing, as the toy box draws it: an SVG, named by its first rect's colours.)
+        icon: c.querySelector(".gs-icon svg") ? `svg:${[...c.querySelectorAll(".gs-icon svg rect")].map((r) => r.getAttribute("fill")).join(",")}` : c.querySelector(".gs-icon").textContent,
         amount: c.querySelector(".gs-amount").textContent,
         line: c.querySelector(".gs-line").textContent,
         held: c.getAttribute("aria-disabled") === "true",
@@ -233,6 +234,8 @@ check(
   taken.crate && taken.crate.after.owned["piece:buffer-turnback"] === (taken.crate.before.owned["piece:buffer-turnback"] ?? 0) + 2 && taken.crate.after.owned["car:timber"] === (taken.crate.before.owned["car:timber"] ?? 0) + 1,
 );
 check("wagon: a flatbed into the toy box", taken.wagon && taken.wagon.after.owned["car:timber"] === (taken.wagon.before.owned["car:timber"] ?? 0) + 1);
+check("…its card shows the flatbed's drawing, not 🚃 (QA)", taken.wagon && taken.wagon.card.icon.startsWith("svg:") && taken.wagon.card.icon.includes("#c8442f"), JSON.stringify(taken.wagon?.card.icon));
+check("…its toast says where they went: +4🪵 to Bridges and ramps (QA)", toasts.some((t) => /reward: \+4🪵 to Bridges and ramps/.test(t)), JSON.stringify(toasts.slice(-4)));
 check("boost: 40% of Bridges' 10 planks into the research", taken.boost && taken.boost.card.amount === "+4🪵" && taken.boost.after.got.planks === 4 && taken.boost.after.current === "bridges", JSON.stringify(taken.boost && { card: taken.boost.card, got: taken.boost.after.got }));
 // Rare cargo: Mills (12 planks, 6 grain; no farm yard to make grain), swapped in for Bridges.
 await p.evaluate(async () => {
@@ -252,6 +255,7 @@ const rare = s.cards.find((c) => c.kind === "rare");
 await shot("05-rare-offered");
 await take("rare");
 after = await state();
+check("…its toast: +6 grain to Mills", toasts.some((t) => /reward: \+6 grain to Mills/.test(t)), JSON.stringify(toasts.slice(-4)));
 check("rare cargo: 6 grain into Mills (it can't be made yet)", st.current === "mills" && rare?.amount === "+6 grain" && after.got.grain === 6, JSON.stringify({ current: st.current, rare, got: after.got }));
 check("no blueprint learned by any card (farming set by hand for Mills)", after.learned === [...new Set([...learned0.split(","), "farming"].filter(Boolean))].sort().join(","), `${learned0} → ${after.learned}`);
 

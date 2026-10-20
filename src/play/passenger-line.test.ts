@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { Progress } from "../game/progress";
-import { learnAuto, techOf } from "../game/tech";
+import { ready, techOf } from "../game/tech";
 import { buildStarterWorld } from "../game/world";
 import { SIM_HZ, type CarLook } from "../sim";
 import { connectorRef } from "../track";
@@ -12,8 +12,9 @@ import { endOn, rulesFor } from "./rules";
 /**
  * A passenger line on the starter map: Larkfield and Elderwick joined, a turnback past each, and a train of an engine
  * and two coaches shuttling between them, on the game's own code. As the passenger line of blueprints is learned the
- * player puts its coaches on (a dining car, a first-class coach, a double-decker, the express engine). How long each
- * takes, and the fares, are printed: the thresholds are tuned from this.
+ * player puts its coaches on (a dining car, a first-class coach, a double-decker, the express engine). Each is
+ * researched at a school once enough people are carried: here learned the moment it can be (the research itself is
+ * the balance harness's). How long each takes to open, and the fares, are printed: the thresholds are tuned from this.
  */
 describe("a passenger line", () => {
   it("carries people between two towns, and learns the passenger line as it goes", () => {
@@ -46,7 +47,9 @@ describe("a passenger line", () => {
       w.economy.tick();
       if (tick % SIM_HZ !== 0) continue;
       peopleArrive(w, p, 1, clock);
-      for (const id of learnAuto(p)) {
+      const line = ["dining", "first-class", "stations", "double-decker", "express"].filter((id) => ready(p, id));
+      for (const id of line) {
+        p.learned.add(id);
         learnedAt.set(id, tick);
         log.push(`${at(tick)}  ${p.riders} carried, ${p.coins} coins: learned ${techOf(id)!.label}`);
         const swap = looks[id];

@@ -7,7 +7,7 @@ import type { World } from "./world";
 
 // Helpers for the tests of towns growing (not part of the game).
 
-/** Grow a town of the starter map to a city (school, market, library), as deliveries would. */
+/** Grow a town of the starter map to a city (its market and all), as deliveries would. */
 export function growToCity(w: World, t: Town): { levels: number[]; buildings: number[] } {
   const host: TownLifeHost = Object.assign(w, { footprintOf: () => undefined, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
   const life = new TownLife(host, { grew: () => {}, received: () => {} });

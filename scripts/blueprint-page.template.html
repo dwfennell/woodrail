@@ -92,7 +92,6 @@ header { display: grid; gap: 12px; }
 .node .row { display: flex; flex-wrap: wrap; gap: 3px; }
 .node .chip { font-size: 10.5px; padding: 0 6px; }
 .node .stamp { font-size: 9px; padding: 0 4px; }
-.node.auto { border-style: dashed; }
 .node.ending { background: var(--ink); color: var(--surface); }
 .node .q { display: none; }
 .node.dim { opacity: .22; }
@@ -281,7 +280,7 @@ for (const n of N) for (const x of n.needs) {
   links += `<path class="link ${cross ? "cross" : "same"}" style="stroke:${branchOf.get(byId.get(x).branch).color}" marker-end="url(#arrow)" data-a="${x}" data-b="${n.id}" d="M${x0} ${y0} C${x0 + dx} ${y0} ${x1 - dx} ${y1} ${x1} ${y1}"/>`;
 }
 html += `<svg class="links" width="${WIDTH}" height="${H}" aria-hidden="true">${links}</svg>`;
-html += N.map((n) => `<button type="button" class="node${n.auto ? " auto" : ""}${n.status === "ending" ? " ending" : ""}${KEY.has(n.id) ? " key" : ""}" data-id="${n.id}" data-status="${n.status}" data-branch="${n.branch}" style="left:${xOf(n.id)}px;top:${yOf.get(n.id)}px;--c:${branchOf.get(n.branch).color}"><span class="top"><b>${esc(n.name)}</b><span class="stamp ${n.status}">${STATUS[n.status]}</span></span><span class="row">${chips(n.cost)}</span>${crossNeeds(n)}<span class="q" aria-hidden="true">?</span></button>`).join("");
+html += N.map((n) => `<button type="button" class="node${n.status === "ending" ? " ending" : ""}${KEY.has(n.id) ? " key" : ""}" data-id="${n.id}" data-status="${n.status}" data-branch="${n.branch}" style="left:${xOf(n.id)}px;top:${yOf.get(n.id)}px;--c:${branchOf.get(n.branch).color}"><span class="top"><b>${esc(n.name)}</b><span class="stamp ${n.status}">${STATUS[n.status]}</span></span><span class="row">${chips(n.cost)}</span>${crossNeeds(n)}<span class="q" aria-hidden="true">?</span></button>`).join("");
 web.innerHTML = html;
 
 const br = document.getElementById("branches");
@@ -314,10 +313,10 @@ function show(id, scroll) {
   const leads = N.filter((m) => m.needs.includes(id));
   const link = (m) => `<button class="linkish" data-go="${m.id}">${esc(m.name)}</button>`;
   d.style.setProperty("--c", branchOf.get(n.branch).color);
-  d.innerHTML = `<div class="head"><h3>${esc(n.name)}</h3><span class="stamp ${n.status}">${STATUS[n.status]}</span><span class="branch">${esc(branchOf.get(n.branch).name)}${n.auto ? " · goes up in a town by itself" : ""}</span></div>
+  d.innerHTML = `<div class="head"><h3>${esc(n.name)}</h3><span class="stamp ${n.status}">${STATUS[n.status]}</span><span class="branch">${esc(branchOf.get(n.branch).name)}</span></div>
     <p>${esc(n.does)}</p>
     <div class="grid2">
-      <div><div class="lbl">To learn</div><div class="row">${chips(n.cost)}</div></div>
+      <div><div class="lbl">To research</div><div class="row">${chips(n.cost)}</div></div>
       <div><div class="lbl">Brings</div><div>${esc(n.brings)}</div></div>
       <div><div class="lbl">Needs first</div><div>${n.needs.length ? n.needs.map((x) => link(byId.get(x))).join(", ") : "Nothing: a starting point"}</div></div>
       <div><div class="lbl">Leads to</div><div>${leads.length ? leads.map(link).join(", ") : "Nothing yet"}</div></div>

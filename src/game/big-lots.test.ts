@@ -23,19 +23,19 @@ function isBlock(land: Landscape, cells: readonly number[]): boolean {
 afterEach(() => vi.restoreAllMocks());
 
 describe("big landmarks on 2×2 lots", () => {
-  it("a city grows its library (and market) on a 2×2 block facing a street, with its own model", () => {
+  it("a city grows its market on a 2×2 block facing a street, with its own model", () => {
     const w = buildStarterWorld();
     const t = w.landscape.towns[0];
     growToCity(w, t);
     const props = townProps(w.landscape, t);
-    for (const id of ["library", "market"]) {
+    for (const id of ["market"]) {
       const b = t.buildings.find((x) => x.landmark === id)!;
       expect(b.cells, id).toHaveLength(4);
       expect(isBlock(w.landscape, b.cells), id).toBe(true);
       expect(props.find((p) => p.building === b.id)!.asset, id).toBe(LANDMARKS.find((l) => l.id === id)!.models.four![0]);
     }
-    // (Towns don't build schools: the player places theirs, a depot beside a town.)
-    expect(t.buildings.some((x) => x.landmark === "school")).toBe(false);
+    // (Towns build no school or library: the player places a school, a depot beside a town, which grows its own wing.)
+    expect(t.buildings.some((x) => x.landmark === "school" || x.landmark === "library")).toBe(false);
   });
 
   it("with no room for a block, on two squares, still itself (drawn as large as fits there); growth never waits", () => {
@@ -46,7 +46,7 @@ describe("big landmarks on 2×2 lots", () => {
       growToCity(w, t);
       vi.restoreAllMocks();
       const props = townProps(w.landscape, t);
-      for (const id of ["market", "library"]) {
+      for (const id of ["market"]) {
         const b = t.buildings.find((x) => x.landmark === id)!;
         expect(b, `${t.name} ${id}`).toBeDefined();
         expect(b.cells.length, id).toBeLessThan(4);
@@ -62,6 +62,9 @@ describe("big landmarks on 2×2 lots", () => {
   });
 
   it("the same buildings level by level, and the same levels, with blocks or without", () => {
+    // (Blocks are used: a market on one where there's room. Not in every town: one may have no block free when it
+    // grows to a town.)
+    let blocks = 0;
     for (const k of [0, 1, 2]) {
       const a = buildStarterWorld();
       const withBlocks = growToCity(a, a.landscape.towns[k]);
@@ -71,8 +74,9 @@ describe("big landmarks on 2×2 lots", () => {
       vi.restoreAllMocks();
       expect(withBlocks.levels).toEqual(without.levels);
       expect(withBlocks.buildings, a.landscape.towns[k].name).toEqual(without.buildings);
-      expect(a.landscape.towns[k].buildings.some((x) => x.cells.length === 4)).toBe(true);
+      if (a.landscape.towns[k].buildings.some((x) => x.cells.length === 4)) blocks++;
     }
+    expect(blocks).toBeGreaterThan(0);
   });
 
   it("no block over track or a station's way in", () => {

@@ -14,8 +14,6 @@ import type { World } from "./world";
 export class Progress {
   readonly owned = new Map<ThingId, number>();
   readonly learned = new Set<string>();
-  /** Blueprints on the board, to be learned with goods (see `tech.ts`). */
-  readonly board = new Set<string>();
   /** Choices waiting: the cards a town offered when it grew, one to take (see `growth-cards.ts`). Never a blueprint. */
   readonly offers: Offer[] = [];
   /** A v12 save's offers (two blueprints or a crate), by town: drawn again as cards once its map is in (`redrawOldOffers`). */
@@ -34,13 +32,13 @@ export class Progress {
   fieldsPlanted = 0;
   /** People carried to another town by coach, all game (they unlock the passenger line of blueprints). */
   riders = 0;
-  /** The landmarks your towns have (a school, a market, a library): from the map, not saved (see `landmarksOf`). */
+  /** What your map has that a blueprint can require (a market; a school beside a city): not saved (see `landmarksAt`). */
   readonly landmarks = new Set<string>();
   /** What the schools are researching (see `research.ts`). */
   research: Research = newResearch();
 
   /**
-   * A new game: the starting box. (No starting board: any blueprint ready to learn can be picked for research.)
+   * A new game: the starting box. (Any blueprint ready to learn can be picked for research.)
    */
   static fresh(): Progress {
     const p = new Progress();
@@ -88,7 +86,7 @@ export class Progress {
   }
 
   toJSON(): ProgressData {
-    return { owned: [...this.owned], learned: [...this.learned], board: [...this.board], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, counts: [...this.counts], research: researchToJSON(this.research) };
+    return { owned: [...this.owned], learned: [...this.learned], offers: [...this.offers.map(offerToJSON), ...this.oldOffers.map((from) => ({ from, ids: [] }))], coins: this.coins, orders: [...this.orders], making: this.making, fieldsPlanted: this.fieldsPlanted, riders: this.riders, bestLevel: this.bestLevel, counts: [...this.counts], research: researchToJSON(this.research) };
   }
 
   /** From saved data; anything unknown or malformed is dropped. */
@@ -105,7 +103,6 @@ export class Progress {
     // Blueprints renamed since (risers joined bridges, turning loops joined junctions) come back as what they became.
     const known = (t: unknown): string | null => (typeof t === "string" ? (techOf(RENAMED[t] ?? t) ? (RENAMED[t] ?? t) : null) : null);
     if (d && Array.isArray(d.learned)) for (const t of d.learned) if (known(t)) p.learned.add(known(t)!);
-    if (d && Array.isArray(d.board)) for (const t of d.board) if (known(t) && !p.learned.has(known(t)!)) p.board.add(known(t)!);
     if (d && Array.isArray(d.offers)) {
       for (const o of d.offers) {
         const offer = offerFromJSON(o);
@@ -135,7 +132,6 @@ export type { Offer } from "./growth-cards";
 export interface ProgressData {
   owned: [string, number][];
   learned: string[];
-  board?: string[];
   offers?: unknown[];
   coins?: number;
   fieldsPlanted?: number;

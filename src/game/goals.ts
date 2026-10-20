@@ -351,6 +351,21 @@ export const GOALS: readonly Goal[] = [
     },
   },
   {
+    id: "place-school",
+    title: "Place a school by a town",
+    hint: "Your village's present: drop it from the Industries tab on a straight beside a town.",
+    check: (w) => ({ done: schools(w).length > 0 }),
+    guide: guideSchool,
+  },
+  {
+    id: "learn-switches",
+    blueprint: "switches",
+    title: "Research switches",
+    hint: "Pick Switches, then bring 4 planks to the school.",
+    check: (w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches"), ...(ctx.learned.has("switches") || schools(w).length > 0 ? {} : { hint: "Place your school beside a town (Industries tab)." }) }),
+    guide: guideSchool,
+  },
+  {
     id: "place-workshop",
     title: "Place your workshop",
     hint: "Drop it from the Industries tab onto a straight on your line.",
@@ -380,14 +395,6 @@ export const GOALS: readonly Goal[] = [
       const at = piecePoint(w, shop.pieceId);
       return { points: [at, ...saw.points.slice(0, 1)], towns: [], marks: [at] };
     },
-  },
-  {
-    id: "learn-switches",
-    blueprint: "switches",
-    title: "Learn switches",
-    hint: "Pick Switches in Research, then bring 4 planks to your school.",
-    check: (w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches"), ...(ctx.learned.has("switches") || schools(w).length > 0 ? {} : { hint: "Place your school beside a town (Industries tab)." }) }),
-    guide: guideSchool,
   },
   {
     id: "lay-switch",
@@ -530,12 +537,12 @@ export class GoalTracker {
     return GOALS.filter((g) => !this.done.has(g.id) && !this.open(g)).length;
   }
 
-  /** A goal still to come that waits for blueprints, in a few words: "Learn Signals to unlock a goal" (or null). */
+  /** A goal still to come that waits for blueprints, in a few words: "Research Signals to unlock a goal" (or null). */
   lockedHint(): string | null {
     const g = GOALS.find((x) => !this.done.has(x.id) && !this.open(x));
     if (!g) return null;
     const names = g.needs!.filter((id) => !this.learned.has(id)).map((id) => BLUEPRINTS.find((b) => b.id === id)?.label ?? id);
-    return `Learn ${names.join(" and ")} to unlock a goal`;
+    return `Research ${names.join(" and ")} to unlock a goal`;
   }
 
   /** The goals to save: those done, and those met and waiting (they're ticked off after a reload). */

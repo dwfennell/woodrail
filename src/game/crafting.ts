@@ -1,8 +1,8 @@
 import { CARGO, CARGO_KINDS } from "../economy/cargo";
-import type { DepotState } from "../economy/economy";
+import { WORKSHOP_CAP, type DepotState } from "../economy/economy";
 import { covers, kindsOf, minus, total, type Bag } from "../economy/goods";
 import type { Progress } from "./progress";
-import { isFree, ruleOf, type ThingId } from "./things";
+import { isFree, ruleOf, THING_RULES, type ThingId } from "./things";
 import type { World } from "./world";
 
 /** Seconds of play to make one thing, once its goods are taken. */
@@ -33,6 +33,23 @@ export function takeFromWorkshops(world: World, bag: Bag): boolean {
     }
   }
   return true;
+}
+
+/**
+ * Planks the workshop keeps for its waiting tray order (towns don't take them from unrouted trains, which carry them on
+ * to it) until its yard holds this many: that order's planks, no more than the yard holds; 0 with no order waiting (or
+ * one being made, its goods taken). The workshop only makes things: it keeps nothing for research, which a school
+ * takes for itself (`research.ts`), so no plank is counted by both.
+ */
+export function orderPlanks(p: Progress, yardCap = WORKSHOP_CAP): number {
+  const id = p.making ? undefined : p.orders[0];
+  const planks = id ? (THING_RULES[id]?.cost.planks ?? 0) : 0;
+  return Math.min(planks, yardCap);
+}
+
+/** Does the workshop keep planks now, holding `stock`? (See `orderPlanks`.) */
+export function keepsForOrder(p: Progress, stock: number): boolean {
+  return stock < orderPlanks(p);
 }
 
 /**
