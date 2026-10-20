@@ -98,6 +98,12 @@ export interface DrawOptions {
 
 /** Stroke points closer than this (mm) to the last are skipped. */
 const STEP = 6;
+/**
+ * Plans' costs this close are a tie (see `best`): what half a millimetre of stroke is worth (`ADVANCE`), less than a
+ * finger can mean. (A camera a hair off after an undo moved QA's terrace 2 stroke by 6 µm, and that alone flipped which
+ * of two equal plans won.)
+ */
+const TIE = 0.5 / 120;
 /** Other track's free end this near (mm) the line's end: a piece that closes onto it is looked for (see `closeOnto`). */
 const CLOSE_REACH = 300;
 /** The next piece is chosen once the stroke reaches this far (mm) past the line's end, so the look-ahead sees it. */
@@ -1090,9 +1096,13 @@ export class DrawLine {
     // Finishing, laying nothing more is a choice too: it costs how far the line's end is from the stroke's, and off its heading.
     let bestCost = finishing ? this.stopCost(end) : Infinity;
     // Each first piece on its own, then with each second piece: the cheapest first pieces first, so the pairs that
-    // can't win are seen to sooner (see below). A tie goes to the pair that comes first in the candidates' order
-    // (`rank`), as when they were taken in that order.
+    // can't win are seen to sooner (see below). A tie (to within rounding: TIE) goes to the shorter first piece, which
+    // commits the line to less before the next step looks again (two straights that cover the same ground tie
+    // exactly, and which came out cheaper by a hair flipped with a camera a millionth of a millimetre off: QA's
+    // terrace 2 drawn again took the long one first and had no room left for its second ramp); then to the pair that
+    // comes first in the candidates' order (`rank`), as when they were taken in that order.
     let bestRank = -1;
+    let bestLength = Infinity;
     const scored: { a: DrawCandidate; ea: ReturnType<DrawLine["endCost"]>; bendA: number; costA: number; i: number }[] = [];
     for (let i = 0; i < firsts.length; i++) {
       const a = firsts[i];
@@ -1104,7 +1114,12 @@ export class DrawLine {
       scored.push({ a, ea, bendA, costA, i });
     }
     scored.sort((p, q) => p.costA - q.costA);
-    const wins = (cost: number, rank: number) => cost < bestCost || (cost === bestCost && rank < bestRank);
+    const wins = (cost: number, rank: number, length: number) => {
+      const tie = TIE;
+      if (cost < bestCost - tie) return true;
+      if (cost > bestCost + tie) return false;
+      return length < bestLength || (length === bestLength && rank < bestRank);
+    };
     // No pair from a first piece can beat the best so far, even with no cost of its own but its pieces' and covering
     // all the stroke there is (nor can the piece alone, finishing): skip it (most of the cost of a step is finding the
     // second pieces' ends on the stroke).
@@ -1116,9 +1131,10 @@ export class DrawLine {
       // Finishing, a piece may end the line on its own.
       if (finishing) {
         const cost = costA - (Math.min(ea.s, this.strokeLength) - this.progress) * ADVANCE;
-        if (wins(cost, i * 64)) {
+        if (wins(cost, i * 64, a.length)) {
           bestCost = cost;
           bestRank = i * 64;
+          bestLength = a.length;
           best = { candidate: a, s: ea.s };
         }
       }
@@ -1141,9 +1157,10 @@ export class DrawLine {
         // A mini straight fitting the line up to a bend, or on out of it.
         const fit = (a.type === "straight-54" && bendB !== 0) || (bendA !== 0 && b.type === "straight-54") ? FIT_REBATE : 0;
         const cost = costA + costB * share - fit - (Math.min(eb.s, this.strokeLength) - this.progress) * ADVANCE;
-        if (wins(cost, i * 64 + 1 + j)) {
+        if (wins(cost, i * 64 + 1 + j, a.length)) {
           bestCost = cost;
           bestRank = i * 64 + 1 + j;
+          bestLength = a.length;
           best = { candidate: a, s: ea.s };
         }
       }

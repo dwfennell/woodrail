@@ -198,6 +198,12 @@ if (process.env.E2E_ONLY === "junctions") {
   await finishRun();
 }
 
+/** Only QA's terrace 2 drawn again on one page (E2E_ONLY=terrace-repeat): a part of qa-slant, quick on its own. */
+if (process.env.E2E_ONLY === "terrace-repeat") {
+  await terraceRepeat();
+  await finishRun();
+}
+
 /** Only QA's replay of the slanted river crossings and the terrace climb (E2E_ONLY=qa-slant). */
 if (process.env.E2E_ONLY === "qa-slant") {
   await qaReplay();
@@ -1116,12 +1122,13 @@ async function finishRun() {
 
 /**
  * QA's terrace 2 drawn again on the same page (QA: the second time, after an undo or any stroke, it laid straight-144
- * and a ramp and said "The hill is a level up here"; Node's replay is the same both times): QA's own screen path at
- * QA's camera, three times on one page, undoing between, with QA's lookAt put back before each. The same line each
- * time; a toast about the hill only if the first said it too.
+ * and a ramp and said "The hill is a level up here"): QA's conditions, Sandbox #seed-7 on a 390 × 844 touch screen
+ * at device scale 1, QA's world line seen at each square's ground height, QA's lookAt put back before each of three
+ * strokes on one page, undoing between. The same line each time; a toast about the hill only if the first said it
+ * too. (It was a tie between two plans that a camera a hair off after the undo broke the other way: see `best`.)
  */
 async function terraceRepeat() {
-  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
   q.on("pageerror", (e) => errors.push(e.message));
   await boot(q);
@@ -1138,12 +1145,24 @@ async function terraceRepeat() {
   await q.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
   const cdp = await ctx.newCDPSession(q);
   const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
-  const path = [[234, 369], [195, 422], [152, 480]];
   const once = async () => {
-    await q.evaluate(() => {
+    // QA's world line, each point seen at its square's ground height, at QA's camera (put back before each stroke).
+    const path = await q.evaluate(() => {
       const w = window.woodrail;
-      w.lookAt(new w.camera.position.constructor(-2004, 0, -1620), 3662.2, 0.95, -1.1659);
+      const V = w.camera.position.constructor;
+      w.director.cancel?.();
+      w.lookAt(new V(-2004, 0, -1620), 3662.2, 0.95, -1.1659);
       window.__toasts.splice(0);
+      const G = w.landscape.grid;
+      const r = w.canvas.getBoundingClientRect();
+      const pts = [];
+      for (let d = 0; d <= 480; d += 15) {
+        const x = -1764 - d;
+        const z = -1620;
+        const v = new V(x, G.groundY(G.cellAtWorld(x, z)), z).project(w.camera);
+        pts.push([r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height]);
+      }
+      return pts;
     });
     await settled(q);
     const ids0 = await q.evaluate(() => [...window.woodrail.layout.pieceIds()]);

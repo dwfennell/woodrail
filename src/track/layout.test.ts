@@ -245,3 +245,19 @@ describe("Layout revision", () => {
     for (let i = 1; i < seen.length; i++) expect(seen[i]).toBeGreaterThan(seen[i - 1]);
   });
 });
+
+describe("Layout.seatNearMisses (an older save's joints brought back)", () => {
+  it("joins an end to the nearest end that will join, past a nearer one too far off facing", () => {
+    const layout = new Layout();
+    const deg = Math.PI / 180;
+    const a = layout.addPiece("straight-144", { x: 0, z: 0, heading: 0 });
+    // c: its end 5 mm on from a's, turned 6° (past the 4° that seats afresh, within the 10° a save's joint may be).
+    const c = layout.addPiece("straight-144", { x: 149, z: 0, heading: 6 * deg });
+    // b: an end between them, nearer each, but turned 30°: it joins neither.
+    const b = layout.addPiece("straight-144", { x: 147, z: 1.5, heading: 30 * deg });
+    expect(layout.jointCount).toBe(0);
+    layout.seatNearMisses();
+    expect(layout.joinedConnector(connectorRef(a, 1))).toBe(connectorRef(c, 0));
+    expect(layout.joinedConnector(connectorRef(b, 0))).toBe(-1);
+  });
+});
