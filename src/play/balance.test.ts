@@ -641,7 +641,13 @@ function spliceLoop(P: Player, stopPieces: readonly number[], longest = 0): numb
     }
     return -1;
   };
-  for (const { ids } of runs.slice(0, 12)) {
+  /** Straights put back after a try, under new ids: runs found before it that share them follow. */
+  const renamed = new Map<number, number>();
+  for (const run of runs.slice(0, 12)) {
+    const ids = run.ids.map((id) => {
+      while (renamed.has(id)) id = renamed.get(id)!;
+      return id;
+    });
     const n = ids.length;
     const before = outer(ids[0], ids[1]);
     const after = outer(ids[n - 1], ids[n - 2]);
@@ -676,7 +682,11 @@ function spliceLoop(P: Player, stopPieces: readonly number[], longest = 0): numb
       });
       if (closes && allowed && P.settle()) return placed;
       for (const id of placed) P.editor.remove(id);
-      ids.splice(0, n, ...was.map((p) => P.editor.place(p.type, p.pose, p.y, p.flipped)));
+      // The straights back as they were, as one edit: put back one by one, each was shifted to take up the play left
+      // by the ones not yet back (Editor's takeUpPlay), and the run came back bent, open in the middle.
+      const back = P.editor.placeRun(was.map((p) => ({ type: p.type, pose: p.pose, y: p.y, flipped: p.flipped })));
+      for (let k = 0; k < n; k++) renamed.set(ids[k], back[k]);
+      ids.splice(0, n, ...back);
     }
   }
   return null;
@@ -1306,6 +1316,8 @@ class Playthrough {
       const stops = line ? [...new Set(line.stops.map((st) => w.economy.depot(st.depotId)!.pieceId))] : [];
       const longest = Math.max(0, ...[...w.economy.lineIdOf].filter(([, id]) => id === this.lineId).map(([e]) => w.sim.findCar(e)?.train.cars.length ? carsLength(w.sim.findCar(e)!.train.cars) : 0));
       this.loop = spliceLoop(P, stops, longest);
+      // (A splice must leave every way between the line's stops joined: one left open strands the line's trains.)
+      if (this.loop && lineLegs(w.layout, stops).some((leg) => leg === null)) P.findings.push(`Minute ${P.minute.toFixed(0)}: the passing loop left the line open (a way between its stops is broken).`);
       if (this.loop) {
         P.happened++;
         this.loopAt = P.minute;
