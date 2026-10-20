@@ -62,6 +62,42 @@ describe("toasts", () => {
     expect(shown).toEqual(["Joined", "A hint"]);
   });
 
+  it("a card opened over a toast already read puts it away: it isn't shown again when the card closes (QA)", () => {
+    const { hud, shown } = toastHud();
+    const h = hud as unknown as { placeToast: (m: string) => boolean; refitToast: () => void; hideCards?: () => void };
+    let room = true;
+    const place = h.placeToast.bind(hud);
+    h.placeToast = (m) => place(m) && room;
+    hud.toast("2 goals done: Place your workshop · Bring planks to the workshop", true, 3200);
+    vi.advanceTimersByTime(2000);
+    // The workshop's card opens (and grows) over it: no room.
+    room = false;
+    h.refitToast();
+    room = true;
+    vi.advanceTimersByTime(20000);
+    hud.toast("Next");
+    vi.advanceTimersByTime(20000);
+    expect(shown).toEqual(["2 goals done: Place your workshop · Bring planks to the workshop", "Next"]);
+  });
+
+  it("a toast a card covers as it comes on waits for the card, and shows then", () => {
+    const { hud, shown } = toastHud();
+    const h = hud as unknown as { placeToast: (m: string) => boolean; refitToast: () => void };
+    let room = true;
+    const place = h.placeToast.bind(hud);
+    h.placeToast = (m) => place(m) && room;
+    hud.toast("✓ Place your workshop", true, 3200);
+    vi.advanceTimersByTime(200);
+    room = false;
+    h.refitToast();
+    vi.advanceTimersByTime(20000);
+    expect(shown).toEqual(["✓ Place your workshop"]);
+    room = true;
+    hud.toast("Next");
+    vi.advanceTimersByTime(20000);
+    expect(shown).toEqual(["✓ Place your workshop", "✓ Place your workshop", "Next"]);
+  });
+
   it("a refusal goes first: never after the success toast of the same drop", () => {
     const { hud, shown } = toastHud();
     hud.toast("Made a switch: 3🪵 from the workshop");

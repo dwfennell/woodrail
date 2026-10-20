@@ -161,6 +161,11 @@ const TOAST_QUEUE = 3;
 const TOAST_ANSWER_MS = 600;
 /** A toast that came on less than this before a refusal pushed it off (ms) shows again after the refusal. */
 const REFUSAL_BUMP_MS = 1000;
+/**
+ * A toast up this long (ms) has been read: a card opening over it puts it away for good, not back to wait (QA: a goal's
+ * tick shown, then shown again whole once the workshop's card closed).
+ */
+const TOAST_SEEN_MS = 1500;
 /** The help card's tips drawn with tray pictures: the picture's key, and the tip's art. */
 const HELP_ART: Record<string, string> = { "piece:curve-large": ".art-build", "train:Full train": ".art-run" };
 
@@ -1543,8 +1548,9 @@ export class Hud {
   }
 
   /**
-   * A card changed size under the toast showing: move it clear, or (a hint, with no room left) put it back to wait for
-   * the cards to close.
+   * A card changed size under the toast showing: move it clear, or, with no room left, put it back to wait for the
+   * cards to close if it had only just come on; one up long enough to read (`TOAST_SEEN_MS`) just goes, so it isn't
+   * shown twice.
    */
   private refitToast(): void {
     const t = this.toastShowing;
@@ -1554,6 +1560,10 @@ export class Hud {
     this.toastEl.classList.remove("show");
     this.toastShowing = null;
     this.toastHeldUntil = 0;
+    if (performance.now() - this.toastShownAt >= TOAST_SEEN_MS) {
+      this.flushToasts();
+      return;
+    }
     this.toastQueue.unshift(t);
     this.toastWaitsForCard = true;
   }
