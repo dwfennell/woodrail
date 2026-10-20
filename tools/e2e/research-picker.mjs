@@ -217,8 +217,8 @@ for (const state of ["locked", "soon"]) {
 }
 check("learned: Learned, no button", states.learned?.state === "learned" && states.learned.buttons.length === 0, JSON.stringify(states.learned));
 check("researching: live progress, no button", states.researching?.state === "researching" && /🪵 0\/10/.test(states.researching.foot) && states.researching.buttons.length === 0, JSON.stringify(states.researching));
-check("next: after Bridges, its coins chip short, Research now", states.next?.state === "next" && /After Bridges · 20🪙 short/.test(states.next.foot) && /🪙 20/.test(states.next.foot) && states.next.buttons[0]?.text === "Research now", JSON.stringify(states.next));
-check("ready: chips, study time, one 44 px button", states.ready?.state === "ready" && /🪵 0\/8/.test(states.ready.foot) && states.ready.buttons.length === 1 && states.ready.buttons[0].h >= 44, JSON.stringify(states.ready));
+check("next: after Bridges, its coins chip short, Research now", states.next?.state === "next" && /After Bridges · 40🪙 short/.test(states.next.foot) && /🪙 40/.test(states.next.foot) && states.next.buttons[0]?.text === "Research now", JSON.stringify(states.next));
+check("ready: chips, study time, one 44 px button", states.ready?.state === "ready" && /🪵 0\/4/.test(states.ready.foot) && states.ready.buttons.length === 1 && states.ready.buttons[0].h >= 44, JSON.stringify(states.ready));
 check("locked: what it waits for", states.locked?.state === "locked" && states.locked.buttons.length === 0, JSON.stringify(states.locked));
 check("soon: coming soon", states.soon?.state === "soon" && states.soon.buttons.length === 0, JSON.stringify(states.soon));
 const coinChip = await p.evaluate(() => {

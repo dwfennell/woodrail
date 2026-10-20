@@ -37,7 +37,7 @@ describe("a research card's foot in the picker", () => {
     const p = Progress.fresh();
     p.learned.add("farming");
     const html = researchFoot("mills", researchCard(p, "mills", SCHOOL)!, false);
-    expect(html).toContain(`<span class="bp-chip">🪵 0/6</span><span class="bp-chip">🌾 0/6</span><span class="bp-chip short">🪙 20</span>`);
+    expect(html).toContain(`<span class="bp-chip">🪵 0/6</span><span class="bp-chip">🌾 0/6</span><span class="bp-chip short">🪙 40</span>`);
     expect(html).toContain("⏱ 45 s study");
     expect(html.match(/<button/g)).toHaveLength(1);
     expect(html).toContain(`data-act="pick" data-id="mills">Research</button>`);

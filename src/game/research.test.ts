@@ -16,11 +16,11 @@ describe("research costs", () => {
     expect(costOf("switches")).toEqual({ goods: { planks: 4 } });
     // The passenger line: light on planks, and from tier 2 mostly coins (P5).
     expect(costOf("halts")).toEqual({ goods: { planks: 6 } });
-    expect(costOf("express")).toEqual({ goods: { planks: 10 }, coins: 120 });
-    expect(costOf("routes")).toEqual({ goods: { planks: 5 }, coins: 20 });
-    expect(costOf("mills")).toEqual({ goods: { planks: 6, grain: 6 }, coins: 20 });
-    expect(costOf("goods-engine")).toEqual({ goods: { planks: 6, flour: 6 }, coins: 40 });
-    expect(costOf("electricity")).toEqual({ goods: { iron: 10, coal: 10 }, coins: 120 });
+    expect(costOf("express")).toEqual({ goods: { planks: 10 }, coins: 240 });
+    expect(costOf("routes")).toEqual({ goods: { planks: 5 }, coins: 40 });
+    expect(costOf("mills")).toEqual({ goods: { planks: 6, grain: 6 }, coins: 40 });
+    expect(costOf("goods-engine")).toEqual({ goods: { planks: 6, flour: 6 }, coins: 80 });
+    expect(costOf("electricity")).toEqual({ goods: { iron: 10, coal: 10 }, coins: 240 });
     // Every built blueprint has goods to research it with.
     for (const t of TECHS.filter((x) => built(x))) expect(Object.keys(t.research.goods).length, t.id).toBeGreaterThan(0);
   });
@@ -64,22 +64,24 @@ describe("picking research", () => {
   });
 
   it("tier 2 and up pay their coins when the research starts", () => {
-    const p = player(30);
+    const coins = costOf("routes").coins!;
+    const p = player(coins + 10);
     expect(pick(p, "routes")).toBe("current");
     expect(p.coins).toBe(10);
   });
 
   it("a pick whose coins are short waits in Next up, saying how many are short, and starts once they're in", () => {
+    const coins = costOf("routes").coins!;
     const p = player(5);
     expect(pick(p, "routes")).toBe("next");
     expect(p.research.current).toBeNull();
-    expect(coinsShort(p)).toBe(15);
+    expect(coinsShort(p)).toBe(coins - 5);
     expect(p.coins).toBe(5);
     // A school with nothing current takes nothing meanwhile.
     expect(lacking(p, "planks")).toBe(0);
     tick(p, 1);
     expect(p.research.current).toBeNull();
-    p.coins = 25;
+    p.coins = coins + 5;
     tick(p, 1);
     expect([p.research.current, p.research.next, p.coins]).toEqual(["routes", null, 5]);
     expect(coinsShort(p)).toBe(0);
@@ -91,7 +93,7 @@ describe("picking research", () => {
     pick(p, "routes");
     expect(pick(p, "routes")).toBe("next");
     expect([p.research.current, p.research.next]).toEqual(["signals", "routes"]);
-    expect(coinsShort(p)).toBe(20);
+    expect(coinsShort(p)).toBe(costOf("routes").coins);
   });
 });
 
