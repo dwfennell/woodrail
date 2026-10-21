@@ -47,6 +47,12 @@ export const CARD_AMOUNTS = {
   rare: [0, 6, 12],
 } as const;
 
+/**
+ * A research boost's floor: at least this many of each good the research lacks (or all it lacks, if fewer), and it's
+ * offered (or can be taken) only while that comes to this many in all (QA P5: "+1🪵" beside +80 coins).
+ */
+export const BOOST_FLOOR = 3;
+
 /** The column of `CARD_AMOUNTS` for a town that grew to `level`. */
 export const amountAt = (amounts: readonly number[], level: number): number => amounts[Math.max(1, Math.min(level, 3)) - 1];
 

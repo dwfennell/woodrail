@@ -1,7 +1,7 @@
 // End-to-end Research picker on a phone (`npm run e2e:research [-- <out dir>]`), at 390×844 with touch: a new game's
 // line laid and its school placed; the pill in the top bar says "Pick research"; a goal after a blueprint (Research
 // switches) opens the picker on it from Show me and from the pill, nothing picked; Research, then Next up (and the
-// swap); deliveries move the pill; every card state's ticket; the pill fits the bar beside the coins and buttons; the date
+// swap); deliveries move the pill; the pill opens on what it shows (the one up next, waiting for coins); every card state's ticket; the pill fits the bar beside the coins and buttons; the date
 // and the pill both read at 360, 414 and 844×390 (a phone on its side); and no frames drawn in 30 s with the pill showing
 // while nothing changes.
 //
@@ -159,8 +159,8 @@ await shot("03-ready-card");
 // 4. Research Switches with one tap, then Bridges up next.
 await tap(".board-sheet button[data-act=pick]", "Research");
 t = await ticket();
-check("one tap: Switches is researching, live progress, no button", t?.state === "researching" && t.buttons.length === 0 && /🪵 0\/4/.test(t.foot) && /bring 4🪵 to/.test(t.foot), JSON.stringify(t));
-check("the pill shows it", (await pill()) === "📘 Switches 0/4🪵", String(await pill()));
+check("one tap: Switches is researching, live progress, no button", t?.state === "researching" && t.buttons.length === 0 && /🪵 0\/3/.test(t.foot) && /bring 3🪵 to/.test(t.foot), JSON.stringify(t));
+check("the pill shows it", (await pill()) === "📘 Switches 0/3🪵", String(await pill()));
 await shot("04-picked-research");
 await select("Bridges and ramps");
 t = await ticket();
@@ -186,10 +186,10 @@ const deliver = (n) =>
   }, n);
 const before = await pill();
 await shot("06-pill-before-delivery");
-await deliver(3);
+await deliver(2);
 await p.waitForTimeout(300);
 const after = await pill();
-check("a delivery moves the pill", before === "📘 Switches 0/4🪵" && after === "📘 Switches 3/4🪵", `${before} → ${after}`);
+check("a delivery moves the pill", before === "📘 Switches 0/3🪵" && after === "📘 Switches 2/3🪵", `${before} → ${after}`);
 await shot("07-pill-after-delivery");
 await deliver(1);
 await p.waitForTimeout(1300);
@@ -257,6 +257,46 @@ const rebuilt = await p.evaluate(async () => {
 check("open, coins and loads coming in: the picker isn't rebuilt", rebuilt.web === 0 && rebuilt.sheet === 0, JSON.stringify(rebuilt));
 await shot("10-picker-web");
 await tap(".board-head .close");
+
+// 6b. Nothing under way, the one up next waiting for coins: the pill shows it, and a tap opens the picker on it, not on
+// the goal's research nor the card shown last (QA P5: "…10/40🪙" opened on another research).
+await p.evaluate(() => {
+  const w = window.woodrail;
+  const pr = w.progress();
+  const r = pr.research;
+  r.held.set(r.current, { got: r.got, study: r.study });
+  r.current = null;
+  r.got = {};
+  r.study = 0;
+  r.next = "routes";
+  pr.coins = 10;
+  r.version++;
+  w.hud.setCoins(10);
+});
+await p.waitForTimeout(700);
+check("nothing under way, Train routes waiting for coins: the pill shows them", (await pill()) === "📘 Train routes 10/40🪙", String(await pill()));
+await tap(".research-pill");
+await select("Signals");
+await tap(".board-head .close");
+await tap(".research-pill");
+t = await ticket();
+check("…and a tap on it opens the picker on Train routes", t?.name === "Train routes" && t.state === "next", JSON.stringify(t));
+await shot("10a-pill-waiting-for-coins");
+await tap(".board-head .close");
+await p.evaluate(() => {
+  const w = window.woodrail;
+  const pr = w.progress();
+  const r = pr.research;
+  const held = r.held.get("bridges");
+  r.held.delete("bridges");
+  r.current = "bridges";
+  r.got = held.got;
+  r.study = held.study;
+  pr.coins = 1000;
+  r.version++;
+  w.hud.setCoins(1000);
+});
+await p.waitForTimeout(700);
 
 // 7. The bar with the pill under way (it stands in for the Research button on a phone), with a four-figure purse. (A
 // town's reward no longer glows here: it waits in the growth sheet, with its own badge. See e2e:growth.)

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Progress } from "./progress";
 import { deliver, pick, tick } from "./research";
 import * as text from "./research-text";
-import { cardState, chipsText, goalPick, pickerKey, pillKey, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
+import { cardState, chipsText, goalPick, pickerKey, pillKey, pillResearch, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
 import { TECHS } from "./tech";
 
 const SCHOOL = "Larkfield school";
@@ -44,7 +44,7 @@ describe("a card's chips", () => {
 
   it("a ready card: Research when idle, else Next up; the one up next swaps with Research now", () => {
     const p = Progress.fresh();
-    expect(researchCard(p, "switches", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/4" }], study: "20 s study", action: "Research" });
+    expect(researchCard(p, "switches", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/3" }], study: "20 s study", action: "Research" });
     pick(p, "switches");
     expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/10" }], study: "20 s study", action: "Next up" });
     pick(p, "bridges");
@@ -108,6 +108,23 @@ describe("the HUD's research pill", () => {
     q.coins = 5;
     pick(q, "routes");
     expect(pillText(pillView(q, true))).toBe("📘 Train routes 5/40🪙");
+  });
+
+  it("a tap opens the picker on the research it shows: the one under way, or the one up next waiting for coins (QA P5)", () => {
+    const p = Progress.fresh();
+    expect(pillResearch(p)).toBeNull();
+    p.learned.add("switches");
+    p.coins = 10;
+    pick(p, "routes");
+    expect(pillText(pillView(p, true))).toBe("📘 Train routes 10/40🪙");
+    expect(pillResearch(p)).toBe("routes");
+    // (Where the picker would open by itself: the goal's research, since nothing is under way.)
+    expect(goalPick(p, "bridges", true)).toBe("bridges");
+    // Under way: that one, whatever waits next.
+    const q = Progress.fresh();
+    pick(q, "bridges");
+    pick(q, "signals");
+    expect(pillResearch(q)).toBe("bridges");
   });
 
   it("its key changes only when what it shows may: a pick, a delivery, a second of study, a school, coins while waiting", () => {
@@ -199,8 +216,8 @@ describe("the school's card", () => {
     const k0 = schoolCardKey(p);
     pick(p, "switches");
     expect(schoolCardKey(p)).not.toBe(k0);
-    deliver(p, "planks", 3);
-    expect(schoolCard(p)).toEqual({ piles: [{ label: "🪵", count: 3, cap: 4 }], note: "Researching Switches" });
+    deliver(p, "planks", 2);
+    expect(schoolCard(p)).toEqual({ piles: [{ label: "🪵", count: 2, cap: 3 }], note: "Researching Switches" });
     const k1 = schoolCardKey(p);
     expect(schoolCardKey(p)).toBe(k1);
     deliver(p, "planks", 1);

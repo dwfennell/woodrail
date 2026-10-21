@@ -28,6 +28,30 @@ export interface MakeNow {
   waiting: string | null;
 }
 
+/** How the workshop's yard shares planks (its card's two-way choice): `keeps` and `cap` are said in the hint. */
+export interface YardMode {
+  takesAll: boolean;
+  /** Planks it keeps while sharing (`yardKeeps`). */
+  keeps: number;
+  /** Its yard's cap. */
+  cap: number;
+}
+
+export const SHARES_LABEL = "Shares with towns";
+export const TAKES_ALL_LABEL = "Takes all planks";
+
+/** The line under the choice: what the workshop does with the planks trains bring. */
+export function yardHint(m: YardMode): string {
+  return m.takesAll ? `Fills its yard first, up to ${m.cap}` : `Leaves planks for towns further on, keeping ${m.keeps} for you`;
+}
+
+/** The workshop's two-way choice, Shares with towns / Takes all planks, and its hint. */
+export function yardModeHtml(m: YardMode): string {
+  const chip = (all: boolean, label: string) =>
+    `<button class="chip text${m.takesAll === all ? " active" : ""}" data-yard="${all ? "all" : "share"}" aria-pressed="${m.takesAll === all}">${label}</button>`;
+  return `<div class="yard-mode" role="group" aria-label="Planks">${chip(false, SHARES_LABEL)}${chip(true, TAKES_ALL_LABEL)}</div><div class="yard-hint">${yardHint(m)}</div>`;
+}
+
 /**
  * The workshop's card (Game mode): what it's making now, and everything it can make, by shelf, each with its cost,
  * how many are in the toy box, and buttons to order one more or one fewer.
@@ -40,9 +64,15 @@ export class WorkshopPanel {
 
   constructor(
     private readonly root: HTMLElement,
-    handlers: { order(id: ThingId): void; cancel(id: ThingId): void },
+    handlers: { order(id: ThingId): void; cancel(id: ThingId): void; takesAll?(on: boolean): void },
   ) {
     root.addEventListener("click", (e) => {
+      const y = (e.target as HTMLElement).closest<HTMLElement>("[data-yard]");
+      if (y) {
+        e.stopPropagation();
+        if (!y.classList.contains("active")) handlers.takesAll?.(y.dataset.yard === "all");
+        return;
+      }
       const b = (e.target as HTMLElement).closest<HTMLElement>("[data-make]");
       if (!b) return;
       e.stopPropagation();
@@ -58,11 +88,12 @@ export class WorkshopPanel {
     this.bar = null;
   }
 
-  show(now: MakeNow | null, rows: MakeRow[]): void {
+  /** `yard`: its two-way plank choice, on top (null: none). */
+  show(now: MakeNow | null, rows: MakeRow[], yard: YardMode | null = null): void {
     const fill = now ? Math.round(now.fill * 100) : -1;
     // The card's made again only when what it says changes, not as the bar fills (a tap on a button mid-way
     // would be lost).
-    const key = JSON.stringify([now && { ...now, fill: 0 }, rows]);
+    const key = JSON.stringify([now && { ...now, fill: 0 }, rows, yard]);
     // (Still there: the card's box can be emptied by others, e.g. when another card opens.)
     const intact = this.bar ? this.root.contains(this.bar) : this.root.firstElementChild !== null;
     if (key === this.shownKey && intact) {
@@ -80,7 +111,7 @@ export class WorkshopPanel {
       if (r.shelf !== shelf) body += `<div class="make-head">${(shelf = r.shelf)}</div>`;
       body += makeRowHtml(r);
     }
-    this.root.innerHTML = head + body;
+    this.root.innerHTML = (yard ? yardModeHtml(yard) : "") + head + body;
     this.bar = this.root.querySelector<HTMLElement>(".make-now .bar > i");
     this.barShown = fill;
   }
