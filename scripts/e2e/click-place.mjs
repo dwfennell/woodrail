@@ -185,8 +185,14 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   await p.evaluate(() => new Promise((r) => { const w = window.woodrail; let last = -1, same = 0; const t = () => { const d = Math.round(w.camera.position.distanceTo(w.controls.target)); same = d === last ? same + 1 : 0; last = d; if (same > 10) r(); else requestAnimationFrame(t); }; requestAnimationFrame(t); }));
   const v2 = await view(p);
   check("the wheel still zooms, still carried", v2.d !== v1.d && (await carried(p)), `distance ${v1.d} → ${v2.d}`);
+  // (The wheel zooms toward the mouse, keeping the ground under it: the ghost rightly stays. A glide moves the view
+  // under a still mouse: the ghost follows, under the mouse.)
   const w1 = await goal();
-  check("…and the ghost is placed again under the mouse as the view moves (QA)", !!w0 && !!w1 && (w0[0] !== w1[0] || w0[1] !== w1[1]) && (await ghost(p))?.visible, `ghost at ${w0} → ${w1}`);
+  await p.evaluate(() => { const w = window.woodrail; const t = w.controls.target; w.director.glideTo(t.clone().setX(t.x + 400), w.camera.position.distanceTo(t), { duration: 0.2 }); });
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  await frames(p);
+  const w2 = await goal();
+  check("the ghost stays under the mouse as the view moves: the wheel (toward the mouse) or a glide (QA)", !!w0 && !!w1 && !!w2 && Math.hypot(w1[0] - w0[0], w1[1] - w0[1]) < 40 && Math.hypot(w2[0] - w1[0], w2[1] - w1[1]) > 200 && (await ghost(p))?.visible, `ghost at ${w0} → wheel ${w1} → glide ${w2}`);
   // Undo keeps it carried (what was put down goes).
   const u0 = await pieces(p);
   await p.keyboard.press("Control+z");
