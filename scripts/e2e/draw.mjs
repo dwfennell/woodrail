@@ -1003,6 +1003,7 @@ async function junctions(fresh = true) {
     await boot(p);
   }
   await installD(p);
+  await stationClose();
   const open = await p.evaluate(() => {
     const w = window.woodrail;
     const G = w.landscape.grid;
@@ -1109,6 +1110,66 @@ async function junctions(fresh = true) {
     w.interaction.onPickPlace = null;
     w.hud.setPlanning(false);
   });
+}
+
+/**
+ * Draw into a station end closes (QA: a line drawn into Fernhill's west end stopped just short of it, buffers facing):
+ * from open ground south of Gorsemoor, a bend up into its south end and a little on. Before, no one piece met the end
+ * within the joints' play, and the line went on beside it, red into the house there ("That's a house — go around it");
+ * now it lays its last pieces so they meet the end, bending its joints within their play: every piece is joined, and
+ * the station is where it was.
+ */
+async function stationClose() {
+  const st = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { connectorRef, createWorldConnector } = await import("/src/track/layout.ts");
+    const town = w.landscape.towns.find((t) => t.name === "Gorsemoor");
+    const id = town && w.stations.get(town.id);
+    if (id === undefined) return null;
+    const c = w.layout.worldConnector(connectorRef(id, 0), createWorldConnector());
+    return { id, ref: connectorRef(id, 0), x: c.x, z: c.z, heading: c.heading, pose: { ...w.layout.getPiece(id).pose } };
+  });
+  check("draw into a station end: found Gorsemoor's south end", !!st && Math.abs(st.x - 828) < 1 && Math.abs(st.z + 576) < 1, JSON.stringify(st));
+  if (!st) return;
+  // A smooth stroke from 550 mm off, 10° to one side of the station's line, in along it and 40 mm on.
+  const a = st.heading - (10 * Math.PI) / 180;
+  const [sx, sz] = [st.x + 550 * Math.cos(a), st.z + 550 * Math.sin(a)];
+  const [hs, ht] = [a + Math.PI, st.heading + Math.PI];
+  const L = Math.hypot(st.x - sx, st.z - sz);
+  const pts = [[sx, sz]];
+  const n = Math.ceil((L * 1.3) / 40);
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    const [h0, h1, h2, h3] = [2 * t ** 3 - 3 * t ** 2 + 1, t ** 3 - 2 * t ** 2 + t, -2 * t ** 3 + 3 * t ** 2, t ** 3 - t ** 2];
+    pts.push([h0 * sx + h1 * L * Math.cos(hs) + h2 * st.x + h3 * L * Math.cos(ht), h0 * sz + h1 * L * Math.sin(hs) + h2 * st.z + h3 * L * Math.sin(ht)]);
+  }
+  pts.push([st.x + 40 * Math.cos(ht), st.z + 40 * Math.sin(ht)]);
+  await focus((sx + st.x) / 2, (sz + st.z) / 2, 420);
+  if (!(await p.evaluate(() => window.woodrail.interaction.isDrawing))) await tapSel(p, ".tray-draw");
+  await p.evaluate(() => D.toasts());
+  const [n0, j0] = await p.evaluate(() => [D.pieces(), D.joints()]);
+  await drawThrough(pts, { shotAt: pts.length - 2, shotName: "draw-11-station.png" });
+  const after = await p.evaluate(async ([ref, id]) => {
+    const w = window.woodrail;
+    const tol = await import("/src/track/constants.ts");
+    let worst = 0;
+    let gap = 0;
+    for (const j of w.layout.joints()) {
+      worst = Math.max(worst, j.angleError);
+      gap = Math.max(gap, j.posError);
+    }
+    const ok = worst <= tol.JOINT_ANGLE_TOLERANCE + 1e-9 && gap <= tol.JOINT_POS_TOLERANCE + 1e-9;
+    return { joined: w.layout.joinedConnector(ref) !== -1, pieces: D.pieces(), joints: D.joints(), snug: ok, worst: (worst * 180) / Math.PI, gap, pose: { ...w.layout.getPiece(id).pose }, toasts: D.toasts() };
+  }, [st.ref, st.id]);
+  await shot(p, `${OUT}/draw-11-station-closed.png`);
+  const laid = after.pieces - n0;
+  check(
+    "draw into a station end closes: joined, every piece joined, joints within play, the station unmoved",
+    after.joined && laid >= 2 && after.joints - j0 === laid && after.snug && after.pose.x === st.pose.x && after.pose.z === st.pose.z && after.pose.heading === st.pose.heading,
+    `${laid} pieces, ${after.joints - j0} joints, worst ${after.worst.toFixed(2)}° ${after.gap.toFixed(1)} mm, toasts ${JSON.stringify(after.toasts)}`,
+  );
+  // (Taken up again: the junctions' cases find their open ground on the map as it was.)
+  if (laid > 0) await p.evaluate(() => window.woodrail.interaction.undo());
 }
 
 async function finishRun() {
