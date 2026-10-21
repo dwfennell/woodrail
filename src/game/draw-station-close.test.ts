@@ -1,24 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
-import { hillsOf, inRiver, looseHeight, type BlockReason } from "../landscape";
-import {
-  connectorRef,
-  createWorldConnector,
-  DrawLine,
-  fitAutoStraight,
-  getPieceDef,
-  JOINT_ANGLE_TOLERANCE,
-  JOINT_POS_TOLERANCE,
-  normalizeAngle,
-  solveParentPose,
-  transformPose,
-  type DrawCandidate,
-  type DrawEnd,
-  type DrawOptions,
-} from "../track";
+import { inRiver, looseHeight } from "../landscape";
+import { connectorRef, createWorldConnector, DrawLine, JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, normalizeAngle, type DrawEnd } from "../track";
 import { DrawNotice, UNJOINED_START } from "./draw-notice";
-import { drawMessage, drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
-import { createWorld, type World } from "./world";
+import { drawOptions } from "./draw-testing";
+import { createWorld } from "./world";
 
 /**
  * QA: "Draw mode seems to have some troubles connecting to stations". A line drawn over the river and down into
@@ -31,63 +17,6 @@ import { createWorld, type World } from "./world";
  * closed or left facing it): before the fix, the Fernhill strokes over the bridge 64 of 70, strokes into seed 7's ends
  * 312 of 385, station to station 194 of 234; after, 79 of 79, 424 of 432 and 287 of 291.
  */
-
-/** As DrawHand sets a line up (see `DrawHand.start`). */
-function drawOptions(world: World, startHeld: boolean): DrawOptions {
-  const land = world.landscape;
-  const layout = world.layout;
-  const rules: TrackRules = { land, layout, props: world.props, footprint: () => undefined };
-  const hills = hillsOf(land.grid);
-  return {
-    check: (c) => {
-      const p = trackPlacement(rules, c.type, c.flipped, c.pose, c.y, -1);
-      const why = drawRefusal(land, c.type, c.flipped, c.pose, c.y, p.reason, p.risers);
-      return why ? { reason: why.reason, message: drawMessage(why.reason, why.levels, (r) => trackMessage(r as BlockReason, why.levels)), levels: why.levels } : null;
-    },
-    meet: (e: DrawEnd): DrawCandidate | null => {
-      const seated = e.kind === "peg" ? 0 : 1;
-      const long = getPieceDef("straight-216", false);
-      const pose = solveParentPose(long.connectors[seated].pose, { x: e.x, z: e.z, heading: e.heading + Math.PI }, { x: 0, z: 0, heading: 0 });
-      const fit = fitAutoStraight(layout, pose, e.y, seated, []);
-      if (!fit || fit.gap) return null;
-      const def = getPieceDef(fit.type, fit.flipped);
-      if (def.connectors.length !== 2) return null;
-      const exit = 1 - seated;
-      const w = transformPose(fit.pose, def.connectors[exit].pose, { x: 0, z: 0, heading: 0 });
-      return { type: fit.type, flipped: fit.flipped, pose: fit.pose, y: e.y, entry: seated, exit, length: fit.length, end: { x: w.x, z: w.z, heading: w.heading, y: e.y, kind: def.connectors[exit].kind } };
-    },
-    closes: (e) => {
-      const near: number[] = [];
-      const w = createWorldConnector();
-      const n = layout.queryFreeConnectors(e.x, e.z, JOINT_POS_TOLERANCE, near);
-      for (let i = 0; i < n; i++) {
-        layout.worldConnector(near[i], w);
-        if (Math.abs(w.y - e.y) > 2 || Math.hypot(w.x - e.x, w.z - e.z) > JOINT_POS_TOLERANCE) continue;
-        if (Math.abs(normalizeAngle(w.heading - e.heading - Math.PI)) <= JOINT_ANGLE_TOLERANCE) return true;
-      }
-      return false;
-    },
-    nearTrack: (e, reach) => layout.queryFreeConnectors(e.x, e.z, reach, []) > 0,
-    freeEnds: (e, reach, out) => {
-      out.length = 0;
-      const near: number[] = [];
-      const w = createWorldConnector();
-      const n = layout.queryFreeConnectors(e.x, e.z, reach, near);
-      for (let i = 0; i < n; i++) {
-        layout.worldConnector(near[i], w);
-        if (Math.abs(w.y - e.y) > 2 || Math.hypot(w.x - e.x, w.z - e.z) > reach) continue;
-        if (Math.cos(w.heading - e.heading - Math.PI) < -0.2) continue;
-        out.push({ x: w.x, z: w.z, heading: w.heading, y: w.y, kind: w.kind });
-      }
-      return out.length;
-    },
-    startHeld,
-    groundAt: (x, z) => hills.groundAt(x, z),
-    wet: (x, z) => inRiver(land.grid, x, z),
-    onMap: (x, z) => land.grid.cellAtWorld(x, z) !== -1,
-    outOf: (type) => `Out of ${type}`,
-  };
-}
 
 /** A smooth stroke from (sx, sz) setting off at `hs` to (tx, tz) arriving at `ht`, then `over` mm on: points 4 mm apart. */
 function stroke(sx: number, sz: number, hs: number, tx: number, tz: number, ht: number, over: number): { x: number; z: number }[] {
