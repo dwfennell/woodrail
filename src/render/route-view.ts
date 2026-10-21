@@ -51,16 +51,15 @@ const RIBBON_LIFT = 0.4;
 const DOTS_LIFT = 0.7;
 const STEP = 6;
 /**
- * Dotted ribbons: pills along the way, each clearly longer than it's wide (so they read as a way, not as the sleepers
- * of light wood): a dark outline pill (`DOT_OUTLINE` wide, `DASH` long) with a light core inside it (`DOT_CORE` wide,
- * `CORE_DASH` long, centred), `GAP` between pills.
+ * Dotted ribbons (the way a train's switches send it): small soft pills in the groove, `DOT_WIDTH` wide at the train
+ * and narrowing to `DOT_TAPER` of that at the far end (so the way fades off rather than stopping), `DASH` long with
+ * `GAP` between: a faint tint of the groove, not marks laid over the toy.
  */
-const DASH = 26;
-const GAP = 10;
-const DOT_OUTLINE = 12;
-const DOT_CORE = 6;
-const CORE_DASH = 18;
-const DOT_OUTLINE_COLOUR = "#2b2f3a";
+const DASH = 16;
+const GAP = 12;
+const DOT_WIDTH = 6;
+const DOT_TAPER = 0.45;
+const DOT_OPACITY = 0.65;
 /** The red dashes of a gap no track crosses. */
 const GAP_COLOUR = "#d33a2c";
 const GAP_WIDTH = 9;
@@ -123,10 +122,8 @@ export class RouteView {
     };
     for (const r of ribbons) {
       if (r.dotted) {
-        const under = stripOf(DOT_OUTLINE_COLOUR, true);
-        this.dashes(r.runs, DOT_OUTLINE, DOTS_LIFT, under.pos, under.uv, DASH);
-        const core = stripOf(r.colour, true);
-        this.dashes(r.runs, DOT_CORE, DOTS_LIFT + 0.3, core.pos, core.uv, CORE_DASH);
+        const b = stripOf(r.colour, true);
+        this.dashes(r.runs, DOT_WIDTH, DOTS_LIFT, b.pos, b.uv);
       } else {
         const b = stripOf(r.colour, false);
         for (const run of r.runs) this.strip(run, b.pos, b.uv);
@@ -298,11 +295,10 @@ export class RouteView {
   }
 
   /** Dashes along the runs, spaced by distance along the whole way (so they run on evenly from piece to piece). */
-  private dashes(runs: readonly PathRun[], width: number, lift: number, pos: number[], uv: number[], length: number): void {
+  private dashes(runs: readonly PathRun[], width: number, lift: number, pos: number[], uv: number[]): void {
     let along = 0;
     const period = DASH + GAP;
-    // (Centred in its pill's length: a shorter dash, the core, sits inside the outline's.)
-    const lead = (DASH - length) / 2;
+    const total = runs.reduce((t, run) => t + Math.abs(run.s1 - run.s0), 0);
     for (const run of runs) {
       if (!this.layout.getPiece(run.pieceId)) continue;
       const dir = run.s1 >= run.s0 ? 1 : -1;
@@ -310,10 +306,12 @@ export class RouteView {
       // Dash k covers [k·period + lead, k·period + lead + length) of the whole way.
       let k = Math.floor(along / period);
       for (;;) {
-        const d0 = Math.max(k * period + lead, along);
-        const d1 = Math.min(k * period + lead + length, along + n);
+        const d0 = Math.max(k * period, along);
+        const d1 = Math.min(k * period + DASH, along + n);
         if (d0 >= along + n) break;
-        if (d1 > d0) this.span(run, run.s0 + dir * (d0 - along), run.s0 + dir * (d1 - along), lift, pos, uv, width);
+        // Narrower the further along the way (each dash as wide as at its middle).
+        const w = width * (1 - (1 - DOT_TAPER) * Math.min(1, (d0 + d1) / 2 / Math.max(1, total)));
+        if (d1 > d0) this.span(run, run.s0 + dir * (d0 - along), run.s0 + dir * (d1 - along), lift, pos, uv, w);
         k++;
       }
       along += n;
@@ -367,7 +365,7 @@ export class RouteView {
         color: new Color(colour),
         alphaMap: this.edges(),
         transparent: true,
-        opacity: dotted ? 0.9 : RIBBON_OPACITY,
+        opacity: dotted ? DOT_OPACITY : RIBBON_OPACITY,
         // Writes depth with a strict test: where two legs run over the same track, the second doesn't darken it.
         depthWrite: true,
         depthFunc: LessDepth,
