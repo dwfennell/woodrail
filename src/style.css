@@ -244,6 +244,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* Cards dock at the right, under the top bar: in the middle they'd sit on the very train or piece just tapped, and
      a second tap on it (a car, for its own card) would land on the card's Go instead. */
   .card, .card.piece-card.group { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; top: calc(max(10px, env(safe-area-inset-top)) + 56px); bottom: auto; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 149px); overflow-y: auto; overscroll-behavior: contain; }
+  /* An open card is over the goals bar (QA, 667×375: the bar lay over the card's title); the bar's back when it closes. */
+  .card { z-index: 1; }
   .card > * { flex-shrink: 0; }
   .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
