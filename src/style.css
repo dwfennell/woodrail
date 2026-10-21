@@ -860,3 +860,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .reward-badge .rb-count { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #c8442f; color: #fff; font-size: 12px; font-weight: 900; line-height: 20px; }
 @keyframes reward-bob { 50% { transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .reward-badge { animation: none; } }
+
+/* A phone on its side, an engine with no route yet: "Plan a route" beside Go, in the one row (QA: under it, at 375 px
+   it was cut off at the card's foot, behind a scroll). With a route, the card's as ever (it scrolls). */
+@media (max-height: 520px) {
+  :not(.planning) > .engine-card:has(.route-none:not([hidden])) { flex-flow: row wrap; justify-content: center; column-gap: 10px; }
+  /* (The title and status each a line of their own, whole: the status's own cap would let Go up beside it.) */
+  :not(.planning) > .engine-card:has(.route-none:not([hidden])) > * { flex-basis: 100%; max-width: none; text-align: center; }
+  :not(.planning) > .engine-card:has(.route-none:not([hidden])) > :is(.engine-controls, .engine-extra.route) { flex-basis: auto; }
+  :not(.planning) > .engine-card:has(.route-none:not([hidden])) > .engine-extra.route { margin-top: 0; align-self: center; }
+  :not(.planning) > .engine-card .route-head:has(.route-none:not([hidden])) :is(.engine-extra-label, .route-none) { display: none; }
+}
