@@ -148,7 +148,7 @@ const parts = new Map<string, Piece[]>();
  * Draw a building part into a batch: each piece copied, placed by `place` (as the code places its own geometry) and
  * painted, a slot's colour taken from `slots` ("lacquer slot door" from `slots.door`).
  */
-export function addPart(b: Batcher, mats: Materials, name: string, place: (g: BufferGeometry) => BufferGeometry, slots: Readonly<Record<string, string>> = {}): void {
+export function addPart(b: Pick<Batcher, "add">, mats: Materials, name: string, place: (g: BufferGeometry) => BufferGeometry, slots: Readonly<Record<string, string>> = {}): void {
   const pieces = parts.get(name);
   if (!pieces) throw new Error(`No building part "${name}" (load the models first: loadBlenderModels)`);
   for (const p of pieces) b.add(partMaterial(mats, p.material, slots), place(p.geometry.clone()));

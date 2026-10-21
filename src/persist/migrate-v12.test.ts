@@ -34,7 +34,10 @@ describe("a v12 Game save carries over into v13", () => {
       if (!r?.ok) return;
       const w = r.value;
       expect(w.landscape.towns.slice(0, 2).map((t) => t.name)).toEqual(v12.towns);
-      expect(w.layout.pieceCount).toBe((v12.save as unknown as { pieces: unknown[] }).pieces.length);
+      // (And the start's old sites, gained as it loads: a stub each, where none of its track is.)
+      expect(w.ruins.size).toBeGreaterThan(0);
+      expect(w.landscape.sites!.length).toBe(w.ruins.size);
+      expect(w.layout.pieceCount).toBe((v12.save as unknown as { pieces: unknown[] }).pieces.length + w.ruins.size);
       expect(w.sim.trainCount).toBe(1);
       expect(w.economy.delivered.get(w.landscape.towns[0].id)).toBe(60);
       // Read as it is: no backup kept.

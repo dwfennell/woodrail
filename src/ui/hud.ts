@@ -52,6 +52,8 @@ export interface HudHandlers {
   toggleBoard(): void;
   /** Add the plot chosen on the land card. */
   buyLand(): void;
+  /** "Clear the ruin" on an old industry's card. */
+  clearRuin?(): void;
   resetStarter(): void;
   /** Game mode: start the goals again on the starter map. */
   newGame(): void;
@@ -201,6 +203,13 @@ export class Hud {
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
   private readonly landCard = el("div", "card land-card");
   private readonly landText = el("div", "land-text");
+  /** An old industry's ruin: its card (tap a ruin). */
+  private readonly ruinCard = el("div", "card ruin-card");
+  private readonly ruinTitle = el("div", "card-title");
+  private readonly ruinResource = el("div", "ruin-resource");
+  private readonly ruinStatus = el("div", "ruin-status");
+  private readonly ruinOwn = el("div", "ruin-own");
+  private ruinClearBtn!: HTMLButtonElement;
   private landBuyBtn!: HTMLButtonElement;
   private landBtn!: HTMLButtonElement;
   private soundItem!: HTMLButtonElement;
@@ -504,6 +513,14 @@ export class Hud {
     landRow.append(this.landBuyBtn, button("Done", "Stop adding land", h.toggleExpand, "chip text"));
     this.landCard.append(el("div", "card-title", "Add land"), this.landText, landRow);
     this.root.appendChild(this.landCard);
+
+    // An old industry's ruin: what's around it, what opens it, and clearing it away.
+    this.ruinCard.hidden = true;
+    this.ruinClearBtn = button("Clear the ruin", "Take the ruin and its track away", () => h.clearRuin?.(), "chip text");
+    const ruinRow = el("div", "card-row");
+    ruinRow.append(this.ruinClearBtn);
+    this.ruinCard.append(this.ruinTitle, this.ruinResource, this.ruinStatus, this.ruinOwn, ruinRow, button("✕", "Close", h.closeCards, "close"));
+    this.root.appendChild(this.ruinCard);
 
     // Tray with tabs
     const tabs = el("div", "tabs");
@@ -1441,6 +1458,24 @@ export class Hud {
     this.landBuyBtn.hidden = !canBuy;
   }
 
+  /** Show an old industry's card (see `ruinCard` in map-sites.ts). */
+  showRuinCard(card: { title: string; resource: string; status: string; own: string | null; clear: string }): void {
+    this.hideCards();
+    this.ruinTitle.textContent = card.title;
+    this.ruinResource.textContent = card.resource;
+    this.ruinResource.hidden = !card.resource;
+    this.ruinStatus.textContent = card.status;
+    this.ruinOwn.textContent = card.own ?? "";
+    this.ruinOwn.hidden = !card.own;
+    this.ruinClearBtn.textContent = card.clear;
+    this.ruinCard.hidden = false;
+    this.root.classList.add("card-open");
+  }
+
+  get ruinCardOpen(): boolean {
+    return !this.ruinCard.hidden;
+  }
+
   get depotCardOpen(): boolean {
     return !this.depotCard.hidden;
   }
@@ -1450,7 +1485,7 @@ export class Hud {
 
   /** Where the open card for one thing (an engine, a car, a piece, a depot) is on screen, or null. */
   openCardRect(): DOMRect | null {
-    for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) {
+    for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard, this.ruinCard]) {
       if (!c.hidden && !c.classList.contains("group") && c.offsetParent !== null) return c.getBoundingClientRect();
     }
     return null;
@@ -1461,6 +1496,7 @@ export class Hud {
     if (this.toastWaitsForCard) requestAnimationFrame(() => this.flushToasts());
     this.root.classList.remove("card-open");
     this.depotCard.hidden = true;
+    this.ruinCard.hidden = true;
     this.engineCard.hidden = true;
     this.carCard.hidden = true;
     this.pieceCard.hidden = true;

@@ -502,7 +502,8 @@ function replayQA([, x0, z0, h, total, back, tx, tz, dist]: QARun, startMove = 3
 let qaWorldMemo: ReturnType<typeof createWorld> | null = null;
 /** Seed 7, fresh (made once: the strokes don't change it). */
 function qaWorld(): ReturnType<typeof createWorld> {
-  return (qaWorldMemo ??= createWorld(7));
+  // (Seed 7 as QA drew on it: before the map's old sites, one of which stands where these strokes run now.)
+  return (qaWorldMemo ??= createWorld(7, false, false));
 }
 
 describe("QA sweep: ramps not learned (Game mode)", () => {

@@ -5,8 +5,9 @@ import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/came
 import { viewRoom } from "./ui/view-room";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
-import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
-import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
+import { buildStarterWorld, clearRuin, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
+import { CLEAR_PRICE, describeLand, ruinCard } from "./game/map-sites";
+import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, OLDER_SAVE, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
@@ -192,7 +193,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** What the open Research picker was last drawn from (`boardKey`). */
   let boardKeyShown = "";
   // Stations and depots never move (to take up joint play, or to close a near miss).
-  const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
+  const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values(), ...game.ruins.values()].includes(id);
   /** Has the train lift's first-time tip been shown (on this device)? */
   let liftTipShown = liftTipSeen();
   /** An editor for the world's track and props (props-only edits skip the track's work). */
@@ -339,6 +340,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       toggleMap: () => (mapView.open ? closeMap(true, true) : openMap()),
       toggleBoard: () => setBoardOpen(!board.open),
       buyLand: () => buyLand(),
+      clearRuin: () => clearShownRuin(),
       newGame: () => newGame(),
       openLines: () => openLines(),
       titleScreen: () => showTitle(),
@@ -606,31 +608,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.invalidate();
   }
 
-  /** What a plot would bring, in a few words. */
-  function describeLand(land: Landscape): string {
-    const parts: string[] = [];
-    if (land.towns.length > 0) parts.push(land.towns.length > 1 ? `${land.towns.length} towns` : "a town");
-    const forests = land.depots.filter((d) => d.kind === "forest").length;
-    const mills = land.depots.filter((d) => d.kind === "sawmill").length;
-    if (forests) parts.push(forests > 1 ? `${forests} forest yards` : "a forest yard");
-    if (mills) parts.push("a sawmill");
-    const g = land.grid;
-    let river = false;
-    let sea = false;
-    let hills = 0;
-    for (let i = 0; i < g.cellCount; i++) {
-      if (g.surface[i] === SURF_RIVER) river = true;
-      if (g.surface[i] === SURF_SEA) sea = true;
-      if (g.height[i] > 0) hills++;
-    }
-    if (sea) parts.push("the coast");
-    if (river) parts.push("a river");
-    if (hills > g.cellCount * 0.25) parts.push("hills");
-    if (parts.length === 0) return "Open countryside.";
-    const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
-    return list.charAt(0).toUpperCase() + list.slice(1) + ".";
-  }
-
   /** The plot whose + badge is drawn at this screen point (they float above the ground), if any. */
   function badgeAt(x: number, y: number, plots: readonly PlotCoord[]): PlotCoord | null {
     const r = game.canvas.getBoundingClientRect();
@@ -695,7 +672,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       editSquare(x, y);
       return true;
     }
-    if (!expanding) return false;
+    if (!expanding) {
+      // An old industry's ruin (seen from too far to take hold of its stub): its card.
+      const ruin = interaction.ruinAtScreen(x, y);
+      if (ruin === -1) return false;
+      openRuin(ruin);
+      return true;
+    }
     const forSale = plotsForSale(game.landscape);
     const p = badgeAt(x, y, forSale) ?? { px: Math.floor(ground.x / PLOT_WIDTH), pz: Math.floor(ground.z / PLOT_DEPTH) };
     if (!forSale.some((q) => q.px === p.px && q.pz === p.pz)) {
@@ -713,6 +696,50 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.invalidate();
     return true;
   };
+
+  // ---- old industries' ruins (map sites) -------------------------------------------------------------------------
+
+  /** The ruin whose card is open (site id), or −1. */
+  let ruinShown = -1;
+
+  /** Open an old industry's card: what's around it, what opens it, and Clear the ruin. */
+  function openRuin(siteId: number): void {
+    const site = game.landscape.sites?.[siteId];
+    if (!site || site.cleared) return;
+    interaction.clearSelection();
+    ruinShown = siteId;
+    hud.showRuinCard(ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)));
+    audio.tap();
+  }
+  interaction.onRuinTap = openRuin;
+
+  /** "Clear the ruin": a few coins (Game mode) take it and its stub away, for track or an industry of your own. */
+  function clearShownRuin(): void {
+    if (ruinShown === -1) return;
+    if (mode === "game" && progress.coins < CLEAR_PRICE) {
+      hud.toast(`Clearing it costs ${CLEAR_PRICE} coins: you have ${progress.coins}`);
+      audio.refuse();
+      return;
+    }
+    const t0 = performance.now();
+    const done = clearRuin(game.world, ruinShown);
+    if ("why" in done) {
+      hud.toast(done.why);
+      audio.refuse();
+      return;
+    }
+    if (mode === "game") {
+      progress.coins -= CLEAR_PRICE;
+      hud.setCoins(progress.coins);
+    }
+    ruinShown = -1;
+    hud.hideCards();
+    game.syncRuins();
+    onChange();
+    console.info(`Woodrail: ruin cleared in ${Math.round(performance.now() - t0)} ms`);
+    hud.toast("Cleared");
+    audio.putdown(true);
+  }
 
   function buyLand(): void {
     if (!chosen) return;
@@ -2975,6 +3002,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       () => {
         game.depotView.rebuildUnits();
         game.depotView.setWorld(game.economy, game.layout);
+        // (The ruins are the industries' models too.)
+        game.syncRuins(true);
         for (const key of drawThumbnails(industryItems)) pictureDrawn(key);
         game.invalidate();
       },

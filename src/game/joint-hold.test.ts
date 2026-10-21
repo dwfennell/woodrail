@@ -27,7 +27,7 @@ import {
 import { Progress } from "./progress";
 import { isFree, thingsFor } from "./things";
 import { drawMessage, drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
-import { createWorld, type World } from "./world";
+import { createWorld, type World, fixedPieces } from "./world";
 
 /**
  * QA: a drawn line from the sawmill to Larkfield (seed 7, the starter map, a fresh Game) closed with two joints over
@@ -149,8 +149,8 @@ const report = (layout: Layout) => [...layout.joints()].map((j) => `${pieceOfRef
 
 describe("QA: a drawn line's joints hold through a save and load", () => {
   it("the stroke from the sawmill to Larkfield closes with every joint within tolerance, and loads joined the same", () => {
-    const world = createWorld(7, true);
-    const fixed = new Set([...world.stations.values(), ...world.depots.values()]);
+    const world = createWorld(7, true, false);
+    const fixed = fixedPieces(world);
     const editor = new Editor(world.layout, world.sim, () => {}, (id) => fixed.has(id));
     const line = qaStroke(world, [
       [-1476, -72],
@@ -203,7 +203,7 @@ function joinedThrough(layout: Layout, from: number, to: number): boolean {
 describe("QA: a save from before saves listed their joints (the line it split)", () => {
   /** Seed 7's starter map with QA's line on it, saved as an older build saved it: no `joints`. */
   function oldSave() {
-    const world = createWorld(7, true);
+    const world = createWorld(7, true, false);
     for (const p of QA_LINE) world.layout.restorePiece(p.id, p.type, p.pose, 0, p.flipped);
     const data = JSON.parse(JSON.stringify(serializeWorld(world)));
     delete data.joints;
@@ -257,7 +257,7 @@ describe("QA: a save from before saves listed their joints (the line it split)",
   it("leaves ends apart that are further apart than the tolerances", () => {
     // QA's line with its last straight pulled 12 mm short of Larkfield, and with the curve-wide turned 12° off.
     for (const [shift, turn] of [[12, 0], [0, (12 * Math.PI) / 180]] as const) {
-      const world = createWorld(7, true);
+      const world = createWorld(7, true, false);
       for (const p of QA_LINE) {
         const pose = p.id === 13 ? { ...p.pose, x: p.pose.x - shift } : p.pose;
         world.layout.restorePiece(p.id, p.type, pose, 0, p.flipped);
@@ -298,7 +298,7 @@ describe("QA: a big older save, its joints brought back within bounds", () => {
   it("1,607 pieces, 700 joints of 4° to 7°: all joined, no piece shifted past 20 mm or 7°, loaded well under a second", () => {
     // QA's recipe: 40 chains of 40 straight-144s on the starter map, each joint turned up to ±7° (one rng(9) stream),
     // saved without joints (sha256 3ce387e0…ba163 of the JSON on 0e51f2e).
-    const world = createWorld(7, true);
+    const world = createWorld(7, true, false);
     const r = rng(9);
     let id = 1000;
     for (let c = 0; c < 40; c++) {

@@ -1,10 +1,10 @@
 import type { DepotRole } from "../economy";
-import { checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, hillsOf, isWater, onFixedSite, SURF_LANE, SURF_ROAD, SURF_SEA, SURF_TOWN, type Landscape } from "../landscape";
+import { checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SHED, FEAT_STATION, hillsOf, isWater, onFixedSite, SURF_LANE, SURF_ROAD, SURF_SEA, SURF_TOWN, type Landscape } from "../landscape";
 import { footprintCorners, footprintsOverlap, inFootprint, scaleFootprint, standsAside, type Footprint } from "../props/placement";
 import type { Prop, PropStore } from "../props/store";
 import { DEPOT_LAYOUT } from "../render/depot-view";
 import { createSample, findOverlap, findSplice, getPieceDef, ignores, isPlainStraight, kitOf, straightLength, normalizeAngle, pathLength, samplePath, TRAIN_CLEARANCE, type Ignore, type KitDef, type Layout, type PieceTypeId, type Pose } from "../track";
-import { DEPOT_NAMES, INDUSTRY_ROLE, type World } from "./world";
+import { DEPOT_NAMES, INDUSTRY_ROLE, type World, fixedPieces } from "./world";
 
 /**
  * Room for a depot's yard: a depot piece (the workshop, sawmill, harbour and the rest) is its track plus a yard beside
@@ -287,6 +287,7 @@ const WHAT = {
   field: "a field",
   station: "a station",
   depot: "a depot",
+  ruin: "an old yard",
   river: "the river",
   sea: "the sea",
   town: "the town",
@@ -320,7 +321,7 @@ function groundWhy(land: Landscape, hills: ReturnType<typeof hillsOf>, x: number
   if (f === FEAT_BUILDING) return found(WHAT.house, "ground");
   if (f === FEAT_SHED) return found(WHAT.shed, "ground");
   if (f === FEAT_FIELD) return found(WHAT.field, "ground");
-  if ((f === FEAT_STATION || f === FEAT_DEPOT) && onFixedSite(land, cell, x, z)) return found(f === FEAT_STATION ? WHAT.station : WHAT.depot, "ground");
+  if ((f === FEAT_STATION || f === FEAT_DEPOT || f === FEAT_RUIN) && onFixedSite(land, cell, x, z)) return found(f === FEAT_STATION ? WHAT.station : f === FEAT_RUIN ? WHAT.ruin : WHAT.depot, "ground");
   const surface = g.surface[cell];
   if (isWater(surface)) {
     if (!wet) return found(surface === SURF_SEA ? WHAT.sea : WHAT.river, "water");
@@ -525,7 +526,7 @@ const SPOTS_KEPT = 8;
  */
 export function depotSpot(w: World, type: PieceTypeId, near: readonly { x: number; z: number }[], fits?: (pose: Pose) => boolean): Pose | null {
   const layout = w.layout;
-  const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+  const fixed = fixedPieces(w);
   const straights: { id: number; x: number; z: number; heading: number; d: number }[] = [];
   let sig = 0;
   for (const id of layout.pieceIds()) {

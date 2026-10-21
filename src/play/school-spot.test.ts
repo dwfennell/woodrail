@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { guideSchool } from "../game/goals";
-import { buildStarterWorld, schoolTown } from "../game/world";
+import { buildStarterWorld, schoolTown, fixedPieces } from "../game/world";
 import { connectorRef } from "../track";
 import { play } from "./player";
 import { rulesFor } from "./rules";
@@ -13,7 +13,7 @@ import { rulesFor } from "./rules";
  */
 describe("Show me's school spot", () => {
   const w = buildStarterWorld();
-  const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+  const fixed = fixedPieces(w);
   const editor = new Editor(w.layout, w.sim, () => {}, (id) => fixed.has(id));
   const st = (i: number) => w.stations.get(w.landscape.towns[i].id)!;
   const joined = play(w.layout, editor, connectorRef(st(0), 1), connectorRef(st(1), 0), { blocked: rulesFor(w), maxPieces: 60, fiddle: 3 });

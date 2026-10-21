@@ -8,7 +8,7 @@ import { depotSpot } from "./depot-footprint";
 import { schoolOf, siteWhy } from "./industries";
 import { receivedBy } from "./town-life";
 import { townStatus } from "./towns";
-import { schoolTown, type World } from "./world";
+import { schoolTown, type World, fixedPieces } from "./world";
 
 /** How far along a goal is: done or not, with an optional count toward a target ("2 / 3 towns"). */
 export interface GoalProgress {
@@ -109,7 +109,7 @@ const trainPoints = (w: World) => w.sim.trainIds().flatMap((id) => trainPoint(w,
 
 /** The player's own track (not stations or depots). */
 const trackPoints = (w: World): Point[] => {
-  const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+  const fixed = fixedPieces(w);
   return [...w.layout.pieceIds()].filter((id) => !fixed.has(id)).map((id) => piecePoint(w, id));
 };
 

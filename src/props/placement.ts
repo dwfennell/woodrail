@@ -1,4 +1,4 @@
-import { addTrackPoints, BUCKET, bucketKey, crossingStyleOf, FEAT_BUILDING, FEAT_DEPOT, FEAT_SHED, FEAT_STATION, hillsOf, isWater, trackPoints, type Landscape } from "../landscape";
+import { addTrackPoints, BUCKET, bucketKey, crossingStyleOf, FEAT_BUILDING, FEAT_DEPOT, FEAT_RUIN, FEAT_SHED, FEAT_STATION, hillsOf, isWater, trackPoints, type Landscape } from "../landscape";
 import { TRACK_WIDTH, type Layout, type PieceTypeId, type Pose } from "../track";
 import type { PlaceOn } from "./kinds";
 import type { PropStore } from "./store";
@@ -177,7 +177,7 @@ export function checkProp(ctx: PropCheck, fp: Footprint, pose: Pick<Pose, "x" | 
     // A town building's own squares are free to it (it can shift about on them).
     if ((f === FEAT_BUILDING && !ownSquares.has(cell)) || f === FEAT_SHED) return { kind: "blocked", reason: "building" };
     if (f === FEAT_STATION) return { kind: "blocked", reason: "station" };
-    if (f === FEAT_DEPOT) return { kind: "blocked", reason: "depot" };
+    if (f === FEAT_DEPOT || f === FEAT_RUIN) return { kind: "blocked", reason: "depot" };
     const river = isWater(grid.surface[cell]);
     if (river && on === "land") return { kind: "blocked", reason: "river" };
     const g = hills.groundAt(x, z);

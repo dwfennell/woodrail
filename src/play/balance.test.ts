@@ -17,7 +17,7 @@ import { attachResearch, canResearch, costOf as researchCost, lacking as researc
 import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from "../game/things";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { applyCranes, boostOf, Counters } from "../game/upgrades";
-import { buildStarterWorld, haltTown, haltWhy, syncIndustries, type World } from "../game/world";
+import { buildStarterWorld, haltTown, haltWhy, syncIndustries, type World, fixedPieces } from "../game/world";
 import { FEAT_FIELD, FEAT_TREE, looseHeight } from "../landscape";
 import { LandEditor } from "../landscape/edit";
 import { propsInRect } from "../props/placement";
@@ -186,7 +186,7 @@ class Player {
 
   attach(w: World): void {
     this.w = w;
-    this.fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+    this.fixed = fixedPieces(w);
     this.editor = new Editor(w.layout, w.sim, () => {}, (id) => this.fixed.has(id));
     const host: TownLifeHost = Object.assign(w, { footprintOf: () => undefined, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
     this.town = new TownLife(host, {
@@ -1300,9 +1300,12 @@ class Playthrough {
     if (this.farm === -1 && s.learned.has("farming") && P.minute - this.farmTry >= 10) {
       if (P.canMake(new Map([["piece:depot-farm", 1]]))) {
         this.farmTry = P.minute;
+        // (The map's own fields: not an old farm's, whose ruin stands by them. Restoring a ruin, and building by its
+        // fields, is the harness's rule in step 2 of the map sites: spec 2026-10-21-map-sites-design.md §7.)
         const fields: number[] = [];
+        const ruins = new Set((w.landscape.sites ?? []).flatMap((x) => x.fields));
         g.forEachCell((i) => {
-          if (g.feature[i] === FEAT_FIELD) fields.push(i);
+          if (g.feature[i] === FEAT_FIELD && !ruins.has(g.owner[i])) fields.push(i);
         });
         P.make(new Map([["piece:depot-farm", 1]]));
         const r = extend(P, { type: "depot-farm", cells: fields, after: "depot-mill" }) ?? (s.learned.has("switches") ? branchOff(P, "depot-farm", fields, "depot-mill") : null);

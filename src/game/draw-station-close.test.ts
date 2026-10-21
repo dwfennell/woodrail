@@ -18,7 +18,7 @@ import {
 } from "../track";
 import { DrawNotice, UNJOINED_START } from "./draw-notice";
 import { drawMessage, drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
-import { createWorld, type World } from "./world";
+import { createWorld, type World, fixedPieces } from "./world";
 
 /**
  * QA: "Draw mode seems to have some troubles connecting to stations". A line drawn over the river and down into
@@ -111,7 +111,7 @@ type Outcome = "closed" | "open" | "elsewhere";
  */
 function drawInto(seed: number, ref: number, start: DrawEnd, pts: readonly { x: number; z: number }[], startHeld: boolean) {
   const world = createWorld(seed, true);
-  const fixed = new Set([...world.stations.values(), ...world.depots.values()]);
+  const fixed = fixedPieces(world);
   const homes = new Map([...fixed].map((id) => [id, { ...world.layout.getPiece(id)!.pose }]));
   const editor = new Editor(world.layout, world.sim, () => {}, (id) => fixed.has(id));
   const at = { ...start, y: looseHeight(world.landscape, world.layout, "straight-54", false, start, -1) };

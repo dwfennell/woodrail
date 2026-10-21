@@ -3,7 +3,7 @@ import { Editor } from "../editor/editor";
 import { siteWhy, updateRates } from "../game/industries";
 import { receivedBy } from "../game/town-life";
 import { townStatus } from "../game/towns";
-import { buildStarterWorld, syncIndustries, type World } from "../game/world";
+import { buildStarterWorld, syncIndustries, type World, fixedPieces } from "../game/world";
 import { FEAT_FIELD } from "../landscape";
 import { SIM_HZ } from "../sim";
 import { appendPiece, connectorRef, getPieceDef, type Pose } from "../track";
@@ -48,7 +48,7 @@ describe("the farm chain", () => {
   it("grain from a farm yard by the fields, ground at a mill, makes a town a city", () => {
     const log: string[] = [];
     const w = buildStarterWorld();
-    const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+    const fixed = fixedPieces(w);
     const editor = new Editor(w.layout, w.sim, () => {}, (id) => fixed.has(id));
     // 1. A farm yard by a field, the mill joined on after it; 2. track from the mill to the nearest town that can be
     // reached (a player tries another spot when the way out is blocked), turnbacks on both ends of the line.
