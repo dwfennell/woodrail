@@ -1,0 +1,175 @@
+import { CARGO } from "../economy/cargo";
+import { kindsOf, minus, total } from "../economy/goods";
+import { FEAT_NONE, FEAT_RUIN, plotSlotOf, type Landscape, type MapSite, type SiteRole } from "../landscape";
+import type { Footprint } from "../props/placement";
+import type { Editor } from "../editor/editor";
+import { costTag } from "../ui/cost-tag";
+import { takeFromWorkshops, workshops, workshopStock } from "./crafting";
+import { checkYard, yardMessage } from "./depot-footprint";
+import { siteWhy } from "./industries";
+import { restorePrice, restoredType, SITE_NAMES } from "./map-sites";
+import type { Progress } from "./progress";
+import { pieceThing } from "./things";
+import type { World } from "./world";
+
+/**
+ * Restoring an old industry's ruin (map sites, step 2: spec 2026-10-21-map-sites-design.md §7): its stub of track
+ * becomes its industry's piece, in place, as one undoable edit. From then on it's an ordinary industry of the player's
+ * (an economy depot, its rate from what's around it, its card and crane), bought as one is (`restoreRuin`).
+ */
+
+/**
+ * How a restore is paid for, and given back on undo: Game mode's (`gamePayment`); Sandbox's is nothing at all. `short`
+ * says what's missing (null: it can be paid now).
+ */
+export interface RestorePayment {
+  short(): string | null;
+  pay(): void;
+  refund(): void;
+}
+
+/**
+ * Game mode: paid as a new industry is (made at the workshop, then placed): its planks (and stone) from the workshops'
+ * yards, its coins from hand, and the industry is the player's own (one more owned, so picking it up later puts it in
+ * the toy box). Undone, all of it is given back: the goods to the (first) workshop's yard, the coins, the one owned.
+ */
+export function gamePayment(world: World, progress: Progress, role: SiteRole): RestorePayment {
+  const price = restorePrice(role);
+  const thing = pieceThing(restoredType(role));
+  return {
+    short: () => {
+      if (total(price.goods) > 0 && workshops(world).length === 0) return RESTORE_NO_WORKSHOP;
+      const goods = minus(price.goods, workshopStock(world));
+      const coins = Math.max(0, price.coins - progress.coins);
+      if (total(goods) === 0 && coins === 0) return null;
+      const parts = [total(goods) > 0 ? `${costTag(goods)} more at the workshop` : "", coins > 0 ? `${costTag({}, coins)} more` : ""].filter(Boolean);
+      return `Restoring needs ${parts.join(" and ")}`;
+    },
+    pay: () => {
+      takeFromWorkshops(world, price.goods);
+      progress.coins -= price.coins;
+      progress.add(thing, 1);
+    },
+    refund: () => {
+      const d = workshops(world)[0];
+      if (d) for (const k of kindsOf(price.goods)) d.piles[CARGO[k].index] += price.goods[k]!;
+      progress.coins += price.coins;
+      progress.add(thing, -1);
+    },
+  };
+}
+
+/** Said when restoring wants planks and there's no workshop to take them from. */
+export const RESTORE_NO_WORKSHOP = "Restoring takes planks from your workshop. Place it first";
+
+/** Said when a train stands on the ruin's stub. */
+export const RESTORE_TRAIN = "A train is on its track";
+
+/** What a restore check needs beyond the world: a payment (none: free, as in Sandbox), and props' footprints. */
+export interface RestoreOptions {
+  pay?: RestorePayment;
+  /** Footprints of props' models built so far (a prop whose model isn't built yet doesn't block): `checkYard`'s. */
+  footprint?: (asset: string) => Footprint | undefined;
+  /** Told after the restore is done, undone or redone (inside its undo step): redraw the ruins. */
+  changed?: () => void;
+}
+
+/**
+ * Why this ruin can't be restored now, or null: it's gone, a train is on its stub, its industry's yard is blocked
+ * (`checkYard`, its own ruin not counted) or its resource is short (`siteWhy`), or the payment is (`short`).
+ */
+export function restoreWhy(world: World, siteId: number, opt: RestoreOptions = {}): string | null {
+  const site = world.landscape.sites?.[siteId];
+  const stub = world.ruins.get(siteId);
+  if (!site || site.cleared || stub === undefined) return "It's gone already";
+  if (world.sim.pieceOccupied(stub)) return RESTORE_TRAIN;
+  const piece = world.layout.getPiece(stub);
+  if (!piece) return "It's gone already";
+  const type = restoredType(site.role);
+  // (The ruin's own old yard is where the new one goes: it isn't in the way of itself.)
+  site.cleared = true;
+  let yard: string | null = null;
+  try {
+    const out = { what: null as string | null };
+    const why = checkYard({ land: world.landscape, layout: world.layout, props: world.props, footprint: opt.footprint ?? (() => undefined) }, type, piece.pose, piece.y, stub, out);
+    if (why) yard = yardMessage(type, why, out.what);
+  } finally {
+    site.cleared = undefined;
+  }
+  if (yard) return yard;
+  const site2 = siteWhy(world.landscape, type, piece.pose);
+  if (site2) return site2;
+  return opt.pay?.short() ?? null;
+}
+
+/**
+ * Restore a ruin (its card's Restore): its stub becomes its industry's piece in place, by `editor` as one undo step
+ * (`Editor.swap`). Its squares are open ground again, the site is marked restored, and it's paid for (`opt.pay`).
+ * Undone: the stub and the ruin come back and the payment is given back; redone, paid again (refused if it can't be,
+ * by `restoreWhy`'s payment). Returns the industry's piece, or why not.
+ */
+export function restoreRuin(world: World, editor: Editor, siteId: number, opt: RestoreOptions = {}): { pieceId: number } | { why: string } {
+  const why = restoreWhy(world, siteId, opt);
+  if (why) return { why };
+  const site = world.landscape.sites![siteId];
+  const stub = world.ruins.get(siteId)!;
+  const g = world.landscape.grid;
+  const cells: number[] = [];
+  g.forEachCell((i) => {
+    if (g.feature[i] === FEAT_RUIN && g.owner[i] === siteId) cells.push(i);
+  });
+  const slots = [...new Set(cells.map(plotSlotOf))];
+  const set = (restored: boolean) => {
+    site.cleared = restored ? true : undefined;
+    site.restored = restored ? true : undefined;
+    for (const i of cells) {
+      g.feature[i] = restored ? FEAT_NONE : FEAT_RUIN;
+      g.owner[i] = restored ? -1 : siteId;
+    }
+    if (restored) world.ruins.delete(siteId);
+    else world.ruins.set(siteId, stub);
+    for (const s of slots) g.touch(s);
+    opt.changed?.();
+  };
+  const id = editor.swap(stub, restoredType(site.role), {
+    done: () => {
+      opt.pay?.pay();
+      set(true);
+    },
+    undone: () => {
+      opt.pay?.refund();
+      set(false);
+    },
+    // (Redone: paid again, if it can be.)
+    refuse: (way) => (way === "redo" ? (opt.pay?.short() ?? null) : null),
+  });
+  return id === -1 ? { why: "It can't be restored now" } : { pieceId: id };
+}
+
+/** "Old farm by Larkfield": a ruin by the town nearest it (just "Old farm" on a map without towns). */
+export function ruinName(land: Landscape, site: MapSite): string {
+  let best: string | null = null;
+  let d = Infinity;
+  for (const t of land.towns) {
+    const e = Math.hypot(t.centre.x - site.centre.x, t.centre.z - site.centre.z);
+    if (e < d) [best, d] = [t.name, e];
+  }
+  const name = `Old ${SITE_NAMES[site.role]}`;
+  return best ? `${name} by ${best}` : name;
+}
+
+/**
+ * The standing ruin of `role` nearest any of `from` (the player's line), on the land (the sites of plots the player
+ * owns: the land around's are its own), restorable or locked; null if none. A few sites: cheap.
+ */
+export function nearestRuin(land: Landscape, role: SiteRole, from: readonly { x: number; z: number }[]): MapSite | null {
+  let best: MapSite | null = null;
+  let d = Infinity;
+  for (const site of land.sites ?? []) {
+    if (site.cleared || site.role !== role) continue;
+    let e = from.length === 0 ? 0 : Infinity;
+    for (const p of from) e = Math.min(e, Math.hypot(p.x - site.centre.x, p.z - site.centre.z));
+    if (e < d) [best, d] = [site, e];
+  }
+  return best;
+}

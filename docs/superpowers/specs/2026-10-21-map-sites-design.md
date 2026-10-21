@@ -1,6 +1,6 @@
 # Map sites: old industries you restore, and more towns
 
-Date: 2026-10-21. Status: step 1 implemented (branch `map-sites`); step 2 planned (§7). Game mode first; the land is
+Date: 2026-10-21. Status: step 1 implemented (branch `map-sites`); step 2 implemented (branch `map-sites-2`, §7). Game mode first; the land is
 the same in Sandbox.
 
 ## What the user asked
@@ -168,15 +168,137 @@ Measured (dev machine, shared and loaded; swiftshader in the e2e):
 - Generation: a plot's extras 7.4 ms (the plot itself 6.8 ms), in a slice of their own; a new starter world 20 ms
   (main 14 ms); an old save of 12 plots gaining its sites 147 ms once (13 ms to load it afterwards).
 
-## 7. Step 2 (planned)
+## 7. Step 2: Restore, Show me, the harness (implemented, branch `map-sites-2`)
 
-- **Restore**: on a learned ruin's card, "Restore · 3🪵 45🪙" (about half its industry's price): one editor op swaps the
-  stub's piece type for the industry's in place (`depot-farm` at `site.piece`), clears its `FEAT_RUIN` squares and marks
-  the site cleared; its joints stay. Undo puts the stub and the ruin back. The data has what it needs: role, pose,
-  fields.
-- **Show me**: the goals that point at an industry spot (`depotSpot`) prefer a standing ruin of that kind within reach of
-  the player's line.
-- **Harness rule**: the balance player restores a ruin within N of its line when that's cheaper than building new, else
-  places as now; `BALANCE_NORUINS=1` to compare. Then a balance pass (farm and quarry earlier: the City minute and coins
-  bands).
+### Restore (`src/game/restore.ts`)
+
+- **The card.** Once the ruin's blueprint is learned (and always in Sandbox) the status line reads "🔧 Half the price of
+  a new farm yard" and the card's first button is **Restore · 3🪵 45🪙** ("Restore" in Sandbox). "Or build your own
+  anywhere from the Industries tab." stays, and so does Clear the ruin.
+- **The price** (`restorePrice`, `RESTORE_SHARE = 0.5` in map-sites.ts, the one knob): half the new industry's
+  `THING_RULES` price, goods rounded up, coins to the nearest 5. Farm 3🪵 45🪙, quarry 4🪵 90🪙, mine 5🪵 155🪙, harbour
+  8🪵 5🪨 240🪙.
+- **How it's paid** (`gamePayment`): as a new industry is. A new farm yard is made at the workshop, its planks from
+  the workshop's yard and its coins from hand, into the toy box, and then placed. Restoring takes the planks (and stone)
+  from the workshops' yards and the coins from hand, and the farm yard is one more the player owns (`owned` + 1), so
+  the toy box is unchanged and picking the farm yard up later puts it in the box like any other. The planks never come
+  from the toy box: the toy box holds things, not planks, and nothing else the player buys takes planks from anywhere
+  but the workshop's yard.
+- **The swap** (`restoreRuin`, `Editor.swap`): one undo step. The stub piece is taken up and the industry's piece is
+  put down at the same pose, height and way round (a new piece id; the joints re-seat, so track joined to the stub is
+  joined to the industry). Inside the step: payment, the site marked `cleared` and `restored`, its `FEAT_RUIN` squares
+  open ground, its entry out of `World.ruins`, the ruins redrawn. It's an ordinary player industry from then on:
+  `syncIndustries` gives it its economy depot, `updateRates` its rate from what's around it (8 of 8 fields: 1.0), the
+  depot view its yard and crane, a tap its card. Not a fixed piece: it can be moved or taken up as any industry.
+- **Undo** puts the stub (its own id) and the ruin back and gives the price back (goods to the first workshop's yard,
+  the coins, one fewer owned). **Redo** pays again; if it can't be paid now it's refused, said as the button says it
+  (`Command.refuse`, `Editor.onRefused`), and the history is kept.
+- **Saved**: `MapSite.restored` (optional, no version bump). The industry's piece is saved as any player's piece; on
+  load a cleared site isn't looked for, so nothing else is needed.
+- **Refusals** (toasts): "Restoring needs 2🪵 more at the workshop and 15🪙 more" (either part alone when only one is
+  short); "Restoring takes planks from your workshop. Place it first" (no workshop); "A train is on its track"; the
+  yard's own message when it's blocked ("The farm yard needs open ground: a house is in the way", `checkYard` with the
+  ruin's own squares not counted); the site rule's when the resource has gone ("Needs farm fields nearby: 3 of 4").
+  Done: "Old farm restored! It works again".
+
+### Show me (`guideIndustry`, goals.ts)
+
+There was no goal asking for an industry, so step 2 adds one: **Open a farm** ("Restore an old farm, or build a farm
+yard by some fields."), shown once Farming is learned, after "Lay a switch" (before "Build a bridge"); done when a farm
+yard stands on the map. Its Show me is `guideIndustry(w, "farm")`, written for any of the four kinds: the standing ruin
+of that kind on the player's land nearest their line (restorable or locked), framed with the nearest bit of the line,
+ringed, and its card opened (Restore on it); with none, today's `depotSpot` (a straight of the line where a new one
+fits and meets its site rule), the Industries tab open. A quarry, mine or harbour goal is one row more.
+
+**Research**: when a blueprint that opens a ruin's industry is learned, a toast (and a News entry with its place)
+names the standing ruin nearest the line: "Old farm by Larkfield can be restored". Tapped, it glides to the ruin and
+rings it.
+
+### The harness (`src/play/balance.test.ts`)
+
+- **Rule** (`restoreOld`): once Farming is learned, the standing farm ruin nearest the line, if within
+  `RUIN_REACH` (1500 mm, `BALANCE_RUIN_REACH`) and cheaper than new (it always is, unless a farm yard is in the toy
+  box): the line is run on from one of its ends to the stub (`extend` to the stub's free connectors), then restored as
+  the card does it (`restoreRuin` with `gamePayment`). It waits while it can't be paid for. If the line can't reach it,
+  or it's too far, the ruin is passed over for the game and a new farm yard is built as before. `BALANCE_NORUINS=1`
+  never restores.
+- **The step 1 workaround** (a new farm yard sited by the map's own fields, not the ruin's) is kept, now only as the
+  fallback. Restoring fixes what it worked round: the restored farm yard is the line's end (the stub joined to a line
+  end, its other end capped or the mill after it), on the train's way, not a branch off a switch that the unrouted
+  train never took. The fallback still can't use the ruin's fields: a new farm yard by them would stand on the ruin's
+  yard or beside it, on a branch.
+- The goal the harness works on skips "Open a farm" (the farm comes by its own rule), so the other goals come as they
+  did.
+
+### Balance (180 min, 1 train a line; `BALANCE=1`, seeds 2027, 1–6, 9, 10)
+
+Without ruins (`BALANCE_NORUINS=1`): identical to step 1 and main.
+
+| seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/60/180 | researched | farm | bands |
+|---|---|---|---|---|---|---|---|---|---|
+| 2027 | 5.6 | 80 | 135 | 9.0 | 24.0 | 242/85/674 | 15 | 22.0 new | pass |
+| 1 | 5.6 | 79 | 122 | 6.4 | 27.4 | 126/139/914 | 21 | 26.0 new | pass |
+| 2 | 5.6 | 74 | 123 | 15.1 | 15.8 | 96/269/749 | 15 | 36.0 new | pass |
+| 3 | 5.6 | 67 | 177 | 7.4 | 17.3 | 242/10/884 | 14 | 25.0 new | pass |
+| 4 | 5.6 | 83 | 148 | 8.7 | 27.9 | 212/98/1064 | 14 | 25.0 new | pass |
+| 5 | 5.6 | 71 | 120 | 13.6 | 14.3 | 96/209/1148 | 14 | 36.0 new | pass |
+| 6 | 5.6 | 71 | 115 | 12.6 | 18.6 | 242/8/1000 | 15 | 25.0 new | pass |
+| 9 | 5.6 | 83 | 138 | 8.7 | 28.1 | 212/96/841 | 15 | 25.0 new | pass |
+| 10 | 5.6 | 79 | 122 | 6.4 | 23.7 | 126/219/1884 | 17 | 26.0 new | pass |
+
+With ruins (`RESTORE_SHARE` 0.5):
+
+| seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/60/180 | researched | farm | bands |
+|---|---|---|---|---|---|---|---|---|---|
+| 2027 | 5.6 | 54 | 164 | 12.1 | 18.9 | 242/124/623 | 14 | 22.0 restored | FAIL; City at minute 60 or later: expected 54 to be greater than or equal to |
+| 1 | 5.6 | 79 | 122 | 6.4 | 27.4 | 126/139/914 | 21 | 26.0 new | pass |
+| 2 | 5.6 | 74 | 123 | 15.1 | 15.8 | 96/269/749 | 15 | 36.0 new | pass |
+| 3 | 5.6 | 57 | - | 8.0 | 36.1 | 242/344/348 | 13 | 25.0 restored | FAIL; City at minute 60 or later: expected 57 to be greater than or equal to |
+| 4 | 5.6 | 70 | 132 | 8.3 | 16.8 | 212/32/792 | 14 | 25.0 restored | pass |
+| 5 | 5.6 | 71 | 120 | 13.6 | 14.3 | 96/209/1148 | 14 | 36.0 new | pass |
+| 6 | 5.6 | 57 | - | 8.0 | 38.5 | 242/314/336 | 13 | 25.0 restored | FAIL; City at minute 60 or later: expected 57 to be greater than or equal to |
+| 9 | 5.6 | 70 | 135 | 13.4 | 12.6 | 212/32/875 | 14 | 25.0 restored | pass |
+| 10 | 5.6 | 79 | 122 | 6.4 | 23.7 | 126/219/1884 | 17 | 26.0 new | pass |
+
+The old farm is restored on 5 seeds (2027, 3, 4, 6, 9), at the minute a new farm yard went down without ruins (22–25:
+the restore isn't earlier, Farming is learned then). On the other 4 (1, 2, 5, 10, Farming learned at minute 16) the
+line couldn't be run to it at that moment, and a new farm yard went down as before: their figures are unchanged.
+
+Where it's restored, the **City comes 13 to 26 minutes earlier** (2027: 80 → 54; 3: 67 → 57; 4: 83 → 70; 6: 71 → 57;
+9: 83 → 70), and three seeds fall under the City band's floor of 60. Two seeds lose City★ in 180 minutes and research
+finishes one or two fewer. The cause isn't the price: the restored farm yard is the line's end with 8 of 8 fields, and
+the mill then goes straight after it (minute 42; without ruins "the mill won't go after the farm yard" and it goes at
+another line end, minute 49), so grain is milled on the way back to the towns and the first city's flour comes sooner.
+
+**The price knob doesn't move it.** At minute 22–25 the player holds 240–340 coins, so neither price (half, or a new
+one's 90 coins plus the 40-coin field that brings a new one to full speed) holds the farm back. Measured on the three
+seeds that broke:
+
+| `RESTORE_SHARE` | farm price | City 2027 / 3 / 6 |
+|---|---|---|
+| 0.5 | 3🪵 45🪙 | 54 / 57 / 57 |
+| 0.75 | 5🪵 70🪙 | 57 / 57 / 55 |
+| 0.9 | 6🪵 80🪙 | 70 / 57 / 70 |
+
+(The 0.9 row's movement is the chaotic kind: a few planks spent differently changes later choices; seed 3 stays at 57
+at every price.) So the share stays at 0.5 and the band question is open for the CoS: accept a City from minute ~55
+when the old farm is restored (it's the better-placed farm, not a cheaper one, that does it), or hold the City back
+by mechanics (a restored farm yard's rate, or its fields), which step 2 was told not to change.
+
+### Cost
+
+Measured (dev machine; swiftshader in the e2e):
+
+- The restore itself (`restoreRuin`: checks, swap, payment, squares; Node, starter map): 0.7 ms median (13 ms the first,
+  cold).
+- In the game, Restore tapped to done: 411–497 ms in swiftshader. Most of it is what follows any track edit that puts
+  an industry down (`onChange`: the track, the industries' yards and depot view, the goals, the save), the same as a
+  farm yard dropped from the tray; the ruins' tile, the only one rebuilt (its key changed), 72–116 ms. Undo and redo
+  rebuild that one tile again (67–153 ms).
+- Idle after it all, the land around in view: 0 frames in 30 s, main thread busy 3.39% (step 1: 3.82%).
+- Nothing per frame: the card, the toast and Show me run on taps; the research toast once per blueprint learned.
+
+### Still to do
+
 - **Map view**: ruins marked on the map.
+- Goals for a quarry, mine and harbour (`guideIndustry` takes any of the four).

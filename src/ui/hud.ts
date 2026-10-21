@@ -55,6 +55,8 @@ export interface HudHandlers {
   buyLand(): void;
   /** "Clear the ruin" on an old industry's card. */
   clearRuin?(): void;
+  /** "Restore" on an old industry's card (its blueprint learned). */
+  restoreRuin?(): void;
   resetStarter(): void;
   /** Game mode: start the goals again on the starter map. */
   newGame(): void;
@@ -211,6 +213,7 @@ export class Hud {
   private readonly ruinStatus = el("div", "ruin-status");
   private readonly ruinOwn = el("div", "ruin-own");
   private ruinClearBtn!: HTMLButtonElement;
+  private ruinRestoreBtn!: HTMLButtonElement;
   private landBuyBtn!: HTMLButtonElement;
   private landBtn!: HTMLButtonElement;
   private soundItem!: HTMLButtonElement;
@@ -517,9 +520,10 @@ export class Hud {
 
     // An old industry's ruin: what's around it, what opens it, and clearing it away.
     this.ruinCard.hidden = true;
-    this.ruinClearBtn = button("Clear the ruin", "Take the ruin and its track away", () => h.clearRuin?.(), "chip text");
+    this.ruinRestoreBtn = button("Restore", "Make it work again", () => h.restoreRuin?.(), "chip text primary ruin-restore");
+    this.ruinClearBtn = button("Clear the ruin", "Take the ruin and its track away", () => h.clearRuin?.(), "chip text ruin-clear");
     const ruinRow = el("div", "card-row");
-    ruinRow.append(this.ruinClearBtn);
+    ruinRow.append(this.ruinRestoreBtn, this.ruinClearBtn);
     this.ruinCard.append(this.ruinTitle, this.ruinResource, this.ruinStatus, this.ruinOwn, ruinRow, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.ruinCard);
 
@@ -1460,7 +1464,7 @@ export class Hud {
   }
 
   /** Show an old industry's card (see `ruinCard` in map-sites.ts). */
-  showRuinCard(card: { title: string; resource: string; status: string; own: string | null; clear: string }): void {
+  showRuinCard(card: { title: string; resource: string; status: string; own: string | null; clear: string; restore: string | null }): void {
     this.hideCards();
     this.ruinTitle.textContent = card.title;
     this.ruinResource.textContent = card.resource;
@@ -1469,6 +1473,8 @@ export class Hud {
     this.ruinOwn.textContent = card.own ?? "";
     this.ruinOwn.hidden = !card.own;
     this.ruinClearBtn.textContent = card.clear;
+    this.ruinRestoreBtn.textContent = card.restore ?? "";
+    this.ruinRestoreBtn.hidden = !card.restore;
     this.ruinCard.hidden = false;
     this.root.classList.add("card-open");
   }

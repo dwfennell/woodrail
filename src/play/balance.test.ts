@@ -18,7 +18,9 @@ import { isFree, pieceThing, ruleOf, THING_RULES, thingsFor, type ThingId } from
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
 import { applyCranes, boostOf, Counters } from "../game/upgrades";
 import { buildStarterWorld, haltTown, haltWhy, syncIndustries, type World, fixedPieces } from "../game/world";
-import { FEAT_FIELD, FEAT_TREE, looseHeight } from "../landscape";
+import { FEAT_FIELD, FEAT_TREE, looseHeight, type SiteRole } from "../landscape";
+import { gamePayment, nearestRuin, restoreRuin } from "../game/restore";
+import { restorePrice, restoredType } from "../game/map-sites";
 import { LandEditor } from "../landscape/edit";
 import { propsInRect } from "../props/placement";
 import { fieldPrice, fieldSpot, plantField } from "../game/fields";
@@ -48,7 +50,8 @@ import { endOn, rulesFor, schoolOn } from "./rules";
  * BALANCE_TRAINS_PER_LINE=n puts up to n trains on the line once routes are learned (default 1). BALANCE_JSON=1 also
  * prints the timeline as one line of JSON; BALANCE_MINUTES caps the play (default 180). BALANCE_CARGO=a-b logs the
  * trains' loads from minute a to b (`cargoTrace`). For comparison, BALANCE_NOUNSTICK=1 leaves stuck cargo be
- * (`unstick`, `shopThrough`) and BALANCE_NOFILL=1 leaves a goods engine's spare pull empty.
+ * (`unstick`, `shopThrough`), BALANCE_NOFILL=1 leaves a goods engine's spare pull empty, and BALANCE_NORUINS=1 never
+ * restores an old industry's ruin (`restoreOld`: map sites step 2), building new ones as before.
  *
  * At 180 min with 1 train a line, the run checks spec §5's bands (`checkBands`): each miss is listed, and any fails it.
  */
@@ -94,6 +97,13 @@ const WISH: readonly string[] = [
   "junctions",
   "college",
 ];
+
+/**
+ * Map sites step 2: the player restores an old industry's ruin within this reach (mm) of its line when that's cheaper
+ * than a new one (`restoreOld`); BALANCE_NORUINS=1 never does, to compare.
+ */
+const NORUINS = !!ENV.BALANCE_NORUINS;
+const RUIN_REACH = Number(ENV.BALANCE_RUIN_REACH ?? 1500);
 
 /** Planks a player keeps in the workshop's yard before picking another research (BALANCE_SPARE to try others). */
 const RESEARCH_SPARE = Number(ENV.BALANCE_SPARE ?? 10);
@@ -1139,7 +1149,9 @@ class Playthrough {
     const P = this.p;
     const w = P.w;
     const s = P.progress;
-    const goal = P.goals.current()?.id;
+    // The goal the player works on, in the goals' order. "Open a farm" (map sites step 2) is passed over: the farm comes
+    // by its own rule below, as it did before there was a goal for it, so the goals after it come when they did.
+    const goal = GOALS.find((x) => x.id !== "open-farm" && !P.goals.isDone(x.id) && (x.needs ?? []).every((id) => s.learned.has(id)))?.id;
     const g = w.landscape.grid;
 
     // The school (the first village's present), as soon as it's in the box: on the straight of the line beside a
@@ -1296,12 +1308,29 @@ class Playthrough {
       }
     }
 
-    // The farm: a farm yard by the fields at a line end, with room for a mill after it.
+    // The farm: the old farm restored when it's near the line (map sites step 2: cheaper than a new one), else a farm
+    // yard by the fields at a line end, with room for a mill after it.
     if (this.farm === -1 && s.learned.has("farming") && P.minute - this.farmTry >= 10) {
-      if (P.canMake(new Map([["piece:depot-farm", 1]]))) {
+      const old = this.restoreOld("farm");
+      if (old === "wait") {
+        if (s.coins < restorePrice("farm").coins) this.coinWait.farm++;
+        this.why = `restoring the old farm (${describeGoods(restorePrice("farm").goods)} + ${restorePrice("farm").coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
+      } else if (old) {
         this.farmTry = P.minute;
-        // (The map's own fields: not an old farm's, whose ruin stands by them. Restoring a ruin, and building by its
-        // fields, is the harness's rule in step 2 of the map sites: spec 2026-10-21-map-sites-design.md §7.)
+        this.farm = old.id;
+        capEnd(P, old.beyond);
+        syncIndustries(w, true);
+        updateRates(w, (role) => boostOf(s, role));
+        P.happened++;
+        P.note(`restored the old farm, the line run on to it (rate ${w.economy.depotAtPiece(old.id)!.rate.toFixed(2)})`);
+        this.firsts["farm built"] = Math.round(P.minute);
+        this.firsts["farm restored"] = Math.round(P.minute);
+        if (this.lines) this.routeGoods();
+      } else if (P.canMake(new Map([["piece:depot-farm", 1]]))) {
+        this.farmTry = P.minute;
+        // (The map's own fields: not an old farm's, whose ruin stands by them. A farm yard by the ruin's fields on a
+        // branch from the line was a branch the unrouted goods train never took (4 of 9 seeds, step 1): the old farm is
+        // restored instead, its stub the line's end, when it's within reach; this is for when it isn't.)
         const fields: number[] = [];
         const ruins = new Set((w.landscape.sites ?? []).flatMap((x) => x.fields));
         g.forEachCell((i) => {
@@ -1587,6 +1616,54 @@ class Playthrough {
         this.why = `a quarry (${describeGoods(ruleOf("piece:depot-quarry")!.cost)} + ${ruleOf("piece:depot-quarry")!.coins} coins; have ${P.planks()} planks, ${s.coins} coins)`;
       }
     }
+  }
+
+  /** Ruins found out of reach, or that the line couldn't be run to: not tried again. */
+  private readonly ruinsPassed = new Set<number>();
+
+  /**
+   * Map sites step 2's rule: the standing ruin of `role` nearest the player's line, if it's within `RUIN_REACH` of it
+   * and restoring it is cheaper than a new industry (always, unless one's in the toy box already, which costs nothing
+   * more): the line run on from one of its ends to the ruin's stub (`extend`), then restored there (as its card's
+   * Restore does: planks from the workshop's yard, coins). Its piece and its free end; "wait" while it can't be paid
+   * for yet; null to build a new one as before (no ruin near, BALANCE_NORUINS, or the line couldn't reach it).
+   */
+  restoreOld(role: SiteRole): { id: number; beyond: number } | "wait" | null {
+    const P = this.p;
+    const w = P.w;
+    const s = P.progress;
+    if (NORUINS || s.available(w, pieceThing(restoredType(role))) > 0) return null;
+    const line = [...w.layout.pieceIds()].filter((id) => !P.fixed.has(id)).map((id) => w.layout.getPiece(id)!.pose);
+    const site = nearestRuin(w.landscape, role, line);
+    if (!site || this.ruinsPassed.has(site.id)) return null;
+    const away = Math.min(...line.map((q) => Math.hypot(q.x - site.centre.x, q.z - site.centre.z)));
+    if (away > RUIN_REACH) {
+      this.ruinsPassed.add(site.id);
+      P.note(`the old ${role} is ${Math.round(away)} mm from the line: too far to restore`);
+      return null;
+    }
+    const pay = gamePayment(w, s, role);
+    if (pay.short()) return "wait";
+    const stub = w.ruins.get(site.id)!;
+    const before = { coins: s.coins, planks: P.planks() };
+    const r = extend(P, { target: () => [0, 1].map((c) => connectorRef(stub, c)).filter((ref) => w.layout.joinedConnector(ref) === -1) });
+    if (!r) {
+      this.ruinsPassed.add(site.id);
+      P.note(`COULDN'T run the line to the old ${role}`);
+      return null;
+    }
+    // (The track to it may have taken the yard's planks: restored once they're back.)
+    if (pay.short()) return "wait";
+    const done = restoreRuin(w, P.editor, site.id, { pay });
+    if ("why" in done) {
+      this.ruinsPassed.add(site.id);
+      P.note(`COULDN'T restore the old ${role}: ${done.why}`);
+      return null;
+    }
+    P.spent.buildCoins += before.coins - s.coins;
+    P.spent.buildPlanks += before.planks - P.planks();
+    P.note(`restored the old ${role} ${Math.round(away)} mm from the line (${describeGoods(restorePrice(role).goods)} + ${restorePrice(role).coins} coins)`);
+    return { id: done.pieceId, beyond: freeEnd(P, done.pieceId) };
   }
 
   /**

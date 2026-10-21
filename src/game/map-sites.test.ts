@@ -193,13 +193,14 @@ describe("map sites: what the player is told", () => {
       resource: "🌾 Farm fields nearby: 8 of 8",
       status: "🔒 Learn Farming at a school to open this farm",
       open: false,
+      restore: null,
       own: "Or build your own anywhere from the Industries tab.",
       clear: `Clear the ruin · ${CLEAR_PRICE}🪙`,
     });
-    // Learned: restoring comes in step 2 (its button goes where this line is).
-    expect(ruinCard(w.landscape, farm, "game", (id) => id === "farming")).toMatchObject({ status: "🔧 Restoring comes soon", open: true });
+    // Learned: Restore, at half a new farm yard's price (6🪵 90🪙), and building your own is still said.
+    expect(ruinCard(w.landscape, farm, "game", (id) => id === "farming")).toMatchObject({ status: "🔧 Half the price of a new farm yard", open: true, restore: "Restore · 3🪵 45🪙", own: "Or build your own anywhere from the Industries tab." });
     // Sandbox: no blueprints, no Industries tab, no coins.
-    expect(ruinCard(w.landscape, farm, "sandbox", () => false)).toMatchObject({ status: "🔧 Restoring comes soon", own: null, clear: "Clear the ruin" });
+    expect(ruinCard(w.landscape, farm, "sandbox", () => false)).toMatchObject({ status: "🔧 Restore it to work again", restore: "Restore", own: null, clear: "Clear the ruin" });
   });
 
   it("names each kind's blueprint, and says how much of its resource is near", () => {

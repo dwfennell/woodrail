@@ -99,6 +99,11 @@ export interface MapSite {
   fields: number[];
   /** Cleared away by the player: no ruin, no stub, its squares open ground again. */
   cleared?: boolean;
+  /**
+   * Restored by the player (cleared too): its industry's piece stands where the stub was, an ordinary industry of the
+   * player's from then on (see `restoreRuin`).
+   */
+  restored?: boolean;
 }
 
 /** What a paddock holds: a kind of toy animal, or rows of crops with a scarecrow. */

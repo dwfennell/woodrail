@@ -2,7 +2,11 @@
 // at 390×844 with touch:
 // - a new game: an old ruin is in view near the start (the starter map's old farm);
 // - tapping it opens its locked card (Old farm, its fields, "Learn Farming at a school…", "Or build your own…");
-// - Clear the ruin takes 10 coins, the ruin and its stub;
+// - Farming learned: a toast names the old farm ("Old farm by …"), tapped it frames it; Show me for "Open a farm" points
+//   at it; its card offers Restore · 3🪵 45🪙 (no workshop: says so); Restore makes the stub a farm yard in place (its
+//   depot, rate, crane and card), 3 planks from the workshop and 45 coins; Undo brings the ruin back and the price,
+//   Redo restores it again; a reload keeps it restored;
+// - Clear the ruin (one on the land bought) takes 10 coins, the ruin and its stub;
 // - the land around shows its ruins before it's bought; a coastal plot's land card lists its towns by the sea and its
 //   old sites; bought, it brings them (the ruins' stubs become track pieces, fixed);
 // - idle: no frames drawn in 30 s (the ruins cost nothing while nothing changes).
@@ -28,7 +32,7 @@ const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 p.on("console", (m) => {
   if (m.type() === "error") errors.push(`console: ${m.text()}`);
-  if (m.type() === "info" && m.text().includes("ruins built")) console.log(`  (${m.text()})`);
+  if (m.type() === "info" && (m.text().includes("ruins built") || m.text().includes("ruin restored"))) console.log(`  (${m.text()})`);
 });
 await p.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
 let failures = 0;
@@ -128,34 +132,143 @@ const at = await onScreen(yard.x, 10, yard.z);
 await tapAt(at.x, at.y);
 const card = await p.evaluate(() => {
   const c = document.querySelector(".ruin-card");
-  return c && !c.hidden ? { title: c.querySelector(".card-title").textContent, lines: [...c.querySelectorAll(".ruin-resource, .ruin-status, .ruin-own")].filter((e) => !e.hidden).map((e) => e.textContent), button: c.querySelector(".card-row button").textContent } : null;
+  return c && !c.hidden ? { title: c.querySelector(".card-title").textContent, lines: [...c.querySelectorAll(".ruin-resource, .ruin-status, .ruin-own")].filter((e) => !e.hidden).map((e) => e.textContent), button: c.querySelector(".ruin-clear").textContent, restore: c.querySelector(".ruin-restore").hidden } : null;
 });
 check("tapping the ruin opens its card", !!card, JSON.stringify(card));
 check("…titled Old farm, with its fields and what opens it", card?.title === "Old farm" && /Farm fields nearby: 8 of 8/.test(card.lines[0]) && card.lines.includes("🔒 Learn Farming at a school to open this farm") && card.lines.includes("Or build your own anywhere from the Industries tab."), JSON.stringify(card));
-check("…and Clear the ruin for a few coins", /^Clear the ruin · 10/.test(card?.button ?? ""), card?.button);
+check("…and Clear the ruin for a few coins (no Restore while it's locked)", /^Clear the ruin · 10/.test(card?.button ?? "") && card.restore, card?.button);
 await shot("03-locked-card");
 
-// 3. Clear the ruin: 10 coins, the ruin and its stub gone.
-await p.evaluate(() => {
+// 3. Farming learned (a shortcut: as a research finishing does it): a toast names the old farm, and tapped, frames it.
+await p.evaluate(() => document.querySelector(".ruin-card button.close")?.click());
+await look(yard.x + 1500, yard.z + 1500, 2600);
+await p.evaluate(() => window.woodrail.learn("farming"));
+const toastText = `${await p.evaluate((id) => {
   const w = window.woodrail;
-  w.progress().coins = 60;
+  const land = w.world.landscape;
+  const s = land.sites[id];
+  const t = [...land.towns].sort((a, b) => Math.hypot(a.centre.x - s.centre.x, a.centre.z - s.centre.z) - Math.hypot(b.centre.x - s.centre.x, b.centre.z - s.centre.z))[0];
+  return `Old farm by ${t.name}`;
+}, farm.id)} can be restored`;
+const seen = await p.evaluate(async (text) => {
+  const out = [];
+  for (let k = 0; k < 120; k++) {
+    const t = document.querySelector(".toast");
+    const now = `${t?.textContent}|${t?.className}`;
+    if (out.at(-1) !== now) out.push(now);
+    if (t?.textContent === text && t.classList.contains("show")) return { shown: true, out };
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return { shown: false, out };
+}, toastText);
+check("learning Farming: a toast names the old farm to restore", seen.shown, `${toastText} / ${JSON.stringify(seen.out)}`);
+await shot("r1-show-me-toast");
+const far = await p.evaluate(() => window.woodrail.controls.target.toArray().map(Math.round));
+await tap(".toast");
+await p.waitForTimeout(2500);
+await settle();
+const framed = await onScreen(farm.centre.x, 10, farm.centre.z);
+check("…tapped, it frames the old farm", framed.in && Math.abs(framed.x - 195) < 160, JSON.stringify({ far, framed }));
+// Show me for "Open a farm" points at the old farm (and opens its card).
+const guide = await p.evaluate(async () => {
+  const { GOALS } = await import("/src/game/goals.ts");
+  const g = GOALS.find((x) => x.id === "open-farm").guide(window.woodrail.world);
+  return { ruin: g.ruin, marks: g.marks };
 });
-const before = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, ruins: window.woodrail.world.ruins.size }));
-await tap(".ruin-card .card-row button");
-await p.waitForTimeout(800);
-const after = await p.evaluate((id) => {
+check("Show me for Open a farm: the old farm", guide.ruin === farm.id, JSON.stringify(guide));
+
+// 4. Its card now offers Restore at half a new farm yard's price; short of planks (no workshop yet), it says so.
+const shopAt = await p.evaluate(async () => {
   const w = window.woodrail;
+  w.progress().coins = 100;
+  // A workshop on a straight of its own, out in the open (as the e2e of the growth menu puts one), its yard stocked.
+  const s1 = w.world.landscape.towns[1].station;
+  return { x: Math.round(s1.x / 18) * 18, z: Math.round((s1.z + 500) / 18) * 18 };
+});
+await look(yard.x, yard.z, 1300);
+const at2 = await onScreen(yard.x, 10, yard.z);
+await tapAt(at2.x, at2.y);
+const card2 = await p.evaluate(() => {
+  const c = document.querySelector(".ruin-card");
+  return c && !c.hidden ? { status: c.querySelector(".ruin-status").textContent, own: c.querySelector(".ruin-own").textContent, buttons: [...c.querySelectorAll(".card-row button")].filter((b) => !b.hidden).map((b) => b.textContent) } : null;
+});
+check("the learned ruin's card: Restore · 3🪵 45🪙, and you may still build your own", card2?.status === "🔧 Half the price of a new farm yard" && card2.buttons[0] === "Restore · 3🪵 45🪙" && card2.own === "Or build your own anywhere from the Industries tab.", JSON.stringify(card2));
+await tap(".ruin-card .ruin-restore");
+const noShop = await p.evaluate(() => document.querySelector(".toast")?.textContent);
+check("…with no workshop: it says where the planks come from", noShop === "Restoring takes planks from your workshop. Place it first", noShop);
+await p.evaluate(async (at) => {
+  const w = window.woodrail;
+  const { CARGO } = await import("/src/economy/cargo.ts");
+  w.editor().place("depot-workshop", { x: at.x, z: at.z, heading: 0 }, 0, false);
+  const d = w.economy.allDepots().find((x) => x.role === "workshop");
+  d.piles[CARGO.planks.index] = 10;
+}, shopAt);
+await p.waitForTimeout(1500);
+await settle();
+await look(yard.x, yard.z, 1300);
+const at3 = await onScreen(yard.x, 10, yard.z);
+await tapAt(at3.x, at3.y);
+await p.waitForTimeout(800);
+await shot("r2-restore-card");
+
+// 5. Restore: the stub becomes the farm yard in place, a working industry (its depot, crane and card), paid for.
+const stubPose = await p.evaluate((id) => ({ ...window.woodrail.layout.getPiece(window.woodrail.world.ruins.get(id)).pose }), farm.id);
+await tap(".ruin-card .ruin-restore");
+await p.waitForTimeout(1200);
+await settle();
+const restored = await p.evaluate(async ([id, pose]) => {
+  const w = window.woodrail;
+  const { CARGO } = await import("/src/economy/cargo.ts");
+  const piece = [...w.layout.pieceIds()].map((i) => w.layout.getPiece(i)).find((q) => q.type === "depot-farm");
+  const depot = piece && w.economy.depotAtPiece(piece.id);
+  const site = piece && w.depotView.sites.find((s) => s.depot.pieceId === piece.id);
   const g = w.world.landscape.grid;
   let left = 0;
-  g.forEachCell((i) => {
-    if (g.feature[i] === 7 && g.owner[i] === id) left++;
-  });
-  return { pieces: w.layout.pieceCount, ruins: w.world.ruins.size, cleared: !!w.world.landscape.sites[id].cleared, coins: w.progress().coins, left, card: !document.querySelector(".ruin-card").hidden };
-}, farm.id);
-check("Clear the ruin: it's gone, its stub too, for 10 coins", after.cleared && after.ruins === before.ruins - 1 && after.pieces === before.pieces - 1 && after.coins === 50 && after.left === 0 && !after.card, JSON.stringify({ before, after }));
-await shot("04-cleared");
+  g.forEachCell((i) => (left += g.feature[i] === 7 && g.owner[i] === id ? 1 : 0));
+  return {
+    piece: piece ? { id: piece.id, at: Math.hypot(piece.pose.x - pose.x, piece.pose.z - pose.z) } : null,
+    depot: depot?.role,
+    rate: depot?.rate,
+    crane: !!site?.crane,
+    restored: !!w.world.landscape.sites[id].restored,
+    ruin: w.world.ruins.has(id),
+    left,
+    coins: w.progress().coins,
+    planks: w.economy.allDepots().find((x) => x.role === "workshop").piles[CARGO.planks.index],
+    card: !document.querySelector(".ruin-card").hidden,
+  };
+}, [farm.id, stubPose]);
+check("Restore: a farm yard where the stub was, the ruin gone", restored.piece?.at < 0.5 && restored.restored && !restored.ruin && restored.left === 0 && !restored.card, JSON.stringify(restored));
+check("…a working farm: its depot, its rate from the fields, its crane", restored.depot === "farm" && restored.rate >= 1 && restored.crane, JSON.stringify(restored));
+check("…paid as a new one is, at half the price: 3 planks from the workshop, 45 coins", restored.coins === 55 && restored.planks === 7, JSON.stringify(restored));
+// Its card: tap the farm yard.
+const farmAt = await onScreen(yard.x, 10, yard.z);
+await tapAt(farmAt.x, farmAt.y);
+await p.waitForTimeout(800);
+const depotCard = await p.evaluate(() => {
+  const c = document.querySelector(".depot-card");
+  return c && !c.hidden ? c.querySelector(".card-title")?.textContent : null;
+});
+check("…its card opens on a tap: Farm yard", /Farm yard/.test(depotCard ?? ""), depotCard);
+await shot("r3-restored-farm");
+await p.evaluate(() => document.querySelector(".depot-card button.close")?.click());
+await p.waitForTimeout(400);
 
-// 4. The land around: its ruins shown before it's bought; a coastal plot with an extra town, its land card.
+// 6. Undo brings the ruin back (and the price); redo restores it again.
+await tap("button[title='Undo (Ctrl+Z)']");
+await p.waitForTimeout(1200);
+const undone = await p.evaluate((id) => {
+  const w = window.woodrail;
+  const stub = w.world.ruins.get(id);
+  return { stub: stub !== undefined && w.layout.getPiece(stub)?.type, farms: [...w.layout.pieceIds()].filter((i) => w.layout.getPiece(i).type === "depot-farm").length, restored: !!w.world.landscape.sites[id].restored, coins: w.progress().coins, tiles: w.ruinsView.group.children.length };
+}, farm.id);
+check("Undo: the ruin and its stub are back, the farm yard gone, the coins given back", undone.stub === "straight-216" && undone.farms === 0 && !undone.restored && undone.coins === 100 && undone.tiles > 0, JSON.stringify(undone));
+await p.evaluate(() => window.woodrail.editor().redo());
+await p.waitForTimeout(1200);
+const redone = await p.evaluate((id) => ({ ruin: window.woodrail.world.ruins.has(id), restored: !!window.woodrail.world.landscape.sites[id].restored, coins: window.woodrail.progress().coins }), farm.id);
+check("Redo: restored again, paid again", !redone.ruin && redone.restored && redone.coins === 55, JSON.stringify(redone));
+
+// 8. The land around: its ruins shown before it's bought; a coastal plot with an extra town, its land card.
 const coastal = await p.evaluate(async () => {
   const { plotsForSale, landForSale } = await import("/src/game/world.ts");
   const { generatePlot } = await import("/src/landscape/index.ts");
@@ -231,7 +344,7 @@ check("the land card lists the plot's old sites and towns", /old (farm|quarry|mi
 check("…a coastal plot with an extra town: its towns by the sea", pick.towns === 0 || /by the sea|coast/.test(landText), `${landText} (${pick.towns} towns)`);
 await shot("06-land-card-coast");
 
-// 5. Bought: its towns and its ruins join the land (each ruin's stub a fixed track piece).
+// 9. Bought: its towns and its ruins join the land (each ruin's stub a fixed track piece).
 await tap(".land-card button", "Add this land");
 await p.waitForTimeout(1500);
 const bought = await p.evaluate(([px, pz]) => {
@@ -244,7 +357,29 @@ await tap(".land-card button", "Done");
 await look((pick.px + 0.5) * 2232, (pick.pz + 0.5) * 1656, 2600, 0.75);
 await shot("07-bought-coast");
 
-// 6. Idle: nothing drawn for 30 s (the ruins cost nothing while nothing changes).
+// 10. Clear one of its ruins: 10 coins, the ruin and its stub gone.
+const ruinBought = await p.evaluate(([px, pz]) => window.woodrail.world.landscape.sites.filter((s) => s.plot.px === px && s.plot.pz === pz && !s.cleared).map((s) => ({ ...s }))[0], [pick.px, pick.pz]);
+const ry = yardOf(ruinBought);
+await look(ry.x, ry.z, 1300);
+const rAt = await onScreen(ry.x, 10, ry.z);
+await tapAt(rAt.x, rAt.y);
+const before = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, ruins: window.woodrail.world.ruins.size, coins: window.woodrail.progress().coins, card: !document.querySelector(".ruin-card").hidden }));
+check("a ruin on the land bought: its card opens on a tap", before.card, JSON.stringify(before));
+await tap(".ruin-card .ruin-clear");
+await p.waitForTimeout(800);
+const after = await p.evaluate((id) => {
+  const w = window.woodrail;
+  const g = w.world.landscape.grid;
+  let left = 0;
+  g.forEachCell((i) => {
+    if (g.feature[i] === 7 && g.owner[i] === id) left++;
+  });
+  return { pieces: w.layout.pieceCount, ruins: w.world.ruins.size, cleared: !!w.world.landscape.sites[id].cleared, coins: w.progress().coins, left, card: !document.querySelector(".ruin-card").hidden };
+}, ruinBought.id);
+check("Clear the ruin: it's gone, its stub too, for 10 coins", after.cleared && after.ruins === before.ruins - 1 && after.pieces === before.pieces - 1 && after.coins === before.coins - 10 && after.left === 0 && !after.card, JSON.stringify({ before, after }));
+await shot("10-cleared");
+
+// 11. Idle: nothing drawn for 30 s (the ruins cost nothing while nothing changes).
 const cdp = await p.context().newCDPSession(p);
 await cdp.send("Performance.enable");
 const busy = async () => (await cdp.send("Performance.getMetrics")).metrics.find((m) => m.name === "TaskDuration").value;
@@ -267,6 +402,24 @@ idle.busyMs = Math.round(((await busy()) - busy0) * 1000);
 idle.cpu = `${((idle.busyMs / (idle.seconds * 1000)) * 100).toFixed(2)}%`;
 idle.ruinTiles = await p.evaluate(() => window.woodrail.ruinsView.group.children.length);
 check("idle with ruins in view: no frames drawn in 30 s", idle.frames === 0, JSON.stringify(idle));
+
+// 12. Reload: it stays restored (the farm yard an industry of the player's, no ruin).
+await p.waitForTimeout(6500);
+await p.reload();
+await p.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+await p.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await p.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+await settle();
+await p.keyboard.press("Escape");
+await p.waitForTimeout(1500);
+const reloaded = await p.evaluate(([id, pose]) => {
+  const w = window.woodrail;
+  const piece = [...w.layout.pieceIds()].map((i) => w.layout.getPiece(i)).find((q) => q.type === "depot-farm");
+  return { restored: !!w.world.landscape.sites[id].restored, ruin: w.world.ruins.has(id), farm: piece ? Math.hypot(piece.pose.x - pose.x, piece.pose.z - pose.z) : null, depot: piece ? w.economy.depotAtPiece(piece.id)?.role : null, coins: w.progress().coins };
+}, [farm.id, stubPose]);
+check("reloaded: still restored, the farm yard where it was", reloaded.restored && !reloaded.ruin && reloaded.farm !== null && reloaded.farm < 0.5 && reloaded.depot === "farm", JSON.stringify(reloaded));
+await look(yard.x, yard.z, 1300);
+await shot("r4-reloaded-farm");
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

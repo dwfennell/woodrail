@@ -323,7 +323,8 @@ describe("GoalTracker", () => {
   it("research comes right after the first village, before the workshop (spec §4)", () => {
     const ids = GOALS.map((g) => g.id);
     const from = ids.indexOf("deliver-planks");
-    expect(ids.slice(from, from + 8)).toEqual(["deliver-planks", "grow-town", "place-school", "learn-switches", "place-workshop", "make-switch", "lay-switch", "build-bridge"]);
+    // (Then "Open a farm", once Farming is learned: map sites step 2.)
+    expect(ids.slice(from, from + 9)).toEqual(["deliver-planks", "grow-town", "place-school", "learn-switches", "place-workshop", "make-switch", "lay-switch", "open-farm", "build-bridge"]);
     expect(goal("learn-switches").title).toBe("Research switches");
     expect(goal("learn-switches").hint).toBe("Pick Switches, then bring 4 planks to the school.");
     expect(goal("learn-switches").blueprint).toBe("switches");

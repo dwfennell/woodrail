@@ -91,6 +91,7 @@ export const landscapeSchema = z.object({
         plot: z.object({ px: z.number().int().min(-30000).max(30000), pz: z.number().int().min(-30000).max(30000) }),
         fields: z.array(id),
         cleared: z.boolean().optional(),
+        restored: z.boolean().optional(),
       }),
     )
     .optional(),

@@ -36,6 +36,9 @@ import type { GameMode } from "./modes";
 import { techOf } from "./tech";
 import { THING_RULES } from "./things";
 import { COIN_ICON } from "../economy/cargo";
+import { kindsOf, type Bag } from "../economy/goods";
+import { costTag } from "../ui/cost-tag";
+import type { PieceTypeId } from "../track";
 
 /**
  * The map's own sites (spec docs/superpowers/specs/2026-10-21-map-sites-design.md): on every plot an old industry or
@@ -43,8 +46,8 @@ import { COIN_ICON } from "../economy/cargo";
  * yard with a stub of track, and beyond the start more towns, by the sea and the rivers most. All of it from its own
  * random stream (`sitesStream`), after the land's towns, fields and depots are made, so those are as they always were.
  *
- * Step 1 (this): the sites, their ruins, the locked card, clearing a ruin, the land card. Step 2: restoring a ruin into
- * its industry (its piece where the stub is), Show me pointing at one, the balance harness restoring them.
+ * Step 1: the sites, their ruins, the locked card, clearing a ruin, the land card. Step 2: restoring a ruin into its
+ * industry (its piece where the stub is: `restore.ts`), Show me pointing at one, the balance harness restoring them.
  */
 
 /** Salt for the sites' random stream. */
@@ -76,6 +79,24 @@ export const SITE_NAMES: Record<SiteRole, string> = { farm: "farm", quarry: "qua
 
 /** What clearing a ruin costs (Game mode): a few coins. */
 export const CLEAR_PRICE = 10;
+
+/**
+ * What restoring a ruin costs, as a share of a new industry's price (`THING_RULES`): goods rounded up, coins to the
+ * nearest 5. The one knob the balance pass tunes.
+ */
+export const RESTORE_SHARE = 0.5;
+
+/** The industry's piece a ruin of this kind is restored to. */
+export const restoredType = (role: SiteRole): PieceTypeId => `depot-${role}` as PieceTypeId;
+
+/** What restoring a ruin of this kind costs (Game mode): about half its new industry's price (3🪵 45🪙 for a farm). */
+export function restorePrice(role: SiteRole): { goods: Bag; coins: number } {
+  const rule = THING_RULES[`piece:${restoredType(role)}`];
+  const goods: Bag = {};
+  if (!rule) return { goods, coins: 0 };
+  for (const k of kindsOf(rule.cost)) goods[k] = Math.ceil(rule.cost[k]! * RESTORE_SHARE);
+  return { goods, coins: Math.round(((rule.coins ?? 0) * RESTORE_SHARE) / 5) * 5 };
+}
 
 /**
  * Something the extras added to a land, as a patch an older save can take (see `addSitesToOldSave`): every square it
@@ -617,12 +638,14 @@ export interface RuinCard {
   /** "🌾 Farm fields nearby: 8 of 8". */
   resource: string;
   /**
-   * What opens it: "🔒 Learn Farming at a school to open this farm", or once that's learned (and in Sandbox)
-   * "🔧 Restoring comes soon" (step 2 puts its Restore button here instead).
+   * What opens it: "🔒 Learn Farming at a school to open this farm", or once that's learned (and in Sandbox) what
+   * restoring it is: "🔧 Half the price of a new farm yard".
    */
   status: string;
-  /** Learned (or Sandbox): what step 2's Restore will need. */
+  /** Learned (or Sandbox): it can be restored. */
   open: boolean;
+  /** The restore button, once it's open: "Restore · 3🪵 45🪙" ("Restore" in Sandbox); null while locked. */
+  restore: string | null;
   /** "Or build your own anywhere from the Industries tab." (Game mode.) */
   own: string | null;
   /** The clear button: "Clear the ruin · 10🪙". */
@@ -637,11 +660,15 @@ export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned
   const resource = r ? `${res.icon} ${res.what} nearby: ${Math.min(r.count, r.need)} of ${r.need}` : "";
   const bp = siteBlueprint(site.role);
   const open = mode === "sandbox" || !bp || learned(bp.id);
+  const fresh = THING_RULES[`piece:${restoredType(site.role)}`]?.label.toLowerCase() ?? name;
+  const price = restorePrice(site.role);
+  const priced = mode === "game" ? costTag(price.goods, price.coins) : "";
   return {
     title: `Old ${name}`,
     resource,
-    status: open ? "🔧 Restoring comes soon" : `🔒 Learn ${bp!.label} at a school to open this ${name}`,
+    status: !open ? `🔒 Learn ${bp!.label} at a school to open this ${name}` : mode === "game" ? `🔧 ${RESTORE_SHARE === 0.5 ? "Half the price of" : "Cheaper than"} a new ${fresh}` : `🔧 Restore it to work again`,
     open,
+    restore: open ? (priced ? `Restore · ${priced}` : "Restore") : null,
     own: mode === "game" ? "Or build your own anywhere from the Industries tab." : null,
     clear: mode === "game" ? `Clear the ruin · ${CLEAR_PRICE}${COIN_ICON}` : "Clear the ruin",
   };
