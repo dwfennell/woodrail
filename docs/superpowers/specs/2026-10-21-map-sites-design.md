@@ -235,54 +235,54 @@ rings it.
 
 ### Balance (180 min, 1 train a line; `BALANCE=1`, seeds 2027, 1–6, 9, 10)
 
-On the branch as pushed (merged with main, which since step 1 made the mill 400 coins, switches 3 planks and the
-workshop's yard keep fewer planks): **all 9 seeds pass, and the figures with and without ruins are identical.** Farming
+On the branch as pushed (merged with main at de19930: since step 1 the mill costs 400 coins, switches 3 planks, early
+flour 12 coins, and the workshop's yard keeps fewer planks): **all 9 seeds pass, and the figures with and without ruins are identical.** Farming
 now comes at minute 14–23, when the line's ends are the forest yard's (east) and Thimble Cross's (north); from both the
 track layer is boxed in short of the old farm's stub (towns, fields and the ruin's own yard in the way: `boxed-in`
 after 22–40 pieces, trace on seed 2027), so the harness builds a new farm yard as before.
 
-| seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/60/180 | researched | farm | bands |
+| seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/45/60/75/180 | researched | farm | bands |
 |---|---|---|---|---|---|---|---|---|---|
-| 2027 | 4.4 | 62 | - | 12.1 | 12.0 | 296/119/968 | 14 | 29.0 new | pass |
-| 1 | 4.4 | 61 | 160 | 8.1 | 22.1 | 78/49/1287 | 15 | 25.0 new | pass |
-| 2 | 4.4 | 73 | 169 | 7.2 | 18.7 | 48/224/918 | 15 | 25.0 new | pass |
-| 3 | 4.4 | 80 | 179 | 7.2 | 37.2 | 326/754/1335 | 14 | 33.0 new | pass |
-| 4 | 4.4 | 80 | 164 | 9.3 | 22.4 | 296/737/1162 | 14 | 33.0 new | pass |
-| 5 | 4.4 | 73 | 172 | 10.1 | 18.1 | 48/350/1003 | 15 | 25.0 new | pass |
-| 6 | 4.4 | 67 | 141 | 7.8 | 16.6 | 326/43/1650 | 17 | 23.0 new | pass |
-| 9 | 4.4 | 69 | 168 | 9.4 | 18.6 | 296/6/996 | 14 | 23.0 new | pass |
-| 10 | 4.4 | 82 | 179 | 6.5 | 18.3 | 78/782/1606 | 14 | 25.0 new | pass |
+| 2027 | 4.4 | 62 | - | 12.1 | 12.0 | 296/62/200/234/1254 | 14 | 29.0 new | pass |
+| 1 | 4.4 | 61 | 160 | 8.1 | 22.1 | 78/384/76/227/1395 | 15 | 25.0 new | pass |
+| 2 | 4.4 | 73 | 169 | 7.2 | 18.7 | 48/468/224/356/1026 | 15 | 25.0 new | pass |
+| 3 | 4.4 | 80 | 179 | 7.2 | 37.2 | 326/666/754/434/1443 | 14 | 33.0 new | pass |
+| 4 | 4.4 | 80 | 164 | 9.3 | 22.4 | 296/562/737/427/1306 | 14 | 33.0 new | pass |
+| 5 | 4.4 | 73 | 172 | 10.1 | 18.1 | 48/462/350/502/1111 | 15 | 25.0 new | pass |
+| 6 | 4.4 | 67 | 141 | 7.8 | 16.6 | 326/10/70/373/1812 | 17 | 23.0 new | pass |
+| 9 | 4.4 | 69 | 166 | 11.1 | 18.6 | 296/380/6/111/1090 | 14 | 23.0 new | pass |
+| 10 | 4.4 | 82 | 179 | 6.5 | 18.3 | 78/464/782/464/1768 | 14 | 25.0 new | pass |
 
 (With ruins: the same table, row for row.)
 
 **What restoring does when the line can reach it**, measured on step 1's main (before the merge), where Farming came at
 minute 16–24 and the line reached the ruin from an end on 5 seeds. Without ruins (identical to step 1):
 
-| seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/60/180 | researched | farm | bands |
+| seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/45/60/75/180 | researched | farm | bands |
 |---|---|---|---|---|---|---|---|---|---|
-| 2027 | 5.6 | 80 | 135 | 9.0 | 24.0 | 242/85/674 | 15 | 22.0 new | pass |
-| 1 | 5.6 | 79 | 122 | 6.4 | 27.4 | 126/139/914 | 21 | 26.0 new | pass |
-| 2 | 5.6 | 74 | 123 | 15.1 | 15.8 | 96/269/749 | 15 | 36.0 new | pass |
-| 3 | 5.6 | 67 | 177 | 7.4 | 17.3 | 242/10/884 | 14 | 25.0 new | pass |
-| 4 | 5.6 | 83 | 148 | 8.7 | 27.9 | 212/98/1064 | 14 | 25.0 new | pass |
-| 5 | 5.6 | 71 | 120 | 13.6 | 14.3 | 96/209/1148 | 14 | 36.0 new | pass |
-| 6 | 5.6 | 71 | 115 | 12.6 | 18.6 | 242/8/1000 | 15 | 25.0 new | pass |
-| 9 | 5.6 | 83 | 138 | 8.7 | 28.1 | 212/96/841 | 15 | 25.0 new | pass |
-| 10 | 5.6 | 79 | 122 | 6.4 | 23.7 | 126/219/1884 | 17 | 26.0 new | pass |
+| 2027 | 5.6 | 80 | 135 | 9.0 | 24.0 | 242/198/85/145/674 | 15 | 22.0 new | pass |
+| 1 | 5.6 | 79 | 122 | 6.4 | 27.4 | 126/256/139/137/914 | 21 | 26.0 new | pass |
+| 2 | 5.6 | 74 | 123 | 15.1 | 15.8 | 96/493/269/281/749 | 15 | 36.0 new | pass |
+| 3 | 5.6 | 67 | 177 | 7.4 | 17.3 | 242/266/10/255/884 | 14 | 25.0 new | pass |
+| 4 | 5.6 | 83 | 148 | 8.7 | 27.9 | 212/206/98/158/1064 | 14 | 25.0 new | pass |
+| 5 | 5.6 | 71 | 120 | 13.6 | 14.3 | 96/139/209/421/1148 | 14 | 36.0 new | pass |
+| 6 | 5.6 | 71 | 115 | 12.6 | 18.6 | 242/236/8/80/1000 | 15 | 25.0 new | pass |
+| 9 | 5.6 | 83 | 138 | 8.7 | 28.1 | 212/206/96/156/841 | 15 | 25.0 new | pass |
+| 10 | 5.6 | 79 | 122 | 6.4 | 23.7 | 126/256/219/217/1884 | 17 | 26.0 new | pass |
 
 With ruins (`RESTORE_SHARE` 0.5):
 
-| seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/60/180 | researched | farm | bands |
+| seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/45/60/75/180 | researched | farm | bands |
 |---|---|---|---|---|---|---|---|---|---|
-| 2027 | 5.6 | 54 | 164 | 12.1 | 18.9 | 242/124/623 | 14 | 22.0 restored | FAIL; City at minute 60 or later: expected 54 to be greater than or equal to |
-| 1 | 5.6 | 79 | 122 | 6.4 | 27.4 | 126/139/914 | 21 | 26.0 new | pass |
-| 2 | 5.6 | 74 | 123 | 15.1 | 15.8 | 96/269/749 | 15 | 36.0 new | pass |
-| 3 | 5.6 | 57 | - | 8.0 | 36.1 | 242/344/348 | 13 | 25.0 restored | FAIL; City at minute 60 or later: expected 57 to be greater than or equal to |
-| 4 | 5.6 | 70 | 132 | 8.3 | 16.8 | 212/32/792 | 14 | 25.0 restored | pass |
-| 5 | 5.6 | 71 | 120 | 13.6 | 14.3 | 96/209/1148 | 14 | 36.0 new | pass |
-| 6 | 5.6 | 57 | - | 8.0 | 38.5 | 242/314/336 | 13 | 25.0 restored | FAIL; City at minute 60 or later: expected 57 to be greater than or equal to |
-| 9 | 5.6 | 70 | 135 | 13.4 | 12.6 | 212/32/875 | 14 | 25.0 restored | pass |
-| 10 | 5.6 | 79 | 122 | 6.4 | 23.7 | 126/219/1884 | 17 | 26.0 new | pass |
+| 2027 | 5.6 | 54 | 164 | 12.1 | 18.9 | 242/19/124/183/623 | 14 | 22.0 restored | FAIL; City at minute 60 or later: expected 54 to be greater than or equal to |
+| 1 | 5.6 | 79 | 122 | 6.4 | 27.4 | 126/256/139/137/914 | 21 | 26.0 new | pass |
+| 2 | 5.6 | 74 | 123 | 15.1 | 15.8 | 96/493/269/281/749 | 15 | 36.0 new | pass |
+| 3 | 5.6 | 57 | - | 8.0 | 36.1 | 242/44/344/405/348 | 13 | 25.0 restored | FAIL; City at minute 60 or later: expected 57 to be greater than or equal to |
+| 4 | 5.6 | 70 | 132 | 8.3 | 16.8 | 212/276/32/341/792 | 14 | 25.0 restored | pass |
+| 5 | 5.6 | 71 | 120 | 13.6 | 14.3 | 96/139/209/421/1148 | 14 | 36.0 new | pass |
+| 6 | 5.6 | 57 | - | 8.0 | 38.5 | 242/32/314/366/336 | 13 | 25.0 restored | FAIL; City at minute 60 or later: expected 57 to be greater than or equal to |
+| 9 | 5.6 | 70 | 135 | 13.4 | 12.6 | 212/276/32/378/875 | 14 | 25.0 restored | pass |
+| 10 | 5.6 | 79 | 122 | 6.4 | 23.7 | 126/256/219/217/1884 | 17 | 26.0 new | pass |
 
 There the old farm was restored at the minute a new farm yard went down without ruins (22–25), and the **City came 13
 to 26 minutes earlier** (2027: 80 → 54; 3: 67 → 57; 4: 83 → 70; 6: 71 → 57; 9: 83 → 70): three seeds under the band's
@@ -297,6 +297,14 @@ sooner. **The price knob didn't move it**: at minute 22–25 the player held 240
 | 0.75 | 5🪵 70🪙 | 57 / 57 / 55 |
 | 0.9 | 6🪵 80🪙 | 70 / 57 / 70 |
 
+**The minute-60 dip** (after the 400-coin mill; seeds 9 and 6 at 6 and 70 coins on main, the same here): with the
+ruin out of the harness's reach, Restore doesn't touch it, row for row. Where the harness did restore (step 1's main,
+the mill 280 coins), it moved the dip rather than easing it: the mill went down sooner (minute 42, straight after the
+restored farm), so the low point came at minute 45 (19–44 coins on 2027, 3 and 6, against 198–266 without ruins) and
+minute 60 was higher on 2027, 3 and 6 (85 → 124, 10 → 344, 8 → 314) but lower on 4 and 9 (98 → 32, 96 → 32). The
+restore itself saves 45 coins and the 40-coin field a new farm yard plants to reach full speed: about 85 coins at
+minute 22–25, small beside the mill's 400.
+
 (The 0.9 row's movement is the chaotic kind; seed 3 stayed at 57 at every price.) The share stays at 0.5. Main has
 since raised the mill to 400 coins "so the first City stays in its band", which holds the mill back whichever farm is
 there. Open for the CoS: if a later harness reaches the ruin again (a smarter line, or Routes learned before Farming),
@@ -309,7 +317,7 @@ Measured (dev machine; swiftshader in the e2e):
 
 - The restore itself (`restoreRuin`: checks, swap, payment, squares; Node, starter map): 0.7 ms median (13 ms the first,
   cold).
-- In the game, Restore tapped to done: 411–497 ms in swiftshader. Most of it is what follows any track edit that puts
+- In the game, Restore tapped to done: 248–497 ms in swiftshader. Most of it is what follows any track edit that puts
   an industry down (`onChange`: the track, the industries' yards and depot view, the goals, the save), the same as a
   farm yard dropped from the tray; the ruins' tile, the only one rebuilt (its key changed), 72–116 ms. Undo and redo
   rebuild that one tile again (67–153 ms).
