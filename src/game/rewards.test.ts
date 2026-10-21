@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import rewardsSrc from "./rewards.ts?raw";
 import mainSrc from "../main.ts?raw";
-import { CARGO } from "../economy/cargo";
+import { CARGO, type CargoKind } from "../economy/cargo";
 import { capOf } from "../economy/economy";
 import { workshopStock } from "./crafting";
 import { CARD_KINDS, type GrowthCard } from "./growth-cards";
 import { Progress } from "./progress";
-import { deliver, pick, tick } from "./research";
+import { costOf, deliver, pick, tick } from "./research";
 import { boostGoods, carIcon, cardFor, cardView, crateFor, describeThings, firstTimeGift, learnGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
 import { TECHS } from "./tech";
 import { THING_RULES } from "./things";
@@ -158,7 +158,7 @@ describe("the research boost", () => {
     expect(cardFor(p, w, "boost", 1, rng(1))).toEqual({ kind: "boost", share: 0.25 });
     // 2 left: not worth a card. A town's offer draws another kind in its place, three cards still.
     deliver(p, "planks", 2);
-    expect(boostGoods(p, 0.4)).toEqual({ planks: 2 });
+    expect(boostGoods(p, 0.4)).toEqual({});
     expect(cardFor(p, w, "boost", 2, rng(1))).toBeNull();
     for (let seed = 1; seed < 30; seed++) {
       const cards = offerOnGrowth(p, w, "Larkfield", 2, rng(seed))!.cards;
@@ -170,6 +170,46 @@ describe("the research boost", () => {
     p.offers.push({ from: "Elderwick", level: 2, cards: [{ kind: "boost", share: 0.4 }, { kind: "coins", n: 80 }] });
     expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: false, why: "Your research is nearly in" });
     expect(takeCard(p, w, 0, 0)).toBeNull();
+  });
+
+  it("every good a boost card shows is at least 3, across researches and what's in (QA N2: \"+1🪵 2🌾\")", () => {
+    const w = world({ school: true });
+    // Mills with 11 of 12 planks in and 4 of 6 grain: 1 plank and 2 grain left, under the floor each: no card.
+    const m = researching();
+    deliver(m, "planks", 11);
+    deliver(m, "grain", 4);
+    expect(boostGoods(m, 0.4)).toEqual({});
+    expect(cardFor(m, w, "boost", 2, rng(1))).toBeNull();
+    // 1 plank left and all 6 grain: the plank is left off, the grain still fills its floor.
+    const g = researching();
+    deliver(g, "planks", 11);
+    expect(boostGoods(g, 0.25)).toEqual({ grain: 3 });
+    g.offers.push({ from: "Larkfield", level: 1, cards: [{ kind: "boost", share: 0.25 }] });
+    expect(cardView(g, w, g.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+3🌾" });
+    // Every research with goods, every share, many states of what's in.
+    let shown = 0;
+    for (const t of TECHS) {
+      const goods = costOf(t.id).goods;
+      const kinds = Object.keys(goods) as CargoKind[];
+      if (kinds.length === 0) continue;
+      for (let seed = 1; seed <= 40; seed++) {
+        const r = rng(seed * 31 + t.id.length);
+        const p = Progress.fresh();
+        p.research.current = t.id;
+        for (const k of kinds) p.research.got[k] = Math.floor(r() * (goods[k]! + 1));
+        for (const share of [0.25, 0.4, 0.6]) {
+          const bag = boostGoods(p, share);
+          for (const k of Object.keys(bag) as CargoKind[]) {
+            expect(bag[k]!).toBeGreaterThanOrEqual(3);
+            expect(bag[k]!).toBeLessThanOrEqual(goods[k]! - (p.research.got[k] ?? 0));
+            shown++;
+          }
+          const view = cardView(p, w, { kind: "boost", share });
+          if (view.ok) for (const n of view.amount.match(/\d+/g)!) expect(Number(n)).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
+    expect(shown).toBeGreaterThan(100);
   });
 
   it("an offer kept till the research is done can't boost (the card says why), and keeps waiting", () => {

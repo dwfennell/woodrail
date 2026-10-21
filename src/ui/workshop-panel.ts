@@ -35,6 +35,8 @@ export interface YardMode {
   keeps: number;
   /** Its yard's cap. */
   cap: number;
+  /** A school is on the map (Takes all still leaves it what its research needs: the hint says so). */
+  school?: boolean;
 }
 
 export const SHARES_LABEL = "Shares with towns";
@@ -42,7 +44,8 @@ export const TAKES_ALL_LABEL = "Takes all planks";
 
 /** The line under the choice: what the workshop does with the planks trains bring. */
 export function yardHint(m: YardMode): string {
-  return m.takesAll ? `Fills its yard first, up to ${m.cap}` : `Leaves planks for towns further on, keeping ${m.keeps} for you`;
+  if (!m.takesAll) return `Leaves planks for towns further on, keeping ${m.keeps} for you`;
+  return `Fills its yard first, up to ${m.cap}${m.school ? " (your school still gets what it needs)" : ""}`;
 }
 
 /** The workshop's two-way choice, Shares with towns / Takes all planks, and its hint. */

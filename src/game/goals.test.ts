@@ -325,7 +325,7 @@ describe("GoalTracker", () => {
     const from = ids.indexOf("deliver-planks");
     expect(ids.slice(from, from + 8)).toEqual(["deliver-planks", "grow-town", "place-school", "learn-switches", "place-workshop", "make-switch", "lay-switch", "build-bridge"]);
     expect(goal("learn-switches").title).toBe("Research switches");
-    expect(goal("learn-switches").hint).toBe("Pick Switches, then bring 3 planks to the school.");
+    expect(goal("learn-switches").hint).toBe("Pick Switches. Trains bring the school the 3 planks it needs.");
     expect(goal("learn-switches").blueprint).toBe("switches");
     expect(goal("build-bridge").blueprint).toBe("bridges");
   });
