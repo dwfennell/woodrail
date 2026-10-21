@@ -1,7 +1,9 @@
 import { normalizeAngle, solveParentPose, transformPose, type Pose } from "./math";
 import { createSample, pathLength, samplePath } from "./path";
 import { JOINT_ANGLE_TOLERANCE, JOINT_POS_TOLERANCE, LARGE_CURVE_RADIUS, RAMP_LENGTH, RISER_HEIGHT, SMALL_CURVE_RADIUS, WIDE_CURVE_RADIUS } from "./constants";
+import { connectorRef, Layout } from "./layout";
 import { getPieceDef, isBridge, type ConnectorKind, type PieceTypeId } from "./pieces";
+import { relaxJoints } from "./relax";
 
 /**
  * Drawing track: a stroke drawn with a finger (ground points) turned into a run of pieces, one at a time, from a free
@@ -81,6 +83,16 @@ export interface DrawOptions {
   meet?: (end: DrawEnd, line: readonly DrawnPiece[]) => DrawCandidate | null;
   /** Does the line end on other track here (seated, so it's finished)? */
   closes?: (end: DrawEnd) => boolean;
+  /**
+   * The free ends of other track within `reach` (mm) of this end that the line could close onto (facing back toward
+   * it, at its height), into `out`; how many. (See `DrawLine.closeBack`.)
+   */
+  freeEnds?: (end: DrawEnd, reach: number, out: DrawEnd[]) => number;
+  /**
+   * Does the line start on track that stays put (a free end of track, a branch's switch)? A line begun on open ground
+   * (false) is free at its start, so it can give there too as it bends to close (see `DrawLine.flexOnto`). Default true.
+   */
+  startHeld?: boolean;
   /** Is a free end of other track within `reach` (mm) of this end (a piece from here might close onto it)? */
   nearTrack?: (end: DrawEnd, reach: number) => boolean;
   /** The ground's height (mm) at a plan point: where a ramp's far end will land (see `DrawLine.lands`). */
@@ -106,6 +118,32 @@ const STEP = 6;
 const TIE = 0.5 / 120;
 /** Other track's free end this near (mm) the line's end: a piece that closes onto it is looked for (see `closeOnto`). */
 const CLOSE_REACH = 300;
+/**
+ * Closing onto other track's free end when no one piece from the line's end seats on it (see `closeBack`): up to this
+ * many of the line's last pieces may be laid again another way, as up to `CLOSE_LAY` pieces that do seat on it. Each
+ * new piece's far end this close (mm) to the stroke (the last one, `MEET_REACH`), and at most `CLOSE_TRIES` such fits
+ * checked against the map.
+ */
+const CLOSE_BACK = 2;
+const CLOSE_LAY = 2;
+const CLOSE_ON_REACH = 60;
+const CLOSE_TRIES = 6;
+/**
+ * A fit's far end this close (mm, and radians) to the free end may still close: the line's joints give a little to
+ * meet it (see `flexOnto`), each within the joint's play, as a near miss is closed when track is put down (the
+ * editor's reach). At most `FLEX_TRIES` such fits are tried a time (each a fit of the line's joints).
+ */
+const FLEX_REACH = 60;
+const FLEX_ANGLE = (12 * Math.PI) / 180;
+const FLEX_TRIES = 2;
+/** The line's last this many pieces give to close (see `flexOnto`), in at most this many sweeps a fit. */
+const FLEX_DEPTH = 5;
+const FLEX_SWEEPS = 80;
+/** Scoring a fit: a radian off the free end's heading counts as this many mm off it, and this many mm as one unit. */
+const FLEX_TURN_MM = 180;
+const FLEX_COST_MM = 15;
+/** A fit that has to bend the line to close costs this much more than one that seats as it is. */
+const FLEX_COST = 0.5;
 /** The next piece is chosen once the stroke reaches this far (mm) past the line's end, so the look-ahead sees it. */
 export const DRAW_LOOKAHEAD = 250;
 /**
@@ -320,6 +358,8 @@ export class DrawLine {
   private crossing: { heading: number; phase: "turn" | "run" | "over"; bridges: number } | null = null;
   /** Come off a crossing and not yet back in a straight stroke's band (see `chooseFlat`). */
   private offBand = false;
+  /** Fits that didn't close (see `closeBack`), while the line's last piece was `of` (undefined: none). */
+  private unclosed: { of: DrawnPiece | undefined; keys: Set<string> } = { of: undefined, keys: new Set() };
   /** The special piece the piece being placed needed but may not use (see `want`), or null. */
   private wanted: PieceTypeId | null = null;
 
@@ -382,6 +422,8 @@ export class DrawLine {
       if ((x - s.x) * Math.cos(s.heading) + (z - s.z) * Math.sin(s.heading) < STEP) return false;
     }
     const before = this.pieces.length;
+    // (Closing can lay the last piece or two again another way, or bend them, as many as before: see `closeBack`.)
+    const lastBefore = this.pieces[before - 1];
     const trimmed = this.retrace(x, z);
     const mx = x - this.fx;
     const mz = z - this.fz;
@@ -407,16 +449,17 @@ export class DrawLine {
     // line: it grows (QA: a one-stroke U of about 90 mm radius laid nothing).
     const turned = ahead > 0 && Math.abs(ez * Math.cos(e.heading) - ex * Math.sin(e.heading)) >= TURNED_REACH;
     if (away || turned || this.backlog) this.grow(false, GROW_PER_MOVE);
-    return trimmed || this.pieces.length !== before;
+    return trimmed || this.pieces.length !== before || this.pieces[this.pieces.length - 1] !== lastBefore;
   }
 
   /** The finger has lifted: grow the line to the end of the stroke. True if the pieces changed. */
   finish(): boolean {
     const before = this.pieces.length;
+    const lastBefore = this.pieces[before - 1];
     // Pieces already due while drawing go down as they would have then, and then the line grows to the stroke's end.
     if (this.backlog) this.grow(false, Infinity);
     this.grow(true);
-    return this.pieces.length !== before;
+    return this.pieces.length !== before || this.pieces[this.pieces.length - 1] !== lastBefore;
   }
 
   /** The pieces that may go down (up to the first one that can't). */
@@ -621,9 +664,13 @@ export class DrawLine {
       const met = this.options.meet?.(end, this.pieces);
       const near = met ? this.nearest(met.end.x, met.end.z, this.progress, this.progress + met.length * 1.6 + 40) : null;
       if (met && near && near.d < MEET_REACH && near.s <= this.strokeLength + MEET_REACH) {
-        this.lay(met, near.s);
-        if (!this.stopped) this.stopped = "closed";
-        return;
+        // (Refused, a straight a few mm into a station's end: the other ways of closing are looked for first.)
+        const why = this.options.check?.(met, this.pieces) ?? null;
+        if (!why || !this.options.freeEnds) {
+          this.lay(met, near.s, false, why);
+          if (!this.stopped) this.stopped = "closed";
+          return;
+        }
       }
       // Back round to its own start: a piece that closes the loop there goes down, rather than one on past it.
       if (this.closeOnStart(end)) return;
@@ -631,6 +678,9 @@ export class DrawLine {
       // first (QA N5: 5 mm short of a station's end, a straight then a curve into the house beside it, where the one
       // curve closed).
       if (this.closeOnto(end)) return;
+      // None does: the line's last piece or two laid again another way so that it closes there (QA: a line drawn into a
+      // station's end stopped 30 to 140 mm short of it, buffers facing, where no one piece's length would do).
+      if (this.closeBack()) return;
       // Finishing a loop that has come round to just short of its start, running its way: that's where it ends (a piece
       // more would go on across its first piece, and say so).
       if (finishing && this.backAtStart(end)) return;
@@ -692,6 +742,152 @@ export class DrawLine {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Other track's free end ahead (`freeEnds`), and no one piece from the line's end seats on it (`closeOnto`): take
+   * back up to `CLOSE_BACK` of the line's last plain pieces (not a ramp or bridge, laid where it had to be) and lay up
+   * to `CLOSE_LAY` plain pieces whose far end comes to that free end, each on the stroke. Within the joint's play it
+   * seats as it is; a little further off (`FLEX_REACH`, `FLEX_ANGLE`), the line's joints each give a little to meet
+   * it (`flexOnto`), as a wooden line does when pushed, the free end's track held where it is (a station, a depot).
+   * The cheapest fit first: fewest pieces taken back, the calmest pieces, nearest the free end and the stroke. True if
+   * it closed (the line is then closed); else the line is as it was.
+   */
+  private closeBack(): boolean {
+    const closes = this.options.closes;
+    const freeEnds = this.options.freeEnds;
+    if (!closes || !freeEnds || this.crossing) return false;
+    const n = this.pieces.length;
+    const progress = this.progress;
+    const all = this.pieces.slice();
+    /** The line with its last `back` pieces taken back. */
+    const keep = (back: number) => {
+      this.pieces.length = 0;
+      for (let i = 0; i < n - back; i++) this.pieces.push(all[i]);
+    };
+    type Fit = { back: number; lay: DrawCandidate[]; to: DrawEnd; exact: boolean; cost: number };
+    const fits: Fit[] = [];
+    const ends: DrawEnd[] = [];
+    for (let back = 0; back <= Math.min(CLOSE_BACK, n); back++) {
+      if (back > 0 && (!DRAW_TYPES.includes(all[n - back].type) || all[n - back].blocked)) break;
+      keep(back);
+      const end = this.end;
+      const from = back > 0 ? all[n - back].from : progress;
+      if (freeEnds(end, CLOSE_LAY * 216 + FLEX_REACH, ends) === 0) continue;
+      const types = this.allowed();
+      // How far a piece's far end is from meeting one of those free ends (the turn counted at `FLEX_TURN_MM` a radian),
+      // and that end, if the piece's end is within the flex of it and it's on the stroke drawn (the finger went to it).
+      const meets = (c: DrawCandidate, s0: number): { to: DrawEnd; err: number; exact: boolean; d: number } | null => {
+        let best: { to: DrawEnd; err: number; exact: boolean; d: number } | null = null;
+        for (const t of ends) {
+          if (Math.abs(t.y - c.end.y) > 2) continue;
+          const pos = Math.hypot(t.x - c.end.x, t.z - c.end.z);
+          const turn = Math.abs(normalizeAngle(t.heading - c.end.heading - Math.PI));
+          if (pos > FLEX_REACH || turn > FLEX_ANGLE) continue;
+          const err = pos + turn * FLEX_TURN_MM;
+          if (best && err >= best.err) continue;
+          const near = this.nearest(t.x, t.z, s0 - 10, s0 + c.length * 1.6 + 40 + FLEX_REACH);
+          if (near.d >= MEET_REACH || near.s > this.strokeLength + MEET_REACH) continue;
+          best = { to: t, err, exact: pos <= JOINT_POS_TOLERANCE && turn <= JOINT_ANGLE_TOLERANCE, d: near.d };
+        }
+        return best;
+      };
+      const push = (lay: DrawCandidate[], m: NonNullable<ReturnType<typeof meets>>, extra: number) => {
+        let cost = back + extra + m.err / FLEX_COST_MM + m.d / MEET_REACH + (m.exact ? 0 : FLEX_COST);
+        for (const c of lay) cost += pieceCost(c.type);
+        fits.push({ back, lay, to: m.to, exact: m.exact, cost });
+      };
+      // (The line as it is, bent to meet it.)
+      if (back === 0 && n > 0) {
+        const none = meets({ ...all[n - 1], length: 0 }, from);
+        if (none && !none.exact) push([], none, 0);
+      }
+      for (const a of candidatesFrom(end, types)) {
+        const one = meets(a, from);
+        // (One piece seated as it is, from where the line has got to: that's `closeOnto`'s.)
+        if (one && !(back === 0 && one.exact)) push([a], one, 0);
+        const mid = this.nearest(a.end.x, a.end.z, from - 10, from + a.length * 1.6 + 40);
+        if (mid.d > CLOSE_ON_REACH) continue;
+        for (const b of candidatesFrom(a.end, types)) {
+          const two = meets(b, mid.s);
+          if (two) push([a, b], two, mid.d / CLOSE_ON_REACH);
+        }
+      }
+    }
+    fits.sort((p, q) => p.cost - q.cost);
+    const check = this.options.check;
+    let flexed = 0;
+    // (A fit that didn't close isn't tried again while the line is as it is: on the next move, the next ones are.)
+    if (this.unclosed.of !== all[n - 1]) this.unclosed = { of: all[n - 1], keys: new Set() };
+    let tries = 0;
+    for (const fit of fits) {
+      if (tries >= CLOSE_TRIES) break;
+      if (!fit.exact && flexed >= FLEX_TRIES) continue;
+      const key = `${fit.back}:${fit.lay.map((c) => `${c.type}${c.flipped ? "~" : ""}${c.entry}`).join(",")}:${fit.to.x.toFixed(1)},${fit.to.z.toFixed(1)}`;
+      if (this.unclosed.keys.has(key)) continue;
+      tries++;
+      keep(fit.back);
+      this.progress = fit.back > 0 ? all[n - fit.back].from : progress;
+      let ok = true;
+      for (const c of fit.lay) {
+        if (!this.may(c.type) || check?.(c, this.pieces)) {
+          ok = false;
+          break;
+        }
+        const near = this.nearest(c.end.x, c.end.z, this.progress - 10, this.progress + c.length * 1.6 + 40);
+        this.lay(c, near.s, false, null);
+      }
+      if (ok && !fit.exact) {
+        flexed++;
+        ok = this.flexOnto(fit.to);
+      }
+      if (ok && closes(this.end)) {
+        this.stopped = "closed";
+        return true;
+      }
+      this.unclosed.keys.add(key);
+    }
+    // Nothing closed: the line as it was.
+    keep(0);
+    this.progress = progress;
+    return false;
+  }
+
+  /**
+   * Bend the line's joints, each a little within the joint's play, so its end meets `to` (a free end of other track,
+   * which stays where it is, as does the track the line starts from unless it began on open ground: see
+   * `DrawOptions.startHeld`), as `relaxJoints` takes up a near miss when track is put down. True if it does: the
+   * line's pieces are then where it put them. Else they're left as they were.
+   */
+  private flexOnto(to: DrawEnd): boolean {
+    const scratch = new Layout();
+    const ids = this.pieces.map((p) => scratch.addPiece(p.type, p.pose, p.y, p.flipped));
+    const last = this.pieces[this.pieces.length - 1];
+    if (!last) return false;
+    // The free end met, as the end of a piece that's held (seated on it, running on away from the line).
+    const into = candidatesFrom({ ...to, heading: to.heading + Math.PI }, ["straight-54"])[0];
+    const held = new Set([scratch.addPiece(into.type, into.pose, into.y, into.flipped)]);
+    const target = connectorRef([...held][0], into.entry);
+    if (this.options.startHeld !== false) {
+      const s = this.start;
+      const behind = candidatesFrom({ ...s, heading: s.heading + Math.PI, kind: s.kind === "peg" ? "socket" : "peg" }, ["straight-54"])[0];
+      if (behind) held.add(scratch.addPiece(behind.type, behind.pose, behind.y, behind.flipped));
+    }
+    // (The line's last few pieces give, as the editor's near-miss closing would bend them; bounded, as this can run on
+    // a pointer move.)
+    const moved = relaxJoints(scratch, [ids[ids.length - 1]], (id) => held.has(id), [[connectorRef(ids[ids.length - 1], last.exit), target]], { depth: FLEX_DEPTH, sweeps: FLEX_SWEEPS });
+    if (moved.size === 0) return false;
+    for (let i = 0; i < ids.length; i++) {
+      const pose = moved.get(ids[i]);
+      if (!pose) continue;
+      const p = this.pieces[i];
+      const def = getPieceDef(p.type, p.flipped);
+      const e = def.connectors[p.exit];
+      const w = transformPose(pose, e.pose, { x: 0, z: 0, heading: 0 });
+      const c: DrawCandidate = { type: p.type, flipped: p.flipped, pose, y: p.y, entry: p.entry, exit: p.exit, length: 0, end: { ...p.end, x: w.x, z: w.z, heading: w.heading } };
+      this.pieces[i] = { ...p, pose, end: c.end, track: trackOf(c) };
+    }
+    return true;
   }
 
   /** Has the line come back round to a little short of its start, running the way it set off? */

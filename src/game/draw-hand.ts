@@ -10,6 +10,7 @@ import { ghostMesh, pieceGeometry } from "../render/track-view";
 import {
   candidatesFrom,
   canStandOnArches,
+  connectorRef,
   createWorldConnector,
   DrawLine,
   findOverlap,
@@ -19,6 +20,7 @@ import {
   JOINT_POS_TOLERANCE,
   Layout,
   normalizeAngle,
+  pieceOfRef,
   solveParentPose,
   transformPose,
   type DrawCandidate,
@@ -49,6 +51,11 @@ const START_GRID = CELL / 4;
 const START_MOVE = 30;
 /** A crossing goes in once the finger is this far (mm) past its far end (until then it may yet stop on the line: a merge). */
 const CROSS_ON = 120;
+/** A drawn line's end left this near (mm, and radians) a free end it faces, unjoined, says why (see `DrawNotice.unjoined`). */
+const UNJOINED_REACH = 160;
+const UNJOINED_ANGLE = (20 * Math.PI) / 180;
+/** (Only if the finger was let go no more than this (mm) short of that end.) */
+const UNJOINED_SHORT = 40;
 /** Drawn pieces go down one after another, this far apart (seconds). */
 const RIPPLE = 0.045;
 /** At most this many of them click as they go down (a long line would be a drum roll). */
@@ -275,7 +282,7 @@ export class DrawHand {
       const sz = Math.round(this.origin.z / START_GRID) * START_GRID;
       const y0 = looseHeight(this.game.landscape, this.game.layout, "straight-54", false, { x: sx, z: sz, heading }, -1);
       this.origin = null;
-      this.start({ x: sx, z: sz, heading, y: y0, kind: "peg" });
+      this.start({ x: sx, z: sz, heading, y: y0, kind: "peg" }, false);
       // The finger's way before the line began goes into its stroke too: so where the line begins along it (a move
       // either side of `START_MOVE`, a hair's difference in the camera after an undo) doesn't change the line (QA:
       // terrace 2 drawn again laid a long straight and then stopped short of the second level).
@@ -351,10 +358,11 @@ export class DrawHand {
     const ghosts = this.ghosts.splice(0, merge ? merge.keep : pieces.length);
     // A train come onto the straights a switch would take the place of meanwhile: nothing goes down.
     const busy = plan.covers.some((id) => this.hooks.occupied(id));
+    let say: string | null = null;
     if (busy) this.hooks.toast(busyOn(g.layout.getPiece(plan.covers.find((id) => this.hooks.occupied(id))!)?.type ?? "straight-216"));
     else {
       // (Merged, it's closed onto that line: nothing past it to say.)
-      let say = this.notice.lifted(line, pieces.length, !!merge);
+      say = this.notice.lifted(line, pieces.length, !!merge);
       // Stopped by a line it met: why no junction went in there, if one was what it was after (QA sweep 4).
       const last = line.pieces[line.pieces.length - 1];
       if (say && !merge && last?.blocked === say) {
@@ -363,13 +371,23 @@ export class DrawHand {
       }
       // (A branch that laid nothing either way: why, rather than nothing.)
       if (!say && unlaid) say = TOO_SHARP;
-      if (say) this.hooks.toast(say);
     }
     this.clear();
     // A branch with no line after it (let go before a piece followed): nothing.
-    if (busy || plan.pieces.length === (branch?.pieces.length ?? 0)) return;
+    if (busy || plan.pieces.length === (branch?.pieces.length ?? 0)) {
+      if (say) this.hooks.toast(say);
+      return;
+    }
     const ids = plan.covers.length ? this.editor().replaceRun(plan.covers, plan.pieces) : this.editor().placeRun(plan.pieces);
     const closed = line.stopped === "closed" || !!merge;
+    // Down, and its end left facing a station's (or other track's) end it didn't join: why, rather than buffers facing
+    // each other and nothing said (QA: a line drawn into Fernhill's end stopped just short of it).
+    const lastAt = plan.line + Math.min(pieces.length, merge ? merge.keep : pieces.length) - 1;
+    if (!busy && !merge && lastAt >= plan.line && ids[lastAt] !== undefined) {
+      const left = this.unjoined(ids[lastAt], pieces[lastAt - plan.line].exit, line.tip);
+      if (left) say = this.notice.unjoined(left);
+    }
+    if (say) this.hooks.toast(say);
     plan.pieces.forEach((p, i) => {
       const id = ids[i];
       // The line's own ghosts settle into place; the swaps' pieces get a mesh of their own.
@@ -576,7 +594,8 @@ export class DrawHand {
     this.clear();
   }
 
-  private start(end: DrawEnd): void {
+  /** A new line from `end`: on track that stays put (`held`: a free end, a switch), or on open ground. */
+  private start(end: DrawEnd, held = true): void {
     this.toldShort = false;
     this.branchCovers = this.taken();
     for (const id of this.swapIds) this.own.removePiece(id);
@@ -590,6 +609,8 @@ export class DrawHand {
       closes: (e) => this.closes(e),
       // (Other track only: back round to its own start is `closeOnStart`'s.)
       nearTrack: (e, reach) => this.game.layout.queryFreeConnectors(e.x, e.z, reach, this.nearScratch) > 0,
+      freeEnds: (e, reach, out) => this.freeEnds(e, reach, out),
+      startHeld: held,
       groundAt: (x, z) => hills.groundAt(x, z),
       wet: (x, z) => inRiver(this.game.landscape.grid, x, z),
       onMap: (x, z) => this.game.landscape.grid.cellAtWorld(x, z) !== -1,
@@ -671,6 +692,33 @@ export class DrawHand {
     return { type: fit.type, flipped: fit.flipped, pose: fit.pose, y: e.y, entry: seated, exit, length: fit.length, end: { x: w.x, z: w.z, heading: w.heading, y: e.y, kind: def.connectors[exit].kind } };
   }
 
+  /**
+   * The drawn piece's end `exit` is free, facing a free end of other track a little way off that it didn't join
+   * (`UNJOINED_REACH`), the finger let go at it or past it (`tip`): what that end is on ("the station", "the depot",
+   * "the track"), or null.
+   */
+  private unjoined(id: number, exit: number, tip: { x: number; z: number }): string | null {
+    const layout = this.game.layout;
+    const ref = connectorRef(id, exit);
+    if (!layout.getPiece(id) || layout.joinedConnector(ref) !== -1) return null;
+    const e = layout.worldConnector(ref, createWorldConnector());
+    const near: number[] = [];
+    const w = createWorldConnector();
+    const n = layout.queryFreeConnectors(e.x, e.z, UNJOINED_REACH, near);
+    for (let i = 0; i < n; i++) {
+      if (pieceOfRef(near[i]) === id) continue;
+      layout.worldConnector(near[i], w);
+      if (Math.abs(w.y - e.y) > 2 || Math.hypot(w.x - e.x, w.z - e.z) > UNJOINED_REACH) continue;
+      // Facing it, ahead of it, and the finger drawn to it (not let go short of it).
+      if (Math.abs(normalizeAngle(w.heading - e.heading - Math.PI)) > UNJOINED_ANGLE) continue;
+      const ahead = (w.x - e.x) * Math.cos(e.heading) + (w.z - e.z) * Math.sin(e.heading);
+      if (ahead < -JOINT_POS_TOLERANCE || (tip.x - e.x) * Math.cos(e.heading) + (tip.z - e.z) * Math.sin(e.heading) < ahead - UNJOINED_SHORT) continue;
+      const type = layout.getPiece(pieceOfRef(near[i]))?.type ?? "";
+      return type === "station" ? "the station" : type.startsWith("depot-") ? "the depot" : "the track";
+    }
+    return null;
+  }
+
   /** (Kept for `nearTrack`'s look: nothing made on a pointer move.) */
   private readonly nearScratch: number[] = [];
 
@@ -690,6 +738,26 @@ export class DrawHand {
     }
     return false;
   }
+
+  /**
+   * The free ends of other track within `reach` (mm) of `e` that a line from it could close onto: at its height, and
+   * not facing the way it goes (a piece or two from it, turning at most a quarter, faces back at them). Into `out`.
+   */
+  private freeEnds(e: DrawEnd, reach: number, out: DrawEnd[]): number {
+    out.length = 0;
+    const layout = this.game.layout;
+    const w = this.freeScratch;
+    const n = layout.queryFreeConnectors(e.x, e.z, reach, this.nearScratch);
+    for (let i = 0; i < n; i++) {
+      layout.worldConnector(this.nearScratch[i], w);
+      if (Math.abs(w.y - e.y) > 2 || Math.hypot(w.x - e.x, w.z - e.z) > reach) continue;
+      if (Math.cos(w.heading - e.heading - Math.PI) < -0.2) continue;
+      out.push({ x: w.x, z: w.z, heading: w.heading, y: w.y, kind: w.kind });
+    }
+    return out.length;
+  }
+
+  private readonly freeScratch = createWorldConnector();
 
   /** A free end of track near screen point (x, y), as the end the line goes on from. */
   private freeEndAt(x: number, y: number): DrawEnd | null {
