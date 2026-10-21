@@ -229,3 +229,24 @@ occupancy from bogies (where trains' wheels are), not from predicted ways.
   at red for 584 s.
 - **The 30 s safety net:** only trains with room, in a section, in a mutual wait. It didn't fire in any scenario or
   play-through run.
+
+## As built: QA's B2 and B3
+
+- **Admission is kept.** A line remembers which trains it has room for. A train it let in keeps its room. It gives
+  room up only when a train comes to stand on a loop's road and the line has fewer loops left, and only once it has
+  no move under way.
+- **Who is let in first:** a train in a section (held there, it would block the single track), then one at a line
+  end, then one on a loop's road. A train is let in if, counting the loop it gives back, there's room.
+- **Who gives room up first:** one on the road of a loop that's already lost (that costs nothing more), then one at a
+  line end, then one on a free loop's road. Never one in a section.
+- **A held train on a loop's road costs that loop as a passing place.** The line still runs through by the other
+  road. Held trains count as held whether they're moving or not, so admission doesn't change as they stop.
+- **Trains not on the line** (a parked engine, another line's train) count as occupants wherever they stand: slots,
+  sections, and the loops they stand on. A moving one is waited for.
+- **"Lay N more":** N is the loops for a loop between each two of the line's trains (trains − 1 − loops), not
+  counting loops a train not on the line stands on. Held trains count as trains.
+- **The card of a train turning back early** says it can't reach its stop for its whole cycle, from the first time
+  it turns back short (in its slot, mid-section, or at the end of a dead-end move) until the line has room.
+- **The limit.** When every loop has a train held on it, and trains stand at both ends and between, no train can
+  reach the far end. The line doesn't lock up or have head-ons, and the cards say how many loops to lay. Nothing
+  better is possible without moving held trains elsewhere, which this model doesn't do.

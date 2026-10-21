@@ -166,6 +166,8 @@ interface TrainState {
   /** When it last looked for a train facing it, and whether it's holding for one. */
   facedAt: number;
   faceHold: boolean;
+  /** What lay past its last dead end (its stops there can't be reached while the line is full). */
+  lastDead: ReadonlySet<number> | null;
 }
 
 // --- Topology ---------------------------------------------------------------------------------------------------
@@ -372,6 +374,8 @@ interface LineInfo {
   blocked: ReadonlySet<number>;
   /** Trains the line has no room for (for cards: how many more loops). */
   more: number;
+  /** Every other train on the track (not this line's): where it stands, it's in the way. */
+  foreign: readonly Train[];
 }
 
 export class Sections {
@@ -380,9 +384,10 @@ export class Sections {
   private readonly states = new Map<number, TrainState>();
   private lineTick = -1;
   private readonly lineInfo = new Map<number, LineInfo>();
+  /** The trains each line has room for (kept: see `line`). */
+  private readonly admitted = new Map<number, Set<number>>();
   /** When each engine was first seen on its line (for the room rule: the first ones are let run). */
   private readonly firstSeen = new Map<number, number>();
-  private seenCount = 0;
   /** Loops on each line's way, by its stops and the track's revisions. */
   private readonly loopCount = new Map<number, { key: string; n: number }>();
   /** Engines just granted a move: steer them now. */
@@ -442,7 +447,7 @@ export class Sections {
     if (net === 0 || train.turnback >= 0) return Infinity;
     let st = this.states.get(engine);
     if (!st) {
-      st = { engine, trainId: train.id, frontKey: -1, tailPiece: -1, slot: -1, beyond: Infinity, exitPiece: -1, exitEntry: -1, move: null, wait: null, askedAt: -Infinity, waitSince: -1, outBy: -1, topo: info.topo, ahead: new Set(), facedAt: -Infinity, faceHold: false };
+      st = { engine, trainId: train.id, frontKey: -1, tailPiece: -1, slot: -1, beyond: Infinity, exitPiece: -1, exitEntry: -1, move: null, wait: null, askedAt: -Infinity, waitSince: -1, outBy: -1, topo: info.topo, ahead: new Set(), facedAt: -Infinity, faceHold: false, lastDead: null };
       this.states.set(engine, st);
     }
     const topo = info.topo;
@@ -845,12 +850,19 @@ export class Sections {
       if (info.admitted.has(u) || t.speed >= 1) return null;
       for (const b of t.bogies) out.add(b.pieceId);
     }
+    // (A train not on the line standing there is the end of the line too; one running there, it waits for.)
+    for (const t of info.foreign) {
+      if (!t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section)) continue;
+      if (t.speed >= 1) return null;
+      for (const b of t.bogies) out.add(b.pieceId);
+    }
     return out.size > 0 ? out : null;
   }
 
   private roomWait(st: TrainState, info: LineInfo): BlockWait {
     const loops = Math.max(0, info.loops - info.blocked.size);
     return { kind: "room", lineId: this.host.lineOf(st.engine), trains: info.engines.length, loops, more: Math.max(1, info.more) };
+    // (`more`: see `line`.)
   }
 
   /** Does a train the line has no room for stand on this loop road? */
@@ -861,6 +873,7 @@ export class Sections {
       const t = this.sim.findCar(u)?.train;
       if (t && t.speed < 1 && t.bogies.some((b) => pieces.has(b.pieceId))) return true;
     }
+    for (const t of info.foreign) if (t.speed < 1 && t.bogies.some((b) => pieces.has(b.pieceId))) return true;
     return false;
   }
 
@@ -874,6 +887,8 @@ export class Sections {
       const t = this.sim.findCar(u)?.train;
       if (t && t.bogies.some((b) => pieces.has(b.pieceId))) return u;
     }
+    // (Any other train standing or running there, on the line or not: its first car stands for it.)
+    for (const t of info.foreign) if (t.bogies.some((b) => pieces.has(b.pieceId))) return t.cars[0].id;
     return -1;
   }
 
@@ -893,6 +908,7 @@ export class Sections {
       const t = this.sim.findCar(u)?.train;
       if (t && t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section)) return u;
     }
+    for (const t of info.foreign) if (t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section)) return t.cars[0].id;
     return -1;
   }
 
@@ -931,6 +947,7 @@ export class Sections {
     if (way?.dest === DEAD_END && way.steps.length === 0) {
       const train = this.sim.findCar(st.engine)?.train;
       this.host.skipStops(st.engine, way.deadEnd!);
+      st.lastDead = way.deadEnd!;
       if (train && train.speed < 1 && this.sim.turnBack(train.id)) this.turnedShort++;
       this.hold(st, { kind: "slot", engine: way.blockedBy });
       return false;
@@ -962,6 +979,7 @@ export class Sections {
     if (!way) return true;
     if (way.dest === DEAD_END && way.steps.filter((x) => !mine.has(x.pieceId)).length === 0) {
       this.host.skipStops(st.engine, way.deadEnd!);
+      st.lastDead = way.deadEnd!;
       if (train.speed < 1 && this.sim.turnBack(train.id)) this.turnedShort++;
       this.hold(st, { kind: "slot", engine: way.blockedBy });
       return false;
@@ -977,6 +995,8 @@ export class Sections {
       const m = this.states.get(u)?.move;
       if (m && !m.free && m.sections.some((x) => way.sections.includes(x)) && m.steps.some((s) => mine.has(s.pieceId) && way.steps.some((w) => w.pieceId === s.pieceId && w.entry !== s.entry))) return this.recoverWait(st, u, info);
     }
+    // (A train not on the line running on its way ahead: wait for it, as for one of the line's.)
+    for (const t of info.foreign) if (t.speed >= 1 && t.bogies.some((b) => ahead.has(b.pieceId) && !mine.has(b.pieceId))) return this.recoverWait(st, t.cars[0].id, info);
     if (way.dest === -1) return this.recoverWait(st, way.blockedBy, info);
     this.grant(st, way);
     return true;
@@ -1017,6 +1037,7 @@ export class Sections {
         aim = p;
         break;
       }
+    if (way.deadEnd) st.lastDead = way.deadEnd;
     st.move = { sections: way.sections, through: way.through, dest: way.dest, outBy: way.outBy, steps: way.steps, follow: (pieceId, path) => keys.has(pieceId * 8 + path), aim, free: false, since: this.sim.ticks, deadEnd: way.deadEnd };
     st.wait = null;
     st.waitSince = -1;
@@ -1061,8 +1082,18 @@ export class Sections {
 
   /** Is the stop it's heading for beyond a train its line has no room for (it will turn back short of it)? */
   unreachable(engine: number): boolean {
-    const m = this.states.get(engine)?.move;
-    return !!m && m.dest === DEAD_END && !!m.deadEnd && m.deadEnd.has(this.host.target(engine));
+    const st = this.states.get(engine);
+    if (!st) return false;
+    const target = this.host.target(engine);
+    const m = st.move;
+    if (m && m.dest === DEAD_END && !!m.deadEnd && m.deadEnd.has(target)) return true;
+    // (Past a dead end it has turned back short of before, while its line is still full: all the way round its cycle.)
+    if (!st.lastDead) return false;
+    if (!this.fullness(engine)) {
+      st.lastDead = null;
+      return false;
+    }
+    return st.lastDead.has(target);
   }
 
   /** Why a train is held (null: it isn't). */
@@ -1088,39 +1119,115 @@ export class Sections {
     const engines = this.host.live(lineId);
     let longest = 0;
     for (const e of engines) {
-      if (!this.firstSeen.has(e)) this.firstSeen.set(e, this.seenCount++);
+      // (Car ids grow as trains are put down: the order they came to the track.)
+      if (!this.firstSeen.has(e)) this.firstSeen.set(e, e);
       const t = this.sim.findCar(e)?.train;
       if (t) longest = Math.max(longest, trainLength(t));
     }
     const topo = topologyOf(this.layout, longest);
     const loops = engines.length >= 2 ? this.loopsOn(lineId, topo) : -1;
     const managed = engines.length >= 2 && loops >= 0;
-    let admitted: ReadonlySet<number> = EMPTY;
+    let admitted: Set<number> = new Set();
     let blocked: ReadonlySet<number> = EMPTY;
+    let foreign: Train[] = [];
+    let more = 0;
     if (managed) {
+      // Every other train on the track (another line's, or one standing on its own) is in the way where it stands.
+      const mine = new Set(engines.map((e) => this.sim.findCar(e)?.train.id ?? -1));
+      for (const id of this.sim.trainIds()) {
+        const t = this.sim.getTrain(id);
+        if (t && !t.derailed && !mine.has(id)) foreign.push(t);
+      }
+      // Which trains it has room for: kept once given (a train is never left without room mid-way), more let in as
+      // room allows, in the order they came to the line. Room: a train more than its passing loops, less the loops a
+      // standing train it has no room for (or one not on the line) takes a road of.
+      admitted = this.admitted.get(lineId) ?? new Set();
+      this.admitted.set(lineId, admitted);
+      for (const e of [...admitted]) if (!engines.includes(e)) admitted.delete(e);
       const order = [...engines].sort((a, b) => this.firstSeen.get(a)! - this.firstSeen.get(b)!);
-      admitted = new Set(order.slice(0, loops + 1));
-      // A train with no room standing on a loop's road makes that loop no passing place: one train fewer has room.
-      for (let k = 0; k < 3; k++) {
+      const roadsHeld = () => {
         const b = new Set<number>();
-        for (const e of engines) {
-          if (admitted.has(e)) continue;
-          const t = this.sim.findCar(e)?.train;
-          if (!t || t.speed >= 1) continue;
+        // (One of its own it has no room for counts moving or not: it's held, and stops where it is.)
+        const mark = (t: Train, moving = false) => {
+          if (!moving && t.speed >= 1) return;
           for (const x of t.bogies) {
             const sl = topo.slotOf.get(x.pieceId);
             if (sl !== undefined && topo.slots[sl].kind === "road") b.add(topo.slots[sl].loop);
           }
+        };
+        for (const e of engines) {
+          if (admitted.has(e)) continue;
+          const t = this.sim.findCar(e)?.train;
+          if (t) mark(t, true);
         }
-        blocked = b;
-        const next = new Set(order.slice(0, Math.max(1, loops - b.size + 1)));
-        if (next.size === admitted.size) break;
-        admitted = next;
+        // (Loops a train not on the line stands on: lost to the line however many it lays.)
+        const lineHeld = new Set(b);
+        for (const t of foreign) mark(t);
+        let gone = 0;
+        for (const x of b) if (!lineHeld.has(x)) gone++;
+        return { b, gone };
+      };
+      let held = roadsHeld();
+      const room = () => Math.max(1, loops - held.b.size + 1);
+      // (Let in first those whose holding would block most: one in a section holds the single track; one at a line end
+      // holds its stop; one standing on a loop's road costs only that loop, and is let in last.)
+      const where = (e: number): number => {
+        const t = this.sim.findCar(e)?.train;
+        if (!t) return 9;
+        let road = false;
+        let end = false;
+        let sec = false;
+        for (const x of t.bogies) {
+          const sl = topo.slotOf.get(x.pieceId);
+          if (sl === undefined) sec = true;
+          else if (topo.slots[sl].kind === "road") road = true;
+          else end = true;
+        }
+        return sec ? 0 : end ? 1 : road ? 2 : 3;
+      };
+      const asked = order.filter((e) => !admitted.has(e)).sort((a, b) => where(a) - where(b) || this.firstSeen.get(a)! - this.firstSeen.get(b)!);
+      for (const e of asked) {
+        // (Counting the room it frees itself: one standing alone on a loop's road gives that loop back once let in.)
+        admitted.add(e);
+        held = roadsHeld();
+        if (admitted.size > room()) {
+          admitted.delete(e);
+          held = roadsHeld();
+        }
       }
+      // Too many for the room left (a train came to stand on a loop's road): one gives up its room, never mid-way (only
+      // one standing with no move). First one whose holding costs nothing more (on a loop's road already lost), then one
+      // at a line end, then one on a loop's road (that loop is lost too), never one in a section (it'd block the line).
+      while (admitted.size > room()) {
+        const cost = (e: number): number => {
+          const st = this.states.get(e);
+          if (st?.move && !st.move.free) return 9;
+          const w = where(e);
+          if (w !== 2) return w === 1 ? 1 : 9;
+          const t = this.sim.findCar(e)?.train;
+          if (!t || t.speed >= 1) return 9;
+          const free = t.bogies.some((x) => {
+            const sl = topo.slotOf.get(x.pieceId);
+            return sl !== undefined && topo.slots[sl].kind === "road" && !held.b.has(topo.slots[sl].loop);
+          });
+          return free ? 2 : 0;
+        };
+        const pick = [...admitted]
+          .map((e) => ({ e, c: cost(e) }))
+          .filter((x) => x.c < 9)
+          .sort((a, b) => a.c - b.c || this.firstSeen.get(b.e)! - this.firstSeen.get(a.e)!)[0];
+        if (!pick) break;
+        admitted.delete(pick.e);
+        held = roadsHeld();
+      }
+      blocked = held.b;
+      // (Loops to lay: enough for a loop between each two of its trains, past those a train not on the line stands on.
+      // Its own held trains count as trains: once there's room they're let in and give their loop back.)
+      if (engines.length > admitted.size) more = Math.max(1, engines.length - 1 - (loops - held.gone));
       // Trains gone from the line give up what they held.
       for (const [e, st] of this.states) if (this.host.lineOf(e) === lineId && !engines.includes(e)) this.states.delete(st.engine);
     }
-    info = { engines, topo, loops, admitted, managed, blocked, more: Math.max(0, engines.length - admitted.size) };
+    info = { engines, topo, loops, admitted, managed, blocked, more, foreign };
     this.lineInfo.set(lineId, info);
     return info;
   }
