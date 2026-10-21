@@ -2782,7 +2782,7 @@ export class Interaction {
       if (!p) continue;
       let o = this.eraseOutlines[k];
       if (!o) {
-        o = this.eraseOutlines[k] = new FootprintOutline();
+        o = this.eraseOutlines[k] = new FootprintOutline(true);
         g.scene.add(o.line);
       }
       o.show(scaleFootprint(g.propLibrary.footprint(p.asset), p.scale) ?? null, p.x, p.y, p.z, p.heading, "#ff4a3a");
@@ -2808,7 +2808,7 @@ export class Interaction {
     const pieces = ids.map((id) => g.layout.getPiece(id)!);
     this.editor().group(() => {
       if (ids.length > 0) this.editor().removeGroup(ids);
-      for (const id of props) this.removeProp(id);
+      this.removeProps(props);
     });
     // Stand-ins lift and shrink away where the pieces were (a few, for a big sweep).
     for (const p of pieces.slice(0, 24)) {
@@ -4267,6 +4267,52 @@ export class Interaction {
       undo: () => {
         putBack();
         g.props.add(p.asset, pose, id, links);
+      },
+      slots: () => slots,
+    });
+  }
+
+  /**
+   * Take several props away (a clearing sweep's): the ordinary ones as one props edit, the town buildings as one land
+   * edit with one redraw of the squares they leave (a redraw each, two buildings took nearly 2 s on lift).
+   */
+  private removeProps(ids: readonly number[]): void {
+    const g = this.game;
+    const all = ids.map((id) => g.props.get(id)).filter((p): p is NonNullable<typeof p> => p !== undefined);
+    const keep = (p: (typeof all)[number]) => ({ pose: { x: p.x, z: p.z, heading: p.heading, y: p.y }, links: { building: p.building, town: p.town, variant: p.variant, scale: p.scale } });
+    const plain = all.filter((p) => p.building === undefined).map((p) => ({ p, ...keep(p) }));
+    if (plain.length > 0) {
+      this.editor().editProps({
+        do: () => {
+          for (const { p } of plain) g.props.remove(p.id);
+        },
+        undo: () => {
+          for (const { p, pose, links } of plain) g.props.add(p.asset, pose, p.id, links);
+        },
+      });
+      g.propsChanged();
+    }
+    const houses = all.filter((p) => p.building !== undefined).map((p) => ({ p, ...keep(p), putBack: () => {} }));
+    if (houses.length === 0) return;
+    const land = g.landscape;
+    const slots = [...new Set(houses.flatMap(({ p }) => townSlots(land, p.building!)))];
+    const doIt = () => {
+      for (const h of houses) {
+        h.putBack = releaseBuilding(land, h.p.building!);
+        g.props.remove(h.p.id);
+      }
+    };
+    doIt();
+    g.editLand(slots);
+    g.propsChanged();
+    this.editor().recordLand({
+      do: doIt,
+      undo: () => {
+        for (let i = houses.length - 1; i >= 0; i--) {
+          const h = houses[i];
+          h.putBack();
+          g.props.add(h.p.asset, h.pose, h.p.id, h.links);
+        }
       },
       slots: () => slots,
     });
