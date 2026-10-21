@@ -99,6 +99,8 @@ export class PropLibrary {
     // (Parts the kit leaves out of its model: `KitDef.without`.)
     const left = kit.without ? new Set(kit.without) : undefined;
     const whole = { name, ...bake(built, this.mats, { slabs: false, without: left }) };
+    // A harbour's: also without its own water, for one that stands with that on the river or the sea (`KitDef.wetFrom`).
+    if (kit.wetFrom !== undefined) this.models.set(kitModelKey(type, false, true), { name, ...bake(built, this.mats, { slabs: false, without: left, dry: true }) });
     if (!motion) return whole;
     const names = new Set(motion.parts);
     const movers = bakeMovers(built, names, this.mats);
@@ -136,13 +138,16 @@ const KIT_KEY = "kit:";
  * A kit piece's model's key: its asset baked without its slabs of track, in the piece's own frame (so it's drawn at
  * the piece's pose).
  */
-export const kitModelKey = (type: PieceTypeId, bare = false): string => `${KIT_KEY}${type}${bare ? BARE : ""}`;
+export const kitModelKey = (type: PieceTypeId, bare = false, onWater = false): string => `${KIT_KEY}${type}${bare ? BARE : ""}${onWater ? ON_WATER : ""}`;
 
 /** The key's suffix for a moving kit's model bare of its moving parts (drawn under them while they're live). */
 const BARE = "~bare";
 
+/** The key's suffix for a harbour kit's model without its own water (standing with that on real water). */
+const ON_WATER = "~onwater";
+
 /** The kit type a kit model's key is for. */
-const kitTypeOfKey = (key: string): PieceTypeId => key.slice(KIT_KEY.length).replace(BARE, "") as PieceTypeId;
+const kitTypeOfKey = (key: string): PieceTypeId => key.slice(KIT_KEY.length).replace(BARE, "").replace(ON_WATER, "") as PieceTypeId;
 
 /** A model's nodes by name (found once). */
 export function partsOf(root: Object3D): MotionParts {
@@ -240,7 +245,7 @@ function within(o: Object3D, names: ReadonlySet<string>): boolean {
  * Merge a built model's meshes by material (transforms applied), and measure it. `slabs: false` leaves out its slabs
  * of track (see `isSlab`); `without`, the parts with those names (a kit's moving parts, drawn live instead).
  */
-export function bake(root: Object3D, mats: Materials, opts: { slabs?: boolean; without?: ReadonlySet<string> } = {}): Omit<PropModel, "name"> {
+export function bake(root: Object3D, mats: Materials, opts: { slabs?: boolean; without?: ReadonlySet<string>; dry?: boolean } = {}): Omit<PropModel, "name"> {
   root.updateMatrixWorld(true);
   const b = new Batcher(mats.paint);
   const slabs = opts.slabs ?? true;
@@ -249,6 +254,8 @@ export function bake(root: Object3D, mats: Materials, opts: { slabs?: boolean; w
     const mesh = o as Mesh;
     if (!mesh.isMesh || !mesh.visible || isUnderlay(mesh) || (!slabs && isSlab(mesh)) || (without && within(mesh, without))) return;
     const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+    // (`dry`: its own water left out, the real water under it showing instead.)
+    if (opts.dry && material === mats.riverFelt) return;
     b.add(material, mesh.geometry.clone().applyMatrix4(mesh.matrixWorld));
   });
   const parts = [...b.merged()].map(([material, geometry]) => {

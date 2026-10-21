@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { carNearTap, deckTapWins, fingertipWinner, LEVER_ON_TRACK_PX, LEVER_SLACK_PX, liftTap, liftTapAlong, nearestOnScreen, nearLeverWins } from "./touch-pick";
+import { carNearTap, deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_ON_TRACK_PX, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearestOnScreen, nearLeverWins, PIN_SLACK_PX, pressPins, slackTapThrows } from "./touch-pick";
+import { PIN_HOLD_MS } from "./touch-hold";
 
 // Two short cars end to end along y = 100 (a train 10–20 px a car, as at the default zoom on a phone).
 const cars = [
@@ -153,5 +154,50 @@ describe("a fingertip's slack for switch levers and semaphores (QA N2)", () => {
     expect(fingertipWinner(null, { id: 7, d: 21 })).toBe("lever");
     expect(fingertipWinner(null, { id: -1, d: Infinity })).toBe("exact");
     expect(fingertipWinner({ id: -1, d: Infinity }, null)).toBe("exact");
+  });
+});
+
+describe("lever slack: double taps, pins and what can't be seen (QA on switch clarity 2)", () => {
+  it("a double tap's second tap on the grass by a lever isn't the lever's (it zooms); a first tap, or a slow second, is", () => {
+    expect(leverSlackOnPress(null, { t: 1000, x: 100, y: 100 })).toBe(true);
+    expect(leverSlackOnPress({ t: 1000, x: 100, y: 100 }, { t: 1200, x: 104, y: 98 })).toBe(false);
+    expect(leverSlackOnPress({ t: 1000, x: 100, y: 100 }, { t: 1600, x: 100, y: 100 })).toBe(true);
+    expect(leverSlackOnPress({ t: 1000, x: 100, y: 100 }, { t: 1150, x: 160, y: 100 })).toBe(true);
+  });
+
+  it("a long press pins only if it came down on the lever or right by it, not a fingertip away", () => {
+    expect(pressPins(undefined)).toBe(true);
+    expect(pressPins(0)).toBe(true);
+    expect(pressPins(PIN_SLACK_PX)).toBe(true);
+    expect(pressPins(PIN_SLACK_PX + 0.5)).toBe(false);
+    expect(pressPins(14)).toBe(false);
+    expect(PIN_SLACK_PX).toBeLessThanOrEqual(8);
+    expect(PIN_SLACK_PX).toBeGreaterThanOrEqual(6);
+  });
+
+  it("a press a fingertip from a lever throws it only if it's a quick tap; resting longer, nothing (nor a pin)", () => {
+    expect(slackTapThrows(60)).toBe(true);
+    expect(slackTapThrows(PIN_HOLD_MS - 1)).toBe(true);
+    expect(slackTapThrows(PIN_HOLD_MS)).toBe(false);
+    expect(slackTapThrows(700)).toBe(false);
+    expect(pressPins(14)).toBe(false);
+  });
+
+  it("a lever behind the camera isn't on screen to tap", () => {
+    expect(inFrontOfCamera(0.98, 0.99)).toBe(true);
+    expect(inFrontOfCamera(1.02, 0.99)).toBe(false);
+    expect(inFrontOfCamera(0.5, 1.4)).toBe(false);
+  });
+
+  it("a lever behind a hill is hidden; one in the open, or on the hill, isn't", () => {
+    // A hill 96 mm high from x 200 to 400; the camera off at x 1000, 400 high.
+    const ground = (x: number) => (x >= 200 && x <= 400 ? 96 : 0);
+    const eye = { x: 1000, y: 400, z: 0 };
+    expect(hiddenByHills(eye, { x: 100, y: 18, z: 0 }, ground, 144, 18)).toBe(true);
+    expect(hiddenByHills(eye, { x: 600, y: 18, z: 0 }, ground, 144, 18)).toBe(false);
+    // On the hill's top: the ground it stands on doesn't hide it.
+    expect(hiddenByHills(eye, { x: 300, y: 96 + 18, z: 0 }, ground, 144, 18)).toBe(false);
+    // Seen from high above, over the hill.
+    expect(hiddenByHills({ x: 120, y: 3000, z: 0 }, { x: 100, y: 18, z: 0 }, ground, 144, 18)).toBe(false);
   });
 });

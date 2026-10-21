@@ -6,6 +6,7 @@ import { Progress } from "./progress";
 import { isFree, ruleOf, thingsFor } from "./things";
 import { drawMessage, drawRefusal, trackMessage, trackPlacement, type TrackRules } from "./track-rules";
 import { createWorld, type World } from "./world";
+import { branchFrom, facingFrom, mergeAt, mergePast, type JunctionRules } from "./draw-junctions";
 
 /**
  * QA's regression sweep, item 1: false (and missing) refusals while drawing, on the real starter map (seed 7) with
@@ -228,5 +229,59 @@ describe("QA junction notes N5: a loose end just short of a station, an arc into
         expect(line.pieces[0].type.startsWith("curve"), why).toBe(true);
         expect(lift, why).toBeNull();
       }
+  });
+});
+
+describe("QA: a passing loop drawn off the middle of the Larkfield–Elderwick straight", () => {
+  it("branches off through a switch, runs beside the line, and merges back in through another (both sides, along the straight)", () => {
+    const w = createWorld(7, true);
+    // The line between the two stations, as QA had laid it: four long straights.
+    const ids: number[] = [];
+    for (let i = 0; i < 4; i++) ids.push(w.layout.addPiece("straight-216", { x: -432 + i * 216, z: 108, heading: 0 }, 0));
+    const land = w.landscape;
+    const rules: TrackRules = { land, layout: w.layout, props: w.props, footprint: () => undefined };
+    const junctions: JunctionRules = {
+      layout: w.layout,
+      check: (type, flipped, pose, y, ignore) => {
+        const p = trackPlacement(rules, type, flipped, pose, y, ignore);
+        const why = p.reason ?? (p.risers.length ? "unsupported" : null);
+        return why ? trackMessage(why as BlockReason) : null;
+      },
+      occupied: () => false,
+      may: () => null,
+    };
+    // QA's shape (about a pixel a millimetre at their camera): out 60 mm along and 92 across, 140 along beside the
+    // line, and back in over 60 more.
+    for (const [x0, side] of [[-188, 1], [-188, -1], [-120, -1], [-260, -1]] as const) {
+      const pts: { x: number; z: number }[] = [];
+      const seg = (ax: number, az: number, bx: number, bz: number) => {
+        const n = Math.ceil(Math.hypot(bx - ax, bz - az) / 4);
+        for (let k = 1; k <= n; k++) pts.push({ x: ax + ((bx - ax) * k) / n, z: az + ((bz - az) * k) / n });
+      };
+      seg(x0, 108, x0 + 60, 108 + side * 92);
+      seg(x0 + 60, 108 + side * 92, x0 + 200, 108 + side * 92);
+      seg(x0 + 200, 108 + side * 92, x0 + 260, 108);
+      const press = { x: x0, z: 108 };
+      const onto = ids[Math.floor((x0 + 432) / 216)];
+      const way = facingFrom(press, pts) ?? undefined;
+      let i = 0;
+      let b = branchFrom(junctions, onto, press, pts[0], way);
+      for (; b.kind === "wait" && i < pts.length - 1; ) b = branchFrom(junctions, onto, press, pts[++i], way);
+      const what = `from ${x0}, side ${side}`;
+      expect(b.kind, what).toBe("branch");
+      if (b.kind !== "branch") continue;
+      const taken = new Set(b.swap.covers);
+      const opts = drawOptions(w, null);
+      opts.check = (c) => {
+        const p = trackPlacement(rules, c.type, c.flipped, c.pose, c.y, taken);
+        const why = drawRefusal(land, c.type, c.flipped, c.pose, c.y, p.reason, p.risers);
+        return why ? { reason: why.reason, message: drawMessage(why.reason, why.levels, (r) => trackMessage(r as BlockReason, why.levels)), levels: why.levels } : null;
+      };
+      const line = new DrawLine(b.swap.end, opts);
+      for (const p of pts.slice(i + 1)) line.addPoint(p.x, p.z);
+      line.finish();
+      const m = mergeAt(junctions, line.start, line.placeable(), line.tip, taken, 1) ?? mergePast(junctions, line.start, line.pieces, line.tip, taken, 1);
+      expect(m?.kind, `${what}: ${line.pieces.map((p) => p.type + (p.blocked ? `[${p.blocked}]` : "")).join(" ")}`).toBe("merge");
+    }
   });
 });

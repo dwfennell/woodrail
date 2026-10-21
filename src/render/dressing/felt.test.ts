@@ -1,6 +1,6 @@
 import { MeshBasicMaterial, type Mesh } from "three";
 import { describe, expect, it } from "vitest";
-import { CELL, gridWithPlots, SURF_RIVER, type LandscapeGrid } from "../../landscape";
+import { CELL, generateLandscape, gridWithPlots, SURF_RIVER, SURF_ROAD, SURF_SAND, SURF_SEA, type LandscapeGrid } from "../../landscape";
 import { buildFeltTiles, clipLoop, type FeltTiles } from "./felt";
 
 /** A river wandering diagonally across the tile edge at x = 0. */
@@ -46,6 +46,24 @@ describe("felt in tiles", () => {
     const changed = [...cache].filter(([k, t]) => before.get(k) !== t.geometry).map(([k]) => k);
     expect(changed).toHaveLength(1);
     expect(CELL).toBe(72);
+  });
+
+  it("has no zero-length normals (they light as NaN: dark or bright specks far out)", () => {
+    let zero = 0;
+    let verts = 0;
+    for (const seed of [1, 7, 42, 600189]) {
+      const grid = generateLandscape(seed, { coast: true }).grid;
+      for (const surfaces of [[[SURF_RIVER, SURF_SEA]], [[SURF_SAND, SURF_SEA, SURF_RIVER]], [SURF_ROAD]] as const) {
+        const group = buildFeltTiles([grid], surfaces, new MeshBasicMaterial(), () => 1.6, new Map());
+        for (const m of group.children as Mesh[]) {
+          const n = m.geometry.getAttribute("normal");
+          verts += n.count;
+          for (let i = 0; i < n.count; i++) if (Math.hypot(n.getX(i), n.getY(i), n.getZ(i)) < 1e-6) zero++;
+        }
+      }
+    }
+    expect(verts).toBeGreaterThan(0);
+    expect(zero).toBe(0);
   });
 
   it("clips an outline to a rectangle", () => {

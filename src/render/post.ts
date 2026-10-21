@@ -45,6 +45,7 @@ const LensShader = {
 export interface Post {
   composer: EffectComposer;
   setSize(w: number, h: number): void;
+  /** Set for the camera's distance from what it looks at: the depth of field's focus, and ambient occlusion's strength. */
   setFocus(distance: number): void;
   render(time: number): void;
 }
@@ -58,6 +59,20 @@ const SHARP_RANGE = 1500;
  */
 export function apertureFor(distance: number): number {
   return APERTURE * Math.min(1, SHARP_RANGE / distance);
+}
+
+/** Ambient occlusion fades out between these camera distances (mm), and is off beyond. */
+export const AO_FADE_START = 2000;
+export const AO_FADE_END = 3500;
+
+/**
+ * Ambient occlusion's strength at a camera distance. Its radius is a few mm: from far out that is under a pixel, and
+ * all it adds is noise from the depth buffer's steps (stripes on flat felt, scribbles on hazed scenery), so it fades
+ * out as the camera pulls back, and the pass is skipped once it's gone.
+ */
+export function aoFor(distance: number): number {
+  const t = Math.min(1, Math.max(0, (distance - AO_FADE_START) / (AO_FADE_END - AO_FADE_START)));
+  return 1 - t * t * (3 - 2 * t);
 }
 
 /**
@@ -106,8 +121,9 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
   const depth = scenePass.target.depthTexture!;
   composer.addPass(scenePass);
 
+  let gtao: GTAOPass | null = null;
   if (quality.ambientOcclusion) {
-    const gtao = new GTAOPass(scene, camera, 1, 1);
+    gtao = new GTAOPass(scene, camera, 1, 1);
     // Normals come from the shared depth, not a second draw of the scene.
     gtao.setGBuffer(depth);
     // Ambient occlusion is soft and denoised: half resolution looks the same at a quarter of the cost. The composer
@@ -142,6 +158,10 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
       if (bokeh) bokeh.uniforms.aspect.value = w / h;
     },
     setFocus(distance) {
+      if (gtao) {
+        gtao.blendIntensity = aoFor(distance);
+        gtao.enabled = gtao.blendIntensity > 0;
+      }
       if (!bokeh) return;
       bokeh.uniforms.focus.value = distance;
       bokeh.uniforms.aperture.value = apertureFor(distance);
