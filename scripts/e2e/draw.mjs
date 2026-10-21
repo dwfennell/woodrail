@@ -1242,8 +1242,12 @@ async function loopOffStraight() {
   });
   // The line between Larkfield's station and Elderwick's (as QA had laid it: four long straights, end to end), and
   // switches learned (the passing-loop goal's).
-  const laid = await q.evaluate(() => {
+  const laid = await q.evaluate(async () => {
     const w = window.woodrail;
+    // (And pieces enough in the box for a loop: two switches, and track to run beside the line.)
+    const { thingsFor } = await import("/src/game/things.ts");
+    for (const type of ["switch", "straight-216", "straight-144", "straight-108", "straight-54", "curve-large", "curve-small", "curve-wide"])
+      for (const [id, k] of thingsFor({ kind: "piece", type })) w.progress().add(id, 10 * k);
     const at = (name) => {
       const town = w.landscape.towns.find((t) => t.name === name);
       const id = town && w.stations.get(town.id);
@@ -1306,10 +1310,10 @@ async function loopOffStraight() {
     const l = Math.hypot(ux, uy);
     ux /= l;
     uy /= l;
-    // Across it, toward the bottom of the screen (where the tray isn't: the loop stays above it).
+    // Across it, toward the top of the screen (away from Larkfield's houses below the line, and the tray).
     let nx = -uy;
     let ny = ux;
-    if (ny < 0) {
+    if (ny > 0) {
       nx = -nx;
       ny = -ny;
     }
@@ -1338,11 +1342,18 @@ async function loopOffStraight() {
   await q.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
   await shot(q, `${OUT}/draw-10-loop-before.png`);
   const cdp = await ctx.newCDPSession(q);
-  const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
-  // QA's shape (screen px along the straight, and across it): out 60 along and 92 across, 140 along beside it, and back
-  // in over the last 60, starting on the straight 80 px before its middle.
+  // Each move stamped 16 ms after the last, as a finger's are on a phone (the game decides a hold by the events' own
+  // times): without, every move here is stamped when the script gets round to it, under software GL a long while
+  // later, and the press reads as a finger resting long enough to pick the straight up (as QA's harness saw it).
+  const t0 = Date.now() / 1000;
+  let ti = 0;
+  const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t0 + 0.016 * ti++, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
+  // QA's shape (along the straight, and across it): out 60 along and 92 across, 140 along beside it, and back in over
+  // the last 60, starting on the straight 80 before its middle.
   const [cx, cy] = view.c;
-  const pt = (a, b) => [cx + view.u[0] * a + view.n[0] * b, cy + view.u[1] * a + view.n[1] * b];
+  // (QA's numbers are screen px at about a pixel a millimetre: taken here as millimetres, on the screen at this view's scale.)
+  const k = view.pxPerMm;
+  const pt = (a, b) => [cx + (view.u[0] * a + view.n[0] * b) * k, cy + (view.u[1] * a + view.n[1] * b) * k];
   const corners = [pt(-80, 0), pt(-20, 92), pt(120, 92), pt(180, 0)];
   const modes = [];
   const mode = () => q.evaluate(() => {
