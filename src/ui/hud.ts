@@ -12,8 +12,13 @@ import { loadFavourites, saveFavourites } from "./prefs";
 import { pillText, type PillView } from "../game/research-text";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
+import { ControlsTutorial, type ViewState } from "./controls-tutorial";
 
 export interface HudHandlers {
+  /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
+  cameraView(): ViewState;
+  /** The camera tutorial was done or skipped: what comes next is shown (the goals' Show me, say). */
+  tutorialDone?(skipped: boolean): void;
   trayPointerDown(item: TrayItem, e: PointerEvent): void;
   /** A tray piece tapped (the ready one is put away). */
   trayTap(item: TrayItem): void;
@@ -231,6 +236,8 @@ export class Hud {
   private readonly menu = el("div", "menu");
   private menuBtn!: HTMLButtonElement;
   private readonly help = el("div", "help");
+  /** The first-run camera tutorial (in place of the help card on a first visit: see `firstVisitHelp`). */
+  readonly coach: ControlsTutorial;
   private readonly modeTag = el("span", "mode-tag");
   /** Game mode's coins, by the logo. */
   private readonly coinTag = el("span", "coins");
@@ -410,6 +417,11 @@ export class Hud {
       button("How to play", "Show help", () => {
         this.menu.hidden = true;
         this.showHelp();
+      }, "menu-item"),
+      button("Show controls", "Show the camera controls again", () => {
+        this.menu.hidden = true;
+        this.help.hidden = true;
+        this.coach.start();
       }, "menu-item"),
       this.reportItem,
     );
@@ -819,6 +831,33 @@ export class Hud {
     }, "chip text primary");
     this.help.querySelector(".help-card")!.appendChild(ok);
     this.root.appendChild(this.help);
+    this.coach = new ControlsTutorial(
+      () => h.cameraView(),
+      (touch) =>
+        this.trayMode === "game"
+          ? `Your goals are at the top: ${touch ? "tap" : "click"} Show me to see where.`
+          : touch
+            ? "Now build: drag a piece out of the tray."
+            : "Now build: drag a piece out of the tray, or click one and then the map.",
+    );
+    this.coach.onDone = (skipped) => {
+      // (Seen: the help card doesn't come up on its own after it. It's in the menu, and the coach's last card.)
+      try {
+        localStorage.setItem("woodrail.helpSeen", "1");
+      } catch {
+        // storage unavailable
+      }
+      this.flushToasts();
+      h.tutorialDone?.(skipped);
+    };
+    this.coach.onMoreHelp = () => this.showHelp();
+    // Held upright, a phone's coach sits just above the tray and its chips (see .coach in style.css).
+    const placeCoach = () => this.coach.root.style.setProperty("--coach-bottom", `${Math.round(innerHeight - this.chipsTop() + 10)}px`);
+    this.coach.onShow = placeCoach;
+    addEventListener("resize", () => {
+      if (this.coach.shown) placeCoach();
+    });
+    this.root.appendChild(this.coach.root);
 
     this.perf.hidden = true;
     this.root.appendChild(this.perf);
@@ -881,7 +920,8 @@ export class Hud {
     } catch {
       seen = false;
     }
-    if (!seen) this.showHelp();
+    // A first visit: the camera tutorial (it leads into the goals); the help card is in the menu, and its last card.
+    if (!seen && !ControlsTutorial.seen()) this.coach.start();
   }
 
   /** Label the mode by the logo and offer its own map items in the menu. */
@@ -1549,8 +1589,8 @@ export class Hud {
 
   private flushToasts(): void {
     clearTimeout(this.toastFlushTimer);
-    // Held while the help card is up (it would cover them); closing it lets them through.
-    if (!this.help.hidden) return;
+    // Held while the help card or the camera tutorial is up (they'd cover each other); closing it lets them through.
+    if (!this.help.hidden || this.coach.shown) return;
     const wait = this.toastHeldUntil - performance.now();
     if (wait > 0) {
       this.toastFlushTimer = window.setTimeout(() => this.flushToasts(), wait);

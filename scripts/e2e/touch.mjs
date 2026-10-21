@@ -737,10 +737,11 @@ async function runMode(mode) {
   await p.waitForFunction((m) => !!window.woodrail && document.querySelector(`.title-card.mode-${m} .title-buttons .primary`) !== null, mode, { timeout: 180000 });
   await p.evaluate((m) => document.querySelector(`.title-card.mode-${m} .title-buttons .primary`).click(), mode);
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
-  // A first visit shows the help over everything: close it as a player would.
+  // A first visit shows the camera tutorial (or, before it, the help over everything): close it as a player would.
   await p.evaluate(() => {
     const help = document.querySelector(".help");
     if (help && !help.hidden) help.querySelector("button.primary, .help-card button:last-of-type")?.click();
+    document.querySelector(".coach:not([hidden]) .coach-skip")?.click();
   });
   await p.waitForFunction(() => { const h = document.querySelector(".help"); return !h || h.hidden || getComputedStyle(h).display === "none"; }, null, { timeout: 60000 });
   const inGroup = () => p.evaluate(() => document.querySelector(".tray").classList.contains("in-group"));
