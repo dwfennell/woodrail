@@ -1,7 +1,8 @@
 # Map sites: old industries you restore, and more towns
 
-Date: 2026-10-21. Status: step 1 implemented (branch `map-sites`); step 2 planned (§7). Game mode first; the land is
-the same in Sandbox.
+Date: 2026-10-21. Status: step 1 implemented (branch `map-sites`); step 2 planned (§7). **Game mode only**: Sandbox
+maps (`Landscape.siteless`) never get sites or ruins (it has no research to open them), and an old Sandbox save gains
+none; land added in Sandbox still gets the extra towns (§3), from the same generation path.
 
 ## What the user asked
 

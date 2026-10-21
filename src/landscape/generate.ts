@@ -142,6 +142,11 @@ export interface Landscape {
   coast?: Coast | null;
   /** Old industries' sites (see `MapSite`); missing on maps from before them (an old save gains them as it loads). */
   sites?: MapSite[];
+  /**
+   * A Sandbox map: no old industries' sites, ever (Sandbox has no research to open them). Its land beyond the start still
+   * gets the map's extra towns; an old Sandbox save gains nothing.
+   */
+  siteless?: boolean;
 }
 
 export const STATION_LENGTH = 216;

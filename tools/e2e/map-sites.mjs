@@ -198,9 +198,7 @@ await settle();
 // (A tap on the plot itself, where it shows clear of the card: a point of it on the screen, once the view has come to
 // rest from its glide out.)
 await p.waitForTimeout(2500);
-// (Looking at the plot's near edge, beside the land: it's in view above the card.)
-await look((pick.px + 0.5) * 2232 - (pick.px >= 0 ? 0 : 0), (pick.pz + 0.5) * 1656 + (pick.pz > 0 ? -828 : pick.pz < 0 ? 828 : 0) + 500, 3200, 0.75);
-await p.waitForTimeout(1500);
+
 let spot = null;
 for (let attempt = 0; attempt < 4 && !(spot && !spot.none); attempt++) {
   if (attempt > 0) await p.waitForTimeout(1500);
@@ -267,6 +265,27 @@ idle.busyMs = Math.round(((await busy()) - busy0) * 1000);
 idle.cpu = `${((idle.busyMs / (idle.seconds * 1000)) * 100).toFixed(2)}%`;
 idle.ruinTiles = await p.evaluate(() => window.woodrail.ruinsView.group.children.length);
 check("idle with ruins in view: no frames drawn in 30 s", idle.frames === 0, JSON.stringify(idle));
+
+// 7. Sandbox (a fresh browser, its starter map): no sites, no ruins, none in the opening view or on the land for sale.
+const q = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+q.on("pageerror", (e) => errors.push(e.message));
+await q.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+await q.goto(PAGE);
+await q.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+await q.evaluate(() => [...document.querySelectorAll(".title-card.mode-sandbox button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await q.waitForFunction(() => window.woodrail?.mode?.() === "sandbox" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+await q.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
+await q.waitForTimeout(8000);
+const sandbox = await q.evaluate(async () => {
+  const w = window.woodrail;
+  const { plotsForSale, landForSale } = await import("/src/game/world.ts");
+  let meshes = 0;
+  w.ruinsView.group.traverse((o) => (meshes += o.isMesh ? 1 : 0));
+  const land = w.world.landscape;
+  return { sites: land.sites?.length ?? 0, siteless: !!land.siteless, ruins: w.world.ruins.size, meshes, forSale: plotsForSale(land).reduce((n, q) => n + (landForSale(land, q.px, q.pz).sites?.length ?? 0), 0) };
+});
+check("Sandbox: no sites or ruins (none drawn in the opening view, none on the land for sale)", sandbox.siteless && sandbox.sites === 0 && sandbox.ruins === 0 && sandbox.meshes === 0 && sandbox.forSale === 0, JSON.stringify(sandbox));
+await q.screenshot({ path: `${OUT}/08-sandbox-start.png` }).catch(() => {});
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

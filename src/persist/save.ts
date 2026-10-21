@@ -290,7 +290,7 @@ function relaxBroughtBack(layout: Layout, made: readonly number[], pinned: (id: 
 }
 
 /** Rebuild a world from saved data. Never throws on bad input. */
-export function deserializeWorld(data: unknown): Result<World, string> {
+export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}): Result<World, string> {
   // An older save: turned away (not migrated); a v12 one is read as it is (the same shape).
   const version = (data as { version?: unknown } | null)?.version;
   if (typeof version === "number" && version < MIGRATES_FROM) return err(OLDER_SAVE);
@@ -441,7 +441,11 @@ export function deserializeWorld(data: unknown): Result<World, string> {
   const world: World = { layout, sim, landscape, stations, depots, economy, props, ruins };
   // A save from before the map's sites and extra towns gains them on the land it owns, where nothing of the player's is
   // in the way (`addSitesToOldSave`). No new save version: `sites` is simply missing from such a save.
-  if (save.landscape.sites === undefined) addSitesToOldSave(world);
+  // (A Sandbox save: no sites, ever. One from before sites gains nothing.)
+  if (opts.sandbox && !landscape.siteless && (landscape.sites ?? []).length === 0) {
+    landscape.sites = [];
+    landscape.siteless = true;
+  } else if (save.landscape.sites === undefined) addSitesToOldSave(world);
   return ok(world);
 }
 
@@ -538,7 +542,7 @@ export function loadFromStorage(mode: GameMode = "sandbox"): Result<World, strin
   } catch {
     return err("autosave is not valid JSON");
   }
-  const loaded = deserializeWorld(data);
+  const loaded = deserializeWorld(data, { sandbox: mode === "sandbox" });
   // An older save, turned away: kept under a key of its own, so the fresh map's autosave doesn't overwrite it.
   if (!loaded.ok && loaded.error === OLDER_SAVE) {
     const version = (data as { version: number }).version;

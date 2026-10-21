@@ -151,9 +151,9 @@ function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean; fr
   if (saved && !saved.ok && saved.error === OLDER_SAVE) olderSave = true;
   if (seed !== null) {
     const same = saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter;
-    return { world: same ? saved.value : createWorld(seed), mode, linked: true, fromSave: !!same };
+    return { world: same ? saved.value : createWorld(seed, false, true, false), mode, linked: true, fromSave: !!same };
   }
-  return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: resumed, fromSave: !!saved?.ok };
+  return { world: saved?.ok ? saved.value : buildStarterWorld(mode === "game"), mode, linked: resumed, fromSave: !!saved?.ok };
 }
 
 const RESUME_KEY = "woodrail.resume";
@@ -333,12 +333,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       doneSelecting: () => interaction.doneSelecting(),
       newLayout: () => {
         saveLastBuilt(mode, null);
-        setWorld(createWorld(Math.floor(Math.random() * 1_000_000)));
+        setWorld(createWorld(Math.floor(Math.random() * 1_000_000), false, true, mode === "game"));
         game.frameLayout();
       },
       resetStarter: () => {
         saveLastBuilt(mode, null);
-        setWorld(buildStarterWorld());
+        setWorld(buildStarterWorld(mode === "game"));
         game.frameLayout();
         openingView();
       },
@@ -711,7 +711,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Open an old industry's card: what's around it, what opens it, and Clear the ruin. */
   function openRuin(siteId: number): void {
     const site = game.landscape.sites?.[siteId];
-    if (!site || site.cleared) return;
+    // (Sandbox has no ruins: none is ever made there.)
+    if (!site || site.cleared || mode !== "game") return;
     interaction.clearSelection();
     ruinShown = siteId;
     hud.showRuinCard(ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)));
@@ -2987,13 +2988,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh) {
       // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
       if (hasOlderSave(next)) loadFromStorage(next);
-      setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
+      setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000), false, true, false));
       restoreSession(next, false);
     } else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
       if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
-      setWorld(saved?.ok ? saved.value : buildStarterWorld());
+      setWorld(saved?.ok ? saved.value : buildStarterWorld(next === "game"));
       restoreSession(next, !!saved?.ok);
     }
     enter(next);
