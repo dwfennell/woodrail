@@ -1391,7 +1391,7 @@ export class Interaction {
 
   /**
    * Pin a switch, or unpin it (`cue`: a buzz, and a toast: the first time ever it's pinned, what pinning does; each
-   * unpin, "Unpinned"): its peg shows or goes and its chevrons change colour; it's saved.
+   * unpin, "Unpinned"): its peg shows or goes and its burned chevrons change colour (red when pinned); it's saved.
    */
   private togglePin(pieceId: number, cue = true): void {
     const g = this.game;
@@ -4245,15 +4245,21 @@ export class Interaction {
    * (a tap on the grass in front of a hill mustn't throw a lever behind it).
    */
   private leverHidden(pieceId: number): boolean {
-    const g = this.game;
-    const grid = g.landscape.grid;
+    const posts = this.game.trackView.leverPosts().filter((p) => p.pieceId === pieceId);
+    return posts.length > 0 && posts.every((p) => this.hiddenFromEye({ x: p.x, y: p.y + p.height / 2, z: p.z }));
+  }
+
+  /**
+   * Is this spot hidden behind a hill from the camera? The hills aren't in the tap's raycast (it would cost a pointer
+   * move a test against every block), so a ray can meet a lever standing behind one: asked only of such a hit.
+   */
+  private hiddenFromEye(at: { x: number; y: number; z: number }): boolean {
+    const grid = this.game.landscape.grid;
     const ground = (x: number, z: number) => {
       const i = grid.cellAtWorld(x, z);
       return i === -1 ? 0 : grid.groundY(i);
     };
-    const posts = g.trackView.leverPosts().filter((p) => p.pieceId === pieceId);
-    const eye = g.camera.position;
-    return posts.length > 0 && posts.every((p) => hiddenByHills(eye, { x: p.x, y: p.y + p.height / 2, z: p.z }, ground, MAX_HEIGHT * RISER_HEIGHT, CELL / 4));
+    return hiddenByHills(this.game.camera.position, at, ground, MAX_HEIGHT * RISER_HEIGHT, CELL / 4);
   }
 
   /**
@@ -4347,6 +4353,9 @@ export class Interaction {
       }
       if (h.object.userData.kind === "switch-lever") {
         const pieceId = h.object.userData.pieceId as number;
+        // (A lever behind a hill, met through it: not seen, so not tapped, as with a fingertip's slack. QA: a tap right
+        // on one hidden by a 2-riser hill threw it.)
+        if (this.hiddenFromEye(h.point)) continue;
         return h.object.userData.deck ? { kind: "piece", pieceId, deck: true } : { kind: "lever", pieceId };
       }
       // A signal skin's model is its lever (a tap holds it at red, or lets it go: a gantry's, the road it's over). Any

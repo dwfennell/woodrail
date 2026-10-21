@@ -701,6 +701,32 @@ async function leverPins(ctx, p) {
     const throws = s10.way !== s9.way ? 1 : 0;
     check("a double tap on the floor by a lever focuses the view there (its second tap isn't the lever's)", JSON.stringify(d1) !== JSON.stringify(d0) && throws === 1, `view (distance, target) ${d0} → ${d1}; lever thrown ${throws} time(s) (way ${s9.way} → ${s10.way})`);
   }
+  // 5c. A lever behind a hill (QA, sc3): a tap right on it, its ray meeting it through the hill (the hills aren't
+  // raycast), neither picks nor throws it. The hill is the ground raised on every square but the switch's own, for the
+  // pick's look along the line only (nothing is redrawn); put back after.
+  {
+    [lx, ly] = await screenOf("lever");
+    const s0 = await state();
+    const seen = await p.evaluate(([x, y]) => window.woodrail.interaction.pickExact(x, y)?.kind ?? null, [lx, ly]);
+    const hidden = await p.evaluate(async ([id, x, y]) => {
+      const w = window.woodrail;
+      const grid = w.landscape.grid;
+      const { MAX_HEIGHT } = await import("/src/landscape/grid.ts");
+      const { RISER_HEIGHT } = await import("/src/track/index.ts");
+      const piece = w.layout.getPiece(id);
+      const own = grid.cellAtWorld(piece.pose.x, piece.pose.z);
+      const lever = w.trackView.leverPosts().find((q) => q.pieceId === id);
+      const leverCell = grid.cellAtWorld(lever.x, lever.z);
+      grid.groundY = (i) => (i === own || i === leverCell ? grid.height[i] * RISER_HEIGHT : MAX_HEIGHT * RISER_HEIGHT);
+      return { exact: w.interaction.pickExact(x, y)?.kind ?? null, touch: w.interaction.pick(x, y, true)?.kind ?? null };
+    }, [id, lx, ly]);
+    await quickTap(lx, ly);
+    await settled();
+    const s1 = await state();
+    await p.evaluate(() => delete window.woodrail.landscape.grid.groundY);
+    await p.keyboard.press("Escape");
+    check("a tap right on a lever hidden behind a hill doesn't throw it (QA sc3)", seen === "lever" && hidden.exact !== "lever" && hidden.touch !== "lever" && s1.way === s0.way, `seen: ${seen}; hidden: exact ${hidden.exact}, touch ${hidden.touch}; way ${s0.way} → ${s1.way}`);
+  }
   // 6. A long press on the switch piece itself (not its lever) still picks the piece up.
   await p.evaluate((id) => window.woodrail.layout.setPinned(id, false), id);
   const [bx, by] = await screenOf("piece");
