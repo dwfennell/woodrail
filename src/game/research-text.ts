@@ -220,16 +220,38 @@ export function showMePick(p: Progress, blueprint: string | undefined, hasSchool
 /** A key that changes whenever the school's card would (cheap enough to ask every frame the card is open). */
 export const schoolCardKey = (p: Progress): number => p.research.version * 4 + (p.research.current ? 1 : 0) + (p.research.next ? 2 : 0);
 
-/** The school's card: the current research's goods (got of needed), and a line saying how it stands. */
-export function schoolCard(p: Progress): { piles: { label: string; count: number; cap: number }[]; note: string } {
+/** The school's card: the current research's goods (got of needed), a line saying how it stands, and `idle` (nothing
+ * under way, nothing up next: the card offers the picker). */
+export function schoolCard(p: Progress): { piles: { label: string; count: number; cap: number }[]; note: string; idle: boolean } {
   const r = p.research;
   if (!r.current) {
     const short = coinsShort(p);
-    return { piles: [], note: r.next ? `Next up: ${label(r.next)}${short > 0 ? ` (${coins(short)} short)` : ""}` : "Pick research: tap 📘" };
+    if (!r.next) return { piles: [], note: "Idle: pick research", idle: true };
+    return { piles: [], note: `Next up: ${label(r.next)}${short > 0 ? ` (${coins(short)} short)` : ""}`, idle: false };
   }
   const goods = costOf(r.current).goods;
   const piles = (Object.keys(goods) as CargoKind[]).map((k) => ({ label: GOODS_ICON[k], count: r.got[k] ?? 0, cap: goods[k]! }));
   // (A college studies twice as fast: said while it matters, the goods all in.)
   const fast = r.speed > 1 ? " (college: 2×)" : "";
-  return { piles, note: studying(p) ? `Studying ${label(r.current)}: ${Math.ceil(studyLeft(p))} s${fast}` : `Researching ${label(r.current)}` };
+  return { piles, note: studying(p) ? `Studying ${label(r.current)}: ${Math.ceil(studyLeft(p))} s${fast}` : `Researching ${label(r.current)}`, idle: false };
+}
+
+/** The school's idle line, as a research finishes with nothing up next: "Larkfield school is idle: pick what to learn next". */
+export const idleText = (school: string): string => `${school} is idle: pick what to learn next`;
+
+/**
+ * Says the school's idle (`idleText`) once per finish: a research `id` just learned with nothing under way or up next
+ * (and a school to name). The same finish asked again (in the same game) says nothing; null with something still to
+ * do. The pill and the school's card show it from then on.
+ */
+export class IdleNotice {
+  private told: { p: Progress; id: string } | null = null;
+
+  finished(p: Progress, id: string, school: string | null): string | null {
+    const r = p.research;
+    if (!school || r.current !== null || r.next !== null) return null;
+    if (this.told?.p === p && this.told.id === id) return null;
+    this.told = { p, id };
+    return idleText(school);
+  }
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Progress } from "./progress";
 import { deliver, pick, tick } from "./research";
 import * as text from "./research-text";
-import { cardState, chipsText, goalPick, pickerKey, pillKey, pillResearch, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
+import { cardState, chipsText, goalPick, IdleNotice, idleText, pickerKey, pillKey, pillResearch, pillText, pillView, researchCard, researchChips, schoolCard, schoolCardKey, shortLabel, showMePick } from "./research-text";
 import { TECHS } from "./tech";
 
 const SCHOOL = "Larkfield school";
@@ -212,17 +212,78 @@ describe("the P1 stopgap is gone", () => {
 describe("the school's card", () => {
   it("shows the research's goods got of needed, and what it's at; its key changes only when they do", () => {
     const p = Progress.fresh();
-    expect(schoolCard(p)).toEqual({ piles: [], note: "Pick research: tap 📘" });
+    expect(schoolCard(p)).toEqual({ piles: [], note: "Idle: pick research", idle: true });
     const k0 = schoolCardKey(p);
     pick(p, "switches");
     expect(schoolCardKey(p)).not.toBe(k0);
     deliver(p, "planks", 2);
-    expect(schoolCard(p)).toEqual({ piles: [{ label: "🪵", count: 2, cap: 3 }], note: "Researching Switches" });
+    expect(schoolCard(p)).toEqual({ piles: [{ label: "🪵", count: 2, cap: 3 }], note: "Researching Switches", idle: false });
     const k1 = schoolCardKey(p);
     expect(schoolCardKey(p)).toBe(k1);
     deliver(p, "planks", 1);
     expect(schoolCard(p).note).toBe("Studying Switches: 20 s");
     expect(schoolCardKey(p)).not.toBe(k1);
+  });
+});
+
+describe("the idle school", () => {
+  it("the card says Idle with nothing under way or up next; not while one waits in Next up", () => {
+    const p = Progress.fresh();
+    expect(schoolCard(p).idle).toBe(true);
+    p.learned.add("switches");
+    pick(p, "routes");
+    // Train routes waits for its coins: not idle, and it says so.
+    expect(p.research.next).toBe("routes");
+    expect(schoolCard(p)).toMatchObject({ idle: false, note: "Next up: Train routes (40🪙 short)" });
+  });
+
+  it("the pill: Pick research, idle (the amber pill), only with a school", () => {
+    const p = Progress.fresh();
+    expect(pillView(p, false)).toBeNull();
+    expect(pillView(p, true)).toMatchObject({ name: "Pick", count: "research", idle: true });
+    pick(p, "switches");
+    expect(pillView(p, true)?.idle).toBe(false);
+    deliver(p, "planks", 3);
+    tick(p, 20);
+    expect(pillText(pillView(p, true))).toBe("📘 Pick research");
+    expect(pillView(p, true)?.idle).toBe(true);
+  });
+
+  it("a finish with nothing up next says the school is idle, once", () => {
+    const p = Progress.fresh();
+    const notice = new IdleNotice();
+    pick(p, "switches");
+    pick(p, "bridges");
+    deliver(p, "planks", 3);
+    const done = tick(p, 20)!;
+    // Bridges started from Next up: nothing to say.
+    expect(done).toBe("switches");
+    expect(notice.finished(p, done, SCHOOL)).toBeNull();
+    deliver(p, "planks", 10);
+    const second = tick(p, 1000)!;
+    expect(second).toBe("bridges");
+    expect(notice.finished(p, second, SCHOOL)).toBe("Larkfield school is idle: pick what to learn next");
+    expect(idleText(SCHOOL)).toBe("Larkfield school is idle: pick what to learn next");
+    // The same finish again: once.
+    expect(notice.finished(p, second, SCHOOL)).toBeNull();
+    // A new game's finish is a new one.
+    const q = Progress.fresh();
+    expect(notice.finished(q, second, SCHOOL)).toBe(idleText(SCHOOL));
+    // No school to name: nothing.
+    expect(new IdleNotice().finished(p, second, null)).toBeNull();
+  });
+
+  it("not while one waits in Next up for its coins", () => {
+    const p = Progress.fresh();
+    p.learned.add("switches");
+    pick(p, "bridges");
+    pick(p, "routes");
+    deliver(p, "planks", 10);
+    const done = tick(p, 1000)!;
+    expect(done).toBe("bridges");
+    expect(p.research.current).toBeNull();
+    expect(p.research.next).toBe("routes");
+    expect(new IdleNotice().finished(p, done, SCHOOL)).toBeNull();
   });
 });
 

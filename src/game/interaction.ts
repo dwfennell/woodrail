@@ -2064,9 +2064,9 @@ export class Interaction {
 
   /**
    * A school's card (Game mode): `key` changes whenever what it shows does (cheap: called every frame while it's open);
-   * `show` gives its rows, the research's goods (got of needed) and a line about it.
+   * `show` gives its rows, the research's goods (got of needed), a line about it, and `idle` (the card offers the picker).
    */
-  schoolCard: { key(): number; show(): { piles: { label: string; count: number; cap: number }[]; note: string } } | null = null;
+  schoolCard: { key(): number; show(): { piles: { label: string; count: number; cap: number }[]; note: string; idle?: boolean } } | null = null;
 
   /** Keep the open depot card's pile counts current (call every frame). */
   refreshDepotCard(): void {
@@ -2090,7 +2090,7 @@ export class Interaction {
     shown.delivered = delivered0;
     if (d.role === "school") {
       const r = this.schoolCard?.show() ?? { piles: [], note: "" };
-      this.hud.updateDepotCard(r.piles, d.auto, null, r.note);
+      this.hud.updateDepotCard(r.piles, d.auto, null, r.note, !!r.idle);
       return;
     }
     let piles = pilesOf(d.role).map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));

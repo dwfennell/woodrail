@@ -209,6 +209,8 @@ export class Hud {
   private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
   private readonly depotStock = el("div", "depot-stock");
+  /** A school's card with nothing under way or up next: a button for the Research picker. */
+  private readonly depotPickBtn: HTMLButtonElement;
   private depotAutoBtn!: HTMLButtonElement;
   private depotWaitBtn!: HTMLButtonElement;
   private readonly flipBtn: HTMLButtonElement;
@@ -495,7 +497,9 @@ export class Hud {
     const depotRow = el("div", "card-row");
     depotRow.append(this.depotAutoBtn, this.depotWaitBtn);
     this.depotExtra.hidden = true;
-    this.depotCard.append(this.depotTitle, this.depotStock, depotRow, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
+    this.depotPickBtn = button("📘 Research", "Pick what the school learns next", () => h.toggleBoard(true), "chip text primary depot-pick");
+    this.depotPickBtn.hidden = true;
+    this.depotCard.append(this.depotTitle, this.depotStock, this.depotPickBtn, depotRow, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.depotCard);
 
     // Land card: shown while choosing a plot to add.
@@ -1422,11 +1426,14 @@ export class Hud {
 
   /**
    * Refresh the open depot card: one line per pile ("Logs ●●●○○…  5"), and the two switches. `waitFull` is null
-   * where it doesn't apply (a depot that gives nothing).
+   * where it doesn't apply (a depot that gives nothing). `idle`: a school with nothing to research (its line in amber,
+   * and a button for the picker).
    */
-  updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = ""): void {
+  updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = "", idle = false): void {
     const text = [...piles.map((p) => `${p.label} ${p.count}/${p.cap}`), ...(note ? [note] : [])].join("   ·   ");
     if (this.depotStock.textContent !== text) this.depotStock.textContent = text;
+    this.depotStock.classList.toggle("idle", idle);
+    this.depotPickBtn.hidden = !idle;
     setToggle(this.depotAutoBtn, auto);
     this.depotWaitBtn.hidden = waitFull === null;
     setToggle(this.depotWaitBtn, !!waitFull);
