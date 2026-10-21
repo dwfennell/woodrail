@@ -63,7 +63,6 @@ export function drawLedger(box: HTMLElement, v: TownLedger, on: LedgerActions): 
   }
   box.append(goods);
   if (v.holding) box.append(el("p", "ledger-holding", v.holding));
-  if (v.full.length > 0) box.append(el("p", "ledger-holding", `The station's ${v.full.join(" and ")} ${v.full.length === 1 ? "pile is" : "piles are"} full: trains can't unload more until the town uses some.`));
 
   const rows = el("div", "ledger-rows");
   if (v.school) {
@@ -71,7 +70,7 @@ export function drawLedger(box: HTMLElement, v: TownLedger, on: LedgerActions): 
     rows.append(row(v.school.name, v.school.note, () => on.school(id)));
   }
   if (v.market > 1) rows.append(row("Market", "pays extra for goods"));
-  if (v.station) rows.append(row("Station", `${v.station.waiting} of ${v.station.room} waiting · ${v.station.carried} carried`));
+  if (v.station) rows.append(row("Station", `${v.station.waiting} of ${v.station.room} waiting · ${v.station.carried} carried in all`));
   if (rows.childElementCount > 0) box.append(rows);
 
   if (v.lines.length > 0) {

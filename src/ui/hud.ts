@@ -1418,6 +1418,8 @@ export class Hud {
     // (Back to a depot's own: a town's ledger, once drawn here, marks it.)
     this.depotExtra.className = "depot-extra";
     this.depotCard.hidden = false;
+    // (A card scrolled on a phone opens at its top again: its title and ✕ in view.)
+    this.depotCard.scrollTop = 0;
     this.root.classList.add("card-open");
   }
 

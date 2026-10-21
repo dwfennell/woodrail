@@ -233,7 +233,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* (The ledger's own limit is as specific, and later: lift it too, or its rows spill out under the switches.) The
      switches stay in view at the card's foot while the ledger scrolls by above them. */
   .card .depot-extra.ledger { max-height: none; }
-  .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: #faf3e6; }
+  .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: rgba(250, 243, 230, 0.985); }
+  /* And its title and ✕ at the top (the ✕ first, laid over the title's right end); focus scrolls clear of both. */
+  .depot-card:has(.depot-extra.ledger) { scroll-padding: 56px 0 72px; }
+  .depot-card:has(.depot-extra.ledger) > .card-title { position: sticky; top: -12px; z-index: 1; align-self: stretch; margin: -12px -14px 0; padding: 12px 48px 6px; background: rgba(250, 243, 230, 0.985); }
+  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; top: -12px; z-index: 2; order: -1; align-self: flex-end; margin: -12px -14px -64px 0; }
 }
 @media (max-width: 400px) {
   .brand:has(.coins:not([hidden])) .brand-block { display: none; }
@@ -253,7 +257,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* (The ledger's own limit is as specific, and later: lift it too, or its rows spill out under the switches.) The
      switches stay in view at the card's foot while the ledger scrolls by above them. */
   .card .depot-extra.ledger { max-height: none; }
-  .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: #faf3e6; }
+  .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: rgba(250, 243, 230, 0.985); }
+  /* And its title and ✕ at the top (the ✕ first, laid over the title's right end); focus scrolls clear of both. */
+  .depot-card:has(.depot-extra.ledger) { scroll-padding: 56px 0 72px; }
+  .depot-card:has(.depot-extra.ledger) > .card-title { position: sticky; top: -12px; z-index: 1; align-self: stretch; margin: -12px -14px 0; padding: 12px 48px 6px; background: rgba(250, 243, 230, 0.985); }
+  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; top: -12px; z-index: 2; order: -1; align-self: flex-end; margin: -12px -14px -64px 0; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
 }
 

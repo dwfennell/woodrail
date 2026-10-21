@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildStarterWorld } from "./world";
 import { ledgerKey, townLedger, type LedgerContext } from "./town-ledger";
-import { capOf, CARGO, type DepotState } from "../economy";
+import type { DepotState } from "../economy";
 import { MARKET_BONUS } from "./landmarks";
 
 const ctx = (learned: string[] = [], room: number | null = null, carried = 0): LedgerContext => ({ learned: new Set(learned), room, carried });
@@ -22,7 +22,6 @@ describe("the town ledger (Game mode's town card)", () => {
     expect([v.level, v.next, v.have, v.need]).toEqual(["Hamlet", "Village", 0, 4]);
     expect(v.goods).toEqual([{ kind: "planks", icon: "🪵", label: "Planks", have: 0, need: 4 }]);
     expect(v.holding).toBeNull();
-    expect(v.full).toEqual([]);
     expect(v.school).toBeNull();
     expect(v.market).toBe(1);
     expect(v.station).toBeNull();
@@ -69,11 +68,6 @@ describe("the town ledger (Game mode's town card)", () => {
     expect(townLedger(w, d, ctx(["routes"]))!.lines).toEqual([{ id: 1, name: "Red line", colour: "#c0392b", trains: 2 }]);
   });
 
-  it("says when a pile at the station is full (trains can't unload more of it)", () => {
-    const { w, d } = world();
-    d.piles[CARGO.planks.index] = capOf("town");
-    expect(townLedger(w, d, ctx())!.full).toEqual(["🪵 planks"]);
-  });
 
   it("its key changes when anything it shows does, and only then", () => {
     const { w, town, d } = world();
@@ -93,8 +87,6 @@ describe("the town ledger (Game mode's town card)", () => {
     changed("someone waiting", key());
     changed("passengers learned", key(ctx(["passengers"], 6)));
     changed("someone carried", key(ctx(["passengers"], 6, 1)));
-    d.piles[CARGO.planks.index] = 3;
-    changed("planks on the pile", key());
     w.economy.lines.set(1, { id: 1, colour: "#c0392b", name: "Red line", stops: [{ depotId: d.id, action: "auto" }] });
     changed("a line", key());
     w.economy.lines.get(1)!.name = "Timber run";
