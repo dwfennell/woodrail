@@ -91,6 +91,11 @@ const PAN_KEYS: Record<string, PanKey> = {
 };
 /** Camera distance (mm) beyond which wood and paint drop the grain, bumps and clear coat too small to see. */
 const FAR_DETAIL = 1800;
+/**
+ * Camera distance (mm) beyond which the land's stitched hem isn't drawn: a 9 mm strip of darker felt is a few pixels
+ * there, and reads as a stray dark seam across the grass. (The haze marks the land's edge from that far out.)
+ */
+const HEM_FAR = 5000;
 
 /** Key panning covers this many camera-distances a second (so it feels the same at any zoom), easing in this long (s). */
 const KEY_PAN_SPEED = 0.9;
@@ -158,6 +163,7 @@ export class Game {
   private readonly clock = new Clock();
   /** Drawing materials without their fine detail (zoomed far out). */
   private farDetail = false;
+  private hemHidden = false;
   private accumulator = 0;
   private followCarId = -1;
 
@@ -763,6 +769,12 @@ export class Game {
     if (far !== this.farDetail) {
       this.farDetail = far;
       this.mats.setFar(far);
+      this.dirty = true;
+    }
+    const hemHidden = dist > (this.hemHidden ? HEM_FAR - 300 : HEM_FAR);
+    if (hemHidden !== this.hemHidden) {
+      this.hemHidden = hemHidden;
+      this.mats.hemFelt.visible = this.mats.stitch.visible = !hemHidden;
       this.dirty = true;
     }
     // The switches' chevrons are drawn bigger further out (a step in the zoom places them afresh, nothing else).

@@ -104,7 +104,27 @@ function inward(a: { x: number; z: number }, b: { x: number; z: number }): { x: 
 /** One region of felt: its outline and holes (in squares) extruded `thickness` tall, uv in felt tiles. */
 function extrudeFelt(outer: Loop, holes: readonly Loop[], thickness: number, bevel: number): BufferGeometry {
   // Shape space is (world x, −world z): extruding along +z then rotating −90° about x stands it on the mat.
-  const toPts = (l: Loop) => l.map((p) => ({ x: p.x * CELL, y: -(p.z * CELL) }));
+  // Points on a straight run between their neighbours (clipping to the tile leaves them along its edge) are dropped,
+  // and repeated ones: the caps' triangulation makes a zero-area sliver of them, whose normals come out zero-length and
+  // light as NaN (specks, spread into squares by the depth of field far out).
+  const toPts = (l: Loop) => {
+    let pts = l.map((p) => ({ x: p.x * CELL, y: -(p.z * CELL) }));
+    for (let changed = true; changed && pts.length > 3; ) {
+      changed = false;
+      const keep = pts.filter((p, i) => {
+        const q = pts[(i + pts.length - 1) % pts.length];
+        const r = pts[(i + 1) % pts.length];
+        const len = Math.hypot(r.x - q.x, r.y - q.y);
+        const off = len < 1e-6 ? Math.hypot(p.x - q.x, p.y - q.y) : Math.abs((r.x - q.x) * (p.y - q.y) - (r.y - q.y) * (p.x - q.x)) / len;
+        return off > 1e-3;
+      });
+      if (keep.length >= 3 && keep.length < pts.length) {
+        pts = keep;
+        changed = true;
+      }
+    }
+    return pts;
+  };
   const shape = new Shape();
   const pts = toPts(outer);
   shape.moveTo(pts[0].x, pts[0].y);
