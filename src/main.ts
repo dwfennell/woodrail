@@ -49,7 +49,7 @@ import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, setSpeed, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
-import { cardState, goalPick, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
+import { cardState, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
@@ -1516,7 +1516,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     learned(id);
     const next = progress.research.current;
     if (next) hud.toast(`Learned ${techOf(id)!.label}! Next: ${techOf(next)!.label}`, true, 3800);
+    // Nothing under way or up next: the school's idle, said once (a tap opens the picker). The pill and the school's
+    // card show it from then on.
+    const idle = idleNotice.finished(progress, id, schoolName());
+    if (idle) hud.toast(idle, false, 6000, () => board.open || setBoardOpen(true));
   }
+  const idleNotice = new IdleNotice();
 
   /** The school's card: the research's goods (got of needed), and what it's at. Its key changes with the research. */
   interaction.schoolCard = { key: () => schoolCardKey(progress), show: () => schoolCard(progress) };
