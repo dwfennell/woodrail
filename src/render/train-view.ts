@@ -16,9 +16,9 @@ interface CarEntry {
 }
 
 /** How far a selection shell stands proud of a car's parts (mm). */
-const SHELL_GROW = 2.6;
-/** The dark ring just inside it (mm): the light rim alone is lost against pale wood (a timber wagon's deck). */
-const SHELL_INNER = 1.1;
+const SHELL_GROW = 1.8;
+/** The faint dark ring just inside it (mm): the light rim alone is lost against pale wood (a timber wagon's deck). */
+const SHELL_INNER = 0.8;
 /** A part gets a shell if it's at least this share of the car's longest part. */
 const SHELL_PART = 0.4;
 
@@ -38,13 +38,13 @@ export class TrainView {
   /** The car whose card is open (its whole train is outlined, it a little more), or −1. */
   private selected = -1;
   // The selection look of track pieces (track-view): each part drawn again, back faces only, a little larger, so a
-  // light rim shows round the edges. Static: a selected train standing still draws nothing more.
-  private readonly shellTrain = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.select), side: BackSide, transparent: true, opacity: 0.7, depthWrite: false });
-  // The car whose card is open: the same colour, lighter and solid.
-  private readonly shellCar = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.select).lerp(new Color("#ffffff"), 0.55), side: BackSide, transparent: true, opacity: 1, depthWrite: false });
-  // The dark inner ring, drawn over the light rim's inside edge.
-  private readonly ringTrain = new MeshBasicMaterial({ color: new Color("#4a3214"), side: BackSide, transparent: true, opacity: 0.85, depthWrite: false });
-  private readonly ringCar = new MeshBasicMaterial({ color: new Color("#4a3214"), side: BackSide, transparent: true, opacity: 1, depthWrite: false });
+  // soft warm rim shows round the edges. Static: a selected train standing still draws nothing more.
+  private readonly shellTrain = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.select), side: BackSide, transparent: true, opacity: 0.32, depthWrite: false });
+  // The car whose card is open: the same rim, a little stronger.
+  private readonly shellCar = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.select), side: BackSide, transparent: true, opacity: 0.7, depthWrite: false });
+  // A faint dark ring inside the rim, drawn over its inside edge.
+  private readonly ringTrain = new MeshBasicMaterial({ color: new Color("#4a3214"), side: BackSide, transparent: true, opacity: 0.18, depthWrite: false });
+  private readonly ringCar = new MeshBasicMaterial({ color: new Color("#4a3214"), side: BackSide, transparent: true, opacity: 0.35, depthWrite: false });
 
   constructor(private readonly mats: Materials) {}
 
@@ -171,7 +171,7 @@ export class TrainView {
     return parts
       .filter((q) => span(q) >= SHELL_PART * longest)
       .flatMap(({ part, size, centre, scale }) =>
-        // The light rim, and the dark ring inside it (drawn after, over the rim's inside edge).
+        // The light rim, and the faint dark ring inside it (drawn after, over the rim's inside edge).
         [SHELL_GROW, SHELL_INNER].map((by, i) => {
           const grow = (n: number, s: number) => (n > 1e-6 ? (n + (2 * by) / Math.abs(s || 1)) / n : 1);
           const shell = new Mesh(part.geometry, this.shellTrain);

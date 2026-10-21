@@ -101,7 +101,9 @@ export const TRACK_GROUPS: TrayGroup[] = [
 ];
 
 export const TRAIN_GROUPS: TrayGroup[] = [
-  { label: "Trains", items: TRAIN_ITEMS.slice(0, 2) },
+  // Made-up trains: Sandbox only. In Game mode a train is made up from its parts (an engine, then its wagons), so no
+  // ready-made set picks the cars for the player.
+  { label: "Trains", items: TRAIN_ITEMS.slice(0, 2), modes: ["sandbox"] },
   { label: "Engines", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && i.cars[0] === "engine") },
   { label: "Wagons", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "hopper" || i.cars[0] === "timber" || i.cars[0] === "van" || i.cars[0] === "cleaner")) },
   { label: "Coaches", items: TRAIN_ITEMS.filter((i) => i.kind === "train" && i.cars.length === 1 && (i.cars[0] === "passenger" || i.cars[0] === "caboose")) },

@@ -450,3 +450,43 @@ describe("crates and presents", () => {
     expect(learned).toMatch(/learnGift\(progress, id\)/);
   });
 });
+
+describe("no ready-made trains in Game mode: everything comes as parts", () => {
+  /** Every thing a gift, crate or card gives is one piece, one car or one prop (a train is made up from its cars). */
+  const parts = (ids: readonly string[]) => {
+    for (const id of ids) {
+      expect(id in THING_RULES, id).toBe(true);
+      expect(/^(piece|car|prop):[^:]+$/.test(id), id).toBe(true);
+    }
+  };
+  const cardThings = (c: GrowthCard | null): string[] => (c?.kind === "crate" ? c.things.map(([id]) => id) : c?.kind === "wagon" ? [c.id] : []);
+
+  it("the starting toy box: one engine and its wagons, as parts", () => {
+    const p = Progress.fresh();
+    parts([...p.owned.keys()]);
+    expect(p.owned.get("car:engine")).toBe(1);
+    expect(p.owned.get("car:timber")).toBeGreaterThan(0);
+  });
+
+  it("presents, crates, wagon cards and blueprint gifts give parts, and no engine beyond the first before Signals", () => {
+    for (let seed = 1; seed < 16; seed++) {
+      for (const learned of [[], ["switches"], ["switches", "farming", "passengers", "mills"], ["switches", "signals", "passengers"]]) {
+        const p = Progress.fresh();
+        for (const t of learned) p.learned.add(t);
+        const w = world({ school: true });
+        const got: string[] = [];
+        for (const level of [1, 2, 3, 5]) {
+          got.push(...firstTimeGift(p, level).map(([id]) => id));
+          got.push(...crateFor(p, level, rng(seed)).map(([id]) => id));
+          for (const kind of CARD_KINDS) got.push(...cardThings(cardFor(p, w, kind, level, rng(seed))));
+          const offer = offerOnGrowth(p, w, "Larkfield", level, rng(seed));
+          // Whichever card can be taken first: what it gives goes in the toy box.
+          if (offer) for (let i = 0; i < offer.cards.length; i++) if (takeCard(p, w, p.offers.indexOf(offer), i)) break;
+        }
+        for (const t of TECHS) if (t.id !== "signals") got.push(...learnGift(p, t.id).map(([id]) => id));
+        parts(got);
+        if (!p.learned.has("signals")) expect(p.owned.get("car:engine"), `seed ${seed} ${learned.join(",")}`).toBe(1);
+      }
+    }
+  });
+});

@@ -66,6 +66,10 @@ describe("goals", () => {
 
   it("trains: placed, moving, at a station, timber, two running", () => {
     const { w, straights } = joined();
+    // A wagon on its own isn't the engine the first train goal asks for.
+    const wagon = trainOn(w, straights[3], ["timber"]);
+    expect(goal("place-train").check(w).done).toBe(false);
+    w.sim.removeTrain(wagon.id);
     const t = trainOn(w, straights[1], ["engine", "timber"]);
     expect(goal("place-train").check(w).done).toBe(true);
     expect(goal("timber-train").check(w).done).toBe(true);
@@ -139,7 +143,11 @@ describe("goal guides", () => {
     const forest = w.landscape.depots.find((d) => d.kind === "forest")!;
     const pose = w.layout.getPiece(w.depots.get(forest.id)!)!.pose;
     expect(goal("load-logs").guide(w).marks).toEqual([pose]);
-    expect(goal("place-train").guide(w).tab).toBe("trains");
+    // Trains are made up from parts (no ready-made trains in Game mode): Show me opens on the engines, then the wagons.
+    expect(goal("place-train").guide(w)).toMatchObject({ tab: "trains", shelf: "Engines" });
+    expect(goal("timber-train").guide(w)).toMatchObject({ tab: "trains", shelf: "Wagons" });
+    expect(goal("place-train").hint).toMatch(/engine/);
+    expect(goal("timber-train").hint).toMatch(/flatbed wagon onto your engine/);
     expect(goal("lay-switch").guide(w)).toMatchObject({ tab: "track", shelf: "Switch" });
     expect(goal("build-bridge").guide(w)).toMatchObject({ tab: "track", shelf: "Bridges" });
   });

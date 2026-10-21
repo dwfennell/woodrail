@@ -71,6 +71,13 @@ export interface DrawCheck {
 /** The pieces a drawn line is made of: straights, and curves either way. */
 export const DRAW_TYPES: readonly PieceTypeId[] = ["straight-216", "straight-144", "straight-108", "straight-54", "curve-large", "curve-wide", "curve-small"];
 
+/**
+ * The standard pieces: the tray's Long, Medium and Short straights and its Curve (src/ui/tray-catalogue.ts), a wooden
+ * railway box's own sizes. The Mini, the tight and wide curves (and the Auto piece's cut lengths) are for where they're
+ * needed: a line closing onto a station or depot prefers the standard ones when they fit about as well (see `ODD_COST`).
+ */
+export const STANDARD_DRAW_TYPES: readonly PieceTypeId[] = ["straight-216", "straight-144", "straight-108", "curve-large"];
+
 export interface DrawOptions {
   /** May this piece go here (the landscape, other track, the line's own pieces)? Null, or why not. */
   check?: (c: DrawCandidate, line: readonly DrawnPiece[]) => DrawCheck | null;
@@ -120,13 +127,16 @@ const TIE = 0.5 / 120;
 const CLOSE_REACH = 300;
 /**
  * Closing onto other track's free end when no one piece from the line's end seats on it (see `closeBack`): up to this
- * many of the line's last pieces may be laid again another way, as up to `CLOSE_LAY` pieces that do seat on it. Each
- * new piece's far end this close (mm) to the stroke (the last one, `MEET_REACH`), and at most `CLOSE_TRIES` such fits
+ * many of the line's last pieces may be laid again another way, as up to `CLOSE_LAY` pieces that do seat on it (or
+ * three standard pieces that seat on it exactly: a straight and two curves, round a corner into a depot). Each new
+ * piece's far end this close (mm) to the stroke (the last one, `MEET_REACH`), and at most `CLOSE_TRIES` such fits
  * checked against the map.
  */
 const CLOSE_BACK = 2;
 const CLOSE_LAY = 2;
 const CLOSE_ON_REACH = 60;
+/** ...or, for standard pieces that seat on it exactly, this close. */
+const STANDARD_ON_REACH = 90;
 const CLOSE_TRIES = 6;
 /**
  * A fit's far end this close (mm, and radians) to the free end may still close: the line's joints give a little to
@@ -191,6 +201,13 @@ const GROW_PER_MOVE = 1;
 const PIECE_COST: Partial<Record<PieceTypeId, number>> = { "straight-54": 0.9, "straight-108": 0.4, "curve-small": 1.5 };
 const BASE_PIECE_COST = 0.3;
 const pieceCost = (t: PieceTypeId): number => BASE_PIECE_COST + (PIECE_COST[t] ?? 0);
+/**
+ * Closing onto other track's free end (see `closeBack`), a piece that isn't standard (`STANDARD_DRAW_TYPES`) costs this
+ * much more: where standard pieces close it about as well, they're the ones laid.
+ */
+const ODD_COST = 1;
+const STANDARD = new Set<PieceTypeId>(STANDARD_DRAW_TYPES);
+const drawCost = (t: PieceTypeId): number => pieceCost(t) + (STANDARD.has(t) ? 0 : ODD_COST);
 /** The least any piece costs. */
 const MIN_PIECE_COST = BASE_PIECE_COST;
 /**
@@ -251,6 +268,11 @@ const BAND_TIGHT = 2;
 const BAND_PAIR = 1.5;
 /** The mini straight costs this much more there (a step is cleaner without one). */
 const BAND_MINI = 1;
+/**
+ * Finishing, a plan that ends on a curve costs this much more: the line would end turned off the stroke's way, a step
+ * begun and not finished, only to put its end a little nearer where the finger lifted (anywhere in the band will do).
+ */
+const BAND_LAST_CURVE = 3;
 /** Finishing, each this much (mm) further than half the band off the stroke's end costs one unit. */
 const BAND_STOP = 25;
 /** Finishing, each this much (mm) past the stroke's end costs one unit. */
@@ -750,7 +772,7 @@ export class DrawLine {
    * to `CLOSE_LAY` plain pieces whose far end comes to that free end, each on the stroke. Within the joint's play it
    * seats as it is; a little further off (`FLEX_REACH`, `FLEX_ANGLE`), the line's joints each give a little to meet
    * it (`flexOnto`), as a wooden line does when pushed, the free end's track held where it is (a station, a depot).
-   * The cheapest fit first: fewest pieces taken back, the calmest pieces, nearest the free end and the stroke. True if
+   * The cheapest fit first: fewest pieces taken back, the calmest and standard pieces, nearest the free end and the stroke. True if
    * it closed (the line is then closed); else the line is as it was.
    */
   private closeBack(): boolean {
@@ -775,6 +797,7 @@ export class DrawLine {
       const from = back > 0 ? all[n - back].from : progress;
       if (freeEnds(end, CLOSE_LAY * 216 + FLEX_REACH, ends) === 0) continue;
       const types = this.allowed();
+      const standard = types.filter((t) => STANDARD.has(t));
       // How far a piece's far end is from meeting one of those free ends (the turn counted at `FLEX_TURN_MM` a radian),
       // and that end, if the piece's end is within the flex of it and it's on the stroke drawn (the finger went to it).
       const meets = (c: DrawCandidate, s0: number): { to: DrawEnd; err: number; exact: boolean; d: number } | null => {
@@ -794,7 +817,7 @@ export class DrawLine {
       };
       const push = (lay: DrawCandidate[], m: NonNullable<ReturnType<typeof meets>>, extra: number) => {
         let cost = back + extra + m.err / FLEX_COST_MM + m.d / MEET_REACH + (m.exact ? 0 : FLEX_COST);
-        for (const c of lay) cost += pieceCost(c.type);
+        for (const c of lay) cost += drawCost(c.type);
         fits.push({ back, lay, to: m.to, exact: m.exact, cost });
       };
       // (The line as it is, bent to meet it.)
@@ -807,10 +830,21 @@ export class DrawLine {
         // (One piece seated as it is, from where the line has got to: that's `closeOnto`'s.)
         if (one && !(back === 0 && one.exact)) push([a], one, 0);
         const mid = this.nearest(a.end.x, a.end.z, from - 10, from + a.length * 1.6 + 40);
-        if (mid.d > CLOSE_ON_REACH) continue;
+        // (Standard pieces that seat exactly may stray further from the stroke: QA, a corner drawn tighter than the
+        // curve into a depot's end, where only a tight curve stayed near it and was bent to meet the end.)
+        const near = mid.d <= CLOSE_ON_REACH;
+        if (!near && (mid.d > STANDARD_ON_REACH || !STANDARD.has(a.type))) continue;
         for (const b of candidatesFrom(a.end, types)) {
           const two = meets(b, mid.s);
-          if (two) push([a, b], two, mid.d / CLOSE_ON_REACH);
+          if (two && (near || (two.exact && STANDARD.has(b.type)))) push([a, b], two, mid.d / CLOSE_ON_REACH);
+          // Three standard pieces that seat exactly, where no two do (a straight and the curve's two halves).
+          if (!standard.length || !STANDARD.has(a.type) || !STANDARD.has(b.type)) continue;
+          const mid2 = this.nearest(b.end.x, b.end.z, mid.s - 10, mid.s + b.length * 1.6 + 40);
+          if (mid2.d > STANDARD_ON_REACH) continue;
+          for (const c of candidatesFrom(b.end, standard)) {
+            const three = meets(c, mid2.s);
+            if (three?.exact) push([a, b, c], three, (mid.d + mid2.d) / CLOSE_ON_REACH);
+          }
         }
       }
     }
@@ -1817,7 +1851,7 @@ function flatSearch(depth: number, x: number, z: number, low: boolean, prev: num
     // While drawing, where a plan leaves the line counts too: running on straight from there a little way, the finger
     // going on as it was, it should still be in the band (else the next piece has to turn straight away).
     const h1 = bend ? (low ? f.lo + EIGHTH : f.lo) : h;
-    const total = f.finishing ? next + flatStop(a1, y) : next + flatBand(y + Math.sin(h1 - f.theta) * FLAT_RUN);
+    const total = f.finishing ? next + flatStop(a1, y) + (bend ? BAND_LAST_CURVE : 0) : next + flatBand(y + Math.sin(h1 - f.theta) * FLAT_RUN);
     // While drawing, a plan is taken as far as the stroke goes (or as many pieces as are looked at): stopping short
     // would hide where going on from there leads.
     const ends = f.finishing || depth === 1 || a1 >= f.alongEnd;
