@@ -65,7 +65,7 @@ function line0(spec: { loops: number; ends?: number; mid?: number; pre?: PieceTy
 type Q = ReturnType<typeof line0>;
 
 /** QA's `H.scen`: trains (piece, next stop, s, added at), one line of `stops`, `secs` seconds; forest piles topped up. */
-function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolean; at?: number; spare?: boolean; when?: (E: readonly number[]) => boolean; offAt?: number }[], stops: number[], secs: number, cars: CarKind[] = ["engine", "timber", "timber"]) {
+function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolean; at?: number; spare?: boolean; when?: (E: readonly number[]) => boolean; offAt?: number }[], stops: number[], secs: number, cars: CarKind[] = ["engine", "timber", "timber"], events: { at: number; fn: (E: readonly number[]) => void }[] = []) {
   const depots = new Map<number, ReturnType<Economy["addDepot"]>>();
   for (const p of stops) if (!depots.has(p)) depots.set(p, q.economy.addDepot(q.L.getPiece(p)!.type === "depot-forest" ? "forest" : "sawmill", p, 0));
   const E: number[] = [];
@@ -77,6 +77,7 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
   let ringFrom = 0;
   let longestRing = 0;
   const meets: number[] = [];
+  const arrAt: { e: number; t: number }[] = [];
   let lineId = -1;
   const add = (t: (typeof trains)[number]) => {
     const placed = q.sim.addTrain(cars, { pieceId: t.p, pathIndex: 0, reversed: !!t.rev, s: t.s ?? 100 });
@@ -108,6 +109,7 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
   const traceLast = new Map<number, string>();
   for (let tick = 0; tick < secs * SIM_HZ; tick++) {
     for (const t of trains) if (t.at && Math.round(t.at * SIM_HZ) === tick) add(t);
+    for (const ev of events) if (Math.round(ev.at * SIM_HZ) === tick) ev.fn(E);
     // (Taken off its line while running: lever left on, it runs on, no line's.)
     trains.forEach((t, k) => {
       if (t.offAt && Math.round(t.offAt * SIM_HZ) === tick && E[k] !== undefined) stopLine(q.economy, E[k]);
@@ -145,7 +147,10 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
       const tr = q.sim.findCar(e)?.train;
       if (!tr) continue;
       const at = q.economy.routeOf(e)?.at ?? false;
-      if (at && !prevAt.get(e)) arr.set(e, (arr.get(e) ?? 0) + 1);
+      if (at && !prevAt.get(e)) {
+        arr.set(e, (arr.get(e) ?? 0) + 1);
+        arrAt.push({ e, t: tick / SIM_HZ });
+      }
       prevAt.set(e, at);
       const lt = tr.lastTurn;
       if (lt && lastTurn.get(e) !== lt.tick) {
@@ -185,7 +190,7 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
     }
     return all ? n / all : 0;
   };
-  return { E, arrivals: E.map((e) => arr.get(e) ?? 0), meet, cards, cardsOf, share, allStill, longestRing, meets, whenAt, released: q.economy.sections.released, yielded: q.economy.sections.yielded, cut: q.economy.sections.cut };
+  return { E, arrivals: E.map((e) => arr.get(e) ?? 0), meet, cards, cardsOf, share, allStill, longestRing, meets, arrAt, whenAt, released: q.economy.sections.released, yielded: q.economy.sections.yielded, cut: q.economy.sections.cut };
 }
 
 describe("sections: QA's cases (P2 review)", { timeout: 300_000 }, () => {
@@ -428,18 +433,54 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     const { q, R3 } = two();
     const r = show("offline", scen(q, [{ ...R3[0], offAt: 30 }, R3[1], R3[2]], [q.a, q.b], 300, cars));
     if (ENV.SHOW) console.log(`OFFLINE meets ${r.meets.map((t) => t.toFixed(0)).join(",")}`);
-    // (614de33: 3 + 2 arrivals, 66 bumps. It can still bump them (it isn't the line's to hold), but far less often.)
+    // (614de33: 3 + 2 arrivals, 66 bumps.)
     expect(r.arrivals[1] + r.arrivals[2]).toBeGreaterThanOrEqual(6);
-    expect(r.meet).toBeLessThan(20);
+    expect(r.meet).toBeLessThanOrEqual(5);
   });
-  if (ENV.OFFSWEEP)
-    it("offline sweep", () => {
-      for (const k of [0, 1, 2])
-        for (const at of [20, 40, 60, 80]) {
-          const { q, R3 } = two();
-          const tr = R3.map((t, i) => (i === k ? { ...t, offAt: at } : t));
-          const r = scen(q, tr, [q.a, q.b], 300, cars);
-          console.log(`OFF k${k} at${at}: ${r.arrivals.join("/")} meet ${r.meet}`);
-        }
-    });
+  // (Each of the three taken off, at four times: 614de33 bumped 582 times over the twelve.)
+  it("a running train taken off the line, any of them, any time: few bumps", () => {
+    let bumps = 0;
+    for (const k of [0, 1, 2])
+      for (const at of [20, 40, 60, 80]) {
+        const { q, R3 } = two();
+        const tr = R3.map((t, i) => (i === k ? { ...t, offAt: at } : t));
+        const r = scen(q, tr, [q.a, q.b], 300, cars);
+        if (ENV.SHOW) console.log(`OFF k${k} at${at}: ${r.arrivals.join("/")} meet ${r.meet}`);
+        bumps += r.meet;
+        expect(r.released).toBe(0);
+      }
+    expect(bumps).toBeLessThan(40);
+  });
+  // QA's stopLine repro (j_last.js): 1 loop, 3 trains, the third held on the loop's side road. At 90 s the first
+  // train moving and not at a stop is taken off its line, lever left on; measured 90-300 s. 614de33: 0/8/10 arrivals,
+  // 21 head-ons; bdf33c1: 0/0/1, 27.
+  it("QA's stopLine repro: a running train taken off an over-full line: few bumps, the line keeps delivering", () => {
+    const { q, l } = one();
+    let off = -1;
+    const r = show(
+      "stopLine",
+      scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }, { p: l.side[1], next: 1, s: 100 }], [q.a, q.b], 300, cars, [
+        {
+          at: 90,
+          fn: (E) => {
+            const e = ENV.OFFE ? Number(ENV.OFFE) : E.find((x) => (q.sim.findCar(x)?.train.speed ?? 0) >= 1 && !q.economy.routeOf(x)?.at);
+            if (e !== undefined) {
+              off = e;
+              stopLine(q.economy, e);
+            }
+          },
+        },
+      ]),
+    );
+    const arr = r.E.map((e) => r.arrAt.filter((a) => a.e === e && a.t >= 90).length);
+    const meets = r.meets.filter((t) => t >= 90).length;
+    if (ENV.SHOW) console.log(`STOPLINE off e${off}: 90-300 s arrivals ${arr.join("/")} head-ons ${meets}`);
+    if (ENV.SHOW) for (const e of r.E) console.log(`STOPLINE e${e}`, [...(r.cardsOf.get(e) ?? [])].map(([c, n]) => `${c} x${n}`).join(" | "));
+    expect(off).toBeGreaterThan(0);
+    // (It runs where it likes; the line's trains keep out of its way, and it stops short of them and turns back, as it
+    // would on bumping them. The line still delivers; few bumps where 614de33 had 21.)
+    expect(arr.reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(6);
+    expect(meets).toBeLessThanOrEqual(5);
+    expect(r.released).toBe(0);
+  });
 });

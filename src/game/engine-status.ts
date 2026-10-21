@@ -21,7 +21,8 @@ export type TrainState =
   | { kind: "stopped" }
   /** Held at its stop a moment so its line's trains spread out (auto-spacing): `left` seconds at most, or not known. */
   | { kind: "spacing"; line: string; left: number | null }
-  /** Waiting in a passing loop or at a line end for a train of its line on the single track ahead (sections). */
+  /** Waiting in a passing loop or at a line end for a train of its line on the single track ahead (sections); `line`
+   * "": for a train not on its line. */
   | { kind: "line-wait"; line: string }
   /**
    * Held: its line has more trains than passing loops (lay `more` more for `trains` trains). `spare`: a train not on
@@ -91,6 +92,9 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
       // (One with room waiting a moment for a line-mate: just that, though the line be full.)
       const lineId = economy.lineIdOf.get(car.id);
       const line = lineId === undefined ? undefined : economy.lines.get(lineId);
+      // (Waiting on a train not on its line: say so; it isn't one of the line's.)
+      const other = w.kind === "section" || w.kind === "slot" || w.kind === "facing" ? w.engine : -1;
+      if (other >= 0 && economy.lineIdOf.get(other) !== lineId) return { kind: "line-wait", line: "" };
       return { kind: "line-wait", line: line?.name ?? "line" };
     }
   if (train.speed < 1) {
@@ -158,7 +162,7 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       // (A countdown, in whole seconds, where it's known: behind another train it waits for that one to go.)
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
     case "line-wait":
-      return `Waiting for the ${s.line} train`;
+      return s.line ? `Waiting for the ${s.line} train` : "Waiting: a train not on the line is in the way";
     case "needs-loop":
       if (s.spare) return `Waiting: ${SPARE_CUT}`;
       return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains`;

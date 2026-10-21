@@ -1,5 +1,5 @@
 import { getPieceDef, pathLength, type Layout } from "../track";
-import { ACCELERATION, CAR_SPECS, COUPLER_GAP, flipCursor, type Cursor, type Sim, type Train } from "../sim";
+import { ACCELERATION, ADV_OK, advanceCursor, CAR_SPECS, COUPLER_GAP, createAdvance, flipCursor, type Cursor, type Sim, type Train } from "../sim";
 import { distanceTo, next, SEARCH, waysFrom, wayToward, type AvoidTest } from "./steer";
 
 /**
@@ -384,6 +384,11 @@ interface LineInfo {
   foreign: readonly Train[];
   /** A loop of its line has a train not on the line standing on each road: only moving one helps (see `line`). */
   spareCut: boolean;
+  /**
+   * Where trains not on the line are running: the slots and sections they're in and the next ones ahead of them
+   * (any way at a switch), each with the train's first car. The line's trains keep out of these (see `zoneOf`).
+   */
+  zone: { slots: ReadonlyMap<number, number>; sections: ReadonlyMap<number, number> };
 }
 
 export class Sections {
@@ -407,6 +412,11 @@ export class Sections {
   /** Turns back short of a line end held by a train with no room (`deadEndCap`), and give-ways to a train put down facing. */
   turnedShort = 0;
   gaveWay = 0;
+  /** Trains on no line standing short of a train ahead (see `clearCap`): since when (tick); and turns back after. */
+  private readonly clearHeld = new Map<number, number>();
+  clearTurns = 0;
+  /** The last tick a line was managed (see `clearCap`). */
+  private managedTick = -Infinity;
   /** Moves given up for a train come to stand on their way (see `cutMoves`). */
   cut = 0;
   /** Waits broken (see `YIELD_S`): a ring of waits, or a wait on a train that won't move. */
@@ -450,7 +460,12 @@ export class Sections {
         break;
       }
     }
-    if (engine === -1) return Infinity;
+    // (A train on no line, running where a line is managed: it stops short of a train ahead of it, whatever train.)
+    if (engine === -1) {
+      // (Taken off its line: what it held, and why it waited, are forgotten.)
+      for (const car of train.cars) if (car.kind === "engine") this.states.delete(car.id);
+      return this.sim.ticks - this.managedTick <= 1 ? this.clearCap(train) : Infinity;
+    }
     const info = this.line(lineId);
     if (!info.managed) {
       this.states.delete(engine);
@@ -902,7 +917,7 @@ export class Sections {
     }
     // (Any other train standing or running there, on the line or not: its first car stands for it.)
     for (const t of info.foreign) if (t.bogies.some((b) => pieces.has(b.pieceId))) return t.cars[0].id;
-    return -1;
+    return info.zone.slots.get(slot) ?? -1;
   }
 
   /** The switch train `u` leaves loop road `slot` by. */
@@ -922,7 +937,7 @@ export class Sections {
       if (t && t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section)) return u;
     }
     for (const t of info.foreign) if (t.bogies.some((b) => info.topo.sectionOf.get(b.pieceId) === section)) return t.cars[0].id;
-    return -1;
+    return info.zone.sections.get(section) ?? -1;
   }
 
   /** Ask for the move on from its slot: true if granted (or nothing to ask). */
@@ -1294,13 +1309,110 @@ export class Sections {
       // Trains gone from the line give up what they held.
       for (const [e, st] of this.states) if (this.host.lineOf(e) === lineId && !engines.includes(e)) this.states.delete(st.engine);
     }
-    info = { engines, topo, loops, admitted, managed, blocked, more, foreign, spareCut };
+    const zone = { slots: new Map<number, number>(), sections: new Map<number, number>() };
+    if (managed) for (const t of foreign) if (t.speed >= 1) this.zoneOf(t, topo, zone);
+    info = { engines, topo, loops, admitted, managed, blocked, more, foreign, spareCut, zone };
     this.lineInfo.set(lineId, info);
     if (managed) {
+      this.managedTick = this.sim.ticks;
       if (this.sim.ticks % CHECK_TICKS === 0) this.unring(info);
       if (this.sim.ticks % 3 === 0) this.cutMoves(info);
     }
     return info;
+  }
+
+  /**
+   * The speed a train may run at to stop short of the nearest other train ahead of it (Infinity: none within its
+   * stopping distance). For trains on no line, where a line is managed: the line's trains keep out of its way, and it
+   * doesn't run into them while they do.
+   */
+  private clearCap(train: Train): number {
+    const net = this.host.drive(train);
+    if (net === 0 || train.turnback >= 0) return Infinity;
+    const c = this.front(train, net < 0);
+    const lead = net < 0 ? train.cars[train.cars.length - 1] : train.cars[0];
+    const gap = 2 * CAR_SPECS[lead.kind].bogieInset + COUPLER_GAP;
+    const look = (train.speed * train.speed) / (2 * ACCELERATION) + gap + 4 * CLEAR_STEP;
+    const others: Train[] = [];
+    for (const id of this.sim.trainIds()) {
+      const t = this.sim.getTrain(id);
+      if (t && t !== train && !t.derailed) others.push(t);
+    }
+    if (others.length === 0) return Infinity;
+    const held = this.clearHeld.get(train.id);
+    this.clearHeld.delete(train.id);
+    let walked = 0;
+    for (let k = 0; walked <= look; k++) {
+      if (k > 0) {
+        advanceCursor(this.layout, c, CLEAR_STEP, null, clearAdv);
+        walked += clearAdv.moved;
+      }
+      const len = lengthOfPath(this.layout, c.pieceId, c.pathIndex);
+      const g = c.reversed ? len - c.s : c.s;
+      for (const t of others)
+        for (const b of t.bogies) {
+          if (b.pieceId !== c.pieceId || b.pathIndex !== c.pathIndex) continue;
+          const gb = b.reversed ? len - b.s : b.s;
+          if (Math.abs(gb - g) <= CLEAR_STEP) {
+            const room = walked - gap;
+            // (Within a step of it: as good as there; the sim may hold it touching.)
+            if (room > CLEAR_STEP) return Math.sqrt(2 * ACCELERATION * (room - CLEAR_STEP));
+            // (Stood short of it a while: it turns back, as it would have on bumping it, but without the bump.)
+            const since = held ?? this.sim.ticks;
+            this.clearHeld.set(train.id, since);
+            if (train.speed < 1 && this.sim.ticks - since > CLEAR_TURN_S * 120 && this.sim.turnBack(train.id)) {
+              this.clearHeld.delete(train.id);
+              this.clearTurns++;
+            }
+            return 0;
+          }
+        }
+      if (k > 0 && (clearAdv.status !== ADV_OK || clearAdv.moved === 0)) return Infinity;
+    }
+    return Infinity;
+  }
+
+  /**
+   * A train not on the line, running: the slots and sections it's in, and those it may run into next (each way out of
+   * a switch it comes to, as the line can't tell where it's going), into `zone`.
+   */
+  private zoneOf(t: Train, topo: Topology, zone: { slots: Map<number, number>; sections: Map<number, number> }): void {
+    const { layout } = this;
+    const id = t.cars[0].id;
+    const mark = (pieceId: number): string => {
+      const sl = topo.slotOf.get(pieceId);
+      if (sl !== undefined) {
+        zone.slots.set(sl, id);
+        return `s${sl}`;
+      }
+      const sc = topo.sectionOf.get(pieceId);
+      if (sc !== undefined) {
+        zone.sections.set(sc, id);
+        return `c${sc}`;
+      }
+      return "";
+    };
+    const here = new Set<string>();
+    for (const b of t.bogies) here.add(mark(b.pieceId));
+    const net = this.host.drive(t);
+    if (net === 0) return;
+    const c = this.front(t, net < 0);
+    const piece = layout.getPiece(c.pieceId);
+    if (!piece) return;
+    const path = getPieceDef(piece.type, piece.flipped).paths[c.pathIndex];
+    // (On ahead into the next slot or section, and the one past that: far enough to stop for it.)
+    const todo: { pieceId: number; exit: number; depth: number; region: string }[] = [{ pieceId: c.pieceId, exit: c.reversed ? path.from : (path.to ?? -1), depth: 0, region: mark(c.pieceId) }];
+    const seen = new Set<number>();
+    for (let k = 0; k < SEARCH && todo.length; k++) {
+      const at = todo.pop()!;
+      const n = next(layout, at.pieceId, at.exit);
+      if (!n || seen.has(n.pieceId * 8 + n.entry)) continue;
+      seen.add(n.pieceId * 8 + n.entry);
+      const region = mark(n.pieceId);
+      const depth = region !== at.region && !here.has(region) ? at.depth + 1 : at.depth;
+      if (depth > 2) continue;
+      for (const w of waysFrom(layout, n.pieceId, n.entry, () => false)) todo.push({ pieceId: n.pieceId, exit: w.exit, depth, region });
+    }
   }
 
   /**
@@ -1323,7 +1435,8 @@ export class Sections {
       if (t && (t.speed < 1 || !info.admitted.has(e))) standing.push(t);
     }
     for (const t of info.foreign) if (t.speed < 1) standing.push(t);
-    if (standing.length === 0) return;
+    const zoned = info.zone.slots.size + info.zone.sections.size > 0;
+    if (standing.length === 0 && !zoned) return;
     for (const e of info.admitted) {
       const st = this.states.get(e);
       const m = st?.move;
@@ -1342,7 +1455,9 @@ export class Sections {
       for (let k = from; k < m.steps.length; k++) if (!mine.has(m.steps[k].pieceId)) ahead.add(m.steps[k].pieceId);
       if (m.dest >= 0) for (const p of st.topo.slots[m.dest]?.pieces ?? []) if (!mine.has(p)) ahead.add(p);
       if (ahead.size === 0) continue;
-      if (!standing.some((t) => t !== own && t.bogies.some((b) => ahead.has(b.pieceId)))) continue;
+      // (Or a train not on the line running into its way: the slot it's going to, or a section it holds.)
+      const intoZone = zoned && ((m.dest >= 0 && info.zone.slots.has(m.dest)) || m.sections.some((x) => info.zone.sections.has(x)) || m.through.some((x) => info.zone.slots.has(x)));
+      if (!intoZone && !standing.some((t) => t !== own && t.bogies.some((b) => ahead.has(b.pieceId)))) continue;
       st.move = null;
       st.askedAt = -Infinity;
       st.frontKey = -1;
@@ -1528,3 +1643,8 @@ export class Sections {
 }
 
 const EMPTY: ReadonlySet<number> = new Set();
+/** A train on no line stood this long (s) short of a train ahead turns back (see `clearCap`). */
+const CLEAR_TURN_S = 2;
+/** The step (mm) `clearCap` looks ahead by. */
+const CLEAR_STEP = 16;
+const clearAdv = createAdvance();

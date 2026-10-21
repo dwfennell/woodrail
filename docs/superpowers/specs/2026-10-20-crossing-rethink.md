@@ -279,3 +279,19 @@ occupancy from bogies (where trains' wheels are), not from predicted ways.
 - **Cost:** admission is worked out again every `CHECK_TICKS`, or at once when trains join or leave the line, or the
   set of trains not on it changes. Moves are checked for trains in their way every 3 ticks. Five trains, quiet
   machine: 0.050–0.056 ms a tick, against 0.047–0.050 on 614de33 and 0.055–0.062 on bdf33c1.
+
+## As built: a running train taken off its line
+
+- **Where it's running is taken.** A train not on the line, running, holds the slots and sections it's in and the next
+  ones ahead of it (every way out of a switch, as the line can't tell where it's going). The line's trains aren't
+  granted moves into those places, and a move it runs into is given up.
+- **It stops short of trains ahead of it, then turns back.** Where a line is managed, a train on no line stops short of
+  any train ahead of it. After 2 s standing, it turns back, as it would have on bumping into it, without the bump.
+- Its card is no longer taken from its old line, and a line train waiting on it says "Waiting: a train not on the line
+  is in the way".
+- QA's stopLine repro (1 loop, 3 trains, one taken off at 90 s, measured 90–300 s):
+  - 614de33: 0/8/10 arrivals, 21 head-ons;
+  - bdf33c1: 0/0/1, 27;
+  - 272ac6c: 3/0/4, 42;
+  - now: 3/0/5, 2.
+  Over twelve take-offs (each train, four times), 614de33 had 582 head-ons; now 13.
