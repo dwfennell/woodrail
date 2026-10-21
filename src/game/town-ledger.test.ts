@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildStarterWorld } from "./world";
 import { ledgerKey, townLedger, type LedgerContext } from "./town-ledger";
-import type { DepotState } from "../economy";
+import { capOf, CARGO, type DepotState } from "../economy";
+import { MARKET_BONUS } from "./landmarks";
 
-const ctx = (learned: string[] = [], room: number | null = null): LedgerContext => ({ learned: new Set(learned), room });
+const ctx = (learned: string[] = [], room: number | null = null, carried = 0): LedgerContext => ({ learned: new Set(learned), room, carried });
 
 /** The starter world and its first town's station depot. */
 function world() {
@@ -21,8 +22,9 @@ describe("the town ledger (Game mode's town card)", () => {
     expect([v.level, v.next, v.have, v.need]).toEqual(["Hamlet", "Village", 0, 4]);
     expect(v.goods).toEqual([{ kind: "planks", icon: "🪵", label: "Planks", have: 0, need: 4 }]);
     expect(v.holding).toBeNull();
+    expect(v.full).toEqual([]);
     expect(v.school).toBeNull();
-    expect(v.market).toBe(false);
+    expect(v.market).toBe(1);
     expect(v.station).toBeNull();
     expect(v.lines).toEqual([]);
   });
@@ -39,8 +41,9 @@ describe("the town ledger (Game mode's town card)", () => {
       ["flour", 5, 6],
     ]);
     expect([v.have, v.need]).toEqual([15, 20]);
-    // No mill on the starter map: flour is the first thing nothing makes.
-    expect(v.holding).toBe("Needs 🍞 flour: there's no mill yet");
+    // No mill on the starter map: flour is the first thing nothing makes. How to get one: learn Mills, then build one.
+    expect(v.holding).toBe("Needs 🍞 flour: there's no mill yet. Learn Mills at a school");
+    expect(townLedger(w, d, ctx(["mills"]))!.holding).toBe("Needs 🍞 flour: there's no mill yet. Build one from the tray");
   });
 
   it("its school (a college, a library wing as the town grows), the waiting people once passengers are learned, the lines that call", () => {
@@ -49,18 +52,27 @@ describe("the town ledger (Game mode's town card)", () => {
     expect(townLedger(w, d, ctx())!.school).toEqual({ depotId: school.id, name: `${town.name} school`, note: "a schoolhouse" });
     // A town: with College learned its school is a college; a city, and it has a library wing too.
     w.economy.delivered.set(town.id, 12);
-    expect(townLedger(w, d, ctx(["college"]))!.school).toEqual({ depotId: school.id, name: `${town.name} college`, note: "studies twice as fast" });
+    // (Named as its card is: the note says it's a college.)
+    expect(townLedger(w, d, ctx(["college"]))!.school).toEqual({ depotId: school.id, name: `${town.name} school`, note: "a college: learns 2× as fast" });
     w.economy.delivered.set(town.id, 26);
     w.economy.deliveredGoods.set(town.id, { flour: 6 });
-    expect(townLedger(w, d, ctx(["college"]))!.school).toEqual({ depotId: school.id, name: `${town.name} college`, note: "studies twice as fast · library wing" });
+    expect(townLedger(w, d, ctx(["college"]))!.school).toEqual({ depotId: school.id, name: `${town.name} school`, note: "a college: learns 2× as fast · library wing" });
     d.waiting = 3;
-    expect(townLedger(w, d, ctx([], 12))!.station).toEqual({ waiting: 3, room: 12 });
+    expect(townLedger(w, d, ctx([], 12, 40))!.station).toEqual({ waiting: 3, room: 12, carried: 40 });
     const other = w.economy.depotAtPiece(w.stations.get(w.landscape.towns[1].id)!)!;
     w.economy.lines.set(1, { id: 1, colour: "#c0392b", name: "Red line", stops: [{ depotId: d.id, action: "auto" }, { depotId: other.id, action: "auto" }] });
     w.economy.lines.set(2, { id: 2, colour: "#2f6db5", name: "Blue line", stops: [{ depotId: other.id, action: "auto" }] });
     w.economy.lineIdOf.set(101, 1);
     w.economy.lineIdOf.set(102, 1);
-    expect(townLedger(w, d, ctx())!.lines).toEqual([{ id: 1, name: "Red line", colour: "#c0392b", trains: 2 }]);
+    // The lines show once Train routes is learned (their chips open the Lines view, which needs it).
+    expect(townLedger(w, d, ctx())!.lines).toEqual([]);
+    expect(townLedger(w, d, ctx(["routes"]))!.lines).toEqual([{ id: 1, name: "Red line", colour: "#c0392b", trains: 2 }]);
+  });
+
+  it("says when a pile at the station is full (trains can't unload more of it)", () => {
+    const { w, d } = world();
+    d.piles[CARGO.planks.index] = capOf("town");
+    expect(townLedger(w, d, ctx())!.full).toEqual(["🪵 planks"]);
   });
 
   it("its key changes when anything it shows does, and only then", () => {
@@ -80,6 +92,9 @@ describe("the town ledger (Game mode's town card)", () => {
     d.waiting = 2;
     changed("someone waiting", key());
     changed("passengers learned", key(ctx(["passengers"], 6)));
+    changed("someone carried", key(ctx(["passengers"], 6, 1)));
+    d.piles[CARGO.planks.index] = 3;
+    changed("planks on the pile", key());
     w.economy.lines.set(1, { id: 1, colour: "#c0392b", name: "Red line", stops: [{ depotId: d.id, action: "auto" }] });
     changed("a line", key());
     w.economy.lines.get(1)!.name = "Timber run";
@@ -88,6 +103,6 @@ describe("the town ledger (Game mode's town card)", () => {
     changed("a train on it", key());
     town.buildings.push({ ...town.buildings[0], id: 9999, landmark: "market" });
     changed("a new building", key());
-    expect(townLedger(w, d, ctx())!.market).toBe(true);
+    expect(townLedger(w, d, ctx())!.market).toBe(MARKET_BONUS);
   });
 });

@@ -1,6 +1,8 @@
-import { CARGO, GOODS_ICON, RECIPES, type CargoKind, type DepotRole, type DepotState } from "../economy";
+import { capOf, CARGO, GOODS_ICON, RECIPES, type CargoKind, type DepotRole, type DepotState } from "../economy";
 import { kindsOf } from "../economy/goods";
-import { schoolGrade, townLandmarks } from "./landmarks";
+import { MARKET_BONUS, schoolGrade, townLandmarks } from "./landmarks";
+import { techOf } from "./tech";
+import { ruleOf, type ThingId } from "./things";
 import { receivedBy } from "./town-life";
 import { townLevel, townStatus } from "./towns";
 import { DEPOT_NAMES, depotName, type World } from "./world";
@@ -27,14 +29,17 @@ export interface TownLedger {
   have: number;
   need: number;
   goods: LedgerGood[];
-  /** A plain fact about what's holding it back (a good no industry on the map makes yet), or null. */
+  /** A plain fact about what's holding it back (a good no industry on the map makes yet, and how to get one), or null. */
   holding: string | null;
+  /** The goods whose pile at the station is full: trains can't unload more of them until the town uses some. */
+  full: string[];
   /** Its school, with how it's grown (a college, a library wing), or null. */
   school: { depotId: number; name: string; note: string } | null;
-  market: boolean;
-  /** People waiting at the station whose card is open, and its room (once Passengers is learned), or null. */
-  station: { waiting: number; room: number } | null;
-  /** The lines that call at the town, with how many trains run on each. */
+  /** What a market pays for deliveries, against a town without one (1: no market). */
+  market: number;
+  /** People waiting at the station whose card is open, its room, and the riders carried all game (once Passengers is learned), or null. */
+  station: { waiting: number; room: number; carried: number } | null;
+  /** The lines that call at the town, with how many trains run on each (once Train routes is learned). */
   lines: { id: number; name: string; colour: string; trains: number }[];
 }
 
@@ -43,11 +48,26 @@ export interface LedgerContext {
   learned: ReadonlySet<string>;
   /** Room at a station for waiting people, or null while passengers aren't learned. */
   room: number | null;
+  /** People carried by coach, all game. */
+  carried: number;
 }
 
 /** The industries that make each good (the first a player could build: no Sandbox loaders, warehouses or quays). */
 const MAKERS: Exclude<DepotRole, "town">[] = ["sawmill", "mill", "quarry", "foundry", "carpenter", "smithy", "mine", "farm", "forest"];
 const makerOf = (kind: CargoKind): Exclude<DepotRole, "town"> | undefined => MAKERS.find((r) => RECIPES[r].gives.includes(kind));
+
+/**
+ * How to get a good nothing on the map makes: build the industry that makes it, or first learn the blueprint for one
+ * (at a school).
+ */
+function howToGet(kind: CargoKind, learned: ReadonlySet<string>): string {
+  const maker = makerOf(kind);
+  if (!maker) return "nothing makes it yet";
+  const name = DEPOT_NAMES[maker].toLowerCase();
+  const tech = ruleOf(`piece:depot-${maker}` as ThingId)?.tech;
+  if (tech && !learned.has(tech)) return `there's no ${name} yet. Learn ${techOf(tech)?.label ?? tech} at a school`;
+  return `there's no ${name} yet. Build one from the tray`;
+}
 
 /** The town ledger for the town of depot `d` (its station or a halt). */
 export function townLedger(world: World, d: DepotState, ctx: LedgerContext): TownLedger | null {
@@ -60,19 +80,22 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
   // What's holding it back, plainly: a good it still needs that nothing on the map makes yet.
   const depots = world.economy.allDepots().filter((x) => world.layout.getPiece(x.pieceId));
   const missing = goods.find((g) => g.have < g.need && !depots.some((x) => RECIPES[x.role].gives.includes(g.kind) && x.role !== "warehouse" && x.role !== "harbour"));
-  const maker = missing && makerOf(missing.kind);
-  const holding = missing ? `Needs ${missing.icon} ${missing.label.toLowerCase()}: ${maker ? `there's no ${DEPOT_NAMES[maker].toLowerCase()} yet` : "nothing makes it yet"}` : null;
+  const holding = missing ? `Needs ${missing.icon} ${missing.label.toLowerCase()}: ${howToGet(missing.kind, ctx.learned)}` : null;
+  const cap = capOf("town");
+  const full = RECIPES.town.takes
+    .filter((k) => d.piles[CARGO[k].index] >= cap)
+    .map((k) => `${GOODS_ICON[k]} ${CARGO[k].label.toLowerCase()}`);
   const s = depots.find((x) => x.role === "school" && x.townId === town.id);
   let school: TownLedger["school"] = null;
   if (s) {
     const grade = schoolGrade(world, s, ctx.learned);
-    const name = grade.college ? `${town.name} college` : depotName(world, s);
-    const note = [grade.college ? "studies twice as fast" : "", grade.wing ? "library wing" : ""].filter(Boolean).join(" · ") || "a schoolhouse";
-    school = { depotId: s.id, name, note };
+    // (Named as its own card is titled; a college says so in its note.)
+    const note = [grade.college ? "a college: learns 2× as fast" : "", grade.wing ? "library wing" : ""].filter(Boolean).join(" · ") || "a schoolhouse";
+    school = { depotId: s.id, name: depotName(world, s), note };
   }
   const calls = (lineStops: readonly { depotId: number }[]) => lineStops.some((st) => world.economy.depot(st.depotId)?.role === "town" && world.economy.depot(st.depotId)?.townId === town.id);
   const lines = [...world.economy.lines.values()]
-    .filter((l) => calls(l.stops))
+    .filter((l) => ctx.learned.has("routes") && calls(l.stops))
     .map((l) => ({ id: l.id, name: l.name, colour: l.colour, trains: [...world.economy.lineIdOf.values()].filter((id) => id === l.id).length }));
   return {
     name: town.name,
@@ -82,9 +105,10 @@ export function townLedger(world: World, d: DepotState, ctx: LedgerContext): Tow
     need,
     goods,
     holding,
+    full,
     school,
-    market: townLandmarks(town).has("market"),
-    station: ctx.room === null ? null : { waiting: d.waiting, room: ctx.room },
+    market: townLandmarks(town).has("market") ? MARKET_BONUS : 1,
+    station: ctx.room === null ? null : { waiting: d.waiting, room: ctx.room, carried: ctx.carried },
     lines,
   };
 }
@@ -114,7 +138,9 @@ export function ledgerKey(world: World, d: DepotState, ctx: LedgerContext): numb
   h = mix(h, world.layout.piecesVersion);
   h = mix(h, ctx.learned.size);
   h = mix(h, ctx.room ?? -1);
+  h = mix(h, ctx.carried);
   h = mix(h, d.waiting);
+  for (let i = 0; i < d.piles.length; i++) h = mix(h, d.piles[i]);
   for (const l of world.economy.lines.values()) {
     h = mix(h, l.id);
     h = mixText(h, l.name);

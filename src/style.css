@@ -230,6 +230,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .card { max-height: calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 151px - max(10px, env(safe-area-inset-top)) - 116px); overflow-y: auto; overscroll-behavior: contain; }
   .card > * { flex-shrink: 0; }
   .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
+  /* (The ledger's own limit is as specific, and later: lift it too, or its rows spill out under the switches.) The
+     switches stay in view at the card's foot while the ledger scrolls by above them. */
+  .card .depot-extra.ledger { max-height: none; }
+  .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: #faf3e6; }
 }
 @media (max-width: 400px) {
   .brand:has(.coins:not([hidden])) .brand-block { display: none; }
@@ -246,6 +250,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .card, .card.piece-card.group { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; top: calc(max(10px, env(safe-area-inset-top)) + 56px); bottom: auto; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 149px); overflow-y: auto; overscroll-behavior: contain; }
   .card > * { flex-shrink: 0; }
   .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
+  /* (The ledger's own limit is as specific, and later: lift it too, or its rows spill out under the switches.) The
+     switches stay in view at the card's foot while the ledger scrolls by above them. */
+  .card .depot-extra.ledger { max-height: none; }
+  .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: #faf3e6; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
 }
 
@@ -523,7 +531,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ledger-row-note { font-weight: 700; color: #6b5440; text-align: right; }
 .ledger-lines { display: flex; flex-wrap: wrap; gap: 6px; }
 .ledger-line { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: none; border-radius: 999px; background: #f3e1b6; font: inherit; font-size: 13px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
-.ledger-line-dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px rgba(0, 0, 0, 0.15); }
+.ledger-line-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(58, 42, 28, 0.45); }
 .ledger-pay { margin: 0; font-size: 12px; line-height: 1.4; color: #6b5440; }
 .make-now { font-size: 13px; font-weight: 700; color: #6a5340; text-align: center; }
 .make-now .bar { display: block; height: 6px; margin-top: 4px; border-radius: 3px; background: #e7d6b8; overflow: hidden; }

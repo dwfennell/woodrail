@@ -1784,9 +1784,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   // A town's card (Game mode): its ledger (src/game/town-ledger.ts), drawn again only when its key changes. Its station
   // row says who is waiting for a coach.
-  const ledgerContext: LedgerContext = { learned: progress.learned, room: null };
+  const ledgerContext: LedgerContext = { learned: progress.learned, room: null, carried: 0 };
   const ledgerOf = (): LedgerContext => {
     ledgerContext.learned = progress.learned;
+    ledgerContext.carried = progress.riders;
     ledgerContext.room = progress.learned.has("passengers") ? waitingCap(progress) : null;
     return ledgerContext;
   };
