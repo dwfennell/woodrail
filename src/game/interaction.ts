@@ -293,6 +293,8 @@ type Mode =
       kind: "drag-prop";
       pointerId: number;
       asset: string;
+      /** Carried (clicked in the tray, see `carriedThing`): why it can't go isn't said as the mouse passes, only on a click. */
+      quiet?: boolean;
       /** Prop being moved, or −1 for a new one from the tray. */
       propId: number;
       /** Where a moved prop stood (to put it back). */
@@ -543,7 +545,8 @@ export class Interaction {
     this.hidePreview();
     this.cancel();
     // Something else taken from the tray: the ready piece is put away (a piece dragged out is ready once placed).
-    if ((this.armed && trayKey(this.armed) !== trayKey(item)) || this.roadReady) this.arm(null);
+    if ((this.armed && trayKey(this.armed) !== trayKey(item)) || this.roadReady || (this.carriedThing && trayKey(this.carriedThing.item) !== trayKey(item))) this.arm(null);
+    if (this.carriedThing) this.showCarriedThing(null);
     this.clearSelection();
     // The last piece's card would cover the bottom of the view, where this one may be going.
     this.hud.hideCards();
@@ -688,6 +691,8 @@ export class Interaction {
   private drawHinted = false;
 
   arm(item: TrayItem | null): void {
+    // (A carried model or train is put away by anything made ready, or by nothing: see `carriedThing`.)
+    this.dropCarriedThing();
     // A road is laid where the map is clicked (see `readyRoad`); anything else puts a ready road away.
     if (item?.kind === "road") {
       this.readyRoad(item);
@@ -768,14 +773,104 @@ export class Interaction {
   /** A right button pressed on the map while carrying: let go without moving, it puts the carried piece away. */
   private rightDown: { id: number; x: number; y: number } | null = null;
 
+  /**
+   * A model or a train carried (clicked in the tray, as a piece is: see `carried`): its ghost, worked out by its drag's
+   * own `updateDrag` as the mouse moves; each click on the map takes one from the tray and puts it down there, as a drag
+   * out of the tray would (Game mode: made on the spot, or refused saying why).
+   */
+  private carriedThing: { item: Extract<TrayItem, { kind: "prop" | "train" }>; m: Extract<Mode, { kind: "drag-prop" | "drag-train" }> } | null = null;
+
+  /** Is anything carried (a piece, a model or a train)? */
+  private get carrying(): boolean {
+    return this.carried || this.carriedThing !== null;
+  }
+
   /** Is this tray item carried (clicked in the tray: see `carried`)? */
   isCarried(item: TrayItem): boolean {
+    if (this.carriedThing) return trayKey(this.carriedThing.item) === trayKey(item);
     return this.carried && this.isArmed(item);
+  }
+
+  /** The carried model or train put away: its ghost (and a model's outline) gone, unmarked in the tray. */
+  private dropCarriedThing(): void {
+    const c = this.carriedThing;
+    if (!c) return;
+    this.carriedThing = null;
+    this.carryAt = null;
+    this.game.scene.remove(c.m.ghost);
+    if (c.m.kind === "drag-train") disposeObject(c.m.ghost);
+    else this.propOutline.hide();
+    this.game.invalidate();
+    this.onArmed?.(null);
+  }
+
+  /** A model or train's carried ghost, as its drag out of the tray starts it (turned as the tray says). */
+  private carriedDrag(item: Extract<TrayItem, { kind: "prop" | "train" }>): Extract<Mode, { kind: "drag-prop" | "drag-train" }> {
+    if (item.kind === "prop") return { ...this.propDrag(item.asset, -1, -3, this.nextPropHeading(), null, { x: 0, z: 0 }), quiet: true };
+    const cars = item.cars.map((kind, i) => ({ kind, facing: 1 as const, lever: 0 as const, look: item.looks?.[i] ?? ("classic" as const) }));
+    const ghost = this.trainGhost(cars);
+    ghost.visible = false;
+    this.game.scene.add(ghost);
+    return { kind: "drag-train", pointerId: -3, cars, origin: null, ghost, target: null, overTray: true };
+  }
+
+  /** The carried model or train shown where the mouse is (x, y), as its drag would hold it there; or hidden (null). */
+  private showCarriedThing(at: { x: number; y: number } | null): void {
+    const c = this.carriedThing;
+    if (!c || this.mode.kind !== "idle") return;
+    if (!at) {
+      if (!c.m.ghost.visible) return;
+      c.m.ghost.visible = false;
+      if (c.m.kind === "drag-prop") this.propOutline.hide();
+      this.game.invalidate();
+      return;
+    }
+    const touch = this.lastPointerWasTouch;
+    this.lastPointerWasTouch = false;
+    this.mode = c.m;
+    this.updateDrag(at.x, at.y);
+    this.mode = { kind: "idle" };
+    this.lastPointerWasTouch = touch;
+    this.game.director.setEdgePointer(null);
+    this.game.moveShadows();
+    this.game.invalidate();
+  }
+
+  /**
+   * A click on the map with a model or train carried: one taken from the tray and put down there, as if dragged out
+   * and let go (Game mode: made on the spot, or refused saying why, which puts it away). The next follows the mouse.
+   */
+  private placeCarriedThing(x: number, y: number): void {
+    const c = this.carriedThing;
+    if (!c) return;
+    if (this.trayAllowed && !this.trayAllowed(c.item)) {
+      this.arm(null);
+      return;
+    }
+    c.m.ghost.visible = false;
+    this.startTrayDrag(c.item, { pointerId: -1 } as PointerEvent);
+    const m = this.mode;
+    if (m.kind !== "drag-prop" && m.kind !== "drag-train") return;
+    const touch = this.lastPointerWasTouch;
+    this.lastPointerWasTouch = false;
+    this.updateDrag(x, y);
+    this.lastPointerWasTouch = touch;
+    m.overTray = false;
+    if (m.kind === "drag-prop") this.dropProp(m);
+    else this.dropTrain(m);
+    // (Carried, what's put down isn't selected, nor its card opened: the next goes down with the next click.)
+    if (this.carriedThing) {
+      this.clearSelection();
+      this.hud.hideCards();
+      // A model comes out turned as the last one went down.
+      if (c.m.kind === "drag-prop") c.m.heading = this.nextPropHeading();
+      this.showCarriedThing({ x, y });
+    }
   }
 
   /** A tray item clicked with a mouse or pen: a piece is carried (or put away, if it was); a road is made ready. */
   carryTrayItem(item: TrayItem): void {
-    if (item.kind !== "piece") {
+    if (item.kind !== "piece" && item.kind !== "prop" && item.kind !== "train") {
       this.tapTrayPiece(item);
       return;
     }
@@ -788,8 +883,13 @@ export class Interaction {
     this.arm(null);
     this.clearSelection();
     this.hud.hideCards();
-    this.arm(item);
-    this.carried = true;
+    if (item.kind === "piece") {
+      this.arm(item);
+      this.carried = true;
+    } else {
+      this.carriedThing = { item, m: this.carriedDrag(item) };
+      this.onArmed?.(item);
+    }
     if (!this.carryHinted) {
       this.carryHinted = true;
       this.hud.toast("Click to place · Esc to stop", false, 3200);
@@ -976,7 +1076,15 @@ export class Interaction {
     // (A kit piece from a models shelf, in hand or ready, turns as a piece: the shelf's own Turn is for models.)
     if ((props && !this.holdingKit) || this.mode.kind === "drag-prop") {
       if (this.mode.kind === "drag-prop") this.rotateSelected();
-      else this.propHeading = this.nextPropHeading() + Math.PI / 4;
+      else {
+        this.propHeading = this.nextPropHeading() + Math.PI / 4;
+        // (Carried, its ghost turns where it is.)
+        const c = this.carriedThing;
+        if (c?.m.kind === "drag-prop") {
+          c.m.heading = this.propHeading;
+          if (this.carryAt) this.showCarriedThing(this.carryAt);
+        }
+      }
       return;
     }
     const holding = this.mode.kind === "drag-piece";
@@ -1070,7 +1178,7 @@ export class Interaction {
     }
     if (this.mode.kind !== "idle") return;
     // Carrying, a right-click puts the piece away (a right-drag still turns the view: see `onUp`).
-    if (this.carried && e.pointerType === "mouse" && e.button === 2) this.rightDown = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    if (this.carrying && e.pointerType === "mouse" && e.button === 2) this.rightDown = { id: e.pointerId, x: e.clientX, y: e.clientY };
     if (e.pointerType === "mouse" && e.button !== 0) return;
     // Finish any settle/turn first: animating pieces are hidden from picking until their stand-in is done.
     this.game.flourishes.clear();
@@ -1090,8 +1198,8 @@ export class Interaction {
       this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, road: true };
       return;
     }
-    // A carried piece: a click puts one down there (handled as a floor tap, so a drag still pans).
-    if (this.carried && this.touches.size <= 1) {
+    // A carried piece (model, train): a click puts one down there (handled as a floor tap, so a drag still pans).
+    if (this.carrying && this.touches.size <= 1) {
       this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, carry: true };
       return;
     }
@@ -1239,9 +1347,10 @@ export class Interaction {
     }
     // A carried piece's ghost follows the mouse over the map (not while the camera's being dragged), worked out as a
     // held piece is: the same path as a drag's moves.
-    if (m.kind === "idle" && this.carried && e.pointerType !== "touch" && !this.floorDown) {
+    if (m.kind === "idle" && this.carrying && e.pointerType !== "touch" && !this.floorDown) {
       this.carryAt = e.target === this.game.canvas ? { x: e.clientX, y: e.clientY } : null;
-      if (this.carryAt) this.showPreview(e.clientX, e.clientY);
+      if (this.carriedThing) this.showCarriedThing(this.carryAt);
+      else if (this.carryAt) this.showPreview(e.clientX, e.clientY);
       else if (this.preview?.ghost.visible) {
         this.preview.ghost.visible = false;
         this.game.invalidate();
@@ -1589,7 +1698,7 @@ export class Interaction {
     const right = this.rightDown;
     if (right && right.id === e.pointerId) {
       this.rightDown = null;
-      if (this.carried && Math.hypot(e.clientX - right.x, e.clientY - right.y) < dragSlop(e.pointerType)) this.arm(null);
+      if (this.carrying && Math.hypot(e.clientX - right.x, e.clientY - right.y) < dragSlop(e.pointerType)) this.arm(null);
     }
     const f = this.floorDown;
     if (f && f.id === e.pointerId) {
@@ -1610,6 +1719,11 @@ export class Interaction {
           this.roads.update(r.drag, this.squareAt(e.clientX, e.clientY), false);
           this.roads.drop(r.drag, false);
           r.drag = this.roads.begin(r.item.piece, r.drag.held, r.item.auto);
+          this.lastTap = null;
+          return;
+        }
+        if (f.carry && this.carriedThing) {
+          this.placeCarriedThing(e.clientX, e.clientY);
           this.lastTap = null;
           return;
         }
@@ -2214,6 +2328,10 @@ export class Interaction {
     }
     if (this.carried && this.mode.kind === "idle") {
       this.turnTrayPiece();
+      return;
+    }
+    if (this.carriedThing?.m.kind === "drag-prop" && this.mode.kind === "idle") {
+      this.turnTrayPiece(true);
       return;
     }
     if (this.mode.kind === "drag-piece") {
@@ -3977,7 +4095,7 @@ export class Interaction {
         m.town.told.add(said);
         this.hud.toast(said);
       }
-    } else if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(this.propMessage(blocked));
+    } else if (blocked && blocked !== m.blocked && !m.overTray && !m.quiet) this.hud.toast(this.propMessage(blocked));
     m.blocked = blocked;
     m.pose = { ...pose, y: ground };
     m.ghost.visible = !m.overTray;

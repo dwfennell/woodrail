@@ -648,12 +648,22 @@ export class Hud {
       } else {
         // A crossing's style (barriers, gates) only goes on a level crossing: it says it needs a road.
         // A tap says so too, since a phone never shows a title.
+        // Clicked (a mouse or pen), a model or train is carried, as a piece is: each click on the map puts one down.
         const crossing = item.kind === "prop" && crossingStyleOf(item.asset);
-        const tip = crossing ? `${item.label}: goes where track crosses a road` : `Drag onto the floor: ${item.label}`;
+        const tip = crossing ? `${item.label}: goes where track crosses a road` : `Drag onto the map, or click then click the map: ${item.label}`;
+        const key = trayKey(item);
+        b.dataset.key = key;
+        b.classList.toggle("armed", this.armedKey === key);
         b.title = tip;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: crossing ? () => this.toast(tip) : undefined });
+          this.trayPress(e, scroller, {
+            pick: (move) => this.handlers.trayPointerDown(item, move),
+            tap: (up) => {
+              if (up.pointerType !== "touch") this.handlers.trayTap(item, up.pointerType);
+              else if (crossing) this.toast(tip);
+            },
+          });
         });
       }
       if (openDef?.favourites && canFavourite(item)) {

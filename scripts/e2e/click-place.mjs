@@ -1,4 +1,4 @@
-// End-to-end click-to-place on a desktop (`npm run e2e:click`): a tray piece clicked with the mouse is carried, its
+// End-to-end click-to-place on a desktop (`npm run e2e:click`): a tray piece (a model, a train) clicked with the mouse is carried, its
 // ghost following the mouse over the map; each click puts one down there (joined to a track end it's shown at), ready
 // for the next; a drag still pans, the wheel still zooms; R turns it; Esc, a right-click or the tray item again put it
 // away. On touch a tap in the tray carries nothing (as before). Starts its own dev server on any free port. Chromium as
@@ -229,6 +229,88 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   }, spot);
   check("a mouse move while carrying costs a few ms at most", ms < 8, `${ms.toFixed(2)} ms a move (headless, software GL)`);
   await p.keyboard.press("Escape");
+  await ctx.close();
+}
+
+// ---- a model and a train, carried as a piece is ----
+{
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+  const p = await sandbox(ctx);
+  const thing = () => p.evaluate(() => { const c = window.woodrail.interaction.carriedThing; return c ? { kind: c.m.kind, visible: c.m.ghost.visible, blocked: c.m.blocked ?? null, target: c.m.target === undefined ? undefined : !!c.m.target, heading: c.m.heading } : null; });
+  /** Click a tray tab by its label (a real click: tabs and shelves open on a pointer press). */
+  const tab = async (label) => {
+    await p.evaluate((label) => [...document.querySelectorAll(".tray .tabs .tab")].find((b) => b.textContent.trim() === label).click(), label);
+    await frames(p);
+  };
+  /** The first tray item whose key starts so, opening a shelf for it if need be. */
+  const itemOf = async (prefix) => {
+    const find = () => p.evaluate((prefix) => { const e = document.querySelector(`.scroller .tray-item[data-key^="${prefix}"]`); if (!e) return null; e.scrollIntoView({ inline: "center" }); const q = e.getBoundingClientRect(); return { x: q.x + q.width / 2, y: q.y + q.height / 2, key: e.dataset.key }; }, prefix);
+    const press = async (sel, k = 0) => {
+      const r = await p.evaluate(([sel, k]) => { const e = document.querySelectorAll(sel)[k]; if (!e) return null; e.scrollIntoView({ inline: "center" }); const q = e.getBoundingClientRect(); return [q.x + q.width / 2, q.y + q.height / 2]; }, [sel, k]);
+      if (r) await p.mouse.click(r[0], r[1]);
+      await frames(p);
+      return !!r;
+    };
+    // Among the favourites, else on each shelf in turn (Back between them).
+    for (let k = 0; k < 12; k++) {
+      const r = await find();
+      if (r) return r;
+      if (await p.evaluate(() => !!document.querySelector(".scroller .tray-back"))) await press(".scroller .tray-back");
+      if (!(await press(".scroller .tray-group", k))) return null;
+    }
+    return null;
+  };
+
+  // A model: from the first models tab.
+  const propTab = await p.evaluate(() => [...document.querySelectorAll(".tray .tabs button, .tray .tabs .tab")].map((t) => t.textContent.trim()).find((l) => !["Track", "Trains", "Roads", "Land", "Industries"].includes(l)));
+  await tab(propTab);
+  const model = await itemOf("prop:");
+  await p.mouse.click(model.x, model.y);
+  check("a click on a model in the tray carries it (marked)", (await thing())?.kind === "drag-prop" && (await marked(p, model.key)), `${propTab}: ${model.key}`);
+  const props = () => p.evaluate(() => [...window.woodrail.props.all()].length);
+  let spot = null;
+  for (const q of await openPoints(p)) {
+    await p.mouse.move(q[0], q[1], { steps: 2 });
+    const t = await thing();
+    if (t?.visible && !t.blocked) {
+      spot = q;
+      break;
+    }
+  }
+  const p0 = await props();
+  await p.mouse.click(spot[0], spot[1]);
+  await frames(p);
+  check("its ghost follows the mouse, and a click puts one down, still carried (no card opened)", (await props()) === p0 + 1 && (await thing())?.kind === "drag-prop" && (await p.evaluate(() => [...document.querySelectorAll(".card")].every((c) => c.hidden))), `models ${p0} → ${await props()}`);
+  const t0 = (await thing())?.heading;
+  await p.keyboard.press("r");
+  const t1 = (await thing())?.heading;
+  check("R turns the carried model", typeof t0 === "number" && Math.abs(Math.abs(t1 - t0) - Math.PI / 4) < 1e-6, `${t0?.toFixed?.(3)} → ${t1?.toFixed?.(3)}`);
+  await p.keyboard.press("Escape");
+  check("Esc puts it away (its ghost gone)", !(await thing()) && !(await marked(p, model.key)) && (await p.evaluate(() => !window.woodrail.interaction.propOutline.line.visible)));
+
+  // A train (an engine: a whole train may not fit a station's track): from the Trains tab, onto a station's track.
+  await tab("Trains");
+  const train = await itemOf("train:Engine");
+  await p.mouse.click(train.x, train.y);
+  check("a click on a train in the tray carries it", (await thing())?.kind === "drag-train" && (await marked(p, train.key)), train.key);
+  const onTrack = await p.evaluate(() => {
+    const w = window.woodrail;
+    const id = [...w.stations.values()][0];
+    const q = w.layout.getPiece(id);
+    const v = new w.camera.position.constructor(q.pose.x, q.y + 10, q.pose.z).project(w.camera);
+    const r = w.canvas.getBoundingClientRect();
+    return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+  });
+  await p.mouse.move(onTrack[0], onTrack[1], { steps: 4 });
+  const g = await thing();
+  const trains = () => p.evaluate(() => [...window.woodrail.sim.trainIds()].length);
+  const n0 = await trains();
+  await p.mouse.click(onTrack[0], onTrack[1]);
+  await frames(p);
+  const n1 = await trains();
+  check("over track its ghost sits on it, and a click puts the train down there, still carried", g?.visible && g.target === true && n1 === n0 + 1 && (await thing())?.kind === "drag-train", `ghost ${JSON.stringify(g)}; trains ${n0} → ${n1}; said ${await p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | "))}`);
+  await p.mouse.click(onTrack[0], onTrack[1], { button: "right" });
+  check("a right-click puts it away", !(await thing()) && !(await marked(p, train.key)));
   await ctx.close();
 }
 
