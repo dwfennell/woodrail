@@ -159,8 +159,8 @@ await shot("03-ready-card");
 // 4. Research Switches with one tap, then Bridges up next.
 await tap(".board-sheet button[data-act=pick]", "Research");
 t = await ticket();
-check("one tap: Switches is researching, live progress, no button", t?.state === "researching" && t.buttons.length === 0 && /🪵 0\/4/.test(t.foot) && /bring 4🪵 to/.test(t.foot), JSON.stringify(t));
-check("the pill shows it", (await pill()) === "📘 Switches 0/4🪵", String(await pill()));
+check("one tap: Switches is researching, live progress, no button", t?.state === "researching" && t.buttons.length === 0 && /🪵 0\/3/.test(t.foot) && /bring 3🪵 to/.test(t.foot), JSON.stringify(t));
+check("the pill shows it", (await pill()) === "📘 Switches 0/3🪵", String(await pill()));
 await shot("04-picked-research");
 await select("Bridges and ramps");
 t = await ticket();
@@ -186,10 +186,10 @@ const deliver = (n) =>
   }, n);
 const before = await pill();
 await shot("06-pill-before-delivery");
-await deliver(3);
+await deliver(2);
 await p.waitForTimeout(300);
 const after = await pill();
-check("a delivery moves the pill", before === "📘 Switches 0/4🪵" && after === "📘 Switches 3/4🪵", `${before} → ${after}`);
+check("a delivery moves the pill", before === "📘 Switches 0/3🪵" && after === "📘 Switches 2/3🪵", `${before} → ${after}`);
 await shot("07-pill-after-delivery");
 await deliver(1);
 await p.waitForTimeout(1300);

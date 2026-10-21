@@ -70,7 +70,7 @@ And later: "I think the research building should be placed near a town though, m
 
   | Tier | Examples (goods; coins from tier 2 only; as tuned in P5, §5) |
   | --- | --- |
-  | 1 | Switches 4🪵 · Signals 4🪵 · Bridges 10🪵 · Farming 6🪵 · Passengers 6🪵 |
+  | 1 | Switches 3🪵 (QA P5: one pass of the starting flatbeds) · Signals 4🪵 · Bridges 10🪵 · Farming 6🪵 · Passengers 6🪵 |
   | 2 | Mills 6🪵 6🌾 40🪙 · Routes 5🪵 40🪙 · Goods engine 6🪵 6🍞 80🪙 · Diesel 7🪵 8🍞 120🪙 |
   | 3 | Quarries 8🪵 6🍞 80🪙 · Mines 6🪵 10🪨 160🪙 · Foundry 10🪨 10⚫ 240🪙 · Electricity 10🔩 10⚫ 240🪙 |
 
@@ -121,7 +121,7 @@ And later: "I think the research building should be placed near a town though, m
   1. deliver planks
   2. grow a village (its present is a school)
   3. **Place a school by a town**
-  4. **Research switches** (hint: "Pick Switches, then bring 4 planks to the school")
+  4. **Research switches** (hint: "Pick Switches, then bring 3 planks to the school")
   5. place your workshop
   6. **make a switch** (QA P4: was "bring it planks", which stalled: the workshop keeps planks only for an order, so
      the switch is ordered on its card first, and trains then bring its planks; the goal ticks once it's made)

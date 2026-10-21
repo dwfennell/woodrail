@@ -44,7 +44,7 @@ describe("a card's chips", () => {
 
   it("a ready card: Research when idle, else Next up; the one up next swaps with Research now", () => {
     const p = Progress.fresh();
-    expect(researchCard(p, "switches", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/4" }], study: "20 s study", action: "Research" });
+    expect(researchCard(p, "switches", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/3" }], study: "20 s study", action: "Research" });
     pick(p, "switches");
     expect(researchCard(p, "bridges", SCHOOL)).toEqual({ chips: [{ text: "🪵 0/10" }], study: "20 s study", action: "Next up" });
     pick(p, "bridges");
@@ -199,8 +199,8 @@ describe("the school's card", () => {
     const k0 = schoolCardKey(p);
     pick(p, "switches");
     expect(schoolCardKey(p)).not.toBe(k0);
-    deliver(p, "planks", 3);
-    expect(schoolCard(p)).toEqual({ piles: [{ label: "🪵", count: 3, cap: 4 }], note: "Researching Switches" });
+    deliver(p, "planks", 2);
+    expect(schoolCard(p)).toEqual({ piles: [{ label: "🪵", count: 2, cap: 3 }], note: "Researching Switches" });
     const k1 = schoolCardKey(p);
     expect(schoolCardKey(p)).toBe(k1);
     deliver(p, "planks", 1);

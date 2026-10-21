@@ -399,7 +399,7 @@ export const GOALS: readonly Goal[] = [
     blueprint: "switches",
     ring: "depot-school",
     title: "Research switches",
-    hint: "Pick Switches, then bring 4 planks to the school.",
+    hint: "Pick Switches, then bring 3 planks to the school.",
     check: (w, ctx = NO_CONTEXT) => ({ done: ctx.learned.has("switches"), ...(ctx.learned.has("switches") || schools(w).length > 0 ? {} : { hint: "Place your school beside a town (Industries tab)." }) }),
     guide: guideSchool,
   },
