@@ -216,23 +216,46 @@ rings it.
 
 ### The harness (`src/play/balance.test.ts`)
 
-- **Rule** (`restoreOld`): once Farming is learned, the standing farm ruin nearest the line, if within
-  `RUIN_REACH` (1500 mm, `BALANCE_RUIN_REACH`) and cheaper than new (it always is, unless a farm yard is in the toy
-  box): the line is run on from one of its ends to the stub (`extend` to the stub's free connectors), then restored as
-  the card does it (`restoreRuin` with `gamePayment`). It waits while it can't be paid for. If the line can't reach it,
-  or it's too far, the ruin is passed over for the game and a new farm yard is built as before. `BALANCE_NORUINS=1`
-  never restores.
-- **The step 1 workaround** (a new farm yard sited by the map's own fields, not the ruin's) is kept, now only as the
-  fallback. Restoring fixes what it worked round: the restored farm yard is the line's end (the stub joined to a line
-  end, its other end capped or the mill after it), on the train's way, not a branch off a switch that the unrouted
-  train never took. The fallback still can't use the ruin's fields: a new farm yard by them would stand on the ruin's
-  yard or beside it, on a branch.
+- **Rule** (`restoreOld`): once Farming is learned, the standing farm ruin nearest the line, if it's within
+  `RUIN_REACH` (1500 mm, `BALANCE_RUIN_REACH`) and cheaper than a new one (it always is, unless a farm yard is in the
+  toy box already): the line is run on from one of its ends to the stub (`extend` to the stub's free connectors), then
+  restored as the card does it (`restoreRuin` with `gamePayment`). It waits while it can't be paid for. If the line
+  can't be run to it from a line end, a new farm yard is built that same minute, as without ruins (waiting for the ruin
+  held the farm back 10 minutes and moved every seed's figures); it's tried again 5 minutes on while there's still no
+  farm. `BALANCE_NORUINS=1` never restores; `BALANCE_RUIN_TRACE=1` logs each line end's try.
+- **The step 1 workaround** (a new farm yard sited by the map's own fields, not the ruin's) stays, as the fallback, and
+  isn't fixed: restoring needs the line to reach the stub from a line end, and on the starter line it can't when the
+  farm is wanted (below). The other way to the ruin is a branch off a switch on the line, and that's exactly what
+  stalled step 1: before Routes the goods train runs end to end through the switches as they're set and never takes a
+  branch, so no grain reaches the school for Mills. A farm yard built new by the ruin's fields would be on such a branch
+  too, beside the ruin's yard.
 - The goal the harness works on skips "Open a farm" (the farm comes by its own rule), so the other goals come as they
   did.
 
 ### Balance (180 min, 1 train a line; `BALANCE=1`, seeds 2027, 1–6, 9, 10)
 
-Without ruins (`BALANCE_NORUINS=1`): identical to step 1 and main.
+On the branch as pushed (merged with main, which since step 1 made the mill 400 coins, switches 3 planks and the
+workshop's yard keep fewer planks): **all 9 seeds pass, and the figures with and without ruins are identical.** Farming
+now comes at minute 14–23, when the line's ends are the forest yard's (east) and Thimble Cross's (north); from both the
+track layer is boxed in short of the old farm's stub (towns, fields and the ruin's own yard in the way: `boxed-in`
+after 22–40 pieces, trace on seed 2027), so the harness builds a new farm yard as before.
+
+| seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/60/180 | researched | farm | bands |
+|---|---|---|---|---|---|---|---|---|---|
+| 2027 | 4.4 | 62 | - | 12.1 | 12.0 | 296/119/968 | 14 | 29.0 new | pass |
+| 1 | 4.4 | 61 | 160 | 8.1 | 22.1 | 78/49/1287 | 15 | 25.0 new | pass |
+| 2 | 4.4 | 73 | 169 | 7.2 | 18.7 | 48/224/918 | 15 | 25.0 new | pass |
+| 3 | 4.4 | 80 | 179 | 7.2 | 37.2 | 326/754/1335 | 14 | 33.0 new | pass |
+| 4 | 4.4 | 80 | 164 | 9.3 | 22.4 | 296/737/1162 | 14 | 33.0 new | pass |
+| 5 | 4.4 | 73 | 172 | 10.1 | 18.1 | 48/350/1003 | 15 | 25.0 new | pass |
+| 6 | 4.4 | 67 | 141 | 7.8 | 16.6 | 326/43/1650 | 17 | 23.0 new | pass |
+| 9 | 4.4 | 69 | 168 | 9.4 | 18.6 | 296/6/996 | 14 | 23.0 new | pass |
+| 10 | 4.4 | 82 | 179 | 6.5 | 18.3 | 78/782/1606 | 14 | 25.0 new | pass |
+
+(With ruins: the same table, row for row.)
+
+**What restoring does when the line can reach it**, measured on step 1's main (before the merge), where Farming came at
+minute 16–24 and the line reached the ruin from an end on 5 seeds. Without ruins (identical to step 1):
 
 | seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/60/180 | researched | farm | bands |
 |---|---|---|---|---|---|---|---|---|---|
@@ -260,19 +283,12 @@ With ruins (`RESTORE_SHARE` 0.5):
 | 9 | 5.6 | 70 | 135 | 13.4 | 12.6 | 212/32/875 | 14 | 25.0 restored | pass |
 | 10 | 5.6 | 79 | 122 | 6.4 | 23.7 | 126/219/1884 | 17 | 26.0 new | pass |
 
-The old farm is restored on 5 seeds (2027, 3, 4, 6, 9), at the minute a new farm yard went down without ruins (22–25:
-the restore isn't earlier, Farming is learned then). On the other 4 (1, 2, 5, 10, Farming learned at minute 16) the
-line couldn't be run to it at that moment, and a new farm yard went down as before: their figures are unchanged.
-
-Where it's restored, the **City comes 13 to 26 minutes earlier** (2027: 80 → 54; 3: 67 → 57; 4: 83 → 70; 6: 71 → 57;
-9: 83 → 70), and three seeds fall under the City band's floor of 60. Two seeds lose City★ in 180 minutes and research
-finishes one or two fewer. The cause isn't the price: the restored farm yard is the line's end with 8 of 8 fields, and
-the mill then goes straight after it (minute 42; without ruins "the mill won't go after the farm yard" and it goes at
-another line end, minute 49), so grain is milled on the way back to the towns and the first city's flour comes sooner.
-
-**The price knob doesn't move it.** At minute 22–25 the player holds 240–340 coins, so neither price (half, or a new
-one's 90 coins plus the 40-coin field that brings a new one to full speed) holds the farm back. Measured on the three
-seeds that broke:
+There the old farm was restored at the minute a new farm yard went down without ruins (22–25), and the **City came 13
+to 26 minutes earlier** (2027: 80 → 54; 3: 67 → 57; 4: 83 → 70; 6: 71 → 57; 9: 83 → 70): three seeds under the band's
+floor of 60, two without City★ by 180, one or two fewer researched. The cause wasn't the price but the place: the
+restored farm yard is the line's end with 8 of 8 fields, and the mill went straight after it (minute 42; without ruins
+"the mill won't go after the farm yard" and it went at another line end, minute 49), so the first city's flour came
+sooner. **The price knob didn't move it**: at minute 22–25 the player held 240–340 coins.
 
 | `RESTORE_SHARE` | farm price | City 2027 / 3 / 6 |
 |---|---|---|
@@ -280,10 +296,11 @@ seeds that broke:
 | 0.75 | 5🪵 70🪙 | 57 / 57 / 55 |
 | 0.9 | 6🪵 80🪙 | 70 / 57 / 70 |
 
-(The 0.9 row's movement is the chaotic kind: a few planks spent differently changes later choices; seed 3 stays at 57
-at every price.) So the share stays at 0.5 and the band question is open for the CoS: accept a City from minute ~55
-when the old farm is restored (it's the better-placed farm, not a cheaper one, that does it), or hold the City back
-by mechanics (a restored farm yard's rate, or its fields), which step 2 was told not to change.
+(The 0.9 row's movement is the chaotic kind; seed 3 stayed at 57 at every price.) The share stays at 0.5. Main has
+since raised the mill to 400 coins "so the first City stays in its band", which holds the mill back whichever farm is
+there. Open for the CoS: if a later harness reaches the ruin again (a smarter line, or Routes learned before Farming),
+expect the City earlier where it's restored; the knob for that is the mill's or the farm's own rate, not the restore
+price.
 
 ### Cost
 

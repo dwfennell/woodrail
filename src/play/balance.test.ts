@@ -1637,15 +1637,18 @@ class Playthrough {
     }
   }
 
-  /** Ruins found out of reach, or that the line couldn't be run to: not tried again. */
+  /** Ruins found out of reach, or that couldn't be restored: not tried again. */
   private readonly ruinsPassed = new Set<number>();
+  /** When the line last couldn't be run to a ruin (it's tried again 5 minutes on). */
+  private ruinTry = -99;
 
   /**
    * Map sites step 2's rule: the standing ruin of `role` nearest the player's line, if it's within `RUIN_REACH` of it
    * and restoring it is cheaper than a new industry (always, unless one's in the toy box already, which costs nothing
    * more): the line run on from one of its ends to the ruin's stub (`extend`), then restored there (as its card's
    * Restore does: planks from the workshop's yard, coins). Its piece and its free end; "wait" while it can't be paid
-   * for yet; null to build a new one as before (no ruin near, BALANCE_NORUINS, or the line couldn't reach it).
+   * for yet; null to build a new one as before (no ruin near, BALANCE_NORUINS, or the line couldn't be run to it from
+   * a line end: tried again 5 minutes on, while there's still no farm). BALANCE_RUIN_TRACE=1 logs each line end's try.
    */
   restoreOld(role: SiteRole): { id: number; beyond: number } | "wait" | null {
     const P = this.p;
@@ -1661,14 +1664,35 @@ class Playthrough {
       P.note(`the old ${role} is ${Math.round(away)} mm from the line: too far to restore`);
       return null;
     }
+    if (P.minute - this.ruinTry < 5) return null;
     const pay = gamePayment(w, s, role);
     if (pay.short()) return "wait";
     const stub = w.ruins.get(site.id)!;
     const before = { coins: s.coins, planks: P.planks() };
+    if (ENV.BALANCE_RUIN_TRACE) {
+      // (Why the line can't reach it: each line end's try, put back.)
+      for (const end of lineEnds(P)) {
+        const at = w.layout.worldConnector(end.ref, peg);
+        const was = { ...w.layout.getPiece(end.buffer)! };
+        let buffer = end.buffer;
+        for (const c of [0, 1]) {
+          const ref = connectorRef(stub, c);
+          if (w.layout.joinedConnector(ref) !== -1) continue;
+          P.editor.remove(buffer);
+          const had = new Set(w.layout.pieceIds());
+          const t = play(w.layout, P.editor, end.ref, ref, { blocked: P.rules(), maxPieces: 90, fiddle: 3 });
+          for (const id of [...w.layout.pieceIds()]) if (!had.has(id)) P.editor.remove(id);
+          buffer = P.editor.place("buffer-turnback", was.pose, was.y, was.flipped);
+          P.note(`  ruin trace: end at ${Math.round(at.x)},${Math.round(at.z)} to stub ${c}: ${t.how} (${t.pieces} pieces)`);
+        }
+      }
+    }
     const r = extend(P, { target: () => [0, 1].map((c) => connectorRef(stub, c)).filter((ref) => w.layout.joinedConnector(ref) === -1) });
     if (!r) {
-      this.ruinsPassed.add(site.id);
-      P.note(`COULDN'T run the line to the old ${role}`);
+      // A new one instead, now (as without ruins: waiting on the ruin held the farm back 10 minutes, and a branch to it
+      // is one the unrouted goods train never takes). Tried again 5 minutes on if there's still no farm.
+      this.ruinTry = P.minute;
+      P.note(`COULDN'T run the line to the old ${role} from a line end (BALANCE_RUIN_TRACE=1 says why)`);
       return null;
     }
     // (The track to it may have taken the yard's planks: restored once they're back.)
