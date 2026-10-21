@@ -107,3 +107,25 @@ describe("a v12 Game save carries over into v13", () => {
     });
   });
 });
+
+describe("no ready-made trains in Game mode: an old save", () => {
+  it("its toy box was always parts (an engine, flatbeds): it loads and saves as it was, no split needed; the train on its map keeps its cars", () => {
+    const store = new Map([["woodrail.game.v2", JSON.stringify(v12.save)], ["woodrail.game.progress.v1", JSON.stringify(v12.progress)]]);
+    withStorage(store, () => {
+      const r = loadFromStorage("game");
+      if (!r?.ok) throw new Error("v12 map didn't load");
+      const p = Progress.fromJSON(loadProgress());
+      const owned = [...p.owned].sort();
+      expect(owned).toEqual([["car:engine", 1], ["car:timber", 3], ["piece:buffer-turnback", 2], ["piece:depot-workshop", 1]]);
+      saveProgress(p.toJSON());
+      expect([...Progress.fromJSON(loadProgress()).owned].sort()).toEqual(owned);
+      // The made-up train on the map (engine, hopper, caboose) is left as it is, and saves so.
+      const cars = (w: typeof r.value) => w.sim.trainIds().map((id) => w.sim.getTrain(id)!.cars.map((c) => c.kind));
+      expect(cars(r.value)).toEqual([["engine", "hopper", "caboose"]]);
+      expect(saveToStorage(r.value, "game")).toBe(true);
+      const again = loadFromStorage("game");
+      if (!again?.ok) throw new Error("saved map didn't load");
+      expect(cars(again.value)).toEqual([["engine", "hopper", "caboose"]]);
+    });
+  });
+});

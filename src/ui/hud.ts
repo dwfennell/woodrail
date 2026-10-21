@@ -16,7 +16,8 @@ export { trayKey, type TrayItem } from "./tray-catalogue";
 export interface HudHandlers {
   trayPointerDown(item: TrayItem, e: PointerEvent): void;
   /** A tray piece tapped (the ready one is put away). */
-  trayTap(item: TrayItem): void;
+  /** A tap on a tray item (`pointerType`: what tapped it, a mouse, pen or finger). */
+  trayTap(item: TrayItem, pointerType: string): void;
   /** Another tray tab opened (the ready piece is put away). */
   trayTabChanged(): void;
   /** The Track tab opened or closed (building: free track ends show their end boards). */
@@ -651,15 +652,15 @@ export class Hud {
         });
       } else if (item.kind === "piece" || item.kind === "road") {
         // A piece is dragged out; once placed it stays ready (the next waits at the end it left: tap it to add it).
-        // A road is dragged out, or tapped to make it ready (then each click on the map lays one). A tap on the
-        // ready one here puts it away.
+        // Clicked (a mouse or pen), it's carried: each click on the map puts one down. A road is dragged out, or tapped
+        // to make it ready (then each click on the map lays one). A tap on the ready one here puts it away.
         const key = trayKey(item);
         b.dataset.key = key;
         b.classList.toggle("armed", this.armedKey === key);
-        b.title = item.kind === "road" ? `Drag onto the map, or tap then click the map: ${item.label}` : `Drag onto the floor: ${item.label}`;
+        b.title = `Drag onto the map, or click then click the map: ${item.label}`;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: () => this.handlers.trayTap(item) });
+          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: (up) => this.handlers.trayTap(item, up.pointerType) });
         });
       } else {
         // A crossing's style (barriers, gates) only goes on a level crossing: it says it needs a road.
@@ -1293,7 +1294,7 @@ export class Hud {
    * mostly sideways one scrolls the tray, gliding on when let go; a press that hardly moves is a tap (`tap`).
    * Decided by us, so it behaves the same every time.
    */
-  private trayPress(down: PointerEvent, scroller: HTMLElement, on: { pick?: (move: PointerEvent) => void; tap?: () => void }): void {
+  private trayPress(down: PointerEvent, scroller: HTMLElement, on: { pick?: (move: PointerEvent) => void; tap?: (up: PointerEvent) => void }): void {
     this.trayGlide++;
     const id = down.pointerId;
     const x0 = down.clientX;
@@ -1326,7 +1327,7 @@ export class Hud {
     const up = (e: PointerEvent) => {
       if (e.pointerId !== id) return;
       stop();
-      if (mode === "undecided" && e.type === "pointerup") on.tap?.();
+      if (mode === "undecided" && e.type === "pointerup") on.tap?.(e);
       // A quick swipe glides on, slowing down.
       else if (mode === "scroll" && e.timeStamp - lastT < 80 && Math.abs(velocity) > 0.05) this.glideTray(scroller, velocity);
     };

@@ -317,10 +317,11 @@ export const GOALS: readonly Goal[] = [
   },
   {
     id: "place-train",
-    title: "Put a train on the track",
-    hint: "Drag a train from the Trains tab onto your rails.",
-    check: (w) => ({ done: w.sim.trainIds().length > 0 }),
-    guide: (w) => guideTrains(w, "trains"),
+    // (Trains are made up from their parts: an engine first, its wagons coupled on after.)
+    title: "Put an engine on the track",
+    hint: "Drag an engine from the Trains tab onto your rails.",
+    check: (w) => ({ done: w.sim.trainIds().some((id) => w.sim.getTrain(id)?.cars.some((c) => c.kind === "engine")) }),
+    guide: (w) => guideTrains(w, "trains", "Engines"),
   },
   {
     id: "get-moving",
@@ -341,21 +342,21 @@ export const GOALS: readonly Goal[] = [
       const trains = trainPoints(w);
       const stations = [...w.stations.keys()];
       const pair = closest(trains, stations, (x) => (typeof x === "number" ? townAt(w, x) : x));
-      if (!pair) return guideTrains(w, "trains");
+      if (!pair) return guideTrains(w, "trains", "Engines");
       return { points: [pair[0], townAt(w, pair[1])], towns: [pair[1]], marks: [pair[0]] };
     },
   },
   {
     id: "timber-train",
     title: "Make up a flatbed train",
-    hint: "Couple a flatbed wagon to an engine.",
+    hint: "Drag a flatbed wagon onto your engine to couple it.",
     check: (w) => ({
       done: w.sim.trainIds().some((id) => {
         const cars = w.sim.getTrain(id)?.cars ?? [];
         return cars.some((c) => c.kind === "engine") && cars.some((c) => c.kind === "timber");
       }),
     }),
-    guide: (w) => guideTrains(w, "trains"),
+    guide: (w) => guideTrains(w, "trains", "Wagons"),
   },
   {
     id: "load-logs",
