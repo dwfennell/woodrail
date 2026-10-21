@@ -211,6 +211,12 @@ if (process.env.E2E_ONLY === "terrace-repeat") {
   await finishRun();
 }
 
+/** Only the phone on its side, a straight swipe off the grid (E2E_ONLY=phone): step 7b on its own. */
+if (process.env.E2E_ONLY === "phone") {
+  await phoneSwipe();
+  await finishRun();
+}
+
 /** Only QA's replay of the slanted river crossings and the terrace climb (E2E_ONLY=qa-slant). */
 if (process.env.E2E_ONLY === "qa-slant") {
   await qaReplay();
@@ -463,7 +469,9 @@ if (site) {
 // finger (QA N1), not a snake of curves, and never "too sharp".
 
 step("7b");
-{
+await phoneSwipe();
+
+async function phoneSwipe() {
   const ctx = await b.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
   q.on("pageerror", (e) => errors.push(e.message));

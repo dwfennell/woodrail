@@ -2593,7 +2593,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     cantReachText = null;
     if (!line || !r) {
       const ahead = aheadRuns(game.layout, front, AHEAD);
-      routeView.show([{ runs: ahead, colour: "#ffffff", dotted: true }], []);
+      // (A warm walnut, a shade darker than the groove: it reads on light wood without shouting.)
+      routeView.show([{ runs: ahead, colour: "#7a4a22", dotted: true }], []);
       // With the card open, the way ahead is shown, once: not left under the card (a train heading toward it).
       // (Its whole length, a point a run, not only its end: it may curve toward the card and back.)
       const path = ahead.flatMap((run) => {

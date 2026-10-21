@@ -40,11 +40,11 @@ describe("RouteView", () => {
       ],
     );
     const meshes = view.group.children.filter((o) => (o as Mesh).isMesh && o.name.startsWith("route-"));
-    // The dotted way: dark dashes under light ones (so they read on light wood), each colour one mesh.
-    expect(meshes.map((m) => m.name).sort()).toEqual(["route-dots", "route-dots", "route-ribbon"]);
+    // The dotted way: soft dashes, one mesh for its colour.
+    expect(meshes.map((m) => m.name).sort()).toEqual(["route-dots", "route-ribbon"]);
     const discs = view.group.children.filter((o) => (o as Sprite).isSprite);
     expect(discs.map((d) => d.userData)).toMatchObject(stops.map((pieceId, index) => ({ kind: "route-stop", pieceId, index })));
-    expect(view.group.children).toHaveLength(3 + 3 * 2);
+    expect(view.group.children).toHaveLength(2 + 3 * 2);
     // The ribbon lies just over the track's top (all flat here).
     const ribbon = meshes.find((m) => m.name === "route-ribbon") as Mesh;
     ribbon.geometry.computeBoundingBox();
