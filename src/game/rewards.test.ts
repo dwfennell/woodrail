@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import rewardsSrc from "./rewards.ts?raw";
 import mainSrc from "../main.ts?raw";
-import { CARGO } from "../economy/cargo";
+import { CARGO, type CargoKind } from "../economy/cargo";
 import { capOf } from "../economy/economy";
 import { workshopStock } from "./crafting";
 import { CARD_KINDS, type GrowthCard } from "./growth-cards";
@@ -190,7 +190,7 @@ describe("the research boost", () => {
     let shown = 0;
     for (const t of TECHS) {
       const goods = costOf(t.id).goods;
-      const kinds = Object.keys(goods) as (keyof typeof goods)[];
+      const kinds = Object.keys(goods) as CargoKind[];
       if (kinds.length === 0) continue;
       for (let seed = 1; seed <= 40; seed++) {
         const r = rng(seed * 31 + t.id.length);
@@ -199,7 +199,7 @@ describe("the research boost", () => {
         for (const k of kinds) p.research.got[k] = Math.floor(r() * (goods[k]! + 1));
         for (const share of [0.25, 0.4, 0.6]) {
           const bag = boostGoods(p, share);
-          for (const k of Object.keys(bag) as (keyof typeof bag)[]) {
+          for (const k of Object.keys(bag) as CargoKind[]) {
             expect(bag[k]!).toBeGreaterThanOrEqual(3);
             expect(bag[k]!).toBeLessThanOrEqual(goods[k]! - (p.research.got[k] ?? 0));
             shown++;
