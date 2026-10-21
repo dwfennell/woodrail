@@ -551,6 +551,36 @@ seeds 2 and 5; early pay moved 6 and 9 from 73 and 67 to 50). Coins at minute 15
 before early pay), so Routes' 40 is in reach at minute 15 on every seed; by minute 30, 256–594 (P5: 108–373). Nice to have: research stalls under 10 min on 1–4, 6, 9, 10; coins at
 180 within 150–600 on none.
 
+### QA's research-polish notes (2026-10-21)
+
+- **N2, the boost floor per good**: a good the research lacks fewer than `BOOST_FLOOR` of is left off the card ("+1🪵
+  2🌾" was the per-good cap, `min(lacks, …)`, under a total-only check); offered only while a good still comes to 3.
+- **N3, the workshop card**: Takes all planks' line adds "(your school still gets what it needs)" with a school on the
+  map; a routed Only drop stop at a workshop fills its yard (§2); a little more room under the Automatic row.
+- **N1**: the Switches goal reads "Pick Switches. Trains bring the school the 3 planks it needs." First research is
+  4.4 min on every seed, as before (3 planks is under the school's 3/5 of a 9-plank pass).
+- **Flour after the mill** (`EARLY_FLOUR_PRICE` 12 in towns.ts): a town pays twice the price for the flour it wants (a
+  village, half that), a city the price (6). The mill stays 400. Coins at 75 min went 57–464 → 111–502; City, City★,
+  stalls, gaps and researched counts didn't move (9 of 9 bands; seed 9's stall 9.4 → 11.1). Minute 60 is still the
+  mill's own dip (6–754). 9 gave too little (+15–50 at 60–90).
+
+| Seed | Coins at 15/30/45/60/75/90/120/180, before | After (flour 12) |
+| --- | --- | --- |
+| 2027 | 296/354/35/119/126/171/268/968 | 296/354/62/200/234/183/430/1254 |
+| 1 | 78/266/384/49/173/296/479/1287 | 78/266/384/76/227/350/587/1395 |
+| 2 | 48/344/468/224/302/340/293/918 | 48/344/468/224/356/394/401/1026 |
+| 3 | 326/594/666/754/407/699/863/1335 | 326/594/666/754/434/753/971/1443 |
+| 4 | 296/442/562/737/400/460/730/1162 | 296/442/562/737/427/514/838/1306 |
+| 5 | 48/256/462/350/448/612/511/1003 | 48/256/462/350/502/666/619/1111 |
+| 6 | 326/286/10/43/319/508/395/1650 | 326/286/10/70/373/562/503/1812 |
+| 9 | 296/256/380/6/57/64/171/996 | 296/256/380/6/111/118/198/1090 |
+| 10 | 78/266/464/782/464/581/966/1606 | 78/266/464/782/464/635/1074/1768 |
+
+- **The late trim, not made**: coins at 180 are 1026–1812 with flour 12. A city's coins card at 120, not 200, cut them
+  by 0–160 (930–1652) and changed nothing else: nowhere near 150–600. Reaching the band needs late income about halved
+  (city prices or fares), which would make a city's coins card and passengers feel worth little; the harness's player
+  also has nothing left to buy late. Late things to spend on would fit the band better than a trim.
+
 ## 6. Saves
 
 - `SAVE_VERSION` goes to 12. Older saves are turned away with `OLDER_SAVE` and kept aside under their backup key,
