@@ -123,6 +123,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .piece-card.group .card-row { flex-wrap: wrap; justify-content: center; }
 .piece-card.group .card-title::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: #ffe07a; box-shadow: 0 0 0 2px #e0a93a; margin-right: 8px; vertical-align: 1px; }
 .depot-stock { font-size: 14px; font-weight: 700; color: #7a5532; font-variant-numeric: tabular-nums; text-align: center; }
+/* A school with nothing to research: its line in amber, and a button for the picker. */
+.depot-stock.idle { color: #a35a00; }
+.depot-card .depot-pick { flex: none; align-self: center; }
+.depot-card .depot-pick[hidden] { display: none; }
 .depot-card .card-row { flex-wrap: wrap; justify-content: center; }
 /* A signal box's or lever frame's points and signals: chips a finger wide (44 px tall, two to a row where they fit,
    a long label wrapping inside its chip), the list scrolling past six or so (on phones the card scrolls as one). */
@@ -252,6 +256,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* Cards dock at the right, under the top bar: in the middle they'd sit on the very train or piece just tapped, and
      a second tap on it (a car, for its own card) would land on the card's Go instead. */
   .card, .card.piece-card.group { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; top: calc(max(10px, env(safe-area-inset-top)) + 56px); bottom: auto; max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 56px - max(10px, env(safe-area-inset-bottom)) - 149px); overflow-y: auto; overscroll-behavior: contain; }
+  /* An open card is over the goals bar (QA, 667×375: the bar lay over the card's title); the bar's back when it closes. */
+  .card { z-index: 1; }
   .card > * { flex-shrink: 0; }
   .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
@@ -504,6 +510,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 /* A line about a station, its waiting goods or a harbour's boats: the card's own text size. */
 .station-waiting { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; line-height: 1.35; }
 .depot-extra { display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto; min-width: min(320px, 80vw); }
+/* Its two-way plank choice (Shares with towns / Takes all planks), and the line under it. */
+.yard-mode { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.yard-mode .chip { flex: 1 1 0; min-width: 0; padding: 0 8px; white-space: nowrap; }
+.yard-hint { font-size: 12px; font-weight: 700; color: #7a5532; text-align: center; }
 .make-now { font-size: 13px; font-weight: 700; color: #6a5340; text-align: center; }
 .make-now .bar { display: block; height: 6px; margin-top: 4px; border-radius: 3px; background: #e7d6b8; overflow: hidden; }
 .make-now .bar i { display: block; height: 100%; background: #5aa35a; }
@@ -686,6 +696,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .research-pill.rp-wrap .rp-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; line-height: 1.05; }
 .research-pill.idle { background: #fff1c2; box-shadow: 0 0 0 2px #e2a12b, 0 4px 18px rgba(60, 40, 20, 0.18); }
 .research-pill.idle .rp-count { color: inherit; }
+/* Nothing to research (the school's idle): an amber dot. It pulses gently a few times (about 10 s) as the school goes
+   idle, and again each time the picker closes with nothing picked, then rests: no layout, no paint of the canvas, no
+   WebGL frame (the pill is DOM over it), and nothing at all once it rests (a pulse that never stopped cost ~30 ms/s of
+   main thread in headless Chrome). Transform and opacity only, for the compositor. */
+.research-pill.idle { padding-right: 18px; }
+.research-pill.idle::after { content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: #e07a00; box-shadow: 0 0 0 2px #fff1c2; }
+.research-pill.idle:not(.active)::after { animation: idle-pulse 1.6s ease-in-out 6; }
+@keyframes idle-pulse { 50% { transform: scale(1.35); opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .research-pill.idle:not(.active)::after { animation: none; } }
 .research-pill.active { box-shadow: 0 0 0 3px #3a2a1c, 0 4px 18px rgba(60, 40, 20, 0.18); }
 .research-pill:active { transform: scale(0.96); }
 @media (max-width: 640px) {
@@ -849,3 +868,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .reward-badge .rb-count { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #c8442f; color: #fff; font-size: 12px; font-weight: 900; line-height: 20px; }
 @keyframes reward-bob { 50% { transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .reward-badge { animation: none; } }
+
+/* A phone on its side, an engine with no route yet: "Plan a route" beside Go, in the one row (QA: under it, at 375 px
+   it was cut off at the card's foot, behind a scroll). With a route, the card's as ever (it scrolls). */
+@media (max-height: 520px) {
+  :not(.planning) > .engine-card:has(.route-none:not([hidden])) { flex-flow: row wrap; justify-content: center; column-gap: 10px; }
+  /* (The title and status each a line of their own, whole: the status's own cap would let Go up beside it.) */
+  :not(.planning) > .engine-card:has(.route-none:not([hidden])) > * { flex-basis: 100%; max-width: none; text-align: center; }
+  :not(.planning) > .engine-card:has(.route-none:not([hidden])) > :is(.engine-controls, .engine-extra.route) { flex-basis: auto; }
+  :not(.planning) > .engine-card:has(.route-none:not([hidden])) > .engine-extra.route { margin-top: 0; align-self: center; }
+  :not(.planning) > .engine-card .route-head:has(.route-none:not([hidden])) :is(.engine-extra-label, .route-none) { display: none; }
+}

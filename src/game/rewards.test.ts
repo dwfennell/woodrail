@@ -123,22 +123,22 @@ describe("the research boost", () => {
     const p = Progress.fresh();
     pick(p, "switches");
     expect(cardFor(p, w, "boost", 1, rng(1))).toEqual({ kind: "boost", share: 0.25 });
-    deliver(p, "planks", 4);
+    deliver(p, "planks", 3);
     expect(cardFor(p, w, "boost", 1, rng(1))).toBeNull();
   });
 
   it("fills its share of each good the research still lacks, and only those", () => {
     const w = world({ school: true });
-    // Bridges: 10 planks, 4 in: a village's 25% of the 6 left is 2 (rounded up).
+    // Bridges: 10 planks, none in: a village's 25% of 10 is 3 (rounded up); a town's 40%, 4.
     const p = Progress.fresh();
     pick(p, "bridges");
-    deliver(p, "planks", 4);
-    expect(boostGoods(p, 0.25)).toEqual({ planks: 2 });
+    expect(boostGoods(p, 0.25)).toEqual({ planks: 3 });
+    expect(boostGoods(p, 0.4)).toEqual({ planks: 4 });
     p.offers.push({ from: "Larkfield", level: 1, cards: [{ kind: "boost", share: 0.25 }] });
-    expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+2🪵" });
+    expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+3🪵" });
     // The toast says where the goods went (QA: "+3🪵" alone didn't).
-    expect(takeCard(p, w, 0, 0)).toMatchObject({ amount: "+2🪵", taken: "+2🪵 to Bridges and ramps" });
-    expect(p.research.got).toEqual({ planks: 6 });
+    expect(takeCard(p, w, 0, 0)).toMatchObject({ amount: "+3🪵", taken: "+3🪵 to Bridges and ramps" });
+    expect(p.research.got).toEqual({ planks: 3 });
     expect(p.offers).toEqual([]);
     // Mills: 6 planks and 6 grain: a town's 40% is 3 planks and 3 grain (rounded up).
     const q = researching();
@@ -148,12 +148,36 @@ describe("the research boost", () => {
     expect(q.research.current).toBe("mills");
   });
 
+  it("is never worth only a good or two: at least 3 of each good lacking, and not offered with fewer than 3 lacking (QA P5)", () => {
+    const w = world({ school: true });
+    // Bridges with 6 of 10 in: a village's 25% of the 4 left would be 1; the floor makes it 3.
+    const p = Progress.fresh();
+    pick(p, "bridges");
+    deliver(p, "planks", 6);
+    expect(boostGoods(p, 0.25)).toEqual({ planks: 3 });
+    expect(cardFor(p, w, "boost", 1, rng(1))).toEqual({ kind: "boost", share: 0.25 });
+    // 2 left: not worth a card. A town's offer draws another kind in its place, three cards still.
+    deliver(p, "planks", 2);
+    expect(boostGoods(p, 0.4)).toEqual({ planks: 2 });
+    expect(cardFor(p, w, "boost", 2, rng(1))).toBeNull();
+    for (let seed = 1; seed < 30; seed++) {
+      const cards = offerOnGrowth(p, w, "Larkfield", 2, rng(seed))!.cards;
+      expect(cards.map((c) => c.kind)).not.toContain("boost");
+      expect(cards).toHaveLength(3);
+    }
+    // An offer drawn before, kept till then: it can't be taken, and says why.
+    p.offers.length = 0;
+    p.offers.push({ from: "Elderwick", level: 2, cards: [{ kind: "boost", share: 0.4 }, { kind: "coins", n: 80 }] });
+    expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: false, why: "Your research is nearly in" });
+    expect(takeCard(p, w, 0, 0)).toBeNull();
+  });
+
   it("an offer kept till the research is done can't boost (the card says why), and keeps waiting", () => {
     const w = world({ school: true });
     const p = Progress.fresh();
     pick(p, "switches");
     p.offers.push({ from: "Larkfield", level: 1, cards: [{ kind: "boost", share: 0.25 }, { kind: "coins", n: 30 }] });
-    deliver(p, "planks", 4);
+    deliver(p, "planks", 3);
     expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: false, why: "Pick a research that needs goods" });
     expect(takeCard(p, w, 0, 0)).toBeNull();
     expect(p.offers).toHaveLength(1);

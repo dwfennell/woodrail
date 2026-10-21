@@ -100,6 +100,8 @@ const saveSchema = z.object({
       townId: z.number().int().min(-1),
       auto: z.boolean(),
       waitFull: z.boolean(),
+      /** A workshop that takes all the planks trains bring (optional: absent, it shares with towns further on). */
+      takesAll: z.literal(true).optional(),
       /** Units on each pile, in cargo order (saves from before grain and flour have just logs and planks). */
       piles: z.array(z.number().int().min(0).max(MAX_PILE)).min(2).max(CARGO_KINDS.length),
       timer: z.number().int().min(0),
@@ -223,7 +225,7 @@ export function serializeWorld(world: World): SaveData {
     joints: [...layout.joints()].map((j) => [pieceOfRef(j.a), indexOfRef(j.a), pieceOfRef(j.b), indexOfRef(j.b)] as [number, number, number, number]),
     ...(layout.pinnedCount > 0 ? { pinned: [...layout.pinnedIds()] } : {}),
     trains,
-    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
+    depots: kept.map((d, id) => ({ id, pieceId: d.pieceId, role: d.role, townId: d.townId, auto: d.auto, waitFull: d.waitFull, ...(d.takesAll ? { takesAll: true as const } : {}), piles: [...d.piles], timer: d.timer, ...(d.waiting > 0 ? { waiting: Math.min(d.waiting, MAX_RIDERS) } : {}), ...(d.sheds > 0 ? { sheds: d.sheds } : {}), ...landedOf(world, d.id) })),
     delivered: [...world.economy.delivered],
     deliveredGoods: [...world.economy.deliveredGoods].map(([townId, bag]) => [townId, { ...bag }] as [number, Record<string, number>]),
     ...(lines.length > 0 ? { lines } : {}),
@@ -379,6 +381,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     const state = d.role === "town" ? economy.addDepot("town", d.pieceId, d.townId, halt ? undefined : STATION_CRANE_AT) : economy.addDepot(d.role, d.pieceId, d.townId);
     state.auto = d.auto;
     state.waitFull = d.waitFull;
+    state.takesAll = d.role === "workshop" && d.takesAll === true;
     if (d.role === "harbour") state.sheds = d.sheds ?? 0;
     // Only the piles this kind of depot uses (its input and output) can hold anything.
     const kept = pilesOf(state.role);

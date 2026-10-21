@@ -1,9 +1,11 @@
 // End-to-end Research picker on a phone (`npm run e2e:research [-- <out dir>]`), at 390×844 with touch: a new game's
 // line laid and its school placed; the pill in the top bar says "Pick research"; a goal after a blueprint (Research
 // switches) opens the picker on it from Show me and from the pill, nothing picked; Research, then Next up (and the
-// swap); deliveries move the pill; every card state's ticket; the pill fits the bar beside the coins and buttons; the date
+// swap); deliveries move the pill; the pill opens on what it shows (the one up next, waiting for coins); every card state's ticket; the pill fits the bar beside the coins and buttons; the date
 // and the pill both read at 360, 414 and 844×390 (a phone on its side); and no frames drawn in 30 s with the pill showing
-// while nothing changes.
+// while nothing changes. Then a research learned with nothing in Next up: the pill amber with its pulsing dot (still with
+// reduced motion), a toast once ("Larkfield school is idle: pick what to learn next", a tap opens the picker), the school's
+// card saying Idle with a Research button, and no frames in 30 s with the dot pulsing (a few pulses, then it rests).
 //
 // Usage: npm run e2e:research [-- <out dir>]   (default out: e2e-out/research)
 // Starts its own dev server (on 5381, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -159,8 +161,8 @@ await shot("03-ready-card");
 // 4. Research Switches with one tap, then Bridges up next.
 await tap(".board-sheet button[data-act=pick]", "Research");
 t = await ticket();
-check("one tap: Switches is researching, live progress, no button", t?.state === "researching" && t.buttons.length === 0 && /🪵 0\/4/.test(t.foot) && /bring 4🪵 to/.test(t.foot), JSON.stringify(t));
-check("the pill shows it", (await pill()) === "📘 Switches 0/4🪵", String(await pill()));
+check("one tap: Switches is researching, live progress, no button", t?.state === "researching" && t.buttons.length === 0 && /🪵 0\/3/.test(t.foot) && /bring 3🪵 to/.test(t.foot), JSON.stringify(t));
+check("the pill shows it", (await pill()) === "📘 Switches 0/3🪵", String(await pill()));
 await shot("04-picked-research");
 await select("Bridges and ramps");
 t = await ticket();
@@ -186,10 +188,10 @@ const deliver = (n) =>
   }, n);
 const before = await pill();
 await shot("06-pill-before-delivery");
-await deliver(3);
+await deliver(2);
 await p.waitForTimeout(300);
 const after = await pill();
-check("a delivery moves the pill", before === "📘 Switches 0/4🪵" && after === "📘 Switches 3/4🪵", `${before} → ${after}`);
+check("a delivery moves the pill", before === "📘 Switches 0/3🪵" && after === "📘 Switches 2/3🪵", `${before} → ${after}`);
 await shot("07-pill-after-delivery");
 await deliver(1);
 await p.waitForTimeout(1300);
@@ -258,6 +260,46 @@ check("open, coins and loads coming in: the picker isn't rebuilt", rebuilt.web =
 await shot("10-picker-web");
 await tap(".board-head .close");
 
+// 6b. Nothing under way, the one up next waiting for coins: the pill shows it, and a tap opens the picker on it, not on
+// the goal's research nor the card shown last (QA P5: "…10/40🪙" opened on another research).
+await p.evaluate(() => {
+  const w = window.woodrail;
+  const pr = w.progress();
+  const r = pr.research;
+  r.held.set(r.current, { got: r.got, study: r.study });
+  r.current = null;
+  r.got = {};
+  r.study = 0;
+  r.next = "routes";
+  pr.coins = 10;
+  r.version++;
+  w.hud.setCoins(10);
+});
+await p.waitForTimeout(700);
+check("nothing under way, Train routes waiting for coins: the pill shows them", (await pill()) === "📘 Train routes 10/40🪙", String(await pill()));
+await tap(".research-pill");
+await select("Signals");
+await tap(".board-head .close");
+await tap(".research-pill");
+t = await ticket();
+check("…and a tap on it opens the picker on Train routes", t?.name === "Train routes" && t.state === "next", JSON.stringify(t));
+await shot("10a-pill-waiting-for-coins");
+await tap(".board-head .close");
+await p.evaluate(() => {
+  const w = window.woodrail;
+  const pr = w.progress();
+  const r = pr.research;
+  const held = r.held.get("bridges");
+  r.held.delete("bridges");
+  r.current = "bridges";
+  r.got = held.got;
+  r.study = held.study;
+  pr.coins = 1000;
+  r.version++;
+  w.hud.setCoins(1000);
+});
+await p.waitForTimeout(700);
+
 // 7. The bar with the pill under way (it stands in for the Research button on a phone), with a four-figure purse. (A
 // town's reward no longer glows here: it waits in the growth sheet, with its own badge. See e2e:growth.)
 m = await bar();
@@ -310,6 +352,99 @@ const idle = await p.evaluate(async () => {
 });
 check("idle with the pill showing: no frames drawn in 30 s", idle.frames === 0, JSON.stringify(idle));
 await shot("12-idle-pill");
+
+// 9. A research learned with nothing in Next up: the school is idle. The pill turns amber with a pulsing dot, a toast
+// says so once (a tap opens the picker), the school's card says Idle with a button for the picker, and 30 s idle with
+// the dot pulsing draws no frames (it's CSS over the canvas).
+const boardOpen = () => p.evaluate(() => !!document.querySelector(".board-open"));
+await p.evaluate(() => {
+  const w = window.woodrail;
+  const r = w.progress().research;
+  // Nothing up next (Train routes was waiting there).
+  r.next = null;
+  r.version++;
+  window.__toasts = [];
+  const t = document.querySelector(".toast");
+  new MutationObserver(() => {
+    if (t.classList.contains("show") && window.__toasts.at(-1) !== t.textContent) window.__toasts.push(t.textContent);
+    if (!t.classList.contains("show")) window.__toasts.push("");
+  }).observe(t, { attributes: true, attributeFilter: ["class"] });
+});
+const pillIdle = () => p.evaluate(() => {
+  const el = document.querySelector(".research-pill");
+  return { cls: el.className, text: `📘 ${el.querySelector(".rp-name").textContent} ${el.querySelector(".rp-count").textContent}`, dot: getComputedStyle(el, "::after").animationName, bg: getComputedStyle(el).backgroundColor };
+});
+check("…before it's learned: not idle", !(await pillIdle()).cls.includes("idle"), JSON.stringify(await pillIdle()));
+await deliver(10);
+await p.waitForFunction(() => window.woodrail.progress().learned.has("bridges"), null, { timeout: 180000 });
+await p.waitForTimeout(800);
+const idlePill = await pillIdle();
+check("Bridges learned with nothing up next: the pill says Pick research, amber, its dot pulsing", idlePill.text === "📘 Pick research" && /\bidle\b/.test(idlePill.cls) && idlePill.dot === "idle-pulse" && idlePill.bg === "rgb(255, 241, 194)", JSON.stringify(idlePill));
+// The toast, after the Learned one: "<school> is idle: pick what to learn next".
+const idleToast = await p
+  .waitForFunction(() => {
+    const t = document.querySelector(".toast");
+    return t.classList.contains("show") && / is idle: pick what to learn next$/.test(t.textContent) ? t.textContent : null;
+  }, null, { timeout: 30000, polling: 100 })
+  .then((h) => h.jsonValue())
+  .catch(() => null);
+check("…a toast says the school is idle", /^[A-Z].* is idle: pick what to learn next$/.test(idleToast ?? ""), String(idleToast));
+await p.waitForTimeout(500);
+await shot("13-idle-toast");
+await shot("13-idle-pill");
+await tap(".toast");
+await p.waitForTimeout(600);
+check("…tapping the toast opens the picker", await boardOpen(), "");
+await tap(".board-head .close");
+await p.waitForTimeout(600);
+check("…closed again", !(await boardOpen()), "");
+// The school's card: Idle, and a button for the picker.
+await p.evaluate(() => {
+  const w = window.woodrail;
+  w.interaction.openDepot(w.economy.allDepots().find((x) => x.role === "school").id);
+});
+await p.waitForTimeout(800);
+const card = await p.evaluate(() => {
+  const c = document.querySelector(".depot-card");
+  const btn = c.querySelector(".depot-pick");
+  return { shown: !c.hidden, stock: c.querySelector(".depot-stock").textContent, idle: c.querySelector(".depot-stock").classList.contains("idle"), button: btn && !btn.hidden ? btn.textContent : null, h: btn?.offsetHeight };
+});
+check("…the school's card says Idle: pick research, with a Research button", card.shown && card.stock === "Idle: pick research" && card.idle && card.button === "📘 Research" && card.h >= 44, JSON.stringify(card));
+await shot("14-idle-school-card");
+await tap(".depot-card .depot-pick");
+await p.waitForTimeout(600);
+check("…its button opens the picker", await boardOpen(), "");
+await tap(".board-head .close");
+await p.waitForTimeout(600);
+// Once per finish: a while later (the workshop's clock asks every second), the toast hasn't come again.
+await p.waitForTimeout(8000);
+const toasts = await p.evaluate(() => window.__toasts.filter((t) => / is idle: /.test(t)));
+check("…the idle toast showed once", toasts.length === 1, JSON.stringify(toasts));
+// Tapping the pill opens the picker too; closed with nothing picked, the dot pulses again (a few times, then rests).
+await tap(".research-pill");
+await p.waitForTimeout(600);
+check("…and so does the pill", await boardOpen(), "");
+await tap(".board-head .close");
+// Idle 30 s from there, the dot pulsing: no frames drawn.
+const idle2 = await p.evaluate(async () => {
+  const w = window.woodrail;
+  const el = document.querySelector(".research-pill");
+  const pulse = () => document.getAnimations().find((a) => a.animationName === "idle-pulse")?.playState ?? "none";
+  // (The picker closing draws once: from when that's done.)
+  await Promise.race([w.settled(10), new Promise((r) => setTimeout(r, 5000))]);
+  const f0 = w.framesDrawn;
+  const t0 = performance.now();
+  const at0 = pulse();
+  await new Promise((r) => setTimeout(r, 30000));
+  return { frames: w.framesDrawn - f0, seconds: Math.round((performance.now() - t0) / 100) / 10, pulseAtStart: at0, pulseAtEnd: pulse(), idle: el.classList.contains("idle") };
+});
+check("idle 30 s with the pill's dot pulsing: no frames drawn", idle2.frames === 0 && idle2.pulseAtStart === "running" && idle2.idle, JSON.stringify(idle2));
+check("…and the dot rests after a few pulses (nothing runs on)", idle2.pulseAtEnd !== "running", idle2.pulseAtEnd);
+// Reduced motion: the dot stays still.
+await p.emulateMedia({ reducedMotion: "reduce" });
+const still = await p.evaluate(() => getComputedStyle(document.querySelector(".research-pill"), "::after").animationName);
+check("…with reduced motion the dot doesn't pulse", still === "none", still);
+await p.emulateMedia({ reducedMotion: "no-preference" });
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

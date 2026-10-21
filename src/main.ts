@@ -29,7 +29,7 @@ import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, makeNote, uncraft, workshops, workshopStock } from "./game/crafting";
+import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
@@ -46,12 +46,12 @@ import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./rende
 import { decoupleWords } from "./game/decouple-words";
 import { engineStatus, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
-import { MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
+import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
 import { attachResearch, detachResearch, lacking as researchLacking, pick as pickResearch, setSpeed, simElapsed, type StudyClock, tick as researchTick } from "./game/research";
-import { cardState, goalPick, pickerKey, pillKey, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
+import { cardState, goalPick, IdleNotice, pickerKey, pillKey, pillResearch, pillView, researchCard, schoolCard, schoolCardKey, showMePick } from "./game/research-text";
 import { applyCranes, boostOf, Counters, machinesFor, upgradeKey } from "./game/upgrades";
 import { attachEngines, cantMove, detachEngines, tooHeavy } from "./game/engines";
 import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } from "./game/harbours";
@@ -350,7 +350,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
       toggleExpand: () => setExpanding(!expanding),
       toggleMap: () => (mapView.open ? closeMap(true, true) : openMap()),
-      toggleBoard: () => setBoardOpen(!board.open),
+      // The pill opens the picker on the research it shows (QA P5: "Routes 10/40🪙", up next, opened on another).
+      toggleBoard: (pill) => setBoardOpen(!board.open, (pill && pillResearch(progress)) || undefined),
       buyLand: () => buyLand(),
       clearRuin: () => clearShownRuin(),
       restoreRuin: () => restoreShownRuin(),
@@ -1475,6 +1476,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       checkGoals(true);
       scheduleSave();
     },
+    // Shares with towns / Takes all planks: only the card is drawn again (nothing on the map changes till a train comes).
+    takesAll: (on) => {
+      const id = interaction.openDepotId;
+      if (game.economy.depot(id)?.role !== "workshop") return;
+      game.economy.setTakesAll(id, on);
+      showWorkshop();
+      scheduleSave();
+    },
   });
   // The Research picker: the whole tree, each blueprint researched at a school.
   const board = new BlueprintBoard(document.body, {
@@ -1627,7 +1636,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     learned(id);
     const next = progress.research.current;
     if (next) hud.toast(`Learned ${techOf(id)!.label}! Next: ${techOf(next)!.label}`, true, 3800);
+    // Nothing under way or up next: the school's idle, said once (a tap opens the picker). The pill and the school's
+    // card show it from then on.
+    const idle = idleNotice.finished(progress, id, schoolName());
+    if (idle) hud.toast(idle, false, 6000, () => board.open || setBoardOpen(true));
   }
+  const idleNotice = new IdleNotice();
 
   /** The school's card: the research's goods (got of needed), and what it's at. Its key changes with the research. */
   interaction.schoolCard = { key: () => schoolCardKey(progress), show: () => schoolCard(progress) };
@@ -1758,7 +1772,9 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Planks leave the yard when an order starts: draw the pile going down (only then, not on every step).
     if (made || progress.making !== wasMaking) game.invalidate();
     if (!made) return;
-    hud.toast(`+1 ${thingLabel(made)} in your toy box`, true, 2400);
+    // (A second engine before Signals: what it can't do yet, as when it's made from the tray.)
+    const said = madeText(progress, made, thingLabel(made));
+    hud.toast(said, true, said.length > 40 ? 3600 : 2400);
     audio.chime();
     hud.refreshTrayBadges();
     scheduleSave();
@@ -1839,8 +1855,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Planks kept for the workshop: it holds fewer than its waiting tray order needs (`orderPlanks`; worked out once a second). */
   let planksKept = false;
   const keepPlanks = (kind: string) => kind === "planks" && planksKept;
+  /** What the workshop's yard takes while a town on the line wants planks: its order's, or a few (`yardKeeps`). */
+  const shopKeeps = (kind: string) => (kind === "planks" ? yardKeeps(progress) : null);
   function updatePlanksKept(): void {
     game.economy.reserved = mode === "game" ? keepPlanks : null;
+    game.economy.shopKeeps = mode === "game" ? shopKeeps : null;
     if (mode !== "game" || workshops(game.world).length === 0) {
       planksKept = false;
       return;
@@ -2056,7 +2075,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const shortGoods = nowRule ? minus(nowRule.cost, workshopStock(game.world)) : {};
     const shortCoins = nowRule ? Math.max(0, (nowRule.coins ?? 0) - progress.coins) : 0;
     const need = now?.waiting ? [total(shortGoods) > 0 ? costTag(shortGoods) : "", shortCoins > 0 ? costTag({}, shortCoins) : ""].filter(Boolean).join(" ") || null : null;
-    workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows);
+    const yard = game.economy.depot(id)!;
+    workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows, { takesAll: yard.takesAll, keeps: Math.min(yardKeeps(progress), capAt(yard)), cap: capAt(yard) });
   }
 
   // The open engine's line (both modes; Game mode once Train routes is learned): a colour and a name, its stops in
