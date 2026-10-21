@@ -250,3 +250,32 @@ occupancy from bogies (where trains' wheels are), not from predicted ways.
 - **The limit.** When every loop has a train held on it, and trains stand at both ends and between, no train can
   reach the far end. The line doesn't lock up or have head-ons, and the cards say how many loops to lay. Nothing
   better is possible without moving held trains elsewhere, which this model doesn't do.
+
+## As built: QA's B4 (waits that can't end)
+
+- **No wait ring lasts.** Every `CHECK_TICKS`, each train with room that has waited `YIELD_S` (3 s) is checked:
+  - **Waiting round a ring** (each train waiting on the next, back to it): one turns back. It's the newest of those
+    standing with a free slot behind them. If none has one, they wait on.
+  - **Waiting on a train that won't move** (one held with no room, or a standing train not on the line): it turns
+    back, if it has a free slot behind it.
+  - Each train waits on at most one other, so following the waits finds rings in O(trains).
+- **Never let in one standing in another's way.** A train put down on a road or section that a train with room is
+  already on its way into isn't let in. The one on its way has the road.
+- **A move is given up** when a train stands on its way ahead, or in the slot it's going to: a held train (moving or
+  not) or a standing train not on the line. It stops, then waits or turns back as for any train in its way.
+- **Never turn back into a train behind.** A train with another behind it in its slot (sharing its tail's piece
+  counts) doesn't turn back. If that one is of its line, has room and faces it, that one turns back first.
+- **Giving up room:** each train that could give up room is tried in turn, letting in whoever then fits. The one whose
+  giving up lets the most run gives it up. A train still running is weighed too; if it's the best, the line waits for
+  it to stand. Every `CHECK_TICKS`, one standing at a line end gives its room to two or more held on loop roads, if
+  that lets more run.
+- **Room counts only the line's own loops.** A train standing on a loop of another line's way doesn't cut this line's
+  room.
+- **Cards:**
+  - A train with room waiting a moment for a line-mate says "Waiting for the Red line train", even on a full line. The
+    "lay N more" card is for held trains.
+  - When trains not on the line stand on every road of one of its loops, the line is cut in two, and no loop laid
+    elsewhere helps. The cards say "… a train not on the line is standing in the passing loop. Move it".
+- **Cost:** admission is worked out again every `CHECK_TICKS`, or at once when trains join or leave the line, or the
+  set of trains not on it changes. Moves are checked for trains in their way every 3 ticks. Five trains, quiet
+  machine: 0.050–0.056 ms a tick, against 0.047–0.050 on 614de33 and 0.055–0.062 on bdf33c1.
