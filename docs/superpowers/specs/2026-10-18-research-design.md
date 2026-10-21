@@ -127,7 +127,7 @@ And later: "I think the research building should be placed near a town though, m
   1. deliver planks
   2. grow a village (its present is a school)
   3. **Place a school by a town**
-  4. **Research switches** (hint: "Pick Switches, then bring 3 planks to the school")
+  4. **Research switches** (hint: "Pick Switches. Trains bring the school the 3 planks it needs": QA N1, it was "then bring 3 planks to the school", though trains do it and the school takes only what research lacks)
   5. place your workshop
   6. **make a switch** (QA P4: was "bring it planks", which stalled: the workshop keeps planks only for an order, so
      the switch is ordered on its card first, and trains then bring its planks; the goal ticks once it's made)
