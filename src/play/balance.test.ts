@@ -740,6 +740,35 @@ function lineEnds(P: Player): { buffer: number; ref: number }[] {
   return out;
 }
 
+/**
+ * The track's open ends on the line (a connector joined to nothing on a piece of the railway): as `lineEnds`, with no
+ * buffer (`buffer` −1) and `ref` the piece's own end, so a walk from `ref`'s piece starts there.
+ */
+function openEnds(P: Player): { buffer: number; ref: number }[] {
+  const out: { buffer: number; ref: number }[] = [];
+  const L = P.w.layout;
+  const station = st(P, 0);
+  for (const id of L.pieceIds()) {
+    const p = L.getPiece(id)!;
+    const def = getPieceDef(p.type, p.flipped);
+    for (let c = 0; c < def.connectors.length; c++) if (L.joinedConnector(connectorRef(id, c)) === -1) out.push({ buffer: -1, ref: connectorRef(id, c) });
+  }
+  // (The railway's own: joined to Larkfield's station.)
+  const reach = new Set<number>();
+  const stack = [station];
+  while (stack.length > 0) {
+    const at = stack.pop()!;
+    if (reach.has(at)) continue;
+    reach.add(at);
+    const p = L.getPiece(at)!;
+    for (let c = 0; c < getPieceDef(p.type, p.flipped).connectors.length; c++) {
+      const j = L.joinedConnector(connectorRef(at, c));
+      if (j !== -1) stack.push(pieceOfRef(j));
+    }
+  }
+  return out.filter((e) => reach.has(pieceOfRef(e.ref)));
+}
+
 /** Is a line end (a buffer, or track that stops) within `n` pieces of piece `id`, either way? */
 function nearEnd(P: Player, id: number, n: number): boolean {
   for (let c = 0; c < 2; c++) {
@@ -986,7 +1015,10 @@ function townsOnLine(P: Player): number[] {
 /** The depots along the line, in order from one end to the other (an unbranched line). */
 function lineOrder(P: Player): number[] {
   // Depth first from one end: on a branched line the branch's depots come together, as a train would visit them.
+  // (A line end with no turnback counts too: a depot built at a line end, where no turnback could go on, leaves the
+  // track just stopping there. With none found the goods train, made up again, was left off its line.)
   const ends = lineEnds(P);
+  if (ends.length === 0) ends.push(...openEnds(P));
   if (ends.length === 0) return [];
   const out: number[] = [];
   const seen = new Set<number>([ends[0].buffer]);
