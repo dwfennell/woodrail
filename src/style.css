@@ -234,6 +234,14 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .card { max-height: calc(100dvh - max(10px, env(safe-area-inset-bottom)) - 151px - max(10px, env(safe-area-inset-top)) - 116px); overflow-y: auto; overscroll-behavior: contain; }
   .card > * { flex-shrink: 0; }
   .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
+  /* (The ledger's own limit is as specific, and later: lift it too, or its rows spill out under the switches.) The
+     switches stay in view at the card's foot while the ledger scrolls by above them. */
+  .card .depot-extra.ledger { max-height: none; }
+  .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
+  /* And its title and ✕ at the top (the ✕ first, laid over the title's right end); focus scrolls clear of both. */
+  .depot-card:has(.depot-extra.ledger) { scroll-padding: 56px 0 72px; }
+  .depot-card:has(.depot-extra.ledger) > .card-title { position: sticky; top: -12px; z-index: 1; align-self: stretch; margin: -12px -14px 0; padding: 12px 48px 6px; text-align: center; background: #faf3e6; box-shadow: 0 6px 8px -6px rgba(60, 40, 20, 0.16); }
+  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; top: -12px; z-index: 2; order: -1; align-self: flex-end; margin: -12px -14px -64px 0; }
 }
 @media (max-width: 400px) {
   .brand:has(.coins:not([hidden])) .brand-block { display: none; }
@@ -252,6 +260,17 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .card { z-index: 1; }
   .card > * { flex-shrink: 0; }
   .card .depot-extra, .card .lever-list { max-height: none; overflow: visible; }
+  /* (The ledger's own limit is as specific, and later: lift it too, or its rows spill out under the switches.) The
+     switches stay in view at the card's foot while the ledger scrolls by above them. */
+  .card .depot-extra.ledger { max-height: none; }
+  /* Short screens (a phone on its side): the room is the ledger's. The title and ✕ scroll away (the card opens at its
+     top), and only Automatic stays, on a slim footer; the pay rule is for the upright card. */
+  .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 4px 0 6px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
+  .depot-card:has(.depot-extra.ledger) > .card-row .chip { min-height: 40px; padding-top: 0; padding-bottom: 0; }
+  .depot-card:has(.depot-extra.ledger) { scroll-padding: 0 0 56px; }
+  .depot-extra.ledger .ledger-pay { display: none; }
+  .depot-card:has(.depot-extra.ledger) > .card-title { position: static; margin: 0; padding: 0 34px; background: none; box-shadow: none; }
+  .depot-card:has(.depot-extra.ledger) > .close { position: absolute; top: 0; order: 0; margin: 0; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
 }
 
@@ -508,6 +527,35 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .depot-extra > .yard-mode:first-child { margin-top: 6px; }
 .yard-mode .chip { flex: 1 1 0; min-width: 0; padding: 0 8px; white-space: nowrap; }
 .yard-hint { font-size: 12px; font-weight: 700; color: #7a5532; text-align: center; text-wrap: balance; }
+/* A town's card in Game mode: its ledger (src/ui/town-ledger.ts) in place of the piles, above the switches. */
+.depot-card:has(.depot-extra.ledger) > .depot-stock { display: none; }
+.depot-card:has(.depot-extra.ledger) > .card-title { font-size: 20px; font-weight: 900; color: #3a2a1c; }
+.depot-card:has(.depot-extra.ledger) > .card-row { order: 2; }
+.depot-extra.ledger { order: 1; align-self: stretch; gap: 8px; width: min(340px, 84vw); max-height: min(62vh, 560px); text-align: left; color: #3a2a1c; }
+.ledger-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ledger-level { padding: 2px 9px; border-radius: 999px; background: #d9ead2; color: #2d5a2a; font-size: 12px; font-weight: 900; }
+.ledger-growing { font-size: 13px; font-weight: 700; color: #6b5440; }
+.ledger-bar { height: 10px; border-radius: 999px; background: #eadcc2; overflow: hidden; }
+.ledger-bar.total { height: 8px; }
+.ledger-fill { height: 100%; border-radius: 999px; background: #2f6db5; }
+.ledger-goods { display: flex; flex-direction: column; gap: 6px; }
+.ledger-good { display: grid; grid-template-columns: 96px minmax(0, 1fr) 58px; align-items: center; gap: 10px; font-size: 14px; font-weight: 800; }
+.ledger-good-count { text-align: right; font-variant-numeric: tabular-nums; }
+.ledger-good.done .ledger-fill { background: #6aa84f; }
+.ledger-good.done .ledger-good-count { color: #3f7a2c; }
+.ledger-holding { margin: 0; padding: 8px 10px; border-radius: 10px; background: #fbe7cf; font-size: 13px; line-height: 1.4; font-weight: 800; color: #7a3d10; }
+.ledger-rows { display: flex; flex-direction: column; border-top: 1.5px solid #eadcc2; }
+.ledger-row { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0; border: none; border-bottom: 1.5px solid #eadcc2; background: none; font: inherit; font-size: 14px; font-weight: 800; color: #3a2a1c; text-align: left; }
+.ledger-row:last-child { border-bottom: none; }
+/* (Only a row that goes somewhere is a finger's height: the others are a line of text.) */
+.ledger-row:not(.go) { min-height: 34px; }
+.ledger-row.go { cursor: pointer; }
+.ledger-row.go:active { background: #f3e9d6; }
+.ledger-row-note { font-weight: 700; color: #6b5440; text-align: right; }
+.ledger-lines { display: flex; flex-wrap: wrap; gap: 6px; }
+.ledger-line { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: none; border-radius: 999px; background: #f3e1b6; font: inherit; font-size: 13px; font-weight: 800; color: #3a2a1c; cursor: pointer; }
+.ledger-line-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(58, 42, 28, 0.45); }
+.ledger-pay { margin: 0; font-size: 12px; line-height: 1.4; color: #6b5440; }
 .make-now { font-size: 13px; font-weight: 700; color: #6a5340; text-align: center; }
 .make-now .bar { display: block; height: 6px; margin-top: 4px; border-radius: 3px; background: #e7d6b8; overflow: hidden; }
 .make-now .bar i { display: block; height: 100%; background: #5aa35a; }

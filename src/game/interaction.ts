@@ -37,7 +37,7 @@ import { PinHint } from "./switch-pin";
 import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
-import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
+import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot, type DepotState } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 
@@ -1849,10 +1849,14 @@ export class Interaction {
       return;
     }
     if (p.kind === "prop") {
-      // (A town's house in Game mode isn't selected: a tap there is a tap on the map.)
+      // (A town's house in Game mode isn't selected: a tap there opens its town's card.)
       if (this.townHouse(p.propId)) {
-        this.hud.hideCards();
-        this.clearSelection();
+        const station = this.townStation(p.propId);
+        if (station !== -1 && this.townCard) this.openDepot(station);
+        else {
+          this.hud.hideCards();
+          this.clearSelection();
+        }
       } else this.selectProp(p.propId);
       return;
     }
@@ -1953,7 +1957,10 @@ export class Interaction {
     return this.selectedCar;
   }
 
-  /** Open a depot's card, as a tap on it would ("Show me" opens the workshop's for "Make a switch"). */
+  /**
+   * Open a depot's card, as a tap on it would ("Show me" opens the workshop's for "Make a switch"; a town's ledger, its
+   * school's).
+   */
   openDepotCard(depotId: number): void {
     if (!this.game.economy.depot(depotId)) return;
     this.openDepot(depotId);
@@ -1989,7 +1996,8 @@ export class Interaction {
   private depotTitle(depotId: number): string {
     const d = this.game.economy.depot(depotId);
     if (!d) return "";
-    if (d.role === "town") return `${this.game.landscape.towns.find((t) => t.id === d.townId)?.name ?? ""} goods`;
+    // (Game mode's town card is the town's ledger, under the town's own name.)
+    if (d.role === "town") return `${this.game.landscape.towns.find((t) => t.id === d.townId)?.name ?? ""}${this.townCard ? "" : " goods"}`;
     return depotName(this.game, d);
   }
 
@@ -2068,6 +2076,12 @@ export class Interaction {
    */
   schoolCard: { key(): number; show(): { piles: { label: string; count: number; cap: number }[]; note: string; idle?: boolean } } | null = null;
 
+  /**
+   * A town's card in Game mode: its ledger (see `town-ledger.ts`), drawn by `show` whenever `key` changes (cheap: called
+   * every frame while it's open). Null (Sandbox): a town's card is its goods, as any depot's.
+   */
+  townCard: { key(d: DepotState): number; show(d: DepotState): void } | null = null;
+
   /** Keep the open depot card's pile counts current (call every frame). */
   refreshDepotCard(): void {
     if (this.selectedDepot === -1 || !this.hud.depotCardOpen) return;
@@ -2076,6 +2090,18 @@ export class Interaction {
     // Only redraw the card when something on it changed (this runs every frame).
     // (A harbour's dock sheds change what its piles hold: they count here too.)
     // A school's card shows its research (Game mode), redrawn when that changes (its key: a counter, no allocation).
+    if (d.role === "town" && this.townCard) {
+      const key = this.townCard.key(d);
+      const was = this.shownDepot;
+      if (was.id === d.id && was.delivered === key && was.auto === d.auto) return;
+      was.id = d.id;
+      was.delivered = key;
+      was.auto = d.auto;
+      was.piles = -1;
+      this.hud.updateDepotCard([], d.auto, null);
+      this.townCard.show(d);
+      return;
+    }
     const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.sheds;
     const shown = this.shownDepot;
     // Every pile's count hashed into one number (a warehouse's or harbour's piles hold more than 15): no allocation on
@@ -2407,12 +2433,21 @@ export class Interaction {
     return yard ? "yard" : null;
   }
 
-  /** What to say for a prop that can't go somewhere. */
+  /** The depot of the station of the town a building's prop is in, or −1. */
+  private townStation(propId: number): number {
+    const g = this.game;
+    const building = g.props.get(propId)?.building;
+    const found = building === undefined ? null : findBuilding(g.landscape, building);
+    const piece = found ? g.stations.get(found.town.id) : undefined;
+    return piece === undefined ? -1 : (g.economy.depotAtPiece(piece)?.id ?? -1);
+  }
+
   /** Is this prop a town's building in Game mode (moved only about its town: see town-moves.ts)? */
   private townHouse(propId: number): boolean {
     return !this.propsEditable && this.game.props.get(propId)?.building !== undefined;
   }
 
+  /** What to say for a prop that can't go somewhere. */
   private propMessage(reason: PropBlock): string {
     return reason === "yard" ? this.inYardWhy : PROP_MESSAGES[reason];
   }

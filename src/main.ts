@@ -56,6 +56,8 @@ import { BOAT_SAIL, BUY_LOT, buyPrice, goodsForSale, HarbourTrade, SHED_PRICE } 
 import { CRANE_TICKS, WAGON_CAPACITY } from "./economy/constants";
 import { BRANCHES, describeNeed as describeNeedWords, type Need, type Plan } from "./game/blueprints";
 import { attachPassengers, detachPassengers, peopleArrive, waitingCap } from "./game/passengers";
+import { ledgerKey, townLedger, type LedgerContext } from "./game/town-ledger";
+import { drawLedger } from "./ui/town-ledger";
 import { aOrAn, describe as describeGoods, minus, total, type Bag } from "./economy/goods";
 import { costTag, refundText, trayCostTag } from "./ui/cost-tag";
 import { GOODS_ICON, type CargoKind } from "./economy/cargo";
@@ -1805,26 +1807,24 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     for (const d of game.economy.allDepots()) if (d.role === "town" && game.world.stations.get(d.townId) === d.pieceId) game.setWaiting(d.townId, live ? d.waiting : null);
   }
 
-  // A town station's card (Game mode): who is waiting for a coach.
-  let stationShown = "";
-  function showStation(): void {
-    const id = mode === "game" ? interaction.openDepotId : -1;
-    const d = id === -1 ? undefined : game.economy.depot(id);
-    if (!d || d.role !== "town" || !progress.learned.has("passengers")) {
-      stationShown = "";
-      return;
-    }
-    const key = `${id}:${d.waiting}:${progress.riders}`;
-    if (key === stationShown) return;
-    stationShown = key;
-    const box = hud.depotExtra;
-    box.hidden = false;
-    box.innerHTML = "";
-    const line = document.createElement("div");
-    line.className = "station-waiting";
-    line.textContent = `Waiting for a coach: ${d.waiting} ${d.waiting === 1 ? "person" : "people"} (room for ${waitingCap(progress)}). Carried so far: ${progress.riders}`;
-    box.append(line);
-  }
+  // A town's card (Game mode): its ledger (src/game/town-ledger.ts), drawn again only when its key changes. Its station
+  // row says who is waiting for a coach.
+  const ledgerContext: LedgerContext = { learned: progress.learned, room: null, carried: 0 };
+  const ledgerOf = (): LedgerContext => {
+    ledgerContext.learned = progress.learned;
+    ledgerContext.carried = progress.riders;
+    ledgerContext.room = progress.learned.has("passengers") ? waitingCap(progress) : null;
+    return ledgerContext;
+  };
+  const townCard = {
+    key: (d: DepotState) => ledgerKey(game.world, d, ledgerOf()),
+    show: (d: DepotState) => {
+      const v = townLedger(game.world, d, ledgerOf());
+      if (!v) return;
+      hud.depotExtra.hidden = false;
+      drawLedger(hud.depotExtra, v, { school: (id) => interaction.openDepotCard(id), lines: () => openLines() });
+    },
+  };
 
   // A sawmill's card (Game mode): a hint at the faster-sawmills blueprint until it's learned.
   let sawmillShown = "";
@@ -3040,6 +3040,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     refreshPill();
     // Town houses and placed models can be moved in Sandbox only.
     interaction.propsEditable = mode === "sandbox";
+    // (A town's card: its ledger in Game mode, its goods in Sandbox.)
+    interaction.townCard = mode === "game" ? townCard : null;
     hud.setVisible(true);
     playing = true;
     save();
@@ -3349,7 +3351,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       if (playing) townLife.update();
       showWorkshop();
       showFarm();
-      showStation();
       showSawmill();
       showHarbour();
       showWaiting();
