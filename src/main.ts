@@ -2077,7 +2077,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const shortCoins = nowRule ? Math.max(0, (nowRule.coins ?? 0) - progress.coins) : 0;
     const need = now?.waiting ? [total(shortGoods) > 0 ? costTag(shortGoods) : "", shortCoins > 0 ? costTag({}, shortCoins) : ""].filter(Boolean).join(" ") || null : null;
     const yard = game.economy.depot(id)!;
-    workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows, { takesAll: yard.takesAll, keeps: Math.min(yardKeeps(progress), capAt(yard)), cap: capAt(yard) });
+    workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows, {
+      takesAll: yard.takesAll,
+      keeps: Math.min(yardKeeps(progress), capAt(yard)),
+      cap: capAt(yard),
+      school: game.economy.allDepots().some((d) => d.role === "school"),
+    });
   }
 
   // The open engine's line (both modes; Game mode once Train routes is learned): a colour and a name, its stops in

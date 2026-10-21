@@ -104,6 +104,9 @@ describe("the workshop's plank choice: Shares with towns / Takes all planks", ()
     expect(yardHint({ takesAll: false, keeps: 7, cap: 30 })).toBe("Leaves planks for towns further on, keeping 7 for you");
     expect(yardHint({ takesAll: false, keeps: 8, cap: 30 })).toBe("Leaves planks for towns further on, keeping 8 for you");
     expect(yardHint({ takesAll: true, keeps: 7, cap: 30 })).toBe("Fills its yard first, up to 30");
+    // With a school on the map, it says the school still gets what it needs (QA N3).
+    expect(yardHint({ takesAll: true, keeps: 7, cap: 30, school: true })).toBe("Fills its yard first, up to 30 (your school still gets what it needs)");
+    expect(yardHint({ takesAll: false, keeps: 7, cap: 30, school: true })).toBe("Leaves planks for towns further on, keeping 7 for you");
     expect(yardModeHtml({ takesAll: true, keeps: 7, cap: 30 })).toMatch(/class="chip text active" data-yard="all"/);
   });
 });

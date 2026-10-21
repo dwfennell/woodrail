@@ -749,8 +749,8 @@ export class Economy {
     if ((d.role === "town" || (d.role === "workshop" && !this.reserved?.(c.kind))) && this.keptForSchool(carId, c.kind, route, d.role === "town")) return false;
     // A workshop's yard takes no more than it keeps (its tray order's, or a few) while a town the train goes on to wants
     // them too (QA P5: with research idle, the yard filled 1 → 16 with no order and the next town starved). Not one set
-    // to take all (`takesAll`): it fills its yard.
-    if (d.role === "workshop" && !d.takesAll && this.shopKeeps && d.piles[CARGO[c.kind].index] >= (this.shopKeeps(c.kind) ?? Infinity) && this.townWantsAhead(carId, c.kind, route)) return false;
+    // to take all (`takesAll`), nor at a stop set to Only drop (QA N3: it still shared): it fills its yard.
+    if (d.role === "workshop" && !d.takesAll && this.shopKeeps && d.piles[CARGO[c.kind].index] >= (this.shopKeeps(c.kind) ?? Infinity) && !(route && this.onlyDropsAt(route, d.id)) && this.townWantsAhead(carId, c.kind, route)) return false;
     // A school takes only its share of a pass's load while a town the train goes on to wants the good too.
     if (d.role === "school" && this.townWantsAhead(carId, c.kind, route)) {
       const found = this.sim.findCar(carId);
@@ -860,6 +860,17 @@ export class Economy {
       if (kind === null ? later.town : (routedOnly ? later.uses : later.takes) & (1 << CARGO[kind].index)) return true;
     }
     return pick && !(routedOnly && drop);
+  }
+
+  /** Is the stop a routed train is heading for (this visit) at this depot set to Only drop? */
+  private onlyDropsAt(route: Route, depotId: number): boolean {
+    const n = route.stops.length;
+    for (let k = 0; k < n; k++) {
+      const s = route.stops[(route.next + k) % n];
+      if (s.depotId !== depotId) return false;
+      if (s.action === "drop") return true;
+    }
+    return false;
   }
 
   /** Does a routed train wait to fill at this depot: is the stop it's heading for (this visit) "Wait here till full"? */

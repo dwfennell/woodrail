@@ -307,13 +307,29 @@ describe("a workshop set to Takes all planks (`takesAll`): it fills its yard, a 
     expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
   });
 
-  it("an Only drop stop at a workshop that shares still keeps just the few (Only drop isn't Takes all)", () => {
+  it("an Only drop stop at a workshop that shares drops all its planks there, as it says (QA N3: it still shared)", () => {
     const p = Progress.fresh();
     const w = line(["depot-workshop", "station"], p);
     keeps(w, p);
     w.economy.setRoute(w.train().cars[0].id, { stops: [{ depotId: w.depots[0].id, action: "drop" as const }, { depotId: w.depots[1].id, action: "auto" as const }], next: 0 });
     w.run(90);
-    expect(w.depots[0].piles[CARGO.planks.index]).toBe(WORKSHOP_SPARE);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
+    expect(w.economy.delivered.get(0) ?? 0).toBe(0);
+    // Its Automatic stop still shares: the yard keeps the few, the town gets the rest.
+    const a = line(["depot-workshop", "station"], p);
+    keeps(a, p);
+    a.economy.setRoute(a.train().cars[0].id, { stops: a.depots.map((d) => ({ depotId: d.id, action: "auto" as const })), next: 0 });
+    a.run(90);
+    expect(a.depots[0].piles[CARGO.planks.index]).toBe(WORKSHOP_SPARE);
+  });
+
+  it("an Only drop stop at a workshop still leaves a school further on what its research lacks", () => {
+    const p = researching("bridges");
+    const w = line(["depot-workshop", "depot-school"], p);
+    keeps(w, p);
+    w.economy.setRoute(w.train().cars[0].id, { stops: [{ depotId: w.depots[0].id, action: "drop" as const }, { depotId: w.depots[1].id, action: "auto" as const }], next: 0 });
+    w.run(90);
+    expect(p.research.got.planks ?? 0).toBeGreaterThan(0);
   });
 
   it("the school's hold-back stays: what a school further on lacks rides past it", () => {

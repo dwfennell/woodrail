@@ -84,9 +84,15 @@ export const LUXURIES: ReadonlySet<CargoKind> = new Set(["furniture", "tools"]);
  */
 export const EARLY_PLANK_PRICE = 6;
 
+/**
+ * What a town (or a village) pays for flour: twice what a city does, so the mill's first flour pays its way sooner (QA:
+ * coins sat at 0–57 from the mill's purchase, minute ~48, to ~75).
+ */
+export const EARLY_FLOUR_PRICE = 12;
+
 /** What a town pays for one unit of `kind`, as it is now. */
 export function payFor(kind: CargoKind, status: TownStatus): number {
-  const price = kind === "planks" && status.level <= 1 ? EARLY_PLANK_PRICE : (PRICES[kind] ?? 0);
+  const price = kind === "planks" && status.level <= 1 ? EARLY_PLANK_PRICE : kind === "flour" && status.level <= 2 ? EARLY_FLOUR_PRICE : (PRICES[kind] ?? 0);
   return (status.wants[kind] ?? 0) > 0 ? price : Math.ceil(price / 2);
 }
 

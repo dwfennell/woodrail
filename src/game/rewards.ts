@@ -134,12 +134,16 @@ function schoolPlaced(world: World): boolean {
 
 /**
  * What a research boost of `share` puts into the current research now: that share of each good it lacks (rounded up),
- * and at least `BOOST_FLOOR` of it (all it lacks, if fewer).
+ * at least `BOOST_FLOOR` of it, but no more than it lacks. A good that would come to fewer than the floor (it lacks
+ * only a few) is left out, so every good a card shows is the floor or more (QA N2: "+1🪵 2🌾"). Empty if none is.
  */
 export function boostGoods(p: Progress, share: number): Bag {
   const out: Bag = {};
   const short = lacks(p);
-  for (const k of kindsOf(short)) out[k] = Math.min(short[k]!, Math.max(BOOST_FLOOR, Math.ceil(short[k]! * share)));
+  for (const k of kindsOf(short)) {
+    const n = Math.min(short[k]!, Math.max(BOOST_FLOOR, Math.ceil(short[k]! * share)));
+    if (n >= BOOST_FLOOR) out[k] = n;
+  }
   return out;
 }
 
@@ -303,7 +307,7 @@ export function cardView(p: Progress, world: World, card: GrowthCard): CardView 
       const id = p.research.current;
       const pct = `${Math.round(card.share * 100)}%`;
       if (id && boostWorth(p, card.share)) return { kind: card.kind, icon: "📘", amount: `+${goodsLine(bag)}`, line: `${pct} of what ${techOf(id)!.label} still needs`, ok: true, taken: `+${goodsLine(bag)} to ${techOf(id)!.label}` };
-      return { kind: card.kind, icon: "📘", amount: `${pct} research boost`, line: "Goods into your research", ok: false, why: kindsOf(bag).length > 0 ? "Your research is nearly in" : "Pick a research that needs goods" };
+      return { kind: card.kind, icon: "📘", amount: `${pct} research boost`, line: "Goods into your research", ok: false, why: kindsOf(lacks(p)).length > 0 ? "Your research is nearly in" : "Pick a research that needs goods" };
     }
     case "rare": {
       const label = CARGO[card.good].label.toLowerCase();

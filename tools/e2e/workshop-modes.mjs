@@ -1,7 +1,8 @@
 // End-to-end: the workshop's plank choice on a phone (`npm run e2e:workshop [-- <out dir>]`), at 390×844 with touch:
 // - its card shows Shares with towns (on) / Takes all planks, with a line under them;
 // - a tap on Takes all planks switches it (the line says so) and draws no frames of the map (only the card changes);
-// - it's still Takes all planks after a reload; a tap on Shares with towns switches it back.
+// - it's still Takes all planks after a reload; a tap on Shares with towns switches it back;
+// - with a school placed, Takes all's line says the school still gets what it needs; both choices fit at 360 and 390 px.
 //
 // Usage: npm run e2e:workshop [-- <out dir>]   (default out: e2e-out/workshop)
 // Starts its own dev server (on 5384, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -129,6 +130,42 @@ check("after a reload it still takes all planks", c.on === "Takes all planks" &&
 await tap('.yard-mode [data-yard="share"]');
 c = await card();
 check("a tap on Shares with towns switches it back", c.on === "Shares with towns" && c.takesAll === false && c.hint === SHARES_HINT, JSON.stringify(c));
+
+// A school on the map: Takes all's line says it still gets what it needs. Both choices fit, at 390 and 360 px.
+const school = await p.evaluate(() => {
+  const w = window.woodrail;
+  const s1 = w.world.layout.getPiece(w.world.stations.get(w.world.landscape.towns[1].id)).pose;
+  w.editor().place("depot-school", { x: Math.round(s1.x / 18) * 18, z: Math.round((s1.z + 1000) / 18) * 18, heading: 0 }, 0, false);
+  w.invalidate();
+  return w.economy.allDepots().some((d) => d.role === "school");
+});
+check("a school placed", school);
+const fits = () =>
+  p.evaluate(() => {
+    const card = document.querySelector(".depot-card").getBoundingClientRect();
+    const chips = [...document.querySelectorAll(".yard-mode .chip")];
+    const auto = document.querySelector(".depot-card .card-row").getBoundingClientRect();
+    const mode = document.querySelector(".yard-mode").getBoundingClientRect();
+    return {
+      inView: card.left >= 0 && card.right <= innerWidth,
+      chipsFit: chips.every((c) => c.scrollWidth <= c.clientWidth + 1),
+      gap: Math.round(mode.top - auto.bottom),
+      hintLines: Math.round(document.querySelector(".yard-hint").getBoundingClientRect().height / 15),
+    };
+  });
+for (const width of [390, 360]) {
+  await p.setViewportSize({ width, height: 844 });
+  for (const mode of ["share", "all"]) {
+    await openCard();
+    await tap(`.yard-mode [data-yard="${mode}"]`);
+    c = await card();
+    const f = await fits();
+    const want = mode === "all" ? `${ALL_HINT} (your school still gets what it needs)` : SHARES_HINT;
+    check(`${width} px, ${c.on}: its line`, c.hint === want, String(c.hint));
+    check(`${width} px, ${c.on}: the card in view, chips unclipped, clear of the Automatic row`, f.inView && f.chipsFit && f.gap >= 14, JSON.stringify(f));
+    await shot(`${width}-${mode === "all" ? "takes-all" : "shares"}`);
+  }
+}
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);
