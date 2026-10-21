@@ -90,6 +90,11 @@ And later: "I think the research building should be placed near a town though, m
 - **What replaces them:**
   - The workshop keeps planks only for the tray order waiting to be made (`Crafting`'s order). (QA P5: while a town
     the train goes on to wants planks, its yard takes only that order's, or `WORKSHOP_SPARE` 7 if more.)
+  - Each workshop's card has a two-way choice (`DepotState.takesAll`, saved per workshop as an optional `takesAll:
+    true`; absent loads as Shares, no `SAVE_VERSION` change): **Shares with towns** (the default, the rule above;
+    "Leaves planks for towns further on, keeping 7 for you") or **Takes all planks** ("Fills its yard first, up to
+    30": `shopKeeps` is skipped, as before 46c5d7f). The school's hold-back and the tray order's hold stay in both. A
+    stop's Only drop isn't the same: it still shares. Changing it redraws only the card.
   - The school takes only what its research still lacks, and (QA P4) at most 3/5 of a pass's load while a town the
     train goes on to wants the good too (`SCHOOL_SHARE`, §5).
   - No plank is counted by both. Whatever neither of them asks for goes to towns, as it does today.

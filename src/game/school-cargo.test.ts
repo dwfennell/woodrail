@@ -271,6 +271,66 @@ describe("the workshop's yard while a town on the line wants planks (QA P5: it f
   });
 });
 
+describe("a workshop set to Takes all planks (`takesAll`): it fills its yard, a town ahead or not", () => {
+  const keeps = (w: ReturnType<typeof line>, p: Progress) => {
+    w.economy.shopKeeps = (kind) => (kind === "planks" ? yardKeeps(p) : null);
+  };
+
+  it("an unrouted train leaves all its planks in the yard, though the town ahead wants them", () => {
+    const p = Progress.fresh();
+    const w = line(["depot-workshop", "station"], p);
+    keeps(w, p);
+    w.economy.setTakesAll(w.depots[0].id, true);
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
+    expect(w.economy.delivered.get(0) ?? 0).toBe(0);
+  });
+
+  it("a routed train's Automatic stop the same", () => {
+    const p = Progress.fresh();
+    const w = line(["depot-workshop", "station"], p);
+    keeps(w, p);
+    w.economy.setTakesAll(w.depots[0].id, true);
+    w.economy.setRoute(w.train().cars[0].id, { stops: w.depots.map((d) => ({ depotId: d.id, action: "auto" as const })), next: 0 });
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
+    expect(w.economy.delivered.get(0) ?? 0).toBe(0);
+  });
+
+  it("with no town ahead wanting planks, it fills as one that shares does", () => {
+    const p = Progress.fresh();
+    const w = line(["depot-workshop", "station"], p);
+    keeps(w, p);
+    w.economy.setTakesAll(w.depots[0].id, true);
+    w.economy.accepts = (d) => d.role !== "town";
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
+  });
+
+  it("an Only drop stop at a workshop that shares still keeps just the few (Only drop isn't Takes all)", () => {
+    const p = Progress.fresh();
+    const w = line(["depot-workshop", "station"], p);
+    keeps(w, p);
+    w.economy.setRoute(w.train().cars[0].id, { stops: [{ depotId: w.depots[0].id, action: "drop" as const }, { depotId: w.depots[1].id, action: "auto" as const }], next: 0 });
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(WORKSHOP_SPARE);
+  });
+
+  it("the school's hold-back stays: what a school further on lacks rides past it", () => {
+    const p = researching("bridges");
+    const shares = line(["depot-workshop", "depot-school"], p);
+    keeps(shares, p);
+    shares.run(90);
+    const p2 = researching("bridges");
+    const all = line(["depot-workshop", "depot-school"], p2);
+    keeps(all, p2);
+    all.economy.setTakesAll(all.depots[0].id, true);
+    all.run(90);
+    expect(p2.research.got).toEqual(p.research.got);
+    expect(p2.research.got.planks ?? 0).toBeGreaterThan(0);
+  });
+});
+
 describe("Game mode's say in what a school takes", () => {
   it("TownLife's accepts asks the research, a lookup per good", () => {
     const w = buildStarterWorld();

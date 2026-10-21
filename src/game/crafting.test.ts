@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
 import { appendPiece, connectorRef } from "../track";
 import { costOf, craftNow, craftShort, Crafting, CRAFT_SECONDS, ENGINE_NOTE, lacking, madeText, makeNote, uncraft, workshopStock } from "./crafting";
-import { makeRowHtml } from "../ui/workshop-panel";
+import { makeRowHtml, SHARES_LABEL, TAKES_ALL_LABEL, yardHint, yardModeHtml } from "../ui/workshop-panel";
 import type { ThingId } from "./things";
 import { Progress } from "./progress";
 import { buildStarterWorld, syncIndustries } from "./world";
@@ -71,6 +71,40 @@ describe("the workshop", () => {
     const gone = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
     expect(gone.ok).toBe(true);
     if (gone.ok) expect(gone.value.economy.allDepots().some((d) => d.role === "workshop")).toBe(false);
+  });
+});
+
+describe("the workshop's plank choice: Shares with towns / Takes all planks", () => {
+  it("saves Takes all planks on that workshop only; one that shares (and an old save without the field) loads sharing", async () => {
+    const { serializeWorld, deserializeWorld } = await import("../persist/save");
+    const { w, d } = withWorkshop(5);
+    expect(d.takesAll).toBe(false);
+    w.economy.setTakesAll(d.id, true);
+    const data = JSON.parse(JSON.stringify(serializeWorld(w)));
+    // Only a workshop that takes all says so: every other depot leaves the field out.
+    expect(data.depots.filter((x: { takesAll?: true }) => "takesAll" in x).map((x: { id: number }) => x.id)).toEqual([d.id]);
+    const back = deserializeWorld(data);
+    if (!back.ok) throw new Error(back.error);
+    expect(back.value.economy.depot(d.id)!.takesAll).toBe(true);
+    expect(back.value.economy.allDepots().filter((x) => x.takesAll).length).toBe(1);
+    w.economy.setTakesAll(d.id, false);
+    expect(JSON.parse(JSON.stringify(serializeWorld(w))).depots.some((x: { takesAll?: true }) => "takesAll" in x)).toBe(false);
+    delete data.depots[d.id].takesAll;
+    const old = deserializeWorld(data);
+    if (!old.ok) throw new Error(old.error);
+    expect(old.value.economy.depot(d.id)!.takesAll).toBe(false);
+  });
+
+  it("the card shows both choices, the one on marked, and a line under them", () => {
+    const share = yardModeHtml({ takesAll: false, keeps: 7, cap: 30 });
+    expect(share).toContain(SHARES_LABEL);
+    expect(share).toContain(TAKES_ALL_LABEL);
+    expect(share).toMatch(/class="chip text active" data-yard="share" aria-pressed="true"/);
+    expect(share).toMatch(/class="chip text" data-yard="all" aria-pressed="false"/);
+    expect(yardHint({ takesAll: false, keeps: 7, cap: 30 })).toBe("Leaves planks for towns further on, keeping 7 for you");
+    expect(yardHint({ takesAll: false, keeps: 8, cap: 30 })).toBe("Leaves planks for towns further on, keeping 8 for you");
+    expect(yardHint({ takesAll: true, keeps: 7, cap: 30 })).toBe("Fills its yard first, up to 30");
+    expect(yardModeHtml({ takesAll: true, keeps: 7, cap: 30 })).toMatch(/class="chip text active" data-yard="all"/);
   });
 });
 

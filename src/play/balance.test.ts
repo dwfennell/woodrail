@@ -108,7 +108,12 @@ const YARD_SPARE = Number(ENV.BALANCE_YARD_SPARE ?? WORKSHOP_SPARE);
  * town on the line wants planks (`YARD_SPARE`) if fewer, since it fills no further then (with the old rule the player
  * waited for 10 that never came, and research sat idle for the rest of the game).
  */
-const PICK_SPARE = YARD_SPARE < 0 ? RESEARCH_SPARE : Math.min(RESEARCH_SPARE, YARD_SPARE);
+/**
+ * Every workshop set to Takes all planks (`takesAll`: BALANCE_WORKSHOP=greedy), filling its yard though a town ahead
+ * wants them, for comparing with the default (Shares with towns).
+ */
+const GREEDY_WORKSHOP = ENV.BALANCE_WORKSHOP === "greedy";
+const PICK_SPARE = GREEDY_WORKSHOP ? RESEARCH_SPARE : YARD_SPARE < 0 ? RESEARCH_SPARE : Math.min(RESEARCH_SPARE, YARD_SPARE);
 
 /** Wished for, but of no use to this player till much later: bought only with planks and coins to spare. */
 const LATER: ReadonlySet<string> = new Set(["warehouses", "sawmills", "junctions", "college"]);
@@ -276,6 +281,7 @@ class Player {
   /** The workshop keeps planks only for a tray order waiting to be made (as the game does: never for blueprints). */
   planksKept = false;
   updatePlanksKept(): void {
+    if (GREEDY_WORKSHOP) for (const d of workshops(this.w)) d.takesAll = true;
     if (workshops(this.w).length === 0) {
       this.planksKept = false;
       return;

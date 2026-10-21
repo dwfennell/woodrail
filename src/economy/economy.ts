@@ -195,6 +195,11 @@ export interface DepotState {
   auto: boolean;
   /** Trains wait under the crane until each wagon is full. */
   waitFull: boolean;
+  /**
+   * A workshop that takes all the planks a train brings, up to its yard's cap, though a town further on wants them
+   * ("Takes all planks"); false (the default), it shares: `shopKeeps` says how many it keeps.
+   */
+  takesAll: boolean;
   /** Units on each pile, by cargo index. */
   readonly piles: Int32Array;
   /** Ticks into the current production (forest, sawmill) or use (town) cycle. */
@@ -319,7 +324,7 @@ export class Economy {
   addDepot(role: DepotRole, pieceId: number, townId = -1, craneAt?: number): DepotState {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
-    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0 };
+    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0 };
     // An endless heap is full from the start.
     if (RECIPES[role].endless) for (const k of RECIPES[role].gives) d.piles[CARGO[k].index] = capAt(d);
     this.depots.push(d);
@@ -554,6 +559,12 @@ export class Economy {
     if (d) d.waitFull = on;
   }
 
+  /** A workshop takes all the planks trains bring (true), or shares them with towns further on (`takesAll`). */
+  setTakesAll(depotId: number, on: boolean): void {
+    const d = this.depots[depotId];
+    if (d) d.takesAll = on;
+  }
+
   /** Can a pile hold this cargo (it is the depot's input or output) and is there room? */
   pileAccepts(d: DepotState, kind: CargoKind): boolean {
     const r = RECIPES[d.role];
@@ -737,8 +748,9 @@ export class Economy {
     // theirs; a workshop's tray order first).
     if ((d.role === "town" || (d.role === "workshop" && !this.reserved?.(c.kind))) && this.keptForSchool(carId, c.kind, route, d.role === "town")) return false;
     // A workshop's yard takes no more than it keeps (its tray order's, or a few) while a town the train goes on to wants
-    // them too (QA P5: with research idle, the yard filled 1 → 16 with no order and the next town starved).
-    if (d.role === "workshop" && this.shopKeeps && d.piles[CARGO[c.kind].index] >= (this.shopKeeps(c.kind) ?? Infinity) && this.townWantsAhead(carId, c.kind, route)) return false;
+    // them too (QA P5: with research idle, the yard filled 1 → 16 with no order and the next town starved). Not one set
+    // to take all (`takesAll`): it fills its yard.
+    if (d.role === "workshop" && !d.takesAll && this.shopKeeps && d.piles[CARGO[c.kind].index] >= (this.shopKeeps(c.kind) ?? Infinity) && this.townWantsAhead(carId, c.kind, route)) return false;
     // A school takes only its share of a pass's load while a town the train goes on to wants the good too.
     if (d.role === "school" && this.townWantsAhead(carId, c.kind, route)) {
       const found = this.sim.findCar(carId);
@@ -1408,7 +1420,8 @@ export class Economy {
   /**
    * How many of `kind` a workshop's yard takes from a train while a town the train goes on to wants it (Game mode:
    * planks, its waiting tray order's or `WORKSHOP_SPARE`: `yardKeeps` in crafting.ts); beyond that they ride on to the
-   * town. Null (or null for a kind): as many as the yard has room for. With no town ahead wanting them, the yard fills.
+   * town. Null (or null for a kind): as many as the yard has room for. With no town ahead wanting them, or at a
+   * workshop set to take all (`takesAll`), the yard fills.
    */
   shopKeeps: ((kind: CargoKind) => number | null) | null = null;
 

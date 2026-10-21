@@ -44,7 +44,7 @@ import { RouteView, type DiscSpec, type GapSpec, type RibbonSpec } from "./rende
 import { decoupleWords } from "./game/decouple-words";
 import { engineStatus, headOnTip, trainsForReport, type CantMove } from "./game/engine-status";
 import { LIFT_TIP, liftHeldMessage, liftTipSeen, markLiftTipSeen, TooLongNotice, TOO_LONG_MESSAGE } from "./game/lift-notice";
-import { MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
+import { capAt, MAX_SHEDS, SHED_CAP, type DepotState, type RouteStopDef, type StopAction } from "./economy";
 import { BlueprintBoard, type Station } from "./ui/blueprint-board";
 import { pieceIcon, trainIcon } from "./ui/icons";
 import { needMet, seenOf, TECHS, techOf, unlocksOf } from "./game/tech";
@@ -1366,6 +1366,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       checkGoals(true);
       scheduleSave();
     },
+    // Shares with towns / Takes all planks: only the card is drawn again (nothing on the map changes till a train comes).
+    takesAll: (on) => {
+      const id = interaction.openDepotId;
+      if (game.economy.depot(id)?.role !== "workshop") return;
+      game.economy.setTakesAll(id, on);
+      showWorkshop();
+      scheduleSave();
+    },
   });
   // The Research picker: the whole tree, each blueprint researched at a school.
   const board = new BlueprintBoard(document.body, {
@@ -1950,7 +1958,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const shortGoods = nowRule ? minus(nowRule.cost, workshopStock(game.world)) : {};
     const shortCoins = nowRule ? Math.max(0, (nowRule.coins ?? 0) - progress.coins) : 0;
     const need = now?.waiting ? [total(shortGoods) > 0 ? costTag(shortGoods) : "", shortCoins > 0 ? costTag({}, shortCoins) : ""].filter(Boolean).join(" ") || null : null;
-    workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows);
+    const yard = game.economy.depot(id)!;
+    workshopPanel.show(now ? { label: thingLabel(now.id), fill: now.fill, waiting: need } : null, rows, { takesAll: yard.takesAll, keeps: Math.min(yardKeeps(progress), capAt(yard)), cap: capAt(yard) });
   }
 
   // The open engine's line (both modes; Game mode once Train routes is learned): a colour and a name, its stops in
