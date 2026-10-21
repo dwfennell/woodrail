@@ -694,6 +694,8 @@ export class Interaction {
     if (item && item.kind !== "piece") item = null;
     if (item === this.armed || (item && this.armed && trayKey(item) === trayKey(this.armed))) return;
     this.armed = item;
+    this.carried = false;
+    this.carryAt = null;
     this.hidePreview();
     this.onArmed?.(item);
   }
@@ -750,6 +752,54 @@ export class Interaction {
     return this.armed !== null && trayKey(this.armed) === trayKey(item);
   }
 
+  /**
+   * The ready piece is carried: clicked in the tray with a mouse or pen. Its ghost follows the pointer over the map,
+   * snapping and checked as a held piece is, and each click on the map puts one down there, ready for the next.
+   * Clicking it in the tray again, Esc, a right-click, Draw or another tray item puts it away. A drag on the map still
+   * moves the camera. (On touch, a tap in the tray doesn't carry: see `tapTrayPiece`.)
+   */
+  private carried = false;
+  /** Where the mouse is over the map while carrying (null: off it, over the tray or a card). */
+  private carryAt: { x: number; y: number } | null = null;
+  private carryHinted = false;
+  /** A right button pressed on the map while carrying: let go without moving, it puts the carried piece away. */
+  private rightDown: { id: number; x: number; y: number } | null = null;
+
+  /** Is this tray item carried (clicked in the tray: see `carried`)? */
+  isCarried(item: TrayItem): boolean {
+    return this.carried && this.isArmed(item);
+  }
+
+  /** A tray item clicked with a mouse or pen: a piece is carried (or put away, if it was); a road is made ready. */
+  carryTrayItem(item: TrayItem): void {
+    if (item.kind !== "piece") {
+      this.tapTrayPiece(item);
+      return;
+    }
+    if (this.isCarried(item)) {
+      this.arm(null);
+      return;
+    }
+    this.cancel();
+    this.setDrawing(false);
+    this.arm(null);
+    this.clearSelection();
+    this.hud.hideCards();
+    this.arm(item);
+    this.carried = true;
+    if (!this.carryHinted) {
+      this.carryHinted = true;
+      this.hud.toast("Click to place · Esc to stop", false, 3200);
+    }
+  }
+
+  /** The carried piece's ghost shown again where the mouse is (it was turned or flipped in the tray). */
+  private refreshCarry(): void {
+    this.hidePreview();
+    const at = this.carryAt;
+    if (at) this.showPreview(at.x, at.y);
+  }
+
   /** Quarter turns a road comes out of the tray at: as set in the tray, from facing away from the camera. */
   private trayHeld(): number {
     return Math.round(this.cameraHeading() / (Math.PI / 2)) + Math.floor(this.trayTurns / 2);
@@ -798,7 +848,8 @@ export class Interaction {
     const item = this.armed;
     // Over track (or a train, a model) a click selects what's there, so nothing is shown: the piece appears only where
     // a click would put it down.
-    if (!item || item.kind !== "piece" || this.mode.kind !== "idle" || this.picking || this.somethingSelected() || this.pick(x, y)) {
+    // (Carried, it shows over track too: a click there puts it down, joined to it.)
+    if (!item || item.kind !== "piece" || this.mode.kind !== "idle" || this.picking || (!this.carried && (this.somethingSelected() || this.pick(x, y)))) {
       this.hidePreview();
       return;
     }
@@ -932,8 +983,10 @@ export class Interaction {
     const was = this.cameraHeading() + (this.trayTurns * Math.PI) / 4;
     this.trayTurns = (this.trayTurns + 1) % 8;
     this.guided = null;
-    // Nothing in hand: the next piece shows for a moment, turning, so you see which way it'll come out.
-    if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(was);
+    // Nothing in hand: the next piece shows for a moment, turning, so you see which way it'll come out. (Carried, its
+    // ghost turns.)
+    if (this.carried && !holding) this.refreshCarry();
+    else if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(was);
     this.onTurned?.();
   }
 
@@ -995,8 +1048,9 @@ export class Interaction {
     if (holding) this.flipSelected();
     this.trayFlipped = !this.trayFlipped;
     this.guided = null;
-    // Nothing in hand: the next piece shows for a moment, mirrored as it'll come out.
-    if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(this.nextShown?.heading ?? this.cameraHeading() + (this.trayTurns * Math.PI) / 4);
+    // Nothing in hand: the next piece shows for a moment, mirrored as it'll come out. (Carried, its ghost flips.)
+    if (this.carried && !holding) this.refreshCarry();
+    else if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(this.nextShown?.heading ?? this.cameraHeading() + (this.trayTurns * Math.PI) / 4);
     this.onTurned?.();
   }
 
@@ -1012,6 +1066,8 @@ export class Interaction {
       return;
     }
     if (this.mode.kind !== "idle") return;
+    // Carrying, a right-click puts the piece away (a right-drag still turns the view: see `onUp`).
+    if (this.carried && e.pointerType === "mouse" && e.button === 2) this.rightDown = { id: e.pointerId, x: e.clientX, y: e.clientY };
     if (e.pointerType === "mouse" && e.button !== 0) return;
     // Finish any settle/turn first: animating pieces are hidden from picking until their stand-in is done.
     this.game.flourishes.clear();
@@ -1029,6 +1085,11 @@ export class Interaction {
     // A ready road: a tap lays it there (handled as a floor tap, so a drag still pans).
     if (this.roadReady && this.touches.size <= 1) {
       this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, road: true };
+      return;
+    }
+    // A carried piece: a click puts one down there (handled as a floor tap, so a drag still pans).
+    if (this.carried && this.touches.size <= 1) {
+      this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, carry: true };
       return;
     }
     // The ready piece's ghost: a tap on it puts it down (handled as a floor tap, so a drag from it still pans).
@@ -1156,6 +1217,16 @@ export class Interaction {
     if (m.kind === "idle" && this.roadReady && e.pointerType === "mouse" && !this.floorDown) {
       const off = e.target !== this.game.canvas || this.hud.isOverTray(e.clientX, e.clientY);
       this.roads.update(this.roadReady.drag, off ? -1 : this.squareAt(e.clientX, e.clientY), off);
+    }
+    // A carried piece's ghost follows the mouse over the map (not while the camera's being dragged), worked out as a
+    // held piece is: the same path as a drag's moves.
+    if (m.kind === "idle" && this.carried && e.pointerType !== "touch" && !this.floorDown) {
+      this.carryAt = e.target === this.game.canvas ? { x: e.clientX, y: e.clientY } : null;
+      if (this.carryAt) this.showPreview(e.clientX, e.clientY);
+      else if (this.preview?.ghost.visible) {
+        this.preview.ghost.visible = false;
+        this.game.invalidate();
+      }
     }
     if (this.vetoPin(e)) return;
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
@@ -1494,6 +1565,11 @@ export class Interaction {
   }
 
   private onUp(e: PointerEvent): void {
+    const right = this.rightDown;
+    if (right && right.id === e.pointerId) {
+      this.rightDown = null;
+      if (this.carried && Math.hypot(e.clientX - right.x, e.clientY - right.y) < dragSlop(e.pointerType)) this.arm(null);
+    }
     const f = this.floorDown;
     if (f && f.id === e.pointerId) {
       this.floorDown = null;
@@ -1513,6 +1589,14 @@ export class Interaction {
           this.roads.update(r.drag, this.squareAt(e.clientX, e.clientY), false);
           this.roads.drop(r.drag, false);
           r.drag = this.roads.begin(r.item.piece, r.drag.held, r.item.auto);
+          this.lastTap = null;
+          return;
+        }
+        if (f.carry && this.carried) {
+          // Carried: one goes down where it's shown (or is refused, saying why), and the next follows the mouse.
+          this.hidePreview();
+          this.placeArmedAt(e.clientX, e.clientY);
+          if (this.carried) this.showPreview(e.clientX, e.clientY);
           this.lastTap = null;
           return;
         }
@@ -1595,7 +1679,7 @@ export class Interaction {
     else this.dropTrain(m);
   }
 
-  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; press?: Press; moved?: boolean } | null = null;
+  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; carry?: boolean; press?: Press; moved?: boolean } | null = null;
 
   private somethingSelected(): boolean {
     return this.selectedPiece !== -1 || this.selectedProp !== -1 || this.selectedCar !== -1 || this.selectedDepot !== -1 || this.selectedScenery !== null;
@@ -2101,6 +2185,10 @@ export class Interaction {
       this.onTurned?.();
       return;
     }
+    if (this.carried && this.mode.kind === "idle") {
+      this.turnTrayPiece();
+      return;
+    }
     if (this.mode.kind === "drag-piece") {
       this.mode.heading += Math.PI / 4;
       // Seen at once, finger still (it snaps, or is refused, turned).
@@ -2540,6 +2628,10 @@ export class Interaction {
       m.ghost = this.heldMesh(m.type, m.flipped);
       m.ghost.visible = visible;
       this.updateDrag(this.lastX, this.lastY);
+      return;
+    }
+    if (this.carried && this.mode.kind === "idle") {
+      this.flipTrayPiece();
       return;
     }
     const id = this.selectedPiece;
@@ -3378,7 +3470,8 @@ export class Interaction {
         // (Game mode: not when that was the last of it in the toy box.)
         if (m.tray && !this.drawing && (this.trayHas?.(m.tray) ?? true)) {
           this.arm(m.tray);
-          this.previewNextAt(id);
+          // (Carried, the next follows the mouse instead: see `carried`.)
+          if (!this.carried) this.previewNextAt(id);
         } else if (m.tray && !this.drawing) this.arm(null);
         return;
       }

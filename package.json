@@ -17,6 +17,7 @@
     "e2e:roads": "node scripts/e2e/roads.mjs",
     "e2e:draw": "node scripts/e2e/draw.mjs",
     "e2e:touch": "node scripts/e2e/touch.mjs",
+    "e2e:click": "node scripts/e2e/click-place.mjs",
     "e2e:joints": "node scripts/e2e/joints.mjs",
     "e2e:tray": "npm run build && node scripts/e2e/tray.mjs",
     "e2e:decks": "node tools/e2e/deck-taps.mjs",

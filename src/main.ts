@@ -285,7 +285,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       trayPointerDown: (item, e) => {
         if (trayAllowed(item)) interaction.startTrayDrag(item, e);
       },
-      trayTap: (item) => {
+      trayTap: (item, pointerType) => {
+        // A click (a mouse or pen) on a piece carries it, for clicks on the map to put down (or puts it away, if it was
+        // carried). Saying why if it can't come out: the toy box is asked again as each goes down.
+        if (item.kind === "piece" && pointerType !== "touch") {
+          if (interaction.isCarried(item) || trayAllowed(item, false)) interaction.carryTrayItem(item);
+          return;
+        }
         // A tap on a piece only puts the ready one away (or says why it can't come out); on a train, only says why. It
         // never makes anything: that's for a drag out of the tray.
         if (item.kind === "piece") {
@@ -2349,6 +2355,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (planning === on) return;
     planning = on;
     stopPicked = -1;
+    // (A piece carried, or waiting at an end, is put away: a click on the map picks a stop now.)
+    if (on) interaction.arm(null);
     // Planning, the map wants the room: the card slims to its route (Done and the stops), the tray goes, and the view
     // frames the train and its line's places above the card (not when it goes on after the map: see `openMap`).
     hud.setPlanning(on);
