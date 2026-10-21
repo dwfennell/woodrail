@@ -52,6 +52,11 @@ export interface KitDef {
   readonly place?: { readonly t: number; readonly l: number; readonly turn?: number };
   /** Ground it needs clear, in piece-local t/l rectangles (stations' platforms, cranes' legs, a shed's walls). */
   readonly footprint: readonly KitRect[];
+  /**
+   * Water may lie under its footprint beyond this l (mm across from its track): a harbour's own water is there, and
+   * goes on the river or the sea (or stays on dry ground). Unset: none anywhere.
+   */
+  readonly wetFrom?: number;
   /** Can be dropped onto a run of straights to take its place, like a depot (single path, length a multiple of 54). */
   readonly splices?: boolean;
   /**
@@ -289,6 +294,8 @@ export const KITS: Readonly<Record<KitTypeId, KitDef>> = {
     // The quay (40 deep, edge line at the model's z −30) beside the track, the water and jetty beyond it.
     place: { t: 108, l: TRACK_HALF + PLATFORM_GAP + 30 },
     footprint: [{ t: 108, l: 66.5, w: 216, d: 91 }],
+    // Its water (the model's 50 deep beyond the quay: l 61 on) may lie on the river or the sea, the quay on the bank.
+    wetFrom: TRACK_HALF + PLATFORM_GAP + 30 + 10,
     splices: true,
     stop: PASSENGERS,
   },

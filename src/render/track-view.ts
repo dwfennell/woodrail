@@ -399,7 +399,11 @@ export const SWITCH_ARROW_CLEAR = 24;
  * that makes them read against the light wood from the usual high camera (QA N1: cream alone was ~1.3:1 on birch).
  */
 export const SWITCH_ARROW_CREAM = "#fff3d2";
-export const SWITCH_ARROW_PINNED = "#f08a3a";
+/**
+ * A pinned switch's: a vivid red-orange, well away from the birch's own yellow-orange in hue and saturation (QA: the
+ * softer #f08a3a rendered at the wood's hue, 0.08 against its 0.1, and read only by its rim).
+ */
+export const SWITCH_ARROW_PINNED = "#ff5f14";
 export const SWITCH_ARROW_RIM = "#3b2311";
 const arrowCream = new Color(SWITCH_ARROW_CREAM);
 const arrowPinned = new Color(SWITCH_ARROW_PINNED);
@@ -472,29 +476,33 @@ export function arrowEnds(def: PieceDef): number[] {
  * pointing away from it. Two ends set along the same route (a crossover set over) each keep to the half of it nearer
  * them, so the two rows don't lie on each other.
  */
-export function switchArrows(def: PieceDef, state: number, far = false): { x: number; z: number; heading: number }[] {
+export function switchArrows(def: PieceDef, state: number, scale = 1): { x: number; z: number; heading: number }[] {
   const sets = arrowEnds(def).map((end) => ({ end, route: setRoute(def, state, end)! }));
-  return sets.flatMap(({ end, route }) => switchArrowPoses(route, far ? undefined : def, end, sets.filter((o) => o.route === route).length > 1));
+  // (Two ends set along the same route, a crossover set over: one row the whole way across, from the first end, so the
+  // marks read as one way over, not two rows pointing at each other mid-link.)
+  const shown = sets.filter((o, i) => sets.findIndex((p) => p.route === o.route) === i);
+  return shown.flatMap(({ end, route }) => switchArrowPoses(route, def, end, scale));
 }
 
 /**
  * How big the chevrons are drawn for a camera this far off (mm): their own size close to, and up to the track's width
- * from the usual high camera (QA N1: at the default zoom a chevron was a pixel or two, whatever its colour). Bigger,
- * they lie at fixed fractions of the route (`switchArrows` far): from up there the grooves they'd cross don't show.
+ * from the usual high camera (QA N1: at the default zoom a chevron was a pixel or two, whatever its colour). At each
+ * size they lie where the route has parted far enough from the other track for them to clear its groove; where it never
+ * does at that size (the biggest, on a short switch), at fixed fractions of the route: from up there grooves don't show.
  * `was` is the scale drawn now, for a margin either side of each step (no flip-flopping while hovering at one).
  */
 export function arrowScaleFor(distance: number, was = 1): number {
   const step = (at: number, k: number) => distance > (was >= k ? at - 200 : at);
-  return step(3400, ARROW_FAR_SCALES[1]) ? ARROW_FAR_SCALES[1] : step(1800, ARROW_FAR_SCALES[0]) ? ARROW_FAR_SCALES[0] : 1;
+  return step(2800, ARROW_FAR_SCALES[1]) ? ARROW_FAR_SCALES[1] : step(1800, ARROW_FAR_SCALES[0]) ? ARROW_FAR_SCALES[0] : 1;
 }
 /** The chevrons' scales further out (see `arrowScaleFor`): the bigger one makes a chevron the track's full width. */
-export const ARROW_FAR_SCALES = [1.8, 2.6] as const;
+export const ARROW_FAR_SCALES = [1.6, 2.6] as const;
 
 /**
  * Where a route's chevrons lie on its piece (piece-local x, z and heading, pointing away from end `end`), along the
- * stretch where it's parted from the piece's other track (`half`: only in the half of the route nearer `end`).
+ * stretch where it's parted from the piece's other track far enough for chevrons drawn `scale` times their size.
  */
-export function switchArrowPoses(route: PathDef, def?: PieceDef, end = 0, half = false): { x: number; z: number; heading: number }[] {
+export function switchArrowPoses(route: PathDef, def?: PieceDef, end = 0, scale = 1): { x: number; z: number; heading: number }[] {
   const len = pathLength(route.geom);
   const back = route.to === end && route.from !== end;
   const s = createSample();
@@ -503,16 +511,14 @@ export function switchArrowPoses(route: PathDef, def?: PieceDef, end = 0, half =
     samplePath(route.geom, back ? len - d : d, s);
     return { x: s.x, z: s.z, heading: back ? s.heading + Math.PI : s.heading };
   };
-  const span = def ? clearSpan(route, def, back) : null;
-  if (!span) return SWITCH_ARROW_AT.map((f) => at(len * (half ? f / 2 : f)));
-  const a = span[0];
-  // (Sharing the route with another end's row: kept to this end's half of it, a gap short of the middle.)
-  const b = half ? Math.max(a, Math.min(span[1], len / 2 - ARROW.half - ARROW.rim - 1)) : span[1];
+  const span = def ? clearSpan(route, def, back, scale) : null;
+  if (!span) return SWITCH_ARROW_AT.map((f) => at(len * f));
+  const [a, b] = span;
   const n = SWITCH_ARROW_AT.length;
   return SWITCH_ARROW_AT.map((_, i) => at(a + ((b - a) * i) / (n - 1)));
 }
 
-const clearSpans = new WeakMap<PathDef, Map<boolean, [number, number] | null>>();
+const clearSpans = new WeakMap<PathDef, Map<string, [number, number] | null>>();
 
 /**
  * The first stretch of a switch's route (mm from the end it's set from: its `to` end if `back`) where it's parted from
@@ -520,12 +526,15 @@ const clearSpans = new WeakMap<PathDef, Map<boolean, [number, number] | null>>()
  * ending short of the far end; null if there's no stretch long enough. Worked out once for each route and way along it
  * (piece definitions are shared).
  */
-function clearSpan(route: PathDef, def: PieceDef, back: boolean): [number, number] | null {
+function clearSpan(route: PathDef, def: PieceDef, back: boolean, scale = 1): [number, number] | null {
   let cached = clearSpans.get(route);
   if (!cached) clearSpans.set(route, (cached = new Map()));
-  if (cached.has(back)) return cached.get(back)!;
+  const key = `${back}|${scale}`;
+  if (cached.has(key)) return cached.get(key)!;
   const STEP = 2;
-  const ARROW_HALF = ARROW.half + ARROW.rim;
+  const ARROW_HALF = (ARROW.half + ARROW.rim) * scale;
+  // Clear of the other track's groove (its far edge 16 mm from its centre line) by the chevron's half-width at this size.
+  const CLEAR = SWITCH_ARROW_CLEAR - (ARROW.wide + ARROW.rim) + (ARROW.wide + ARROW.rim) * scale;
   const END_MARGIN = 8;
   const len = pathLength(route.geom);
   const others = def.paths.filter((p) => p !== route).map((p) => {
@@ -541,7 +550,7 @@ function clearSpan(route: PathDef, def: PieceDef, back: boolean): [number, numbe
   const s = createSample();
   const clear = (d: number) => {
     samplePath(route.geom, back ? len - d : d, s);
-    for (const pts of others) for (let i = 0; i < pts.length; i += 2) if (Math.hypot(pts[i] - s.x, pts[i + 1] - s.z) < SWITCH_ARROW_CLEAR) return false;
+    for (const pts of others) for (let i = 0; i < pts.length; i += 2) if (Math.hypot(pts[i] - s.x, pts[i + 1] - s.z) < CLEAR) return false;
     return true;
   };
   let from = -1;
@@ -552,15 +561,16 @@ function clearSpan(route: PathDef, def: PieceDef, back: boolean): [number, numbe
     if (ok && from === -1) from = d;
     if ((!ok || d + STEP > last) && from !== -1) {
       const to = ok ? d : d - STEP;
-      // Long enough for the row (the chevrons, rims and all, a millimetre apart at least).
-      if (to - from >= (2 * ARROW_HALF + 1) * (SWITCH_ARROW_AT.length - 1)) {
+      // Long enough for the row: at their own size, the chevrons (rims and all) a millimetre apart at least; drawn bigger,
+      // nested half into each other (a stencilled ">>>").
+      if (to - from >= (scale === 1 ? 2 * ARROW_HALF + 1 : ARROW_HALF) * (SWITCH_ARROW_AT.length - 1)) {
         span = [from + ARROW_HALF, to];
         break;
       }
       from = -1;
     }
   }
-  cached.set(back, span);
+  cached.set(key, span);
   return span;
 }
 
@@ -1092,7 +1102,7 @@ export class TrackView {
       // Two-way: leans toward the route set. Three-way: upright for straight on, leaning toward a curve. The chevrons
       // lie along the route set; the semaphore's arm is level for the first route, raised for any other.
       const state = this.layout.switchState(id);
-      const arrows = switchArrows(def, state, this.arrowScale > 1).flatMap((a) => [a.x, a.z, a.heading]);
+      const arrows = switchArrows(def, state, this.arrowScale).flatMap((a) => [a.x, a.z, a.heading]);
       const was = this.shown.get(id);
       const next: SwitchShown = { first: -1, piece, leverAt, state, lean: leverLean(def, state), arm: state !== 0 ? -SIGNAL_RAISED : 0, arrows, pinned: this.layout.isPinned(id) };
       const swinging = this.swings.get(id);

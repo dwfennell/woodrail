@@ -581,12 +581,22 @@ async function leverPins(ctx, p) {
     await touch("touchEnd", 0, 0, Date.now() / 1000);
     await settled();
   };
+  /**
+   * A quick tap at (x, y), its touches stamped 50 ms apart (QA: an unstamped start and end, delivered late on a loaded
+   * machine, can land more than the pin's 450 ms apart and pin instead of throwing).
+   */
+  const quickTap = async (x, y) => {
+    const t = Date.now() / 1000;
+    await touch("touchStart", x, y, t);
+    await touch("touchEnd", 0, 0, t + 0.05);
+    await frames(p);
+  };
   // (Where the lever is: found afresh before each press, since it leans the other way once flipped.)
   let [lx, ly] = await screenOf("lever");
   // 1. A tap flips it: drawn while it swings, then nothing once it's settled. (Boats held still, as in e2e:draw.)
   const s0 = await state();
   const f0 = await p.evaluate(() => window.woodrail.framesDrawn);
-  await tapped(p, () => p.touchscreen.tap(lx, ly));
+  await quickTap(lx, ly);
   const swung = await p.evaluate(() => window.woodrail.trackView.swinging || window.woodrail.flourishes.count > 0);
   await settled();
   const s1 = await state();
@@ -613,7 +623,7 @@ async function leverPins(ctx, p) {
   check("…and the first time, a toast says what a pin does", said.filter((m) => /^Pinned: trains on a route/.test(m)).length === 1, JSON.stringify(said));
   [lx, ly] = await screenOf("lever");
   // 3. A tap still flips a pinned switch by hand.
-  await tapped(p, () => p.touchscreen.tap(lx, ly));
+  await quickTap(lx, ly);
   await settled();
   const s3 = await state();
   check("a tap still flips a pinned switch (it stays pinned)", s3.way !== s2.way && s3.pinned && s3.peg, JSON.stringify(s3));
@@ -645,15 +655,51 @@ async function leverPins(ctx, p) {
   // 5b. A fingertip's slack (QA N2): a tap on the floor 14 px out from the lever (away from the track) throws it.
   {
     const s7 = await state();
-    const [cx, cy] = await screenOf("piece");
-    [lx, ly] = await screenOf("lever");
-    const len = Math.hypot(lx - cx, ly - cy) || 1;
-    const [tx, ty] = [lx + ((lx - cx) / len) * 14, ly + ((ly - cy) / len) * 14];
-    const exact = await p.evaluate(([x, y]) => window.woodrail.interaction.pickExact(x, y)?.kind ?? null, [tx, ty]);
-    await tapped(p, () => p.touchscreen.tap(tx, ty));
+    // A spot on the bare floor 12–16 px from the lever and its semaphore (neither nearer), that a fingertip's slack
+    // gives the lever: found by looking round the lever on screen.
+    const [tx, ty, near] = await p.evaluate((id) => {
+      const it = window.woodrail.interaction;
+      const posts = it.leversOnScreen().filter((q) => q.id === id);
+      const seg = (q, x, y) => {
+        const dx = q.bx - q.ax, dy = q.by - q.ay, L = dx * dx + dy * dy;
+        const t = Math.max(0, Math.min(1, ((x - q.ax) * dx + (y - q.ay) * dy) / L));
+        return Math.hypot(q.ax + t * dx - x, q.ay + t * dy - y);
+      };
+      const l = posts[0];
+      for (let a = 0; a < 64; a++)
+        for (const r of [17, 16, 18, 15, 19]) {
+          const x = (l.ax + l.bx) / 2 + Math.cos((a / 64) * 2 * Math.PI) * r;
+          const y = (l.ay + l.by) / 2 + Math.sin((a / 64) * 2 * Math.PI) * r;
+          const d = Math.min(...posts.map((q) => seg(q, x, y)));
+          if (d >= 12 && d <= 16 && it.pickExact(x, y) === null && it.pick(x, y, true)?.kind === "lever") return [x, y, Math.round(d)];
+        }
+      return [-1, -1, -1];
+    }, id);
+    const exact = tx < 0 ? "no spot" : await p.evaluate(([x, y]) => window.woodrail.interaction.pickExact(x, y)?.kind ?? null, [tx, ty]);
+    await quickTap(tx, ty);
     await settled();
     const s8 = await state();
-    check("a tap on the floor a fingertip from a lever throws it (QA N2)", exact !== "lever" && s8.way !== s7.way, `exactly under: ${exact}; way ${s7.way} → ${s8.way}`);
+    check("a tap on the floor a fingertip from a lever throws it (QA N2)", exact === null && s8.way !== s7.way, `${near} px off, exactly under: ${exact}; way ${s7.way} → ${s8.way}`);
+    // A finger resting there 700 ms (a slow-starting pan) doesn't pin it: the slack is for taps.
+    await press(tx, ty, 700);
+    const s9 = await state();
+    check("a finger resting on the floor a fingertip from a lever doesn't pin it", s9.pinned === s8.pinned && s9.way === s8.way, `${JSON.stringify(s8)} → ${JSON.stringify(s9)}`);
+    // A double tap there zooms, as on bare floor; the lever is thrown by its first tap at most (QA: it was thrown twice
+    // and the zoom swallowed).
+    const view = () => p.evaluate(() => { const w = window.woodrail; const t = w.controls.target; return [Math.round(w.camera.position.distanceTo(t)), Math.round(t.x), Math.round(t.z)]; });
+    const d0 = await view();
+    const t = Date.now() / 1000;
+    await touch("touchStart", tx, ty, t);
+    await touch("touchEnd", 0, 0, t + 0.05);
+    await touch("touchStart", tx, ty, t + 0.15);
+    await touch("touchEnd", 0, 0, t + 0.2);
+    await p.waitForFunction(() => window.woodrail.director.busy, null, { timeout: 5000 }).catch(() => {});
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+    await settled();
+    const d1 = await view();
+    const s10 = await state();
+    const throws = s10.way !== s9.way ? 1 : 0;
+    check("a double tap on the floor by a lever focuses the view there (its second tap isn't the lever's)", JSON.stringify(d1) !== JSON.stringify(d0) && throws === 1, `view (distance, target) ${d0} → ${d1}; lever thrown ${throws} time(s) (way ${s9.way} → ${s10.way})`);
   }
   // 6. A long press on the switch piece itself (not its lever) still picks the piece up.
   await p.evaluate((id) => window.woodrail.layout.setPinned(id, false), id);

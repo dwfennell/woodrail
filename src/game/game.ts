@@ -1,3 +1,4 @@
+import { kitOnWater } from "./depot-footprint";
 import type { Footprint } from "../props/placement";
 import type { SignBadge } from "../render/landscape-view";
 import type { PropStore } from "../props/store";
@@ -240,6 +241,10 @@ export class Game {
     // Signal skins show their signals' aspects (a bit for each road at red).
     this.kitView.signalState = (id) => this.sim.redSignals(id);
     this.kitView.ridePosition = (id) => this.sim.liftPosition(id);
+    this.kitView.onWater = (id) => {
+      const p = this.layout.getPiece(id);
+      return !!p && kitOnWater(this.landscape, p.type, p.pose);
+    };
     this.scene.add(this.kitView.group);
     this.scene.add(this.loopShow.group);
     this.clockView = new ClockView(this.propLibrary);
