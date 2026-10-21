@@ -44,8 +44,11 @@ describe("town levels", () => {
 describe("pay and prices", () => {
   it("towns pay full price for what they want now, half for the rest; land gets dearer", async () => {
     const { payFor, plotPrice } = await import("./towns");
+    // A hamlet or a village pays more for planks (QA P5: early coins); a town and up, the price.
     const s = townStatus({});
-    expect(payFor("planks", s)).toBe(4);
+    expect(payFor("planks", s)).toBe(6);
+    expect(payFor("planks", townStatus({ planks: 4 }))).toBe(6);
+    expect(payFor("planks", townStatus({ planks: 12 }))).toBe(4);
     expect(payFor("log", s)).toBe(1);
     expect(plotPrice(4)).toBe(60);
     expect(plotPrice(6)).toBeGreaterThan(plotPrice(5));
