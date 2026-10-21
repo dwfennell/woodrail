@@ -542,7 +542,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
   game.keysTaken = () => interaction.piecesTakeKeys;
-  interaction.onArmed = (item) => hud.setArmed(item ? trayKey(item) : null);
+  interaction.onArmed = (item, carried) => hud.setArmed(item ? trayKey(item) : null, carried);
   interaction.onPlaced = (snapped) => {
     audio.putdown(snapped);
     if (snapped) hud.haptic("snap");
@@ -1166,6 +1166,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * missing is made on the spot, unless `make` is false (only asking).
    */
   interaction.trayAllowed = (item) => trayAllowed(item);
+  interaction.trayCanCarry = (item) => trayAllowed(item, false);
   // After the last of something in the toy box goes down, no next one waits at its end.
   interaction.trayHas = (item) => mode !== "game" || item.kind !== "piece" || progress.hasAnother(game.world, item);
   function trayAllowed(item: ThingItem | { kind: string }, make = true): boolean {

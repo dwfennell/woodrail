@@ -510,6 +510,9 @@ export class Interaction {
     if (m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-cargo" || m.kind === "drag-prop") this.game.moveShadows();
     if ((m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-prop" || m.kind === "drag-group") && this.game.director.edgePanning) this.updateDrag(this.lastX, this.lastY);
     if (m.kind === "draw-track" && this.game.director.edgePanning) this.updateDraw(this.lastX, this.lastY);
+    // Carrying: the ghost's placed again under the mouse when the view has moved (a pan, the wheel, a glide), and not
+    // otherwise (QA: it stayed where it was through a pan).
+    if (m.kind === "idle" && this.carrying && this.carryAt && this.carryCameraMoved()) this.refreshCarried();
     if (m.kind === "drag-piece" && dt > 0) {
       const s = m.shown;
       const px = s.x;
@@ -625,8 +628,13 @@ export class Interaction {
    * zooming keep it). Null when none is.
    */
   private armed: TrayItem | null = null;
-  /** Called when the ready tray piece changes. */
-  onArmed: ((item: TrayItem | null) => void) | null = null;
+  /** Called when the ready tray piece changes (`carried`: clicked in the tray, following the mouse: see `carried`). */
+  onArmed: ((item: TrayItem | null, carried?: boolean) => void) | null = null;
+  /**
+   * May one more of this tray item come out now, the toy box having none left of it (Game mode: made on the spot)?
+   * Says why not if it can't. Asked as a carried piece's last one goes down. Null: always.
+   */
+  trayCanCarry: ((item: TrayItem) => boolean) | null = null;
 
   /** Kits whose models are built (or asked for) ahead of a drag, and those waiting their turn. */
   private readonly kitsWarmed = new Set<PieceTypeId>();
@@ -702,6 +710,7 @@ export class Interaction {
     if (item && item.kind !== "piece") item = null;
     if (item === this.armed || (item && this.armed && trayKey(item) === trayKey(this.armed))) return;
     this.armed = item;
+    if (this.carried) this.carryCursor(false);
     this.carried = false;
     this.carryAt = null;
     this.hidePreview();
@@ -797,6 +806,7 @@ export class Interaction {
     if (!c) return;
     this.carriedThing = null;
     this.carryAt = null;
+    this.carryCursor(false);
     this.game.scene.remove(c.m.ghost);
     if (c.m.kind === "drag-train") disposeObject(c.m.ghost);
     else this.propOutline.hide();
@@ -886,14 +896,41 @@ export class Interaction {
     if (item.kind === "piece") {
       this.arm(item);
       this.carried = true;
-    } else {
-      this.carriedThing = { item, m: this.carriedDrag(item) };
-      this.onArmed?.(item);
-    }
+    } else this.carriedThing = { item, m: this.carriedDrag(item) };
+    this.onArmed?.(item, true);
+    this.carryCursor(true);
+    // (Up a good while, the first time: QA missed it at three seconds.)
     if (!this.carryHinted) {
       this.carryHinted = true;
-      this.hud.toast("Click to place · Esc to stop", false, 3200);
+      this.hud.toast("Click to place · Esc to stop", false, 7000);
     }
+  }
+
+  /** Over the map, the pointer says something's carried (a copy cursor), or goes back to the arrow. */
+  private carryCursor(on: boolean): void {
+    this.game.canvas.style.cursor = on ? "copy" : "";
+  }
+
+  /** The camera as last seen with something carried (see `tick`): its ghost is placed again when it moves. */
+  private readonly carryCamera: number[] = [];
+
+  /** Has the camera moved since this was last asked (see `tick`)? */
+  private carryCameraMoved(): boolean {
+    const c = this.game.camera;
+    const now = [c.position.x, c.position.y, c.position.z, c.quaternion.x, c.quaternion.y, c.quaternion.z, c.quaternion.w];
+    const last = this.carryCamera;
+    let moved = last.length !== now.length;
+    for (let i = 0; i < now.length && !moved; i++) moved = Math.abs(now[i] - last[i]) > (i < 3 ? 0.01 : 1e-6);
+    if (moved) for (let i = 0; i < now.length; i++) last[i] = now[i];
+    return moved;
+  }
+
+  /** Whatever's carried shown again where the mouse is (the view moved, or an undo changed the map). */
+  private refreshCarried(): void {
+    const at = this.carryAt;
+    if (!at || this.mode.kind !== "idle") return;
+    if (this.carriedThing) this.showCarriedThing(at);
+    else if (this.carried) this.showPreview(at.x, at.y);
   }
 
   /** The carried piece's ghost shown again where the mouse is (it was turned or flipped in the tray). */
@@ -1347,6 +1384,8 @@ export class Interaction {
     }
     // A carried piece's ghost follows the mouse over the map (not while the camera's being dragged), worked out as a
     // held piece is: the same path as a drag's moves.
+    // (While the camera's dragged, only where the mouse is: the ghost's placed again as the view moves, see `tick`.)
+    if (m.kind === "idle" && this.carrying && e.pointerType !== "touch" && this.floorDown) this.carryAt = e.target === this.game.canvas ? { x: e.clientX, y: e.clientY } : null;
     if (m.kind === "idle" && this.carrying && e.pointerType !== "touch" && !this.floorDown) {
       this.carryAt = e.target === this.game.canvas ? { x: e.clientX, y: e.clientY } : null;
       if (this.carriedThing) this.showCarriedThing(this.carryAt);
@@ -3617,6 +3656,8 @@ export class Interaction {
           this.arm(m.tray);
           // (Carried, the next follows the mouse instead: see `carried`.)
           if (!this.carried) this.previewNextAt(id);
+        } else if (m.tray && !this.drawing && this.carried && (this.trayCanCarry?.(m.tray) ?? true)) {
+          // Carried, the last in the toy box gone: the next is made on the spot (`trayCanCarry` said why, if it can't).
         } else if (m.tray && !this.drawing) this.arm(null);
         return;
       }
@@ -4647,15 +4688,18 @@ export class Interaction {
   undo(): void {
     if (this.busy) return;
     this.game.flourishes.clear();
-    this.arm(null);
+    // (Carrying, it stays carried: its ghost is placed again on the map as it now is.)
+    if (!this.carrying) this.arm(null);
     this.editor().undo();
+    this.refreshCarried();
   }
 
   redo(): void {
     if (this.busy) return;
     this.game.flourishes.clear();
-    this.arm(null);
+    if (!this.carrying) this.arm(null);
     this.editor().redo();
+    this.refreshCarried();
   }
 
   /** A piece's geometry came in (a bridge's taller arches): the piece in hand is redrawn where it is, finger still. */

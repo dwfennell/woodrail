@@ -640,6 +640,7 @@ export class Hud {
         const key = trayKey(item);
         b.dataset.key = key;
         b.classList.toggle("armed", this.armedKey === key);
+        b.classList.toggle("carried", this.armedKey === key && this.armedCarried);
         b.title = `Drag onto the map, or click then click the map: ${item.label}`;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
@@ -654,6 +655,7 @@ export class Hud {
         const key = trayKey(item);
         b.dataset.key = key;
         b.classList.toggle("armed", this.armedKey === key);
+        b.classList.toggle("carried", this.armedKey === key && this.armedCarried);
         b.title = tip;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
@@ -1481,11 +1483,17 @@ export class Hud {
 
   /** The tray piece readied for placing with taps (`trayKey`), or null. */
   private armedKey: string | null = null;
+  private armedCarried = false;
 
-  setArmed(key: string | null): void {
-    if (key === this.armedKey) return;
+  /** Mark the tray item that's ready (`carried`: clicked, following the mouse, marked apart), or none (null). */
+  setArmed(key: string | null, carried = false): void {
+    if (key === this.armedKey && carried === this.armedCarried) return;
     this.armedKey = key;
-    this.tray.querySelectorAll<HTMLElement>(".tray-item[data-key]").forEach((b) => b.classList.toggle("armed", b.dataset.key === key));
+    this.armedCarried = carried;
+    this.tray.querySelectorAll<HTMLElement>(".tray-item[data-key]").forEach((b) => {
+      b.classList.toggle("armed", b.dataset.key === key);
+      b.classList.toggle("carried", b.dataset.key === key && carried);
+    });
   }
 
   /**

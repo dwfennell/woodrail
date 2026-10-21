@@ -86,6 +86,8 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   const toast = await p.evaluate(() => [...document.querySelectorAll(".toast")].map((t) => t.textContent).join(" | "));
   check("a click on a tray piece carries it (marked in the tray)", (await carried(p)) && (await marked(p, item.key)), `carried ${await carried(p)}; marked ${await marked(p, item.key)}`);
   check("…and says how: “Click to place · Esc to stop”", /Click to place · Esc to stop/.test(toast), toast);
+  const look = await p.evaluate((key) => ({ placing: document.querySelector(`.scroller .tray-item[data-key="${key}"]`)?.classList.contains("carried"), cursor: window.woodrail.canvas.style.cursor }), item.key);
+  check("carried is marked apart from ready in the tray (“placing”), and the cursor over the map says so", look.placing && look.cursor === "copy", JSON.stringify(look));
 
   // 2. Over the map its ghost follows the mouse; over the tray it's hidden.
   const at = await openGround(p);
@@ -176,11 +178,20 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   const v1 = await view(p);
   const n3 = await pieces(p);
   check("a drag on the map still pans, putting nothing down", (v1.x !== v0.x || v1.z !== v0.z) && n3 === n2 && (await carried(p)), `view ${v0.x},${v0.z} → ${v1.x},${v1.z}; pieces ${n2} → ${n3}`);
+  const goal = () => p.evaluate(() => { const m = window.woodrail.interaction.preview; return m ? [Math.round(m.goal.x), Math.round(m.goal.z)] : null; });
+  const w0 = await goal();
   await p.mouse.wheel(0, 240);
   // (The zoom eases in: till the distance stops changing.)
   await p.evaluate(() => new Promise((r) => { const w = window.woodrail; let last = -1, same = 0; const t = () => { const d = Math.round(w.camera.position.distanceTo(w.controls.target)); same = d === last ? same + 1 : 0; last = d; if (same > 10) r(); else requestAnimationFrame(t); }; requestAnimationFrame(t); }));
   const v2 = await view(p);
   check("the wheel still zooms, still carried", v2.d !== v1.d && (await carried(p)), `distance ${v1.d} → ${v2.d}`);
+  const w1 = await goal();
+  check("…and the ghost is placed again under the mouse as the view moves (QA)", !!w0 && !!w1 && (w0[0] !== w1[0] || w0[1] !== w1[1]) && (await ghost(p))?.visible, `ghost at ${w0} → ${w1}`);
+  // Undo keeps it carried (what was put down goes).
+  const u0 = await pieces(p);
+  await p.keyboard.press("Control+z");
+  await frames(p);
+  check("Ctrl+Z undoes the last one put down, and it's still carried", (await pieces(p)) === u0 - 1 && (await carried(p)), `medium straights ${u0} → ${await pieces(p)}`);
 
   // 6. R turns it (as the tray's Turn does).
   const spot = await openGround(p);
@@ -193,7 +204,7 @@ const openGround = async (p, avoid = []) => (await openPoints(p, avoid))[0] ?? n
   // 7. Put away: a right-click on the map; Esc; the tray item clicked again; Draw.
   await p.mouse.click(spot[0], spot[1], { button: "right" });
   await frames(p);
-  check("a right-click puts it away (unmarked, no ghost)", !(await carried(p)) && !(await marked(p, item.key)) && !(await ghost(p))?.visible, `carried ${await carried(p)}; ghost ${JSON.stringify(await ghost(p))}`);
+  check("a right-click puts it away (unmarked, no ghost, the cursor back)", !(await carried(p)) && !(await marked(p, item.key)) && !(await ghost(p))?.visible && (await p.evaluate(() => window.woodrail.canvas.style.cursor)) === "", `carried ${await carried(p)}; ghost ${JSON.stringify(await ghost(p))}`);
   await p.mouse.click(item.x, item.y);
   await p.keyboard.press("Escape");
   check("Esc puts it away", !(await carried(p)) && !(await marked(p, item.key)));
