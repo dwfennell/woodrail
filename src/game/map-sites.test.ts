@@ -16,7 +16,8 @@ import {
 import { harbourWhy } from "./harbours";
 import { resourceAt, SITE_RULES } from "./industries";
 import { addPlotExtras, CLEAR_PRICE, describeLand, MAX_SITES, ruinAt, ruinCard, siteBlueprint } from "./map-sites";
-import { buildStarterWorld, clearRuin, createWorld, fixedPieces, plotLand, startLand, unlockPlot } from "./world";
+import { buildStarterWorld, clearRuin, createWorld, fixedPieces, landForSale, plotLand, startLand, unlockPlot } from "./world";
+import { deserializeWorld, serializeWorld, type SaveData } from "../persist/save";
 
 /** The plots round the start (5 × 5 less the start's 2 × 2), not the open sea. */
 function ring(seed: number, starter = false): { px: number; pz: number }[] {
@@ -273,5 +274,52 @@ describe("map sites: clearing a ruin", () => {
     expect(w.ruins.size).toBe(0);
     expect(addPlotExtras).toBeTypeOf("function");
     expect(SITE_RULES.farm!.need).toBe(8);
+  });
+});
+
+describe("map sites: none in Sandbox", () => {
+  it("a Sandbox map has no sites or ruins, on its start or on land added; its land card names none; it saves so", () => {
+    for (const w of [createWorld(7, false, true, false), buildStarterWorld(false)]) {
+      expect(w.landscape.sites).toEqual([]);
+      expect(w.landscape.siteless).toBe(true);
+      expect(w.ruins.size).toBe(0);
+      for (const [px, pz] of [[-1, 1], [0, 1], [1, 0]] as const) {
+        const land = landForSale(w.landscape, px, pz);
+        expect(land.sites ?? []).toEqual([]);
+        expect(describeLand(land)).not.toMatch(/old/);
+        expect(unlockPlot(w, px, pz)!.sites).toEqual([]);
+      }
+      expect(w.landscape.sites).toEqual([]);
+      let ruins = 0;
+      w.landscape.grid.forEachCell((i) => (ruins += w.landscape.grid.feature[i] === FEAT_RUIN ? 1 : 0));
+      expect(ruins).toBe(0);
+      const again = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))), { sandbox: true });
+      if (!again.ok) throw new Error(again.error);
+      expect(again.value.landscape.siteless).toBe(true);
+      expect(again.value.landscape.sites).toEqual([]);
+    }
+  });
+
+  it("an old Sandbox save (no sites) gains none as it loads; the same save loaded for Game mode would", () => {
+    const w = createWorld(7, true, false);
+    const data = JSON.parse(JSON.stringify(serializeWorld(w))) as SaveData;
+    delete data.landscape.sites;
+    const sandbox = deserializeWorld(JSON.parse(JSON.stringify(data)), { sandbox: true });
+    if (!sandbox.ok) throw new Error(sandbox.error);
+    expect(sandbox.value.landscape.sites).toEqual([]);
+    expect(sandbox.value.landscape.siteless).toBe(true);
+    expect(sandbox.value.ruins.size).toBe(0);
+    expect(sandbox.value.layout.pieceCount).toBe(w.layout.pieceCount);
+    const game = deserializeWorld(data);
+    if (!game.ok) throw new Error(game.error);
+    expect(game.value.landscape.sites!.length).toBeGreaterThan(0);
+  });
+
+  it("a Sandbox plot still gets its extra town, as Game's does", () => {
+    const c = coastOf(7, true);
+    const sandbox = generatePlot(7, -1, 1, c);
+    addPlotExtras(sandbox, -1, 1, false);
+    expect(sandbox.sites ?? []).toEqual([]);
+    expect(sandbox.towns.length).toBe(generatePlot(7, -1, 1, c).towns.length + 1);
   });
 });

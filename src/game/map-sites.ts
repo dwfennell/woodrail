@@ -513,7 +513,7 @@ function waterDistance(land: Landscape, region: Region): (x: number, z: number) 
  * (more likely by the sea or a river: `EXTRA_TOWN_CHANCE`), then one or two old industries' sites, the first of the
  * kind the plot is richest in. Every plot gets at least one site where any fits. Returns what was added, as patches.
  */
-export function addPlotExtras(land: Landscape, px: number, pz: number): Extra[] {
+export function addPlotExtras(land: Landscape, px: number, pz: number, sites = true): Extra[] {
   const random = sitesStream(land.seed, px, pz);
   const region: Region = { px0: px, pz0: pz, w: 1, h: 1 };
   const out: Extra[] = [];
@@ -540,6 +540,11 @@ export function addPlotExtras(land: Landscape, px: number, pz: number): Extra[] 
   // (A harbour on a river settles for less water at once: a river is a square wide, the sea is wide. Every spot is
   // tried only for the others, and a harbour by the sea.)
   const dry = roles.filter((r) => r !== "harbour" || c.sea > 0);
+  // (A Sandbox map's plot: its town, and no sites.)
+  if (!sites) {
+    if (random() < chance) addTown(0);
+    return out;
+  }
   const site = () =>
     firstSite(land, region, roles, random, plot, {}, out, c.sea === 0) ??
     firstSite(land, region, dry, random, plot, { exhaustive: true }, out) ??

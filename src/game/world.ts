@@ -247,8 +247,13 @@ export const STARTER_SEED = 7;
  * A fresh map: generated landscape with a station piece in every town and no player track. Without `extras`, the map
  * as it was before its old industries' sites (`addStartSites`): for QA's recordings made on such maps.
  */
-export function createWorld(seed: number, starter = false, extras = true): World {
-  const landscape = extras ? startLand(seed, starter) : generateLandscape(seed, { starter });
+export function createWorld(seed: number, starter = false, extras = true, sites = true): World {
+  const landscape = extras && sites ? startLand(seed, starter) : generateLandscape(seed, { starter });
+  // (Sandbox: no old industries' sites, on the start or on land added later.)
+  if (!sites) {
+    landscape.sites = [];
+    landscape.siteless = true;
+  }
   const layout = new Layout();
   const sim = new Sim(layout);
   const world: World = { layout, sim, landscape, stations: new Map(), depots: new Map(), economy: new Economy(layout, sim), props: new PropStore(), ruins: new Map() };
@@ -268,8 +273,8 @@ export function startLand(seed: number, starter = false, coast = true): Landscap
  * The map a new player sees: the starter landscape (two towns close together with a clear run between their
  * stations) and nothing else — joining them is the first thing to do.
  */
-export function buildStarterWorld(): World {
-  return createWorld(STARTER_SEED, true);
+export function buildStarterWorld(sites = true): World {
+  return createWorld(STARTER_SEED, true, true, sites);
 }
 
 const GAMES_KEY = "woodrail.game.started";
@@ -347,7 +352,7 @@ export function prepareLandForSale(land: Landscape, px: number, pz: number): boo
     return true;
   }
   if (!have.extras) {
-    addPlotExtras(have.part, px, pz);
+    addPlotExtras(have.part, px, pz, !land.siteless);
     have.extras = true;
   }
   return false;

@@ -95,6 +95,8 @@ export const landscapeSchema = z.object({
       }),
     )
     .optional(),
+  /** A Sandbox map: no sites, ever (`Landscape.siteless`). */
+  siteless: z.boolean().optional(),
 });
 
 export type LandscapeData = z.infer<typeof landscapeSchema>;
@@ -143,6 +145,7 @@ export function serializeLandscape(land: Landscape): LandscapeData {
     shed: land.shed ? { ...land.shed, cells: [...land.shed.cells] } : null,
     corridors: [...land.corridors],
     ...(land.sites ? { sites: land.sites.map((s) => ({ ...s, centre: { ...s.centre }, piece: { ...s.piece }, plot: { ...s.plot }, fields: [...s.fields] })) } : {}),
+    ...(land.siteless ? { siteless: true } : {}),
   };
 }
 
@@ -213,5 +216,6 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
     nextBuildingId: data.nextBuildingId,
     coast: data.coast ? { ...data.coast, seed: data.seed } : null,
     ...(data.sites ? { sites: data.sites } : {}),
+    ...(data.siteless ? { siteless: true } : {}),
   });
 }

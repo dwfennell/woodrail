@@ -1,7 +1,8 @@
 # Map sites: old industries you restore, and more towns
 
-Date: 2026-10-21. Status: step 1 implemented (branch `map-sites`); step 2 implemented (branch `map-sites-2`, §7). Game mode first; the land is
-the same in Sandbox.
+Date: 2026-10-21. Status: step 1 implemented (branch `map-sites`); step 2 implemented (branch `map-sites-2`, §7). **Game mode only**: Sandbox
+maps (`Landscape.siteless`) never get sites or ruins (it has no research to open them), and an old Sandbox save gains
+none; land added in Sandbox still gets the extra towns (§3), from the same generation path.
 
 ## What the user asked
 
@@ -172,8 +173,8 @@ Measured (dev machine, shared and loaded; swiftshader in the e2e):
 
 ### Restore (`src/game/restore.ts`)
 
-- **The card.** Once the ruin's blueprint is learned (and always in Sandbox) the status line reads "🔧 Half the price of
-  a new farm yard" and the card's first button is **Restore · 3🪵 45🪙** ("Restore" in Sandbox). "Or build your own
+- **The card.** Once the ruin's blueprint is learned the status line reads "🔧 Half the price of
+  a new farm yard" and the card's first button is **Restore · 3🪵 45🪙**. "Or build your own
   anywhere from the Industries tab." stays, and so does Clear the ruin.
 - **The price** (`restorePrice`, `RESTORE_SHARE = 0.5` in map-sites.ts, the one knob): half the new industry's
   `THING_RULES` price, goods rounded up, coins to the nearest 5. Farm 3🪵 45🪙, quarry 4🪵 90🪙, mine 5🪵 155🪙, harbour
