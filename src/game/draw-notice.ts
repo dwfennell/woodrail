@@ -10,6 +10,8 @@ export const STALL_MM = 2 * DRAW_LOOKAHEAD + 100;
 export const STALL_HOLD = 150;
 
 export const TOO_SHARP = "Too sharp: draw a wider bend";
+/** How "Couldn't join the station: …" starts (see `DrawNotice.unjoined`). */
+export const UNJOINED_START = "Couldn't join ";
 
 /**
  * What a drawn line says as it goes and when the finger lifts (DrawHand's toasts): stuck behind the finger ("Too
@@ -85,6 +87,14 @@ export class DrawNotice {
     // Left behind, and not said yet (QA: a tight U-turn laid nothing and said nothing).
     if (!this.told && line.leftBehind) return this.stuckWhy(line);
     return null;
+  }
+
+  /**
+   * The line went down with its end facing `what`'s free end ("the station") a little way off, not joined: no piece,
+   * nor bending the line within the joints' play, closes that gap.
+   */
+  unjoined(what: string): string {
+    return `${UNJOINED_START}${what}: no pieces fit the gap. Draw in from a little further back`;
   }
 
   private stuckWhy(line: DrawLine): string {
