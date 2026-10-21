@@ -138,3 +138,24 @@ describe("the track cleaner on the Trains tab", () => {
     expect(trayTabs("game").some((t) => t.id === "industries")).toBe(true);
   });
 });
+
+describe("the Trains tab's shelves", () => {
+  const shelvesOf = (mode: "sandbox" | "game") => trayTabs(mode).find((t) => t.id === "trains")!.groups;
+  it("Game mode: no ready-made trains, only the parts to make one up (Engines, Wagons, Coaches)", () => {
+    const game = shelvesOf("game");
+    expect(game.map((g) => g.label)).toEqual(["Engines", "Wagons", "Coaches"]);
+    for (const g of game) for (const item of g.items) expect(item.kind === "train" && item.cars.length, `${g.label}/${item.label}`).toBe(1);
+    // A shelf dragged up takes out its first item: the Engines shelf's is a plain engine.
+    expect(game[0].items[0]).toMatchObject({ kind: "train", cars: ["engine"], label: "Engine" });
+  });
+  it("Sandbox keeps its ready-made Trains shelf first", () => {
+    const sandbox = shelvesOf("sandbox");
+    expect(sandbox.map((g) => g.label)).toEqual(["Trains", "Engines", "Wagons", "Coaches"]);
+    expect(sandbox[0].items.map((i) => i.label)).toEqual(["Full train", "Flatbed train"]);
+  });
+  it("an old Game-mode favourite that was a ready-made train isn't offered there (Sandbox still has it)", () => {
+    const keys = ["train:Full train", "train:Engine"];
+    expect(favouriteItems(keys, shelvesOf("game")).map(trayKey)).toEqual(["train:Engine"]);
+    expect(favouriteItems(keys, shelvesOf("sandbox")).map(trayKey)).toEqual(keys);
+  });
+});
