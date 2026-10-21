@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { checkPlacement, FEAT_BUILDING, FEAT_FIELD, FEAT_SHED, gridWithPlots, SURF_LANE, SURF_RIVER, SURF_ROAD, SURF_SEA, SURF_TOWN, type Landscape } from "../landscape";
 import { PropStore } from "../props/store";
 import { appendPiece, connectorRef, findSplice, Layout, type PieceTypeId, type Pose } from "../track";
-import { checkYard, flipHint, footprintInYards, inYardMessage, placedYard, propPhrase, trackInYards, townMessage, turnedRound, YARD_FLIP_HINT, YARD_NO_ROOM, yardMessage, yardParts, type PlacedYard, type YardCheck, type YardObstacle } from "./depot-footprint";
+import { checkYard, flipHint, kitOnWater, footprintInYards, inYardMessage, placedYard, propPhrase, trackInYards, townMessage, turnedRound, YARD_FLIP_HINT, YARD_NO_ROOM, yardMessage, yardParts, type PlacedYard, type YardCheck, type YardObstacle } from "./depot-footprint";
 
 function flat(): Landscape {
   return { seed: 0, starter: false, grid: gridWithPlots(-1, -1, 2, 2), towns: [], corridors: [], fields: [], shed: null, depots: [], nextBuildingId: 0 };
@@ -88,6 +88,28 @@ describe("a depot's yard", () => {
     // Further in, the harbour's yard is in the sea.
     setCells(ctx.land, -10, 230, 0, 70, (i) => (ctx.land.grid.surface[i] = SURF_SEA));
     expect(checkYard(ctx, "depot-harbour", at, 0, -1)).toBe("yard-water");
+  });
+
+  it("the harbour station kit's water may lie on the river or the sea, its quay on the bank (on dry land as well)", () => {
+    const kit = "kit-harbour-station" as PieceTypeId;
+    // Dry all round: still fine.
+    expect(checkYard(setup(), kit, AT, 0, -1)).toBeNull();
+    // The river from 72 mm out from the track: under its water (61 on), the quay (21-61) on the bank.
+    const bank = setup();
+    setCells(bank.land, -10, 230, 76, 140, (i) => (bank.land.grid.surface[i] = SURF_RIVER));
+    expect(checkYard(bank, kit, AT, 0, -1)).toBeNull();
+    // Another kit (a station's platform) is still refused there.
+    const mountain = setup();
+    setCells(mountain.land, -10, 230, 0, 70, (i) => (mountain.land.grid.surface[i] = SURF_RIVER));
+    expect(checkYard(mountain, "kit-mountain-station" as PieceTypeId, P(0, -60), 0, -1)).toBe("yard-water");
+    // Drawn without its own water where that's on the river (the river shows); on dry land, with it.
+    expect(kitOnWater(bank.land, kit, AT)).toBe(true);
+    expect(kitOnWater(setup().land, kit, AT)).toBe(false);
+    expect(kitOnWater(bank.land, "kit-mountain-station" as PieceTypeId, AT)).toBe(false);
+    // The water up to the track: the quay would be in it.
+    const sea = setup();
+    setCells(sea.land, -10, 230, 0, 70, (i) => (sea.land.grid.surface[i] = SURF_SEA));
+    expect(checkYard(sea, kit, AT, 0, -1)).toBe("yard-water");
   });
 
   it("is refused on a house, a farm field or a prop beside the track", () => {

@@ -93,11 +93,11 @@ function shapeOf(role: DepotRole): YardShape | null {
   return s;
 }
 
-/** A kit's footprint beside its track: its rectangles, all of them pad (checked against everything). */
+/** A kit's footprint beside its track: its rectangles, all of them pad (checked against everything; water, only short of `wetFrom`). */
 function kitShape(kit: KitDef): YardShape | null {
   return shapeFrom(
     kit.footprint.map((r) => ({ cx: r.t, cz: r.l, hw: r.w / 2, hd: r.d / 2, crane: false, post: false, ...(r.overhead ? { overhead: true } : {}), ...(r.trackPad ? { trackPad: r.trackPad } : {}) })),
-    Infinity,
+    kit.wetFrom ?? Infinity,
   );
 }
 
@@ -113,6 +113,30 @@ function shapeFor(type: PieceTypeId): YardShape | null {
   s = role ? shapeOf(role) : kit ? kitShape(kit) : null;
   typeShapes.set(type, s);
   return s;
+}
+
+/**
+ * Does a kit with water of its own (`KitDef.wetFrom`: the harbour station's) stand with it on real water: two of three
+ * points along the middle of its water on the river or the sea? Then it's drawn without its own. A few squares looked
+ * up: asked as the layout changes, not per frame.
+ */
+export function kitOnWater(land: Landscape, type: PieceTypeId, pose: Pose): boolean {
+  const kit = kitOf(type);
+  if (kit?.wetFrom === undefined) return false;
+  const g = land.grid;
+  const far = Math.max(...kit.footprint.map((r) => r.l + r.d / 2));
+  const l = (kit.wetFrom + far) / 2;
+  const t0 = Math.min(...kit.footprint.map((r) => r.t - r.w / 2));
+  const t1 = Math.max(...kit.footprint.map((r) => r.t + r.w / 2));
+  const c = Math.cos(pose.heading);
+  const s = Math.sin(pose.heading);
+  let wet = 0;
+  for (const u of [0.2, 0.5, 0.8]) {
+    const t = t0 + (t1 - t0) * u;
+    const cell = g.cellAtWorld(pose.x + t * c - l * s, pose.z + t * s + l * c);
+    if (cell !== -1 && isWater(g.surface[cell])) wet++;
+  }
+  return wet >= 2;
 }
 
 /** Does this piece type have a footprint beside its track (a depot's yard, a kit's ground)? */

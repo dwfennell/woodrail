@@ -85,6 +85,11 @@ export class KitView {
    * state is a ride (`KitStateMotion.source` "ride"). Set by the game; null: its switch state.
    */
   ridePosition: ((pieceId: number) => number) | null = null;
+  /**
+   * Does a kit piece with water of its own (`KitDef.wetFrom`: a harbour's) stand with it on real water? Then it's drawn
+   * without its own, the river or the sea showing instead. Asked only as the layout changes (`sync`). Null: never.
+   */
+  onWater: ((pieceId: number) => boolean) | null = null;
   /** The source the view draws from: the kit pieces shown. */
   private readonly source = {
     version: 0,
@@ -133,7 +138,7 @@ export class KitView {
       if (!m && motion) this.movers.set(id, (m = { id, type: p.type, kit, motion, on: 0, t: 0, live: null, parts: null, still: true, state: 0, value: 0, from: 0, to: 0, u: 1 }));
       // A deck stands as its state says from the start (drawn live always, once its model's in).
       if (m?.motion.state && !m.live && this.wake(m)) this.settle(m);
-      const asset = kitModelKey(p.type, !!m?.live);
+      const asset = kitModelKey(p.type, !!m?.live, !m?.live && kit.wetFrom !== undefined && !!this.onWater?.(id));
       const d = this.drawn.get(id);
       if (d && d.asset === asset) {
         if (d.x !== p.pose.x || d.z !== p.pose.z || d.heading !== p.pose.heading || d.y !== p.y) Object.assign(d, { x: p.pose.x, z: p.pose.z, heading: p.pose.heading, y: p.y });
