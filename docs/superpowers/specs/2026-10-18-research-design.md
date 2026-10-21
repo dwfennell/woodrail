@@ -93,8 +93,10 @@ And later: "I think the research building should be placed near a town though, m
   - Each workshop's card has a two-way choice (`DepotState.takesAll`, saved per workshop as an optional `takesAll:
     true`; absent loads as Shares, no `SAVE_VERSION` change): **Shares with towns** (the default, the rule above;
     "Leaves planks for towns further on, keeping 7 for you") or **Takes all planks** ("Fills its yard first, up to
-    30": `shopKeeps` is skipped, as before 46c5d7f). The school's hold-back and the tray order's hold stay in both. A
-    stop's Only drop isn't the same: it still shares. Changing it redraws only the card.
+    30", and with a school on the map " (your school still gets what it needs)": `shopKeeps` is skipped, as before
+    46c5d7f). The school's hold-back and the tray order's hold stay in both. A routed stop at a workshop set to Only
+    drop skips `shopKeeps` too (QA N3: it still shared, against its label): it drops all the yard has room for, but
+    what a school further on lacks. Changing it redraws only the card.
   - The school takes only what its research still lacks, and (QA P4) at most 3/5 of a pass's load while a town the
     train goes on to wants the good too (`SCHOOL_SHARE`, §5).
   - No plank is counted by both. Whatever neither of them asks for goes to towns, as it does today.

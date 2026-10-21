@@ -504,6 +504,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .depot-extra { display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto; min-width: min(320px, 80vw); }
 /* Its two-way plank choice (Shares with towns / Takes all planks), and the line under it. */
 .yard-mode { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+/* (A little clear of the Automatic row above it: QA N3.) */
+.depot-extra > .yard-mode:first-child { margin-top: 6px; }
 .yard-mode .chip { flex: 1 1 0; min-width: 0; padding: 0 8px; white-space: nowrap; }
 .yard-hint { font-size: 12px; font-weight: 700; color: #7a5532; text-align: center; }
 .make-now { font-size: 13px; font-weight: 700; color: #6a5340; text-align: center; }
