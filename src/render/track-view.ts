@@ -31,10 +31,13 @@ import type { PieceJob, PieceResult } from "./piece-worker";
 import { loadCached, saveCached } from "./piece-cache";
 import { drainQueue } from "./worker-queue";
 import { nonIndexed } from "./non-indexed";
+import { AdditiveBlending, MeshStandardMaterial } from "three";
+import * as sw from "./switch-styles";
 
 const geometryCache = new Map<string, BufferGeometry>();
 const scratch = new Matrix4();
 const scratch2 = new Matrix4();
+const GROOVE_WIDTH_PROTO = 6;
 const arrowScaleVec = new Vector3();
 /** Selection outline colours: selected, about to join track, can't go there. */
 export const OUTLINE_TONES = { select: "#ffe489", snap: "#86ec7a", blocked: "#ff7461" } as const;
@@ -407,6 +410,8 @@ export const SWITCH_ARROW_PINNED = "#ff5f14";
 export const SWITCH_ARROW_RIM = "#3b2311";
 const arrowCream = new Color(SWITCH_ARROW_CREAM);
 const arrowPinned = new Color(SWITCH_ARROW_PINNED);
+const burnTone = new Color(sw.BURN);
+const burnPinned = new Color(sw.BURN_PINNED);
 /** How long a lever takes to swing over (and the chevrons to slide across), s. */
 export const SWITCH_SWING_S = 0.12;
 /** The chevrons' rims lie this far (mm) above the track's top, their faces a little higher: painted on, clear in depth. */
@@ -595,6 +600,10 @@ interface SwitchShown {
   /** Chevron poses on the route set, flattened (x, z, heading per chevron). */
   arrows: number[];
   pinned: boolean;
+  /** (Prototype styles.) */
+  def: PieceDef;
+  point: number;
+  branchSide: number;
 }
 
 /** A lever swinging over (and its chevrons sliding across, its signal's arm moving), from what was drawn to the new state. */
@@ -603,6 +612,7 @@ interface Swing {
   lean: [number, number];
   arm: [number, number];
   arrows: [number[], number[]];
+  point: [number, number];
 }
 
 /** Shadow casters, one for each kind of piece, shared by every piece of that kind (see `buildPieceShadowCaster`). */
@@ -1102,14 +1112,17 @@ export class TrackView {
       // Two-way: leans toward the route set. Three-way: upright for straight on, leaning toward a curve. The chevrons
       // lie along the route set; the semaphore's arm is level for the first route, raised for any other.
       const state = this.layout.switchState(id);
-      const arrows = switchArrows(def, state, this.arrowScale).flatMap((a) => [a.x, a.z, a.heading]);
+      const chevrons = sw.SWITCH_STYLE === "current" || sw.SWITCH_STYLE === "burned";
+      const arrows = chevrons ? switchArrows(def, state, this.arrowScale).flatMap((a) => [a.x, a.z, a.heading]) : [];
       const was = this.shown.get(id);
-      const next: SwitchShown = { first: -1, piece, leverAt, state, lean: leverLean(def, state), arm: state !== 0 ? -SIGNAL_RAISED : 0, arrows, pinned: this.layout.isPinned(id) };
+      const next: SwitchShown = { first: -1, piece, leverAt, state, lean: leverLean(def, state), arm: state !== 0 ? -SIGNAL_RAISED : 0, arrows, pinned: this.layout.isPinned(id), def, point: sw.pointerAngle(setRoute(def, state)!), branchSide };
       const swinging = this.swings.get(id);
       if (was && was.state !== state && was.arrows.length === arrows.length && swing?.(id)) {
         // Swing over from where it's drawn now (part way, if it was already swinging).
         const from = swinging ? this.swingPose(swinging) : { lean: was.lean, arm: was.arm, arrows: was.arrows };
-        this.swings.set(id, { t: 0, lean: [from.lean, next.lean], arm: [from.arm, next.arm], arrows: [from.arrows, arrows] });
+        const fromPoint = swinging ? this.swingPose(swinging).point : was.point;
+        this.swings.set(id, { t: 0, lean: [from.lean, next.lean], arm: [from.arm, next.arm], arrows: [from.arrows, arrows], point: [fromPoint, next.point] });
+        if (sw.SWITCH_STYLE === "glow") this.glows.set(id, 0);
       } else if (swinging && !(was && was.state === state)) this.swings.delete(id);
       this.shown.set(id, next);
       this.setPin(id, lever, next.pinned);
@@ -1125,6 +1138,7 @@ export class TrackView {
       }
     }
     this.syncArrows();
+    this.syncStyleMarks();
     for (const [id, signal] of this.signals) {
       if (!live.has(id)) {
         this.group.remove(signal.root);
@@ -1134,14 +1148,14 @@ export class TrackView {
   }
 
   /** Where a swing has got to: the lean, arm and chevrons drawn now. */
-  private swingPose(w: Swing): { lean: number; arm: number; arrows: number[] } {
+  private swingPose(w: Swing): { lean: number; arm: number; arrows: number[]; point: number } {
     const k = Math.min(1, w.t / SWITCH_SWING_S);
     // The lever goes over with a little knock past the end (wood stopping wood); the chevrons slide and settle.
     const kl = easeOutBack(k, 1.1);
     const ka = easeOutCubic(k);
     const [a, b] = w.arrows;
     const arrows = a.map((v, i) => (i % 3 === 2 ? lerpAngle(v, b[i], ka) : v + (b[i] - v) * ka));
-    return { lean: w.lean[0] + (w.lean[1] - w.lean[0]) * kl, arm: w.arm[0] + (w.arm[1] - w.arm[0]) * ka, arrows };
+    return { lean: w.lean[0] + (w.lean[1] - w.lean[0]) * kl, arm: w.arm[0] + (w.arm[1] - w.arm[0]) * ka, arrows, point: w.point[0] + (w.point[1] - w.point[0]) * kl };
   }
 
   /** Draw a switch's lever and signal arm as they stand now (part way over, while swinging). */
@@ -1157,6 +1171,7 @@ export class TrackView {
     lever.matrixWorldNeedsUpdate = true;
     signal.arm.rotation.x = at.arm;
     signal.root.updateMatrixWorld(true);
+    this.placePointer(id, at.point);
   }
 
   /** Show or hide a lever's pin peg (made the first time it's pinned). */
@@ -1221,6 +1236,163 @@ export class TrackView {
     return this.arrowScale;
   }
 
+  // ---- PROTOTYPE switch styles (see switch-styles.ts) ----
+  private readonly burnGeometry = switchArrowGeometry(0, 0);
+  private burnMat: MeshStandardMaterial | null = null;
+  /** Burned-in chevrons: the track's cut-wood material (grain and all), darkened per instance; pulled forward in depth. */
+  private burnMaterial(): MeshStandardMaterial {
+    if (!this.burnMat) {
+      const m = this.mats.trackCut.clone();
+      m.color.set("#ffffff");
+      m.roughness = 0.95;
+      m.polygonOffset = true;
+      m.polygonOffsetFactor = -2;
+      m.polygonOffsetUnits = -2;
+      this.burnMat = m;
+    }
+    return this.burnMat;
+  }
+  /** Strips: painted grooves (set route), dimmed grooves (unset route), or the glow band: one instanced mesh. */
+  private stripMesh: InstancedMesh | null = null;
+  /** Each switch's first strip and how many. */
+  private readonly stripSlots = new Map<number, [number, number]>();
+  private readonly pointerGeometry = sw.pointerGeometry();
+  private pointerMesh: InstancedMesh | null = null;
+  private readonly pointerSlots = new Map<number, number>();
+  /** Glowing switches (style "glow"): seconds since each started. */
+  private readonly glows = new Map<number, number>();
+  /** For screenshots: hold every switch's glow at this level (−1: off). */
+  private glowHeld = -1;
+
+  /** Rebuild the prototype style's marks (strips or pointers) for every switch: as `syncArrows`, on a switch change. */
+  private syncStyleMarks(): void {
+    const style = sw.SWITCH_STYLE;
+    if (style === "groove" || style === "groove-dim" || style === "glow") {
+      const all: number[][] = [];
+      let n = 0;
+      this.stripSlots.clear();
+      for (const [id, s] of this.shown) {
+        const { set, unset } = sw.routesShown(s.def, s.state, arrowEnds(s.def), routesFrom);
+        const strips = style === "groove" ? sw.stripsAlong(set, sw.GROOVE_OFFSETS) : style === "groove-dim" ? sw.stripsAlong(unset, sw.GROOVE_OFFSETS, set) : sw.stripsAlong(set, [0], [], 0);
+        this.stripSlots.set(id, [n, strips.length / 4]);
+        n += strips.length / 4;
+        all.push(strips);
+      }
+      let mesh = this.stripMesh;
+      if (mesh && mesh.count !== n) {
+        this.group.remove(mesh);
+        mesh.dispose();
+        mesh = this.stripMesh = null;
+      }
+      if (n === 0) return;
+      if (!mesh) {
+        const glow = style === "glow";
+        const geom = glow ? sw.stripGeometry(sw.GROOVE_OFFSETS[1] * 2 + 8, TRACK_THICKNESS + 0.35) : sw.stripGeometry(GROOVE_WIDTH_PROTO - 1.2, sw.GROOVE_FLOOR);
+        const mat = glow
+          ? new MeshBasicMaterial({ color: "#ffffff", transparent: true, blending: AdditiveBlending, depthWrite: false, toneMapped: false })
+          : style === "groove"
+            ? this.mats.lacquer("#ffffff")
+            : new MeshStandardMaterial({ color: "#ffffff", roughness: 1 });
+        mesh = new InstancedMesh(geom, mat, n);
+        mesh.receiveShadow = !glow;
+        mesh.frustumCulled = false;
+        mesh.raycast = () => {};
+        mesh.userData.kind = "switch-style-strips";
+        this.group.add(mesh);
+        this.stripMesh = mesh;
+      }
+      let i = 0;
+      const ids = [...this.shown.keys()];
+      for (let k = 0; k < ids.length; k++) {
+        const s = this.shown.get(ids[k])!;
+        const strips = all[k];
+        const tone = new Color(style === "groove" ? (s.pinned ? sw.GROOVE_PAINT_PINNED : sw.GROOVE_PAINT) : style === "groove-dim" ? (s.pinned ? sw.GROOVE_DIM_PINNED : sw.GROOVE_DIM) : "#000000");
+        for (let j = 0; j < strips.length; j += 4, i++) {
+          scratch.makeRotationY(-strips[j + 2]).scale(arrowScaleVec.set(strips[j + 3], 1, 1)).setPosition(strips[j], 0, strips[j + 1]);
+          mesh.setMatrixAt(i, scratch2.copy(s.piece).multiply(scratch));
+          mesh.setColorAt(i, tone);
+        }
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      if (style === "glow") this.stepGlows(0);
+    }
+    if (style === "pointer") {
+      const n = this.shown.size;
+      let mesh = this.pointerMesh;
+      if (mesh && mesh.count !== n) {
+        this.group.remove(mesh);
+        mesh.dispose();
+        mesh = this.pointerMesh = null;
+      }
+      if (n === 0) return;
+      if (!mesh) {
+        mesh = new InstancedMesh(this.pointerGeometry, this.mats.naturalWood, n);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.frustumCulled = false;
+        mesh.raycast = () => {};
+        mesh.userData.kind = "switch-pointers";
+        this.group.add(mesh);
+        this.pointerMesh = mesh;
+      }
+      let i = 0;
+      this.pointerSlots.clear();
+      for (const [id, s] of this.shown) {
+        this.pointerSlots.set(id, i);
+        mesh.setColorAt(i, new Color(s.pinned ? "#ff5f14" : "#ffffff"));
+        i++;
+        const w = this.swings.get(id);
+        this.placePointer(id, w ? this.swingPose(w).point : s.point);
+      }
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
+  }
+
+  /** Turn a switch's pointer to `angle` (beside its lever, further out from the track). */
+  private placePointer(id: number, angle: number): void {
+    const mesh = this.pointerMesh;
+    const s = this.shown.get(id);
+    const i = this.pointerSlots.get(id);
+    if (!mesh || !s || i === undefined) return;
+    const k = Math.min(1.8, this.arrowScale);
+    scratch.makeTranslation(0, 0, -s.branchSide * (18 + 8 * (k - 1))).premultiply(s.leverAt);
+    scratch.multiply(scratch2.makeRotationY(-angle)).multiply(scratch2.makeScale(k, 1, k));
+    mesh.setMatrixAt(i, scratch2.copy(s.piece).multiply(scratch));
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Step the glows by `dt` s and colour their strips; hidden (no draw) when none glows. */
+  private stepGlows(dt: number): void {
+    const mesh = this.stripMesh;
+    if (sw.SWITCH_STYLE !== "glow" || !mesh) return;
+    const c = new Color();
+    for (const [id, t] of this.glows) if (t + dt >= sw.GLOW_S) this.glows.delete(id);
+    else this.glows.set(id, t + dt);
+    for (const [id, [first, count]] of this.stripSlots) {
+      const s = this.shown.get(id)!;
+      const t = this.glows.get(id);
+      const level = this.glowHeld >= 0 ? this.glowHeld : t === undefined ? 0 : sw.glowLevel(t);
+      c.set(s.pinned ? sw.GLOW_PINNED : sw.GLOW).multiplyScalar(level * 0.75);
+      for (let i = 0; i < count; i++) mesh.setColorAt(first + i, c);
+    }
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.visible = this.glowHeld > 0 || this.glows.size > 0;
+  }
+
+  /** Light a switch's route for a moment (a flip, a hover, a train coming): the flourish to run, if one starts. */
+  glowSwitch(id: number): Flourish | null {
+    if (sw.SWITCH_STYLE !== "glow" || !this.shown.has(id)) return null;
+    this.glows.set(id, 0);
+    return this.syncSwitches();
+  }
+
+  /** For screenshots: hold every switch's glow at `level` (0..1), or −1 to let them go. */
+  holdGlow(level: number): void {
+    this.glowHeld = level;
+    this.stepGlows(0);
+  }
+
   /** Is a lever swinging over now? */
   get swinging(): boolean {
     return this.swings.size > 0;
@@ -1246,14 +1418,15 @@ export class TrackView {
       return;
     }
     if (!mesh) {
-      mesh = new InstancedMesh(this.arrowGeometry, this.mats.lacquer("#ffffff"), n);
+      const burned = sw.SWITCH_STYLE === "burned";
+      mesh = new InstancedMesh(burned ? this.burnGeometry : this.arrowGeometry, burned ? this.burnMaterial() : this.mats.lacquer("#ffffff"), n);
       mesh.receiveShadow = true;
       // A few dozen triangles a switch: never culled (their bounds would move as they slide), never picked.
       mesh.frustumCulled = false;
       mesh.raycast = () => {};
       mesh.userData.kind = "switch-arrows";
       // The dark rim under each: the same instances, drawn first (one more draw, 4 more triangles a chevron).
-      const rim = new InstancedMesh(this.arrowRimGeometry, this.mats.lacquer(SWITCH_ARROW_RIM), n);
+      const rim = new InstancedMesh(this.arrowRimGeometry, this.mats.lacquer(SWITCH_ARROW_RIM), burned ? 0 : n);
       rim.instanceMatrix = mesh.instanceMatrix;
       rim.receiveShadow = true;
       rim.frustumCulled = false;
@@ -1265,7 +1438,7 @@ export class TrackView {
     }
     for (const [id, s] of this.shown) {
       if (s.first === -1) continue;
-      const tone = s.pinned ? arrowPinned : arrowCream;
+      const tone = sw.SWITCH_STYLE === "burned" ? (s.pinned ? burnPinned : burnTone) : s.pinned ? arrowPinned : arrowCream;
       for (let i = 0; i < s.arrows.length / 3; i++) mesh.setColorAt(s.first + i, tone);
       this.placeArrows(id);
     }
@@ -1280,7 +1453,7 @@ export class TrackView {
     if (!s || !mesh || s.first === -1) return;
     const w = this.swings.get(id);
     const arrows = w ? this.swingPose(w).arrows : s.arrows;
-    const top = TRACK_THICKNESS + ARROW_LIFT;
+    const top = TRACK_THICKNESS + (sw.SWITCH_STYLE === "burned" ? 0.08 : ARROW_LIFT);
     const k = this.arrowScale;
     for (let i = 0; i < arrows.length / 3; i++) {
       scratch.makeRotationY(-arrows[i * 3 + 2]).scale(arrowScaleVec.set(k, 1, k)).setPosition(arrows[i * 3], top, arrows[i * 3 + 1]);
@@ -1297,13 +1470,16 @@ export class TrackView {
       this.poseLever(id);
       this.placeArrows(id);
     }
-    return this.swings.size > 0;
+    this.stepGlows(dt);
+    return this.swings.size > 0 || this.glows.size > 0;
   }
 
   /** Finish every swing at once (drawn at rest). */
   private endSwings(): void {
     const ids = [...this.swings.keys()];
     this.swings.clear();
+    this.glows.clear();
+    this.stepGlows(0);
     for (const id of ids) {
       this.poseLever(id);
       this.placeArrows(id);
@@ -1431,7 +1607,7 @@ export class TrackView {
    */
   syncSwitches(swing?: (pieceId: number) => boolean): Flourish | null {
     this.syncLevers(swing);
-    if (this.swings.size === 0 || this.swingFlourish) return null;
+    if ((this.swings.size === 0 && this.glows.size === 0) || this.swingFlourish) return null;
     const f: Flourish = {
       update: (dt) => this.stepSwings(dt),
       dispose: () => {
