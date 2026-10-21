@@ -197,6 +197,8 @@ type Mode =
       branch?: number;
       /** With `branch`: the line's way across, on screen (a unit normal), to tell a finger leaving it (see `branchStrayed`). */
       across?: [number, number];
+      /** With `branch`: pressed from too far off to take hold of it (it only branches; no hold, no drag). */
+      far?: boolean;
       /** On touch, a press on something not selected that a long press would pick up (see touch-hold.ts). */
       hold?: {
         timer: number;
@@ -1067,7 +1069,13 @@ export class Interaction {
     // (While picking several, any track in view can be tapped.)
     // (Planning a route, a station or depot is tapped from any zoom.)
     const place = !!this.onPickPlace && hit?.kind === "piece" && !!this.game.economy.depotAtPiece(hit.pieceId);
-    if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) hit = null;
+    // (Drawing, though, a line's body branches from any zoom: only taking hold of it needs to be close by. See `far`.)
+    let far = false;
+    if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) {
+      const p = this.drawsNow ? this.game.layout.getPiece(hit.pieceId) : undefined;
+      if (p && branchesOff(p.type) && this.fixedLabel(hit.pieceId) === null) far = true;
+      else hit = null;
+    }
     // (In Game mode, the town's houses only to move them about their town: a landmark not at all.)
     if (hit?.kind === "prop" && ((this.townHouse(hit.propId) && !movableBuilding(this.game.landscape, this.game.props.get(hit.propId)?.building)) || !this.propWithinReach(hit.propId))) hit = null;
     if (hit?.kind === "road" && !this.roadWithinReach(hit.cell)) hit = null;
@@ -1104,7 +1112,14 @@ export class Interaction {
       if (p && branchesOff(p.type)) {
         press.branch = hit.pieceId;
         press.across = this.screenAcross(ground, p.pose.heading);
+        press.far = far;
       }
+    }
+    // Out of reach, a press on a line's body only branches: a drag that doesn't leave the line pans, as on the floor.
+    if (far && press.branch === undefined) {
+      this.mode = { kind: "idle" };
+      this.game.controls.enabled = true;
+      return;
     }
     this.mode = press;
     this.armHold(press, e.timeStamp);
@@ -1291,6 +1306,8 @@ export class Interaction {
    * buzz where the phone has one.
    */
   private armHold(m: Extract<Mode, { kind: "press" }>, t: number): void {
+    // (Out of reach, a line's body is only branched off: see `far`.)
+    if (m.far) return;
     const k = m.press.kind;
     // (A town's house in Game mode is picked up as a piece is: a finger resting on it.)
     const house = m.press.kind === "prop" && this.townHouse(m.press.propId);
