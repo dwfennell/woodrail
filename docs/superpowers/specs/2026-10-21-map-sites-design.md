@@ -317,7 +317,7 @@ Measured (dev machine; swiftshader in the e2e):
 
 - The restore itself (`restoreRuin`: checks, swap, payment, squares; Node, starter map): 0.7 ms median (13 ms the first,
   cold).
-- In the game, Restore tapped to done: 248–497 ms in swiftshader. Most of it is what follows any track edit that puts
+- In the game, Restore tapped to done: 184–497 ms in swiftshader. Most of it is what follows any track edit that puts
   an industry down (`onChange`: the track, the industries' yards and depot view, the goals, the save), the same as a
   farm yard dropped from the tray; the ruins' tile, the only one rebuilt (its key changed), 72–116 ms. Undo and redo
   rebuild that one tile again (67–153 ms).

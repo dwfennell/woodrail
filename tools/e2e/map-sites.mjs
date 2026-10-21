@@ -314,7 +314,11 @@ await p.waitForTimeout(2500);
 
 let spot = null;
 for (let attempt = 0; attempt < 4 && !(spot && !spot.none); attempt++) {
-  if (attempt > 0) await p.waitForTimeout(1500);
+  // (Not on screen once the view's glide out is over: looked at, its near edge beside the land, above the card.)
+  if (attempt > 0) {
+    await look((pick.px + 0.5) * 2232, (pick.pz + 0.5) * 1656 + (pick.pz > 0 ? -828 : pick.pz < 0 ? 828 : 0) + 500, 3200, 0.75);
+    await p.waitForTimeout(1500);
+  }
   spot = await p.evaluate(([px, pz]) => {
   const w = window.woodrail;
   const V = w.camera.position.constructor;
