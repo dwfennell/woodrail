@@ -28,6 +28,7 @@ import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
+import { eraseRefusal, type EraseRefusal } from "./erase";
 import { branchesOff } from "./draw-junctions";
 import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
@@ -319,9 +320,9 @@ type Mode =
   | { kind: "draw-track"; pointerId: number }
   /**
    * Clearing (the Clear chip on): a tap or a sweep marks what it passes over, taken away when the finger's lifted (see
-   * `commitErase`). Where the pointer last was, what's marked, and what's been said this sweep (each once).
+   * `commitErase`). Where the pointer last was, what's marked, and why what it passed over stays (said once, on lift).
    */
-  | { kind: "erase"; pointerId: number; x: number; y: number; pieces: Set<number>; props: Set<number>; told: Set<string> }
+  | { kind: "erase"; pointerId: number; x: number; y: number; pieces: Set<number>; props: Set<number>; told: Map<EraseRefusal, string> }
   | {
       kind: "drag-scenery";
       pointerId: number;
@@ -555,6 +556,7 @@ export class Interaction {
   startTrayDrag(item: TrayItem, e: PointerEvent): void {
     this.hidePreview();
     this.cancel();
+    this.setErasing(false);
     // Something else taken from the tray: the ready piece is put away (a piece dragged out is ready once placed).
     if ((this.armed && trayKey(this.armed) !== trayKey(item)) || this.roadReady) this.arm(null);
     this.clearSelection();
@@ -1065,7 +1067,7 @@ export class Interaction {
     // Clearing: the press marks what's under it, and a sweep from there all it passes over (two fingers still pan).
     if (this.erasesNow && this.touches.size <= 1) {
       this.game.controls.enabled = false;
-      const m: Mode & { kind: "erase" } = { kind: "erase", pointerId: e.pointerId, x: e.clientX, y: e.clientY, pieces: new Set(), props: new Set(), told: new Set() };
+      const m: Mode & { kind: "erase" } = { kind: "erase", pointerId: e.pointerId, x: e.clientX, y: e.clientY, pieces: new Set(), props: new Set(), told: new Map() };
       this.mode = m;
       this.eraseAt(m, e.clientX, e.clientY);
       this.showErase(m);
@@ -2721,28 +2723,53 @@ export class Interaction {
     if (m.pieces.size + m.props.size !== before) this.showErase(m);
   }
 
-  /** Mark what's under (x, y) to be cleared, if it may be; say once a sweep why something may not. */
+  /** Mark what's under (x, y) to be cleared, if it may be; note why something may not (said on lift: `eraseRefusal`). */
   private eraseAt(m: Mode & { kind: "erase" }, x: number, y: number): void {
     const hit = this.pickExact(x, y);
     if (!hit) return;
-    const tell = (why: string) => {
-      if (m.told.has(why)) return;
-      m.told.add(why);
-      this.hud.toast(why);
+    // (The first reason of each kind is kept: a depot's track and its building are one thing that stays.)
+    const note = (kind: EraseRefusal, why: string) => {
+      if (!m.told.has(kind)) m.told.set(kind, why);
     };
     if (hit.kind === "piece") {
       const id = hit.pieceId;
       if (m.pieces.has(id)) return;
       const fixed = this.fixedLabel(id);
-      if (fixed) tell(`${fixed} stays`);
-      else if (this.game.sim.pieceOccupied(id)) tell(TRAIN_ON_TRACK);
+      if (fixed) note("station", `${fixed} stays`);
+      else if (this.game.sim.pieceOccupied(id)) note("busy", TRAIN_ON_TRACK);
       else m.pieces.add(id);
     } else if (hit.kind === "prop") {
       if (m.props.has(hit.propId)) return;
-      if (this.townHouse(hit.propId)) tell("The town's houses stay");
+      if (this.townHouse(hit.propId)) note("house", "The town's houses stay");
       else m.props.add(hit.propId);
-    } else if (hit.kind === "depot") tell("Stations and depots stay");
-    else if (hit.kind === "car") tell("Trains stay: take one off from its card");
+    } else if (hit.kind === "depot") note("station", "Stations and depots stay");
+    else if (hit.kind === "car") note("train", "Trains stay: take one off from its card");
+  }
+
+  /**
+   * These pieces less any stand among them that holds up track staying behind (a stand swept on its own, under track the
+   * sweep missed, would leave that track floating).
+   */
+  private keepCarryingStands(ids: number[]): number[] {
+    const layout = this.game.layout;
+    const going = new Set(ids);
+    const stands = ids.filter((id) => layout.getPiece(id)?.type === "riser");
+    if (stands.length === 0) return ids;
+    const w: WorldConnector = { x: 0, z: 0, heading: 0, y: 0, kind: "socket" };
+    const held = new Set<number>();
+    for (const id of layout.pieceIds()) {
+      const p = layout.getPiece(id)!;
+      if (going.has(id) || p.type === "riser") continue;
+      const count = getPieceDef(p.type, p.flipped).connectors.length;
+      for (let i = 0; i < count; i++) {
+        layout.worldConnector(connectorRef(id, i), w);
+        for (const s of stands) {
+          const r = layout.getPiece(s)!;
+          if (Math.hypot(w.x - r.pose.x, w.z - r.pose.z) < 6 && w.y > r.y) held.add(s);
+        }
+      }
+    }
+    return held.size === 0 ? ids : ids.filter((id) => !held.has(id));
   }
 
   /** Show what a sweep has marked (red), or nothing (null). */
@@ -2772,8 +2799,10 @@ export class Interaction {
   private commitErase(m: Mode & { kind: "erase" }): void {
     const g = this.game;
     this.showErase(null);
+    const why = eraseRefusal(m.told);
+    if (why) this.hud.toast(why);
     const free = [...m.pieces].filter((id) => g.layout.getPiece(id) && !g.sim.pieceOccupied(id));
-    const ids = this.withRisers(free).filter((id) => !this.liftHeld(id));
+    const ids = this.keepCarryingStands(this.withRisers(free)).filter((id) => !this.liftHeld(id));
     const props = [...m.props].filter((id) => g.props.get(id));
     if (ids.length === 0 && props.length === 0) return;
     const pieces = ids.map((id) => g.layout.getPiece(id)!);

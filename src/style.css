@@ -297,6 +297,8 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* (Sideways, half the gap between chips, so neighbours' reach meets but doesn't overlap; more at the row's ends.) */
   .tray-tools .chip::after { content: ""; position: absolute; inset: -5px -3px; }
   .tray-tools .tray-draw::after { left: -4px; }
+  /* (The eraser's sponge alone: a finger's 44 px wide.) */
+  .tray-tools .chip.tray-erase { min-width: 44px; }
   .tray-tools .tray-flip::after { right: -4px; }
   .tray-tools .chip-word { display: none; }
   .tray-tools .turn-arrow { margin-left: 2px; }
