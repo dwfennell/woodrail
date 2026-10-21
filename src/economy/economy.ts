@@ -420,8 +420,8 @@ export class Economy {
 
   /**
    * Does a town this car's train goes on to want `kind`? A routed train: a later stop of its line is a town taking it;
-   * an unrouted one: an automatic town on its track (joined to it) takes it. Only asked at a school, while its research
-   * lacks the good.
+   * an unrouted one: an automatic town on its track (joined to it) takes it. Asked at a school, while its research
+   * lacks the good, and at a workshop whose yard holds what it keeps (`shopKeeps`).
    */
   private townWantsAhead(carId: number, kind: CargoKind, route: Route | null): boolean {
     const found = this.sim.findCar(carId);
@@ -736,6 +736,9 @@ export class Economy {
     // What a school's research lacks rides on past a town or a workshop for it, as much as it lacks (the rest is
     // theirs; a workshop's tray order first).
     if ((d.role === "town" || (d.role === "workshop" && !this.reserved?.(c.kind))) && this.keptForSchool(carId, c.kind, route, d.role === "town")) return false;
+    // A workshop's yard takes no more than it keeps (its tray order's, or a few) while a town the train goes on to wants
+    // them too (QA P5: with research idle, the yard filled 1 → 16 with no order and the next town starved).
+    if (d.role === "workshop" && this.shopKeeps && d.piles[CARGO[c.kind].index] >= (this.shopKeeps(c.kind) ?? Infinity) && this.townWantsAhead(carId, c.kind, route)) return false;
     // A school takes only its share of a pass's load while a town the train goes on to wants the good too.
     if (d.role === "school" && this.townWantsAhead(carId, c.kind, route)) {
       const found = this.sim.findCar(carId);
@@ -1401,6 +1404,13 @@ export class Economy {
    * workshop.
    */
   reserved: ((kind: CargoKind) => boolean) | null = null;
+
+  /**
+   * How many of `kind` a workshop's yard takes from a train while a town the train goes on to wants it (Game mode:
+   * planks, its waiting tray order's or `WORKSHOP_SPARE`: `yardKeeps` in crafting.ts); beyond that they ride on to the
+   * town. Null (or null for a kind): as many as the yard has room for. With no town ahead wanting them, the yard fills.
+   */
+  shopKeeps: ((kind: CargoKind) => number | null) | null = null;
 
   /**
    * Goods landed at a depot for trains to take away (Game mode: what a boat brought to a harbour), by depot id and

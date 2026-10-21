@@ -4,6 +4,7 @@ import { Economy, SCHOOL_SHARE, type DepotState } from "../economy/economy";
 import { Sim, SIM_HZ, type CarKind, type Train } from "../sim";
 import { Layout, type PieceTypeId } from "../track";
 import { Progress } from "./progress";
+import { WORKSHOP_SPARE, yardKeeps } from "./crafting";
 import { attachResearch, lacking, pick } from "./research";
 import { TownLife, type TownLifeHost } from "./town-life";
 import { buildStarterWorld } from "./world";
@@ -213,6 +214,61 @@ describe("the school and the towns share a pass's planks (QA P4: the school took
     const w = line(["station", "depot-school"], p);
     w.run(90);
     expect(p.research.got).toEqual({ planks: 4 });
+  });
+});
+
+describe("the workshop's yard while a town on the line wants planks (QA P5: it filled 1 → 16 with no order)", () => {
+  const keeps = (w: ReturnType<typeof line>, p: Progress) => {
+    w.economy.shopKeeps = (kind) => (kind === "planks" ? yardKeeps(p) : null);
+  };
+
+  it("with no order and research idle, an unrouted train leaves the yard a few and takes the rest on to the town", () => {
+    const p = Progress.fresh();
+    const w = line(["depot-workshop", "station"], p);
+    keeps(w, p);
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(WORKSHOP_SPARE);
+    expect(w.economy.delivered.get(0)).toBe(9 - WORKSHOP_SPARE);
+  });
+
+  it("a routed train's Automatic stop at the workshop does the same for a later town", () => {
+    const p = Progress.fresh();
+    const w = line(["depot-workshop", "station"], p);
+    keeps(w, p);
+    w.economy.setRoute(w.train().cars[0].id, { stops: w.depots.map((d) => ({ depotId: d.id, action: "auto" as const })), next: 0 });
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(WORKSHOP_SPARE);
+    expect(w.economy.delivered.get(0)).toBe(9 - WORKSHOP_SPARE);
+  });
+
+  it("a waiting tray order gets all its planks (a mill's 8, more than the few), the town the rest", () => {
+    const p = Progress.fresh();
+    p.orders.push("piece:depot-mill");
+    expect(yardKeeps(p)).toBe(8);
+    const w = line(["depot-workshop", "station"], p);
+    keeps(w, p);
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(8);
+    expect(w.economy.delivered.get(0)).toBe(1);
+  });
+
+  it("with no town ahead wanting planks, the yard takes all it has room for", () => {
+    const p = Progress.fresh();
+    const w = line(["depot-workshop", "station"], p);
+    keeps(w, p);
+    w.economy.accepts = (d) => d.role !== "town";
+    w.run(90);
+    expect(w.depots[0].piles[CARGO.planks.index]).toBe(9);
+  });
+
+  it("a town before the workshop takes what it wants first; the yard is past it, with no town ahead: it fills", () => {
+    const p = Progress.fresh();
+    const w = line(["station", "depot-workshop"], p);
+    keeps(w, p);
+    w.economy.accepts = (d, kind) => d.role !== "town" || (w.economy.delivered.get(0) ?? 0) < 4 || kind !== "planks";
+    w.run(90);
+    expect(w.economy.delivered.get(0)).toBe(4);
+    expect(w.depots[1].piles[CARGO.planks.index]).toBe(5);
   });
 });
 

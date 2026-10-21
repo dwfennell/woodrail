@@ -52,6 +52,22 @@ export function keepsForOrder(p: Progress, stock: number): boolean {
   return stock < orderPlanks(p);
 }
 
+/**
+ * Planks a workshop's yard takes with no order waiting while a town the train goes on to wants planks: a few to build
+ * with, enough for an engine or a farm yard (QA P5: with research idle, the yard took every plank, 1 → 16, and the
+ * next town starved). With no town ahead wanting them, the yard fills up to its cap. (The balance play-through, spec
+ * §5: 3 and 5 starve the towns or research on some seeds, 7 meets every band.)
+ */
+export const WORKSHOP_SPARE = 7;
+
+/**
+ * How many planks the workshop's yard takes while a town later on the line wants them (`Economy.shopKeeps`): its
+ * waiting tray order's planks, or `WORKSHOP_SPARE` if more. The rest ride on to the towns.
+ */
+export function yardKeeps(p: Progress, spare = WORKSHOP_SPARE): number {
+  return Math.max(orderPlanks(p), spare);
+}
+
 /** Said beside a second engine before Signals (see `makeNote`). */
 export const ENGINE_NOTE = "Needs Signals to share a line";
 

@@ -27,7 +27,7 @@ import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
-import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, makeNote, uncraft, workshops, workshopStock } from "./game/crafting";
+import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, makeNote, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
 import { pieceStock as supplyOf, pieceUnlearned as unlearnedOf } from "./game/supply";
 import { costText, isFree, LOOK_TECH, ruleOf, THING_RULES, thingsFor, type ThingId, type ThingItem } from "./game/things";
 import { DEPOT_NAMES, depotName, HALT_KITS, HALT_REACH, haltWhy, syncIndustries, INDUSTRY_ROLE } from "./game/world";
@@ -1727,8 +1727,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** Planks kept for the workshop: it holds fewer than its waiting tray order needs (`orderPlanks`; worked out once a second). */
   let planksKept = false;
   const keepPlanks = (kind: string) => kind === "planks" && planksKept;
+  /** What the workshop's yard takes while a town on the line wants planks: its order's, or a few (`yardKeeps`). */
+  const shopKeeps = (kind: string) => (kind === "planks" ? yardKeeps(progress) : null);
   function updatePlanksKept(): void {
     game.economy.reserved = mode === "game" ? keepPlanks : null;
+    game.economy.shopKeeps = mode === "game" ? shopKeeps : null;
     if (mode !== "game" || workshops(game.world).length === 0) {
       planksKept = false;
       return;
