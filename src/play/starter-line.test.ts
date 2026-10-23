@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
-import { buildStarterWorld, syncIndustries } from "../game/world";
+import { buildStarterWorld, syncIndustries, fixedPieces } from "../game/world";
 import { LandEditor } from "../landscape/edit";
 import { addTownProps } from "../props/towns";
 import { connectorRef } from "../track";
@@ -22,7 +22,7 @@ describe("the starter line", () => {
 it("is laid by a player and grows a hamlet into a town", () => {
   const log: string[] = [];
   const w = buildStarterWorld();
-  const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+  const fixed = fixedPieces(w);
   const editor = new Editor(w.layout, w.sim, () => {}, (id) => fixed.has(id));
   const st = (i: number) => w.stations.get(w.landscape.towns[i].id)!;
   const depotPiece = (kind: string) => [...w.depots.values()].find((id) => w.layout.getPiece(id)!.type === `depot-${kind}`)!;

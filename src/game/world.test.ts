@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { checkPlacement, connectedPairs, PLOT_ROWS, PLOT_WIDTH } from "../landscape";
 import { SIM_DT } from "../sim";
 import { appendPiece, connectorRef } from "../track";
-import { buildStarterWorld, createWorld, freshGameWorld, landForSale, STARTER_SEED, plotsAround, plotsForSale, unlockPlot, type World } from "./world";
+import { buildStarterWorld, createWorld, freshGameWorld, landForSale, STARTER_SEED, plotsAround, plotsForSale, unlockPlot, type World, fixedPieces } from "./world";
 
 describe("createWorld", () => {
   it("places one station piece per town at the town's station pose", () => {
@@ -18,11 +18,12 @@ describe("createWorld", () => {
 });
 
 describe("buildStarterWorld", () => {
-  it("starts bare: just the towns' stations and the depots, no track and no trains", () => {
+  it("starts bare: just the towns' stations, the depots and the old sites' stubs, no track and no trains", () => {
     const w = buildStarterWorld();
-    const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+    const fixed = fixedPieces(w);
     for (const id of w.layout.pieceIds()) expect(fixed.has(id)).toBe(true);
-    expect(w.layout.pieceCount).toBe(w.landscape.towns.length + w.landscape.depots.length);
+    expect(w.ruins.size).toBe(w.landscape.sites!.length);
+    expect(w.layout.pieceCount).toBe(w.landscape.towns.length + w.landscape.depots.length + w.ruins.size);
     for (const d of w.landscape.depots) expect(w.layout.getPiece(w.depots.get(d.id)!)!.type).toBe(d.kind === "forest" ? "depot-forest" : "depot-sawmill");
     expect(w.sim.trainCount).toBe(0);
     expect(connectedPairs(w.layout, w.stations)).toEqual([]);

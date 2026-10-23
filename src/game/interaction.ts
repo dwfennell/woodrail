@@ -24,6 +24,7 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason, letGoRefusal, onwardEnds, refusalText } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
+import { ruinAt, SITE_NAMES } from "./map-sites";
 import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
@@ -2002,8 +2003,12 @@ export class Interaction {
       const depot = g.economy.depotAtPiece(p.pieceId);
       // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
       const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type);
+      const ruin = this.ruinOf(p.pieceId);
       if (depot && !kitDepot) this.openDepot(depot.id);
-      else if (this.fixedLabel(p.pieceId)) this.hud.toast(this.fixedLabel(p.pieceId)!);
+      else if (ruin !== -1 && this.onRuinTap) {
+        this.clearSelection();
+        this.onRuinTap(ruin);
+      } else if (this.fixedLabel(p.pieceId)) this.hud.toast(this.fixedLabel(p.pieceId)!);
       else if (this.picking || add) this.togglePick(p.pieceId);
       else this.selectPiece(p.pieceId);
       return;
@@ -2065,6 +2070,29 @@ export class Interaction {
     const tapped = found.train.cars[found.index].id;
     this.keepClearOfCard(() => g.trainView.carObject(tapped)?.getWorldPosition(new Vector3()) ?? null);
     this.hintDrag();
+  }
+
+  /** The old industry's site whose stub piece this is, or −1. */
+  private ruinOf(pieceId: number): number {
+    for (const [siteId, id] of this.game.ruins) if (id === pieceId) return siteId;
+    return -1;
+  }
+
+  /**
+   * An old industry's ruin tapped (its yard, buildings or stub): the game opens its card. A ruin on land not yet
+   * bought isn't: a tap there is the land's.
+   */
+  onRuinTap: ((siteId: number) => void) | null = null;
+
+  /** The standing ruin (site id) drawn at this screen point, or −1: what the ray meets first of the ruins, if anything. */
+  ruinAtScreen(x: number, y: number): number {
+    this.setNdc(x, y);
+    const g = this.game;
+    for (const h of this.raycaster.intersectObject(g.ruinsView.group, true)) {
+      const id = ruinAt(g.landscape, h.point.x, h.point.z);
+      if (id !== -1) return id;
+    }
+    return -1;
   }
 
   private selectPiece(id: number): void {
@@ -2825,6 +2853,10 @@ export class Interaction {
 
   /** The name of a fixed piece (a town's station or a depot), or null for ordinary track. */
   private fixedLabel(pieceId: number): string | null {
+    for (const [siteId, id] of this.game.ruins) {
+      const site = this.game.landscape.sites?.[siteId];
+      if (id === pieceId && site) return `Old ${SITE_NAMES[site.role]}`;
+    }
     for (const [townId, stationId] of this.game.stations) {
       if (stationId === pieceId) {
         const name = this.game.landscape.towns.find((t) => t.id === townId)?.name;
@@ -4625,7 +4657,7 @@ export class Interaction {
     // (The kits' group: a turntable's deck is tapped to turn it, picked as a switch's lever; a signal skin's model to
     // hold its signal. The crossings': a crossing style is its prop's.)
     // (The loop-the-loops' shows': a tap on an engine's copy running the loop is a tap on the engine.)
-    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group, g.loopShow.group], true);
+    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group, g.loopShow.group, g.ruinsView.group], true);
     for (let i = 0; i < hits.length; i++) {
       const h = hits[i];
       const shown = g.loopShow.engineAt(h.object as Object3D);
@@ -4674,6 +4706,13 @@ export class Interaction {
       if (propId !== -1) return { kind: "prop", propId };
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
       if (pieceId !== -1) return { kind: "piece", pieceId };
+      // An old industry's ruin: its stub's (a tap opens its card; it stays put). One on land not yet bought: passed
+      // through, to the ground.
+      if (g.ruinsView.isRuin(h.object)) {
+        const site = ruinAt(g.landscape, h.point.x, h.point.z);
+        const stub = site === -1 ? undefined : g.ruins.get(site);
+        if (stub !== undefined) return { kind: "piece", pieceId: stub };
+      }
     }
     // Nothing solid under the tap, but it may be on a town's station (platform, canopy, house): the whole footprint
     // opens the town, with a fingertip's slack. Trains and track were tried first above, so they win.

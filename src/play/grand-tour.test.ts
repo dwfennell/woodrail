@@ -12,7 +12,7 @@ import { needMet, ready, techOf } from "../game/tech";
 import { describeNeed } from "../game/blueprints";
 import { applyCranes, Counters } from "../game/upgrades";
 import { receivedBy, TownLife, type TownLifeHost } from "../game/town-life";
-import { buildStarterWorld, syncIndustries, type World } from "../game/world";
+import { buildStarterWorld, syncIndustries, type World, fixedPieces } from "../game/world";
 import { FEAT_FIELD, type Town } from "../landscape";
 import { rng } from "../lib/rng";
 import { deserializeWorld, serializeWorld } from "../persist/save";
@@ -58,7 +58,7 @@ class Tour {
 
   attach(w: World): void {
     this.w = w;
-    this.fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+    this.fixed = fixedPieces(w);
     this.editor = new Editor(w.layout, w.sim, () => {}, (id) => this.fixed.has(id));
     const host: TownLifeHost = Object.assign(w, { footprintOf: () => undefined, editLand: () => {}, propsChanged: () => {}, setSignBadge: () => {} });
     this.town = new TownLife(host, {
@@ -287,9 +287,11 @@ describe("the grand tour", () => {
 
       // 2. The farm chain: a farm yard by a field and a mill after it, the line run on to them from the forest yard.
       for (const id of ["harvesters", "farming", "mills"]) T.learn(id);
+      // (The map's own fields: not an old farm's, whose ruin stands by them: restoring it is step 2's.)
       const fields: number[] = [];
+      const ruins = new Set((w().landscape.sites ?? []).flatMap((s) => s.fields));
       w().landscape.grid.forEachCell((i) => {
-        if (w().landscape.grid.feature[i] === FEAT_FIELD) fields.push(i);
+        if (w().landscape.grid.feature[i] === FEAT_FIELD && !ruins.has(w().landscape.grid.owner[i])) fields.push(i);
       });
       let farm = -1;
       let mill = -1;

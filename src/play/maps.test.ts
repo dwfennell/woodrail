@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
-import { createWorld, type World } from "../game/world";
+import { createWorld, type World, fixedPieces } from "../game/world";
 import { checkPlacement, checkSupport } from "../landscape";
 import { connectorRef, findLowCrossing, findOverlap, getPieceDef, Layout } from "../track";
 import { play, type Blocked } from "./player";
@@ -53,7 +53,7 @@ describe("buildability on generated maps", () => {
       for (const [a, b] of pairs) {
         // A fresh copy of the map for each try.
         const w = createWorld(seed * 977 + 3);
-        const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+        const fixed = fixedPieces(w);
         const editor = new Editor(w.layout, w.sim, () => {}, (id) => fixed.has(id));
         const pb = w.layout.getPiece(b)!.pose;
         const pa = w.layout.getPiece(a)!.pose;

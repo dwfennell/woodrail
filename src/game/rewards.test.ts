@@ -17,7 +17,8 @@ import { trainIcon } from "../ui/icons";
 
 /** A starter world with a workshop (its yard empty) and, if asked, a school (both placed straight on the layout). */
 function world(opts: { school?: boolean; farm?: boolean } = {}): World {
-  const w = buildStarterWorld();
+  // (Without the map's old sites: nothing here is about them, and a few hundred worlds are made.)
+  const w = buildStarterWorld(false);
   w.layout.addPiece("depot-workshop", { x: 3000, z: 3000, heading: 0 });
   if (opts.school) w.layout.addPiece("depot-school", { x: 3000, z: 3600, heading: 0 });
   if (opts.farm) w.layout.addPiece("depot-farm", { x: 3600, z: 3000, heading: 0 });

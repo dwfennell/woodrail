@@ -241,7 +241,9 @@ describe("save format", () => {
     const world = worldWithTrain();
     for (const [px, pz] of [[1, 0], [1, -1], [-2, 0]] as const) expect(unlockPlot(world, px, pz)).not.toBeNull();
     const before = world.economy.allDepots().map((d) => [d.pieceId, d.role, d.townId]);
-    world.economy.allDepots()[before.length - 1].piles[0] = 3;
+    // (Logs on the last forest yard's pile: a town's station keeps none.)
+    const last = world.economy.allDepots().map((d) => d.role).lastIndexOf("forest");
+    world.economy.allDepots()[last].piles[0] = 3;
     const r = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(world))));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -257,7 +259,11 @@ describe("save format", () => {
     expect([...w.stations]).toEqual([...world.stations]);
     expect([...w.depots]).toEqual([...world.depots]);
     expect(w.economy.allDepots().map((d) => [d.pieceId, d.role, d.townId])).toEqual(before);
-    expect(w.economy.allDepots()[before.length - 1].piles[0]).toBe(world.economy.allDepots()[before.length - 1].piles[0]);
+    expect(w.economy.allDepots()[last].piles[0]).toBe(3);
+    // Its old sites, each still standing with its stub where it was.
+    expect(w.landscape.sites!.length).toBeGreaterThan(2);
+    expect(w.landscape.sites).toEqual(world.landscape.sites);
+    expect([...w.ruins]).toEqual([...world.ruins]);
     expect(w.sim.trainCount).toBe(1);
   });
 

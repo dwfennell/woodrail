@@ -5,8 +5,10 @@ import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/came
 import { viewRoom } from "./ui/view-room";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
-import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
-import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
+import { buildStarterWorld, clearRuin, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
+import { CLEAR_PRICE, describeLand, ruinCard, siteBlueprint } from "./game/map-sites";
+import { gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
+import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, OLDER_SAVE, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
@@ -152,9 +154,9 @@ function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean; fr
   if (saved && !saved.ok && saved.error === OLDER_SAVE) olderSave = true;
   if (seed !== null) {
     const same = saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter;
-    return { world: same ? saved.value : createWorld(seed), mode, linked: true, fromSave: !!same };
+    return { world: same ? saved.value : createWorld(seed, false, true, false), mode, linked: true, fromSave: !!same };
   }
-  return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: resumed, fromSave: !!saved?.ok };
+  return { world: saved?.ok ? saved.value : buildStarterWorld(mode === "game"), mode, linked: resumed, fromSave: !!saved?.ok };
 }
 
 const RESUME_KEY = "woodrail.resume";
@@ -194,7 +196,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** What the open Research picker was last drawn from (`boardKey`). */
   let boardKeyShown = "";
   // Stations and depots never move (to take up joint play, or to close a near miss).
-  const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
+  const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values(), ...game.ruins.values()].includes(id);
   /** Has the train lift's first-time tip been shown (on this device)? */
   let liftTipShown = liftTipSeen();
   /** An editor for the world's track and props (props-only edits skip the track's work). */
@@ -217,6 +219,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // An edit, undo or redo refused: it would take up or move a train lift that's carrying a train or has one on it.
     ed.onHeld = (liftId) => {
       hud.toast(liftHeldMessage(game.sim.pieceOccupied(liftId)));
+      audio.refuse();
+    };
+    // An undo or redo refused by the edit itself (a restore's redo, short of planks or coins now).
+    ed.onRefused = (why) => {
+      hud.toast(why);
       audio.refuse();
     };
     // An undo or redo refused: it would take up or move track a train is on (and derail it).
@@ -334,12 +341,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       doneSelecting: () => interaction.doneSelecting(),
       newLayout: () => {
         saveLastBuilt(mode, null);
-        setWorld(createWorld(Math.floor(Math.random() * 1_000_000)));
+        setWorld(createWorld(Math.floor(Math.random() * 1_000_000), false, true, mode === "game"));
         game.frameLayout();
       },
       resetStarter: () => {
         saveLastBuilt(mode, null);
-        setWorld(buildStarterWorld());
+        setWorld(buildStarterWorld(mode === "game"));
         game.frameLayout();
         openingView();
       },
@@ -348,6 +355,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // The pill opens the picker on the research it shows (QA P5: "Routes 10/40🪙", up next, opened on another).
       toggleBoard: (pill) => setBoardOpen(!board.open, (pill && pillResearch(progress)) || undefined),
       buyLand: () => buyLand(),
+      clearRuin: () => clearShownRuin(),
+      restoreRuin: () => restoreShownRuin(),
       newGame: () => newGame(),
       openLines: () => openLines(),
       titleScreen: () => showTitle(),
@@ -615,31 +624,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.invalidate();
   }
 
-  /** What a plot would bring, in a few words. */
-  function describeLand(land: Landscape): string {
-    const parts: string[] = [];
-    if (land.towns.length > 0) parts.push(land.towns.length > 1 ? `${land.towns.length} towns` : "a town");
-    const forests = land.depots.filter((d) => d.kind === "forest").length;
-    const mills = land.depots.filter((d) => d.kind === "sawmill").length;
-    if (forests) parts.push(forests > 1 ? `${forests} forest yards` : "a forest yard");
-    if (mills) parts.push("a sawmill");
-    const g = land.grid;
-    let river = false;
-    let sea = false;
-    let hills = 0;
-    for (let i = 0; i < g.cellCount; i++) {
-      if (g.surface[i] === SURF_RIVER) river = true;
-      if (g.surface[i] === SURF_SEA) sea = true;
-      if (g.height[i] > 0) hills++;
-    }
-    if (sea) parts.push("the coast");
-    if (river) parts.push("a river");
-    if (hills > g.cellCount * 0.25) parts.push("hills");
-    if (parts.length === 0) return "Open countryside.";
-    const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
-    return list.charAt(0).toUpperCase() + list.slice(1) + ".";
-  }
-
   /** The plot whose + badge is drawn at this screen point (they float above the ground), if any. */
   function badgeAt(x: number, y: number, plots: readonly PlotCoord[]): PlotCoord | null {
     const r = game.canvas.getBoundingClientRect();
@@ -704,7 +688,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       editSquare(x, y);
       return true;
     }
-    if (!expanding) return false;
+    if (!expanding) {
+      // An old industry's ruin (seen from too far to take hold of its stub): its card.
+      const ruin = interaction.ruinAtScreen(x, y);
+      if (ruin === -1) return false;
+      openRuin(ruin);
+      return true;
+    }
     const forSale = plotsForSale(game.landscape);
     const p = badgeAt(x, y, forSale) ?? { px: Math.floor(ground.x / PLOT_WIDTH), pz: Math.floor(ground.z / PLOT_DEPTH) };
     if (!forSale.some((q) => q.px === p.px && q.pz === p.pz)) {
@@ -722,6 +712,120 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.invalidate();
     return true;
   };
+
+  // ---- old industries' ruins (map sites) -------------------------------------------------------------------------
+
+  /** The ruin whose card is open (site id), or −1. */
+  let ruinShown = -1;
+
+  /** Open an old industry's card: what's around it, what opens it, and Clear the ruin. */
+  function openRuin(siteId: number): void {
+    const site = game.landscape.sites?.[siteId];
+    // (Sandbox has no ruins: none is ever made there.)
+    if (!site || site.cleared || mode !== "game") return;
+    interaction.clearSelection();
+    ruinShown = siteId;
+    hud.showRuinCard(ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)));
+    audio.tap();
+  }
+  interaction.onRuinTap = openRuin;
+
+  /** "Clear the ruin": a few coins (Game mode) take it and its stub away, for track or an industry of your own. */
+  function clearShownRuin(): void {
+    if (ruinShown === -1) return;
+    if (mode === "game" && progress.coins < CLEAR_PRICE) {
+      hud.toast(`Clearing it costs ${CLEAR_PRICE} coins: you have ${progress.coins}`);
+      audio.refuse();
+      return;
+    }
+    const t0 = performance.now();
+    const done = clearRuin(game.world, ruinShown);
+    if ("why" in done) {
+      hud.toast(done.why);
+      audio.refuse();
+      return;
+    }
+    if (mode === "game") {
+      progress.coins -= CLEAR_PRICE;
+      hud.setCoins(progress.coins);
+    }
+    ruinShown = -1;
+    hud.hideCards();
+    game.syncRuins();
+    onChange();
+    console.info(`Woodrail: ruin cleared in ${Math.round(performance.now() - t0)} ms`);
+    hud.toast("Cleared");
+    audio.putdown(true);
+  }
+
+  /**
+   * How a restore is paid for and redrawn: Game mode's price (planks from the workshop's yard, coins from hand, as a new
+   * industry's are), nothing in Sandbox; the ruins redrawn, and the coins, as it's done, undone or redone.
+   */
+  function restoreOptions(role: Parameters<typeof gamePayment>[2]): RestoreOptions {
+    return {
+      pay: mode === "game" ? gamePayment(game.world, progress, role) : undefined,
+      footprint: game.propLibrary.footprint,
+      changed: () => {
+        game.syncRuins();
+        if (mode !== "game") return;
+        hud.setCoins(progress.coins);
+        showWorkshop(true);
+      },
+    };
+  }
+
+  /** "Restore": the ruin's stub becomes its industry, in place (one undoable edit), for about half a new one's price. */
+  function restoreShownRuin(): void {
+    const site = ruinShown === -1 ? undefined : game.landscape.sites?.[ruinShown];
+    if (!site) return;
+    const t0 = performance.now();
+    const done = restoreRuin(game.world, editor, site.id, restoreOptions(site.role));
+    if ("why" in done) {
+      hud.toast(done.why, false, 3200);
+      audio.refuse();
+      return;
+    }
+    const ms = performance.now() - t0;
+    ruinShown = -1;
+    hud.hideCards();
+    console.info(`Woodrail: ruin restored in ${ms.toFixed(1)} ms (ruins tile rebuilt in ${game.ruinsView.lastBuildMs.toFixed(1)} ms)`);
+    hud.toast(`Old ${site.role} restored! It works again`, true, 2600);
+    audio.putdown(true);
+    if (mode === "game") {
+      hud.refreshTrayBadges();
+      scheduleSave();
+    }
+  }
+
+  /**
+   * A blueprint just learned opens old industries' ruins (Farming, an old farm): the one nearest the player's line is
+   * named, in a toast that frames it when tapped ("Old farm by Larkfield can be restored").
+   */
+  function ruinOpened(tech: string): void {
+    const sites = (game.landscape.sites ?? []).filter((s) => !s.cleared && siteBlueprint(s.role)?.id === tech);
+    if (sites.length === 0) return;
+    const fixed = new Set([...game.stations.values(), ...game.depots.values(), ...game.ruins.values()]);
+    const line = [...game.layout.pieceIds()].filter((id) => !fixed.has(id)).map((id) => game.layout.getPiece(id)!.pose);
+    const site = nearestRuin(game.landscape, sites[0].role, line.length > 0 ? line : game.landscape.towns.map((t) => t.station));
+    if (!site) return;
+    const place = { x: site.centre.x, z: site.centre.z };
+    const text = `${ruinName(game.landscape, site)} can be restored`;
+    journal.add({ kind: "event", text, place });
+    goalsPanel.newsChanged();
+    hud.toast(text, true, 4200, () => showRuin(site.id));
+  }
+
+  /** Frame a ruin and ring it (a tapped toast: "Old farm by Larkfield can be restored"). */
+  function showRuin(siteId: number): void {
+    const site = game.landscape.sites?.[siteId];
+    if (!site || site.cleared) return;
+    flyTo({ x: site.centre.x, z: site.centre.z });
+    const i = game.landscape.grid.cellAtWorld(site.centre.x, site.centre.z);
+    const marks = goalMarks(game.scene, [{ x: site.centre.x, y: i < 0 ? 0 : game.landscape.grid.groundY(i), z: site.centre.z }]);
+    if (marks) game.flourishes.add(marks);
+    game.invalidate();
+  }
 
   function buyLand(): void {
     if (!chosen) return;
@@ -1002,16 +1106,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     {
       newGame: () => newGame(),
       showMe: () => showGoal(),
-      fly: (place) => {
-        // Several spots (new houses, two stations) are framed together, closer than a lone spot.
-        const spots = place.points ?? [place];
-        const f = frameAlong(spots, game.camera.fov, game.camera.aspect, place.points ? PLACE_MARGIN : GOAL_MARGIN);
-        const pts = spots.map((q) => new Vector3(q.x, 0, q.z));
-        frameInRoom(pts, Math.min(f.distance, game.controls.maxDistance), game.controls.maxDistance, pts.length);
-      },
+      fly: (place) => flyTo(place),
     },
     journal,
   );
+  /** Glide to a place (a News entry's, a toast's). Several spots (new houses, two stations) are framed together, closer than a lone spot. */
+  function flyTo(place: JournalPlace): void {
+    const spots = place.points ?? [place];
+    const f = frameAlong(spots, game.camera.fov, game.camera.aspect, place.points ? PLACE_MARGIN : GOAL_MARGIN);
+    const pts = spots.map((q) => new Vector3(q.x, 0, q.z));
+    frameInRoom(pts, Math.min(f.distance, game.controls.maxDistance), game.controls.maxDistance, pts.length);
+  }
   /** Report something in Game mode: logged in the Journal (not in Sandbox); a milestone is also toasted. */
   function note(n: NoteInput, ms?: number, hold = false): JournalEntry | null {
     if (mode !== "game") return null;
@@ -1482,6 +1587,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     refreshBoard();
     // The goals card at once: a goal it opened counts (and "Research Signals to unlock a goal" goes).
     if (opened.length > 0) checkGoals(true);
+    // Old industries' ruins it opens: the nearest is named, to restore.
+    ruinOpened(id);
     save();
   }
 
@@ -2910,6 +3017,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
     // The card to choose from ("Make a switch": the workshop's, its Switch row there to tap).
     if (guide.card !== undefined) interaction.openDepotCard(guide.card);
+    // An old industry's ruin to restore ("Open a farm"): its card, with Restore on it.
+    if (guide.ruin !== undefined) openRuin(guide.ruin);
     // The piece it asks for comes out of the tray the way it fits at the spot shown.
     interaction.guideHeld(guide.held ?? null);
     if (guide.points.length > 0) {
@@ -2988,13 +3097,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh) {
       // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
       if (hasOlderSave(next)) loadFromStorage(next);
-      setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
+      setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000), false, true, false));
       restoreSession(next, false);
     } else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
       if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
-      setWorld(saved?.ok ? saved.value : buildStarterWorld());
+      setWorld(saved?.ok ? saved.value : buildStarterWorld(next === "game"));
       restoreSession(next, !!saved?.ok);
     }
     enter(next);
@@ -3012,6 +3121,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       () => {
         game.depotView.rebuildUnits();
         game.depotView.setWorld(game.economy, game.layout);
+        // (The ruins are the industries' models too.)
+        game.syncRuins(true);
         for (const key of drawThumbnails(industryItems)) pictureDrawn(key);
         game.invalidate();
       },
@@ -3385,7 +3496,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, trayThumbnailsSaved: () => trayThumbnailsSaved });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), trayThumbnailsSaved: () => trayThumbnailsSaved });
   game.start();
   // Opening in Game mode: start fetching its models now, ahead of play.
   if (mode === "game") ensureGameModels();

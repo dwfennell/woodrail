@@ -2,7 +2,8 @@ import type { DepotRole } from "../economy";
 import { CELL, FEAT_FIELD, FEAT_TREE, isWater, type Landscape } from "../landscape";
 import { harbourWhy } from "./harbours";
 import type { PieceTypeId, Pose } from "../track";
-import { INDUSTRY_ROLE, isTownLot, SCHOOL_REACH, schoolTown, type World } from "./world";
+import { INDUSTRY_ROLE, schoolTown, type World } from "./world";
+import { isTownLot, SCHOOL_REACH } from "./town-lots";
 
 /** Does a town have a school on the map already, other than the piece `ignore` (one being moved)? */
 export function schoolOf(world: World, townId: number, ignore: (pieceId: number) => boolean = () => false): boolean {

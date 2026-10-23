@@ -1,12 +1,12 @@
 import { createSample, getPieceDef, isBridge, pathLength, RISER_HEIGHT, samplePath, TRACK_WIDTH, type PieceTypeId, type Pose } from "../track";
-import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, isWater, SURF_RIVER, SURF_ROAD, SURF_SEA, SURF_TOWN, type LandscapeGrid } from "./grid";
+import { CELL, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SHED, FEAT_STATION, isWater, SURF_RIVER, SURF_ROAD, SURF_SEA, SURF_TOWN, type LandscapeGrid } from "./grid";
 import { smoothLoop, traceRegions, type Loop } from "./outline";
 import { STATION_LENGTH, type Landscape } from "./generate";
 import { cutsHills, hillsOf } from "./hill-shape";
 import { pieceOf, turnOf } from "../roads/pieces";
 
 /** Why a piece can't go somewhere. "piece" comes from track overlap (see `findOverlap`); the rest from the landscape. */
-export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom";
+export type BlockReason = "building" | "station" | "town" | "river" | "road" | "hill" | "field" | "shed" | "depot" | "ruin" | "off-mat" | "piece" | "unsupported" | "undercut" | "prop" | "headroom";
 export type Clearance = { readonly kind: "clear" } | { readonly kind: "blocked"; readonly reason: BlockReason };
 
 export const BLOCK_MESSAGES: Record<BlockReason, string> = {
@@ -20,6 +20,7 @@ export const BLOCK_MESSAGES: Record<BlockReason, string> = {
   field: "That's a farm field — go around it",
   shed: "The engine shed is in the way",
   depot: "The depot is in the way",
+  ruin: "An old yard is in the way: tap it to clear it",
   "off-mat": "That's past the edge of the map",
   piece: "Another piece is in the way",
   unsupported: "Needs something under that end",
@@ -38,6 +39,7 @@ const BLOCKED: Record<BlockReason, Clearance> = {
   field: { kind: "blocked", reason: "field" },
   shed: { kind: "blocked", reason: "shed" },
   depot: { kind: "blocked", reason: "depot" },
+  ruin: { kind: "blocked", reason: "ruin" },
   "off-mat": { kind: "blocked", reason: "off-mat" },
   piece: { kind: "blocked", reason: "piece" },
   unsupported: { kind: "blocked", reason: "unsupported" },
@@ -117,6 +119,12 @@ function inDepotFootprint(land: Landscape, depotId: number, x: number, z: number
   return depot ? inFixedFootprint(depot.centre, depot.piece.heading, x, z) : false;
 }
 
+/** Is a plan point on an old industry's site (its stub and ruined yard: see `MapSite`)? */
+export function inRuinFootprint(land: Landscape, siteId: number, x: number, z: number): boolean {
+  const site = land.sites?.[siteId];
+  return site && !site.cleared ? inFixedFootprint(site.centre, site.piece.heading, x, z) : false;
+}
+
 /**
  * Is a plan point on a town station or a map depot (track and the strip beside it) standing on square `i`? Their
  * squares are marked by their centres, so a point in one of their squares may still be clear of them.
@@ -124,6 +132,7 @@ function inDepotFootprint(land: Landscape, depotId: number, x: number, z: number
 export function onFixedSite(land: Landscape, i: number, x: number, z: number): boolean {
   const f = land.grid.feature[i];
   if (f === FEAT_STATION) return inStationFootprint(land, land.grid.owner[i], x, z);
+  if (f === FEAT_RUIN) return inRuinFootprint(land, land.grid.owner[i], x, z);
   return f === FEAT_DEPOT && inDepotFootprint(land, land.grid.owner[i], x, z);
 }
 
@@ -309,8 +318,9 @@ export function checkPlacement(land: Landscape, type: PieceTypeId, flipped: bool
       else if (f === FEAT_FIELD) result = BLOCKED.field;
       else if (f === FEAT_DEPOT) {
         if (inDepotFootprint(land, g.owner[i], x, z)) result = BLOCKED.depot;
-      }
-      else if (f === FEAT_SHED) result = BLOCKED.shed;
+      } else if (f === FEAT_RUIN) {
+        if (inRuinFootprint(land, g.owner[i], x, z)) result = BLOCKED.ruin;
+      } else if (f === FEAT_SHED) result = BLOCKED.shed;
       else if (f === FEAT_STATION) {
         // Station squares are marked by their centres; only the real footprint (track + platform) blocks,
         // so pieces seated on a station end can overlap the edge of its end squares.

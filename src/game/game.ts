@@ -38,6 +38,7 @@ import { TrainView } from "../render/train-view";
 import type { Economy } from "../economy";
 import { CrossingsView } from "../render/crossings-view";
 import { DepotView } from "../render/depot-view";
+import { RuinsView, type ShownRuin } from "../render/ruins-view";
 import { createSnapshot, SIM_DT, type Sim, type SimEvent, type SimSnapshot } from "../sim";
 import { archFloors, bridgeLevels, findCrossings, styleCrossings, SURF_LANE, syncCuttings, type HeldPiece, type LevelCrossing, PLOT_DEPTH, type Landscape } from "../landscape";
 import type { Prop, PropPose } from "../props/store";
@@ -47,7 +48,7 @@ import { cullTiles, detailReach, viewReach } from "../render/dressing/tiles";
 import { connectorRef, getPieceDef, pathLength, type KitDef, type Layout, type PlacedPiece } from "../track";
 import { CameraDirector, nearPlaneFor } from "./camera-director";
 import { TouchCamera } from "./touch-camera";
-import { hasLandForSale, landForSale, plotsAround, unlockPlot, type World } from "./world";
+import { hasLandForSale, landForSale, plotsAround, prepareLandForSale, unlockPlot, type World } from "./world";
 
 const MAX_STEPS_PER_FRAME = 8;
 /**
@@ -129,6 +130,8 @@ export class Game {
   readonly trainView: TrainView;
   readonly crossingsView: CrossingsView;
   readonly depotView: DepotView;
+  /** Old industries' ruins, on the land and the land around (see `syncRuins`). */
+  readonly ruinsView: RuinsView;
   readonly post: Post;
   readonly snapshot: SimSnapshot = createSnapshot();
   /** Simulation events from the latest frame (derailments, couplings, …). */
@@ -138,6 +141,8 @@ export class Game {
   landscape: Landscape;
   stations: Map<number, number>;
   depots: Map<number, number>;
+  /** Old industries' ruins standing on the land: site id → stub piece id (see `World.ruins`). */
+  ruins: Map<number, number>;
   economy: Economy;
   props: PropStore;
   /** Builds catalogue models on first use (see `PropLibrary`). */
@@ -176,6 +181,7 @@ export class Game {
     this.landscape = world.landscape;
     this.stations = world.stations;
     this.depots = world.depots;
+    this.ruins = world.ruins;
     this.economy = world.economy;
     this.watchSwitches();
     this.props = world.props;
@@ -237,6 +243,9 @@ export class Game {
     this.depotView = new DepotView(this.mats);
     this.scene.add(this.depotView.group);
     this.depotView.setWorld(this.economy, this.layout);
+    this.ruinsView = new RuinsView(this.mats, this.depotView);
+    this.scene.add(this.ruinsView.group);
+    this.syncRuins();
     this.crossingsView = new CrossingsView(this.mats);
     this.scene.add(this.crossingsView.group);
     this.crossingsChanged();
@@ -306,6 +315,7 @@ export class Game {
     this.landscape = world.landscape;
     this.stations = world.stations;
     this.depots = world.depots;
+    this.ruins = world.ruins;
     this.economy = world.economy;
     this.watchSwitches();
     this.props = world.props;
@@ -331,7 +341,27 @@ export class Game {
     this.syncKits(true);
     this.crossingsChanged();
     this.depotView.setWorld(this.economy, this.layout);
+    this.around = [];
+    this.syncRuins();
     this.landChanged();
+  }
+
+  /** The land around now shown (its ruins are drawn too). */
+  private around: readonly { land: Landscape }[] = [];
+
+  /**
+   * Draw the old industries' ruins standing on the land (their stubs are track pieces) and on the land around now shown
+   * (stubs and all). Only tiles whose ruins changed are built again; with `force` (the industries' models have
+   * arrived), all of them. Call when the land or the land around changes, or a ruin is cleared: never per frame.
+   */
+  syncRuins(force = false): void {
+    const shown: ShownRuin[] = [];
+    for (const site of this.landscape.sites ?? []) if (!site.cleared) shown.push({ site, stub: false });
+    for (const a of this.around) for (const site of a.land.sites ?? []) if (!site.cleared) shown.push({ site, stub: true });
+    if (this.ruinsView.sync(shown, force)) {
+      this.invalidate();
+      if (this.ruinsView.lastBuilt > 0) console.info(`Woodrail: ruins built (${this.ruinsView.lastBuilt} tile(s), last ${this.ruinsView.lastBuildMs.toFixed(1)} ms)`);
+    }
   }
 
   /**
@@ -346,6 +376,9 @@ export class Game {
     this.landscapeView.addPlots(bought.slots, this.aroundReady());
     this.trackChanged();
     this.depotView.setWorld(this.economy, this.layout);
+    // (The plot bought is no longer around: its ruins are the land's now.)
+    this.around = this.around.filter((a) => !a.land.grid.plots.some((p) => p.px === px && p.pz === pz));
+    this.syncRuins();
     this.landChanged();
     // The new towns' buildings are catalogue models (props).
     this.propsChanged();
@@ -393,7 +426,8 @@ export class Game {
       const wanted = plotsAround(land);
       const next = wanted.find((p) => !hasLandForSale(land, p.px, p.pz));
       if (next) {
-        landForSale(land, next.px, next.pz);
+        // (A plot, then its extras, a slice each: see `prepareLandForSale`.)
+        prepareLandForSale(land, next.px, next.pz);
         setTimeout(step, 16);
         return;
       }
@@ -415,6 +449,8 @@ export class Game {
         return;
       }
       this.landscapeView.setAround(around);
+      this.around = around;
+      this.syncRuins();
       this.invalidate();
     };
     this.aroundStep = 0;
@@ -427,7 +463,7 @@ export class Game {
   readonly archFloorsOf = (p: PlacedPiece, levels = this.bridgeLevelsOf(p)): number[] | null => archFloors(this.landscape, p.type, p.flipped, p.pose, p.y, levels);
 
   get world(): World {
-    return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy, props: this.props };
+    return { layout: this.layout, sim: this.sim, landscape: this.landscape, stations: this.stations, depots: this.depots, economy: this.economy, props: this.props, ruins: this.ruins };
   }
 
   private allEnds = false;
@@ -816,7 +852,7 @@ export class Game {
     setHazeReach(this.scene.fog as Fog, reach);
     const detail = detailReach(dist);
     const landCulled = this.landscapeView.cull(this.camera, reach, detail);
-    const culled = cullTiles([this.depotView.group], this.camera, reach, detail) || landCulled;
+    const culled = cullTiles([this.depotView.group, this.ruinsView.group], this.camera, reach, detail) || landCulled;
     if (shadowsMoved || once || refit || culled) this.renderer.shadowMap.needsUpdate = true;
     this.stage.update(this.camera);
     pulseBeacons(this.mats, now);
