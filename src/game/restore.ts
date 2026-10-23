@@ -1,6 +1,6 @@
 import { CARGO } from "../economy/cargo";
 import { kindsOf, minus, total } from "../economy/goods";
-import { FEAT_NONE, FEAT_RUIN, plotSlotOf, type Landscape, type MapSite, type SiteRole } from "../landscape";
+import { CELL, FEAT_NONE, FEAT_RUIN, plotSlotOf, type Landscape, type MapSite, type SiteRole } from "../landscape";
 import type { Footprint } from "../props/placement";
 import type { Editor } from "../editor/editor";
 import { costTag } from "../ui/cost-tag";
@@ -75,6 +75,15 @@ export interface RestoreOptions {
 }
 
 /**
+ * How far across its track (mm, the yard's side) a ruin's yard is: its one row of yard squares beside the stub's row
+ * (`siteSquares`: square middles 72 mm out), to that row's far edge. An industry's pad reaches a few mm further (to
+ * 112 mm: its 84 mm depth round 72), onto the next row, which a site doesn't keep clear: a farm's fields are planted
+ * against its yard, a quarry's hillside rises there, a harbour's water lies there. Restoring checks the ground only
+ * this far, so a ruin isn't refused for what it was made beside (it was, for 146 of 175 ruins round 8 starts).
+ */
+export const RUIN_YARD_REACH = 1.5 * CELL;
+
+/**
  * Why this ruin can't be restored now, or null: it's gone, a train is on its stub, its industry's yard is blocked
  * (`checkYard`, its own ruin not counted) or its resource is short (`siteWhy`), or the payment is (`short`).
  */
@@ -86,12 +95,14 @@ export function restoreWhy(world: World, siteId: number, opt: RestoreOptions = {
   const piece = world.layout.getPiece(stub);
   if (!piece) return "It's gone already";
   const type = restoredType(site.role);
-  // (The ruin's own old yard is where the new one goes: it isn't in the way of itself.)
+  // (The ruin's own old yard is where the new one goes: it isn't in the way of itself. Nor is what lies just past it,
+  // under the few mm the industry's pad reaches beyond the ruin's row of squares: a farm's own fields, a quarry's or
+  // mine's hillside, a harbour's water, which the site was made beside: `RUIN_YARD_REACH`.)
   site.cleared = true;
   let yard: string | null = null;
   try {
     const out = { what: null as string | null };
-    const why = checkYard({ land: world.landscape, layout: world.layout, props: world.props, footprint: opt.footprint ?? (() => undefined) }, type, piece.pose, piece.y, stub, out);
+    const why = checkYard({ land: world.landscape, layout: world.layout, props: world.props, footprint: opt.footprint ?? (() => undefined) }, type, piece.pose, piece.y, stub, out, RUIN_YARD_REACH);
     if (why) yard = yardMessage(type, why, out.what);
   } finally {
     site.cleared = undefined;

@@ -51,9 +51,9 @@ import { endOn, rulesFor, schoolOn } from "./rules";
  * prints the timeline as one line of JSON; BALANCE_MINUTES caps the play (default 180). BALANCE_CARGO=a-b logs the
  * trains' loads from minute a to b (`cargoTrace`). For comparison, BALANCE_NOUNSTICK=1 leaves stuck cargo be
  * (`unstick`, `shopThrough`), BALANCE_NOFILL=1 leaves a goods engine's spare pull empty, and BALANCE_NORUINS=1 never
- * restores an old industry's ruin (`restoreOld`: map sites step 2), building new ones as before; BALANCE_NOSPUR=1 restores
- * one only from a line end, never on a spur, and BALANCE_SPUR=routes learns Routes for a spur farm instead of setting
- * its switch by hand (`tendSpur`).
+ * restores an old industry's ruin (`restoreOld`: map sites step 2), building new ones as before. BALANCE_SPUR=1 (an A/B,
+ * off by default) also lays a short spur to a ruin no line end reaches, its switch set by hand before Routes (`tendSpur`);
+ * BALANCE_SPUR=routes, the same spur with Routes learned before Mills instead.
  *
  * At 180 min with 1 train a line, the run checks spec §5's bands (`checkBands`): each miss is listed, and any fails it.
  */
@@ -106,10 +106,14 @@ const WISH: readonly string[] = [
  */
 const NORUINS = !!ENV.BALANCE_NORUINS;
 const RUIN_REACH = Number(ENV.BALANCE_RUIN_REACH ?? 1500);
-/** BALANCE_NOSPUR=1: an old industry is restored only where a line end can be run on to it (step 2's rule), never on a spur. */
-const NOSPUR = !!ENV.BALANCE_NOSPUR;
 /**
- * How the player gets the grain of an old farm restored on a spur before Routes (BALANCE_SPUR): `flip` (the default),
+ * BALANCE_SPUR (an A/B, off by default: the CoS's choice, spec §7): an old industry no line end can be run on to is
+ * restored on a short spur (`spurTo`). Off, it's restored only from a line end (step 2's rule), which on the starter
+ * map never reaches the old farm: a new farm yard is built.
+ */
+const SPUR = !!ENV.BALANCE_SPUR;
+/**
+ * How the player gets the grain of an old farm restored on a spur before Routes: BALANCE_SPUR=1 (or anything else),
  * setting the spur's switch for the farm by hand when the train should call there (`tendSpur`); `routes`, learning
  * Routes before Mills instead (Mills waits for it).
  */
@@ -1761,7 +1765,7 @@ class Playthrough {
   /**
    * Map sites step 2's rule: the standing ruin of `role` nearest the player's line, if it's within `RUIN_REACH` of it
    * and restoring it is cheaper than a new industry (always, unless one's in the toy box already, which costs nothing
-   * more): the line run on from one of its ends to the ruin's stub (`extend`), or else a short spur laid to it off a
+   * more): the line run on from one of its ends to the ruin's stub (`extend`), or else (BALANCE_SPUR) a short spur off a
    * switch in the line (`spurTo`, once Switches is learned), then restored there (as its card's Restore does: planks
    * from the workshop's yard, coins). Its piece and its free end; "wait" while it can't be paid for yet; null to build
    * a new one as before (no ruin near, BALANCE_NORUINS, or neither a line end nor a spur reaches it: tried again 5
@@ -1806,12 +1810,12 @@ class Playthrough {
     }
     const free = () => [0, 1].map((c) => connectorRef(stub, c)).filter((ref) => w.layout.joinedConnector(ref) === -1);
     let r = extend(P, { target: free });
-    // Else a short spur to it off a switch in the line (as its Show me frames it: the ruin and the line beside it).
+    // Else (BALANCE_SPUR) a short spur to it off a switch in the line (as its Show me frames it: the ruin and the line).
     // Before Routes the line's train runs end to end with the switch set for the line, so its grain reaches the line
     // only when the player sets the switch for the farm by hand (`tendSpur`; BALANCE_SPUR=routes: Routes learned
     // first instead): the trade-off a player takes for the cheaper farm.
     let spur = -1;
-    if (!r && s.learned.has("switches") && !NOSPUR) {
+    if (!r && s.learned.has("switches") && SPUR) {
       spur = spurTo(P, site.centre, free) ?? -1;
       if (spur !== -1) r = { id: stub, beyond: -1 };
     }

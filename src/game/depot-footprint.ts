@@ -228,9 +228,11 @@ export interface YardObstacle {
  * Is there room for the yard of a depot piece at `pose` (track base at `y`)? Null when there is (or it isn't a depot
  * piece), else why not; `out.what`, if given, says what's in the way ("a house", "the river": see `yardMessage`).
  * `ignore` leaves out the piece being moved and any straights it takes the place of. Called on every pointer move
- * while a depot is held: about a hundred squares looked up, and a pass over the pieces nearby.
+ * while a depot is held: about a hundred squares looked up, and a pass over the pieces nearby. `groundTo` (mm across
+ * the track, the yard's side): the ground is looked at only this far out (an old industry's ruin restored: see
+ * `RUIN_YARD_REACH`); other track and props are looked for over the whole yard.
  */
-export function checkYard(ctx: YardCheck, type: PieceTypeId, pose: Pose, y: number, ignore: Ignore, out?: YardObstacle): YardBlock | null {
+export function checkYard(ctx: YardCheck, type: PieceTypeId, pose: Pose, y: number, ignore: Ignore, out?: YardObstacle, groundTo = Infinity): YardBlock | null {
   if (out) out.what = null;
   const shape = shapeFor(type);
   if (!shape) return null;
@@ -244,6 +246,7 @@ export function checkYard(ctx: YardCheck, type: PieceTypeId, pose: Pose, y: numb
   for (let i = 0, k = 0; i < pts.length && !legs; i += 2, k++) {
     const t = pts[i];
     const l = pts[i + 1];
+    if (l > groundTo) continue;
     const why = groundWhy(ctx.land, hills, pose.x + t * c - l * s, pose.z + t * s + l * c, y, l >= shape.wetFrom);
     if (!why) continue;
     if (shape.legs[k] === 0) {
