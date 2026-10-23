@@ -580,6 +580,13 @@ describe("QA junction notes N6: a U-turn that runs into a hill", () => {
 });
 
 
+/**
+ * Terrace 2 as it goes down: both ramps, and a straight on the top. (Read on the hill nearer the camera the finger's
+ * over, the stroke runs straight on as drawn: before, it jogged back where it crossed each rise on the screen, and the
+ * line went s54 s54 ramp s54 ramp, or with QA's browser run curved away at the first level: see `DrawLine.onGround`.)
+ */
+const TERRACE_2 = "straight-108@0 ramp↑@0 ramp↑@48 straight-54@96";
+
 describe("QA's terrace 2 drawn again (the camera a hair off after an undo)", () => {
   it("lays the same line, both ramps, wherever the camera is to within a millimetre, and wherever the line begins along the stroke", () => {
     const run: QARun = ["terrace 2", -1764, -1620, Math.PI, 480, false, -2004, -1620, 3662.2];
@@ -587,17 +594,17 @@ describe("QA's terrace 2 drawn again (the camera a hair off after an undo)", () 
     // a hair off took the long one first, and found no room for its second ramp: "The hill is a level up here".)
     for (const e of [0, 1e-9, -1e-9, 1e-7, 1e-5, -1e-3, 1e-3, 0.01, -0.1, 0.5, -1]) {
       const { line } = replayQA([run[0], run[1], run[2], run[3], run[4], run[5], run[6] + e, run[7] + e, run[8] + e]);
-      expect(line && name(line), `camera ${e} mm off`).toBe("straight-54@0 straight-54@0 ramp↑@0 straight-54@48 ramp↑@48");
+      expect(line && name(line), `camera ${e} mm off`).toBe(TERRACE_2);
     }
     // The stroke itself a few micrometres to one side (the browser's repeat was 6 µm shorter): with the tie to within
     // rounding only, 39 of 80 such strokes from −0.1 to 0.1 mm took the long straight first.
     for (const e of [0.0025, 0.006, 0.01, 0.05, -0.05, 0.1]) {
       const { line } = replayQA([run[0], run[1], run[2] + e, run[3], run[4], run[5], run[6], run[7], run[8]]);
-      expect(line && name(line), `stroke ${e} mm off`).toBe("straight-54@0 straight-54@0 ramp↑@0 straight-54@48 ramp↑@48");
+      expect(line && name(line), `stroke ${e} mm off`).toBe(TERRACE_2);
     }
     for (const sm of [20, 30, 31, 45]) {
       const { line } = replayQA(run, sm);
-      expect(line && name(line), `begun ${sm} mm along`).toBe("straight-54@0 straight-54@0 ramp↑@0 straight-54@48 ramp↑@48");
+      expect(line && name(line), `begun ${sm} mm along`).toBe(TERRACE_2);
     }
   });
 });

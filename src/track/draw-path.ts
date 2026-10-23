@@ -211,6 +211,9 @@ const MAX_PIECES = 200;
  * finger lifts.
  */
 const GROW_PER_MOVE = 1;
+
+/** How many levels above the line's height the finger is looked for on a hill nearer the camera (see `onGround`). */
+const SEEN_LEVELS = 4;
 /** What each piece costs on its own: fewer pieces look calmer, and the tight curve and the mini are for when they're needed. */
 const PIECE_COST: Partial<Record<PieceTypeId, number>> = { "straight-54": 0.9, "straight-108": 0.4, "curve-small": 1.5 };
 const BASE_PIECE_COST = 0.3;
@@ -798,7 +801,7 @@ export class DrawLine {
       this.seen = e.y;
       this.rev++;
     }
-    const p = this.onGround(read, this.seen);
+    const p = this.onGround(read, this.seen, true);
     return { p, changed: p ? this.addPoint(p.x, p.z) : false };
   }
 
@@ -806,9 +809,19 @@ export class DrawLine {
    * The finger read at a height, or on the ground under it where that's higher (a hill ahead of the line, the finger
    * over its top: read on the plane at the line's height, it was seen beyond the hill, and the stroke doubled back
    * where it crossed onto it, a "too sharp" stall, QA N2). Two steps of looking at the ground under the point.
+   *
+   * `onward` (the finger's moves): a hill nearer the camera than the point read, seen from its high side, too. Read at
+   * the line's height, the finger over its top was seen past it, on the low ground in front of it, back along the view
+   * and off to one side, so the stroke jogged back; and by the map's edge, past the edge (QA N5, terrace 2 seen from the
+   * west: the line curved away at its first level, s54 s54 curve-small, "That's past the edge of the map"). So if the
+   * point read goes back against the line's way by more than a step, or off the map: the level up where the finger's
+   * ray meets ground just that high and goes on, the nearest the finger, if one does; else, if the ray goes through a
+   * hill on the way down (the point read is hidden behind it), nothing from this move (over a rise on the screen, where
+   * no level's ground is under it); else the point read.
    */
-  private onGround(read: (height: number) => { x: number; z: number } | null, height: number): { x: number; z: number } | null {
+  private onGround(read: (height: number) => { x: number; z: number } | null, height: number, onward = false): { x: number; z: number } | null {
     const groundAt = this.options.groundAt;
+    const from = height;
     let p = read(height);
     for (let k = 0; k < 2 && p && groundAt; k++) {
       const g = groundAt(p.x, p.z);
@@ -816,7 +829,33 @@ export class DrawLine {
       height = g;
       p = read(height);
     }
-    return p;
+    if (!onward || !p || !groundAt) return p;
+    // Going on the way the line's end points, or not back by more than a step's noise: as read. (The way the line
+    // points, not the stroke's last steps: they may be a jump onto a level and back.)
+    const e = this.end;
+    const onMap = this.options.onMap;
+    const off = !!onMap && !onMap(p.x, p.z);
+    if (!off && (p.x - this.fx) * Math.cos(e.heading) + (p.z - this.fz) * Math.sin(e.heading) >= -STEP) return p;
+    // Going back, or off the map: a level up where the finger's ray meets ground just that high, going on, the nearest
+    // the finger, if any. Its ray through a hill on the way (the point read hidden behind it) but on no such level's
+    // ground (over a rise on the screen): nothing taken from this move.
+    let best: { x: number; z: number } | null = p;
+    let bestD = Infinity;
+    for (let k = 1; k <= SEEN_LEVELS; k++) {
+      const level = (Math.floor((from + 1) / RISER_HEIGHT) + k) * RISER_HEIGHT;
+      if (level <= height + 1) continue;
+      const q = read(level);
+      if (!q) continue;
+      const g = groundAt(q.x, q.z);
+      if (g >= level - 1 && bestD === Infinity) best = null;
+      if (Math.abs(g - level) > 1 || (q.x - this.fx) * Math.cos(e.heading) + (q.z - this.fz) * Math.sin(e.heading) < -STEP) continue;
+      const d = Math.hypot(q.x - this.fx, q.z - this.fz);
+      if (d < bestD) {
+        best = q;
+        bestD = d;
+      }
+    }
+    return best;
   }
 
   /** Does the line's end rest on the ground (not up on arches, a ramp's own support, or risers)? Yes if the ground isn't known. */
@@ -1383,7 +1422,10 @@ export class DrawLine {
    */
   private special(why: DrawCheck): boolean {
     const levels = why.levels ?? 0;
-    if (why.reason === "hill") return levels === 1 && this.rampUp(false);
+    // (Two levels or more up where the piece chosen ends: a ramp onto the first, if one lands just on it; a long straight
+    // across both rises of a terrace drawn straight at it was refused two levels up, where the line had climbed with
+    // shorter pieces. QA N5, terrace 2: read where it was drawn, the stroke ran straight on into it.)
+    if (why.reason === "hill") return levels === 1 ? this.rampUp(false) : levels > 1 && (this.rampUp(false, true) || this.climbBack());
     if (why.reason === "river") return levels >= 1 ? this.bridge() : (this.startCrossing() && this.cross()) || this.rampUp(true);
     if (why.reason !== "unsupported" || levels < 1) return false;
     // Just climbed to cross the river (the ramp's top end in the air, short of the water): on over it, not straight
@@ -1424,13 +1466,15 @@ export class DrawLine {
   /**
    * Does a ramp's far end land where the line can go on from it: going up, on the hill (else the next piece is left in
    * the air short of it); going down, on ground no higher than its foot (else it's dug into the hilltop, and the next
-   * piece runs into the hill). Yes if the ground isn't known.
+   * piece runs into the hill). `exact`: on ground just as high as its end (not into a higher level). Yes if the ground
+   * isn't known.
    */
-  private lands(r: DrawCandidate, up: boolean): boolean {
+  private lands(r: DrawCandidate, up: boolean, exact = false): boolean {
     const groundAt = this.options.groundAt;
     if (!groundAt) return true;
     const e = r.end;
     const g = groundAt(e.x + Math.cos(e.heading) * LAND_PROBE, e.z + Math.sin(e.heading) * LAND_PROBE);
+    if (exact && Math.abs(g - e.y) > 1) return false;
     return up ? g >= e.y - 1 : g <= e.y + 1;
   }
 
@@ -1439,13 +1483,13 @@ export class DrawLine {
    * (its far end on it: else a straight first, see `fill`), or for the river, anywhere short of the water (a ramp
    * can't stand in it). A ramp cutting the ground from under other track shows red, and says so.
    */
-  private rampUp(river: boolean): boolean {
+  private rampUp(river: boolean, exact = false): boolean {
     if (!this.may("ramp")) return this.want("ramp");
     const reach = river ? RIVER_REACH : SPECIAL_REACH;
     const r = rampFrom(this.end, true);
     const s = r && this.onStroke(r, this.progress, reach);
     if (r && s !== null) {
-      if (!river && !this.lands(r, true)) return this.fill(true);
+      if (!river && !this.lands(r, true, exact)) return this.fill(true, exact);
       const why = this.options.check?.(r, this.pieces) ?? null;
       if (!why || why.reason === "undercut") {
         this.lay(r, s, false, why);
@@ -1461,7 +1505,7 @@ export class DrawLine {
     const before = this.pieces.slice(0, -1);
     const b = rampFrom(k > 1 ? before[k - 2].end : this.start, true);
     const sb = b && this.onStroke(b, last.from, reach);
-    if (!b || sb === null || (!river && !this.lands(b, true))) return false;
+    if (!b || sb === null || (!river && !this.lands(b, true, exact))) return false;
     const why = this.options.check?.(b, before) ?? null;
     if (why && why.reason !== "undercut") return false;
     this.pieces.pop();
@@ -1469,6 +1513,23 @@ export class DrawLine {
     this.lay(b, sb, false, why);
     if (river) this.overRiver();
     return true;
+  }
+
+  /**
+   * Two levels up where the piece chosen would end, and no ramp from the line's end lands on the first (see `special`):
+   * the line's last piece, a plain straight, taken off, and from there a ramp, or a shorter straight and then a ramp,
+   * that lands just on the first level. False (the line as it was) if neither does.
+   */
+  private climbBack(): boolean {
+    const last = this.pieces[this.pieces.length - 1];
+    if (!last || last.blocked || !last.type.startsWith("straight-")) return false;
+    const progress = this.progress;
+    this.pieces.pop();
+    this.progress = last.from;
+    if (this.rampUp(false, true)) return true;
+    this.pieces.push(last);
+    this.progress = progress;
+    return false;
   }
 
   /** Up a ramp for the river: straight bridges on, the way it points, then a ramp down (see `cross`). */
@@ -1652,7 +1713,7 @@ export class DrawLine {
    * A ramp from the line's end would land short of the hill (or, coming down, still on the hilltop): the shortest
    * straight on from the end after which it would land, if that may go. The ramp follows on the next move.
    */
-  private fill(up: boolean): boolean {
+  private fill(up: boolean, exact = false): boolean {
     const groundAt = this.options.groundAt;
     if (!groundAt) return false;
     const end = this.end;
@@ -1665,6 +1726,7 @@ export class DrawLine {
       const reach = f.length + RAMP_LENGTH + LAND_PROBE;
       const g = groundAt(end.x + cos * reach, end.z + sin * reach);
       if (up ? g < want - 1 : g > want + 1) continue;
+      if (exact && Math.abs(g - want) > 1) continue;
       const s = this.onStroke(f, this.progress);
       if (s === null || this.options.check?.(f, this.pieces)) return false;
       this.lay(f, s, false, null);
