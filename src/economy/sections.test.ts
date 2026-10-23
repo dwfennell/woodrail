@@ -167,7 +167,7 @@ describe("sections and slots: the rules", { timeout: 120_000 }, () => {
       if (l.economy.sections.stateOf(extra)?.move) moved = true;
     }
     expect(moved).toBe(false);
-    expect(l.economy.sectionWait(extra)).toEqual({ kind: "room", lineId: l.economy.lineIdOf.get(extra), trains: 3, loops: 1, more: 1, spare: false });
+    expect(l.economy.sectionWait(extra)).toEqual({ kind: "room", lineId: l.economy.lineIdOf.get(extra), trains: 3, loops: 1, more: 1, spare: false, parked: false });
     // No passing loop at all: the second train is held, one loop to lay.
     const plain = line(0);
     const two = trains(plain);

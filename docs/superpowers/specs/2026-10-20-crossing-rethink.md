@@ -295,3 +295,23 @@ occupancy from bogies (where trains' wheels are), not from predicted ways.
   - 272ac6c: 3/0/4, 42;
   - now: 3/0/5, 2.
   Over twelve take-offs (each train, four times), 614de33 had 582 head-ons; now 13.
+
+## As built: QA's B5 (a wait on no one named)
+
+- **A wait always names its blocker.** When the way-finder can't name what blocks a train's way (for example, its
+  nose is on a switch set for a road a spare stands on), the train waits on the first train found on that way or in
+  the slot it would go to.
+- **Catch-all.** Every `CHECK_TICKS`, the waits of each train with room are followed. A chain counts as stuck when it
+  ends at no one named, at a train that won't move (held, or not on the line with its lever off), or back where it
+  started. If it has lasted `YIELD_S`, the train in the chain nearest its end that is standing with a free slot
+  behind it turns back (the newest, in a ring). A wait on a moving train, or on one of the line at work, is left
+  alone. With naming switched off, this alone clears B5's state.
+- **No turning back into a train behind it in a section** (on the first pieces past its tail), as already in a slot.
+- **No running up to a train standing in the slot ahead, or just past the slot's end.** It waits behind.
+- **Cards:**
+  - A spare standing in a section on the line's way cuts the line, as one on every road of a loop does: "… Move it".
+  - Waiting on a train with its lever off, not on the line: "Waiting: a train not on the line is in the way. Move it".
+  - A spare on one road of a loop: "lay N more passing loop(s) …, or move the parked train".
+  - A train on no line turning back short of a train: "Turning back: another train's in the way".
+  - A train let in since it was held no longer shows the held card while it waits to ask again.
+- When the trains that could give up room let equally many run, the one not on a stop gives it up.

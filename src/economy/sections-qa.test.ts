@@ -64,9 +64,23 @@ function line0(spec: { loops: number; ends?: number; mid?: number; pre?: PieceTy
 
 type Q = ReturnType<typeof line0>;
 
+const depotsOf = new WeakMap<object, Map<number, ReturnType<Economy["addDepot"]>>>();
+
+/** QA's `H.clearTrains`: every train off its line and off the track, the world kept (its history with it). */
+function clearTrains(q: { sim: Sim; economy: Economy }): void {
+  for (const id of [...q.sim.trainIds()]) {
+    const t = q.sim.getTrain(id);
+    if (t) for (const c of t.cars) if (c.kind === "engine") stopLine(q.economy, c.id);
+    q.sim.removeTrain(id);
+  }
+  q.economy.prune();
+}
+
 /** QA's `H.scen`: trains (piece, next stop, s, added at), one line of `stops`, `secs` seconds; forest piles topped up. */
-function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolean; at?: number; spare?: boolean; when?: (E: readonly number[]) => boolean; offAt?: number }[], stops: number[], secs: number, cars: CarKind[] = ["engine", "timber", "timber"], events: { at: number; fn: (E: readonly number[]) => void }[] = []) {
-  const depots = new Map<number, ReturnType<Economy["addDepot"]>>();
+function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolean; at?: number; spare?: boolean; when?: (E: readonly number[]) => boolean; offAt?: number; ps?: readonly number[]; ss?: readonly number[] }[], stops: number[], secs: number, cars: CarKind[] = ["engine", "timber", "timber"], events: { at: number; fn: (E: readonly number[]) => void }[] = []) {
+  // (Depots made once per world: a sequence of runs in one world reuses them.)
+  const depots = depotsOf.get(q) ?? new Map<number, ReturnType<Economy["addDepot"]>>();
+  depotsOf.set(q, depots);
   for (const p of stops) if (!depots.has(p)) depots.set(p, q.economy.addDepot(q.L.getPiece(p)!.type === "depot-forest" ? "forest" : "sawmill", p, 0));
   const E: number[] = [];
   const spare: boolean[] = [];
@@ -78,9 +92,22 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
   let longestRing = 0;
   const meets: number[] = [];
   const arrAt: { e: number; t: number }[] = [];
+  const cardLog: { e: number; t: number; c: string }[] = [];
+  let stale = 0;
   let lineId = -1;
   const add = (t: (typeof trains)[number]) => {
-    const placed = q.sim.addTrain(cars, { pieceId: t.p, pathIndex: 0, reversed: !!t.rev, s: t.s ?? 100 });
+    // (`ps`: the first piece of these with no train on it, at the first of `ss` that fits: QA's put-down on a road.)
+    let placed = q.sim.addTrain(cars, { pieceId: t.p, pathIndex: 0, reversed: !!t.rev, s: t.s ?? 100 });
+    if (t.ps) {
+      const taken = (p: number) => q.sim.trainIds().some((id) => q.sim.getTrain(id)!.bogies.some((b) => b.pieceId === p));
+      for (const p of t.ps) {
+        if (placed.kind === "placed" || taken(p)) continue;
+        for (const s0 of t.ss ?? [100]) {
+          placed = q.sim.addTrain(cars, { pieceId: p, pathIndex: 0, reversed: !!t.rev, s: s0 });
+          if (placed.kind === "placed") break;
+        }
+      }
+    }
     if (placed.kind !== "placed") {
       // (QA's NOROOM: one put down later where a train stands isn't put down.)
       if (t.at || t.when) return false;
@@ -174,6 +201,10 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
         const m = cardsOf.get(e) ?? new Map<string, number>();
         cardsOf.set(e, m);
         m.set(c, (m.get(c) ?? 0) + 1);
+        cardLog.push({ e, t: tick / SIM_HZ, c });
+        // (A train with room showing the held train's card: QA saw one, just after admission changed.)
+        const adm = (q.economy.sections as unknown as { admitted: Map<number, Set<number>> }).admitted.get(lineId);
+        if (c.startsWith("Waiting: lay") && adm?.has(e)) stale++;
       }
     }
   }
@@ -190,7 +221,7 @@ function scen(q: Q, trains: { p: number; next?: number; s?: number; rev?: boolea
     }
     return all ? n / all : 0;
   };
-  return { E, arrivals: E.map((e) => arr.get(e) ?? 0), meet, cards, cardsOf, share, allStill, longestRing, meets, arrAt, whenAt, released: q.economy.sections.released, yielded: q.economy.sections.yielded, cut: q.economy.sections.cut };
+  return { E, arrivals: E.map((e) => arr.get(e) ?? 0), meet, cards, cardsOf, cardLog, stale, share, allStill, longestRing, meets, arrAt, whenAt, released: q.economy.sections.released, yielded: q.economy.sections.yielded, cut: q.economy.sections.cut };
 }
 
 describe("sections: QA's cases (P2 review)", { timeout: 300_000 }, () => {
@@ -286,12 +317,12 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
   // each road cuts the line, and the card says to move it instead.)
   const says = (r: ReturnType<typeof scen>, lay: number, trains: number) => {
     if (lay === 0) {
-      expect([...r.cards], "held").toContain("Waiting: a train not on the line is standing in the passing loop. Move it");
+      expect([...r.cards].some((c) => c.startsWith("Waiting: a train not on the line") && c.endsWith("Move it")), "held").toBe(true);
       expect([...r.cards].filter((c) => /[Ll]ay \d+ more/.test(c))).toEqual([]);
       return;
     }
     const n = `${lay} more passing loop${lay === 1 ? "" : "s"}`;
-    expect([...r.cards], "held").toContain(`Waiting: lay ${n} for ${trains} trains`);
+    expect([...r.cards].some((c) => c.startsWith(`Waiting: lay ${n} for ${trains} trains`)), "held").toBe(true);
     // (And no card on the line asks for another number.)
     for (const c of r.cards) {
       const m = /[Ll]ay (\d+) more/.exec(c);
@@ -400,6 +431,88 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     }
     expect(bad).toEqual([]);
   });
+  // B5, and the invariant again over a sequence of runs in one world (history mattered there: QA's sweep froze only
+  // after earlier runs): a train put down on each loop road at many times, a spare (lever off, not on the line) or one
+  // of the line's. The line never stands all still for a minute, unless it can't do better, and its cards then say why.
+  it("B5: put-downs on every loop road, spares and line trains, run after run in one world: never all still for a minute", () => {
+    const bad: string[] = [];
+    const { q, l0, l1, R3 } = two();
+    const roads = (ENV.ROADS ? ENV.ROADS.split(",") : ["l0.side", "l0.main", "l1.side", "l1.main"]) as readonly string[];
+    const ats = ENV.ATS ? ENV.ATS.split(",").map(Number) : [15, 30, 45, 60, 75, 90];
+    const kinds = ENV.KINDS ? ENV.KINDS.split(",") : ["spare", "line"];
+    for (const kind of kinds)
+      for (const road of roads)
+        for (const at of ats) {
+          clearTrains(q);
+          const l = road.startsWith("l0") ? l0 : l1;
+          const p = road.endsWith("side") ? l.side[1] : l.main[0];
+          const r = scen(q, [...R3, { p, next: road.startsWith("l0") ? 1 : 0, s: 100, at, spare: kind === "spare" }], [q.a, q.b], at + 180, cars);
+          const meets = r.meets.filter((t) => t < at || t > at + 3).length;
+          // (Can't do better: every train of the line held, or a card saying what to build or move.)
+          const says = [...r.cards].some((c) => /Lay \d+ more|lay \d+ more|Move it/.test(c));
+          const line = `${kind} ${road} at ${at}: ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meets ${meets} released ${r.released}`;
+          if (ENV.SHOW) console.log(`B5 ${line}`);
+          if (ENV.SHOW && ENV.CARDS) for (const e of r.E) console.log(`B5C e${e}`, [...(r.cardsOf.get(e) ?? [])].map(([c, n]) => `${c} x${n}`).join(" | "));
+          if (meets > 0 || r.released > 0 || r.longestRing > YIELD_S + 3 || (r.allStill > 60 && !says)) bad.push(line);
+          if (r.stale > 0) bad.push(`${line}: ${r.stale} "lay" cards on trains with room`);
+          // (QA: a spare can leave the line delivering nothing. Then the cards must say to move it.)
+          const delivering = r.arrivals.slice(0, 3).some((a) => a > 3);
+          if (kind === "spare" && !delivering && ![...r.cards].some((c) => /[Mm]ove (it|the parked train)$/.test(c))) bad.push(`${line}: no card saying to move it`);
+          if (r.allStill > 60 && says && ENV.SHOW) console.log(`B5 still, but it says why: ${[...r.cards].filter((c) => /ay \d+ more|Move it/.test(c)).join(" | ")}`);
+        }
+    expect(bad).toEqual([]);
+  });
+  // QA's B5 sweep (j_put_spare3.js), in its order, in one world: road x T x mode. After T s, wait for a runner heading
+  // into the road ("heading": a move to it granted, under way, not on it yet) or standing on it ("behind"), then put
+  // a spare (lever off, no line) on the road's first free piece; run 180 s. On 4ffce95 it froze at l1.main, 45 s,
+  // heading: the runner between the loops waited on no one named, for good.
+  it("B5: QA's spare sweep, in order in one world: never all still for a minute", () => {
+    const bad: string[] = [];
+    const { q, l0, l1, R3 } = two();
+    const roads: [string, readonly number[]][] = [["l0.main", l0.main], ["l0.side", l0.side], ["l1.main", l1.main]];
+    for (const [rn, pieces] of roads)
+      for (const T of [10, 20, 30, 45])
+        for (const mode of ["heading", "behind"] as const) {
+          clearTrains(q);
+          const when = (E: readonly number[]) => {
+            if (q.sim.ticks - start < T * SIM_HZ) return false;
+            const t0 = q.sim.findCar(E[0])?.train;
+            if (!t0) return false;
+            const slot = topologyOf(q.L, trainLength(t0)).slotOf.get(pieces[1]);
+            return E.some((e) => {
+              const t = q.sim.findCar(e)!.train;
+              const on = t.bogies.some((b) => pieces.includes(b.pieceId));
+              if (mode === "behind") return t.speed < 1 && on;
+              const st = q.economy.sections.stateOf(e);
+              return !!st?.move && st.move.dest === slot && t.speed >= 1 && !on;
+            });
+          };
+          const start = q.sim.ticks;
+          const r = scen(q, [...R3, { p: pieces[0], ps: pieces, ss: [100, 60, 140, 30], spare: true, when }], [q.a, q.b], T + 150 + 180, cars);
+          const after = r.whenAt < 0 ? -1 : r.whenAt;
+          const meets = r.meets.filter((t) => after >= 0 && (t < after || t > after + 3)).length;
+          const says = [...r.cards].some((c) => /ay \d+ more|Move it/.test(c));
+          const line = `${rn} T${T} ${mode}: put ${after < 0 ? "none" : after.toFixed(0)} -> ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} meets ${meets} released ${r.released}`;
+          if (ENV.SHOW) console.log(`QB5 ${line}${says ? " (says)" : ""}`);
+          if (meets > 0 || r.released > 0 || (r.allStill > 60 && !says)) bad.push(line);
+        }
+    expect(bad).toEqual([]);
+  });
+  // B5's state, set up directly: a runner between the loops with its nose on loop 1's switch, set for the main road, a
+  // spare on that road (the side road free), a line-mate at the far end waiting on it, the third held at the near end.
+  // On 4ffce95 the runner waited on no one named (−1) for good, and the line froze.
+  it("B5: a runner on a switch set for a road a spare stands on: it says what it waits on, and turns back", () => {
+    const { q, l1 } = two();
+    q.L.setSwitchState(l1.s1, 0);
+    const r = show(
+      "B5 state",
+      scen(q, [{ p: q.west[0], next: 0, s: 200 }, { p: q.east[0], next: 0, s: 200, rev: !!ENV.REV2 }, { p: l1.s1, next: 1, s: Number(ENV.S0 ?? 52), rev: !!ENV.REV }, { p: l1.main[l1.main.length - 1], spare: true, s: 100 }], [q.a, q.b], 240, cars),
+    );
+    if (ENV.SHOW) console.log(`B5STATE ${r.arrivals.join("/")} still ${r.allStill.toFixed(0)} ring ${r.longestRing.toFixed(1)} meets ${r.meet}`);
+    expect(r.meet).toBe(0);
+    expect(r.allStill).toBeLessThan(60);
+    expect(r.arrivals.slice(0, 3).filter((a) => a > 3).length).toBeGreaterThanOrEqual(1);
+  });
   // QA's B4 itself: a runner let into a loop's road, still in the section on its way there, and a train put down on that
   // road ahead of it. The newcomer isn't let in (the runner has the road); the runner stops short, and one of them turns
   // back: no nose-to-nose standoff.
@@ -477,10 +590,26 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
     if (ENV.SHOW) console.log(`STOPLINE off e${off}: 90-300 s arrivals ${arr.join("/")} head-ons ${meets}`);
     if (ENV.SHOW) for (const e of r.E) console.log(`STOPLINE e${e}`, [...(r.cardsOf.get(e) ?? [])].map(([c, n]) => `${c} x${n}`).join(" | "));
     expect(off).toBeGreaterThan(0);
+    // (QA: its card said "Turning back early: the end of the line is taken" about 25 s a run. On no line: plain cards.)
+    expect(new Set(r.cardLog.filter((x) => x.e === off && x.t > 91).map((x) => x.c).filter((c) => /early|is taken|[Ll]ay \d/.test(c)))).toEqual(new Set());
     // (It runs where it likes; the line's trains keep out of its way, and it stops short of them and turns back, as it
     // would on bumping them. The line still delivers; few bumps where 614de33 had 21.)
     expect(arr.reduce((a, b) => a + b, 0)).toBeGreaterThanOrEqual(6);
     expect(meets).toBeLessThanOrEqual(5);
     expect(r.released).toBe(0);
+  });
+  // (Cost: the look ahead of a running train on no line, among a managed line's trains, a call per tick each.)
+  it("clearCap: a running train off its line costs a few microseconds a tick", () => {
+    const { q, R3 } = two();
+    scen(q, [{ ...R3[0], offAt: 20 }, R3[1], R3[2]], [q.a, q.b], 40, cars);
+    const off = q.sim.findCar(q.sim.getTrain(q.sim.trainIds()[0])!.cars[0].id)!.train;
+    const cap = (q.economy.sections as unknown as { clearCap(t: typeof off): number }).clearCap.bind(q.economy.sections);
+    for (let i = 0; i < 2000; i++) cap(off);
+    const n = 20000;
+    const t0 = performance.now();
+    for (let i = 0; i < n; i++) cap(off);
+    const us = ((performance.now() - t0) * 1000) / n;
+    if (ENV.SHOW) console.log(`CLEARCAP ${us.toFixed(2)} us a call (speed ${off.speed.toFixed(0)})`);
+    expect(us).toBeLessThan(50);
   });
 });

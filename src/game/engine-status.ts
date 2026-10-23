@@ -23,12 +23,12 @@ export type TrainState =
   | { kind: "spacing"; line: string; left: number | null }
   /** Waiting in a passing loop or at a line end for a train of its line on the single track ahead (sections); `line`
    * "": for a train not on its line. */
-  | { kind: "line-wait"; line: string }
+  | { kind: "line-wait"; line: string; parked?: boolean }
   /**
    * Held: its line has more trains than passing loops (lay `more` more for `trains` trains). `spare`: a train not on
    * the line stands on each road of one of its loops; only moving it helps.
    */
-  | { kind: "needs-loop"; more: number; trains: number; spare: boolean }
+  | { kind: "needs-loop"; more: number; trains: number; spare: boolean; parked: boolean }
   | { kind: "held-up" }
   | { kind: "starting" }
   | { kind: "running" };
@@ -88,13 +88,18 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     for (const car of train.cars) {
       const w = economy.sectionWait(car.id);
       if (!w) continue;
-      if (w.kind === "room") return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare };
+      if (w.kind === "room") return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare, parked: w.parked };
       // (One with room waiting a moment for a line-mate: just that, though the line be full.)
       const lineId = economy.lineIdOf.get(car.id);
       const line = lineId === undefined ? undefined : economy.lines.get(lineId);
       // (Waiting on a train not on its line: say so; it isn't one of the line's.)
       const other = w.kind === "section" || w.kind === "slot" || w.kind === "facing" ? w.engine : -1;
-      if (other >= 0 && economy.lineIdOf.get(other) !== lineId) return { kind: "line-wait", line: "" };
+      if (other >= 0 && economy.lineIdOf.get(other) !== lineId) {
+        // (One left standing, its lever off: only moving it helps.)
+        const o = sim.findCar(other)?.train;
+        const parked = !!o && o.speed < 1 && !o.cars.some((c) => c.kind === "engine" && c.lever !== 0);
+        return { kind: "line-wait", line: "", parked };
+      }
       return { kind: "line-wait", line: line?.name ?? "line" };
     }
   if (train.speed < 1) {
@@ -114,10 +119,13 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
 const SPARE_CUT = "a train not on the line is standing in the passing loop. Move it";
 
 /** Why a full line's train can't get on: lay loops, or (a loop taken by trains not on the line) move one. */
-function fullText(full: { more: number; spare: boolean }): string {
+function fullText(full: { more: number; spare: boolean; parked: boolean }): string {
   if (full.spare) return SPARE_CUT;
-  return `the line is full. Lay ${full.more} more passing loop${full.more === 1 ? "" : "s"}`;
+  return `the line is full. Lay ${full.more} more passing loop${full.more === 1 ? "" : "s"}${full.parked ? OR_MOVE : ""}`;
 }
+
+/** A train not on the line standing in one of its passing loops: moving it gives the loop back, as laying one would. */
+const OR_MOVE = ", or move the parked train";
 
 /**
  * What a train is doing, in a few words for its engine's card: off the rails, being worked at a depot, turning back,
@@ -136,6 +144,8 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
     case "turning-back":
       if (s.cause === "open-end") return s.done ? "Turned back: the track ends here" : "Turning back: the track ends here";
       if (s.cause === "short") {
+        // (A train on no line turns back short only of a train ahead of it: plainly that.)
+        if (!economy.lineIdOf.has(engineCarId)) return "Turning back: another train's in the way";
         const full = economy.sections.fullness(engineCarId);
         return full ? `Turning back early: ${fullText(full)}` : "Turning back early: the end of the line is taken";
       }
@@ -162,10 +172,11 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       // (A countdown, in whole seconds, where it's known: behind another train it waits for that one to go.)
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
     case "line-wait":
-      return s.line ? `Waiting for the ${s.line} train` : "Waiting: a train not on the line is in the way";
+      if (s.line) return `Waiting for the ${s.line} train`;
+      return s.parked ? "Waiting: a train not on the line is in the way. Move it" : "Waiting: a train not on the line is in the way";
     case "needs-loop":
       if (s.spare) return `Waiting: ${SPARE_CUT}`;
-      return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains`;
+      return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains${s.parked ? OR_MOVE : ""}`;
     case "held-up":
       return "Waiting: something's in the way";
     case "running": {
