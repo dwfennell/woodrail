@@ -398,6 +398,13 @@ function rampFrom(end: DrawEnd, up: boolean): DrawCandidate | null {
   return null;
 }
 
+/** A string's 32-bit FNV-1a hash. */
+function hashString(t: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+
 /** The most answers `remembered` keeps for a line (then it starts again). */
 const REMEMBERED = 20000;
 
@@ -409,8 +416,34 @@ const REMEMBERED = 20000;
  */
 function remembered(options: DrawOptions): DrawOptions {
   const { check, freeEnds, wet } = options;
-  // (The line asked about by its length and its last two pieces: the ghosts' pieces are made afresh on each move.)
-  const pieceKey = (p: DrawnPiece | undefined) => (p ? `${p.type}|${p.flipped}|${p.pose.x}|${p.pose.z}|${p.pose.heading}|${p.y}` : "");
+  // (The line asked about by where every piece of it is, as a hash: by its length and last two pieces only, a line
+  // moved over or relaid further back read as the same line. Its pieces are made afresh on each move, so by place, not
+  // by object; each piece's hashed once, and each array's hash kept while its pieces are the same objects.)
+  const pieceHashes = new WeakMap<DrawnPiece, number>();
+  const pieceHash = (p: DrawnPiece): number => {
+    let h = pieceHashes.get(p);
+    if (h === undefined) {
+      h = hashString(`${p.type}|${p.flipped}|${p.pose.x}|${p.pose.z}|${p.pose.heading}|${p.y}`);
+      pieceHashes.set(p, h);
+    }
+    return h;
+  };
+  const lineHashes = new WeakMap<readonly DrawnPiece[], { of: DrawnPiece[]; key: string }>();
+  const lineKey = (line: readonly DrawnPiece[]): string => {
+    const had = lineHashes.get(line);
+    if (had && had.of.length === line.length && had.of.every((p, i) => p === line[i])) return had.key;
+    // (Two 32-bit hashes of the pieces in order.)
+    let a = 0x811c9dc5;
+    let b = 0x9e3779b9;
+    for (const p of line) {
+      const h = pieceHash(p);
+      a = Math.imul(a ^ h, 0x01000193);
+      b = Math.imul(b + h, 0x85ebca6b) ^ (b >>> 13);
+    }
+    const key = `${line.length}|${a >>> 0}|${b >>> 0}`;
+    lineHashes.set(line, { of: line.slice(), key });
+    return key;
+  };
   const checks = new Map<string, DrawCheck | null>();
   const ends = new Map<string, DrawEnd[]>();
   const wets = new Map<number, Map<number, boolean>>();
@@ -436,7 +469,7 @@ function remembered(options: DrawOptions): DrawOptions {
       : undefined,
     check: check
       ? (c, line) => {
-          const key = `${c.type}|${c.flipped}|${c.entry}|${c.pose.x}|${c.pose.z}|${c.pose.heading}|${c.y}|${line.length}|${pieceKey(line[line.length - 1])}|${pieceKey(line[line.length - 2])}`;
+          const key = `${c.type}|${c.flipped}|${c.entry}|${c.pose.x}|${c.pose.z}|${c.pose.heading}|${c.y}|${lineKey(line)}`;
           const known = checks.get(key);
           if (known !== undefined) return known;
           const why = check(c, line);
