@@ -6,7 +6,7 @@ import { viewRoom } from "./ui/view-room";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
-import { describeLand, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
+import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
@@ -26,7 +26,7 @@ import { plotPrice } from "./game/towns";
 import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
-import { mapMarkers, type MapMarker } from "./game/map-markers";
+import { mapMarkers, ruinMarkers, ruinMarkersKey, type MapMarker } from "./game/map-markers";
 import { MapView } from "./ui/map-view";
 import { Progress } from "./game/progress";
 import { costOf, craftNow, craftShort, Crafting, keepsForOrder, lacking, madeText, makeNote, uncraft, workshops, workshopStock, yardKeeps } from "./game/crafting";
@@ -3010,11 +3010,27 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       const marks = goalMarks(game.scene, [{ x: m.x, y: i < 0 ? 0 : game.landscape.grid.groundY(i), z: m.z }]);
       if (marks) game.flourishes.add(marks);
     }
+    // An old industry's ruin on the player's land: its card, as a tap on the ruin opens it (on the land around, a ruin
+    // isn't tappable: it's only gone to).
+    if (m.ruin !== undefined) openRuin(m.ruin);
+  }
+
+  /**
+   * The ruins' markers, made again only when the ruins shown, the land's squares (a stranded harbour's water) or which
+   * of their blueprints are learned change.
+   */
+  let ruinMarks: { key: string; markers: MapMarker[] } = { key: "", markers: [] };
+  function mapRuinMarkers(): MapMarker[] {
+    const learned = (id: string) => progress.learned.has(id);
+    const land = game.landscape;
+    const key = ruinMarkersKey(game.ruinsVersion, learned, land.grid.revision);
+    if (key !== ruinMarks.key) ruinMarks = { key, markers: ruinMarkers(game.ruinsShown, learned, (s) => harbourStranded(land, s)) };
+    return ruinMarks.markers;
   }
 
   function refreshMap(): void {
     mapRefreshedAt = performance.now();
-    mapView.show(mapMarkers(game.world, (id) => townLife.status(id)));
+    mapView.show([...mapMarkers(game.world, (id) => townLife.status(id)), ...mapRuinMarkers()]);
     placeMap();
   }
 

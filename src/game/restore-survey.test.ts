@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { Editor } from "../editor/editor";
 import { checkYard } from "./depot-footprint";
-import { HARBOUR_STRANDED, restoredType, ruinCard } from "./map-sites";
+import { HARBOUR_STRANDED, harbourStranded, restoredType, ruinCard } from "./map-sites";
+import { GOALS } from "./goals";
+import { ruinMarkers, ruinMarkersKey } from "./map-markers";
 import { waterWay } from "./harbours";
-import { isWater, SURF_GRASS } from "../landscape";
-import { restoreRuin, restoreWhy, RUIN_YARD_REACH } from "./restore";
+import { isWater, SURF_GRASS, type MapSite } from "../landscape";
+import { nearestRuin, restoreRuin, restoreWhy, RUIN_YARD_REACH } from "./restore";
 import { rateFor, resourceAt } from "./industries";
 import { createWorld, fixedPieces, plotsForSale, unlockPlot, type World } from "./world";
 
@@ -102,6 +104,47 @@ describe("restoring a ruin: every generated ruin can be", () => {
     } finally {
       for (const [i, s] of was) g.surface[i] = s;
     }
+  });
+
+  it("a stranded harbour gets no map marker and isn't Show me's pick for Open a harbour; a reachable one is (step 3)", () => {
+    const w = world(SEEDS[0]);
+    const site = w.landscape.sites!.find((s) => s.role === "harbour" && !s.cleared)!;
+    const g = w.landscape.grid;
+    const learned = () => true;
+    const shown = (w.landscape.sites ?? []).filter((s) => !s.cleared).map((s) => ({ site: s, around: false }));
+    const stranded = (s: MapSite) => harbourStranded(w.landscape, s);
+    const goal = GOALS.find((x) => x.id === "open-harbour")!;
+    // Reachable: marked, and Show me's pick (the line beside it).
+    expect(harbourStranded(w.landscape, site)).toBe(false);
+    expect(ruinMarkers(shown, learned, stranded).some((m) => m.ruin === site.id)).toBe(true);
+    const by = w.layout.addPiece("straight-216", { x: site.centre.x + 400, z: site.centre.z, heading: 0 });
+    expect(goal.guide(w).ruin).toBe(site.id);
+    // Its water cut off, as in the test above: no marker, and Show me passes it over (another reachable harbour, or a
+    // spot for a new one).
+    const was = new Map<number, number>();
+    const q = { col: g.colAt(site.centre.x), row: g.rowAt(site.centre.z) };
+    g.forEachCell((i, col, row) => {
+      if (isWater(g.surface[i]) && Math.max(Math.abs(col - q.col), Math.abs(row - q.row)) > 3) {
+        was.set(i, g.surface[i]);
+        g.surface[i] = SURF_GRASS;
+      }
+    });
+    try {
+      expect(harbourStranded(w.landscape, site)).toBe(true);
+      const markers = ruinMarkers(shown, learned, stranded);
+      expect(markers.some((m) => m.ruin === site.id)).toBe(false);
+      // (The other kinds' ruins still are.)
+      expect(markers.length).toBeGreaterThan(0);
+      const pick = goal.guide(w).ruin;
+      expect(pick).not.toBe(site.id);
+      if (pick !== undefined) expect(harbourStranded(w.landscape, w.landscape.sites![pick])).toBe(false);
+      expect(nearestRuin(w.landscape, "harbour", [site.centre])?.id).not.toBe(site.id);
+    } finally {
+      for (const [i, s] of was) g.surface[i] = s;
+      w.layout.removePiece(by);
+    }
+    // The markers' key: the land's squares are one of its inputs (a land tool can strand a harbour).
+    expect(ruinMarkersKey(3, learned, 7)).not.toBe(ruinMarkersKey(3, learned, 8));
   });
 
   it("restores a farm whose fields lie against its yard, every way round, and quarries, mines and harbours by their hillside or water: what the whole pad refused", () => {
