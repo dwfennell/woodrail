@@ -429,9 +429,11 @@ export class CameraDirector {
       const s = this.shot;
       if (s.track && !s.track(s.toTarget)) s.track = undefined;
       this.onMat(s.toTarget);
-      if (s.delay > 0) s.delay -= dt;
+      // (By the time that's passed, not the frame's step capped at a tenth of a second: on a device that draws a frame
+      // every few seconds a 0.9 s glide took a frame a tenth, crawling on for half a minute, QA. A long frame lands it.)
+      if (s.delay > 0) s.delay -= elapsed;
       else {
-        s.elapsed += dt;
+        s.elapsed += elapsed;
         const k = easeInOutCubic(s.elapsed / s.duration);
         c.target.lerpVectors(s.fromTarget, s.toTarget, k);
         sph.radius = s.from.radius + (s.to.radius - s.from.radius) * k;
@@ -443,7 +445,7 @@ export class CameraDirector {
     } else if (this.zoomGoal > 0) {
       // Scale the view about the anchor: the anchor stays put on screen while the camera closes in.
       const d = cam.position.distanceTo(c.target);
-      const next = damp(d, this.zoomGoal, ZOOM_LAMBDA, dt);
+      const next = damp(d, this.zoomGoal, ZOOM_LAMBDA, elapsed);
       const k = next / d;
       c.target.sub(this.zoomAnchor).multiplyScalar(k).add(this.zoomAnchor);
       cam.position.sub(this.zoomAnchor).multiplyScalar(k).add(this.zoomAnchor);

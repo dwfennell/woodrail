@@ -714,6 +714,15 @@ async function leverPins(ctx, p) {
   // raycast), neither picks nor throws it. The hill is the ground raised on every square but the switch's own, for the
   // pick's look along the line only (nothing is redrawn); put back after.
   {
+    // (Looked at from high above first: from where the steps before leave the view, a real hill may already hide it.)
+    await p.evaluate((id) => {
+      const w = window.woodrail;
+      const lever = w.trackView.leverPosts().find((q) => q.pieceId === id);
+      const t = w.controls.target;
+      w.director.glideTo(t.clone().set(lever.x, 0, lever.z), w.camera.position.distanceTo(t), { phi: 0.35, duration: 0.3 });
+    }, id);
+    await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+    await settled();
     [lx, ly] = await screenOf("lever");
     const s0 = await state();
     const seen = await p.evaluate(([x, y]) => window.woodrail.interaction.pickExact(x, y)?.kind ?? null, [lx, ly]);
