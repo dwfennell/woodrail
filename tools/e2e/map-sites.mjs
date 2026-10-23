@@ -413,7 +413,8 @@ const ruinState = (id) =>
     const w = window.woodrail;
     return { pieces: w.layout.pieceCount, ruin: w.world.ruins.has(id), cleared: !!w.world.landscape.sites[id].cleared, coins: w.progress().coins };
   }, id);
-await tap("button[title='Undo (Ctrl+Z)']");
+// (Its title is its tooltip's now, `data-tip`, since the first tap on it.)
+await tap("button[title='Undo (Ctrl+Z)'], button[data-tip='Undo (Ctrl+Z)']");
 await p.waitForTimeout(1200);
 const unclear = await ruinState(ruinBought.id);
 check("Undo the Clear: the ruin and its stub are back, the 10 coins given back", unclear.ruin && !unclear.cleared && unclear.pieces === before.pieces && unclear.coins === before.coins, JSON.stringify(unclear));
