@@ -304,6 +304,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* Scrolling comes to rest with a row's top at the top (gently: a long fling isn't held back). */
   .depot-card:has(.depot-extra.ledger) { scroll-snap-type: y proximity; }
   .depot-extra.ledger > *, .ledger-goods > *, .ledger-rows > * { scroll-snap-align: start; }
+  /* (The card's top is a resting place too, its title's: with none there, a card opened at its top could be snapped
+     down to the first row, its name half cut off. QA at 740x360: opened at 25 px.) */
+  .depot-card:has(.depot-extra.ledger) > .card-title { scroll-snap-align: start; scroll-margin-top: 12px; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
 }
 
