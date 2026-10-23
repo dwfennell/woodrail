@@ -254,25 +254,26 @@ rings it.
 
 ### Balance (180 min, 1 train a line; `BALANCE=1`, seeds 2027, 1–6, 9, 10)
 
-**The bands' run** (`BALANCE=1`, no flags; the same with `BALANCE_NORUINS=1`), on the branch merged with main at
-de19930 and again at 040cd60 (since step 1 the mill costs 400 coins, switches 3 planks,
-early flour 12 coins, and the workshop's yard keeps fewer planks): all 9 seeds pass. Farming comes at minute 14–23,
-when the line's ends are the forest yard's (east) and Thimble Cross's (north); from both the track layer is boxed in
-short of the old farm's stub (towns, fields and the ruin's own yard in the way: `boxed-in` after 22–40 pieces, trace on
-seed 2027), so without the spur rule the harness builds a new farm yard. These figures don't move with where the ruin
-stands (every placement below gives this table, row for row, without ruins).
+**The bands' run** (`BALANCE=1`, no flags), on the branch merged with main at 2fc79a3 (since step 1 the mill costs
+400 coins, switches 3 planks, early flour 12 coins, and the workshop's yard keeps fewer planks): **all 9 seeds pass**.
+Farming comes at minute 14–23, when the line's ends are the forest yard's (east) and Thimble Cross's (north); from both
+the track layer is boxed in short of the old farm's stub (towns, fields and the ruin's own yard in the way: `boxed-in`
+after 22–40 pieces, trace on seed 2027), so the harness builds a new farm yard and the old farm isn't restored. Against
+the branch at 040cd60 (where the tables below were measured) only coins moved: 60 more from some point between minute 45 and 180 on
+every seed (main's changes since), and seed 9's City★ came at 164 (was 166) with a 10.8-minute stall (was 11.1).
+Without ruins (`BALANCE_NORUINS=1`) it's the same table; at 040cd60 every placement below gave it row for row.
 
 | seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/45/60/75/180 | researched | farm | bands |
 |---|---|---|---|---|---|---|---|---|---|
-| 2027 | 4.4 | 62 | - | 12.1 | 12.0 | 296/62/200/234/1254 | 14 | 29.0 new | pass |
-| 1 | 4.4 | 61 | 160 | 8.1 | 22.1 | 78/384/76/227/1395 | 15 | 25.0 new | pass |
-| 2 | 4.4 | 73 | 169 | 7.2 | 18.7 | 48/468/224/356/1026 | 15 | 25.0 new | pass |
-| 3 | 4.4 | 80 | 179 | 7.2 | 37.2 | 326/666/754/434/1443 | 14 | 33.0 new | pass |
-| 4 | 4.4 | 80 | 164 | 9.3 | 22.4 | 296/562/737/427/1306 | 14 | 33.0 new | pass |
-| 5 | 4.4 | 73 | 172 | 10.1 | 18.1 | 48/462/350/502/1111 | 15 | 25.0 new | pass |
-| 6 | 4.4 | 67 | 141 | 7.8 | 16.6 | 326/10/70/373/1812 | 17 | 23.0 new | pass |
-| 9 | 4.4 | 69 | 166 | 11.1 | 18.6 | 296/380/6/111/1090 | 14 | 23.0 new | pass |
-| 10 | 4.4 | 82 | 179 | 6.5 | 18.3 | 78/464/782/464/1768 | 14 | 25.0 new | pass |
+| 2027 | 4.4 | 62 | - | 12.1 | 12.0 | 296/122/260/294/1314 | 14 | 29 new | pass |
+| 1 | 4.4 | 61 | 160 | 8.1 | 22.1 | 78/384/136/287/1455 | 15 | 25 new | pass |
+| 2 | 4.4 | 73 | 169 | 7.2 | 18.7 | 48/468/224/416/1086 | 15 | 25 new | pass |
+| 3 | 4.4 | 80 | 179 | 7.2 | 37.2 | 326/666/754/494/1503 | 14 | 33 new | pass |
+| 4 | 4.4 | 80 | 164 | 9.3 | 22.4 | 296/562/737/487/1366 | 14 | 33 new | pass |
+| 5 | 4.4 | 73 | 172 | 10.1 | 18.1 | 48/462/350/562/1171 | 15 | 25 new | pass |
+| 6 | 4.4 | 67 | 141 | 7.8 | 16.6 | 326/10/130/433/1872 | 17 | 23 new | pass |
+| 9 | 4.4 | 69 | 164 | 10.8 | 18.6 | 296/380/6/171/1148 | 14 | 23 new | pass |
+| 10 | 4.4 | 82 | 179 | 6.5 | 18.3 | 78/464/782/464/1828 | 14 | 25 new | pass |
 
 **With the spur, `BALANCE_SPUR=1`** (informational, an A/B: not the default; the player setting the switch by hand;
 the old farm where it was, 8 of 8): the old farm is **restored on all 9 seeds**, on a 4-piece spur, at minute 15–23 (the minute Farming is learned, or the next); **7 of 9
