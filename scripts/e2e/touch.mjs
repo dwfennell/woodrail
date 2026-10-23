@@ -134,13 +134,31 @@ async function selectThenDrag(ctx, p) {
     return mid;
   };
   await p.keyboard.press("Escape");
-  // A long straight across the middle of the screen.
+  // A long straight across the middle of the screen, on open ground: clear of the track and the trains the steps
+  // before put down (and of models), wherever they and the opening view left things. The view goes there first.
   const id = await p.evaluate(async () => {
     const w = window.woodrail;
     const { poseForCentre } = await import("/src/editor/editor.ts");
-    const g = w.interaction.groundAt(195, 360);
-    return w.editor().place("straight-216", poseForCentre("straight-216", false, g.x, g.z, 0), 0, false);
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    const t = w.controls.target;
+    const clear = (x, z) =>
+      [...w.layout.pieceIds()].every((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) > 700; }) &&
+      [...w.props.all()].every((q) => Math.hypot(q.x - x, q.z - z) > 400);
+    for (let r = 0; r <= 6000; r += 216)
+      for (let a = 0; a < (r === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * r) / 216))); a++) {
+        const x = Math.round(t.x + r * Math.cos((a * 2 * Math.PI) / Math.max(8, Math.round((2 * Math.PI * r) / 216))));
+        const z = Math.round(t.z + r * Math.sin((a * 2 * Math.PI) / Math.max(8, Math.round((2 * Math.PI * r) / 216))));
+        if (!clear(x, z)) continue;
+        const id = w.editor().place("straight-216", poseForCentre("straight-216", false, x, z, 0), 0, false);
+        if (typeof id !== "number" || id < 0) continue;
+        // (Close enough that the piece is a good size on screen: zoomed out, its middle is near enough an end that a
+        // press there, drawing, draws from the end.)
+        w.director.glideTo(t.clone().set(x, 0, z), Math.min(w.camera.position.distanceTo(t), frameDistance(700, w.camera.fov, w.camera.aspect)), { duration: 0.3 });
+        return id;
+      }
+    throw new Error("no open ground for the straight");
   });
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   await p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   const where = () =>
     p.evaluate((id) => {
@@ -357,11 +375,11 @@ async function selectThenDrag(ctx, p) {
   const turned = typeof h0 === "number" && typeof h1 === "number" && Math.abs(Math.abs(h1 - h0) - Math.PI / 4) < 0.01;
   check("a second finger on Turn turns the piece in hand, still held (QA)", kind2 === "drag-piece" && turned, `mode ${kind2}; heading ${h0?.toFixed?.(2)} → ${h1?.toFixed?.(2)}`);
   await p.keyboard.press("Escape");
-  // 2c. Drawing on, a press on a line's body (Draw N1): edged across the line (BRANCH_SLOP, 3 px) before the hold's
+  // 2c. Drawing on, a press on a line's body (Draw N1): edged across the line (past BRANCH_SLOP, 7 px) before the hold's
   // time, it's a branch setting off: no pickup, and nothing drawn till it goes on. Resting still, it picks the piece up.
   await p.evaluate(() => window.woodrail.interaction.setDrawing(true));
   [sx, sy] = await onScreen();
-  // (5 px across the line as it lies on screen: past BRANCH_SLOP, short of HOLD_SLOP.)
+  // (8.5 px across the line as it lies on screen, rounded to whole pixels: past BRANCH_SLOP (7), short of HOLD_SLOP (10).)
   const across = await p.evaluate((id) => {
     const w = window.woodrail;
     const piece = w.layout.getPiece(id);
@@ -369,7 +387,7 @@ async function selectThenDrag(ctx, p) {
     const px = (d) => { const c = new w.camera.position.constructor(piece.pose.x + Math.cos(piece.pose.heading) * d, piece.y, piece.pose.z + Math.sin(piece.pose.heading) * d).project(w.camera); return [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height]; };
     const [a, b] = [px(58), px(158)];
     const n = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    return [Math.round((-(b[1] - a[1]) / n) * 5), Math.round(((b[0] - a[0]) / n) * 5)];
+    return [Math.round((-(b[1] - a[1]) / n) * 8.5), Math.round(((b[0] - a[0]) / n) * 8.5)];
   }, id);
   const pieces0 = await p.evaluate(() => window.woodrail.layout.pieceCount);
   const drawHold = await holdAt(sx, sy, 520, false, across);
@@ -541,20 +559,39 @@ async function leverPins(ctx, p) {
   const touch = (type, x, y, timestamp) => cdp.send("Input.dispatchTouchEvent", { type, ...(timestamp ? { timestamp } : {}), touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
   const settled = () => p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
   await p.keyboard.press("Escape");
-  // A switch in the middle of the screen, framed close.
+  // A switch on open ground (clear of the track and trains the steps before put down, and of models, wherever they left
+  // the view), framed close.
   const id = await p.evaluate(async () => {
     const w = window.woodrail;
     const { poseForCentre } = await import("/src/editor/editor.ts");
     const { frameDistance } = await import("/src/game/camera-director.ts");
-    const g = w.interaction.groundAt(195, 420);
-    const r = w.editor().place("switch", poseForCentre("switch", false, g.x, g.z, 0), 0, false);
-    w.director.glideTo(g, frameDistance(200, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    const t = w.controls.target;
+    const clear = (x, z) =>
+      [...w.layout.pieceIds()].every((i) => { const q = w.layout.getPiece(i).pose; return Math.hypot(q.x - x, q.z - z) > 700; }) &&
+      [...w.props.all()].every((q) => Math.hypot(q.x - x, q.z - z) > 400);
+    let r = -1;
+    let g = null;
+    for (let d = 0; d <= 6000 && r === -1; d += 216) {
+      const n = d === 0 ? 1 : Math.max(8, Math.round((2 * Math.PI * d) / 216));
+      for (let a = 0; a < n && r === -1; a++) {
+        const x = Math.round(t.x + d * Math.cos((a * 2 * Math.PI) / n));
+        const z = Math.round(t.z + d * Math.sin((a * 2 * Math.PI) / n));
+        if (!clear(x, z)) continue;
+        const placed = w.editor().place("switch", poseForCentre("switch", false, x, z, 0), 0, false);
+        const pid = typeof placed === "number" ? placed : (placed?.id ?? -1);
+        if (pid >= 0) {
+          r = pid;
+          g = t.clone().set(x, 0, z);
+        }
+      }
+    }
+    if (g) w.director.glideTo(g, frameDistance(200, w.camera.fov, w.camera.aspect), { duration: 0.3 });
     // (Its own list: an earlier check's spy may still be wrapped round the toast, and says each toast too.)
     window.__pinSaid = [];
     const h = w.hud;
     const toast = h.toast.bind(h);
     h.toast = (m, ...a) => (window.__pinSaid.push(m), toast(m, ...a));
-    return typeof r === "number" ? r : (r?.id ?? -1);
+    return r;
   });
   await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   await settled();
@@ -714,12 +751,14 @@ async function leverPins(ctx, p) {
   // raycast), neither picks nor throws it. The hill is the ground raised on every square but the switch's own, for the
   // pick's look along the line only (nothing is redrawn); put back after.
   {
-    // (Looked at from high above first: from where the steps before leave the view, a real hill may already hide it.)
+    // (Looked at from a slant, high enough over the land first: from where the steps before leave the view, a real hill
+    // may already hide it; looked straight down at, the made hill below couldn't come between, its ray through the
+    // lever's own square.)
     await p.evaluate((id) => {
       const w = window.woodrail;
       const lever = w.trackView.leverPosts().find((q) => q.pieceId === id);
       const t = w.controls.target;
-      w.director.glideTo(t.clone().set(lever.x, 0, lever.z), w.camera.position.distanceTo(t), { phi: 0.35, duration: 0.3 });
+      w.director.glideTo(t.clone().set(lever.x, 0, lever.z), w.camera.position.distanceTo(t), { phi: 0.8, duration: 0.3 });
     }, id);
     await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
     await settled();
