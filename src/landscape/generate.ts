@@ -8,11 +8,13 @@ import {
   FEAT_BUILDING,
   FEAT_DEPOT,
   FEAT_FIELD,
+  FEAT_RUIN,
   FEAT_SHED,
   FEAT_NONE,
   FEAT_STATION,
   FEAT_TREE,
   gridWithPlots,
+  isWater,
   LandscapeGrid,
   MAX_HEIGHT,
   PLOT_CELLS,
@@ -74,6 +76,36 @@ export interface Depot {
   piece: Pose;
 }
 
+/** The industries whose old yards stand on the map (see `MapSite`). */
+export const SITE_ROLES = ["farm", "quarry", "mine", "harbour"] as const;
+export type SiteRole = (typeof SITE_ROLES)[number];
+
+/**
+ * An old industry's site on the map (Game mode's map sites, spec 2026-10-21-map-sites-design.md): a ruined yard of
+ * that industry beside a fixed 216 mm stub of track, laid out like a depot (yard on the +lateral side). Generated per
+ * plot in its own random stream (`game/map-sites.ts`). Restoring one (step 2) puts the industry's piece where the stub
+ * is; clearing one takes the ruin and its stub away (`cleared`), its id kept (ids are places in `sites`).
+ */
+export interface MapSite {
+  id: number;
+  role: SiteRole;
+  /** Midpoint of the stub's track (on a square centre). */
+  centre: { x: number; z: number };
+  /** Pose of the stub piece's origin (its socket end): where the industry's piece goes when it's restored. */
+  piece: Pose;
+  /** The plot it was generated for. */
+  plot: PlotCoord;
+  /** Fields planted with it (a farm's, by id in `fields`). */
+  fields: number[];
+  /** Cleared away by the player: no ruin, no stub, its squares open ground again. */
+  cleared?: boolean;
+  /**
+   * Restored by the player (cleared too): its industry's piece stands where the stub was, an ordinary industry of the
+   * player's from then on (see `restoreRuin`).
+   */
+  restored?: boolean;
+}
+
 /** What a paddock holds: a kind of toy animal, or rows of crops with a scarecrow. */
 export const FIELD_STOCK = ["cow", "sheep", "pig", "horse", "chicken", "crops"] as const;
 export type FieldStock = (typeof FIELD_STOCK)[number];
@@ -113,11 +145,18 @@ export interface Landscape {
   nextBuildingId: number;
   /** Where the sea is (see `coast.ts`); null on maps from before the coast. */
   coast?: Coast | null;
+  /** Old industries' sites (see `MapSite`); missing on maps from before them (an old save gains them as it loads). */
+  sites?: MapSite[];
+  /**
+   * A Sandbox map: no old industries' sites, ever (Sandbox has no research to open them). Its land beyond the start still
+   * gets the map's extra towns; an old Sandbox save gains nothing.
+   */
+  siteless?: boolean;
 }
 
 export const STATION_LENGTH = 216;
 const HALF_STATION = STATION_LENGTH / 2;
-const MIN_TOWN_SPACING = 900;
+export const MIN_TOWN_SPACING = 900;
 /** Depots keep this far from towns and other depots (they have no town area of their own). */
 const DEPOT_SPACING = 750;
 /**
@@ -359,35 +398,9 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
   // small town, by where it is.
   let buildingId = 0;
   for (const town of towns) {
-    const n = TOWN_START_MIN + (hashInts(Math.floor(town.centre.x / CELL), Math.floor(town.centre.z / CELL), 0x6a2) % TOWN_START_SPREAD);
+    const n = townSize(town);
     const canUse = (i: number) => townGround.has(i) && grid.surface[i] === SURF_GRASS && grid.feature[i] === FEAT_NONE && interior(grid.colOf(i), grid.rowOf(i));
-    const steps = growTown(grid, { centre: town.centre, heading: town.station.heading, cells: town.cells, buildings: town.buildings }, n, {
-      canUse,
-      toward: towns.filter((t) => t !== town).map((t) => t.centre),
-    });
-    const ids: number[] = [];
-    for (const step of steps) {
-      for (const [i, road] of step.streets) {
-        grid.surface[i] = SURF_ROAD;
-        grid.road[i] = road;
-        if (!town.cells.includes(i)) town.cells.push(i);
-      }
-      const b: Building = { id: buildingId++, cells: step.cells, floors: 1, kind: "house", roof: Math.floor(random() * 4), front: step.front, ...(step.corner ? { corner: true } : {}) };
-      ids.push(b.id);
-      for (const c of step.cells) {
-        grid.feature[c] = FEAT_BUILDING;
-        grid.surface[c] = SURF_TOWN;
-        grid.owner[c] = b.id;
-        town.cells.push(c);
-      }
-      town.buildings.push(b);
-      for (const c of step.changes) {
-        const changed = town.buildings.find((x) => x.id === (c.id < 0 ? ids[-1 - c.id] : c.id));
-        if (!changed) continue;
-        if (c.kind) changed.kind = c.kind;
-        if (c.floors) changed.floors = c.floors;
-      }
-    }
+    buildingId = growInto(grid, town, n, canUse, towns.filter((t) => t !== town).map((t) => t.centre), random, buildingId);
   }
 
   // Trees in clumps on open grass (where the noise says, the same either side of a plot's edge).
@@ -396,17 +409,53 @@ function attemptRegion(seed: number, region: Region, starter: boolean, attempt: 
     if (treeHere(seed, col, row)) grid.feature[i] = FEAT_TREE;
   });
 
-  return { seed, starter, grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null, depots, nextBuildingId: buildingId, coast: coastOfMap };
+  return { seed, starter, grid, towns, corridors: [...protectedCells].filter((i) => grid.feature[i] === FEAT_NONE), fields: [], shed: null, depots, nextBuildingId: buildingId, coast: coastOfMap, sites: [] };
+}
+
+/** How many buildings a new town is grown to, by where it is: a hamlet to a small town. */
+const townSize = (town: Town): number => TOWN_START_MIN + (hashInts(Math.floor(town.centre.x / CELL), Math.floor(town.centre.z / CELL), 0x6a2) % TOWN_START_SPREAD);
+
+/**
+ * Grow a town from its station a building at a time (see `growTown`) onto the squares `canUse` allows, laying its
+ * streets and houses on the grid. Building ids from `nextId`; returns the next free one.
+ */
+function growInto(grid: LandscapeGrid, town: Town, n: number, canUse: (i: number) => boolean, toward: { x: number; z: number }[], random: () => number, nextId: number): number {
+  let buildingId = nextId;
+  const steps = growTown(grid, { centre: town.centre, heading: town.station.heading, cells: town.cells, buildings: town.buildings }, n, { canUse, toward });
+  const ids: number[] = [];
+  for (const step of steps) {
+    for (const [i, road] of step.streets) {
+      grid.surface[i] = SURF_ROAD;
+      grid.road[i] = road;
+      if (!town.cells.includes(i)) town.cells.push(i);
+    }
+    const b: Building = { id: buildingId++, cells: step.cells, floors: 1, kind: "house", roof: Math.floor(random() * 4), front: step.front, ...(step.corner ? { corner: true } : {}) };
+    ids.push(b.id);
+    for (const c of step.cells) {
+      grid.feature[c] = FEAT_BUILDING;
+      grid.surface[c] = SURF_TOWN;
+      grid.owner[c] = b.id;
+      town.cells.push(c);
+    }
+    town.buildings.push(b);
+    for (const c of step.changes) {
+      const changed = town.buildings.find((x) => x.id === (c.id < 0 ? ids[-1 - c.id] : c.id));
+      if (!changed) continue;
+      if (c.kind) changed.kind = c.kind;
+      if (c.floors) changed.floors = c.floors;
+    }
+  }
+  return buildingId;
 }
 
 /** A station's or depot's squares (track and platform or yard), its approach corridors, and its town's area. */
-function footprint(centre: { x: number; z: number }, heading: number, radius = 0): { station: [number, number][]; corridor: [number, number][]; area: [number, number][] } {
+function footprint(centre: { x: number; z: number }, heading: number, radius = 0, approach = CORRIDOR_LENGTH, halfWidth = radius > 0 ? TRACK_ROW : CORRIDOR_HALF_WIDTH): { station: [number, number][]; corridor: [number, number][]; area: [number, number][] } {
   const dx = Math.cos(heading);
   const dz = Math.sin(heading);
   const station: [number, number][] = [];
   const corridor: [number, number][] = [];
   const area: [number, number][] = [];
-  const reach = Math.ceil((HALF_STATION + CORRIDOR_LENGTH) / CELL) + 1;
+  const reach = Math.ceil((HALF_STATION + Math.max(approach, radius)) / CELL) + 1;
   const cc = Math.floor(centre.x / CELL);
   const cr = Math.floor(centre.z / CELL);
   for (let row = cr - reach; row <= cr + reach; row++) {
@@ -417,7 +466,7 @@ function footprint(centre: { x: number; z: number }, heading: number, radius = 0
       const l = -px * dz + pz * dx;
       const ad = Math.abs(d);
       if ((ad < HALF_STATION && Math.abs(l) < 26) || (ad < HALF_STATION - 8 && l >= 26 && l < 120)) station.push([col, row]);
-      else if (ad >= HALF_STATION - 32 && ad < HALF_STATION + CORRIDOR_LENGTH && Math.abs(l) < (radius > 0 ? TRACK_ROW : CORRIDOR_HALF_WIDTH)) corridor.push([col, row]);
+      else if (ad >= HALF_STATION - 32 && ad < HALF_STATION + approach && Math.abs(l) < halfWidth) corridor.push([col, row]);
       else if (Math.hypot(px, pz) < radius) area.push([col, row]);
     }
   }
@@ -928,6 +977,212 @@ function addFields(land: Landscape, region: Region): void {
   }
 }
 
+/**
+ * The squares of a fixed 216 mm piece's site (an old industry's, centred on `centre`): its track and the yard on its
+ * +lateral side, and its approaches (its track's row, `approach` mm off each end; `CORRIDOR_LENGTH`: a map depot's,
+ * two squares wide each side, as the generator marks them).
+ */
+export function siteSquares(centre: { x: number; z: number }, heading: number, approach = SITE_APPROACH): { yard: [number, number][]; approaches: [number, number][] } {
+  const fp = footprint(centre, heading, 0, approach, approach === CORRIDOR_LENGTH ? CORRIDOR_HALF_WIDTH : TRACK_ROW);
+  return { yard: fp.station, approaches: fp.corridor };
+}
+
+/** A town's squares at `centre`: station and platform, approaches (its track's row), and its flat ground. */
+export function townSquares(centre: { x: number; z: number }, heading: number): { station: [number, number][]; approaches: [number, number][]; ground: [number, number][] } {
+  const fp = footprint(centre, heading, TOWN_RADIUS);
+  return { station: fp.station, approaches: fp.corridor, ground: fp.area };
+}
+
+/** Squares far enough in from a region's edges (and the sea) for a town or a depot, as the generator places them. */
+export function siteRoomIn(region: Region, coast: Coast | null): (col: number, row: number) => boolean {
+  const col0 = region.px0 * PLOT_COLS;
+  const row0 = region.pz0 * PLOT_ROWS;
+  const col1 = col0 + region.w * PLOT_COLS;
+  const row1 = row0 + region.h * PLOT_ROWS;
+  const band = STUB_DEPTH + 1;
+  return (col, row) => col >= col0 + band && col < col1 - band && row >= row0 + band && row < row1 - band && shoreDistance(coast, col, row) > SAND + 2;
+}
+
+/** An old industry's site keeps its stub's own row clear this far (mm) off each end: room to join track to it. */
+export const SITE_APPROACH = 2 * CELL;
+
+/** A plan point snapped to the middle of its square (a station's or depot's midpoint lies on one). */
+export const snapToSquare = (v: number): number => snap(v);
+
+/** An old industry's site keeps this far (mm, middle to middle) from a town's station: clear of its houses. */
+export const SITE_TOWN_SPACING = 540;
+
+/** An extra town's flat ground (mm from its middle; the generator's own towns have `TOWN_RADIUS`). */
+export const EXTRA_TOWN_RADIUS = 4 * CELL;
+/** How far its station's approaches are kept clear off each end (the generator's towns: `CORRIDOR_LENGTH`). */
+export const EXTRA_TOWN_APPROACH = 3 * CELL;
+
+/**
+ * Add a town to generated land (`generatePlot`'s, before it's adopted): beyond the start, the map's own extra towns
+ * (`game/map-sites.ts`), from that caller's random stream so the land's own towns are as they were. Tried at
+ * every spot in the region whose every square (station, approaches and flat ground, a little smaller than the
+ * generator's towns': `EXTRA_TOWN_RADIUS`, `EXTRA_TOWN_APPROACH`) is open grass (or hills, flattened for it) the
+ * generator left alone (its ground may run down to the water), at least `MIN_TOWN_SPACING` from other towns and
+ * `SITE_TOWN_SPACING` from depots and sites; the
+ * best by `score` (lower is better; the first `skip` passed over) that leaves everything reachable is grown as the
+ * generator grows its towns. Returns it, or null with the land as it was.
+ */
+export function addExtraTown(land: Landscape, region: Region, random: () => number, score: (c: { x: number; z: number }) => number, skip = 0): Town | null {
+  const g = land.grid;
+  // Anywhere in from the region's edge band, down to the beach: its station and approaches on grass (the crossings'
+  // stubs at the edge are rivers, which it keeps off), its ground on grass or sand or a little water.
+  const col0 = region.px0 * PLOT_COLS;
+  const row0 = region.pz0 * PLOT_ROWS;
+  const cols = region.w * PLOT_COLS;
+  const rows = region.h * PLOT_ROWS;
+  const corridors = new Set(land.corridors);
+  const away = [...land.depots.map((p) => p.centre), ...(land.shed ? [land.shed] : []), ...(land.sites ?? []).map((p) => p.centre)];
+  // Which squares its station and approaches may be on (`track`: grass), and its ground (`ground`: grass, sand or water,
+  // `wet` for water: no more than a third of it), worked out once. In from the edge band; nothing on them but trees.
+  // (Hills are fine: the town's ground is flattened, as the generator flattens its towns'.)
+  const track = new Uint8Array(cols * rows);
+  const ground = new Uint8Array(cols * rows);
+  const wet = new Uint8Array(cols * rows);
+  for (let r = BORDER_BAND; r < rows - BORDER_BAND; r++) {
+    for (let c = BORDER_BAND; c < cols - BORDER_BAND; c++) {
+      const i = g.index(col0 + c, row0 + r);
+      if (i === -1 || g.road[i] !== 0 || corridors.has(i) || (g.feature[i] !== FEAT_NONE && g.feature[i] !== FEAT_TREE)) continue;
+      const s = g.surface[i];
+      const k = r * cols + c;
+      if (s === SURF_GRASS) track[k] = 1;
+      if (s === SURF_GRASS || s === SURF_SAND || isWater(s)) ground[k] = 1;
+      if (isWater(s)) wet[k] = 1;
+    }
+  }
+  // A town's squares each way round, as offsets from its middle's square (the same everywhere).
+  const shapes = [0, 1, 2, 3].map((k) => {
+    const o = footprint({ x: CELL / 2, z: CELL / 2 }, normaliseHeading(k * (Math.PI / 2)), EXTRA_TOWN_RADIUS, EXTRA_TOWN_APPROACH);
+    return { track: [...o.station, ...o.corridor], ground: o.area };
+  });
+  const allIn = (list: readonly [number, number][], c0: number, r0: number, mask: Uint8Array) => {
+    for (const [dc, dr] of list) {
+      const c = c0 + dc;
+      const r = r0 + dr;
+      if (c < 0 || r < 0 || c >= cols || r >= rows || !mask[r * cols + c]) return false;
+    }
+    return true;
+  };
+  // Every square's middle in the region, each way round: few pass, so all are tried (a few thousand quick looks).
+  const found: { x: number; z: number; heading: number; score: number }[] = [];
+  for (let r0 = 0; r0 < rows; r0++) {
+    for (let c0 = 0; c0 < cols; c0++) {
+      const x = g.centreX(col0 + c0);
+      const z = g.centreZ(row0 + r0);
+      if (!ground[r0 * cols + c0]) continue;
+      if (land.towns.some((t) => Math.hypot(t.centre.x - x, t.centre.z - z) < MIN_TOWN_SPACING)) continue;
+      if (away.some((c) => Math.hypot(c.x - x, c.z - z) < SITE_TOWN_SPACING)) continue;
+      for (let k = 0; k < 4; k++) {
+        const shape = shapes[k];
+        if (!allIn(shape.track, c0, r0, track) || !allIn(shape.ground, c0, r0, ground)) continue;
+        let water = 0;
+        for (const [dc, dr] of shape.ground) water += wet[(r0 + dr) * cols + c0 + dc];
+        if (water > shape.ground.length / 3) continue;
+        found.push({ x, z, heading: normaliseHeading(k * (Math.PI / 2)), score: score({ x, z }) + random() * 0.5 });
+      }
+    }
+  }
+  found.sort((a, b) => a.score - b.score);
+  const names = new Set(land.towns.map((t) => t.name));
+  const free = NAMES.filter((n) => !names.has(n));
+  const name = free.length > 0 ? free[Math.floor(random() * free.length)] : NAMES[Math.floor(random() * NAMES.length)];
+  for (const { x, z, heading } of found.slice(skip, skip + 4)) {
+    const keep = snapshotRegion(land);
+    const fp = footprint({ x, z }, heading, EXTRA_TOWN_RADIUS, EXTRA_TOWN_APPROACH);
+    const town: Town = { id: land.towns.length, name, centre: { x, z }, station: { x: x - Math.cos(heading) * HALF_STATION, z: z - Math.sin(heading) * HALF_STATION, heading }, cells: [], buildings: [] };
+    for (const [col, row] of fp.station) {
+      const i = g.index(col, row);
+      g.feature[i] = FEAT_STATION;
+      g.owner[i] = town.id;
+      g.surface[i] = SURF_TOWN;
+      town.cells.push(i);
+    }
+    const approach = new Set<number>();
+    for (const [col, row] of fp.corridor) {
+      const i = g.index(col, row);
+      g.feature[i] = FEAT_NONE;
+      approach.add(i);
+      if (!corridors.has(i)) land.corridors.push(i);
+    }
+    const ground = new Set<number>();
+    for (const [col, row] of fp.area) {
+      const i = g.index(col, row);
+      if (approach.has(i) || isWater(g.surface[i])) continue;
+      g.feature[i] = FEAT_NONE;
+      ground.add(i);
+    }
+    flattenUnder(land, region, [...town.cells, ...approach, ...ground]);
+    const canUse = (i: number) => ground.has(i) && g.surface[i] === SURF_GRASS && g.feature[i] === FEAT_NONE;
+    land.nextBuildingId = growInto(g, town, townSize(town), canUse, [], random, land.nextBuildingId);
+    land.towns.push(town);
+    if (reachable(land)) return town;
+    keep();
+  }
+  return null;
+}
+
+/**
+ * Lower the hills to the felt under `cells` (squares of `region`), and round them so no square is more than one block
+ * above a neighbour: each square within `MAX_HEIGHT` steps of them no higher than its steps away. Only ever lowers, so
+ * it never breaks that rule elsewhere; the squares changed stay well inside the region when `cells` keep off its edge
+ * band (as towns and sites do), so plots either side of an edge still meet.
+ */
+export function flattenUnder(land: Landscape, region: Region, cells: Iterable<number>): void {
+  const g = land.grid;
+  const col0 = region.px0 * PLOT_COLS;
+  const row0 = region.pz0 * PLOT_ROWS;
+  const inside = (col: number, row: number) => col >= col0 && col < col0 + region.w * PLOT_COLS && row >= row0 && row < row0 + region.h * PLOT_ROWS;
+  const dist = new Map<number, number>();
+  const queue: number[] = [];
+  for (const i of cells) {
+    if (dist.has(i)) continue;
+    dist.set(i, 0);
+    queue.push(i);
+  }
+  for (let k = 0; k < queue.length; k++) {
+    const i = queue[k];
+    const d = dist.get(i)!;
+    if (g.height[i] > d) g.height[i] = d;
+    if (d >= MAX_HEIGHT) continue;
+    const col = g.colOf(i);
+    const row = g.rowOf(i);
+    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!inside(col + dc, row + dr)) continue;
+      const n = g.index(col + dc, row + dr);
+      if (n === -1 || dist.has(n)) continue;
+      dist.set(n, d + 1);
+      queue.push(n);
+    }
+  }
+}
+
+/** Keep a copy of land's squares and lists as they are; the function returned puts them back. */
+export function snapshotRegion(land: Landscape): () => void {
+  const g = land.grid;
+  const arrays = [g.height, g.surface, g.feature, g.road, g.owner].map((a) => a.slice());
+  const towns = land.towns.length;
+  const corridors = land.corridors.length;
+  const fields = land.fields.length;
+  const sites = land.sites?.length ?? 0;
+  const nextBuildingId = land.nextBuildingId;
+  return () => {
+    g.height.set(arrays[0] as Uint8Array);
+    g.surface.set(arrays[1] as Uint8Array);
+    g.feature.set(arrays[2] as Uint8Array);
+    g.road.set(arrays[3] as Uint8Array);
+    g.owner.set(arrays[4] as Int32Array);
+    land.towns.length = towns;
+    land.corridors.length = corridors;
+    land.fields.length = fields;
+    if (land.sites) land.sites.length = sites;
+    land.nextBuildingId = nextBuildingId;
+  };
+}
+
 function normaliseHeading(h: number): number {
   const step = Math.PI / 4;
   const k = ((Math.round(h / step) % 8) + 8) % 8;
@@ -944,32 +1199,34 @@ export function reachable(land: Landscape): boolean {
   const passable = (i: number) => g.feature[i] === FEAT_NONE && (g.surface[i] === SURF_GRASS || g.surface[i] === SURF_RIVER || g.surface[i] === SURF_LANE || g.surface[i] === SURF_SAND);
   const atEdge: boolean[] = [];
   let next = 0;
-  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  // (Each square's neighbours from the grid's table, and one stack for every component: this runs for every field,
+  // shed and site tried.)
+  const near = g.neighbours();
+  const stack = new Int32Array(g.cellCount);
   for (let i = 0; i < component.length; i++) {
     if (component[i] !== -1 || !passable(i)) continue;
-    const queue = [i];
+    let top = 0;
+    stack[top++] = i;
     component[i] = next;
     let edge = false;
-    while (queue.length) {
-      const c = queue.pop()!;
-      const col = g.colOf(c);
-      const row = g.rowOf(c);
-      for (const [dc, dr] of DIRS) {
-        const n = g.index(col + dc, row + dr);
+    while (top > 0) {
+      const c = stack[--top];
+      for (let d = 0; d < 4; d++) {
+        const n = near[c * 4 + d];
         if (n === -1) {
           edge = true;
           continue;
         }
         if (component[n] !== -1 || !passable(n) || Math.abs(g.height[n] - g.height[c]) > 1) continue;
         component[n] = next;
-        queue.push(n);
+        stack[top++] = n;
       }
     }
     atEdge.push(edge);
     next++;
   }
   // Each town's and depot's reachable components: those touching its corridor squares next to its piece's ends.
-  const sites = [...land.towns.map((t) => t.station), ...land.depots.map((d) => d.piece)];
+  const sites = [...land.towns.map((t) => t.station), ...land.depots.map((d) => d.piece), ...(land.sites ?? []).filter((s) => !s.cleared).map((s) => s.piece)];
   if (sites.length === 0) return true;
   const reach = sites.map((site) => {
     const set = new Set<number>();
@@ -984,6 +1241,13 @@ export function reachable(land: Landscape): boolean {
   return reach.every((s) => [...s].some((c) => first.has(c))) && [...first].some((c) => atEdge[c]);
 }
 
+/** A town's name no town in `names` has: its own, else with a prefix ("Little Foxley"), else numbered. */
+export function freeName(names: ReadonlySet<string>, name: string, salt: number): string {
+  let out = name;
+  for (let k = 0; names.has(out); k++) out = k < NAME_PREFIXES.length ? `${NAME_PREFIXES[(k + salt) % NAME_PREFIXES.length]} ${name}` : `${name} ${k}`;
+  return out;
+}
+
 /**
  * Add generated land (`generatePlot` or `generateRegion`) to a world: its plots, squares and what stands on them,
  * with ids moved on past the world's own, and town names the world doesn't have yet. The region's plots must not be
@@ -995,6 +1259,7 @@ export function adoptRegion(world: Landscape, part: Landscape): number[] {
   const townBase = world.towns.length;
   const depotBase = world.depots.length;
   const fieldBase = world.fields.length;
+  const siteBase = world.sites?.length ?? 0;
   const buildingBase = world.nextBuildingId;
   const slotMap: number[] = [];
   p.plots.forEach((plot: PlotCoord, from) => {
@@ -1021,14 +1286,15 @@ export function adoptRegion(world: Landscape, part: Landscape): number[] {
                 ? owner + fieldBase
                 : f === FEAT_BUILDING
                   ? owner + buildingBase
-                  : owner;
+                  : f === FEAT_RUIN
+                    ? owner + siteBase
+                    : owner;
     }
   });
   const cell = (i: number) => slotMap[(i / PLOT_CELLS) | 0] * PLOT_CELLS + (i % PLOT_CELLS);
   const names = new Set(world.towns.map((t) => t.name));
   for (const t of part.towns) {
-    let name = t.name;
-    for (let k = 0; names.has(name); k++) name = k < NAME_PREFIXES.length ? `${NAME_PREFIXES[(k + t.id) % NAME_PREFIXES.length]} ${t.name}` : `${t.name} ${k}`;
+    const name = freeName(names, t.name, t.id);
     names.add(name);
     world.towns.push({
       ...t,
@@ -1040,6 +1306,10 @@ export function adoptRegion(world: Landscape, part: Landscape): number[] {
   }
   for (const d of part.depots) world.depots.push({ ...d, id: d.id + depotBase });
   for (const f of part.fields) world.fields.push({ ...f, id: f.id + fieldBase, cells: f.cells.map(cell) });
+  if (part.sites?.length) {
+    const sites = (world.sites ??= []);
+    for (const s of part.sites) sites.push({ ...s, id: s.id + siteBase, centre: { ...s.centre }, piece: { ...s.piece }, plot: { ...s.plot }, fields: s.fields.map((f) => f + fieldBase) });
+  }
   for (const i of part.corridors) world.corridors.push(cell(i));
   if (part.shed && !world.shed) world.shed = { ...part.shed, cells: part.shed.cells.map(cell) };
   world.nextBuildingId = buildingBase + part.nextBuildingId;

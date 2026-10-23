@@ -257,6 +257,15 @@ async function selectThenDrag(ctx, p) {
   await p.keyboard.press("Escape");
   // Held, then dragged: it moves.
   // (Stamped with when they were sent, no earlier than the finger's own pace: late, the moves would read as faster.)
+  // (The piece in the middle of the view first: the steps before may have left it by an edge, where a drag pans the
+  // view at the edge rather than holding the piece over the finger, and the slow-phone holds after start in the band.)
+  await p.evaluate((id) => {
+    const w = window.woodrail;
+    const q = w.layout.getPiece(id);
+    const t = w.controls.target;
+    w.director.glideTo(t.clone().set(q.pose.x + Math.cos(q.pose.heading) * 108, q.y, q.pose.z + Math.sin(q.pose.heading) * 108), w.camera.position.distanceTo(t), { duration: 0.2 });
+  }, id);
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   [sx, sy] = await onScreen();
   const hs = Date.now() / 1000;
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: hs, touchPoints: [{ x: sx, y: sy, id: 1 }] });
@@ -701,6 +710,32 @@ async function leverPins(ctx, p) {
     const throws = s10.way !== s9.way ? 1 : 0;
     check("a double tap on the floor by a lever focuses the view there (its second tap isn't the lever's)", JSON.stringify(d1) !== JSON.stringify(d0) && throws === 1, `view (distance, target) ${d0} → ${d1}; lever thrown ${throws} time(s) (way ${s9.way} → ${s10.way})`);
   }
+  // 5c. A lever behind a hill (QA, sc3): a tap right on it, its ray meeting it through the hill (the hills aren't
+  // raycast), neither picks nor throws it. The hill is the ground raised on every square but the switch's own, for the
+  // pick's look along the line only (nothing is redrawn); put back after.
+  {
+    [lx, ly] = await screenOf("lever");
+    const s0 = await state();
+    const seen = await p.evaluate(([x, y]) => window.woodrail.interaction.pickExact(x, y)?.kind ?? null, [lx, ly]);
+    const hidden = await p.evaluate(async ([id, x, y]) => {
+      const w = window.woodrail;
+      const grid = w.landscape.grid;
+      const { MAX_HEIGHT } = await import("/src/landscape/grid.ts");
+      const { RISER_HEIGHT } = await import("/src/track/index.ts");
+      const piece = w.layout.getPiece(id);
+      const own = grid.cellAtWorld(piece.pose.x, piece.pose.z);
+      const lever = w.trackView.leverPosts().find((q) => q.pieceId === id);
+      const leverCell = grid.cellAtWorld(lever.x, lever.z);
+      grid.groundY = (i) => (i === own || i === leverCell ? grid.height[i] * RISER_HEIGHT : MAX_HEIGHT * RISER_HEIGHT);
+      return { exact: w.interaction.pickExact(x, y)?.kind ?? null, touch: w.interaction.pick(x, y, true)?.kind ?? null };
+    }, [id, lx, ly]);
+    await quickTap(lx, ly);
+    await settled();
+    const s1 = await state();
+    await p.evaluate(() => delete window.woodrail.landscape.grid.groundY);
+    await p.keyboard.press("Escape");
+    check("a tap right on a lever hidden behind a hill doesn't throw it (QA sc3)", seen === "lever" && hidden.exact !== "lever" && hidden.touch !== "lever" && s1.way === s0.way, `seen: ${seen}; hidden: exact ${hidden.exact}, touch ${hidden.touch}; way ${s0.way} → ${s1.way}`);
+  }
   // 6. A long press on the switch piece itself (not its lever) still picks the piece up.
   await p.evaluate((id) => window.woodrail.layout.setPinned(id, false), id);
   const [bx, by] = await screenOf("piece");
@@ -737,10 +772,11 @@ async function runMode(mode) {
   await p.waitForFunction((m) => !!window.woodrail && document.querySelector(`.title-card.mode-${m} .title-buttons .primary`) !== null, mode, { timeout: 180000 });
   await p.evaluate((m) => document.querySelector(`.title-card.mode-${m} .title-buttons .primary`).click(), mode);
   await p.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 60000 });
-  // A first visit shows the help over everything: close it as a player would.
+  // A first visit shows the camera tutorial (or, before it, the help over everything): close it as a player would.
   await p.evaluate(() => {
     const help = document.querySelector(".help");
     if (help && !help.hidden) help.querySelector("button.primary, .help-card button:last-of-type")?.click();
+    document.querySelector(".coach:not([hidden]) .coach-skip")?.click();
   });
   await p.waitForFunction(() => { const h = document.querySelector(".help"); return !h || h.hidden || getComputedStyle(h).display === "none"; }, null, { timeout: 60000 });
   const inGroup = () => p.evaluate(() => document.querySelector(".tray").classList.contains("in-group"));

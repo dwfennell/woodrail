@@ -5,6 +5,7 @@ import {
   FEAT_BUILDING,
   FEAT_DEPOT,
   FEAT_FIELD,
+  FEAT_RUIN,
   FEAT_SHED,
   FEAT_STATION,
   FIELD_STOCK,
@@ -15,6 +16,7 @@ import {
   SURF_RIVER,
   SURF_SAND,
   SURF_ROAD,
+  SITE_ROLES,
   type Landscape,
 } from "../landscape";
 
@@ -75,6 +77,26 @@ export const landscapeSchema = z.object({
   fields: z.array(z.object({ id, cells, animal: z.enum(FIELD_STOCK) })),
   shed: z.object({ cells, x: z.number().finite(), z: z.number().finite(), heading: z.number().finite() }).nullable(),
   corridors: cells,
+  /**
+   * Old industries' sites (see `MapSite`). Missing in saves from before them: such a save gains them as it loads, for
+   * the plots it owns (`addSitesToOldSave`), where nothing of the player's is in the way.
+   */
+  sites: z
+    .array(
+      z.object({
+        id,
+        role: z.enum(SITE_ROLES),
+        centre: point,
+        piece: pose,
+        plot: z.object({ px: z.number().int().min(-30000).max(30000), pz: z.number().int().min(-30000).max(30000) }),
+        fields: z.array(id),
+        cleared: z.boolean().optional(),
+        restored: z.boolean().optional(),
+      }),
+    )
+    .optional(),
+  /** A Sandbox map: no sites, ever (`Landscape.siteless`). */
+  siteless: z.boolean().optional(),
 });
 
 export type LandscapeData = z.infer<typeof landscapeSchema>;
@@ -122,6 +144,8 @@ export function serializeLandscape(land: Landscape): LandscapeData {
     fields: land.fields.map((f) => ({ ...f, cells: [...f.cells] })),
     shed: land.shed ? { ...land.shed, cells: [...land.shed.cells] } : null,
     corridors: [...land.corridors],
+    ...(land.sites ? { sites: land.sites.map((s) => ({ ...s, centre: { ...s.centre }, piece: { ...s.piece }, plot: { ...s.plot }, fields: [...s.fields] })) } : {}),
+    ...(land.siteless ? { siteless: true } : {}),
   };
 }
 
@@ -142,7 +166,7 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
     const owner = new Int32Array(ownerBytes.buffer, 0, PLOT_CELLS);
     const base = slot * PLOT_CELLS;
     for (let k = 0; k < PLOT_CELLS; k++) {
-      if (height[k] > MAX_HEIGHT || surface[k] > SURF_SAND || feature[k] > FEAT_DEPOT) return err(`plot ${p.px},${p.pz} has an unknown square`);
+      if (height[k] > MAX_HEIGHT || surface[k] > SURF_SAND || feature[k] > FEAT_RUIN) return err(`plot ${p.px},${p.pz} has an unknown square`);
     }
     grid.height.set(height, base);
     grid.surface.set(surface, base);
@@ -165,14 +189,15 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
   const n = grid.cellCount;
   const cellsOk = (list: readonly number[]) => list.every((i) => i < n);
   // Ids are places in their lists.
-  if (data.towns.some((t, i) => t.id !== i) || data.depots.some((d, i) => d.id !== i) || data.fields.some((f, i) => f.id !== i)) return err("landscape ids out of order");
+  if (data.towns.some((t, i) => t.id !== i) || data.depots.some((d, i) => d.id !== i) || data.fields.some((f, i) => f.id !== i) || data.sites?.some((s, i) => s.id !== i)) return err("landscape ids out of order");
+  if (data.sites?.some((s) => s.fields.some((f) => f >= data.fields.length))) return err("a site's field isn't there");
   for (const t of data.towns) if (!cellsOk(t.cells) || t.buildings.some((b) => !cellsOk(b.cells) || b.id >= data.nextBuildingId)) return err(`town ${t.id} has a bad square`);
   // A removed field keeps its place in the list (ids are places), with no squares.
   for (const f of data.fields) if ((f.cells.length !== 4 && f.cells.length !== 0) || !cellsOk(f.cells)) return err(`field ${f.id} has a bad square`);
   if (data.shed && (data.shed.cells.length !== 4 || !cellsOk(data.shed.cells))) return err("the shed has a bad square");
   if (!cellsOk(data.corridors)) return err("a corridor has a bad square");
   // Every owner points at something that exists.
-  const limit: Record<number, number> = { [FEAT_STATION]: data.towns.length, [FEAT_DEPOT]: data.depots.length, [FEAT_FIELD]: data.fields.length, [FEAT_BUILDING]: data.nextBuildingId };
+  const limit: Record<number, number> = { [FEAT_STATION]: data.towns.length, [FEAT_DEPOT]: data.depots.length, [FEAT_FIELD]: data.fields.length, [FEAT_BUILDING]: data.nextBuildingId, [FEAT_RUIN]: data.sites?.length ?? 0 };
   for (let i = 0; i < n; i++) {
     const f = grid.feature[i];
     const o = grid.owner[i];
@@ -190,5 +215,7 @@ export function deserializeLandscape(data: LandscapeData): Result<Landscape, str
     corridors: data.corridors,
     nextBuildingId: data.nextBuildingId,
     coast: data.coast ? { ...data.coast, seed: data.seed } : null,
+    ...(data.sites ? { sites: data.sites } : {}),
+    ...(data.siteless ? { siteless: true } : {}),
   });
 }

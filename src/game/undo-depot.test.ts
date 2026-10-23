@@ -6,7 +6,7 @@ import { workshops } from "./crafting";
 import { depotSpot } from "./depot-footprint";
 import { GOALS } from "./goals";
 import { routeStops } from "./route-stops";
-import { buildStarterWorld, syncIndustries, type World } from "./world";
+import { buildStarterWorld, syncIndustries, type World, fixedPieces } from "./world";
 
 /** The starter map with its first town's station run on by four long straights, and an editor on it. */
 function setup(): { w: World; editor: Editor } {
@@ -14,7 +14,7 @@ function setup(): { w: World; editor: Editor } {
   let last = w.stations.get(w.landscape.towns[0].id)!;
   for (let i = 0; i < 4; i++) last = appendPiece(w.layout, "straight-216", false, connectorRef(last, 1));
   syncIndustries(w, true);
-  const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+  const fixed = fixedPieces(w);
   return { w, editor: new Editor(w.layout, w.sim, () => syncIndustries(w, true), (id) => fixed.has(id)) };
 }
 

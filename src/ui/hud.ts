@@ -12,8 +12,15 @@ import { loadFavourites, saveFavourites } from "./prefs";
 import { pillText, type PillView } from "../game/research-text";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
+import { ControlsTutorial, type ViewState } from "./controls-tutorial";
 
 export interface HudHandlers {
+  /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
+  cameraView(): ViewState;
+  /** Is the camera gliding on its own (Show me, a framing), for the camera tutorial: not the player's doing. */
+  cameraGliding?(): boolean;
+  /** The camera tutorial was done or skipped: what comes next is shown (the goals' Show me, say). */
+  tutorialDone?(skipped: boolean): void;
   trayPointerDown(item: TrayItem, e: PointerEvent): void;
   /** A tray piece tapped (the ready one is put away). */
   /** A tap on a tray item (`pointerType`: what tapped it, a mouse, pen or finger). */
@@ -53,6 +60,10 @@ export interface HudHandlers {
   toggleBoard(pill?: boolean): void;
   /** Add the plot chosen on the land card. */
   buyLand(): void;
+  /** "Clear the ruin" on an old industry's card. */
+  clearRuin?(): void;
+  /** "Restore" on an old industry's card (its blueprint learned). */
+  restoreRuin?(): void;
   resetStarter(): void;
   /** Game mode: start the goals again on the starter map. */
   newGame(): void;
@@ -70,6 +81,8 @@ export interface HudHandlers {
   trayFlip(): void;
   /** Tray: drawing track switched on or off (the Draw chip). */
   trayDraw(on: boolean): void;
+  /** Tray: clearing switched on or off (the Clear chip). */
+  trayErase(on: boolean): void;
   /** Depot card: turn automatic loading on or off. */
   depotAuto(): void;
   /** Depot card: trains wait for a full load, or not. */
@@ -197,11 +210,21 @@ export class Hud {
   private readonly depotCard = el("div", "card depot-card");
   /** Below a depot card's switches: filled by the game for some depots (Game mode's workshop), else hidden. */
   readonly depotExtra = el("div", "depot-extra");
+  /** The depot card's choice of how it shares (the workshop's planks): beside the extra, its own so it can move up. */
+  readonly depotYard = el("div", "depot-yard");
   /** Room on the engine card for Game mode's own rows (where the train delivers), filled by main. */
   readonly engineExtra = el("div", "engine-extra");
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
   private readonly landCard = el("div", "card land-card");
   private readonly landText = el("div", "land-text");
+  /** An old industry's ruin: its card (tap a ruin). */
+  private readonly ruinCard = el("div", "card ruin-card");
+  private readonly ruinTitle = el("div", "card-title");
+  private readonly ruinResource = el("div", "ruin-resource");
+  private readonly ruinStatus = el("div", "ruin-status");
+  private readonly ruinOwn = el("div", "ruin-own");
+  private ruinClearBtn!: HTMLButtonElement;
+  private ruinRestoreBtn!: HTMLButtonElement;
   private landBuyBtn!: HTMLButtonElement;
   private landBtn!: HTMLButtonElement;
   private soundItem!: HTMLButtonElement;
@@ -234,6 +257,8 @@ export class Hud {
   private readonly menu = el("div", "menu");
   private menuBtn!: HTMLButtonElement;
   private readonly help = el("div", "help");
+  /** The first-run camera tutorial (in place of the help card on a first visit: see `firstVisitHelp`). */
+  readonly coach: ControlsTutorial;
   private readonly modeTag = el("span", "mode-tag");
   /** Game mode's coins, by the logo. */
   private readonly coinTag = el("span", "coins");
@@ -279,6 +304,8 @@ export class Hud {
   private readonly thumbs: Map<string, string>;
   private flipTrayBtn!: HTMLButtonElement;
   private drawBtn!: HTMLButtonElement;
+  private eraseBtn!: HTMLButtonElement;
+  private erasing = false;
   /** The tray favourites (tray keys, in order): first on the Track and Trains tabs. */
   private favourites: string[] = loadFavourites() ?? [...DEFAULT_FAVOURITES];
   private drawing = false;
@@ -412,7 +439,14 @@ export class Hud {
       quality,
       button("How to play", "Show help", () => {
         this.menu.hidden = true;
+        // (Not both at once: the help card takes the camera tutorial's place, as on a first visit.)
+        this.coach.close(true);
         this.showHelp();
+      }, "menu-item"),
+      button("Show controls", "Show the camera controls again", () => {
+        this.menu.hidden = true;
+        this.help.hidden = true;
+        this.coach.start();
       }, "menu-item"),
       this.reportItem,
     );
@@ -499,7 +533,8 @@ export class Hud {
     this.depotExtra.hidden = true;
     this.depotPickBtn = button("📘 Research", "Pick what the school learns next", () => h.toggleBoard(true), "chip text primary depot-pick");
     this.depotPickBtn.hidden = true;
-    this.depotCard.append(this.depotTitle, this.depotStock, this.depotPickBtn, depotRow, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
+    this.depotYard.hidden = true;
+    this.depotCard.append(this.depotTitle, this.depotStock, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.depotCard);
 
     // Land card: shown while choosing a plot to add.
@@ -509,6 +544,15 @@ export class Hud {
     landRow.append(this.landBuyBtn, button("Done", "Stop adding land", h.toggleExpand, "chip text"));
     this.landCard.append(el("div", "card-title", "Add land"), this.landText, landRow);
     this.root.appendChild(this.landCard);
+
+    // An old industry's ruin: what's around it, what opens it, and clearing it away.
+    this.ruinCard.hidden = true;
+    this.ruinRestoreBtn = button("Restore", "Make it work again", () => h.restoreRuin?.(), "chip text primary ruin-restore");
+    this.ruinClearBtn = button("Clear the ruin", "Take the ruin and its track away", () => h.clearRuin?.(), "chip text ruin-clear");
+    const ruinRow = el("div", "card-row");
+    ruinRow.append(this.ruinRestoreBtn, this.ruinClearBtn);
+    this.ruinCard.append(this.ruinTitle, this.ruinResource, this.ruinStatus, this.ruinOwn, ruinRow, button("✕", "Close", h.closeCards, "close"));
+    this.root.appendChild(this.ruinCard);
 
     // Tray with tabs
     const tabs = el("div", "tabs");
@@ -644,6 +688,7 @@ export class Hud {
         const key = trayKey(item);
         b.dataset.key = key;
         b.classList.toggle("armed", this.armedKey === key);
+        b.classList.toggle("carried", this.armedKey === key && this.armedCarried);
         b.title = `Drag onto the map, or click then click the map: ${item.label}`;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
@@ -652,12 +697,23 @@ export class Hud {
       } else {
         // A crossing's style (barriers, gates) only goes on a level crossing: it says it needs a road.
         // A tap says so too, since a phone never shows a title.
+        // Clicked (a mouse or pen), a model or train is carried, as a piece is: each click on the map puts one down.
         const crossing = item.kind === "prop" && crossingStyleOf(item.asset);
-        const tip = crossing ? `${item.label}: goes where track crosses a road` : `Drag onto the floor: ${item.label}`;
+        const tip = crossing ? `${item.label}: goes where track crosses a road` : `Drag onto the map, or click then click the map: ${item.label}`;
+        const key = trayKey(item);
+        b.dataset.key = key;
+        b.classList.toggle("armed", this.armedKey === key);
+        b.classList.toggle("carried", this.armedKey === key && this.armedCarried);
         b.title = tip;
         b.addEventListener("pointerdown", (e) => {
           e.preventDefault();
-          this.trayPress(e, scroller, { pick: (move) => this.handlers.trayPointerDown(item, move), tap: crossing ? () => this.toast(tip) : undefined });
+          this.trayPress(e, scroller, {
+            pick: (move) => this.handlers.trayPointerDown(item, move),
+            tap: (up) => {
+              if (up.pointerType !== "touch") this.handlers.trayTap(item, up.pointerType);
+              else if (crossing) this.toast(tip);
+            },
+          });
         });
       }
       if (openDef?.favourites && canFavourite(item)) {
@@ -739,8 +795,12 @@ export class Hud {
       tabs.innerHTML = "";
       list = trayTabs(mode);
       for (const tab of list) {
-        // Tapping a tab (even the open one) goes back to its groups.
-        const t = button(tab.label, `${tab.label}`, () => openTab(tab), "tab");
+        // Tapping a tab (even the open one) goes back to its groups. (Drawing on a phone on its side, the tray is only
+        // its tabs, its shelves put away for the map's sake: a tab tapped there puts the pencil down, so they show.)
+        const t = button(tab.label, `${tab.label}`, () => {
+          if (this.drawing && getComputedStyle(scroller).display === "none") this.handlers.trayDraw(false);
+          openTab(tab);
+        }, "tab");
         t.dataset.tab = tab.id;
         tabs.appendChild(t);
       }
@@ -766,8 +826,12 @@ export class Hud {
     // tabs); on a phone they share the tab row, at its right, the tabs scrolling in what's left (they never cover a tab,
     // nor the track being laid). First in the page, as they were, for a keyboard and a screen reader; on a phone the
     // row shows them after the tabs.
+    // Clear: a tap takes away what's under it, a sweep all it passes over (any tab).
+    this.eraseBtn = button(`🧽<span class="chip-word"> Clear</span>`, "Clear: tap or sweep over track and things to take them away", () => this.handlers.trayErase(!this.erasing), "chip text tray-erase");
+    const pens = el("div", "tray-pens");
+    pens.append(this.drawBtn, this.eraseBtn);
     const tools = el("div", "tray-tools");
-    tools.append(this.drawBtn, orient);
+    tools.append(pens, orient);
     const head = el("div", "tray-head");
     head.append(tools, tabs);
     this.tray.append(head, scroller);
@@ -824,6 +888,34 @@ export class Hud {
     }, "chip text primary");
     this.help.querySelector(".help-card")!.appendChild(ok);
     this.root.appendChild(this.help);
+    this.coach = new ControlsTutorial(
+      () => h.cameraView(),
+      (touch) =>
+        this.trayMode === "game"
+          ? `Your goals are at the top: ${touch ? "tap" : "click"} Show me to see where.`
+          : touch
+            ? "Now build: drag a piece out of the tray."
+            : "Now build: drag a piece out of the tray, or click one and then the map.",
+      () => h.cameraGliding?.() ?? false,
+    );
+    this.coach.onDone = (skipped) => {
+      // (Seen: the help card doesn't come up on its own after it. It's in the menu, and the coach's last card.)
+      try {
+        localStorage.setItem("woodrail.helpSeen", "1");
+      } catch {
+        // storage unavailable
+      }
+      this.flushToasts();
+      h.tutorialDone?.(skipped);
+    };
+    this.coach.onMoreHelp = () => this.showHelp();
+    // Held upright, a phone's coach sits just above the tray and its chips (see .coach in style.css).
+    const placeCoach = () => this.coach.root.style.setProperty("--coach-bottom", `${Math.round(innerHeight - this.chipsTop() + 10)}px`);
+    this.coach.onShow = placeCoach;
+    addEventListener("resize", () => {
+      if (this.coach.shown) placeCoach();
+    });
+    this.root.appendChild(this.coach.root);
 
     this.perf.hidden = true;
     this.root.appendChild(this.perf);
@@ -833,7 +925,7 @@ export class Hud {
   /** Where the tray's chips start (Draw, Turn and Flip above it), or the tray where none show: in client pixels. */
   chipsTop(): number {
     let top = this.tray.getBoundingClientRect().top;
-    for (const chip of [this.drawBtn, this.tray.querySelector<HTMLElement>(".tray-orient")]) {
+    for (const chip of [this.drawBtn, this.eraseBtn, this.tray.querySelector<HTMLElement>(".tray-orient")]) {
       const r = chip?.getBoundingClientRect();
       if (r && r.height > 0) top = Math.min(top, r.top);
     }
@@ -845,6 +937,13 @@ export class Hud {
     this.drawing = on;
     this.drawBtn.classList.toggle("active", on);
     this.tray.classList.toggle("drawing", on);
+  }
+
+  /** Show whether clearing is on (the Clear chip lit). */
+  setErasing(on: boolean): void {
+    this.erasing = on;
+    this.eraseBtn.classList.toggle("active", on);
+    this.tray.classList.toggle("erasing", on);
   }
 
   /** The land tool in use (the Land tab open), or null. */
@@ -886,7 +985,8 @@ export class Hud {
     } catch {
       seen = false;
     }
-    if (!seen) this.showHelp();
+    // A first visit: the camera tutorial (it leads into the goals); the help card is in the menu, and its last card.
+    if (!seen && !ControlsTutorial.seen()) this.coach.start();
   }
 
   /** Label the mode by the logo and offer its own map items in the menu. */
@@ -1194,6 +1294,7 @@ export class Hud {
     this.root.classList.toggle("planning", on);
     // (No drawing track while a route is planned: a press picks a stop.)
     this.drawBtn.disabled = on;
+    this.eraseBtn.disabled = on;
   }
 
   /** The Lines view open (the tray goes, as when planning: the map wants the room). */
@@ -1420,6 +1521,8 @@ export class Hud {
     this.depotTitle.textContent = title;
     this.depotExtra.hidden = true;
     this.depotExtra.innerHTML = "";
+    this.depotYard.hidden = true;
+    this.depotYard.innerHTML = "";
     // (Back to a depot's own: a town's ledger, once drawn here, marks it.)
     this.depotExtra.className = "depot-extra";
     this.depotCard.hidden = false;
@@ -1453,6 +1556,26 @@ export class Hud {
     this.landBuyBtn.hidden = !canBuy;
   }
 
+  /** Show an old industry's card (see `ruinCard` in map-sites.ts). */
+  showRuinCard(card: { title: string; resource: string; status: string; own: string | null; clear: string; restore: string | null }): void {
+    this.hideCards();
+    this.ruinTitle.textContent = card.title;
+    this.ruinResource.textContent = card.resource;
+    this.ruinResource.hidden = !card.resource;
+    this.ruinStatus.textContent = card.status;
+    this.ruinOwn.textContent = card.own ?? "";
+    this.ruinOwn.hidden = !card.own;
+    this.ruinClearBtn.textContent = card.clear;
+    this.ruinRestoreBtn.textContent = card.restore ?? "";
+    this.ruinRestoreBtn.hidden = !card.restore;
+    this.ruinCard.hidden = false;
+    this.root.classList.add("card-open");
+  }
+
+  get ruinCardOpen(): boolean {
+    return !this.ruinCard.hidden;
+  }
+
   get depotCardOpen(): boolean {
     return !this.depotCard.hidden;
   }
@@ -1462,7 +1585,7 @@ export class Hud {
 
   /** Where the open card for one thing (an engine, a car, a piece, a depot) is on screen, or null. */
   openCardRect(): DOMRect | null {
-    for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard]) {
+    for (const c of [this.engineCard, this.carCard, this.pieceCard, this.depotCard, this.ruinCard]) {
       if (!c.hidden && !c.classList.contains("group") && c.offsetParent !== null) return c.getBoundingClientRect();
     }
     return null;
@@ -1473,6 +1596,7 @@ export class Hud {
     if (this.toastWaitsForCard) requestAnimationFrame(() => this.flushToasts());
     this.root.classList.remove("card-open");
     this.depotCard.hidden = true;
+    this.ruinCard.hidden = true;
     this.engineCard.hidden = true;
     this.carCard.hidden = true;
     this.pieceCard.hidden = true;
@@ -1482,11 +1606,17 @@ export class Hud {
 
   /** The tray piece readied for placing with taps (`trayKey`), or null. */
   private armedKey: string | null = null;
+  private armedCarried = false;
 
-  setArmed(key: string | null): void {
-    if (key === this.armedKey) return;
+  /** Mark the tray item that's ready (`carried`: clicked, following the mouse, marked apart), or none (null). */
+  setArmed(key: string | null, carried = false): void {
+    if (key === this.armedKey && carried === this.armedCarried) return;
     this.armedKey = key;
-    this.tray.querySelectorAll<HTMLElement>(".tray-item[data-key]").forEach((b) => b.classList.toggle("armed", b.dataset.key === key));
+    this.armedCarried = carried;
+    this.tray.querySelectorAll<HTMLElement>(".tray-item[data-key]").forEach((b) => {
+      b.classList.toggle("armed", b.dataset.key === key);
+      b.classList.toggle("carried", b.dataset.key === key && carried);
+    });
   }
 
   /**
@@ -1522,7 +1652,7 @@ export class Hud {
     if (t && t.message === old && this.toastEl.classList.contains("show") && this.toastEl.textContent === old) {
       note("toast", message);
       t.message = message;
-      this.showToast(message, celebrate, ms);
+      this.showToast(message, celebrate, ms, t.urgent);
       this.toastShownAt = performance.now();
       this.toastHeldUntil = this.toastShownAt + toastMs(message, celebrate, ms);
       return;
@@ -1561,8 +1691,8 @@ export class Hud {
 
   private flushToasts(): void {
     clearTimeout(this.toastFlushTimer);
-    // Held while the help card is up (it would cover them); closing it lets them through.
-    if (!this.help.hidden) return;
+    // Held while the help card or the camera tutorial is up (they'd cover each other); closing it lets them through.
+    if (!this.help.hidden || this.coach.shown) return;
     const wait = this.toastHeldUntil - performance.now();
     if (wait > 0) {
       this.toastFlushTimer = window.setTimeout(() => this.flushToasts(), wait);
@@ -1571,11 +1701,11 @@ export class Hud {
     if (this.toastQueue.length === 0) return;
     // The first that may show: one with no room (a card open) waits till the cards close (`hideCards`), and lets one
     // that answers the player go ahead of it.
-    const i = this.toastQueue.findIndex((q) => q.urgent || this.placeToast(q.message));
+    const i = this.toastQueue.findIndex((q) => this.placeToast(q.message, q.urgent));
     this.toastWaitsForCard = i === -1;
     if (i === -1) return;
     const [next] = this.toastQueue.splice(i, 1);
-    this.showToast(next.message, next.celebrate, next.ms);
+    this.showToast(next.message, next.celebrate, next.ms, next.urgent);
     this.toastShowing = next;
     this.toastShownAt = performance.now();
     this.toastHeldUntil = this.toastShownAt + toastMs(next.message, next.celebrate, next.ms);
@@ -1590,7 +1720,7 @@ export class Hud {
   private refitToast(): void {
     const t = this.toastShowing;
     if (!t || !this.toastEl.classList.contains("show") || this.toastEl.textContent !== t.message) return;
-    if (this.placeToast(t.message) || t.urgent) return;
+    if (this.placeToast(t.message, t.urgent)) return;
     clearTimeout(this.toastTimer);
     this.toastEl.classList.remove("show");
     this.toastShowing = null;
@@ -1616,7 +1746,7 @@ export class Hud {
     if (message) {
       this.toastQueue.length = 0;
       this.toastShowing = null;
-      this.showToast(message, false, 600000);
+      this.showToast(message, false, 600000, true);
       this.toastHeldUntil = performance.now() + toastMs(message, false);
     } else if (this.toastEl.classList.contains("show")) {
       clearTimeout(this.toastTimer);
@@ -1657,11 +1787,11 @@ export class Hud {
     this.flushToasts();
   }
 
-  private showToast(message: string, celebrate: boolean, ms: number): void {
+  private showToast(message: string, celebrate: boolean, ms: number, urgent = false): void {
     this.toastEl.textContent = message;
     this.toastEl.classList.toggle("celebrate", celebrate);
     this.toastEl.classList.remove("show");
-    this.placeToast(message);
+    this.placeToast(message, urgent);
     // Restart the slide-in even when a toast is already showing.
     void this.toastEl.offsetWidth;
     this.toastEl.classList.add("show");
@@ -1675,7 +1805,18 @@ export class Hud {
    * side), else just above it. False if a card leaves it no room (it'd cover the card's top rows). Measured when a toast
    * shows, not per frame.
    */
-  private placeToast(message: string): boolean {
+  private placeToast(message: string, urgent = false): boolean {
+    if (!this.fitToast(message, urgent)) return false;
+    // Wherever it went, clear of the tray (QA, 667x375: a three-line toast beside a docked card reached 2 px into it).
+    const t = this.toastEl;
+    const tray = this.tray.getBoundingClientRect();
+    // (By layout, not its box: the toast slides in, its box a little higher till it's shown.)
+    if (tray.height > 0 && t.offsetTop + t.offsetHeight > tray.top - 6) t.style.top = `${Math.max(8, Math.round(tray.top - 6 - t.offsetHeight))}px`;
+    return true;
+  }
+
+  /** Where a toast goes (see `placeToast`): false if there's no room for it now. */
+  private fitToast(message: string, urgent: boolean): boolean {
     const t = this.toastEl;
     t.textContent = message;
     t.style.top = t.style.left = t.style.maxWidth = "";
@@ -1705,8 +1846,14 @@ export class Hud {
     const card = cards.find(over);
     if (!card) return true;
     const h = t.offsetHeight;
-    if (card.top - t.offsetTop < h + 8) return false;
-    t.style.top = `${Math.round(card.top - h - 8)}px`;
+    if (card.top - t.offsetTop >= h + 8) {
+      t.style.top = `${Math.round(card.top - h - 8)}px`;
+      return true;
+    }
+    // No room above it: a toast that answers the player (urgent) shows now all the same, at the card's foot, just
+    // above the tray (QA: over its top it hid the card's ✕ and title); any other waits for the card to close.
+    if (!urgent) return false;
+    t.style.top = `${Math.round(card.bottom - h - 10)}px`;
     return true;
   }
 

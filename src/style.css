@@ -92,6 +92,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-item.armed::after { content: "ready"; position: absolute; top: 4px; left: 50%; transform: translateX(-50%); background: #6cbf5c; color: #fff; font-size: 9.5px; font-weight: 800; padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
 /* With a count or a price in the corner, "ready" goes under it (on top, it hid what the next tap costs). */
 .tray-item.armed:has(.have)::after { top: 27px; left: auto; right: 6px; transform: none; }
+/* Carried (clicked, following the mouse over the map: click there to place it), marked apart from "ready" (QA). */
+.tray-item.armed.carried { box-shadow: inset 0 -2px 0 rgba(120, 80, 40, 0.16), 0 0 0 3px #3f86d6, 0 3px 8px rgba(40, 80, 140, 0.3); }
+.tray-item.armed.carried::after { content: "placing"; background: #3f86d6; }
 .tray-item .icon { width: 74px; height: 60px; display: grid; place-items: center; }
 .tray-item .icon svg { width: 76%; height: 76%; }
 .tray-item .icon img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 3px 2px rgba(80, 50, 20, 0.22)); pointer-events: none; }
@@ -134,6 +137,19 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .piece-card .lever-list .lever-chip { flex: 1 1 140px; height: auto; min-height: 44px; padding: 6px 10px; line-height: 1.2; white-space: normal; }
 .piece-card .lever-list .card-hint { margin-top: 0; }
 .land-text { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; max-width: 320px; }
+/* An old industry's ruin: what's around it, what opens it (the lock line the boldest), and that you needn't use it. */
+.ruin-card { gap: 8px; }
+.ruin-card > .card-title { padding: 0 34px; }
+.ruin-resource { font-size: 14px; font-weight: 700; color: #7a5532; text-align: center; }
+.ruin-status { font-size: 15px; font-weight: 800; color: #4a3220; text-align: center; max-width: 320px; }
+.ruin-own { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; max-width: 300px; }
+.ruin-card [hidden] { display: none; }
+.ruin-card .card-row { flex-wrap: wrap; justify-content: center; }
+/* On a phone the card scrolls when it's taller than the room above the tray (on its side, 667 × 375, always): Restore
+   and Clear stay pinned at its foot, as a town's switches do under its ledger (QA: they sat under the tray). */
+@media (max-width: 640px), (max-height: 520px) {
+  .ruin-card > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 6px 0 14px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
+}
 .lever { width: 60px; height: 50px; font-size: 20px; }
 /* The engine card: what it's doing, a big Go/Stop and the way it goes; Follow and ⋯ in the top corners. */
 .engine-card { padding-top: 14px; min-width: 290px; }
@@ -240,8 +256,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
   /* And its title and ✕ at the top (the ✕ first, laid over the title's right end); focus scrolls clear of both. */
   .depot-card:has(.depot-extra.ledger) { scroll-padding: 56px 0 72px; }
-  .depot-card:has(.depot-extra.ledger) > .card-title { position: sticky; top: -12px; z-index: 1; align-self: stretch; margin: -12px -14px 0; padding: 12px 48px 6px; text-align: center; background: #faf3e6; box-shadow: 0 6px 8px -6px rgba(60, 40, 20, 0.16); }
-  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; top: -12px; z-index: 2; order: -1; align-self: flex-end; margin: -12px -14px -64px 0; }
+  /* (The ✕ comes first and takes no room: its margins cancel its height and the gap after it, so the title starts where
+     it sticks, at the card's top edge. Pulled up further, the sticky title stayed put and the ledger ran up under it.) */
+  .depot-card:has(.depot-extra.ledger) > .card-title { position: sticky; top: -12px; z-index: 1; align-self: stretch; margin: 0 -14px; padding: 12px 48px 6px; text-align: center; background: #faf3e6; box-shadow: 0 6px 8px -6px rgba(60, 40, 20, 0.16); }
+  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; top: -12px; z-index: 2; order: -1; align-self: flex-end; margin: -12px -14px -54px 0; }
 }
 @media (max-width: 400px) {
   .brand:has(.coins:not([hidden])) .brand-block { display: none; }
@@ -269,8 +287,26 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-card:has(.depot-extra.ledger) > .card-row .chip { min-height: 40px; padding-top: 0; padding-bottom: 0; }
   .depot-card:has(.depot-extra.ledger) { scroll-padding: 0 0 56px; }
   .depot-extra.ledger .ledger-pay { display: none; }
+  /* The workshop's plank choice moves up under the title (the short card is full with its pile and switches, and the
+     choice would be under the fold); its hint is for a taller card. */
+  .depot-card > .card-title { order: -2; }
+  .depot-card > .depot-yard { order: -1; margin-top: 0; }
+  /* (And its pile's line goes under the switches, before its list: the switches stay in view too, 740x360 included.) */
+  .depot-card:has(> .depot-yard:not([hidden])) > .depot-stock { order: 1; }
+  .depot-card:has(> .depot-yard:not([hidden])) > .depot-extra { order: 2; }
+  .depot-yard { margin-bottom: -4px; }
+  .depot-yard .chip { height: 40px; }
+  .depot-yard .yard-hint { display: none; }
   .depot-card:has(.depot-extra.ledger) > .card-title { position: static; margin: 0; padding: 0 34px; background: none; box-shadow: none; }
-  .depot-card:has(.depot-extra.ledger) > .close { position: absolute; top: 0; order: 0; margin: 0; }
+  /* The ✕ rides in the footer, at its left (Automatic is centred; the rewards chip sits over the right corner): in
+     reach however far it's scrolled, at no cost to the ledger's room. */
+  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; bottom: -11px; z-index: 2; order: 3; align-self: flex-start; margin: -57px 0 -11px -10px; }
+  /* Scrolling comes to rest with a row's top at the top (gently: a long fling isn't held back). */
+  .depot-card:has(.depot-extra.ledger) { scroll-snap-type: y proximity; }
+  .depot-extra.ledger > *, .ledger-goods > *, .ledger-rows > * { scroll-snap-align: start; }
+  /* (The card's top is a resting place too, its title's: with none there, a card opened at its top could be snapped
+     down to the first row, its name half cut off. QA at 740x360: opened at 25 px.) */
+  .depot-card:has(.depot-extra.ledger) > .card-title { scroll-snap-align: start; scroll-margin-top: 12px; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
 }
 
@@ -293,11 +329,21 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-orient .chip { padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 /* Draw: above the tray, at the left, while the Track tab is open. */
 /* (A flex box, so its pencil and word are centred as a plain button's text is: Turn's and Flip's, beside it.) */
-.tray-draw { position: absolute; left: 12px; top: -52px; display: none; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+/* Draw (Track tab only) and Clear (any tab): above the tray, at the left, side by side. */
+.tray-pens { position: absolute; left: 12px; top: -52px; display: flex; gap: 6px; }
+.tray-draw { display: none; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 .tray.draw-tab .tray-draw { display: inline-flex; }
 .card-open .tray.draw-tab .tray-draw { display: none; }
+.tray-erase { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+.card-open .tray .tray-erase { display: none; }
+.tray-erase.active { background: linear-gradient(180deg, #f6b19f, #dd6b52); color: #3a120a; }
+/* Clearing: Turn and Flip have nothing to turn. */
+.tray.erasing .tray-orient { display: none !important; }
 /* Turn and Flip do nothing for a drawn line: away while drawing. */
 .tray.drawing .tray-orient { display: none !important; }
+/* Drawing on a phone on its side: the tray is its tabs and Draw only, its shelves put away, so the map between the
+   goals and the tray has room to draw a line in (QA: about 100 px). They're back when Draw is put down. */
+@media (max-height: 520px) { .tray.drawing .scroller { display: none; } }
 /* The tray's head: the tabs, and the tools (Draw, Turn, Flip). On a big screen the tools float above the tray, as
    placed above; on a phone (QA U3, N6) they share the tab row at its right, as icons, and the tabs scroll in the room
    left: nothing floats over the map where the track is being laid, and the tools never cover a tab. */
@@ -308,12 +354,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* (Over the shelf below, so the chips' taps reach just past them, not through to a tile's favourite star.) */
   .tray-tools { display: flex; flex: none; order: 1; gap: 6px; align-items: center; padding: 3px 2px 0 0; position: relative; z-index: 1; }
   .tray-tools .tray-orient { gap: 6px; }
+  .tray-tools .tray-pens { display: contents; }
   .tray-tools .tray-draw, .tray-tools .tray-orient { position: static; top: auto; left: auto; right: auto; }
   .tray-tools .chip { display: inline-flex; align-items: center; justify-content: center; height: 34px; min-width: 40px; padding: 0 9px; font-size: 12px; line-height: 1; box-shadow: 0 2px 6px rgba(60, 40, 20, 0.18); position: relative; }
   /* Drawn small to fit the row, but a finger's 44 px to tap. */
   /* (Sideways, half the gap between chips, so neighbours' reach meets but doesn't overlap; more at the row's ends.) */
   .tray-tools .chip::after { content: ""; position: absolute; inset: -5px -3px; }
   .tray-tools .tray-draw::after { left: -4px; }
+  /* (The eraser's sponge alone: a finger's 44 px wide.) */
+  .tray-tools .chip.tray-erase { min-width: 44px; }
   .tray-tools .tray-flip::after { right: -4px; }
   .tray-tools .chip-word { display: none; }
   .tray-tools .turn-arrow { margin-left: 2px; }
@@ -525,6 +574,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .yard-mode { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
 /* (A little clear of the Automatic row above it: QA N3.) */
 .depot-extra > .yard-mode:first-child { margin-top: 6px; }
+.depot-yard { align-self: stretch; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .yard-mode .chip { flex: 1 1 0; min-width: 0; padding: 0 8px; white-space: nowrap; }
 .yard-hint { font-size: 12px; font-weight: 700; color: #7a5532; text-align: center; text-wrap: balance; }
 /* A town's card in Game mode: its ledger (src/ui/town-ledger.ts) in place of the piles, above the switches. */
@@ -910,6 +960,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .reward-badge .rb-count { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #c8442f; color: #fff; font-size: 12px; font-weight: 900; line-height: 20px; }
 @keyframes reward-bob { 50% { transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .reward-badge { animation: none; } }
+/* While a card is open the badge stands aside (QA, 360 px: it lay over a card's bottom button, the right end of "Clear
+   the ruin", and a tap there opened the rewards; on a phone on its side a docked card reaches it too). It's back when
+   the card closes. */
+body:has(.card:not([hidden])) .reward-badge { display: none; }
 
 /* A phone on its side, an engine with no route yet: "Plan a route" beside Go, in the one row (QA: under it, at 375 px
    it was cut off at the card's foot, behind a scroll). With a route, the card's as ever (it scrolls). */
@@ -921,3 +975,65 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   :not(.planning) > .engine-card:has(.route-none:not([hidden])) > .engine-extra.route { margin-top: 0; align-self: center; }
   :not(.planning) > .engine-card .route-head:has(.route-none:not([hidden])) :is(.engine-extra-label, .route-none) { display: none; }
 }
+
+/* The first-run camera tutorial (ui/controls-tutorial.ts): a small coach card, off the middle of the map. Top right
+   (the goals are top left; toasts wait while it's up); on a phone held upright, just above the tray and its chips
+   (--coach-bottom, set by the HUD: the goals have the top). */
+.coach { position: absolute; z-index: 31; right: max(12px, env(safe-area-inset-right)); top: calc(max(10px, env(safe-area-inset-top)) + 62px); width: min(340px, calc(100% - 24px)); box-sizing: border-box; padding: 10px 12px 10px; border-radius: 16px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 8px 26px rgba(60, 40, 20, 0.22); color: #3a2a1c; pointer-events: auto; }
+.coach[hidden] { display: none; }
+/* (A phone on its side: narrower, to keep clear of the middle of the map.) */
+@media (max-height: 520px) { .coach { width: min(300px, calc(50% - 30px)); } }
+@media (max-width: 640px) and (min-height: 521px) {
+  .coach { top: auto; bottom: var(--coach-bottom, 190px); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; }
+}
+.coach-row { display: flex; align-items: center; gap: 12px; }
+.coach-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 14px; line-height: 1.3; }
+.coach-text b { font-size: 15px; }
+.coach-text small { font-weight: 700; color: #8a6a48; margin-left: 4px; }
+.coach-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.coach-dots { display: flex; gap: 6px; margin-right: auto; }
+.coach-dots .dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(90, 63, 36, 0.22); }
+.coach-dots .dot.now { background: #e2a12b; box-shadow: 0 0 0 2px rgba(226, 161, 43, 0.35); }
+.coach-dots .dot.done { background: #4f9a3a; }
+.coach .chip { min-height: 36px; }
+/* The pictures: a mouse (its wheel turning) and keys pressed in turn, or fingertips moving (CSS only). */
+.coach-art { position: relative; flex: none; width: 64px; height: 56px; display: grid; place-items: center; border-radius: 12px; background: rgba(255, 250, 238, 0.7); }
+.coach-art.done { font-size: 30px; font-weight: 900; color: #4f9a3a; }
+.coach-art.mouse { grid-auto-flow: column; gap: 5px; }
+.coach-art.mouse .m { width: 18px; height: 28px; border: 2.5px solid #6a4a2c; border-radius: 9px; position: relative; }
+.coach-art.mouse .w { position: absolute; left: 50%; top: 4px; width: 3px; height: 7px; margin-left: -1.5px; border-radius: 2px; background: #6a4a2c; }
+.coach-art.mouse.zoom .w { animation: coach-wheel 1s ease-in-out 4; }
+.coach-art.mouse.turn .m, .coach-art.mouse.tilt .m { border-right-color: #e2a12b; }
+.coach-art.mouse.turn .m { animation: coach-sway 1.6s ease-in-out 4; }
+.coach-art.mouse.tilt .m { animation: coach-nod 1.6s ease-in-out 4; }
+.coach-art.mouse.move .m { animation: coach-drift 1.8s ease-in-out 4; }
+.coach-art .caps { display: grid; grid-template-columns: repeat(2, 15px); gap: 2px; }
+/* (W over A S D, as on a keyboard.) */
+.coach-art.move .caps { grid-template-columns: repeat(3, 15px); }
+.coach-art.move .caps kbd:first-child { grid-column: 2; }
+.coach-art.move .caps kbd:nth-child(2) { grid-column: 1; }
+.coach-art kbd { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 3px; background: #fff; box-shadow: 0 1.5px 0 #b08a5c; font: 800 9px/1 inherit; color: #3a2a1c; animation: coach-key 2s 4; animation-delay: calc(var(--i) * 0.5s); }
+.coach-art.touch .f { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: rgba(226, 161, 43, 0.85); box-shadow: 0 0 0 4px rgba(226, 161, 43, 0.25); }
+.coach-art.touch.move .f1 { animation: coach-drift 1.6s ease-in-out 4; }
+.coach-art.touch.zoom .f1 { animation: coach-pinch-a 1.4s ease-in-out 4; }
+.coach-art.touch.zoom .f2 { animation: coach-pinch-b 1.4s ease-in-out 4; }
+.coach-art.touch.turn { animation: coach-twist 1.8s ease-in-out 4; }
+.coach-art.touch.turn .f1 { transform: translate(-13px, -8px); }
+.coach-art.touch.turn .f2 { transform: translate(13px, 8px); }
+.coach-art.touch.tilt .f1, .coach-art.touch.tilt .f2 { animation: coach-lift 1.6s ease-in-out 4; }
+.coach-art.touch.tilt .f1 { left: 16px; }
+.coach-art.touch.tilt .f2 { right: 16px; }
+@keyframes coach-wheel { 50% { transform: translateY(6px); } }
+@keyframes coach-drift { 0%, 100% { transform: translate(-10px, 4px); } 50% { transform: translate(10px, -4px); } }
+@keyframes coach-sway { 0%, 100% { transform: translateX(-6px); } 50% { transform: translateX(6px); } }
+@keyframes coach-nod { 0%, 100% { transform: translateY(-5px); } 50% { transform: translateY(5px); } }
+@keyframes coach-key { 0%, 20% { transform: translateY(1.5px); box-shadow: none; background: #ffe5a8; } 30%, 100% { transform: none; } }
+@keyframes coach-pinch-a { 0%, 100% { transform: translate(-6px, 5px); } 50% { transform: translate(-17px, 13px); } }
+@keyframes coach-pinch-b { 0%, 100% { transform: translate(6px, -5px); } 50% { transform: translate(17px, -13px); } }
+@keyframes coach-twist { 0%, 100% { transform: rotate(-25deg); } 50% { transform: rotate(25deg); } }
+@keyframes coach-lift { 0%, 100% { transform: translateY(10px); } 50% { transform: translateY(-10px); } }
+/* (Each a few times, as the step's card comes up, then still: QA, they ran on for ever, redrawing the page.) */
+@media (prefers-reduced-motion: reduce) { .coach-art, .coach-art * { animation: none !important; } }
+/* After the tutorial, Show me lights up a moment: where the goals start. */
+.goals-show-icon.nudge { animation: coach-nudge 0.9s ease-in-out 4; }
+@keyframes coach-nudge { 50% { box-shadow: 0 0 0 4px #ffc21f, 0 0 14px 4px rgba(255, 170, 0, 0.55); transform: scale(1.08); } }

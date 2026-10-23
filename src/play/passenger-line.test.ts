@@ -3,7 +3,7 @@ import { Editor } from "../editor/editor";
 import { attachPassengers, peopleArrive } from "../game/passengers";
 import { Progress } from "../game/progress";
 import { ready, techOf } from "../game/tech";
-import { buildStarterWorld } from "../game/world";
+import { buildStarterWorld, fixedPieces } from "../game/world";
 import { SIM_HZ, type CarLook } from "../sim";
 import { connectorRef } from "../track";
 import { play } from "./player";
@@ -19,7 +19,7 @@ import { endOn, rulesFor } from "./rules";
 describe("a passenger line", () => {
   it("carries people between two towns, and learns the passenger line as it goes", () => {
     const w = buildStarterWorld();
-    const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+    const fixed = fixedPieces(w);
     const editor = new Editor(w.layout, w.sim, () => {}, (id) => fixed.has(id));
     const [a, b] = w.landscape.towns;
     const st = (i: number) => w.stations.get(w.landscape.towns[i].id)!;

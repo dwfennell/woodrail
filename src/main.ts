@@ -1,12 +1,14 @@
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
-import { Editor, pieceCentre, TRAIN_ON_TRACK } from "./editor/editor";
+import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
 import { viewRoom } from "./ui/view-room";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
-import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, SURF_RIVER, SURF_SEA, type Landscape, type PlotCoord } from "./landscape";
+import { describeLand, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
+import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
+import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, OLDER_SAVE, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
 import { reporter, startLog, type Reporter } from "./debug/report";
@@ -21,7 +23,7 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
-import { cardView, describeThings, firstTimeGift, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
+import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
@@ -69,6 +71,7 @@ import { onPiecesBuilt, TrackView } from "./render/track-view";
 import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
+import { viewOf } from "./ui/controls-tutorial";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { propsInRect } from "./props/placement";
@@ -152,9 +155,9 @@ function initialWorld(): { world: GameWorld; mode: GameMode; linked: boolean; fr
   if (saved && !saved.ok && saved.error === OLDER_SAVE) olderSave = true;
   if (seed !== null) {
     const same = saved?.ok && saved.value.landscape.seed === seed && !saved.value.landscape.starter;
-    return { world: same ? saved.value : createWorld(seed), mode, linked: true, fromSave: !!same };
+    return { world: same ? saved.value : createWorld(seed, false, true, false), mode, linked: true, fromSave: !!same };
   }
-  return { world: saved?.ok ? saved.value : buildStarterWorld(), mode, linked: resumed, fromSave: !!saved?.ok };
+  return { world: saved?.ok ? saved.value : buildStarterWorld(mode === "game"), mode, linked: resumed, fromSave: !!saved?.ok };
 }
 
 const RESUME_KEY = "woodrail.resume";
@@ -194,7 +197,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   /** What the open Research picker was last drawn from (`boardKey`). */
   let boardKeyShown = "";
   // Stations and depots never move (to take up joint play, or to close a near miss).
-  const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values()].includes(id);
+  const isFixedPiece = (id: number): boolean => [...game.stations.values(), ...game.depots.values(), ...game.ruins.values()].includes(id);
   /** Has the train lift's first-time tip been shown (on this device)? */
   let liftTipShown = liftTipSeen();
   /** An editor for the world's track and props (props-only edits skip the track's work). */
@@ -217,6 +220,11 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // An edit, undo or redo refused: it would take up or move a train lift that's carrying a train or has one on it.
     ed.onHeld = (liftId) => {
       hud.toast(liftHeldMessage(game.sim.pieceOccupied(liftId)));
+      audio.refuse();
+    };
+    // An undo or redo refused by the edit itself (a restore's redo, short of planks or coins now).
+    ed.onRefused = (why) => {
+      hud.toast(why);
       audio.refuse();
     };
     // An undo or redo refused: it would take up or move track a train is on (and derail it).
@@ -284,13 +292,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const hud = new Hud(
     document.body,
     {
+      cameraView: () => viewOf(game.camera.position, game.controls.target),
+      cameraGliding: () => game.director.busy,
+      tutorialDone: () => {
+        // Into the goals: Show me lights up a moment (Game mode).
+        const show = document.querySelector<HTMLElement>(".goals:not([hidden]) .goals-show-icon");
+        if (!show) return;
+        show.classList.add("nudge");
+        window.setTimeout(() => show.classList.remove("nudge"), 4000);
+      },
       trayPointerDown: (item, e) => {
         if (trayAllowed(item)) interaction.startTrayDrag(item, e);
       },
       trayTap: (item, pointerType) => {
-        // A click (a mouse or pen) on a piece carries it, for clicks on the map to put down (or puts it away, if it was
-        // carried). Saying why if it can't come out: the toy box is asked again as each goes down.
-        if (item.kind === "piece" && pointerType !== "touch") {
+        // A click (a mouse or pen) on a piece, a model or a train carries it, for clicks on the map to put down (or puts
+        // it away, if it was carried). Saying why if it can't come out: the toy box is asked again as each goes down.
+        if ((item.kind === "piece" || item.kind === "prop" || item.kind === "train") && pointerType !== "touch") {
           if (interaction.isCarried(item) || trayAllowed(item, false)) interaction.carryTrayItem(item);
           return;
         }
@@ -303,6 +320,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
       trayTabChanged: () => interaction.arm(null),
       trayDraw: (on) => interaction.setDrawing(on),
+      trayErase: (on) => interaction.setErasing(on),
       trackTab: (open) => game.showAllEnds(open),
       undo: () => {
         interaction.undo();
@@ -334,12 +352,12 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       doneSelecting: () => interaction.doneSelecting(),
       newLayout: () => {
         saveLastBuilt(mode, null);
-        setWorld(createWorld(Math.floor(Math.random() * 1_000_000)));
+        setWorld(createWorld(Math.floor(Math.random() * 1_000_000), false, true, mode === "game"));
         game.frameLayout();
       },
       resetStarter: () => {
         saveLastBuilt(mode, null);
-        setWorld(buildStarterWorld());
+        setWorld(buildStarterWorld(mode === "game"));
         game.frameLayout();
         openingView();
       },
@@ -348,6 +366,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       // The pill opens the picker on the research it shows (QA P5: "Routes 10/40🪙", up next, opened on another).
       toggleBoard: (pill) => setBoardOpen(!board.open, (pill && pillResearch(progress)) || undefined),
       buyLand: () => buyLand(),
+      clearRuin: () => clearShownRuin(),
+      restoreRuin: () => restoreShownRuin(),
       newGame: () => newGame(),
       openLines: () => openLines(),
       titleScreen: () => showTitle(),
@@ -545,7 +565,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
 
   interaction = new Interaction(game, hud, () => editor, () => onChange());
   game.keysTaken = () => interaction.piecesTakeKeys;
-  interaction.onArmed = (item) => hud.setArmed(item ? trayKey(item) : null);
+  interaction.onArmed = (item, carried) => hud.setArmed(item ? trayKey(item) : null, carried);
   interaction.onPlaced = (snapped) => {
     audio.putdown(snapped);
     if (snapped) hud.haptic("snap");
@@ -557,6 +577,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (i === 0) hud.haptic("snap");
   };
   interaction.onDrawing = (on) => hud.setDrawing(on);
+  interaction.onErasing = (on) => hud.setErasing(on);
   interaction.onRefused = () => {
     audio.refuse();
     hud.haptic("refuse");
@@ -613,31 +634,6 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const distance = Math.min(frameDistance(radius, game.camera.fov, game.camera.aspect) * 0.8, game.controls.maxDistance);
     if (game.camera.position.distanceTo(game.controls.target) < distance) game.director.glideTo(centre, distance, { phi: 0.75, duration: 0.8 });
     game.invalidate();
-  }
-
-  /** What a plot would bring, in a few words. */
-  function describeLand(land: Landscape): string {
-    const parts: string[] = [];
-    if (land.towns.length > 0) parts.push(land.towns.length > 1 ? `${land.towns.length} towns` : "a town");
-    const forests = land.depots.filter((d) => d.kind === "forest").length;
-    const mills = land.depots.filter((d) => d.kind === "sawmill").length;
-    if (forests) parts.push(forests > 1 ? `${forests} forest yards` : "a forest yard");
-    if (mills) parts.push("a sawmill");
-    const g = land.grid;
-    let river = false;
-    let sea = false;
-    let hills = 0;
-    for (let i = 0; i < g.cellCount; i++) {
-      if (g.surface[i] === SURF_RIVER) river = true;
-      if (g.surface[i] === SURF_SEA) sea = true;
-      if (g.height[i] > 0) hills++;
-    }
-    if (sea) parts.push("the coast");
-    if (river) parts.push("a river");
-    if (hills > g.cellCount * 0.25) parts.push("hills");
-    if (parts.length === 0) return "Open countryside.";
-    const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
-    return list.charAt(0).toUpperCase() + list.slice(1) + ".";
   }
 
   /** The plot whose + badge is drawn at this screen point (they float above the ground), if any. */
@@ -704,7 +700,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       editSquare(x, y);
       return true;
     }
-    if (!expanding) return false;
+    if (!expanding) {
+      // An old industry's ruin (seen from too far to take hold of its stub): its card.
+      const ruin = interaction.ruinAtScreen(x, y);
+      if (ruin === -1) return false;
+      openRuin(ruin);
+      return true;
+    }
     const forSale = plotsForSale(game.landscape);
     const p = badgeAt(x, y, forSale) ?? { px: Math.floor(ground.x / PLOT_WIDTH), pz: Math.floor(ground.z / PLOT_DEPTH) };
     if (!forSale.some((q) => q.px === p.px && q.pz === p.pz)) {
@@ -722,6 +724,132 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     game.invalidate();
     return true;
   };
+
+  // ---- old industries' ruins (map sites) -------------------------------------------------------------------------
+
+  /** The ruin whose card is open (site id), or −1. */
+  let ruinShown = -1;
+
+  /** Open an old industry's card: what's around it, what opens it, and Clear the ruin. */
+  function openRuin(siteId: number): void {
+    const site = game.landscape.sites?.[siteId];
+    // (Sandbox has no ruins: none is ever made there.)
+    if (!site || site.cleared || mode !== "game") return;
+    interaction.clearSelection();
+    ruinShown = siteId;
+    hud.showRuinCard(ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)));
+    audio.tap();
+  }
+  interaction.onRuinTap = openRuin;
+
+  /** Can this ruin (a site of the map shown) be restored now (its card offers Restore)? Kept till a blueprint is learned. */
+  const restorable = new WeakMap<object, { learned: number; yes: boolean }>();
+  // Track held over a ruin: which, and what a tap on it offers ("An old farm is in the way: tap it to restore or
+  // clear it"). Only while a piece is refused for a ruin; a few dozen squares looked at.
+  interaction.ruinMessage = (type, flipped, pose) => {
+    const c = poseCentre(type, flipped, pose);
+    const site = game.landscape.sites?.[ruinNear(game.landscape, c.x, c.z)];
+    if (!site || site.cleared) return null;
+    let r = restorable.get(site);
+    if (r?.learned !== progress.learned.size) {
+      r = { learned: progress.learned.size, yes: mode === "game" && ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)).restore !== null };
+      restorable.set(site, r);
+    }
+    return ruinInWay(site, r.yes);
+  };
+
+  /** "Clear the ruin": a few coins (Game mode) take it and its stub away, for track or an industry of your own. */
+  function clearShownRuin(): void {
+    if (ruinShown === -1) return;
+    const t0 = performance.now();
+    // (One undo step, as Restore is: undone, the ruin and its stub come back and the coins are given back.)
+    const done = clearRuinEdit(game.world, editor, ruinShown, {
+      pay: mode === "game" ? clearPayment(progress) : undefined,
+      changed: () => {
+        game.syncRuins();
+        if (mode === "game") hud.setCoins(progress.coins);
+      },
+    });
+    if ("why" in done) {
+      hud.toast(done.why);
+      audio.refuse();
+      return;
+    }
+    ruinShown = -1;
+    hud.hideCards();
+    console.info(`Woodrail: ruin cleared in ${Math.round(performance.now() - t0)} ms`);
+    hud.toast("Cleared");
+    audio.putdown(true);
+  }
+
+  /**
+   * How a restore is paid for and redrawn: Game mode's price (planks from the workshop's yard, coins from hand, as a new
+   * industry's are), nothing in Sandbox; the ruins redrawn, and the coins, as it's done, undone or redone.
+   */
+  function restoreOptions(role: Parameters<typeof gamePayment>[2]): RestoreOptions {
+    return {
+      pay: mode === "game" ? gamePayment(game.world, progress, role) : undefined,
+      footprint: game.propLibrary.footprint,
+      changed: () => {
+        game.syncRuins();
+        if (mode !== "game") return;
+        hud.setCoins(progress.coins);
+        showWorkshop(true);
+      },
+    };
+  }
+
+  /** "Restore": the ruin's stub becomes its industry, in place (one undoable edit), for about half a new one's price. */
+  function restoreShownRuin(): void {
+    const site = ruinShown === -1 ? undefined : game.landscape.sites?.[ruinShown];
+    if (!site) return;
+    const t0 = performance.now();
+    const done = restoreRuin(game.world, editor, site.id, restoreOptions(site.role));
+    if ("why" in done) {
+      hud.toast(done.why, false, 3200);
+      audio.refuse();
+      return;
+    }
+    const ms = performance.now() - t0;
+    ruinShown = -1;
+    hud.hideCards();
+    console.info(`Woodrail: ruin restored in ${ms.toFixed(1)} ms (ruins tile rebuilt in ${game.ruinsView.lastBuildMs.toFixed(1)} ms)`);
+    hud.toast(`Old ${site.role} restored! It works again`, true, 2600);
+    audio.putdown(true);
+    if (mode === "game") {
+      hud.refreshTrayBadges();
+      scheduleSave();
+    }
+  }
+
+  /**
+   * A blueprint just learned opens old industries' ruins (Farming, an old farm): the one nearest the player's line is
+   * named, in a toast that frames it when tapped ("Old farm by Larkfield can be restored").
+   */
+  function ruinOpened(tech: string): void {
+    const sites = (game.landscape.sites ?? []).filter((s) => !s.cleared && siteBlueprint(s.role)?.id === tech);
+    if (sites.length === 0) return;
+    const fixed = new Set([...game.stations.values(), ...game.depots.values(), ...game.ruins.values()]);
+    const line = [...game.layout.pieceIds()].filter((id) => !fixed.has(id)).map((id) => game.layout.getPiece(id)!.pose);
+    const site = nearestRuin(game.landscape, sites[0].role, line.length > 0 ? line : game.landscape.towns.map((t) => t.station));
+    if (!site) return;
+    const place = { x: site.centre.x, z: site.centre.z };
+    const text = `${ruinName(game.landscape, site)} can be restored`;
+    journal.add({ kind: "event", text, place });
+    goalsPanel.newsChanged();
+    hud.toast(text, true, 4200, () => showRuin(site.id));
+  }
+
+  /** Frame a ruin and ring it (a tapped toast: "Old farm by Larkfield can be restored"). */
+  function showRuin(siteId: number): void {
+    const site = game.landscape.sites?.[siteId];
+    if (!site || site.cleared) return;
+    flyTo({ x: site.centre.x, z: site.centre.z });
+    const i = game.landscape.grid.cellAtWorld(site.centre.x, site.centre.z);
+    const marks = goalMarks(game.scene, [{ x: site.centre.x, y: i < 0 ? 0 : game.landscape.grid.groundY(i), z: site.centre.z }]);
+    if (marks) game.flourishes.add(marks);
+    game.invalidate();
+  }
 
   function buyLand(): void {
     if (!chosen) return;
@@ -1002,16 +1130,17 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     {
       newGame: () => newGame(),
       showMe: () => showGoal(),
-      fly: (place) => {
-        // Several spots (new houses, two stations) are framed together, closer than a lone spot.
-        const spots = place.points ?? [place];
-        const f = frameAlong(spots, game.camera.fov, game.camera.aspect, place.points ? PLACE_MARGIN : GOAL_MARGIN);
-        const pts = spots.map((q) => new Vector3(q.x, 0, q.z));
-        frameInRoom(pts, Math.min(f.distance, game.controls.maxDistance), game.controls.maxDistance, pts.length);
-      },
+      fly: (place) => flyTo(place),
     },
     journal,
   );
+  /** Glide to a place (a News entry's, a toast's). Several spots (new houses, two stations) are framed together, closer than a lone spot. */
+  function flyTo(place: JournalPlace): void {
+    const spots = place.points ?? [place];
+    const f = frameAlong(spots, game.camera.fov, game.camera.aspect, place.points ? PLACE_MARGIN : GOAL_MARGIN);
+    const pts = spots.map((q) => new Vector3(q.x, 0, q.z));
+    frameInRoom(pts, Math.min(f.distance, game.controls.maxDistance), game.controls.maxDistance, pts.length);
+  }
   /** Report something in Game mode: logged in the Journal (not in Sandbox); a milestone is also toasted. */
   function note(n: NoteInput, ms?: number, hold = false): JournalEntry | null {
     if (mode !== "game") return null;
@@ -1046,8 +1175,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // A school takes only what the research still lacks (a lookup: the crane asks for every unit).
     school: (kind) => researchLacking(progress, kind) > 0,
     received: (town, kind, n, before) => {
+      const firstFlour = !progress.firstFlour;
       payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
+      if (firstFlour && progress.firstFlour) note({ kind: "milestone", text: `First flour! ${town.name} pays a ${FIRST_FLOUR_BONUS}🪙 bonus`, place: { x: town.station.x, z: town.station.z } }, 3600);
       // Logged quietly, one entry per town and kind for a burst of deliveries.
       note({ kind: "event", key: `deliver:${town.id}:${kind}`, qty: n, text: "", format: (q) => `Delivered ${describeGoods({ [kind]: q })} to ${town.name}`, place: { x: town.station.x, z: town.station.z } });
     },
@@ -1169,6 +1300,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
    * missing is made on the spot, unless `make` is false (only asking).
    */
   interaction.trayAllowed = (item) => trayAllowed(item);
+  interaction.trayCanCarry = (item) => trayAllowed(item, false);
   // After the last of something in the toy box goes down, no next one waits at its end.
   interaction.trayHas = (item) => mode !== "game" || item.kind !== "piece" || progress.hasAnother(game.world, item);
   function trayAllowed(item: ThingItem | { kind: string }, make = true): boolean {
@@ -1382,7 +1514,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showWorkshop();
       scheduleSave();
     },
-  });
+  }, hud.depotYard);
   // The Research picker: the whole tree, each blueprint researched at a school.
   const board = new BlueprintBoard(document.body, {
     pick: (id) => picked(id),
@@ -1479,6 +1611,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     refreshBoard();
     // The goals card at once: a goal it opened counts (and "Research Signals to unlock a goal" goes).
     if (opened.length > 0) checkGoals(true);
+    // Old industries' ruins it opens: the nearest is named, to restore.
+    ruinOpened(id);
     save();
   }
 
@@ -1940,7 +2074,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const id = mode === "game" ? interaction.openDepotId : -1;
     const open = id !== -1 && game.economy.depot(id)?.role === "workshop";
     if (!open) {
-      if (workshopShown !== -1) workshopPanel.hide();
+      // (Its card was closed, or another opened in its place, which cleared the shared box and may have drawn there.)
+      if (workshopShown !== -1) workshopPanel.forget();
       workshopShown = -1;
       return;
     }
@@ -2385,6 +2520,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Planning, the map wants the room: the card slims to its route (Done and the stops), the tray goes, and the view
     // frames the train and its line's places above the card (not when it goes on after the map: see `openMap`).
     hud.setPlanning(on);
+    // (A press picks a stop while planning: the eraser's put down.)
+    if (on) interaction.setErasing(false);
     if (on && frame) requestAnimationFrame(framePlanning);
     // A stop's disc tapped: that place again (A → B → A); a stop is taken off with its ✕ in the card.
     interaction.onTapStopDisc = on
@@ -2907,6 +3044,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (guide.tab) hud.openTray(guide.tab, guide.shelf);
     // The card to choose from ("Make a switch": the workshop's, its Switch row there to tap).
     if (guide.card !== undefined) interaction.openDepotCard(guide.card);
+    // An old industry's ruin to restore ("Open a farm"): its card, with Restore on it.
+    if (guide.ruin !== undefined) openRuin(guide.ruin);
     // The piece it asks for comes out of the tray the way it fits at the spot shown.
     interaction.guideHeld(guide.held ?? null);
     if (guide.points.length > 0) {
@@ -2985,13 +3124,13 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (fresh) {
       // An older save (the title offers only a fresh start for it): loading it keeps it aside before the new map's autosave.
       if (hasOlderSave(next)) loadFromStorage(next);
-      setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000)));
+      setWorld(next === "game" ? freshGameWorld() : createWorld(Math.floor(Math.random() * 1_000_000), false, true, false));
       restoreSession(next, false);
     } else if (next !== mode) {
       const saved = loadFromStorage(next);
       if (saved && !saved.ok) console.warn(`Woodrail: ignoring ${next} autosave (${saved.error})`);
       if (saved && !saved.ok && saved.error === OLDER_SAVE) hud.toast("That map was saved by an older version of the game (it's kept aside): here's a fresh one", false, 6000);
-      setWorld(saved?.ok ? saved.value : buildStarterWorld());
+      setWorld(saved?.ok ? saved.value : buildStarterWorld(next === "game"));
       restoreSession(next, !!saved?.ok);
     }
     enter(next);
@@ -3009,6 +3148,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       () => {
         game.depotView.rebuildUnits();
         game.depotView.setWorld(game.economy, game.layout);
+        // (The ruins are the industries' models too.)
+        game.syncRuins(true);
         for (const key of drawThumbnails(industryItems)) pictureDrawn(key);
         game.invalidate();
       },
@@ -3060,6 +3201,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       progress.coverMap(game.world);
       // (A save from before first-time gifts: its towns' levels were reached already.)
       for (const t of game.landscape.towns) progress.bestLevel = Math.max(progress.bestLevel, townLife.status(t.id).level);
+      // (A save from before the first-flour bonus whose towns have had flour: it's had its first.)
+      flourBefore(progress, game.world);
       syncLandmarks();
       hud.trayBadge = trayBadge;
       hud.trayKnown = (item) => item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id));
@@ -3221,6 +3364,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const lean = 0.15;
     game.lookAt(new Vector3(f.x + (top.x - f.x) * lean * 2, 0, f.z + (top.z - f.z) * lean * 2), f.distance * 1.3, 0.95, f.theta);
     if (mode !== "game") return;
+    keepStartRuinsInView([a.station, b.station]);
     // Their names over them for a while (as "Show me" does): the chip only says "Join two towns".
     if (game.layout.pieceCount === game.stations.size + game.depots.size) {
       const grid = game.landscape.grid;
@@ -3235,6 +3379,50 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       }, 1200);
     }
   }
+  /**
+   * The opening view slid sideways (not drawn back) just enough that the old industries' ruins by the first towns are
+   * on the screen whole, their yards and buildings, if the towns' stations (`keep`) stay on it too. QA, 390 × 844: the
+   * starter's old farm stood at the screen's left edge, half off it. A few points projected, once, at the start.
+   */
+  function keepStartRuinsInView(keep: readonly { x: number; z: number }[]): void {
+    const mid = { x: keep.reduce((s, p) => s + p.x, 0) / keep.length, z: keep.reduce((s, p) => s + p.z, 0) / keep.length };
+    const span = Math.max(...keep.map((p) => Math.hypot(p.x - mid.x, p.z - mid.z)));
+    const ruins = (game.landscape.sites ?? []).filter((s) => !s.cleared && Math.hypot(s.centre.x - mid.x, s.centre.z - mid.z) < span * 1.5);
+    if (ruins.length === 0) return;
+    const margin = 12;
+    const width = game.canvas.getBoundingClientRect().width;
+    const sx = (x: number, y: number, z: number) => {
+      game.camera.updateMatrixWorld();
+      return ((new Vector3(x, y, z).project(game.camera).x + 1) / 2) * width;
+    };
+    // (A ruin's yard, buildings and stub: the box a tap on it finds it in, `ruinAt`'s.)
+    const corners = ruins.flatMap((s) => {
+      const c = Math.cos(s.piece.heading);
+      const n = Math.sin(s.piece.heading);
+      return [[-12, -30], [228, -30], [228, 130], [-12, 130]].map(([t, l]) => ({ x: s.piece.x + c * t - n * l, z: s.piece.z + n * t + c * l }));
+    });
+    for (let k = 0; k < 2; k++) {
+      const xs = corners.map((p) => sx(p.x, 30, p.z));
+      const lo = Math.min(...xs);
+      const hi = Math.max(...xs);
+      const dx = lo < margin ? margin - lo : hi > width - margin ? width - margin - hi : 0;
+      if (Math.abs(dx) < 1 || hi - lo > width - 2 * margin) return;
+      // The view's right, along the ground, and how many pixels a step of it moves the ground at the view's middle.
+      const target = game.controls.target.clone();
+      const right = new Vector3().setFromMatrixColumn(game.camera.matrixWorld, 0).setY(0).normalize();
+      const perMm = (sx(target.x + right.x * 100, 0, target.z + right.z * 100) - sx(target.x, 0, target.z)) / 100;
+      if (!(perMm > 0)) return;
+      const back = { target, distance: game.camera.position.distanceTo(target) };
+      const spherical = new Spherical().setFromVector3(game.camera.position.clone().sub(target));
+      game.lookAt(target.clone().addScaledVector(right, -dx / perMm), back.distance, spherical.phi, spherical.theta);
+      // (The first towns stay in view, or the view stays as it was.)
+      if (keep.some((p) => sx(p.x, 20, p.z) < margin || sx(p.x, 20, p.z) > width - margin)) {
+        game.lookAt(back.target, back.distance, spherical.phi, spherical.theta);
+        return;
+      }
+    }
+  }
+
   const skipGlide = () => {
     if (game.director.busy) game.director.cancel();
   };
@@ -3263,6 +3451,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.toast(headOnTip(mode !== "game" ? null : progress.learned), false, 6000);
   }
 
+  // (The camera tutorial counts the player's own camera moves: told only on frames the camera moved.)
+  game.onCameraMoved = () => hud.coach.cameraMoved();
   game.onFrame = (dt) => {
     interaction.refreshDepotCard();
     // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.
@@ -3380,7 +3570,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   onPiecesBuilt(() => interaction.refreshHeld());
   hud.setHistory(false, false);
   updateConnections(false);
-  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, trayThumbnailsSaved: () => trayThumbnailsSaved });
+  (window as unknown as { woodrail: unknown }).woodrail = Object.assign(game, { editor: () => editor, hud, interaction, title, mode: () => mode, progress: () => progress, journal, note, audio, learn: (id: string) => (progress.learned.add(id), learned(id)), showMe: () => showGoal(), trayThumbnailsSaved: () => trayThumbnailsSaved });
   game.start();
   // Opening in Game mode: start fetching its models now, ahead of play.
   if (mode === "game") ensureGameModels();

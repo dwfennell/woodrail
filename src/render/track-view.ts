@@ -12,6 +12,7 @@ import {
   InstancedMesh,
   Matrix4,
   Mesh,
+  MultiplyBlending,
   Object3D,
   SphereGeometry,
   type Material,
@@ -35,7 +36,6 @@ import { nonIndexed } from "./non-indexed";
 const geometryCache = new Map<string, BufferGeometry>();
 const scratch = new Matrix4();
 const scratch2 = new Matrix4();
-const arrowScaleVec = new Vector3();
 /** Selection outline colours: selected, about to join track, can't go there. */
 export const OUTLINE_TONES = { select: "#ffe489", snap: "#86ec7a", blocked: "#ff7461" } as const;
 export type OutlineTone = keyof typeof OUTLINE_TONES;
@@ -383,67 +383,169 @@ function switchLeverGeometry(): BufferGeometry {
 }
 
 /**
- * The set route's painted chevrons: this many along it, pointing away from the end it's set from. They lie where the
+ * The set route's burned-in chevrons: this many along it, pointing away from the end it's set from. They lie where the
  * route has parted from the switch's other track (`switchArrowPoses`); these fractions of its length are the fallback.
  */
 export const SWITCH_ARROW_AT = [0.42, 0.62, 0.82] as const;
-/** A chevron's size (mm): half its length, half its width, its arms' thickness; and its dark rim's width. */
-const ARROW = { half: 4.4, wide: 6, arm: 2.8, rim: 1.4 } as const;
+/**
+ * A chevron's size (mm) for placing it, at its own size: half its length and width; and the room kept round it (what
+ * the old painted chevrons' rims took: the burns keep their places), most of which its singed edge fills.
+ */
+const ARROW = { half: 4.4, wide: 6, margin: 1.4 } as const;
+/** The chevrons' scales further out (see `arrowScaleFor`): the bigger one is as long as the track is wide. */
+export const ARROW_FAR_SCALES = [1.6, 2.6] as const;
+/** A burn's shape (mm): half its length and width, its arms' thickness square across them, and its singe's width. */
+interface BurnSize {
+  half: number;
+  wide: number;
+  arm: number;
+  singe: number;
+}
+/**
+ * A burn's shape at each size it's drawn (`arrowScaleFor`): its own, close to; further out, bigger, but no wider than
+ * the wood between the grooves (10 mm either side of the middle), singe and all. Burned across a groove, its dark arms
+ * ran into the groove's dark line and the row read as a zigzag; kept between them, it's a sharp ">" the grooves frame.
+ * Its arms are no deeper than its row's chevrons are apart (`clearSpan`), so they never burn over each other: at the
+ * middle size, short with bold arms, to fit three in where the routes part; at the biggest, longest (its rows are at
+ * least 28 mm apart).
+ */
+export const BURN_SIZES: readonly BurnSize[] = [
+  { half: ARROW.half, wide: ARROW.wide, arm: 2.4, singe: 0.8 },
+  { half: 6.0, wide: 8.2, arm: 3.2, singe: 0.6 },
+  { half: 12.6, wide: 8.6, arm: 6.0, singe: 0.7 },
+];
 /**
  * How far (mm) a chevron's middle stands from the centre line of any other track through the switch: clear of that
- * track's groove (its far edge 16 mm out) by the chevron's half-width with its rim (7.4), and a little more.
+ * track's groove (its far edge 16 mm out) by the chevron's half-width with its margin (7.4), and a little more.
  */
 export const SWITCH_ARROW_CLEAR = 24;
 /**
- * Chevron colours: cream, like toy track's stencilled arrows (a warmer orange on a pinned switch), on a dark brown rim
- * that makes them read against the light wood from the usual high camera (QA N1: cream alone was ~1.3:1 on birch).
+ * Chevron burns: what each multiplies the wood under it by (the wood's own grain, light and shadow show through). A
+ * scorched brown, dark enough to read as a mark of its own from the usual high camera (QA N1: a mark must stand well off
+ * the birch there) but light enough that the grain still reads through it (QA on switch-burned: at #4a2a14 the wood
+ * went near black, its grain lost); a pinned switch's is a red brand, strongly red, so it differs by hue and lightness.
  */
-export const SWITCH_ARROW_CREAM = "#fff3d2";
-/**
- * A pinned switch's: a vivid red-orange, well away from the birch's own yellow-orange in hue and saturation (QA: the
- * softer #f08a3a rendered at the wood's hue, 0.08 against its 0.1, and read only by its rim).
- */
-export const SWITCH_ARROW_PINNED = "#ff5f14";
-export const SWITCH_ARROW_RIM = "#3b2311";
-const arrowCream = new Color(SWITCH_ARROW_CREAM);
+export const SWITCH_ARROW_BURN = "#7a5340";
+export const SWITCH_ARROW_PINNED = "#ff2a0c";
+const arrowBurn = new Color(SWITCH_ARROW_BURN);
 const arrowPinned = new Color(SWITCH_ARROW_PINNED);
 /** How long a lever takes to swing over (and the chevrons to slide across), s. */
 export const SWITCH_SWING_S = 0.12;
-/** The chevrons' rims lie this far (mm) above the track's top, their faces a little higher: painted on, clear in depth. */
-const ARROW_LIFT = 0.4;
+/** The burns lie this far (mm) above the track's top, pulled forward in depth too: in the wood, not on it. */
+const ARROW_LIFT = 0.05;
 
 /**
- * A chevron painted on the track, pointing along +x, flat (4 triangles, facing up), `grow` mm bigger all round (its
- * rim), `y` up.
+ * A chevron burned into the track, pointing along +x, flat and facing up: its charred core (4 triangles), and round it
+ * a singe fading out to nothing (12), as vertex colours with alpha for a multiplying blend (`burnMaterial`).
  */
-function switchArrowGeometry(grow = 0, y = 0): BufferGeometry {
-  const a = ARROW.half + grow;
-  const w = ARROW.wide + grow;
-  const t = ARROW.arm + 2 * grow;
-  // Outer tip, outer back corners, and the inner edge (the arms `t` thick).
-  const tip = [a, 0];
-  const tipIn = [a - t, 0];
-  const left = [-a, -w];
-  const leftIn = [-a + t, -w];
-  const right = [-a, w];
-  const rightIn = [-a + t, w];
-  const tris = [
-    [tip, left, leftIn],
-    [tip, leftIn, tipIn],
-    [tip, tipIn, rightIn],
-    [tip, rightIn, right],
+/**
+ * A burn's outline, pointing along +x (piece-local x, z, mm): its charred core's (outer tip, a back corner, the inner
+ * edge, the other back corner) and its singe's outer edge round it, corner for corner.
+ */
+export function burnOutline(size: BurnSize): { core: number[][]; singe: number[][] } {
+  const { half: a, wide: w, arm, singe } = size;
+  // The arms' slant off the chevron's axis, and how far in along x and z their inner edges lie (the arms `arm` thick
+  // square across them, their back ends cut square to the axis, as a stencilled ">").
+  const slant = Math.atan2(w, 2 * a);
+  const inX = arm / Math.sin(slant);
+  const inZ = arm / Math.cos(slant);
+  // The core's outline, in order round it: outer tip, a back corner, the inner edge, the other back corner.
+  const ring = [
+    [a, 0],
+    [-a, w],
+    [-a, w - inZ],
+    [a - inX, 0],
+    [-a, -w + inZ],
+    [-a, -w],
   ];
+  // The singe's outer edge: each corner pushed out along its mitre (capped at the sharp corners).
+  const n = ring.length;
+  const area = ring.reduce((s, p, i) => s + p[0] * ring[(i + 1) % n][1] - ring[(i + 1) % n][0] * p[1], 0);
+  const out = ring.map((p, i) => {
+    const q = ring[(i + n - 1) % n];
+    const r = ring[(i + 1) % n];
+    // Outward normals of the two edges meeting here.
+    const side = area > 0 ? 1 : -1;
+    const n1 = norm2(p[1] - q[1], q[0] - p[0], side);
+    const n2 = norm2(r[1] - p[1], p[0] - r[0], side);
+    const m = norm2(n1[0] + n2[0], n1[1] + n2[1], 1);
+    const k = Math.min(2.2, 1 / Math.max(0.2, m[0] * n1[0] + m[1] * n1[1]));
+    return [p[0] + m[0] * singe * k, p[1] + m[1] * singe * k];
+  });
+  return { core: ring, singe: out };
+}
+
+/**
+ * How deep a burn's arms are along its axis, singe and all (from its singe's tip back to the singe in its notch), and
+ * how far it reaches either side of its middle and either way along it: chevrons in a row closer than its depth would
+ * burn over each other (a near-black blob, not ">>>": QA on switch-burned).
+ */
+export function burnExtent(size: BurnSize): { depth: number; reach: number; length: number } {
+  const { singe } = burnOutline(size);
+  return {
+    depth: singe[0][0] - singe[3][0],
+    reach: Math.max(...singe.map((p) => Math.abs(p[1]))),
+    length: Math.max(...singe.map((p) => Math.abs(p[0]))),
+  };
+}
+
+function switchArrowGeometry(size: BurnSize = BURN_SIZES[0]): BufferGeometry {
+  const { core: ring, singe: out } = burnOutline(size);
+  const n = ring.length;
+  const tris: [number[], number, number[], number, number[], number][] = [];
+  const [tip, right, rightIn, tipIn, leftIn, left] = ring;
+  for (const [p, q, r] of [
+    [tip, right, rightIn],
+    [tip, rightIn, tipIn],
+    [tip, tipIn, leftIn],
+    [tip, leftIn, left],
+  ]) tris.push([p, 1, q, 1, r, 1]);
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    tris.push([ring[i], 1, out[i], 0, out[j], 0], [ring[i], 1, out[j], 0, ring[j], 1]);
+  }
   const pos: number[] = [];
-  for (const [p, q, r] of tris) {
+  const col: number[] = [];
+  for (const [p, pa, q, qa, r, ra] of tris) {
     // Wound to face up (+y): flip a triangle whose normal points down.
     const up = (q[1] - p[1]) * (r[0] - p[0]) - (q[0] - p[0]) * (r[1] - p[1]) > 0;
-    for (const v of up ? [p, q, r] : [p, r, q]) pos.push(v[0], y, v[1]);
+    const vs: [number[], number][] = up ? [[p, pa], [q, qa], [r, ra]] : [[p, pa], [r, ra], [q, qa]];
+    // Full strength at the core's edge, nothing at the singe's: the burn's edge is soft, its shape still crisp.
+    for (const [v, s] of vs) pos.push(v[0], 0, v[1]), col.push(1, 1, 1, s ? 1 : 0);
   }
   const g = new BufferGeometry();
   g.setAttribute("position", new BufferAttribute(new Float32Array(pos), 3));
   g.setAttribute("normal", new BufferAttribute(new Float32Array(pos.map((_, i) => (i % 3 === 1 ? 1 : 0))), 3));
+  g.setAttribute("color", new BufferAttribute(new Float32Array(col), 4));
   g.computeBoundingSphere();
   return g;
+}
+
+/** A 2D vector scaled to length 1, times `side`. */
+function norm2(x: number, z: number, side: number): [number, number] {
+  const l = Math.hypot(x, z) || 1;
+  return [(x / l) * side, (z / l) * side];
+}
+
+/**
+ * The burns' material: drawn after the wood, multiplying what's there by the instance colour (vertex alpha fading it
+ * to nothing at the singe's edge), so the mark is in the wood, grain and shading and all, not a decal on it. Unlit and
+ * writing no depth: the cheapest shader there is, one draw for every switch's chevrons.
+ */
+function burnMaterial(): MeshBasicMaterial {
+  return new MeshBasicMaterial({
+    color: "#ffffff",
+    vertexColors: true,
+    transparent: true,
+    premultipliedAlpha: true,
+    blending: MultiplyBlending,
+    depthWrite: false,
+    fog: false,
+    toneMapped: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
 }
 
 /** The routes a switch can set from end `end`, in the order its state picks them, as `routeFrom` does. */
@@ -473,15 +575,20 @@ export function arrowEnds(def: PieceDef): number[] {
 
 /**
  * Every chevron a switch shows in a state: for each end it shows (`arrowEnds`), along the route set from there,
- * pointing away from it. Two ends set along the same route (a crossover set over) each keep to the half of it nearer
- * them, so the two rows don't lie on each other.
+ * pointing away from it; on a crossover, every row points the one way, as the link goes over (line B's row lies where
+ * it did, turned round), so set straight its two lines read as two rows side by side, not facing each other (QA,
+ * sc3). Two ends set along the same route (a crossover set over) show one row.
  */
 export function switchArrows(def: PieceDef, state: number, scale = 1): { x: number; z: number; heading: number }[] {
   const sets = arrowEnds(def).map((end) => ({ end, route: setRoute(def, state, end)! }));
   // (Two ends set along the same route, a crossover set over: one row the whole way across, from the first end, so the
   // marks read as one way over, not two rows pointing at each other mid-link.)
   const shown = sets.filter((o, i) => sets.findIndex((p) => p.route === o.route) === i);
-  return shown.flatMap(({ end, route }) => switchArrowPoses(route, def, end, scale));
+  return shown.flatMap(({ end, route }) => {
+    const row = switchArrowPoses(route, def, end, scale);
+    // (A crossover's line set from its far end: the same places, turned round, first to last the way they now point.)
+    return def.web && end !== route.from ? row.reverse().map((a) => ({ ...a, heading: a.heading + Math.PI })) : row;
+  });
 }
 
 /**
@@ -495,8 +602,6 @@ export function arrowScaleFor(distance: number, was = 1): number {
   const step = (at: number, k: number) => distance > (was >= k ? at - 200 : at);
   return step(2800, ARROW_FAR_SCALES[1]) ? ARROW_FAR_SCALES[1] : step(1800, ARROW_FAR_SCALES[0]) ? ARROW_FAR_SCALES[0] : 1;
 }
-/** The chevrons' scales further out (see `arrowScaleFor`): the bigger one makes a chevron the track's full width. */
-export const ARROW_FAR_SCALES = [1.6, 2.6] as const;
 
 /**
  * Where a route's chevrons lie on its piece (piece-local x, z and heading, pointing away from end `end`), along the
@@ -519,40 +624,83 @@ export function switchArrowPoses(route: PathDef, def?: PieceDef, end = 0, scale 
 }
 
 const clearSpans = new WeakMap<PathDef, Map<string, [number, number] | null>>();
+/** How far a route is from the piece's other tracks, every `SPAN_STEP` mm along it (each way along it): see `clearSpan`. */
+const clearances = new WeakMap<PathDef, Map<boolean, Float64Array>>();
+const SPAN_STEP = 2;
+/** The most clearance (mm) a row of chevrons asks for, at their biggest size (see `clearSpan`), and a little more. */
+const SPAN_REACH = Math.ceil(SWITCH_ARROW_CLEAR - (ARROW.wide + ARROW.margin) + (ARROW.wide + ARROW.margin) * Math.max(...ARROW_FAR_SCALES)) + 1;
+
+/**
+ * How far (mm) a route stands from every other track through its piece at each step along it (from its `to` end if
+ * `back`): worked out once for each route and way along it, whatever size its chevrons are drawn at, so a step in the
+ * zoom only scans it (QA, sc3: the first step to a new size took up to 7 ms).
+ */
+function clearanceAlong(route: PathDef, def: PieceDef, back: boolean): Float64Array {
+  let cached = clearances.get(route);
+  if (!cached) clearances.set(route, (cached = new Map()));
+  const had = cached.get(back);
+  if (had) return had;
+  const len = pathLength(route.geom);
+  // The other tracks' points, in squares as big as the most clearance any size asks: only the 3 × 3 round a spot can
+  // be near enough to matter (anything further is as good as clear, and recorded as the square's size).
+  const G = SPAN_REACH;
+  const squares = new Map<number, number[]>();
+  const q = createSample();
+  for (const p of def.paths) {
+    if (p === route) continue;
+    const l = pathLength(p.geom);
+    for (let d = 0; d <= l; d += SPAN_STEP) {
+      samplePath(p.geom, d, q);
+      const key = Math.floor(q.x / G) * 4096 + Math.floor(q.z / G);
+      let pts = squares.get(key);
+      if (!pts) squares.set(key, (pts = []));
+      pts.push(q.x, q.z);
+    }
+  }
+  const s = createSample();
+  const out = new Float64Array(Math.floor(len / SPAN_STEP) + 1);
+  for (let k = 0; k < out.length; k++) {
+    const d = k * SPAN_STEP;
+    samplePath(route.geom, back ? len - d : d, s);
+    const cx = Math.floor(s.x / G);
+    const cz = Math.floor(s.z / G);
+    let near = G * G;
+    for (let i = -1; i <= 1; i++)
+      for (let j = -1; j <= 1; j++) {
+        const pts = squares.get((cx + i) * 4096 + cz + j);
+        if (pts) for (let n = 0; n < pts.length; n += 2) near = Math.min(near, (pts[n] - s.x) ** 2 + (pts[n + 1] - s.z) ** 2);
+      }
+    out[k] = Math.sqrt(near);
+  }
+  cached.set(back, out);
+  return out;
+}
 
 /**
  * The first stretch of a switch's route (mm from the end it's set from: its `to` end if `back`) where it's parted from
- * every other track through the piece (`SWITCH_ARROW_CLEAR` from their centre lines), its chevrons kept inside it,
- * ending short of the far end; null if there's no stretch long enough. Worked out once for each route and way along it
- * (piece definitions are shared).
+ * every other track through the piece (`SWITCH_ARROW_CLEAR` from their centre lines, or, drawn bigger, the other
+ * track's groove plus the burn's own reach at that size), its chevrons kept inside it, ending short of the far end;
+ * null if there's no stretch long enough. Long enough: at their own size, the chevrons a millimetre apart at least;
+ * drawn bigger, at least their arms' depth apart (`burnExtent`), so they nest as a ">>>" without burning over each
+ * other. Worked out once for each route and way along it (piece definitions are shared).
  */
 function clearSpan(route: PathDef, def: PieceDef, back: boolean, scale = 1): [number, number] | null {
   let cached = clearSpans.get(route);
   if (!cached) clearSpans.set(route, (cached = new Map()));
   const key = `${back}|${scale}`;
   if (cached.has(key)) return cached.get(key)!;
-  const STEP = 2;
-  const ARROW_HALF = (ARROW.half + ARROW.rim) * scale;
-  // Clear of the other track's groove (its far edge 16 mm from its centre line) by the chevron's half-width at this size.
-  const CLEAR = SWITCH_ARROW_CLEAR - (ARROW.wide + ARROW.rim) + (ARROW.wide + ARROW.rim) * scale;
+  const STEP = SPAN_STEP;
+  const far = BURN_SIZES[ARROW_FAR_SCALES.indexOf(scale as (typeof ARROW_FAR_SCALES)[number]) + 1];
+  const burn = scale === 1 || !far ? null : burnExtent(far);
+  // Room either way along the route for a chevron, and how far a chevron's middle must stand from another track's
+  // centre line: clear of its groove (its far edge 16 mm out) by the chevron's half-width at this size, and a little.
+  const ARROW_HALF = burn ? burn.length + 0.6 : (ARROW.half + ARROW.margin) * scale;
+  const CLEAR = burn ? 16 + burn.reach + 0.6 : SWITCH_ARROW_CLEAR - (ARROW.wide + ARROW.margin) + (ARROW.wide + ARROW.margin) * scale;
+  const needs = (burn ? burn.depth + 0.6 : 2 * ARROW_HALF + 1) * (SWITCH_ARROW_AT.length - 1);
   const END_MARGIN = 8;
   const len = pathLength(route.geom);
-  const others = def.paths.filter((p) => p !== route).map((p) => {
-    const l = pathLength(p.geom);
-    const pts: number[] = [];
-    const q = createSample();
-    for (let d = 0; d <= l; d += STEP) {
-      samplePath(p.geom, d, q);
-      pts.push(q.x, q.z);
-    }
-    return pts;
-  });
-  const s = createSample();
-  const clear = (d: number) => {
-    samplePath(route.geom, back ? len - d : d, s);
-    for (const pts of others) for (let i = 0; i < pts.length; i += 2) if (Math.hypot(pts[i] - s.x, pts[i + 1] - s.z) < CLEAR) return false;
-    return true;
-  };
+  const along = clearanceAlong(route, def, back);
+  const clear = (d: number) => along[Math.round(d / STEP)] >= CLEAR;
   let from = -1;
   let span: [number, number] | null = null;
   const last = len - END_MARGIN - ARROW_HALF;
@@ -561,9 +709,8 @@ function clearSpan(route: PathDef, def: PieceDef, back: boolean, scale = 1): [nu
     if (ok && from === -1) from = d;
     if ((!ok || d + STEP > last) && from !== -1) {
       const to = ok ? d : d - STEP;
-      // Long enough for the row: at their own size, the chevrons (rims and all) a millimetre apart at least; drawn bigger,
-      // nested half into each other (a stencilled ">>>").
-      if (to - from >= (scale === 1 ? 2 * ARROW_HALF + 1 : ARROW_HALF) * (SWITCH_ARROW_AT.length - 1)) {
+      // (Their own size: measured from the stretch's start, as the row always was. Bigger: from the first one's middle.)
+      if ((burn ? to - from - ARROW_HALF : to - from) >= needs) {
         span = [from + ARROW_HALF, to];
         break;
       }
@@ -647,13 +794,16 @@ export class TrackView {
   private pins = new Map<number, Mesh>();
   private readonly pinGeometry = new CylinderGeometry(1.5, 1.5, 7, 8).translate(3.6, 5.5, 0);
   /**
-   * The set routes' painted chevrons, every switch's in one instanced mesh (`switchArrows`): rebuilt only when the
+   * The set routes' burned-in chevrons, every switch's in one instanced mesh (`switchArrows`): rebuilt only when the
    * switches are (`syncSwitches`, after a flip, and on any layout change), moved only while a lever swings.
    */
   private arrowMesh: InstancedMesh | null = null;
-  /** Each chevron's cream (or orange) face, a little above its dark rim (a second mesh sharing its instances). */
-  private readonly arrowGeometry = switchArrowGeometry(0, 0.3);
-  private readonly arrowRimGeometry = switchArrowGeometry(ARROW.rim);
+  /**
+   * Each chevron's burn, its charred core and singe multiplied into the wood (one draw for all of them): a shape for
+   * each size it's drawn at (`BURN_SIZES`), swapped in on a step of the zoom.
+   */
+  private readonly arrowGeometries = BURN_SIZES.map((s) => switchArrowGeometry(s));
+  private readonly arrowMaterial = burnMaterial();
   /** Each switch as drawn (chevrons, lever), by piece id. */
   private readonly shown = new Map<number, SwitchShown>();
   /** Levers swinging over now, by piece id (see `syncSwitches`). */
@@ -1031,7 +1181,7 @@ export class TrackView {
       n++;
       outline.geometry = geometry;
       outline.visible = true;
-      geometry.computeBoundingBox();
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
       const box = geometry.boundingBox ?? new Box3();
       const size = box.getSize(new Vector3());
       const centre = box.getCenter(new Vector3());
@@ -1237,7 +1387,6 @@ export class TrackView {
     let mesh = this.arrowMesh;
     if (mesh && mesh.count !== n) {
       this.group.remove(mesh);
-      (mesh.children[0] as InstancedMesh | undefined)?.dispose();
       mesh.dispose();
       mesh = this.arrowMesh = null;
     }
@@ -1246,26 +1395,19 @@ export class TrackView {
       return;
     }
     if (!mesh) {
-      mesh = new InstancedMesh(this.arrowGeometry, this.mats.lacquer("#ffffff"), n);
-      mesh.receiveShadow = true;
-      // A few dozen triangles a switch: never culled (their bounds would move as they slide), never picked.
+      mesh = new InstancedMesh(this.arrowGeometries[0], this.arrowMaterial, n);
+      // A few dozen triangles a switch: never culled (their bounds would move as they slide), never picked. (No shadow
+      // of their own to take: they darken the wood as drawn, shadow and all.)
       mesh.frustumCulled = false;
       mesh.raycast = () => {};
       mesh.userData.kind = "switch-arrows";
-      // The dark rim under each: the same instances, drawn first (one more draw, 4 more triangles a chevron).
-      const rim = new InstancedMesh(this.arrowRimGeometry, this.mats.lacquer(SWITCH_ARROW_RIM), n);
-      rim.instanceMatrix = mesh.instanceMatrix;
-      rim.receiveShadow = true;
-      rim.frustumCulled = false;
-      rim.raycast = () => {};
-      rim.userData.kind = "switch-arrows-rim";
-      mesh.add(rim);
       this.group.add(mesh);
       this.arrowMesh = mesh;
     }
+    mesh.geometry = this.arrowGeometries[ARROW_FAR_SCALES.indexOf(this.arrowScale as (typeof ARROW_FAR_SCALES)[number]) + 1];
     for (const [id, s] of this.shown) {
       if (s.first === -1) continue;
-      const tone = s.pinned ? arrowPinned : arrowCream;
+      const tone = s.pinned ? arrowPinned : arrowBurn;
       for (let i = 0; i < s.arrows.length / 3; i++) mesh.setColorAt(s.first + i, tone);
       this.placeArrows(id);
     }
@@ -1281,9 +1423,9 @@ export class TrackView {
     const w = this.swings.get(id);
     const arrows = w ? this.swingPose(w).arrows : s.arrows;
     const top = TRACK_THICKNESS + ARROW_LIFT;
-    const k = this.arrowScale;
+    // (Their size is in the shape drawn at this scale: `BURN_SIZES`.)
     for (let i = 0; i < arrows.length / 3; i++) {
-      scratch.makeRotationY(-arrows[i * 3 + 2]).scale(arrowScaleVec.set(k, 1, k)).setPosition(arrows[i * 3], top, arrows[i * 3 + 1]);
+      scratch.makeRotationY(-arrows[i * 3 + 2]).setPosition(arrows[i * 3], top, arrows[i * 3 + 1]);
       mesh.setMatrixAt(s.first + i, scratch2.copy(s.piece).multiply(scratch));
     }
     mesh.instanceMatrix.needsUpdate = true;
@@ -1452,14 +1594,20 @@ export class TrackView {
     const list = [...ids];
     const same = list.length === this.highlighted.length && list.every((id, i) => id === this.highlighted[i]);
     if (same && tone === this.tone && tint === this.tinted) return;
-    this.tinted = tint;
-    this.tone = tone;
     this.outlineMaterial.color.set(OUTLINE_TONES[tone]);
     this.toneColour.set(PICK_TINTS[tone]);
-    // Several picked pieces are tinted too (an outline alone is hard to see from above).
+    // Several picked pieces are tinted too (an outline alone is hard to see from above). In the same tone, only the
+    // pieces that came or went are coloured again (a sweep marks pieces one at a time).
     const was = this.highlighted;
+    const sameLook = tone === this.tone && tint === this.tinted;
+    this.tinted = tint;
+    this.tone = tone;
     this.highlighted = list;
-    this.recolour(new Set([...was, ...list]));
+    if (sameLook) {
+      const before = new Set(was);
+      const now = new Set(list);
+      this.recolour([...was.filter((id) => !now.has(id)), ...list.filter((id) => !before.has(id))]);
+    } else this.recolour(new Set([...was, ...list]));
     if (!same) this.syncOutline();
   }
 
@@ -1484,8 +1632,8 @@ export class TrackView {
     this.leverGeometry.dispose();
     this.arrowMesh?.dispose();
     this.arrowMesh = null;
-    this.arrowGeometry.dispose();
-    this.arrowRimGeometry.dispose();
+    for (const g of this.arrowGeometries) g.dispose();
+    this.arrowMaterial.dispose();
     this.pinGeometry.dispose();
     this.outlineMaterial.dispose();
   }

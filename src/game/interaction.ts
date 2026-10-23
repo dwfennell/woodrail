@@ -1,5 +1,5 @@
 import { Box3, Euler, Group, Matrix4, MOUSE, Plane, Raycaster, Vector2, Vector3, Mesh, type BufferGeometry, type Object3D, type TOUCH } from "three";
-import { Editor, pieceCentre, poseCentre, poseForCentre, type Placement, type RiserAt } from "../editor/editor";
+import { Editor, pieceCentre, poseCentre, poseForCentre, TRAIN_ON_TRACK, type Placement, type RiserAt } from "../editor/editor";
 import { buildCarModel, carVariant, disposeObject } from "../render/train-models";
 import { dustPuff } from "../render/dust";
 import { settle, shrinkAway, turn, wobbleBack, type Flourish, type PiecePose } from "../render/flourishes";
@@ -24,10 +24,12 @@ import { isDoubleTap, type TapRecord } from "./camera-director";
 import { dropOutcome, heldReason, letGoRefusal, onwardEnds, refusalText } from "./drop";
 import type { Game } from "./game";
 import { DEPOT_NAMES, depotName, INDUSTRY_ROLE } from "./world";
+import { ruinAt, SITE_NAMES } from "./map-sites";
 import { LEVER_PROPS, leversNear, pointsWay, signalRoadAt } from "./lineside";
 import { checkYard, flipHint, footprintInYards, hasFootprint, townMessage, inYardMessage, isYardBlock, placedYard, trackInYards, yardMessage, type PlacedYard, type YardBlock, type YardObstacle } from "./depot-footprint";
 import { RoadHand, type RoadDrag } from "./road-hand";
 import { DrawHand } from "./draw-hand";
+import { eraseRefusal, type EraseRefusal } from "./erase";
 import { branchesOff } from "./draw-junctions";
 import { pressDraws } from "./draw-press";
 import { trackBlock, trackSupport, type TrackRules } from "./track-rules";
@@ -130,6 +132,10 @@ const GROUP_SNAP_REACH = 30;
 const GROUP_SNAP_ANGLE = (8 * Math.PI) / 180;
 /** A ready piece put down with a tap seats on a free track end this far (mm) from the finger (the end itself is track). */
 const TAP_REACH = 80;
+/** A clearing sweep looks under the pointer this often along its way (px): a fast sweep doesn't jump a piece. */
+const ERASE_STEP_PX = 8;
+/** At most this many squares of roads and trees a sweep passed over are outlined (each is a line drawn). */
+const ERASE_STAY_MARKS = 48;
 /** How high a held piece floats above where it would land (mm). */
 const HOLD_LIFT = 12;
 /** An OrbitControls touch mapping that does nothing (it falls through to "no gesture"). */
@@ -293,6 +299,8 @@ type Mode =
       kind: "drag-prop";
       pointerId: number;
       asset: string;
+      /** Carried (clicked in the tray, see `carriedThing`): why it can't go isn't said as the mouse passes, only on a click. */
+      quiet?: boolean;
       /** Prop being moved, or −1 for a new one from the tray. */
       propId: number;
       /** Where a moved prop stood (to put it back). */
@@ -315,6 +323,11 @@ type Mode =
   | { kind: "drag-road"; pointerId: number; drag: RoadDrag; overTray: boolean }
   /** Drawing a line of track (the Draw chip on): see `DrawHand`. */
   | { kind: "draw-track"; pointerId: number }
+  /**
+   * Clearing (the Clear chip on): a tap or a sweep marks what it passes over, taken away when the finger's lifted (see
+   * `commitErase`). Where the pointer last was, what's marked, and why what it passed over stays (said once, on lift).
+   */
+  | { kind: "erase"; pointerId: number; x: number; y: number; pieces: Set<number>; props: Set<number>; told: Map<EraseRefusal, string>; stays: Set<number> }
   | {
       kind: "drag-scenery";
       pointerId: number;
@@ -425,6 +438,15 @@ export class Interaction {
   private drawing = false;
   /** Called when drawing is switched on or off (Esc, another tab). */
   onDrawing: ((on: boolean) => void) | null = null;
+  /** The Clear chip is on: a tap or a sweep takes away what it passes over. */
+  private erasing = false;
+  /** Called when clearing is switched on or off (Esc, Draw, a piece taken from the tray). */
+  onErasing: ((on: boolean) => void) | null = null;
+  /** Round the props a sweep has marked (red), one each, made as needed. */
+  private readonly eraseOutlines: FootprintOutline[] = [];
+  /** Round the squares of roads and trees a sweep passed over, which stay (faint). */
+  private readonly eraseStayOutlines: FootprintOutline[] = [];
+  private eraseStaysShown = 0;
   /** A new ghost joined the line being drawn. */
   onDrawGrow: (() => void) | null = null;
   /** A drawn line's piece went down (`i` from the line's start). */
@@ -508,6 +530,9 @@ export class Interaction {
     if (m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-cargo" || m.kind === "drag-prop") this.game.moveShadows();
     if ((m.kind === "drag-piece" || m.kind === "drag-train" || m.kind === "drag-prop" || m.kind === "drag-group") && this.game.director.edgePanning) this.updateDrag(this.lastX, this.lastY);
     if (m.kind === "draw-track" && this.game.director.edgePanning) this.updateDraw(this.lastX, this.lastY);
+    // Carrying: the ghost's placed again under the mouse when the view has moved (a pan, the wheel, a glide), and not
+    // otherwise (QA: it stayed where it was through a pan).
+    if (m.kind === "idle" && this.carrying && this.carryAt && this.carryCameraMoved()) this.refreshCarried();
     if (m.kind === "drag-piece" && dt > 0) {
       const s = m.shown;
       const px = s.x;
@@ -542,8 +567,10 @@ export class Interaction {
   startTrayDrag(item: TrayItem, e: PointerEvent): void {
     this.hidePreview();
     this.cancel();
+    this.setErasing(false);
     // Something else taken from the tray: the ready piece is put away (a piece dragged out is ready once placed).
-    if ((this.armed && trayKey(this.armed) !== trayKey(item)) || this.roadReady) this.arm(null);
+    if ((this.armed && trayKey(this.armed) !== trayKey(item)) || this.roadReady || (this.carriedThing && trayKey(this.carriedThing.item) !== trayKey(item))) this.arm(null);
+    if (this.carriedThing) this.showCarriedThing(null);
     this.clearSelection();
     // The last piece's card would cover the bottom of the view, where this one may be going.
     this.hud.hideCards();
@@ -622,8 +649,13 @@ export class Interaction {
    * zooming keep it). Null when none is.
    */
   private armed: TrayItem | null = null;
-  /** Called when the ready tray piece changes. */
-  onArmed: ((item: TrayItem | null) => void) | null = null;
+  /** Called when the ready tray piece changes (`carried`: clicked in the tray, following the mouse: see `carried`). */
+  onArmed: ((item: TrayItem | null, carried?: boolean) => void) | null = null;
+  /**
+   * May one more of this tray item come out now, the toy box having none left of it (Game mode: made on the spot)?
+   * Says why not if it can't. Asked as a carried piece's last one goes down. Null: always.
+   */
+  trayCanCarry: ((item: TrayItem) => boolean) | null = null;
 
   /** Kits whose models are built (or asked for) ahead of a drag, and those waiting their turn. */
   private readonly kitsWarmed = new Set<PieceTypeId>();
@@ -662,6 +694,7 @@ export class Interaction {
     if (on === this.drawing) return;
     this.drawing = on;
     if (on) {
+      this.setErasing(false);
       // The first stroke shouldn't be the one the drawing code is compiled on (see `warmDrawing`): when idle, once.
       whenIdle(() => warmDrawing());
       this.draw.warm(whenIdle);
@@ -687,7 +720,39 @@ export class Interaction {
 
   private drawHinted = false;
 
+  /** Switch clearing on or off (the Clear chip): a tap takes away what's under it, a sweep all it passes over. */
+  setErasing(on: boolean): void {
+    if (on === this.erasing) return;
+    this.erasing = on;
+    if (on) {
+      this.setDrawing(false);
+      this.arm(null);
+      this.clearSelection();
+      this.hud.hideCards();
+      if (!this.eraseHinted) {
+        this.eraseHinted = true;
+        this.hud.toast("Tap or sweep over things to clear them · two fingers to pan", false, 3600);
+      }
+    } else if (this.mode.kind === "erase") this.cancel();
+    this.onErasing?.(on);
+  }
+
+  get isErasing(): boolean {
+    return this.erasing;
+  }
+
+  /** Does a press clear now: Clear on, and no train's route being planned (a press picks a stop then)? */
+  private get erasesNow(): boolean {
+    return this.erasing && !this.onPickPlace;
+  }
+
+  private eraseHinted = false;
+
   arm(item: TrayItem | null): void {
+    // Taking something from the tray puts the eraser down.
+    if (item) this.setErasing(false);
+    // (A carried model or train is put away by anything made ready, or by nothing: see `carriedThing`.)
+    this.dropCarriedThing();
     // A road is laid where the map is clicked (see `readyRoad`); anything else puts a ready road away.
     if (item?.kind === "road") {
       this.readyRoad(item);
@@ -697,6 +762,7 @@ export class Interaction {
     if (item && item.kind !== "piece") item = null;
     if (item === this.armed || (item && this.armed && trayKey(item) === trayKey(this.armed))) return;
     this.armed = item;
+    if (this.carried) this.carryCursor(false);
     this.carried = false;
     this.carryAt = null;
     this.hidePreview();
@@ -768,14 +834,105 @@ export class Interaction {
   /** A right button pressed on the map while carrying: let go without moving, it puts the carried piece away. */
   private rightDown: { id: number; x: number; y: number } | null = null;
 
+  /**
+   * A model or a train carried (clicked in the tray, as a piece is: see `carried`): its ghost, worked out by its drag's
+   * own `updateDrag` as the mouse moves; each click on the map takes one from the tray and puts it down there, as a drag
+   * out of the tray would (Game mode: made on the spot, or refused saying why).
+   */
+  private carriedThing: { item: Extract<TrayItem, { kind: "prop" | "train" }>; m: Extract<Mode, { kind: "drag-prop" | "drag-train" }> } | null = null;
+
+  /** Is anything carried (a piece, a model or a train)? */
+  private get carrying(): boolean {
+    return this.carried || this.carriedThing !== null;
+  }
+
   /** Is this tray item carried (clicked in the tray: see `carried`)? */
   isCarried(item: TrayItem): boolean {
+    if (this.carriedThing) return trayKey(this.carriedThing.item) === trayKey(item);
     return this.carried && this.isArmed(item);
+  }
+
+  /** The carried model or train put away: its ghost (and a model's outline) gone, unmarked in the tray. */
+  private dropCarriedThing(): void {
+    const c = this.carriedThing;
+    if (!c) return;
+    this.carriedThing = null;
+    this.carryAt = null;
+    this.carryCursor(false);
+    this.game.scene.remove(c.m.ghost);
+    if (c.m.kind === "drag-train") disposeObject(c.m.ghost);
+    else this.propOutline.hide();
+    this.game.invalidate();
+    this.onArmed?.(null);
+  }
+
+  /** A model or train's carried ghost, as its drag out of the tray starts it (turned as the tray says). */
+  private carriedDrag(item: Extract<TrayItem, { kind: "prop" | "train" }>): Extract<Mode, { kind: "drag-prop" | "drag-train" }> {
+    if (item.kind === "prop") return { ...this.propDrag(item.asset, -1, -3, this.nextPropHeading(), null, { x: 0, z: 0 }), quiet: true };
+    const cars = item.cars.map((kind, i) => ({ kind, facing: 1 as const, lever: 0 as const, look: item.looks?.[i] ?? ("classic" as const) }));
+    const ghost = this.trainGhost(cars);
+    ghost.visible = false;
+    this.game.scene.add(ghost);
+    return { kind: "drag-train", pointerId: -3, cars, origin: null, ghost, target: null, overTray: true };
+  }
+
+  /** The carried model or train shown where the mouse is (x, y), as its drag would hold it there; or hidden (null). */
+  private showCarriedThing(at: { x: number; y: number } | null): void {
+    const c = this.carriedThing;
+    if (!c || this.mode.kind !== "idle") return;
+    if (!at) {
+      if (!c.m.ghost.visible) return;
+      c.m.ghost.visible = false;
+      if (c.m.kind === "drag-prop") this.propOutline.hide();
+      this.game.invalidate();
+      return;
+    }
+    const touch = this.lastPointerWasTouch;
+    this.lastPointerWasTouch = false;
+    this.mode = c.m;
+    this.updateDrag(at.x, at.y);
+    this.mode = { kind: "idle" };
+    this.lastPointerWasTouch = touch;
+    this.game.director.setEdgePointer(null);
+    this.game.moveShadows();
+    this.game.invalidate();
+  }
+
+  /**
+   * A click on the map with a model or train carried: one taken from the tray and put down there, as if dragged out
+   * and let go (Game mode: made on the spot, or refused saying why, which puts it away). The next follows the mouse.
+   */
+  private placeCarriedThing(x: number, y: number): void {
+    const c = this.carriedThing;
+    if (!c) return;
+    if (this.trayAllowed && !this.trayAllowed(c.item)) {
+      this.arm(null);
+      return;
+    }
+    c.m.ghost.visible = false;
+    this.startTrayDrag(c.item, { pointerId: -1 } as PointerEvent);
+    const m = this.mode;
+    if (m.kind !== "drag-prop" && m.kind !== "drag-train") return;
+    const touch = this.lastPointerWasTouch;
+    this.lastPointerWasTouch = false;
+    this.updateDrag(x, y);
+    this.lastPointerWasTouch = touch;
+    m.overTray = false;
+    if (m.kind === "drag-prop") this.dropProp(m);
+    else this.dropTrain(m);
+    // (Carried, what's put down isn't selected, nor its card opened: the next goes down with the next click.)
+    if (this.carriedThing) {
+      this.clearSelection();
+      this.hud.hideCards();
+      // A model comes out turned as the last one went down.
+      if (c.m.kind === "drag-prop") c.m.heading = this.nextPropHeading();
+      this.showCarriedThing({ x, y });
+    }
   }
 
   /** A tray item clicked with a mouse or pen: a piece is carried (or put away, if it was); a road is made ready. */
   carryTrayItem(item: TrayItem): void {
-    if (item.kind !== "piece") {
+    if (item.kind !== "piece" && item.kind !== "prop" && item.kind !== "train") {
       this.tapTrayPiece(item);
       return;
     }
@@ -785,15 +942,48 @@ export class Interaction {
     }
     this.cancel();
     this.setDrawing(false);
+    this.setErasing(false);
     this.arm(null);
     this.clearSelection();
     this.hud.hideCards();
-    this.arm(item);
-    this.carried = true;
+    if (item.kind === "piece") {
+      this.arm(item);
+      this.carried = true;
+    } else this.carriedThing = { item, m: this.carriedDrag(item) };
+    this.onArmed?.(item, true);
+    this.carryCursor(true);
+    // (Up a good while, the first time: QA missed it at three seconds.)
     if (!this.carryHinted) {
       this.carryHinted = true;
-      this.hud.toast("Click to place · Esc to stop", false, 3200);
+      this.hud.toast("Click to place · Esc to stop", false, 7000);
     }
+  }
+
+  /** Over the map, the pointer says something's carried (a copy cursor), or goes back to the arrow. */
+  private carryCursor(on: boolean): void {
+    this.game.canvas.style.cursor = on ? "copy" : "";
+  }
+
+  /** The camera as last seen with something carried (see `tick`): its ghost is placed again when it moves. */
+  private readonly carryCamera: number[] = [];
+
+  /** Has the camera moved since this was last asked (see `tick`)? */
+  private carryCameraMoved(): boolean {
+    const c = this.game.camera;
+    const now = [c.position.x, c.position.y, c.position.z, c.quaternion.x, c.quaternion.y, c.quaternion.z, c.quaternion.w];
+    const last = this.carryCamera;
+    let moved = last.length !== now.length;
+    for (let i = 0; i < now.length && !moved; i++) moved = Math.abs(now[i] - last[i]) > (i < 3 ? 0.01 : 1e-6);
+    if (moved) for (let i = 0; i < now.length; i++) last[i] = now[i];
+    return moved;
+  }
+
+  /** Whatever's carried shown again where the mouse is (the view moved, or an undo changed the map). */
+  private refreshCarried(): void {
+    const at = this.carryAt;
+    if (!at || this.mode.kind !== "idle") return;
+    if (this.carriedThing) this.showCarriedThing(at);
+    else if (this.carried) this.showPreview(at.x, at.y);
   }
 
   /** The carried piece's ghost shown again where the mouse is (it was turned or flipped in the tray). */
@@ -976,7 +1166,15 @@ export class Interaction {
     // (A kit piece from a models shelf, in hand or ready, turns as a piece: the shelf's own Turn is for models.)
     if ((props && !this.holdingKit) || this.mode.kind === "drag-prop") {
       if (this.mode.kind === "drag-prop") this.rotateSelected();
-      else this.propHeading = this.nextPropHeading() + Math.PI / 4;
+      else {
+        this.propHeading = this.nextPropHeading() + Math.PI / 4;
+        // (Carried, its ghost turns where it is.)
+        const c = this.carriedThing;
+        if (c?.m.kind === "drag-prop") {
+          c.m.heading = this.propHeading;
+          if (this.carryAt) this.showCarriedThing(this.carryAt);
+        }
+      }
       return;
     }
     const holding = this.mode.kind === "drag-piece";
@@ -1070,10 +1268,19 @@ export class Interaction {
     }
     if (this.mode.kind !== "idle") return;
     // Carrying, a right-click puts the piece away (a right-drag still turns the view: see `onUp`).
-    if (this.carried && e.pointerType === "mouse" && e.button === 2) this.rightDown = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    if (this.carrying && e.pointerType === "mouse" && e.button === 2) this.rightDown = { id: e.pointerId, x: e.clientX, y: e.clientY };
     if (e.pointerType === "mouse" && e.button !== 0) return;
     // Finish any settle/turn first: animating pieces are hidden from picking until their stand-in is done.
     this.game.flourishes.clear();
+    // Clearing: the press marks what's under it, and a sweep from there all it passes over (two fingers still pan).
+    if (this.erasesNow && this.touches.size <= 1) {
+      this.game.controls.enabled = false;
+      const m: Mode & { kind: "erase" } = { kind: "erase", pointerId: e.pointerId, x: e.clientX, y: e.clientY, pieces: new Set(), props: new Set(), told: new Map(), stays: new Set() };
+      this.mode = m;
+      this.eraseAt(m, e.clientX, e.clientY);
+      this.showErase(m);
+      return;
+    }
     // Selected scenery (land editing's Move tool) is taken hold of on any of its squares.
     if (this.landMove && this.selectedScenery) {
       const i = this.squareAt(e.clientX, e.clientY);
@@ -1090,8 +1297,8 @@ export class Interaction {
       this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, road: true };
       return;
     }
-    // A carried piece: a click puts one down there (handled as a floor tap, so a drag still pans).
-    if (this.carried && this.touches.size <= 1) {
+    // A carried piece (model, train): a click puts one down there (handled as a floor tap, so a drag still pans).
+    if (this.carrying && this.touches.size <= 1) {
       this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, carry: true };
       return;
     }
@@ -1239,9 +1446,12 @@ export class Interaction {
     }
     // A carried piece's ghost follows the mouse over the map (not while the camera's being dragged), worked out as a
     // held piece is: the same path as a drag's moves.
-    if (m.kind === "idle" && this.carried && e.pointerType !== "touch" && !this.floorDown) {
+    // (While the camera's dragged, only where the mouse is: the ghost's placed again as the view moves, see `tick`.)
+    if (m.kind === "idle" && this.carrying && e.pointerType !== "touch" && this.floorDown) this.carryAt = e.target === this.game.canvas ? { x: e.clientX, y: e.clientY } : null;
+    if (m.kind === "idle" && this.carrying && e.pointerType !== "touch" && !this.floorDown) {
       this.carryAt = e.target === this.game.canvas ? { x: e.clientX, y: e.clientY } : null;
-      if (this.carryAt) this.showPreview(e.clientX, e.clientY);
+      if (this.carriedThing) this.showCarriedThing(this.carryAt);
+      else if (this.carryAt) this.showPreview(e.clientX, e.clientY);
       else if (this.preview?.ghost.visible) {
         this.preview.ghost.visible = false;
         this.game.invalidate();
@@ -1249,6 +1459,10 @@ export class Interaction {
     }
     if (this.vetoPin(e)) return;
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
+    if (m.kind === "erase") {
+      this.sweepErase(m, e);
+      return;
+    }
     if (this.vetoHold(e)) return;
     if (m.kind === "draw-track") {
       this.feelBranch(e);
@@ -1462,7 +1676,7 @@ export class Interaction {
 
   /**
    * Pin a switch, or unpin it (`cue`: a buzz, and a toast: the first time ever it's pinned, what pinning does; each
-   * unpin, "Unpinned"): its peg shows or goes and its chevrons change colour; it's saved.
+   * unpin, "Unpinned"): its peg shows or goes and its burned chevrons change colour (red when pinned); it's saved.
    */
   private togglePin(pieceId: number, cue = true): void {
     const g = this.game;
@@ -1589,7 +1803,7 @@ export class Interaction {
     const right = this.rightDown;
     if (right && right.id === e.pointerId) {
       this.rightDown = null;
-      if (this.carried && Math.hypot(e.clientX - right.x, e.clientY - right.y) < dragSlop(e.pointerType)) this.arm(null);
+      if (this.carrying && Math.hypot(e.clientX - right.x, e.clientY - right.y) < dragSlop(e.pointerType)) this.arm(null);
     }
     const f = this.floorDown;
     if (f && f.id === e.pointerId) {
@@ -1610,6 +1824,11 @@ export class Interaction {
           this.roads.update(r.drag, this.squareAt(e.clientX, e.clientY), false);
           this.roads.drop(r.drag, false);
           r.drag = this.roads.begin(r.item.piece, r.drag.held, r.item.auto);
+          this.lastTap = null;
+          return;
+        }
+        if (f.carry && this.carriedThing) {
+          this.placeCarriedThing(e.clientX, e.clientY);
           this.lastTap = null;
           return;
         }
@@ -1701,6 +1920,11 @@ export class Interaction {
       else this.tap(m.press, m.add);
       return;
     }
+    if (m.kind === "erase") {
+      this.mode = { kind: "idle" };
+      this.commitErase(m);
+      return;
+    }
     if (m.kind === "draw-track") {
       this.game.director.setEdgePointer(null);
       this.mode = { kind: "idle" };
@@ -1790,6 +2014,7 @@ export class Interaction {
       this.putGroupBack(m);
     } else if (m.kind === "drag-road") this.roads.cancel(m.drag);
     else if (m.kind === "draw-track") this.draw.cancel();
+    else if (m.kind === "erase") this.showErase(null);
     this.mode = { kind: "idle" };
   }
 
@@ -1849,8 +2074,12 @@ export class Interaction {
       const depot = g.economy.depotAtPiece(p.pieceId);
       // (A cargo kit's depot, Sandbox's loaders and unloaders, has nothing to set: its piece is picked, as any kit's.)
       const kitDepot = !!depot && !!kitOf(g.layout.getPiece(p.pieceId)!.type);
+      const ruin = this.ruinOf(p.pieceId);
       if (depot && !kitDepot) this.openDepot(depot.id);
-      else if (this.fixedLabel(p.pieceId)) this.hud.toast(this.fixedLabel(p.pieceId)!);
+      else if (ruin !== -1 && this.onRuinTap) {
+        this.clearSelection();
+        this.onRuinTap(ruin);
+      } else if (this.fixedLabel(p.pieceId)) this.hud.toast(this.fixedLabel(p.pieceId)!);
       else if (this.picking || add) this.togglePick(p.pieceId);
       else this.selectPiece(p.pieceId);
       return;
@@ -1912,6 +2141,29 @@ export class Interaction {
     const tapped = found.train.cars[found.index].id;
     this.keepClearOfCard(() => g.trainView.carObject(tapped)?.getWorldPosition(new Vector3()) ?? null);
     this.hintDrag();
+  }
+
+  /** The old industry's site whose stub piece this is, or −1. */
+  private ruinOf(pieceId: number): number {
+    for (const [siteId, id] of this.game.ruins) if (id === pieceId) return siteId;
+    return -1;
+  }
+
+  /**
+   * An old industry's ruin tapped (its yard, buildings or stub): the game opens its card. A ruin on land not yet
+   * bought isn't: a tap there is the land's.
+   */
+  onRuinTap: ((siteId: number) => void) | null = null;
+
+  /** The standing ruin (site id) drawn at this screen point, or −1: what the ray meets first of the ruins, if anything. */
+  ruinAtScreen(x: number, y: number): number {
+    this.setNdc(x, y);
+    const g = this.game;
+    for (const h of this.raycaster.intersectObject(g.ruinsView.group, true)) {
+      const id = ruinAt(g.landscape, h.point.x, h.point.z);
+      if (id !== -1) return id;
+    }
+    return -1;
   }
 
   private selectPiece(id: number): void {
@@ -2253,6 +2505,10 @@ export class Interaction {
       this.turnTrayPiece();
       return;
     }
+    if (this.carriedThing?.m.kind === "drag-prop" && this.mode.kind === "idle") {
+      this.turnTrayPiece(true);
+      return;
+    }
     if (this.mode.kind === "drag-piece") {
       this.mode.heading += Math.PI / 4;
       // Seen at once, finger still (it snaps, or is refused, turned).
@@ -2337,6 +2593,8 @@ export class Interaction {
     if (reason === "hill") this.hillWhy = hillMessage(levelsAbove(this.game.landscape, type, flipped, pose, y));
     // A depot is told it's the depot (its name, as its yard's messages say), not the track, that keeps out of town.
     if (reason === "town") this.townWhy = townMessage(type);
+    // An old industry's ruin: which, and what a tap on it offers (only worked out when it's so).
+    if (reason === "ruin") this.ruinWhy = this.ruinMessage?.(type, flipped, pose) ?? BLOCK_MESSAGES.ruin;
     if (reason) return { reason, risers: [] };
     // A depot's yard and buildings beside its track need room too; other track keeps out of a player's depot's yard.
     const yard = this.yardBlock(type, pose, y, ignoreId) ?? this.inYard(type, flipped, pose, y, ignoreId);
@@ -2359,6 +2617,13 @@ export class Interaction {
   siteRule: ((type: PieceTypeId, pose: Pose, ignoreId: Ignore) => string | null) | null = null;
   /** The message for the last "site" refusal. */
   private siteWhy = "";
+  /**
+   * What to say when a piece meets an old industry's ruin ("An old farm is in the way: tap it to restore or clear
+   * it"), or null for the plain message. Asked only while a piece is refused for a ruin.
+   */
+  ruinMessage: ((type: PieceTypeId, flipped: boolean, pose: Pose) => string | null) | null = null;
+  /** The message for the last "ruin" refusal. */
+  private ruinWhy = BLOCK_MESSAGES.ruin;
 
   /**
    * Is there room beside a depot piece's track for its yard (see `checkYard`)? Null for other pieces, and for a map's
@@ -2478,7 +2743,7 @@ export class Interaction {
     const ignoreKey = typeof ignoreId === "number" ? ignoreId : [...ignoreId].join(",");
     const key = `flip|${type}|${flipped}|${pose.x}|${pose.z}|${pose.heading}|${y}|${ignoreKey}|${reason}|${this.game.layout.pieceCount}`;
     if (this.hintFor?.key === key) return this.hintFor.hint;
-    const said = { memo: this.yardMemo, yard: this.yardWhy, site: this.siteWhy, hill: this.hillWhy, town: this.townWhy, inYard: this.inYardWhy };
+    const said = { memo: this.yardMemo, yard: this.yardWhy, site: this.siteWhy, hill: this.hillWhy, town: this.townWhy, ruin: this.ruinWhy, inYard: this.inYardWhy };
     // Turned right round on the same track (where the splice puts it held the other way), all of it checked.
     const hint = this.splices(type) ? flipHint(type, pose, (turned) => this.placement(type, flipped, turned, y, ignoreId).reason, reason) : null;
     // (The turned-round check mustn't take the place of what's said, or remembered, for where it's held.)
@@ -2487,6 +2752,7 @@ export class Interaction {
     this.siteWhy = said.site;
     this.hillWhy = said.hill;
     this.townWhy = said.town;
+    this.ruinWhy = said.ruin;
     this.inYardWhy = said.inYard;
     this.hintFor = { key, hint };
     return hint;
@@ -2571,6 +2837,7 @@ export class Interaction {
   private blockWhy(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
     if (reason === "town") return this.townWhy;
+    if (reason === "ruin") return this.ruinWhy;
     if (reason === "splice-fit" || reason === "splice-busy" || reason === "splice-onto") return SPLICE_MESSAGES[reason];
     if (isYardBlock(reason)) return this.yardWhy;
     if (reason === "in-yard") return this.inYardWhy;
@@ -2668,6 +2935,10 @@ export class Interaction {
 
   /** The name of a fixed piece (a town's station or a depot), or null for ordinary track. */
   private fixedLabel(pieceId: number): string | null {
+    for (const [siteId, id] of this.game.ruins) {
+      const site = this.game.landscape.sites?.[siteId];
+      if (id === pieceId && site) return `Old ${SITE_NAMES[site.role]}`;
+    }
     for (const [townId, stationId] of this.game.stations) {
       if (stationId === pieceId) {
         const name = this.game.landscape.towns.find((t) => t.id === townId)?.name;
@@ -2779,6 +3050,156 @@ export class Interaction {
 
   // ---- dragging pieces --------------------------------------------------------------------------------------
 
+  // ---- clearing (the eraser) ---------------------------------------------------------------------------------
+
+  /**
+   * The pointer moved while clearing: mark what's under it at every few pixels along the way (a fast sweep mustn't
+   * skip a piece), and show the marks if any were added.
+   */
+  private sweepErase(m: Mode & { kind: "erase" }, e: PointerEvent): void {
+    const before = m.pieces.size + m.props.size + m.stays.size;
+    for (const c of coalesced(e)) {
+      const steps = Math.min(64, Math.ceil(Math.hypot(c.clientX - m.x, c.clientY - m.y) / ERASE_STEP_PX));
+      for (let i = 1; i <= steps; i++) this.eraseAt(m, m.x + ((c.clientX - m.x) * i) / steps, m.y + ((c.clientY - m.y) * i) / steps);
+      m.x = c.clientX;
+      m.y = c.clientY;
+    }
+    if (m.pieces.size + m.props.size + m.stays.size !== before) this.showErase(m);
+  }
+
+  /** Mark what's under (x, y) to be cleared, if it may be; note why something may not (said on lift: `eraseRefusal`). */
+  private eraseAt(m: Mode & { kind: "erase" }, x: number, y: number): void {
+    const hit = this.pickExact(x, y);
+    // (The first reason of each kind is kept: a depot's track and its building are one thing that stays.)
+    const note = (kind: EraseRefusal, why: string) => {
+      if (!m.told.has(kind)) m.told.set(kind, why);
+    };
+    // A road, or a tree of the map's (nothing else there): it stays, its square marked faintly so the sweep shows it
+    // passed over it.
+    if (!hit || hit.kind === "road") {
+      const i = hit?.kind === "road" ? hit.cell : this.squareAt(x, y);
+      if (i === -1 || m.stays.has(i)) return;
+      if (hit) note("road", "Roads stay: tap one with Clear off to take it up");
+      else if (sceneryAt(this.game.landscape, i)?.kind === "tree") note("tree", "Trees stay: the Land tab moves them");
+      else return;
+      m.stays.add(i);
+      return;
+    }
+    if (hit.kind === "piece") {
+      const id = hit.pieceId;
+      if (m.pieces.has(id)) return;
+      const fixed = this.fixedLabel(id);
+      if (fixed) note("station", `${fixed} stays`);
+      else if (this.game.sim.pieceOccupied(id)) note("busy", TRAIN_ON_TRACK);
+      else m.pieces.add(id);
+    } else if (hit.kind === "prop") {
+      if (m.props.has(hit.propId)) return;
+      if (this.townHouse(hit.propId)) note("house", "The town's houses stay");
+      else m.props.add(hit.propId);
+    } else if (hit.kind === "depot") note("station", "Stations and depots stay");
+    else if (hit.kind === "car") note("train", "Trains stay: take one off from its card");
+  }
+
+  /**
+   * These pieces less any stand among them that holds up track staying behind (a stand swept on its own, under track the
+   * sweep missed, would leave that track floating).
+   */
+  private keepCarryingStands(ids: number[]): number[] {
+    const layout = this.game.layout;
+    const going = new Set(ids);
+    const stands = ids.filter((id) => layout.getPiece(id)?.type === "riser");
+    if (stands.length === 0) return ids;
+    const w: WorldConnector = { x: 0, z: 0, heading: 0, y: 0, kind: "socket" };
+    const held = new Set<number>();
+    for (const id of layout.pieceIds()) {
+      const p = layout.getPiece(id)!;
+      if (going.has(id) || p.type === "riser") continue;
+      const count = getPieceDef(p.type, p.flipped).connectors.length;
+      for (let i = 0; i < count; i++) {
+        layout.worldConnector(connectorRef(id, i), w);
+        for (const s of stands) {
+          const r = layout.getPiece(s)!;
+          if (Math.hypot(w.x - r.pose.x, w.z - r.pose.z) < 6 && w.y > r.y) held.add(s);
+        }
+      }
+    }
+    return held.size === 0 ? ids : ids.filter((id) => !held.has(id));
+  }
+
+  /** Show what a sweep has marked (red), or nothing (null). */
+  private showErase(m: (Mode & { kind: "erase" }) | null): void {
+    const g = this.game;
+    g.trackView.setHighlights(m ? m.pieces : [], "blocked");
+    let k = 0;
+    for (const id of m?.props ?? []) {
+      const p = g.props.get(id);
+      if (!p) continue;
+      let o = this.eraseOutlines[k];
+      if (!o) {
+        o = this.eraseOutlines[k] = new FootprintOutline(true);
+        g.scene.add(o.line);
+      }
+      o.show(scaleFootprint(g.propLibrary.footprint(p.asset), p.scale) ?? null, p.x, p.y, p.z, p.heading, "#ff4a3a");
+      k++;
+    }
+    for (; k < this.eraseOutlines.length; k++) this.eraseOutlines[k].hide();
+    // The squares of roads and trees it passed over that stay: a faint outline each (the first few dozen).
+    // (Only the ones new since last time are drawn: a sweep only adds to them.)
+    const grid = g.landscape.grid;
+    const from = m ? this.eraseStaysShown : 0;
+    k = 0;
+    for (const i of m?.stays ?? []) {
+      if (k >= ERASE_STAY_MARKS) break;
+      if (k < from) {
+        k++;
+        continue;
+      }
+      let o = this.eraseStayOutlines[k];
+      if (!o) {
+        o = this.eraseStayOutlines[k] = new FootprintOutline();
+        g.scene.add(o.line);
+      }
+      const x = grid.centreX(grid.colOf(i));
+      const z = grid.centreZ(grid.rowOf(i));
+      o.show({ cx: 0, cz: 0, hw: CELL / 2 - 8, hd: CELL / 2 - 8 }, x, hillsOf(grid).groundAt(x, z), z, 0, "#c9b79a");
+      k++;
+    }
+    this.eraseStaysShown = k;
+    for (; k < this.eraseStayOutlines.length; k++) this.eraseStayOutlines[k].hide();
+    // (Only drawn again: marking changes nothing the rest of the game keeps. QA: the whole on-change, a mark, 14 ms.)
+    this.game.invalidate();
+  }
+
+  /**
+   * The finger's lifted: take away what the sweep marked (the stands under its pieces with them), as one undo step.
+   * Track a train came onto meanwhile, and a lift that's carrying one, stay.
+   */
+  private commitErase(m: Mode & { kind: "erase" }): void {
+    const g = this.game;
+    this.showErase(null);
+    // (Track a train rolled onto while the sweep was on its way stays too, and is said with the rest.)
+    const free = [...m.pieces].filter((id) => g.layout.getPiece(id) && !g.sim.pieceOccupied(id));
+    if (free.length < [...m.pieces].filter((id) => g.layout.getPiece(id)).length && !m.told.has("busy")) m.told.set("busy", TRAIN_ON_TRACK);
+    const why = eraseRefusal(m.told);
+    if (why) this.hud.toast(why);
+    const ids = this.keepCarryingStands(this.withRisers(free)).filter((id) => !this.liftHeld(id));
+    const props = [...m.props].filter((id) => g.props.get(id));
+    if (ids.length === 0 && props.length === 0) return;
+    const pieces = ids.map((id) => g.layout.getPiece(id)!);
+    this.editor().group(() => {
+      if (ids.length > 0) this.editor().removeGroup(ids);
+      this.removeProps(props);
+    });
+    // Stand-ins lift and shrink away where the pieces were (a few, for a big sweep).
+    for (const p of pieces.slice(0, 24)) {
+      const mesh = ghostMesh(p.type, p.flipped, [g.mats.track, g.mats.trackCut, g.mats.bridgePaint], g.bridgeLevelsOf(p), g.archFloorsOf(p));
+      mesh.position.set(p.pose.x, p.y, p.pose.z);
+      mesh.rotation.y = -p.pose.heading;
+      g.scene.add(mesh);
+      g.flourishes.add(shrinkAway(mesh, () => g.scene.remove(mesh)));
+    }
+  }
+
   // ---- picking several pieces --------------------------------------------------------------------------------
 
   /** Piece card "Select more": the selected piece is the first picked, and taps on track pick more. */
@@ -2858,8 +3279,13 @@ export class Interaction {
    * joint to track left behind stays with that track).
    */
   private pickedWithRisers(): number[] {
+    return this.withRisers(this.picked);
+  }
+
+  /** These pieces and the risers that hold only them up (see `pickedWithRisers`). */
+  private withRisers(pieces: Iterable<number>): number[] {
     const layout = this.game.layout;
-    const ids = [...this.picked].filter((id) => layout.getPiece(id));
+    const ids = [...pieces].filter((id) => layout.getPiece(id));
     const members = new Set(ids);
     const ends: { x: number; z: number; y: number; mine: boolean }[] = [];
     const w: WorldConnector = { x: 0, z: 0, heading: 0, y: 0, kind: "socket" };
@@ -3545,6 +3971,8 @@ export class Interaction {
           this.arm(m.tray);
           // (Carried, the next follows the mouse instead: see `carried`.)
           if (!this.carried) this.previewNextAt(id);
+        } else if (m.tray && !this.drawing && this.carried && (this.trayCanCarry?.(m.tray) ?? true)) {
+          // Carried, the last in the toy box gone: the next is made on the spot (`trayCanCarry` said why, if it can't).
         } else if (m.tray && !this.drawing) this.arm(null);
         return;
       }
@@ -3740,10 +4168,13 @@ export class Interaction {
     };
   }
 
-  /** Is something selected or held that R and F act on (turn, flip)? Else they tilt the view. */
+  /**
+   * Is something selected, held or carried that R and F act on (turn, flip)? Else they tilt the view. (A carried train
+   * isn't turned by them: they tilt the view then, as with nothing.)
+   */
   get piecesTakeKeys(): boolean {
     const k = this.mode.kind;
-    return k === "drag-piece" || k === "drag-prop" || this.selectedPiece !== -1 || this.selectedProp !== -1;
+    return k === "drag-piece" || k === "drag-prop" || this.selectedPiece !== -1 || this.selectedProp !== -1 || this.carried || this.carriedThing?.m.kind === "drag-prop";
   }
 
   /** Cmd or Ctrl went down on its own (and nothing else since): a tap that flips. */
@@ -3770,6 +4201,7 @@ export class Interaction {
     else if (e.key === "Escape") {
       this.arm(null);
       if (this.mode.kind !== "draw-track") this.setDrawing(false);
+      this.setErasing(false);
       this.cancel();
       this.clearSelection();
       this.hud.hideCards();
@@ -4023,7 +4455,7 @@ export class Interaction {
         m.town.told.add(said);
         this.hud.toast(said);
       }
-    } else if (blocked && blocked !== m.blocked && !m.overTray) this.hud.toast(this.propMessage(blocked));
+    } else if (blocked && blocked !== m.blocked && !m.overTray && !m.quiet) this.hud.toast(this.propMessage(blocked));
     m.blocked = blocked;
     m.pose = { ...pose, y: ground };
     m.ghost.visible = !m.overTray;
@@ -4226,6 +4658,52 @@ export class Interaction {
     });
   }
 
+  /**
+   * Take several props away (a clearing sweep's): the ordinary ones as one props edit, the town buildings as one land
+   * edit with one redraw of the squares they leave (a redraw each, two buildings took nearly 2 s on lift).
+   */
+  private removeProps(ids: readonly number[]): void {
+    const g = this.game;
+    const all = ids.map((id) => g.props.get(id)).filter((p): p is NonNullable<typeof p> => p !== undefined);
+    const keep = (p: (typeof all)[number]) => ({ pose: { x: p.x, z: p.z, heading: p.heading, y: p.y }, links: { building: p.building, town: p.town, variant: p.variant, scale: p.scale } });
+    const plain = all.filter((p) => p.building === undefined).map((p) => ({ p, ...keep(p) }));
+    if (plain.length > 0) {
+      this.editor().editProps({
+        do: () => {
+          for (const { p } of plain) g.props.remove(p.id);
+        },
+        undo: () => {
+          for (const { p, pose, links } of plain) g.props.add(p.asset, pose, p.id, links);
+        },
+      });
+      g.propsChanged();
+    }
+    const houses = all.filter((p) => p.building !== undefined).map((p) => ({ p, ...keep(p), putBack: () => {} }));
+    if (houses.length === 0) return;
+    const land = g.landscape;
+    const slots = [...new Set(houses.flatMap(({ p }) => townSlots(land, p.building!)))];
+    const doIt = () => {
+      for (const h of houses) {
+        h.putBack = releaseBuilding(land, h.p.building!);
+        g.props.remove(h.p.id);
+      }
+    };
+    doIt();
+    g.editLand(slots);
+    g.propsChanged();
+    this.editor().recordLand({
+      do: doIt,
+      undo: () => {
+        for (let i = houses.length - 1; i >= 0; i--) {
+          const h = houses[i];
+          h.putBack();
+          g.props.add(h.p.asset, h.pose, h.p.id, h.links);
+        }
+      },
+      slots: () => slots,
+    });
+  }
+
   /** Move a town building's prop: it leaves its squares (they become street) and is an ordinary prop from now on. */
   /**
    * Game mode: a town's house put down on a lot of its town (`lot`, from `lotFor`), at `pose`: its record and squares
@@ -4384,15 +4862,21 @@ export class Interaction {
    * (a tap on the grass in front of a hill mustn't throw a lever behind it).
    */
   private leverHidden(pieceId: number): boolean {
-    const g = this.game;
-    const grid = g.landscape.grid;
+    const posts = this.game.trackView.leverPosts().filter((p) => p.pieceId === pieceId);
+    return posts.length > 0 && posts.every((p) => this.hiddenFromEye({ x: p.x, y: p.y + p.height / 2, z: p.z }));
+  }
+
+  /**
+   * Is this spot hidden behind a hill from the camera? The hills aren't in the tap's raycast (it would cost a pointer
+   * move a test against every block), so a ray can meet a lever standing behind one: asked only of such a hit.
+   */
+  private hiddenFromEye(at: { x: number; y: number; z: number }): boolean {
+    const grid = this.game.landscape.grid;
     const ground = (x: number, z: number) => {
       const i = grid.cellAtWorld(x, z);
       return i === -1 ? 0 : grid.groundY(i);
     };
-    const posts = g.trackView.leverPosts().filter((p) => p.pieceId === pieceId);
-    const eye = g.camera.position;
-    return posts.length > 0 && posts.every((p) => hiddenByHills(eye, { x: p.x, y: p.y + p.height / 2, z: p.z }, ground, MAX_HEIGHT * RISER_HEIGHT, CELL / 4));
+    return hiddenByHills(this.game.camera.position, at, ground, MAX_HEIGHT * RISER_HEIGHT, CELL / 4);
   }
 
   /**
@@ -4457,7 +4941,7 @@ export class Interaction {
     // (The kits' group: a turntable's deck is tapped to turn it, picked as a switch's lever; a signal skin's model to
     // hold its signal. The crossings': a crossing style is its prop's.)
     // (The loop-the-loops' shows': a tap on an engine's copy running the loop is a tap on the engine.)
-    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group, g.loopShow.group], true);
+    const hits = this.raycaster.intersectObjects([g.trainView.group, g.trackView.group, g.depotView.group, g.propsView.group, g.kitView.group, g.crossingsView.group, g.loopShow.group, g.ruinsView.group], true);
     for (let i = 0; i < hits.length; i++) {
       const h = hits[i];
       const shown = g.loopShow.engineAt(h.object as Object3D);
@@ -4486,6 +4970,9 @@ export class Interaction {
       }
       if (h.object.userData.kind === "switch-lever") {
         const pieceId = h.object.userData.pieceId as number;
+        // (A lever behind a hill, met through it: not seen, so not tapped, as with a fingertip's slack. QA: a tap right
+        // on one hidden by a 2-riser hill threw it.)
+        if (this.hiddenFromEye(h.point)) continue;
         return h.object.userData.deck ? { kind: "piece", pieceId, deck: true } : { kind: "lever", pieceId };
       }
       // A signal skin's model is its lever (a tap holds it at red, or lets it go: a gantry's, the road it's over). Any
@@ -4503,6 +4990,13 @@ export class Interaction {
       if (propId !== -1) return { kind: "prop", propId };
       const pieceId = g.trackView.pieceAt(h.object, h.instanceId);
       if (pieceId !== -1) return { kind: "piece", pieceId };
+      // An old industry's ruin: its stub's (a tap opens its card; it stays put). One on land not yet bought: passed
+      // through, to the ground.
+      if (g.ruinsView.isRuin(h.object)) {
+        const site = ruinAt(g.landscape, h.point.x, h.point.z);
+        const stub = site === -1 ? undefined : g.ruins.get(site);
+        if (stub !== undefined) return { kind: "piece", pieceId: stub };
+      }
     }
     // Nothing solid under the tap, but it may be on a town's station (platform, canopy, house): the whole footprint
     // opens the town, with a fingertip's slack. Trains and track were tried first above, so they win.
@@ -4575,15 +5069,18 @@ export class Interaction {
   undo(): void {
     if (this.busy) return;
     this.game.flourishes.clear();
-    this.arm(null);
+    // (Carrying, it stays carried: its ghost is placed again on the map as it now is.)
+    if (!this.carrying) this.arm(null);
     this.editor().undo();
+    this.refreshCarried();
   }
 
   redo(): void {
     if (this.busy) return;
     this.game.flourishes.clear();
-    this.arm(null);
+    if (!this.carrying) this.arm(null);
     this.editor().redo();
+    this.refreshCarried();
   }
 
   /** A piece's geometry came in (a bridge's taller arches): the piece in hand is redrawn where it is, finger still. */

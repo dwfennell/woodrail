@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { err, ok, type Result } from "../lib/result";
-import { depotPieceType, HALT_KITS, INDUSTRY_ROLE, STATION_CRANE_AT, type World } from "../game/world";
+import { addSitesToOldSave, depotPieceType, fixedPieces, HALT_KITS, INDUSTRY_ROLE, RUIN_STUB, STATION_CRANE_AT, type World } from "../game/world";
 import type { GameMode } from "../game/modes";
 import { PropStore } from "../props/store";
 import { addTownProps } from "../props/towns";
@@ -18,6 +18,7 @@ import { connectorRef, getPieceDef, indexOfRef, JOINT_ANGLE_TOLERANCE, JOINT_POS
 import { joinSavedLine, LINE_COLOURS } from "../game/lines";
 import { JOURNAL_CAP } from "../game/journal";
 import { deserializeLandscape, landscapeSchema, serializeLandscape } from "./landscape-data";
+import { FEAT_NONE, FEAT_RUIN } from "../landscape";
 
 /**
  * Save format, version 13 (the growth menu: a town's offer is three cards, never a blueprint, saved with the progress;
@@ -291,7 +292,7 @@ function relaxBroughtBack(layout: Layout, made: readonly number[], pinned: (id: 
 }
 
 /** Rebuild a world from saved data. Never throws on bad input. */
-export function deserializeWorld(data: unknown): Result<World, string> {
+export function deserializeWorld(data: unknown, opts: { sandbox?: boolean } = {}): Result<World, string> {
   // An older save: turned away (not migrated); a v12 one is read as it is (the same shape).
   const version = (data as { version?: unknown } | null)?.version;
   if (typeof version === "number" && version < MIGRATES_FROM) return err(OLDER_SAVE);
@@ -330,6 +331,26 @@ export function deserializeWorld(data: unknown): Result<World, string> {
     const piece = [...layout.pieceIds()].map((id) => layout.getPiece(id)!).find((p) => p.type === type && Math.hypot(p.pose.x - depot.piece.x, p.pose.z - depot.piece.z) < 0.5);
     if (!piece) return err(`invalid save: depot ${depot.id} is missing`);
     depots.set(depot.id, piece.id);
+  }
+  // Old industries' ruins: each standing one's stub, found where it was put, as a depot's is. (One that isn't there,
+  // which can't happen in play, is taken as cleared rather than the save turned away.)
+  const ruins = new Map<number, number>();
+  const stubs = [...layout.pieceIds()].map((id) => layout.getPiece(id)!).filter((p) => p.type === RUIN_STUB);
+  for (const site of landscape.sites ?? []) {
+    if (site.cleared) continue;
+    const piece = stubs.find((p) => Math.hypot(p.pose.x - site.piece.x, p.pose.z - site.piece.z) < 0.5 && ![...ruins.values()].includes(p.id));
+    if (piece) {
+      ruins.set(site.id, piece.id);
+      continue;
+    }
+    site.cleared = true;
+    const g = landscape.grid;
+    g.forEachCell((i) => {
+      if (g.feature[i] === FEAT_RUIN && g.owner[i] === site.id) {
+        g.feature[i] = FEAT_NONE;
+        g.owner[i] = -1;
+      }
+    });
   }
   // An older save's joints past the tolerance (parted by seating afresh), joined again before the trains go on.
   const broughtBack = save.joints ? [] : layout.seatNearMisses();
@@ -412,7 +433,7 @@ export function deserializeWorld(data: unknown): Result<World, string> {
   }
   if (broughtBack.length > 0) {
     // (Pinned as the editor pins: map pieces, lifts, and track under a train.)
-    const fixed = new Set([...stations.values(), ...depots.values()]);
+    const fixed = fixedPieces({ stations, depots, ruins });
     const pinned = (id: number) => fixed.has(id) || isLift(layout.getPiece(id)!.type) || sim.pieceOccupied(id) || !sim.liftFree(id);
     if (relaxBroughtBack(layout, broughtBack, pinned)) sim.trackChanged();
   }
@@ -420,7 +441,15 @@ export function deserializeWorld(data: unknown): Result<World, string> {
   for (const p of save.props ?? []) props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, p.id, { building: p.building, town: p.town, ...(p.variant ? { variant: p.variant } : {}), ...(p.scale ? { scale: p.scale } : {}) });
   // Saves from before towns were built from catalogue models: their buildings get their models now.
   addTownProps(landscape, props);
-  return ok({ layout, sim, landscape, stations, depots, economy, props });
+  const world: World = { layout, sim, landscape, stations, depots, economy, props, ruins };
+  // A save from before the map's sites and extra towns gains them on the land it owns, where nothing of the player's is
+  // in the way (`addSitesToOldSave`). No new save version: `sites` is simply missing from such a save.
+  // (A Sandbox save: no sites, ever. One from before sites gains nothing.)
+  if (opts.sandbox && !landscape.siteless && (landscape.sites ?? []).length === 0) {
+    landscape.sites = [];
+    landscape.siteless = true;
+  } else if (save.landscape.sites === undefined) addSitesToOldSave(world);
+  return ok(world);
 }
 
 /** How far along the track a saved train may be moved to find room (a few train lengths). */
@@ -516,7 +545,7 @@ export function loadFromStorage(mode: GameMode = "sandbox"): Result<World, strin
   } catch {
     return err("autosave is not valid JSON");
   }
-  const loaded = deserializeWorld(data);
+  const loaded = deserializeWorld(data, { sandbox: mode === "sandbox" });
   // An older save, turned away: kept under a key of its own, so the fresh map's autosave doesn't overwrite it.
   if (!loaded.ok && loaded.error === OLDER_SAVE) {
     const version = (data as { version: number }).version;

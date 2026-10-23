@@ -1,10 +1,10 @@
 import type { DepotRole } from "../economy";
-import { checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_SHED, FEAT_STATION, hillsOf, isWater, onFixedSite, SURF_LANE, SURF_ROAD, SURF_SEA, SURF_TOWN, type Landscape } from "../landscape";
+import { checkPlacement, FEAT_BUILDING, FEAT_DEPOT, FEAT_FIELD, FEAT_RUIN, FEAT_SHED, FEAT_STATION, hillsOf, isWater, onFixedSite, SURF_LANE, SURF_ROAD, SURF_SEA, SURF_TOWN, type Landscape } from "../landscape";
 import { footprintCorners, footprintsOverlap, inFootprint, scaleFootprint, standsAside, type Footprint } from "../props/placement";
 import type { Prop, PropStore } from "../props/store";
 import { DEPOT_LAYOUT } from "../render/depot-view";
 import { createSample, findOverlap, findSplice, getPieceDef, ignores, isPlainStraight, kitOf, straightLength, normalizeAngle, pathLength, samplePath, TRAIN_CLEARANCE, type Ignore, type KitDef, type Layout, type PieceTypeId, type Pose } from "../track";
-import { DEPOT_NAMES, INDUSTRY_ROLE, type World } from "./world";
+import { DEPOT_NAMES, INDUSTRY_ROLE, type World, fixedPieces } from "./world";
 
 /**
  * Room for a depot's yard: a depot piece (the workshop, sawmill, harbour and the rest) is its track plus a yard beside
@@ -228,9 +228,11 @@ export interface YardObstacle {
  * Is there room for the yard of a depot piece at `pose` (track base at `y`)? Null when there is (or it isn't a depot
  * piece), else why not; `out.what`, if given, says what's in the way ("a house", "the river": see `yardMessage`).
  * `ignore` leaves out the piece being moved and any straights it takes the place of. Called on every pointer move
- * while a depot is held: about a hundred squares looked up, and a pass over the pieces nearby.
+ * while a depot is held: about a hundred squares looked up, and a pass over the pieces nearby. `groundTo` (mm across
+ * the track, the yard's side): the ground is looked at only this far out (an old industry's ruin restored: see
+ * `RUIN_YARD_REACH`); other track and props are looked for over the whole yard.
  */
-export function checkYard(ctx: YardCheck, type: PieceTypeId, pose: Pose, y: number, ignore: Ignore, out?: YardObstacle): YardBlock | null {
+export function checkYard(ctx: YardCheck, type: PieceTypeId, pose: Pose, y: number, ignore: Ignore, out?: YardObstacle, groundTo = Infinity): YardBlock | null {
   if (out) out.what = null;
   const shape = shapeFor(type);
   if (!shape) return null;
@@ -244,6 +246,7 @@ export function checkYard(ctx: YardCheck, type: PieceTypeId, pose: Pose, y: numb
   for (let i = 0, k = 0; i < pts.length && !legs; i += 2, k++) {
     const t = pts[i];
     const l = pts[i + 1];
+    if (l > groundTo) continue;
     const why = groundWhy(ctx.land, hills, pose.x + t * c - l * s, pose.z + t * s + l * c, y, l >= shape.wetFrom);
     if (!why) continue;
     if (shape.legs[k] === 0) {
@@ -287,6 +290,7 @@ const WHAT = {
   field: "a field",
   station: "a station",
   depot: "a depot",
+  ruin: "an old yard",
   river: "the river",
   sea: "the sea",
   town: "the town",
@@ -320,7 +324,7 @@ function groundWhy(land: Landscape, hills: ReturnType<typeof hillsOf>, x: number
   if (f === FEAT_BUILDING) return found(WHAT.house, "ground");
   if (f === FEAT_SHED) return found(WHAT.shed, "ground");
   if (f === FEAT_FIELD) return found(WHAT.field, "ground");
-  if ((f === FEAT_STATION || f === FEAT_DEPOT) && onFixedSite(land, cell, x, z)) return found(f === FEAT_STATION ? WHAT.station : WHAT.depot, "ground");
+  if ((f === FEAT_STATION || f === FEAT_DEPOT || f === FEAT_RUIN) && onFixedSite(land, cell, x, z)) return found(f === FEAT_STATION ? WHAT.station : f === FEAT_RUIN ? WHAT.ruin : WHAT.depot, "ground");
   const surface = g.surface[cell];
   if (isWater(surface)) {
     if (!wet) return found(surface === SURF_SEA ? WHAT.sea : WHAT.river, "water");
@@ -525,7 +529,7 @@ const SPOTS_KEPT = 8;
  */
 export function depotSpot(w: World, type: PieceTypeId, near: readonly { x: number; z: number }[], fits?: (pose: Pose) => boolean): Pose | null {
   const layout = w.layout;
-  const fixed = new Set([...w.stations.values(), ...w.depots.values()]);
+  const fixed = fixedPieces(w);
   const straights: { id: number; x: number; z: number; heading: number; d: number }[] = [];
   let sig = 0;
   for (const id of layout.pieceIds()) {

@@ -41,6 +41,20 @@ interface Command {
   land?: () => number[];
   /** Changes only road pieces: done, undone and redone, it tells `onRoadsChange` the plots (and whether trees went). */
   roads?: { slots: number[]; trees: boolean };
+  /** Asked before an undo or a redo: a reason refuses it (`onRefused` is told), the history kept as it was. */
+  refuse?: (way: "undo" | "redo") => string | null;
+  /** Several edits made as one undo step (see `group`): done in order, undone in reverse. */
+  parts?: Command[];
+}
+
+/** What a swap (`Editor.swap`) tells and asks its caller, inside its undo step. */
+export interface SwapHooks {
+  /** Done or redone: the new piece is down (its id). */
+  done?(pieceId: number): void;
+  /** Undone: the old piece is back. */
+  undone?(): void;
+  /** Asked before an undo or a redo (a reason refuses it). */
+  refuse?(way: "undo" | "redo"): string | null;
 }
 
 const HISTORY_LIMIT = 100;
@@ -107,6 +121,8 @@ export function poseForCentre(type: PieceTypeId, flipped: boolean, x: number, z:
 export class Editor {
   private undoStack: Command[] = [];
   private redoStack: Command[] = [];
+  /** While `group` runs: the edits made, to become one undo step. */
+  private grouped: Command[] | null = null;
 
   constructor(
     private readonly layout: Layout,
@@ -128,6 +144,9 @@ export class Editor {
    */
   onTrainOn: ((pieceId: number) => void) | null = null;
 
+  /** Called when an undo or redo was refused by the edit itself (`Command.refuse`: a restore's redo short of coins). */
+  onRefused: ((why: string) => void) | null = null;
+
   /** Called when track is put down or moved (not undone), with the pieces it put down. */
   onTrackEdit: ((ids: number[]) => void) | null = null;
 
@@ -139,10 +158,48 @@ export class Editor {
 
   /** Record a land edit, already done (by the caller, who redrew it), as one undo step. `slots` gives its plots. */
   recordLand(c: { do(): void; undo(): void; slots: () => number[] }): void {
-    this.undoStack.push({ do: c.do, undo: c.undo, land: c.slots });
+    this.push({ do: c.do, undo: c.undo, land: c.slots });
+    this.onPropsChange?.();
+  }
+
+  /**
+   * Make the edits `edit` makes (track, props, land, roads: each done as it's made) one undo step: undo takes them back
+   * together, the last first (the eraser's sweep). True if any was made.
+   */
+  group(edit: () => void): boolean {
+    const outer = this.grouped;
+    const parts: Command[] = [];
+    this.grouped = parts;
+    try {
+      edit();
+    } finally {
+      this.grouped = outer;
+    }
+    if (parts.length === 0) return false;
+    if (parts.length === 1) this.push(parts[0]);
+    else
+      this.push({
+        do: () => {
+          for (const c of parts) c.do();
+        },
+        undo: () => {
+          for (let i = parts.length - 1; i >= 0; i--) parts[i].undo();
+        },
+        parts,
+        moves: parts.flatMap((c) => c.moves ?? []),
+      });
+    return true;
+  }
+
+  /** Put an edit on the undo stack (or in the group being made), and forget what was undone. */
+  private push(c: Command): void {
+    if (this.grouped) {
+      this.grouped.push(c);
+      return;
+    }
+    this.undoStack.push(c);
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
     this.redoStack = [];
-    this.onPropsChange?.();
   }
 
   /** Called after a road edit is done, undone or redone, with its plots and whether it cleared or brought back trees. */
@@ -410,9 +467,57 @@ export class Editor {
     return this.run({ do: () => swap(!rec.flipped, flippedPose), undo: () => swap(rec.flipped, rec.pose), moves: [id], seats: () => [id] });
   }
 
+  /**
+   * Swap piece `id` for a new piece of `type` in its place (same pose, height and way round), as one undo step: an old
+   * industry's stub of track restored to its industry. Its joints stay (the new piece seats where the old one was).
+   * `hooks` are told inside the step, each way, and asked before an undo or a redo. The new piece's id (kept on redo),
+   * or −1 if refused.
+   */
+  swap(id: number, type: PieceTypeId, hooks: SwapHooks = {}): number {
+    const rec = this.record(id);
+    if (!rec) return -1;
+    let made = -1;
+    const ok = this.run({
+      do: () => {
+        this.layout.removePiece(id);
+        if (made === -1) made = this.layout.addPiece(type, rec.pose, rec.y, rec.flipped);
+        else this.layout.restorePiece(made, type, rec.pose, rec.y, rec.flipped);
+        hooks.done?.(made);
+      },
+      undo: () => {
+        this.layout.removePiece(made);
+        this.restore(rec);
+        hooks.undone?.();
+      },
+      refuse: hooks.refuse ? (way) => hooks.refuse!(way) : undefined,
+    });
+    return ok ? made : -1;
+  }
+
+  /**
+   * Take up piece `id` as one undo step that `hooks` are told about inside, and asked before an undo or a redo: an old
+   * industry's ruin cleared away with its stub (undone, the stub, the same piece, and the ruin come back). True if done.
+   */
+  takeUp(id: number, hooks: { done?(): void; undone?(): void; refuse?(way: "undo" | "redo"): string | null } = {}): boolean {
+    const rec = this.record(id);
+    if (!rec) return false;
+    return this.run({
+      do: () => {
+        this.layout.removePiece(id);
+        hooks.done?.();
+      },
+      undo: () => {
+        this.restore(rec);
+        hooks.undone?.();
+      },
+      refuse: hooks.refuse ? (way) => hooks.refuse!(way) : undefined,
+    });
+  }
+
   /** Undo the last edit. Refused, the history kept as it was, if it would take up or move a held lift (see `run`). */
   undo(): boolean {
     const c = this.undoStack[this.undoStack.length - 1];
+    if (c && this.refused(c, "undo")) return false;
     if (!c || !this.step(c, () => c.undo(), () => c.do())) return false;
     this.redoStack.push(this.undoStack.pop()!);
     this.changed(c);
@@ -422,10 +527,18 @@ export class Editor {
   /** Redo the last edit undone. Refused, as `undo` is, if it would take up or move a held lift. */
   redo(): boolean {
     const c = this.redoStack[this.redoStack.length - 1];
+    if (c && this.refused(c, "redo")) return false;
     if (!c || !this.step(c, () => c.do(), () => c.undo())) return false;
     this.undoStack.push(this.redoStack.pop()!);
     this.changed(c);
     return true;
+  }
+
+  /** Does the edit refuse to be undone or redone now (`Command.refuse`)? `onRefused` is told why. */
+  private refused(c: Command, way: "undo" | "redo"): boolean {
+    const why = c.refuse?.(way) ?? null;
+    if (why) this.onRefused?.(why);
+    return why !== null;
   }
 
   /**
@@ -433,7 +546,7 @@ export class Editor {
    * train is on (QA: undoing a line a train had rolled onto derailed it, cargo spilt).
    */
   private step(c: Command, go: () => void, back: () => void): boolean {
-    const track = !(c.props || c.land || c.roads);
+    const track = c.parts ? c.parts.some((p) => !(p.props || p.land || p.roads)) : !(c.props || c.land || c.roads);
     const held = track ? this.held() : null;
     const under = track ? this.underTrains() : null;
     go();
@@ -486,14 +599,16 @@ export class Editor {
       this.onTrackEdit?.(seeds);
       c = this.takeUpPlay(c, seeds);
     }
-    this.undoStack.push(c);
-    if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
-    this.redoStack = [];
+    this.push(c);
     this.changed(c);
     return true;
   }
 
   private changed(c: Command): void {
+    if (c.parts) {
+      for (const p of c.parts) this.changed(p);
+      return;
+    }
     if (c.roads) {
       this.onRoadsChange?.(c.roads.slots, c.roads.trees);
       return;

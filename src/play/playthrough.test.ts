@@ -12,7 +12,7 @@ import type { Bag } from "../economy/goods";
 import { isFree, ruleOf, thingsFor, type ThingId } from "../game/things";
 import { TownLife, type TownLifeHost } from "../game/town-life";
 import { plotPrice, townStatus } from "../game/towns";
-import { buildStarterWorld, createWorld, plotsForSale, syncIndustries, unlockPlot, type World } from "../game/world";
+import { buildStarterWorld, createWorld, plotsForSale, syncIndustries, unlockPlot, type World, fixedPieces } from "../game/world";
 import { rng } from "../lib/rng";
 import { deserializeWorld, serializeWorld } from "../persist/save";
 import { SIM_HZ, type CarKind } from "../sim";
@@ -71,7 +71,7 @@ class Playthrough {
   /** Take over a world (a new game, or one just loaded): towns start from where they are, as the game does. */
   attach(world: World): void {
     this.w = world;
-    this.fixed = new Set([...world.stations.values(), ...world.depots.values()]);
+    this.fixed = fixedPieces(world);
     this.editor = new Editor(world.layout, world.sim, () => {}, (id) => this.fixed.has(id));
     this.town = new TownLife(hostFor(world), {
       received: (_t, kind, n, before) => {
@@ -330,7 +330,7 @@ describe("a Game-mode playthrough", () => {
         const got = unlockPlot(w(), plot.px, plot.pz);
         if (got) {
           P.progress.coins -= price;
-          P.fixed = new Set([...w().stations.values(), ...w().depots.values()]);
+          P.fixed = fixedPieces(w());
           done.add("land");
           P.note(`bought a plot for ${price} coins (${got.towns.length} towns, ${got.depots.length} depots); ${P.progress.coins} coins left`);
         }
