@@ -39,6 +39,18 @@ describe("declutterLabels", () => {
       }
   });
   it("handles none", () => expect(declutterLabels([])).toEqual([]));
+  it("with a range, a nudge that would leave it is slid back in, and the spot it's tested at is the one returned", () => {
+    // Two labels near the bottom bar (hi 100): the lower one can't go down, so it goes up, clear of the other.
+    const b = [box(0, 50, 1), box(0, 55, 0)];
+    const r = declutterLabels(b, { lo: 0, hi: 100 });
+    expect(r[0]).toEqual({ dy: 0, hidden: false });
+    const y1 = b[1].y + r[1].dy;
+    expect(r[1].hidden).toBe(false);
+    expect(y1 + 40).toBeLessThanOrEqual(100);
+    expect(y1 >= 50 + 40 || y1 + 40 <= 50).toBe(true);
+    // No room either way: hidden, not left over it.
+    expect(declutterLabels([box(0, 10, 1), box(0, 12, 0)], { lo: 0, hi: 60 })[1].hidden).toBe(true);
+  });
 });
 
 describe("edgeNudge", () => {

@@ -13,6 +13,8 @@
 // - a phone on its side (667×375): the ruin card's Restore and Clear fully in view above the tray, and tappable.
 // - the map view (390×844, step 3): the old farm's marker (🌾, a lock), none over a town's or station's label; idle
 //   there, no frames; Farming learned, the lock goes; tapped, the ruin's card opens; restored, its marker goes.
+// - the map view on a phone on its side (667×375, 844×390): no badge or label over another, a badge tapped (middle or
+//   edge) goes to its ruin.
 //
 // Usage: npm run e2e:sites [-- <out dir>]   (default out: e2e-out/sites)
 // Starts its own dev server (on 5384, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -592,18 +594,18 @@ await M.keyboard.press("Escape");
 // (The land around made ready, its ruins with it.)
 await M.waitForFunction(() => window.woodrail.ruinsShown.some((r) => r.around), null, { timeout: 120000, polling: 500 }).catch(() => {});
 await M.waitForTimeout(2000);
-const mTap = async (x, y) => {
-  await M.touchscreen.tap(x, y);
-  await M.waitForTimeout(600);
-};
-const openMapView = async () => {
+const openMapView = () => openMapOn(M);
+async function openMapOn(M) {
   const r = await M.evaluate(() => {
     // (Its title is its tooltip's, `data-tip`, after the first tap on it.)
     const b = document.querySelector("button[title^='Map'], button[data-tip^='Map']");
     const q = b?.getBoundingClientRect();
     return q && { x: q.x + q.width / 2, y: q.y + q.height / 2 };
   });
-  if (r) await mTap(r.x, r.y);
+  if (r) {
+    await M.touchscreen.tap(r.x, r.y);
+    await M.waitForTimeout(600);
+  }
   await glided(M);
   // (Till the glide up has ended: no frame drawn for a second, so the labels are where they'll stay.)
   await M.evaluate(async () => {
@@ -614,10 +616,11 @@ const openMapView = async () => {
       if (w.framesDrawn === f0) return;
     }
   });
-};
+}
 const mFarm = await M.evaluate(() => window.woodrail.world.landscape.sites.find((s) => s.role === "farm").id);
 /** The map's markers as shown: each ruin's badge (shown or not, locked or not) and the labels, with their boxes. */
-const mapState = () =>
+const mapState = () => mapStateOn(M);
+const mapStateOn = (M) =>
   M.evaluate(() => {
     const box = (e) => {
       const r = e.getBoundingClientRect();
@@ -707,6 +710,58 @@ await openMapView();
 const map4 = await mapState();
 check("…restored: its marker is gone from the map (the others stay)", mRestored && map4.open && map4.ruins.length > 0 && !map4.ruins.some((r) => r.key === `ruin:${mFarm}`), JSON.stringify({ mRestored, open: map4.open, ruins: map4.ruins.map((r) => r.key) }));
 await M.screenshot({ path: `${OUT}/15-map-restored.png` }).catch(() => {});
+
+// 16. The map view on a phone on its side (667×375 and 844×390, a fresh game): no ruin's badge under a label and no
+// label over another (QA: a slide back between the bars after the declutter put them back over each other), and a tap
+// on a badge, at its middle or its edge, goes to its ruin (its card, on the player's land), not to a town.
+for (const [W, H] of [
+  [667, 375],
+  [844, 390],
+]) {
+  const S = await b.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  S.on("pageerror", (e) => errors.push(e.message));
+  await S.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  await S.goto(PAGE);
+  await S.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+  await S.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+  await S.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+  await S.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
+  await S.keyboard.press("Escape");
+  await S.waitForFunction(() => window.woodrail.ruinsShown.some((r) => r.around), null, { timeout: 120000, polling: 500 }).catch(() => {});
+  await S.waitForTimeout(2000);
+  await openMapOn(S);
+  const st = await mapStateOn(S);
+  const shownBoxes = [...st.ruins.filter((r) => r.shown), ...st.labels];
+  const clash = [];
+  for (let i = 0; i < shownBoxes.length; i++) for (let j = i + 1; j < shownBoxes.length; j++) if (overlaps(shownBoxes[i].box, shownBoxes[j].box)) clash.push(`${shownBoxes[i].key}×${shownBoxes[j].key}`);
+  check(`${W}×${H} map view: no badge or label over another`, st.open && shownBoxes.length > 0 && clash.length === 0, clash.join(", ") || `${st.labels.length} labels, ${st.ruins.filter((r) => r.shown).length} badges shown`);
+  // Each badge shown is what's under its middle and just inside its edges (nothing over it).
+  const hits = await S.evaluate(() =>
+    [...document.querySelectorAll(".map-marker.kind-ruin:not(.off)")].map((e) => {
+      const r = e.getBoundingClientRect();
+      const [cx, cy] = [(r.left + r.right) / 2, (r.top + r.bottom) / 2];
+      const at = [[cx, cy], [r.left + 3, cy], [r.right - 3, cy], [cx, r.top + 3], [cx, r.bottom - 3]];
+      return { key: e.dataset.key, ok: at.every(([x, y]) => document.elementFromPoint(x, y)?.closest(".map-marker") === e) };
+    }),
+  );
+  check(`${W}×${H} map view: a tap on any badge, middle or edge, lands on the badge`, hits.length > 0 && hits.every((h) => h.ok), JSON.stringify(hits));
+  await S.screenshot({ path: `${OUT}/16-map-${W}x${H}.png` }).catch(() => {});
+  // Tap one (one on the player's land if one's shown: its card opens; else one on the land around: the view goes there).
+  const pick = st.ruins.find((r) => r.shown && r.key.startsWith("ruin:")) ?? st.ruins.find((r) => r.shown);
+  if (pick) await stampedTap(S, (pick.box.l + pick.box.r) / 2, (pick.box.t + pick.box.b) / 2);
+  await S.waitForTimeout(1200);
+  await glided(S);
+  const went = await S.evaluate((key) => {
+    const w = window.woodrail;
+    const c = document.querySelector(".ruin-card");
+    const ruin = w.ruinsShown.find((r) => (r.around ? `ruin-around:${r.site.plot.px},${r.site.plot.pz}:${r.site.id}` : `ruin:${r.site.id}`) === key);
+    const t = w.controls.target;
+    return { map: !document.querySelector(".map-view").hidden, card: c && !c.hidden ? c.querySelector(".card-title").textContent : null, off: ruin ? Math.round(Math.hypot(t.x - ruin.site.centre.x, t.z - ruin.site.centre.z)) : null };
+  }, pick?.key);
+  const own = !!pick?.key.startsWith("ruin:");
+  check(`${W}×${H} map view: a badge tapped goes to its ruin${own ? " (its card opens)" : ""}`, !!pick && !went.map && went.off !== null && went.off < 600 && (!own || !!went.card?.startsWith("Old ")), JSON.stringify({ pick: pick?.key, ...went }));
+  await S.close();
+}
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

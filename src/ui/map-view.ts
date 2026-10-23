@@ -17,6 +17,59 @@ function markerRank(m: MapMarker): { priority: number; pinned?: boolean } {
   return { priority: m.key.startsWith("site:") ? 2 : m.kind === "town" ? 1 : 0 };
 }
 
+/** Where a marker's box goes on screen (px), and whether its label is to the left of its dot. */
+export interface MarkerSpot {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  flip: boolean;
+}
+
+/**
+ * Where each marker's box goes (null: not shown), from where its place is on screen (`pts`, null off it) and its size:
+ * kept between `lo` and `hi` (the bars) and on a screen `screenW` wide, and none over another (labels nudged apart
+ * vertically by `markerRank`, hidden if they still would be; a ruin's badge only on its ruin). Slid into range first,
+ * then decluttered within it, so the boxes returned are where they end up (QA: a slide into range after the declutter
+ * put labels back over badges and one another). O(n^2), n = markers on screen: run on a map refresh, not per frame.
+ */
+export function layoutMarkers(
+  markers: readonly MapMarker[],
+  pts: readonly ({ x: number; y: number } | null)[],
+  sizes: readonly { w: number; h: number }[],
+  screenW: number,
+  lo: number,
+  hi: number,
+): (MarkerSpot | null)[] {
+  const idx: number[] = [];
+  const boxes: LabelBox[] = [];
+  const flips: boolean[] = [];
+  pts.forEach((p, k) => {
+    if (!p) return;
+    const { w, h } = sizes[k];
+    const ruin = markers[k].kind === "ruin";
+    // A label that would run off the right edge goes to the left of its dot instead.
+    const flip = !ruin && p.x + w > screenW - 8 && p.x - w > 8;
+    // The label's box starts 14px up-left of the dot (its css margin); a flipped one sits to the left of it.
+    const left = Math.round(p.x) + (flip ? 14 - w : -14);
+    const top = Math.round(p.y) - 14;
+    // One that fits neither side (zoomed right out, a town at the edge) slides in to stay on screen, and between the bars.
+    const dx = edgeNudge(left, w, screenW);
+    const dy = rangeNudge(top, h, lo, hi);
+    // (A ruin's badge stays on its ruin: under a bar or past the edge, it isn't shown.)
+    if (ruin && (dx !== 0 || dy !== 0)) return;
+    idx.push(k);
+    flips.push(flip);
+    boxes.push({ x: left + dx, y: top + dy, w, h, ...markerRank(markers[k]) });
+  });
+  const spots = declutterLabels(boxes, { lo, hi });
+  const out: (MarkerSpot | null)[] = markers.map(() => null);
+  idx.forEach((k, i) => {
+    if (!spots[i].hidden) out[k] = { x: boxes[i].x, y: boxes[i].y + spots[i].dy, w: boxes[i].w, h: boxes[i].h, flip: flips[i] };
+  });
+  return out;
+}
+
 /** What the map's bar says to do, as a rule. */
 const MAP_HINT = "Tap a place to go there";
 
@@ -129,39 +182,17 @@ export class MapView {
     const key = pts.map((p, k) => (p ? `${Math.round(p.x)},${Math.round(p.y)},${sizes[k].w},${sizes[k].h}` : "-")).join(";") + `@${window.innerWidth},${lo},${hi}`;
     if (key === this.placedKey) return;
     this.placedKey = key;
-    // A label that would run off the right edge goes to the left of its dot instead.
-    const flips = pts.map((p, k) => !!p && this.markers[k].kind !== "ruin" && p.x + sizes[k].w > window.innerWidth - 8 && p.x - sizes[k].w > 8);
-    const idx: number[] = [];
-    const boxes: LabelBox[] = [];
-    // One that fits neither side (zoomed right out, a town at the edge) slides in to stay on screen.
-    const nudges = pts.map(() => 0);
-    const lifts = pts.map(() => 0);
-    pts.forEach((p, k) => {
-      if (!p) return;
-      // The label's box starts 14px up-left of the dot (its css margin); a flipped one sits to the left of it.
-      const w = sizes[k].w;
-      const left = Math.round(p.x) + (flips[k] ? 14 - w : -14);
-      nudges[k] = edgeNudge(left, w, window.innerWidth);
-      lifts[k] = rangeNudge(Math.round(p.y) - 14, sizes[k].h, lo, hi);
-      // (A ruin's badge stays on its ruin: under a bar or past the edge, it isn't shown.)
-      if (this.markers[k].kind === "ruin" && (nudges[k] !== 0 || lifts[k] !== 0)) return;
-      idx.push(k);
-      boxes.push({ x: left + nudges[k], y: Math.round(p.y) - 14 + lifts[k], w, h: sizes[k].h, ...markerRank(this.markers[k]) });
-    });
-    const spots = declutterLabels(boxes);
+    const spots = layoutMarkers(this.markers, pts, sizes, window.innerWidth, lo, hi);
     this.markers.forEach((m, k) => {
       const el = this.els.get(m.key);
-      const p = pts[k];
       if (!el) return;
-      const at = idx.indexOf(k);
-      const off = !p || at < 0 || spots[at].hidden;
-      el.classList.toggle("off", off);
-      if (off || !p) return;
-      el.classList.toggle("flip", flips[k]);
-      // (A nudge apart can't take it back under a bar either.)
-      const y = Math.round(p.y) + lifts[k] + spots[at].dy;
-      const dy = rangeNudge(y - 14, sizes[k].h, lo, hi);
-      el.style.transform = `translate(${Math.round(p.x) + nudges[k]}px, ${y + dy}px)${flips[k] ? " translateX(-100%)" : ""}`;
+      const at = spots[k];
+      el.classList.toggle("off", !at);
+      if (!at) return;
+      el.classList.toggle("flip", at.flip);
+      // (The box's corner is 14px up-left of the dot, its css margin; a flipped one's right edge 14px right of it.)
+      const x = at.flip ? at.x + at.w - 14 : at.x + 14;
+      el.style.transform = `translate(${x}px, ${at.y + 14}px)${at.flip ? " translateX(-100%)" : ""}`;
     });
   }
 }
