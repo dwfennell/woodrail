@@ -394,6 +394,11 @@ export const SWITCH_ARROW_AT = [0.42, 0.62, 0.82] as const;
 const ARROW = { half: 4.4, wide: 6, margin: 1.4 } as const;
 /** The chevrons' scales further out (see `arrowScaleFor`): the bigger one is as long as the track is wide. */
 export const ARROW_FAR_SCALES = [1.6, 2.6] as const;
+/**
+ * The wood (mm) left between neighbouring chevrons drawn bigger, singes and all: a couple of pixels where they're drawn
+ * smallest on screen (QA on switch-burned-2: at about 2800 mm the gaps were 1–2 px).
+ */
+export const BURN_GAP = 2.4;
 /** A burn's shape (mm): half its length and width, its arms' thickness square across them, and its singe's width. */
 interface BurnSize {
   half: number;
@@ -405,14 +410,15 @@ interface BurnSize {
  * A burn's shape at each size it's drawn (`arrowScaleFor`): its own, close to; further out, bigger, but no wider than
  * the wood between the grooves (10 mm either side of the middle), singe and all. Burned across a groove, its dark arms
  * ran into the groove's dark line and the row read as a zigzag; kept between them, it's a sharp ">" the grooves frame.
- * Its arms are no deeper than its row's chevrons are apart (`clearSpan`), so they never burn over each other: at the
- * middle size, short with bold arms, to fit three in where the routes part; at the biggest, longest (its rows are at
- * least 28 mm apart).
+ * Its arms are shallower than its row's chevrons are apart, by `BURN_GAP` of wood (`clearSpan`), so they never burn
+ * over each other: at the middle size, short, to fit three in where the routes part; at the biggest, longest, its rows
+ * at least 28 mm apart and its tip short of the next one's back, its arms thin enough that its notch stays open (QA on
+ * switch-burned-2: at 6 mm it filled in and read as a solid "▶").
  */
 export const BURN_SIZES: readonly BurnSize[] = [
   { half: ARROW.half, wide: ARROW.wide, arm: 2.4, singe: 0.8 },
-  { half: 6.0, wide: 8.2, arm: 3.2, singe: 0.6 },
-  { half: 12.6, wide: 8.6, arm: 6.0, singe: 0.7 },
+  { half: 5.4, wide: 8.2, arm: 2.5, singe: 0.4 },
+  { half: 11.2, wide: 8.6, arm: 4.4, singe: 0.7 },
 ];
 /**
  * How far (mm) a chevron's middle stands from the centre line of any other track through the switch: clear of that
@@ -480,9 +486,10 @@ export function burnOutline(size: BurnSize): { core: number[][]; singe: number[]
  * how far it reaches either side of its middle and either way along it: chevrons in a row closer than its depth would
  * burn over each other (a near-black blob, not ">>>": QA on switch-burned).
  */
-export function burnExtent(size: BurnSize): { depth: number; reach: number; length: number } {
+export function burnExtent(size: BurnSize): { depth: number; reach: number; length: number; slant: number } {
   const { singe } = burnOutline(size);
   return {
+    slant: Math.atan2(size.wide, 2 * size.half),
     depth: singe[0][0] - singe[3][0],
     reach: Math.max(...singe.map((p) => Math.abs(p[1]))),
     length: Math.max(...singe.map((p) => Math.abs(p[0]))),
@@ -696,7 +703,8 @@ function clearSpan(route: PathDef, def: PieceDef, back: boolean, scale = 1): [nu
   // centre line: clear of its groove (its far edge 16 mm out) by the chevron's half-width at this size, and a little.
   const ARROW_HALF = burn ? burn.length + 0.6 : (ARROW.half + ARROW.margin) * scale;
   const CLEAR = burn ? 16 + burn.reach + 0.6 : SWITCH_ARROW_CLEAR - (ARROW.wide + ARROW.margin) + (ARROW.wide + ARROW.margin) * scale;
-  const needs = (burn ? burn.depth + 0.6 : 2 * ARROW_HALF + 1) * (SWITCH_ARROW_AT.length - 1);
+  // (Bigger, nested: `BURN_GAP` of wood square across their arms, which is further than that along the row.)
+  const needs = (burn ? burn.depth + BURN_GAP / Math.sin(burn.slant) : 2 * ARROW_HALF + 1) * (SWITCH_ARROW_AT.length - 1);
   const END_MARGIN = 8;
   const len = pathLength(route.geom);
   const along = clearanceAlong(route, def, back);

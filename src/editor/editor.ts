@@ -164,7 +164,9 @@ export class Editor {
 
   /**
    * Make the edits `edit` makes (track, props, land, roads: each done as it's made) one undo step: undo takes them back
-   * together, the last first (the eraser's sweep). True if any was made.
+   * together, the last first (the eraser's sweep). True if any was made. (The step it makes ignores its parts'
+   * `refuse`: fine while a sweep can't take in a ruin's edits, the only ones that refuse (`restore.ts`); pass it on if
+   * one can.)
    */
   group(edit: () => void): boolean {
     const outer = this.grouped;

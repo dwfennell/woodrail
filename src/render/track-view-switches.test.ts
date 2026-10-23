@@ -11,7 +11,7 @@ vi.mock("./track-geometry", async (importOriginal) => {
 import { Flourishes } from "./flourishes";
 import { createSample, getPieceDef, Layout, pathLength, samplePath, TRACK_THICKNESS, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
-import { ARROW_FAR_SCALES, arrowEnds, BURN_SIZES, burnExtent, burnOutline, arrowScaleFor, setRoute, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_BURN, SWITCH_ARROW_CLEAR, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
+import { ARROW_FAR_SCALES, arrowEnds, BURN_GAP, BURN_SIZES, burnExtent, burnOutline, arrowScaleFor, setRoute, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_BURN, SWITCH_ARROW_CLEAR, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
 
 const plain = () => new MeshBasicMaterial();
 const mats = { track: plain(), trackCut: plain(), bridgePaint: plain(), lacquer: plain, naturalWood: plain(), magnet: plain() } as unknown as Materials;
@@ -279,7 +279,7 @@ describe("switch chevrons", () => {
     expect(worst).toBeLessThan(1);
   });
 
-  it("no two chevrons burn over each other, at any size, on any switch (QA on switch-burned: rows fused into a blob)", () => {
+  it("no two chevrons burn over each other, at any size, on any switch, and further out wood shows between them (QA on switch-burned: rows fused into a blob)", () => {
     // Each chevron's outline, singe and all, as its two arms (convex quads), placed where it's drawn.
     const arms = (size: (typeof BURN_SIZES)[number], a: { x: number; z: number; heading: number }) => {
       const o = burnOutline(size).singe;
@@ -291,20 +291,23 @@ describe("switch chevrons", () => {
         [o[0], o[3], o[4], o[5]].map(at),
       ];
     };
-    // Two convex shapes overlap unless some edge's normal separates them.
-    const apart = (p: number[][], q: number[][]) => {
+    // How far apart two convex shapes are along the edge normal that best separates them (at most their distance
+    // apart; negative if they overlap).
+    const gap = (p: number[][], q: number[][]) => {
+      let best = -Infinity;
       for (const poly of [p, q])
         for (let i = 0; i < poly.length; i++) {
           const [x0, z0] = poly[i];
           const [x1, z1] = poly[(i + 1) % poly.length];
-          const nx = z1 - z0;
-          const nz = x0 - x1;
+          const l = Math.hypot(z1 - z0, x0 - x1);
+          const nx = (z1 - z0) / l;
+          const nz = (x0 - x1) / l;
           const span = (r: number[][]) => r.map(([x, z]) => x * nx + z * nz);
           const a = span(p);
           const b = span(q);
-          if (Math.max(...a) <= Math.min(...b) + 1e-6 || Math.max(...b) <= Math.min(...a) + 1e-6) return true;
+          best = Math.max(best, Math.min(...b) - Math.max(...a), Math.min(...a) - Math.max(...b));
         }
-      return false;
+      return best;
     };
     const scales = [1, ...ARROW_FAR_SCALES];
     for (const [k, scale] of scales.entries())
@@ -314,10 +317,13 @@ describe("switch chevrons", () => {
           for (let state = 0; state < trunkRoutes(def).length; state++) {
             const shapes = switchArrows(def, state, scale).map((a) => arms(BURN_SIZES[k], a));
             const { depth } = burnExtent(BURN_SIZES[k]);
+            // Apart, and drawn bigger, wood a couple of pixels wide between them (QA on switch-burned-2: 1–2 px at
+            // about 2800 mm). (A best edge normal can only underestimate the distance: a little under `BURN_GAP`.)
+            const least = scale === 1 ? 0 : BURN_GAP - 0.4;
             for (let i = 0; i < shapes.length; i++)
               for (let j = i + 1; j < shapes.length; j++)
                 for (const p of shapes[i])
-                  for (const q of shapes[j]) expect(apart(p, q), `${type}${flipped ? " flipped" : ""} state ${state} at ${scale}x (arms ${depth.toFixed(1)} mm deep): chevrons ${i} and ${j}`).toBe(true);
+                  for (const q of shapes[j]) expect(gap(p, q), `${type}${flipped ? " flipped" : ""} state ${state} at ${scale}x (arms ${depth.toFixed(1)} mm deep): chevrons ${i} and ${j}`).toBeGreaterThan(least);
           }
         }
   });
