@@ -316,19 +316,26 @@ describe("drawing long and standard pieces (hand-like strokes)", () => {
     expect(types.filter((t) => t.startsWith("straight")).length, types.join(" ")).toBeGreaterThanOrEqual(types.length / 2);
   });
 
-  it("a pointer move stays cheap: p99 of a move (addPoint and its ghosts) under 1 ms, p99.9 under 4 ms (Node; a few times that on a phone)", () => {
-    // (Timing guards on a loaded machine: warmed up above, and the best of up to five timed runs counts, so a full run's
-    // stalls don't fail it while a real slowdown, ten times, still does. About 0.05 and 0.3 ms here.)
-    for (const set of SETS) {
-      let best = results.get(set.name)!;
-      for (let k = 0; k < 4 && (best.p99 >= 1 || best.p999 >= 4); k++) {
-        const again = measure(set, 1);
-        if (again.p99 + again.p999 / 4 < best.p99 + best.p999 / 4) best = again;
-      }
-      expect(best.p99, set.name).toBeLessThan(1);
-      expect(best.p999, set.name).toBeLessThan(4);
+  it("a pointer move stays cheap: a move (addPoint and its ghosts) 0.05 ms on average, p99 under 1 ms, p99.9 under 5 ms (Node; a few times that on a phone)", () => {
+    // (Timing guards on a loaded machine: every set's moves together, warmed up above, and the best of up to six timed
+    // runs counts, so a full run's stalls don't fail it while a real slowdown, ten times, still does: the mean, about
+    // 0.014 ms here on a loaded box, is what a slowdown moves first; the tail about 0.09 and 0.17 ms.)
+    const pooled = () => {
+      const times: number[] = [];
+      for (const set of SETS) for (const k of set.strokes) drawStroke(k, times);
+      times.sort((a, b) => a - b);
+      return { mean: times.reduce((x, y) => x + y, 0) / times.length, p99: quantile(times, 0.99), p999: quantile(times, 0.999) };
+    };
+    let best = pooled();
+    for (let k = 0; k < 5 && (best.mean >= 0.05 || best.p99 >= 1 || best.p999 >= 5); k++) {
+      const again = pooled();
+      if (again.mean / 0.05 + again.p99 + again.p999 / 5 < best.mean / 0.05 + best.p99 + best.p999 / 5) best = again;
     }
-  });
+    if (BENCH) console.log(`moves: mean ${best.mean.toFixed(4)} p99 ${best.p99.toFixed(3)} p99.9 ${best.p999.toFixed(3)} ms`);
+    expect(best.mean).toBeLessThan(0.05);
+    expect(best.p99).toBeLessThan(1);
+    expect(best.p999).toBeLessThan(5);
+  }, 60_000);
 });
 
 /** e2e 7b's swipe as the line saw it (x, z pairs, mm, from the line's start): 51 points 14 mm apart. */
