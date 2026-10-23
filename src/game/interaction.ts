@@ -37,8 +37,8 @@ import { PinHint } from "./switch-pin";
 import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
-import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
-import { deckTapWins, fingertipWinner, LEVER_SLACK_PX, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, type CarOnScreen, type TapUnder } from "./touch-pick";
+import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot, type DepotState } from "../economy";
+import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 
 /** Run `f` when the page is idle (soon after, where the browser has no idle callbacks). */
@@ -158,7 +158,8 @@ const SPLICE_MESSAGES = {
 type Press =
   | { kind: "car"; carId: number }
   /** A switch's lever or a signal (`road`: which of a signal piece's signals, a gantry's road; else 0). */
-  | { kind: "lever"; pieceId: number; road?: number }
+  /** (`slack`: found by a fingertip's slack, this far off it, px; `at`: then, when the press came down.) */
+  | { kind: "lever"; pieceId: number; road?: number; slack?: number; at?: number }
   /** A stop disc of the route being planned (its index in the route). */
   | { kind: "route-stop"; index: number }
   /** A track piece; `deck`: a turntable's deck (a tap turns it; a drag or hold moves the piece, as anywhere on it). */
@@ -196,6 +197,8 @@ type Mode =
       branch?: number;
       /** With `branch`: the line's way across, on screen (a unit normal), to tell a finger leaving it (see `branchStrayed`). */
       across?: [number, number];
+      /** With `branch`: pressed from too far off to take hold of it (it only branches; no hold, no drag). */
+      far?: boolean;
       /** On touch, a press on something not selected that a long press would pick up (see touch-hold.ts). */
       hold?: {
         timer: number;
@@ -694,6 +697,8 @@ export class Interaction {
     if (item && item.kind !== "piece") item = null;
     if (item === this.armed || (item && this.armed && trayKey(item) === trayKey(this.armed))) return;
     this.armed = item;
+    this.carried = false;
+    this.carryAt = null;
     this.hidePreview();
     this.onArmed?.(item);
   }
@@ -750,6 +755,54 @@ export class Interaction {
     return this.armed !== null && trayKey(this.armed) === trayKey(item);
   }
 
+  /**
+   * The ready piece is carried: clicked in the tray with a mouse or pen. Its ghost follows the pointer over the map,
+   * snapping and checked as a held piece is, and each click on the map puts one down there, ready for the next.
+   * Clicking it in the tray again, Esc, a right-click, Draw or another tray item puts it away. A drag on the map still
+   * moves the camera. (On touch, a tap in the tray doesn't carry: see `tapTrayPiece`.)
+   */
+  private carried = false;
+  /** Where the mouse is over the map while carrying (null: off it, over the tray or a card). */
+  private carryAt: { x: number; y: number } | null = null;
+  private carryHinted = false;
+  /** A right button pressed on the map while carrying: let go without moving, it puts the carried piece away. */
+  private rightDown: { id: number; x: number; y: number } | null = null;
+
+  /** Is this tray item carried (clicked in the tray: see `carried`)? */
+  isCarried(item: TrayItem): boolean {
+    return this.carried && this.isArmed(item);
+  }
+
+  /** A tray item clicked with a mouse or pen: a piece is carried (or put away, if it was); a road is made ready. */
+  carryTrayItem(item: TrayItem): void {
+    if (item.kind !== "piece") {
+      this.tapTrayPiece(item);
+      return;
+    }
+    if (this.isCarried(item)) {
+      this.arm(null);
+      return;
+    }
+    this.cancel();
+    this.setDrawing(false);
+    this.arm(null);
+    this.clearSelection();
+    this.hud.hideCards();
+    this.arm(item);
+    this.carried = true;
+    if (!this.carryHinted) {
+      this.carryHinted = true;
+      this.hud.toast("Click to place · Esc to stop", false, 3200);
+    }
+  }
+
+  /** The carried piece's ghost shown again where the mouse is (it was turned or flipped in the tray). */
+  private refreshCarry(): void {
+    this.hidePreview();
+    const at = this.carryAt;
+    if (at) this.showPreview(at.x, at.y);
+  }
+
   /** Quarter turns a road comes out of the tray at: as set in the tray, from facing away from the camera. */
   private trayHeld(): number {
     return Math.round(this.cameraHeading() / (Math.PI / 2)) + Math.floor(this.trayTurns / 2);
@@ -798,7 +851,8 @@ export class Interaction {
     const item = this.armed;
     // Over track (or a train, a model) a click selects what's there, so nothing is shown: the piece appears only where
     // a click would put it down.
-    if (!item || item.kind !== "piece" || this.mode.kind !== "idle" || this.picking || this.somethingSelected() || this.pick(x, y)) {
+    // (Carried, it shows over track too: a click there puts it down, joined to it.)
+    if (!item || item.kind !== "piece" || this.mode.kind !== "idle" || this.picking || (!this.carried && (this.somethingSelected() || this.pick(x, y)))) {
       this.hidePreview();
       return;
     }
@@ -932,8 +986,10 @@ export class Interaction {
     const was = this.cameraHeading() + (this.trayTurns * Math.PI) / 4;
     this.trayTurns = (this.trayTurns + 1) % 8;
     this.guided = null;
-    // Nothing in hand: the next piece shows for a moment, turning, so you see which way it'll come out.
-    if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(was);
+    // Nothing in hand: the next piece shows for a moment, turning, so you see which way it'll come out. (Carried, its
+    // ghost turns.)
+    if (this.carried && !holding) this.refreshCarry();
+    else if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(was);
     this.onTurned?.();
   }
 
@@ -995,8 +1051,9 @@ export class Interaction {
     if (holding) this.flipSelected();
     this.trayFlipped = !this.trayFlipped;
     this.guided = null;
-    // Nothing in hand: the next piece shows for a moment, mirrored as it'll come out.
-    if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(this.nextShown?.heading ?? this.cameraHeading() + (this.trayTurns * Math.PI) / 4);
+    // Nothing in hand: the next piece shows for a moment, mirrored as it'll come out. (Carried, its ghost flips.)
+    if (this.carried && !holding) this.refreshCarry();
+    else if (!holding && !this.roadReady && this.mode.kind !== "drag-road") this.showNextPiece(this.nextShown?.heading ?? this.cameraHeading() + (this.trayTurns * Math.PI) / 4);
     this.onTurned?.();
   }
 
@@ -1012,6 +1069,8 @@ export class Interaction {
       return;
     }
     if (this.mode.kind !== "idle") return;
+    // Carrying, a right-click puts the piece away (a right-drag still turns the view: see `onUp`).
+    if (this.carried && e.pointerType === "mouse" && e.button === 2) this.rightDown = { id: e.pointerId, x: e.clientX, y: e.clientY };
     if (e.pointerType === "mouse" && e.button !== 0) return;
     // Finish any settle/turn first: animating pieces are hidden from picking until their stand-in is done.
     this.game.flourishes.clear();
@@ -1029,6 +1088,11 @@ export class Interaction {
     // A ready road: a tap lays it there (handled as a floor tap, so a drag still pans).
     if (this.roadReady && this.touches.size <= 1) {
       this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, road: true };
+      return;
+    }
+    // A carried piece: a click puts one down there (handled as a floor tap, so a drag still pans).
+    if (this.carried && this.touches.size <= 1) {
+      this.floorDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, carry: true };
       return;
     }
     // The ready piece's ghost: a tap on it puts it down (handled as a floor tap, so a drag from it still pans).
@@ -1057,13 +1121,22 @@ export class Interaction {
       }
     }
     let hit = this.pick(e.clientX, e.clientY, e.pointerType === "touch");
+    // A lever found by a fingertip's slack, on a double tap's second tap: that's the floor's (it zooms), not the lever's.
+    if (hit?.kind === "lever" && hit.slack !== undefined && !leverSlackOnPress(this.lastTap, { t: e.timeStamp, x: e.clientX, y: e.clientY })) hit = null;
+    if (hit?.kind === "lever" && hit.slack !== undefined) hit.at = e.timeStamp;
     // Pressing on anything else puts the ready piece away.
     if (hit && this.armed) this.arm(null);
     // Track can only be picked up from close by, so a pan over a zoomed-out map never drags a piece away.
     // (While picking several, any track in view can be tapped.)
     // (Planning a route, a station or depot is tapped from any zoom.)
     const place = !!this.onPickPlace && hit?.kind === "piece" && !!this.game.economy.depotAtPiece(hit.pieceId);
-    if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) hit = null;
+    // (Drawing, though, a line's body branches from any zoom: only taking hold of it needs to be close by. See `far`.)
+    let far = false;
+    if (hit?.kind === "piece" && !this.picking && !place && !this.withinReach(hit.pieceId)) {
+      const p = this.drawsNow ? this.game.layout.getPiece(hit.pieceId) : undefined;
+      if (p && branchesOff(p.type) && this.fixedLabel(hit.pieceId) === null) far = true;
+      else hit = null;
+    }
     // (In Game mode, the town's houses only to move them about their town: a landmark not at all.)
     if (hit?.kind === "prop" && ((this.townHouse(hit.propId) && !movableBuilding(this.game.landscape, this.game.props.get(hit.propId)?.building)) || !this.propWithinReach(hit.propId))) hit = null;
     if (hit?.kind === "road" && !this.roadWithinReach(hit.cell)) hit = null;
@@ -1100,7 +1173,14 @@ export class Interaction {
       if (p && branchesOff(p.type)) {
         press.branch = hit.pieceId;
         press.across = this.screenAcross(ground, p.pose.heading);
+        press.far = far;
       }
+    }
+    // Out of reach, a press on a line's body only branches: a drag that doesn't leave the line pans, as on the floor.
+    if (far && press.branch === undefined) {
+      this.mode = { kind: "idle" };
+      this.game.controls.enabled = true;
+      return;
     }
     this.mode = press;
     this.armHold(press, e.timeStamp);
@@ -1156,6 +1236,16 @@ export class Interaction {
     if (m.kind === "idle" && this.roadReady && e.pointerType === "mouse" && !this.floorDown) {
       const off = e.target !== this.game.canvas || this.hud.isOverTray(e.clientX, e.clientY);
       this.roads.update(this.roadReady.drag, off ? -1 : this.squareAt(e.clientX, e.clientY), off);
+    }
+    // A carried piece's ghost follows the mouse over the map (not while the camera's being dragged), worked out as a
+    // held piece is: the same path as a drag's moves.
+    if (m.kind === "idle" && this.carried && e.pointerType !== "touch" && !this.floorDown) {
+      this.carryAt = e.target === this.game.canvas ? { x: e.clientX, y: e.clientY } : null;
+      if (this.carryAt) this.showPreview(e.clientX, e.clientY);
+      else if (this.preview?.ghost.visible) {
+        this.preview.ghost.visible = false;
+        this.game.invalidate();
+      }
     }
     if (this.vetoPin(e)) return;
     if (m.kind === "idle" || m.pointerId !== e.pointerId) return;
@@ -1287,6 +1377,8 @@ export class Interaction {
    * buzz where the phone has one.
    */
   private armHold(m: Extract<Mode, { kind: "press" }>, t: number): void {
+    // (Out of reach, a line's body is only branched off: see `far`.)
+    if (m.far) return;
     const k = m.press.kind;
     // (A town's house in Game mode is picked up as a piece is: a finger resting on it.)
     const house = m.press.kind === "prop" && this.townHouse(m.press.propId);
@@ -1310,7 +1402,7 @@ export class Interaction {
    * and never while planning a route (a press there is a floor tap: nothing comes to this).
    */
   private armPin(m: Extract<Mode, { kind: "press" }>, t: number): void {
-    if (m.press.kind !== "lever" || m.press.road || this.onPickPlace) return;
+    if (m.press.kind !== "lever" || m.press.road || this.onPickPlace || !pressPins(m.press.slack)) return;
     const piece = this.game.layout.getPiece(m.press.pieceId);
     const def = piece && getPieceDef(piece.type, piece.flipped);
     if (!def?.isSwitch || def.gated || def.signal) return;
@@ -1494,6 +1586,11 @@ export class Interaction {
   }
 
   private onUp(e: PointerEvent): void {
+    const right = this.rightDown;
+    if (right && right.id === e.pointerId) {
+      this.rightDown = null;
+      if (this.carried && Math.hypot(e.clientX - right.x, e.clientY - right.y) < dragSlop(e.pointerType)) this.arm(null);
+    }
     const f = this.floorDown;
     if (f && f.id === e.pointerId) {
       this.floorDown = null;
@@ -1513,6 +1610,14 @@ export class Interaction {
           this.roads.update(r.drag, this.squareAt(e.clientX, e.clientY), false);
           this.roads.drop(r.drag, false);
           r.drag = this.roads.begin(r.item.piece, r.drag.held, r.item.auto);
+          this.lastTap = null;
+          return;
+        }
+        if (f.carry && this.carried) {
+          // Carried: one goes down where it's shown (or is refused, saying why), and the next follows the mouse.
+          this.hidePreview();
+          this.placeArmedAt(e.clientX, e.clientY);
+          if (this.carried) this.showPreview(e.clientX, e.clientY);
           this.lastTap = null;
           return;
         }
@@ -1574,7 +1679,24 @@ export class Interaction {
         this.togglePin(m.press.pieceId);
         return;
       }
+      // Out of reach, a line's body only branches (see `far`): a tap or a long press there that drew no branch is one
+      // on the floor, as with Draw off (it lets go of what's selected), not one on the piece (QA: it opened the piece's
+      // card from 4 m off, and a long press left it open).
+      if (m.far) {
+        this.lastTap = null;
+        if (!this.picking) {
+          this.hud.hideCards();
+          this.clearSelection();
+        }
+        return;
+      }
       // (Cargo is tapped again and again, a unit a tap: never a double tap.)
+      // (A lever taken by a fingertip's slack is a tap on the grass too: a second tap there zooms. See `onCanvasDown`.)
+      if (m.press.kind === "lever" && m.press.slack !== undefined) {
+        this.noteTap(e);
+        // (Resting there longer than a tap: a finger on the grass, not a tap on the lever. See `slackTapThrows`.)
+        if (!slackTapThrows(e.timeStamp - (m.press.at ?? e.timeStamp))) return;
+      }
       if (m.press.kind !== "lever" && m.press.kind !== "cargo" && this.noteTap(e)) this.focusOn(m.press);
       else this.tap(m.press, m.add);
       return;
@@ -1595,7 +1717,7 @@ export class Interaction {
     else this.dropTrain(m);
   }
 
-  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; press?: Press; moved?: boolean } | null = null;
+  private floorDown: { id: number; x: number; y: number; t: number; ghost?: boolean; road?: boolean; carry?: boolean; press?: Press; moved?: boolean } | null = null;
 
   private somethingSelected(): boolean {
     return this.selectedPiece !== -1 || this.selectedProp !== -1 || this.selectedCar !== -1 || this.selectedDepot !== -1 || this.selectedScenery !== null;
@@ -1738,10 +1860,14 @@ export class Interaction {
       return;
     }
     if (p.kind === "prop") {
-      // (A town's house in Game mode isn't selected: a tap there is a tap on the map.)
+      // (A town's house in Game mode isn't selected: a tap there opens its town's card.)
       if (this.townHouse(p.propId)) {
-        this.hud.hideCards();
-        this.clearSelection();
+        const station = this.townStation(p.propId);
+        if (station !== -1 && this.townCard) this.openDepot(station);
+        else {
+          this.hud.hideCards();
+          this.clearSelection();
+        }
       } else this.selectProp(p.propId);
       return;
     }
@@ -1842,7 +1968,10 @@ export class Interaction {
     return this.selectedCar;
   }
 
-  /** Open a depot's card, as a tap on it would ("Show me" opens the workshop's for "Make a switch"). */
+  /**
+   * Open a depot's card, as a tap on it would ("Show me" opens the workshop's for "Make a switch"; a town's ledger, its
+   * school's).
+   */
   openDepotCard(depotId: number): void {
     if (!this.game.economy.depot(depotId)) return;
     this.openDepot(depotId);
@@ -1878,7 +2007,8 @@ export class Interaction {
   private depotTitle(depotId: number): string {
     const d = this.game.economy.depot(depotId);
     if (!d) return "";
-    if (d.role === "town") return `${this.game.landscape.towns.find((t) => t.id === d.townId)?.name ?? ""} goods`;
+    // (Game mode's town card is the town's ledger, under the town's own name.)
+    if (d.role === "town") return `${this.game.landscape.towns.find((t) => t.id === d.townId)?.name ?? ""}${this.townCard ? "" : " goods"}`;
     return depotName(this.game, d);
   }
 
@@ -1953,9 +2083,15 @@ export class Interaction {
 
   /**
    * A school's card (Game mode): `key` changes whenever what it shows does (cheap: called every frame while it's open);
-   * `show` gives its rows, the research's goods (got of needed) and a line about it.
+   * `show` gives its rows, the research's goods (got of needed), a line about it, and `idle` (the card offers the picker).
    */
-  schoolCard: { key(): number; show(): { piles: { label: string; count: number; cap: number }[]; note: string } } | null = null;
+  schoolCard: { key(): number; show(): { piles: { label: string; count: number; cap: number }[]; note: string; idle?: boolean } } | null = null;
+
+  /**
+   * A town's card in Game mode: its ledger (see `town-ledger.ts`), drawn by `show` whenever `key` changes (cheap: called
+   * every frame while it's open). Null (Sandbox): a town's card is its goods, as any depot's.
+   */
+  townCard: { key(d: DepotState): number; show(d: DepotState): void } | null = null;
 
   /** Keep the open depot card's pile counts current (call every frame). */
   refreshDepotCard(): void {
@@ -1965,6 +2101,18 @@ export class Interaction {
     // Only redraw the card when something on it changed (this runs every frame).
     // (A harbour's dock sheds change what its piles hold: they count here too.)
     // A school's card shows its research (Game mode), redrawn when that changes (its key: a counter, no allocation).
+    if (d.role === "town" && this.townCard) {
+      const key = this.townCard.key(d);
+      const was = this.shownDepot;
+      if (was.id === d.id && was.delivered === key && was.auto === d.auto) return;
+      was.id = d.id;
+      was.delivered = key;
+      was.auto = d.auto;
+      was.piles = -1;
+      this.hud.updateDepotCard([], d.auto, null);
+      this.townCard.show(d);
+      return;
+    }
     const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.sheds;
     const shown = this.shownDepot;
     // Every pile's count hashed into one number (a warehouse's or harbour's piles hold more than 15): no allocation on
@@ -1979,7 +2127,7 @@ export class Interaction {
     shown.delivered = delivered0;
     if (d.role === "school") {
       const r = this.schoolCard?.show() ?? { piles: [], note: "" };
-      this.hud.updateDepotCard(r.piles, d.auto, null, r.note);
+      this.hud.updateDepotCard(r.piles, d.auto, null, r.note, !!r.idle);
       return;
     }
     let piles = pilesOf(d.role).map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
@@ -2099,6 +2247,10 @@ export class Interaction {
     if (this.roads.selected !== -1) {
       this.roads.turnSelected();
       this.onTurned?.();
+      return;
+    }
+    if (this.carried && this.mode.kind === "idle") {
+      this.turnTrayPiece();
       return;
     }
     if (this.mode.kind === "drag-piece") {
@@ -2292,12 +2444,21 @@ export class Interaction {
     return yard ? "yard" : null;
   }
 
-  /** What to say for a prop that can't go somewhere. */
+  /** The depot of the station of the town a building's prop is in, or −1. */
+  private townStation(propId: number): number {
+    const g = this.game;
+    const building = g.props.get(propId)?.building;
+    const found = building === undefined ? null : findBuilding(g.landscape, building);
+    const piece = found ? g.stations.get(found.town.id) : undefined;
+    return piece === undefined ? -1 : (g.economy.depotAtPiece(piece)?.id ?? -1);
+  }
+
   /** Is this prop a town's building in Game mode (moved only about its town: see town-moves.ts)? */
   private townHouse(propId: number): boolean {
     return !this.propsEditable && this.game.props.get(propId)?.building !== undefined;
   }
 
+  /** What to say for a prop that can't go somewhere. */
   private propMessage(reason: PropBlock): string {
     return reason === "yard" ? this.inYardWhy : PROP_MESSAGES[reason];
   }
@@ -2540,6 +2701,10 @@ export class Interaction {
       m.ghost = this.heldMesh(m.type, m.flipped);
       m.ghost.visible = visible;
       this.updateDrag(this.lastX, this.lastY);
+      return;
+    }
+    if (this.carried && this.mode.kind === "idle") {
+      this.flipTrayPiece();
       return;
     }
     const id = this.selectedPiece;
@@ -3378,7 +3543,8 @@ export class Interaction {
         // (Game mode: not when that was the last of it in the toy box.)
         if (m.tray && !this.drawing && (this.trayHas?.(m.tray) ?? true)) {
           this.arm(m.tray);
-          this.previewNextAt(id);
+          // (Carried, the next follows the mouse instead: see `carried`.)
+          if (!this.carried) this.previewNextAt(id);
         } else if (m.tray && !this.drawing) this.arm(null);
         return;
       }
@@ -4189,9 +4355,9 @@ export class Interaction {
     const car = nearCarWins(under) ? nearestOnScreen(x, y, this.carsOnScreen(), TOUCH_SLACK_PX) : null;
     let lever = nearestOnScreen(x, y, this.leversOnScreen(), LEVER_SLACK_PX);
     const own = exact?.kind === "piece" && exact.pieceId === lever.id;
-    if (lever.id === -1 || !nearLeverWins(under, lever.d, own, this.drawsNow || !!this.onPickPlace)) lever = { id: -1, d: Infinity };
+    if (lever.id === -1 || !nearLeverWins(under, lever.d, own, this.drawsNow || !!this.onPickPlace) || this.leverHidden(lever.id)) lever = { id: -1, d: Infinity };
     const won = fingertipWinner(car, lever);
-    if (won === "lever") return { kind: "lever", pieceId: lever.id };
+    if (won === "lever") return { kind: "lever", pieceId: lever.id, slack: lever.d };
     return this.deckOverTrain(won === "car" ? { kind: "car", carId: car!.id } : exact, exact);
   }
 
@@ -4199,15 +4365,34 @@ export class Interaction {
   private leversOnScreen(): CarOnScreen[] {
     const r = this.game.canvas.getBoundingClientRect();
     const v = new Vector3();
-    const toScreen = (x: number, y: number, z: number): [number, number] => {
+    const toScreen = (x: number, y: number, z: number): [number, number, number] => {
       v.set(x, y, z).project(this.game.camera);
-      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height, v.z];
     };
-    return this.game.trackView.leverPosts().map((p) => {
-      const [ax, ay] = toScreen(p.x, p.y, p.z);
-      const [bx, by] = toScreen(p.x, p.y + p.height, p.z);
-      return { id: p.pieceId, ax, ay, bx, by };
-    });
+    const out: CarOnScreen[] = [];
+    for (const p of this.game.trackView.leverPosts()) {
+      const [ax, ay, az] = toScreen(p.x, p.y, p.z);
+      const [bx, by, bz] = toScreen(p.x, p.y + p.height, p.z);
+      // (Behind the camera, it would project back onto the screen, mirrored.)
+      if (inFrontOfCamera(az, bz)) out.push({ id: p.pieceId, ax, ay, bx, by });
+    }
+    return out;
+  }
+
+  /**
+   * Is this lever (and its semaphore) hidden behind a hill from here? Asked of the one a fingertip's slack would take
+   * (a tap on the grass in front of a hill mustn't throw a lever behind it).
+   */
+  private leverHidden(pieceId: number): boolean {
+    const g = this.game;
+    const grid = g.landscape.grid;
+    const ground = (x: number, z: number) => {
+      const i = grid.cellAtWorld(x, z);
+      return i === -1 ? 0 : grid.groundY(i);
+    };
+    const posts = g.trackView.leverPosts().filter((p) => p.pieceId === pieceId);
+    const eye = g.camera.position;
+    return posts.length > 0 && posts.every((p) => hiddenByHills(eye, { x: p.x, y: p.y + p.height / 2, z: p.z }, ground, MAX_HEIGHT * RISER_HEIGHT, CELL / 4));
   }
 
   /**

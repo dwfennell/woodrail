@@ -195,12 +195,32 @@ if (ONLY_SPECIALS) {
 /** Only the junctions (N2 phase 2: a branch, a merge) and the planning guard (E2E_ONLY=junctions). */
 if (process.env.E2E_ONLY === "junctions") {
   await junctions(false);
+  await loopOffStraight();
+  await ghostMatch();
+  await finishRun();
+}
+
+/** Only what's laid against the last ghosts (E2E_ONLY=ghosts). */
+if (process.env.E2E_ONLY === "ghosts") {
+  await ghostMatch();
+  await finishRun();
+}
+
+/** Only the passing loop off a straight (E2E_ONLY=loop). */
+if (process.env.E2E_ONLY === "loop") {
+  await loopOffStraight();
   await finishRun();
 }
 
 /** Only QA's terrace 2 drawn again on one page (E2E_ONLY=terrace-repeat): a part of qa-slant, quick on its own. */
 if (process.env.E2E_ONLY === "terrace-repeat") {
   await terraceRepeat();
+  await finishRun();
+}
+
+/** Only the phone on its side, a straight swipe off the grid (E2E_ONLY=phone): step 7b on its own. */
+if (process.env.E2E_ONLY === "phone") {
+  await phoneSwipe();
   await finishRun();
 }
 
@@ -456,7 +476,9 @@ if (site) {
 // finger (QA N1), not a snake of curves, and never "too sharp".
 
 step("7b");
-{
+await phoneSwipe();
+
+async function phoneSwipe() {
   const ctx = await b.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   const q = await ctx.newPage();
   q.on("pageerror", (e) => errors.push(e.message));
@@ -576,6 +598,8 @@ step("9");
 await qaReplay();
 step("10");
 await junctions();
+await loopOffStraight();
+await ghostMatch();
 await finishRun();
 
 /**
@@ -1003,6 +1027,7 @@ async function junctions(fresh = true) {
     await boot(p);
   }
   await installD(p);
+  await stationClose();
   const open = await p.evaluate(() => {
     const w = window.woodrail;
     const G = w.landscape.grid;
@@ -1111,6 +1136,230 @@ async function junctions(fresh = true) {
   });
 }
 
+/**
+ * Draw into a station end closes (QA: a line drawn into Fernhill's west end stopped just short of it, buffers facing):
+ * from open ground south of Gorsemoor, a bend up into its south end and a little on. Before, no one piece met the end
+ * within the joints' play, and the line went on beside it, red into the house there ("That's a house — go around it");
+ * now it lays its last pieces so they meet the end, bending its joints within their play: every piece is joined, and
+ * the station is where it was.
+ */
+async function stationClose() {
+  const st = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { connectorRef, createWorldConnector } = await import("/src/track/layout.ts");
+    const town = w.landscape.towns.find((t) => t.name === "Gorsemoor");
+    const id = town && w.stations.get(town.id);
+    if (id === undefined) return null;
+    const c = w.layout.worldConnector(connectorRef(id, 0), createWorldConnector());
+    return { id, ref: connectorRef(id, 0), x: c.x, z: c.z, heading: c.heading, pose: { ...w.layout.getPiece(id).pose } };
+  });
+  check("draw into a station end: found Gorsemoor's south end", !!st && Math.abs(st.x - 828) < 1 && Math.abs(st.z + 576) < 1, JSON.stringify(st));
+  if (!st) return;
+  // A smooth stroke from 550 mm off, 10° to one side of the station's line, in along it and 40 mm on.
+  const a = st.heading - (10 * Math.PI) / 180;
+  const [sx, sz] = [st.x + 550 * Math.cos(a), st.z + 550 * Math.sin(a)];
+  const [hs, ht] = [a + Math.PI, st.heading + Math.PI];
+  const L = Math.hypot(st.x - sx, st.z - sz);
+  const pts = [[sx, sz]];
+  const n = Math.ceil((L * 1.3) / 40);
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    const [h0, h1, h2, h3] = [2 * t ** 3 - 3 * t ** 2 + 1, t ** 3 - 2 * t ** 2 + t, -2 * t ** 3 + 3 * t ** 2, t ** 3 - t ** 2];
+    pts.push([h0 * sx + h1 * L * Math.cos(hs) + h2 * st.x + h3 * L * Math.cos(ht), h0 * sz + h1 * L * Math.sin(hs) + h2 * st.z + h3 * L * Math.sin(ht)]);
+  }
+  pts.push([st.x + 40 * Math.cos(ht), st.z + 40 * Math.sin(ht)]);
+  await focus((sx + st.x) / 2, (sz + st.z) / 2, 420);
+  if (!(await p.evaluate(() => window.woodrail.interaction.isDrawing))) await tapSel(p, ".tray-draw");
+  await p.evaluate(() => D.toasts());
+  const [n0, j0] = await p.evaluate(() => [D.pieces(), D.joints()]);
+  await drawThrough(pts, { shotAt: pts.length - 2, shotName: "draw-11-station.png" });
+  const after = await p.evaluate(async ([ref, id]) => {
+    const w = window.woodrail;
+    const tol = await import("/src/track/constants.ts");
+    let worst = 0;
+    let gap = 0;
+    for (const j of w.layout.joints()) {
+      worst = Math.max(worst, j.angleError);
+      gap = Math.max(gap, j.posError);
+    }
+    const ok = worst <= tol.JOINT_ANGLE_TOLERANCE + 1e-9 && gap <= tol.JOINT_POS_TOLERANCE + 1e-9;
+    return { joined: w.layout.joinedConnector(ref) !== -1, pieces: D.pieces(), joints: D.joints(), snug: ok, worst: (worst * 180) / Math.PI, gap, pose: { ...w.layout.getPiece(id).pose }, toasts: D.toasts() };
+  }, [st.ref, st.id]);
+  await shot(p, `${OUT}/draw-11-station-closed.png`);
+  const laid = after.pieces - n0;
+  check(
+    "draw into a station end closes: joined, every piece joined, joints within play, the station unmoved",
+    after.joined && laid >= 2 && after.joints - j0 === laid && after.snug && after.pose.x === st.pose.x && after.pose.z === st.pose.z && after.pose.heading === st.pose.heading,
+    `${laid} pieces, ${after.joints - j0} joints, worst ${after.worst.toFixed(2)}° ${after.gap.toFixed(1)} mm, toasts ${JSON.stringify(after.toasts)}`,
+  );
+  // (Taken up again: the junctions' cases find their open ground on the map as it was.)
+  if (laid > 0) await p.evaluate(() => window.woodrail.interaction.undo());
+}
+
+/**
+ * What a drawn line puts down when the finger lifts is what its ghosts showed just before (QA: at Brambleton's west
+ * end a straight shown at z −846 went down at −900 with a short straight added; into Fernhill over the river the whole
+ * line went down 44 to 53 mm off its ghosts). QA's strokes (scratchpad qa-ghost/README.md): Game mode, a 390 × 844
+ * touch screen at device scale 1, the camera centred on the stroke's box, its world points seen on the ground and
+ * resampled every 14 px, a move every 16 ms. The ghosts' pieces just before the lift against the pieces laid: the
+ * same pieces, within 1 mm and 1°, and joined to the station.
+ */
+async function ghostMatch() {
+  for (const c of [
+    { name: "Brambleton W", seed: null, town: "Brambleton", k: 0, d: 805, stroke: { back: 320, lat: 60, off: 6, over: 25, turn: 0 } },
+    { name: "Fernhill W", seed: 21, town: "Fernhill", k: 0, d: 900, stroke: { from: [-1548, -396, -Math.PI / 4], off: 9, over: 0 } },
+  ]) {
+    const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
+    await ctx.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+    const q = await ctx.newPage();
+    q.on("pageerror", (e) => errors.push(e.message));
+    const enterGame = async () => {
+      await q.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: 180000 });
+      await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
+      await q.waitForFunction(() => window.woodrail.mode() === "game" && !window.woodrail.title.shown && document.querySelector(".tray .scroller .tray-group") !== null, null, { timeout: 180000 });
+      await q.evaluate(() => {
+        const help = document.querySelector(".help");
+        if (help && !help.hidden) help.querySelector("button.primary, .help-card button:last-of-type")?.click();
+      });
+      await q.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 }).catch(() => {});
+      await settled(q);
+    };
+    await q.goto(URL.replace(/#.*$/, ""), { timeout: 180000 });
+    if (c.seed !== null) {
+      // (Another starter map: made in the page and saved as the Game save, then Continue, as QA did.)
+      await q.waitForFunction(() => !!window.woodrail, null, { timeout: 180000 });
+      await q.evaluate(async (seed) => {
+        const { createWorld } = await import("/src/game/world.ts");
+        const { saveToStorage } = await import("/src/persist/save.ts");
+        saveToStorage(createWorld(seed, true), "game");
+      }, c.seed);
+      await q.reload({ timeout: 180000 });
+    }
+    await enterGame();
+    // The box stocked, every blueprint learned, Draw on.
+    await q.evaluate(async () => {
+      const w = window.woodrail;
+      const { thingsFor, THING_RULES } = await import("/src/game/things.ts");
+      for (const type of ["straight-216", "straight-144", "straight-108", "straight-54", "curve-large", "curve-small", "curve-wide", "ramp", "bridge"])
+        for (const [id, k] of thingsFor({ kind: "piece", type })) w.progress().add(id, 20 * k);
+      for (const r of Object.values(THING_RULES)) if (r.tech) w.progress().learned.add(r.tech);
+      if (!w.interaction.isDrawing) document.querySelector(".tray-draw")?.click();
+    });
+    await q.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
+    await settled(q);
+    // (The title can come back over a fresh game while it settles: Continue, as a player would. See `loopOffStraight`.)
+    if (await q.evaluate(() => window.woodrail.title.shown)) {
+      await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary")?.click());
+      await q.waitForFunction(() => !window.woodrail.title.shown, null, { timeout: 120000 }).catch(() => {});
+      await settled(q);
+      await q.evaluate(() => {
+        if (!window.woodrail.interaction.isDrawing) document.querySelector(".tray-draw")?.click();
+      });
+    }
+    // The stroke's screen points, QA's camera on its box.
+    const plan = await q.evaluate(async (c) => {
+      const w = window.woodrail;
+      const { connectorRef, createWorldConnector } = await import("/src/track/layout.ts");
+      const { hillsOf } = await import("/src/landscape/index.ts");
+      const town = w.landscape.towns.find((t) => t.name === c.town);
+      const id = town && w.stations.get(town.id);
+      if (id === undefined) return null;
+      const ref = connectorRef(id, c.k);
+      const e = w.layout.worldConnector(ref, createWorldConnector());
+      const hermite = (sx, sz, hs, tx, tz, ht, over = 0, every = 10) => {
+        const L = Math.hypot(tx - sx, tz - sz);
+        const pts = [[sx, sz]];
+        const n = Math.ceil((L * 1.3) / every);
+        for (let i = 1; i <= n; i++) {
+          const t = i / n;
+          const [a, b2, c2, d] = [2 * t ** 3 - 3 * t ** 2 + 1, t ** 3 - 2 * t ** 2 + t, -2 * t ** 3 + 3 * t ** 2, t ** 3 - t ** 2];
+          pts.push([a * sx + b2 * L * Math.cos(hs) + c2 * tx + d * L * Math.cos(ht), a * sz + b2 * L * Math.sin(hs) + c2 * tz + d * L * Math.sin(ht)]);
+        }
+        for (let o = every; o <= over + 1e-6; o += every) pts.push([tx + o * Math.cos(ht), tz + o * Math.sin(ht)]);
+        return pts;
+      };
+      const s = c.stroke;
+      let pts;
+      if (s.from) pts = hermite(s.from[0], s.from[1], s.from[2], e.x, e.z + s.off, 0, s.over);
+      else {
+        const ht = e.heading + Math.PI;
+        const [nx, nz] = [-Math.sin(ht), Math.cos(ht)];
+        pts = hermite(e.x - Math.cos(ht) * s.back + nx * s.lat, e.z - Math.sin(ht) * s.back + nz * s.lat, ht + s.turn, e.x + nx * s.off, e.z + nz * s.off, ht, s.over);
+      }
+      const xs = pts.map((p) => p[0]);
+      const zs = pts.map((p) => p[1]);
+      const V = w.camera.position.constructor;
+      const r = w.canvas.getBoundingClientRect();
+      const hills = hillsOf(w.landscape.grid);
+      // (From `d`, further out a step at a time until the whole stroke is in view, clear of the HUD and the tray.)
+      let screen = [];
+      let d = c.d;
+      for (; d < 6000; d += 100) {
+        w.director.cancel?.();
+        w.lookAt(new V((Math.min(...xs) + Math.max(...xs)) / 2, 0, (Math.min(...zs) + Math.max(...zs)) / 2), d, 0.95, -1.1659);
+        w.camera.updateMatrixWorld();
+        screen = pts.map(([x, z]) => {
+          const v = new V(x, hills.groundAt(x, z), z).project(w.camera);
+          return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+        });
+        if (screen.every(([x, y]) => x > r.left + 20 && x < r.right - 20 && y > r.top + 130 && y < r.bottom - 180)) break;
+      }
+      return { ref, screen, d, ids: [...w.layout.pieceIds()] };
+    }, c);
+    if (!plan) {
+      check(`${c.name}: found the station`, false);
+      await ctx.close();
+      continue;
+    }
+    await settled(q);
+    // Resampled every 14 px; a move every 16 ms.
+    const pts = [plan.screen[0]];
+    let carry = 0;
+    for (let i = 1; i < plan.screen.length; i++) {
+      const [ax, ay] = plan.screen[i - 1];
+      const [bx, by] = plan.screen[i];
+      const len = Math.hypot(bx - ax, by - ay);
+      let t = 14 - carry;
+      for (; t <= len; t += 14) pts.push([ax + ((bx - ax) * t) / len, ay + ((by - ay) * t) / len]);
+      carry = len - (t - 14);
+    }
+    const cdp = await ctx.newCDPSession(q);
+    const t0 = Date.now() / 1000;
+    let ti = 0;
+    const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t0 + 0.016 * ti++, touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+    await touch("touchStart", pts[0][0], pts[0][1]);
+    for (const [x, y] of pts.slice(1)) await touch("touchMove", x, y);
+    // (The ghosts' pieces: `shown`, or on a build before it, the line's own pieces, which were all its ghosts showed.)
+    const shown = await q.evaluate(() => {
+      const d = window.woodrail.interaction.draw;
+      return d.shown ? d.shown() : (d.line?.pieces ?? []).map((p) => ({ type: p.type, flipped: p.flipped, x: p.pose.x, z: p.pose.z, heading: p.pose.heading, y: p.y, blocked: !!p.blocked }));
+    });
+    const state = await q.evaluate(() => ({ title: window.woodrail.title.shown, drawing: window.woodrail.interaction.isDrawing, mode: window.woodrail.interaction.mode.kind }));
+    await touch("touchEnd", 0, 0);
+    await settled(q);
+    const got = await q.evaluate(([ids, ref]) => {
+      const w = window.woodrail;
+      const was = new Set(ids);
+      const laid = [...w.layout.pieceIds()].filter((id) => !was.has(id)).sort((a, b) => a - b).map((id) => {
+        const p = w.layout.getPiece(id);
+        return { type: p.type, flipped: p.flipped, x: p.pose.x, z: p.pose.z, heading: p.pose.heading, y: p.y };
+      });
+      return { laid, joined: w.layout.joinedConnector(ref) !== -1 };
+    }, [plan.ids, plan.ref]);
+    await shot(q, `${OUT}/draw-12-ghosts-${c.town}.png`);
+    const ghosts = shown.slice(0, (shown.findIndex((p) => p.blocked) + 1 || shown.length + 1) - 1);
+    let off = ghosts.length === got.laid.length && ghosts.length > 0 ? 0 : Infinity;
+    for (let i = 0; i < got.laid.length && off < Infinity; i++) {
+      const [g, l] = [ghosts[i], got.laid[i]];
+      if (g.type !== l.type || g.flipped !== l.flipped || g.y !== l.y) off = Infinity;
+      else off = Math.max(off, Math.hypot(g.x - l.x, g.z - l.z), (Math.abs(Math.atan2(Math.sin(g.heading - l.heading), Math.cos(g.heading - l.heading))) * 180) / Math.PI);
+    }
+    const fmt = (ps) => ps.map((p) => `${p.type}@(${p.x.toFixed(1)}, ${p.z.toFixed(1)}, ${p.heading.toFixed(3)})`).join(" ");
+    check(`${c.name}: what the lift laid is the last ghosts (the same pieces, within 1 mm and 1°), joined to the station`, off <= 1 && got.joined, `off ${off === Infinity ? "other pieces" : off.toFixed(2)}; d ${plan.d}; ${JSON.stringify(state)}; ghosts ${fmt(ghosts)}; laid ${fmt(got.laid)}; joined ${got.joined}`);
+    await ctx.close();
+  }
+}
+
 async function finishRun() {
   check("no page errors", errors.length === 0, errors.join(" | "));
   await b.close();
@@ -1192,5 +1441,218 @@ async function terraceRepeat() {
   const what = runs.map((r) => `${r.types.join(" ")}${r.toasts.length ? ` [${r.toasts.join(" | ")}]` : ""}`).join(" / ");
   check("QA replay, terrace 2 again on the same page (QA's screen path, lookAt put back, after an undo): the same line each time", runs.every((r) => r.types.join(" ") === runs[0].types.join(" ")), what);
   check("…and no 'a level up here' the first time didn't say", runs.every((r) => r.toasts.some((t) => /level up/i.test(t)) === runs[0].toasts.some((t) => /level up/i.test(t))), what);
+  await ctx.close();
+}
+
+/**
+ * QA's playtest: a passing loop drawn off the middle of the Larkfield–Elderwick straight (seed 7, a 360 × 740
+ * phone, the camera 1300 mm off): pressed on the straight, out to one side, along beside
+ * it, and back in, in one stroke. A switch out, the run beside, and a switch back in (QA: it laid nothing, and said
+ * "Turn it to fit" and "Another piece is in the way").
+ */
+async function loopOffStraight() {
+  const ctx = await b.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  await ctx.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+  const q = await ctx.newPage();
+  q.on("pageerror", (e) => errors.push(e.message));
+  // Game mode's start (seed 7's starting map), as e2e:touch starts it: the Game card's main button, then the help closed.
+  await q.goto(URL.replace(/#.*$/, ""), { timeout: 180000 });
+  await q.waitForFunction(() => !!window.woodrail && document.querySelector(".title-card.mode-game .title-buttons .primary") !== null, null, { timeout: 180000 });
+  await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary").click());
+  await q.waitForFunction(() => document.querySelector(".tray .scroller .tray-group") !== null && window.woodrail.mode() === "game", null, { timeout: 180000 });
+  await q.evaluate(() => {
+    const help = document.querySelector(".help");
+    if (help && !help.hidden) help.querySelector("button.primary, .help-card button:last-of-type")?.click();
+  });
+  await q.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 }).catch(() => {});
+  await settled(q);
+  await q.evaluate(() => {
+    const w = window.woodrail;
+    window.__toasts = [];
+    const orig = w.hud.toast.bind(w.hud);
+    w.hud.toast = (m, ...a) => {
+      window.__toasts.push(m);
+      return orig(m, ...a);
+    };
+    const refuse = w.hud.refuse?.bind(w.hud);
+    if (refuse)
+      w.hud.refuse = (m, ...a) => {
+        window.__toasts.push(m);
+        return refuse(m, ...a);
+      };
+  });
+  // The line between Larkfield's station and Elderwick's (as QA had laid it: four long straights, end to end), and
+  // switches learned (the passing-loop goal's).
+  const laid = await q.evaluate(async () => {
+    const w = window.woodrail;
+    // (And pieces enough in the box for a loop: two switches, and track to run beside the line.)
+    const { thingsFor } = await import("/src/game/things.ts");
+    for (const type of ["switch", "straight-216", "straight-144", "straight-108", "straight-54", "curve-large", "curve-small", "curve-wide"])
+      for (const [id, k] of thingsFor({ kind: "piece", type })) w.progress().add(id, 10 * k);
+    const at = (name) => {
+      const town = w.landscape.towns.find((t) => t.name === name);
+      const id = town && w.stations.get(town.id);
+      return id === undefined ? null : w.layout.getPiece(id).pose;
+    };
+    const a = at("Larkfield");
+    const c = at("Elderwick");
+    if (!a || !c) return "no stations";
+    w.progress().learned.add("switches");
+    const x0 = a.x + 216;
+    const n = Math.round((c.x - x0) / 216);
+    w.editor().placeRun(Array.from({ length: n }, (_, i) => ({ type: "straight-216", pose: { x: x0 + i * 216, z: a.z, heading: 0 }, y: 0, flipped: false })));
+    return `${n} straights from ${x0} to ${c.x}, ${w.layout.jointCount} joints`;
+  });
+  check("passing loop: the line between Larkfield and Elderwick laid", !/no/.test(laid), laid);
+  await settled(q);
+  // The straight halfway between Larkfield's station and Elderwick's.
+  const site = await q.evaluate(() => {
+    const w = window.woodrail;
+    const at = (name) => {
+      const town = w.landscape.towns.find((t) => t.name === name);
+      const id = town && w.stations.get(town.id);
+      return id === undefined ? null : w.layout.getPiece(id).pose;
+    };
+    const a = at("Larkfield");
+    const c = at("Elderwick");
+    if (!a || !c) return { missing: w.landscape.towns.map((t) => `${t.name}:${w.stations.get(t.id) ?? "-"}`).join(", "), seed: w.landscape.seed };
+    const mx = (a.x + c.x) / 2;
+    const mz = (a.z + c.z) / 2;
+    let best = null;
+    for (const id of w.layout.pieceIds()) {
+      const p = w.layout.getPiece(id);
+      if (!/^straight-\d+$/.test(p.type) || p.type === "straight-54") continue;
+      const l = Number(p.type.slice(9));
+      const cx = p.pose.x + (Math.cos(p.pose.heading) * l) / 2;
+      const cz = p.pose.z + (Math.sin(p.pose.heading) * l) / 2;
+      const d = Math.hypot(cx - mx, cz - mz);
+      if (!best || d < best.d) best = { id, d, x: cx, z: cz, heading: p.pose.heading, y: p.y };
+    }
+    return best ?? { missing: [...w.layout.pieceIds()].map((id) => w.layout.getPiece(id).type).join(" "), a, c };
+  });
+  check("passing loop: found the Larkfield–Elderwick straight", !!site && !site.missing, JSON.stringify(site));
+  if (!site || site.missing) return await ctx.close();
+  // The camera 1300 mm off, over the straight; the straight's way and its side, on the screen.
+  const view = await q.evaluate((s) => {
+    const w = window.woodrail;
+    const V = w.camera.position.constructor;
+    w.director.cancel?.();
+    w.lookAt(new V(s.x, 0, s.z), 1300, 0.95, -1.1659);
+    w.camera.updateMatrixWorld();
+    const r = w.canvas.getBoundingClientRect();
+    const scr = (x, y, z) => {
+      const v = new V(x, y, z).project(w.camera);
+      return [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height];
+    };
+    const c = scr(s.x, s.y, s.z);
+    const f = scr(s.x + Math.cos(s.heading) * 100, s.y, s.z + Math.sin(s.heading) * 100);
+    let ux = f[0] - c[0];
+    let uy = f[1] - c[1];
+    const l = Math.hypot(ux, uy);
+    ux /= l;
+    uy /= l;
+    // Across it, toward the top of the screen (away from Larkfield's houses below the line, and the tray).
+    let nx = -uy;
+    let ny = ux;
+    if (ny > 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+    return { c, u: [ux, uy], n: [nx, ny], pxPerMm: l / 100, switches: [...w.layout.pieceIds()].filter((id) => w.layout.getPiece(id).type.startsWith("switch")).length, pieces: w.layout.pieceCount };
+  }, site);
+  await settled(q);
+  // (The title can come back over a fresh game while it settles: Continue, as a player would.)
+  const titleAgain = await q.evaluate(() => window.woodrail.title.shown);
+  if (titleAgain) {
+    await q.evaluate(() => document.querySelector(".title-card.mode-game .title-buttons .primary")?.click());
+    await q.waitForFunction(() => !window.woodrail.title.shown, null, { timeout: 120000 }).catch(() => {});
+    await settled(q);
+    await q.evaluate((s) => {
+      const w = window.woodrail;
+      w.director.cancel?.();
+      w.lookAt(new w.camera.position.constructor(s.x, 0, s.z), 1300, 0.95, -1.1659);
+    }, site);
+    await settled(q);
+  }
+  // (Draw switched on as its chip does: at 360 px in Game mode the chip can be under the goal's card.)
+  const drawOn = await q.evaluate(() => {
+    if (!window.woodrail.interaction.isDrawing) document.querySelector(".tray-draw")?.click();
+    return window.woodrail.interaction.isDrawing;
+  });
+  check("passing loop: Draw is on, nothing over the map", drawOn && !(await q.evaluate(() => window.woodrail.title.shown)), `title came back: ${titleAgain}; now ${await q.evaluate(() => window.woodrail.title.shown)}; pieces ${await q.evaluate(() => window.woodrail.layout.pieceCount)}`);
+  await q.waitForFunction(() => window.woodrail.interaction.draw.ready, null, { timeout: 60000 }).catch(() => {});
+  await shot(q, `${OUT}/draw-10-loop-before.png`);
+  const cdp = await ctx.newCDPSession(q);
+  // Each move stamped 16 ms after the last, as a finger's are on a phone (the game decides a hold by the events' own
+  // times): without, every move here is stamped when the script gets round to it, under software GL a long while
+  // later, and the press reads as a finger resting long enough to pick the straight up (as QA's harness saw it).
+  const t0 = Date.now() / 1000;
+  let ti = 0;
+  const touch = (type, tx, ty) => cdp.send("Input.dispatchTouchEvent", { type, timestamp: t0 + 0.016 * ti++, touchPoints: type === "touchEnd" ? [] : [{ x: tx, y: ty, id: 1 }] });
+  // QA's shape (along the straight, and across it): out 60 along and 92 across, 140 along beside it, and back in over
+  // the last 60, starting on the straight 80 before its middle.
+  const [cx, cy] = view.c;
+  // (QA's numbers are screen px at about a pixel a millimetre: taken here as millimetres, on the screen at this view's scale.)
+  const k = view.pxPerMm;
+  const pt = (a, b) => [cx + (view.u[0] * a + view.n[0] * b) * k, cy + (view.u[1] * a + view.n[1] * b) * k];
+  const corners = [pt(-80, 0), pt(-20, 92), pt(120, 92), pt(180, 0)];
+  const modes = [];
+  const mode = () => q.evaluate(() => {
+    const m = window.woodrail.interaction.mode;
+    return `${m.kind}${m.branch !== undefined ? ":branch" + m.branch : ""}${m.press?.kind ? ":" + m.press.kind : ""}`;
+  });
+  await touch("touchStart", corners[0][0], corners[0][1]);
+  modes.push(await mode());
+  for (let i = 1; i < corners.length; i++) {
+    const [ax, ay] = corners[i - 1];
+    const [bx, by] = corners[i];
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 5));
+    for (let k = 1; k <= n; k++) await touch("touchMove", ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n);
+    modes.push(await mode());
+  }
+  await touch("touchEnd", 0, 0);
+  await settled(q);
+  await shot(q, `${OUT}/draw-10-loop.png`);
+  const got = await q.evaluate(() => {
+    const w = window.woodrail;
+    return { switches: [...w.layout.pieceIds()].filter((id) => w.layout.getPiece(id).type.startsWith("switch")).length, pieces: w.layout.pieceCount, toasts: window.__toasts.splice(0) };
+  });
+  const what = `${got.switches - view.switches} switches, ${got.pieces - view.pieces} pieces more · ${view.pxPerMm.toFixed(2)} px/mm · modes ${modes.join(" > ")} · press at ${corners[0].map(Math.round)}${got.toasts.length ? " · " + got.toasts.join(" | ") : ""}`;
+  check("passing loop off the straight: a switch out, the run beside it, a switch back in", got.switches - view.switches === 2 && got.pieces > view.pieces, what);
+  check("…and no 'Turn it to fit' while drawing", !got.toasts.some((t) => /turn it to fit/i.test(t)), what);
+  // Out of reach (QA: the camera 4000 mm off; at 740 px tall reach lasts to about 3700 mm), Draw on: a tap on the
+  // line's body, or a long press, only lets go of what's selected, as with Draw off; no card opens (QA: a tap opened
+  // the straight's card, and a 650 ms press left it open).
+  if (got.switches - view.switches === 2) await q.evaluate(() => window.woodrail.interaction.undo());
+  await settled(q);
+  const far = await q.evaluate((s) => {
+    const w = window.woodrail;
+    const V = w.camera.position.constructor;
+    w.director.cancel?.();
+    w.lookAt(new V(s.x, 0, s.z), 4000, 0.95, -1.1659);
+    w.camera.updateMatrixWorld();
+    const r = w.canvas.getBoundingClientRect();
+    const v = new V(s.x, s.y, s.z).project(w.camera);
+    return { at: [r.left + ((v.x + 1) / 2) * r.width, r.top + ((1 - v.y) / 2) * r.height], pose: { ...w.layout.getPiece(s.id).pose } };
+  }, site);
+  await settled(q);
+  const cardOpen = () => q.evaluate(() => [...document.querySelectorAll(".piece-card")].some((c) => !c.hidden));
+  const farOut = [];
+  for (const hold of [0.05, 0.65]) {
+    const s0 = Date.now() / 1000 + 10 * farOut.length;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: s0, touchPoints: [{ x: far.at[0], y: far.at[1], id: 1 }] });
+    const pressed = await mode();
+    // (Held for real too: a hold's timer runs on the clock.)
+    if (hold > 0.1) await q.waitForTimeout(700);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", timestamp: s0 + hold, touchPoints: [] });
+    await settled(q);
+    const after = await q.evaluate((id) => ({ ...window.woodrail.layout.getPiece(id).pose }), site.id);
+    farOut.push({ hold, pressed, card: await cardOpen(), moved: Math.hypot(after.x - far.pose.x, after.z - far.pose.z) });
+  }
+  check(
+    "out of reach, Draw on: a tap or a 650 ms press on a line's body opens no card and moves nothing",
+    farOut.every((f) => !f.card && f.moved < 1e-6 && /press:branch/.test(f.pressed)),
+    JSON.stringify(farOut),
+  );
   await ctx.close();
 }

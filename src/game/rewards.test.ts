@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import rewardsSrc from "./rewards.ts?raw";
 import mainSrc from "../main.ts?raw";
-import { CARGO } from "../economy/cargo";
+import { CARGO, type CargoKind } from "../economy/cargo";
 import { capOf } from "../economy/economy";
 import { workshopStock } from "./crafting";
 import { CARD_KINDS, type GrowthCard } from "./growth-cards";
 import { Progress } from "./progress";
-import { deliver, pick, tick } from "./research";
+import { costOf, deliver, pick, tick } from "./research";
 import { boostGoods, carIcon, cardFor, cardView, crateFor, describeThings, firstTimeGift, learnGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
 import { TECHS } from "./tech";
 import { THING_RULES } from "./things";
@@ -123,22 +123,22 @@ describe("the research boost", () => {
     const p = Progress.fresh();
     pick(p, "switches");
     expect(cardFor(p, w, "boost", 1, rng(1))).toEqual({ kind: "boost", share: 0.25 });
-    deliver(p, "planks", 4);
+    deliver(p, "planks", 3);
     expect(cardFor(p, w, "boost", 1, rng(1))).toBeNull();
   });
 
   it("fills its share of each good the research still lacks, and only those", () => {
     const w = world({ school: true });
-    // Bridges: 10 planks, 4 in: a village's 25% of the 6 left is 2 (rounded up).
+    // Bridges: 10 planks, none in: a village's 25% of 10 is 3 (rounded up); a town's 40%, 4.
     const p = Progress.fresh();
     pick(p, "bridges");
-    deliver(p, "planks", 4);
-    expect(boostGoods(p, 0.25)).toEqual({ planks: 2 });
+    expect(boostGoods(p, 0.25)).toEqual({ planks: 3 });
+    expect(boostGoods(p, 0.4)).toEqual({ planks: 4 });
     p.offers.push({ from: "Larkfield", level: 1, cards: [{ kind: "boost", share: 0.25 }] });
-    expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+2🪵" });
+    expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+3🪵" });
     // The toast says where the goods went (QA: "+3🪵" alone didn't).
-    expect(takeCard(p, w, 0, 0)).toMatchObject({ amount: "+2🪵", taken: "+2🪵 to Bridges and ramps" });
-    expect(p.research.got).toEqual({ planks: 6 });
+    expect(takeCard(p, w, 0, 0)).toMatchObject({ amount: "+3🪵", taken: "+3🪵 to Bridges and ramps" });
+    expect(p.research.got).toEqual({ planks: 3 });
     expect(p.offers).toEqual([]);
     // Mills: 6 planks and 6 grain: a town's 40% is 3 planks and 3 grain (rounded up).
     const q = researching();
@@ -148,12 +148,76 @@ describe("the research boost", () => {
     expect(q.research.current).toBe("mills");
   });
 
+  it("is never worth only a good or two: at least 3 of each good lacking, and not offered with fewer than 3 lacking (QA P5)", () => {
+    const w = world({ school: true });
+    // Bridges with 6 of 10 in: a village's 25% of the 4 left would be 1; the floor makes it 3.
+    const p = Progress.fresh();
+    pick(p, "bridges");
+    deliver(p, "planks", 6);
+    expect(boostGoods(p, 0.25)).toEqual({ planks: 3 });
+    expect(cardFor(p, w, "boost", 1, rng(1))).toEqual({ kind: "boost", share: 0.25 });
+    // 2 left: not worth a card. A town's offer draws another kind in its place, three cards still.
+    deliver(p, "planks", 2);
+    expect(boostGoods(p, 0.4)).toEqual({});
+    expect(cardFor(p, w, "boost", 2, rng(1))).toBeNull();
+    for (let seed = 1; seed < 30; seed++) {
+      const cards = offerOnGrowth(p, w, "Larkfield", 2, rng(seed))!.cards;
+      expect(cards.map((c) => c.kind)).not.toContain("boost");
+      expect(cards).toHaveLength(3);
+    }
+    // An offer drawn before, kept till then: it can't be taken, and says why.
+    p.offers.length = 0;
+    p.offers.push({ from: "Elderwick", level: 2, cards: [{ kind: "boost", share: 0.4 }, { kind: "coins", n: 80 }] });
+    expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: false, why: "Your research is nearly in" });
+    expect(takeCard(p, w, 0, 0)).toBeNull();
+  });
+
+  it("every good a boost card shows is at least 3, across researches and what's in (QA N2: \"+1🪵 2🌾\")", () => {
+    const w = world({ school: true });
+    // Mills with 11 of 12 planks in and 4 of 6 grain: 1 plank and 2 grain left, under the floor each: no card.
+    const m = researching();
+    deliver(m, "planks", 11);
+    deliver(m, "grain", 4);
+    expect(boostGoods(m, 0.4)).toEqual({});
+    expect(cardFor(m, w, "boost", 2, rng(1))).toBeNull();
+    // 1 plank left and all 6 grain: the plank is left off, the grain still fills its floor.
+    const g = researching();
+    deliver(g, "planks", 11);
+    expect(boostGoods(g, 0.25)).toEqual({ grain: 3 });
+    g.offers.push({ from: "Larkfield", level: 1, cards: [{ kind: "boost", share: 0.25 }] });
+    expect(cardView(g, w, g.offers[0].cards[0])).toMatchObject({ ok: true, amount: "+3🌾" });
+    // Every research with goods, every share, many states of what's in.
+    let shown = 0;
+    for (const t of TECHS) {
+      const goods = costOf(t.id).goods;
+      const kinds = Object.keys(goods) as CargoKind[];
+      if (kinds.length === 0) continue;
+      for (let seed = 1; seed <= 40; seed++) {
+        const r = rng(seed * 31 + t.id.length);
+        const p = Progress.fresh();
+        p.research.current = t.id;
+        for (const k of kinds) p.research.got[k] = Math.floor(r() * (goods[k]! + 1));
+        for (const share of [0.25, 0.4, 0.6]) {
+          const bag = boostGoods(p, share);
+          for (const k of Object.keys(bag) as CargoKind[]) {
+            expect(bag[k]!).toBeGreaterThanOrEqual(3);
+            expect(bag[k]!).toBeLessThanOrEqual(goods[k]! - (p.research.got[k] ?? 0));
+            shown++;
+          }
+          const view = cardView(p, w, { kind: "boost", share });
+          if (view.ok) for (const n of view.amount.match(/\d+/g)!) expect(Number(n)).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
+    expect(shown).toBeGreaterThan(100);
+  });
+
   it("an offer kept till the research is done can't boost (the card says why), and keeps waiting", () => {
     const w = world({ school: true });
     const p = Progress.fresh();
     pick(p, "switches");
     p.offers.push({ from: "Larkfield", level: 1, cards: [{ kind: "boost", share: 0.25 }, { kind: "coins", n: 30 }] });
-    deliver(p, "planks", 4);
+    deliver(p, "planks", 3);
     expect(cardView(p, w, p.offers[0].cards[0])).toMatchObject({ ok: false, why: "Pick a research that needs goods" });
     expect(takeCard(p, w, 0, 0)).toBeNull();
     expect(p.offers).toHaveLength(1);
@@ -448,5 +512,45 @@ describe("crates and presents", () => {
     expect(researched).toMatch(/\blearned\(id\)/);
     const learned = mainSrc.slice(mainSrc.indexOf("function learned("), mainSrc.indexOf("function learned(") + 600);
     expect(learned).toMatch(/learnGift\(progress, id\)/);
+  });
+});
+
+describe("no ready-made trains in Game mode: everything comes as parts", () => {
+  /** Every thing a gift, crate or card gives is one piece, one car or one prop (a train is made up from its cars). */
+  const parts = (ids: readonly string[]) => {
+    for (const id of ids) {
+      expect(id in THING_RULES, id).toBe(true);
+      expect(/^(piece|car|prop):[^:]+$/.test(id), id).toBe(true);
+    }
+  };
+  const cardThings = (c: GrowthCard | null): string[] => (c?.kind === "crate" ? c.things.map(([id]) => id) : c?.kind === "wagon" ? [c.id] : []);
+
+  it("the starting toy box: one engine and its wagons, as parts", () => {
+    const p = Progress.fresh();
+    parts([...p.owned.keys()]);
+    expect(p.owned.get("car:engine")).toBe(1);
+    expect(p.owned.get("car:timber")).toBeGreaterThan(0);
+  });
+
+  it("presents, crates, wagon cards and blueprint gifts give parts, and no engine beyond the first before Signals", () => {
+    for (let seed = 1; seed < 16; seed++) {
+      for (const learned of [[], ["switches"], ["switches", "farming", "passengers", "mills"], ["switches", "signals", "passengers"]]) {
+        const p = Progress.fresh();
+        for (const t of learned) p.learned.add(t);
+        const w = world({ school: true });
+        const got: string[] = [];
+        for (const level of [1, 2, 3, 5]) {
+          got.push(...firstTimeGift(p, level).map(([id]) => id));
+          got.push(...crateFor(p, level, rng(seed)).map(([id]) => id));
+          for (const kind of CARD_KINDS) got.push(...cardThings(cardFor(p, w, kind, level, rng(seed))));
+          const offer = offerOnGrowth(p, w, "Larkfield", level, rng(seed));
+          // Whichever card can be taken first: what it gives goes in the toy box.
+          if (offer) for (let i = 0; i < offer.cards.length; i++) if (takeCard(p, w, p.offers.indexOf(offer), i)) break;
+        }
+        for (const t of TECHS) if (t.id !== "signals") got.push(...learnGift(p, t.id).map(([id]) => id));
+        parts(got);
+        if (!p.learned.has("signals")) expect(p.owned.get("car:engine"), `seed ${seed} ${learned.join(",")}`).toBe(1);
+      }
+    }
   });
 });

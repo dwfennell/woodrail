@@ -196,6 +196,11 @@ export interface DepotState {
   auto: boolean;
   /** Trains wait under the crane until each wagon is full. */
   waitFull: boolean;
+  /**
+   * A workshop that takes all the planks a train brings, up to its yard's cap, though a town further on wants them
+   * ("Takes all planks"); false (the default), it shares: `shopKeeps` says how many it keeps.
+   */
+  takesAll: boolean;
   /** Units on each pile, by cargo index. */
   readonly piles: Int32Array;
   /** Ticks into the current production (forest, sawmill) or use (town) cycle. */
@@ -383,7 +388,7 @@ export class Economy {
   addDepot(role: DepotRole, pieceId: number, townId = -1, craneAt?: number): DepotState {
     const p = this.layout.getPiece(pieceId);
     const len = p ? pathLength(getPieceDef(p.type, p.flipped).paths[0].geom) : 216;
-    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0 };
+    const d: DepotState = { id: this.depots.length, pieceId, role, townId, auto: true, waitFull: false, takesAll: false, piles: new Int32Array(CARGO_KINDS.length), timer: 0, rate: 1, craneAt: craneAt ?? len / 2, waiting: 0, sheds: 0 };
     // An endless heap is full from the start.
     if (RECIPES[role].endless) for (const k of RECIPES[role].gives) d.piles[CARGO[k].index] = capAt(d);
     this.depots.push(d);
@@ -484,8 +489,8 @@ export class Economy {
 
   /**
    * Does a town this car's train goes on to want `kind`? A routed train: a later stop of its line is a town taking it;
-   * an unrouted one: an automatic town on its track (joined to it) takes it. Only asked at a school, while its research
-   * lacks the good.
+   * an unrouted one: an automatic town on its track (joined to it) takes it. Asked at a school, while its research
+   * lacks the good, and at a workshop whose yard holds what it keeps (`shopKeeps`).
    */
   private townWantsAhead(carId: number, kind: CargoKind, route: Route | null): boolean {
     const found = this.sim.findCar(carId);
@@ -616,6 +621,12 @@ export class Economy {
   setWaitFull(depotId: number, on: boolean): void {
     const d = this.depots[depotId];
     if (d) d.waitFull = on;
+  }
+
+  /** A workshop takes all the planks trains bring (true), or shares them with towns further on (`takesAll`). */
+  setTakesAll(depotId: number, on: boolean): void {
+    const d = this.depots[depotId];
+    if (d) d.takesAll = on;
   }
 
   /** Can a pile hold this cargo (it is the depot's input or output) and is there room? */
@@ -800,6 +811,10 @@ export class Economy {
     // What a school's research lacks rides on past a town or a workshop for it, as much as it lacks (the rest is
     // theirs; a workshop's tray order first).
     if ((d.role === "town" || (d.role === "workshop" && !this.reserved?.(c.kind))) && this.keptForSchool(carId, c.kind, route, d.role === "town")) return false;
+    // A workshop's yard takes no more than it keeps (its tray order's, or a few) while a town the train goes on to wants
+    // them too (QA P5: with research idle, the yard filled 1 → 16 with no order and the next town starved). Not one set
+    // to take all (`takesAll`), nor at a stop set to Only drop (QA N3: it still shared): it fills its yard.
+    if (d.role === "workshop" && !d.takesAll && this.shopKeeps && d.piles[CARGO[c.kind].index] >= (this.shopKeeps(c.kind) ?? Infinity) && !(route && this.onlyDropsAt(route, d.id)) && this.townWantsAhead(carId, c.kind, route)) return false;
     // A school takes only its share of a pass's load while a town the train goes on to wants the good too.
     if (d.role === "school" && this.townWantsAhead(carId, c.kind, route)) {
       const found = this.sim.findCar(carId);
@@ -909,6 +924,17 @@ export class Economy {
       if (kind === null ? later.town : (routedOnly ? later.uses : later.takes) & (1 << CARGO[kind].index)) return true;
     }
     return pick && !(routedOnly && drop);
+  }
+
+  /** Is the stop a routed train is heading for (this visit) at this depot set to Only drop? */
+  private onlyDropsAt(route: Route, depotId: number): boolean {
+    const n = route.stops.length;
+    for (let k = 0; k < n; k++) {
+      const s = route.stops[(route.next + k) % n];
+      if (s.depotId !== depotId) return false;
+      if (s.action === "drop") return true;
+    }
+    return false;
   }
 
   /** Does a routed train wait to fill at this depot: is the stop it's heading for (this visit) "Wait here till full"? */
@@ -1471,6 +1497,14 @@ export class Economy {
    * workshop.
    */
   reserved: ((kind: CargoKind) => boolean) | null = null;
+
+  /**
+   * How many of `kind` a workshop's yard takes from a train while a town the train goes on to wants it (Game mode:
+   * planks, its waiting tray order's or `WORKSHOP_SPARE`: `yardKeeps` in crafting.ts); beyond that they ride on to the
+   * town. Null (or null for a kind): as many as the yard has room for. With no town ahead wanting them, or at a
+   * workshop set to take all (`takesAll`), the yard fills.
+   */
+  shopKeeps: ((kind: CargoKind) => number | null) | null = null;
 
   /**
    * Goods landed at a depot for trains to take away (Game mode: what a boat brought to a harbour), by depot id and

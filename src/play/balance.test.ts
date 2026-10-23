@@ -3,7 +3,7 @@ import { Editor } from "../editor/editor";
 import { CARGO, canCarry, type CargoKind } from "../economy/cargo";
 import { capAt, RECIPES, type RouteStopDef } from "../economy/economy";
 import { describe as describeGoods } from "../economy/goods";
-import { craftNow, craftShort, Crafting, keepsForOrder, lacking, workshops, workshopStock } from "../game/crafting";
+import { craftNow, craftShort, Crafting, keepsForOrder, lacking, WORKSHOP_SPARE, workshops, workshopStock, yardKeeps } from "../game/crafting";
 import { attachEngines } from "../game/engines";
 import { GOALS, GoalTracker } from "../game/goals";
 import { rateFor, resourceAt, siteWhy, SITE_RULES, updateRates, yardMiddle } from "../game/industries";
@@ -101,6 +101,23 @@ const WISH: readonly string[] = [
 
 /** Planks a player keeps in the workshop's yard before picking another research (BALANCE_SPARE to try others). */
 const RESEARCH_SPARE = Number(ENV.BALANCE_SPARE ?? 10);
+
+/**
+ * Planks the workshop's yard takes with no order while a town on the line wants them (the game's `WORKSHOP_SPARE`;
+ * BALANCE_YARD_SPARE to try others, -1 for the old rule: the yard takes all it has room for).
+ */
+const YARD_SPARE = Number(ENV.BALANCE_YARD_SPARE ?? WORKSHOP_SPARE);
+/**
+ * Planks in the yard that are planks to spare for picking research: `RESEARCH_SPARE`, or what the yard holds while a
+ * town on the line wants planks (`YARD_SPARE`) if fewer, since it fills no further then (with the old rule the player
+ * waited for 10 that never came, and research sat idle for the rest of the game).
+ */
+/**
+ * Every workshop set to Takes all planks (`takesAll`: BALANCE_WORKSHOP=greedy), filling its yard though a town ahead
+ * wants them, for comparing with the default (Shares with towns).
+ */
+const GREEDY_WORKSHOP = ENV.BALANCE_WORKSHOP === "greedy";
+const PICK_SPARE = GREEDY_WORKSHOP ? RESEARCH_SPARE : YARD_SPARE < 0 ? RESEARCH_SPARE : Math.min(RESEARCH_SPARE, YARD_SPARE);
 
 /** Wished for, but of no use to this player till much later: bought only with planks and coins to spare. */
 const LATER: ReadonlySet<string> = new Set(["warehouses", "sawmills", "junctions", "college"]);
@@ -237,6 +254,7 @@ class Player {
     attachEngines(w);
     attachPassengers(w, () => this.progress, () => {});
     w.economy.reserved = (kind) => kind === "planks" && this.planksKept;
+    w.economy.shopKeeps = YARD_SPARE < 0 ? null : (kind) => (kind === "planks" ? yardKeeps(this.progress, YARD_SPARE) : null);
     // Goods into a school go into the research (as the game does).
     attachResearch(w.economy, () => this.progress, () => (this.researchFed = this.tick));
     this.progress.coverMap(w);
@@ -283,6 +301,7 @@ class Player {
   /** The workshop keeps planks only for a tray order waiting to be made (as the game does: never for blueprints). */
   planksKept = false;
   updatePlanksKept(): void {
+    if (GREEDY_WORKSHOP) for (const d of workshops(this.w)) d.takesAll = true;
     if (workshops(this.w).length === 0) {
       this.planksKept = false;
       return;
@@ -1292,7 +1311,7 @@ class Playthrough {
     // (Nor while what the line needs next waits on the workshop's planks: cars for the goods train, or a farm yard, mill or
     // quarry learned and not yet built. A new research would take the planks at the school first.)
     const building = this.carsWait || (s.learned.has("farming") && this.farm === -1) || (s.learned.has("mills") && this.farm >= 0 && this.mill < 0) || (s.learned.has("quarries") && this.quarry === -1);
-    if (this.school !== -1 && (P.researchedAt.length === 0 || P.planks() >= RESEARCH_SPARE) && !building) {
+    if (this.school !== -1 && (P.researchedAt.length === 0 || P.planks() >= PICK_SPARE) && !building) {
       // (As before research: planks and coins to spare, 24 and 150.)
       const rich = P.planks() >= 24 && s.coins >= 150;
       // (Only what the railway can bring the goods for: Mills once there's a farm yard for its grain.)
@@ -1429,7 +1448,7 @@ class Playthrough {
       // The next nearest only with planks to spare: with few in the workshop's yard the nearest may just be short of
       // its ramps, and a farther town's line can leave the farm a branch an unrouted train never takes (seen once
       // "Make a switch" took the yard's planks: Mills waited on grain all game).
-      for (const i of others.slice(0, P.planks() >= RESEARCH_SPARE ? 2 : 1)) {
+      for (const i of others.slice(0, P.planks() >= PICK_SPARE ? 2 : 1)) {
         const station = st(P, i);
         const r = extend(P, { target: () => [connectorRef(station, 0), connectorRef(station, 1)] });
         if (r) {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { CARGO } from "../economy/cargo";
 import { appendPiece, connectorRef } from "../track";
-import { costOf, craftNow, craftShort, Crafting, CRAFT_SECONDS, ENGINE_NOTE, lacking, makeNote, uncraft, workshopStock } from "./crafting";
-import { makeRowHtml } from "../ui/workshop-panel";
+import { costOf, craftNow, craftShort, Crafting, CRAFT_SECONDS, ENGINE_NOTE, lacking, madeText, makeNote, uncraft, workshopStock } from "./crafting";
+import { makeRowHtml, SHARES_LABEL, TAKES_ALL_LABEL, yardHint, yardModeHtml } from "../ui/workshop-panel";
 import type { ThingId } from "./things";
 import { Progress } from "./progress";
 import { buildStarterWorld, syncIndustries } from "./world";
@@ -71,6 +71,43 @@ describe("the workshop", () => {
     const gone = deserializeWorld(JSON.parse(JSON.stringify(serializeWorld(w))));
     expect(gone.ok).toBe(true);
     if (gone.ok) expect(gone.value.economy.allDepots().some((d) => d.role === "workshop")).toBe(false);
+  });
+});
+
+describe("the workshop's plank choice: Shares with towns / Takes all planks", () => {
+  it("saves Takes all planks on that workshop only; one that shares (and an old save without the field) loads sharing", async () => {
+    const { serializeWorld, deserializeWorld } = await import("../persist/save");
+    const { w, d } = withWorkshop(5);
+    expect(d.takesAll).toBe(false);
+    w.economy.setTakesAll(d.id, true);
+    const data = JSON.parse(JSON.stringify(serializeWorld(w)));
+    // Only a workshop that takes all says so: every other depot leaves the field out.
+    expect(data.depots.filter((x: { takesAll?: true }) => "takesAll" in x).map((x: { id: number }) => x.id)).toEqual([d.id]);
+    const back = deserializeWorld(data);
+    if (!back.ok) throw new Error(back.error);
+    expect(back.value.economy.depot(d.id)!.takesAll).toBe(true);
+    expect(back.value.economy.allDepots().filter((x) => x.takesAll).length).toBe(1);
+    w.economy.setTakesAll(d.id, false);
+    expect(JSON.parse(JSON.stringify(serializeWorld(w))).depots.some((x: { takesAll?: true }) => "takesAll" in x)).toBe(false);
+    delete data.depots[d.id].takesAll;
+    const old = deserializeWorld(data);
+    if (!old.ok) throw new Error(old.error);
+    expect(old.value.economy.depot(d.id)!.takesAll).toBe(false);
+  });
+
+  it("the card shows both choices, the one on marked, and a line under them", () => {
+    const share = yardModeHtml({ takesAll: false, keeps: 7, cap: 30 });
+    expect(share).toContain(SHARES_LABEL);
+    expect(share).toContain(TAKES_ALL_LABEL);
+    expect(share).toMatch(/class="chip text active" data-yard="share" aria-pressed="true"/);
+    expect(share).toMatch(/class="chip text" data-yard="all" aria-pressed="false"/);
+    expect(yardHint({ takesAll: false, keeps: 7, cap: 30 })).toBe("Leaves planks for towns further on, keeping 7 for you");
+    expect(yardHint({ takesAll: false, keeps: 8, cap: 30 })).toBe("Leaves planks for towns further on, keeping 8 for you");
+    expect(yardHint({ takesAll: true, keeps: 7, cap: 30 })).toBe("Fills its yard first, up to 30");
+    // With a school on the map, it says the school still gets what it needs (QA N3).
+    expect(yardHint({ takesAll: true, keeps: 7, cap: 30, school: true })).toBe("Fills its yard first, up to 30 (your school still gets what it needs)");
+    expect(yardHint({ takesAll: false, keeps: 7, cap: 30, school: true })).toBe("Leaves planks for towns further on, keeping 7 for you");
+    expect(yardModeHtml({ takesAll: true, keeps: 7, cap: 30 })).toMatch(/class="chip text active" data-yard="all"/);
   });
 });
 
@@ -190,6 +227,27 @@ describe("a second engine before Signals (QA: the workshop could make the one th
     expect(makeNote(q, "car:engine")).toBe(ENGINE_NOTE);
     expect(craftNow(w, q, new Map([["car:engine" as ThingId, 1]]))).toBeNull();
     expect(q.owned.get("car:engine")).toBe(2);
+  });
+
+  it("an engine ordered on the workshop's card says it too as it's made (QA P5: only the tray's said it)", () => {
+    const { w } = withWorkshop(12);
+    const p = Progress.fresh();
+    const c = new Crafting(p);
+    c.order("car:engine");
+    let made: ThingId | null = null;
+    for (let i = 0; i < 10 && !made; i++) made = c.tick(w, 1);
+    expect(made).toBe("car:engine");
+    expect(p.owned.get("car:engine")).toBe(2);
+    expect(madeText(p, made!, "Engine")).toBe(`+1 Engine in your toy box. ${ENGINE_NOTE}`);
+    // A wagon: no note.
+    expect(madeText(p, "car:timber", "Flatbed wagon")).toBe("+1 Flatbed wagon in your toy box");
+    // The first engine (none before it), or with Signals learned: none either.
+    const q = Progress.fresh();
+    q.owned.delete("car:engine");
+    q.add("car:engine");
+    expect(madeText(q, "car:engine", "Engine")).toBe("+1 Engine in your toy box");
+    p.learned.add("signals");
+    expect(madeText(p, "car:engine", "Engine")).toBe("+1 Engine in your toy box");
   });
 
   it("the workshop's card shows the note under the engine's name, beside its + button", () => {

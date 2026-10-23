@@ -11,7 +11,7 @@ vi.mock("./track-geometry", async (importOriginal) => {
 import { Flourishes } from "./flourishes";
 import { createSample, getPieceDef, Layout, pathLength, samplePath, type PieceTypeId } from "../track";
 import type { Materials } from "./materials";
-import { ARROW_FAR_SCALES, arrowEnds, arrowScaleFor, setRoute, SWITCH_ARROW_AT, SWITCH_ARROW_CLEAR, SWITCH_ARROW_CREAM, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
+import { ARROW_FAR_SCALES, arrowEnds, arrowScaleFor, setRoute, switchArrows, SWITCH_ARROW_AT, SWITCH_ARROW_CLEAR, SWITCH_ARROW_CREAM, trunkRoutes, SWITCH_ARROW_PINNED, SWITCH_SWING_S, TrackView } from "./track-view";
 
 const plain = () => new MeshBasicMaterial();
 const mats = { track: plain(), trackCut: plain(), bridgePaint: plain(), lacquer: plain, naturalWood: plain(), magnet: plain() } as unknown as Materials;
@@ -128,10 +128,10 @@ describe("switch chevrons", () => {
       for (const flipped of [false, true]) {
         const def = getPieceDef(type, flipped);
         for (let state = 0; state < trunkRoutes(def).length; state++) {
-          const ends = arrowEnds(def);
+          // (Each end's row in turn, along the route set from there; one row for two ends set along the same route.)
+          const ends = arrowEnds(def).filter((e, i, all) => all.findIndex((o) => setRoute(def, state, o) === setRoute(def, state, e)) === i);
           const all = arrowsOf(oneSwitch(type, state, flipped).view);
           expect(all, `${type} ${state}`).toHaveLength(N * ends.length);
-          // (Each end's row in turn, along the route set from there.)
           const rows = ends.map((end, k) => ({ end, route: setRoute(def, state, end)!, arrows: all.slice(k * N, (k + 1) * N) }));
           for (const { end, route, a } of rows.flatMap((r) => r.arrows.map((a) => ({ ...r, a })))) {
             // Every other track through the piece (its other routes, a wye's straight across, a crossover's other line).
@@ -150,20 +150,45 @@ describe("switch chevrons", () => {
     }
   });
 
-  it("a crossover shows both lines' set routes (QA N4): line B's row from its own facing end, never on top of line A's", () => {
+  it("a crossover shows both lines' set routes (QA N4); set over, one row the whole way across the link", () => {
     const def = getPieceDef("crossover", false);
     expect(arrowEnds(def)).toEqual([0, 3]);
     const [onA, onB] = [0, 1].map((s) => arrowsOf(oneSwitch("crossover", s).view));
     // Straight on: line A's row along line A, pointing on; line B's along line B (72 mm over), pointing back toward end 2.
     for (const a of onA.slice(0, N)) expect([Math.round(a.z), Math.round(Math.cos(a.heading))]).toEqual([0, 1]);
     for (const a of onA.slice(N)) expect([Math.round(a.z), Math.round(Math.cos(a.heading))]).toEqual([72, -1]);
-    // Over: both rows on the link, each on the half nearer its own end, pointing away from it, apart from each other.
-    const a = onB.slice(0, N);
-    const b = onB.slice(N);
-    expect(Math.max(...a.map((p) => p.x))).toBeLessThan(Math.min(...b.map((p) => p.x)));
-    for (const p of a) expect(Math.cos(p.heading)).toBeGreaterThan(0.7);
-    for (const p of b) expect(Math.cos(p.heading)).toBeLessThan(-0.7);
-    for (const p of a) for (const q of b) expect(Math.hypot(p.x - q.x, p.z - q.z)).toBeGreaterThan(12);
+    // Over: one row on the link, where it's clear of both lines' grooves, all pointing the one way, from line A over to
+    // line B (no two rows facing each other mid-link, like trains meeting: QA on switch clarity 2).
+    expect(onB).toHaveLength(N);
+    for (const p of onB) expect(Math.cos(p.heading)).toBeGreaterThan(0.7);
+    for (let i = 1; i < N; i++) {
+      expect(onB[i].x).toBeGreaterThan(onB[i - 1].x);
+      expect(onB[i].z).toBeGreaterThan(onB[i - 1].z);
+    }
+  });
+
+  it("drawn bigger in the middle step, they still clear the other route's groove (QA: at 1.8x they didn't)", () => {
+    const q = createSample();
+    const k = ARROW_FAR_SCALES[0];
+    // The other track's groove reaches 16 mm from its centre line; the chevron, rim and all, 7.4 mm from its own, times k.
+    const clear = 16 + 7.4 * k;
+    for (const type of ["switch", "switch-y", "switch-3way", "wye", "crossover"] as const) {
+      const def = getPieceDef(type, false);
+      for (let state = 0; state < trunkRoutes(def).length; state++) {
+        const route = setRoute(def, state)!;
+        for (const a of switchArrows(def, state, k).slice(0, N)) {
+          let nearest = Infinity;
+          for (const p of def.paths) {
+            if (p === route) continue;
+            for (let d = 0; d <= pathLength(p.geom); d += 1) {
+              samplePath(p.geom, d, q);
+              nearest = Math.min(nearest, Math.hypot(q.x - a.x, q.z - a.z));
+            }
+          }
+          expect(nearest, `${type} state ${state} at ${a.x.toFixed(0)}, ${a.z.toFixed(0)}`).toBeGreaterThanOrEqual(clear - 0.5);
+        }
+      }
+    }
   });
 
   it("each chevron has a dark rim under it (QA N1): a second mesh on the same instances, never picked", () => {
@@ -189,8 +214,10 @@ describe("switch chevrons", () => {
     expect(arrowScaleFor(2500)).toBe(ARROW_FAR_SCALES[0]);
     expect(arrowScaleFor(4018)).toBe(ARROW_FAR_SCALES[1]);
     // Hovering at a step doesn't flip-flop.
-    expect(arrowScaleFor(3300, ARROW_FAR_SCALES[1])).toBe(ARROW_FAR_SCALES[1]);
-    expect(arrowScaleFor(3300, ARROW_FAR_SCALES[0])).toBe(ARROW_FAR_SCALES[0]);
+    expect(arrowScaleFor(2700, ARROW_FAR_SCALES[1])).toBe(ARROW_FAR_SCALES[1]);
+    expect(arrowScaleFor(2700, ARROW_FAR_SCALES[0])).toBe(ARROW_FAR_SCALES[0]);
+    // (The bigger step comes by 2800: at 3300 the middle size was faint on a DPR 1 screen.)
+    expect(arrowScaleFor(3300)).toBe(ARROW_FAR_SCALES[1]);
     expect(arrowScaleFor(1700, ARROW_FAR_SCALES[0])).toBe(ARROW_FAR_SCALES[0]);
     expect(arrowScaleFor(1500, ARROW_FAR_SCALES[0])).toBe(1);
     // Biggest, a chevron (rim and all) is no wider than the track.
