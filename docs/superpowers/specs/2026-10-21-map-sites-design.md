@@ -551,3 +551,5 @@ so they change nothing it does. Merged with main at 6a5a157: 8 pass; **seed 2027
 (research stall 42.4 min on Goods engine from minute 125.6, researched 13), and seeds 4, 6 and 9 move (stall 11.4,
 11.1, 9.3; coins 1144, 1410, 843). Main at 6a5a157 alone gives seed 2027 the same failure, figure for figure, as does
 map-sites-3 merged with it without this step: it's main's (its sections and play-through changes), not this step's.
+Main's fix (0afc9a9, a hopper that blocked a starved mill's grain) merged in: seed 2027 passes again (City 62,
+researched 14, stall 10.1 min, coins 1560).
