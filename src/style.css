@@ -256,8 +256,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-card:has(.depot-extra.ledger) > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 8px 0 14px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
   /* And its title and ✕ at the top (the ✕ first, laid over the title's right end); focus scrolls clear of both. */
   .depot-card:has(.depot-extra.ledger) { scroll-padding: 56px 0 72px; }
-  .depot-card:has(.depot-extra.ledger) > .card-title { position: sticky; top: -12px; z-index: 1; align-self: stretch; margin: -12px -14px 0; padding: 12px 48px 6px; text-align: center; background: #faf3e6; box-shadow: 0 6px 8px -6px rgba(60, 40, 20, 0.16); }
-  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; top: -12px; z-index: 2; order: -1; align-self: flex-end; margin: -12px -14px -64px 0; }
+  /* (The ✕ comes first and takes no room: its margins cancel its height and the gap after it, so the title starts where
+     it sticks, at the card's top edge. Pulled up further, the sticky title stayed put and the ledger ran up under it.) */
+  .depot-card:has(.depot-extra.ledger) > .card-title { position: sticky; top: -12px; z-index: 1; align-self: stretch; margin: 0 -14px; padding: 12px 48px 6px; text-align: center; background: #faf3e6; box-shadow: 0 6px 8px -6px rgba(60, 40, 20, 0.16); }
+  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; top: -12px; z-index: 2; order: -1; align-self: flex-end; margin: -12px -14px -54px 0; }
 }
 @media (max-width: 400px) {
   .brand:has(.coins:not([hidden])) .brand-block { display: none; }
@@ -285,6 +287,16 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-card:has(.depot-extra.ledger) > .card-row .chip { min-height: 40px; padding-top: 0; padding-bottom: 0; }
   .depot-card:has(.depot-extra.ledger) { scroll-padding: 0 0 56px; }
   .depot-extra.ledger .ledger-pay { display: none; }
+  /* The workshop's plank choice moves up under the title (the short card is full with its pile and switches, and the
+     choice would be under the fold); its hint is for a taller card. */
+  .depot-card > .card-title { order: -2; }
+  .depot-card > .depot-yard { order: -1; margin-top: 0; }
+  /* (And its pile's line goes under the switches, before its list: the switches stay in view too, 740x360 included.) */
+  .depot-card:has(> .depot-yard:not([hidden])) > .depot-stock { order: 1; }
+  .depot-card:has(> .depot-yard:not([hidden])) > .depot-extra { order: 2; }
+  .depot-yard { margin-bottom: -4px; }
+  .depot-yard .chip { height: 40px; }
+  .depot-yard .yard-hint { display: none; }
   .depot-card:has(.depot-extra.ledger) > .card-title { position: static; margin: 0; padding: 0 34px; background: none; box-shadow: none; }
   /* The ✕ rides in the footer, at its left (Automatic is centred; the rewards chip sits over the right corner): in
      reach however far it's scrolled, at no cost to the ledger's room. */
@@ -292,6 +304,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* Scrolling comes to rest with a row's top at the top (gently: a long fling isn't held back). */
   .depot-card:has(.depot-extra.ledger) { scroll-snap-type: y proximity; }
   .depot-extra.ledger > *, .ledger-goods > *, .ledger-rows > * { scroll-snap-align: start; }
+  /* (The card's top is a resting place too, its title's: with none there, a card opened at its top could be snapped
+     down to the first row, its name half cut off. QA at 740x360: opened at 25 px.) */
+  .depot-card:has(.depot-extra.ledger) > .card-title { scroll-snap-align: start; scroll-margin-top: 12px; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
 }
 
@@ -559,6 +574,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .yard-mode { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
 /* (A little clear of the Automatic row above it: QA N3.) */
 .depot-extra > .yard-mode:first-child { margin-top: 6px; }
+.depot-yard { align-self: stretch; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .yard-mode .chip { flex: 1 1 0; min-width: 0; padding: 0 8px; white-space: nowrap; }
 .yard-hint { font-size: 12px; font-weight: 700; color: #7a5532; text-align: center; text-wrap: balance; }
 /* A town's card in Game mode: its ledger (src/ui/town-ledger.ts) in place of the piles, above the switches. */

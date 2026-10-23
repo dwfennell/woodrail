@@ -581,6 +581,24 @@ before early pay), so Routes' 40 is in reach at minute 15 on every seed; by minu
   (city prices or fares), which would make a city's coins card and passengers feel worth little; the harness's player
   also has nothing left to buy late. Late things to spend on would fit the band better than a trim.
 
+### Seed 2027's flour deadlock (balance-harness-fix, 2026-10-23)
+
+- **Bisect**: seed 2027 passed up to f60a0cf and failed from 6a5a157, which merged sections-slots (03c7711): Goods engine
+  waited 42.4 min on flour from minute 125.6, and 13 were researched. Each side passed on its own (every sections-slots
+  commit; main at 040cd60). Test merges of 512b9e0 into main's chain failed first at research-polish (4bc4275), and
+  undoing only its flour price (9073ec0, `EARLY_FLOUR_PRICE` 12) made the merge pass.
+- **The cause**: flour at 12 bought the quarry at minute 83, not 92, so the train's one hopper carried stone as well as
+  grain 9 minutes sooner. Elderwick stayed at 3/6 flour and never became a city. On the 22-stop line laid out at
+  minute 111 (… mill → quarry → workshop → Elderwick → forest → farm, and back), the hopper took stone at the quarry
+  on the way out, Elderwick (a town) took none, and the hopper reached the farm full: no grain, no flour, so Elderwick
+  never grew and never took the stone. The mill stayed empty to minute 180.
+- **A harness gap, not a game bug**: the price change is legitimate and routing is unchanged. The player's `unstick`
+  only saw a full pile of a good a town or the school wants, and grain is wanted only by the mill. Now it also counts
+  a good that an industry on the line turns into a wanted good while it has neither (not when the cars hold that
+  industry's own product: timber cars of planks at the forest broke seed 2), and "only the nearest pickup" counts a
+  town or school as a taker only if it accepts the good now. Seed 2027: stall 42.4 → 10.1 min, researched 13 → 14,
+  City 62. All 9 seeds pass; only seed 6's coins moved (1410 → 1394).
+
 ## 6. Saves
 
 - `SAVE_VERSION` goes to 12. Older saves are turned away with `OLDER_SAVE` and kept aside under their backup key,
