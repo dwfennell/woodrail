@@ -630,9 +630,23 @@ const mapStateOn = (M) =>
     };
     const shown = (e) => !e.classList.contains("off");
     const all = [...document.querySelectorAll(".map-marker")];
+    // (A badge's box takes in its lock, which reaches past its corner.)
+    const badge = (e) => {
+      const a = box(e);
+      const k = e.querySelector(".map-ruin-lock");
+      if (!k) return a;
+      const c = box(k);
+      return { l: Math.min(a.l, c.l), t: Math.min(a.t, c.t), r: Math.max(a.r, c.r), b: Math.max(a.b, c.b) };
+    };
+    const lockOf = (e) => {
+      const k = e.querySelector(".map-ruin-lock");
+      if (!k) return null;
+      const cs = getComputedStyle(k);
+      return { font: parseFloat(cs.fontSize), disc: Math.round(k.getBoundingClientRect().width), bg: cs.backgroundColor };
+    };
     return {
       open: !document.querySelector(".map-view").hidden,
-      ruins: all.filter((e) => e.classList.contains("kind-ruin")).map((e) => ({ key: e.dataset.key, shown: shown(e), locked: !!e.querySelector(".map-ruin-lock"), icon: e.querySelector(".map-ruin-icon")?.textContent, box: box(e) })),
+      ruins: all.filter((e) => e.classList.contains("kind-ruin")).map((e) => ({ key: e.dataset.key, shown: shown(e), locked: !!e.querySelector(".map-ruin-lock"), lock: lockOf(e), icon: e.querySelector(".map-ruin-icon")?.textContent, box: badge(e) })),
       labels: all.filter((e) => !e.classList.contains("kind-ruin") && shown(e)).map((e) => ({ key: e.dataset.key, box: box(e) })),
     };
   });
@@ -641,6 +655,7 @@ await openMapView();
 const map1 = await mapState();
 const farmMark = map1.ruins.find((r) => r.key === `ruin:${mFarm}`);
 check("map view: the old farm's marker, 🌾 with a lock", map1.open && farmMark?.shown && farmMark.icon === "🌾" && farmMark.locked, JSON.stringify(farmMark));
+check("…its lock readable: 16 px or more, on a pale disc", !!farmMark?.lock && farmMark.lock.font >= 16 && farmMark.lock.disc >= 20 && farmMark.lock.bg !== "rgba(0, 0, 0, 0)", JSON.stringify(farmMark?.lock));
 check("…the land around's ruins marked too (by role)", map1.ruins.filter((r) => r.key.startsWith("ruin-around:")).length > 0, JSON.stringify(map1.ruins.map((r) => [r.key, r.icon, r.shown, r.shown ? [Math.round(r.box.l), Math.round(r.box.t)] : null])));
 const clashes = map1.ruins.filter((r) => r.shown).flatMap((r) => map1.labels.filter((l) => overlaps(r.box, l.box)).map((l) => `${r.key}×${l.key}`));
 check("…no ruin marker over a town's or a station's label", clashes.length === 0, clashes.join(", "));
@@ -736,6 +751,8 @@ for (const [W, H] of [
   const shownBoxes = [...st.ruins.filter((r) => r.shown), ...st.labels];
   const clash = [];
   for (let i = 0; i < shownBoxes.length; i++) for (let j = i + 1; j < shownBoxes.length; j++) if (overlaps(shownBoxes[i].box, shownBoxes[j].box)) clash.push(`${shownBoxes[i].key}×${shownBoxes[j].key}`);
+  const locks = st.ruins.filter((r) => r.shown && r.lock);
+  check(`${W}×${H} map view: the locks readable (16 px or more, on a pale disc)`, locks.length > 0 && locks.every((r) => r.lock.font >= 16 && r.lock.disc >= 20), JSON.stringify(locks.map((r) => [r.key, r.lock])));
   check(`${W}×${H} map view: no badge or label over another`, st.open && shownBoxes.length > 0 && clash.length === 0, clash.join(", ") || `${st.labels.length} labels, ${st.ruins.filter((r) => r.shown).length} badges shown`);
   // Each badge shown is what's under its middle and just inside its edges (nothing over it).
   const hits = await S.evaluate(() =>

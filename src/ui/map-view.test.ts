@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MapMarker } from "../game/map-markers";
-import { layoutMarkers, type MarkerSpot } from "./map-view";
+import { LOCK_OUT, layoutMarkers, type MarkerSpot } from "./map-view";
 
 const marker = (key: string, kind: MapMarker["kind"]): MapMarker => ({ key, kind, x: 0, z: 0, title: key, detail: "" });
 const LABEL = { w: 190, h: 52 };
@@ -99,5 +99,17 @@ describe("layoutMarkers (the map view's boxes)", () => {
     const each = (performance.now() - t0) / 100;
     console.log(`  (layoutMarkers, 100 markers: ${each.toFixed(3)} ms)`);
     expect(each).toBeLessThan(5);
+  });
+});
+
+describe("a ruin's lock", () => {
+  it("a locked badge's box takes in its lock: a label beside it is kept off the lock", () => {
+    const own = { ...marker("ruin:4", "ruin"), ruin: 4, locked: true };
+    const m = [own, marker("town:1", "town")];
+    // The town's label just right of the badge and level with its lock (box 28 + LOCK_OUT).
+    const pts = [{ x: 100, y: 300 }, { x: 100 + 14 + 28 + 4, y: 300 + 14 + 2 }];
+    const spots = layoutMarkers(m, pts, [{ w: 28 + LOCK_OUT, h: 28 + LOCK_OUT }, LABEL], 390, 72, 760);
+    expectClear(spots, 390, 72, 760);
+    expect(spots[0]).not.toBeNull();
   });
 });

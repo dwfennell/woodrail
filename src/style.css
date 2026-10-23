@@ -540,7 +540,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .map-marker.kind-ruin::before { content: ""; position: absolute; inset: -8px; }
 .map-ruin-icon { font-size: 16px; line-height: 1; }
 .map-marker.kind-ruin.locked .map-ruin-icon { filter: grayscale(0.6); opacity: 0.85; }
-.map-ruin-lock { position: absolute; right: -6px; bottom: -5px; font-size: 11px; line-height: 1; }
+/* The lock: big enough to read at a glance (QA: 11px was hard to see), on a pale disc at the badge's corner. It reaches
+   LOCK_OUT (map-view.ts) past the badge's right and bottom edges, kept clear of labels by the layout. */
+.map-ruin-lock { position: absolute; right: -8px; bottom: -8px; display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(251, 243, 228, 0.97); box-shadow: 0 1px 3px rgba(40, 25, 10, 0.35); font-size: 16px; line-height: 1; }
 .map-text { display: flex; flex-direction: column; min-width: 0; }
 .map-text b { font-size: 14px; line-height: 1.15; }
 .map-text span { font-size: 12px; font-weight: 700; color: #6a5340; line-height: 1.25; }

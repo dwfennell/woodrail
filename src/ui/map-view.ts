@@ -12,6 +12,9 @@ export interface MapViewHandlers {
   handoff?(down: PointerEvent): void;
 }
 
+/** How far (px) a ruin's lock reaches past its badge's right and bottom edges (`.map-ruin-lock`'s right and bottom). */
+export const LOCK_OUT = 8;
+
 /** How far (px) a press on a marker moves before it's a drag of the map, not a tap on the marker. */
 const DRAG_PX = 8;
 
@@ -225,9 +228,11 @@ export class MapView {
    */
   place(project: (x: number, z: number) => { x: number; y: number } | null): void {
     // Read every label's size first, then move them (one layout, not one per marker).
+    // (A locked badge's lock reaches past its corner: its box takes that in, so no label covers it.)
     const sizes = this.markers.map((m) => {
       const e = this.els.get(m.key);
-      return { w: e?.offsetWidth ?? 0, h: e?.offsetHeight ?? 0 };
+      const out = m.kind === "ruin" && m.locked ? LOCK_OUT : 0;
+      return { w: (e?.offsetWidth ?? 0) + out, h: (e?.offsetHeight ?? 0) + out };
     });
     const { top: lo, bottom: hi } = this.band();
     const pts = this.markers.map((m) => project(m.x, m.z));
