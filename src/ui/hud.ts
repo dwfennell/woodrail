@@ -17,6 +17,8 @@ import { ControlsTutorial, type ViewState } from "./controls-tutorial";
 export interface HudHandlers {
   /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
   cameraView(): ViewState;
+  /** Is the camera gliding on its own (Show me, a framing), for the camera tutorial: not the player's doing. */
+  cameraGliding?(): boolean;
   /** The camera tutorial was done or skipped: what comes next is shown (the goals' Show me, say). */
   tutorialDone?(skipped: boolean): void;
   trayPointerDown(item: TrayItem, e: PointerEvent): void;
@@ -435,6 +437,8 @@ export class Hud {
       quality,
       button("How to play", "Show help", () => {
         this.menu.hidden = true;
+        // (Not both at once: the help card takes the camera tutorial's place, as on a first visit.)
+        this.coach.close(true);
         this.showHelp();
       }, "menu-item"),
       button("Show controls", "Show the camera controls again", () => {
@@ -889,6 +893,7 @@ export class Hud {
           : touch
             ? "Now build: drag a piece out of the tray."
             : "Now build: drag a piece out of the tray, or click one and then the map.",
+      () => h.cameraGliding?.() ?? false,
     );
     this.coach.onDone = (skipped) => {
       // (Seen: the help card doesn't come up on its own after it. It's in the menu, and the coach's last card.)
@@ -1796,6 +1801,17 @@ export class Hud {
    * shows, not per frame.
    */
   private placeToast(message: string, urgent = false): boolean {
+    if (!this.fitToast(message, urgent)) return false;
+    // Wherever it went, clear of the tray (QA, 667x375: a three-line toast beside a docked card reached 2 px into it).
+    const t = this.toastEl;
+    const tray = this.tray.getBoundingClientRect();
+    // (By layout, not its box: the toast slides in, its box a little higher till it's shown.)
+    if (tray.height > 0 && t.offsetTop + t.offsetHeight > tray.top - 6) t.style.top = `${Math.max(8, Math.round(tray.top - 6 - t.offsetHeight))}px`;
+    return true;
+  }
+
+  /** Where a toast goes (see `placeToast`): false if there's no room for it now. */
+  private fitToast(message: string, urgent: boolean): boolean {
     const t = this.toastEl;
     t.textContent = message;
     t.style.top = t.style.left = t.style.maxWidth = "";
