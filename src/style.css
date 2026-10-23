@@ -532,6 +532,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .map-marker.kind-sawmill .map-dot { background: #d8961f; border-radius: 4px; }
 /* An industry the player put down (a workshop): a square, in its own colour. */
 .map-marker:not(.kind-town):not(.kind-forest):not(.kind-sawmill) .map-dot { background: #7a5ab8; border-radius: 4px; }
+/* An old industry's ruin: its icon in a small round badge of weathered grey (no label), a lock while it's locked. Its
+   box is 28 px centred on the ruin (the label's margin), its tap area a little larger, under the labels (a tap at
+   their edge is theirs). */
+.map-marker { z-index: 1; }
+.map-marker.kind-ruin { z-index: 0; width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 50%; background: rgba(214, 208, 197, 0.95); box-shadow: 0 0 0 2px rgba(251, 243, 228, 0.9), 0 2px 8px rgba(40, 25, 10, 0.25); }
+.map-marker.kind-ruin::before { content: ""; position: absolute; inset: -8px; }
+.map-ruin-icon { font-size: 16px; line-height: 1; }
+.map-marker.kind-ruin.locked .map-ruin-icon { filter: grayscale(0.6); opacity: 0.85; }
+.map-ruin-lock { position: absolute; right: -6px; bottom: -5px; font-size: 11px; line-height: 1; }
 .map-text { display: flex; flex-direction: column; min-width: 0; }
 .map-text b { font-size: 14px; line-height: 1.15; }
 .map-text span { font-size: 12px; font-weight: 700; color: #6a5340; line-height: 1.25; }

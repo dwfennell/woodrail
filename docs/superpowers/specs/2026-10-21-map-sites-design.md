@@ -1,6 +1,6 @@
 # Map sites: old industries you restore, and more towns
 
-Date: 2026-10-21. Status: step 1 implemented (branch `map-sites`); step 2 implemented (branch `map-sites-2`, §7; the starter's old farm, the harness's spur and the placement study at the end of §7's Balance). **Game mode only**: Sandbox
+Date: 2026-10-21. Status: step 1 implemented (branch `map-sites`); step 2 implemented (branch `map-sites-2`, §7; the starter's old farm, the harness's spur and the placement study at the end of §7's Balance); step 3 implemented (branch `map-sites-4`, end of §7: ruins on the map view, goals for a quarry, mine and harbour). **Game mode only**: Sandbox
 maps (`Landscape.siteless`) never get sites or ruins (it has no research to open them), and an old Sandbox save gains
 none; land added in Sandbox still gets the extra towns (§3), from the same generation path.
 
@@ -275,7 +275,8 @@ yard by some fields."), shown once Farming is learned, after "Lay a switch" (bef
 yard stands on the map. Its Show me is `guideIndustry(w, "farm")`, written for any of the four kinds: the standing ruin
 of that kind on the player's land nearest their line (restorable or locked), framed with the nearest bit of the line,
 ringed, and its card opened (Restore on it); with none, today's `depotSpot` (a straight of the line where a new one
-fits and meets its site rule), the Industries tab open. A quarry, mine or harbour goal is one row more.
+fits and meets its site rule), the Industries tab open. A quarry, mine or harbour goal is one row more (step 3, below:
+`openIndustry` in goals.ts makes all four).
 
 **Research**: when a blueprint that opens a ruin's industry is learned, a toast (and a News entry with its place)
 names the standing ruin nearest the line: "Old farm by Larkfield can be restored". Tapped, it glides to the ruin and
@@ -483,5 +484,72 @@ Measured (dev machine; swiftshader in the e2e):
 
 ### Still to do
 
-- **Map view**: ruins marked on the map.
-- Goals for a quarry, mine and harbour (`guideIndustry` takes any of the four).
+- ~~**Map view**: ruins marked on the map.~~ Done (step 3, below).
+- ~~Goals for a quarry, mine and harbour (`guideIndustry` takes any of the four).~~ Done (step 3, below).
+
+### Step 3: the map view's ruins, and goals for the other three (branch `map-sites-4`)
+
+**The map view's markers** (`ruinMarkers`, `ruinMarkersKey` in `src/game/map-markers.ts`; drawn by `MapView`). Every
+standing ruin the world draws, on the player's land and on the land around shown, gets a small round badge of
+weathered grey at its yard's stub, no label: its icon by role, **🌾 farm, 🪨 quarry, ⛏️ mine, ⚓ harbour** (the goods it
+gives, or the water it stands by), and a **🔒** on it, the icon faded, while its blueprint isn't learned (Farming,
+Quarries, Mines, Harbours). Restored and cleared ruins show nothing (they aren't standing). A tap on one on the
+player's land closes the map, glides to it, rings it and opens its card, as a tap on the ruin does (`goToMarker` →
+`openRuin`); one on the land around isn't tappable in the world, so its badge only glides there and rings it.
+
+**A stranded harbour** (an old save's river harbour its boats can't reach: `harbourStranded`, the card's
+`HARBOUR_STRANDED`) gets **no badge**, and Show me, the "Open a harbour" goal's and the research toast's
+(`nearestRuin`), passes it over. Skipped rather than greyed: it can never be opened, so a badge would only point a
+child at something that can't be done; tapped in the world, its card still says why. Its water changes only with the
+land's squares (a land tool), so the markers' key takes the land grid's revision too
+(`ruinMarkersKey(ruinsVersion, learned, grid.revision)`); the land around's harbours are made only where the open sea
+is reached, so they're never checked.
+
+- **Never over a label.** A badge is `pinned` (`LabelBox.pinned`, `declutterLabels`): it isn't nudged off its ruin
+  as labels are; it's settled last (priority −1, below the map's depots), and hidden if it would cover a town's,
+  station's or industry's label or another badge, or if it would sit under the top bar or the Map bar, or past the
+  screen's edge. It lies under the labels (`z-index`), its tap area 8 px wider than its 28 px badge, so a tap on a
+  label's edge is the label's. e2e:sites checks no shown badge's box meets a shown label's at 390 × 844.
+- **Built only when its inputs change.** `Game.syncRuins` keeps the ruins shown (`ruinsShown`) and a `ruinsVersion`
+  that goes up only when that list changes (a ruin cleared, restored, undone, land bought, the land around shown).
+  main.ts keeps the markers under `ruinMarkersKey(ruinsVersion, learned, grid.revision)`: the version, the land's
+  squares (for a stranded harbour, above) and which of the four
+  blueprints are learned (a blueprint that opens no ruin doesn't count). The map view's own once-a-second look while
+  it's open (`refreshMap`, as before) takes them from that cache; `MapView.show` rebuilds its DOM only when a marker's
+  key, icon or lock changed, and `place` moves them only when the view moved. Nothing draws a frame.
+
+**Goals** (`openIndustry` in goals.ts, which now makes "Open a farm" too): **Open a quarry** ("Restore an old quarry,
+or build one by a hillside."), **Open a mine** ("Restore an old mine, or build one by a hillside."), **Open a harbour**
+("Restore an old harbour, or build one by the sea."). Each `needs` its blueprint (Quarries, Mines, Harbours), so it's
+hidden and not counted till then, and the "Learned" note names it ("New goal: Open a quarry"). They stand after "Run
+two trains at once" and before "Connect every town": those blueprints come well after Farming (Quarries after Mills,
+Mines and Harbours after Quarries), among the open goals, so each is ticked off as soon as one of that industry stands
+on the map, restored or built (whatever the current goal). Show me is `guideIndustry`: the standing ruin of that kind
+on the player's land nearest their line, its card opened (Restore on it, or the lock), else `depotSpot` on the
+Industries tab. **22 goals** (19 before). Order: Join two towns, Put an engine on the track, Get a train moving, Run a
+train into a station, Make up a flatbed train, Load logs at the forest, Deliver planks to a town, Grow a town into a
+village, Place a school by a town, Research switches, Place your workshop, Make a switch, Lay a switch, Open a farm,
+Build a bridge, Connect three towns, Deliver 10 bundles of planks, Run two trains at once, **Open a quarry, Open a
+mine, Open a harbour**, Connect every town.
+
+The harness's goal picker passes over all four (`OPEN_INDUSTRY_GOALS`), as it did "Open a farm": its industries come by
+its own rules, so the goals after them come when they did.
+
+Measured (swiftshader in the e2e, 390 × 844, a new game, the land around shown: 14 ruins, 1 on the player's land):
+
+- Idle in the map view with the markers, 30 s: **0 frames**, main thread busy 2.00% (e2e:sites §15). Opening the map
+  view, the camera creeps to rest for 15–25 s after its glide up and draws a frame every ~3 s meanwhile; that's so
+  without the ruin markers too (checked with them taken out: the same frames, every one from `cameraMoved`), so the
+  e2e measures once the view has been still for 8 s.
+- Making the markers (`ruinMarkers`, 14 ruins; Node): 9.7 µs; their key: 2.2 µs, once a second while the map is open.
+  The DOM is rebuilt only when a marker changes; a frame isn't drawn for it.
+- Elsewhere unchanged: idle with the ruins in view (§11) 0 frames, 1.72%.
+
+**Balance** (`BALANCE=1`, 9 seeds). On map-sites-3 with this step: all 9 pass, the table above row for row (City
+62/61/73/80/80/73/67/69/82, researched 14/15/15/14/14/15/17/14/14): the harness passes the new goals over,
+so they change nothing it does. Merged with main at 6a5a157: 8 pass; **seed 2027 fails**
+(research stall 42.4 min on Goods engine from minute 125.6, researched 13), and seeds 4, 6 and 9 move (stall 11.4,
+11.1, 9.3; coins 1144, 1410, 843). Main at 6a5a157 alone gives seed 2027 the same failure, figure for figure, as does
+map-sites-3 merged with it without this step: it's main's (its sections and play-through changes), not this step's.
+Main's fix (0afc9a9, a hopper that blocked a starved mill's grain) merged in: seed 2027 passes again (City 62,
+researched 14, stall 10.1 min, coins 1560).

@@ -7,7 +7,7 @@ import { costTag } from "../ui/cost-tag";
 import { takeFromWorkshops, workshops, workshopStock } from "./crafting";
 import { checkYard, yardMessage } from "./depot-footprint";
 import { siteWhy } from "./industries";
-import { CLEAR_PRICE, restorePrice, restoredType, SITE_NAMES } from "./map-sites";
+import { CLEAR_PRICE, harbourStranded, restorePrice, restoredType, SITE_NAMES } from "./map-sites";
 import type { Progress } from "./progress";
 import { pieceThing } from "./things";
 import type { World } from "./world";
@@ -237,13 +237,14 @@ export function ruinName(land: Landscape, site: MapSite): string {
 
 /**
  * The standing ruin of `role` nearest any of `from` (the player's line), on the land (the sites of plots the player
- * owns: the land around's are its own), restorable or locked; null if none. A few sites: cheap.
+ * owns: the land around's are its own), restorable or locked; null if none. A harbour its boats can't reach
+ * (`harbourStranded`) is passed over: it can never be restored. A few sites: cheap (only a harbour's water searched).
  */
 export function nearestRuin(land: Landscape, role: SiteRole, from: readonly { x: number; z: number }[]): MapSite | null {
   let best: MapSite | null = null;
   let d = Infinity;
   for (const site of land.sites ?? []) {
-    if (site.cleared || site.role !== role) continue;
+    if (site.cleared || site.role !== role || harbourStranded(land, site)) continue;
     let e = from.length === 0 ? 0 : Infinity;
     for (const p of from) e = Math.min(e, Math.hypot(p.x - site.centre.x, p.z - site.centre.z));
     if (e < d) [best, d] = [site, e];
