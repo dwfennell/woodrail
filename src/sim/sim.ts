@@ -80,7 +80,8 @@ export interface Train {
 }
 
 /** What turned a train back: a buffer, track that just stops (an open end), or a train met head on. */
-export type TurnCause = "buffer" | "open-end" | "train";
+/** Why a train last turned back: a buffer, track that just stops, a train met head on, or told to (`turnBack`). */
+export type TurnCause = "buffer" | "open-end" | "train" | "short";
 
 export type SimEvent =
   | { readonly kind: "derailed"; readonly trainId: number }
@@ -292,6 +293,21 @@ export class Sim {
     found.train.leverTick = this.ticks;
     // Whoever set the lever has decided where the train goes: a pending turnback no longer applies.
     found.train.turnback = -1;
+    return true;
+  }
+
+  /**
+   * Turn a standing train back where it stands, as at the end of the line: it waits `TURNBACK_TICKS` and is turned
+   * round (its `lastTurn` cause `short`). For sections (economy/sections.ts): a train turning short of a line end held
+   * by a train of its line, or giving way to one put down facing it. False (and nothing done) if it's moving (1 mm/s or
+   * more), derailed or already turning back.
+   */
+  turnBack(trainId: number): boolean {
+    const t = this.trains.get(trainId);
+    if (!t || t.derailed || t.speed >= 1 || t.turnback >= 0 || t.bogies.length === 0) return false;
+    t.speed = 0;
+    t.turnback = TURNBACK_TICKS;
+    t.lastTurn = { cause: "short", pieceId: t.bogies[0].pieceId, tick: this.ticks };
     return true;
   }
 

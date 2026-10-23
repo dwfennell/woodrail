@@ -71,6 +71,7 @@ import { onPiecesBuilt, TrackView } from "./render/track-view";
 import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
+import { viewOf } from "./ui/controls-tutorial";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { propsInRect } from "./props/placement";
@@ -291,6 +292,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const hud = new Hud(
     document.body,
     {
+      cameraView: () => viewOf(game.camera.position, game.controls.target),
+      tutorialDone: () => {
+        // Into the goals: Show me lights up a moment (Game mode).
+        const show = document.querySelector<HTMLElement>(".goals:not([hidden]) .goals-show-icon");
+        if (!show) return;
+        show.classList.add("nudge");
+        window.setTimeout(() => show.classList.remove("nudge"), 4000);
+      },
       trayPointerDown: (item, e) => {
         if (trayAllowed(item)) interaction.startTrayDrag(item, e);
       },
@@ -310,6 +319,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
       trayTabChanged: () => interaction.arm(null),
       trayDraw: (on) => interaction.setDrawing(on),
+      trayErase: (on) => interaction.setErasing(on),
       trackTab: (open) => game.showAllEnds(open),
       undo: () => {
         interaction.undo();
@@ -566,6 +576,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (i === 0) hud.haptic("snap");
   };
   interaction.onDrawing = (on) => hud.setDrawing(on);
+  interaction.onErasing = (on) => hud.setErasing(on);
   interaction.onRefused = () => {
     audio.refuse();
     hud.haptic("refuse");
@@ -2507,6 +2518,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Planning, the map wants the room: the card slims to its route (Done and the stops), the tray goes, and the view
     // frames the train and its line's places above the card (not when it goes on after the map: see `openMap`).
     hud.setPlanning(on);
+    // (A press picks a stop while planning: the eraser's put down.)
+    if (on) interaction.setErasing(false);
     if (on && frame) requestAnimationFrame(framePlanning);
     // A stop's disc tapped: that place again (A → B → A); a stop is taken off with its ✕ in the card.
     interaction.onTapStopDisc = on
@@ -3448,6 +3461,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.toast(headOnTip(mode !== "game" ? null : progress.learned), false, 6000);
   }
 
+  // (The camera tutorial counts the player's own camera moves: told only on frames the camera moved.)
+  game.onCameraMoved = () => hud.coach.cameraMoved();
   game.onFrame = (dt) => {
     interaction.refreshDepotCard();
     // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.

@@ -314,9 +314,16 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .tray-orient .chip { padding: 7px 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 /* Draw: above the tray, at the left, while the Track tab is open. */
 /* (A flex box, so its pencil and word are centred as a plain button's text is: Turn's and Flip's, beside it.) */
-.tray-draw { position: absolute; left: 12px; top: -52px; display: none; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+/* Draw (Track tab only) and Clear (any tab): above the tray, at the left, side by side. */
+.tray-pens { position: absolute; left: 12px; top: -52px; display: flex; gap: 6px; }
+.tray-draw { display: none; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
 .tray.draw-tab .tray-draw { display: inline-flex; }
 .card-open .tray.draw-tab .tray-draw { display: none; }
+.tray-erase { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; font-size: 13px; box-shadow: 0 3px 10px rgba(60, 40, 20, 0.22); }
+.card-open .tray .tray-erase { display: none; }
+.tray-erase.active { background: linear-gradient(180deg, #f6b19f, #dd6b52); color: #3a120a; }
+/* Clearing: Turn and Flip have nothing to turn. */
+.tray.erasing .tray-orient { display: none !important; }
 /* Turn and Flip do nothing for a drawn line: away while drawing. */
 .tray.drawing .tray-orient { display: none !important; }
 /* Drawing on a phone on its side: the tray is its tabs and Draw only, its shelves put away, so the map between the
@@ -332,12 +339,15 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* (Over the shelf below, so the chips' taps reach just past them, not through to a tile's favourite star.) */
   .tray-tools { display: flex; flex: none; order: 1; gap: 6px; align-items: center; padding: 3px 2px 0 0; position: relative; z-index: 1; }
   .tray-tools .tray-orient { gap: 6px; }
+  .tray-tools .tray-pens { display: contents; }
   .tray-tools .tray-draw, .tray-tools .tray-orient { position: static; top: auto; left: auto; right: auto; }
   .tray-tools .chip { display: inline-flex; align-items: center; justify-content: center; height: 34px; min-width: 40px; padding: 0 9px; font-size: 12px; line-height: 1; box-shadow: 0 2px 6px rgba(60, 40, 20, 0.18); position: relative; }
   /* Drawn small to fit the row, but a finger's 44 px to tap. */
   /* (Sideways, half the gap between chips, so neighbours' reach meets but doesn't overlap; more at the row's ends.) */
   .tray-tools .chip::after { content: ""; position: absolute; inset: -5px -3px; }
   .tray-tools .tray-draw::after { left: -4px; }
+  /* (The eraser's sponge alone: a finger's 44 px wide.) */
+  .tray-tools .chip.tray-erase { min-width: 44px; }
   .tray-tools .tray-flip::after { right: -4px; }
   .tray-tools .chip-word { display: none; }
   .tray-tools .turn-arrow { margin-left: 2px; }
@@ -943,6 +953,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .reward-badge .rb-count { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #c8442f; color: #fff; font-size: 12px; font-weight: 900; line-height: 20px; }
 @keyframes reward-bob { 50% { transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .reward-badge { animation: none; } }
+/* While a card is open the badge stands aside (QA, 360 px: it lay over a card's bottom button, the right end of "Clear
+   the ruin", and a tap there opened the rewards; on a phone on its side a docked card reaches it too). It's back when
+   the card closes. */
+body:has(.card:not([hidden])) .reward-badge { display: none; }
 
 /* A phone on its side, an engine with no route yet: "Plan a route" beside Go, in the one row (QA: under it, at 375 px
    it was cut off at the card's foot, behind a scroll). With a route, the card's as ever (it scrolls). */
@@ -954,3 +968,63 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   :not(.planning) > .engine-card:has(.route-none:not([hidden])) > .engine-extra.route { margin-top: 0; align-self: center; }
   :not(.planning) > .engine-card .route-head:has(.route-none:not([hidden])) :is(.engine-extra-label, .route-none) { display: none; }
 }
+
+/* The first-run camera tutorial (ui/controls-tutorial.ts): a small coach card, off the middle of the map. Top right
+   (the goals are top left; toasts wait while it's up); on a phone held upright, just above the tray and its chips
+   (--coach-bottom, set by the HUD: the goals have the top). */
+.coach { position: absolute; z-index: 31; right: max(12px, env(safe-area-inset-right)); top: calc(max(10px, env(safe-area-inset-top)) + 62px); width: min(340px, calc(100% - 24px)); box-sizing: border-box; padding: 10px 12px 10px; border-radius: 16px; background: var(--wood-panel); box-shadow: var(--wood-panel-edge), 0 8px 26px rgba(60, 40, 20, 0.22); color: #3a2a1c; pointer-events: auto; }
+.coach[hidden] { display: none; }
+/* (A phone on its side: narrower, to keep clear of the middle of the map.) */
+@media (max-height: 520px) { .coach { width: min(300px, calc(50% - 30px)); } }
+@media (max-width: 640px) and (min-height: 521px) {
+  .coach { top: auto; bottom: var(--coach-bottom, 190px); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; }
+}
+.coach-row { display: flex; align-items: center; gap: 12px; }
+.coach-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 14px; line-height: 1.3; }
+.coach-text b { font-size: 15px; }
+.coach-text small { font-weight: 700; color: #8a6a48; margin-left: 4px; }
+.coach-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.coach-dots { display: flex; gap: 6px; margin-right: auto; }
+.coach-dots .dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(90, 63, 36, 0.22); }
+.coach-dots .dot.now { background: #e2a12b; box-shadow: 0 0 0 2px rgba(226, 161, 43, 0.35); }
+.coach-dots .dot.done { background: #4f9a3a; }
+.coach .chip { min-height: 36px; }
+/* The pictures: a mouse (its wheel turning) and keys pressed in turn, or fingertips moving (CSS only). */
+.coach-art { position: relative; flex: none; width: 64px; height: 56px; display: grid; place-items: center; border-radius: 12px; background: rgba(255, 250, 238, 0.7); }
+.coach-art.done { font-size: 30px; font-weight: 900; color: #4f9a3a; }
+.coach-art.mouse { grid-auto-flow: column; gap: 5px; }
+.coach-art.mouse .m { width: 18px; height: 28px; border: 2.5px solid #6a4a2c; border-radius: 9px; position: relative; }
+.coach-art.mouse .w { position: absolute; left: 50%; top: 4px; width: 3px; height: 7px; margin-left: -1.5px; border-radius: 2px; background: #6a4a2c; }
+.coach-art.mouse.zoom .w { animation: coach-wheel 1s ease-in-out infinite; }
+.coach-art.mouse.turn .m, .coach-art.mouse.tilt .m { border-right-color: #e2a12b; }
+.coach-art.mouse.turn .m { animation: coach-sway 1.6s ease-in-out infinite; }
+.coach-art.mouse.tilt .m { animation: coach-nod 1.6s ease-in-out infinite; }
+.coach-art.mouse.move .m { animation: coach-drift 1.8s ease-in-out infinite; }
+.coach-art .caps { display: grid; grid-template-columns: repeat(2, 15px); gap: 2px; }
+/* (W over A S D, as on a keyboard.) */
+.coach-art.move .caps { grid-template-columns: repeat(3, 15px); }
+.coach-art.move .caps kbd:first-child { grid-column: 2; }
+.coach-art kbd { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 3px; background: #fff; box-shadow: 0 1.5px 0 #b08a5c; font: 800 9px/1 inherit; color: #3a2a1c; animation: coach-key 2s infinite; animation-delay: calc(var(--i) * 0.5s); }
+.coach-art.touch .f { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: rgba(226, 161, 43, 0.85); box-shadow: 0 0 0 4px rgba(226, 161, 43, 0.25); }
+.coach-art.touch.move .f1 { animation: coach-drift 1.6s ease-in-out infinite; }
+.coach-art.touch.zoom .f1 { animation: coach-pinch-a 1.4s ease-in-out infinite; }
+.coach-art.touch.zoom .f2 { animation: coach-pinch-b 1.4s ease-in-out infinite; }
+.coach-art.touch.turn { animation: coach-twist 1.8s ease-in-out infinite; }
+.coach-art.touch.turn .f1 { transform: translate(-13px, -8px); }
+.coach-art.touch.turn .f2 { transform: translate(13px, 8px); }
+.coach-art.touch.tilt .f1, .coach-art.touch.tilt .f2 { animation: coach-lift 1.6s ease-in-out infinite; }
+.coach-art.touch.tilt .f1 { left: 16px; }
+.coach-art.touch.tilt .f2 { right: 16px; }
+@keyframes coach-wheel { 50% { transform: translateY(6px); } }
+@keyframes coach-drift { 0%, 100% { transform: translate(-10px, 4px); } 50% { transform: translate(10px, -4px); } }
+@keyframes coach-sway { 0%, 100% { transform: translateX(-6px); } 50% { transform: translateX(6px); } }
+@keyframes coach-nod { 0%, 100% { transform: translateY(-5px); } 50% { transform: translateY(5px); } }
+@keyframes coach-key { 0%, 20% { transform: translateY(1.5px); box-shadow: none; background: #ffe5a8; } 30%, 100% { transform: none; } }
+@keyframes coach-pinch-a { 0%, 100% { transform: translate(-6px, 5px); } 50% { transform: translate(-17px, 13px); } }
+@keyframes coach-pinch-b { 0%, 100% { transform: translate(6px, -5px); } 50% { transform: translate(17px, -13px); } }
+@keyframes coach-twist { 0%, 100% { transform: rotate(-25deg); } 50% { transform: rotate(25deg); } }
+@keyframes coach-lift { 0%, 100% { transform: translateY(10px); } 50% { transform: translateY(-10px); } }
+@media (prefers-reduced-motion: reduce) { .coach-art, .coach-art * { animation: none !important; } }
+/* After the tutorial, Show me lights up a moment: where the goals start. */
+.goals-show-icon.nudge { animation: coach-nudge 0.9s ease-in-out 4; }
+@keyframes coach-nudge { 50% { box-shadow: 0 0 0 4px #ffc21f, 0 0 14px 4px rgba(255, 170, 0, 0.55); transform: scale(1.08); } }

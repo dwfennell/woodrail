@@ -6,6 +6,7 @@ import { Spacing } from "./spacing";
 import type { Bag } from "./goods";
 import { KitStops } from "./kit-stops";
 import { steerSwitch } from "./steer";
+import { Sections, type BlockWait } from "./sections";
 
 /** How often (sim ticks) the switches ahead of routed trains are set. */
 const STEER_TICKS = 8;
@@ -318,6 +319,69 @@ export class Economy {
     // A kit with a depot on it (Game mode's halts) stops trains as the depot does, for its work: not for its dwell too.
     this.kitStops = new KitStops(layout, sim, (pieceId) => this.byPiece.has(pieceId));
     sim.speedCap = (train) => this.capFor(train);
+    this.sections = new Sections(layout, sim, {
+      lineOf: (engine) => {
+        const id = this.lineIdOf.get(engine);
+        return id !== undefined && this.lines.has(id) && this.routes.has(engine) ? id : -1;
+      },
+      live: (lineId) => {
+        const live: number[] = [];
+        for (const [engine, id] of this.lineIdOf) {
+          if (id !== lineId || !this.routes.has(engine)) continue;
+          const found = this.sim.findCar(engine);
+          if (found && !found.train.derailed) live.push(engine);
+        }
+        return live;
+      },
+      target: (engine) => {
+        const r = this.routes.get(engine);
+        if (!r || r.stops.length === 0) return -1;
+        let i = r.next % r.stops.length;
+        // (At its stop: the stop after, a different depot.)
+        if (r.at) {
+          const here = r.stops[i].depotId;
+          for (let k = 0; k < r.stops.length && r.stops[i].depotId === here; k++) i = (i + 1) % r.stops.length;
+        }
+        const d = this.depots[r.stops[i].depotId];
+        return d && this.onMap(d) ? d.pieceId : -1;
+      },
+      stopPieces: (lineId) => {
+        const line = this.lines.get(lineId);
+        const out: number[] = [];
+        for (const st of line?.stops ?? []) {
+          const d = this.depots[st.depotId];
+          if (d && this.onMap(d) && out[out.length - 1] !== d.pieceId) out.push(d.pieceId);
+        }
+        if (out.length > 1 && out[0] === out[out.length - 1]) out.pop();
+        return out;
+      },
+      drive: (train) => this.drive(train),
+      skipStops: (engine, pieces) => {
+        const r = this.routes.get(engine);
+        if (!r || r.stops.length === 0 || r.at) return;
+        // (On to the first stop not on those pieces; all of them on it: as it was.)
+        let i = r.next % r.stops.length;
+        for (let k = 0; k < r.stops.length; k++) {
+          const d = this.depots[r.stops[i].depotId];
+          if (!d || !pieces.has(d.pieceId)) {
+            r.next = i;
+            return;
+          }
+          i = (i + 1) % r.stops.length;
+        }
+      },
+    });
+  }
+
+  /**
+   * Trains of a line that wait for each other (see sections.ts): a train in a slot (a passing loop's road, a line end)
+   * goes on into the single track ahead only holding it and a slot at its far end.
+   */
+  readonly sections: Sections;
+
+  /** Why a routed engine is held by sections (null: it isn't). */
+  sectionWait(engine: number): BlockWait | null {
+    return this.sections.waitOf(engine);
   }
 
   /** Register a depot on a piece. `craneAt` defaults to the middle of the piece's track. */
@@ -1129,7 +1193,10 @@ export class Economy {
    */
   private capFor(train: Train): number {
     const depot = this.depotCap(train);
-    return depot === 0 ? 0 : Math.min(depot, this.kitStops.cap(train));
+    if (depot === 0) return 0;
+    const kit = this.kitStops.cap(train);
+    if (kit === 0) return 0;
+    return Math.min(depot, kit, this.sections.cap(train));
   }
 
   /**
@@ -1372,6 +1439,9 @@ export class Economy {
       this.advanceRoutes();
       // Switches ahead of routed trains, a few times a second (a train covers a few mm a tick).
       if (++this.steerTicks % STEER_TICKS === 0) this.steerTrains();
+      // (And any just granted a move: the switches on its way, now.)
+      else if (this.sections.steerSoon.size > 0) this.steerTrains(this.sections.steerSoon);
+      this.sections.steerSoon.clear();
     }
     // (Only depots on the map: one whose piece was taken up makes nothing till it's back.)
     for (const d of this.allDepots()) {
@@ -1524,14 +1594,20 @@ export class Economy {
   private readonly occupied = (pieceId: number): boolean => this.sim.pieceOccupied(pieceId);
 
   /** Set the switches ahead of each routed train toward its next stop. */
-  private steerTrains(): void {
+  private steerTrains(only?: ReadonlySet<number>): void {
     for (const [engine, r] of this.routes) {
+      if (only && !only.has(engine)) continue;
       const found = this.sim.findCar(engine);
       if (!found || found.train.derailed) continue;
       const net = this.drive(found.train);
       const d = this.depots[r.stops[r.next % r.stops.length].depotId];
       if (net === 0 || !d || !this.onMap(d)) continue;
-      const thrown = steerSwitch(this.layout, found.train, net > 0, d.pieceId, undefined, undefined, this.occupied);
+      // (Holding a move (sections): its way, aimed past it into the slot it goes to, so a stop on the way doesn't end the
+      // look ahead short of the switch beyond it.)
+      const held = this.sections.steerHint(engine);
+      // (Nor a switch on another train's granted way: it would send that train onto a road it doesn't hold.)
+      const occupied = (pieceId: number) => this.occupied(pieceId) || this.sections.switchHeld(engine, pieceId);
+      const thrown = steerSwitch(this.layout, found.train, net > 0, held?.aim ?? d.pieceId, undefined, held?.follow, occupied);
       if (thrown !== -1) this.onSwitch?.(thrown);
     }
   }
@@ -1555,6 +1631,7 @@ export class Economy {
     const run = new Set(this.lineIdOf.values());
     for (const id of this.lines.keys()) if (!run.has(id)) this.lines.delete(id);
     this.spacing.prune(run, new Set(this.lineIdOf.keys()));
+    this.sections.prune(new Set(this.lineIdOf.keys()));
     for (const id of this.services.keys()) if (!this.sim.getTrain(id)) this.services.delete(id);
     this.kitStops.prune();
   }

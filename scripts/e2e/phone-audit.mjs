@@ -93,6 +93,9 @@ async function run(vw, vh, mode, landscape = false) {
   // Close help as a player would.
   const helpOpen = await p.evaluate(() => { const h = document.querySelector(".help"); return !!h && !h.hidden && getComputedStyle(h).display !== "none"; });
   if (helpOpen) await tapSel(p, ".help-card .chip");
+  // (A first visit now shows the camera tutorial instead: skip it, as a player may.)
+  const coachOpen = await p.evaluate(() => { const c = document.querySelector(".coach"); return !!c && !c.hidden; });
+  if (coachOpen) await tapSel(p, ".coach .coach-skip");
   await new Promise((r) => setTimeout(r, 2000));
   await shot(p, `${tag}-03-hud`);
   if (landscape && mode === "game") {

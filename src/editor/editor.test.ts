@@ -686,3 +686,32 @@ describe("a land edit undone or redone", () => {
     expect([land, props - recorded]).toEqual([2, 2]);
   });
 });
+
+describe("edits grouped as one undo step (the eraser's sweep)", () => {
+  it("track and props taken away together come back together, and go again together", () => {
+    const { layout, editor } = setup();
+    const props = new PropStore();
+    const a = editor.place("straight-144", { x: 0, z: 0, heading: 0 }, 0, false);
+    const b = editor.place("straight-144", { x: 400, z: 0, heading: 0 }, 0, false);
+    const tree = props.add("tree-round", { x: 0, z: 200, heading: 0, y: 0 }).id;
+    const before = (editor as unknown as { undoStack: unknown[] }).undoStack.length;
+    const did = editor.group(() => {
+      editor.removeGroup([a, b]);
+      const p = props.get(tree)!;
+      editor.editProps({ do: () => props.remove(tree), undo: () => props.add(p.asset, { x: p.x, z: p.z, heading: p.heading, y: p.y }, tree) });
+    });
+    expect(did).toBe(true);
+    expect((editor as unknown as { undoStack: unknown[] }).undoStack.length).toBe(before + 1);
+    expect([layout.getPiece(a), layout.getPiece(b), props.get(tree)]).toEqual([undefined, undefined, undefined]);
+    expect(editor.undo()).toBe(true);
+    expect([!!layout.getPiece(a), !!layout.getPiece(b), !!props.get(tree)]).toEqual([true, true, true]);
+    expect(editor.redo()).toBe(true);
+    expect([layout.getPiece(a), layout.getPiece(b), props.get(tree)]).toEqual([undefined, undefined, undefined]);
+  });
+
+  it("nothing done is no step", () => {
+    const { editor } = setup();
+    expect(editor.group(() => {})).toBe(false);
+    expect(editor.canUndo).toBe(false);
+  });
+});

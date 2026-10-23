@@ -30,6 +30,7 @@ function toastHud(): { hud: Hud; shown: string[] } {
     toastEl,
     root: { querySelectorAll: () => [] },
     help: { hidden: true },
+    coach: { shown: false },
     toastQueue: [],
     toastTimer: 0,
     toastFlushTimer: 0,
