@@ -18,4 +18,13 @@ describe("what a clearing sweep says of what stays (once, on lift)", () => {
     ]);
     expect(eraseRefusal(told)).toBe("Some things stay: stations and depots, trains, the town's houses");
   });
+
+  it("roads and the map's trees are among them", () => {
+    const told = new Map<EraseRefusal, string>([
+      ["road", "Roads stay: tap one with Clear off to take it up"],
+      ["tree", "Trees stay: the Land tab moves them"],
+    ]);
+    expect(eraseRefusal(told)).toBe("Some things stay: roads, trees");
+    expect(eraseRefusal(new Map<EraseRefusal, string>([["tree", "Trees stay: the Land tab moves them"]]))).toBe("Trees stay: the Land tab moves them");
+  });
 });

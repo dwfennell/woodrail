@@ -133,6 +133,8 @@ const GROUP_SNAP_ANGLE = (8 * Math.PI) / 180;
 const TAP_REACH = 80;
 /** A clearing sweep looks under the pointer this often along its way (px): a fast sweep doesn't jump a piece. */
 const ERASE_STEP_PX = 8;
+/** At most this many squares of roads and trees a sweep passed over are outlined (each is a line drawn). */
+const ERASE_STAY_MARKS = 48;
 /** How high a held piece floats above where it would land (mm). */
 const HOLD_LIFT = 12;
 /** An OrbitControls touch mapping that does nothing (it falls through to "no gesture"). */
@@ -322,7 +324,7 @@ type Mode =
    * Clearing (the Clear chip on): a tap or a sweep marks what it passes over, taken away when the finger's lifted (see
    * `commitErase`). Where the pointer last was, what's marked, and why what it passed over stays (said once, on lift).
    */
-  | { kind: "erase"; pointerId: number; x: number; y: number; pieces: Set<number>; props: Set<number>; told: Map<EraseRefusal, string> }
+  | { kind: "erase"; pointerId: number; x: number; y: number; pieces: Set<number>; props: Set<number>; told: Map<EraseRefusal, string>; stays: Set<number> }
   | {
       kind: "drag-scenery";
       pointerId: number;
@@ -439,6 +441,9 @@ export class Interaction {
   onErasing: ((on: boolean) => void) | null = null;
   /** Round the props a sweep has marked (red), one each, made as needed. */
   private readonly eraseOutlines: FootprintOutline[] = [];
+  /** Round the squares of roads and trees a sweep passed over, which stay (faint). */
+  private readonly eraseStayOutlines: FootprintOutline[] = [];
+  private eraseStaysShown = 0;
   /** A new ghost joined the line being drawn. */
   onDrawGrow: (() => void) | null = null;
   /** A drawn line's piece went down (`i` from the line's start). */
@@ -1067,7 +1072,7 @@ export class Interaction {
     // Clearing: the press marks what's under it, and a sweep from there all it passes over (two fingers still pan).
     if (this.erasesNow && this.touches.size <= 1) {
       this.game.controls.enabled = false;
-      const m: Mode & { kind: "erase" } = { kind: "erase", pointerId: e.pointerId, x: e.clientX, y: e.clientY, pieces: new Set(), props: new Set(), told: new Map() };
+      const m: Mode & { kind: "erase" } = { kind: "erase", pointerId: e.pointerId, x: e.clientX, y: e.clientY, pieces: new Set(), props: new Set(), told: new Map(), stays: new Set() };
       this.mode = m;
       this.eraseAt(m, e.clientX, e.clientY);
       this.showErase(m);
@@ -2713,24 +2718,34 @@ export class Interaction {
    * skip a piece), and show the marks if any were added.
    */
   private sweepErase(m: Mode & { kind: "erase" }, e: PointerEvent): void {
-    const before = m.pieces.size + m.props.size;
+    const before = m.pieces.size + m.props.size + m.stays.size;
     for (const c of coalesced(e)) {
       const steps = Math.min(64, Math.ceil(Math.hypot(c.clientX - m.x, c.clientY - m.y) / ERASE_STEP_PX));
       for (let i = 1; i <= steps; i++) this.eraseAt(m, m.x + ((c.clientX - m.x) * i) / steps, m.y + ((c.clientY - m.y) * i) / steps);
       m.x = c.clientX;
       m.y = c.clientY;
     }
-    if (m.pieces.size + m.props.size !== before) this.showErase(m);
+    if (m.pieces.size + m.props.size + m.stays.size !== before) this.showErase(m);
   }
 
   /** Mark what's under (x, y) to be cleared, if it may be; note why something may not (said on lift: `eraseRefusal`). */
   private eraseAt(m: Mode & { kind: "erase" }, x: number, y: number): void {
     const hit = this.pickExact(x, y);
-    if (!hit) return;
     // (The first reason of each kind is kept: a depot's track and its building are one thing that stays.)
     const note = (kind: EraseRefusal, why: string) => {
       if (!m.told.has(kind)) m.told.set(kind, why);
     };
+    // A road, or a tree of the map's (nothing else there): it stays, its square marked faintly so the sweep shows it
+    // passed over it.
+    if (!hit || hit.kind === "road") {
+      const i = hit?.kind === "road" ? hit.cell : this.squareAt(x, y);
+      if (i === -1 || m.stays.has(i)) return;
+      if (hit) note("road", "Roads stay: tap one with Clear off to take it up");
+      else if (sceneryAt(this.game.landscape, i)?.kind === "tree") note("tree", "Trees stay: the Land tab moves them");
+      else return;
+      m.stays.add(i);
+      return;
+    }
     if (hit.kind === "piece") {
       const id = hit.pieceId;
       if (m.pieces.has(id)) return;
@@ -2789,6 +2804,29 @@ export class Interaction {
       k++;
     }
     for (; k < this.eraseOutlines.length; k++) this.eraseOutlines[k].hide();
+    // The squares of roads and trees it passed over that stay: a faint outline each (the first few dozen).
+    // (Only the ones new since last time are drawn: a sweep only adds to them.)
+    const grid = g.landscape.grid;
+    const from = m ? this.eraseStaysShown : 0;
+    k = 0;
+    for (const i of m?.stays ?? []) {
+      if (k >= ERASE_STAY_MARKS) break;
+      if (k < from) {
+        k++;
+        continue;
+      }
+      let o = this.eraseStayOutlines[k];
+      if (!o) {
+        o = this.eraseStayOutlines[k] = new FootprintOutline();
+        g.scene.add(o.line);
+      }
+      const x = grid.centreX(grid.colOf(i));
+      const z = grid.centreZ(grid.rowOf(i));
+      o.show({ cx: 0, cz: 0, hw: CELL / 2 - 8, hd: CELL / 2 - 8 }, x, hillsOf(grid).groundAt(x, z), z, 0, "#c9b79a");
+      k++;
+    }
+    this.eraseStaysShown = k;
+    for (; k < this.eraseStayOutlines.length; k++) this.eraseStayOutlines[k].hide();
     this.changed();
   }
 
