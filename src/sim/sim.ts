@@ -136,6 +136,18 @@ export function createSnapshot(capacity = 64): SimSnapshot {
 }
 
 const adv = createAdvance();
+/** How far (mm) `coveredBy` steps over a piece's end onto the next. */
+const COVER_OVER = 0.5;
+const coverAdv = createAdvance();
+const EMPTY_PIECES: ReadonlySet<number> = new Set();
+
+/** A train's pieces (see `Sim.coveredBy`), and where its axles were then. */
+interface Cover {
+  bogies: readonly Cursor[];
+  /** Each axle's piece and path (piece × 8 + path), when worked out. */
+  at: readonly number[];
+  pieces: ReadonlySet<number>;
+}
 const lookAdv = createAdvance();
 const face = { x: 0, y: 0, z: 0 };
 const otherFace = { x: 0, y: 0, z: 0 };
@@ -473,13 +485,67 @@ export class Sim {
     }
   }
 
-  /** Is any (railed) train standing on this piece? */
+  /**
+   * Is any (railed) train on this piece? Under a car counts, not only under a wheel: a short piece between a car's
+   * two bogies, or between two cars, is as taken as one a bogie stands on (see `coveredBy`).
+   */
   pieceOccupied(pieceId: number): boolean {
-    for (const train of this.trains.values()) {
-      if (train.derailed) continue;
-      for (const b of train.bogies) if (b.pieceId === pieceId) return true;
-    }
+    for (const t of this.trains.values()) if (!t.derailed && this.coveredBy(t).pieces.has(pieceId)) return true;
     return false;
+  }
+
+  /** The pieces under a train's cars, end to end (empty for one off the rails or not there). */
+  piecesUnder(trainId: number): ReadonlySet<number> {
+    const t = this.trains.get(trainId);
+    return t && !t.derailed ? this.coveredBy(t).pieces : EMPTY_PIECES;
+  }
+
+  /** Per train: the pieces under its cars, and where its end axles were when worked out (see `coveredBy`). */
+  private readonly covers = new Map<number, Cover>();
+
+  /**
+   * The pieces under a train, from its last axle to its first: its axles' pieces and those walked along the track
+   * between (piece to piece), under its cars and their couplings. Not past its end axles: a switch just ahead under
+   * the front's overhang is still its to throw. Worked out again only when an axle has come onto another piece, or
+   * the train changed.
+   */
+  private coveredBy(train: Train): Cover {
+    const b = train.bogies;
+    const last = b[b.length - 1];
+    // (Between two axles on given pieces the track between is given too: worked out again only when an axle has come
+    // onto another piece, not as it rolls along one.)
+    const hit = this.covers.get(train.id);
+    if (hit && hit.bogies === b && hit.at.length === b.length) {
+      let same = true;
+      for (let i = 0; i < b.length && same; i++) if (hit.at[i] !== b[i].pieceId * 8 + b[i].pathIndex) same = false;
+      if (same) return hit;
+    }
+    const pieces = new Set<number>();
+    for (const x of b) pieces.add(x.pieceId);
+    if (b.length > 0) {
+      // (Piece to piece: to the end of the one it's on, just over onto the next, while the distance lasts.)
+      const walk = (from: Cursor, dist: number) => {
+        const c = { ...from };
+        for (let done = 0, k = 0; k < 64; k++) {
+          const piece = this.layout.getPiece(c.pieceId);
+          if (!piece) break;
+          const rest = pathLength(getPieceDef(piece.type, piece.flipped).paths[c.pathIndex].geom) - c.s;
+          if (done + rest >= dist) break;
+          advanceCursor(this.layout, c, rest + COVER_OVER, null, coverAdv);
+          if (coverAdv.status !== ADV_OK || coverAdv.moved === 0) break;
+          done += coverAdv.moved;
+          pieces.add(c.pieceId);
+        }
+      };
+      // (Last axle to first: the cars' lengths and the gaps between, less the first's and last's overhangs.)
+      let span = (train.cars.length - 1) * COUPLER_GAP - CAR_SPECS[train.cars[0].kind].bogieInset - CAR_SPECS[train.cars[train.cars.length - 1].kind].bogieInset;
+      for (const car of train.cars) span += CAR_SPECS[car.kind].length;
+      walk(last, span);
+    }
+    const cover: Cover = { bogies: b, at: b.map((x) => x.pieceId * 8 + x.pathIndex), pieces };
+    if (this.covers.size > this.trains.size + 8) for (const id of this.covers.keys()) if (!this.trains.has(id)) this.covers.delete(id);
+    this.covers.set(train.id, cover);
+    return cover;
   }
 
   /** Fresh car ids, for cars about to be put on the track (so anything shown for them beforehand can match). */
