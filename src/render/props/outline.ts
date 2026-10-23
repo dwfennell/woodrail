@@ -1,6 +1,9 @@
 import { BufferGeometry, Float32BufferAttribute, LineBasicMaterial, LineLoop, Mesh, MeshBasicMaterial, PlaneGeometry } from "three";
 import type { Footprint } from "../../props/placement";
 
+/** How far (mm) a filled outline's wash reaches past the outline. */
+const FILL_MARGIN = 8;
+
 /** A rectangle drawn on the ground round a prop's footprint: where it is selected, or where a held one would go. */
 export class FootprintOutline {
   readonly line: LineLoop;
@@ -36,8 +39,9 @@ export class FootprintOutline {
     this.line.rotation.set(0, -heading, 0);
     this.material.color.set(color);
     if (this.fill) {
+      // (A little wider than the outline, so it shows round a model that fills its footprint: a red-roofed house.)
       this.fill.position.set(fp.cx, 0, fp.cz);
-      this.fill.scale.set(x1 - x0, 1, z1 - z0);
+      this.fill.scale.set(x1 - x0 + 2 * FILL_MARGIN, 1, z1 - z0 + 2 * FILL_MARGIN);
       (this.fill.material as MeshBasicMaterial).color.set(color);
     }
     this.line.visible = true;
