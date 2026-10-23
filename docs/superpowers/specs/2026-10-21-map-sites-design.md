@@ -497,6 +497,14 @@ Quarries, Mines, Harbours). Restored and cleared ruins show nothing (they aren't
 player's land closes the map, glides to it, rings it and opens its card, as a tap on the ruin does (`goToMarker` →
 `openRuin`); one on the land around isn't tappable in the world, so its badge only glides there and rings it.
 
+**A stranded harbour** (an old save's river harbour its boats can't reach: `harbourStranded`, the card's
+`HARBOUR_STRANDED`) gets **no badge**, and Show me, the "Open a harbour" goal's and the research toast's
+(`nearestRuin`), passes it over. Skipped rather than greyed: it can never be opened, so a badge would only point a
+child at something that can't be done; tapped in the world, its card still says why. Its water changes only with the
+land's squares (a land tool), so the markers' key takes the land grid's revision too
+(`ruinMarkersKey(ruinsVersion, learned, grid.revision)`); the land around's harbours are made only where the open sea
+is reached, so they're never checked.
+
 - **Never over a label.** A badge is `pinned` (`LabelBox.pinned`, `declutterLabels`): it isn't nudged off its ruin
   as labels are; it's settled last (priority −1, below the map's depots), and hidden if it would cover a town's,
   station's or industry's label or another badge, or if it would sit under the top bar or the Map bar, or past the
@@ -504,7 +512,8 @@ player's land closes the map, glides to it, rings it and opens its card, as a ta
   label's edge is the label's. e2e:sites checks no shown badge's box meets a shown label's at 390 × 844.
 - **Built only when its inputs change.** `Game.syncRuins` keeps the ruins shown (`ruinsShown`) and a `ruinsVersion`
   that goes up only when that list changes (a ruin cleared, restored, undone, land bought, the land around shown).
-  main.ts keeps the markers under `ruinMarkersKey(ruinsVersion, learned)`: the version and which of the four
+  main.ts keeps the markers under `ruinMarkersKey(ruinsVersion, learned, grid.revision)`: the version, the land's
+  squares (for a stranded harbour, above) and which of the four
   blueprints are learned (a blueprint that opens no ruin doesn't count). The map view's own once-a-second look while
   it's open (`refreshMap`, as before) takes them from that cache; `MapView.show` rebuilds its DOM only when a marker's
   key, icon or lock changed, and `place` moves them only when the view moved. Nothing draws a frame.

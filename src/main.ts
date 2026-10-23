@@ -6,7 +6,7 @@ import { viewRoom } from "./ui/view-room";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
-import { describeLand, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
+import { describeLand, harbourStranded, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
@@ -3014,12 +3014,16 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (m.ruin !== undefined) openRuin(m.ruin);
   }
 
-  /** The ruins' markers, made again only when the ruins shown or which of their blueprints are learned change. */
+  /**
+   * The ruins' markers, made again only when the ruins shown, the land's squares (a stranded harbour's water) or which
+   * of their blueprints are learned change.
+   */
   let ruinMarks: { key: string; markers: MapMarker[] } = { key: "", markers: [] };
   function mapRuinMarkers(): MapMarker[] {
     const learned = (id: string) => progress.learned.has(id);
-    const key = ruinMarkersKey(game.ruinsVersion, learned);
-    if (key !== ruinMarks.key) ruinMarks = { key, markers: ruinMarkers(game.ruinsShown, learned) };
+    const land = game.landscape;
+    const key = ruinMarkersKey(game.ruinsVersion, learned, land.grid.revision);
+    if (key !== ruinMarks.key) ruinMarks = { key, markers: ruinMarkers(game.ruinsShown, learned, (s) => harbourStranded(land, s)) };
     return ruinMarks.markers;
   }
 

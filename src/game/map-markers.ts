@@ -71,9 +71,12 @@ export interface RuinOnMap {
   around: boolean;
 }
 
-/** What the ruins' markers are made from: the ruins shown (by version) and which of their blueprints are learned. */
-export function ruinMarkersKey(version: number, learned: (id: string) => boolean): string {
-  return `${version}|` + SITE_ROLES.map((r) => (ruinLocked(r, learned) ? "1" : "0")).join("");
+/**
+ * What the ruins' markers are made from: the ruins shown (by version), the land's squares (by its grid's revision: a
+ * harbour's water can only change with them, by a land tool), and which of their blueprints are learned.
+ */
+export function ruinMarkersKey(version: number, learned: (id: string) => boolean, landRevision = 0): string {
+  return `${version}|${landRevision}|` + SITE_ROLES.map((r) => (ruinLocked(r, learned) ? "1" : "0")).join("");
 }
 
 const ruinLocked = (role: SiteRole, learned: (id: string) => boolean) => {
@@ -84,12 +87,14 @@ const ruinLocked = (role: SiteRole, learned: (id: string) => boolean) => {
 /**
  * The map view's ruin markers: one per standing ruin (on the player's land and on the land around shown), its icon by
  * role and a lock while its blueprint isn't learned. Restored and cleared ruins aren't shown (they aren't standing).
- * Tapped, one on the player's land opens its card (`ruin`).
+ * Tapped, one on the player's land opens its card (`ruin`). A harbour on the player's land its boats can't reach
+ * (`stranded`: `harbourStranded`) isn't marked either: it can never be opened, and its card still says why when the
+ * ruin itself is tapped. (The land around's harbours all reach the open sea: they're made only where they do.)
  */
-export function ruinMarkers(ruins: readonly RuinOnMap[], learned: (id: string) => boolean): MapMarker[] {
+export function ruinMarkers(ruins: readonly RuinOnMap[], learned: (id: string) => boolean, stranded: (site: MapSite) => boolean = () => false): MapMarker[] {
   const out: MapMarker[] = [];
   for (const { site, around } of ruins) {
-    if (site.cleared) continue;
+    if (site.cleared || (!around && stranded(site))) continue;
     const locked = ruinLocked(site.role, learned);
     // (A site on the land around is numbered in its own plot's land: keyed by its plot too.)
     out.push({

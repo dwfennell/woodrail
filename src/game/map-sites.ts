@@ -657,6 +657,14 @@ export interface RuinCard {
 /** A harbour ruin's card when its boats can't reach it (no Restore then). */
 export const HARBOUR_STRANDED = "⛵ Boats can't reach this water now";
 
+/**
+ * An old harbour its boats can't reach any more (a river one in an old save, its river ending in land bought since):
+ * it can't be restored, so Show me and the map view pass it over. Only a harbour's water is searched.
+ */
+export function harbourStranded(land: Landscape, site: MapSite): boolean {
+  return site.role === "harbour" && !waterWay(land, site.piece);
+}
+
 export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned: (id: string) => boolean): RuinCard {
   const name = SITE_NAMES[site.role];
   const r = resourceAt(land, site.role, site.piece);
@@ -671,7 +679,7 @@ export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned
   // (A harbour whose water no longer leads off the land or out to sea: a river one in an old save, its river ending in
   // land bought since. New harbour sites are only where the sea is reached, which buying land can't cut. Restore would
   // fail, so the card says why instead of offering it.)
-  const stranded = open && site.role === "harbour" && !waterWay(land, site.piece);
+  const stranded = open && harbourStranded(land, site);
   return {
     title: `Old ${name}`,
     resource,

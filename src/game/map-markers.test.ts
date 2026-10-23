@@ -70,15 +70,21 @@ describe("the map's ruin markers (map sites step 3)", () => {
     farm.cleared = true;
     expect(ruinMarkers([{ site: farm, around: false }], () => true)).toEqual([]);
     expect(ruinMarkers(shown(w), () => true).some((m) => m.key === `ruin:${farm.id}`)).toBe(false);
+    // A stranded harbour (the predicate) is passed over only on the player's land: the land around's all reach the sea.
+    farm.cleared = undefined;
+    const all = shown(w);
+    const unmarked = ruinMarkers(all, () => true, () => true);
+    expect(unmarked.every((m) => m.key.startsWith("ruin-around:"))).toBe(true);
+    expect(unmarked).toHaveLength(all.filter((r) => r.around).length);
   });
 
-  it("are keyed by the ruins' version and which of their blueprints are learned (not by blueprints that open none)", () => {
+  it("are keyed by the ruins' version, the land's squares and which of their blueprints are learned (not by blueprints that open none)", () => {
     const none = (_id: string) => false;
-    expect(ruinMarkersKey(3, none)).toBe("3|1111");
+    expect(ruinMarkersKey(3, none)).toBe("3|0|1111");
     expect(ruinMarkersKey(4, none)).not.toBe(ruinMarkersKey(3, none));
-    expect(ruinMarkersKey(3, (id) => id === "farming")).toBe("3|0111");
-    expect(ruinMarkersKey(3, (id) => id === "farming" || id === "switches")).toBe("3|0111");
-    expect(ruinMarkersKey(3, (id) => ["farming", "quarries", "mines", "harbours"].includes(id))).toBe("3|0000");
+    expect(ruinMarkersKey(3, (id) => id === "farming")).toBe("3|0|0111");
+    expect(ruinMarkersKey(3, (id) => id === "farming" || id === "switches")).toBe("3|0|0111");
+    expect(ruinMarkersKey(3, (id) => ["farming", "quarries", "mines", "harbours"].includes(id))).toBe("3|0|0000");
   });
 
   it("map view: ruins' badges stay on their ruin, and give way to labels (pinned, lowest priority)", () => {
