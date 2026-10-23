@@ -303,6 +303,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .card-open .tray.draw-tab .tray-draw { display: none; }
 /* Turn and Flip do nothing for a drawn line: away while drawing. */
 .tray.drawing .tray-orient { display: none !important; }
+/* Drawing on a phone on its side: the tray is its tabs and Draw only, its shelves put away, so the map between the
+   goals and the tray has room to draw a line in (QA: about 100 px). They're back when Draw is put down. */
+@media (max-height: 520px) { .tray.drawing .scroller { display: none; } }
 /* The tray's head: the tabs, and the tools (Draw, Turn, Flip). On a big screen the tools float above the tray, as
    placed above; on a phone (QA U3, N6) they share the tab row at its right, as icons, and the tabs scroll in the room
    left: nothing floats over the map where the track is being laid, and the tools never cover a tab. */
