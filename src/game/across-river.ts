@@ -1,5 +1,5 @@
 import { CELL, SURF_RIVER, SURF_SEA, type Landscape, type LandscapeGrid } from "../landscape";
-import { SITE_RULES } from "./industries";
+import { leastOf, SITE_RULES } from "./industries";
 
 type Point = { x: number; z: number };
 
@@ -92,7 +92,7 @@ function sitesOf(land: Landscape, facts: GridFacts): Uint8Array {
   const has = new Uint8Array(n);
   SITES.forEach(({ role }, k) => {
     const rule = SITE_RULES[role]!;
-    const least = Math.ceil(rule.need / 2);
+    const least = leastOf(rule);
     const r = Math.floor(rule.reach / CELL);
     const half = Array.from({ length: 2 * r + 1 }, (_, j) => Math.floor(Math.sqrt((rule.reach / CELL) ** 2 - (j - r) ** 2)));
     let any = false;

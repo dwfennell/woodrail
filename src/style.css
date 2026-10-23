@@ -145,6 +145,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .ruin-own { font-size: 13px; font-weight: 700; color: #8a6a4a; text-align: center; max-width: 300px; }
 .ruin-card [hidden] { display: none; }
 .ruin-card .card-row { flex-wrap: wrap; justify-content: center; }
+/* On a phone the card scrolls when it's taller than the room above the tray (on its side, 667 × 375, always): Restore
+   and Clear stay pinned at its foot, as a town's switches do under its ledger (QA: they sat under the tray). */
+@media (max-width: 640px), (max-height: 520px) {
+  .ruin-card > .card-row { position: sticky; bottom: -14px; z-index: 1; align-self: stretch; margin-bottom: -14px; padding: 6px 0 14px; background: #faf3e6; box-shadow: 0 -6px 8px -6px rgba(60, 40, 20, 0.16); }
+}
 .lever { width: 60px; height: 50px; font-size: 20px; }
 /* The engine card: what it's doing, a big Go/Stop and the way it goes; Follow and ⋯ in the top corners. */
 .engine-card { padding-top: 14px; min-width: 290px; }

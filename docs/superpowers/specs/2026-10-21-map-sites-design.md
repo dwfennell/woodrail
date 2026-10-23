@@ -31,7 +31,9 @@ On the land its yard and stub squares are `FEAT_RUIN` (owner: the site's id), it
 squares off each end) are corridors. In the world its stub is a real, fixed `straight-216` piece (`World.ruins`: site id
 → piece id), like a map depot's piece: track can be joined to it now, and step 2 swaps its type in place.
 
-`FEAT_RUIN` blocks track (`checkPlacement`: "An old yard is in the way: tap it to clear it"), industries' yards
+`FEAT_RUIN` blocks track (`checkPlacement`; in the game the message names the ruin and, once it can be restored, says
+so: "An old farm is in the way: tap it to restore or clear it", else "…tap it to clear it": `ruinInWay`, `ruinNear`,
+`Interaction.ruinMessage`, since 2026-10-23; the plain "An old yard is in the way: tap it to clear it" elsewhere), industries' yards
 (`checkYard`: "an old yard"), placed models and land editing, exactly where a map depot's square would.
 
 ## 2. Generation (`src/game/map-sites.ts`)
@@ -48,15 +50,25 @@ fields, depots and shed are deep-equal with and without the extras, for several 
    - its yard, stub and approaches are on open grass (a harbour's yard may be on the sand), inside the plot's edge band
      (clear of the crossings' stubs), off roads, corridors and anything standing;
    - it is 540 mm (`SITE_TOWN_SPACING`) from every town's station and 450 mm from depots, sites and the shed;
-   - its role's `SITE_RULES` are met **in full** (12 hillside squares, 8 water squares, a farm's two 2 × 2 fields
+   - its role's `SITE_RULES` are met **in full** (12 hillside squares, 5 water squares, a farm's two 2 × 2 fields
      planted beside it, 8 of 8) and a harbour's boats can reach it **from the open sea** (`waterWay(…, seaOnly)`: not off
      the edge of the land, a way that buying the land beyond would cut; so no harbour on a river plot, which gets the
      next kind instead, since 2026-10-23; an old save's river harbour stays, and its card says when boats can't reach it).
    - Its yard and approaches (and a farm's fields) are **flattened** into the hillside (`flattenUnder`: only lowers,
      within `MAX_HEIGHT` squares, never across the plot's edge), and it is kept only if every town, depot and site can
      still be reached (`reachable`).
-   If no random spot fits, every other square's middle is tried, then every square's at half the resource; over 232
-   plots of 8 seeds every plot had a site.
+   If no random spot fits, every other square's middle is tried, then every square's, still **in full** (since
+   2026-10-23: a restored industry runs at full speed); a kind that can't have all it needs on a plot gives way to the
+   next. Over 232 plots of 8 seeds every plot has a site.
+   - **Harbours' water** (fixed 2026-10-23). QA: old harbours showed "Water nearby: 5–6 of 8" and ran at 0.75. A
+     harbour counts water within 110 mm of its quay (150 mm across its track): 9 squares on the squares' grid, 3 of
+     them its own yard's row, which stands on land. So 6 was all the water any harbour could have (7 off the grid, a
+     player's), and the rule wanted 8: no harbour, old or new, ever had it, and every old harbour came from the search's
+     last pass "at half the resource" (4 to 6). The rule now wants **5** (`SITE_RULES.harbour.need`: 6 square on to a
+     straight shore, 5 on a bend of it), the least a harbour is placed with stays 4 (`least`), and that last pass is gone.
+     A harbour has no recipe of its own, so its rate is only what its card says: nothing else plays differently. With 6
+     the search left 2 coast plots of 232 (seeds 42 and 99, a strip of sand) with no site at all; with 5 every plot has
+     one.
 3. A **second site** of another kind (not a second hill site) 40% of the time, where one fits. At most 2 a plot.
 
 If the plot's town takes the room its site needs, the town tries its next best spot, then gives way: every plot has a
@@ -66,6 +78,14 @@ site.
 midpoint, so a new player sees it in the opening view (Farming is the first industry they learn). On a starter map it
 keeps off the starter line (5 rows either side of the strip from the sawmill to the forest yard) and off the sawmill's
 side of the line altogether. On other starts (Sandbox's maps) a second site of the start's richest kind is added.
+
+The opening view shows it **whole** (since 2026-10-23; QA, 390 × 844: it stood at the screen's left edge, its yard
+from x −13 to 62). On a bare Game map the view (the first two stations along the screen, leaning to the upper one) then
+slides sideways, not out, just enough to have the start's ruins' boxes 12 px in from the edges, if the two stations stay
+on the screen (`keepStartRuinsInView`, main.ts; the ruin itself doesn't move, so the grand tour and the harness are
+untouched). At 390 × 844 it moves the view 63 mm: the old farm 14–88 px, the stations from x 195 to 218–224, the
+sawmill 286 → 306 (the forest yard is below the tray either way, as before); 360 × 780 alike (14–82 px); at 667 × 375
+and 844 × 390 the farm was whole already and the view doesn't move. e2e:sites checks it at 390 × 844.
 
 Why the start gets one, and only one on the starter map: the farm teaches the research loop from minute 1 (its card says
 "Learn Farming at a school"), and it sits where the opening view shows it. A second, hill site, and the farm on the
@@ -100,12 +120,22 @@ the 6 × 6 plots round each start (less the start's 2 × 2 and the open sea): 23
 
 So about **one extra town for every three plots** (0.53 → 0.89 towns a plot), and four in five coast plots get a town
 by the sea: harbours there have a town to serve. More isn't possible without breaking the 900 mm spacing: most plots
-have a town at their middle already, which leaves no room for another. Sites: 1.16 a plot (farm 109, quarry 81, mine
-57, harbour 22, all on coast plots; before harbours needed the sea: farm 99, quarry 77, mine 53, harbour 40, 18 of them
-on river plots); no plot without one.
+have a town at their middle already, which leaves no room for another. Sites: 1.16 a plot (farm 99, quarry 80, mine
+55, harbour 36, all on coast plots, every one with all its site rule wants; before full need, 2026-10-23: farm 109,
+quarry 81, mine 57, harbour 22, the harbours at 4–6 of 8; before harbours needed the sea: farm 99, quarry 77, mine 53,
+harbour 40, 18 of them on river plots); no plot without one. Full need moved a few coast plots' extra towns: 36 of 48
+coast plots get one (39 before), where a harbour now takes the room the town wanted (the town gives way).
+
+| sites (232 plots) | before (need 8, last pass at half) | after (harbour need 5, in full) |
+|---|---|---|
+| farm | 109, rate 1.0 | 99, rate 1.0 |
+| quarry | 81, rate 1.0 | 80, rate 1.0 |
+| mine | 57, rate 1.0 | 55, rate 1.0 |
+| harbour | 22, rate min 0.50, avg 0.65 | 36, rate min 1.0, avg 1.0 |
+| plots with none | 0 | 0 |
 
 The starter map's two coast plots to the south, which the user bought and found empty, now bring "A town by the sea, an
-old harbour and a river" and "A town by the sea and an old farm".
+old harbour and a river" and "A town by the sea and an old harbour" (an old farm before harbours wanted 5).
 
 ## 4. Saves
 
@@ -143,6 +173,20 @@ land not yet bought isn't tappable. The card (for a phone, a child reading):
 - Or build your own anywhere from the Industries tab. (Game mode)
 - [Clear the ruin · 10🪙] ("Clear the ruin" in Sandbox): takes the ruin and its stub away, its fields stay. Not while a
   train is on the stub ("A train is on its track"); short of coins: "Clearing it costs 10 coins: you have 4".
+  **One undo step** (since 2026-10-23, `clearRuinEdit` in restore.ts, `Editor.takeUp`): undone, the stub (the same
+  piece) and the ruin come back and the 10 coins are given back; redone, paid again (refused, and said, if it can't be).
+  It's saved like any edit. QA found Restore → Undo → Clear → Redo built the farm on the cleared site and charged again,
+  the 10 coins never given back: Clear was outside the history, so the restore's redo stayed. Now Clear is the newest
+  step and takes the redo with it, as any edit does; the history stays one story. (Only clearing the redo stack was the
+  fallback; it would have left the 10 coins out of undo, which is what the player tries next.) An undo onto ground used
+  since by something that isn't an undo step is refused: "Something is on that ground now". A restore's redo onto a
+  ruin that's gone is refused too ("It's gone already"), which the history no longer allows anyway.
+
+On a phone the card scrolls when it's taller than the room above the tray; on its side (667 × 375: 150 px of room)
+it always is. Its Restore and Clear row is **pinned at its foot** (`position: sticky`, as a town's switches are under its
+ledger; since 2026-10-23: QA found them under the tray at 667 × 375, and at 844 × 390 the row was cut off at the card's
+edge). Measured fully in view, above the tray and hit by a tap at 390 × 844, 360 × 780, 667 × 375 and 844 × 390
+(e2e:sites checks 667 × 375).
 
 The land card (`describeLand`): towns (by the sea, if they are), old sites, depots, then the land: "2 towns by the sea,
 an old harbour, a forest yard and hills.", "A town, an old quarry, a river and hills."
@@ -202,7 +246,10 @@ Measured (dev machine, shared and loaded; swiftshader in the e2e):
   short); "Restoring takes planks from your workshop. Place it first" (no workshop); "A train is on its track"; the
   yard's own message when it's blocked ("The farm yard needs open ground: a house is in the way", `checkYard` with the
   ruin's own squares not counted); the site rule's when the resource has gone ("Needs farm fields nearby: 3 of 4").
-  Done: "Old farm restored! It works again".
+  Done: "Old farm restored! It works again". No buffer is asked for: a restored yard on its dead-end stub needs none
+  (checked 2026-10-23 for the critique's "add a buffer so trains can stop"): a train stops at an open end as at a buffer
+  and turns back (`Sim`, `ADV_OPEN_END`), and is served at the yard's crane on the way (`restore.test.ts`: a train on a
+  line run off the restored farm's one end, its other end open, is loaded and stays on the rails).
 - **A ruin isn't refused for what it was made beside** (fixed 2026-10-23). A site keeps one row of yard squares beside
   its stub's row (`siteSquares`: middles 72 mm across the track, the row's far edge at 108 mm), but an industry's pad
   is 84 mm deep round 72 mm, so its ground samples reach 112 mm: a few mm onto the next row, which a site doesn't keep
@@ -213,7 +260,9 @@ Measured (dev machine, shared and loaded; swiftshader in the e2e):
   harbours (a hill). The starter's old farm passed only because the row behind its yard happens to be open grass. Now
   `restoreWhy` checks the ground only to the ruin's own row (`RUIN_YARD_REACH`, 108 mm: `checkYard`'s `groundTo`);
   other track and props are still looked for over the whole pad, and placing a new industry is unchanged. Survey
-  (`restore-survey.test.ts`, the same 8 starts): all 175 pass `restoreWhy` (15 harbours, each reaching the open sea).
+  (`restore-survey.test.ts`, the same 8 starts): all 175 pass `restoreWhy` (21 harbours, each reaching the open sea), and every one meets its site rule in full,
+  so restored it runs at full speed (rate 1: farm 69, quarry 43, mine 42, harbour 21; before 2026-10-23's full need
+  the 15 harbours there had 4–6 of 8, rate min 0.50, avg 0.63).
   Before harbours had to reach the sea, one (a river harbour, seed 42) failed: its river no longer led off the land
   once the plots round it were bought. Such a harbour in an old save keeps its site; its card says "⛵ Boats can't
   reach this water now" (`HARBOUR_STRANDED`) and offers no Restore. The restored pad overhangs the field, hillside or
@@ -266,6 +315,9 @@ after 22–40 pieces, trace on seed 2027), so the harness builds a new farm yard
 the branch at 040cd60 (where the tables below were measured) only coins moved: 60 more from some point between minute 45 and 180 on
 every seed (main's changes since), and seed 9's City★ came at 164 (was 166) with a 10.8-minute stall (was 11.1).
 Without ruins (`BALANCE_NORUINS=1`) it's the same table; at 040cd60 every placement below gave it row for row.
+After `map-sites-3` (2026-10-23: Clear an undo step, harbours wanting 5, the card's pinned buttons, the opening view's
+slide) the bands' run gives this table row for row on all 9 seeds (City 62/61/73/80/80/73/67/69/82, researched
+14/15/15/14/14/15/17/14/14, coins at 180 as above): the harness never buys land and leaves the old farm be.
 
 | seed | first research | City | City★ | research stall (min) | town gap (min) | coins 15/45/60/75/180 | researched | farm | bands |
 |---|---|---|---|---|---|---|---|---|---|
