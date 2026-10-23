@@ -16,5 +16,12 @@ const ERASE_REFUSAL_NOUNS: Record<EraseRefusal, string> = { station: "stations a
 export function eraseRefusal(told: ReadonlyMap<EraseRefusal, string>): string | null {
   if (told.size === 0) return null;
   if (told.size === 1) return [...told.values()][0];
-  return `Some things stay: ${[...told.keys()].map((k) => ERASE_REFUSAL_NOUNS[k]).join(", ")}`;
+  // In one order whatever order the sweep met them in, and at most three named.
+  const kinds = ERASE_REFUSAL_ORDER.filter((k) => told.has(k)).map((k) => ERASE_REFUSAL_NOUNS[k]);
+  const named = kinds.length > ERASE_NAMED ? [...kinds.slice(0, ERASE_NAMED), `and ${kinds.length - ERASE_NAMED} more`] : kinds;
+  return `Some things stay: ${named.join(", ")}`;
 }
+
+/** The order the kinds are named in (the ones a player most likely meant to clear first), and how many at most. */
+const ERASE_REFUSAL_ORDER: readonly EraseRefusal[] = ["busy", "train", "station", "house", "road", "tree"];
+const ERASE_NAMED = 3;

@@ -65,11 +65,17 @@ export class WorkshopPanel {
   private bar: HTMLElement | null = null;
   private barShown = -1;
 
+  /**
+   * `root`: the card's box for what it makes; `yardRoot`: a box of its own for the plank choice, on the card beside
+   * it (a phone on its side moves it up under the title, where the short card has room for it), or none (it goes on
+   * top of `root`).
+   */
   constructor(
     private readonly root: HTMLElement,
     handlers: { order(id: ThingId): void; cancel(id: ThingId): void; takesAll?(on: boolean): void },
+    private readonly yardRoot: HTMLElement | null = null,
   ) {
-    root.addEventListener("click", (e) => {
+    const onClick = (e: MouseEvent) => {
       const y = (e.target as HTMLElement).closest<HTMLElement>("[data-yard]");
       if (y) {
         e.stopPropagation();
@@ -82,11 +88,14 @@ export class WorkshopPanel {
       const id = b.dataset.make as ThingId;
       if (b.dataset.less) handlers.cancel(id);
       else handlers.order(id);
-    });
+    };
+    root.addEventListener("click", onClick);
+    yardRoot?.addEventListener("click", onClick);
   }
 
   hide(): void {
     this.root.hidden = true;
+    if (this.yardRoot) this.yardRoot.hidden = true;
     this.forget();
   }
 
@@ -122,7 +131,11 @@ export class WorkshopPanel {
       if (r.shelf !== shelf) body += `<div class="make-head">${(shelf = r.shelf)}</div>`;
       body += makeRowHtml(r);
     }
-    this.root.innerHTML = (yard ? yardModeHtml(yard) : "") + head + body;
+    if (this.yardRoot) {
+      this.yardRoot.innerHTML = yard ? yardModeHtml(yard) : "";
+      this.yardRoot.hidden = !yard;
+      this.root.innerHTML = head + body;
+    } else this.root.innerHTML = (yard ? yardModeHtml(yard) : "") + head + body;
     this.bar = this.root.querySelector<HTMLElement>(".make-now .bar > i");
     this.barShown = fill;
   }

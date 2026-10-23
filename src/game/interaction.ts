@@ -3166,7 +3166,8 @@ export class Interaction {
     }
     this.eraseStaysShown = k;
     for (; k < this.eraseStayOutlines.length; k++) this.eraseStayOutlines[k].hide();
-    this.changed();
+    // (Only drawn again: marking changes nothing the rest of the game keeps. QA: the whole on-change, a mark, 14 ms.)
+    this.game.invalidate();
   }
 
   /**
@@ -3176,9 +3177,11 @@ export class Interaction {
   private commitErase(m: Mode & { kind: "erase" }): void {
     const g = this.game;
     this.showErase(null);
+    // (Track a train rolled onto while the sweep was on its way stays too, and is said with the rest.)
+    const free = [...m.pieces].filter((id) => g.layout.getPiece(id) && !g.sim.pieceOccupied(id));
+    if (free.length < [...m.pieces].filter((id) => g.layout.getPiece(id)).length && !m.told.has("busy")) m.told.set("busy", TRAIN_ON_TRACK);
     const why = eraseRefusal(m.told);
     if (why) this.hud.toast(why);
-    const free = [...m.pieces].filter((id) => g.layout.getPiece(id) && !g.sim.pieceOccupied(id));
     const ids = this.keepCarryingStands(this.withRisers(free)).filter((id) => !this.liftHeld(id));
     const props = [...m.props].filter((id) => g.props.get(id));
     if (ids.length === 0 && props.length === 0) return;

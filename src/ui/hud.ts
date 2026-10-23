@@ -208,6 +208,8 @@ export class Hud {
   private readonly depotCard = el("div", "card depot-card");
   /** Below a depot card's switches: filled by the game for some depots (Game mode's workshop), else hidden. */
   readonly depotExtra = el("div", "depot-extra");
+  /** The depot card's choice of how it shares (the workshop's planks): beside the extra, its own so it can move up. */
+  readonly depotYard = el("div", "depot-yard");
   /** Room on the engine card for Game mode's own rows (where the train delivers), filled by main. */
   readonly engineExtra = el("div", "engine-extra");
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
@@ -527,7 +529,8 @@ export class Hud {
     this.depotExtra.hidden = true;
     this.depotPickBtn = button("📘 Research", "Pick what the school learns next", () => h.toggleBoard(true), "chip text primary depot-pick");
     this.depotPickBtn.hidden = true;
-    this.depotCard.append(this.depotTitle, this.depotStock, this.depotPickBtn, depotRow, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
+    this.depotYard.hidden = true;
+    this.depotCard.append(this.depotTitle, this.depotStock, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.depotCard);
 
     // Land card: shown while choosing a plot to add.
@@ -1513,6 +1516,8 @@ export class Hud {
     this.depotTitle.textContent = title;
     this.depotExtra.hidden = true;
     this.depotExtra.innerHTML = "";
+    this.depotYard.hidden = true;
+    this.depotYard.innerHTML = "";
     // (Back to a depot's own: a town's ledger, once drawn here, marks it.)
     this.depotExtra.className = "depot-extra";
     this.depotCard.hidden = false;
