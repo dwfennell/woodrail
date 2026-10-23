@@ -58,6 +58,16 @@ const UNJOINED_ANGLE = (20 * Math.PI) / 180;
 const UNJOINED_SHORT = 40;
 /** Drawn pieces go down one after another, this far apart (seconds). */
 const RIPPLE = 0.045;
+/**
+ * About how long (ms) a pointer move works on the line's ghosts (`DrawLine.preview`'s budget); the frames after carry on
+ * till they've caught up (`catchUp`).
+ */
+const PREVIEW_SLICE_MS = 1.5;
+/** Run `f` once the next frame has been drawn (two animation frames on; outside a browser, a timer). */
+const afterNextFrame = (f: () => void): void => {
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => requestAnimationFrame(f));
+  else setTimeout(f, 32);
+};
 /** At most this many of them click as they go down (a long line would be a drum roll). */
 const CLICKS = 12;
 
@@ -186,6 +196,7 @@ export class DrawHand {
    * there's no ground under it.
    */
   begin(x: number, y: number): boolean {
+    this.flushLift();
     this.clear();
     const end = this.freeEndAt(x, y);
     if (end) {
@@ -203,6 +214,7 @@ export class DrawHand {
    * finger has gone off the line (see `branchFrom`). False if a train is on it (and says so), or it's off the map.
    */
   beginBranch(x: number, y: number, onto: number): boolean {
+    this.flushLift();
     this.clear();
     const p = this.game.layout.getPiece(onto);
     const at = p && this.hooks.planeAt(x, y, p.y);
@@ -314,13 +326,38 @@ export class DrawHand {
    * through, and the one it merges through if it was let go on a line it comes in to at 45° (all one undo step).
    */
   end(): void {
-    let line = this.line;
+    this.flushLift();
+    const line = this.line;
     if (!line) {
       this.clear();
       return;
     }
+    // (Lifted before the ghosts had caught up with the line, and the line goes down otherwise than they showed: they
+    // show what goes down for a frame first, then it goes down. Lifting finishes the line as its ghosts are worked out,
+    // so when they had caught up, it's what they showed.)
+    const caughtUp = line.previewDone;
     line.finish();
-    this.sync(false);
+    if (this.sync(false, Infinity) && !caughtUp) {
+      this.lifting = () => this.lay(line);
+      afterNextFrame(() => this.flushLift());
+      return;
+    }
+    this.lay(line);
+  }
+
+  /** A lift waiting for its ghosts to have been shown (see `end`), or null. */
+  private lifting: (() => void) | null = null;
+
+  /** Finish a lift that was waiting (see `end`) now: before anything else the hand does. */
+  private flushLift(): void {
+    const f = this.lifting;
+    this.lifting = null;
+    f?.();
+  }
+
+  /** The rest of `end`: the finished line `line` goes down. */
+  private lay(line: DrawLine): void {
+    this.liftShown = this.shown();
     let merge = this.mergeNow();
     // Let go a little past a line it ran into (beyond a merge's reach, short of where the stroke goes on across):
     // across it if the finger's past the crossing's far end, else in to it where the stroke meets it (QA: about 70 mm
@@ -380,7 +417,8 @@ export class DrawHand {
       if (say) this.hooks.toast(say);
       return;
     }
-    const ids = plan.covers.length ? this.editor().replaceRun(plan.covers, plan.pieces) : this.editor().placeRun(plan.pieces, line.fitted);
+    const ids = plan.covers.length ? this.editor().replaceRun(plan.covers, plan.pieces, line.fitted) : this.editor().placeRun(plan.pieces, line.fitted);
+    this.liftLaid = ids.slice(plan.line, plan.line + ghosts.length);
     const closed = line.stopped === "closed" || !!merge;
     // Down, and its end left facing a station's (or other track's) end it didn't join: why, rather than buffers facing
     // each other and nothing said (QA: a line drawn into Fernhill's end stopped just short of it).
@@ -593,6 +631,7 @@ export class DrawHand {
 
   /** Put the line away (nothing laid). */
   cancel(): void {
+    this.flushLift();
     this.clear();
   }
 
@@ -791,9 +830,10 @@ export class DrawHand {
    * Bring the ghosts in line with what lifting the finger now would put down (`DrawLine.preview`): new ones added (with
    * a tick when the line itself grew), ones taken off removed. Drawn only if one changed.
    */
-  private sync(grew: boolean): void {
+  private sync(grew: boolean, budget = 0): boolean {
     const g = this.game;
-    const pieces = this.line?.preview() ?? [];
+    const pieces = this.line?.preview(budget) ?? [];
+    this.showing = pieces;
     let i = 0;
     let changed = this.ghosts.length > pieces.length;
     for (; i < pieces.length; i++) {
@@ -820,11 +860,46 @@ export class DrawHand {
     for (const gh of this.ghosts.splice(i)) g.scene.remove(gh.mesh);
     if (grew) this.hooks.onGrow();
     if (changed) g.invalidate();
+    if (this.line && !this.line.previewDone) this.catchUp();
+    return changed;
+  }
+
+  /** The pieces the ghosts show (see `sync`). */
+  private showing: readonly DrawnPiece[] = [];
+
+  /** Carrying on with the ghosts frame by frame (see `sync`)? */
+  private catching = false;
+
+  /** Ghosts not yet caught up with the line: the frames after carry on with them, a slice a frame, till they have. */
+  private catchUp(): void {
+    if (this.catching) return;
+    this.catching = true;
+    this.game.flourishes.add({
+      update: () => {
+        if (!this.line || this.line.previewDone || this.lifting) return (this.catching = false);
+        this.sync(false, PREVIEW_SLICE_MS);
+        return this.line ? !this.line.previewDone || (this.catching = false) : (this.catching = false);
+      },
+      dispose: () => {
+        this.catching = false;
+      },
+    });
+    this.game.invalidate();
+  }
+
+  /** The ghosts on show as the last line went down (for the tests: what went down must be exactly these). */
+  liftShown: ReturnType<DrawHand["shown"]> = [];
+  /** The ids the line's own pieces went down as, in order (the first `liftShown`'s: not a branch's or merge's swaps). */
+  liftLaid: number[] = [];
+
+  /** Have the ghosts caught up with the line as it is (for the tests: a finger resting a frame or two)? */
+  get ghostsCaughtUp(): boolean {
+    return !this.line || this.line.previewDone;
   }
 
   /** The pieces the ghosts show now (for the tests: what goes down on the lift must be exactly these). */
   shown(): { type: PieceTypeId; flipped: boolean; x: number; z: number; heading: number; y: number; blocked: boolean }[] {
-    return (this.line?.preview() ?? []).map((p) => ({ type: p.type, flipped: p.flipped, x: p.pose.x, z: p.pose.z, heading: p.pose.heading, y: p.y, blocked: !!p.blocked }));
+    return (this.line ? this.showing : []).map((p) => ({ type: p.type, flipped: p.flipped, x: p.pose.x, z: p.pose.z, heading: p.pose.heading, y: p.y, blocked: !!p.blocked }));
   }
 
   private drawTrail(): void {

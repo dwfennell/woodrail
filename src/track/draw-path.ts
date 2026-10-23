@@ -159,6 +159,15 @@ const FLEX_TURN_MM = 180;
 const FLEX_COST_MM = 15;
 /** A fit that has to bend the line to close costs this much more than one that seats as it is. */
 const FLEX_COST = 0.5;
+/**
+ * A line begun on open ground may move over this far (mm), its end turned no more than this off the free end's, to
+ * seat its last piece there (see `shiftOnto`). Scored as a fit that seats as it is, each `SHIFT_COST_MM` mm of it one
+ * unit, and `SHIFT_COST` more: less than bending its joints (`FLEX_COST`).
+ */
+const SHIFT_REACH = 45;
+const SHIFT_TURN = (0.25 * Math.PI) / 180;
+const SHIFT_COST_MM = 30;
+const SHIFT_COST = 0.2;
 /** The next piece is chosen once the stroke reaches this far (mm) past the line's end, so the look-ahead sees it. */
 export const DRAW_LOOKAHEAD = 250;
 /**
@@ -202,6 +211,9 @@ const MAX_PIECES = 200;
  * finger lifts.
  */
 const GROW_PER_MOVE = 1;
+
+/** How many levels above the line's height the finger is looked for on a hill nearer the camera (see `onGround`). */
+const SEEN_LEVELS = 4;
 /** What each piece costs on its own: fewer pieces look calmer, and the tight curve and the mini are for when they're needed. */
 const PIECE_COST: Partial<Record<PieceTypeId, number>> = { "straight-54": 0.9, "straight-108": 0.4, "curve-small": 1.5 };
 const BASE_PIECE_COST = 0.3;
@@ -271,6 +283,16 @@ const BAND_CURVE = 1;
 const BAND_TIGHT = 2;
 /** A curve straight after another (a step with no straight between) costs this much more: a run of them is a snake. */
 const BAND_PAIR = 1.5;
+/**
+ * A curve of another kind than the staircase's curve before it costs this much more there: the steps alike (QA: s108
+ * wide s144 large~ s108), where they fit about as well.
+ */
+const BAND_MIX = 0.5;
+/**
+ * The staircase's step after a piece (see `BAND_MIX`): a curve starts one (its bend), unless it ends one (it turns back
+ * from the step's first curve, `step`); a straight carries it on, unless one already came between (`prev` 0).
+ */
+const stepAfter = (step: number, bend: number, prev: number): number => (bend ? (step && Math.sign(step) !== Math.sign(bend) ? 0 : bend) : prev ? step : 0);
 /** The mini straight costs this much more there (a step is cleaner without one). */
 const BAND_MINI = 1;
 /**
@@ -379,6 +401,13 @@ function rampFrom(end: DrawEnd, up: boolean): DrawCandidate | null {
   return null;
 }
 
+/** A string's 32-bit FNV-1a hash. */
+function hashString(t: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+
 /** The most answers `remembered` keeps for a line (then it starts again). */
 const REMEMBERED = 20000;
 
@@ -390,8 +419,34 @@ const REMEMBERED = 20000;
  */
 function remembered(options: DrawOptions): DrawOptions {
   const { check, freeEnds, wet } = options;
-  // (The line asked about by its length and its last two pieces: the ghosts' pieces are made afresh on each move.)
-  const pieceKey = (p: DrawnPiece | undefined) => (p ? `${p.type}|${p.flipped}|${p.pose.x}|${p.pose.z}|${p.pose.heading}|${p.y}` : "");
+  // (The line asked about by where every piece of it is, as a hash: by its length and last two pieces only, a line
+  // moved over or relaid further back read as the same line. Its pieces are made afresh on each move, so by place, not
+  // by object; each piece's hashed once, and each array's hash kept while its pieces are the same objects.)
+  const pieceHashes = new WeakMap<DrawnPiece, number>();
+  const pieceHash = (p: DrawnPiece): number => {
+    let h = pieceHashes.get(p);
+    if (h === undefined) {
+      h = hashString(`${p.type}|${p.flipped}|${p.pose.x}|${p.pose.z}|${p.pose.heading}|${p.y}`);
+      pieceHashes.set(p, h);
+    }
+    return h;
+  };
+  const lineHashes = new WeakMap<readonly DrawnPiece[], { of: DrawnPiece[]; key: string }>();
+  const lineKey = (line: readonly DrawnPiece[]): string => {
+    const had = lineHashes.get(line);
+    if (had && had.of.length === line.length && had.of.every((p, i) => p === line[i])) return had.key;
+    // (Two 32-bit hashes of the pieces in order.)
+    let a = 0x811c9dc5;
+    let b = 0x9e3779b9;
+    for (const p of line) {
+      const h = pieceHash(p);
+      a = Math.imul(a ^ h, 0x01000193);
+      b = Math.imul(b + h, 0x85ebca6b) ^ (b >>> 13);
+    }
+    const key = `${line.length}|${a >>> 0}|${b >>> 0}`;
+    lineHashes.set(line, { of: line.slice(), key });
+    return key;
+  };
   const checks = new Map<string, DrawCheck | null>();
   const ends = new Map<string, DrawEnd[]>();
   const wets = new Map<number, Map<number, boolean>>();
@@ -417,7 +472,7 @@ function remembered(options: DrawOptions): DrawOptions {
       : undefined,
     check: check
       ? (c, line) => {
-          const key = `${c.type}|${c.flipped}|${c.entry}|${c.pose.x}|${c.pose.z}|${c.pose.heading}|${c.y}|${line.length}|${pieceKey(line[line.length - 1])}|${pieceKey(line[line.length - 2])}`;
+          const key = `${c.type}|${c.flipped}|${c.entry}|${c.pose.x}|${c.pose.z}|${c.pose.heading}|${c.y}|${lineKey(line)}`;
           const known = checks.get(key);
           if (known !== undefined) return known;
           const why = check(c, line);
@@ -442,24 +497,6 @@ function remembered(options: DrawOptions): DrawOptions {
         }
       : undefined,
   };
-}
-
-/** A line's state as `DrawLine.preview` keeps it (what finishing changes). */
-interface LineState {
-  pieces: DrawnPiece[];
-  progress: number;
-  stopped: "blocked" | "closed" | null;
-  refused: PieceTypeId | null;
-  crossing: { heading: number; phase: "turn" | "run" | "over"; bridges: number } | null;
-  offBand: boolean;
-  wanted: PieceTypeId | null;
-  retreating: boolean;
-  backlog: boolean;
-  runFrom: number | null;
-  tailAt: number;
-  tail: number;
-  headingTrueAt: number;
-  loop: boolean;
 }
 
 /** A run of track following a stroke: points go in as the finger moves; pieces come out behind it. */
@@ -560,6 +597,7 @@ export class DrawLine {
       const s = this.start;
       if ((x - s.x) * Math.cos(s.heading) + (z - s.z) * Math.sin(s.heading) < STEP) return false;
     }
+    this.rev++;
     const before = this.pieces.length;
     // (Closing can lay the last piece or two again another way, or bend them, as many as before: see `closeBack`.)
     const lastBefore = this.pieces[before - 1];
@@ -595,87 +633,95 @@ export class DrawLine {
   finish(): boolean {
     const before = this.pieces.length;
     const lastBefore = this.pieces[before - 1];
-    // As the ghosts showed it, if nothing has changed since (see `preview`).
-    if (this.previewed && this.previewFor === this.inputs()) this.restore(this.previewed);
-    else this.finishNow();
+    // As the ghosts showed it, if nothing has changed since (see `preview`): the preview worked out to the end.
+    this.preview();
+    this.adopt(this.previewed!);
     this.previewed = null;
+    this.job = null;
+    this.rev++;
     return this.pieces.length !== before || this.pieces[this.pieces.length - 1] !== lastBefore;
-  }
-
-  private finishNow(): void {
-    // Pieces already due while drawing go down as they would have then, and then the line grows to the stroke's end.
-    if (this.backlog) this.grow(false, Infinity);
-    this.grow(true);
   }
 
   /**
    * What lifting the finger now would lay (`finish`), the line left as it is: the ghosts show these, and lifting the
    * finger then lays exactly them (`finish` takes this outcome as it is). (QA: the line grew its last stretch, or closed
    * onto a station's end another way, only once the finger lifted, so what went down wasn't what the ghosts showed.)
-   * Worked out again only when the stroke or the line has changed since.
+   *
+   * Worked out on a copy of the line (`copy`), so nothing of it leaks back into the line; again only when the line has
+   * changed since (`rev`). `budget` (ms): worked on for about that long and no more (a piece at least; none at 0),
+   * carrying on where it left off on the next call (`previewDone` says whether it's caught up); until then it's the last
+   * one worked out. (QA: worked out whole on every move, a move took 0.6 to 0.9 ms in the browser where it had taken 0.1 to
+   * 0.2, and a fast flick far ahead of the line up to 32 ms: the line laid its backlog afresh on every move.) The answer
+   * doesn't depend on how it was cut up (see `grow`'s `resumed`).
    */
-  preview(): readonly DrawnPiece[] {
-    if (this.previewed && this.previewFor === this.inputs()) return this.previewed.pieces;
-    const before = this.state();
-    this.finishNow();
-    this.previewed = this.state();
-    this.restore(before);
-    this.previewFor = this.inputs();
+  preview(budget = Infinity): readonly DrawnPiece[] {
+    if (this.previewed && this.previewFor === this.rev) return this.previewed.pieces;
+    if (budget <= 0) return this.previewed?.pieces ?? this.pieces;
+    if (!this.job || this.job.for !== this.rev) {
+      const line = this.copy();
+      this.job = { line, for: this.rev, phase: line.backlog ? 0 : 1, resumed: false, steps: 0 };
+    }
+    const job = this.job;
+    const until = budget === Infinity ? Infinity : performance.now() + budget;
+    // (A piece at a time, at least one a call: pieces already due while drawing go down as they would have then, and
+    // then the line grows to the stroke's end.)
+    do {
+      const finishing = job.phase === 1;
+      job.line.grow(finishing, budget === Infinity ? Infinity : 1, job.resumed);
+      job.resumed = true;
+      if (!job.line.backlog || ++job.steps >= MAX_PIECES) {
+        job.resumed = false;
+        job.steps = 0;
+        job.phase++;
+      }
+    } while (job.phase < 2 && performance.now() < until);
+    if (job.phase < 2) return this.previewed?.pieces ?? this.pieces;
+    this.previewed = job.line;
+    this.previewFor = this.rev;
+    this.job = null;
     return this.previewed.pieces;
   }
 
-  /** The finished line `preview` worked out, and for which inputs (`inputs`). */
-  private previewed: LineState | null = null;
-  private previewFor = "";
-
-  /** What the line's outcome depends on: its stroke and where it has got to. */
-  private inputs(): string {
-    const last = this.pieces[this.pieces.length - 1];
-    if (last !== this.inputsLast) {
-      this.inputsLast = last;
-      this.inputsRev++;
-    }
-    return `${this.xs.length}|${this.strokeLength}|${this.pieces.length}|${this.inputsRev}|${this.progress}|${this.stopped}|${this.retreating}|${this.backlog}`;
+  /** Has `preview` caught up with the line as it is now (what it returns is what lifting now would lay)? */
+  get previewDone(): boolean {
+    return !!this.previewed && this.previewFor === this.rev;
   }
 
-  private inputsLast: DrawnPiece | undefined = undefined;
-  private inputsRev = 0;
+  /** The finished line `preview` last worked out, and for which `rev`. */
+  private previewed: DrawLine | null = null;
+  private previewFor = -1;
+  /** A preview being worked out (see `preview`): on a copy of the line as it was at `rev` `for`. */
+  private job: { line: DrawLine; for: number; phase: number; resumed: boolean; steps: number } | null = null;
+  /** Counts the line's changes: its stroke or its pieces (see `preview`). */
+  private rev = 0;
 
-  private state(): LineState {
-    return {
-      pieces: this.pieces.slice(),
-      progress: this.progress,
-      stopped: this.stopped,
-      refused: this.refused,
-      crossing: this.crossing && { ...this.crossing },
-      offBand: this.offBand,
-      wanted: this.wanted,
-      retreating: this.retreating,
-      backlog: this.backlog,
-      runFrom: this.runFrom,
-      tailAt: this.tailAt,
-      tail: this.tail,
-      headingTrueAt: this.headingTrueAt,
-      loop: this.loop,
-    };
+  /** A copy of the line, to work on without changing it: its own stroke, pieces and state; the same options and caches. */
+  private copy(): DrawLine {
+    const c = Object.create(DrawLine.prototype) as DrawLine;
+    Object.assign(c, this);
+    const w = c as unknown as Record<string, unknown>;
+    w.pieces = this.pieces.slice();
+    w.xs = this.xs.slice();
+    w.zs = this.zs.slice();
+    w.ss = this.ss.slice();
+    w.unclosed = { of: this.unclosed.of, keys: new Set(this.unclosed.keys) };
+    w.chord = { ...this.chord };
+    w.crossing = this.crossing && { ...this.crossing };
+    w.previewed = null;
+    w.job = null;
+    return c;
   }
 
-  private restore(s: LineState): void {
-    this.pieces.length = 0;
-    this.pieces.push(...s.pieces);
-    this.progress = s.progress;
-    this.stopped = s.stopped;
-    this.refused = s.refused;
-    this.crossing = s.crossing && { ...s.crossing };
-    this.offBand = s.offBand;
-    this.wanted = s.wanted;
-    this.retreating = s.retreating;
-    this.backlog = s.backlog;
-    this.runFrom = s.runFrom;
-    this.tailAt = s.tailAt;
-    this.tail = s.tail;
-    this.headingTrueAt = s.headingTrueAt;
-    this.loop = s.loop;
+  /** Take on a copy's state (see `copy`), as if this line had done what it did. */
+  private adopt(c: DrawLine): void {
+    const pieces = this.pieces;
+    const { previewed, previewFor, job, rev } = this;
+    Object.assign(this, c);
+    const w = this as unknown as Record<string, unknown>;
+    w.pieces = pieces;
+    pieces.length = 0;
+    for (const p of c.pieces) pieces.push(p);
+    Object.assign(this, { previewed, previewFor, job, rev });
   }
 
   /** The pieces that may go down (up to the first one that can't). */
@@ -753,8 +799,9 @@ export class DrawLine {
       const now = this.onGround(read, e.y);
       if (was && now) this.shiftAhead(now.x - was.x, now.z - was.z);
       this.seen = e.y;
+      this.rev++;
     }
-    const p = this.onGround(read, this.seen);
+    const p = this.onGround(read, this.seen, true);
     return { p, changed: p ? this.addPoint(p.x, p.z) : false };
   }
 
@@ -762,9 +809,19 @@ export class DrawLine {
    * The finger read at a height, or on the ground under it where that's higher (a hill ahead of the line, the finger
    * over its top: read on the plane at the line's height, it was seen beyond the hill, and the stroke doubled back
    * where it crossed onto it, a "too sharp" stall, QA N2). Two steps of looking at the ground under the point.
+   *
+   * `onward` (the finger's moves): a hill nearer the camera than the point read, seen from its high side, too. Read at
+   * the line's height, the finger over its top was seen past it, on the low ground in front of it, back along the view
+   * and off to one side, so the stroke jogged back; and by the map's edge, past the edge (QA N5, terrace 2 seen from the
+   * west: the line curved away at its first level, s54 s54 curve-small, "That's past the edge of the map"). So if the
+   * point read goes back against the line's way by more than a step, or off the map: the level up where the finger's
+   * ray meets ground just that high and goes on, the nearest the finger, if one does; else, if the ray goes through a
+   * hill on the way down (the point read is hidden behind it), nothing from this move (over a rise on the screen, where
+   * no level's ground is under it); else the point read.
    */
-  private onGround(read: (height: number) => { x: number; z: number } | null, height: number): { x: number; z: number } | null {
+  private onGround(read: (height: number) => { x: number; z: number } | null, height: number, onward = false): { x: number; z: number } | null {
     const groundAt = this.options.groundAt;
+    const from = height;
     let p = read(height);
     for (let k = 0; k < 2 && p && groundAt; k++) {
       const g = groundAt(p.x, p.z);
@@ -772,7 +829,33 @@ export class DrawLine {
       height = g;
       p = read(height);
     }
-    return p;
+    if (!onward || !p || !groundAt) return p;
+    // Going on the way the line's end points, or not back by more than a step's noise: as read. (The way the line
+    // points, not the stroke's last steps: they may be a jump onto a level and back.)
+    const e = this.end;
+    const onMap = this.options.onMap;
+    const off = !!onMap && !onMap(p.x, p.z);
+    if (!off && (p.x - this.fx) * Math.cos(e.heading) + (p.z - this.fz) * Math.sin(e.heading) >= -STEP) return p;
+    // Going back, or off the map: a level up where the finger's ray meets ground just that high, going on, the nearest
+    // the finger, if any. Its ray through a hill on the way (the point read hidden behind it) but on no such level's
+    // ground (over a rise on the screen): nothing taken from this move.
+    let best: { x: number; z: number } | null = p;
+    let bestD = Infinity;
+    for (let k = 1; k <= SEEN_LEVELS; k++) {
+      const level = (Math.floor((from + 1) / RISER_HEIGHT) + k) * RISER_HEIGHT;
+      if (level <= height + 1) continue;
+      const q = read(level);
+      if (!q) continue;
+      const g = groundAt(q.x, q.z);
+      if (g >= level - 1 && bestD === Infinity) best = null;
+      if (Math.abs(g - level) > 1 || (q.x - this.fx) * Math.cos(e.heading) + (q.z - this.fz) * Math.sin(e.heading) < -STEP) continue;
+      const d = Math.hypot(q.x - this.fx, q.z - this.fz);
+      if (d < bestD) {
+        best = q;
+        bestD = d;
+      }
+    }
+    return best;
   }
 
   /** Does the line's end rest on the ground (not up on arches, a ramp's own support, or risers)? Yes if the ground isn't known. */
@@ -790,6 +873,7 @@ export class DrawLine {
    * so the stroke runs on without a jump in it.
    */
   shiftAhead(dx: number, dz: number): void {
+    this.rev++;
     const n = this.xs.length;
     let k = n;
     while (k > 1 && this.ss[k - 1] > this.progress) k--;
@@ -853,8 +937,11 @@ export class DrawLine {
     return false;
   }
 
-  /** Lay pieces along the stroke, up to `budget` of them (while drawing: see `GROW_PER_MOVE`). */
-  private grow(finishing: boolean, budget = Infinity): void {
+  /**
+   * Lay pieces along the stroke, up to `budget` of them (while drawing: see `GROW_PER_MOVE`). `resumed`: carrying on
+   * from a call whose budget ran out (`preview`'s slices), as if it were the same call.
+   */
+  private grow(finishing: boolean, budget = Infinity, resumed = false): void {
     this.backlog = false;
     if (this.retreating) return;
     for (let guard = 0; guard < MAX_PIECES && !this.stopped && this.pieces.length < MAX_PIECES; guard++) {
@@ -864,7 +951,7 @@ export class DrawLine {
       if (left < (finishing ? (over ? -Infinity : STEP) : DRAW_LOOKAHEAD)) {
         // While drawing, short of the look-ahead, the finger come to other track's free end: closed onto it now, so
         // the ghosts show the line as it will go down (QA: it closed only on the lift, another way than shown).
-        if (!finishing && !this.crossing && guard === 0) this.closeHere(this.end, true);
+        if (!finishing && !this.crossing && guard === 0 && !resumed) this.closeHere(this.end, true);
         return;
       }
       if (guard >= budget) {
@@ -903,6 +990,9 @@ export class DrawLine {
    * look-ahead (nothing refused is laid then).
    */
   private closeHere(end: DrawEnd, early: boolean): boolean {
+    // (Only if the finger has come to other track's free end, a piece or few on: else only back round onto the line's
+    // own start. One look along the stroke for each free end near, on every move; the ways of closing cost far more.)
+    if (!this.nearFreeEnd(end)) return this.closeOnStart(end);
     const met = this.options.meet?.(end, this.pieces);
     const near = met ? this.nearest(met.end.x, met.end.z, this.progress, this.progress + met.length * 1.6 + 40) : null;
     if (met && near && near.d < MEET_REACH && near.s <= this.strokeLength + MEET_REACH) {
@@ -927,11 +1017,35 @@ export class DrawLine {
     // A piece that closes onto other track's free end here, its far end on the stroke: that, rather than a piece on
     // first (QA N5: 5 mm short of a station's end, a straight then a curve into the house beside it, where the one
     // curve closed).
-    if (this.closeOnto(end)) return true;
+    // (Begun on open ground, the one piece is weighed with the rest in `closeBack`: moved over a little, standard pieces
+    // may seat where only a tight curve does as the line lies.)
+    if (this.options.startHeld !== false && this.closeOnto(end)) return true;
     // None does: the line's last piece or two laid again another way so that it closes there (QA: a line drawn into a
     // station's end stopped 30 to 140 mm short of it, buffers facing, where no one piece's length would do).
     return this.closeBack();
   }
+
+  /**
+   * Has the stroke come to a free end of other track that the line could close onto from `end` (within `CLOSE_BACK`
+   * pieces back and `CLOSE_LAY` on, see `closeBack`): within `MEET_REACH` and a joint's play of it, since the line's
+   * last few pieces? True if it can't tell (no `freeEnds` option).
+   */
+  private nearFreeEnd(end: DrawEnd): boolean {
+    const freeEnds = this.options.freeEnds;
+    if (!freeEnds) return true;
+    const ends = this.gateScratch;
+    const k = this.pieces.length;
+    // (From the line's end and the ends of its last pieces, as `closeBack` looks: the same answers, kept for each end.)
+    for (let back = 0; back <= Math.min(CLOSE_BACK, k); back++) {
+      const e = back === 0 ? end : k - back > 0 ? this.pieces[k - back - 1].end : this.start;
+      const from = back === 0 ? this.progress : this.pieces[k - back].from;
+      if (freeEnds(e, CLOSE_LAY * 216 + FLEX_REACH, ends) === 0) continue;
+      for (const t of ends) if (this.nearest(t.x, t.z, from - 10, this.strokeLength).d < MEET_REACH + 2 * JOINT_POS_TOLERANCE) return true;
+    }
+    return false;
+  }
+
+  private readonly gateScratch: DrawEnd[] = [];
 
   /**
    * A loop come back round to the line's start: lay a piece that seats on it (`closes` says so), if one does and its far
@@ -1006,7 +1120,9 @@ export class DrawLine {
       this.pieces.length = 0;
       for (let i = 0; i < n - back; i++) this.pieces.push(all[i]);
     };
-    type Fit = { back: number; lay: DrawCandidate[]; to: DrawEnd; exact: boolean; cost: number };
+    type Fit = { back: number; lay: DrawCandidate[]; to: DrawEnd; exact: boolean; shift: boolean; cost: number };
+    // (Begun on open ground, the whole line may move a little to seat its last piece: see `shiftOnto`.)
+    const loose = this.options.startHeld === false;
     const fits: Fit[] = [];
     const ends: DrawEnd[] = [];
     for (let back = 0; back <= Math.min(CLOSE_BACK, n); back++) {
@@ -1027,8 +1143,8 @@ export class DrawLine {
       const standard = types.filter((t) => STANDARD.has(t));
       // How far a piece's far end is from meeting one of those free ends (the turn counted at `FLEX_TURN_MM` a radian),
       // and that end, if the piece's end is within the flex of it and it's on the stroke drawn (the finger went to it).
-      const meets = (c: DrawCandidate, s0: number): { to: DrawEnd; err: number; exact: boolean; d: number } | null => {
-        let best: { to: DrawEnd; err: number; exact: boolean; d: number } | null = null;
+      const meets = (c: DrawCandidate, s0: number): { to: DrawEnd; err: number; exact: boolean; shift: boolean; d: number } | null => {
+        let best: { to: DrawEnd; err: number; exact: boolean; shift: boolean; d: number } | null = null;
         for (const t of ends) {
           if (Math.abs(t.y - c.end.y) > 2) continue;
           const pos = Math.hypot(t.x - c.end.x, t.z - c.end.z);
@@ -1038,14 +1154,15 @@ export class DrawLine {
           if (best && err >= best.err) continue;
           const near = this.nearest(t.x, t.z, s0 - 10, s0 + c.length * 1.6 + 40 + FLEX_REACH);
           if (near.d >= MEET_REACH || near.s > this.strokeLength + MEET_REACH) continue;
-          best = { to: t, err, exact: pos <= JOINT_POS_TOLERANCE && turn <= JOINT_ANGLE_TOLERANCE, d: near.d };
+          const exact = pos <= JOINT_POS_TOLERANCE && turn <= JOINT_ANGLE_TOLERANCE;
+          best = { to: t, err, exact, shift: !exact && loose && pos <= SHIFT_REACH && turn <= SHIFT_TURN, d: near.d };
         }
         return best;
       };
       const push = (lay: DrawCandidate[], m: NonNullable<ReturnType<typeof meets>>, extra: number) => {
-        let cost = back + extra + m.err / FLEX_COST_MM + m.d / MEET_REACH + (m.exact ? 0 : FLEX_COST);
+        let cost = back + extra + m.d / MEET_REACH + (m.exact ? m.err / FLEX_COST_MM : m.shift ? SHIFT_COST + m.err / SHIFT_COST_MM : FLEX_COST + m.err / FLEX_COST_MM);
         for (const c of lay) cost += drawCost(c.type);
-        fits.push({ back, lay, to: m.to, exact: m.exact, cost });
+        fits.push({ back, lay, to: m.to, exact: m.exact, shift: m.shift, cost });
       };
       // (The line as it is, bent to meet it.)
       if (back === 0 && n > 0) {
@@ -1054,8 +1171,8 @@ export class DrawLine {
       }
       for (const a of candidatesFrom(end, types)) {
         const one = meets(a, from);
-        // (One piece seated as it is, from where the line has got to: that's `closeOnto`'s.)
-        if (one && !(back === 0 && one.exact)) push([a], one, 0);
+        // (One piece seated as it is, from where the line has got to: that's `closeOnto`'s, unless the line is loose.)
+        if (one && !(back === 0 && one.exact && !loose)) push([a], one, 0);
         const mid = this.nearest(a.end.x, a.end.z, from - 10, from + a.length * 1.6 + 40);
         // (Standard pieces that seat exactly may stray further from the stroke: QA, a corner drawn tighter than the
         // curve into a depot's end, where only a tight curve stayed near it and was bent to meet the end.)
@@ -1063,14 +1180,14 @@ export class DrawLine {
         if (!near && (mid.d > STANDARD_ON_REACH || !STANDARD.has(a.type))) continue;
         for (const b of candidatesFrom(a.end, types)) {
           const two = meets(b, mid.s);
-          if (two && (near || (two.exact && STANDARD.has(b.type)))) push([a, b], two, mid.d / CLOSE_ON_REACH);
+          if (two && (near || ((two.exact || two.shift) && STANDARD.has(b.type)))) push([a, b], two, mid.d / CLOSE_ON_REACH);
           // Three standard pieces that seat exactly, where no two do (a straight and the curve's two halves).
           if (!standard.length || !STANDARD.has(a.type) || !STANDARD.has(b.type)) continue;
           const mid2 = this.nearest(b.end.x, b.end.z, mid.s - 10, mid.s + b.length * 1.6 + 40);
           if (mid2.d > STANDARD_ON_REACH) continue;
           for (const c of candidatesFrom(b.end, standard)) {
             const three = meets(c, mid2.s);
-            if (three?.exact) push([a, b, c], three, (mid.d + mid2.d) / CLOSE_ON_REACH);
+            if (three?.exact || three?.shift) push([a, b, c], three, (mid.d + mid2.d) / CLOSE_ON_REACH);
           }
         }
       }
@@ -1083,7 +1200,7 @@ export class DrawLine {
     let tries = 0;
     for (const fit of fits) {
       if (tries >= CLOSE_TRIES) break;
-      if (!fit.exact && flexed >= FLEX_TRIES) continue;
+      if (!fit.exact && !fit.shift && flexed >= FLEX_TRIES) continue;
       const key = `${fit.back}:${fit.lay.map((c) => `${c.type}${c.flipped ? "~" : ""}${c.entry}`).join(",")}:${fit.to.x.toFixed(1)},${fit.to.z.toFixed(1)}`;
       if (this.unclosed.keys.has(key)) continue;
       tries++;
@@ -1091,14 +1208,16 @@ export class DrawLine {
       this.progress = fit.back > 0 ? all[n - fit.back].from : progress;
       let ok = true;
       for (const c of fit.lay) {
-        if (!this.may(c.type) || check?.(c, this.pieces)) {
+        // (Moved over, the pieces are checked where they'll go: see `shiftOnto`.)
+        if (!this.may(c.type) || (!fit.shift && check?.(c, this.pieces))) {
           ok = false;
           break;
         }
         const near = this.nearest(c.end.x, c.end.z, this.progress - 10, this.progress + c.length * 1.6 + 40);
         this.lay(c, near.s, false, null);
       }
-      if (ok && !fit.exact) {
+      if (ok && fit.shift) ok = this.shiftOnto(fit.to);
+      else if (ok && !fit.exact) {
         flexed++;
         ok = this.flexOnto(fit.to);
       }
@@ -1142,6 +1261,28 @@ export class DrawLine {
   }
 
   private readonly seatScratch: DrawEnd[] = [];
+
+  /**
+   * A line begun on open ground (`DrawOptions.startHeld` false), its end a little off `to` and facing it: the whole
+   * line moved over, as it is, so its end seats there (no joint bent: QA, tight corners into a station's end from open
+   * ground closed with tight curves and the straights bent, where standard pieces, moved over, seat exactly). Every
+   * piece checked again where it would go; true if it did.
+   */
+  private shiftOnto(to: DrawEnd): boolean {
+    const e = this.end;
+    const dx = to.x - e.x;
+    const dz = to.z - e.z;
+    const check = this.options.check;
+    const moved: DrawnPiece[] = [];
+    for (const p of this.pieces) {
+      const pose = { ...p.pose, x: p.pose.x + dx, z: p.pose.z + dz };
+      const q: DrawnPiece = { ...p, pose, end: { ...p.end, x: p.end.x + dx, z: p.end.z + dz }, track: p.track.map((v, i) => (i % 3 === 0 ? v + dx : i % 3 === 1 ? v + dz : v)) };
+      if (check?.({ ...q, length: 0 }, moved)) return false;
+      moved.push(q);
+    }
+    for (let i = 0; i < moved.length; i++) this.pieces[i] = moved[i];
+    return true;
+  }
 
   /**
    * Bend the line's joints, each a little within the joint's play, so its end meets `to` (a free end of other track,
@@ -1281,7 +1422,10 @@ export class DrawLine {
    */
   private special(why: DrawCheck): boolean {
     const levels = why.levels ?? 0;
-    if (why.reason === "hill") return levels === 1 && this.rampUp(false);
+    // (Two levels or more up where the piece chosen ends: a ramp onto the first, if one lands just on it; a long straight
+    // across both rises of a terrace drawn straight at it was refused two levels up, where the line had climbed with
+    // shorter pieces. QA N5, terrace 2: read where it was drawn, the stroke ran straight on into it.)
+    if (why.reason === "hill") return levels === 1 ? this.rampUp(false) : levels > 1 && (this.rampUp(false, true) || this.climbBack());
     if (why.reason === "river") return levels >= 1 ? this.bridge() : (this.startCrossing() && this.cross()) || this.rampUp(true);
     if (why.reason !== "unsupported" || levels < 1) return false;
     // Just climbed to cross the river (the ramp's top end in the air, short of the water): on over it, not straight
@@ -1322,13 +1466,15 @@ export class DrawLine {
   /**
    * Does a ramp's far end land where the line can go on from it: going up, on the hill (else the next piece is left in
    * the air short of it); going down, on ground no higher than its foot (else it's dug into the hilltop, and the next
-   * piece runs into the hill). Yes if the ground isn't known.
+   * piece runs into the hill). `exact`: on ground just as high as its end (not into a higher level). Yes if the ground
+   * isn't known.
    */
-  private lands(r: DrawCandidate, up: boolean): boolean {
+  private lands(r: DrawCandidate, up: boolean, exact = false): boolean {
     const groundAt = this.options.groundAt;
     if (!groundAt) return true;
     const e = r.end;
     const g = groundAt(e.x + Math.cos(e.heading) * LAND_PROBE, e.z + Math.sin(e.heading) * LAND_PROBE);
+    if (exact && Math.abs(g - e.y) > 1) return false;
     return up ? g >= e.y - 1 : g <= e.y + 1;
   }
 
@@ -1337,13 +1483,13 @@ export class DrawLine {
    * (its far end on it: else a straight first, see `fill`), or for the river, anywhere short of the water (a ramp
    * can't stand in it). A ramp cutting the ground from under other track shows red, and says so.
    */
-  private rampUp(river: boolean): boolean {
+  private rampUp(river: boolean, exact = false): boolean {
     if (!this.may("ramp")) return this.want("ramp");
     const reach = river ? RIVER_REACH : SPECIAL_REACH;
     const r = rampFrom(this.end, true);
     const s = r && this.onStroke(r, this.progress, reach);
     if (r && s !== null) {
-      if (!river && !this.lands(r, true)) return this.fill(true);
+      if (!river && !this.lands(r, true, exact)) return this.fill(true, exact);
       const why = this.options.check?.(r, this.pieces) ?? null;
       if (!why || why.reason === "undercut") {
         this.lay(r, s, false, why);
@@ -1359,7 +1505,7 @@ export class DrawLine {
     const before = this.pieces.slice(0, -1);
     const b = rampFrom(k > 1 ? before[k - 2].end : this.start, true);
     const sb = b && this.onStroke(b, last.from, reach);
-    if (!b || sb === null || (!river && !this.lands(b, true))) return false;
+    if (!b || sb === null || (!river && !this.lands(b, true, exact))) return false;
     const why = this.options.check?.(b, before) ?? null;
     if (why && why.reason !== "undercut") return false;
     this.pieces.pop();
@@ -1367,6 +1513,23 @@ export class DrawLine {
     this.lay(b, sb, false, why);
     if (river) this.overRiver();
     return true;
+  }
+
+  /**
+   * Two levels up where the piece chosen would end, and no ramp from the line's end lands on the first (see `special`):
+   * the line's last piece, a plain straight, taken off, and from there a ramp, or a shorter straight and then a ramp,
+   * that lands just on the first level. False (the line as it was) if neither does.
+   */
+  private climbBack(): boolean {
+    const last = this.pieces[this.pieces.length - 1];
+    if (!last || last.blocked || !last.type.startsWith("straight-")) return false;
+    const progress = this.progress;
+    this.pieces.pop();
+    this.progress = last.from;
+    if (this.rampUp(false, true)) return true;
+    this.pieces.push(last);
+    this.progress = progress;
+    return false;
   }
 
   /** Up a ramp for the river: straight bridges on, the way it points, then a ramp down (see `cross`). */
@@ -1550,7 +1713,7 @@ export class DrawLine {
    * A ramp from the line's end would land short of the hill (or, coming down, still on the hilltop): the shortest
    * straight on from the end after which it would land, if that may go. The ramp follows on the next move.
    */
-  private fill(up: boolean): boolean {
+  private fill(up: boolean, exact = false): boolean {
     const groundAt = this.options.groundAt;
     if (!groundAt) return false;
     const end = this.end;
@@ -1563,6 +1726,7 @@ export class DrawLine {
       const reach = f.length + RAMP_LENGTH + LAND_PROBE;
       const g = groundAt(end.x + cos * reach, end.z + sin * reach);
       if (up ? g < want - 1 : g > want + 1) continue;
+      if (exact && Math.abs(g - want) > 1) continue;
       const s = this.onStroke(f, this.progress);
       if (s === null || this.options.check?.(f, this.pieces)) return false;
       this.lay(f, s, false, null);
@@ -1820,7 +1984,18 @@ export class DrawLine {
     f.bestCost = finishing ? flatStop(along0, y0) : Infinity;
     f.bestType = null;
     f.bestTurn = 0;
-    flatSearch(FLAT_DEPTH, end.x, end.z, atLo, before, 0, null, 0);
+    // (A step begun, its first curve one or two pieces back: its second is of its kind if that fits about as well.)
+    const bendAt = (i: number) => (i < 0 ? 0 : bendOf(this.pieces[i].type, this.pieces[i].end.heading - (i > 0 ? this.pieces[i - 1].end.heading : this.start.heading)));
+    let step = 0;
+    for (let i = k - 1; i >= Math.max(0, k - 2); i--) {
+      const b = bendAt(i);
+      if (!b) continue;
+      // (It turned back from the curve before it, at most a straight between: that step is done.)
+      const a = bendAt(i - 1) || bendAt(i - 2);
+      step = a && Math.sign(a) !== Math.sign(b) ? 0 : b;
+      break;
+    }
+    flatSearch(FLAT_DEPTH, end.x, end.z, atLo, before, 0, null, 0, step);
     const bestType = f.bestType as PieceTypeId | null;
     const bestTurn = f.bestTurn;
     f.types = DRAW_TYPES;
@@ -2096,7 +2271,7 @@ function flatStop(along: number, y: number): number {
  * better than the best plan found (every piece costs something, and covering stroke is the only gain); and the search
  * stops after `FLAT_NODES` pieces, keeping the best plan found by then.
  */
-function flatSearch(depth: number, x: number, z: number, low: boolean, prev: number, cost: number, first: PieceTypeId | null, firstTurn: number): void {
+function flatSearch(depth: number, x: number, z: number, low: boolean, prev: number, cost: number, first: PieceTypeId | null, firstTurn: number, step: number): void {
   const f = FLAT;
   const h = low ? f.lo : f.lo + EIGHTH;
   const fx = Math.cos(h);
@@ -2130,7 +2305,7 @@ function flatSearch(depth: number, x: number, z: number, low: boolean, prev: num
     }
     const y = (ez - f.cz) * f.ux - (ex - f.cx) * f.uz;
     const a1 = (ex - f.cx) * f.ux + (ez - f.cz) * f.uz;
-    let next = cost + pieceCost(type) + (type === "straight-54" ? BAND_MINI : 0) + (bend ? BAND_CURVE + (g.radius === SMALL_CURVE_RADIUS ? BAND_TIGHT : 0) + (prev ? BAND_PAIR : 0) : 0) + rebendCost(prev, bend) + flatBand(y) + mid;
+    let next = cost + pieceCost(type) + (type === "straight-54" ? BAND_MINI : 0) + (bend ? BAND_CURVE + (g.radius === SMALL_CURVE_RADIUS ? BAND_TIGHT : 0) + (prev ? BAND_PAIR : 0) + (step && Math.sign(step) !== Math.sign(bend) && Math.abs(step) !== g.radius ? BAND_MIX : 0) : 0) + rebendCost(prev, bend) + flatBand(y) + mid;
     if (!f.finishing) next -= (Math.min(a1, f.alongEnd) - Math.min(along, f.alongEnd)) * ADVANCE;
     const ff = first ?? type;
     const ft = first ? firstTurn : turn;
@@ -2150,7 +2325,7 @@ function flatSearch(depth: number, x: number, z: number, low: boolean, prev: num
     // branch that can't beat the best plan even covering all the stroke left.
     if (depth > 1 && (f.finishing || a1 < f.alongEnd)) {
       const gain = f.finishing ? 0 : Math.max(0, f.alongEnd - a1) * ADVANCE;
-      if (next + MIN_PIECE_COST - gain < f.bestCost) flatSearch(depth - 1, ex, ez, bend ? !low : low, bend, next, ff, ft);
+      if (next + MIN_PIECE_COST - gain < f.bestCost) flatSearch(depth - 1, ex, ez, bend ? !low : low, bend, next, ff, ft, stepAfter(step, bend, prev));
     }
   }
 }
