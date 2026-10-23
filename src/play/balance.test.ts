@@ -1137,8 +1137,9 @@ function onlyNearestPickup(w: World, stops: RouteStopDef[], kind: CargoKind): vo
   const ahead = stops.map((_, i) => {
     if (!gives[i]) return Infinity;
     for (let k = 1; k < n; k++) {
-      const r = role((i + k) % n);
-      if (r && RECIPES[r].takes.includes(kind)) return k;
+      // (A town or the school that takes it only if it wants it now: stone isn't taken by a town short of a city.)
+      const d = w.economy.depot(stops[(i + k) % n].depotId);
+      if (d && RECIPES[d.role].takes.includes(kind) && (!w.economy.accepts || w.economy.accepts(d, kind))) return k;
     }
     return Infinity;
   });
@@ -2115,13 +2116,20 @@ class Playthrough {
     const takers = line.stops.map((s) => w.economy.depot(s.depotId)).filter((d) => !!d);
     this.shopThrough(takers.filter((d) => d!.role === "town").map((d) => d!.townId));
     // (Wanted by a town or the research, not only by an industry: the stone a city waits on.)
-    const wanted = (k: CargoKind) => takers.some((d) => (d!.role === "town" || d!.role === "school") && RECIPES[d!.role].takes.includes(k) && (!w.economy.accepts || w.economy.accepts(d!, k)));
+    const wantedHere = (k: CargoKind) => takers.some((d) => (d!.role === "town" || d!.role === "school") && RECIPES[d!.role].takes.includes(k) && (!w.economy.accepts || w.economy.accepts(d!, k)));
+    // Or what an industry on the line makes such a good from, while it has none of either (seed 2027 since 03c7711: the
+    // mill with no flour for Elderwick or the Goods engine, the farm full, the hopper coming by full of stone). Not when
+    // the cars are full of what that industry makes: they're taking it on already (timber cars of planks at the forest).
+    const fed = (k: CargoKind) => takers.filter((m) => !!RECIPES[m!.role].cycle?.uses[k] && m!.piles[CARGO[k].index] === 0 && RECIPES[m!.role].gives.some((g) => wantedHere(g) && m!.piles[CARGO[g].index] === 0));
     const blocking = new Set<CargoKind>();
     for (const d of takers) {
       for (const k of RECIPES[d!.role].gives) {
-        if (d!.piles[CARGO[k].index] < capAt(d!) || !wanted(k)) continue;
+        if (d!.piles[CARGO[k].index] < capAt(d!)) continue;
+        const via = wantedHere(k) ? [] : fed(k);
+        if (!wantedHere(k) && via.length === 0) continue;
         const loads = found.train.cars.filter((c) => canCarry(c.kind, k)).map((c) => w.economy.cargoOf(c.id).kind);
         if (loads.length === 0 || loads.some((g) => g === null || g === k)) continue;
+        if (loads.some((g) => via.some((m) => RECIPES[m!.role].gives.includes(g!)))) continue;
         for (const g of loads) if (g && !this.nearestPickup.has(g)) blocking.add(g);
       }
     }
