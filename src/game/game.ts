@@ -163,6 +163,8 @@ export class Game {
   simSeconds = 0;
   /** Called once per frame after the simulation steps, before rendering. */
   onFrame: ((dt: number) => void) | null = null;
+  /** The camera moved since the last frame (called on such frames only: see `cameraMoved`). */
+  onCameraMoved: (() => void) | null = null;
   /** Milliseconds spent simulating in the last frame (for the perf overlay). */
   simMs = 0;
   private readonly clock = new Clock();
@@ -820,7 +822,9 @@ export class Game {
       this.camera.near = near;
       this.camera.updateProjectionMatrix();
     }
-    if (this.cameraMoved() || this.woken) {
+    const moved = this.cameraMoved();
+    if (moved) this.onCameraMoved?.();
+    if (moved || this.woken) {
       active = true;
       // A boat moved unseen: its shadow may still be drawn where it was, now coming into view.
       if (this.boats.shadowsStale) {
