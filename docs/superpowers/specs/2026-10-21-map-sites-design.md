@@ -79,6 +79,14 @@ midpoint, so a new player sees it in the opening view (Farming is the first indu
 keeps off the starter line (5 rows either side of the strip from the sawmill to the forest yard) and off the sawmill's
 side of the line altogether. On other starts (Sandbox's maps) a second site of the start's richest kind is added.
 
+The opening view shows it **whole** (since 2026-10-23; QA, 390 × 844: it stood at the screen's left edge, its yard
+from x −13 to 62). On a bare Game map the view (the first two stations along the screen, leaning to the upper one) then
+slides sideways, not out, just enough to have the start's ruins' boxes 12 px in from the edges, if the two stations stay
+on the screen (`keepStartRuinsInView`, main.ts; the ruin itself doesn't move, so the grand tour and the harness are
+untouched). At 390 × 844 it moves the view 63 mm: the old farm 14–88 px, the stations from x 195 to 218–224, the
+sawmill 286 → 306 (the forest yard is below the tray either way, as before); 360 × 780 alike (14–82 px); at 667 × 375
+and 844 × 390 the farm was whole already and the view doesn't move. e2e:sites checks it at 390 × 844.
+
 Why the start gets one, and only one on the starter map: the farm teaches the research loop from minute 1 (its card says
 "Learn Farming at a school"), and it sits where the opening view shows it. A second, hill site, and the farm on the
 sawmill's side, both took the ground the grand tour builds its foundry and power station on (the tour then failed on

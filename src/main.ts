@@ -3349,6 +3349,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const lean = 0.15;
     game.lookAt(new Vector3(f.x + (top.x - f.x) * lean * 2, 0, f.z + (top.z - f.z) * lean * 2), f.distance * 1.3, 0.95, f.theta);
     if (mode !== "game") return;
+    keepStartRuinsInView([a.station, b.station]);
     // Their names over them for a while (as "Show me" does): the chip only says "Join two towns".
     if (game.layout.pieceCount === game.stations.size + game.depots.size) {
       const grid = game.landscape.grid;
@@ -3363,6 +3364,50 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       }, 1200);
     }
   }
+  /**
+   * The opening view slid sideways (not drawn back) just enough that the old industries' ruins by the first towns are
+   * on the screen whole, their yards and buildings, if the towns' stations (`keep`) stay on it too. QA, 390 × 844: the
+   * starter's old farm stood at the screen's left edge, half off it. A few points projected, once, at the start.
+   */
+  function keepStartRuinsInView(keep: readonly { x: number; z: number }[]): void {
+    const mid = { x: keep.reduce((s, p) => s + p.x, 0) / keep.length, z: keep.reduce((s, p) => s + p.z, 0) / keep.length };
+    const span = Math.max(...keep.map((p) => Math.hypot(p.x - mid.x, p.z - mid.z)));
+    const ruins = (game.landscape.sites ?? []).filter((s) => !s.cleared && Math.hypot(s.centre.x - mid.x, s.centre.z - mid.z) < span * 1.5);
+    if (ruins.length === 0) return;
+    const margin = 12;
+    const width = game.canvas.getBoundingClientRect().width;
+    const sx = (x: number, y: number, z: number) => {
+      game.camera.updateMatrixWorld();
+      return ((new Vector3(x, y, z).project(game.camera).x + 1) / 2) * width;
+    };
+    // (A ruin's yard, buildings and stub: the box a tap on it finds it in, `ruinAt`'s.)
+    const corners = ruins.flatMap((s) => {
+      const c = Math.cos(s.piece.heading);
+      const n = Math.sin(s.piece.heading);
+      return [[-12, -30], [228, -30], [228, 130], [-12, 130]].map(([t, l]) => ({ x: s.piece.x + c * t - n * l, z: s.piece.z + n * t + c * l }));
+    });
+    for (let k = 0; k < 2; k++) {
+      const xs = corners.map((p) => sx(p.x, 30, p.z));
+      const lo = Math.min(...xs);
+      const hi = Math.max(...xs);
+      const dx = lo < margin ? margin - lo : hi > width - margin ? width - margin - hi : 0;
+      if (Math.abs(dx) < 1 || hi - lo > width - 2 * margin) return;
+      // The view's right, along the ground, and how many pixels a step of it moves the ground at the view's middle.
+      const target = game.controls.target.clone();
+      const right = new Vector3().setFromMatrixColumn(game.camera.matrixWorld, 0).setY(0).normalize();
+      const perMm = (sx(target.x + right.x * 100, 0, target.z + right.z * 100) - sx(target.x, 0, target.z)) / 100;
+      if (!(perMm > 0)) return;
+      const back = { target, distance: game.camera.position.distanceTo(target) };
+      const spherical = new Spherical().setFromVector3(game.camera.position.clone().sub(target));
+      game.lookAt(target.clone().addScaledVector(right, -dx / perMm), back.distance, spherical.phi, spherical.theta);
+      // (The first towns stay in view, or the view stays as it was.)
+      if (keep.some((p) => sx(p.x, 20, p.z) < margin || sx(p.x, 20, p.z) > width - margin)) {
+        game.lookAt(back.target, back.distance, spherical.phi, spherical.theta);
+        return;
+      }
+    }
+  }
+
   const skipGlide = () => {
     if (game.director.busy) game.director.cancel();
   };

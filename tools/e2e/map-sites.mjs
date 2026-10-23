@@ -107,6 +107,17 @@ const farm = sites.find((s) => s.role === "farm") ?? sites[0];
 const yard = yardOf(farm);
 const startView = await onScreen(yard.x, 20, yard.z);
 check("the old farm is in view at the start", startView.in, JSON.stringify(startView));
+// Whole (QA: at 390×844 it stood at the left edge, half off it): its yard, buildings and stub, the box a tap finds it in.
+const farmBox = await Promise.all(
+  [[-12, -30], [228, -30], [228, 130], [-12, 130]].map(([t, l]) => {
+    const c = Math.cos(farm.piece.heading);
+    const n = Math.sin(farm.piece.heading);
+    return onScreen(farm.piece.x + c * t - n * l, 30, farm.piece.z + n * t + c * l);
+  }),
+);
+const firstStations = await p.evaluate(() => window.woodrail.world.landscape.towns.slice(0, 2).map((t) => ({ x: t.station.x, z: t.station.z })));
+const stationsAt = await Promise.all(firstStations.map((s) => onScreen(s.x, 20, s.z)));
+check("…whole, with the first two towns' stations (the first goal's) in view too", farmBox.every((q) => q.in && q.x >= 4 && q.x <= 386) && stationsAt.every((q) => q.in), JSON.stringify({ farm: farmBox.map((q) => [Math.round(q.x), Math.round(q.y)]), stations: stationsAt.map((q) => [Math.round(q.x), Math.round(q.y)]) }));
 const drawn = await p.evaluate(() => {
   let meshes = 0;
   window.woodrail.ruinsView.group.traverse((o) => {
