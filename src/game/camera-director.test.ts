@@ -192,6 +192,20 @@ describe("CameraDirector over the scenery around the mat", () => {
     expect(xs[59]).toBeCloseTo(2240, 0);
   });
 
+  it("a glide goes by the time that's passed: one slow frame (3 s, its step capped at 0.1) lands it, exactly, done", () => {
+    const { camera, controls, d } = setup();
+    d.glideTo(new Vector3(800, 0, -400), 2000, { phi: 0.6, duration: 0.9 });
+    d.update(0.1, 1000, 800, 3);
+    expect(d.busy).toBe(false);
+    expect(controls.target.x).toBeCloseTo(800, 6);
+    expect(controls.target.z).toBeCloseTo(-400, 6);
+    expect(camera.position.distanceTo(controls.target)).toBeCloseTo(2000, 6);
+    // (Done: another frame leaves it where it is.)
+    const at = camera.position.clone();
+    d.update(0.1, 1000, 800, 3);
+    expect(camera.position.distanceTo(at)).toBe(0);
+  });
+
   it("zooming at a point far out in the haze doesn't lurch the view to the mat's edge", () => {
     const { controls, d } = setup();
     d.zoomAt(new Vector3(30000, 0, 0), -200);
