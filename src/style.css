@@ -304,6 +304,9 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* Scrolling comes to rest with a row's top at the top (gently: a long fling isn't held back). */
   .depot-card:has(.depot-extra.ledger) { scroll-snap-type: y proximity; }
   .depot-extra.ledger > *, .ledger-goods > *, .ledger-rows > * { scroll-snap-align: start; }
+  /* (The card's top is a resting place too, its title's: with none there, a card opened at its top could be snapped
+     down to the first row, its name half cut off. QA at 740x360: opened at 25 px.) */
+  .depot-card:has(.depot-extra.ledger) > .card-title { scroll-snap-align: start; scroll-margin-top: 12px; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
 }
 
@@ -999,24 +1002,25 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 .coach-art.mouse { grid-auto-flow: column; gap: 5px; }
 .coach-art.mouse .m { width: 18px; height: 28px; border: 2.5px solid #6a4a2c; border-radius: 9px; position: relative; }
 .coach-art.mouse .w { position: absolute; left: 50%; top: 4px; width: 3px; height: 7px; margin-left: -1.5px; border-radius: 2px; background: #6a4a2c; }
-.coach-art.mouse.zoom .w { animation: coach-wheel 1s ease-in-out infinite; }
+.coach-art.mouse.zoom .w { animation: coach-wheel 1s ease-in-out 4; }
 .coach-art.mouse.turn .m, .coach-art.mouse.tilt .m { border-right-color: #e2a12b; }
-.coach-art.mouse.turn .m { animation: coach-sway 1.6s ease-in-out infinite; }
-.coach-art.mouse.tilt .m { animation: coach-nod 1.6s ease-in-out infinite; }
-.coach-art.mouse.move .m { animation: coach-drift 1.8s ease-in-out infinite; }
+.coach-art.mouse.turn .m { animation: coach-sway 1.6s ease-in-out 4; }
+.coach-art.mouse.tilt .m { animation: coach-nod 1.6s ease-in-out 4; }
+.coach-art.mouse.move .m { animation: coach-drift 1.8s ease-in-out 4; }
 .coach-art .caps { display: grid; grid-template-columns: repeat(2, 15px); gap: 2px; }
 /* (W over A S D, as on a keyboard.) */
 .coach-art.move .caps { grid-template-columns: repeat(3, 15px); }
 .coach-art.move .caps kbd:first-child { grid-column: 2; }
-.coach-art kbd { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 3px; background: #fff; box-shadow: 0 1.5px 0 #b08a5c; font: 800 9px/1 inherit; color: #3a2a1c; animation: coach-key 2s infinite; animation-delay: calc(var(--i) * 0.5s); }
+.coach-art.move .caps kbd:nth-child(2) { grid-column: 1; }
+.coach-art kbd { display: grid; place-items: center; width: 15px; height: 15px; border-radius: 3px; background: #fff; box-shadow: 0 1.5px 0 #b08a5c; font: 800 9px/1 inherit; color: #3a2a1c; animation: coach-key 2s 4; animation-delay: calc(var(--i) * 0.5s); }
 .coach-art.touch .f { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: rgba(226, 161, 43, 0.85); box-shadow: 0 0 0 4px rgba(226, 161, 43, 0.25); }
-.coach-art.touch.move .f1 { animation: coach-drift 1.6s ease-in-out infinite; }
-.coach-art.touch.zoom .f1 { animation: coach-pinch-a 1.4s ease-in-out infinite; }
-.coach-art.touch.zoom .f2 { animation: coach-pinch-b 1.4s ease-in-out infinite; }
-.coach-art.touch.turn { animation: coach-twist 1.8s ease-in-out infinite; }
+.coach-art.touch.move .f1 { animation: coach-drift 1.6s ease-in-out 4; }
+.coach-art.touch.zoom .f1 { animation: coach-pinch-a 1.4s ease-in-out 4; }
+.coach-art.touch.zoom .f2 { animation: coach-pinch-b 1.4s ease-in-out 4; }
+.coach-art.touch.turn { animation: coach-twist 1.8s ease-in-out 4; }
 .coach-art.touch.turn .f1 { transform: translate(-13px, -8px); }
 .coach-art.touch.turn .f2 { transform: translate(13px, 8px); }
-.coach-art.touch.tilt .f1, .coach-art.touch.tilt .f2 { animation: coach-lift 1.6s ease-in-out infinite; }
+.coach-art.touch.tilt .f1, .coach-art.touch.tilt .f2 { animation: coach-lift 1.6s ease-in-out 4; }
 .coach-art.touch.tilt .f1 { left: 16px; }
 .coach-art.touch.tilt .f2 { right: 16px; }
 @keyframes coach-wheel { 50% { transform: translateY(6px); } }
@@ -1028,6 +1032,7 @@ body:has(.card:not([hidden])) .reward-badge { display: none; }
 @keyframes coach-pinch-b { 0%, 100% { transform: translate(6px, -5px); } 50% { transform: translate(17px, -13px); } }
 @keyframes coach-twist { 0%, 100% { transform: rotate(-25deg); } 50% { transform: rotate(25deg); } }
 @keyframes coach-lift { 0%, 100% { transform: translateY(10px); } 50% { transform: translateY(-10px); } }
+/* (Each a few times, as the step's card comes up, then still: QA, they ran on for ever, redrawing the page.) */
 @media (prefers-reduced-motion: reduce) { .coach-art, .coach-art * { animation: none !important; } }
 /* After the tutorial, Show me lights up a moment: where the goals start. */
 .goals-show-icon.nudge { animation: coach-nudge 0.9s ease-in-out 4; }

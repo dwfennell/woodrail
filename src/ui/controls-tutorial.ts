@@ -22,8 +22,8 @@ export interface ViewState {
 
 /** How much of each a step takes, summed over the player's own moves (radians; zoom in log of the distance). */
 export const STEP_NEEDS: Record<CameraStep, number> = {
-  // Half the view's distance across the ground.
-  move: 0.5,
+  // A third of the view's distance across the ground (QA: at a half, a light drag on a slow phone took 3-5 tries).
+  move: 0.3,
   // About 1.35× in or out.
   zoom: 0.3,
   // About 30°.
@@ -102,6 +102,8 @@ export class ControlsTutorial {
   private last: ViewState | null = null;
   /** When the player last used the pointer, wheel or keys: camera changes long after aren't theirs (a glide, Show me). */
   private inputAt = -Infinity;
+  /** When the last camera change that was the player's came (see `cameraMoved`), or null. */
+  private ownAt: number | null = null;
   /** Camera keys held down (a key held pans or turns the whole time, sending its keydown only once, or slowly). */
   private readonly keys = new Set<string>();
   private finished = false;
@@ -118,11 +120,14 @@ export class ControlsTutorial {
     private readonly view: () => ViewState,
     /** What comes next, said on the last card (`touch`: for fingers). */
     private readonly ending: (touch: boolean) => string,
+    /** Is the camera gliding on its own (Show me, a framing): not the player's doing. */
+    private readonly gliding: () => boolean = () => false,
   ) {
     this.root.className = "coach";
     this.root.hidden = true;
     this.root.setAttribute("role", "dialog");
     this.root.setAttribute("aria-label", "Camera controls");
+    this.root.tabIndex = -1;
     this.input = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches ? "touch" : "mouse";
     // (The wheel from the start, ahead of Interaction's wheel zoom, which stops the event for anything after it. It only
     // notes the time, and only while shown.)
@@ -163,6 +168,8 @@ export class ControlsTutorial {
     this.listen();
     this.render();
     this.onShow?.();
+    // (A dialog: focus goes into it, so Esc and a screen reader start there. Not scrolled to: it's fixed in view.)
+    this.root.focus({ preventScroll: true });
   }
 
   /** The camera moved (a frame drew it somewhere new): the player's own change counts toward the steps. */
@@ -171,7 +178,13 @@ export class ControlsTutorial {
     const now = this.view();
     const prev = this.last;
     this.last = now;
-    if (!prev || (this.keys.size === 0 && performance.now() - this.inputAt > 700)) return;
+    // The player's: while they use the pointer, wheel or keys (and 0.7 s on), or as a move of theirs eases to a stop
+    // (a key let go turns on a little, a fling glides): a change following one of theirs within 1.5 s, the camera not
+    // gliding on its own (Show me). On a slow phone those tails come a frame or two at a time, long after the keys.
+    const t = performance.now();
+    const own = this.keys.size > 0 || t - this.inputAt <= 700 || (this.ownAt !== null && t - this.ownAt < 1500 && !this.gliding());
+    this.ownAt = own ? t : null;
+    if (!prev || !own) return;
     if (this.steps.feed(prev, now).length === 0) return;
     this.render();
     if (this.steps.next() === null) this.finish();
@@ -216,6 +229,11 @@ export class ControlsTutorial {
     });
     on("keydown", (e) => {
       const k = (e as KeyboardEvent).key.toLowerCase();
+      // Esc closes it (skipped), as it closes the game's other cards.
+      if (k === "escape") {
+        this.close(true);
+        return;
+      }
       if (!/^(w|a|s|d|q|e|r|f|arrow(up|down|left|right))$/.test(k)) return;
       if (this.input !== "mouse") {
         this.input = "mouse";

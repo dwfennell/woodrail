@@ -1,12 +1,13 @@
 /** The eraser (the Clear chip): what to say of what a sweep passed over and left. See `Interaction.setErasing`. */
 
 /**
- * Why something a clearing sweep passed over stays: a station or depot, a train, track a train's on, a town's house,
+ * Why something a clearing sweep passed over stays: a station or depot, a train or track it's on, a town's house,
  * a road, a tree of the map's.
  */
-export type EraseRefusal = "station" | "train" | "busy" | "house" | "road" | "tree";
+export type EraseRefusal = "station" | "train" | "house" | "road" | "tree";
 
-const ERASE_REFUSAL_NOUNS: Record<EraseRefusal, string> = { station: "stations and depots", train: "trains", busy: "track a train is on", house: "the town's houses", road: "roads", tree: "trees" };
+/** (A train and the track it's on are one kind: a standing train shouldn't use up two of the names.) */
+const ERASE_REFUSAL_NOUNS: Record<EraseRefusal, string> = { station: "stations and depots", train: "trains and their track", house: "the town's houses", road: "roads", tree: "trees" };
 
 /**
  * What to say, once, when a clearing sweep is lifted, of what it passed over that stays (each kind's first reason): the
@@ -23,5 +24,5 @@ export function eraseRefusal(told: ReadonlyMap<EraseRefusal, string>): string | 
 }
 
 /** The order the kinds are named in (the ones a player most likely meant to clear first), and how many at most. */
-const ERASE_REFUSAL_ORDER: readonly EraseRefusal[] = ["busy", "train", "station", "house", "road", "tree"];
+const ERASE_REFUSAL_ORDER: readonly EraseRefusal[] = ["train", "station", "house", "road", "tree"];
 const ERASE_NAMED = 3;

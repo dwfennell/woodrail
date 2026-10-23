@@ -89,13 +89,22 @@ const hold = async (p, key, ms) => {
   });
   const c2 = await coach(p);
   check("the wheel ticks Zoom; Turn is next", c2?.done === 2 && /Turn/.test(c2.title), JSON.stringify(c2));
-  await until(p, 3, () => hold(p, "q", 500));
+  // (A right-drag turns and tilts by how far it goes. Q and E, R and F do it by time, a held key's turn at most a tenth
+  // of a second a frame: software GL here draws a frame every few seconds, too few for them; QA checks the keys.)
+  const rightDrag = async (dx, dy) => {
+    await p.mouse.move(640, 400);
+    await p.mouse.down({ button: "right" });
+    await p.mouse.move(640 + dx, 400 + dy, { steps: 10 });
+    await p.mouse.up({ button: "right" });
+    await settle(p);
+  };
+  await until(p, 3, () => rightDrag(220, 0));
   const c3 = await coach(p);
-  check("Q ticks Turn; Tilt is next", c3?.done === 3 && /Tilt/.test(c3.title), JSON.stringify(c3));
-  // (R tilts up, F down: whichever way it can still go.)
-  for (const key of ["r", "f"]) await until(p, 4, () => hold(p, key, 400));
+  check("a right-drag sideways ticks Turn; Tilt is next", c3?.done === 3 && /Tilt/.test(c3.title), JSON.stringify(c3));
+  // (Up, then down: whichever way it can still go.)
+  for (const dy of [-120, 120]) await until(p, 4, () => rightDrag(0, dy));
   const c4 = await coach(p);
-  check("R or F ticks Tilt: the last card leads into the goals", c4?.done === 4 && /That's the camera/.test(c4.title) && /Show me/.test(c4.text), JSON.stringify(c4));
+  check("a right-drag up or down ticks Tilt: the last card leads into the goals", c4?.done === 4 && /That's the camera/.test(c4.title) && /Show me/.test(c4.text), JSON.stringify(c4));
   await p.evaluate(() => document.querySelector(".coach .coach-go").click());
   const nudged = await p.evaluate(() => !!document.querySelector(".goals-show-icon.nudge"));
   check("Let's play closes it, and Show me lights up", !(await coach(p)) && nudged, `nudge ${nudged}`);
@@ -108,6 +117,30 @@ const hold = async (p, key, ms) => {
   const again = await coach(p);
   await p.evaluate(() => document.querySelector(".coach .coach-skip").click());
   check("“Show controls” in the menu brings it back; Skip tutorial closes it", !!again && again.done === 0 && !(await coach(p)), JSON.stringify(again));
+  // QA's notes (tutorial-2).
+  const showControls = () => p.evaluate(() => [...document.querySelectorAll(".menu .menu-item")].find((b) => b.textContent === "Show controls").click());
+  await showControls();
+  const look = await p.evaluate(() => {
+    const c = document.querySelector(".coach");
+    const caps = [...c.querySelectorAll(".coach-art.move kbd")].map((k) => { const r = k.getBoundingClientRect(); return { k: k.textContent, x: Math.round(r.x), y: Math.round(r.y) }; });
+    const anims = [...c.querySelectorAll(".coach-art, .coach-art *")].map((e) => getComputedStyle(e)).filter((st) => st.animationName !== "none").map((st) => st.animationIterationCount);
+    return { focused: document.activeElement === c, caps, anims };
+  });
+  const [W, A, S, D] = look.caps;
+  check("W sits over A S D, as on a keyboard (QA)", !!D && W.y < A.y && A.y === S.y && S.y === D.y && A.x < S.x && S.x < D.x && Math.abs(W.x - S.x) <= 1, JSON.stringify(look.caps));
+  check("its pictures move a few times, not for ever (QA)", look.anims.length > 0 && look.anims.every((n) => n !== "infinite" && Number(n) <= 4), JSON.stringify(look.anims));
+  check("focus goes into it (a dialog)", look.focused);
+  // A toast that comes while it's up waits, and shows once it's closed.
+  await p.evaluate(() => window.woodrail.hud.toast("A toast while the coach is up"));
+  const during = await p.evaluate(() => document.querySelector(".toast").classList.contains("show"));
+  await p.keyboard.press("Escape");
+  await p.waitForFunction(() => document.querySelector(".toast").classList.contains("show") && document.querySelector(".toast").textContent === "A toast while the coach is up", null, { timeout: 10000 }).catch(() => {});
+  const after = await p.evaluate(() => document.querySelector(".toast").classList.contains("show") && document.querySelector(".toast").textContent);
+  check("Esc closes it (QA); a toast raised while it was up waited, and shows now", !(await coach(p)) && !during && after === "A toast while the coach is up", `during: ${during}; after: ${after}`);
+  // How to play while it's up: the help card only, not both.
+  await showControls();
+  await p.evaluate(() => [...document.querySelectorAll(".menu .menu-item")].find((b) => b.textContent === "How to play").click());
+  check("“How to play” while it's up shows the help card instead, not both (QA)", !(await coach(p)) && (await helpShown(p)));
   await ctx.close();
 }
 
