@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { coastOf, generatePlot, seaPlot, SURF_RIVER, SURF_SEA } from "../landscape";
+import { rateFor, resourceAt } from "./industries";
 import { addPlotExtras, EXTRA_TOWN_CHANCE } from "./map-sites";
 
 /**
@@ -16,6 +17,8 @@ describe.runIf(!!ENV.SURVEY)("map sites survey", () => {
     const rows: string[] = [];
     const sum = { plots: 0, coast: 0, river: 0, own: 0, extra: 0, extraCoast: 0, extraRiver: 0, extraInland: 0, sites: 0, noSite: 0, ms: 0, gen: 0, ownCoast: 0, ownRiver: 0 };
     const roles: Record<string, number> = {};
+    /** Each role's sites' rates (their resource on the plot as made, against their need: capped at 1). */
+    const rates: Record<string, number[]> = {};
     for (const seed of seeds) {
       const coast = coastOf(seed, seed === 7);
       for (let pz = -3; pz <= 2; pz++) {
@@ -51,7 +54,11 @@ describe.runIf(!!ENV.SURVEY)("map sites survey", () => {
           const sites = land.sites ?? [];
           sum.sites += sites.length;
           if (sites.length === 0) sum.noSite++;
-          for (const s of sites) roles[s.role] = (roles[s.role] ?? 0) + 1;
+          for (const s of sites) {
+            roles[s.role] = (roles[s.role] ?? 0) + 1;
+            const r = resourceAt(land, s.role, s.piece)!;
+            (rates[s.role] ??= []).push(Math.min(1, rateFor(r.count, r.need)));
+          }
           rows.push(`${seed} (${px},${pz}) ${sea ? "coast" : river ? "river" : "inland"} towns ${own}+${extra} sites ${sites.map((s) => s.role).join(",") || "-"}`);
         }
       }
@@ -62,6 +69,7 @@ describe.runIf(!!ENV.SURVEY)("map sites survey", () => {
         ...rows,
         `plots ${sum.plots} (coast ${sum.coast}, river ${sum.river}, inland ${inland}); chances ${JSON.stringify(EXTRA_TOWN_CHANCE)}`,
         `own towns ${sum.own} (${(sum.own / sum.plots).toFixed(2)} a plot: coast ${sum.ownCoast}, river ${sum.ownRiver}, inland ${sum.own - sum.ownCoast - sum.ownRiver}); extra ${sum.extra} (${(sum.extra / sum.plots).toFixed(2)} a plot): coast ${sum.extraCoast}/${sum.coast}, river ${sum.extraRiver}/${sum.river}, inland ${sum.extraInland}/${inland}`,
+        ...Object.entries(rates).map(([role, r]) => `${role}: ${r.length}, rate min ${Math.min(...r).toFixed(3)}, avg ${(r.reduce((a, b) => a + b, 0) / r.length).toFixed(3)}, under 1: ${r.filter((x) => x < 1).length}`),
         `sites ${sum.sites} (${(sum.sites / sum.plots).toFixed(2)} a plot), plots with none ${sum.noSite}; ${JSON.stringify(roles)}; extras ${(sum.ms / sum.plots).toFixed(1)} ms a plot (the plot itself: ${(sum.gen / sum.plots).toFixed(1)} ms)`,
       ].join("\n"),
     );

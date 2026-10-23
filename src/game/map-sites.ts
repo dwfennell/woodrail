@@ -199,8 +199,6 @@ interface SiteOptions {
   keepOff?: (col: number, row: number) => boolean;
   /** Prefer spots near here (the start). */
   near?: { x: number; z: number };
-  /** Settle for half the resource a site wants (the least an industry can be placed with), not all of it. */
-  relaxed?: boolean;
   /** Try every other square's middle (`every`: every square's), each way round in a random order, not a few hundred random spots. */
   exhaustive?: boolean | "every";
 }
@@ -248,7 +246,8 @@ function spotsFor(land: Landscape, region: Region, role: SiteRole, random: () =>
     return true;
   };
   const rule = SITE_RULES[role]!;
-  const want = opt.relaxed ? Math.ceil(rule.need / 2) : rule.need;
+  // (All of it: a restored industry runs at full speed. QA: old harbours with 5 of 8 ran at 0.75.)
+  const want = rule.need;
   const x0 = col0 * CELL;
   const z0 = row0 * CELL;
   const w = cols * CELL;
@@ -453,13 +452,12 @@ function siteGuard(land: Landscape, site: MapSite): number[] {
 }
 
 /** Try each role in turn (each with its own spots, best first) until a site goes down; that site, or null. */
-function firstSite(land: Landscape, region: Region, roles: readonly SiteRole[], random: () => number, plot: { px: number; pz: number }, opt: SiteOptions, out: Extra[], riverHarbour = false): MapSite | null {
+function firstSite(land: Landscape, region: Region, roles: readonly SiteRole[], random: () => number, plot: { px: number; pz: number }, opt: SiteOptions, out: Extra[]): MapSite | null {
   for (const role of roles) {
-    const o = riverHarbour && role === "harbour" ? { ...opt, relaxed: true } : opt;
-    for (const spot of spotsFor(land, region, role, random, o).slice(0, 3)) {
+    for (const spot of spotsFor(land, region, role, random, opt).slice(0, 3)) {
       let site: MapSite | null = null;
       const extra = recorded(land, "site", () => {
-        site = placeSite(land, region, role, spot, plot, o.relaxed ? Math.ceil(SITE_RULES[role]!.need / 2) : SITE_RULES[role]!.need, random);
+        site = placeSite(land, region, role, spot, plot, SITE_RULES[role]!.need, random);
         return site ? { id: site.id, guard: siteGuard(land, site) } : null;
       });
       if (extra && site) {
@@ -533,12 +531,12 @@ export function addPlotExtras(land: Landscape, px: number, pz: number, sites = t
     if (extra) out.push(extra);
     return !!extra;
   };
-  // Sites: the kind the plot is richest in first (settling for less, any spot at all, then half the resource, only if
-  // nothing fits).
+  // Sites: the kind the plot is richest in first, then the others; any spot at all (every other square's, then every
+  // square's) only if nothing fits. Always with all the resource the kind wants (`SITE_RULES`: restored, it runs at full
+  // speed), so a kind that can't have it here gives way to the next.
   const roles = rolesFor(c, random);
   const plot = { px, pz };
-  // (A harbour on a river settles for less water at once: a river is a square wide, the sea is wide. Every spot is
-  // tried only for the others, and a harbour by the sea.)
+  // (A harbour needs the open sea: on a plot without any, it's left out of the wider search.)
   const dry = roles.filter((r) => r !== "harbour" || c.sea > 0);
   // (A Sandbox map's plot: its town, and no sites.)
   if (!sites) {
@@ -546,10 +544,9 @@ export function addPlotExtras(land: Landscape, px: number, pz: number, sites = t
     return out;
   }
   const site = () =>
-    firstSite(land, region, roles, random, plot, {}, out, c.sea === 0) ??
+    firstSite(land, region, roles, random, plot, {}, out) ??
     firstSite(land, region, dry, random, plot, { exhaustive: true }, out) ??
-    firstSite(land, region, dry, random, plot, { exhaustive: true, relaxed: true }, out) ??
-    firstSite(land, region, dry, random, plot, { exhaustive: "every", relaxed: true }, out);
+    firstSite(land, region, dry, random, plot, { exhaustive: "every" }, out);
   // A town first, near the water (a harbour town by the sea), if the plot gets one and its site still fits beside it:
   // else the town tries its next best spot, and then gives way to the site (every plot has a site).
   let first: MapSite | null = null;

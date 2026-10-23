@@ -37,7 +37,8 @@ function siteProblems(land: Landscape): string[] {
     const sq = siteSquares(s.centre, s.piece.heading);
     if (!sq.yard.every(([c, r]) => g.feature[g.index(c, r)] === FEAT_RUIN && g.owner[g.index(c, r)] === s.id)) out.push(`${s.role} ${s.id}: yard not all ruin`);
     const r = resourceAt(land, s.role, s.piece)!;
-    if (r.count < Math.ceil(r.need / 2)) out.push(`${s.role} ${s.id}: ${r.count} of ${r.need}`);
+    // All it needs, in full (restored, it runs at full speed).
+    if (r.count < r.need) out.push(`${s.role} ${s.id}: ${r.count} of ${r.need}`);
     if (s.role === "farm" && (s.fields.length !== 2 || r.count < 8)) out.push(`farm ${s.id}: ${s.fields.length} fields, ${r.count} squares`);
     if (s.role === "harbour" && harbourWhy(land, s.piece)) out.push(`harbour ${s.id}: ${harbourWhy(land, s.piece)}`);
     // Its yard and stub on flat ground (the ruin stands level).
@@ -219,7 +220,7 @@ describe("map sites: what the player is told", () => {
     const c = coastOf(7, true);
     // The starter map's two coast plots to the south: "empty space" before; a town by the sea and a site each now.
     expect(describeLand(plotLand(7, -1, 1, c))).toBe("A town by the sea, an old harbour and a river.");
-    expect(describeLand(plotLand(7, 0, 1, c))).toBe("A town by the sea and an old farm.");
+    expect(describeLand(plotLand(7, 0, 1, c))).toBe("A town by the sea and an old harbour.");
     // Words for two of a kind.
     const land = plotLand(7, -2, 0, c);
     const two = { ...land, sites: [...land.sites!, { ...land.sites![0], id: 9 }] };

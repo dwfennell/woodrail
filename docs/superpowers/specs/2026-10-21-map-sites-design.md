@@ -48,15 +48,25 @@ fields, depots and shed are deep-equal with and without the extras, for several 
    - its yard, stub and approaches are on open grass (a harbour's yard may be on the sand), inside the plot's edge band
      (clear of the crossings' stubs), off roads, corridors and anything standing;
    - it is 540 mm (`SITE_TOWN_SPACING`) from every town's station and 450 mm from depots, sites and the shed;
-   - its role's `SITE_RULES` are met **in full** (12 hillside squares, 8 water squares, a farm's two 2 × 2 fields
+   - its role's `SITE_RULES` are met **in full** (12 hillside squares, 5 water squares, a farm's two 2 × 2 fields
      planted beside it, 8 of 8) and a harbour's boats can reach it **from the open sea** (`waterWay(…, seaOnly)`: not off
      the edge of the land, a way that buying the land beyond would cut; so no harbour on a river plot, which gets the
      next kind instead, since 2026-10-23; an old save's river harbour stays, and its card says when boats can't reach it).
    - Its yard and approaches (and a farm's fields) are **flattened** into the hillside (`flattenUnder`: only lowers,
      within `MAX_HEIGHT` squares, never across the plot's edge), and it is kept only if every town, depot and site can
      still be reached (`reachable`).
-   If no random spot fits, every other square's middle is tried, then every square's at half the resource; over 232
-   plots of 8 seeds every plot had a site.
+   If no random spot fits, every other square's middle is tried, then every square's, still **in full** (since
+   2026-10-23: a restored industry runs at full speed); a kind that can't have all it needs on a plot gives way to the
+   next. Over 232 plots of 8 seeds every plot has a site.
+   - **Harbours' water** (fixed 2026-10-23). QA: old harbours showed "Water nearby: 5–6 of 8" and ran at 0.75. A
+     harbour counts water within 110 mm of its quay (150 mm across its track): 9 squares on the squares' grid, 3 of
+     them its own yard's row, which stands on land. So 6 was all the water any harbour could have (7 off the grid, a
+     player's), and the rule wanted 8: no harbour, old or new, ever had it, and every old harbour came from the search's
+     last pass "at half the resource" (4 to 6). The rule now wants **5** (`SITE_RULES.harbour.need`: 6 square on to a
+     straight shore, 5 on a bend of it), the least a harbour is placed with stays 4 (`least`), and that last pass is gone.
+     A harbour has no recipe of its own, so its rate is only what its card says: nothing else plays differently. With 6
+     the search left 2 coast plots of 232 (seeds 42 and 99, a strip of sand) with no site at all; with 5 every plot has
+     one.
 3. A **second site** of another kind (not a second hill site) 40% of the time, where one fits. At most 2 a plot.
 
 If the plot's town takes the room its site needs, the town tries its next best spot, then gives way: every plot has a
@@ -100,12 +110,22 @@ the 6 × 6 plots round each start (less the start's 2 × 2 and the open sea): 23
 
 So about **one extra town for every three plots** (0.53 → 0.89 towns a plot), and four in five coast plots get a town
 by the sea: harbours there have a town to serve. More isn't possible without breaking the 900 mm spacing: most plots
-have a town at their middle already, which leaves no room for another. Sites: 1.16 a plot (farm 109, quarry 81, mine
-57, harbour 22, all on coast plots; before harbours needed the sea: farm 99, quarry 77, mine 53, harbour 40, 18 of them
-on river plots); no plot without one.
+have a town at their middle already, which leaves no room for another. Sites: 1.16 a plot (farm 99, quarry 80, mine
+55, harbour 36, all on coast plots, every one with all its site rule wants; before full need, 2026-10-23: farm 109,
+quarry 81, mine 57, harbour 22, the harbours at 4–6 of 8; before harbours needed the sea: farm 99, quarry 77, mine 53,
+harbour 40, 18 of them on river plots); no plot without one. Full need moved a few coast plots' extra towns: 36 of 48
+coast plots get one (39 before), where a harbour now takes the room the town wanted (the town gives way).
+
+| sites (232 plots) | before (need 8, last pass at half) | after (harbour need 5, in full) |
+|---|---|---|
+| farm | 109, rate 1.0 | 99, rate 1.0 |
+| quarry | 81, rate 1.0 | 80, rate 1.0 |
+| mine | 57, rate 1.0 | 55, rate 1.0 |
+| harbour | 22, rate min 0.50, avg 0.65 | 36, rate min 1.0, avg 1.0 |
+| plots with none | 0 | 0 |
 
 The starter map's two coast plots to the south, which the user bought and found empty, now bring "A town by the sea, an
-old harbour and a river" and "A town by the sea and an old farm".
+old harbour and a river" and "A town by the sea and an old harbour" (an old farm before harbours wanted 5).
 
 ## 4. Saves
 
@@ -221,7 +241,9 @@ Measured (dev machine, shared and loaded; swiftshader in the e2e):
   harbours (a hill). The starter's old farm passed only because the row behind its yard happens to be open grass. Now
   `restoreWhy` checks the ground only to the ruin's own row (`RUIN_YARD_REACH`, 108 mm: `checkYard`'s `groundTo`);
   other track and props are still looked for over the whole pad, and placing a new industry is unchanged. Survey
-  (`restore-survey.test.ts`, the same 8 starts): all 175 pass `restoreWhy` (15 harbours, each reaching the open sea).
+  (`restore-survey.test.ts`, the same 8 starts): all 175 pass `restoreWhy` (21 harbours, each reaching the open sea), and every one meets its site rule in full,
+  so restored it runs at full speed (rate 1: farm 69, quarry 43, mine 42, harbour 21; before 2026-10-23's full need
+  the 15 harbours there had 4–6 of 8, rate min 0.50, avg 0.63).
   Before harbours had to reach the sea, one (a river harbour, seed 42) failed: its river no longer led off the land
   once the plots round it were bought. Such a harbour in an old save keeps its site; its card says "⛵ Boats can't
   reach this water now" (`HARBOUR_STRANDED`) and offers no Restore. The restored pad overhangs the field, hillside or

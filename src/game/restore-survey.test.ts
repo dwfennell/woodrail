@@ -5,6 +5,7 @@ import { HARBOUR_STRANDED, restoredType, ruinCard } from "./map-sites";
 import { waterWay } from "./harbours";
 import { isWater, SURF_GRASS } from "../landscape";
 import { restoreRuin, restoreWhy, RUIN_YARD_REACH } from "./restore";
+import { rateFor, resourceAt } from "./industries";
 import { createWorld, fixedPieces, plotsForSale, unlockPlot, type World } from "./world";
 
 /** Seeds whose starts, and the two rings of plots round them (bought), are surveyed. */
@@ -55,6 +56,26 @@ describe("restoring a ruin: every generated ruin can be", () => {
     expect(n).toBeGreaterThan(150);
     expect(harbours).toBeGreaterThan(5);
     expect(refused).toEqual([]);
+  });
+
+  it("every restorable ruin meets its site rule in full: restored, it runs at full speed (rate 1)", () => {
+    const by = new Map<string, number[]>();
+    const short: string[] = [];
+    for (const seed of SEEDS) {
+      const w = world(seed);
+      for (const s of w.landscape.sites ?? []) {
+        if (s.cleared || restoreWhy(w, s.id)) continue;
+        const r = resourceAt(w.landscape, s.role, s.piece)!;
+        const rate = Math.min(1, rateFor(r.count, r.need));
+        (by.get(s.role) ?? by.set(s.role, []).get(s.role)!).push(rate);
+        if (rate < 1) short.push(`seed ${seed} ${s.role} #${s.id} (plot ${s.plot.px},${s.plot.pz}): ${r.count} of ${r.need}`);
+      }
+    }
+    if ((globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.SURVEY) {
+      for (const [role, rates] of by) console.log(`${role}: ${rates.length}, rate min ${Math.min(...rates).toFixed(3)}, avg ${(rates.reduce((a, b) => a + b, 0) / rates.length).toFixed(3)}, under 1: ${rates.filter((x) => x < 1).length}`);
+      console.log(short.join("\n"));
+    }
+    expect(short).toEqual([]);
   });
 
   it("a harbour ruin whose boats can't reach it (an old save's river harbour, its river ending in land bought since): its card says so, with no Restore", () => {
