@@ -49,8 +49,8 @@ export interface HudHandlers {
   toggleExpand(): void;
   /** Game mode: open or close the map view. */
   toggleMap(): void;
-  /** Game mode: open or close the Research picker (the blueprint board). */
-  toggleBoard(): void;
+  /** Game mode: open or close the Research picker (the blueprint board); `pill`: tapped on the research pill. */
+  toggleBoard(pill?: boolean): void;
   /** Add the plot chosen on the land card. */
   buyLand(): void;
   resetStarter(): void;
@@ -209,6 +209,8 @@ export class Hud {
   private landItem!: HTMLButtonElement;
   private readonly depotTitle = el("div", "card-title");
   private readonly depotStock = el("div", "depot-stock");
+  /** A school's card with nothing under way or up next: a button for the Research picker. */
+  private readonly depotPickBtn: HTMLButtonElement;
   private depotAutoBtn!: HTMLButtonElement;
   private depotWaitBtn!: HTMLButtonElement;
   private readonly flipBtn: HTMLButtonElement;
@@ -316,7 +318,7 @@ export class Hud {
     this.researchPill.type = "button";
     this.researchPill.hidden = true;
     this.researchPill.innerHTML = `<span class="rp-text"><span class="rp-line"><span class="rp-icon" aria-hidden="true">📘</span><span class="rp-name"></span></span><span class="rp-count"></span></span><span class="rp-bar"></span>`;
-    this.researchPill.addEventListener("click", () => h.toggleBoard());
+    this.researchPill.addEventListener("click", () => h.toggleBoard(true));
     top.appendChild(this.researchPill);
     // (Refitted when its room changes: the coins or the date grow, the screen turns. Not per frame.)
     let pillRefit = 0;
@@ -336,7 +338,7 @@ export class Hud {
     this.landBtn = button(uiIcon("land"), "Add land", h.toggleExpand);
     this.mapBtn = button(uiIcon("map"), "Map: what's where", h.toggleMap);
     this.mapBtn.hidden = true;
-    this.boardBtn = button(uiIcon("blueprint"), "Research: learn new things", h.toggleBoard, "chip research-btn");
+    this.boardBtn = button(uiIcon("blueprint"), "Research: learn new things", () => h.toggleBoard(), "chip research-btn");
     this.boardBtn.hidden = true;
     // On a phone the bar can't hold them all: these move into the menu (see `.narrow-menu`).
     for (const b of [this.landBtn, this.redoBtn, this.soundBtn]) b.classList.add("wide-only");
@@ -495,7 +497,9 @@ export class Hud {
     const depotRow = el("div", "card-row");
     depotRow.append(this.depotAutoBtn, this.depotWaitBtn);
     this.depotExtra.hidden = true;
-    this.depotCard.append(this.depotTitle, this.depotStock, depotRow, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
+    this.depotPickBtn = button("📘 Research", "Pick what the school learns next", () => h.toggleBoard(true), "chip text primary depot-pick");
+    this.depotPickBtn.hidden = true;
+    this.depotCard.append(this.depotTitle, this.depotStock, this.depotPickBtn, depotRow, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.depotCard);
 
     // Land card: shown while choosing a plot to add.
@@ -747,8 +751,12 @@ export class Hud {
       tabs.innerHTML = "";
       list = trayTabs(mode);
       for (const tab of list) {
-        // Tapping a tab (even the open one) goes back to its groups.
-        const t = button(tab.label, `${tab.label}`, () => openTab(tab), "tab");
+        // Tapping a tab (even the open one) goes back to its groups. (Drawing on a phone on its side, the tray is only
+        // its tabs, its shelves put away for the map's sake: a tab tapped there puts the pencil down, so they show.)
+        const t = button(tab.label, `${tab.label}`, () => {
+          if (this.drawing && getComputedStyle(scroller).display === "none") this.handlers.trayDraw(false);
+          openTab(tab);
+        }, "tab");
         t.dataset.tab = tab.id;
         tabs.appendChild(t);
       }
@@ -1428,17 +1436,24 @@ export class Hud {
     this.depotTitle.textContent = title;
     this.depotExtra.hidden = true;
     this.depotExtra.innerHTML = "";
+    // (Back to a depot's own: a town's ledger, once drawn here, marks it.)
+    this.depotExtra.className = "depot-extra";
     this.depotCard.hidden = false;
+    // (A card scrolled on a phone opens at its top again: its title and ✕ in view.)
+    this.depotCard.scrollTop = 0;
     this.root.classList.add("card-open");
   }
 
   /**
    * Refresh the open depot card: one line per pile ("Logs ●●●○○…  5"), and the two switches. `waitFull` is null
-   * where it doesn't apply (a depot that gives nothing).
+   * where it doesn't apply (a depot that gives nothing). `idle`: a school with nothing to research (its line in amber,
+   * and a button for the picker).
    */
-  updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = ""): void {
+  updateDepotCard(piles: { label: string; count: number; cap: number }[], auto: boolean, waitFull: boolean | null, note = "", idle = false): void {
     const text = [...piles.map((p) => `${p.label} ${p.count}/${p.cap}`), ...(note ? [note] : [])].join("   ·   ");
     if (this.depotStock.textContent !== text) this.depotStock.textContent = text;
+    this.depotStock.classList.toggle("idle", idle);
+    this.depotPickBtn.hidden = !idle;
     setToggle(this.depotAutoBtn, auto);
     this.depotWaitBtn.hidden = waitFull === null;
     setToggle(this.depotWaitBtn, !!waitFull);
@@ -1529,7 +1544,7 @@ export class Hud {
     if (t && t.message === old && this.toastEl.classList.contains("show") && this.toastEl.textContent === old) {
       note("toast", message);
       t.message = message;
-      this.showToast(message, celebrate, ms);
+      this.showToast(message, celebrate, ms, t.urgent);
       this.toastShownAt = performance.now();
       this.toastHeldUntil = this.toastShownAt + toastMs(message, celebrate, ms);
       return;
@@ -1578,11 +1593,11 @@ export class Hud {
     if (this.toastQueue.length === 0) return;
     // The first that may show: one with no room (a card open) waits till the cards close (`hideCards`), and lets one
     // that answers the player go ahead of it.
-    const i = this.toastQueue.findIndex((q) => q.urgent || this.placeToast(q.message));
+    const i = this.toastQueue.findIndex((q) => this.placeToast(q.message, q.urgent));
     this.toastWaitsForCard = i === -1;
     if (i === -1) return;
     const [next] = this.toastQueue.splice(i, 1);
-    this.showToast(next.message, next.celebrate, next.ms);
+    this.showToast(next.message, next.celebrate, next.ms, next.urgent);
     this.toastShowing = next;
     this.toastShownAt = performance.now();
     this.toastHeldUntil = this.toastShownAt + toastMs(next.message, next.celebrate, next.ms);
@@ -1597,7 +1612,7 @@ export class Hud {
   private refitToast(): void {
     const t = this.toastShowing;
     if (!t || !this.toastEl.classList.contains("show") || this.toastEl.textContent !== t.message) return;
-    if (this.placeToast(t.message) || t.urgent) return;
+    if (this.placeToast(t.message, t.urgent)) return;
     clearTimeout(this.toastTimer);
     this.toastEl.classList.remove("show");
     this.toastShowing = null;
@@ -1623,7 +1638,7 @@ export class Hud {
     if (message) {
       this.toastQueue.length = 0;
       this.toastShowing = null;
-      this.showToast(message, false, 600000);
+      this.showToast(message, false, 600000, true);
       this.toastHeldUntil = performance.now() + toastMs(message, false);
     } else if (this.toastEl.classList.contains("show")) {
       clearTimeout(this.toastTimer);
@@ -1664,11 +1679,11 @@ export class Hud {
     this.flushToasts();
   }
 
-  private showToast(message: string, celebrate: boolean, ms: number): void {
+  private showToast(message: string, celebrate: boolean, ms: number, urgent = false): void {
     this.toastEl.textContent = message;
     this.toastEl.classList.toggle("celebrate", celebrate);
     this.toastEl.classList.remove("show");
-    this.placeToast(message);
+    this.placeToast(message, urgent);
     // Restart the slide-in even when a toast is already showing.
     void this.toastEl.offsetWidth;
     this.toastEl.classList.add("show");
@@ -1682,7 +1697,7 @@ export class Hud {
    * side), else just above it. False if a card leaves it no room (it'd cover the card's top rows). Measured when a toast
    * shows, not per frame.
    */
-  private placeToast(message: string): boolean {
+  private placeToast(message: string, urgent = false): boolean {
     const t = this.toastEl;
     t.textContent = message;
     t.style.top = t.style.left = t.style.maxWidth = "";
@@ -1712,8 +1727,14 @@ export class Hud {
     const card = cards.find(over);
     if (!card) return true;
     const h = t.offsetHeight;
-    if (card.top - t.offsetTop < h + 8) return false;
-    t.style.top = `${Math.round(card.top - h - 8)}px`;
+    if (card.top - t.offsetTop >= h + 8) {
+      t.style.top = `${Math.round(card.top - h - 8)}px`;
+      return true;
+    }
+    // No room above it: a toast that answers the player (urgent) shows now all the same, at the card's foot, just
+    // above the tray (QA: over its top it hid the card's ✕ and title); any other waits for the card to close.
+    if (!urgent) return false;
+    t.style.top = `${Math.round(card.bottom - h - 10)}px`;
     return true;
   }
 

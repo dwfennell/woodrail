@@ -70,7 +70,7 @@ And later: "I think the research building should be placed near a town though, m
 
   | Tier | Examples (goods; coins from tier 2 only; as tuned in P5, §5) |
   | --- | --- |
-  | 1 | Switches 4🪵 · Signals 4🪵 · Bridges 10🪵 · Farming 6🪵 · Passengers 6🪵 |
+  | 1 | Switches 3🪵 (QA P5: one pass of the starting flatbeds) · Signals 4🪵 · Bridges 10🪵 · Farming 6🪵 · Passengers 6🪵 |
   | 2 | Mills 6🪵 6🌾 40🪙 · Routes 5🪵 40🪙 · Goods engine 6🪵 6🍞 80🪙 · Diesel 7🪵 8🍞 120🪙 |
   | 3 | Quarries 8🪵 6🍞 80🪙 · Mines 6🪵 10🪨 160🪙 · Foundry 10🪨 10⚫ 240🪙 · Electricity 10🔩 10⚫ 240🪙 |
 
@@ -88,7 +88,15 @@ And later: "I think the research building should be placed near a town though, m
 - **What goes:** `learnWithGoods`, `goodsOf` and paying for blueprints at the workshop's yard, and also
   `planksWanted` / `keepsPlanks` in their current form.
 - **What replaces them:**
-  - The workshop keeps planks only for the tray order waiting to be made (`Crafting`'s order).
+  - The workshop keeps planks only for the tray order waiting to be made (`Crafting`'s order). (QA P5: while a town
+    the train goes on to wants planks, its yard takes only that order's, or `WORKSHOP_SPARE` 7 if more.)
+  - Each workshop's card has a two-way choice (`DepotState.takesAll`, saved per workshop as an optional `takesAll:
+    true`; absent loads as Shares, no `SAVE_VERSION` change): **Shares with towns** (the default, the rule above;
+    "Leaves planks for towns further on, keeping 7 for you") or **Takes all planks** ("Fills its yard first, up to
+    30", and with a school on the map " (your school still gets what it needs)": `shopKeeps` is skipped, as before
+    46c5d7f). The school's hold-back and the tray order's hold stay in both. A routed stop at a workshop set to Only
+    drop skips `shopKeeps` too (QA N3: it still shared, against its label): it drops all the yard has room for, but
+    what a school further on lacks. Changing it redraws only the card.
   - The school takes only what its research still lacks, and (QA P4) at most 3/5 of a pass's load while a town the
     train goes on to wants the good too (`SCHOOL_SHARE`, §5).
   - No plank is counted by both. Whatever neither of them asks for goes to towns, as it does today.
@@ -105,7 +113,7 @@ And later: "I think the research building should be placed near a town though, m
   | Coins | 30🪙 | 80🪙 | 200🪙 |
   | A crate of known things (today's `crateFor`) | 2 things | 3 | 4 |
   | A wagon (one you know) | ✓ | ✓ | an engine |
-  | Research boost: goods into the current research | 25% of it | 40% | 60% |
+  | Research boost: goods into the current research (QA P5: at least 3 of each good, offered only with 3 lacking) | 25% of it | 40% | 60% |
   | Rare cargo at the school: goods you can't make yet (stone before Quarries) | — | 6 | 12 |
 
 - **Amounts (settled in P3's tuning pass):** the table above, unchanged. The balance guard was met by the simulated
@@ -121,7 +129,7 @@ And later: "I think the research building should be placed near a town though, m
   1. deliver planks
   2. grow a village (its present is a school)
   3. **Place a school by a town**
-  4. **Research switches** (hint: "Pick Switches, then bring 4 planks to the school")
+  4. **Research switches** (hint: "Pick Switches. Trains bring the school the 3 planks it needs": QA N1, it was "then bring 3 planks to the school", though trains do it and the school takes only what research lacks)
   5. place your workshop
   6. **make a switch** (QA P4: was "bring it planks", which stalled: the workshop keeps planks only for an order, so
      the switch is ordered on its card first, and trains then bring its planks; the goal ticks once it's made)
@@ -163,7 +171,7 @@ The simulated player picks research from today's `WISH` order and takes the grow
 - otherwise planks before Farming;
 - otherwise coins.
 
-It picks research only with planks to spare at the workshop (10), and (P3) not while what the line needs next waits on
+It picks research only with planks to spare at the workshop (10, or 7 since QA P5: what the yard holds while a town on the line wants planks), and (P3) not while what the line needs next waits on
 the workshop's planks: cars for the goods train (a hopper, a van), or a farm yard, mill or quarry learned and not yet
 built. A research picked then takes the planks at the school first, as the train passes it before the workshop.
 Signals come right after Halts in its `WISH` order: the goal "Run two trains at once" waits for them, and that second
@@ -429,7 +437,8 @@ the check at a depot pass, the toast and the town card line.
 B, C or D is built, and the harness keeps `unstick` and `shopThrough`.
 - **The trap:** on a there-and-back line with the farm just after the mill, Automatic hoppers refill with grain at the
   farm and reach the quarry full, so a City wanting only stone never gets it; and towns past an Automatic workshop
-  starve while its yard takes every plank (up to 30).
+  starve while its yard takes every plank (up to 30). (The workshop's half is fixed since research-qa5: while a town
+  ahead wants planks the yard takes only its order's, or `WORKSHOP_SPARE`. The hoppers' half stays.)
 - **A real player can reach it** (one goods train, two hoppers, the farm passed on the way out from the mill) and gets
   no hint: no toast, no load on the wagon card, grain heaps in 3D only.
 - **Options considered:** B, a loading rule (keep a car for a good ahead); C, a City keeps taking planks; D, a hint
@@ -479,6 +488,98 @@ First research at 5.6 on every seed, before and after.
   on seven (City 51–57 on five, gaps of 50 on two). 0.6 is the one tried that meets every band; it isn't a tuned
   optimum.
 - Nice to have: research stalls under 10 min on 2027, 1, 3, 4, 9, 10; coins within 150–600 on none (674–1884).
+
+### QA's P5 notes (research-qa5, 2026-10-21)
+
+Six fixes, one commit each, and a mill price to keep the City band. Each row below is the run after that commit, on
+top of the ones before it (`BALANCE=1`, 180 min, 1 train a line; coins at minutes 10 / 15 / 30 / 60).
+- **The workshop's yard** (`Economy.shopKeeps`, `yardKeeps`, `WORKSHOP_SPARE` 7 in crafting.ts). QA saw the yard fill
+  1 → 16 with no order once research was idle, coins freeze and the next town starve. At an Automatic workshop stop
+  the yard took every plank it had room for (`canUnload`; the trap's second half above). Now, while a town the train
+  goes on to wants planks, the yard takes only its waiting tray order's planks, or 7 if more (an engine or a farm
+  yard); with no town ahead wanting them it fills as before. The play-through's player picks research once the yard
+  holds that much (it waited for 10 that never came). 3 and 5 starved towns or research on some seeds; 7 met the most
+  bands of 3–8 tried.
+- **Switches cost 3 planks**, one pass of the starting flatbeds: first research 5.6 → 4.4 min on every seed.
+- **The boost card's floor** (`BOOST_FLOOR` 3): at least 3 of each good lacking, and not offered with fewer than 3
+  lacking in all (another kind fills the slot).
+- **Early pay**: a hamlet or village pays 6 coins a plank it wants, not 4 (`EARLY_PLANK_PRICE`).
+- **The mill costs 400 coins, not 280.** With towns fed and early pay, the mill was bought the minute Mills was
+  learned (before, it waited on coins), and a City followed 15 min later: City 50–51 on seeds 1, 6, 9. The mill
+  takes back what the faster coins gave.
+- The pill opens the picker on the research it shows, and an engine ordered on the workshop's card says it needs
+  Signals: no balance change.
+
+| Seed | P5 | Yard | Switches 3 | Boost floor | Early pay | Mill 400 |
+| --- | --- | --- | --- | --- | --- | --- |
+| City (minute) | | | | | | |
+| 2027 | 80 | **52** | 65 | 65 | 65 | 62 |
+| 1 | 79 | **55** | **51** | **51** | **51** | 61 |
+| 2 | 74 | 83 | 72 | 73 | 73 | 73 |
+| 3 | 67 | **51** | 80 | 80 | 80 | 80 |
+| 4 | 83 | 75 | 80 | 80 | 80 | 80 |
+| 5 | 71 | 80 | 73 | 73 | 73 | 73 |
+| 6 | 71 | 82 | 73 | 73 | **50** | 67 |
+| 9 | 83 | **51** | 67 | 67 | **50** | 69 |
+| 10 | 79 | 80 | 82 | 82 | 82 | 82 |
+| Town gap / research stall (min) | | | | | | |
+| 2027 | 24.0 / 9.0 | 10.1 / **37.0** | 13.7 / 12.1 | 13.7 / 12.1 | 13.7 / 12.1 | 12.0 / 12.1 |
+| 1 | 27.4 / 6.4 | 18.1 / 11.2 | 27.1 / 6.8 | 27.1 / 6.8 | 27.1 / 6.8 | 22.1 / 8.1 |
+| 2 | 15.8 / 15.1 | 26.3 / 9.8 | 22.9 / 9.4 | 18.7 / 7.2 | 18.7 / 7.2 | 18.7 / 7.2 |
+| 3 | 17.3 / 7.4 | 11.8 / **23.4** | 37.2 / 7.2 | 37.2 / 7.2 | 37.2 / 7.2 | 37.2 / 7.2 |
+| 4 | 27.9 / 8.7 | 16.2 / 9.3 | 22.4 / 9.3 | 22.4 / 9.3 | 22.4 / 9.3 | 22.4 / 9.3 |
+| 5 | 14.3 / 13.6 | 18.7 / 7.2 | 23.0 / 10.0 | 18.1 / 10.1 | 18.1 / 10.1 | 18.1 / 10.1 |
+| 6 | 18.6 / 12.6 | **55.1** / 5.2 | 18.4 / 6.3 | 18.4 / 6.3 | 14.1 / **35.4** | 16.6 / 7.8 |
+| 9 | 28.1 / 8.7 | 13.9 / **39.0** | 12.5 / 7.8 | 12.5 / 7.8 | 14.1 / **22.0** | 18.6 / 9.4 |
+| 10 | 23.7 / 6.4 | 18.8 / 6.7 | 18.3 / 6.5 | 18.3 / 6.5 | 18.3 / 6.5 | 18.3 / 6.5 |
+| Coins at 10 / 15 / 30 / 60 | | | | | | |
+| 2027 | 74/242/108/85 | 74/242/361/196 | 164/262/288/177 | 164/262/288/177 | 188/296/354/249 | 188/296/354/119 |
+| 1 | 74/126/212/139 | 74/126/216/270 | 84/48/208/151 | 84/48/208/151 | 108/78/266/215 | 108/78/266/49 |
+| 2 | 44/96/373/269 | 44/96/296/296 | 54/18/264/246 | 54/18/272/272 | 78/48/344/344 | 78/48/344/224 |
+| 3 | 74/242/186/10 | 74/242/318/205 | 164/292/522/682 | 164/292/522/682 | 188/326/594/754 | 188/326/594/754 |
+| 4 | 44/212/156/98 | 44/212/262/360 | 134/262/370/665 | 134/262/370/665 | 158/296/442/737 | 158/296/442/737 |
+| 5 | 44/96/343/209 | 44/96/304/702 | 54/18/186/398 | 54/18/190/396 | 78/48/256/470 | 78/48/256/350 |
+| 6 | 74/242/186/8 | 74/242/344/680 | 164/292/222/100 | 164/292/222/100 | 188/326/286/264 | 188/326/286/43 |
+| 9 | 44/212/156/96 | 44/212/262/355 | 134/262/192/67 | 134/262/192/67 | 158/296/256/348 | 158/296/256/6 |
+| 10 | 74/126/212/219 | 74/126/366/736 | 84/48/208/710 | 84/48/208/710 | 108/78/266/782 | 108/78/266/782 |
+| Bands met | 9 of 9 | 4 of 9 | 8 of 9 | 8 of 9 | 6 of 9 | **9 of 9** |
+
+Bold: a miss. The last column is the branch: `BALANCE=1` passes on all nine, first research 4.4 min, researched 14–17
+(floor 7–11), City 61–82, City★ on eight, town gaps 12.0–37.2, research stalls 6.5–12.1, coins at 180 918–1650. As
+before, one table is one sample: the harness is chaotic, and the steps between show it (the boost floor changed only
+seeds 2 and 5; early pay moved 6 and 9 from 73 and 67 to 50). Coins at minute 15 are 48–326 (P5: 96–242; 18–292
+before early pay), so Routes' 40 is in reach at minute 15 on every seed; by minute 30, 256–594 (P5: 108–373). Nice to have: research stalls under 10 min on 1–4, 6, 9, 10; coins at
+180 within 150–600 on none.
+
+### QA's research-polish notes (2026-10-21)
+
+- **N2, the boost floor per good**: a good the research lacks fewer than `BOOST_FLOOR` of is left off the card ("+1🪵
+  2🌾" was the per-good cap, `min(lacks, …)`, under a total-only check); offered only while a good still comes to 3.
+- **N3, the workshop card**: Takes all planks' line adds "(your school still gets what it needs)" with a school on the
+  map; a routed Only drop stop at a workshop fills its yard (§2); a little more room under the Automatic row.
+- **N1**: the Switches goal reads "Pick Switches. Trains bring the school the 3 planks it needs." First research is
+  4.4 min on every seed, as before (3 planks is under the school's 3/5 of a 9-plank pass).
+- **Flour after the mill** (`EARLY_FLOUR_PRICE` 12 in towns.ts): a town pays twice the price for the flour it wants (a
+  village, half that), a city the price (6). The mill stays 400. Coins at 75 min went 57–464 → 111–502; City, City★,
+  stalls, gaps and researched counts didn't move (9 of 9 bands; seed 9's stall 9.4 → 11.1). Minute 60 is still the
+  mill's own dip (6–754). 9 gave too little (+15–50 at 60–90).
+
+| Seed | Coins at 15/30/45/60/75/90/120/180, before | After (flour 12) |
+| --- | --- | --- |
+| 2027 | 296/354/35/119/126/171/268/968 | 296/354/62/200/234/183/430/1254 |
+| 1 | 78/266/384/49/173/296/479/1287 | 78/266/384/76/227/350/587/1395 |
+| 2 | 48/344/468/224/302/340/293/918 | 48/344/468/224/356/394/401/1026 |
+| 3 | 326/594/666/754/407/699/863/1335 | 326/594/666/754/434/753/971/1443 |
+| 4 | 296/442/562/737/400/460/730/1162 | 296/442/562/737/427/514/838/1306 |
+| 5 | 48/256/462/350/448/612/511/1003 | 48/256/462/350/502/666/619/1111 |
+| 6 | 326/286/10/43/319/508/395/1650 | 326/286/10/70/373/562/503/1812 |
+| 9 | 296/256/380/6/57/64/171/996 | 296/256/380/6/111/118/198/1090 |
+| 10 | 78/266/464/782/464/581/966/1606 | 78/266/464/782/464/635/1074/1768 |
+
+- **The late trim, not made**: coins at 180 are 1026–1812 with flour 12. A city's coins card at 120, not 200, cut them
+  by 0–160 (930–1652) and changed nothing else: nowhere near 150–600. Reaching the band needs late income about halved
+  (city prices or fares), which would make a city's coins card and passengers feel worth little; the harness's player
+  also has nothing left to buy late. Late things to spend on would fit the band better than a trim.
 
 ## 6. Saves
 

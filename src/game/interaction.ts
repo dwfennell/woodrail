@@ -37,7 +37,7 @@ import { PinHint } from "./switch-pin";
 import { branchStrayed, decideHold, HOLD_MS, HOLD_SLOP, holdPicksUp, PIN_HOLD_MS, undoesHold } from "./touch-hold";
 import { hintSeen, markHintSeen } from "../ui/prefs";
 import { cargoDropTarget, putsBack } from "./cargo-drop";
-import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot } from "../economy";
+import { capAt, CARGO, GOODS_ICON, pilesOf, RECIPES, type CargoKind, type CargoSlot, type DepotState } from "../economy";
 import { deckTapWins, fingertipWinner, hiddenByHills, inFrontOfCamera, LEVER_SLACK_PX, leverSlackOnPress, liftTap, liftTapAlong, nearCarWins, nearestOnScreen, nearLeverWins, pressPins, slackTapThrows, type CarOnScreen, type TapUnder } from "./touch-pick";
 import { LIFT_NAME, liftHeldMessage } from "./lift-notice";
 
@@ -1610,7 +1610,7 @@ export class Interaction {
 
   /**
    * Pin a switch, or unpin it (`cue`: a buzz, and a toast: the first time ever it's pinned, what pinning does; each
-   * unpin, "Unpinned"): its peg shows or goes and its chevrons change colour; it's saved.
+   * unpin, "Unpinned"): its peg shows or goes and its burned chevrons change colour (red when pinned); it's saved.
    */
   private togglePin(pieceId: number, cue = true): void {
     const g = this.game;
@@ -1832,6 +1832,17 @@ export class Interaction {
         this.togglePin(m.press.pieceId);
         return;
       }
+      // Out of reach, a line's body only branches (see `far`): a tap or a long press there that drew no branch is one
+      // on the floor, as with Draw off (it lets go of what's selected), not one on the piece (QA: it opened the piece's
+      // card from 4 m off, and a long press left it open).
+      if (m.far) {
+        this.lastTap = null;
+        if (!this.picking) {
+          this.hud.hideCards();
+          this.clearSelection();
+        }
+        return;
+      }
       // (Cargo is tapped again and again, a unit a tap: never a double tap.)
       // (A lever taken by a fingertip's slack is a tap on the grass too: a second tap there zooms. See `onCanvasDown`.)
       if (m.press.kind === "lever" && m.press.slack !== undefined) {
@@ -2002,10 +2013,14 @@ export class Interaction {
       return;
     }
     if (p.kind === "prop") {
-      // (A town's house in Game mode isn't selected: a tap there is a tap on the map.)
+      // (A town's house in Game mode isn't selected: a tap there opens its town's card.)
       if (this.townHouse(p.propId)) {
-        this.hud.hideCards();
-        this.clearSelection();
+        const station = this.townStation(p.propId);
+        if (station !== -1 && this.townCard) this.openDepot(station);
+        else {
+          this.hud.hideCards();
+          this.clearSelection();
+        }
       } else this.selectProp(p.propId);
       return;
     }
@@ -2106,7 +2121,10 @@ export class Interaction {
     return this.selectedCar;
   }
 
-  /** Open a depot's card, as a tap on it would ("Show me" opens the workshop's for "Make a switch"). */
+  /**
+   * Open a depot's card, as a tap on it would ("Show me" opens the workshop's for "Make a switch"; a town's ledger, its
+   * school's).
+   */
   openDepotCard(depotId: number): void {
     if (!this.game.economy.depot(depotId)) return;
     this.openDepot(depotId);
@@ -2142,7 +2160,8 @@ export class Interaction {
   private depotTitle(depotId: number): string {
     const d = this.game.economy.depot(depotId);
     if (!d) return "";
-    if (d.role === "town") return `${this.game.landscape.towns.find((t) => t.id === d.townId)?.name ?? ""} goods`;
+    // (Game mode's town card is the town's ledger, under the town's own name.)
+    if (d.role === "town") return `${this.game.landscape.towns.find((t) => t.id === d.townId)?.name ?? ""}${this.townCard ? "" : " goods"}`;
     return depotName(this.game, d);
   }
 
@@ -2217,9 +2236,15 @@ export class Interaction {
 
   /**
    * A school's card (Game mode): `key` changes whenever what it shows does (cheap: called every frame while it's open);
-   * `show` gives its rows, the research's goods (got of needed) and a line about it.
+   * `show` gives its rows, the research's goods (got of needed), a line about it, and `idle` (the card offers the picker).
    */
-  schoolCard: { key(): number; show(): { piles: { label: string; count: number; cap: number }[]; note: string } } | null = null;
+  schoolCard: { key(): number; show(): { piles: { label: string; count: number; cap: number }[]; note: string; idle?: boolean } } | null = null;
+
+  /**
+   * A town's card in Game mode: its ledger (see `town-ledger.ts`), drawn by `show` whenever `key` changes (cheap: called
+   * every frame while it's open). Null (Sandbox): a town's card is its goods, as any depot's.
+   */
+  townCard: { key(d: DepotState): number; show(d: DepotState): void } | null = null;
 
   /** Keep the open depot card's pile counts current (call every frame). */
   refreshDepotCard(): void {
@@ -2229,6 +2254,18 @@ export class Interaction {
     // Only redraw the card when something on it changed (this runs every frame).
     // (A harbour's dock sheds change what its piles hold: they count here too.)
     // A school's card shows its research (Game mode), redrawn when that changes (its key: a counter, no allocation).
+    if (d.role === "town" && this.townCard) {
+      const key = this.townCard.key(d);
+      const was = this.shownDepot;
+      if (was.id === d.id && was.delivered === key && was.auto === d.auto) return;
+      was.id = d.id;
+      was.delivered = key;
+      was.auto = d.auto;
+      was.piles = -1;
+      this.hud.updateDepotCard([], d.auto, null);
+      this.townCard.show(d);
+      return;
+    }
     const delivered0 = d.role === "town" ? this.game.economy.delivered.get(d.townId) ?? 0 : d.role === "school" && this.schoolCard ? this.schoolCard.key() : d.sheds;
     const shown = this.shownDepot;
     // Every pile's count hashed into one number (a warehouse's or harbour's piles hold more than 15): no allocation on
@@ -2243,7 +2280,7 @@ export class Interaction {
     shown.delivered = delivered0;
     if (d.role === "school") {
       const r = this.schoolCard?.show() ?? { piles: [], note: "" };
-      this.hud.updateDepotCard(r.piles, d.auto, null, r.note);
+      this.hud.updateDepotCard(r.piles, d.auto, null, r.note, !!r.idle);
       return;
     }
     let piles = pilesOf(d.role).map((kind) => ({ label: `${GOODS_ICON[kind]} ${CARGO[kind].label}`, count: d.piles[CARGO[kind].index], cap: capAt(d) }));
@@ -2564,12 +2601,21 @@ export class Interaction {
     return yard ? "yard" : null;
   }
 
-  /** What to say for a prop that can't go somewhere. */
+  /** The depot of the station of the town a building's prop is in, or −1. */
+  private townStation(propId: number): number {
+    const g = this.game;
+    const building = g.props.get(propId)?.building;
+    const found = building === undefined ? null : findBuilding(g.landscape, building);
+    const piece = found ? g.stations.get(found.town.id) : undefined;
+    return piece === undefined ? -1 : (g.economy.depotAtPiece(piece)?.id ?? -1);
+  }
+
   /** Is this prop a town's building in Game mode (moved only about its town: see town-moves.ts)? */
   private townHouse(propId: number): boolean {
     return !this.propsEditable && this.game.props.get(propId)?.building !== undefined;
   }
 
+  /** What to say for a prop that can't go somewhere. */
   private propMessage(reason: PropBlock): string {
     return reason === "yard" ? this.inYardWhy : PROP_MESSAGES[reason];
   }
@@ -4497,15 +4543,21 @@ export class Interaction {
    * (a tap on the grass in front of a hill mustn't throw a lever behind it).
    */
   private leverHidden(pieceId: number): boolean {
-    const g = this.game;
-    const grid = g.landscape.grid;
+    const posts = this.game.trackView.leverPosts().filter((p) => p.pieceId === pieceId);
+    return posts.length > 0 && posts.every((p) => this.hiddenFromEye({ x: p.x, y: p.y + p.height / 2, z: p.z }));
+  }
+
+  /**
+   * Is this spot hidden behind a hill from the camera? The hills aren't in the tap's raycast (it would cost a pointer
+   * move a test against every block), so a ray can meet a lever standing behind one: asked only of such a hit.
+   */
+  private hiddenFromEye(at: { x: number; y: number; z: number }): boolean {
+    const grid = this.game.landscape.grid;
     const ground = (x: number, z: number) => {
       const i = grid.cellAtWorld(x, z);
       return i === -1 ? 0 : grid.groundY(i);
     };
-    const posts = g.trackView.leverPosts().filter((p) => p.pieceId === pieceId);
-    const eye = g.camera.position;
-    return posts.length > 0 && posts.every((p) => hiddenByHills(eye, { x: p.x, y: p.y + p.height / 2, z: p.z }, ground, MAX_HEIGHT * RISER_HEIGHT, CELL / 4));
+    return hiddenByHills(this.game.camera.position, at, ground, MAX_HEIGHT * RISER_HEIGHT, CELL / 4);
   }
 
   /**
@@ -4599,6 +4651,9 @@ export class Interaction {
       }
       if (h.object.userData.kind === "switch-lever") {
         const pieceId = h.object.userData.pieceId as number;
+        // (A lever behind a hill, met through it: not seen, so not tapped, as with a fingertip's slack. QA: a tap right
+        // on one hidden by a 2-riser hill threw it.)
+        if (this.hiddenFromEye(h.point)) continue;
         return h.object.userData.deck ? { kind: "piece", pieceId, deck: true } : { kind: "lever", pieceId };
       }
       // A signal skin's model is its lever (a tap holds it at red, or lets it go: a gantry's, the road it's over). Any

@@ -1,9 +1,9 @@
 import { CARGO, GOODS_ICON, type CargoKind } from "../economy/cargo";
 import { capOf, RECIPES } from "../economy/economy";
-import { kindsOf, type Bag } from "../economy/goods";
+import { kindsOf, total, type Bag } from "../economy/goods";
 import type { Town } from "../landscape";
 import { workshops } from "./crafting";
-import { amountAt, CARD_AMOUNTS, CARD_KINDS, CARDS_PER_OFFER, type CardKind, type GrowthCard, type Offer } from "./growth-cards";
+import { amountAt, BOOST_FLOOR, CARD_AMOUNTS, CARD_KINDS, CARDS_PER_OFFER, type CardKind, type GrowthCard, type Offer } from "./growth-cards";
 import { MARKET_BONUS, townLandmarks } from "./landmarks";
 import type { Progress } from "./progress";
 import { deliver, lacking, lacks } from "./research";
@@ -24,9 +24,22 @@ import { trainIcon } from "../ui/icons";
 export function payDelivery(p: Progress, kind: CargoKind, n: number, before: TownStatus, town?: Town): number {
   // A town with a market pays half again.
   const bonus = town && townLandmarks(town).has("market") ? MARKET_BONUS : 1;
-  const paid = Math.round(payFor(kind, before) * n * bonus);
+  let paid = Math.round(payFor(kind, before) * n * bonus);
+  // The game's first flour pays a bonus, once: the mill (400 coins, minute ~48) pays its way sooner.
+  if (kind === "flour" && n > 0 && !p.firstFlour) {
+    p.firstFlour = true;
+    paid += FIRST_FLOUR_BONUS;
+  }
   p.coins += paid;
   return paid;
+}
+
+/** Coins the first flour delivered in a game pays on top of its price (QA: coins sat near 0 after the mill was bought). */
+export const FIRST_FLOUR_BONUS = 60;
+
+/** A save from before the first-flour bonus whose map has had flour already: no bonus to come. */
+export function flourBefore(p: Progress, world: World): void {
+  for (const bag of world.economy.deliveredGoods.values()) if ((bag.flour ?? 0) > 0) p.firstFlour = true;
 }
 
 /** The school's piece (the first village's present). */
@@ -132,12 +145,24 @@ function schoolPlaced(world: World): boolean {
   return world.economy.allDepots().some((d) => d.role === "school" && world.layout.getPiece(d.pieceId));
 }
 
-/** What a research boost of `share` puts into the current research now: that share of each good it lacks (rounded up). */
+/**
+ * What a research boost of `share` puts into the current research now: that share of each good it lacks (rounded up),
+ * at least `BOOST_FLOOR` of it, but no more than it lacks. A good that would come to fewer than the floor (it lacks
+ * only a few) is left out, so every good a card shows is the floor or more (QA N2: "+1🪵 2🌾"). Empty if none is.
+ */
 export function boostGoods(p: Progress, share: number): Bag {
   const out: Bag = {};
   const short = lacks(p);
-  for (const k of kindsOf(short)) out[k] = Math.min(short[k]!, Math.ceil(short[k]! * share));
+  for (const k of kindsOf(short)) {
+    const n = Math.min(short[k]!, Math.max(BOOST_FLOOR, Math.ceil(short[k]! * share)));
+    if (n >= BOOST_FLOOR) out[k] = n;
+  }
   return out;
+}
+
+/** Is a boost worth a card now: `BOOST_FLOOR` goods or more in all (else another kind takes its place)? */
+export function boostWorth(p: Progress, share: number): boolean {
+  return total(boostGoods(p, share)) >= BOOST_FLOOR;
 }
 
 /**
@@ -177,9 +202,11 @@ export function cardFor(p: Progress, world: World, kind: CardKind, level: number
       const known = wagonsKnown(p);
       return known.length > 0 ? { kind, id: known[Math.floor(random() * known.length)] } : null;
     }
-    case "boost":
-      // Only while a research is picked and short of goods.
-      return kindsOf(lacks(p)).length > 0 ? { kind, share: amountAt(CARD_AMOUNTS.boost, level) } : null;
+    case "boost": {
+      // Only while a research is picked and short of goods, enough of them to be worth a card.
+      const share = amountAt(CARD_AMOUNTS.boost, level);
+      return boostWorth(p, share) ? { kind, share } : null;
+    }
     case "rare": {
       // From a town up, with a school to bring it to, and only a good the research lacks that you can't make.
       const n = amountAt(CARD_AMOUNTS.rare, level);
@@ -292,8 +319,8 @@ export function cardView(p: Progress, world: World, card: GrowthCard): CardView 
       const bag = boostGoods(p, card.share);
       const id = p.research.current;
       const pct = `${Math.round(card.share * 100)}%`;
-      if (id && kindsOf(bag).length > 0) return { kind: card.kind, icon: "📘", amount: `+${goodsLine(bag)}`, line: `${pct} of what ${techOf(id)!.label} still needs`, ok: true, taken: `+${goodsLine(bag)} to ${techOf(id)!.label}` };
-      return { kind: card.kind, icon: "📘", amount: `${pct} research boost`, line: "Goods into your research", ok: false, why: "Pick a research that needs goods" };
+      if (id && boostWorth(p, card.share)) return { kind: card.kind, icon: "📘", amount: `+${goodsLine(bag)}`, line: `${pct} of what ${techOf(id)!.label} still needs`, ok: true, taken: `+${goodsLine(bag)} to ${techOf(id)!.label}` };
+      return { kind: card.kind, icon: "📘", amount: `${pct} research boost`, line: "Goods into your research", ok: false, why: kindsOf(lacks(p)).length > 0 ? "Your research is nearly in" : "Pick a research that needs goods" };
     }
     case "rare": {
       const label = CARGO[card.good].label.toLowerCase();

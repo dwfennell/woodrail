@@ -19,6 +19,12 @@ interface CarEntry {
 const SHELL_GROW = 1.8;
 /** The faint dark ring just inside it (mm): the light rim alone is lost against pale wood (a timber wagon's deck). */
 const SHELL_INNER = 0.8;
+/**
+ * The car whose card is open: its rim wider, and its dark ring with it (QA: at 1.8 mm, as the rest of its train, it
+ * hardly told it apart, and on a pale timber wagon hardly showed at all).
+ */
+const SHELL_GROW_CAR = 2.6;
+const SHELL_INNER_CAR = 1.1;
 /** A part gets a shell if it's at least this share of the car's longest part. */
 const SHELL_PART = 0.4;
 
@@ -40,11 +46,12 @@ export class TrainView {
   // The selection look of track pieces (track-view): each part drawn again, back faces only, a little larger, so a
   // soft warm rim shows round the edges. Static: a selected train standing still draws nothing more.
   private readonly shellTrain = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.select), side: BackSide, transparent: true, opacity: 0.32, depthWrite: false });
-  // The car whose card is open: the same rim, a little stronger.
-  private readonly shellCar = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.select), side: BackSide, transparent: true, opacity: 0.7, depthWrite: false });
+  // The car whose card is open: the same rim, solid and wider (see SHELL_GROW_CAR), its dark ring a clear edge (so it
+  // reads on a pale body too); the rest of its train keeps the soft look.
+  private readonly shellCar = new MeshBasicMaterial({ color: new Color(OUTLINE_TONES.select), side: BackSide, transparent: true, opacity: 1, depthWrite: false });
   // A faint dark ring inside the rim, drawn over its inside edge.
   private readonly ringTrain = new MeshBasicMaterial({ color: new Color("#4a3214"), side: BackSide, transparent: true, opacity: 0.18, depthWrite: false });
-  private readonly ringCar = new MeshBasicMaterial({ color: new Color("#4a3214"), side: BackSide, transparent: true, opacity: 0.35, depthWrite: false });
+  private readonly ringCar = new MeshBasicMaterial({ color: new Color("#3a2410"), side: BackSide, transparent: true, opacity: 0.85, depthWrite: false });
 
   constructor(private readonly mats: Materials) {}
 
@@ -143,6 +150,12 @@ export class TrainView {
     for (const shell of entry.shells) {
       shell.visible = level !== 0;
       shell.material = shell.userData.ring ? (level === 2 ? this.ringCar : this.ringTrain) : level === 2 ? this.shellCar : this.shellTrain;
+      // (Its size for the level: the selected car's stands a little prouder. Set only when the selection changes.)
+      const m = (level === 2 ? shell.userData.carMatrix : shell.userData.trainMatrix) as Matrix4;
+      if (!shell.matrix.equals(m)) {
+        shell.matrix.copy(m);
+        shell.matrixWorldNeedsUpdate = true;
+      }
     }
   }
 
@@ -171,15 +184,24 @@ export class TrainView {
     return parts
       .filter((q) => span(q) >= SHELL_PART * longest)
       .flatMap(({ part, size, centre, scale }) =>
-        // The light rim, and the faint dark ring inside it (drawn after, over the rim's inside edge).
-        [SHELL_GROW, SHELL_INNER].map((by, i) => {
-          const grow = (n: number, s: number) => (n > 1e-6 ? (n + (2 * by) / Math.abs(s || 1)) / n : 1);
+        // The light rim, and the faint dark ring inside it (drawn after, over the rim's inside edge): each sized for
+        // the rest of a selected train, and for the selected car (see `showShells`).
+        [
+          [SHELL_GROW, SHELL_GROW_CAR],
+          [SHELL_INNER, SHELL_INNER_CAR],
+        ].map(([by, byCar], i) => {
+          const sized = (by: number) => {
+            const grow = (n: number, s: number) => (n > 1e-6 ? (n + (2 * by) / Math.abs(s || 1)) / n : 1);
+            return new Matrix4()
+              .makeTranslation(centre.x, centre.y, centre.z)
+              .multiply(new Matrix4().makeScale(grow(size.x, scale.x), grow(size.y, scale.y), grow(size.z, scale.z)))
+              .multiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z));
+          };
           const shell = new Mesh(part.geometry, this.shellTrain);
           shell.matrixAutoUpdate = false;
-          shell.matrix
-            .makeTranslation(centre.x, centre.y, centre.z)
-            .multiply(new Matrix4().makeScale(grow(size.x, scale.x), grow(size.y, scale.y), grow(size.z, scale.z)))
-            .multiply(new Matrix4().makeTranslation(-centre.x, -centre.y, -centre.z));
+          shell.userData.trainMatrix = sized(by);
+          shell.userData.carMatrix = sized(byCar);
+          shell.matrix.copy(shell.userData.trainMatrix);
           shell.renderOrder = 2 + i;
           shell.userData.ring = i === 1;
           shell.castShadow = false;
