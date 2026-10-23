@@ -88,6 +88,8 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
     for (const car of train.cars) {
       const w = economy.sectionWait(car.id);
       if (!w) continue;
+      // (A line that can deliver nothing, a parked train to blame: that's what to do something about.)
+      if (w.kind === "stalled") return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare || w.parked, parked: w.parked };
       if (w.kind === "room") return { kind: "needs-loop", more: Math.max(1, w.more), trains: w.trains, spare: w.spare, parked: w.parked };
       // (One with room waiting a moment for a line-mate: just that, though the line be full.)
       const lineId = economy.lineIdOf.get(car.id);
@@ -116,7 +118,7 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
 }
 
 /** A train not on the line stands on each road of a passing loop: no loop laid elsewhere gets past it. */
-const SPARE_CUT = "a train not on the line is standing in the passing loop. Move it";
+const SPARE_CUT = "a parked train is in the way. Move it";
 
 /** Why a full line's train can't get on: lay loops, or (a loop taken by trains not on the line) move one. */
 function fullText(full: { more: number; spare: boolean; parked: boolean }): string {
@@ -149,7 +151,10 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
         const full = economy.sections.fullness(engineCarId);
         return full ? `Turning back early: ${fullText(full)}` : "Turning back early: the end of the line is taken";
       }
-      return s.cause === "train" ? "Turning back: another train's in the way" : "Turning back at the end of the line";
+      if (s.cause === "train") return "Turning back: another train's in the way";
+      // (A train on no line among a managed line's trains (one taken off it, say): that line's end is none of its, so
+      // plainly the track ends. On its own, a buffer is the end of its line, the player's own choice.)
+      return !economy.lineIdOf.has(engineCarId) && economy.sections.managing() ? "Turning back: the track ends here" : "Turning back at the end of the line";
     case "red-signal":
       return "Waiting at a red signal";
     case "at-stop": {
@@ -173,7 +178,7 @@ export function engineStatus(sim: Sim, economy: Economy, engineCarId: number, na
       return `Spacing out from the other ${s.line} trains${s.left !== null && s.left >= 1 ? ` · ${Math.ceil(s.left)} s` : ""}`;
     case "line-wait":
       if (s.line) return `Waiting for the ${s.line} train`;
-      return s.parked ? "Waiting: a train not on the line is in the way. Move it" : "Waiting: a train not on the line is in the way";
+      return s.parked ? `Waiting: ${SPARE_CUT}` : "Waiting: a train not on the line is in the way";
     case "needs-loop":
       if (s.spare) return `Waiting: ${SPARE_CUT}`;
       return `Waiting: lay ${s.more} more passing loop${s.more === 1 ? "" : "s"} for ${s.trains} trains${s.parked ? OR_MOVE : ""}`;
