@@ -728,4 +728,43 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       expect(q.economy.sections.stalls).toBe(1);
       for (const n of late) expect(n).toBe(1);
     });
+  // QA's N1 on a2d072c: waiting on another line's train, the card looked that line up by the id waited on, its
+  // first car: a wagon once it had reversed, on no line, so the card said "a train not on the line" (56 of 92).
+  it("N1: waiting on another line's train, the card says another train, whichever way round it runs", () => {
+    const { q, l } = one();
+    const said = new Map<string, number>();
+    let other = -1;
+    const events = [
+      {
+        at: 1,
+        fn: () => {
+          // (Another line over the same track, the same two stops: its train runs to and fro, reversing at each.)
+          const placed = q.sim.addTrain(cars, { pieceId: l.side[1], pathIndex: 0, reversed: false, s: 100 });
+          if (placed.kind !== "placed") throw new Error("no room");
+          other = q.sim.getTrain(placed.trainId)!.cars[0].id;
+          q.sim.setLever(other, 1);
+          const ds = [q.a, q.b].map((p) => q.economy.allDepots().find((d) => d.pieceId === p)!.id);
+          editLine(q.economy, other, (st) => st.push(...ds.map((depotId) => ({ depotId, action: "auto" as const }))));
+        },
+      },
+      ...Array.from({ length: 1200 }, (_, k) => ({
+        at: 2 + k * 0.25,
+        fn: (E: readonly number[]) => {
+          for (const e of E) {
+            const w = q.economy.sectionWait(e);
+            if (!w || !("engine" in w)) continue;
+            const t = q.sim.findCar(w.engine)?.train;
+            if (!t || !t.cars.some((c) => c.id === other)) continue;
+            const c = engineStatus(q.sim, q.economy, e, () => "stop");
+            if (c.startsWith("Waiting")) said.set(c, (said.get(c) ?? 0) + 1);
+          }
+        },
+      })),
+    ];
+    const r = scen(q, [{ p: q.west[0], next: 1, s: 200 }, { p: q.east[0], next: 0, s: 200 }], [q.a, q.b], 300, cars, events);
+    if (ENV.SHOW) console.log(`N1 waits on the other line's train: ${[...said].map(([c, n]) => `${c} x${n}`).join(" | ")}; reversed ${q.sim.findCar(other)?.train.cars[0].id !== other}`);
+    expect([...said.keys()].filter((c) => c.includes("not on the line"))).toEqual([]);
+    expect(said.get("Waiting: another train is in the way") ?? 0).toBeGreaterThan(0);
+    void r;
+  });
 });

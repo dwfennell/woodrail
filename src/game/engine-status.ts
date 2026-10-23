@@ -96,12 +96,15 @@ export function trainState(sim: Sim, economy: Economy, train: Train, lever: numb
       const line = lineId === undefined ? undefined : economy.lines.get(lineId);
       // (Waiting on a train not on its line: say so; it isn't one of the line's.)
       const other = w.kind === "section" || w.kind === "slot" || w.kind === "facing" ? w.engine : -1;
-      if (other >= 0 && economy.lineIdOf.get(other) !== lineId) {
+      // (Its line looked up by its engine: the id waited on may be any of its cars, a wagon at its front once reversed.)
+      const otherCars = other >= 0 ? (sim.findCar(other)?.train.cars ?? []) : [];
+      const otherEngine = otherCars.find((c) => economy.lineIdOf.has(c.id))?.id ?? otherCars.find((c) => c.kind === "engine")?.id ?? other;
+      if (other >= 0 && economy.lineIdOf.get(otherEngine) !== lineId) {
         // (One left standing, its lever off: only moving it helps.)
         const o = sim.findCar(other)?.train;
         const parked = !!o && o.speed < 1 && !o.cars.some((c) => c.kind === "engine" && c.lever !== 0);
         // (Another line's: "another train", and it'll go.)
-        const otherLine = economy.lineIdOf.get(other);
+        const otherLine = economy.lineIdOf.get(otherEngine);
         if (otherLine !== undefined && !parked) return { kind: "line-wait", line: "", parked, other: true };
         return { kind: "line-wait", line: "", parked };
       }
