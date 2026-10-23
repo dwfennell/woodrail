@@ -270,7 +270,12 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .depot-card:has(.depot-extra.ledger) { scroll-padding: 0 0 56px; }
   .depot-extra.ledger .ledger-pay { display: none; }
   .depot-card:has(.depot-extra.ledger) > .card-title { position: static; margin: 0; padding: 0 34px; background: none; box-shadow: none; }
-  .depot-card:has(.depot-extra.ledger) > .close { position: absolute; top: 0; order: 0; margin: 0; }
+  /* The ✕ rides in the footer, at its left (Automatic is centred; the rewards chip sits over the right corner): in
+     reach however far it's scrolled, at no cost to the ledger's room. */
+  .depot-card:has(.depot-extra.ledger) > .close { position: sticky; bottom: -11px; z-index: 2; order: 3; align-self: flex-start; margin: -57px 0 -11px -10px; }
+  /* Scrolling comes to rest with a row's top at the top (gently: a long fling isn't held back). */
+  .depot-card:has(.depot-extra.ledger) { scroll-snap-type: y proximity; }
+  .depot-extra.ledger > *, .ledger-goods > *, .ledger-rows > * { scroll-snap-align: start; }
   .menu { max-height: calc(100dvh - max(10px, env(safe-area-inset-top)) - 64px); overflow-y: auto; overscroll-behavior: contain; }
 }
 
