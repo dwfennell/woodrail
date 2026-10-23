@@ -139,6 +139,18 @@ check("tapping the ruin opens its card", !!card, JSON.stringify(card));
 check("…titled Old farm, with its fields and what opens it", card?.title === "Old farm" && /Farm fields nearby: 8 of 8/.test(card.lines[0]) && card.lines.includes("🔒 Learn Farming at a school to open this farm") && card.lines.includes("Or build your own anywhere from the Industries tab."), JSON.stringify(card));
 check("…and Clear the ruin for a few coins (no Restore while it's locked)", /^Clear the ruin · 10/.test(card?.button ?? "") && card.restore, card?.button);
 await shot("03-locked-card");
+/** What a straight held across the old farm's yard is told (as a drag over it shows). */
+const ruinRefusal = () =>
+  p.evaluate((s) => {
+    const it = window.woodrail.interaction;
+    const c = Math.cos(s.piece.heading);
+    const n = Math.sin(s.piece.heading);
+    const mid = { x: s.piece.x + c * 108 - n * 72, z: s.piece.z + n * 108 + c * 72 };
+    const r = it.placement("straight-216", false, { x: mid.x - c * 108, z: mid.z - n * 108, heading: s.piece.heading }, 0, -1).reason;
+    return r && it.blockMessage(r);
+  }, farm);
+const lockedSays = await ruinRefusal();
+check("track over the locked old farm: it names it, and says tap it to clear it", lockedSays === "An old farm is in the way: tap it to clear it", lockedSays);
 
 // 3. Farming learned (a shortcut: as a research finishing does it): a toast names the old farm, and tapped, frames it.
 await p.evaluate(() => document.querySelector(".ruin-card button.close")?.click());
@@ -177,6 +189,8 @@ const guide = await p.evaluate(async () => {
   return { ruin: g.ruin, marks: g.marks };
 });
 check("Show me for Open a farm: the old farm", guide.ruin === farm.id, JSON.stringify(guide));
+const learnedSays = await ruinRefusal();
+check("…and track over it now says tap it to restore or clear it", learnedSays === "An old farm is in the way: tap it to restore or clear it", learnedSays);
 
 // 4. Its card now offers Restore at half a new farm yard's price; short of planks (no workshop yet), it says so.
 const shopAt = await p.evaluate(async () => {

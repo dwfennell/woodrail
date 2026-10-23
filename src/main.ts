@@ -1,12 +1,12 @@
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
-import { Editor, pieceCentre, TRAIN_ON_TRACK } from "./editor/editor";
+import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
 import { viewRoom } from "./ui/view-room";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
 import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
-import { describeLand, ruinCard, siteBlueprint } from "./game/map-sites";
+import { describeLand, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
 import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
@@ -729,6 +729,22 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     audio.tap();
   }
   interaction.onRuinTap = openRuin;
+
+  /** Can this ruin (a site of the map shown) be restored now (its card offers Restore)? Kept till a blueprint is learned. */
+  const restorable = new WeakMap<object, { learned: number; yes: boolean }>();
+  // Track held over a ruin: which, and what a tap on it offers ("An old farm is in the way: tap it to restore or
+  // clear it"). Only while a piece is refused for a ruin; a few dozen squares looked at.
+  interaction.ruinMessage = (type, flipped, pose) => {
+    const c = poseCentre(type, flipped, pose);
+    const site = game.landscape.sites?.[ruinNear(game.landscape, c.x, c.z)];
+    if (!site || site.cleared) return null;
+    let r = restorable.get(site);
+    if (r?.learned !== progress.learned.size) {
+      r = { learned: progress.learned.size, yes: mode === "game" && ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)).restore !== null };
+      restorable.set(site, r);
+    }
+    return ruinInWay(site, r.yes);
+  };
 
   /** "Clear the ruin": a few coins (Game mode) take it and its stub away, for track or an industry of your own. */
   function clearShownRuin(): void {

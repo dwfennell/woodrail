@@ -15,7 +15,7 @@ import {
 } from "../landscape";
 import { harbourWhy } from "./harbours";
 import { resourceAt, SITE_RULES } from "./industries";
-import { addPlotExtras, CLEAR_PRICE, describeLand, MAX_SITES, ruinAt, ruinCard, siteBlueprint } from "./map-sites";
+import { addPlotExtras, CLEAR_PRICE, describeLand, MAX_SITES, ruinAt, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./map-sites";
 import { buildStarterWorld, clearRuin, createWorld, fixedPieces, landForSale, plotLand, startLand, unlockPlot } from "./world";
 import { deserializeWorld, serializeWorld, type SaveData } from "../persist/save";
 
@@ -258,6 +258,15 @@ describe("map sites: clearing a ruin", () => {
     expect(ruinAt(w.landscape, farm.centre.x, farm.centre.z)).toBe(-1);
     expect(farm.fields.map((f) => w.landscape.fields[f].cells.length)).toEqual(fields);
     expect(clearRuin(w, farm.id)).toEqual({ why: "It's gone already" });
+  });
+
+  it("track held over a ruin names it, and offers Restore once it can be restored", () => {
+    const w = buildStarterWorld();
+    const farm = w.landscape.sites!.find((s) => s.role === "farm")!;
+    expect(ruinNear(w.landscape, farm.centre.x, farm.centre.z)).toBe(farm.id);
+    expect(ruinNear(w.landscape, farm.centre.x + 3000, farm.centre.z + 3000)).toBe(-1);
+    expect(ruinInWay(farm, false)).toBe("An old farm is in the way: tap it to clear it");
+    expect(ruinInWay(farm, true)).toBe("An old farm is in the way: tap it to restore or clear it");
   });
 
   it("not while a train stands on its stub", () => {

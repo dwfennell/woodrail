@@ -2522,6 +2522,8 @@ export class Interaction {
     if (reason === "hill") this.hillWhy = hillMessage(levelsAbove(this.game.landscape, type, flipped, pose, y));
     // A depot is told it's the depot (its name, as its yard's messages say), not the track, that keeps out of town.
     if (reason === "town") this.townWhy = townMessage(type);
+    // An old industry's ruin: which, and what a tap on it offers (only worked out when it's so).
+    if (reason === "ruin") this.ruinWhy = this.ruinMessage?.(type, flipped, pose) ?? BLOCK_MESSAGES.ruin;
     if (reason) return { reason, risers: [] };
     // A depot's yard and buildings beside its track need room too; other track keeps out of a player's depot's yard.
     const yard = this.yardBlock(type, pose, y, ignoreId) ?? this.inYard(type, flipped, pose, y, ignoreId);
@@ -2544,6 +2546,13 @@ export class Interaction {
   siteRule: ((type: PieceTypeId, pose: Pose, ignoreId: Ignore) => string | null) | null = null;
   /** The message for the last "site" refusal. */
   private siteWhy = "";
+  /**
+   * What to say when a piece meets an old industry's ruin ("An old farm is in the way: tap it to restore or clear
+   * it"), or null for the plain message. Asked only while a piece is refused for a ruin.
+   */
+  ruinMessage: ((type: PieceTypeId, flipped: boolean, pose: Pose) => string | null) | null = null;
+  /** The message for the last "ruin" refusal. */
+  private ruinWhy = BLOCK_MESSAGES.ruin;
 
   /**
    * Is there room beside a depot piece's track for its yard (see `checkYard`)? Null for other pieces, and for a map's
@@ -2663,7 +2672,7 @@ export class Interaction {
     const ignoreKey = typeof ignoreId === "number" ? ignoreId : [...ignoreId].join(",");
     const key = `flip|${type}|${flipped}|${pose.x}|${pose.z}|${pose.heading}|${y}|${ignoreKey}|${reason}|${this.game.layout.pieceCount}`;
     if (this.hintFor?.key === key) return this.hintFor.hint;
-    const said = { memo: this.yardMemo, yard: this.yardWhy, site: this.siteWhy, hill: this.hillWhy, town: this.townWhy, inYard: this.inYardWhy };
+    const said = { memo: this.yardMemo, yard: this.yardWhy, site: this.siteWhy, hill: this.hillWhy, town: this.townWhy, ruin: this.ruinWhy, inYard: this.inYardWhy };
     // Turned right round on the same track (where the splice puts it held the other way), all of it checked.
     const hint = this.splices(type) ? flipHint(type, pose, (turned) => this.placement(type, flipped, turned, y, ignoreId).reason, reason) : null;
     // (The turned-round check mustn't take the place of what's said, or remembered, for where it's held.)
@@ -2672,6 +2681,7 @@ export class Interaction {
     this.siteWhy = said.site;
     this.hillWhy = said.hill;
     this.townWhy = said.town;
+    this.ruinWhy = said.ruin;
     this.inYardWhy = said.inYard;
     this.hintFor = { key, hint };
     return hint;
@@ -2756,6 +2766,7 @@ export class Interaction {
   private blockWhy(reason: PlaceBlock): string {
     if (reason === "hill") return this.hillWhy;
     if (reason === "town") return this.townWhy;
+    if (reason === "ruin") return this.ruinWhy;
     if (reason === "splice-fit" || reason === "splice-busy" || reason === "splice-onto") return SPLICE_MESSAGES[reason];
     if (isYardBlock(reason)) return this.yardWhy;
     if (reason === "in-yard") return this.inYardWhy;

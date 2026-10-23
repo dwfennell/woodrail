@@ -31,7 +31,9 @@ On the land its yard and stub squares are `FEAT_RUIN` (owner: the site's id), it
 squares off each end) are corridors. In the world its stub is a real, fixed `straight-216` piece (`World.ruins`: site id
 → piece id), like a map depot's piece: track can be joined to it now, and step 2 swaps its type in place.
 
-`FEAT_RUIN` blocks track (`checkPlacement`: "An old yard is in the way: tap it to clear it"), industries' yards
+`FEAT_RUIN` blocks track (`checkPlacement`; in the game the message names the ruin and, once it can be restored, says
+so: "An old farm is in the way: tap it to restore or clear it", else "…tap it to clear it": `ruinInWay`, `ruinNear`,
+`Interaction.ruinMessage`, since 2026-10-23; the plain "An old yard is in the way: tap it to clear it" elsewhere), industries' yards
 (`checkYard`: "an old yard"), placed models and land editing, exactly where a map depot's square would.
 
 ## 2. Generation (`src/game/map-sites.ts`)

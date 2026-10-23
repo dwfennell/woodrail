@@ -683,6 +683,36 @@ export function ruinCard(land: Landscape, site: MapSite, mode: GameMode, learned
   };
 }
 
+/**
+ * Said when track meets an old industry's ruin: what it is, and what a tap on it offers ("An old farm is in the way:
+ * tap it to restore or clear it"; "…to clear it" while it can't be restored).
+ */
+export function ruinInWay(site: MapSite, canRestore: boolean): string {
+  return `An old ${SITE_NAMES[site.role]} is in the way: tap it to ${canRestore ? "restore or clear" : "clear"} it`;
+}
+
+/**
+ * The standing ruin one of whose squares (yard or stub) is nearest (x, z), within `reach` mm; −1 if none. Looks at the
+ * few dozen squares round the point: for a refusal's message, while a piece is held over a ruin.
+ */
+export function ruinNear(land: Landscape, x: number, z: number, reach = 360): number {
+  const g = land.grid;
+  const r = Math.ceil(reach / CELL);
+  const col = g.colAt(x);
+  const row = g.rowAt(z);
+  let best = -1;
+  let d = Infinity;
+  for (let dr = -r; dr <= r; dr++) {
+    for (let dc = -r; dc <= r; dc++) {
+      const i = g.index(col + dc, row + dr);
+      if (i === -1 || g.feature[i] !== FEAT_RUIN) continue;
+      const e = Math.hypot(g.centreX(col + dc) - x, g.centreZ(row + dr) - z);
+      if (e <= reach && e < d) [best, d] = [g.owner[i], e];
+    }
+  }
+  return best;
+}
+
 /** Words for a count of things: "a town", "2 towns". */
 const some = (n: number, one: string, many: string) => (n === 1 ? one : `${n} ${many}`);
 
