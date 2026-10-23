@@ -748,6 +748,61 @@ async function leverPins(ctx, p) {
   await p.keyboard.press("Escape");
 }
 
+/**
+ * A 36 mm piece between an engine's two axles (56 mm apart): neither wheel on it, but it's under the car. A long press
+ * on it must not pick it up (QA: it counted as free, and came up from under the train).
+ */
+async function shortUnderCar(ctx, p) {
+  const cdp = await ctx.newCDPSession(p);
+  const touch = (type, x, y, timestamp) => cdp.send("Input.dispatchTouchEvent", { type, ...(timestamp ? { timestamp } : {}), touchPoints: type === "touchEnd" ? [] : [{ x, y, id: 1 }] });
+  const settled = () => p.evaluate(() => Promise.race([window.woodrail.settled(), new Promise((r) => setTimeout(r, 60000))]));
+  await p.keyboard.press("Escape");
+  const ids = await p.evaluate(async () => {
+    const w = window.woodrail;
+    const { frameDistance } = await import("/src/game/camera-director.ts");
+    const g = w.interaction.groundAt(195, 420);
+    // (Clear of what earlier checks left here: a run of its own, off to one side.)
+    const x0 = g.x + 700;
+    const run = w.editor().placeRun([
+      { type: "straight-216", pose: { x: x0, z: g.z, heading: 0 }, y: 0, flipped: false },
+      { type: "straight-36", pose: { x: x0 + 216, z: g.z, heading: 0 }, y: 0, flipped: false },
+      { type: "straight-216", pose: { x: x0 + 252, z: g.z, heading: 0 }, y: 0, flipped: false },
+    ]);
+    const placed = w.sim.addTrain(["engine"], { pieceId: run[2], pathIndex: 0, s: 15, reversed: false });
+    const at = g.clone();
+    at.x = x0 + 234;
+    w.director.glideTo(at, frameDistance(160, w.camera.fov, w.camera.aspect), { duration: 0.3 });
+    window.__underSaid = [];
+    const h = w.hud;
+    const toast = h.toast.bind(h);
+    h.toast = (m, ...a) => (window.__underSaid.push(m), toast(m, ...a));
+    return { run, placed: placed.kind, occupied: w.sim.pieceOccupied(run[1]), wheels: placed.kind === "placed" ? w.sim.getTrain(placed.trainId).bogies.map((b) => b.pieceId) : [] };
+  });
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
+  await settled();
+  check("a 36 between an engine's axles counts as under the train", ids.placed === "placed" && ids.occupied && !ids.wheels.includes(ids.run[1]), JSON.stringify(ids));
+  // (On the piece beside the car's body: the track's edge, clear of the car, so the press is the piece's.)
+  const [x, y] = await p.evaluate((id) => {
+    const w = window.woodrail;
+    const V = w.camera.position.constructor;
+    const piece = w.layout.getPiece(id);
+    const v = new V(piece.pose.x + 18, piece.y + 4, piece.pose.z + 18).project(w.camera);
+    return [((v.x + 1) / 2) * innerWidth, ((1 - v.y) / 2) * innerHeight];
+  }, ids.run[1]);
+  const what = await p.evaluate(([x, y]) => window.woodrail.interaction.pressAt?.(x, y)?.kind ?? null, [x, y]);
+  await p.evaluate(() => window.addEventListener("pointerdown", () => (window.__downAt = performance.now()), { capture: true, once: true }));
+  await touch("touchStart", x, y, Date.now() / 1000);
+  const held = await p.evaluate(() => new Promise((r) => setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const m = window.woodrail.interaction.mode;
+    r(m.kind === "drag-piece" ? `drag-piece ${JSON.stringify([...(m.ids ?? m.pieces ?? []), m.pieceId, m.press?.pieceId].filter((x) => x !== undefined))}` : m.kind);
+  })), Math.max(0, window.__downAt + 700 - performance.now()))));
+  await touch("touchEnd", 0, 0);
+  await settled();
+  const after = await p.evaluate((id) => ({ there: !!window.woodrail.layout.getPiece(id), said: window.__underSaid }), ids.run[1]);
+  check("a long press on it doesn't pick it up, and says a train is on it", !held.startsWith("drag-piece") && after.there && after.said.includes("A train is on it"), `mode ${held}; pressed ${what}; ${JSON.stringify(after)}`);
+  await p.keyboard.press("Escape");
+}
+
 for (const mode of ["sandbox", "game"]) {
   try {
     await runMode(mode);
@@ -804,6 +859,7 @@ async function runMode(mode) {
     await redrawnControl(ctx, p);
     await flickOut(ctx, p, tapOn);
     await leverPins(ctx, p);
+    await shortUnderCar(ctx, p);
   }
   await ctx.close();
 }

@@ -564,15 +564,13 @@ export class Editor {
     return false;
   }
 
-  /** The pieces a train (on the rails) stands on, or null for none. */
+  /** The pieces a train (on the rails) is on, under a wheel or a car between them, or null for none. */
   private underTrains(): PieceRecord[] | null {
     let out: PieceRecord[] | null = null;
     for (const t of this.sim.trainIds()) {
-      const train = this.sim.getTrain(t)!;
-      if (train.derailed) continue;
-      for (const b of train.bogies) {
-        if (out?.some((r) => r.id === b.pieceId)) continue;
-        const r = this.record(b.pieceId);
+      for (const id of this.sim.piecesUnder(t)) {
+        if (out?.some((r) => r.id === id)) continue;
+        const r = this.record(id);
         if (r) (out ??= []).push(r);
       }
     }
