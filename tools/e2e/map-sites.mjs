@@ -10,6 +10,7 @@
 // - the land around shows its ruins before it's bought; a coastal plot's land card lists its towns by the sea and its
 //   old sites; bought, it brings them (the ruins' stubs become track pieces, fixed);
 // - idle: no frames drawn in 30 s (the ruins cost nothing while nothing changes).
+// - a phone on its side (667×375): the ruin card's Restore and Clear fully in view above the tray, and tappable.
 //
 // Usage: npm run e2e:sites [-- <out dir>]   (default out: e2e-out/sites)
 // Starts its own dev server (on 5384, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -458,6 +459,73 @@ const sandbox = await q.evaluate(async () => {
 });
 check("Sandbox: no sites or ruins (none drawn in the opening view, none on the land for sale)", sandbox.siteless && sandbox.sites === 0 && sandbox.ruins === 0 && sandbox.meshes === 0 && sandbox.forSale === 0, JSON.stringify(sandbox));
 await q.screenshot({ path: `${OUT}/08-sandbox-start.png` }).catch(() => {});
+
+// 14. A phone on its side (667×375, a fresh game): the ruin card's Restore and Clear stay in view, pinned at its foot
+// above the tray, and a tap on them lands (QA: they sat under the tray).
+const L = await b.newPage({ viewport: { width: 667, height: 375 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+L.on("pageerror", (e) => errors.push(e.message));
+await L.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+await L.goto(PAGE);
+await L.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+await L.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await L.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+await L.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
+await L.keyboard.press("Escape");
+await L.waitForTimeout(1500);
+// (Farming learned, so the card has both buttons; its yard looked at from above the tray, and tapped.)
+const lAt = await L.evaluate(async () => {
+  const w = window.woodrail;
+  w.learn("farming");
+  const s = w.world.landscape.sites.find((x) => x.role === "farm");
+  const c = Math.cos(s.piece.heading);
+  const n = Math.sin(s.piece.heading);
+  const V = w.camera.position.constructor;
+  const yard = new V(s.piece.x + c * 108 - n * 72, 10, s.piece.z + n * 108 + c * 72);
+  w.lookAt(new V(yard.x, 0, yard.z + 300), 1300, 0.8);
+  w.invalidate();
+  await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 15000))]);
+  const v = yard.clone().project(w.camera);
+  const r = w.canvas.getBoundingClientRect();
+  return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height, id: s.id };
+});
+await L.waitForTimeout(4000);
+await L.touchscreen.tap(lAt.x, lAt.y);
+await L.waitForTimeout(800);
+const lTapped = await L.evaluate(() => !document.querySelector(".ruin-card").hidden);
+if (!lTapped) await L.evaluate((id) => window.woodrail.interaction.onRuinTap(id), lAt.id);
+await L.waitForTimeout(800);
+const lCard = await L.evaluate(() => {
+  const card = document.querySelector(".ruin-card");
+  const cr = card.getBoundingClientRect();
+  const tray = document.querySelector(".tray").getBoundingClientRect();
+  return {
+    open: !card.hidden,
+    buttons: [...card.querySelectorAll(".card-row button")].filter((x) => !x.hidden).map((x) => {
+      const r = x.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const ok = r.top >= cr.top && r.bottom <= cr.bottom && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth && r.bottom <= tray.top && r.height >= 40;
+      return { text: x.textContent, ok, hit: hit === x || x.contains(hit), at: [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)], rect: [r.left, r.top, r.right, r.bottom].map(Math.round) };
+    }),
+    card: [cr.top, cr.bottom].map(Math.round),
+    tray: Math.round(tray.top),
+  };
+});
+check("667×375: the ruin card opens (a tap on the old farm)", lCard.open, JSON.stringify({ tapped: lTapped }));
+check("667×375: Restore and Clear fully in view, above the tray, nothing over them", lCard.buttons.length === 2 && lCard.buttons.every((x) => x.ok && x.hit), JSON.stringify(lCard));
+await L.screenshot({ path: `${OUT}/14-ruin-card-667x375.png` }).catch(() => {});
+// A tap on Restore lands: no workshop yet, so it says where the planks come from.
+const restoreBtn = lCard.buttons.find((x) => x.text.startsWith("Restore"));
+if (restoreBtn) await L.touchscreen.tap(restoreBtn.at[0], restoreBtn.at[1]);
+const lToast = await L.evaluate(async () => {
+  // (Behind the research toast, if that's still up.)
+  for (let k = 0; k < 40; k++) {
+    const t = document.querySelector(".toast")?.textContent;
+    if (t?.startsWith("Restoring")) return t;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return document.querySelector(".toast")?.textContent;
+});
+check("667×375: a tap on Restore lands", lToast === "Restoring takes planks from your workshop. Place it first", lToast);
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

@@ -172,6 +172,12 @@ land not yet bought isn't tappable. The card (for a phone, a child reading):
   since by something that isn't an undo step is refused: "Something is on that ground now". A restore's redo onto a
   ruin that's gone is refused too ("It's gone already"), which the history no longer allows anyway.
 
+On a phone the card scrolls when it's taller than the room above the tray; on its side (667 × 375: 150 px of room)
+it always is. Its Restore and Clear row is **pinned at its foot** (`position: sticky`, as a town's switches are under its
+ledger; since 2026-10-23: QA found them under the tray at 667 × 375, and at 844 × 390 the row was cut off at the card's
+edge). Measured fully in view, above the tray and hit by a tap at 390 × 844, 360 × 780, 667 × 375 and 844 × 390
+(e2e:sites checks 667 × 375).
+
 The land card (`describeLand`): towns (by the sea, if they are), old sites, depots, then the land: "2 towns by the sea,
 an old harbour, a forest yard and hills.", "A town, an old quarry, a river and hills."
 
