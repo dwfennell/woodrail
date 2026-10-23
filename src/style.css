@@ -929,6 +929,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .reward-badge .rb-count { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #c8442f; color: #fff; font-size: 12px; font-weight: 900; line-height: 20px; }
 @keyframes reward-bob { 50% { transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .reward-badge { animation: none; } }
+/* While a card is open the badge stands aside (QA, 360 px: it lay over a card's bottom button, the right end of "Clear
+   the ruin", and a tap there opened the rewards; on a phone on its side a docked card reaches it too). It's back when
+   the card closes. */
+body:has(.card:not([hidden])) .reward-badge { display: none; }
 
 /* A phone on its side, an engine with no route yet: "Plan a route" beside Go, in the one row (QA: under it, at 375 px
    it was cut off at the card's foot, behind a scroll). With a route, the card's as ever (it scrolls). */
