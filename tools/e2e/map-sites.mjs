@@ -49,6 +49,21 @@ const tapAt = async (x, y) => {
   await p.touchscreen.tap(x, y);
   await p.waitForTimeout(500);
 };
+/**
+ * A tap stamped with its own time (CDP touches, 62 ms down, as deck-taps.mjs does it): on a loaded machine an unstamped
+ * one can be taken as a long press or a drag by the time it's handled.
+ */
+const cdps = new WeakMap();
+const stampedTap = async (page, x, y) => {
+  if (!cdps.has(page)) cdps.set(page, await page.context().newCDPSession(page));
+  const cdp = cdps.get(page);
+  const t = Date.now() / 1000;
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: t, touchPoints: [{ x, y, id: 1 }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", timestamp: t + 0.062, touchPoints: [] });
+  await page.waitForTimeout(500);
+};
+/** Till the camera's glide is over (on a loaded machine "Add land"'s glide out took 34 s): taps aimed after it land. */
+const glided = (page) => page.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 120000, polling: 250 }).catch(() => console.log("  (the camera was still gliding after 120 s)"));
 const tap = async (selector, text) => {
   const box = await p.evaluate(
     ({ selector, text }) => {
@@ -335,17 +350,19 @@ await p.evaluate(() => {
 // (Add land: from the ☰ menu on a phone.)
 await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.title === "Choose land to add to the map" || b.title === "Add land")?.click());
 await p.waitForTimeout(1500);
-await settle();
 // (A tap on the plot itself, where it shows clear of the card: a point of it on the screen, once the view has come to
-// rest from its glide out.)
-await p.waitForTimeout(2500);
+// rest from its glide out. QA: under load the glide took 34 s, and a tap made 4 s in found "That's your land already".)
+await glided(p);
+await settle();
+await p.waitForTimeout(500);
 
 let spot = null;
 for (let attempt = 0; attempt < 4 && !(spot && !spot.none); attempt++) {
   // (Not on screen once the view's glide out is over: looked at, its near edge beside the land, above the card.)
   if (attempt > 0) {
     await look((pick.px + 0.5) * 2232, (pick.pz + 0.5) * 1656 + (pick.pz > 0 ? -828 : pick.pz < 0 ? 828 : 0) + 500, 3200, 0.75);
-    await p.waitForTimeout(1500);
+    await glided(p);
+    await p.waitForTimeout(500);
   }
   spot = await p.evaluate(([px, pz]) => {
   const w = window.woodrail;
@@ -367,7 +384,7 @@ for (let attempt = 0; attempt < 4 && !(spot && !spot.none); attempt++) {
 }, [pick.px, pick.pz]);
 }
 if (spot?.none) console.log("  (no spot of the plot on screen)", JSON.stringify(spot), JSON.stringify(pick));
-if (spot && !spot.none) await tapAt(spot.x, spot.y);
+if (spot && !spot.none) await stampedTap(p, spot.x, spot.y);
 await p.waitForTimeout(600);
 const landText = await p.evaluate(() => document.querySelector(".land-text")?.textContent ?? "");
 check("the land card lists the plot's old sites and towns", /old (farm|quarry|mine|harbour)/.test(landText) && (pick.towns === 0 || /town/.test(landText)), landText);
@@ -389,41 +406,46 @@ await shot("07-bought-coast");
 
 // 10. Clear one of its ruins: 10 coins, the ruin and its stub gone.
 const ruinBought = await p.evaluate(([px, pz]) => window.woodrail.world.landscape.sites.filter((s) => s.plot.px === px && s.plot.pz === pz && !s.cleared).map((s) => ({ ...s }))[0], [pick.px, pick.pz]);
-const ry = yardOf(ruinBought);
-await look(ry.x, ry.z, 1300);
-const rAt = await onScreen(ry.x, 10, ry.z);
-await tapAt(rAt.x, rAt.y);
-const before = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, ruins: window.woodrail.world.ruins.size, coins: window.woodrail.progress().coins, card: !document.querySelector(".ruin-card").hidden }));
-check("a ruin on the land bought: its card opens on a tap", before.card, JSON.stringify(before));
-await tap(".ruin-card .ruin-clear");
-await p.waitForTimeout(800);
-const after = await p.evaluate((id) => {
-  const w = window.woodrail;
-  const g = w.world.landscape.grid;
-  let left = 0;
-  g.forEachCell((i) => {
-    if (g.feature[i] === 7 && g.owner[i] === id) left++;
-  });
-  return { pieces: w.layout.pieceCount, ruins: w.world.ruins.size, cleared: !!w.world.landscape.sites[id].cleared, coins: w.progress().coins, left, card: !document.querySelector(".ruin-card").hidden };
-}, ruinBought.id);
-check("Clear the ruin: it's gone, its stub too, for 10 coins", after.cleared && after.ruins === before.ruins - 1 && after.pieces === before.pieces - 1 && after.coins === before.coins - 10 && after.left === 0 && !after.card, JSON.stringify({ before, after }));
-await shot("10-cleared");
-// Clearing is one undo step (QA: Restore, Undo, Clear, Redo rebuilt the farm on the cleared site): Undo brings the
-// ruin and its stub back and the 10 coins, Redo clears it again.
-const ruinState = (id) =>
-  p.evaluate((id) => {
+// (Not bought, so no ruin of its own to clear: said, and the steps after go on.)
+check("the plot bought has a ruin to clear", !!ruinBought, JSON.stringify(bought));
+if (ruinBought) {
+  const ry = yardOf(ruinBought);
+  await look(ry.x, ry.z, 1300);
+  await glided(p);
+  const rAt = await onScreen(ry.x, 10, ry.z);
+  await tapAt(rAt.x, rAt.y);
+  const before = await p.evaluate(() => ({ pieces: window.woodrail.layout.pieceCount, ruins: window.woodrail.world.ruins.size, coins: window.woodrail.progress().coins, card: !document.querySelector(".ruin-card").hidden }));
+  check("a ruin on the land bought: its card opens on a tap", before.card, JSON.stringify(before));
+  await tap(".ruin-card .ruin-clear");
+  await p.waitForTimeout(800);
+  const after = await p.evaluate((id) => {
     const w = window.woodrail;
-    return { pieces: w.layout.pieceCount, ruin: w.world.ruins.has(id), cleared: !!w.world.landscape.sites[id].cleared, coins: w.progress().coins };
-  }, id);
-// (Its title is its tooltip's now, `data-tip`, since the first tap on it.)
-await tap("button[title='Undo (Ctrl+Z)'], button[data-tip='Undo (Ctrl+Z)']");
-await p.waitForTimeout(1200);
-const unclear = await ruinState(ruinBought.id);
-check("Undo the Clear: the ruin and its stub are back, the 10 coins given back", unclear.ruin && !unclear.cleared && unclear.pieces === before.pieces && unclear.coins === before.coins, JSON.stringify(unclear));
-await p.evaluate(() => window.woodrail.editor().redo());
-await p.waitForTimeout(1200);
-const reclear = await ruinState(ruinBought.id);
-check("…Redo: cleared again, for 10 coins", !reclear.ruin && reclear.cleared && reclear.coins === before.coins - 10, JSON.stringify(reclear));
+    const g = w.world.landscape.grid;
+    let left = 0;
+    g.forEachCell((i) => {
+      if (g.feature[i] === 7 && g.owner[i] === id) left++;
+    });
+    return { pieces: w.layout.pieceCount, ruins: w.world.ruins.size, cleared: !!w.world.landscape.sites[id].cleared, coins: w.progress().coins, left, card: !document.querySelector(".ruin-card").hidden };
+  }, ruinBought.id);
+  check("Clear the ruin: it's gone, its stub too, for 10 coins", after.cleared && after.ruins === before.ruins - 1 && after.pieces === before.pieces - 1 && after.coins === before.coins - 10 && after.left === 0 && !after.card, JSON.stringify({ before, after }));
+  await shot("10-cleared");
+  // Clearing is one undo step (QA: Restore, Undo, Clear, Redo rebuilt the farm on the cleared site): Undo brings the
+  // ruin and its stub back and the 10 coins, Redo clears it again.
+  const ruinState = (id) =>
+    p.evaluate((id) => {
+      const w = window.woodrail;
+      return { pieces: w.layout.pieceCount, ruin: w.world.ruins.has(id), cleared: !!w.world.landscape.sites[id].cleared, coins: w.progress().coins };
+    }, id);
+  // (Its title is its tooltip's now, `data-tip`, since the first tap on it.)
+  await tap("button[title='Undo (Ctrl+Z)'], button[data-tip='Undo (Ctrl+Z)']");
+  await p.waitForTimeout(1200);
+  const unclear = await ruinState(ruinBought.id);
+  check("Undo the Clear: the ruin and its stub are back, the 10 coins given back", unclear.ruin && !unclear.cleared && unclear.pieces === before.pieces && unclear.coins === before.coins, JSON.stringify(unclear));
+  await p.evaluate(() => window.woodrail.editor().redo());
+  await p.waitForTimeout(1200);
+  const reclear = await ruinState(ruinBought.id);
+  check("…Redo: cleared again, for 10 coins", !reclear.ruin && reclear.cleared && reclear.coins === before.coins - 10, JSON.stringify(reclear));
+}
 
 // 11. Idle: nothing drawn for 30 s (the ruins cost nothing while nothing changes).
 const cdp = await p.context().newCDPSession(p);
@@ -582,6 +604,7 @@ const openMapView = async () => {
     return q && { x: q.x + q.width / 2, y: q.y + q.height / 2 };
   });
   if (r) await mTap(r.x, r.y);
+  await glided(M);
   // (Till the glide up has ended: no frame drawn for a second, so the labels are where they'll stay.)
   await M.evaluate(async () => {
     const w = window.woodrail;
@@ -664,9 +687,10 @@ await M.evaluate(async () => {
   w.economy.allDepots().find((x) => x.role === "workshop").piles[CARGO.planks.index] = 10;
 });
 await M.waitForTimeout(1500);
+await glided(M);
 const map3 = await mapState();
 const farmMark3 = map3.ruins.find((r) => r.key === `ruin:${mFarm}`);
-if (farmMark3?.shown) await mTap((farmMark3.box.l + farmMark3.box.r) / 2, (farmMark3.box.t + farmMark3.box.b) / 2);
+if (farmMark3?.shown) await stampedTap(M, (farmMark3.box.l + farmMark3.box.r) / 2, (farmMark3.box.t + farmMark3.box.b) / 2);
 await M.waitForTimeout(1500);
 const mCard = await M.evaluate(() => {
   const c = document.querySelector(".ruin-card");
