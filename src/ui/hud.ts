@@ -760,8 +760,12 @@ export class Hud {
       tabs.innerHTML = "";
       list = trayTabs(mode);
       for (const tab of list) {
-        // Tapping a tab (even the open one) goes back to its groups.
-        const t = button(tab.label, `${tab.label}`, () => openTab(tab), "tab");
+        // Tapping a tab (even the open one) goes back to its groups. (Drawing on a phone on its side, the tray is only
+        // its tabs, its shelves put away for the map's sake: a tab tapped there puts the pencil down, so they show.)
+        const t = button(tab.label, `${tab.label}`, () => {
+          if (this.drawing && getComputedStyle(scroller).display === "none") this.handlers.trayDraw(false);
+          openTab(tab);
+        }, "tab");
         t.dataset.tab = tab.id;
         tabs.appendChild(t);
       }
