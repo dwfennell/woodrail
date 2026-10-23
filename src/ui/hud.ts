@@ -1810,8 +1810,10 @@ export class Hud {
     // Wherever it went, clear of the tray (QA, 667x375: a three-line toast beside a docked card reached 2 px into it).
     const t = this.toastEl;
     const tray = this.tray.getBoundingClientRect();
-    // (By layout, not its box: the toast slides in, its box a little higher till it's shown.)
-    if (tray.height > 0 && t.offsetTop + t.offsetHeight > tray.top - 6) t.style.top = `${Math.max(8, Math.round(tray.top - 6 - t.offsetHeight))}px`;
+    // (By layout, not its box: the toast slides in, its box a little higher till it's shown. Shown, it's tilted 0.8°,
+    // a corner that much lower: QA, a wide one cleared the tray by 1-2 px.)
+    const tilt = Math.ceil((t.offsetWidth * Math.sin((0.8 * Math.PI) / 180)) / 2);
+    if (tray.height > 0 && t.offsetTop + t.offsetHeight + tilt > tray.top - 6) t.style.top = `${Math.max(8, Math.round(tray.top - 6 - tilt - t.offsetHeight))}px`;
     return true;
   }
 
