@@ -290,7 +290,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   /* The workshop's plank choice moves up under the title (the short card is full with its pile and switches, and the
      choice would be under the fold); its hint is for a taller card. */
   .depot-card > .card-title { order: -2; }
-  .depot-card > .depot-yard { order: -1; }
+  .depot-card > .depot-yard { order: -1; margin-top: 0; }
   /* (And its pile's line goes under the switches, before its list: the switches stay in view too, 740x360 included.) */
   .depot-card:has(> .depot-yard:not([hidden])) > .depot-stock { order: 1; }
   .depot-card:has(> .depot-yard:not([hidden])) > .depot-extra { order: 2; }
@@ -571,7 +571,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .yard-mode { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
 /* (A little clear of the Automatic row above it: QA N3.) */
 .depot-extra > .yard-mode:first-child { margin-top: 6px; }
-.depot-yard { align-self: stretch; display: flex; flex-direction: column; gap: 4px; }
+.depot-yard { align-self: stretch; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .yard-mode .chip { flex: 1 1 0; min-width: 0; padding: 0 8px; white-space: nowrap; }
 .yard-hint { font-size: 12px; font-weight: 700; color: #7a5532; text-align: center; text-wrap: balance; }
 /* A town's card in Game mode: its ledger (src/ui/town-ledger.ts) in place of the piles, above the switches. */
