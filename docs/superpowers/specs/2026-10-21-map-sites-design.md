@@ -236,7 +236,10 @@ Measured (dev machine, shared and loaded; swiftshader in the e2e):
   short); "Restoring takes planks from your workshop. Place it first" (no workshop); "A train is on its track"; the
   yard's own message when it's blocked ("The farm yard needs open ground: a house is in the way", `checkYard` with the
   ruin's own squares not counted); the site rule's when the resource has gone ("Needs farm fields nearby: 3 of 4").
-  Done: "Old farm restored! It works again".
+  Done: "Old farm restored! It works again". No buffer is asked for: a restored yard on its dead-end stub needs none
+  (checked 2026-10-23 for the critique's "add a buffer so trains can stop"): a train stops at an open end as at a buffer
+  and turns back (`Sim`, `ADV_OPEN_END`), and is served at the yard's crane on the way (`restore.test.ts`: a train on a
+  line run off the restored farm's one end, its other end open, is loaded and stays on the rails).
 - **A ruin isn't refused for what it was made beside** (fixed 2026-10-23). A site keeps one row of yard squares beside
   its stub's row (`siteSquares`: middles 72 mm across the track, the row's far edge at 108 mm), but an industry's pad
   is 84 mm deep round 72 mm, so its ground samples reach 112 mm: a few mm onto the next row, which a site doesn't keep

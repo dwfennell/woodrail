@@ -3,7 +3,8 @@ import { CARGO } from "../economy/cargo";
 import { Editor } from "../editor/editor";
 import { FEAT_BUILDING, FEAT_RUIN, siteSquares } from "../landscape";
 import { deserializeWorld, serializeWorld } from "../persist/save";
-import { connectorRef } from "../track";
+import { SIM_HZ } from "../sim";
+import { appendPiece, connectorRef, getPieceDef } from "../track";
 import { workshopStock } from "./crafting";
 import { GOALS, guideIndustry } from "./goals";
 import { restorePrice, ruinCard } from "./map-sites";
@@ -217,6 +218,44 @@ describe("restoring a ruin: what the player is told and shown", () => {
     syncIndustries(w);
     expect(goal.check(w).done).toBe(true);
     expect(guideIndustry(w, "farm").ruin).toBeUndefined();
+  });
+});
+
+describe("a restored ruin on its dead-end stub", () => {
+  it("needs no buffer: a train runs onto it, is loaded at its crane, and stays on the rails at its open end", () => {
+    const { w, editor, farm } = setup();
+    const done = restoreRuin(w, editor, farm.id);
+    if (!("pieceId" in done)) throw new Error(done.why);
+    // A short line off one end of the farm yard; its other end left open (no buffer anywhere).
+    let ref = [0, 1].map((k) => connectorRef(done.pieceId, k)).find((r) => w.layout.joinedConnector(r) === -1)!;
+    let last = -1;
+    const laid: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const end = w.layout.worldConnector(ref, { x: 0, z: 0, heading: 0, y: 0, kind: "peg" });
+      const via = getPieceDef("straight-216", false).connectors.findIndex((c) => c.kind !== end.kind);
+      last = appendPiece(w.layout, "straight-216", false, ref, via);
+      ref = connectorRef(last, 1 - via);
+      laid.push(last);
+    }
+    expect([...w.layout.pieceIds()].some((id) => w.layout.getPiece(id)!.type.startsWith("buffer"))).toBe(false);
+    syncIndustries(w);
+    const depot = w.economy.depotAtPiece(done.pieceId)!;
+    depot.piles[CARGO.grain.index] = 6;
+    const placed = w.sim.addTrain(["engine", "hopper"], { pieceId: laid[2], pathIndex: 0, reversed: false, s: 108 });
+    if (placed.kind !== "placed") throw new Error(placed.kind);
+    const train = () => w.sim.getTrain(w.sim.trainIds()[0])!;
+    w.sim.setLever(train().cars[0].id, 1);
+    let loaded = 0;
+    let onFarm = false;
+    for (let i = 0; i < 90 * SIM_HZ && loaded === 0; i++) {
+      w.sim.tick();
+      w.economy.tick();
+      onFarm ||= train().bogies.some((b) => b.pieceId === done.pieceId);
+      loaded = w.economy.cargoOf(train().cars[1].id).count;
+    }
+    expect(onFarm).toBe(true);
+    expect(train().derailed).toBe(false);
+    expect(loaded).toBeGreaterThan(0);
   });
 });
 
