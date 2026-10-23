@@ -7,7 +7,8 @@ import { workshopStock } from "./crafting";
 import { CARD_KINDS, type GrowthCard } from "./growth-cards";
 import { Progress } from "./progress";
 import { costOf, deliver, pick, tick } from "./research";
-import { boostGoods, carIcon, cardFor, cardView, crateFor, describeThings, firstTimeGift, learnGift, offerOnGrowth, plankRoom, takeCard } from "./rewards";
+import { boostGoods, carIcon, cardFor, cardView, crateFor, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, plankRoom, takeCard } from "./rewards";
+import { payFor, townStatus } from "./towns";
 import { TECHS } from "./tech";
 import { THING_RULES } from "./things";
 import { buildStarterWorld, syncIndustries, type World } from "./world";
@@ -552,5 +553,60 @@ describe("no ready-made trains in Game mode: everything comes as parts", () => {
         if (!p.learned.has("signals")) expect(p.owned.get("car:engine"), `seed ${seed} ${learned.join(",")}`).toBe(1);
       }
     }
+  });
+});
+
+describe("the first flour bonus", () => {
+  const town = townStatus({ planks: 12 }); // (a town: it wants flour)
+
+  it("the game's first flour pays a bonus once, and never again", () => {
+    const p = Progress.fresh();
+    expect(payDelivery(p, "planks", 2, town)).toBe(2 * payFor("planks", town));
+    expect(p.firstFlour).toBe(false);
+    expect(payDelivery(p, "flour", 2, town)).toBe(2 * payFor("flour", town) + FIRST_FLOUR_BONUS);
+    expect(p.firstFlour).toBe(true);
+    expect(payDelivery(p, "flour", 2, town)).toBe(2 * payFor("flour", town));
+    expect(p.coins).toBe(2 * payFor("planks", town) + 4 * payFor("flour", town) + FIRST_FLOUR_BONUS);
+  });
+
+  it("is kept in a save: not paid again after loading, still due if not paid yet", () => {
+    const paid = Progress.fresh();
+    payDelivery(paid, "flour", 1, town);
+    const back = Progress.fromJSON(JSON.parse(JSON.stringify(paid.toJSON())));
+    expect(back.firstFlour).toBe(true);
+    expect(payDelivery(back, "flour", 1, town)).toBe(payFor("flour", town));
+    const due = Progress.fromJSON(JSON.parse(JSON.stringify(Progress.fresh().toJSON())));
+    expect(due.firstFlour).toBe(false);
+    expect(payDelivery(due, "flour", 1, town)).toBe(payFor("flour", town) + FIRST_FLOUR_BONUS);
+  });
+
+  it("an old save (no flag) that has delivered flour gets no bonus; one that hasn't still does", () => {
+    const old = (counts: [string, number][]) => {
+      const data = { ...Progress.fresh().toJSON(), counts } as Record<string, unknown>;
+      delete data.firstFlour;
+      return Progress.fromJSON(data);
+    };
+    const had = old([["delivered:flour", 3]]);
+    expect(had.firstFlour).toBe(true);
+    expect(payDelivery(had, "flour", 1, town)).toBe(payFor("flour", town));
+    const none = old([["delivered:planks", 20]]);
+    expect(none.firstFlour).toBe(false);
+    expect(payDelivery(none, "flour", 1, town)).toBe(payFor("flour", town) + FIRST_FLOUR_BONUS);
+  });
+
+  it("an old save whose map's towns have had flour (whatever its counts say) gets no bonus", () => {
+    const w = buildStarterWorld();
+    const p = Progress.fresh();
+    flourBefore(p, w);
+    expect(p.firstFlour).toBe(false);
+    w.economy.deliveredGoods.set(w.landscape.towns[0].id, { flour: 2 });
+    flourBefore(p, w);
+    expect(p.firstFlour).toBe(true);
+  });
+
+  it("is Game mode's only: Sandbox has no coins, and towns pay (and the bonus is toasted) only in Game mode", () => {
+    expect(mainSrc).toMatch(/if \(mode === "game"\) \{\s*if \(playing\) townLife\.update\(\);/);
+    expect(mainSrc.match(/payDelivery\(/g)?.length).toBe(1);
+    expect(mainSrc).toContain("First flour! ${town.name} pays a ${FIRST_FLOUR_BONUS}🪙 bonus");
   });
 });

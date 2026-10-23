@@ -24,9 +24,22 @@ import { trainIcon } from "../ui/icons";
 export function payDelivery(p: Progress, kind: CargoKind, n: number, before: TownStatus, town?: Town): number {
   // A town with a market pays half again.
   const bonus = town && townLandmarks(town).has("market") ? MARKET_BONUS : 1;
-  const paid = Math.round(payFor(kind, before) * n * bonus);
+  let paid = Math.round(payFor(kind, before) * n * bonus);
+  // The game's first flour pays a bonus, once: the mill (400 coins, minute ~48) pays its way sooner.
+  if (kind === "flour" && n > 0 && !p.firstFlour) {
+    p.firstFlour = true;
+    paid += FIRST_FLOUR_BONUS;
+  }
   p.coins += paid;
   return paid;
+}
+
+/** Coins the first flour delivered in a game pays on top of its price (QA: coins sat near 0 after the mill was bought). */
+export const FIRST_FLOUR_BONUS = 60;
+
+/** A save from before the first-flour bonus whose map has had flour already: no bonus to come. */
+export function flourBefore(p: Progress, world: World): void {
+  for (const bag of world.economy.deliveredGoods.values()) if ((bag.flour ?? 0) > 0) p.firstFlour = true;
 }
 
 /** The school's piece (the first village's present). */

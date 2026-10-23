@@ -21,7 +21,7 @@ import { LoadingToys, type Shelf } from "./ui/loading-toys";
 import { goalLabels, goalMarks, SQUARE_RING } from "./render/goal-marks";
 import { TownLife } from "./game/town-life";
 import { plotPrice } from "./game/towns";
-import { cardView, describeThings, firstTimeGift, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
+import { cardView, describeThings, FIRST_FLOUR_BONUS, firstTimeGift, flourBefore, learnGift, offerOnGrowth, payDelivery, redrawOldOffers, takeCard } from "./game/rewards";
 import { landmarkOf, landmarksAt, placedSchools, researchSpeed, schoolGrade, schoolGradesKey } from "./game/landmarks";
 import { GrowthSheet, sheetTitle } from "./ui/growth-sheet";
 import { mapMarkers, type MapMarker } from "./game/map-markers";
@@ -1046,8 +1046,10 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // A school takes only what the research still lacks (a lookup: the crane asks for every unit).
     school: (kind) => researchLacking(progress, kind) > 0,
     received: (town, kind, n, before) => {
+      const firstFlour = !progress.firstFlour;
       payDelivery(progress, kind, n, before, town);
       hud.setCoins(progress.coins);
+      if (firstFlour && progress.firstFlour) note({ kind: "milestone", text: `First flour! ${town.name} pays a ${FIRST_FLOUR_BONUS}🪙 bonus`, place: { x: town.station.x, z: town.station.z } }, 3600);
       // Logged quietly, one entry per town and kind for a burst of deliveries.
       note({ kind: "event", key: `deliver:${town.id}:${kind}`, qty: n, text: "", format: (q) => `Delivered ${describeGoods({ [kind]: q })} to ${town.name}`, place: { x: town.station.x, z: town.station.z } });
     },
@@ -3060,6 +3062,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       progress.coverMap(game.world);
       // (A save from before first-time gifts: its towns' levels were reached already.)
       for (const t of game.landscape.towns) progress.bestLevel = Math.max(progress.bestLevel, townLife.status(t.id).level);
+      // (A save from before the first-flour bonus whose towns have had flour: it's had its first.)
+      flourBefore(progress, game.world);
       syncLandmarks();
       hud.trayBadge = trayBadge;
       hud.trayKnown = (item) => item.kind !== "piece" && item.kind !== "train" && item.kind !== "prop" ? true : [...thingsFor(item).keys()].every((id) => progress.knows(id));
