@@ -257,6 +257,15 @@ async function selectThenDrag(ctx, p) {
   await p.keyboard.press("Escape");
   // Held, then dragged: it moves.
   // (Stamped with when they were sent, no earlier than the finger's own pace: late, the moves would read as faster.)
+  // (The piece in the middle of the view first: the steps before may have left it by an edge, where a drag pans the
+  // view at the edge rather than holding the piece over the finger, and the slow-phone holds after start in the band.)
+  await p.evaluate((id) => {
+    const w = window.woodrail;
+    const q = w.layout.getPiece(id);
+    const t = w.controls.target;
+    w.director.glideTo(t.clone().set(q.pose.x + Math.cos(q.pose.heading) * 108, q.y, q.pose.z + Math.sin(q.pose.heading) * 108), w.camera.position.distanceTo(t), { duration: 0.2 });
+  }, id);
+  await p.waitForFunction(() => !window.woodrail.director.busy, null, { timeout: 60000 });
   [sx, sy] = await onScreen();
   const hs = Date.now() / 1000;
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", timestamp: hs, touchPoints: [{ x: sx, y: sy, id: 1 }] });

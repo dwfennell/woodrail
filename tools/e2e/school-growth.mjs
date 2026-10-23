@@ -166,7 +166,7 @@ check("…the next goal is Research switches", await waitGoal("Research switches
 await p.waitForTimeout(800);
 await shot("03-goal-research-switches");
 
-// 5. Research switches (Show me opens the picker on it), 4 planks into the school, studied: the workshop is next.
+// 5. Research switches (Show me opens the picker on it), 3 planks into the school, studied: the workshop is next.
 await tap(".goals-show-icon");
 await p.waitForTimeout(600);
 await tap(".board-sheet button[data-act=pick]", "Research");
@@ -174,7 +174,7 @@ await tap(".board-head .close");
 await p.evaluate(() => {
   const w = window.woodrail;
   const d = w.economy.allDepots().find((x) => x.role === "school");
-  for (let i = 0; i < 4; i++) w.economy.intoSink(d, "planks");
+  for (let i = 0; i < 3; i++) w.economy.intoSink(d, "planks");
 });
 await p.waitForFunction(() => window.woodrail.progress().learned.has("switches"), null, { timeout: 60000 }).catch(() => {});
 check("switches researched, the next goal is Place your workshop", await waitGoal("Place your workshop"), String(await goalNow()));

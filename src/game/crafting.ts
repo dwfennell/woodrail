@@ -52,16 +52,42 @@ export function keepsForOrder(p: Progress, stock: number): boolean {
   return stock < orderPlanks(p);
 }
 
+/**
+ * Planks a workshop's yard takes with no order waiting while a town the train goes on to wants planks: a few to build
+ * with, enough for an engine or a farm yard (QA P5: with research idle, the yard took every plank, 1 → 16, and the
+ * next town starved). With no town ahead wanting them, the yard fills up to its cap. (The balance play-through, spec
+ * §5: 3 and 5 starve the towns or research on some seeds, 7 meets every band.)
+ */
+export const WORKSHOP_SPARE = 7;
+
+/**
+ * How many planks the workshop's yard takes while a town later on the line wants them (`Economy.shopKeeps`): its
+ * waiting tray order's planks, or `WORKSHOP_SPARE` if more. The rest ride on to the towns.
+ */
+export function yardKeeps(p: Progress, spare = WORKSHOP_SPARE): number {
+  return Math.max(orderPlanks(p), spare);
+}
+
 /** Said beside a second engine before Signals (see `makeNote`). */
 export const ENGINE_NOTE = "Needs Signals to share a line";
 
 /**
- * A note on making `id`, or null: an engine before Signals, with one owned already, "Needs Signals to share a line"
+ * A note on making `id`, or null: an engine before Signals, with one owned already (`owned`: how many before it), "Needs Signals to share a line"
  * (QA: the workshop made the second engine the presents hold back till Signals). Not a gate: a second engine on a
  * line of its own runs fine.
  */
-export function makeNote(p: Progress, id: ThingId): string | null {
-  return id === "car:engine" && !p.learned.has("signals") && (p.owned.get("car:engine") ?? 0) >= 1 ? ENGINE_NOTE : null;
+export function makeNote(p: Progress, id: ThingId, owned = p.owned.get(id) ?? 0): string | null {
+  return id === "car:engine" && !p.learned.has("signals") && owned >= 1 ? ENGINE_NOTE : null;
+}
+
+/**
+ * The toast as the workshop finishes an order of `id` (now in the toy box): "+1 Engine in your toy box", and for a
+ * second engine before Signals its note (QA P5: said when made from the tray, not when ordered on the workshop's card).
+ * Asked after it's made, so the one just made isn't counted as owned before.
+ */
+export function madeText(p: Progress, id: ThingId, label: string): string {
+  const note = makeNote(p, id, (p.owned.get(id) ?? 0) - 1);
+  return `+1 ${label} in your toy box${note ? `. ${note}` : ""}`;
 }
 
 /**
