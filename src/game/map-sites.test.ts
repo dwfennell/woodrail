@@ -15,7 +15,7 @@ import {
 } from "../landscape";
 import { harbourWhy } from "./harbours";
 import { resourceAt, SITE_RULES } from "./industries";
-import { addPlotExtras, CLEAR_PRICE, describeLand, MAX_SITES, ruinAt, ruinCard, siteBlueprint } from "./map-sites";
+import { addPlotExtras, CLEAR_PRICE, describeLand, MAX_SITES, ruinAt, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./map-sites";
 import { buildStarterWorld, clearRuin, createWorld, fixedPieces, landForSale, plotLand, startLand, unlockPlot } from "./world";
 import { deserializeWorld, serializeWorld, type SaveData } from "../persist/save";
 
@@ -37,7 +37,8 @@ function siteProblems(land: Landscape): string[] {
     const sq = siteSquares(s.centre, s.piece.heading);
     if (!sq.yard.every(([c, r]) => g.feature[g.index(c, r)] === FEAT_RUIN && g.owner[g.index(c, r)] === s.id)) out.push(`${s.role} ${s.id}: yard not all ruin`);
     const r = resourceAt(land, s.role, s.piece)!;
-    if (r.count < Math.ceil(r.need / 2)) out.push(`${s.role} ${s.id}: ${r.count} of ${r.need}`);
+    // All it needs, in full (restored, it runs at full speed).
+    if (r.count < r.need) out.push(`${s.role} ${s.id}: ${r.count} of ${r.need}`);
     if (s.role === "farm" && (s.fields.length !== 2 || r.count < 8)) out.push(`farm ${s.id}: ${s.fields.length} fields, ${r.count} squares`);
     if (s.role === "harbour" && harbourWhy(land, s.piece)) out.push(`harbour ${s.id}: ${harbourWhy(land, s.piece)}`);
     // Its yard and stub on flat ground (the ruin stands level).
@@ -219,7 +220,7 @@ describe("map sites: what the player is told", () => {
     const c = coastOf(7, true);
     // The starter map's two coast plots to the south: "empty space" before; a town by the sea and a site each now.
     expect(describeLand(plotLand(7, -1, 1, c))).toBe("A town by the sea, an old harbour and a river.");
-    expect(describeLand(plotLand(7, 0, 1, c))).toBe("A town by the sea and an old farm.");
+    expect(describeLand(plotLand(7, 0, 1, c))).toBe("A town by the sea and an old harbour.");
     // Words for two of a kind.
     const land = plotLand(7, -2, 0, c);
     const two = { ...land, sites: [...land.sites!, { ...land.sites![0], id: 9 }] };
@@ -257,6 +258,15 @@ describe("map sites: clearing a ruin", () => {
     expect(ruinAt(w.landscape, farm.centre.x, farm.centre.z)).toBe(-1);
     expect(farm.fields.map((f) => w.landscape.fields[f].cells.length)).toEqual(fields);
     expect(clearRuin(w, farm.id)).toEqual({ why: "It's gone already" });
+  });
+
+  it("track held over a ruin names it, and offers Restore once it can be restored", () => {
+    const w = buildStarterWorld();
+    const farm = w.landscape.sites!.find((s) => s.role === "farm")!;
+    expect(ruinNear(w.landscape, farm.centre.x, farm.centre.z)).toBe(farm.id);
+    expect(ruinNear(w.landscape, farm.centre.x + 3000, farm.centre.z + 3000)).toBe(-1);
+    expect(ruinInWay(farm, false)).toBe("An old farm is in the way: tap it to clear it");
+    expect(ruinInWay(farm, true)).toBe("An old farm is in the way: tap it to restore or clear it");
   });
 
   it("not while a train stands on its stub", () => {

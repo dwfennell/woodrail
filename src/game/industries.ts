@@ -22,11 +22,16 @@ export interface SiteRule {
   readonly counts: (land: Landscape, i: number) => boolean;
   /** Squares whose centre is within this distance (mm) of the yard's middle count. */
   readonly reach: number;
-  /** This many works at the recipe's speed; half as many is the least it can be placed with. */
+  /** This many works at the recipe's speed; half as many is the least it can be placed with (unless `least` says). */
   readonly need: number;
+  /** The least it can be placed with, if not half its need. */
+  readonly least?: number;
   /** Measured from this far across the yard (depot coordinate l; the yard's middle, 72, if not given). */
   readonly l?: number;
 }
+
+/** The least of its resource an industry can be placed with: half its need, or its rule's own `least`. */
+export const leastOf = (rule: SiteRule): number => rule.least ?? Math.ceil(rule.need / 2);
 
 export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
   forest: { what: "trees", counts: (land, i) => land.grid.feature[i] === FEAT_TREE, reach: 250, need: 10 },
@@ -35,8 +40,12 @@ export const SITE_RULES: Partial<Record<DepotRole, SiteRule>> = {
   quarry: { what: "hillside", counts: (land, i) => land.grid.height[i] > 0, reach: 250, need: 12 },
   // Coal and ore are dug out of the hills too.
   mine: { what: "hillside", counts: (land, i) => land.grid.height[i] > 0, reach: 250, need: 12 },
-  // A harbour's quay is on the water, past the yard's far side.
-  harbour: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 110, need: 8, l: 150 },
+  // A harbour's quay is on the water, past the yard's far side. Of the 9 squares in reach of the quay (track on the
+  // squares' grid), 3 are the yard's own row, which stands on land: 6 is all the water a harbour can have, square on to
+  // a straight shore (off the grid, 7 at most), 5 on a bend of the coast. It wanted 8, which none ever had: every
+  // harbour, old or new, showed 0.75 at best (QA: "Water nearby: 5 of 8"); an old harbour now has 5 of 5. (A harbour
+  // has no recipe of its own, so its rate is only what its card says. The least it's placed with stays 4.)
+  harbour: { what: "water", counts: (land, i) => isWater(land.grid.surface[i]), reach: 110, need: 5, least: 4, l: 150 },
   // A school stands beside a town: one of its lots near the yard (see `schoolTown`, which also says which town).
   school: { what: "a town", counts: isTownLot, reach: SCHOOL_REACH, need: 1 },
 };
@@ -92,7 +101,7 @@ export function siteWhy(land: Landscape, type: PieceTypeId, pose: Pose, hasSchoo
   }
   const r = role && resourceAt(land, role, pose);
   if (!r) return null;
-  const least = Math.ceil(r.need / 2);
+  const least = leastOf(r.rule);
   if (r.count < least) return `Needs ${r.rule.what} nearby: ${r.count} of ${least}`;
   // A harbour's boats must be able to get to it.
   return role === "harbour" ? harbourWhy(land, pose) : null;

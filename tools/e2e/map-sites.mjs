@@ -6,10 +6,11 @@
 //   at it; its card offers Restore · 3🪵 45🪙 (no workshop: says so); Restore makes the stub a farm yard in place (its
 //   depot, rate, crane and card), 3 planks from the workshop and 45 coins; Undo brings the ruin back and the price,
 //   Redo restores it again; a reload keeps it restored;
-// - Clear the ruin (one on the land bought) takes 10 coins, the ruin and its stub;
+// - Clear the ruin (one on the land bought) takes 10 coins, the ruin and its stub; Undo brings them back with the coins;
 // - the land around shows its ruins before it's bought; a coastal plot's land card lists its towns by the sea and its
 //   old sites; bought, it brings them (the ruins' stubs become track pieces, fixed);
 // - idle: no frames drawn in 30 s (the ruins cost nothing while nothing changes).
+// - a phone on its side (667×375): the ruin card's Restore and Clear fully in view above the tray, and tappable.
 //
 // Usage: npm run e2e:sites [-- <out dir>]   (default out: e2e-out/sites)
 // Starts its own dev server (on 5384, or the next free port). Chromium: $CHROMIUM_PATH, else /opt/pw-browsers/chromium
@@ -106,6 +107,17 @@ const farm = sites.find((s) => s.role === "farm") ?? sites[0];
 const yard = yardOf(farm);
 const startView = await onScreen(yard.x, 20, yard.z);
 check("the old farm is in view at the start", startView.in, JSON.stringify(startView));
+// Whole (QA: at 390×844 it stood at the left edge, half off it): its yard, buildings and stub, the box a tap finds it in.
+const farmBox = await Promise.all(
+  [[-12, -30], [228, -30], [228, 130], [-12, 130]].map(([t, l]) => {
+    const c = Math.cos(farm.piece.heading);
+    const n = Math.sin(farm.piece.heading);
+    return onScreen(farm.piece.x + c * t - n * l, 30, farm.piece.z + n * t + c * l);
+  }),
+);
+const firstStations = await p.evaluate(() => window.woodrail.world.landscape.towns.slice(0, 2).map((t) => ({ x: t.station.x, z: t.station.z })));
+const stationsAt = await Promise.all(firstStations.map((s) => onScreen(s.x, 20, s.z)));
+check("…whole, with the first two towns' stations (the first goal's) in view too", farmBox.every((q) => q.in && q.x >= 4 && q.x <= 386) && stationsAt.every((q) => q.in), JSON.stringify({ farm: farmBox.map((q) => [Math.round(q.x), Math.round(q.y)]), stations: stationsAt.map((q) => [Math.round(q.x), Math.round(q.y)]) }));
 const drawn = await p.evaluate(() => {
   let meshes = 0;
   window.woodrail.ruinsView.group.traverse((o) => {
@@ -138,6 +150,18 @@ check("tapping the ruin opens its card", !!card, JSON.stringify(card));
 check("…titled Old farm, with its fields and what opens it", card?.title === "Old farm" && /Farm fields nearby: 8 of 8/.test(card.lines[0]) && card.lines.includes("🔒 Learn Farming at a school to open this farm") && card.lines.includes("Or build your own anywhere from the Industries tab."), JSON.stringify(card));
 check("…and Clear the ruin for a few coins (no Restore while it's locked)", /^Clear the ruin · 10/.test(card?.button ?? "") && card.restore, card?.button);
 await shot("03-locked-card");
+/** What a straight held across the old farm's yard is told (as a drag over it shows). */
+const ruinRefusal = () =>
+  p.evaluate((s) => {
+    const it = window.woodrail.interaction;
+    const c = Math.cos(s.piece.heading);
+    const n = Math.sin(s.piece.heading);
+    const mid = { x: s.piece.x + c * 108 - n * 72, z: s.piece.z + n * 108 + c * 72 };
+    const r = it.placement("straight-216", false, { x: mid.x - c * 108, z: mid.z - n * 108, heading: s.piece.heading }, 0, -1).reason;
+    return r && it.blockMessage(r);
+  }, farm);
+const lockedSays = await ruinRefusal();
+check("track over the locked old farm: it names it, and says tap it to clear it", lockedSays === "An old farm is in the way: tap it to clear it", lockedSays);
 
 // 3. Farming learned (a shortcut: as a research finishing does it): a toast names the old farm, and tapped, frames it.
 await p.evaluate(() => document.querySelector(".ruin-card button.close")?.click());
@@ -176,6 +200,8 @@ const guide = await p.evaluate(async () => {
   return { ruin: g.ruin, marks: g.marks };
 });
 check("Show me for Open a farm: the old farm", guide.ruin === farm.id, JSON.stringify(guide));
+const learnedSays = await ruinRefusal();
+check("…and track over it now says tap it to restore or clear it", learnedSays === "An old farm is in the way: tap it to restore or clear it", learnedSays);
 
 // 4. Its card now offers Restore at half a new farm yard's price; short of planks (no workshop yet), it says so.
 const shopAt = await p.evaluate(async () => {
@@ -380,6 +406,22 @@ const after = await p.evaluate((id) => {
 }, ruinBought.id);
 check("Clear the ruin: it's gone, its stub too, for 10 coins", after.cleared && after.ruins === before.ruins - 1 && after.pieces === before.pieces - 1 && after.coins === before.coins - 10 && after.left === 0 && !after.card, JSON.stringify({ before, after }));
 await shot("10-cleared");
+// Clearing is one undo step (QA: Restore, Undo, Clear, Redo rebuilt the farm on the cleared site): Undo brings the
+// ruin and its stub back and the 10 coins, Redo clears it again.
+const ruinState = (id) =>
+  p.evaluate((id) => {
+    const w = window.woodrail;
+    return { pieces: w.layout.pieceCount, ruin: w.world.ruins.has(id), cleared: !!w.world.landscape.sites[id].cleared, coins: w.progress().coins };
+  }, id);
+// (Its title is its tooltip's now, `data-tip`, since the first tap on it.)
+await tap("button[title='Undo (Ctrl+Z)'], button[data-tip='Undo (Ctrl+Z)']");
+await p.waitForTimeout(1200);
+const unclear = await ruinState(ruinBought.id);
+check("Undo the Clear: the ruin and its stub are back, the 10 coins given back", unclear.ruin && !unclear.cleared && unclear.pieces === before.pieces && unclear.coins === before.coins, JSON.stringify(unclear));
+await p.evaluate(() => window.woodrail.editor().redo());
+await p.waitForTimeout(1200);
+const reclear = await ruinState(ruinBought.id);
+check("…Redo: cleared again, for 10 coins", !reclear.ruin && reclear.cleared && reclear.coins === before.coins - 10, JSON.stringify(reclear));
 
 // 11. Idle: nothing drawn for 30 s (the ruins cost nothing while nothing changes).
 const cdp = await p.context().newCDPSession(p);
@@ -443,6 +485,73 @@ const sandbox = await q.evaluate(async () => {
 });
 check("Sandbox: no sites or ruins (none drawn in the opening view, none on the land for sale)", sandbox.siteless && sandbox.sites === 0 && sandbox.ruins === 0 && sandbox.meshes === 0 && sandbox.forSale === 0, JSON.stringify(sandbox));
 await q.screenshot({ path: `${OUT}/08-sandbox-start.png` }).catch(() => {});
+
+// 14. A phone on its side (667×375, a fresh game): the ruin card's Restore and Clear stay in view, pinned at its foot
+// above the tray, and a tap on them lands (QA: they sat under the tray).
+const L = await b.newPage({ viewport: { width: 667, height: 375 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+L.on("pageerror", (e) => errors.push(e.message));
+await L.addInitScript(() => localStorage.setItem("woodrail.helpSeen", "1"));
+await L.goto(PAGE);
+await L.waitForFunction(() => window.woodrail?.title?.shown, null, { timeout: 240000 });
+await L.evaluate(() => [...document.querySelectorAll(".title-card.mode-game button")].find((x) => !x.hidden && x.classList.contains("primary")).click());
+await L.waitForFunction(() => window.woodrail?.mode?.() === "game" && !window.woodrail.title.shown && !!document.querySelector("#loading.done"), null, { timeout: 180000 });
+await L.evaluate(() => Promise.race([window.woodrail.settled(3), new Promise((r) => setTimeout(r, 20000))]));
+await L.keyboard.press("Escape");
+await L.waitForTimeout(1500);
+// (Farming learned, so the card has both buttons; its yard looked at from above the tray, and tapped.)
+const lAt = await L.evaluate(async () => {
+  const w = window.woodrail;
+  w.learn("farming");
+  const s = w.world.landscape.sites.find((x) => x.role === "farm");
+  const c = Math.cos(s.piece.heading);
+  const n = Math.sin(s.piece.heading);
+  const V = w.camera.position.constructor;
+  const yard = new V(s.piece.x + c * 108 - n * 72, 10, s.piece.z + n * 108 + c * 72);
+  w.lookAt(new V(yard.x, 0, yard.z + 300), 1300, 0.8);
+  w.invalidate();
+  await Promise.race([w.settled(3), new Promise((r) => setTimeout(r, 15000))]);
+  const v = yard.clone().project(w.camera);
+  const r = w.canvas.getBoundingClientRect();
+  return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height, id: s.id };
+});
+await L.waitForTimeout(4000);
+await L.touchscreen.tap(lAt.x, lAt.y);
+await L.waitForTimeout(800);
+const lTapped = await L.evaluate(() => !document.querySelector(".ruin-card").hidden);
+if (!lTapped) await L.evaluate((id) => window.woodrail.interaction.onRuinTap(id), lAt.id);
+await L.waitForTimeout(800);
+const lCard = await L.evaluate(() => {
+  const card = document.querySelector(".ruin-card");
+  const cr = card.getBoundingClientRect();
+  const tray = document.querySelector(".tray").getBoundingClientRect();
+  return {
+    open: !card.hidden,
+    buttons: [...card.querySelectorAll(".card-row button")].filter((x) => !x.hidden).map((x) => {
+      const r = x.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const ok = r.top >= cr.top && r.bottom <= cr.bottom && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth && r.bottom <= tray.top && r.height >= 40;
+      return { text: x.textContent, ok, hit: hit === x || x.contains(hit), at: [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)], rect: [r.left, r.top, r.right, r.bottom].map(Math.round) };
+    }),
+    card: [cr.top, cr.bottom].map(Math.round),
+    tray: Math.round(tray.top),
+  };
+});
+check("667×375: the ruin card opens (a tap on the old farm)", lCard.open, JSON.stringify({ tapped: lTapped }));
+check("667×375: Restore and Clear fully in view, above the tray, nothing over them", lCard.buttons.length === 2 && lCard.buttons.every((x) => x.ok && x.hit), JSON.stringify(lCard));
+await L.screenshot({ path: `${OUT}/14-ruin-card-667x375.png` }).catch(() => {});
+// A tap on Restore lands: no workshop yet, so it says where the planks come from.
+const restoreBtn = lCard.buttons.find((x) => x.text.startsWith("Restore"));
+if (restoreBtn) await L.touchscreen.tap(restoreBtn.at[0], restoreBtn.at[1]);
+const lToast = await L.evaluate(async () => {
+  // (Behind the research toast, if that's still up.)
+  for (let k = 0; k < 40; k++) {
+    const t = document.querySelector(".toast")?.textContent;
+    if (t?.startsWith("Restoring")) return t;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return document.querySelector(".toast")?.textContent;
+});
+check("667×375: a tap on Restore lands", lToast === "Restoring takes planks from your workshop. Place it first", lToast);
 
 check("no page errors", errors.length === 0, errors.slice(0, 5).join(" | "));
 console.log(failures === 0 ? "ALL PASS" : `${failures} FAILED`);

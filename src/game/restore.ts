@@ -7,7 +7,7 @@ import { costTag } from "../ui/cost-tag";
 import { takeFromWorkshops, workshops, workshopStock } from "./crafting";
 import { checkYard, yardMessage } from "./depot-footprint";
 import { siteWhy } from "./industries";
-import { restorePrice, restoredType, SITE_NAMES } from "./map-sites";
+import { CLEAR_PRICE, restorePrice, restoredType, SITE_NAMES } from "./map-sites";
 import type { Progress } from "./progress";
 import { pieceThing } from "./things";
 import type { World } from "./world";
@@ -152,9 +152,75 @@ export function restoreRuin(world: World, editor: Editor, siteId: number, opt: R
       set(false);
     },
     // (Redone: paid again, if it can be.)
-    refuse: (way) => (way === "redo" ? (opt.pay?.short() ?? null) : null),
+    // (Redone onto a ruin that's gone meanwhile can't happen, as clearing is an undo step too; refused if it ever does.)
+    refuse: (way) => (way !== "redo" ? null : site.cleared ? "It's gone already" : (opt.pay?.short() ?? null)),
   });
   return id === -1 ? { why: "It can't be restored now" } : { pieceId: id };
+}
+
+/** Said when undoing a clear would put the ruin back onto ground that's been used since (a field planted there). */
+export const CLEAR_UNDO_USED = "Something is on that ground now";
+
+/**
+ * How clearing a ruin is paid for (Game mode: `CLEAR_PRICE` coins from hand), and given back on undo. Sandbox: free
+ * (no payment).
+ */
+export function clearPayment(progress: Progress): RestorePayment {
+  return {
+    short: () => (progress.coins < CLEAR_PRICE ? `Clearing it costs ${CLEAR_PRICE} coins: you have ${progress.coins}` : null),
+    pay: () => {
+      progress.coins -= CLEAR_PRICE;
+    },
+    refund: () => {
+      progress.coins += CLEAR_PRICE;
+    },
+  };
+}
+
+/**
+ * Clear a ruin away (its card's Clear the ruin), by `editor` as one undo step (`Editor.takeUp`): its stub taken up,
+ * its squares open ground, the site marked cleared, and it's paid for (`opt.pay`). Undone: the stub (the same piece)
+ * and the ruin come back and the price is given back; redone, paid again (refused if it can't be). One step of the
+ * history as a restore is, so Restore, Undo, Clear can't be followed by a Redo of the restore onto cleared ground.
+ * The plots it changed, or why not.
+ */
+export function clearRuinEdit(world: World, editor: Editor, siteId: number, opt: Pick<RestoreOptions, "pay" | "changed"> = {}): { slots: number[] } | { why: string } {
+  const site = world.landscape.sites?.[siteId];
+  const stub = world.ruins.get(siteId);
+  if (!site || site.cleared || stub === undefined || !world.layout.getPiece(stub)) return { why: "It's gone already" };
+  if (world.sim.pieceOccupied(stub)) return { why: RESTORE_TRAIN };
+  const short = opt.pay?.short();
+  if (short) return { why: short };
+  const g = world.landscape.grid;
+  const cells: number[] = [];
+  g.forEachCell((i) => {
+    if (g.feature[i] === FEAT_RUIN && g.owner[i] === siteId) cells.push(i);
+  });
+  const slots = [...new Set(cells.map(plotSlotOf))];
+  const set = (cleared: boolean) => {
+    site.cleared = cleared ? true : undefined;
+    for (const i of cells) {
+      g.feature[i] = cleared ? FEAT_NONE : FEAT_RUIN;
+      g.owner[i] = cleared ? -1 : siteId;
+    }
+    if (cleared) world.ruins.delete(siteId);
+    else world.ruins.set(siteId, stub);
+    for (const s of slots) g.touch(s);
+    opt.changed?.();
+  };
+  const ok = editor.takeUp(stub, {
+    done: () => {
+      opt.pay?.pay();
+      set(true);
+    },
+    undone: () => {
+      opt.pay?.refund();
+      set(false);
+    },
+    // (Undone onto ground that's been used meanwhile, by what isn't an undo step, a field planted there: refused.)
+    refuse: (way) => (way === "redo" ? (opt.pay?.short() ?? null) : cells.some((i) => g.feature[i] !== FEAT_NONE || g.road[i] !== 0) ? CLEAR_UNDO_USED : null),
+  });
+  return ok ? { slots } : { why: "It can't be cleared now" };
 }
 
 /** "Old farm by Larkfield": a ruin by the town nearest it (just "Old farm" on a map without towns). */

@@ -12,8 +12,13 @@ import { loadFavourites, saveFavourites } from "./prefs";
 import { pillText, type PillView } from "../game/research-text";
 
 export { trayKey, type TrayItem } from "./tray-catalogue";
+import { ControlsTutorial, type ViewState } from "./controls-tutorial";
 
 export interface HudHandlers {
+  /** The camera's view now, for the first-run camera tutorial (see ControlsTutorial). */
+  cameraView(): ViewState;
+  /** The camera tutorial was done or skipped: what comes next is shown (the goals' Show me, say). */
+  tutorialDone?(skipped: boolean): void;
   trayPointerDown(item: TrayItem, e: PointerEvent): void;
   /** A tray piece tapped (the ready one is put away). */
   /** A tap on a tray item (`pointerType`: what tapped it, a mouse, pen or finger). */
@@ -74,6 +79,8 @@ export interface HudHandlers {
   trayFlip(): void;
   /** Tray: drawing track switched on or off (the Draw chip). */
   trayDraw(on: boolean): void;
+  /** Tray: clearing switched on or off (the Clear chip). */
+  trayErase(on: boolean): void;
   /** Depot card: turn automatic loading on or off. */
   depotAuto(): void;
   /** Depot card: trains wait for a full load, or not. */
@@ -201,6 +208,8 @@ export class Hud {
   private readonly depotCard = el("div", "card depot-card");
   /** Below a depot card's switches: filled by the game for some depots (Game mode's workshop), else hidden. */
   readonly depotExtra = el("div", "depot-extra");
+  /** The depot card's choice of how it shares (the workshop's planks): beside the extra, its own so it can move up. */
+  readonly depotYard = el("div", "depot-yard");
   /** Room on the engine card for Game mode's own rows (where the train delivers), filled by main. */
   readonly engineExtra = el("div", "engine-extra");
   /** While choosing land to add: what the chosen plot brings, and a button to add it. */
@@ -246,6 +255,8 @@ export class Hud {
   private readonly menu = el("div", "menu");
   private menuBtn!: HTMLButtonElement;
   private readonly help = el("div", "help");
+  /** The first-run camera tutorial (in place of the help card on a first visit: see `firstVisitHelp`). */
+  readonly coach: ControlsTutorial;
   private readonly modeTag = el("span", "mode-tag");
   /** Game mode's coins, by the logo. */
   private readonly coinTag = el("span", "coins");
@@ -291,6 +302,8 @@ export class Hud {
   private readonly thumbs: Map<string, string>;
   private flipTrayBtn!: HTMLButtonElement;
   private drawBtn!: HTMLButtonElement;
+  private eraseBtn!: HTMLButtonElement;
+  private erasing = false;
   /** The tray favourites (tray keys, in order): first on the Track and Trains tabs. */
   private favourites: string[] = loadFavourites() ?? [...DEFAULT_FAVOURITES];
   private drawing = false;
@@ -426,6 +439,11 @@ export class Hud {
         this.menu.hidden = true;
         this.showHelp();
       }, "menu-item"),
+      button("Show controls", "Show the camera controls again", () => {
+        this.menu.hidden = true;
+        this.help.hidden = true;
+        this.coach.start();
+      }, "menu-item"),
       this.reportItem,
     );
     this.reportItem.hidden = true;
@@ -511,7 +529,8 @@ export class Hud {
     this.depotExtra.hidden = true;
     this.depotPickBtn = button("📘 Research", "Pick what the school learns next", () => h.toggleBoard(true), "chip text primary depot-pick");
     this.depotPickBtn.hidden = true;
-    this.depotCard.append(this.depotTitle, this.depotStock, this.depotPickBtn, depotRow, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
+    this.depotYard.hidden = true;
+    this.depotCard.append(this.depotTitle, this.depotStock, this.depotPickBtn, depotRow, this.depotYard, this.depotExtra, button("✕", "Close", h.closeCards, "close"));
     this.root.appendChild(this.depotCard);
 
     // Land card: shown while choosing a plot to add.
@@ -803,8 +822,12 @@ export class Hud {
     // tabs); on a phone they share the tab row, at its right, the tabs scrolling in what's left (they never cover a tab,
     // nor the track being laid). First in the page, as they were, for a keyboard and a screen reader; on a phone the
     // row shows them after the tabs.
+    // Clear: a tap takes away what's under it, a sweep all it passes over (any tab).
+    this.eraseBtn = button(`🧽<span class="chip-word"> Clear</span>`, "Clear: tap or sweep over track and things to take them away", () => this.handlers.trayErase(!this.erasing), "chip text tray-erase");
+    const pens = el("div", "tray-pens");
+    pens.append(this.drawBtn, this.eraseBtn);
     const tools = el("div", "tray-tools");
-    tools.append(this.drawBtn, orient);
+    tools.append(pens, orient);
     const head = el("div", "tray-head");
     head.append(tools, tabs);
     this.tray.append(head, scroller);
@@ -861,6 +884,33 @@ export class Hud {
     }, "chip text primary");
     this.help.querySelector(".help-card")!.appendChild(ok);
     this.root.appendChild(this.help);
+    this.coach = new ControlsTutorial(
+      () => h.cameraView(),
+      (touch) =>
+        this.trayMode === "game"
+          ? `Your goals are at the top: ${touch ? "tap" : "click"} Show me to see where.`
+          : touch
+            ? "Now build: drag a piece out of the tray."
+            : "Now build: drag a piece out of the tray, or click one and then the map.",
+    );
+    this.coach.onDone = (skipped) => {
+      // (Seen: the help card doesn't come up on its own after it. It's in the menu, and the coach's last card.)
+      try {
+        localStorage.setItem("woodrail.helpSeen", "1");
+      } catch {
+        // storage unavailable
+      }
+      this.flushToasts();
+      h.tutorialDone?.(skipped);
+    };
+    this.coach.onMoreHelp = () => this.showHelp();
+    // Held upright, a phone's coach sits just above the tray and its chips (see .coach in style.css).
+    const placeCoach = () => this.coach.root.style.setProperty("--coach-bottom", `${Math.round(innerHeight - this.chipsTop() + 10)}px`);
+    this.coach.onShow = placeCoach;
+    addEventListener("resize", () => {
+      if (this.coach.shown) placeCoach();
+    });
+    this.root.appendChild(this.coach.root);
 
     this.perf.hidden = true;
     this.root.appendChild(this.perf);
@@ -870,7 +920,7 @@ export class Hud {
   /** Where the tray's chips start (Draw, Turn and Flip above it), or the tray where none show: in client pixels. */
   chipsTop(): number {
     let top = this.tray.getBoundingClientRect().top;
-    for (const chip of [this.drawBtn, this.tray.querySelector<HTMLElement>(".tray-orient")]) {
+    for (const chip of [this.drawBtn, this.eraseBtn, this.tray.querySelector<HTMLElement>(".tray-orient")]) {
       const r = chip?.getBoundingClientRect();
       if (r && r.height > 0) top = Math.min(top, r.top);
     }
@@ -882,6 +932,13 @@ export class Hud {
     this.drawing = on;
     this.drawBtn.classList.toggle("active", on);
     this.tray.classList.toggle("drawing", on);
+  }
+
+  /** Show whether clearing is on (the Clear chip lit). */
+  setErasing(on: boolean): void {
+    this.erasing = on;
+    this.eraseBtn.classList.toggle("active", on);
+    this.tray.classList.toggle("erasing", on);
   }
 
   /** The land tool in use (the Land tab open), or null. */
@@ -923,7 +980,8 @@ export class Hud {
     } catch {
       seen = false;
     }
-    if (!seen) this.showHelp();
+    // A first visit: the camera tutorial (it leads into the goals); the help card is in the menu, and its last card.
+    if (!seen && !ControlsTutorial.seen()) this.coach.start();
   }
 
   /** Label the mode by the logo and offer its own map items in the menu. */
@@ -1231,6 +1289,7 @@ export class Hud {
     this.root.classList.toggle("planning", on);
     // (No drawing track while a route is planned: a press picks a stop.)
     this.drawBtn.disabled = on;
+    this.eraseBtn.disabled = on;
   }
 
   /** The Lines view open (the tray goes, as when planning: the map wants the room). */
@@ -1457,6 +1516,8 @@ export class Hud {
     this.depotTitle.textContent = title;
     this.depotExtra.hidden = true;
     this.depotExtra.innerHTML = "";
+    this.depotYard.hidden = true;
+    this.depotYard.innerHTML = "";
     // (Back to a depot's own: a town's ledger, once drawn here, marks it.)
     this.depotExtra.className = "depot-extra";
     this.depotCard.hidden = false;
@@ -1625,8 +1686,8 @@ export class Hud {
 
   private flushToasts(): void {
     clearTimeout(this.toastFlushTimer);
-    // Held while the help card is up (it would cover them); closing it lets them through.
-    if (!this.help.hidden) return;
+    // Held while the help card or the camera tutorial is up (they'd cover each other); closing it lets them through.
+    if (!this.help.hidden || this.coach.shown) return;
     const wait = this.toastHeldUntil - performance.now();
     if (wait > 0) {
       this.toastFlushTimer = window.setTimeout(() => this.flushToasts(), wait);

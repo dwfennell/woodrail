@@ -1,13 +1,13 @@
 import { Group, Mesh, Spherical, Vector3, type Object3D } from "three";
 import { ToyAudio } from "./audio/audio";
-import { Editor, pieceCentre, TRAIN_ON_TRACK } from "./editor/editor";
+import { Editor, pieceCentre, poseCentre, TRAIN_ON_TRACK } from "./editor/editor";
 import { fitToRect, frameAlong, frameDistance, type ViewRoom } from "./game/camera-director";
 import { viewRoom } from "./ui/view-room";
 import { Game, type GameWorld } from "./game/game";
 import { Interaction } from "./game/interaction";
-import { buildStarterWorld, clearRuin, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
-import { CLEAR_PRICE, describeLand, ruinCard, siteBlueprint } from "./game/map-sites";
-import { gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
+import { buildStarterWorld, createWorld, freshGameWorld, landForSale, plotsForSale } from "./game/world";
+import { describeLand, ruinCard, ruinInWay, ruinNear, siteBlueprint } from "./game/map-sites";
+import { clearPayment, clearRuinEdit, gamePayment, nearestRuin, restoreRuin, ruinName, type RestoreOptions } from "./game/restore";
 import { connectedPairs, PLOT_DEPTH, PLOT_WIDTH, type PlotCoord } from "./landscape";
 import { loadLastBuilt, loadLastMode, saveLastBuilt, saveLastMode, type GameMode } from "./game/modes";
 import { hasOlderSave, hasSave, loadFromStorage, loadGoals, loadProgress, loadSession, OLDER_SAVE, saveGoals, saveProgress, saveSession, saveToStorage, serializeWorld } from "./persist/save";
@@ -71,6 +71,7 @@ import { onPiecesBuilt, TrackView } from "./render/track-view";
 import { connectorRef, createWorldConnector, getPieceDef, ignores, isLift, kitOf, pathLength, PIECE_TYPES, type Layout, type PieceTypeId } from "./track";
 import { flipCursor, type CarKind, type CarLook, type Cursor } from "./sim";
 import { Hud } from "./ui/hud";
+import { viewOf } from "./ui/controls-tutorial";
 import { GAME_KIT_GROUPS, INDUSTRY_GROUPS, TRACK_ITEMS, TRAIN_ITEMS, trayKey, type LandTool, type TrayItem } from "./ui/tray-catalogue";
 import { LAND_MESSAGES, LandEditor, plotSlotOf, setHeights } from "./landscape/edit";
 import { propsInRect } from "./props/placement";
@@ -291,6 +292,14 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   const hud = new Hud(
     document.body,
     {
+      cameraView: () => viewOf(game.camera.position, game.controls.target),
+      tutorialDone: () => {
+        // Into the goals: Show me lights up a moment (Game mode).
+        const show = document.querySelector<HTMLElement>(".goals:not([hidden]) .goals-show-icon");
+        if (!show) return;
+        show.classList.add("nudge");
+        window.setTimeout(() => show.classList.remove("nudge"), 4000);
+      },
       trayPointerDown: (item, e) => {
         if (trayAllowed(item)) interaction.startTrayDrag(item, e);
       },
@@ -310,6 +319,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       },
       trayTabChanged: () => interaction.arm(null),
       trayDraw: (on) => interaction.setDrawing(on),
+      trayErase: (on) => interaction.setErasing(on),
       trackTab: (open) => game.showAllEnds(open),
       undo: () => {
         interaction.undo();
@@ -566,6 +576,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     if (i === 0) hud.haptic("snap");
   };
   interaction.onDrawing = (on) => hud.setDrawing(on);
+  interaction.onErasing = (on) => hud.setErasing(on);
   interaction.onRefused = () => {
     audio.refuse();
     hud.haptic("refuse");
@@ -730,29 +741,41 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
   }
   interaction.onRuinTap = openRuin;
 
+  /** Can this ruin (a site of the map shown) be restored now (its card offers Restore)? Kept till a blueprint is learned. */
+  const restorable = new WeakMap<object, { learned: number; yes: boolean }>();
+  // Track held over a ruin: which, and what a tap on it offers ("An old farm is in the way: tap it to restore or
+  // clear it"). Only while a piece is refused for a ruin; a few dozen squares looked at.
+  interaction.ruinMessage = (type, flipped, pose) => {
+    const c = poseCentre(type, flipped, pose);
+    const site = game.landscape.sites?.[ruinNear(game.landscape, c.x, c.z)];
+    if (!site || site.cleared) return null;
+    let r = restorable.get(site);
+    if (r?.learned !== progress.learned.size) {
+      r = { learned: progress.learned.size, yes: mode === "game" && ruinCard(game.landscape, site, mode, (id) => progress.learned.has(id)).restore !== null };
+      restorable.set(site, r);
+    }
+    return ruinInWay(site, r.yes);
+  };
+
   /** "Clear the ruin": a few coins (Game mode) take it and its stub away, for track or an industry of your own. */
   function clearShownRuin(): void {
     if (ruinShown === -1) return;
-    if (mode === "game" && progress.coins < CLEAR_PRICE) {
-      hud.toast(`Clearing it costs ${CLEAR_PRICE} coins: you have ${progress.coins}`);
-      audio.refuse();
-      return;
-    }
     const t0 = performance.now();
-    const done = clearRuin(game.world, ruinShown);
+    // (One undo step, as Restore is: undone, the ruin and its stub come back and the coins are given back.)
+    const done = clearRuinEdit(game.world, editor, ruinShown, {
+      pay: mode === "game" ? clearPayment(progress) : undefined,
+      changed: () => {
+        game.syncRuins();
+        if (mode === "game") hud.setCoins(progress.coins);
+      },
+    });
     if ("why" in done) {
       hud.toast(done.why);
       audio.refuse();
       return;
     }
-    if (mode === "game") {
-      progress.coins -= CLEAR_PRICE;
-      hud.setCoins(progress.coins);
-    }
     ruinShown = -1;
     hud.hideCards();
-    game.syncRuins();
-    onChange();
     console.info(`Woodrail: ruin cleared in ${Math.round(performance.now() - t0)} ms`);
     hud.toast("Cleared");
     audio.putdown(true);
@@ -1490,7 +1513,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       showWorkshop();
       scheduleSave();
     },
-  });
+  }, hud.depotYard);
   // The Research picker: the whole tree, each blueprint researched at a school.
   const board = new BlueprintBoard(document.body, {
     pick: (id) => picked(id),
@@ -2050,7 +2073,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const id = mode === "game" ? interaction.openDepotId : -1;
     const open = id !== -1 && game.economy.depot(id)?.role === "workshop";
     if (!open) {
-      if (workshopShown !== -1) workshopPanel.hide();
+      // (Its card was closed, or another opened in its place, which cleared the shared box and may have drawn there.)
+      if (workshopShown !== -1) workshopPanel.forget();
       workshopShown = -1;
       return;
     }
@@ -2495,6 +2519,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     // Planning, the map wants the room: the card slims to its route (Done and the stops), the tray goes, and the view
     // frames the train and its line's places above the card (not when it goes on after the map: see `openMap`).
     hud.setPlanning(on);
+    // (A press picks a stop while planning: the eraser's put down.)
+    if (on) interaction.setErasing(false);
     if (on && frame) requestAnimationFrame(framePlanning);
     // A stop's disc tapped: that place again (A → B → A); a stop is taken off with its ✕ in the card.
     interaction.onTapStopDisc = on
@@ -3337,6 +3363,7 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     const lean = 0.15;
     game.lookAt(new Vector3(f.x + (top.x - f.x) * lean * 2, 0, f.z + (top.z - f.z) * lean * 2), f.distance * 1.3, 0.95, f.theta);
     if (mode !== "game") return;
+    keepStartRuinsInView([a.station, b.station]);
     // Their names over them for a while (as "Show me" does): the chip only says "Join two towns".
     if (game.layout.pieceCount === game.stations.size + game.depots.size) {
       const grid = game.landscape.grid;
@@ -3351,6 +3378,50 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
       }, 1200);
     }
   }
+  /**
+   * The opening view slid sideways (not drawn back) just enough that the old industries' ruins by the first towns are
+   * on the screen whole, their yards and buildings, if the towns' stations (`keep`) stay on it too. QA, 390 × 844: the
+   * starter's old farm stood at the screen's left edge, half off it. A few points projected, once, at the start.
+   */
+  function keepStartRuinsInView(keep: readonly { x: number; z: number }[]): void {
+    const mid = { x: keep.reduce((s, p) => s + p.x, 0) / keep.length, z: keep.reduce((s, p) => s + p.z, 0) / keep.length };
+    const span = Math.max(...keep.map((p) => Math.hypot(p.x - mid.x, p.z - mid.z)));
+    const ruins = (game.landscape.sites ?? []).filter((s) => !s.cleared && Math.hypot(s.centre.x - mid.x, s.centre.z - mid.z) < span * 1.5);
+    if (ruins.length === 0) return;
+    const margin = 12;
+    const width = game.canvas.getBoundingClientRect().width;
+    const sx = (x: number, y: number, z: number) => {
+      game.camera.updateMatrixWorld();
+      return ((new Vector3(x, y, z).project(game.camera).x + 1) / 2) * width;
+    };
+    // (A ruin's yard, buildings and stub: the box a tap on it finds it in, `ruinAt`'s.)
+    const corners = ruins.flatMap((s) => {
+      const c = Math.cos(s.piece.heading);
+      const n = Math.sin(s.piece.heading);
+      return [[-12, -30], [228, -30], [228, 130], [-12, 130]].map(([t, l]) => ({ x: s.piece.x + c * t - n * l, z: s.piece.z + n * t + c * l }));
+    });
+    for (let k = 0; k < 2; k++) {
+      const xs = corners.map((p) => sx(p.x, 30, p.z));
+      const lo = Math.min(...xs);
+      const hi = Math.max(...xs);
+      const dx = lo < margin ? margin - lo : hi > width - margin ? width - margin - hi : 0;
+      if (Math.abs(dx) < 1 || hi - lo > width - 2 * margin) return;
+      // The view's right, along the ground, and how many pixels a step of it moves the ground at the view's middle.
+      const target = game.controls.target.clone();
+      const right = new Vector3().setFromMatrixColumn(game.camera.matrixWorld, 0).setY(0).normalize();
+      const perMm = (sx(target.x + right.x * 100, 0, target.z + right.z * 100) - sx(target.x, 0, target.z)) / 100;
+      if (!(perMm > 0)) return;
+      const back = { target, distance: game.camera.position.distanceTo(target) };
+      const spherical = new Spherical().setFromVector3(game.camera.position.clone().sub(target));
+      game.lookAt(target.clone().addScaledVector(right, -dx / perMm), back.distance, spherical.phi, spherical.theta);
+      // (The first towns stay in view, or the view stays as it was.)
+      if (keep.some((p) => sx(p.x, 20, p.z) < margin || sx(p.x, 20, p.z) > width - margin)) {
+        game.lookAt(back.target, back.distance, spherical.phi, spherical.theta);
+        return;
+      }
+    }
+  }
+
   const skipGlide = () => {
     if (game.director.busy) game.director.cancel();
   };
@@ -3379,6 +3450,8 @@ function boot(savedThumbnails: Map<string, string> | null, opening: ReturnType<t
     hud.toast(headOnTip(mode !== "game" ? null : progress.learned), false, 6000);
   }
 
+  // (The camera tutorial counts the player's own camera moves: told only on frames the camera moved.)
+  game.onCameraMoved = () => hud.coach.cameraMoved();
   game.onFrame = (dt) => {
     interaction.refreshDepotCard();
     // The Turn arrow shows the next piece's or model's way as seen now, so it turns with the camera.
