@@ -677,16 +677,26 @@ const mStill = await M.evaluate(async () => {
 });
 console.log(`  (map view still after ${mStill} ms)`);
 const mb0 = await mbusy();
+// (The map frames the land's places, close enough that a depot's piles changing in view (the forest yard's logs, every
+// 15 s or so) are seen and draw one frame, as they do out of the map: those are counted apart.)
 const mapIdle = await M.evaluate(async () => {
   const w = window.woodrail;
+  const update = w.depotView.update;
+  let piles = 0;
+  w.depotView.update = function (...a) {
+    const r = update.apply(this, a);
+    if (r === "changed") piles++;
+    return r;
+  };
   const f0 = w.framesDrawn;
   const t0 = performance.now();
   await new Promise((r) => setTimeout(r, 30000));
-  return { frames: w.framesDrawn - f0, seconds: Math.round((performance.now() - t0) / 100) / 10 };
+  w.depotView.update = update;
+  return { frames: w.framesDrawn - f0 - piles, piles, seconds: Math.round((performance.now() - t0) / 100) / 10 };
 });
 mapIdle.busyMs = Math.round(((await mbusy()) - mb0) * 1000);
 mapIdle.cpu = `${((mapIdle.busyMs / (mapIdle.seconds * 1000)) * 100).toFixed(2)}%`;
-check("idle in the map view with ruin markers: no frames drawn in 30 s", mapIdle.frames === 0, JSON.stringify(mapIdle));
+check("idle in the map view with ruin markers: no frames drawn in 30 s (but one for each depot's piles changing in view)", mapIdle.frames === 0, JSON.stringify(mapIdle));
 // Farming learned (as a research finishing does it): the farm's lock goes, at once.
 await M.evaluate(() => window.woodrail.learn("farming"));
 // (The map's markers are looked at again each second; learning is a busy moment in swiftshader.)
