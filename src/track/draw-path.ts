@@ -159,6 +159,15 @@ const FLEX_TURN_MM = 180;
 const FLEX_COST_MM = 15;
 /** A fit that has to bend the line to close costs this much more than one that seats as it is. */
 const FLEX_COST = 0.5;
+/**
+ * A line begun on open ground may move over this far (mm), its end turned no more than this off the free end's, to
+ * seat its last piece there (see `shiftOnto`). Scored as a fit that seats as it is, each `SHIFT_COST_MM` mm of it one
+ * unit, and `SHIFT_COST` more: less than bending its joints (`FLEX_COST`).
+ */
+const SHIFT_REACH = 45;
+const SHIFT_TURN = (0.25 * Math.PI) / 180;
+const SHIFT_COST_MM = 30;
+const SHIFT_COST = 0.2;
 /** The next piece is chosen once the stroke reaches this far (mm) past the line's end, so the look-ahead sees it. */
 export const DRAW_LOOKAHEAD = 250;
 /**
@@ -271,6 +280,16 @@ const BAND_CURVE = 1;
 const BAND_TIGHT = 2;
 /** A curve straight after another (a step with no straight between) costs this much more: a run of them is a snake. */
 const BAND_PAIR = 1.5;
+/**
+ * A curve of another kind than the staircase's curve before it costs this much more there: the steps alike (QA: s108
+ * wide s144 large~ s108), where they fit about as well.
+ */
+const BAND_MIX = 0.5;
+/**
+ * The staircase's step after a piece (see `BAND_MIX`): a curve starts one (its bend), unless it ends one (it turns back
+ * from the step's first curve, `step`); a straight carries it on, unless one already came between (`prev` 0).
+ */
+const stepAfter = (step: number, bend: number, prev: number): number => (bend ? (step && Math.sign(step) !== Math.sign(bend) ? 0 : bend) : prev ? step : 0);
 /** The mini straight costs this much more there (a step is cleaner without one). */
 const BAND_MINI = 1;
 /**
@@ -903,6 +922,9 @@ export class DrawLine {
    * look-ahead (nothing refused is laid then).
    */
   private closeHere(end: DrawEnd, early: boolean): boolean {
+    // (Only if the finger has come to other track's free end, a piece or few on: else only back round onto the line's
+    // own start. One look along the stroke for each free end near, on every move; the ways of closing cost far more.)
+    if (!this.nearFreeEnd(end)) return this.closeOnStart(end);
     const met = this.options.meet?.(end, this.pieces);
     const near = met ? this.nearest(met.end.x, met.end.z, this.progress, this.progress + met.length * 1.6 + 40) : null;
     if (met && near && near.d < MEET_REACH && near.s <= this.strokeLength + MEET_REACH) {
@@ -927,11 +949,35 @@ export class DrawLine {
     // A piece that closes onto other track's free end here, its far end on the stroke: that, rather than a piece on
     // first (QA N5: 5 mm short of a station's end, a straight then a curve into the house beside it, where the one
     // curve closed).
-    if (this.closeOnto(end)) return true;
+    // (Begun on open ground, the one piece is weighed with the rest in `closeBack`: moved over a little, standard pieces
+    // may seat where only a tight curve does as the line lies.)
+    if (this.options.startHeld !== false && this.closeOnto(end)) return true;
     // None does: the line's last piece or two laid again another way so that it closes there (QA: a line drawn into a
     // station's end stopped 30 to 140 mm short of it, buffers facing, where no one piece's length would do).
     return this.closeBack();
   }
+
+  /**
+   * Has the stroke come to a free end of other track that the line could close onto from `end` (within `CLOSE_BACK`
+   * pieces back and `CLOSE_LAY` on, see `closeBack`): within `MEET_REACH` and a joint's play of it, since the line's
+   * last few pieces? True if it can't tell (no `freeEnds` option).
+   */
+  private nearFreeEnd(end: DrawEnd): boolean {
+    const freeEnds = this.options.freeEnds;
+    if (!freeEnds) return true;
+    const ends = this.gateScratch;
+    const k = this.pieces.length;
+    // (From the line's end and the ends of its last pieces, as `closeBack` looks: the same answers, kept for each end.)
+    for (let back = 0; back <= Math.min(CLOSE_BACK, k); back++) {
+      const e = back === 0 ? end : k - back > 0 ? this.pieces[k - back - 1].end : this.start;
+      const from = back === 0 ? this.progress : this.pieces[k - back].from;
+      if (freeEnds(e, CLOSE_LAY * 216 + FLEX_REACH, ends) === 0) continue;
+      for (const t of ends) if (this.nearest(t.x, t.z, from - 10, this.strokeLength).d < MEET_REACH + 2 * JOINT_POS_TOLERANCE) return true;
+    }
+    return false;
+  }
+
+  private readonly gateScratch: DrawEnd[] = [];
 
   /**
    * A loop come back round to the line's start: lay a piece that seats on it (`closes` says so), if one does and its far
@@ -1006,7 +1052,9 @@ export class DrawLine {
       this.pieces.length = 0;
       for (let i = 0; i < n - back; i++) this.pieces.push(all[i]);
     };
-    type Fit = { back: number; lay: DrawCandidate[]; to: DrawEnd; exact: boolean; cost: number };
+    type Fit = { back: number; lay: DrawCandidate[]; to: DrawEnd; exact: boolean; shift: boolean; cost: number };
+    // (Begun on open ground, the whole line may move a little to seat its last piece: see `shiftOnto`.)
+    const loose = this.options.startHeld === false;
     const fits: Fit[] = [];
     const ends: DrawEnd[] = [];
     for (let back = 0; back <= Math.min(CLOSE_BACK, n); back++) {
@@ -1027,8 +1075,8 @@ export class DrawLine {
       const standard = types.filter((t) => STANDARD.has(t));
       // How far a piece's far end is from meeting one of those free ends (the turn counted at `FLEX_TURN_MM` a radian),
       // and that end, if the piece's end is within the flex of it and it's on the stroke drawn (the finger went to it).
-      const meets = (c: DrawCandidate, s0: number): { to: DrawEnd; err: number; exact: boolean; d: number } | null => {
-        let best: { to: DrawEnd; err: number; exact: boolean; d: number } | null = null;
+      const meets = (c: DrawCandidate, s0: number): { to: DrawEnd; err: number; exact: boolean; shift: boolean; d: number } | null => {
+        let best: { to: DrawEnd; err: number; exact: boolean; shift: boolean; d: number } | null = null;
         for (const t of ends) {
           if (Math.abs(t.y - c.end.y) > 2) continue;
           const pos = Math.hypot(t.x - c.end.x, t.z - c.end.z);
@@ -1038,14 +1086,15 @@ export class DrawLine {
           if (best && err >= best.err) continue;
           const near = this.nearest(t.x, t.z, s0 - 10, s0 + c.length * 1.6 + 40 + FLEX_REACH);
           if (near.d >= MEET_REACH || near.s > this.strokeLength + MEET_REACH) continue;
-          best = { to: t, err, exact: pos <= JOINT_POS_TOLERANCE && turn <= JOINT_ANGLE_TOLERANCE, d: near.d };
+          const exact = pos <= JOINT_POS_TOLERANCE && turn <= JOINT_ANGLE_TOLERANCE;
+          best = { to: t, err, exact, shift: !exact && loose && pos <= SHIFT_REACH && turn <= SHIFT_TURN, d: near.d };
         }
         return best;
       };
       const push = (lay: DrawCandidate[], m: NonNullable<ReturnType<typeof meets>>, extra: number) => {
-        let cost = back + extra + m.err / FLEX_COST_MM + m.d / MEET_REACH + (m.exact ? 0 : FLEX_COST);
+        let cost = back + extra + m.d / MEET_REACH + (m.exact ? m.err / FLEX_COST_MM : m.shift ? SHIFT_COST + m.err / SHIFT_COST_MM : FLEX_COST + m.err / FLEX_COST_MM);
         for (const c of lay) cost += drawCost(c.type);
-        fits.push({ back, lay, to: m.to, exact: m.exact, cost });
+        fits.push({ back, lay, to: m.to, exact: m.exact, shift: m.shift, cost });
       };
       // (The line as it is, bent to meet it.)
       if (back === 0 && n > 0) {
@@ -1054,8 +1103,8 @@ export class DrawLine {
       }
       for (const a of candidatesFrom(end, types)) {
         const one = meets(a, from);
-        // (One piece seated as it is, from where the line has got to: that's `closeOnto`'s.)
-        if (one && !(back === 0 && one.exact)) push([a], one, 0);
+        // (One piece seated as it is, from where the line has got to: that's `closeOnto`'s, unless the line is loose.)
+        if (one && !(back === 0 && one.exact && !loose)) push([a], one, 0);
         const mid = this.nearest(a.end.x, a.end.z, from - 10, from + a.length * 1.6 + 40);
         // (Standard pieces that seat exactly may stray further from the stroke: QA, a corner drawn tighter than the
         // curve into a depot's end, where only a tight curve stayed near it and was bent to meet the end.)
@@ -1063,14 +1112,14 @@ export class DrawLine {
         if (!near && (mid.d > STANDARD_ON_REACH || !STANDARD.has(a.type))) continue;
         for (const b of candidatesFrom(a.end, types)) {
           const two = meets(b, mid.s);
-          if (two && (near || (two.exact && STANDARD.has(b.type)))) push([a, b], two, mid.d / CLOSE_ON_REACH);
+          if (two && (near || ((two.exact || two.shift) && STANDARD.has(b.type)))) push([a, b], two, mid.d / CLOSE_ON_REACH);
           // Three standard pieces that seat exactly, where no two do (a straight and the curve's two halves).
           if (!standard.length || !STANDARD.has(a.type) || !STANDARD.has(b.type)) continue;
           const mid2 = this.nearest(b.end.x, b.end.z, mid.s - 10, mid.s + b.length * 1.6 + 40);
           if (mid2.d > STANDARD_ON_REACH) continue;
           for (const c of candidatesFrom(b.end, standard)) {
             const three = meets(c, mid2.s);
-            if (three?.exact) push([a, b, c], three, (mid.d + mid2.d) / CLOSE_ON_REACH);
+            if (three?.exact || three?.shift) push([a, b, c], three, (mid.d + mid2.d) / CLOSE_ON_REACH);
           }
         }
       }
@@ -1083,7 +1132,7 @@ export class DrawLine {
     let tries = 0;
     for (const fit of fits) {
       if (tries >= CLOSE_TRIES) break;
-      if (!fit.exact && flexed >= FLEX_TRIES) continue;
+      if (!fit.exact && !fit.shift && flexed >= FLEX_TRIES) continue;
       const key = `${fit.back}:${fit.lay.map((c) => `${c.type}${c.flipped ? "~" : ""}${c.entry}`).join(",")}:${fit.to.x.toFixed(1)},${fit.to.z.toFixed(1)}`;
       if (this.unclosed.keys.has(key)) continue;
       tries++;
@@ -1091,14 +1140,16 @@ export class DrawLine {
       this.progress = fit.back > 0 ? all[n - fit.back].from : progress;
       let ok = true;
       for (const c of fit.lay) {
-        if (!this.may(c.type) || check?.(c, this.pieces)) {
+        // (Moved over, the pieces are checked where they'll go: see `shiftOnto`.)
+        if (!this.may(c.type) || (!fit.shift && check?.(c, this.pieces))) {
           ok = false;
           break;
         }
         const near = this.nearest(c.end.x, c.end.z, this.progress - 10, this.progress + c.length * 1.6 + 40);
         this.lay(c, near.s, false, null);
       }
-      if (ok && !fit.exact) {
+      if (ok && fit.shift) ok = this.shiftOnto(fit.to);
+      else if (ok && !fit.exact) {
         flexed++;
         ok = this.flexOnto(fit.to);
       }
@@ -1142,6 +1193,28 @@ export class DrawLine {
   }
 
   private readonly seatScratch: DrawEnd[] = [];
+
+  /**
+   * A line begun on open ground (`DrawOptions.startHeld` false), its end a little off `to` and facing it: the whole
+   * line moved over, as it is, so its end seats there (no joint bent: QA, tight corners into a station's end from open
+   * ground closed with tight curves and the straights bent, where standard pieces, moved over, seat exactly). Every
+   * piece checked again where it would go; true if it did.
+   */
+  private shiftOnto(to: DrawEnd): boolean {
+    const e = this.end;
+    const dx = to.x - e.x;
+    const dz = to.z - e.z;
+    const check = this.options.check;
+    const moved: DrawnPiece[] = [];
+    for (const p of this.pieces) {
+      const pose = { ...p.pose, x: p.pose.x + dx, z: p.pose.z + dz };
+      const q: DrawnPiece = { ...p, pose, end: { ...p.end, x: p.end.x + dx, z: p.end.z + dz }, track: p.track.map((v, i) => (i % 3 === 0 ? v + dx : i % 3 === 1 ? v + dz : v)) };
+      if (check?.({ ...q, length: 0 }, moved)) return false;
+      moved.push(q);
+    }
+    for (let i = 0; i < moved.length; i++) this.pieces[i] = moved[i];
+    return true;
+  }
 
   /**
    * Bend the line's joints, each a little within the joint's play, so its end meets `to` (a free end of other track,
@@ -1820,7 +1893,18 @@ export class DrawLine {
     f.bestCost = finishing ? flatStop(along0, y0) : Infinity;
     f.bestType = null;
     f.bestTurn = 0;
-    flatSearch(FLAT_DEPTH, end.x, end.z, atLo, before, 0, null, 0);
+    // (A step begun, its first curve one or two pieces back: its second is of its kind if that fits about as well.)
+    const bendAt = (i: number) => (i < 0 ? 0 : bendOf(this.pieces[i].type, this.pieces[i].end.heading - (i > 0 ? this.pieces[i - 1].end.heading : this.start.heading)));
+    let step = 0;
+    for (let i = k - 1; i >= Math.max(0, k - 2); i--) {
+      const b = bendAt(i);
+      if (!b) continue;
+      // (It turned back from the curve before it, at most a straight between: that step is done.)
+      const a = bendAt(i - 1) || bendAt(i - 2);
+      step = a && Math.sign(a) !== Math.sign(b) ? 0 : b;
+      break;
+    }
+    flatSearch(FLAT_DEPTH, end.x, end.z, atLo, before, 0, null, 0, step);
     const bestType = f.bestType as PieceTypeId | null;
     const bestTurn = f.bestTurn;
     f.types = DRAW_TYPES;
@@ -2096,7 +2180,7 @@ function flatStop(along: number, y: number): number {
  * better than the best plan found (every piece costs something, and covering stroke is the only gain); and the search
  * stops after `FLAT_NODES` pieces, keeping the best plan found by then.
  */
-function flatSearch(depth: number, x: number, z: number, low: boolean, prev: number, cost: number, first: PieceTypeId | null, firstTurn: number): void {
+function flatSearch(depth: number, x: number, z: number, low: boolean, prev: number, cost: number, first: PieceTypeId | null, firstTurn: number, step: number): void {
   const f = FLAT;
   const h = low ? f.lo : f.lo + EIGHTH;
   const fx = Math.cos(h);
@@ -2130,7 +2214,7 @@ function flatSearch(depth: number, x: number, z: number, low: boolean, prev: num
     }
     const y = (ez - f.cz) * f.ux - (ex - f.cx) * f.uz;
     const a1 = (ex - f.cx) * f.ux + (ez - f.cz) * f.uz;
-    let next = cost + pieceCost(type) + (type === "straight-54" ? BAND_MINI : 0) + (bend ? BAND_CURVE + (g.radius === SMALL_CURVE_RADIUS ? BAND_TIGHT : 0) + (prev ? BAND_PAIR : 0) : 0) + rebendCost(prev, bend) + flatBand(y) + mid;
+    let next = cost + pieceCost(type) + (type === "straight-54" ? BAND_MINI : 0) + (bend ? BAND_CURVE + (g.radius === SMALL_CURVE_RADIUS ? BAND_TIGHT : 0) + (prev ? BAND_PAIR : 0) + (step && Math.sign(step) !== Math.sign(bend) && Math.abs(step) !== g.radius ? BAND_MIX : 0) : 0) + rebendCost(prev, bend) + flatBand(y) + mid;
     if (!f.finishing) next -= (Math.min(a1, f.alongEnd) - Math.min(along, f.alongEnd)) * ADVANCE;
     const ff = first ?? type;
     const ft = first ? firstTurn : turn;
@@ -2150,7 +2234,7 @@ function flatSearch(depth: number, x: number, z: number, low: boolean, prev: num
     // branch that can't beat the best plan even covering all the stroke left.
     if (depth > 1 && (f.finishing || a1 < f.alongEnd)) {
       const gain = f.finishing ? 0 : Math.max(0, f.alongEnd - a1) * ADVANCE;
-      if (next + MIN_PIECE_COST - gain < f.bestCost) flatSearch(depth - 1, ex, ez, bend ? !low : low, bend, next, ff, ft);
+      if (next + MIN_PIECE_COST - gain < f.bestCost) flatSearch(depth - 1, ex, ez, bend ? !low : low, bend, next, ff, ft, stepAfter(step, bend, prev));
     }
   }
 }

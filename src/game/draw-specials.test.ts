@@ -356,8 +356,9 @@ describe("drawing up a hill, over the river, and off raised track (N2 phase 1)",
     const before = [
       "curve-small curve-large curve-small! straight-54 curve-large! curve-large! straight-144 curve-wide! curve-large straight-144 curve-large curve-large straight-144 curve-wide curve-large! straight-144 curve-large! curve-large! straight-144 straight-108 straight-54 curve-large! curve-large straight-54 curve-large curve-large straight-144 straight-144",
       "straight-216 straight-216 straight-216 straight-216 straight-216 straight-144",
-      // (The 10° swipe no longer ends on a step begun as the finger lifts: see `BAND_LAST_CURVE`.)
-      "straight-216 curve-wide curve-large! straight-144 straight-144 straight-144 curve-large straight-108",
+      // (The 10° swipe no longer ends on a step begun as the finger lifts: see `BAND_LAST_CURVE`; and its step turns
+      // off and back on one kind of curve, not a wide and a curve: see `BAND_MIX`.)
+      "straight-216 curve-large curve-large! straight-144 straight-216 straight-54 curve-large curve-large! straight-54",
       "straight-54 curve-wide straight-144 curve-wide! straight-144 curve-wide straight-144 curve-large!",
       "curve-large straight-144 straight-144 straight-144 curve-large! curve-large straight-144 straight-216",
       "curve-small straight-216 straight-216 straight-216 straight-216 straight-216 straight-54",

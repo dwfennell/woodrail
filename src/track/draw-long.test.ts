@@ -193,7 +193,28 @@ function drawStroke(k: Stroke, times: number[] | null) {
       return p.type.replace("straight-", "s").replace("curve-", "") + turn;
     })
     .join(" ");
-  return { asShown, n, standard, staircase: straights >= n / 2, off, metres: k.length / 1000, name, reached: Math.hypot(line.end.x - k.at(k.length).x, line.end.z - k.at(k.length).z) };
+  // A staircase's steps (a curve off the eighth and one back, at most a straight between): how many, and how many mix
+  // two kinds of curve.
+  let steps = 0;
+  let mixed = 0;
+  let open: { type: string; turn: number } | null = null;
+  let gap = 0;
+  for (let i = 0, hh = k.start.heading; i < line.pieces.length; i++) {
+    const p = line.pieces[i];
+    const turn = p.type.startsWith("curve") ? Math.sign(Math.sin(p.end.heading - hh)) : 0;
+    hh = p.end.heading;
+    if (!turn) {
+      if (++gap > 1) open = null;
+      continue;
+    }
+    if (open && open.turn !== turn && gap <= 1) {
+      steps++;
+      if (open.type !== p.type) mixed++;
+      open = null;
+    } else open = { type: p.type, turn };
+    gap = 0;
+  }
+  return { steps, mixed, asShown, n, standard, staircase: straights >= n / 2, off, metres: k.length / 1000, name, reached: Math.hypot(line.end.x - k.at(k.length).x, line.end.z - k.at(k.length).z) };
 }
 
 const quantile = (sorted: number[], q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
@@ -207,6 +228,8 @@ function measure(set: (typeof SETS)[number], reps: number) {
   let reached = 0;
   let staircases = 0;
   let asShown = 0;
+  let steps = 0;
+  let mixed = 0;
   const lines: string[] = [];
   for (const k of set.strokes) {
     const r = drawStroke(k, null);
@@ -217,11 +240,13 @@ function measure(set: (typeof SETS)[number], reps: number) {
     reached = Math.max(reached, r.reached);
     if (r.staircase) staircases++;
     if (r.asShown) asShown++;
+    steps += r.steps;
+    mixed += r.mixed;
     lines.push(`    ${k.name.padEnd(9)} ${(r.n / r.metres).toFixed(1).padStart(4)}/m off ${r.off.toFixed(0).padStart(3)} end ${r.reached.toFixed(0).padStart(3)}  ${r.name}`);
   }
   for (let i = 0; i < reps; i++) for (const k of set.strokes) drawStroke(k, times);
   times.sort((a, b) => a - b);
-  return { asShown: asShown / set.strokes.length, perMetre: n / metres, share: standard / n, staircases: staircases / set.strokes.length, off, reached, p50: quantile(times, 0.5), p99: quantile(times, 0.99), p999: quantile(times, 0.999), lines };
+  return { steps, mixed, asShown: asShown / set.strokes.length, perMetre: n / metres, share: standard / n, staircases: staircases / set.strokes.length, off, reached, p50: quantile(times, 0.5), p99: quantile(times, 0.99), p999: quantile(times, 0.999), lines };
 }
 
 /** DRAW_BENCH=1 prints the table (and times more runs). */
@@ -264,6 +289,19 @@ describe("drawing long and standard pieces (hand-like strokes)", () => {
 
   it("what the lift lays is what the ghosts showed, the look-ahead's last stretch too (QA: pieces added on the lift)", () => {
     for (const [name, r] of results) expect(r.asShown, name).toBe(1);
+  });
+
+  it("a staircase's step mostly turns off and back on one kind of curve (CoS: s108 wide s144 large~ s108)", () => {
+    // Steps mixing two kinds, over the straight and slanted swipes: 21 of 63 before, 11 now.
+    let steps = 0;
+    let mixed = 0;
+    for (const [name, r] of results)
+      if (/straight|slant/.test(name)) {
+        steps += r.steps;
+        mixed += r.mixed;
+      }
+    expect(steps).toBeGreaterThan(50);
+    expect(mixed, `${mixed} of ${steps}`).toBeLessThanOrEqual(13);
   });
 
   it("a swipe half way between two eighths is a staircase, not mostly curves: it doesn't end on a step begun", () => {
