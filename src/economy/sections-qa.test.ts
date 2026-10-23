@@ -692,4 +692,40 @@ describe("sections: QA's B2/B3 park cases", { timeout: 600_000 }, () => {
       const says = r.E.flatMap((e) => r.cardLog.filter((x) => x.e === e && x.t > 480).map((x) => x.c)).some((c) => /[Ll]ay \d+ more|Move it|move the parked train/.test(c));
       expect(says).toBe(true);
     });
+  // QA's B1 on 21e6efc: any other train moving anywhere woke a stood-still line (its key held every train not on the
+  // line, where it was), so it shuttled again about every minute. Only trains standing on its own network wake it.
+  for (const other of ["none", "lineless", "line"] as const)
+    it(`B1: a stood-still line stays still with ${other === "none" ? "no other train" : `a ${other === "line" ? "train of another line" : "lineless runner"} on a layout of its own`}`, () => {
+      const { q, l0, l1, R3 } = two();
+      // (A layout of its own, far off: a forest and a sawmill a few pieces apart, buffers at both ends.)
+      const L = q.L;
+      const f = L.addPiece("depot-forest", { x: 0, z: 3000, heading: 0 });
+      appendPiece(L, "buffer-turnback", false, connectorRef(f, 0));
+      let at = f;
+      for (let i = 0; i < 4; i++) at = appendPiece(L, "straight-216", false, connectorRef(at, 1));
+      const sw = appendPiece(L, "depot-sawmill", false, connectorRef(at, 1));
+      appendPiece(L, "buffer-turnback", false, connectorRef(sw, 1));
+      let e = -1;
+      if (other === "lineless" || other === "line") {
+        const placed = q.sim.addTrain(cars, { pieceId: at, pathIndex: 0, reversed: false, s: 100 });
+        if (placed.kind !== "placed") throw new Error("no room");
+        e = q.sim.getTrain(placed.trainId)!.cars[0].id;
+        q.sim.setLever(e, 1);
+        if (other === "line") {
+          const d1 = q.economy.addDepot("forest", f, 0);
+          const d2 = q.economy.addDepot("sawmill", sw, 0);
+          editLine(q.economy, e, (st) => st.push({ depotId: d1.id, action: "auto" }, { depotId: d2.id, action: "auto" }));
+        }
+      }
+      // (QA's B3: its card at a buffer there is its own line's end, not "the track ends here", managed line or no.)
+      const its = new Set<string>();
+      const look = Array.from({ length: 600 }, (_, k) => ({ at: k + 1, fn: () => void (e >= 0 && its.add(engineStatus(q.sim, q.economy, e, () => "stop"))) }));
+      const r = show(`B1 ${other}`, scen(q, [...R3, { p: l0.side[1], next: 1, s: 100 }, { p: l1.side[1], next: 0, s: 100 }], [q.a, q.b], 600, cars, look));
+      expect([...its].filter((c) => c.includes("track ends here"))).toEqual([]);
+      const late = r.E.map((e) => new Set(r.cardLog.filter((x) => x.e === e && x.t > 400).map((x) => x.c)).size);
+      if (ENV.SHOW) console.log(`B1 ${other}: turns ${r.turns} stalls ${q.economy.sections.stalls} cards 400-600 s ${late.join("/")}`);
+      expect(r.turns).toBeLessThanOrEqual(15);
+      expect(q.economy.sections.stalls).toBe(1);
+      for (const n of late) expect(n).toBe(1);
+    });
 });

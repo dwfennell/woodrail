@@ -333,3 +333,11 @@ occupancy from bogies (where trains' wheels are), not from predicted ways.
     move the parked train".
   - A train on no line at a buffer, while a line is managed, says "Turning back: the track ends here". On its own,
     a buffer is still the end of its line.
+- **What wakes a stood-still line** (QA's B1 on 21e6efc): its own trains, admission, a lever set on one of its
+  trains (Stop then Go), the track, and trains not on it standing on its network: the slots and sections its ways
+  run through, and its loops' other roads. A train running past doesn't wake it, nor does any train on track it
+  doesn't use, or on a layout of its own.
+- **Cards:**
+  - On a line stood still for a parked train, every train of it says to move that train.
+  - "Another train" (another line's, running it) rather than "parked train" (no line, or its lever off).
+  - "The track ends here" only for a lineless train on a managed line's network.

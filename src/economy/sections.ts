@@ -80,12 +80,12 @@ export type BlockWait =
   /** The slot ahead (a loop road, a line end) is full or on another's way: waiting for that train. */
   | { kind: "slot"; engine: number }
   /** The line has more trains than places to pass: `trains`, `loops` passing loops; lay `more` more (or take a train off). */
-  | { kind: "room"; lineId: number; trains: number; loops: number; more: number; spare: boolean; parked: boolean }
+  | { kind: "room"; lineId: number; trains: number; loops: number; more: number; spare: boolean; parked: boolean; other: boolean }
   /**
    * Its line can deliver nothing as it stands (each train with room has turned back again and again with no stop
    * reached): it stands still rather than shuttle, till something changes (see `Sections.stalled`).
    */
-  | { kind: "stalled"; lineId: number; trains: number; more: number; spare: boolean; parked: boolean }
+  | { kind: "stalled"; lineId: number; trains: number; more: number; spare: boolean; parked: boolean; other: boolean }
   /** That train of its line was put down facing it in the same slot: one gives way (this one turns back, or waits). */
   | { kind: "facing"; engine: number };
 
@@ -398,6 +398,8 @@ interface LineInfo {
   spareCut: boolean;
   /** A train not on the line stands on a road of one of its loops (moving it gives the loop back). */
   parked: boolean;
+  /** The trains not on it standing on its loops' roads are all another line's, running it ("another train"). */
+  other: boolean;
   /** It can deliver nothing as it stands: its trains with room stand still (see `stalledLine`). */
   stalled: boolean;
   /**
@@ -416,11 +418,11 @@ export class Sections {
   /** The trains each line has room for (kept: see `line`). */
   private readonly admitted = new Map<number, Set<number>>();
   /** Per line: what `line` last worked out of its room (see there), and for what. */
-  private readonly slow = new Map<number, { key: string; topo: Topology; blocked: ReadonlySet<number>; more: number; spareCut: boolean; parked: boolean }>();
+  private readonly slow = new Map<number, { key: string; topo: Topology; blocked: ReadonlySet<number>; more: number; spareCut: boolean; parked: boolean; other: boolean }>();
   /** When each engine was first seen on its line (for the room rule: the first ones are let run). */
   private readonly firstSeen = new Map<number, number>();
   /** Loops on each line's way, by its stops and the track's revisions. */
-  private readonly loopCount = new Map<number, { key: string; n: number; set: ReadonlySet<number>; way: ReadonlySet<number> }>();
+  private readonly loopCount = new Map<number, { key: string; n: number; set: ReadonlySet<number>; way: ReadonlySet<number>; regions: ReadonlySet<number> }>();
   /** Engines just granted a move: steer them now. */
   readonly steerSoon = new Set<number>();
   /** Safety-net releases (a mutual wait with a train in a section and no move), for the play-through and tests. */
@@ -457,9 +459,18 @@ export class Sections {
     private readonly host: SectionsHost,
   ) {}
 
-  /** Is a line managed now (two or more trains on it)? */
-  managing(): boolean {
-    return this.enabled && this.sim.ticks - this.managedTick <= 1;
+  /** Is a train on a managed line's network now (a line of two or more trains, its slots and sections)? */
+  managing(engineCarId: number): boolean {
+    if (!this.enabled || this.sim.ticks - this.managedTick > 1) return false;
+    // (Only a managed line whose network it's on: a train on a layout of its own is no line's business.)
+    const t = this.sim.findCar(engineCarId)?.train;
+    if (!t) return false;
+    for (const [lineId, info] of this.lineInfo) {
+      if (!info.managed) continue;
+      const regions = this.loopCount.get(lineId)?.regions;
+      if (regions && t.bogies.some((b) => regions.has(regionOf(info.topo, b.pieceId) ?? NaN))) return true;
+    }
+    return false;
   }
 
   /** The speed limit sections put on a powered train (Infinity: none). */
@@ -523,7 +534,7 @@ export class Sections {
     // Its line can deliver nothing as it stands: it stands still where it comes to rest, saying why.
     if (info.stalled && info.admitted.has(engine) && train.speed < 1 && !(st.move && !st.move.free && train.turnback >= 0)) {
       st.move = null;
-      this.hold(st, { kind: "stalled", lineId, trains: info.engines.length, more: Math.max(1, info.more), spare: info.spareCut, parked: info.parked });
+      this.hold(st, { kind: "stalled", lineId, trains: info.engines.length, more: Math.max(1, info.more), spare: info.spareCut, parked: info.parked, other: info.other });
       return 0;
     }
     // (Let go, and it has met the other and turned back since: the release is over; it asks again.)
@@ -957,7 +968,8 @@ export class Sections {
 
   private roomWait(st: TrainState, info: LineInfo): BlockWait {
     const loops = Math.max(0, info.loops - info.blocked.size);
-    return { kind: "room", lineId: this.host.lineOf(st.engine), trains: info.engines.length, loops, more: Math.max(1, info.more), spare: info.spareCut, parked: info.parked };
+    // (A line stood still for a parked train: every train of it says to move that, as moving it is what works.)
+    return { kind: "room", lineId: this.host.lineOf(st.engine), trains: info.engines.length, loops, more: Math.max(1, info.more), spare: info.spareCut || (info.stalled && info.parked), parked: info.parked, other: info.other };
   }
 
   /** Does a train the line has no room for stand on this loop road? */
@@ -1182,12 +1194,12 @@ export class Sections {
    * How full the engine's line is: trains it has no room for (and so how many more passing loops it needs), and its
    * trains; null if it has room for all of them (or isn't managed).
    */
-  fullness(engine: number): { more: number; trains: number; spare: boolean; parked: boolean } | null {
+  fullness(engine: number): { more: number; trains: number; spare: boolean; parked: boolean; other: boolean } | null {
     if (!this.enabled) return null;
     const lineId = this.host.lineOf(engine);
     if (lineId < 0) return null;
     const info = this.line(lineId);
-    return info.managed && info.more > 0 ? { more: info.more, trains: info.engines.length, spare: info.spareCut, parked: info.parked } : null;
+    return info.managed && info.more > 0 ? { more: info.more, trains: info.engines.length, spare: info.spareCut || (info.stalled && info.parked), parked: info.parked, other: info.other } : null;
   }
 
   /** Is the stop it's heading for beyond a train its line has no room for (it will turn back short of it)? */
@@ -1249,6 +1261,7 @@ export class Sections {
     let more = 0;
     let spareCut = false;
     let parked = false;
+    let other = false;
     if (managed) {
       // Every other train on the track (another line's, or one standing on its own) is in the way where it stands.
       const mine = new Set(engines.map((e) => this.sim.findCar(e)?.train.id ?? -1));
@@ -1271,13 +1284,16 @@ export class Sections {
         more = last.more;
         spareCut = last.spareCut;
         parked = last.parked;
+        other = last.other;
       } else {
         const order = [...engines].sort((a, b) => this.firstSeen.get(a)! - this.firstSeen.get(b)!);
         // (The loops whose roads hold a train standing that has no room (`adm`: those with room), or one not on the line.)
         // (Only its own loops: one on another line's way is none of its room.)
         const own = this.loopCount.get(lineId)?.set ?? EMPTY;
+        let byParked = false;
         const roadsHeld = (adm: ReadonlySet<number>) => {
           const b = new Set<number>();
+          byParked = false;
           // (One of its own it has no room for counts moving or not: it's held, and stops where it is.)
           const mark = (t: Train, moving = false) => {
             if (!moving && t.speed >= 1) return;
@@ -1294,7 +1310,12 @@ export class Sections {
           // (Loops a train not on the line stands on: lost to the line however many it lays, whoever else is there.)
           const lineHeld = new Set(b);
           b.clear();
-          for (const t of foreign) mark(t);
+          for (const t of foreign) {
+            const before = b.size;
+            mark(t);
+            // (Whether every one of them is another line's, running it: then it's "another train", not a parked one.)
+            if (b.size > before && !(t.cars.some((c) => c.kind === "engine" && this.host.lineOf(c.id) >= 0) && this.host.drive(t) !== 0)) byParked = true;
+          }
           const gone = b.size;
           for (const x of lineHeld) b.add(x);
           return { b, gone };
@@ -1404,15 +1425,16 @@ export class Sections {
         // Its own held trains count as trains: once there's room they're let in and give their loop back.)
         if (engines.length > admitted.size) more = Math.max(1, engines.length - 1 - (loops - held.gone));
         parked = held.gone > 0;
-        this.slow.set(lineId, { key, topo, blocked, more, spareCut, parked });
+        other = parked && !byParked;
+        this.slow.set(lineId, { key, topo, blocked, more, spareCut, parked, other });
       }
       // Trains gone from the line give up what they held.
       for (const [e, st] of this.states) if (this.host.lineOf(e) === lineId && !engines.includes(e)) this.states.delete(st.engine);
     }
     const zone = { slots: new Map<number, number>(), sections: new Map<number, number>() };
     if (managed) for (const t of foreign) if (t.speed >= 1) this.zoneOf(t, topo, zone);
-    const stalled = managed && this.stalledLine(lineId, engines, admitted, engines.length > admitted.size || spareCut || parked, foreign);
-    info = { engines, topo, loops, admitted, managed, blocked, more, foreign, spareCut, parked, zone, stalled };
+    const stalled = managed && this.stalledLine(lineId, engines, admitted, engines.length > admitted.size || spareCut || parked, foreign, topo);
+    info = { engines, topo, loops, admitted, managed, blocked, more, foreign, spareCut, parked, other, zone, stalled };
     this.lineInfo.set(lineId, info);
     if (managed) {
       this.managedTick = this.sim.ticks;
@@ -1523,8 +1545,20 @@ export class Sections {
    * something changes: a train comes onto or leaves the line, one is let in or held, a train not on it moves, or the
    * track changes. (Shuttling between dead ends there only flickers their cards.)
    */
-  private stalledLine(lineId: number, engines: readonly number[], admitted: ReadonlySet<number>, full: boolean, foreign: readonly Train[]): boolean {
-    const key = `${engines.join(",")}|${[...admitted].sort((a, b) => a - b).join(",")}|${foreign.map((t) => `${t.id}:${t.bogies[0].pieceId}:${t.speed >= 1 ? "m" : ""}`).join(",")}|${this.layout.revision}`;
+  private stalledLine(lineId: number, engines: readonly number[], admitted: ReadonlySet<number>, full: boolean, foreign: readonly Train[], topo: Topology): boolean {
+    // (What would wake it: its trains, those let in, a lever set on one of them; and trains not on it standing on
+    // its network, where they stand. Not one running past, nor any train elsewhere: a moving one on its network
+    // wakes it only once it stops there, or leaves.)
+    const regions = this.loopCount.get(lineId)?.regions ?? EMPTY;
+    const standing: string[] = [];
+    for (const t of foreign) {
+      if (t.speed >= 1) continue;
+      if (!t.bogies.some((b) => regions.has(regionOf(topo, b.pieceId) ?? NaN))) continue;
+      standing.push(`${t.id}:${t.bogies.map((b) => b.pieceId).join("/")}`);
+    }
+    let levers = 0;
+    for (const e of engines) levers = Math.max(levers, this.sim.findCar(e)?.train.leverTick ?? 0);
+    const key = `${engines.join(",")}|${[...admitted].sort((a, b) => a - b).join(",")}|${standing.join(",")}|${levers}|${this.layout.revision}`;
     const last = this.stall.get(lineId);
     if (!last || last.key !== key) {
       // (Something changed: they try again, from nothing.)
@@ -1775,7 +1809,15 @@ export class Sections {
       }
     }
     const n = slots === 0 ? -1 : loops.size;
-    this.loopCount.set(lineId, { key, n, set: loops, way });
+    // (Its network: the slots and sections its ways run through, and its loops' other roads. A train elsewhere, on
+    // track it doesn't use or a layout of its own, is none of its business.)
+    const regions = new Set<number>();
+    for (const p of way) {
+      const r = regionOf(topo, p);
+      if (r !== null) regions.add(r);
+    }
+    for (const sl of topo.slots) if (sl.kind === "road" && loops.has(sl.loop)) regions.add(sl.id);
+    this.loopCount.set(lineId, { key, n, set: loops, way, regions });
     return n;
   }
 
@@ -1820,6 +1862,14 @@ export class Sections {
 }
 
 const EMPTY: ReadonlySet<number> = new Set();
+
+/** A piece's slot (its id) or section (−1 − its id), as one number; null for a piece in neither. */
+function regionOf(topo: Topology, pieceId: number): number | null {
+  const sl = topo.slotOf.get(pieceId);
+  if (sl !== undefined) return sl;
+  const sc = topo.sectionOf.get(pieceId);
+  return sc !== undefined ? -1 - sc : null;
+}
 /** Turn-backs with no stop reached, by every train with room, before a full line stands still (see `stalledLine`). */
 const STALL_TURNS = 3;
 /** …and none of them arrived at a stop for this long (s). */
